@@ -4,8 +4,8 @@ Case list, one label per Java test (``same`` = outcome unchanged, ``inverted`` =
 ``dropped`` = reason given).
 
 LocalhostGuardTests
-- same: allowsLoopbackIpv4, allowsLoopbackIpv6, rejectsNonLoopbackSource, allowNonLocalhostBypassesOnlySourceCheck,
-  rejectsUnknownRemoteAddress, rejectsBlankRemoteAddress, rejectsNullRemoteAddress, rejectsWildcardIpv4Source,
+- same: allowsLoopbackIpv4, allowsLoopbackIpv6, rejectsNonLoopbackSource, rejectsUnknownRemoteAddress,
+  rejectsBlankRemoteAddress, rejectsNullRemoteAddress, rejectsWildcardIpv4Source,
   rejectsWildcardIpv6Source, rejectsRebindingHostHeader, allowsLoopbackHostHeaderWithPort,
   allowsBracketedIpv6HostHeader, allowsConfiguredAllowedHost, allowsBlankHostHeader, allowsMissingHostHeader,
   allowsHostHeaderCaseInsensitively, allowsLoopbackIpv4HostHeaderWithoutPort, allowsExpandedIpv6LoopbackHostHeader,
@@ -16,21 +16,23 @@ LocalhostGuardTests
   rejectsHostHeaderCarryingAScheme, rejectsHostHeaderCarryingAPath,
   rejectsMalformedHostHeaderEvenWhenAllowListIsConfigured, rejectsMalformedHostHeaderWithTheCanonicalHostMessage,
   rejectsMalformedHostHeaderBeforeTheCrossSiteWriteCheck, stillReportsTheSourceRejectionWhenTheHostIsAlsoMalformed,
-  rejectsMalformedHostHeaderUnderAllowNonLocalhost,
-  rejectsMalformedOriginOnStateChangingRequest, parsesWellFormedHostHeaders, reportsMalformedHostHeadersAsUnusable,
-  parsesOriginHeadersThroughTheSameAuthorityParser, rejectsCrossSiteOriginOnStateChangingRequest,
-  allowsSameOriginStateChangingRequest, allowsSameOriginStateChangingRequestWithTrailingSlashOrigin,
-  allowsStateChangingRequestWithoutOrigin, rejectsOpaqueOriginOnStateChangingRequest,
-  rejectsSecFetchSiteCrossSiteOnStateChangingRequest, allowsTrustedSourceRangeWithAcceptableHost,
-  rejectsTrustedSourceRangeWithDisallowedHost, rejectsCrossSiteWriteFromTrustedSourceRange,
+  rejectsMalformedHostHeaderUnderAllowNonLocalhost, parsesWellFormedHostHeaders, reportsMalformedHostHeadersAsUnusable,
+  parsesOriginHeadersThroughTheSameAuthorityParser, allowsSameOriginStateChangingRequest,
+  allowsSameOriginStateChangingRequestWithTrailingSlashOrigin, allowsStateChangingRequestWithoutOrigin,
+  allowsTrustedSourceRangeWithAcceptableHost, rejectsTrustedSourceRangeWithDisallowedHost,
   rejectsSourceOutsideTrustedRange, allowsTrustedIpv6SourceRange, autoTrustsContainerGatewayWhenInContainer,
   autoDoesNotTrustContainerGatewayWhenNotInContainer (not in a container = detector returns None),
   onTrustsDetectedGatewayEvenWhenNotInContainer (at decide level, gateway passed in; the sharpit detector itself
   returns None outside a container, see report), offNeverTrustsContainerGateway,
   doesNotTrustNonGatewaySourceWhenInContainer, stillRejectsDisallowedHostFromTrustedGateway,
-  stillRejectsCrossSiteWriteFromTrustedGateway, allowsViteProxyStateChangingRequestAcrossPorts,
-  rejectsOriginWriteWhenHostHeaderIsBlank, rejectsOriginWriteWhenHostHeaderIsMissing,
+  allowsViteProxyStateChangingRequestAcrossPorts,
   directTrustReportsNoGatewayTrust (outcome only; sharpit returns no Allow detail object).
+- inverted (message changed: still 403, body is "sharpit rejected a cross-site request."):
+  allowNonLocalhostBypassesOnlySourceCheck, rejectsMalformedOriginOnStateChangingRequest,
+  rejectsCrossSiteOriginOnStateChangingRequest, rejectsOpaqueOriginOnStateChangingRequest,
+  rejectsSecFetchSiteCrossSiteOnStateChangingRequest, rejectsCrossSiteWriteFromTrustedSourceRange,
+  stillRejectsCrossSiteWriteFromTrustedGateway, rejectsOriginWriteWhenHostHeaderIsBlank,
+  rejectsOriginWriteWhenHostHeaderIsMissing.
 - inverted: allowsCrossSiteOriginOnSafeMethod (GET + foreign Origin now 403),
   exposesExactCanonicalRejectionMessages (cross-site message is "sharpit rejected a cross-site request.";
   the other two are BootUI's text with BootUI->sharpit and bootui.<prop>->SHARPIT_<PROP>).
@@ -238,7 +240,26 @@ def test_xff_with_no_trusted_proxies_is_untrusted():
 def test_any_forwarded_header_makes_source_untrusted(header: str):
     f = RequestFacts("GET", "127.0.0.1", {header: "127.0.0.1"}, None)
     assert is_trusted_source(f, SharpitSettings(), None) is False
-    assert is_trusted_source(f, trusted_range("10.0.0.0/8"), None) is True
+    assert is_trusted_source(f, trusted_range("10.0.0.0/8"), None) is False  # loopback grant never applies
+    in_range = RequestFacts("GET", "10.0.0.5", {header: "127.0.0.1"}, None)
+    assert is_trusted_source(in_range, trusted_range("10.0.0.0/8"), None) is True  # the range still trusts
+
+
+def test_xff_loopback_denied_even_with_trusted_proxies():
+    # Review fix: uvicorn --proxy-headers may have rewritten the peer to 127.0.0.1 from a spoofed X-Forwarded-For.
+    f = RequestFacts("GET", "127.0.0.1", {"host": "localhost", "x-forwarded-for": "127.0.0.1"}, "/overview")
+    assert decide_guard(f, trusted_range("10.0.0.0/8"), TOKEN, None) == SOURCE
+
+
+def test_forwarded_header_denies_gateway_grant():
+    f = RequestFacts("GET", GATEWAY, {"x-forwarded-for": GATEWAY}, None)
+    s = SharpitSettings(trust_container_gateway="AUTO", trusted_proxies=("10.0.0.0/8",))
+    assert is_trusted_source(f, s, GATEWAY) is False
+
+
+@pytest.mark.parametrize("mode", ["auto", "Auto", "on"])
+def test_gateway_mode_is_case_insensitive(mode: str):
+    assert decide(get(GATEWAY, "localhost:8080"), gateway_mode(mode), gateway=GATEWAY) is None
 
 
 def test_forwarded_header_under_allow_non_localhost_requires_token():

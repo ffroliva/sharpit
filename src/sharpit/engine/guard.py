@@ -168,24 +168,34 @@ def _is_numeric_ip_literal(value: str) -> bool:
 
 
 def is_trusted_source(facts: RequestFacts, settings: SharpitSettings, gateway: str | None) -> bool:
-    """Loopback, a trusted-proxies range, or the detected container gateway; never via forwarded headers."""
-    if not settings.trusted_proxies and any(h in facts.headers for h in _FORWARDED_HEADERS):
-        return False  # the ASGI server may already have rewritten the peer from these headers
+    """Loopback, a trusted-proxies range, or the detected container gateway; never via forwarded headers.
+
+    sharpit deviation: with any forwarded header present only a trusted-proxies range can grant trust (never loopback
+    or the gateway), because the ASGI server may already have rewritten the peer from those headers.
+    """
+    forwarded = any(h in facts.headers for h in _FORWARDED_HEADERS)
+    if forwarded and not settings.trusted_proxies:
+        return False
     address = _parse_ip(facts.peer)
     if address is None:
         return False
-    if address.is_loopback:
+    if address.is_loopback and not forwarded:
         return True
     if any(address in network for network in _trusted_ranges(tuple(settings.trusted_proxies))):
         return True
-    return settings.trust_container_gateway in ("AUTO", "ON") and address == _parse_ip(gateway)
+    mode = settings.trust_container_gateway.upper()
+    return not forwarded and mode in ("AUTO", "ON") and address == _parse_ip(gateway)
 
 
 # --- Token ----------------------------------------------------------------------------------------------------------
 
 
 def remote_access_configured(settings: SharpitSettings) -> bool:
-    return settings.allow_non_localhost or bool(settings.trusted_proxies) or settings.trust_container_gateway != "OFF"
+    return (
+        settings.allow_non_localhost
+        or bool(settings.trusted_proxies)
+        or settings.trust_container_gateway.upper() != "OFF"
+    )
 
 
 def resolve_token(settings: SharpitSettings) -> tuple[str | None, bool]:
