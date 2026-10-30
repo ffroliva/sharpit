@@ -17,6 +17,7 @@ _BLOCKED = ("connect", "create_connection", "getaddrinfo", "gethostbyname")
 
 def golden(name: str) -> dict[str, Any]:
     """Load the sanitised BootUI payload ``tests/fixtures/bootui/<name>.json``."""
+    # vulnerabilities.json: NOT_SCANNED scannedAt is null (contract §8, BootUI controller); its 0 is a capture artefact.
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
 
 

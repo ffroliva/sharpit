@@ -17,6 +17,7 @@ without the failure text.
 from __future__ import annotations
 
 import functools
+import re
 import time
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -189,12 +190,16 @@ def _is_withdrawn(doc: dict[str, Any]) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+# Instant.parse's shape (ISO_INSTANT/ISO_OFFSET_DATE_TIME); fromisoformat alone also accepts spaces and basic forms
+_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?([Zz]|[+-]\d{2}:\d{2})")
+
+
 def _valid_withdrawal(doc: dict[str, Any]) -> bool:
     """BootUI ``validWithdrawal``: absent or null is valid; otherwise an ISO instant (with an offset) is required."""
     value = doc.get("withdrawn")
     if value is None:
         return True
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not _INSTANT.fullmatch(value):
         return False
     try:
         parsed = datetime.fromisoformat(value)

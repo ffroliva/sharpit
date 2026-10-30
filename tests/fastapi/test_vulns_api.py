@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import pytest
 from fastapi.testclient import TestClient
 
 from conftest import SideEffectGuard
@@ -177,8 +178,15 @@ def test_vulnerabilities_read_only_panel_blocks_scan(tmp_state_dir: Path):
     assert client.post(f"/sharpit/api/dismissed-rules/{quote(RULE, safe='')}").status_code == 200
 
 
-def test_default_service_never_networks_on_get(no_side_effects: SideEffectGuard, tmp_path: Path):
-    no_side_effects.unblock_network()
+def test_default_service_never_networks_on_get(
+    no_side_effects: SideEffectGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    no_side_effects.unblock_network()  # TestClient needs a socketpair; the opener patch guards HTTP
+
+    def no_http(*_args: object) -> object:
+        raise AssertionError("GET must not build an HTTP opener")
+
+    monkeypatch.setattr(urllib.request, "build_opener", no_http)
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path / "state"))
     client = TestClient(app, base_url="http://localhost", client=LOCAL)

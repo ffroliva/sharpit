@@ -20,7 +20,7 @@ from sharpit.engine.collectors.vulns.dismissals import DismissalStore
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import Package
 from sharpit.engine.collectors.vulns.osv import OsvClient
-from sharpit.engine.collectors.vulns.service import OPERATION, VulnerabilityService
+from sharpit.engine.collectors.vulns.service import OPERATION, VulnerabilityService, _valid_withdrawal  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.singleflight import ActionBusy, SingleFlight, WaitTimeout
 from sharpit.settings import SharpitSettings
 
@@ -457,3 +457,20 @@ def test_concurrent_fetches_count_failures(tmp_state_dir: Path):
     assert report["scan"]["status"] == "PARTIAL"
     assert report["scan"]["message"] == "Scan completed against OSV.dev, but 5 advisory fetches failed."
     assert sorted(v["id"] for v in report["dependencies"][0]["vulnerabilities"]) == sorted(ids[5:])
+
+
+@pytest.mark.parametrize(
+    ("withdrawn", "valid"),
+    [
+        ("2024-01-01T00:00:00Z", True),
+        ("2024-01-01T00:00Z", True),
+        ("2024-01-01T00:00:00.123456789+02:00", True),
+        ("2024-01-01 00:00:00Z", False),
+        ("20240101T000000Z", False),
+        ("2024-01-01T00:00:00+0200", False),
+        ("2024-01-01T00:00:00", False),
+        ("2024-13-01T00:00:00Z", False),
+    ],
+)
+def test_valid_withdrawal_is_strict_like_instant_parse(withdrawn: str, valid: bool):
+    assert _valid_withdrawal({"withdrawn": withdrawn}) is valid
