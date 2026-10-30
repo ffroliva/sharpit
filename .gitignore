@@ -11,5 +11,6 @@ build/
 .coverage
 coverage.xml
 node_modules/
+ui/node_modules/
 ui/dist/
 .sharpit/
