@@ -59,8 +59,14 @@ def test_toggle_enables_in_memory(tmp_path: Path):
     flipped = client.post("/sharpit/api/mcp-server/toggle")  # no body: flip
     assert (flipped.json()["enabled"], flipped.json()["overridden"]) == (False, False)
     assert client.post("/sharpit/api/mcp-server/toggle", json={"enabled": None}).json()["enabled"] is True
-    odd = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": "yes"})  # BootUI: not a boolean -> flip
-    assert (odd.status_code, odd.json()["enabled"]) == (200, False)
+    toggle = "/sharpit/api/mcp-server/toggle"
+    bad_body = {"error": "Request body must be a JSON object with a boolean or null 'enabled'"}
+    for raw in (b'{"enabled": "yes"}', b"{not json", b"[true]"):  # BootUI: Spring binding refuses these with 400
+        bad = client.post(toggle, content=raw, headers={"content-type": "application/json"})
+        assert (bad.status_code, bad.json()) == (400, bad_body), raw
+    assert client.get("/sharpit/api/mcp-server").json()["enabled"] is True  # refused bodies change nothing
+    assert client.post(toggle, content=b"").json()["enabled"] is False  # empty body: flip
+    assert client.post(toggle, json={}).json()["enabled"] is True  # missing 'enabled': flip
     assert list(tmp_path.iterdir()) == []  # in memory only: nothing written to the state dir
     assert _client(tmp_path).get("/sharpit/api/mcp-server").json()["enabled"] is False  # a new install starts OFF
 
