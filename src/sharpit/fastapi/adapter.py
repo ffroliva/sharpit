@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from starlette.applications import Starlette
 from starlette.datastructures import MutableHeaders
@@ -24,6 +24,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from sharpit.engine import guard
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
 from sharpit.engine.collectors.config import config_report
+from sharpit.engine.collectors.loggers import loggers_report, set_level
 from sharpit.engine.collectors.overview import overview_dto
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
@@ -187,6 +188,28 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         overrides_only = params.get("overridesOnly", "").strip().lower() == "true"
         return json_response(config_report(ctx, params.get("q"), params.get("source"), overrides_only, offset, limit))
 
+    def loggers(request: Request) -> Response:
+        params = request.query_params
+        try:
+            offset = parse_int_param(params.get("offset"), "offset")
+            limit = parse_int_param(params.get("limit"), "limit")
+        except BadRequest as exc:
+            return error(400, str(exc))
+        return json_response(loggers_report(params.get("q"), offset, limit))
+
+    async def logger_level(request: Request) -> Response:
+        try:
+            body: object = await request.json()
+        except ValueError:
+            body = None
+        level = cast("dict[str, Any]", body).get("level") if isinstance(body, dict) else 0
+        if not isinstance(level, str | None):
+            return error(400, "Request body must be a JSON object with a string or null 'level'")
+        try:
+            return json_response(set_level(request.path_params["name"], level))
+        except BadRequest as exc:
+            return error(400, str(exc))
+
     return [
         Route("/", shell, methods=["GET"]),
         Route("/assets/{file}", asset, methods=["GET"]),
@@ -194,7 +217,17 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/panels", panels, methods=["GET"]),
         Route(f"{api}/overview", overview, methods=["GET"]),
         Route(f"{api}/config", config, methods=["GET"]),
+        Route(f"{api}/loggers", loggers, methods=["GET"]),
+        Route(f"{api}/loggers/{{name:path}}", logger_level, methods=["POST"]),
     ]
+
+
+async def _json_http_error(_request: Request, exc: Exception) -> Response:
+    """404/405 inside the active sub-app answer in the API's JSON error shape (405 keeps its ``Allow`` header)."""
+    assert isinstance(exc, HTTPException)
+    response = error(exc.status_code, "Not Found" if exc.status_code == 404 else "Method Not Allowed")
+    response.headers.update(exc.headers or {})
+    return response
 
 
 async def _not_found(scope: Scope, receive: Receive, send: Send) -> None:
@@ -244,7 +277,11 @@ def install(app: Any, *, settings: Sequence[object] = (), **options: Any) -> Sha
             yield state
 
     router.lifespan_context = lifespan
-    sub_app = Starlette(routes=_routes(ctx), middleware=[Middleware(GuardMiddleware, ctx=ctx)])
+    sub_app = Starlette(
+        routes=_routes(ctx),
+        middleware=[Middleware(GuardMiddleware, ctx=ctx)],
+        exception_handlers={404: _json_http_error, 405: _json_http_error},
+    )
     router.routes.insert(0, SharpitMount(sharpit_settings.path, app=sub_app, name="sharpit"))
     if sharpit_settings.show_banner:
         print(_banner(ctx, generated), file=sys.stderr)
