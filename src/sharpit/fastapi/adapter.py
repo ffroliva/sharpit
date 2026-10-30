@@ -28,11 +28,17 @@ from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report, set_level
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
+from sharpit.engine.collectors.vulns.dismissals import DismissalStore
+from sharpit.engine.collectors.vulns.epss import EpssClient
+from sharpit.engine.collectors.vulns.inventory import inventory
+from sharpit.engine.collectors.vulns.osv import OsvClient
+from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
 from sharpit.engine.masking import Exposure
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
+from sharpit.engine.singleflight import ActionBusy
 from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
@@ -217,6 +223,41 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
             return error(400, str(exc))
         return json_response(beans_report(ctx, params.get("q"), params.get("classification"), offset, limit))
 
+    def vulnerability_service() -> VulnerabilityService:
+        timeout = settings.vulnerabilities_request_timeout
+        return ctx.lazy(
+            "vulnerabilities",
+            lambda: VulnerabilityService(
+                settings,
+                OsvClient(settings.vulnerabilities_osv_base_uri, timeout),
+                EpssClient(settings.vulnerabilities_epss_base_uri, timeout),
+                inventory,
+                DismissalStore(Path(settings.state_dir)),
+                ctx.single_flight,
+            ),
+        )
+
+    def vulnerabilities(_request: Request) -> Response:
+        return json_response(vulnerability_service().report())
+
+    def vulnerabilities_scan(_request: Request) -> Response:
+        try:
+            return json_response(vulnerability_service().scan())
+        except ActionBusy as exc:
+            return json_response(exc.body(), 409)
+
+    def dismissed_rules(_request: Request) -> Response:
+        return json_response({"dismissed": vulnerability_service().dismissals.list()})
+
+    def dismissed_rule(request: Request) -> Response:
+        store = vulnerability_service().dismissals
+        rule: str = request.path_params["rule_id"]
+        try:
+            ids = store.add(rule) if request.method == "POST" else store.remove(rule)
+        except BadRequest as exc:
+            return error(400, str(exc))
+        return json_response({"dismissed": ids})
+
     async def logger_level(request: Request) -> Response:
         try:
             body: object = await request.json()
@@ -241,6 +282,10 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/mappings/flat", mappings, methods=["GET"]),
         Route(f"{api}/beans", beans, methods=["GET"]),
         Route(f"{api}/loggers/{{name:path}}", logger_level, methods=["POST"]),
+        Route(f"{api}/vulnerabilities", vulnerabilities, methods=["GET"]),
+        Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
+        Route(f"{api}/dismissed-rules", dismissed_rules, methods=["GET"]),
+        Route(f"{api}/dismissed-rules/{{rule_id:path}}", dismissed_rule, methods=["POST", "DELETE"]),
     ]
 
 

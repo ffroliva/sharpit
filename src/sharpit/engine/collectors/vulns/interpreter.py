@@ -345,10 +345,10 @@ def _maximum(left: float | None, right: float | None) -> float | None:
 def _order_fixed_versions(versions: list[str]) -> list[str]:
     """Distinct, trimmed, ordered by PEP 440 then case-insensitive text (BootUI ``orderFixedVersions``), max 10."""
     distinct = list(dict.fromkeys(v.strip() for v in versions if v.strip()))
-    return sorted(distinct, key=functools.cmp_to_key(_compare_versions))[:_MAX_FIXED_VERSIONS]
+    return sorted(distinct, key=functools.cmp_to_key(compare_versions))[:_MAX_FIXED_VERSIONS]
 
 
-def _compare_versions(left: str, right: str) -> int:
+def compare_versions(left: str, right: str) -> int:
     lv, rv = _version(left), _version(right)
     if lv is not None and rv is not None and lv != rv:
         return _cmp(lv, rv)
