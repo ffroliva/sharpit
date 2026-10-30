@@ -1,0 +1,46 @@
+feature,area,priority,original,clone,notes
+Fail-closed activation: OFF/ON/AUTO with enabled and disabled profiles and a dev-server signal,safe-mode,must,yes,no,contract §10; reasons verbatim with sharpit names
+Inactive sharpit returns 404 for every path under its mounts,safe-mode,must,yes,no,BootUiShellGuardFilter
+Loopback-only source check with allow-non-localhost and trusted-proxies,safe-mode,must,yes,no,LocalhostGuard
+Host header check against DNS rebinding with allowed-hosts,safe-mode,must,yes,no,always on
+Cross-site write check (Sec-Fetch-Site / Origin vs Host) on unsafe methods,safe-mode,must,yes,no,always on
+Bearer token / session cookie for untrusted sources with generated token logged once,safe-mode,should,yes,no,only when remote access configured
+Global read-only and per-panel enabled/read-only gates with 403 bodies,safe-mode,must,yes,no,PanelAccessFilter
+Security headers (CSP etc.) and no-store caching on API,safe-mode,must,yes,no,BootUiSecurityHeaders
+Secret masking: name patterns plus value detectors; expose-values MASKED/METADATA_ONLY/FULL,safe-mode,must,yes,no,KeywordPatternMasker + SecretValueDetector
+No network or mutation on any GET,safe-mode,must,yes,no,rule enforced by tests
+Panel registry GET /api/panels with availability and read-only reasons,registry,must,yes,no,platform=fastapi
+Overview with activation status,overview,must,yes,no,javaVersion key kept carrying the Python version
+Config report with sources in precedence order and winning source per key,config,must,yes,no,pydantic-settings / environ / .env / static getenv discovery
+Config filters q (relaxed names) source overridesOnly and paging,config,must,yes,no,PagedList semantics
+Config descriptions and defaults from metadata,config,should,yes,no,pydantic Field + getenv defaults
+Config overrides persisted to an override file,config,could,yes,skip,deferred post-MVP (writes files)
+Mappings flat list with paging,mappings,must,yes,no,/mappings/flat
+Loggers list with configured and effective level and paging,loggers,must,yes,no,
+Change a logger level (POST) with validation,loggers,must,yes,no,runtime only
+Beans list (dependency providers) with dependencies and paging,beans,must,yes,no,FastAPI dependant tree + middleware + routers
+Dependency graph view built from bean dependencies,beans,must,yes,no,graph built client side from dependencies
+Vulnerabilities inventory GET without network,vulnerabilities,must,yes,no,importlib.metadata
+Vulnerability scan on POST via OSV querybatch with caps and timeouts,vulnerabilities,must,yes,no,ecosystem PyPI
+EPSS enrichment during scan and failure tolerance,vulnerabilities,should,yes,no,
+Severity scoring ordering and fix availability,vulnerabilities,must,yes,no,
+Dismiss and restore a vulnerability,vulnerabilities,should,yes,no,dismissal file next to overrides
+Single-flight scan with 409 busy body,vulnerabilities,must,yes,no,
+MCP server opt-in (OFF by default) on api/mcp,mcp,must,yes,no,JSON-RPC over streamable HTTP
+MCP get_* tools for MVP panels with input schemas and caps,mcp,must,yes,no,
+MCP vulnerabilities_scan action tool gated by read-only,mcp,should,yes,no,
+MCP server status panel GET /api/mcp-server,mcp,should,yes,no,
+CLI endpoint GET /api/cli and POST /api/cli/tools/{tool},cli,must,yes,no,same dispatcher as MCP
+sharpit console script with --url --token --json and exit codes,cli,must,yes,no,
+Web UI shell at /sharpit consuming the contract,ui,must,yes,no,new look and feel
+UI navigation from the panel registry with unavailable/read-only states,ui,must,yes,no,
+UI panels for overview config mappings loggers beans vulnerabilities mcp-server,ui,must,yes,no,
+UI dependency graph view,ui,must,yes,no,
+UI command palette and keyboard navigation,ui,should,no,no,sharpit addition (not in parity score)
+One-line install sharpit.install(app),install,must,yes,no,starter equivalent
+Startup banner printing the console URL,install,could,yes,no,show-banner
+Health panel,health,could,yes,skip,deferred post-MVP
+Profile diff panel,config,could,yes,skip,deferred post-MVP
+Conditions panel,beans,could,yes,skip,Spring auto-configuration has no Python equivalent
+DevTools/devservices/free-on-idle,runtime,could,yes,skip,JVM-only
+All other BootUI panels (database security activity advisors ...),other,could,yes,skip,deferred post-MVP; see BOOTUI-PYTHON-MAPPING.md
