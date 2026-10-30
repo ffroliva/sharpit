@@ -26,6 +26,12 @@ MESSAGE_NON_LOOPBACK_SOURCE = (
     "add a trusted source range to SHARPIT_TRUSTED_PROXIES, or (when running in a container) "
     "set SHARPIT_TRUST_CONTAINER_GATEWAY=AUTO to trust the auto-detected container gateway."
 )
+# sharpit deviation (Task P1): a loopback peer denied only because a forwarding header is present is told why
+MESSAGE_FORWARDED_SOURCE = (
+    "sharpit is restricted to loopback requests, and a request carrying a forwarding header (Forwarded, "
+    "X-Forwarded-For or X-Real-IP) never counts as loopback. Add the proxy's address to SHARPIT_TRUSTED_PROXIES, or "
+    "set SHARPIT_ALLOW_NON_LOCALHOST=true and authenticate with the sharpit token."
+)
 MESSAGE_DISALLOWED_HOST = (
     "sharpit rejected an unrecognized Host header. Add it to SHARPIT_ALLOWED_HOSTS to allow this hostname."
 )
@@ -319,7 +325,10 @@ def decide_guard(
     """None when the request may proceed, else the response to send."""
     trusted = is_trusted_source(facts, settings, gateway)
     if not settings.allow_non_localhost and not trusted:
-        return _forbidden(MESSAGE_NON_LOOPBACK_SOURCE)
+        forwarded = any(h in facts.headers for h in _FORWARDED_HEADERS)
+        return _forbidden(
+            MESSAGE_FORWARDED_SOURCE if forwarded and not settings.trusted_proxies else MESSAGE_NON_LOOPBACK_SOURCE
+        )
     host_header = facts.headers.get("host")
     request_host = extract_request_host(host_header)
     if not _is_blank(host_header):

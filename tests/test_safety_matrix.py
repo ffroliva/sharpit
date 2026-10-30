@@ -25,6 +25,7 @@ from sharpit.engine.guard import (
     AUTHENTICATION_REQUIRED_MESSAGE,
     MESSAGE_CROSS_SITE,
     MESSAGE_DISALLOWED_HOST,
+    MESSAGE_FORWARDED_SOURCE,
     MESSAGE_NON_LOOPBACK_SOURCE,
     PANEL_ACCESS_DENIED,
     SESSION_COOKIE,
@@ -72,7 +73,8 @@ VARIANTS: list[tuple[str, tuple[str, int], dict[str, str], bool, str]] = [
     ("local-cross-origin", LOCAL, {"Origin": EVIL}, False, MESSAGE_CROSS_SITE),
     ("local-null-origin", LOCAL, {"Origin": "null"}, False, MESSAGE_CROSS_SITE),
     ("local-cross-site-navigation", LOCAL, NAVIGATE, False, MESSAGE_CROSS_SITE),
-    *((f"local-{next(iter(h)).lower()}", LOCAL, h, False, MESSAGE_NON_LOOPBACK_SOURCE) for h in FORWARDED),
+    *((f"local-{next(iter(h)).lower()}", LOCAL, h, False, MESSAGE_FORWARDED_SOURCE) for h in FORWARDED),
+    ("remote-forwarded", REMOTE, {"X-Forwarded-For": "127.0.0.1"}, False, MESSAGE_FORWARDED_SOURCE),
     ("remote", REMOTE, {}, False, MESSAGE_NON_LOOPBACK_SOURCE),
     ("remote-bearer-without-remote-access", REMOTE, {"Authorization": f"Bearer {TOKEN}"}, False, "403-source"),
     ("remote-no-token", REMOTE, {}, True, "token"),
@@ -267,7 +269,7 @@ def test_container_gateway_grant_voided_by_forwarded_headers(headers: dict[str, 
     resp = _client(app, (GATEWAY, 50000)).get("/sharpit/api/overview", headers=headers)
     assert resp.status_code == status
     if status == 403:
-        assert resp.json() == {"error": MESSAGE_NON_LOOPBACK_SOURCE}
+        assert resp.json() == {"error": MESSAGE_FORWARDED_SOURCE}
 
 
 # --- spoofed X-Forwarded-For behind uvicorn's proxy-headers middleware (FORWARDED_ALLOW_IPS=*) -------------------
@@ -280,7 +282,7 @@ def test_spoofed_xff_is_never_loopback(peer: tuple[str, int], path: str):
     spoof = {"X-Forwarded-For": "127.0.0.1"}
     closed = ProxyHeadersMiddleware(_app(False), trusted_hosts="*")
     resp = _client(closed, peer).request(method, path, headers=spoof)
-    assert (resp.status_code, resp.json()) == (403, {"error": MESSAGE_NON_LOOPBACK_SOURCE})
+    assert (resp.status_code, resp.json()) == (403, {"error": MESSAGE_FORWARDED_SOURCE})
     remote = ProxyHeadersMiddleware(_app(True), trusted_hosts="*")
     resp = _client(remote, peer).request(method, path, headers=spoof)
     assert resp.status_code == (200 if path == "/sharpit/" else 401)  # untrusted: the API needs the token

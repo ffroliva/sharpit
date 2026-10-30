@@ -13,7 +13,11 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from conftest import golden
 from fastapi import FastAPI, Request
 from sharpit import install
-from sharpit.engine.guard import MESSAGE_CROSS_SITE, MESSAGE_DISALLOWED_HOST, MESSAGE_NON_LOOPBACK_SOURCE
+from sharpit.engine.guard import (
+    MESSAGE_CROSS_SITE,
+    MESSAGE_DISALLOWED_HOST,
+    MESSAGE_FORWARDED_SOURCE,
+)
 from sharpit.engine.headers import CSP
 
 LOCAL = ("127.0.0.1", 50000)
@@ -212,7 +216,7 @@ def test_xff_spoof_through_uvicorn_proxy_headers():
     wrapped = ProxyHeadersMiddleware(_app(), trusted_hosts="*")
     resp = _client(wrapped, REMOTE).get("/sharpit/api/overview", headers={"X-Forwarded-For": "127.0.0.1"})
     assert resp.status_code == 403
-    assert resp.json() == {"error": MESSAGE_NON_LOOPBACK_SOURCE}
+    assert resp.json() == {"error": MESSAGE_FORWARDED_SOURCE}
 
 
 def test_startup_time_set_after_lifespan():

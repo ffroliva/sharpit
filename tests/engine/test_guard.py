@@ -91,6 +91,7 @@ from pathlib import Path
 import pytest
 
 from sharpit.engine.guard import (
+    MESSAGE_FORWARDED_SOURCE,
     SESSION_COOKIE,
     Denial,
     RequestFacts,
@@ -233,7 +234,13 @@ def test_ipv4_mapped_loopback_is_loopback():
 
 
 def test_xff_with_no_trusted_proxies_is_untrusted():
-    assert decide(facts(peer="127.0.0.1", x_forwarded_for="127.0.0.1")) == SOURCE
+    # sharpit deviation (Task P1): the denial names the forwarding header and how to fix it
+    assert decide(facts(peer="127.0.0.1", x_forwarded_for="127.0.0.1")) == Denial(
+        403, {"error": MESSAGE_FORWARDED_SOURCE}
+    )
+    # with a trusted-proxies list the header is expected, so a peer outside it gets the ordinary message
+    f = RequestFacts("GET", "127.0.0.1", {"x-forwarded-for": "127.0.0.1"}, None)
+    assert decide_guard(f, trusted_range("10.0.0.0/8"), None, None) == SOURCE
 
 
 @pytest.mark.parametrize("header", ["forwarded", "x-forwarded-for", "x-real-ip"])
