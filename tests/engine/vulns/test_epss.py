@@ -1,10 +1,11 @@
 """EPSS client (ported from BootUI OsvVulnerabilityScannerTests EPSS cases and DependencyReports helpers).
 
-Adapted throughout: the brief makes *any* failure return ``{}``, so the BootUI cases that keep the scores of earlier
-pages or chunks after a later failure expect ``{}`` here. Choosing the best alias per finding and the report message
-are Task 12's (BootUI ``DependencyReports.applyEpssScores`` and ``OsvVulnerabilityScanner.applyEpss``).
+``scores`` never raises: like BootUI ``applyEpss`` it keeps the scores gathered before a failure and reports
+``failed=True``, so "no data" and "enrichment failed" stay distinguishable. Choosing the best alias per finding and the
+report message are Task 12's (BootUI ``DependencyReports.applyEpssScores`` and ``OsvVulnerabilityScanner.applyEpss``).
 """
 
+import http.client
 import json
 import urllib.parse
 import urllib.request
@@ -13,7 +14,7 @@ from typing import Any
 import pytest
 from vulnfakes import FakeOpener, fixture_text, replies
 
-from sharpit.engine.collectors.vulns.epss import EpssClient, canonical_cve_id, epss_cve_chunks
+from sharpit.engine.collectors.vulns.epss import EpssClient, EpssResult, canonical_cve_id, epss_cve_chunks
 
 BASE = "http://epss.test"
 LONG_ONE = "CVE-2024-" + "1" * 1200
@@ -24,6 +25,14 @@ def client(opener: FakeOpener, timeout: float = 2.0) -> EpssClient:
     return EpssClient(BASE, timeout, opener=opener)
 
 
+def ok(scores: dict[str, tuple[float, float]] | None = None) -> EpssResult:
+    return EpssResult(scores or {}, failed=False)
+
+
+def failed(scores: dict[str, tuple[float, float]] | None = None) -> EpssResult:
+    return EpssResult(scores or {}, failed=True)
+
+
 def query(request: urllib.request.Request) -> dict[str, str]:
     return dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(request.full_url).query))
 
@@ -32,7 +41,7 @@ def query(request: urllib.request.Request) -> dict[str, str]:
 def test_recorded_response(no_side_effects):
     opener = replies((200, fixture_text("epss/CVE-2024-34064.json")))
 
-    assert client(opener, timeout=4.0).scores(["CVE-2024-34064"]) == {"CVE-2024-34064": (0.00045, 0.16372)}
+    assert client(opener, timeout=4.0).scores(["CVE-2024-34064"]) == ok({"CVE-2024-34064": (0.00045, 0.16372)})
     (request,) = opener.requests
     assert request.full_url == "http://epss.test/data/v1/epss?cve=CVE-2024-34064&limit=1&offset=0"
     assert request.get_method() == "GET"
@@ -42,20 +51,30 @@ def test_recorded_response(no_side_effects):
 # ported: OsvVulnerabilityScannerTests.epssEnrichesCveAliasedVulnerabilityWithProbabilityAndPercentile
 def test_probability_and_percentile(no_side_effects):
     opener = replies((200, '{"data":[{"cve":"CVE-2021-44228","epss":"0.944500000","percentile":"0.999900000"}]}'))
-    assert client(opener).scores(["CVE-2021-44228"]) == {"CVE-2021-44228": (0.9445, 0.9999)}
+    assert client(opener).scores(["CVE-2021-44228"]) == ok({"CVE-2021-44228": (0.9445, 0.9999)})
     assert "CVE-2021-44228" in opener.requests[0].full_url
 
 
 # ported: OsvVulnerabilityScannerTests.malformedEpssSuccessRetainsOsvAndExplainsUnavailableEnrichment
 @pytest.mark.parametrize("body", ["", "{}", "[]", "null", "{bad", '{"data":{}}', '{"data":null}'])
-def test_malformed_response_is_empty(no_side_effects, body: str):
-    assert client(replies((200, body))).scores(["CVE-2024-1001"]) == {}
+def test_malformed_response_fails(no_side_effects, body: str):
+    assert client(replies((200, body))).scores(["CVE-2024-1001"]) == failed()
 
 
 # ported: OsvVulnerabilityScannerTests.epssFailureDoesNotDegradeScanStatusOrDiscardOsvResults
-@pytest.mark.parametrize("reply", [(503, "unavailable"), TimeoutError("timed out"), OSError("reset")])
-def test_transport_failure_is_empty(no_side_effects, reply: Any):
-    assert client(replies(reply)).scores(["CVE-2021-44228"]) == {}
+@pytest.mark.parametrize(
+    "reply",
+    [
+        (503, "unavailable"),
+        TimeoutError("timed out"),
+        OSError("reset"),
+        (200, http.client.IncompleteRead(b"")),
+        http.client.LineTooLong("header line"),
+        (200, "[" * 200000),  # json.loads raises RecursionError
+    ],
+)
+def test_transport_failure_never_raises(no_side_effects, reply: Any):
+    assert client(replies(reply)).scores(["CVE-2021-44228"]) == failed()
 
 
 # ported: OsvVulnerabilityScannerTests.epssNoDataIsDistinctFromReturnedZero
@@ -66,7 +85,7 @@ def test_no_data_is_distinct_from_zero(no_side_effects, zero: bool):
         if zero
         else '{"total":0,"offset":0,"limit":1,"data":[]}'
     )
-    assert client(replies((200, body))).scores(["CVE-2024-1001"]) == ({"CVE-2024-1001": (0.0, 0.0)} if zero else {})
+    assert client(replies((200, body))).scores(["CVE-2024-1001"]) == ok({"CVE-2024-1001": (0.0, 0.0)} if zero else {})
 
 
 # ported: OsvVulnerabilityScannerTests.epssMaximumAliasAndMatchingPercentileAreIndependentOfOrder (client half:
@@ -83,15 +102,12 @@ def test_every_alias_scored_independent_of_order(no_side_effects, reversed_: boo
         else ["CVE-2024-1001", "CVE-2024-1002", "CVE-2024-1003"]
     )
 
-    assert client(replies((200, json.dumps({"data": rows})))).scores(cves) == {
-        "CVE-2024-1001": (0.8, 0.9),
-        "CVE-2024-1002": (0.8, 0.7),
-        "CVE-2024-1003": (0.1, 0.2),
-    }
+    assert client(replies((200, json.dumps({"data": rows})))).scores(cves) == ok(
+        {"CVE-2024-1001": (0.8, 0.9), "CVE-2024-1002": (0.8, 0.7), "CVE-2024-1003": (0.1, 0.2)}
+    )
 
 
-# adapted: OsvVulnerabilityScannerTests.epssPaginationIsBoundedAndRetainsEarlierPageScores
-# (BootUI keeps page one's score after a bad second page; the brief makes any failure -> {})
+# ported: OsvVulnerabilityScannerTests.epssPaginationIsBoundedAndRetainsEarlierPageScores
 @pytest.mark.parametrize(
     "ending",
     ["complete", "503", "no-progress", "offset", "total", "limit", "unrequested", "invalid", "missing-metadata"],
@@ -118,11 +134,12 @@ def test_pagination_validated(no_side_effects, ending: str):
     assert len(opener.requests) == 2
     assert [query(r)["offset"] for r in opener.requests] == ["0", "1"]
     assert {query(r)["limit"] for r in opener.requests} == {"2"}
-    assert result == ({"CVE-2024-1001": (0.4, 0.6), "CVE-2024-1002": (0.8, 0.9)} if ending == "complete" else {})
+    page_one = {"CVE-2024-1001": (0.4, 0.6)}
+    assert result == (ok({**page_one, "CVE-2024-1002": (0.8, 0.9)}) if ending == "complete" else failed(page_one))
 
 
-# adapted: OsvVulnerabilityScannerTests.epssLaterChunkFailureRetainsSuccessfulChunkScores (later failure -> {})
-def test_later_chunk_failure_is_empty(no_side_effects):
+# ported: OsvVulnerabilityScannerTests.epssLaterChunkFailureRetainsSuccessfulChunkScores
+def test_later_chunk_failure_keeps_earlier_chunk_scores(no_side_effects):
     def first_then_down(request: urllib.request.Request) -> tuple[int, str]:
         if len(opener.requests) == 1:
             cve = query(request)["cve"]
@@ -131,49 +148,44 @@ def test_later_chunk_failure_is_empty(no_side_effects):
 
     opener = FakeOpener(first_then_down)
 
-    assert client(opener).scores([LONG_ONE, LONG_TWO]) == {}
+    assert client(opener).scores([LONG_ONE, LONG_TWO]) == failed({LONG_ONE: (0.4, 0.6)})
     assert len(opener.requests) == 2
 
 
 # ported: OsvVulnerabilityScannerTests.missingFirstAliasDoesNotHideAnotherAliasesAvailableScore
 def test_missing_alias_does_not_hide_another(no_side_effects):
     opener = replies((200, '{"data":[{"cve":"CVE-2024-1002","epss":"0.4","percentile":"0.6"}]}'))
-    assert client(opener).scores(["CVE-2024-1001", "CVE-2024-1002"]) == {"CVE-2024-1002": (0.4, 0.6)}
+    assert client(opener).scores(["CVE-2024-1001", "CVE-2024-1002"]) == ok({"CVE-2024-1002": (0.4, 0.6)})
 
 
 # ported: OsvVulnerabilityScannerTests.advisoryWithoutCveDoesNotRequestEpss
 @pytest.mark.parametrize("ids", [[], ["GHSA-xxxx-yyyy-zzzz"], ["PYSEC-2024-1", " "]])
 def test_no_cve_no_request(no_side_effects, ids: list[str]):
     opener = replies()
-    assert client(opener).scores(ids) == {}
+    assert client(opener).scores(ids) == ok()
     assert opener.requests == []
 
 
-# adapted: OsvVulnerabilityScannerTests.epssUsesCveRecordIdsAndSplitsRequestsAtTheDocumentedCharacterLimit
-# (the stub answers each chunk with its own CVEs; BootUI's stub returned CVE-2024-1234 to both, which under the
-# brief's any-failure -> {} rule would discard everything)
+# ported: OsvVulnerabilityScannerTests.epssUsesCveRecordIdsAndSplitsRequestsAtTheDocumentedCharacterLimit
+# (BootUI's stub answers both chunks with CVE-2024-1234; the second chunk did not request it, so that page fails)
 def test_splits_requests_at_the_character_limit(no_side_effects):
-    def per_chunk(request: urllib.request.Request) -> tuple[int, str]:
+    def same_row(request: urllib.request.Request) -> tuple[int, str]:
         cve_parameter = urllib.parse.urlsplit(request.full_url).query.split("&", 1)[0].removeprefix("cve=")
         assert len(cve_parameter) <= 2000
-        rows = (
-            [{"cve": "CVE-2024-1234", "epss": "0.125", "percentile": "0.75"}]
-            if "CVE-2024-1234" in cve_parameter
-            else []
-        )
-        return 200, json.dumps({"data": rows})
+        return 200, '{"data":[{"cve":"CVE-2024-1234","epss":"0.125","percentile":"0.75"}]}'
 
-    opener = FakeOpener(per_chunk)
+    opener = FakeOpener(same_row)
 
-    assert client(opener).scores(["cve-2024-1234", LONG_ONE, LONG_TWO]) == {"CVE-2024-1234": (0.125, 0.75)}
+    result = client(opener).scores(["cve-2024-1234", LONG_ONE, LONG_TWO])
+
+    assert result == failed({"CVE-2024-1234": (0.125, 0.75)})
     assert len(opener.requests) == 2
 
 
-# adapted: OsvVulnerabilityScanner.fetchEpssPage row validation (invalid row -> {} per the brief)
+# ported: OsvVulnerabilityScanner.fetchEpssChunk row validation (an invalid row fails the page)
 @pytest.mark.parametrize(
     "rows",
     [
-        [{"cve": "CVE-2024-1001", "epss": "0.4", "percentile": "0.6"}] * 2,  # duplicate row
         [{"cve": "CVE-2024-1001", "epss": "1.5", "percentile": "0.6"}],  # outside 0..1
         [{"cve": "CVE-2024-1001", "epss": "0.4", "percentile": "-0.1"}],
         [{"cve": "CVE-2024-1001", "epss": "inf", "percentile": "0.6"}],
@@ -182,23 +194,35 @@ def test_splits_requests_at_the_character_limit(no_side_effects):
         ["CVE-2024-1001"],
     ],
 )
-def test_invalid_rows_are_empty(no_side_effects, rows: list[Any]):
-    assert client(replies((200, json.dumps({"data": rows})))).scores(["CVE-2024-1001"]) == {}
+def test_invalid_rows_fail(no_side_effects, rows: list[Any]):
+    assert client(replies((200, json.dumps({"data": rows})))).scores(["CVE-2024-1001"]) == failed()
 
 
-# adapted: OsvVulnerabilityScanner.fetchEpssChunk pagination metadata validation (-> {})
+# ported: OsvVulnerabilityScanner.fetchEpssChunk (valid rows of a page are kept even when another row is invalid)
+def test_invalid_row_keeps_the_pages_valid_rows(no_side_effects):
+    row = {"cve": "CVE-2024-1001", "epss": "0.4", "percentile": "0.6"}
+    unrequested = {"cve": "CVE-2024-9999", "epss": "0.1", "percentile": "0.1"}
+    later = {"cve": "CVE-2024-1002", "epss": "0.2", "percentile": "0.3"}
+    body = json.dumps({"data": [row, row, unrequested, later]})
+
+    assert client(replies((200, body))).scores(["CVE-2024-1001", "CVE-2024-1002"]) == failed(
+        {"CVE-2024-1001": (0.4, 0.6), "CVE-2024-1002": (0.2, 0.3)}
+    )
+
+
+# ported: OsvVulnerabilityScanner.fetchEpssChunk pagination metadata validation (rows are stored before the check)
 @pytest.mark.parametrize("field", ["total", "offset", "limit"])
 @pytest.mark.parametrize("value", ["1", 1.5, -1, True, None])
 def test_pagination_metadata_must_be_non_negative_integers(no_side_effects, field: str, value: Any):
     body = {"total": 1, "offset": 0, "limit": 1, "data": [{"cve": "CVE-2024-1001", "epss": "0.4", "percentile": "0.6"}]}
     body[field] = value
-    assert client(replies((200, json.dumps(body)))).scores(["CVE-2024-1001"]) == {}
+    assert client(replies((200, json.dumps(body)))).scores(["CVE-2024-1001"]) == failed({"CVE-2024-1001": (0.4, 0.6)})
 
 
-# adapted: BoundedBodyReader 1 MiB EPSS cap (oversized body -> {})
-def test_body_cap_is_empty(no_side_effects):
+# ported: BoundedBodyReader 1 MiB EPSS cap
+def test_body_cap_fails(no_side_effects):
     body = '{"data":[]}' + " " * (1024 * 1024)
-    assert client(replies((200, body))).scores(["CVE-2024-1001"]) == {}
+    assert client(replies((200, body))).scores(["CVE-2024-1001"]) == failed()
 
 
 # ported: DependencyReports.canonicalCveId

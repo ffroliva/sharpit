@@ -2,7 +2,9 @@
 ``queryBatchChunk``, ``queryBatchRequest`` and ``fetchVulnerability``).
 
 Only the stdlib ``urllib`` is used. Every request carries the configured timeout and nothing retries. The opener is
-injectable for tests and is built lazily, never at import or definition time.
+injectable for tests and is built lazily, never at import or definition time. The urllib timeout bounds each socket
+operation (connect, each read), not the whole request: a server trickling bytes can hold a request longer, up to the
+body cap.
 
 Dropped from ``OsvVulnerabilityScannerTests`` (JVM/adapter-only): ``singleArgConstructorUsesConfiguredOsvBaseUri``
 (Spring property binding), ``fetchesManyDistinctAdvisoriesConcurrentlyWithoutLosingOrMisattributingAny`` and
@@ -13,6 +15,7 @@ scan service; this client fetches one advisory per call),
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -43,6 +46,7 @@ class QueryResult:
     ids: dict[Package, list[str]]  # every queried package -> its distinct advisory ids, in OSV order
     failed: list[Package]  # packages whose query did not complete (a failed page or chunk)
     truncated: bool  # some query still had a next_page_token after MAX_QUERY_BATCH_PAGES rounds
+    complete: set[Package]  # every page fetched (BootUI completedPackages)
 
 
 def request_json(opener: Opener, request: urllib.request.Request, timeout: float, max_bytes: int, what: str) -> Any:
@@ -53,7 +57,7 @@ def request_json(opener: Opener, request: urllib.request.Request, timeout: float
             body = cast(bytes, response.read(max_bytes + 1))
     except urllib.error.HTTPError as error:
         raise OsvError(f"{what} returned HTTP {error.code}") from error
-    except (OSError, ValueError) as error:  # URLError, timeouts, resets, bad URLs
+    except (OSError, ValueError, http.client.HTTPException) as error:  # URLError, timeouts, IncompleteRead...
         raise OsvError(f"{what} failed ({type(error).__name__})") from error
     if status < 200 or status >= 300:
         raise OsvError(f"{what} returned HTTP {status}")
@@ -61,7 +65,7 @@ def request_json(opener: Opener, request: urllib.request.Request, timeout: float
         raise OsvError(f"Response body exceeds {max_bytes} bytes")
     try:
         return json.loads(body)
-    except ValueError as error:  # JSONDecodeError and UnicodeDecodeError
+    except (ValueError, RecursionError) as error:  # JSONDecodeError, UnicodeDecodeError, deeply nested arrays
         raise OsvError(f"{what} returned malformed JSON") from error
 
 
@@ -79,11 +83,11 @@ class OsvClient:
     def querybatch(self, pkgs: Sequence[Package]) -> QueryResult:
         """Query OSV in chunks of 1000. A failure before any chunk completed raises ``OsvError``; a later failure
         puts that chunk's unfinished packages and every later package in ``failed`` (BootUI ``queryBatch``)."""
-        result = QueryResult({}, [], False)
+        result = QueryResult({}, [], False, set())
         for start in range(0, len(pkgs), MAX_QUERYBATCH_SIZE):
             chunk = list(pkgs[start : start + MAX_QUERYBATCH_SIZE])
             try:
-                ids, failed, truncated = self._query_chunk(chunk)
+                ids, failed, truncated, complete = self._query_chunk(chunk)
             except OsvError:
                 if start == 0:
                     raise
@@ -91,13 +95,16 @@ class OsvClient:
                 break
             result.ids.update(ids)
             result.truncated |= truncated
+            result.complete |= complete
             if failed:
                 result.failed = failed + list(pkgs[start + len(chunk) :])
                 break
         return result
 
-    def _query_chunk(self, chunk: list[Package]) -> tuple[dict[Package, list[str]], list[Package], bool]:
+    def _query_chunk(self, chunk: list[Package]) -> tuple[dict[Package, list[str]], list[Package], bool, set[Package]]:
         ids: dict[Package, list[str]] = {pkg: [] for pkg in chunk}
+        seen: dict[Package, set[str]] = {pkg: set() for pkg in chunk}
+        complete: set[Package] = set()
         pending: list[tuple[Package, str | None]] = [(pkg, None) for pkg in chunk]
         for page in range(MAX_QUERY_BATCH_PAGES):
             try:
@@ -105,20 +112,23 @@ class OsvClient:
             except OsvError:
                 if page == 0:
                     raise
-                return ids, [pkg for pkg, _ in pending], False
+                return ids, [pkg for pkg, _ in pending], False, complete
             next_pending: list[tuple[Package, str | None]] = []
             for (pkg, _), item in zip(pending, results, strict=True):
                 for vuln in cast(list[dict[str, Any]], item.get("vulns") or []):
                     vuln_id = cast(str, vuln["id"])
-                    if vuln_id not in ids[pkg]:
+                    if vuln_id not in seen[pkg]:
+                        seen[pkg].add(vuln_id)
                         ids[pkg].append(vuln_id)
                 token = _text(item, "next_page_token")
-                if token is not None:
+                if token is None:
+                    complete.add(pkg)
+                else:
                     next_pending.append((pkg, token))
             pending = next_pending
             if not pending:
-                return ids, [], False
-        return ids, [], True
+                return ids, [], False, complete
+        return ids, [], True, complete
 
     def _query_page(self, pending: list[tuple[Package, str | None]]) -> list[dict[str, Any]]:
         queries: list[dict[str, Any]] = []

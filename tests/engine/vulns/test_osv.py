@@ -1,7 +1,9 @@
 """OSV client: querybatch chunking, pagination and validation, advisory fetch (ported from BootUI
 OsvVulnerabilityScannerTests; the report status/message/assessment assertions of those cases belong to Task 12)."""
 
+import http.client
 import json
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -30,10 +32,23 @@ def failure(kind: str) -> Any:
         "cardinality": (200, '{"results":[]}'),
         "timeout": TimeoutError("timed out"),
         "body-cap": (200, '{"results":[{}]}' + " " * (5 * 1024 * 1024)),
+        "incomplete-read": (200, http.client.IncompleteRead(b"")),
+        "line-too-long": http.client.LineTooLong("header line"),
+        "deep-json": (200, "[" * 200000),  # json.loads raises RecursionError
     }[kind]
 
 
-FAILURES = ["503", "envelope", "json", "cardinality", "timeout", "body-cap"]
+FAILURES = [
+    "503",
+    "envelope",
+    "json",
+    "cardinality",
+    "timeout",
+    "body-cap",
+    "incomplete-read",
+    "line-too-long",
+    "deep-json",
+]
 
 
 # ported: OsvVulnerabilityScanner.queryBatchRequest (exact body, POST, Content-Type, timeout)
@@ -58,14 +73,17 @@ def test_recorded_querybatch_maps_ids_to_packages(no_side_effects):
     result = client(opener).querybatch([jinja, markupsafe])
 
     assert result == QueryResult(
-        ids={jinja: ["GHSA-h75v-3vvj-5mfj", "PYSEC-2017-9999"], markupsafe: []}, failed=[], truncated=False
+        ids={jinja: ["GHSA-h75v-3vvj-5mfj", "PYSEC-2017-9999"], markupsafe: []},
+        failed=[],
+        truncated=False,
+        complete={jinja, markupsafe},
     )
 
 
 # ported: OsvVulnerabilityScanner.queryBatch (no packages, no request)
 def test_empty_input_sends_nothing(no_side_effects):
     opener = replies()
-    assert client(opener).querybatch([]) == QueryResult(ids={}, failed=[], truncated=False)
+    assert client(opener).querybatch([]) == QueryResult(ids={}, failed=[], truncated=False, complete=set())
     assert opener.requests == []
 
 
@@ -141,7 +159,9 @@ def test_later_page_failure_keeps_earlier_pages(no_side_effects, kind: str):
     assert len(opener.requests) == 2
     (second,) = opener.bodies()[1]["queries"]
     assert second == {"package": {"name": "widget", "ecosystem": "PyPI"}, "version": "1.0.0", "page_token": "next"}
-    assert result == QueryResult(ids={COMPLETE: [], WIDGET: ["V-RETAINED"]}, failed=[WIDGET], truncated=False)
+    assert result == QueryResult(
+        ids={COMPLETE: [], WIDGET: ["V-RETAINED"]}, failed=[WIDGET], truncated=False, complete={COMPLETE}
+    )
 
 
 # ported: OsvVulnerabilityScannerTests.validTokenPageIsPartialEvenWithoutAnyCompletedQuery
@@ -153,7 +173,9 @@ def test_valid_token_page_then_failure(no_side_effects, has_advisory: bool):
     result = client(opener).querybatch([WIDGET])
 
     assert len(opener.requests) == 2
-    assert result == QueryResult(ids={WIDGET: ["V-RETAINED"] if has_advisory else []}, failed=[WIDGET], truncated=False)
+    assert result == QueryResult(
+        ids={WIDGET: ["V-RETAINED"] if has_advisory else []}, failed=[WIDGET], truncated=False, complete=set()
+    )
 
 
 # ported: OsvVulnerabilityScannerTests.followsOsvQuerybatchPaginationUntilNextPageTokenIsAbsent
@@ -166,7 +188,9 @@ def test_follows_pagination_until_token_absent(no_side_effects):
     result = client(opener).querybatch([WIDGET])
 
     assert len(opener.requests) == 2
-    assert result == QueryResult(ids={WIDGET: ["GHSA-PAGE-1", "GHSA-PAGE-2"]}, failed=[], truncated=False)
+    assert result == QueryResult(
+        ids={WIDGET: ["GHSA-PAGE-1", "GHSA-PAGE-2"]}, failed=[], truncated=False, complete={WIDGET}
+    )
 
 
 # ported: OsvVulnerabilityScannerTests.degradesToPartialWhenOsvPaginationExceedsTheSafetyBound
@@ -176,16 +200,16 @@ def test_pagination_truncated(no_side_effects):
     def endless(_request: urllib.request.Request) -> tuple[int, str]:
         nonlocal calls
         calls += 1
-        return 200, json.dumps(
-            {"results": [{"vulns": [{"id": f"GHSA-INF-{calls}"}], "next_page_token": f"tok-{calls}"}]}
-        )
+        paged = {"vulns": [{"id": f"GHSA-INF-{calls}"}], "next_page_token": f"tok-{calls}"}
+        return 200, json.dumps({"results": [{}, paged] if calls == 1 else [paged]})
 
-    result = client(FakeOpener(endless)).querybatch([WIDGET])
+    result = client(FakeOpener(endless)).querybatch([COMPLETE, WIDGET])
 
     assert calls == 20
     assert result.truncated is True
     assert result.failed == []
     assert result.ids[WIDGET] == [f"GHSA-INF-{i}" for i in range(1, 21)]
+    assert result.complete == {COMPLETE}  # the truncated package is neither failed nor complete
 
 
 # ported: OsvVulnerabilityScannerTests.partitionsQuerybatchRequestsWhenThePackageListExceedsOsvsHardBatchLimit
@@ -213,6 +237,7 @@ def test_failed_chunk_reported(no_side_effects):
 
     assert len(opener.requests) == 2
     assert result.failed == [pkgs[1000]]
+    assert result.complete == set(pkgs[:1000])
     assert list(result.ids) == pkgs[:1000]
     assert result.truncated is False
 
@@ -307,3 +332,27 @@ def test_base_uri_path_is_replaced_like_java_uri_resolve(no_side_effects):
     opener = replies((200, '{"results":[{}]}'))
     OsvClient("http://osv.test/ignored/", 1.0, opener=opener).querybatch([WIDGET])
     assert opener.requests[0].full_url == "http://osv.test/v1/querybatch"
+
+
+# ported: OsvVulnerabilityScannerTests.preservesCompletedQueryChunksWhenALaterChunkFails (each failure type)
+@pytest.mark.parametrize("kind", FAILURES)
+def test_later_chunk_failure_of_any_kind_is_reported(no_side_effects, kind: str):
+    pkgs = [Package(f"sample{i}", "1.0.0", None) for i in range(1001)]
+    opener = replies((200, '{"results":[' + "{}," * 999 + "{}]}"), failure(kind))
+
+    result = client(opener).querybatch(pkgs)
+
+    assert result.failed == [pkgs[1000]]
+    assert pkgs[1000] not in result.complete
+
+
+# new: id dedupe stays linear (a set per package, not a list scan)
+def test_many_ids_on_one_page_are_deduplicated_quickly(no_side_effects):
+    vulns = [{"id": f"GHSA-{i:06d}"} for i in range(50_000)]
+    body = json.dumps({"results": [{"vulns": vulns + vulns[:10]}]})
+
+    started = time.perf_counter()
+    result = client(replies((200, body))).querybatch([WIDGET])
+
+    assert time.perf_counter() - started < 2.0
+    assert len(result.ids[WIDGET]) == 50_000

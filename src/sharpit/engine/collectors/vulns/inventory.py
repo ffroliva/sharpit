@@ -42,5 +42,5 @@ def inventory(source: Callable[[], Iterable[Distribution]] = distributions) -> l
 def _location(dist: Distribution) -> str | None:
     try:
         return str(dist.locate_file(""))
-    except NotImplementedError:  # custom finders need not support locate_file
+    except Exception:  # custom finders need not support locate_file, and a broken one must not stop the scan
         return None

@@ -1,8 +1,9 @@
 """FIRST.org EPSS client (port of BootUI ``OsvVulnerabilityScanner.fetchEpssChunk``/``fetchEpssPage`` and the
 ``DependencyReports`` CVE helpers).
 
-EPSS is best effort: ``scores`` never raises, and any failure (transport, status, body, row or pagination validation)
-returns ``{}``. Deviation from BootUI, per the brief: BootUI keeps the scores gathered before a failing page or chunk.
+EPSS is best effort: ``scores`` never raises. On any failure (transport, status, body, row or pagination validation)
+it stops, keeps the scores gathered so far and sets ``failed``, like BootUI ``applyEpss``; callers can then tell
+"enrichment was incomplete or unavailable" from "no available data".
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import re
 import urllib.parse
 import urllib.request
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 from sharpit.engine.collectors.vulns.osv import MAX_QUERY_BATCH_PAGES, Opener, OsvError, request_json
@@ -23,6 +25,12 @@ _CVE_ID = re.compile(r"CVE-[0-9]{4}-[0-9]{4,}")
 
 class _EpssError(Exception):
     pass
+
+
+@dataclass
+class EpssResult:
+    scores: dict[str, tuple[float, float]]  # CVE id -> (probability, percentile)
+    failed: bool  # enrichment stopped early; ``scores`` holds what was gathered before the failure
 
 
 def canonical_cve_id(value: str | None) -> str | None:
@@ -66,15 +74,15 @@ class EpssClient:
             self._opener = urllib.request.build_opener()
         return self._opener
 
-    def scores(self, cve_ids: Sequence[str]) -> dict[str, tuple[float, float]]:
-        """CVE id -> (probability, percentile) for the CVEs EPSS has data on; ``{}`` on any failure."""
+    def scores(self, cve_ids: Sequence[str]) -> EpssResult:
+        """Scores for the CVEs EPSS has data on; never raises (BootUI ``applyEpss``)."""
         scores: dict[str, tuple[float, float]] = {}
         try:
             for chunk in epss_cve_chunks(cve_ids):
                 self._fetch_chunk(chunk, scores)
         except (OsvError, _EpssError):
-            return {}
-        return scores
+            return EpssResult(scores, failed=True)
+        return EpssResult(scores, failed=False)
 
     def _fetch_chunk(self, cve_ids: list[str], scores: dict[str, tuple[float, float]]) -> None:
         requested = set(cve_ids)
@@ -84,14 +92,18 @@ class EpssClient:
         for _ in range(min(MAX_QUERY_BATCH_PAGES, len(cve_ids))):
             root = self._fetch_page(cve_ids, offset)
             data = cast(list[Any], root["data"])
+            invalid = False
             for row in data:
                 entry = cast(dict[str, Any], row) if isinstance(row, dict) else {}
                 cve = canonical_cve_id(_text(entry, "cve"))
                 probability, percentile = _probability(entry, "epss"), _probability(entry, "percentile")
                 if cve is None or cve not in requested or cve in seen or probability is None or percentile is None:
-                    raise _EpssError("EPSS returned invalid, duplicate or unrequested score rows")
+                    invalid = True  # BootUI keeps the page's valid rows, then fails
+                    continue
                 seen.add(cve)
                 scores[cve] = (probability, percentile)
+            if invalid:
+                raise _EpssError("EPSS returned invalid, duplicate or unrequested score rows")
             if not {"total", "offset", "limit"} & root.keys():
                 if expected_total is not None:
                     raise _EpssError("EPSS continuation omitted pagination metadata")

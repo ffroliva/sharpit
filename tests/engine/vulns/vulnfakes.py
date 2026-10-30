@@ -11,7 +11,7 @@ from typing import Any
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 
-Reply = tuple[int, str | bytes] | BaseException
+Reply = tuple[int, str | bytes | BaseException] | BaseException  # a BaseException body is raised by read()
 Handler = Callable[[urllib.request.Request], Reply]
 
 
@@ -20,12 +20,14 @@ def fixture_text(relative: str) -> str:
 
 
 class FakeResponse:
-    def __init__(self, status: int, body: bytes) -> None:
+    def __init__(self, status: int, body: bytes | BaseException) -> None:
         self.status = status
-        self._body = io.BytesIO(body)
+        self._body = body
 
     def read(self, size: int = -1) -> bytes:
-        return self._body.read(size)
+        if isinstance(self._body, BaseException):
+            raise self._body
+        return io.BytesIO(self._body).read(size)
 
     def __enter__(self) -> "FakeResponse":
         return self
@@ -50,6 +52,8 @@ class FakeOpener:
         if isinstance(reply, BaseException):
             raise reply
         status, body = reply
+        if isinstance(body, BaseException):
+            return FakeResponse(status, body)
         raw = body.encode("utf-8") if isinstance(body, str) else body
         if status >= 400:
             raise urllib.error.HTTPError(request.full_url, status, "error", Message(), io.BytesIO(raw))

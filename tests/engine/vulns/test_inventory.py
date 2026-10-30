@@ -17,6 +17,8 @@ class FakeDist:
     def locate_file(self, path: str) -> Path:
         if self._where is None:
             raise NotImplementedError
+        if self._where == "boom":
+            raise RuntimeError("third-party finder bug")
         return Path(self._where) / path
 
 
@@ -47,6 +49,11 @@ def test_identical_name_version_queried_once():
     dists = [FakeDist("requests", "2.32.3"), FakeDist("Requests", "2.32.3")]
 
     assert [p.name for p in inventory(lambda: dists)] == ["requests"]
+
+
+# new: any locate_file failure leaves the location unknown instead of aborting the inventory
+def test_location_failure_of_any_kind_is_none():
+    assert inventory(lambda: [FakeDist("rich", "13.7.1", "boom")]) == [Package("rich", "13.7.1", None)]
 
 
 # new: Package is a dict key in QueryResult.ids
