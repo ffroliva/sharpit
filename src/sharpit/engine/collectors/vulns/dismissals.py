@@ -33,6 +33,9 @@ class DismissalStore:
     def __init__(self, state_dir: Path) -> None:
         self._file = state_dir / FILE_NAME
         self._lock = threading.Lock()
+        # parsed ids keyed on the file's (mtime_ns, size): report() polls list(), the file rarely changes
+        self._stamp: tuple[int, int] | None = None
+        self._ids: list[str] = []
 
     def list(self) -> list[str]:
         with self._lock:
@@ -63,6 +66,18 @@ class DismissalStore:
             return []
 
     def _load(self) -> list[str]:
+        try:
+            st = self._file.stat()
+            stamp = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            stamp = None
+        if stamp is not None and stamp == self._stamp:
+            return list(self._ids)
+        ids = self._parse()
+        self._stamp, self._ids = stamp, ids
+        return list(ids)
+
+    def _parse(self) -> list[str]:
         ids: list[str] = []
         in_section = False
         for line in self._lines():

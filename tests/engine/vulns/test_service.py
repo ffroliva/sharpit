@@ -474,3 +474,26 @@ def test_concurrent_fetches_count_failures(tmp_state_dir: Path):
 )
 def test_valid_withdrawal_is_strict_like_instant_parse(withdrawn: str, valid: bool):
     assert _valid_withdrawal({"withdrawn": withdrawn}) is valid
+
+
+def test_report_before_a_scan_reads_the_inventory_once_and_a_scan_refreshes_it(tmp_state_dir: Path):
+    # Task P1: the UI polls report(); the installed distributions do not change without a restart
+    calls: list[int] = []
+
+    def inventory() -> list[Package]:
+        calls.append(1)
+        return [JINJA]
+
+    svc = VulnerabilityService(
+        SharpitSettings(),
+        OsvClient("http://osv.test", 2.0, FakeOsv().opener),
+        EpssClient("http://epss.test", 2.0, FakeOsv().opener),
+        inventory,
+        DismissalStore(tmp_state_dir),
+        SingleFlight(),
+    )
+    first = svc.report()
+    assert svc.report() == first
+    assert len(calls) == 1
+    svc.scan()
+    assert len(calls) == 2  # a scan always re-reads the inventory

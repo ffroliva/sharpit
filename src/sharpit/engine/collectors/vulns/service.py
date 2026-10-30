@@ -78,6 +78,7 @@ class VulnerabilityService:
         self.dismissals = dismissals
         self._single_flight = single_flight
         self._cached: _Scan | None = None
+        self._packages: list[Package] | None = None  # inventory for NOT_SCANNED reports; every scan re-reads it
 
     def report(self) -> dict[str, Any]:
         """The cached scan, else the inventory as ``NOT_SCANNED``; dismissals applied. Never networks."""
@@ -91,13 +92,16 @@ class VulnerabilityService:
     def scan(self, wait_timeout: float | None = None) -> dict[str, Any]:
         """Scan OSV.dev (single-flight ``ActionBusy``/``WaitTimeout``); DISABLED is returned but never cached."""
         if not self._settings.vulnerabilities_osv_enabled:
-            result = self._inventory_only("DISABLED", DISABLED_MESSAGE, False)
+            result = self._inventory_only("DISABLED", DISABLED_MESSAGE, False, refresh=True)
         else:
             result = self._single_flight.run(OPERATION, self._scan_and_cache, wait_timeout)
         return _render(result, set(self.dismissals.list()))
 
-    def _inventory_only(self, status: str, message: str, enabled: bool) -> _Scan:
-        return _Scan(enabled, status, message, None, 0, 0, [_Dependency(p, []) for p in self._inventory()])
+    def _inventory_only(self, status: str, message: str, enabled: bool, refresh: bool = False) -> _Scan:
+        packages = self._packages
+        if packages is None or refresh:
+            packages = self._packages = self._inventory()
+        return _Scan(enabled, status, message, None, 0, 0, [_Dependency(p, []) for p in packages])
 
     def _scan_and_cache(self) -> _Scan:
         result = self._scan()
@@ -106,7 +110,7 @@ class VulnerabilityService:
 
     def _scan(self) -> _Scan:
         settings = self._settings
-        packages = self._inventory()
+        packages = self._packages = self._inventory()
         scanned_at = int(time.time() * 1000)
         distinct = list(dict.fromkeys(packages))
         max_packages = max(1, settings.vulnerabilities_max_packages)

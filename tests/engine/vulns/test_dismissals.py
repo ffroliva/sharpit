@@ -123,3 +123,25 @@ def test_dismiss_rejects_bad_ids(tmp_path: Path, rule_id: str):
     with pytest.raises(BadRequest):
         store.remove(rule_id)
     assert (tmp_path / FILE_NAME).read_bytes() == before
+
+
+def test_list_reads_the_file_once_until_it_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # Task P1: report() lists dismissals on every poll; the file is re-read only when a write or an edit changes it
+    store = DismissalStore(tmp_path)
+    store.add(A)
+    reads: list[int] = []
+    real = Path.read_text
+
+    def counting(self: Path, *args: object, **kwargs: object) -> str:
+        reads.append(1)
+        return real(self, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(Path, "read_text", counting)
+    assert store.list() == [A]
+    assert store.list() == [A]
+    assert len(reads) <= 1
+    store.add(B)
+    assert store.list() == [A, B]
+    target = tmp_path / FILE_NAME
+    target.write_text(target.read_text(encoding="utf-8") + f"  - {C}\n", encoding="utf-8")  # an edit by hand
+    assert store.list() == [A, B, C]
