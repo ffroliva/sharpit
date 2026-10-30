@@ -354,6 +354,9 @@ Internal module structure, caching details, UI component structure and visuals w
 | `.bootui/boot-ui.yml` | `.sharpit/sharpit.yml`, created lazily | name |
 | Vue UI | Svelte UI, same contract | owner wants a new look |
 | validation errors → host 500 | `400 {"error"}` | contract ambiguity #1 |
+| Docker Desktop `gateway.docker.internal` DNS lookup for gateway trust | route-table gateway only, no DNS | no network or DNS at request time |
+| bare `{path}` handled by the host router (Spring) | guarded `SharpitMount` also matches bare `{path}` | a Starlette `Mount` never receives it |
+| `pydantic-settings` custom `settings_customise_sources` | source shown as `settings (<Class>)` | provenance cannot be inferred |
 
 ## 15. Coordinator's calls (owner to check)
 
