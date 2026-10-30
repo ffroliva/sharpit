@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import time
-from collections.abc import AsyncGenerator, Callable, Sequence
+from collections.abc import AsyncGenerator, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +33,6 @@ from sharpit.engine.collectors.overview import overview_dto
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
-from sharpit.engine.masking import Exposure
 from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
@@ -68,6 +67,8 @@ class SharpitMount(Mount):
     Equivalent to the path regex ``^{path}(?:/(?P<path>.*))?$``; ``matches`` is overridden because Starlette's
     ``Mount.matches`` cannot handle the optional ``path`` group being absent.
     """
+
+    sharpit_handle: SharpitHandle | None = None  # set by install(): a second install() on the same app returns it
 
     def matches(self, scope: Scope) -> tuple[Match, Scope]:
         match, child = super().matches(scope)
@@ -160,6 +161,10 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
+    def api_path(request: Request) -> str:
+        """The API prefix as the client reached it: ``root_path`` already holds any mount prefix plus ``path``."""
+        return request.scope.get("root_path", "") + api
+
     def shell(_request: Request) -> Response:
         html = ctx.lazy("shell", lambda: (_STATIC / "index.html").read_bytes())
         return Response(html, media_type="text/html; charset=utf-8", headers=dict(security_headers("shell")))
@@ -175,9 +180,8 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         # Reached only once the guard has authorised the request (trusted source, bearer or session cookie).
         response = Response(status_code=204, headers=dict(security_headers("api")))
         if not request.scope.get(_TRUSTED_KEY, False) and ctx.token:
-            root = request.scope.get("app_root_path", "")
             secure = "; Secure" if request.url.scheme == "https" else ""
-            cookie = f"{guard.SESSION_COOKIE}={ctx.token}; Path={root}{settings.api_path}; HttpOnly; SameSite=Strict"
+            cookie = f"{guard.SESSION_COOKIE}={ctx.token}; Path={api_path(request)}; HttpOnly; SameSite=Strict"
             response.headers.append("set-cookie", cookie + secure)
         return response
 
@@ -270,8 +274,8 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         response.headers.update(dict(extra))
         return response
 
-    def mcp_status(_request: Request) -> Response:
-        return json_response(mcp_server().status())
+    def mcp_status(request: Request) -> Response:
+        return json_response(mcp_server().status(api_path(request)))
 
     async def mcp_toggle(request: Request) -> Response:
         raw = await _read_capped(request, small_cap)
@@ -282,10 +286,11 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         enabled = cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
         if not isinstance(enabled, bool | None):
             return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
-        return json_response(await run_in_threadpool(lambda: mcp_server().toggle(enabled)))
+        base = api_path(request)
+        return json_response(await run_in_threadpool(lambda: mcp_server().toggle(enabled, base)))
 
-    def cli(_request: Request) -> Response:
-        return json_response(tools.cli_status(ctx))
+    def cli(request: Request) -> Response:
+        return json_response(tools.cli_status(ctx, api_path(request)))
 
     async def cli_tool(request: Request) -> Response:
         raw = await _read_capped(request, cap)
@@ -375,13 +380,39 @@ def _banner(ctx: SharpitContext, generated: bool) -> str:
     return "\n".join(lines)
 
 
-def install(app: Any, *, settings: Sequence[object] = (), **options: Any) -> SharpitHandle:
+def _app_settings(settings: object) -> tuple[object, ...]:
+    """One pydantic settings instance or an iterable of them (a lone model is iterable too, so check it first)."""
+    if hasattr(type(settings), "model_fields"):
+        return (settings,)
+    try:
+        items = tuple(cast("Iterable[object]", settings))
+    except TypeError:
+        items = (settings,)
+    for item in items:
+        if not hasattr(type(item), "model_fields"):
+            raise TypeError(
+                f"settings must be a pydantic settings instance or an iterable of them, not {type(item).__name__}"
+            )
+    return items
+
+
+def _configured(options: dict[str, Any]) -> bool:
+    """True when the user set anything for sharpit: an install() kwarg or a non-blank ``SHARPIT_*`` variable."""
+    return bool(options) or any(k.upper().startswith("SHARPIT_") and v.strip() for k, v in os.environ.items())
+
+
+def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle:
     caller_module: str | None = sys._getframe(1).f_globals.get("__name__")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    router = app.router
+    existing = next((r.sharpit_handle for r in router.routes if isinstance(r, SharpitMount) and r.sharpit_handle), None)
+    if existing is not None:
+        logger.warning("sharpit.install() was already called on this app; ignoring this call")
+        return existing
+    app_settings = _app_settings(settings)
     sharpit_settings = load_settings(options, os.environ)
     profiles = tuple(active_profiles(sharpit_settings, os.environ))
     activation = decide(sharpit_settings, profiles, dev_server_signal(sys.argv))
     token, generated = guard.resolve_token(sharpit_settings) if activation.enabled else (None, False)
-    router = app.router
     original: _Lifespan = router.lifespan_context
     ctx = SharpitContext(
         sharpit_settings,
@@ -389,14 +420,19 @@ def install(app: Any, *, settings: Sequence[object] = (), **options: Any) -> Sha
         FastApiIntrospector(app, sharpit_settings.path, original),
         token=token,
         profiles=profiles,
-        app_settings=tuple(settings),
+        app_settings=app_settings,
         caller_module=caller_module,
     )
     handle = SharpitHandle(sharpit_settings, activation, ctx, original)
+    for warning in activation.warnings:  # the overview panel shows them too, but not while sharpit is inactive
+        logger.warning("%s", warning)
 
     if not activation.enabled:
-        router.routes.insert(0, SharpitMount(sharpit_settings.path, app=_not_found, name="sharpit"))
-        logger.info("sharpit inactive: %s", activation.reason)
+        mount = SharpitMount(sharpit_settings.path, app=_not_found, name="sharpit")
+        mount.sharpit_handle = handle
+        router.routes.insert(0, mount)
+        # an explicit setting that leaves sharpit off is a WARNING (uvicorn drops INFO from unconfigured loggers)
+        logger.log(logging.WARNING if _configured(options) else logging.INFO, "sharpit inactive: %s", activation.reason)
         return handle
 
     @asynccontextmanager
@@ -412,9 +448,9 @@ def install(app: Any, *, settings: Sequence[object] = (), **options: Any) -> Sha
         middleware=[Middleware(GuardMiddleware, ctx=ctx)],
         exception_handlers={404: _json_http_error, 405: _json_http_error},
     )
-    router.routes.insert(0, SharpitMount(sharpit_settings.path, app=sub_app, name="sharpit"))
+    mount = SharpitMount(sharpit_settings.path, app=sub_app, name="sharpit")
+    mount.sharpit_handle = handle
+    router.routes.insert(0, mount)
     if sharpit_settings.show_banner:
         print(_banner(ctx, generated), file=sys.stderr)
-    if sharpit_settings.expose_values is Exposure.FULL:
-        logger.warning("SHARPIT_EXPOSE_VALUES=FULL: sharpit shows configuration values unmasked, secrets included")
     return handle

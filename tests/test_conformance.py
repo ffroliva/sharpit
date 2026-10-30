@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from conftest import FIXTURES, SideEffectGuard, golden
 from fastapi import FastAPI
 from sharpit import install
+from sharpit.fastapi.adapter import SharpitMount
 
 LOCAL = ("127.0.0.1", 50000)
 ENDPOINTS = {
@@ -133,6 +134,8 @@ def test_install_budget(no_side_effects: SideEffectGuard):
 
     def run() -> float:
         app = create_app(enabled="OFF")
+        # a second install() is a no-op (Task P1 item 5): drop the sample's inactive stub so the timed call mounts
+        app.router.routes[:] = [r for r in app.router.routes if not isinstance(r, SharpitMount)]
         start = time.perf_counter()
         install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
         elapsed = time.perf_counter() - start

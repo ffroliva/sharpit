@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 import pytest
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -322,3 +324,89 @@ def test_inactive_websocket_scope_is_closed():
     install(app, enabled="OFF")
     sent = _raw(app, [(b"host", b"localhost")], scope_type="websocket")
     assert sent == [{"type": "websocket.close", "code": 1000, "reason": ""}]
+
+
+# --- Task P1 items 4-7: install() robustness ----------------------------------------------------------------------
+
+
+class _AppSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="P1APP_")
+    region: str = "eu"
+
+
+def _config_names(app: FastAPI) -> set[str]:
+    body = _client(app).get("/sharpit/api/config", params={"q": "p1app_", "limit": 500}).json()
+    return {p["name"] for p in body["properties"]}
+
+
+def test_settings_accepts_a_single_instance():
+    assert "P1APP_REGION" in _config_names(_app(config_scan=False, settings=_AppSettings()))
+    assert "P1APP_REGION" in _config_names(_app(config_scan=False, settings=[_AppSettings()]))
+
+
+def test_settings_rejects_a_non_settings_object():
+    with pytest.raises(TypeError, match="settings"):
+        _app(settings=[object()])
+
+
+def test_second_install_is_a_noop_with_a_warning(caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]):
+    app = FastAPI()
+    first = install(app, enabled="ON")
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        second = install(app, enabled="ON")
+    assert second is first
+    assert sum(getattr(r, "name", None) == "sharpit" for r in app.router.routes) == 1
+    assert capsys.readouterr().err.count("sharpit active at") == 1
+    assert any("already" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+
+
+def test_settings_warnings_are_logged(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("SHARPIT_MCP_MAX_RESULTS", "lots")
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        install(FastAPI(), enabled="ON", show_banner=False)
+    assert "Ignoring invalid SHARPIT_MCP_MAX_RESULTS value 'lots'" in [
+        r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+    ]
+
+
+def test_inactive_reason_is_a_warning_when_sharpit_was_configured(caplog: pytest.LogCaptureFixture):
+    with caplog.at_level(logging.INFO, logger="sharpit"):
+        install(FastAPI(), enabled="OFF")
+    assert [(r.levelno, r.getMessage()) for r in caplog.records] == [
+        (logging.WARNING, "sharpit inactive: Disabled by SHARPIT_ENABLED=OFF")
+    ]
+
+
+def test_inactive_reason_is_info_when_nothing_was_configured(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+):
+    for name in [n for n in os.environ if n.upper().startswith("SHARPIT_")]:
+        monkeypatch.delenv(name)
+    with caplog.at_level(logging.INFO, logger="sharpit"):
+        install(FastAPI())
+    assert [r.levelno for r in caplog.records] == [logging.INFO]
+
+
+def _nested(**options: Any) -> FastAPI:
+    outer, inner = FastAPI(), FastAPI()
+    install(inner, **{"enabled": "ON", "show_banner": False, **options})
+    outer.mount("/v1", inner)
+    return outer
+
+
+def test_nested_mount_cookie_path_includes_the_mount_prefix():
+    client = _client(_nested(allow_non_localhost=True, authentication_token=TOKEN), REMOTE)
+    resp = client.post("/v1/sharpit/api/auth/session", headers={"Authorization": f"Bearer {TOKEN}"})
+    assert resp.status_code == 204
+    assert "Path=/v1/sharpit/api;" in resp.headers["set-cookie"]
+    assert client.get("/v1/sharpit/api/overview").status_code == 200  # the cookie comes back
+
+
+def test_advertised_endpoints_include_the_root_path():
+    client = _client(_nested())
+    assert client.get("/v1/sharpit/api/cli").json()["endpoint"] == "/v1/sharpit/api/cli"
+    assert client.get("/v1/sharpit/api/mcp-server").json()["endpoint"] == "/v1/sharpit/api/mcp"
+    toggled = client.post("/v1/sharpit/api/mcp-server/toggle", json={"enabled": False}).json()
+    assert toggled["endpoint"] == "/v1/sharpit/api/mcp"
+    plain = _client(_app())
+    assert plain.get("/sharpit/api/cli").json()["endpoint"] == "/sharpit/api/cli"

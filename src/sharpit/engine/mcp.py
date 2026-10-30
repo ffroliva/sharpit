@@ -233,13 +233,16 @@ class McpServer:
         response = self._handle(request, scope)
         return (202, None, []) if response is None else (200, response, [])
 
-    def toggle(self, enabled: bool | None) -> dict[str, Any]:
+    def toggle(self, enabled: bool | None, api_path: str | None = None) -> dict[str, Any]:
         """Set the live state (``None`` flips it); in memory only, never written to disk."""
         self.enabled = not self.enabled if enabled is None else enabled
-        return self.status()
+        return self.status(api_path)
 
-    def status(self) -> dict[str, Any]:
-        """``McpServerStatus``: only the tools exposed over MCP are listed."""
+    def status(self, api_path: str | None = None) -> dict[str, Any]:
+        """``McpServerStatus``: only the tools exposed over MCP are listed.
+
+        ``api_path`` is the API prefix as the client reached it (root path included); the setting by default.
+        """
         settings = self.ctx.settings
         infos = [tool_info(self.ctx, t) for t in self.tools if not t.action]
         return {
@@ -249,7 +252,7 @@ class McpServer:
             "serverName": SERVER_NAME,
             "serverVersion": _version(),
             "transport": "http",
-            "endpoint": settings.api_path + "/mcp",
+            "endpoint": (api_path or settings.api_path) + "/mcp",
             "protocolVersion": PROTOCOL_VERSION,
             "maxResults": settings.mcp_max_results,
             **tool_gate(self.ctx, "mcp").snapshot(),

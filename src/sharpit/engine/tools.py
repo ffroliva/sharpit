@@ -398,7 +398,7 @@ def tool_info(ctx: SharpitContext, tool: Tool) -> dict[str, Any]:
     }
 
 
-def cli_status(ctx: SharpitContext) -> dict[str, Any]:
+def cli_status(ctx: SharpitContext, api_path: str | None = None) -> dict[str, Any]:
     """``CliServerStatus``; answered while disabled too, with no tools (nothing is invocable)."""
     from sharpit import __version__  # deferred: sharpit/__init__ imports the adapter, which imports this module
 
@@ -426,7 +426,7 @@ def cli_status(ctx: SharpitContext) -> dict[str, Any]:
         "enabled": settings.cli_enabled,
         "serverName": SERVER_NAME,
         "serverVersion": __version__,
-        "endpoint": settings.api_path + "/cli",
+        "endpoint": (api_path or settings.api_path) + "/cli",
         "maxResults": settings.cli_max_results,
         **stats,
         "toolCount": len(infos),
