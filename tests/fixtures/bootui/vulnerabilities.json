@@ -1,0 +1,1684 @@
+{
+  "scanningEnabled": true,
+  "total": 108,
+  "vulnerable": 0,
+  "severityCounts": [
+    {
+      "severity": "CRITICAL",
+      "count": 0
+    },
+    {
+      "severity": "HIGH",
+      "count": 0
+    },
+    {
+      "severity": "MEDIUM",
+      "count": 0
+    },
+    {
+      "severity": "LOW",
+      "count": 0
+    },
+    {
+      "severity": "UNKNOWN",
+      "count": 0
+    },
+    {
+      "severity": "NONE",
+      "count": 0
+    }
+  ],
+  "scan": {
+    "scanner": "OSV.dev",
+    "status": "NOT_SCANNED",
+    "message": "Dependency inventory loaded. Click Scan with OSV.dev to check for known vulnerabilities.",
+    "scannedAt": 0,
+    "packagesScanned": 0,
+    "packagesSkipped": 0,
+    "vulnerabilitiesFound": 0
+  },
+  "coverage": {
+    "status": "INCOMPLETE",
+    "archivesFound": 219,
+    "archivesIdentified": 105,
+    "archivesUnidentified": 114,
+    "unidentifiedArchives": [
+      "archunit-1.5.0.jar",
+      "aspectjweaver-1.9.25.1.jar",
+      "caffeine-3.2.4.jar",
+      "checker-qual-3.55.1.jar",
+      "config-1.4.7.jar",
+      "context-propagation-1.2.1.jar",
+      "h2-2.3.232.jar",
+      "hibernate-core-7.4.5.Final.jar",
+      "hibernate-jcache-7.4.5.Final.jar",
+      "hibernate-models-1.1.1.jar",
+      "jcache-3.2.4.jar",
+      "jspecify-1.0.1.jar",
+      "jtokkit-1.1.0.jar",
+      "kafka-clients-4.2.1.jar",
+      "liquibase-core-5.0.3.jar",
+      "micrometer-commons-1.17.1.jar",
+      "micrometer-core-1.17.1.jar",
+      "micrometer-jakarta9-1.17.1.jar",
+      "micrometer-observation-1.17.1.jar",
+      "micrometer-tracing-1.7.1.jar",
+      "micrometer-tracing-bridge-otel-1.7.1.jar",
+      "mysql-connector-j-9.7.0.jar",
+      "opentelemetry-api-1.62.0.jar",
+      "opentelemetry-common-1.62.0.jar",
+      "opentelemetry-context-1.62.0.jar",
+      "opentelemetry-extension-trace-propagators-1.62.0.jar",
+      "opentelemetry-proto-1.10.0-alpha.jar",
+      "opentelemetry-sdk-1.62.0.jar",
+      "opentelemetry-sdk-common-1.62.0.jar",
+      "opentelemetry-sdk-logs-1.62.0.jar",
+      "opentelemetry-sdk-metrics-1.62.0.jar",
+      "opentelemetry-sdk-trace-1.62.0.jar",
+      "opentelemetry-semconv-1.41.1.jar",
+      "org.osgi.namespace.extender-1.0.1.jar",
+      "org.osgi.util.function-1.0.0.jar",
+      "org.osgi.util.promise-1.0.0.jar",
+      "postgresql-42.7.13.jar",
+      "protobuf-java-4.35.1.jar",
+      "reactive-streams-1.0.4.jar",
+      "reactor-core-3.8.7.jar",
+      "reactor-netty-core-1.3.7.jar",
+      "reactor-netty-http-1.3.7.jar",
+      "resilience4j-bulkhead-2.4.0.jar",
+      "resilience4j-circuitbreaker-2.4.0.jar",
+      "resilience4j-core-2.4.0.jar",
+      "resilience4j-ratelimiter-2.4.0.jar",
+      "resilience4j-retry-2.4.0.jar",
+      "resilience4j-timelimiter-2.4.0.jar",
+      "snappy-java-1.1.10.7.jar",
+      "spring-aop-7.0.9.jar",
+      "spring-aspects-7.0.9.jar",
+      "spring-beans-7.0.9.jar",
+      "spring-boot-4.1.1.jar",
+      "spring-boot-actuator-4.1.1.jar",
+      "spring-boot-actuator-autoconfigure-4.1.1.jar",
+      "spring-boot-autoconfigure-4.1.1.jar",
+      "spring-boot-cache-4.1.1.jar",
+      "spring-boot-data-commons-4.1.1.jar",
+      "spring-boot-data-jpa-4.1.1.jar",
+      "spring-boot-data-redis-4.1.1.jar",
+      "spring-boot-flyway-4.1.1.jar",
+      "spring-boot-health-4.1.1.jar",
+      "spring-boot-hibernate-4.1.1.jar",
+      "spring-boot-http-client-4.1.1.jar",
+      "spring-boot-http-codec-4.1.1.jar",
+      "spring-boot-http-converter-4.1.1.jar",
+      "spring-boot-jackson-4.1.1.jar",
+      "spring-boot-jarmode-tools-4.1.1.jar",
+      "spring-boot-jdbc-4.1.1.jar",
+      "spring-boot-jpa-4.1.1.jar",
+      "spring-boot-kafka-4.1.1.jar",
+      "spring-boot-liquibase-4.1.1.jar",
+      "spring-boot-mail-4.1.1.jar",
+      "spring-boot-micrometer-metrics-4.1.1.jar",
+      "spring-boot-micrometer-observation-4.1.1.jar",
+      "spring-boot-micrometer-tracing-4.1.1.jar",
+      "spring-boot-micrometer-tracing-opentelemetry-4.1.1.jar",
+      "spring-boot-netty-4.1.1.jar",
+      "spring-boot-opentelemetry-4.1.1.jar",
+      "spring-boot-persistence-4.1.1.jar",
+      "spring-boot-reactor-4.1.1.jar",
+      "spring-boot-restclient-4.1.1.jar",
+      "spring-boot-security-4.1.1.jar",
+      "spring-boot-servlet-4.1.1.jar",
+      "spring-boot-sql-4.1.1.jar",
+      "spring-boot-tomcat-4.1.1.jar",
+      "spring-boot-transaction-4.1.1.jar",
+      "spring-boot-validation-4.1.1.jar",
+      "spring-boot-web-server-4.1.1.jar",
+      "spring-boot-webclient-4.1.1.jar",
+      "spring-boot-webmvc-4.1.1.jar",
+      "spring-boot-websocket-4.1.1.jar",
+      "spring-context-7.0.9.jar",
+      "spring-context-support-7.0.9.jar",
+      "spring-core-7.0.9.jar",
+      "spring-expression-7.0.9.jar",
+      "spring-jdbc-7.0.9.jar",
+      "spring-kafka-4.1.1.jar",
+      "spring-messaging-7.0.9.jar",
+      "spring-orm-7.0.9.jar",
+      "spring-oxm-7.0.9.jar",
+      "spring-security-config-7.1.1.jar",
+      "spring-security-core-7.1.1.jar",
+      "spring-security-crypto-7.1.1.jar",
+      "spring-security-web-7.1.1.jar",
+      "spring-tx-7.0.9.jar",
+      "spring-web-7.0.9.jar",
+      "spring-webflux-7.0.9.jar",
+      "spring-webmvc-7.0.9.jar",
+      "spring-websocket-7.0.9.jar",
+      "tomcat-embed-core-11.0.24.jar",
+      "tomcat-embed-el-11.0.24.jar",
+      "tomcat-embed-websocket-11.0.24.jar",
+      "zstd-jni-1.5.6-10.jar"
+    ],
+    "unidentifiedArchivesTruncated": false
+  },
+  "dependencies": [
+    {
+      "groupId": "at.yawk.lz4",
+      "artifactId": "lz4-java",
+      "version": "1.10.1",
+      "packageName": "at.yawk.lz4:lz4-java",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "ch.qos.logback",
+      "artifactId": "logback-classic",
+      "version": "1.5.38",
+      "packageName": "ch.qos.logback:logback-classic",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "ch.qos.logback",
+      "artifactId": "logback-core",
+      "version": "1.5.38",
+      "packageName": "ch.qos.logback:logback-core",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.ethlo.time",
+      "artifactId": "itu",
+      "version": "1.14.0",
+      "packageName": "com.ethlo.time:itu",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.fasterxml.jackson.core",
+      "artifactId": "jackson-annotations",
+      "version": "2.21",
+      "packageName": "com.fasterxml.jackson.core:jackson-annotations",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.fasterxml",
+      "artifactId": "classmate",
+      "version": "1.7.3",
+      "packageName": "com.fasterxml:classmate",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.github.victools",
+      "artifactId": "jsonschema-generator",
+      "version": "5.0.0",
+      "packageName": "com.github.victools:jsonschema-generator",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.github.victools",
+      "artifactId": "jsonschema-module-jackson",
+      "version": "5.0.0",
+      "packageName": "com.github.victools:jsonschema-module-jackson",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.github.victools",
+      "artifactId": "jsonschema-module-swagger-2",
+      "version": "5.0.0",
+      "packageName": "com.github.victools:jsonschema-module-swagger-2",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.google.errorprone",
+      "artifactId": "error_prone_annotations",
+      "version": "2.49.0",
+      "packageName": "com.google.errorprone:error_prone_annotations",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.julien-dubois.bootui",
+      "artifactId": "bootui-core",
+      "version": "1.17.0",
+      "packageName": "com.julien-dubois.bootui:bootui-core",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.julien-dubois.bootui",
+      "artifactId": "bootui-engine",
+      "version": "1.17.0",
+      "packageName": "com.julien-dubois.bootui:bootui-engine",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.julien-dubois.bootui",
+      "artifactId": "bootui-spring-autoconfigure",
+      "version": "1.17.0",
+      "packageName": "com.julien-dubois.bootui:bootui-spring-autoconfigure",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.julien-dubois.bootui",
+      "artifactId": "bootui-spring-boot-starter",
+      "version": "1.17.0",
+      "packageName": "com.julien-dubois.bootui:bootui-spring-boot-starter",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.julien-dubois.bootui",
+      "artifactId": "bootui-spring-sample-app",
+      "version": "1.17.0",
+      "packageName": "com.julien-dubois.bootui:bootui-spring-sample-app",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.julien-dubois.bootui",
+      "artifactId": "bootui-ui",
+      "version": "1.17.0",
+      "packageName": "com.julien-dubois.bootui:bootui-ui",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.networknt",
+      "artifactId": "json-schema-validator",
+      "version": "3.0.1",
+      "packageName": "com.networknt:json-schema-validator",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.opencsv",
+      "artifactId": "opencsv",
+      "version": "5.12.0",
+      "packageName": "com.opencsv:opencsv",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.sun.istack",
+      "artifactId": "istack-commons-runtime",
+      "version": "4.1.2",
+      "packageName": "com.sun.istack:istack-commons-runtime",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "com.zaxxer",
+      "artifactId": "HikariCP",
+      "version": "7.0.2",
+      "packageName": "com.zaxxer:HikariCP",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "commons-io",
+      "artifactId": "commons-io",
+      "version": "2.22.0",
+      "packageName": "commons-io:commons-io",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "commons-logging",
+      "artifactId": "commons-logging",
+      "version": "1.3.6",
+      "packageName": "commons-logging:commons-logging",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.lettuce",
+      "artifactId": "lettuce-core",
+      "version": "7.5.2.RELEASE",
+      "packageName": "io.lettuce:lettuce-core",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-buffer",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-buffer",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-codec-base",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-codec-base",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-codec-classes-quic",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-codec-classes-quic",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-codec-compression",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-codec-compression",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-codec-dns",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-codec-dns",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-codec-http",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-codec-http",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-codec-http2",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-codec-http2",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-codec-http3",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-codec-http3",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-codec-native-quic",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-codec-native-quic",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-codec-socks",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-codec-socks",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-common",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-common",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-handler",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-handler",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-handler-proxy",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-handler-proxy",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-resolver",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-resolver",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-resolver-dns",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-resolver-dns",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-resolver-dns-classes-macos",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-resolver-dns-classes-macos",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-resolver-dns-native-macos",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-resolver-dns-native-macos",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-transport",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-transport",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-transport-classes-epoll",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-transport-classes-epoll",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-transport-native-epoll",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-transport-native-epoll",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.netty",
+      "artifactId": "netty-transport-native-unix-common",
+      "version": "4.2.17.Final",
+      "packageName": "io.netty:netty-transport-native-unix-common",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "io.swagger.core.v3",
+      "artifactId": "swagger-annotations-jakarta",
+      "version": "2.2.38",
+      "packageName": "io.swagger.core.v3:swagger-annotations-jakarta",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "jakarta.activation",
+      "artifactId": "jakarta.activation-api",
+      "version": "2.1.4",
+      "packageName": "jakarta.activation:jakarta.activation-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "jakarta.annotation",
+      "artifactId": "jakarta.annotation-api",
+      "version": "3.0.0",
+      "packageName": "jakarta.annotation:jakarta.annotation-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "jakarta.inject",
+      "artifactId": "jakarta.inject-api",
+      "version": "2.0.1",
+      "packageName": "jakarta.inject:jakarta.inject-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "jakarta.mail",
+      "artifactId": "jakarta.mail-api",
+      "version": "2.1.5",
+      "packageName": "jakarta.mail:jakarta.mail-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "jakarta.persistence",
+      "artifactId": "jakarta.persistence-api",
+      "version": "3.2.0",
+      "packageName": "jakarta.persistence:jakarta.persistence-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "jakarta.transaction",
+      "artifactId": "jakarta.transaction-api",
+      "version": "2.0.1",
+      "packageName": "jakarta.transaction:jakarta.transaction-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "jakarta.validation",
+      "artifactId": "jakarta.validation-api",
+      "version": "3.1.1",
+      "packageName": "jakarta.validation:jakarta.validation-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "jakarta.xml.bind",
+      "artifactId": "jakarta.xml.bind-api",
+      "version": "4.0.5",
+      "packageName": "jakarta.xml.bind:jakarta.xml.bind-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "javax.cache",
+      "artifactId": "cache-api",
+      "version": "1.1.1",
+      "packageName": "javax.cache:cache-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "javax.xml.bind",
+      "artifactId": "jaxb-api",
+      "version": "2.3.1",
+      "packageName": "javax.xml.bind:jaxb-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "net.bytebuddy",
+      "artifactId": "byte-buddy",
+      "version": "1.18.11",
+      "packageName": "net.bytebuddy:byte-buddy",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.antlr",
+      "artifactId": "antlr-runtime",
+      "version": "3.5.3",
+      "packageName": "org.antlr:antlr-runtime",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.antlr",
+      "artifactId": "antlr4-runtime",
+      "version": "4.13.2",
+      "packageName": "org.antlr:antlr4-runtime",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.antlr",
+      "artifactId": "ST4",
+      "version": "4.3.4",
+      "packageName": "org.antlr:ST4",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.apache.commons",
+      "artifactId": "commons-collections4",
+      "version": "4.5.0",
+      "packageName": "org.apache.commons:commons-collections4",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.apache.commons",
+      "artifactId": "commons-lang3",
+      "version": "3.20.0",
+      "packageName": "org.apache.commons:commons-lang3",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.apache.commons",
+      "artifactId": "commons-text",
+      "version": "1.15.0",
+      "packageName": "org.apache.commons:commons-text",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.apache.logging.log4j",
+      "artifactId": "log4j-api",
+      "version": "2.25.5",
+      "packageName": "org.apache.logging.log4j:log4j-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.apache.logging.log4j",
+      "artifactId": "log4j-to-slf4j",
+      "version": "2.25.5",
+      "packageName": "org.apache.logging.log4j:log4j-to-slf4j",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.eclipse.angus",
+      "artifactId": "angus-activation",
+      "version": "2.0.3",
+      "packageName": "org.eclipse.angus:angus-activation",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.eclipse.angus",
+      "artifactId": "angus-core",
+      "version": "2.0.5",
+      "packageName": "org.eclipse.angus:angus-core",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.eclipse.angus",
+      "artifactId": "angus-mail",
+      "version": "2.0.5",
+      "packageName": "org.eclipse.angus:angus-mail",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.eclipse.angus",
+      "artifactId": "imap",
+      "version": "2.0.5",
+      "packageName": "org.eclipse.angus:imap",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.eclipse.angus",
+      "artifactId": "logging-mailhandler",
+      "version": "2.0.5",
+      "packageName": "org.eclipse.angus:logging-mailhandler",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.eclipse.angus",
+      "artifactId": "pop3",
+      "version": "2.0.5",
+      "packageName": "org.eclipse.angus:pop3",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.eclipse.angus",
+      "artifactId": "smtp",
+      "version": "2.0.5",
+      "packageName": "org.eclipse.angus:smtp",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.flywaydb",
+      "artifactId": "flyway-core",
+      "version": "12.4.0",
+      "packageName": "org.flywaydb:flyway-core",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.flywaydb",
+      "artifactId": "flyway-database-postgresql",
+      "version": "12.4.0",
+      "packageName": "org.flywaydb:flyway-database-postgresql",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.flywaydb",
+      "artifactId": "flyway-mysql",
+      "version": "12.4.0",
+      "packageName": "org.flywaydb:flyway-mysql",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.glassfish.jaxb",
+      "artifactId": "jaxb-core",
+      "version": "4.0.9",
+      "packageName": "org.glassfish.jaxb:jaxb-core",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.glassfish.jaxb",
+      "artifactId": "jaxb-runtime",
+      "version": "4.0.9",
+      "packageName": "org.glassfish.jaxb:jaxb-runtime",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.glassfish.jaxb",
+      "artifactId": "txw2",
+      "version": "4.0.9",
+      "packageName": "org.glassfish.jaxb:txw2",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.hdrhistogram",
+      "artifactId": "HdrHistogram",
+      "version": "2.2.2",
+      "packageName": "org.hdrhistogram:HdrHistogram",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.hibernate.validator",
+      "artifactId": "hibernate-validator",
+      "version": "9.1.3.Final",
+      "packageName": "org.hibernate.validator:hibernate-validator",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.jboss.logging",
+      "artifactId": "jboss-logging",
+      "version": "3.6.3.Final",
+      "packageName": "org.jboss.logging:jboss-logging",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.jctools",
+      "artifactId": "jctools-core",
+      "version": "4.0.6",
+      "packageName": "org.jctools:jctools-core",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.osgi",
+      "artifactId": "org.osgi.service.component.annotations",
+      "version": "1.5.1",
+      "packageName": "org.osgi:org.osgi.service.component.annotations",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.osgi",
+      "artifactId": "osgi.annotation",
+      "version": "8.1.0",
+      "packageName": "org.osgi:osgi.annotation",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.slf4j",
+      "artifactId": "jul-to-slf4j",
+      "version": "2.0.18",
+      "packageName": "org.slf4j:jul-to-slf4j",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.slf4j",
+      "artifactId": "slf4j-api",
+      "version": "2.0.18",
+      "packageName": "org.slf4j:slf4j-api",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-autoconfigure-model-chat-client",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-autoconfigure-model-chat-client",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-autoconfigure-model-chat-memory",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-autoconfigure-model-chat-memory",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-autoconfigure-model-chat-observation",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-autoconfigure-model-chat-observation",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-autoconfigure-model-embedding-observation",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-autoconfigure-model-embedding-observation",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-autoconfigure-model-ollama",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-autoconfigure-model-ollama",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-autoconfigure-model-tool",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-autoconfigure-model-tool",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-autoconfigure-retry",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-autoconfigure-retry",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-client-chat",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-client-chat",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-commons",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-commons",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-model",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-model",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-ollama",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-ollama",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-retry",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-retry",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-starter-model-ollama",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-starter-model-ollama",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.ai",
+      "artifactId": "spring-ai-template-st",
+      "version": "2.0.1",
+      "packageName": "org.springframework.ai:spring-ai-template-st",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.data",
+      "artifactId": "spring-data-commons",
+      "version": "4.1.1",
+      "packageName": "org.springframework.data:spring-data-commons",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.data",
+      "artifactId": "spring-data-jpa",
+      "version": "4.1.1",
+      "packageName": "org.springframework.data:spring-data-jpa",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.data",
+      "artifactId": "spring-data-keyvalue",
+      "version": "4.1.1",
+      "packageName": "org.springframework.data:spring-data-keyvalue",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.data",
+      "artifactId": "spring-data-redis",
+      "version": "4.1.1",
+      "packageName": "org.springframework.data:spring-data-redis",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.springframework.retry",
+      "artifactId": "spring-retry",
+      "version": "2.0.13",
+      "packageName": "org.springframework.retry:spring-retry",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "org.yaml",
+      "artifactId": "snakeyaml",
+      "version": "2.6",
+      "packageName": "org.yaml:snakeyaml",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "redis.clients.authentication",
+      "artifactId": "redis-authx-core",
+      "version": "0.1.1-beta2",
+      "packageName": "redis.clients.authentication:redis-authx-core",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "tools.jackson.core",
+      "artifactId": "jackson-core",
+      "version": "3.1.5",
+      "packageName": "tools.jackson.core:jackson-core",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    },
+    {
+      "groupId": "tools.jackson.core",
+      "artifactId": "jackson-databind",
+      "version": "3.1.5",
+      "packageName": "tools.jackson.core:jackson-databind",
+      "source": "Maven metadata",
+      "vulnerabilityCount": 0,
+      "highestSeverity": "NONE",
+      "vulnerabilities": [],
+      "assessment": {
+        "queryComplete": false,
+        "detailAssessmentComplete": false
+      }
+    }
+  ],
+  "evidence": {
+    "usable": false,
+    "coverageComplete": false,
+    "limitations": [
+      "Assessment evidence is unavailable."
+    ]
+  }
+}

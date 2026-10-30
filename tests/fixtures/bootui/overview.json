@@ -1,0 +1,26 @@
+{
+  "bootUiVersion": "x",
+  "applicationName": "bootui-sample",
+  "frameworkName": "Spring Boot",
+  "frameworkVersion": "x",
+  "javaVersion": "x",
+  "javaVendor": "Amazon.com Inc.",
+  "activeProfiles": [
+    "dev"
+  ],
+  "defaultProfiles": [
+    "dev"
+  ],
+  "webApplicationType": "SERVLET",
+  "serverPort": 8013,
+  "managementPort": null,
+  "contextPath": "",
+  "startupTimeMillis": 0,
+  "activation": {
+    "enabled": true,
+    "localhostOnly": true,
+    "reason": "Enabled by active profile 'dev'",
+    "warnings": []
+  },
+  "openApiUrl": null
+}

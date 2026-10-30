@@ -1,0 +1,84 @@
+{
+  "name": "application",
+  "status": "UP",
+  "details": null,
+  "components": [
+    {
+      "name": "db",
+      "status": "UP",
+      "details": {
+        "database": "H2",
+        "validationQuery": "isValid()"
+      },
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    },
+    {
+      "name": "diskSpace",
+      "status": "UP",
+      "details": {
+        "total": 988310138880,
+        "free": 86565769216,
+        "threshold": 10485760,
+        "path": "/path",
+        "exists": true
+      },
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    },
+    {
+      "name": "livenessState",
+      "status": "UP",
+      "details": {},
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    },
+    {
+      "name": "ping",
+      "status": "UP",
+      "details": {},
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    },
+    {
+      "name": "readinessState",
+      "status": "UP",
+      "details": {},
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    },
+    {
+      "name": "ssl",
+      "status": "UP",
+      "details": {
+        "expiringChains": [],
+        "invalidChains": [],
+        "validChains": []
+      },
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    }
+  ],
+  "available": true,
+  "unavailableReason": null,
+  "guidanceReason": null,
+  "setup": []
+}

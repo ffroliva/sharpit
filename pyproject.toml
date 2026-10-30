@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sharpit"
+dynamic = ["version"]
+description = "Embedded, local-only developer console for Python apps (a port of BootUI)."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.12"
+dependencies = ["starlette>=0.40", "packaging>=23"]
+
+[project.optional-dependencies]
+test = ["fastapi>=0.115", "pydantic-settings>=2.4", "uvicorn>=0.30", "httpx>=0.27", "pytest>=8", "pytest-timeout>=2.3"]
+
+[dependency-groups]
+dev = ["ruff>=0.6", "pyright>=1.1.380"]
+
+[tool.hatch.version]
+path = "src/sharpit/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sharpit"]
+include = ["src/sharpit/**"]  # covers src/sharpit/ui/static/**
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+include = ["src/sharpit"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 60
