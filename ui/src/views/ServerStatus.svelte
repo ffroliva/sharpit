@@ -1,5 +1,7 @@
 <script lang="ts">
   import { ApiError, get, post } from '../lib/api';
+  import { firstSentence } from '../lib/format';
+  import { scrollable } from '../lib/scrollable';
   import type { Panel, ServerStatus } from '../lib/types';
 
   /** MCP server and CLI share one status shape; only MCP has an on/off toggle. */
@@ -36,6 +38,15 @@
   }
 
   const title = $derived(kind === 'cli' ? 'CLI' : 'MCP server');
+  // the endpoint is relative to this host; a client needs the whole URL
+  const url = $derived(data ? new URL(data.endpoint, location.href).href : '');
+  const connect = $derived(
+    kind === 'cli'
+      ? `curl -X POST ${url}/tools/get_overview -H "content-type: application/json" -d "{}"`
+      : `claude mcp add --transport http sharpit ${url}`,
+  );
+  /** The tool text is written for an LLM; backticks mark code. Split so code renders as code. */
+  const segments = (text: string) => text.split('`').map((t, i) => ({ t, code: i % 2 === 1 }));
   const average = (d: ServerStatus) => (d.callCount ? Math.round(d.totalLatencyMillis / d.callCount) : 0);
 </script>
 
@@ -51,14 +62,15 @@
       <button
         class={data.enabled ? '' : 'primary'}
         onclick={toggle}
-        disabled={toggling || panel.readOnly}
+        disabled={panel.readOnly}
+        aria-disabled={toggling || undefined}
         title={panel.readOnly ? (panel.readOnlyReason ?? undefined) : undefined}
       >
         {toggling ? 'Switching…' : data.enabled ? 'Turn off' : 'Turn on'}
       </button>
     {/if}
   </header>
-  <div class="panel-body" tabindex="0" role="region" aria-label={title}>
+  <div class="panel-body" use:scrollable role="region" aria-label={title}>
     {#if panel.readOnly}<p class="notice warn">{panel.readOnlyReason}</p>{/if}
     {#if error}
       <div class="empty" role="alert"><p class="lead danger">Could not load the {title} status</p><p>{error}</p></div>
@@ -67,7 +79,12 @@
     {:else}
       <section class="block">
         <dl class="facts">
-          <dt>Endpoint</dt><dd class="mono">{data.endpoint}</dd>
+          <dt>Endpoint</dt><dd class="mono">{url}</dd>
+          <dt>{kind === 'cli' ? 'Try it' : 'Connect'}</dt>
+          <dd>
+            <code class="cmd">{connect}</code>
+            <span class="muted sm">{kind === 'cli' ? 'Every tool below is POST …/tools/<name> with its arguments as JSON.' : 'Claude Code; other MCP clients take the same URL over streamable HTTP.'}</span>
+          </dd>
           {#if data.configuredMode}
             <dt>Configured</dt>
             <dd>
@@ -101,8 +118,13 @@
           <tbody>
             {#each data.tools as t (t.name)}
               <tr>
-                <td class="mono">{kind === 'cli' ? `sharpit ${t.command ?? t.name}` : t.name}</td>
-                <td class="desc">{t.description}</td>
+                <td class="mono">{t.name}</td>
+                <td class="desc">
+                  <details>
+                    <summary>{#each segments(firstSentence(t.description)) as seg}{#if seg.code}<code>{seg.t}</code>{:else}{seg.t}{/if}{/each}</summary>
+                    <p>{#each segments(t.description) as seg}{#if seg.code}<code>{seg.t}</code>{:else}{seg.t}{/if}{/each}</p>
+                  </details>
+                </td>
                 <td>
                   <span class="mono">{t.panel}</span>
                   {#if !t.panelEnabled}<span class="tag muted">disabled</span>
@@ -120,5 +142,9 @@
 
 <style>
   .desc { max-width: 72ch; padding-top: var(--s1); padding-bottom: var(--s1); }
+  .desc summary { cursor: pointer; }
+  .desc p { margin: var(--s1) 0 0; color: var(--muted); }
+  .cmd { display: block; user-select: all; overflow-wrap: anywhere; } /* one click selects the whole command */
+  dd .sm { display: block; }
   .tag { margin-left: var(--s1); }
 </style>

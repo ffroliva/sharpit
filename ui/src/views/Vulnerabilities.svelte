@@ -1,5 +1,7 @@
 <script lang="ts">
   import { ApiError, del, get, post } from '../lib/api';
+  import { scannedWhen, upgradeHint } from '../lib/format';
+  import { scrollable } from '../lib/scrollable';
   import type { Dependency, Panel, Vulnerability, VulnReport } from '../lib/types';
 
   let { panel }: { panel: Panel } = $props();
@@ -35,8 +37,13 @@
         : null,
   );
 
+  const SEVERITY = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN', 'NONE'];
+  const rank = (severity: string) => (SEVERITY.indexOf(severity) + 7) % 7; // unknown words sort last
+  // worst first, so the finding to fix next is at the top
   const findings = $derived(
-    (report?.dependencies ?? []).flatMap((dep) => dep.vulnerabilities.map((v) => ({ dep, v }))),
+    (report?.dependencies ?? [])
+      .flatMap((dep) => dep.vulnerabilities.map((v) => ({ dep, v })))
+      .sort((a, b) => rank(a.v.severity) - rank(b.v.severity)),
   );
   const active = $derived(findings.filter((f) => !f.v.dismissed).length);
 
@@ -95,7 +102,6 @@
 
   const tone = (severity: string) =>
     severity === 'CRITICAL' || severity === 'HIGH' ? 'danger' : severity === 'MEDIUM' ? 'warn' : 'muted';
-  const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   load();
 </script>
@@ -107,7 +113,7 @@
       {#if phase === 'scanning'}
         Scanning {report?.total ?? ''} packages with OSV.dev…
       {:else if phase === 'results' && report}
-        {report.scan.packagesScanned} scanned at {time(report.scan.scannedAt!)}
+        {report.scan.packagesScanned} packages scanned {scannedWhen(report.scan.scannedAt!)}
       {:else if report}
         {report.total} packages
       {/if}
@@ -118,7 +124,7 @@
     </button>
   </header>
 
-  <div class="panel-body" tabindex="0" role="region" aria-label="Vulnerabilities">
+  <div class="panel-body" use:scrollable role="region" aria-label="Vulnerabilities">
     {#if disabledReason}<p class="notice warn">{disabledReason}</p>{/if}
     {#if actionError}<p class="notice danger" role="alert">{actionError}</p>{/if}
 
@@ -130,8 +136,12 @@
       <div class="empty">
         <p class="lead">{phase === 'scanning' ? 'Scanning…' : 'Not scanned yet'}</p>
         <p class="muted">
-          Scanning sends the names and versions of the {report?.total} installed packages to OSV.dev. Nothing leaves this
-          machine until you press Scan.
+          {#if phase === 'scanning'}
+            Sending the names and versions of {report?.total} packages to OSV.dev…
+          {:else}
+            Scanning sends the names and versions of the {report?.total} installed packages to OSV.dev. Nothing leaves this
+            machine until you press Scan.
+          {/if}
         </p>
       </div>
       {@render inventory()}
@@ -163,21 +173,27 @@
       {#if findings.length > 0}
         <table>
           <thead>
-            <tr><th>Package</th><th>Advisory</th><th>Severity</th><th>Fixed in</th><th><span class="visually-hidden">Action</span></th></tr>
+            <tr><th>Package</th><th>Advisory</th><th>Severity</th><th>Fix</th><th><span class="visually-hidden">Action</span></th></tr>
           </thead>
           <tbody>
             {#each findings as { dep, v } (ruleId(dep, v))}
               <tr class:dismissed={v.dismissed}>
                 <td class="mono">{dep.packageName} {dep.version}</td>
                 <td>
-                  <span class="mono">{v.id}</span>
-                  {#if v.summary}<span class="muted"> {v.summary}</span>{/if}
+                  <a class="mono" href="https://osv.dev/vulnerability/{encodeURIComponent(v.id)}" target="_blank" rel="noreferrer">{v.id}</a>
+                  {#if v.aliases.length}<span class="mono muted sm"> {v.aliases.join(', ')}</span>{/if}
+                  {#if v.summary}<span class="line muted">{v.summary}</span>{/if}
                 </td>
                 <td>
                   <span class={v.dismissed ? 'muted' : tone(v.severity)}>{v.severity}</span>
+                  {#if v.score !== null}<span class="muted"> {v.score.toFixed(1)}</span>{/if}
                   {#if v.dismissed}<span class="tag muted">dismissed</span>{/if}
                 </td>
-                <td class="mono">{v.fixedVersions.join(', ') || '—'}</td>
+                <td>
+                  {#if upgradeHint(dep.packageName, dep.version, v.fixedVersions)}
+                    <code class="hint">{upgradeHint(dep.packageName, dep.version, v.fixedVersions)}</code>
+                  {:else}<span class="muted">No fixed version yet</span>{/if}
+                </td>
                 <td class="num">
                   <button
                     onclick={() => toggle(dep, v)}
@@ -193,17 +209,27 @@
           </tbody>
         </table>
       {/if}
+      <section class="block"><h2>Scanned packages</h2></section>
+      {@render inventory(true)}
     {/if}
   </div>
 </div>
 
-{#snippet inventory()}
+{#snippet inventory(scanned = false)}
   {#if report && report.dependencies.length > 0}
     <table>
-      <thead><tr><th>Package</th><th>Version</th></tr></thead>
+      <thead><tr><th>Package</th><th>Version</th>{#if scanned}<th>Result</th>{/if}</tr></thead>
       <tbody>
         {#each report.dependencies as dep (dep.packageName + dep.version)}
-          <tr><td class="mono">{dep.packageName}</td><td class="mono">{dep.version}</td></tr>
+          {@const open = dep.vulnerabilities.filter((v) => !v.dismissed).length}
+          <tr>
+            <td class="mono">{dep.packageName}</td><td class="mono">{dep.version}</td>
+            {#if scanned}
+              <td class={open ? tone(dep.highestSeverity) : 'muted'}>
+                {open ? `${open} known ${open === 1 ? 'vulnerability' : 'vulnerabilities'}` : 'no known issues'}
+              </td>
+            {/if}
+          </tr>
         {/each}
       </tbody>
     </table>
@@ -216,4 +242,7 @@
   .summary .tag { margin-left: var(--s2); }
   tr.dismissed td { color: var(--muted); }
   tr.dismissed .mono { text-decoration: line-through; }
+  .line { display: block; }
+  .hint { user-select: all; white-space: nowrap; } /* one click selects the whole command */
+  section.block h2 { padding-bottom: var(--s2); }
 </style>

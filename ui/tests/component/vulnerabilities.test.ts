@@ -46,6 +46,7 @@ function render(p: Panel = panel) {
 }
 const phase = () => target.querySelector('[data-phase]')?.getAttribute('data-phase');
 const button = (name: RegExp) => [...target.querySelectorAll('button')].find((b) => name.test(b.textContent ?? ''))!;
+const text = () => target.textContent!.replace(/\s+/g, ' ');
 const until = (fn: () => void) => vi.waitFor(fn, { timeout: 1000, interval: 5 });
 
 beforeEach(() => {
@@ -191,5 +192,42 @@ describe('Vulnerabilities state machine', () => {
     await until(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('Internal Server Error'));
     expect(phase()).toBe('results');
     expect(target.textContent).toContain('GHSA-h5c8-rqwp-cp95');
+  });
+});
+
+describe('Vulnerabilities copy and next steps', () => {
+  it('while scanning, says what is being sent instead of "nothing leaves this machine"', async () => {
+    fetchMock.mockResolvedValueOnce(json(200, inventory())).mockReturnValueOnce(new Promise<Response>(() => {}));
+    render();
+    await until(() => expect(phase()).toBe('never-scanned'));
+    expect(text()).toContain('Nothing leaves this machine until you press Scan.');
+    button(/Scan/).click();
+    await until(() => expect(phase()).toBe('scanning'));
+    const total = inventory().total;
+    expect(text()).toContain(`Sending the names and versions of ${total} packages to OSV.dev`);
+    expect(text()).not.toContain('Nothing leaves this machine');
+  });
+
+  it('a clean result still lists what was scanned', async () => {
+    const clean = scanned(true);
+    fetchMock.mockResolvedValue(json(200, { ...clean, dependencies: inventory().dependencies }));
+    render();
+    await until(() => expect(phase()).toBe('results'));
+    expect(text()).toContain('No known vulnerabilities');
+    const listed = [...target.querySelectorAll('tbody tr td:first-child')].map((td) => td.textContent);
+    expect(listed).toEqual(inventory().dependencies.map((d) => d.packageName));
+  });
+
+  it('a finding links to OSV.dev and says how to upgrade', async () => {
+    const r = scanned();
+    r.dependencies[0]!.vulnerabilities[0]!.aliases = ['CVE-2024-22195'];
+    fetchMock.mockResolvedValue(json(200, r));
+    render();
+    await until(() => expect(phase()).toBe('results'));
+    const link = target.querySelector<HTMLAnchorElement>('a[href="https://osv.dev/vulnerability/GHSA-h5c8-rqwp-cp95"]');
+    expect(link?.textContent).toBe('GHSA-h5c8-rqwp-cp95');
+    expect(text()).toContain('CVE-2024-22195');
+    expect(text()).toContain('8.8');
+    expect(text()).toContain('pip install "jinja2>=3.1.3"');
   });
 });
