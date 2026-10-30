@@ -19,6 +19,7 @@ import pytest
 from examples.fastapi_sample.app import SignedSessionMiddleware, create_app
 from fastapi.testclient import TestClient
 
+from conftest import get_paths
 from engine.vulns.vulnfakes import FakeOpener
 from fastapi import FastAPI
 from sharpit.engine.collectors.vulns.dismissals import DismissalStore
@@ -53,10 +54,17 @@ def _opener() -> FakeOpener:
 
 
 @pytest.fixture
-def corpus_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[FastAPI, Any]:
+def corpus_app(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],  # requested so install()'s own output is captured and checked by the test
+) -> tuple[FastAPI, Any]:
+    caplog.set_level(logging.DEBUG)  # before create_app(): anything install() logs is checked too
     for name, value in {
         "API_TOKEN": SENTINEL,
         "DB_PASSWORD": SENTINEL,
+        "GREETING": SENTINEL,  # Settings.greeting: a SecretStr under a harmless name
         "DATABASE_URL": f"postgres://u:{SENTINEL}@h/db",
         "FOO_VALUE": JWT,
     }.items():
@@ -107,12 +115,10 @@ class Recorder:
 
 
 def _sweep(call: Recorder, ctx: Any) -> None:
-    # every route, GETs with q probes
+    # every GET route from the sub-app's own route table, with q probes
     for probe in ("", *PROBES):
-        query = f"?q={probe}" if probe else ""
-        for path in ("/sharpit", "/sharpit/", f"{API}/panels", f"{API}/overview", f"{API}/cli", f"{API}/mcp-server",
-                     f"{API}/dismissed-rules", f"{API}/vulnerabilities", f"{API}/config", f"{API}/loggers",
-                     f"{API}/mappings/flat", f"{API}/beans"):  # fmt: skip
+        query = f"?q={probe}&limit=500" if probe else ""
+        for path in get_paths():
             call("GET", path + query)
         for path in (f"{API}/config", f"{API}/beans"):  # masking happens before filtering: no hit on a secret
             page = call("GET", f"{path}?q={probe}").json()["page"] if probe else None
@@ -183,25 +189,24 @@ def test_sentinel_never_leaks(
     corpus_app: tuple[FastAPI, Any], caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
 ):
     app, ctx = corpus_app
-    caplog.set_level(logging.DEBUG)
     with TestClient(app, base_url="http://localhost", client=LOCAL, follow_redirects=False) as client:
         call = Recorder(client)
         _sweep(call, ctx)
-    assert {400, 401, 403, 404, 405, 409, 413} <= call.statuses, sorted(call.statuses)
 
-    # the plants really reached sharpit (else the sweep proves nothing)
-    config = {p["name"]: p for p in client.get(f"{API}/config?limit=500").json()["properties"]}
-    for name in ("API_TOKEN", "DB_PASSWORD", "FOO_VALUE"):
-        assert config[name]["masked"] is True, config[name]
-    # API_TOKEN is the Settings.api_token SecretStr row (settings entries win over raw environ): only the secret type
-    # masks its harmless default "dev-api-token"
-    assert config["API_TOKEN"]["defaultValue"] == MASK
-    assert config["DATABASE_URL"]["value"] != f"postgres://u:{SENTINEL}@h/db"
-    suggestions = client.get(f"{API}/config?q=jwt_secret").json()
-    defaults = [p["defaultValue"] for p in suggestions["properties"] + suggestions["propertySuggestions"]]
-    assert defaults and all(d == MASK for d in defaults), defaults
-    beans = client.get(f"{API}/beans?q=SignedSession&limit=500").json()["beans"]
-    assert [b["type"] for b in beans] == ["examples.fastapi_sample.app:SignedSessionMiddleware"]
+        # the plants really reached sharpit (else the sweep proves nothing); recorded like every other response
+        config = {p["name"]: p for p in call("GET", f"{API}/config?limit=500").json()["properties"]}
+        for name in ("API_TOKEN", "DB_PASSWORD", "FOO_VALUE", "GREETING"):
+            assert config[name]["masked"] is True, config[name]
+        # GREETING's name and value look harmless: only the SecretStr type masks the value and the "hello" default
+        assert config["GREETING"]["defaultValue"] == MASK
+        assert config["DATABASE_URL"]["value"] != f"postgres://u:{SENTINEL}@h/db"
+        suggestions = call("GET", f"{API}/config?q=jwt_secret").json()
+        defaults = [p["defaultValue"] for p in suggestions["properties"] + suggestions["propertySuggestions"]]
+        assert defaults and all(d == MASK for d in defaults), defaults
+        beans = call("GET", f"{API}/beans?q=SignedSession&limit=500").json()["beans"]
+        assert [b["type"] for b in beans] == ["examples.fastapi_sample.app:SignedSessionMiddleware"]
+    assert {400, 401, 403, 404, 405, 409, 413} <= call.statuses, sorted(call.statuses)
+    assert any("GET /sharpit/assets/app.js -> 404" in seen for seen in call.seen)  # the route-table sweep
 
     captured = capsys.readouterr()
     outputs = {

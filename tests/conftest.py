@@ -21,6 +21,26 @@ def golden(name: str) -> dict[str, Any]:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
 
 
+_PATH_PARAMS = {"file": "app.js"}  # a new path parameter fails collection until it gets a value here
+
+
+def get_paths() -> list[str]:
+    """Every sharpit GET path, read from the sample app's own sub-app route table, plus the bare mount path."""
+    from examples.fastapi_sample.app import create_app
+    from starlette.routing import Route
+
+    from sharpit.fastapi.adapter import SharpitMount
+
+    mount = next(r for r in create_app(show_banner=False).router.routes if isinstance(r, SharpitMount))
+    assert all(isinstance(r, Route) for r in mount.routes)  # a Mount or WebSocketRoute would escape the sweep
+    paths = ["/sharpit"]  # the bare mount path is the SharpitMount itself, not a sub-app route
+    for route in mount.routes:
+        if "GET" in (route.methods or ()):
+            params = {name: _PATH_PARAMS[name] for name in route.param_convertors}
+            paths.append("/sharpit" + route.path_format.format(**params))
+    return paths
+
+
 def _snapshot(root: Path) -> dict[str, tuple[int, int] | None]:
     """Every file and directory under root as path -> (mtime_ns, size); directories map to None."""
     snap: dict[str, tuple[int, int] | None] = {}

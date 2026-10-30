@@ -16,6 +16,7 @@ from examples.fastapi_sample.app import create_app
 from fastapi.testclient import TestClient
 
 from conftest import FIXTURES, SideEffectGuard, golden
+from fastapi import FastAPI
 from sharpit import install
 
 LOCAL = ("127.0.0.1", 50000)
@@ -55,20 +56,31 @@ DEVIATIONS: dict[str, dict[str, str]] = {
 
 
 def keys(value: object, prefix: str = "") -> set[str]:
-    """Every dotted key path in ``value``; list items share one ``[]`` segment (their keys are unioned)."""
+    """Every dotted key path in ``value``; list items share one ``[]`` segment. Every object in one list must have the
+    same keys (every DTO key is emitted, nulls included), so the union never hides an item missing a key."""
     found: set[str] = set()
     if isinstance(value, dict):
         for key, item in value.items():
             path = f"{prefix}.{key}" if prefix else str(key)
             found |= {path} | keys(item, path)
     elif isinstance(value, list):
+        shapes = {frozenset(item) for item in value if isinstance(item, dict)}
+        assert len(shapes) <= 1, f"{prefix}[] items differ in keys: {sorted(map(sorted, shapes))}"
         for item in value:
             found |= keys(item, prefix + "[]")
     return found
 
 
 def test_keys_is_recursive():
-    assert keys({"a": [{"b": 1}, {"c": {"d": None}}], "e": []}) == {"a", "a[].b", "a[].c", "a[].c.d", "e"}
+    assert keys({"a": [{"b": 1, "c": {"d": None}}, {"b": 2, "c": None}], "e": []}) == {
+        "a",
+        "a[].b",
+        "a[].c",
+        "a[].c.d",
+        "e",
+    }
+    with pytest.raises(AssertionError, match=r"a\[\] items differ in keys"):
+        keys({"a": [{"b": 1}, {"b": 2, "c": 3}]})
 
 
 @pytest.fixture(scope="module")
@@ -117,12 +129,21 @@ def test_install_budget(no_side_effects: SideEffectGuard):
     # install() on the sample app, sockets blocked. The sample is built inactive (its own install() only mounts the 404
     # stub), so the timed call is the full active install on a host with every panel's material in place. Building the
     # host app itself (FastAPI's per-route pydantic schemas) is the host's cost, not install()'s, and is not timed.
+    apps: list[FastAPI] = []
+
     def run() -> float:
         app = create_app(enabled="OFF")
         start = time.perf_counter()
         install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
-        return time.perf_counter() - start
+        elapsed = time.perf_counter() - start
+        apps.append(app)
+        return elapsed
 
     runs = [run() for _ in range(5)]
     assert median(runs) <= 0.050, [f"{r * 1000:.1f} ms" for r in runs]
     assert no_side_effects.violations == []
+    no_side_effects.unblock_network()  # timing done; TestClient's Windows loop connects a self-pipe socketpair
+    for app in apps:  # the timed install really mounted an active sharpit
+        assert (
+            TestClient(app, base_url="http://localhost", client=LOCAL).get("/sharpit/api/overview").status_code == 200
+        )

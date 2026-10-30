@@ -15,10 +15,9 @@ from typing import Any
 import pytest
 from examples.fastapi_sample.app import create_app
 from fastapi.testclient import TestClient
-from starlette.routing import Route
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from conftest import SideEffectGuard
+from conftest import SideEffectGuard, get_paths
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.guard import (
@@ -32,7 +31,6 @@ from sharpit.engine.guard import (
 from sharpit.engine.mcp import DISABLED_MESSAGE
 from sharpit.engine.panels import PANELS
 from sharpit.engine.tools import TOOLS
-from sharpit.fastapi.adapter import SharpitMount
 
 LOCAL = ("127.0.0.1", 50000)
 REMOTE = ("10.0.0.5", 50000)
@@ -117,8 +115,6 @@ def test_guard_matrix(
     remote_access: bool,
     outcome: str,
 ):
-    if row == "session" and variant == "remote-cookie":
-        pytest.skip("spec §7.6: the session endpoint is reached with the bearer header")
     resp = _send(_client(_app(remote_access), peer), method, path, headers)
     outcome = _OUTCOME_ALIASES.get(outcome, outcome)
     if outcome == "token":
@@ -320,26 +316,7 @@ def test_inactive_is_404_everywhere(options: dict[str, str], profiles: str | Non
 # --- no side effects on any GET, read from the sub-app's own route table -------------------------------------------
 
 
-def _sharpit_routes(app: FastAPI) -> list[Route]:
-    mount = next(r for r in app.router.routes if isinstance(r, SharpitMount))
-    return [r for r in mount.routes if isinstance(r, Route)]
-
-
-PARAMS = {"file": "app.js"}  # a new path parameter fails collection until it gets a value here
-
-
-def _get_paths() -> list[str]:
-    app = create_app(show_banner=False)
-    paths = ["/sharpit"]  # the bare mount path is the SharpitMount itself, not a sub-app route
-    for route in _sharpit_routes(app):
-        if "GET" in (route.methods or ()):
-            paths.append(
-                "/sharpit" + route.path_format.format(**{name: PARAMS[name] for name in route.param_convertors})
-            )
-    return paths
-
-
-GET_PATHS = _get_paths()
+GET_PATHS = get_paths()
 
 
 def test_get_route_table_is_complete():

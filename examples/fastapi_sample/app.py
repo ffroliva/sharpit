@@ -27,11 +27,12 @@ log = logging.getLogger("fastapi_sample")
 
 
 class Settings(BaseSettings):
-    """Read from the environment: ``APP_NAME``, ``DATABASE_URL``, ``API_TOKEN``, ``DEBUG``."""
+    """Read from the environment: ``APP_NAME``, ``DATABASE_URL``, ``API_TOKEN``, ``GREETING``, ``DEBUG``."""
 
     app_name: str = "fastapi-sample"
     database_url: str = "sqlite:///./sample.db"
     api_token: SecretStr = SecretStr("dev-api-token")
+    greeting: SecretStr = SecretStr("hello")  # a harmless name: only the SecretStr type marks it secret
     debug: bool = False
 
 
