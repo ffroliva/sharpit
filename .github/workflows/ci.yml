@@ -1,7 +1,7 @@
 name: ci
 on:
   push:
-    branches: [mvp, main]
+    branches: [master, mvp]
   pull_request:
 
 jobs:
@@ -46,3 +46,26 @@ jobs:
           node-version: 22
       - run: npm ci && npm run build
       - run: git diff --exit-code src/sharpit/ui/static
+
+  vitest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm test
+
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build --out-dir "$RUNNER_TEMP/dist"
+      - run: |
+          uv venv "$RUNNER_TEMP/smoke" --python 3.12
+          uv pip install --python "$RUNNER_TEMP/smoke/bin/python" "$RUNNER_TEMP"/dist/sharpit-*.whl fastapi pydantic-settings uvicorn httpx
+          PYTHONPATH=. "$RUNNER_TEMP/smoke/bin/python" scripts/ci/wheel_smoke.py
