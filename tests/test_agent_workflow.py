@@ -33,9 +33,29 @@ def test_skill_frontmatter_name_matches_directory(skill: Path) -> None:
     assert name and name.group(1) == skill.parent.name
 
 
+BANNED = ("/gflow:", "origin/develop", "reCAPTCHA", "Sonar")
+
+
 def test_no_foreign_command_namespace() -> None:
     files = [*COMMANDS, *SKILLS, ROOT / ".claude" / "README.md", ROOT / "skills" / "README.md"]
     files += [p for p in (ROOT / "AGENTS.md", ROOT / "CLAUDE.md", ROOT / "GEMINI.md") if p.is_file()]
-    files += sorted((ROOT / "docs" / "development").glob("*.md"))
-    offenders = [str(p.relative_to(ROOT)) for p in files if "/gflow:" in p.read_text(encoding="utf-8")]
+    files += sorted((ROOT / "docs").rglob("*.md"))
+    offenders = []
+    for path in files:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if path.name == "README.md" and path.parent.name == "skills" and line.startswith("| "):
+                continue  # the provenance table names what was dropped, on purpose
+            offenders += [f"{path.relative_to(ROOT)}:{number}: {word}" for word in BANNED if word in line]
     assert offenders == []
+
+
+def test_agents_index_matches_commands() -> None:
+    text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    index = text.split("## Skills index", 1)[1].split("\n## ", 1)[0]
+    listed = {
+        name
+        for row in index.splitlines()
+        if row.startswith("| `")
+        for name in re.findall(r"`([a-z-]+)`", row.split("|")[1])
+    }
+    assert listed == {p.stem for p in COMMANDS}

@@ -45,3 +45,5 @@ making them cheaper is fine, removing or narrowing them is weakening.
 Refreshing the baseline (`refresh --source ci|fleet --commit <sha>`) and editing the exceptions file are owner
 decisions, never part of a speed fix. Re-vendoring is `python -m pytest_speed vendor <sharpit>/scripts/pytest_speed`
 run from a clean pytest-speed checkout; never hand-edit the vendored files.
+
+pytest-speed checkout: `~/.agents/skills/pytest-speed` (repo `ffroliva/pytest-speed`).
