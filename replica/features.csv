@@ -28,10 +28,10 @@ Dismiss and restore a vulnerability,vulnerabilities,should,yes,no,dismissal file
 Single-flight scan with 409 busy body,vulnerabilities,must,yes,no,
 MCP server opt-in (OFF by default) on api/mcp,mcp,must,yes,no,JSON-RPC over streamable HTTP
 MCP get_* tools for MVP panels with input schemas and caps,mcp,must,yes,no,
-MCP vulnerabilities_scan action tool gated by read-only,mcp,should,yes,no,
+MCP vulnerabilities_scan action tool gated by read-only,mcp,could,yes,skip,MCP is read-only in the MVP; scan via UI and CLI endpoint
 MCP server status panel GET /api/mcp-server,mcp,should,yes,no,
 CLI endpoint GET /api/cli and POST /api/cli/tools/{tool},cli,must,yes,no,same dispatcher as MCP
-sharpit console script with --url --token --json and exit codes,cli,must,yes,no,
+sharpit console script with --url --token --json and exit codes,cli,could,yes,skip,deferred post-MVP; endpoint kept
 Web UI shell at /sharpit consuming the contract,ui,must,yes,no,new look and feel
 UI navigation from the panel registry with unavailable/read-only states,ui,must,yes,no,
 UI panels for overview config mappings loggers beans vulnerabilities mcp-server,ui,must,yes,no,
