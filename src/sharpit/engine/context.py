@@ -23,6 +23,7 @@ class SharpitContext:
     token: str | None = None
     profiles: tuple[str, ...] = ()
     app_settings: tuple[object, ...] = ()
+    caller_module: str | None = None  # ``__name__`` of the module that called install(): the default config scan root
     single_flight: SingleFlight = field(default_factory=SingleFlight)
     installed_at: float = field(default_factory=time.monotonic)
     startup_time_ms: int | None = None

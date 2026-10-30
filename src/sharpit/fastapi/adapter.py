@@ -23,12 +23,14 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import guard
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
+from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.overview import overview_dto
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
 from sharpit.engine.masking import Exposure
+from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
-from sharpit.fastapi.http import json_response
+from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
 from sharpit.settings import SharpitSettings, load_settings
@@ -175,12 +177,23 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
     def overview(request: Request) -> Response:
         return json_response(overview_dto(ctx, request.scope))
 
+    def config(request: Request) -> Response:
+        params = request.query_params
+        try:
+            offset = parse_int_param(params.get("offset"), "offset")
+            limit = parse_int_param(params.get("limit"), "limit")
+        except BadRequest as exc:
+            return error(400, str(exc))
+        overrides_only = params.get("overridesOnly", "").strip().lower() == "true"
+        return json_response(config_report(ctx, params.get("q"), params.get("source"), overrides_only, offset, limit))
+
     return [
         Route("/", shell, methods=["GET"]),
         Route("/assets/{file}", asset, methods=["GET"]),
         Route(f"{api}/auth/session", session, methods=["POST"]),
         Route(f"{api}/panels", panels, methods=["GET"]),
         Route(f"{api}/overview", overview, methods=["GET"]),
+        Route(f"{api}/config", config, methods=["GET"]),
     ]
 
 
@@ -200,6 +213,7 @@ def _banner(ctx: SharpitContext, generated: bool) -> str:
 
 
 def install(app: Any, *, settings: Sequence[object] = (), **options: Any) -> SharpitHandle:
+    caller_module: str | None = sys._getframe(1).f_globals.get("__name__")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     sharpit_settings = load_settings(options, os.environ)
     profiles = tuple(active_profiles(sharpit_settings, os.environ))
     activation = decide(sharpit_settings, profiles, dev_server_signal(sys.argv))
@@ -211,6 +225,7 @@ def install(app: Any, *, settings: Sequence[object] = (), **options: Any) -> Sha
         token=token,
         profiles=profiles,
         app_settings=tuple(settings),
+        caller_module=caller_module,
     )
     router = app.router
     original: _Lifespan = router.lifespan_context
