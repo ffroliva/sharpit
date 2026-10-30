@@ -25,6 +25,7 @@ from sharpit.engine import guard
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report, set_level
+from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
@@ -197,6 +198,15 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
             return error(400, str(exc))
         return json_response(loggers_report(params.get("q"), offset, limit))
 
+    def mappings(request: Request) -> Response:
+        params = request.query_params
+        try:
+            offset = parse_int_param(params.get("offset"), "offset")
+            limit = parse_int_param(params.get("limit"), "limit")
+        except BadRequest as exc:
+            return error(400, str(exc))
+        return json_response(mappings_flat(ctx, params.get("q"), offset, limit))
+
     async def logger_level(request: Request) -> Response:
         try:
             body: object = await request.json()
@@ -218,6 +228,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/overview", overview, methods=["GET"]),
         Route(f"{api}/config", config, methods=["GET"]),
         Route(f"{api}/loggers", loggers, methods=["GET"]),
+        Route(f"{api}/mappings/flat", mappings, methods=["GET"]),
         Route(f"{api}/loggers/{{name:path}}", logger_level, methods=["POST"]),
     ]
 
@@ -254,7 +265,7 @@ def install(app: Any, *, settings: Sequence[object] = (), **options: Any) -> Sha
     ctx = SharpitContext(
         sharpit_settings,
         activation,
-        FastApiIntrospector(app),
+        FastApiIntrospector(app, sharpit_settings.path),
         token=token,
         profiles=profiles,
         app_settings=tuple(settings),
