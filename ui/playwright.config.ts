@@ -9,6 +9,20 @@ if (!port) throw new Error('Set SHARPIT_E2E_PORT to the app port leased via agen
 const scratch = path.join(os.tmpdir(), `sharpit-e2e-${port}`);
 const unreachable = 'http://127.0.0.1:9'; // an unstubbed scan fails fast instead of calling OSV.dev or FIRST
 
+const SERVER_ENV: Record<string, string> = {
+  // Loopback stays trusted; a request carrying X-Forwarded-For is an untrusted source that needs this token.
+  SHARPIT_ALLOW_NON_LOCALHOST: 'true',
+  SHARPIT_AUTHENTICATION_TOKEN: TOKEN,
+  // A real read-only and a real disabled panel, so the rail shows the server's reasons (§10.1).
+  SHARPIT_PANELS_MCP_SERVER_READ_ONLY: 'true',
+  SHARPIT_PANELS_CLI_ENABLED: 'false',
+  SHARPIT_STATE_DIR: path.join(scratch, 'state'),
+  SHARPIT_VULNERABILITIES_OSV_BASE_URI: unreachable,
+  SHARPIT_VULNERABILITIES_EPSS_BASE_URI: unreachable,
+  SAMPLE_MANY_LOGGERS: '1000',
+  DEBUG: 'false', // an environment value over a Settings default: Configuration marks the winning source (§10.4)
+};
+
 export default defineConfig({
   testDir: 'tests/e2e',
   outputDir: path.join(scratch, 'test-results'), // traces and failure artefacts stay out of the repo
@@ -29,14 +43,7 @@ export default defineConfig({
     timeout: 60_000,
     stdout: 'ignore',
     stderr: 'pipe',
-    env: {
-      // Loopback stays trusted; a request carrying X-Forwarded-For is an untrusted source that needs this token.
-      SHARPIT_ALLOW_NON_LOCALHOST: 'true',
-      SHARPIT_AUTHENTICATION_TOKEN: TOKEN,
-      SHARPIT_STATE_DIR: path.join(scratch, 'state'),
-      SHARPIT_VULNERABILITIES_OSV_BASE_URI: unreachable,
-      SHARPIT_VULNERABILITIES_EPSS_BASE_URI: unreachable,
-      SAMPLE_MANY_LOGGERS: '1000',
-    },
+    // serve.mjs forwards only these keys (plus what the OS and uv need): the run ignores the caller's SHARPIT_* settings.
+    env: { ...SERVER_ENV, SHARPIT_E2E_KEYS: Object.keys(SERVER_ENV).join(',') },
   },
 });

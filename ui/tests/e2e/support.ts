@@ -21,14 +21,21 @@ export async function openPanel(page: Page, id: string, q = ''): Promise<void> {
   await settled(page);
 }
 
-/** No skeleton rows, no busy region, no loading phase. */
+/** No skeleton rows, no busy region, no loading phase (a disabled panel shows its unavailable page instead). */
 export async function settled(page: Page): Promise<void> {
-  await expect(page.locator('main h1').first()).toBeVisible();
+  await expect(page.locator('main h1, main .empty .lead').first()).toBeVisible();
   await expect(page.locator('main .skeleton')).toHaveCount(0);
   await expect(page.locator('main [aria-busy="true"]')).toHaveCount(0);
   await expect(page.locator('main [data-phase="loading"]')).toHaveCount(0);
   await expect(page.locator('main', { hasText: 'Loading the dependency graph' })).toHaveCount(0);
 }
 
-/** Rows of the main data table (group header rows excluded). */
-export const dataRows = (page: Page) => page.locator('main table tbody tr:not(.group):not(.skeleton)');
+/** Rows of the main data table (group header rows excluded); also used inside the page, hence the plain CSS. */
+export const DATA_ROWS = 'main table tbody tr:not(.group):not(.skeleton)';
+export const dataRows = (page: Page) => page.locator(DATA_ROWS);
+
+/** The reasons the e2e server's registry gives (playwright.config.ts flags; strings from engine/panels.py). */
+export const REASONS = {
+  readOnly: 'Panel is read-only via SHARPIT_PANELS_MCP_SERVER_READ_ONLY=true', // read_only_reason('mcp-server', False)
+  disabled: 'Panel is disabled via SHARPIT_PANELS_CLI_ENABLED=false', // disabled_reason('cli'), mirrored by App.svelte
+};

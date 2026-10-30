@@ -1,10 +1,12 @@
 // Spec §10 check 8: light and dark themes pass axe (no serious or critical violation, WCAG 2.x A/AA) on every panel,
-// and reduced motion is honoured. Each panel is saved to screenshots/ in both themes.
+// and reduced motion is honoured. With SHOTS=1 each view is also saved to screenshots/ in both themes.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import path from 'node:path';
 import { openPanel, PANELS, settled } from './support';
 
-const SHOTS = 'tests/e2e/screenshots'; // relative to ui/, where `npm run e2e` runs
+// The committed images change only on purpose: `SHOTS=1 npm run e2e`.
+const SHOTS = process.env.SHOTS === '1' ? path.join(import.meta.dirname, 'screenshots') : null;
 
 /** The app's own settings rather than this machine's environment variables, which are not for a committed image. */
 async function appSettingsOnly(page: Page): Promise<void> {
@@ -45,8 +47,10 @@ for (const scheme of ['light', 'dark'] as const) {
       for (const v of violations.filter((x) => x.impact === 'serious' || x.impact === 'critical')) {
         found.push(`${view.name}: ${v.id} (${v.impact}) x${v.nodes.length}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`);
       }
-      await view.shot?.(page);
-      await page.screenshot({ path: `${SHOTS}/${view.name}-${scheme}.png` });
+      if (SHOTS) {
+        await view.shot?.(page);
+        await page.screenshot({ path: path.join(SHOTS, `${view.name}-${scheme}.png`) });
+      }
     }
     expect(found).toEqual([]);
   });

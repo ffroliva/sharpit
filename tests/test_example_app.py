@@ -29,3 +29,13 @@ def test_sample_adds_no_bulk_loggers_by_default(monkeypatch: pytest.MonkeyPatch,
     before = _bulk_loggers()
     create_app(show_banner=False, state_dir=str(tmp_path))
     assert _bulk_loggers() == before
+
+
+@pytest.mark.parametrize("raw", ["", "lots", "-5"])
+def test_many_loggers_flag_treats_a_bad_value_as_zero(
+    raw: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("SAMPLE_MANY_LOGGERS", raw)
+    before = _bulk_loggers()
+    create_app(show_banner=False, state_dir=str(tmp_path))
+    assert _bulk_loggers() == before

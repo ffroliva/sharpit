@@ -65,11 +65,19 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+def _int_env(name: str) -> int:
+    """A non-negative int from the environment; unset or unparsable is 0."""
+    try:
+        return max(int(os.getenv(name) or 0), 0)
+    except ValueError:
+        return 0
+
+
 def create_app(**sharpit_options: Any) -> FastAPI:
     """The sample app with sharpit installed; ``sharpit_options`` go to ``install()`` (tests pass a state dir)."""
     settings = Settings()
     # SAMPLE_MANY_LOGGERS=N adds N loggers, for the UI's large-table check (ui/tests/e2e); off by default
-    for i in range(int(os.getenv("SAMPLE_MANY_LOGGERS", "0"))):
+    for i in range(_int_env("SAMPLE_MANY_LOGGERS")):
         logging.getLogger(f"fastapi_sample.bulk.{i:04d}")
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.add_middleware(GZipMiddleware, minimum_size=1000)

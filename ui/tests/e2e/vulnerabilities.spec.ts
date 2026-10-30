@@ -1,7 +1,7 @@
 // Spec §10 check 6: every vulnerabilities state. Never-scanned is the real server; the scan states are stubbed with
 // page.route on top of the server's own report, so no scan ever reaches OSV.dev and the shapes stay the contract's.
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { openPanel } from './support';
+import { dataRows, openPanel } from './support';
 
 type Report = {
   scanningEnabled: boolean;
@@ -9,6 +9,7 @@ type Report = {
   vulnerable: number;
   severityCounts: { severity: string; count: number }[];
   scan: Record<string, unknown>;
+  evidence: { usable: boolean; coverageComplete: boolean; limitations: string[] };
   dependencies: { packageName: string; vulnerabilityCount: number; highestSeverity: string; vulnerabilities: unknown[] }[];
 };
 
@@ -44,8 +45,10 @@ function scanned(base: Report, dismissed: boolean): Report {
     message: `Scanned ${report.total} packages with OSV.dev.`,
     scannedAt: Date.now(),
     packagesScanned: report.total,
+    packagesSkipped: 0,
     vulnerabilitiesFound: dismissed ? 0 : 1,
   };
+  report.evidence = { usable: true, coverageComplete: true, limitations: [] };
   return report;
 }
 
@@ -73,7 +76,7 @@ test.describe('§10.6 vulnerabilities states', () => {
     await expect(page.locator('main')).toContainText('Not scanned yet');
     await expect(page.locator('main')).toContainText('Nothing leaves this machine until you press Scan.');
     const total = (await serverReport(page)).total;
-    await expect(page.locator('main table tbody tr')).toHaveCount(total);
+    await expect(dataRows(page)).toHaveCount(total);
     await expect(scanButton(page)).toHaveText('Scan with OSV.dev');
     await expect(scanButton(page)).toBeEnabled();
     expect(posts).toEqual([]);
@@ -131,10 +134,11 @@ test.describe('§10.6 vulnerabilities states', () => {
 
   test('results, dismissed, restored', async ({ page }) => {
     let dismissed = false;
+    const calls: string[] = [];
     await stubReport(page, (base) => scanned(base, dismissed));
     await page.route('**/api/dismissed-rules/**', async (route) => {
       const rule = decodeURIComponent(new URL(route.request().url()).pathname.split('/dismissed-rules/')[1]!);
-      expect(rule).toMatch(new RegExp(`^${ADVISORY}::pypi:`));
+      calls.push(`${route.request().method()} ${rule}`);
       dismissed = route.request().method() === 'POST';
       await route.fulfill({ json: { dismissed: dismissed ? [rule] : [] } });
     });
@@ -145,10 +149,13 @@ test.describe('§10.6 vulnerabilities states', () => {
     await row.getByRole('button', { name: new RegExp(`^Dismiss ${ADVISORY} in `) }).click();
     await expect(row).toHaveClass(/dismissed/);
     await expect(row.locator('.tag', { hasText: 'dismissed' })).toBeVisible();
+    const pkg = (await serverReport(page)).dependencies[0]!.packageName;
+    expect(calls).toEqual([`POST ${ADVISORY}::pypi:${pkg}`]);
     await expect(page.locator('main')).toContainText('No known vulnerabilities');
 
     await row.getByRole('button', { name: new RegExp(`^Restore ${ADVISORY} in `) }).click();
     await expect(row).not.toHaveClass(/dismissed/);
     await expect(page.locator('main')).toContainText('have 1 known vulnerability');
+    expect(calls).toEqual([`POST ${ADVISORY}::pypi:${pkg}`, `DELETE ${ADVISORY}::pypi:${pkg}`]);
   });
 });

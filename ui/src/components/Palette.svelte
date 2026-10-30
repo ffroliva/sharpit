@@ -70,6 +70,11 @@
     active = 0;
   });
 
+  // `close` fires a task after dialog.close(): one from the last pick must not undo a quick Ctrl+K reopen
+  function onclose() {
+    if (!dialog.open) open = false;
+  }
+
   function pick(entry: Entry) {
     location.hash =
       entry.kind === 'panel' ? href(entry.id) : href(entry.kind === 'logger' ? 'loggers' : 'config', entry.id);
@@ -102,7 +107,7 @@
   bind:this={dialog}
   class="palette"
   aria-label="Go to"
-  onclose={() => (open = false)}
+  {onclose}
   onclick={(e) => e.target === dialog && (open = false)}
 >
   <input

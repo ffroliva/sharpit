@@ -1,6 +1,6 @@
 // Spec §10 acceptance checks 1-5, 7 and 9 against the real example app (6 and 8 have their own files).
 import { expect, test } from '@playwright/test';
-import { dataRows, openPanel, PANELS, settled, TOKEN } from './support';
+import { DATA_ROWS, dataRows, openPanel, PANELS, REASONS, settled, TOKEN } from './support';
 
 const BULK = 'fastapi_sample.bulk.';
 
@@ -11,30 +11,26 @@ test('§10.1 the rail comes from the registry; unavailable and read-only panels 
   await expect(links).toHaveText(PANELS.map((p) => p.title));
   for (const p of PANELS) await expect(rail.getByRole('link', { name: p.title })).toHaveAttribute('href', `#/${p.id}`);
 
-  // The example app has no unavailable or read-only panel, so the registry answer is the server's own with two flags flipped.
-  const unavailable = 'MCP is off. Set SHARPIT_MCP_ENABLED=ON to enable it.';
-  const readOnly = 'Read-only: SHARPIT_PANELS_LOGGERS_READ_ONLY=true';
-  await page.route('**/api/panels', async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { panels: Record<string, unknown>[] };
-    for (const p of body.panels) {
-      if (p.id === 'mcp-server') Object.assign(p, { available: false, unavailableReason: unavailable });
-      if (p.id === 'loggers') Object.assign(p, { readOnly: true, readOnlyReason: readOnly });
-    }
-    await route.fulfill({ response, json: body });
-  });
-  await page.reload();
-  await expect(rail.getByRole('link', { name: 'MCP Server' })).toHaveAccessibleDescription(unavailable);
-  await expect(rail.getByRole('link', { name: 'Loggers' })).toHaveAccessibleDescription(readOnly);
+  // The server's own registry: the e2e server disables CLI and makes MCP Server read-only (playwright.config.ts).
+  const registry = (await (await page.request.get('api/panels')).json()) as {
+    panels: { id: string; enabled: boolean; readOnly: boolean; readOnlyReason: string | null }[];
+  };
+  const mcp = registry.panels.find((p) => p.id === 'mcp-server')!;
+  expect(mcp.readOnly).toBe(true);
+  expect(mcp.readOnlyReason).toBe(REASONS.readOnly);
+  expect(registry.panels.find((p) => p.id === 'cli')!.enabled).toBe(false);
+
+  await expect(rail.getByRole('link', { name: 'MCP Server' })).toHaveAccessibleDescription(REASONS.readOnly);
+  await expect(rail.getByRole('link', { name: 'CLI' })).toHaveAccessibleDescription(REASONS.disabled);
   await expect(rail.getByRole('link', { name: 'Overview' })).toHaveAccessibleDescription('');
 
+  await rail.getByRole('link', { name: 'CLI' }).click();
+  await expect(page.locator('main')).toContainText('CLI is unavailable');
+  await expect(page.locator('main')).toContainText(REASONS.disabled);
   await rail.getByRole('link', { name: 'MCP Server' }).click();
-  await expect(page.locator('main')).toContainText('MCP Server is unavailable');
-  await expect(page.locator('main')).toContainText(unavailable);
-  await rail.getByRole('link', { name: 'Loggers' }).click();
   await settled(page);
-  await expect(page.locator('main .notice')).toHaveText(readOnly);
-  await expect(dataRows(page).first().locator('select')).toBeDisabled();
+  await expect(page.locator('main .notice')).toHaveText(REASONS.readOnly);
+  await expect(page.getByRole('button', { name: /^Turn (on|off)$/ })).toBeDisabled();
 });
 
 test('§10.2 Ctrl+K jumps to a panel, a logger and a config key; everything is reachable by keyboard', async ({ page }) => {
@@ -132,8 +128,8 @@ test('test_large_table_filter_responsive: with 1,000 loggers a keystroke updates
     const t0 = await page.evaluate(() => performance.now());
     await filter.press(digit); // `fastapi_sample.bulk.00N` matches ten loggers
     const done = await page.waitForFunction(
-      () => document.querySelectorAll('main table tbody tr').length === 10 && performance.now(),
-      undefined,
+      (rows) => document.querySelectorAll(rows).length === 10 && performance.now(),
+      DATA_ROWS,
       { polling: 'raf' },
     );
     runs.push((await done.jsonValue()) as number - t0);
