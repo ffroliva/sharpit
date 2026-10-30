@@ -410,3 +410,11 @@ def test_advertised_endpoints_include_the_root_path():
     assert toggled["endpoint"] == "/v1/sharpit/api/mcp"
     plain = _client(_app())
     assert plain.get("/sharpit/api/cli").json()["endpoint"] == "/sharpit/api/cli"
+
+
+def test_app_root_path_prefixes_the_advertised_endpoints():
+    app = FastAPI(root_path="/proxy")
+    install(app, enabled="ON", show_banner=False)
+    client = _client(app)
+    assert client.get("/proxy/sharpit/api/cli").json()["endpoint"] == "/proxy/sharpit/api/cli"
+    assert client.get("/proxy/sharpit/api/mcp-server").json()["endpoint"] == "/proxy/sharpit/api/mcp"
