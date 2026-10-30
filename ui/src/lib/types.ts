@@ -39,6 +39,14 @@ export interface Property {
   defaultValue: unknown;
 }
 
+/** A key the app declares or reads but nobody set; `description` is a field's text or the `file.py:line` reading it. */
+export interface PropertySuggestion {
+  name: string;
+  type: string | null;
+  description: string | null;
+  defaultValue: unknown;
+}
+
 export interface Logger {
   name: string;
   configuredLevel: string | null;

@@ -1,7 +1,8 @@
 <script lang="ts">
   import ServerTable from '../components/ServerTable.svelte';
   import { get } from '../lib/api';
-  import type { Property } from '../lib/types';
+  import type { ServerPage } from '../lib/paging';
+  import type { Property, PropertySuggestion } from '../lib/types';
 
   let { q = '' }: { q?: string } = $props();
 
@@ -10,28 +11,52 @@
   let source = $state('');
   /** Sources in precedence order, highest first (the order the server lists them). */
   let sources = $state<string[]>([]);
+  let envOpen = $state(false);
 
   get<{ sources: string[] }>('config', { limit: 1 }).then(
     (d) => (sources = d.sources),
     () => {}, // the table shows the load error
   );
 
-  function groups(items: readonly Property[]): [string, Property[]][] {
-    const by = new Map<string, Property[]>(sources.map((s) => [s, []]));
-    for (const p of items) {
-      const list = by.get(p.source);
-      if (list) list.push(p);
-      else by.set(p.source, [p]);
-    }
-    return [...by].filter(([, rows]) => rows.length > 0);
+  const ENV = 'systemEnvironment';
+  // The app's own keys: a settings field (its own source, or an env value with the field's default beside it) or a key
+  // the code reads with os.getenv (the scan's file:line is in description). Everything else is the machine's environment.
+  // shortcut: a settings field whose default is None and whose value comes from the environment reads as machine env;
+  // the API would need to mark settings fields explicitly to tell them apart.
+  const isApp = (p: Property) => p.source !== ENV || p.description !== null || p.defaultValue !== null;
+
+  type Row = { kind: 'set'; p: Property } | { kind: 'unset'; s: PropertySuggestion };
+
+  function split(items: readonly Property[], page: ServerPage<Property>) {
+    const unset = (page.data.propertySuggestions ?? []) as PropertySuggestion[];
+    const app: Row[] = [
+      ...items.filter(isApp).map((p): Row => ({ kind: 'set', p })),
+      ...unset.map((s): Row => ({ kind: 'unset', s })),
+    ].sort((a, b) => cmp(name(a), name(b)));
+    return { app, env: items.filter((p) => !isApp(p)) };
   }
+  const name = (r: Row) => (r.kind === 'set' ? r.p.name : r.s.name);
+  const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
   const isDefault = (s: string) => s.startsWith('default');
   // the row's source beat a lower one: an explicit override, or a set value over the code's default
   const won = (p: Property) => p.override || (p.defaultValue !== null && !isDefault(p.source));
   const show = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 'string' ? v : JSON.stringify(v));
-  const rank = (s: string) => sources.indexOf(s);
+  const precedence = (s: string) => {
+    const i = sources.indexOf(s);
+    return i < 0 ? '' : i === 0 ? 'highest precedence' : i === sources.length - 1 ? 'lowest precedence' : `precedence ${i + 1} of ${sources.length}`;
+  };
+  // the getenv scan reports `path/to/module.py:line`; a settings field's description is prose
+  const provenance = (d: string) => (/\.py:\d+$/.test(d) ? `read at ${d}` : d);
+  const filtering = $derived(query.trim() !== '');
 </script>
+
+{#snippet nameCell(n: string, description: string | null)}
+  <td class="wrap">
+    <span class="name mono">{n}</span>
+    {#if description}<span class="prov muted sm">{provenance(description)}</span>{/if}
+  </td>
+{/snippet}
 
 <ServerTable
   title="Configuration"
@@ -41,7 +66,8 @@
   bind:q={query}
   placeholder="Filter by name or value"
   noun="properties"
-  columns={3}
+  columns={2}
+  cols={['40%', '']}
 >
   {#snippet controls()}
     <label class="visually-hidden" for="config-source">Source</label>
@@ -51,38 +77,73 @@
     </select>
   {/snippet}
   {#snippet head()}
-    <tr><th>Name</th><th>Value</th><th>Source</th></tr>
+    <tr><th>Name</th><th>Value</th></tr>
   {/snippet}
-  {#snippet body(items: readonly Property[])}
-    {#each groups(items) as [name, rows] (name)}
+  {#snippet body(items: readonly Property[], page: ServerPage<Property>)}
+    {@const { app, env } = split(items, page)}
+    {#if app.length > 0}
       <tr class="group">
-        <th colspan="3" scope="colgroup">
-          {name}
-          {#if rank(name) >= 0}
-            <span class="muted sm">
-              {rank(name) === 0 ? 'highest precedence' : `precedence ${rank(name) + 1} of ${sources.length}`}
-            </span>
-          {/if}
+        <th colspan="2" scope="colgroup">
+          Your application <span class="muted sm">settings fields and the keys your code reads</span>
         </th>
       </tr>
-      {#each rows as p (p.name)}
+      {#each app as r (r.kind + name(r))}
         <tr>
-          <td class="mono wrap" title={p.description ?? undefined}>{p.name}</td>
-          <td class="mono shrink">
-            {show(p.value)}
-            {#if p.masked}<span class="tag warn">masked</span>{/if}
-            {#if won(p)}<span class="muted sm"> default {show(p.defaultValue) || '—'}</span>{/if}
-          </td>
-          <td>
-            <span class="mono">{p.source}</span>
-            {#if won(p)}<span class="tag ok" title="This source's value is the one in effect">won</span>{/if}
-          </td>
+          {#if r.kind === 'set'}
+            {@const p = r.p}
+            {@render nameCell(p.name, p.description)}
+            <td class="shrink">
+              <span class="mono">{show(p.value)}</span>
+              {#if p.masked}<span class="tag warn">masked</span>{/if}
+              <span class="src muted sm">
+                <span title={precedence(p.source)}>{p.source}</span>
+                {#if won(p)}<span class="tag ok" title="This source's value is the one in effect">won</span>
+                  <span>over default <span class="mono">{show(p.defaultValue) || '—'}</span></span>{/if}
+              </span>
+            </td>
+          {:else}
+            {@render nameCell(r.s.name, r.s.description)}
+            <td class="shrink muted">
+              not set · default <span class="mono">{show(r.s.defaultValue) || '—'}</span>
+            </td>
+          {/if}
         </tr>
       {/each}
-    {/each}
+    {/if}
+    {#if env.length > 0}
+      {@const open = envOpen || filtering}
+      <tr class="group">
+        <th colspan="2" scope="colgroup">
+          {#if filtering}
+            Other environment variables ({env.length})
+          {:else}
+            <button class="disclose" aria-expanded={open} onclick={() => (envOpen = !envOpen)}>
+              Other environment variables ({env.length})
+            </button>
+          {/if}
+          <span class="muted sm">this machine's own, not read by your code</span>
+        </th>
+      </tr>
+      {#if open}
+        {#each env as p (p.name)}
+          <tr>
+            {@render nameCell(p.name, null)}
+            <td class="shrink">
+              <span class="mono">{show(p.value)}</span>
+              {#if p.masked}<span class="tag warn">masked</span>{/if}
+            </td>
+          </tr>
+        {/each}
+      {/if}
+    {/if}
   {/snippet}
 </ServerTable>
 
 <style>
   .tag { margin-left: var(--s1); }
+  .prov, .src { display: block; }
+  td.shrink, td.wrap { padding-top: var(--s1); padding-bottom: var(--s1); }
+  .disclose { border: 0; background: none; padding: 0; height: auto; font-weight: 600; }
+  .disclose::before { content: '▸'; display: inline-block; width: 1em; color: var(--muted); }
+  .disclose[aria-expanded='true']::before { content: '▾'; }
 </style>
