@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.middleware import Middleware
@@ -21,21 +23,18 @@ from starlette.responses import FileResponse, Response
 from starlette.routing import BaseRoute, Match, Mount, Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from sharpit.engine import guard
+from sharpit.engine import guard, tools
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report, set_level
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
-from sharpit.engine.collectors.vulns.dismissals import DismissalStore
-from sharpit.engine.collectors.vulns.epss import EpssClient
-from sharpit.engine.collectors.vulns.inventory import inventory
-from sharpit.engine.collectors.vulns.osv import OsvClient
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
 from sharpit.engine.masking import Exposure
+from sharpit.engine.mcp import McpServer
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
 from sharpit.engine.singleflight import ActionBusy
@@ -224,18 +223,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         return json_response(beans_report(ctx, params.get("q"), params.get("classification"), offset, limit))
 
     def vulnerability_service() -> VulnerabilityService:
-        timeout = settings.vulnerabilities_request_timeout
-        return ctx.lazy(
-            "vulnerabilities",
-            lambda: VulnerabilityService(
-                settings,
-                OsvClient(settings.vulnerabilities_osv_base_uri, timeout),
-                EpssClient(settings.vulnerabilities_epss_base_uri, timeout),
-                inventory,
-                DismissalStore(Path(settings.state_dir)),
-                ctx.single_flight,
-            ),
-        )
+        return tools.vulnerability_service(ctx)
 
     def vulnerabilities(_request: Request) -> Response:
         return json_response(vulnerability_service().report())
@@ -257,6 +245,47 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         except BadRequest as exc:
             return error(400, str(exc))
         return json_response({"dismissed": ids})
+
+    def mcp_server() -> McpServer:
+        return ctx.lazy("mcp", lambda: McpServer(ctx))
+
+    async def mcp(request: Request) -> Response:
+        raw = await request.body()  # shortcut: body fully read before size check, stream it if payloads grow large
+        status, body, extra = await run_in_threadpool(mcp_server().handle, raw, request.headers, request.scope)
+        response = (
+            Response(status_code=202, headers=dict(security_headers("api")))
+            if body is None
+            else json_response(body, status)
+        )
+        response.headers.update(dict(extra))
+        return response
+
+    def mcp_status(_request: Request) -> Response:
+        return json_response(mcp_server().status())
+
+    async def mcp_toggle(request: Request) -> Response:
+        raw = await request.body()
+        try:
+            body: object = json.loads(raw) if raw.strip() else {}
+        except ValueError:
+            body = None
+        enabled = cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
+        if not isinstance(enabled, bool | None):
+            return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
+        return json_response(mcp_server().toggle(enabled))
+
+    def cli(_request: Request) -> Response:
+        return json_response(tools.cli_status(ctx))
+
+    async def cli_tool(request: Request) -> Response:
+        raw = await request.body()
+        try:
+            args: object = json.loads(raw) if raw.strip() else {}
+        except ValueError:
+            args = None  # reported as "Tool arguments must be an object"
+        call = tools.CallContext(ctx, request.scope)
+        status, body = await run_in_threadpool(tools.cli_invoke, call, request.path_params["tool"], args)
+        return json_response(body, status)
 
     async def logger_level(request: Request) -> Response:
         try:
@@ -286,6 +315,11 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
         Route(f"{api}/dismissed-rules", dismissed_rules, methods=["GET"]),
         Route(f"{api}/dismissed-rules/{{rule_id:path}}", dismissed_rule, methods=["POST", "DELETE"]),
+        Route(f"{api}/mcp", mcp, methods=["POST"]),
+        Route(f"{api}/mcp-server", mcp_status, methods=["GET"]),
+        Route(f"{api}/mcp-server/toggle", mcp_toggle, methods=["POST"]),
+        Route(f"{api}/cli", cli, methods=["GET"]),
+        Route(f"{api}/cli/tools/{{tool}}", cli_tool, methods=["POST"]),
     ]
 
 
