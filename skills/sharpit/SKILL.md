@@ -118,7 +118,8 @@ More (`SHARPIT_MCP_MAX_RESULTS`, `SHARPIT_VULNERABILITIES_REQUEST_TIMEOUT`, `SHA
 
 ## Panels and API
 
-`GET /sharpit/api/panels` lists what this build offers and why a panel is unavailable or read-only. The MVP targets:
+`GET /sharpit/api/panels` lists what this build offers and why a panel is unavailable or read-only. The MVP targets
+the panels below; Vulnerabilities, MCP server and CLI are still being built, so trust `/panels` over this table:
 
 | Panel | API | Notes |
 |---|---|---|
@@ -136,7 +137,7 @@ Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": ".
 
 ## MCP endpoint (for AI agents)
 
-Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
+Planned, not in every build yet (check `GET /sharpit/api/panels`). Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
 `http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes **read-only** tools: `get_overview`, `get_config`,
 `get_mappings`, `get_loggers`, `get_beans`, `get_vulnerabilities_report`. There is no action tool: an agent cannot
 change a logger or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token.
