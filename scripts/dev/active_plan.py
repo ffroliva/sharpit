@@ -29,12 +29,12 @@ _SECTION = re.compile(r"^#{2,3}\s+")
 
 
 def candidates(plans_dir: Path = PLANS_DIR) -> list[Path]:
-    """Every plan file, newest first by name (the date prefix sorts lexically)."""
+    """Every plan file, newest first by name (the date prefix sorts lexically). Scenario notes are not plans."""
     if not plans_dir.is_dir():
         return []
     found: list[Path] = []
     for p in plans_dir.iterdir():
-        if p.is_file() and p.suffix == ".md":
+        if p.is_file() and p.suffix == ".md" and not p.stem.endswith("-scenario"):
             found.append(p)
         elif p.is_dir() and (p / "PLAN.md").is_file():
             found.append(p / "PLAN.md")

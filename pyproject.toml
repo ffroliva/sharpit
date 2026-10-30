@@ -28,6 +28,7 @@ include = ["src/sharpit/**"]  # covers src/sharpit/ui/static/**
 [tool.ruff]
 line-length = 120
 src = ["src", "tests"]
+extend-exclude = ["scripts/pytest_speed"]  # vendored verbatim; its VERSION hash catches local edits
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

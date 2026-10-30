@@ -46,6 +46,12 @@ def test_feature_slug_matches_by_name(tmp_path: Path) -> None:
     assert active_plan.find_plan("nope", tmp_path) is None
 
 
+def test_scenario_notes_are_not_plans(tmp_path: Path) -> None:
+    plan = _write(tmp_path, "2026-11-01-widget.md", PLAN)
+    _write(tmp_path, "2026-11-01-widget-scenario.md", PLAN)
+    assert active_plan.candidates(tmp_path) == [plan]
+
+
 def test_directory_plans_are_found(tmp_path: Path) -> None:
     (tmp_path / "2026-11-02-dir").mkdir()
     plan = _write(tmp_path / "2026-11-02-dir", "PLAN.md", PLAN)
