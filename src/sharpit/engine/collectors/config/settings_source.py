@@ -1,5 +1,6 @@
 """pydantic-settings provenance: which source supplied each settings field (no side effects)."""
 
+import importlib
 import types
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -82,9 +83,12 @@ def _settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[lis
     try:
         from pydantic import BaseModel, SecretBytes, SecretStr
         from pydantic_settings import BaseSettings, DotEnvSettingsSource, EnvSettingsSource, SecretsSettingsSource
-        from pydantic_settings.sources.utils import parse_env_vars
     except ImportError:
         return [], []
+    try:
+        parse_env_vars: Any = importlib.import_module("pydantic_settings.sources.utils").parse_env_vars
+    except ImportError:  # older pydantic-settings keeps it in a flat ``sources`` module
+        parse_env_vars = importlib.import_module("pydantic_settings.sources").parse_env_vars
     if not isinstance(instance, BaseSettings):
         return [], []
     cls = type(instance)
