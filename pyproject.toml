@@ -40,4 +40,5 @@ pythonVersion = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # examples/ (the sample app) imports as a package
 timeout = 60
