@@ -63,14 +63,14 @@ conditions, every other BootUI panel, a PyPI release, Trusted Publishing.
 - Any code execution surface (`eval`, `exec`, dynamic import from input, shell).
 - Work on requests that are not under sharpit's mount; `install()` doing more than settings, activation and mounting
   (budget: median of 5 runs ≤ 50 ms on the example app, measured by a test, with sockets blocked).
-- The UI copies BootUI's visual design (layout, palette, typography, component styling).
+- The UI does not copy BootUI's visual design: it is a new Svelte look (see §14, "Vue UI"). Only the JSON contract is shared.
 
 ## 5. Constraints
 
 - Python ≥ 3.12 (KliperMedia is 3.14; CI 3.12–3.14). Host: FastAPI ≥ 0.115.
 - Runtime dependencies: `starlette` (comes with FastAPI) and `packaging`. Nothing else. OSV/EPSS through stdlib
-  `urllib` in a worker thread. MCP implemented on the contract (no SDK). `.env` parsing by a small built-in parser
-  following python-dotenv's documented grammar (no dependency). pydantic-settings is read **if installed**, never
+  `urllib` in a worker thread. MCP implemented on the contract (no SDK). `.env` files are read only through
+  pydantic-settings' own sources (no built-in dotenv parser). pydantic-settings is read **if installed**, never
   imported otherwise.
 - License Apache-2.0; `NOTICE` credits BootUI for the ported design, contract and test cases.
 - Tooling: uv, ruff, pyright (strict on `src/sharpit`), pytest. Branch `mvp` on `ffroliva/sharpit`; agents never
@@ -87,7 +87,7 @@ src/sharpit/
     activation.py    decide(settings, signals) -> ActivationStatus — pure (port of BootUiActivationCondition)
     guard.py         port of LocalhostGuard + ApiAuthenticationFilter + PanelAccessFilter decisions — pure
     headers.py       BootUiSecurityHeaders
-    masking.py       KeywordPatternMasker, SecretValueDetector, SensitiveNames, UriMasking, CredentialRedaction
+    masking.py       `Masker`, `is_sensitive_key`, `is_secret_value`, `Exposure` (KeywordPatternMasker + SecretValueDetector + ValueExposure)
     relaxed.py       RelaxedNames.canonicalize
     paging.py        PagedList / PageMetadata
     panels.py        registry
@@ -162,8 +162,8 @@ Order as BootUI: security headers → trusted-source → Host allow-list → cro
 - **Host allow-list** and **malformed Host** handling: port `LocalhostGuard.extractRequestHost` / `isAllowedHost`
   exactly (authority-form only, IPv6 brackets, lower-case, port ignored, malformed → reject, absent/blank → allow).
 - **Cross-site — deviation, stricter than BootUI:** applied to **all methods**, not only writes. Reject when
-  `Sec-Fetch-Site: cross-site`, or `Origin` is present and its host differs from the request host (host-only, as
-  BootUI). Reason: a host app's `CORSMiddleware(allow_origins=["*"])` wraps sharpit's mount, so a cross-origin GET
+  `Sec-Fetch-Site: cross-site`, or `Origin` is present and its full origin (scheme, host and port) differs from the request's
+  (stricter than BootUI's host-only comparison). Reason: a host app's `CORSMiddleware(allow_origins=["*"])` wraps sharpit's mount, so a cross-origin GET
   would otherwise be readable by any website the developer visits.
 - **Token.** Only for untrusted sources (allowed through `SHARPIT_ALLOW_NON_LOCALHOST` or trusted proxies). Token from
   `SHARPIT_AUTHENTICATION_TOKEN`, else generated per process with `secrets.token_urlsafe(32)` when remote access is
@@ -185,8 +185,8 @@ Order as BootUI: security headers → trusted-source → Host allow-list → cro
 | any path, sharpit inactive | — | — | 404 |
 
 ### 7.7 Masking
-Port KeywordPatternMasker, SecretValueDetector, SensitiveNames, UriMasking and CredentialRedaction with their BootUI
-tests. Additions for Python (logged §14): values whose type is pydantic `SecretStr`/`SecretBytes` are always masked;
+Port KeywordPatternMasker, SecretValueDetector and ValueExposure (one `engine/masking.py`) with their BootUI
+tests. Any URL carrying userinfo is masked, user name included. Additions for Python (logged §14): values whose type is pydantic `SecretStr`/`SecretBytes` are always masked;
 **`defaultValue` (properties and suggestions) is masked with the same rules**, because Python defaults come from code
 (`os.getenv("JWT_SECRET", "dev-secret")`). Masking happens **before** filtering, so `q` searches only displayed
 values. Middleware constructor arguments are never exposed.

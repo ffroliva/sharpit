@@ -16,3 +16,7 @@ ui/dist/
 .sharpit/
 ui/test-results/
 ui/playwright-report/
+.superpowers/
+.serena/
+*.egg-info/
+.env

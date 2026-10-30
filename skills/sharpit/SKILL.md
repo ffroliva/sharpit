@@ -65,7 +65,7 @@ Active profiles are the union of the variables named in `SHARPIT_PROFILE_VARS` (
 is **not** detected: set `APP_ENV=dev` or `SHARPIT_ENABLED=ON`.
 
 **When disabled, every path and method under `/sharpit` answers 404**, so nothing reveals that sharpit is installed,
-and one INFO log line gives the reason. That is the usual answer to "why is /sharpit 404": you are in a production
+and a log line gives the reason (WARNING when sharpit was asked for but is still off, INFO otherwise). That is the usual answer to "why is /sharpit 404": you are in a production
 profile, or nothing enabled it. The reason text is BootUI's, e.g. `Disabled by SHARPIT_ENABLED=OFF` or
 `Disabled because active profile 'prod' is in SHARPIT_DISABLED_PROFILES`; when enabled, `GET /sharpit/api/overview`
 reports it under `activation`.
@@ -99,8 +99,8 @@ keyword is the same name in lower case.
 | `SHARPIT_MCP_ENABLED` | `mcp_enabled` | `OFF` | turn on the read-only MCP endpoint |
 | `SHARPIT_PANELS_<ID>_ENABLED` / `_READ_ONLY` | `panels={"<id>": {...}}` | on / off | per-panel switches, e.g. `SHARPIT_PANELS_LOGGERS_READ_ONLY=true` |
 
-More (`SHARPIT_MCP_MAX_RESULTS`, `SHARPIT_VULNERABILITIES_REQUEST_TIMEOUT`, `SHARPIT_CLI_*`, ...) are in
-`src/sharpit/settings.py`. Durations accept `10s`, `500ms` or a bare number of seconds.
+The full list (`SHARPIT_MCP_*`, `SHARPIT_CLI_*`, `SHARPIT_VULNERABILITIES_*`, `SHARPIT_TRUST_CONTAINER_GATEWAY`,
+`SHARPIT_CONFIG_SCAN`, ...) is in the README settings table and `src/sharpit/settings.py`. Durations accept `10s`, `500ms` or a bare number of seconds.
 
 ## Safety model
 
@@ -119,7 +119,7 @@ More (`SHARPIT_MCP_MAX_RESULTS`, `SHARPIT_VULNERABILITIES_REQUEST_TIMEOUT`, `SHA
 ## Panels and API
 
 `GET /sharpit/api/panels` lists what this build offers and why a panel is unavailable or read-only. The MVP targets
-the panels below; Vulnerabilities, MCP server and CLI are still being built, so trust `/panels` over this table:
+the panels below; trust `/panels` over this table if they ever disagree:
 
 | Panel | API | Notes |
 |---|---|---|
@@ -128,17 +128,17 @@ the panels below; Vulnerabilities, MCP server and CLI are still being built, so 
 | Mappings | `GET {api}/mappings/flat` | every route of the host app |
 | Loggers | `GET {api}/loggers`, `POST {api}/loggers/{name}` | change a level at runtime (write action) |
 | Beans | `GET {api}/beans` | dependency providers and their `dependencies` |
-| Vulnerabilities (planned) | GET report, POST scan | installed distributions against OSV, scored with EPSS |
-| MCP server (planned) | `{api}/mcp-server`, `{api}/mcp` | read-only MCP for agents |
-| CLI (planned) | `{api}/cli` | the same tool catalogue as MCP, over plain HTTP |
+| Vulnerabilities | `GET {api}/vulnerabilities`, `POST {api}/vulnerabilities/scan` | installed distributions against OSV, scored with EPSS |
+| MCP server | `GET {api}/mcp-server`, `POST {api}/mcp` | read-only MCP for agents |
+| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the scan, over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
 
 JSON follows BootUI's contract: camelCase keys, every key present (nulls included), epoch milliseconds, no envelope.
 Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": "..."}`.
 
 ## MCP endpoint (for AI agents)
 
-Planned, not in every build yet (check `GET /sharpit/api/panels`). Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It will expose **read-only** tools (planned): `get_overview`, `get_config`,
+Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes **read-only** tools: `get_overview`, `get_config`,
 `get_mappings`, `get_loggers`, `get_beans`, `get_vulnerabilities_report`. There is no action tool: an agent cannot
 change a logger or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token.
 
