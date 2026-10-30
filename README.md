@@ -148,9 +148,10 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 
 - **Local only.** Requests must come from a loopback address with a loopback or allow-listed `Host`. If `Forwarded`,
   `X-Forwarded-For` or `X-Real-IP` is present and no trusted proxy is configured, the caller counts as remote.
-- **Cross-site requests are refused** on every method (`Sec-Fetch-Site: cross-site`, or an `Origin` that differs from
-  the request's full origin: scheme, host and port), even when your app has `CORSMiddleware(allow_origins=["*"])`.
-- **Remote access needs a token.** `SHARPIT_ALLOW_NON_LOCALHOST=true` or a trusted proxy admits untrusted sources, and
+- **Cross-site requests are refused** on every method (`Sec-Fetch-Site: cross-site`, or, on API paths, an `Origin` that differs from
+  the request's full origin: scheme, host and port; other paths compare the host), even when your app has `CORSMiddleware(allow_origins=["*"])`.
+- **Remote access needs a token.** `SHARPIT_ALLOW_NON_LOCALHOST=true`,
+  `SHARPIT_TRUST_CONTAINER_GATEWAY=AUTO` or a trusted proxy admits untrusted sources, and
   those must present the token as `Authorization: Bearer <token>`. Set `SHARPIT_AUTHENTICATION_TOKEN`; otherwise a
   token is generated per process and printed once to stderr. A browser trades it for an `HttpOnly; SameSite=Strict`
   cookie through `POST /sharpit/api/auth/session`.
@@ -160,7 +161,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
   harmless user name in a URL is shown as `******` too. That is intentional: sharpit errs towards hiding.
 - **GET has no side effects.** No network call, no file write, no logger change. The vulnerability scan (OSV and EPSS)
   runs only on an explicit POST.
-- **Fails closed.** When off, or in a `prod`/`production` profile, the whole mount answers 404.
+- **Fails closed.** When off, or in a `prod`/`production` profile (unless `SHARPIT_ENABLED=ON` forces it on, with a warning), the whole mount answers 404.
 
 ### Behind a TLS-terminating proxy
 

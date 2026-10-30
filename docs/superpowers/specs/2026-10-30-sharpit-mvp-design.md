@@ -162,7 +162,7 @@ Order as BootUI: security headers → trusted-source → Host allow-list → cro
 - **Host allow-list** and **malformed Host** handling: port `LocalhostGuard.extractRequestHost` / `isAllowedHost`
   exactly (authority-form only, IPv6 brackets, lower-case, port ignored, malformed → reject, absent/blank → allow).
 - **Cross-site — deviation, stricter than BootUI:** applied to **all methods**, not only writes. Reject when
-  `Sec-Fetch-Site: cross-site`, or `Origin` is present and its full origin (scheme, host and port) differs from the request's
+  `Sec-Fetch-Site: cross-site`, or `Origin` is present and, on API paths, its full origin (scheme, host and port) differs from the request's
   (stricter than BootUI's host-only comparison). Reason: a host app's `CORSMiddleware(allow_origins=["*"])` wraps sharpit's mount, so a cross-origin GET
   would otherwise be readable by any website the developer visits.
 - **Token.** Only for untrusted sources (allowed through `SHARPIT_ALLOW_NON_LOCALHOST` or trusted proxies). Token from

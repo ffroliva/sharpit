@@ -23,8 +23,8 @@ First release: an embedded, local-only developer console for FastAPI apps, porte
 - Configuration through `SHARPIT_*` environment variables and `install()` keywords; the environment wins. Invalid values
   fall back to a fail-safe value and record a warning.
 - Fail-closed activation: on for `SHARPIT_ENABLED=ON`, a dev profile, `uvicorn --reload` or `fastapi dev`; a `prod`
-  profile switches it off. When off, every path under the mount answers the host's own 404.
-- Request guard: loopback-only by default, `Host` allow-list, full-origin and `Sec-Fetch-Site` cross-site checks on
+  profile switches it off unless `SHARPIT_ENABLED=ON` forces it. When off, every path under the mount answers the host's own 404.
+- Request guard: loopback-only by default, `Host` allow-list, full-origin (API paths) and `Sec-Fetch-Site` cross-site checks on
   every method, bearer token with `HttpOnly` session cookie for untrusted sources.
 - Secret masking of names, values, defaults and errors, including pydantic `SecretStr` and any URL with userinfo.
 - Extras `sharpit[fastapi]` and `sharpit[settings]`; typed package (`py.typed`); prebuilt UI in the wheel, so end users
@@ -38,7 +38,7 @@ Listed in section 14 of the design spec. The main ones:
 - A new Svelte UI instead of BootUI's Vue UI, over the same JSON contract.
 - Activation uses profile variables and a dev-server signal read from the command line (no DevTools equivalent);
   `uvicorn.run(..., reload=True)` from a script is not detected.
-- The cross-site check applies to every method, compares the full origin, and any forwarded header makes a caller
+- The cross-site check applies to every method, compares the full origin on API paths, and any forwarded header makes a caller
   untrusted unless a trusted proxy is configured.
 - `defaultValue` is masked as well, because Python defaults come from code.
 - Beans are dependency providers, middleware and lifespan rather than an IoC container.

@@ -1,7 +1,7 @@
 """Smoke test for an installed sharpit wheel: serve the sample app and fetch the overview.
 
-Run from the repository root with PYTHONPATH=. and the venv python, after installing the wheel plus fastapi, pydantic-settings,
-uvicorn and httpx. Fails if sharpit was imported from the source tree instead of the installed wheel.
+Run from the repository root with PYTHONPATH=. and the venv python, after installing the wheel plus fastapi,
+pydantic-settings, uvicorn and httpx. Fails if sharpit was imported from the source tree instead of the installed wheel.
 """
 
 from __future__ import annotations
