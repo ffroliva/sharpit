@@ -30,7 +30,7 @@ def paged[T](
 ) -> tuple[list[T], dict[str, Any]]:
     needle = (q or "").strip().lower()
     matched = [i for i in items if not needle or any(s is not None and needle in s.lower() for s in text(i))]
-    start = max(offset or 0, 0)
+    start = min(max(offset or 0, 0), len(matched))
     effective_limit = len(matched) if limit is None else min(max(limit, 1), MAX_LIMIT)
     page = matched[start : start + effective_limit]
     return page, {

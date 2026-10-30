@@ -59,3 +59,10 @@ def test_parse_int_rejects_abc():
         parse_int_param("abc", "offset")
     assert parse_int_param(None, "offset") is None
     assert parse_int_param("-4", "offset") == -4
+
+
+# ported: PagedList.java fromIndex = min(offset, matched.size())
+def test_offset_past_end_clamped_to_matched():
+    rows, page = _page(offset=50)
+    assert rows == []
+    assert page["offset"] == 10 and page["returned"] == 0 and page["hasMore"] is False
