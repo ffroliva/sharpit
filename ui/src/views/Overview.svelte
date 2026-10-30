@@ -20,7 +20,7 @@
     <h1>Overview</h1>
     {#if data}<span class="muted">{data.applicationName ?? 'Unnamed application'}</span>{/if}
   </header>
-  <div class="panel-body">
+  <div class="panel-body" tabindex="0" role="region" aria-label="Overview">
     {#if error}
       <div class="empty" role="alert"><p class="lead danger">Could not load the overview</p><p>{error}</p></div>
     {:else if !data}

@@ -87,7 +87,7 @@
       {#if page}{page.matched} of {page.total}{/if}
     </span>
   </header>
-  <div class="panel-body" aria-busy={loading}>
+  <div class="panel-body" tabindex="0" role="region" aria-label={title} aria-busy={loading}>
     {#if notice}<p class="notice warn">{notice}</p>{/if}
     {#if error}
       <div class="empty" role="alert"><p class="lead danger">Could not load {noun}</p><p>{error}</p></div>

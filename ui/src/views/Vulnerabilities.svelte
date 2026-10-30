@@ -118,7 +118,7 @@
     </button>
   </header>
 
-  <div class="panel-body">
+  <div class="panel-body" tabindex="0" role="region" aria-label="Vulnerabilities">
     {#if disabledReason}<p class="notice warn">{disabledReason}</p>{/if}
     {#if actionError}<p class="notice danger" role="alert">{actionError}</p>{/if}
 

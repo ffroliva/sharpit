@@ -89,6 +89,7 @@ input::placeholder { color: var(--muted); }
 .panel-head .grow { flex: 1 1 160px; min-width: 120px; }
 .panel-head input[type="search"] { width: 100%; }
 .panel-body { flex: 1; overflow: auto; min-height: 0; }
+.panel-body:focus-visible { outline-offset: -2px; } /* a scroll region is a tab stop (axe scrollable-region-focusable) */
 .notice { padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line); }
 
 /* Tables */

@@ -134,7 +134,7 @@
       {#if view}{view.shown} of {view.eligible}{/if}
     </span>
   </header>
-  <div class="panel-body graph-body">
+  <div class="panel-body graph-body" tabindex="0" role="region" aria-label="Beans">
     {#if error}
       <div class="empty" role="alert"><p class="lead danger">Could not load beans</p><p>{error}</p></div>
     {:else if !view}

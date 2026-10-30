@@ -58,7 +58,7 @@
       </button>
     {/if}
   </header>
-  <div class="panel-body">
+  <div class="panel-body" tabindex="0" role="region" aria-label={title}>
     {#if panel.readOnly}<p class="notice warn">{panel.readOnlyReason}</p>{/if}
     {#if error}
       <div class="empty" role="alert"><p class="lead danger">Could not load the {title} status</p><p>{error}</p></div>
