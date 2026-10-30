@@ -311,3 +311,10 @@ def test_duplicate_origin_header_is_denied_as_cross_site():
 def test_websocket_scope_is_closed():
     sent = _raw(_app(), [(b"host", b"localhost")], scope_type="websocket")
     assert sent == [{"type": "websocket.close", "code": 1000, "reason": ""}]
+
+
+def test_inactive_websocket_scope_is_closed():
+    app = FastAPI()
+    install(app, enabled="OFF")
+    sent = _raw(app, [(b"host", b"localhost")], scope_type="websocket")
+    assert sent == [{"type": "websocket.close", "code": 1000, "reason": ""}]

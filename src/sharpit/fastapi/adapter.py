@@ -31,7 +31,7 @@ from sharpit.engine.panels import panels_report
 from sharpit.fastapi.http import json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
-from sharpit.settings import load_settings
+from sharpit.settings import SharpitSettings, load_settings
 
 __all__ = ["GuardMiddleware", "SharpitContext", "SharpitHandle", "SharpitMount", "install"]
 
@@ -45,7 +45,7 @@ _Lifespan = Callable[[Any], AbstractAsyncContextManager[Any]]
 
 @dataclass
 class SharpitHandle:
-    settings: Any
+    settings: SharpitSettings
     activation: ActivationStatus
     context: SharpitContext
     original_lifespan: _Lifespan
@@ -186,6 +186,9 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
 
 async def _not_found(scope: Scope, receive: Receive, send: Send) -> None:
     """Inactive sharpit: the host's own exception handling renders this, so the 404 is the host's 404."""
+    if scope["type"] == "websocket":  # as the host router does for an unknown websocket path
+        await send({"type": "websocket.close", "code": 1000, "reason": ""})
+        return
     raise HTTPException(404)
 
 
