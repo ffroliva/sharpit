@@ -41,7 +41,17 @@ LOCAL = ("127.0.0.1", 50000)
 REMOTE = ("10.0.0.5", 50000)
 API = "/sharpit/api"
 RULE = quote("V-1::pypi:widget", safe="")
-WIDENED = ("MAIL_PASS", "PASS", "MONITORING_DSN", "SQL_CONN", "ODBC_CONN", "STORAGE_CONN", "BUS_CONN")
+WIDENED = (
+    "MAIL_PASS",
+    "PASS",
+    "PGPASS",
+    "PGPASSFILE",
+    "MONITORING_DSN",
+    "SQL_CONN",
+    "ODBC_CONN",
+    "STORAGE_CONN",
+    "BUS_CONN",
+)
 
 
 def _opener() -> FakeOpener:
@@ -72,6 +82,8 @@ def corpus_app(
         # Task P1 widening: a `_PASS` name, a bare PASS, a password-less DSN and connection-string segments
         "MAIL_PASS": SENTINEL,
         "PASS": SENTINEL,
+        "PGPASS": SENTINEL,  # review M1: libpq names
+        "PGPASSFILE": SENTINEL,
         "MONITORING_DSN": f"https://{SENTINEL}@o1.ingest.sentry.io/1",
         "SQL_CONN": f"Server=db;Database=app;User Id=sa;Password={SENTINEL};",
         "ODBC_CONN": f"Driver=x;Server=db;Uid=sa;Pwd={SENTINEL}",

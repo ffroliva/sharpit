@@ -369,12 +369,33 @@ def test_settings_warnings_are_logged(caplog: pytest.LogCaptureFixture, monkeypa
     ]
 
 
-def test_inactive_reason_is_a_warning_when_sharpit_was_configured(caplog: pytest.LogCaptureFixture):
+def test_explicit_off_is_info(caplog: pytest.LogCaptureFixture):
+    # review M3: switching sharpit off on purpose is not a warning
     with caplog.at_level(logging.INFO, logger="sharpit"):
         install(FastAPI(), enabled="OFF")
     assert [(r.levelno, r.getMessage()) for r in caplog.records] == [
-        (logging.WARNING, "sharpit inactive: Disabled by SHARPIT_ENABLED=OFF")
+        (logging.INFO, "sharpit inactive: Disabled by SHARPIT_ENABLED=OFF")
     ]
+
+
+def test_requested_but_inactive_is_a_warning(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch):
+    # an enabled profile that a disabled profile overrides, and an unusable SHARPIT_ENABLED: asked for, still off
+    monkeypatch.setenv("SHARPIT_PROFILES", "dev,prod")
+    with caplog.at_level(logging.INFO, logger="sharpit"):
+        install(FastAPI(), show_banner=False)
+        install(FastAPI(), enabled="maybe")
+    inactive = [r for r in caplog.records if r.getMessage().startswith("sharpit inactive")]
+    assert [r.levelno for r in inactive] == [logging.WARNING, logging.WARNING]
+
+
+def test_second_install_after_an_inactive_one_names_the_reason(caplog: pytest.LogCaptureFixture):
+    # review M4
+    app = FastAPI()
+    install(app, enabled="OFF")
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        install(app, enabled="ON")
+    (again,) = [r.getMessage() for r in caplog.records if "already called" in r.getMessage()]
+    assert "Disabled by SHARPIT_ENABLED=OFF" in again
 
 
 def test_inactive_reason_is_info_when_nothing_was_configured(

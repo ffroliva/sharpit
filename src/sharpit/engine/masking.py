@@ -57,6 +57,7 @@ def is_secret_value(value: str) -> bool:
 DEFAULT_KEY_PATTERNS = (
     "password", "passwd", "passphrase", "pwd", "secret", "token", "key", "credential", "credentials", "private",
     "apikey", "api-key", "client-secret", "client_secret", "auth", "authorization", "session-id", "session_id",
+    "pgpass",  # sharpit widening: libpq PGPASS / PGPASSFILE
 )  # fmt: skip
 # sharpit widening: ``pass`` as a whole name segment (DB_PASS, PASS), never inside a word (bypass, compass)
 _PASS_SEGMENT = re.compile(r"(?:^|[_.-])pass(?:$|[_.-])")

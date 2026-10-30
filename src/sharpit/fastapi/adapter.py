@@ -40,7 +40,7 @@ from sharpit.engine.singleflight import ActionBusy
 from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
-from sharpit.settings import SharpitSettings, load_settings
+from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
 __all__ = ["GuardMiddleware", "SharpitContext", "SharpitHandle", "SharpitMount", "install"]
 
@@ -396,9 +396,9 @@ def _app_settings(settings: object) -> tuple[object, ...]:
     return items
 
 
-def _configured(options: dict[str, Any]) -> bool:
-    """True when the user set anything for sharpit: an install() kwarg or a non-blank ``SHARPIT_*`` variable."""
-    return bool(options) or any(k.upper().startswith("SHARPIT_") and v.strip() for k, v in os.environ.items())
+def _requested(settings: SharpitSettings, profiles: tuple[str, ...]) -> bool:
+    """sharpit was asked for (an unusable SHARPIT_ENABLED, or an enabled profile is active) yet ended up inactive."""
+    return parse_mode(settings.enabled) is None or any(p in profiles for p in settings.enabled_profiles)
 
 
 def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle:
@@ -406,7 +406,12 @@ def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle
     router = app.router
     existing = next((r.sharpit_handle for r in router.routes if isinstance(r, SharpitMount) and r.sharpit_handle), None)
     if existing is not None:
-        logger.warning("sharpit.install() was already called on this app; ignoring this call")
+        first = (
+            ""
+            if existing.activation.enabled
+            else f" (that install left sharpit inactive: {existing.activation.reason})"
+        )
+        logger.warning("sharpit.install() was already called on this app; ignoring this call%s", first)
         return existing
     app_settings = _app_settings(settings)
     sharpit_settings = load_settings(options, os.environ)
@@ -431,8 +436,9 @@ def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle
         mount = SharpitMount(sharpit_settings.path, app=_not_found, name="sharpit")
         mount.sharpit_handle = handle
         router.routes.insert(0, mount)
-        # an explicit setting that leaves sharpit off is a WARNING (uvicorn drops INFO from unconfigured loggers)
-        logger.log(logging.WARNING if _configured(options) else logging.INFO, "sharpit inactive: %s", activation.reason)
+        # asked for but still off is a WARNING (uvicorn drops INFO from unconfigured loggers); an explicit OFF is INFO
+        level = logging.WARNING if _requested(sharpit_settings, profiles) else logging.INFO
+        logger.log(level, "sharpit inactive: %s", activation.reason)
         return handle
 
     @asynccontextmanager
