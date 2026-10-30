@@ -29,14 +29,19 @@ class SharpitContext:
     startup_time_ms: int | None = None
     masker: Masker = field(init=False)
     _cache: dict[str, Any] = field(default_factory=dict[str, Any], init=False, repr=False)
-    _lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
+    _locks: dict[str, threading.RLock] = field(default_factory=dict[str, threading.RLock], init=False, repr=False)
+    _locks_guard: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.masker = Masker(self.settings.expose_values, self.settings.mask_secrets)
 
     def lazy[T](self, key: str, factory: Callable[[], T]) -> T:
-        """Memoised ``factory()``; one lock, so a factory runs at most once per key (re-entrant)."""
-        with self._lock:
+        """Memoised ``factory()``, at most once per key; a slow factory only holds up callers of its own key."""
+        if key in self._cache:  # fast path: a cached value never takes a lock
+            return cast("T", self._cache[key])
+        with self._locks_guard:
+            lock = self._locks.setdefault(key, threading.RLock())
+        with lock:
             if key not in self._cache:
                 self._cache[key] = factory()
             return cast("T", self._cache[key])

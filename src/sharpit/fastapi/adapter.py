@@ -255,7 +255,9 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         raw = await _read_capped(request, cap)
         if raw is None:
             return json_response(payload_too_large(), 413)
-        status, body, extra = await run_in_threadpool(mcp_server().handle, raw, request.headers, request.scope)
+        # mcp_server() may build the server: off the event loop, like every other ctx.lazy() call in an async handler
+        server = await run_in_threadpool(mcp_server)
+        status, body, extra = await run_in_threadpool(server.handle, raw, request.headers, request.scope)
         response = (
             Response(status_code=202, headers=dict(security_headers("api")))
             if body is None
@@ -276,7 +278,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         enabled = cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
         if not isinstance(enabled, bool | None):
             return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
-        return json_response(mcp_server().toggle(enabled))
+        return json_response(await run_in_threadpool(lambda: mcp_server().toggle(enabled)))
 
     def cli(_request: Request) -> Response:
         return json_response(tools.cli_status(ctx))
