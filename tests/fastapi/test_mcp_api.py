@@ -49,6 +49,7 @@ def test_disabled_response_over_http():
 
 
 def test_toggle_enables_in_memory(tmp_path: Path):
+    # adapted: McpServerControllerTests toggle (in memory only, brief ruling)
     client = _client(tmp_path)
     assert client.get("/sharpit/api/mcp-server").json()["enabled"] is False
     on = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": True})
@@ -65,6 +66,7 @@ def test_toggle_enables_in_memory(tmp_path: Path):
 
 
 def test_toggle_obeys_global_read_only():
+    # new: brief ruling (toggle obeys global read-only via the guard)
     resp = _client(read_only=True).post("/sharpit/api/mcp-server/toggle", json={"enabled": True})
     assert resp.status_code == 403
     assert resp.json() == {
@@ -75,12 +77,14 @@ def test_toggle_obeys_global_read_only():
 
 
 def test_toggle_obeys_panel_read_only():
+    # new: brief ruling (toggle obeys per-panel read-only via the guard)
     resp = _client(panels={"mcp-server": {"read_only": True}}).post("/sharpit/api/mcp-server/toggle")
     assert resp.status_code == 403
     assert resp.json()["reason"] == "Panel is read-only via SHARPIT_PANELS_MCP_SERVER_READ_ONLY=true"
 
 
 def test_mcp_server_status_shape():
+    # ported: McpServerController status (McpServerStatus fields, MCP tools only)
     body = _client(mcp_enabled="ON").get("/sharpit/api/mcp-server").json()
     assert list(body) == [
         "enabled", "configuredMode", "overridden", "serverName", "serverVersion", "transport", "endpoint",
@@ -103,6 +107,7 @@ def test_mcp_server_status_shape():
 
 
 def test_call_counted_in_status():
+    # ported: McpRuntimeStats callCount surfaced by McpServerController
     client = _client(mcp_enabled="ON")
     call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_overview"}}
     result = client.post(MCP, json=call).json()["result"]
@@ -112,6 +117,7 @@ def test_call_counted_in_status():
 
 
 def test_mcp_is_behind_the_guard():
+    # new: brief ruling (cross-origin POST /mcp gets 403 from the guard)
     client = _client(mcp_enabled="ON")
     resp = client.post(MCP, json=PING, headers={"Origin": "http://evil.example"})
     assert resp.status_code == 403

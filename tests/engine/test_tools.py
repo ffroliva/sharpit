@@ -115,6 +115,7 @@ def test_every_action_tool_references_an_action_capable_panel():
 
 
 def test_mcp_call_action_tool_unknown_32602():
+    # new: brief ruling (MCP never sees an action tool, spec §9)
     with pytest.raises(RpcError) as exc:
         call_tool(_call(_ctx()), "vulnerabilities_scan", {}, via="mcp")
     assert (exc.value.code, exc.value.message) == (INVALID_PARAMS, "Unknown tool: vulnerabilities_scan")
@@ -166,6 +167,7 @@ def test_action_tool_on_read_only_panel_is_refused():
 
 
 def test_action_tool_refused_under_global_read_only():
+    # adapted: BootUiMcpServiceTests.actionToolOnReadOnlyPanelIsRefused (global SHARPIT_READ_ONLY)
     with pytest.raises(ToolCallError) as exc:
         call_tool(_call(_ctx(read_only=True)), "vulnerabilities_scan", {}, via="cli")
     assert exc.value.message == "sharpit is read-only via SHARPIT_READ_ONLY=true"
@@ -195,6 +197,7 @@ def test_limit_defaults_to_and_is_capped_by_max_results_per_via():
 
 
 def test_handlers_return_the_rest_dtos():
+    # adapted: BootUiMcpTools (each tool returns the panel's REST DTO)
     ctx = _ctx()
     mappings = call_tool(_call(ctx), "get_mappings", {"query": "pets"}, via="mcp")
     assert [m["pattern"] for m in mappings["mappings"]] == ["/pets"]
@@ -204,6 +207,7 @@ def test_handlers_return_the_rest_dtos():
 
 
 def test_overview_tool_uses_request_scope():
+    # adapted: BootUiMcpTools.overview (request port and context path, from the ASGI scope)
     scope = {"server": ("127.0.0.1", 8123), "app_root_path": "/host", "root_path": "/host/sharpit"}
     dto = call_tool(_call(_ctx(), scope), "get_overview", {}, via="mcp")
     assert (dto["serverPort"], dto["contextPath"]) == (8123, "/host")
@@ -256,6 +260,7 @@ def _blocking_tool(release: threading.Event, workers: list[threading.Thread]) ->
 
 
 def test_capacity_refusal_32001():
+    # ported: McpDispatcher.callTool semaphore tryAcquire -> SERVER_AT_CAPACITY
     release, workers = threading.Event(), list[threading.Thread]()
     tools = (_blocking_tool(release, workers), _tool("get_fast", lambda _c, _a: {"fast": True}))
     ctx = _ctx(mcp_max_concurrent_calls=1)
@@ -281,6 +286,7 @@ def test_capacity_refusal_32001():
 
 
 def test_timeout_releases_semaphore():
+    # new: brief ruling (slot released on timeout; Python cannot cancel the worker)
     release, workers = threading.Event(), list[threading.Thread]()
     tools = (_blocking_tool(release, workers), _tool("get_fast", lambda _c, _a: {"fast": True}))
     ctx = _ctx(mcp_max_concurrent_calls=1, mcp_execution_timeout="50ms")
@@ -316,6 +322,7 @@ def test_timeout_releases_semaphore():
 
 @pytest.mark.parametrize("name", [t.name for t in TOOLS if not t.action])
 def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, tmp_state_dir: Path):
+    # new: brief ruling (no socket, file, logger level or os.environ change)
     ctx = _ctx(state_dir=str(tmp_state_dir))
     no_side_effects.rebaseline()
     result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, {}, via="mcp")
@@ -323,4 +330,5 @@ def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, 
 
 
 def test_settings_default_mcp_off():
+    # new: brief ruling (MCP is OFF by default)
     assert SharpitSettings().mcp_enabled == "OFF"

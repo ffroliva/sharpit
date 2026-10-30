@@ -101,6 +101,7 @@ CASES = [
 def test_cli_outcomes(
     case: str, options: dict[str, Any], tool: str, body: Any, busy: bool, status: int, message: str | None
 ):
+    # ported: CliOutcomesTests (one row per contract §11 outcome)
     service = FakeService(busy=busy)
     if case == "ok-scan":
         service.release.set()
@@ -125,6 +126,7 @@ def test_cli_outcomes(
 
 
 def test_cli_status_shape_matches_contract():
+    # ported: CliService.status / CliServerStatus (contract §11)
     body = _client().get("/sharpit/api/cli").json()
     assert list(body) == [
         "enabled", "serverName", "serverVersion", "endpoint", "maxResults", "callCount", "totalLatencyMillis",
@@ -151,11 +153,13 @@ def test_cli_status_shape_matches_contract():
 
 
 def test_cli_status_while_disabled_lists_nothing():
+    # ported: CliService.status when disabled (no invocable tools)
     body = _client(cli_enabled=False).get("/sharpit/api/cli").json()
     assert (body["enabled"], body["toolCount"], body["tools"]) == (False, 0, [])
 
 
 def test_cli_works_with_mcp_disabled():
+    # new: brief ruling (CLI independent of MCP state, separate counters)
     client = _client(mcp_enabled="OFF")
     status, body = _post(client, "get_loggers", {"limit": 1})
     assert status == 200 and len(body["loggers"]) == 1
@@ -164,6 +168,7 @@ def test_cli_works_with_mcp_disabled():
 
 
 def test_cli_scan_gated_by_read_only():
+    # ported: CliService action gating (read-only refuses vulnerabilities scan)
     service = FakeService()
     status, body = _post(_client(service, read_only=True), "vulnerabilities_scan")
     assert (status, body) == (403, {"error": "sharpit is read-only via SHARPIT_READ_ONLY=true"})

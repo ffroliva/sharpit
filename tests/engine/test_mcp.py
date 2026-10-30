@@ -144,6 +144,7 @@ PING = _rpc("ping")
     ],
 )
 def test_http_level_responses(body: Any, headers: dict[str, str], status: int, expected: dict[str, Any] | None):
+    # ported: rows cited individually above (AbstractMcpConformanceTest, BootUiMcpServiceTests)
     assert _post(_server(mcp_max_payload_bytes=64), body, headers) == (status, expected)
 
 
@@ -229,6 +230,7 @@ def test_tools_list_has_no_action_tool():
 
 
 def test_mcp_call_action_tool_unknown_32602():
+    # new: brief ruling (action tools are unknown over MCP)
     assert _post(_server(), _call("vulnerabilities_scan", 7)) == (
         200,
         _err(7, -32602, "Unknown tool: vulnerabilities_scan"),
@@ -356,6 +358,7 @@ def test_prompts_list_and_get():
 
 
 def test_prompts_get_unknown():
+    # adapted: BootUiMcpService.getPrompt (unknown and missing prompt name)
     server = _server()
     assert _post(server, _rpc("prompts/get", 6, {"name": "nope"}))[1] == _err(6, -32602, "Unknown prompt: nope")
     assert _post(server, _rpc("prompts/get", 6, {}))[1] == _err(6, -32602, "Missing prompt name")
