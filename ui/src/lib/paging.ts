@@ -30,6 +30,17 @@ export class ServerPage<T> {
     return new ServerPage<T>(path, key, params, [], emptyPage).fetch();
   }
 
+  /** Every row up to `maxRows`; stops early on an empty page, so a server stuck on `hasMore` cannot loop forever. */
+  static async loadAll<T>(path: string, key: string, maxRows: number, params: Params = {}): Promise<readonly T[]> {
+    let page = await ServerPage.load<T>(path, key, params);
+    while (page.hasMore && page.items.length < maxRows) {
+      const next = await page.more();
+      if (next.items.length === page.items.length) break;
+      page = next;
+    }
+    return page.items.slice(0, maxRows);
+  }
+
   private pending: Promise<ServerPage<T>> | null = null;
 
   /** The next page appended; `this` when there is nothing more. Concurrent calls share one request. */

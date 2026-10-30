@@ -20,9 +20,7 @@
 
   (async () => {
     try {
-      let page = await ServerPage.load<BeanRow>('beans', 'beans');
-      while (page.hasMore && page.items.length < MAX_BEANS) page = await page.more();
-      full = buildGraph(page.items);
+      full = buildGraph(await ServerPage.loadAll<BeanRow>('beans', 'beans', MAX_BEANS));
     } catch (e) {
       error = e instanceof ApiError ? `HTTP ${e.status}` : 'The application is not responding.';
     }
@@ -47,8 +45,11 @@
       const out = near.edges.filter((e) => e.from === focus && e.to !== focus).map((e) => e.to);
       const inn = near.edges.filter((e) => e.to === focus && e.from !== focus).map((e) => e.from);
       const byId = new Map(near.nodes.map((n) => [n.id, n]));
-      const outs = [...new Set(out)].map((id) => byId.get(id)!).filter(keep);
-      const ins = [...new Set(inn)].filter((id) => !out.includes(id)).map((id) => byId.get(id)!).filter(keep);
+      const keptOut = [...new Set(out)].map((id) => byId.get(id)!).filter(keep);
+      const keptIn = [...new Set(inn)].filter((id) => !out.includes(id)).map((id) => byId.get(id)!).filter(keep);
+      // same node cap as the overview: the centre plus at most MAX_NODES - 1 neighbours, dependencies first
+      const outs = keptOut.slice(0, MAX_NODES - 1);
+      const ins = keptIn.slice(0, MAX_NODES - 1 - outs.length);
       const r = radialLayout(outs.length, ins.length, 110 + 6 * Math.max(outs.length, ins.length));
       const nodes: View['nodes'] = [
         { ...byId.get(focus)!, ...r.centre, role: 'centre' },
@@ -57,7 +58,7 @@
       ];
       const ids = new Set(nodes.map((n) => n.id));
       const edges = near.edges.filter((e) => ids.has(e.from) && ids.has(e.to) && (e.from === focus || e.to === focus));
-      return { nodes, edges, shown: nodes.length, eligible: nodes.length };
+      return { nodes, edges, shown: nodes.length, eligible: 1 + keptOut.length + keptIn.length };
     }
     const inClass = full.nodes.filter((n) => !n.external && (!classification || n.classification === classification));
     const base = new Set(inClass.map((n) => n.id));

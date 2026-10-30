@@ -62,3 +62,25 @@ describe('ServerPage.more concurrency', () => {
     expect(a.items).toHaveLength(400);
   });
 });
+
+describe('ServerPage.loadAll', () => {
+  it('loads every page', async () => {
+    const all = await ServerPage.loadAll<Logger>('loggers', 'loggers', 5000);
+    expect(all.length).toBe(loggers.loggers.length);
+  });
+
+  it('stops at the row cap', async () => {
+    const all = await ServerPage.loadAll<Logger>('loggers', 'loggers', PAGE_SIZE);
+    expect(all.length).toBe(PAGE_SIZE);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops on an empty page even when the server says hasMore', async () => {
+    const page = { total: 9, matched: 9, offset: 0, limit: PAGE_SIZE, returned: 0, hasMore: true };
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ loggers: [], page }), { headers: { 'content-type': 'application/json' } })),
+    );
+    expect(await ServerPage.loadAll<Logger>('loggers', 'loggers', 5000)).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // first page and one more, then it gives up
+  });
+});

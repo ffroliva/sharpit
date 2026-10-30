@@ -10,6 +10,8 @@
     (e: unknown) => (error = e instanceof ApiError ? `HTTP ${e.status}` : 'The application is not responding.'),
   );
 
+  // only app-relative or http(s) URLs become links (no javascript: and the like)
+  const linkable = (url: string) => /^(\/|https?:\/\/)/i.test(url);
   const list = (xs: string[]) => (xs.length ? xs.join(', ') : 'none');
 </script>
 
@@ -37,7 +39,7 @@
           </dd>
           <dt>Profiles</dt><dd class="mono">{list(data.activeProfiles)}</dd>
           {#if data.startupTimeMillis !== null}<dt>Startup</dt><dd>{data.startupTimeMillis} ms</dd>{/if}
-          {#if data.openApiUrl}<dt>OpenAPI</dt><dd><a href={data.openApiUrl}>{data.openApiUrl}</a></dd>{/if}
+          {#if data.openApiUrl}<dt>OpenAPI</dt><dd>{#if linkable(data.openApiUrl)}<a href={data.openApiUrl}>{data.openApiUrl}</a>{:else}<span class="mono">{data.openApiUrl}</span>{/if}</dd>{/if}
         </dl>
       </section>
       <section class="block">

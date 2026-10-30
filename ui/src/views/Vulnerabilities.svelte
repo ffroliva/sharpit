@@ -60,7 +60,7 @@
     try {
       report = await post<VulnReport>('vulnerabilities/scan');
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) busy = field(e.body, 'error') ?? 'Another scan is running.';
+      if (e instanceof ApiError && e.status === 409) busy = field(e.body, 'message') ?? field(e.body, 'error') ?? 'Another scan is running.';
       else scanError = describe(e);
     } finally {
       scanning = false;
@@ -75,7 +75,7 @@
     try {
       const path = `dismissed-rules/${encodeURIComponent(rule)}`;
       await (v.dismissed ? del(path) : post(path));
-      await load();
+      report = await get<VulnReport>('vulnerabilities'); // a failed reload keeps the old report
     } catch (e) {
       actionError = `${v.dismissed ? 'Restore' : 'Dismiss'} failed: ${describe(e)}`;
     } finally {

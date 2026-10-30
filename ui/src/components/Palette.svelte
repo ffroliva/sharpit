@@ -17,6 +17,9 @@
   const usable = (id: string) => panels.some((p) => p.id === id && p.available && p.enabled);
 
   // Loggers and config keys are fetched on the first open only: rendering the shell stays cheap.
+  /** Per source; a palette over more keys than this is a filter's job. */
+  const MAX_ROWS = 10000;
+
   async function loadIndex() {
     indexState = 'loading';
     const sources: [string, string, Entry['kind'], string][] = [
@@ -27,9 +30,8 @@
       sources
         .filter(([, , , panel]) => usable(panel))
         .map(async ([path, key, kind]) => {
-          let page = await ServerPage.load<{ name: string }>(path, key);
-          while (page.hasMore) page = await page.more();
-          return page.items.map((row): Entry => ({ kind, id: row.name, label: row.name }));
+          const rows = await ServerPage.loadAll<{ name: string }>(path, key, MAX_ROWS);
+          return rows.map((row): Entry => ({ kind, id: row.name, label: row.name }));
         }),
     );
     extra = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));

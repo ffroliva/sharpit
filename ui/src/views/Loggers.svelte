@@ -18,7 +18,8 @@
     () => {},
   );
 
-  async function setLevel(logger: Logger, value: string) {
+  async function setLevel(logger: Logger, select: HTMLSelectElement) {
+    const value = select.value;
     pending = logger.name;
     failure = null;
     try {
@@ -28,6 +29,7 @@
       const body = e instanceof ApiError ? e.body : null;
       const text = typeof body === 'object' && body !== null && 'error' in body ? String(body.error) : 'The change failed.';
       failure = { name: logger.name, text };
+      select.value = logger.configuredLevel ?? ''; // the change was not applied: show what is configured
     } finally {
       pending = null;
     }
@@ -60,7 +62,7 @@
             value={l.configuredLevel ?? ''}
             disabled={panel.readOnly || pending === l.name}
             title={panel.readOnly ? (panel.readOnlyReason ?? undefined) : undefined}
-            onchange={(e) => setLevel(l, e.currentTarget.value)}
+            onchange={(e) => setLevel(l, e.currentTarget)}
           >
             <option value="">inherit</option>
             {#each levels as level}<option value={level}>{level}</option>{/each}

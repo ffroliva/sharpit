@@ -103,7 +103,11 @@ describe('Vulnerabilities state machine', () => {
     render();
     await until(() => expect(phase()).toBe('never-scanned'));
     button(/Scan/).click();
-    await until(() => expect(target.querySelector('[role="status"]')?.textContent).toBe('sharpit action already in progress'));
+    await until(() =>
+      expect(target.querySelector('[role="status"]')?.textContent).toBe(
+        "Operation 'vulnerability-scan' cannot start while 'vulnerability-scan' is in progress.",
+      ),
+    );
     expect(phase()).toBe('never-scanned');
     expect(button(/Scan/).disabled).toBe(false);
   });
@@ -164,6 +168,28 @@ describe('Vulnerabilities state machine', () => {
     fetchMock.mockResolvedValue(json(200, off));
     render();
     await until(() => expect(target.textContent).toContain('OSV scanning is disabled.'));
+    expect(phase()).toBe('never-scanned'); // scannedAt null decides it, whatever the status says
     expect(button(/Scan/).disabled).toBe(true);
+  });
+
+  it('results whenever scannedAt is set, even if the status still says NOT_SCANNED', async () => {
+    const r = scanned();
+    r.scan = { ...r.scan, status: 'NOT_SCANNED' };
+    fetchMock.mockResolvedValue(json(200, r));
+    render();
+    await until(() => expect(phase()).toBe('results'));
+  });
+
+  it('a failed reload after Dismiss keeps the report and reports the action error', async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(200, scanned()))
+      .mockResolvedValueOnce(json(200, { dismissed: ['GHSA-h5c8-rqwp-cp95::pypi:jinja2'] }))
+      .mockResolvedValueOnce(json(500, { error: 'Internal Server Error' }));
+    render();
+    await until(() => expect(phase()).toBe('results'));
+    button(/Dismiss/).click();
+    await until(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('Internal Server Error'));
+    expect(phase()).toBe('results');
+    expect(target.textContent).toContain('GHSA-h5c8-rqwp-cp95');
   });
 });
