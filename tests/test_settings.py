@@ -256,3 +256,34 @@ def test_env_name_table(prop: str):
 def test_env_name_table_covers_every_field():
     covered = {field for field, _ in PROPERTIES.values()}
     assert covered == {f.name for f in dataclasses.fields(SharpitSettings)} - {"panels", "warnings"}
+
+
+# --- Task P1 item 6: misconfiguration is visible ------------------------------------------------------------------
+
+
+def test_unknown_kwarg_suggests_the_closest_setting():
+    with pytest.raises(TypeError, match=r"enabled_profile \(did you mean 'enabled_profiles'\?\)"):
+        load_settings({"enabled_profile": ["dev"]}, {})
+    with pytest.raises(TypeError, match=r"^Unknown sharpit setting\(s\): zzz$"):
+        load_settings({"zzz": 1}, {})
+
+
+@pytest.mark.parametrize(
+    ("raw", "mode"),
+    [("1", "ON"), ("0", "OFF"), ("on", "ON"), ("Yes", "ON"), ("TRUE", "ON"), ("off", "OFF"), ("No", "OFF")],
+)
+def test_enabled_accepts_one_and_zero_and_any_case(raw: str, mode: str):
+    s = load_settings({}, {"SHARPIT_ENABLED": raw})
+    assert (s.enabled, s.warnings) == (mode, ())
+
+
+def test_api_path_error_names_the_actual_path():
+    with pytest.raises(ValueError, match=r"'/elsewhere/api'"):
+        load_settings({"api_path": "/elsewhere/api"}, {})
+
+
+def test_invalid_token_warning_never_echoes_the_value():
+    # install() now logs these warnings; an unusable token must not reach the log
+    s = load_settings({"authentication_token": b"bytes-secret-value"}, {})
+    assert s.authentication_token is None
+    assert s.warnings == ("Ignoring invalid SHARPIT_AUTHENTICATION_TOKEN value",)

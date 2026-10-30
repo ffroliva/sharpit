@@ -9,6 +9,7 @@ Every property ``bootui.<a>.<b-c>`` is the env var ``SHARPIT_<A>_<B_C>`` and the
 from __future__ import annotations
 
 import dataclasses
+import difflib
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -70,17 +71,17 @@ _DURATION = re.compile(r"(\d+(?:\.\d+)?)\s*(ms|s)?", re.IGNORECASE)
 
 
 def parse_mode(raw: object) -> str | None:
-    """``ON``/``OFF``/``AUTO`` from a mode value (YAML-style true/yes and false/no included), else None."""
+    """``ON``/``OFF``/``AUTO`` from a mode value (true/yes/1 and false/no/0 included, any case), else None."""
     if isinstance(raw, bool):
         return "ON" if raw else "OFF"
     if not isinstance(raw, str):
         return None
-    v = raw.strip().upper()
-    if v in {"ON", "TRUE", "YES"}:
+    v = raw.strip().lower()
+    if v in _TRUE:
         return "ON"
-    if v in {"OFF", "FALSE", "NO"}:
+    if v in _FALSE:
         return "OFF"
-    return v if v == "AUTO" else None
+    return "AUTO" if v == "auto" else None
 
 
 def _bool(raw: object) -> bool:
@@ -208,6 +209,11 @@ _DEFAULTS = SharpitSettings()
 _FIELDS = {f.name for f in dataclasses.fields(SharpitSettings)} - {"warnings"}
 
 
+def _with_suggestion(name: str) -> str:
+    close = difflib.get_close_matches(name, sorted(_FIELDS), n=1)
+    return f"{name} (did you mean '{close[0]}'?)" if close else name
+
+
 def _env_name(name: str) -> str:
     return "SHARPIT_" + name.upper()
 
@@ -257,7 +263,7 @@ def _panels(kwargs: Mapping[str, object], environ: Mapping[str, str], warnings: 
 def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> SharpitSettings:
     unknown = sorted(set(kwargs) - _FIELDS)
     if unknown:
-        raise TypeError(f"Unknown sharpit setting(s): {', '.join(unknown)}")
+        raise TypeError(f"Unknown sharpit setting(s): {', '.join(_with_suggestion(name) for name in unknown)}")
 
     warnings: list[str] = []
     values: dict[str, Any] = {}
@@ -269,7 +275,9 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
         try:
             value = parse(raw)
         except ValueError:
-            warnings.append(f"Ignoring invalid {env} value '{raw}'")
+            # install() logs warnings: never echo a token, however malformed
+            shown = "" if name == "authentication_token" else f" '{raw}'"
+            warnings.append(f"Ignoring invalid {env} value{shown}")
             # `enabled` keeps the raw text so decide() reports it; other fields take their fail-safe (or default).
             if name == "enabled":
                 values[name] = str(raw).strip()

@@ -189,7 +189,10 @@ def test_enabled_spellings(raw: str, enabled: bool, reason_part: str):
 
 def test_numeric_enabled_value_fails_closed():
     # ported: BootUiActivationConditionAdditionalTests.numericEnabledValueFailsClosed
-    assert run({"SHARPIT_ENABLED": "1"}).enabled is False
+    # sharpit deviation (Task P1, spec §7.1): 1/0 are the boolean spellings ON/OFF; any other number still fails closed
+    assert run({"SHARPIT_ENABLED": "2"}).enabled is False
+    assert run({"SHARPIT_ENABLED": "1"}).enabled is True
+    assert run({"SHARPIT_ENABLED": "0"}).enabled is False
 
 
 def test_invalid_enabled_reason_mentions_supplied_value():
