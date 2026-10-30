@@ -107,3 +107,14 @@ def test_wrong_method_is_json_405_with_allow():
     assert resp.status_code == 405
     assert resp.json() == {"error": "Method Not Allowed"}
     assert resp.headers["allow"] in ("GET, HEAD", "HEAD, GET")
+
+
+@pytest.mark.parametrize(
+    ("options", "pad"), [({}, 5000), ({"mcp_max_payload_bytes": 16}, 100)], ids=["default-cap", "mcp-cap"]
+)
+def test_logger_level_body_is_bounded(restore_levels: None, options: dict[str, Any], pad: int):
+    # Task P1: the loggers write was the one unbounded body; it takes the small-body cap (never above the MCP cap)
+    client = _client(**options)
+    resp = client.post("/sharpit/api/loggers/capped.probe", json={"level": "DEBUG", "pad": "x" * pad})
+    assert (resp.status_code, resp.json()) == (413, {"error": "Request payload exceeds limit"})
+    assert logging.getLogger("capped.probe").level == logging.NOTSET

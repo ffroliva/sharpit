@@ -152,3 +152,11 @@ def test_toggle_body_is_bounded():
     resp = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": True, "pad": "x" * 100})
     assert (resp.status_code, resp.json()) == (413, {"error": "Request payload exceeds limit"})
     assert client.get("/sharpit/api/mcp-server").json()["enabled"] is False
+
+
+def test_toggle_body_has_its_own_small_cap():
+    # Task P1: per-endpoint caps; a toggle body is tiny, so it never gets the MCP payload's megabyte
+    client = _client()
+    resp = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": True, "pad": "x" * 5000})
+    assert (resp.status_code, resp.json()) == (413, {"error": "Request payload exceeds limit"})
+    assert client.get("/sharpit/api/mcp-server").json()["enabled"] is False

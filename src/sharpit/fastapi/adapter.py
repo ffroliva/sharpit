@@ -50,6 +50,7 @@ logger = logging.getLogger("sharpit")
 _STATIC = Path(__file__).resolve().parent.parent / "ui" / "static"
 _ASSETS = _STATIC / "assets"
 _TRUSTED_KEY = "sharpit.trusted"
+_SMALL_BODY_CAP = 4096  # bytes: per-endpoint cap for the toggle and logger-level bodies
 _Lifespan = Callable[[Any], AbstractAsyncContextManager[Any]]
 
 
@@ -251,7 +252,8 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
     def mcp_server() -> McpServer:
         return ctx.lazy("mcp", lambda: McpServer(ctx))
 
-    cap = settings.mcp_max_payload_bytes  # the CLI has no payload setting of its own; this cap bounds every body
+    cap = settings.mcp_max_payload_bytes  # MCP and CLI bodies (the CLI has no payload setting of its own)
+    small_cap = min(cap, _SMALL_BODY_CAP)  # the toggle and logger-level bodies are a few bytes of JSON
 
     async def mcp(request: Request) -> Response:
         raw = await _read_capped(request, cap)
@@ -272,7 +274,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         return json_response(mcp_server().status())
 
     async def mcp_toggle(request: Request) -> Response:
-        raw = await _read_capped(request, cap)
+        raw = await _read_capped(request, small_cap)
         if raw is None:
             return error(413, "Request payload exceeds limit")
         # BootUI McpServerController: an empty body or a missing/null ``enabled`` flips; binding refuses the rest
@@ -295,10 +297,10 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         return json_response(body, status)
 
     async def logger_level(request: Request) -> Response:
-        try:
-            body: object = await request.json()
-        except ValueError:
-            body = None
+        raw = await _read_capped(request, small_cap)
+        if raw is None:
+            return error(413, "Request payload exceeds limit")
+        body = _json_or_none(raw)
         level = cast("dict[str, Any]", body).get("level") if isinstance(body, dict) else 0
         if not isinstance(level, str | None):
             return error(400, "Request body must be a JSON object with a string or null 'level'")
