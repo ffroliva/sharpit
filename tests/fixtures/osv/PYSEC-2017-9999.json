@@ -1,0 +1,17 @@
+{
+  "id": "PYSEC-2017-9999",
+  "summary": "Withdrawn duplicate of an older jinja2 sandbox advisory",
+  "details": "This record was withdrawn because it duplicates an existing advisory.",
+  "aliases": ["CVE-2016-10745"],
+  "modified": "2025-02-03T10:00:00Z",
+  "published": "2017-04-10T00:00:00Z",
+  "withdrawn": "2025-02-03T10:00:00Z",
+  "references": [{"type": "ADVISORY", "url": "https://nvd.nist.gov/vuln/detail/CVE-2016-10745"}],
+  "affected": [
+    {
+      "package": {"ecosystem": "PyPI", "name": "jinja2", "purl": "pkg:pypi/jinja2"},
+      "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}]
+    }
+  ],
+  "schema_version": "1.6.0"
+}
