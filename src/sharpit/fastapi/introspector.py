@@ -19,13 +19,16 @@ def _version(dist: str) -> str | None:
         return None
 
 
+MAX_DEPTH = 32
+
+
 def _qualified(obj: object) -> str:
-    """``module.qualname`` of a callable (a class for instances); never ``repr``, which can carry closure values."""
+    """``module:qualname`` of a callable (a class for instances); never ``repr``, which can carry closure values."""
     while isinstance(obj, functools.partial):
         obj = obj.func  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     if not hasattr(obj, "__qualname__"):
         obj = type(obj)
-    return f"{getattr(obj, '__module__', None) or '?'}.{getattr(obj, '__qualname__', '?')}"
+    return f"{getattr(obj, '__module__', None) or '?'}:{getattr(obj, '__qualname__', '?')}"
 
 
 def _produces(route: object) -> str | None:
@@ -43,7 +46,9 @@ def _consumes(route: object) -> str | None:
 class FastApiIntrospector:
     def __init__(self, app: object, exclude_mount: str | None = None) -> None:
         self.app = app
-        self.exclude_mount = exclude_mount  # sharpit's own mount path: its rows are not the host's
+        self.exclude_mount = (exclude_mount or "").rstrip(
+            "/"
+        ) or None  # sharpit's own mount path: its rows are not the host's
 
     def app_info(self) -> AppInfo:
         title = getattr(self.app, "title", None)
@@ -59,38 +64,44 @@ class FastApiIntrospector:
         # Read attributes only: no endpoint is called and no OpenAPI schema is built. Walked per call, so routes
         # added after install show up.
         routes: Any = getattr(self.app, "routes", [])
-        return list(self._walk(routes, "", None, top=True))
+        return list(self._walk(routes, "", None, frozenset(), 0, top=True))
 
     def _walk(
-        self, routes: list[BaseRoute], prefix: str, host: str | None, *, top: bool = False
+        self,
+        routes: list[BaseRoute],
+        prefix: str,
+        host: str | None,
+        path_apps: frozenset[int],
+        depth: int,
+        *,
+        top: bool = False,
     ) -> Iterator[RouteInfo]:
         for route in list(routes):
             if callable(getattr(route, "effective_candidates", None)):
-                # FastAPI's lazy include_router entry: expand it to its effective (prefixed) routes.
-                expanded: list[Any] = [*route.effective_candidates(), *route.effective_low_priority_routes()]  # type: ignore[attr-defined]
-                yield from self._walk([getattr(c, "starlette_route", None) or c for c in expanded], prefix, host)
+                # FastAPI's lazy include_router entry (private API): expand it to its effective (prefixed) routes.
+                try:
+                    expanded: list[Any] = [*route.effective_candidates(), *route.effective_low_priority_routes()]  # type: ignore[attr-defined]
+                    flat = [getattr(c, "starlette_route", None) or c for c in expanded]
+                except Exception:  # noqa: BLE001 - FastAPI internals drifted: keep the listing, show a visible row
+                    include_prefix = getattr(getattr(route, "include_context", None), "prefix", None)
+                    base = prefix + include_prefix if isinstance(include_prefix, str) and include_prefix else None
+                    path = base + "/{path}" if base else "(include_router)"
+                    yield RouteInfo((), path, "<unexpanded include_router>", host, None, None, None)
+                    continue
+                yield from self._walk(flat, prefix, host, path_apps, depth)
                 continue
+            # Only a top-level mount can be sharpit's own; a host's nested mount at the same path is its own.
             if isinstance(route, Mount) and top and route.path == self.exclude_mount:
                 continue
             if isinstance(route, Mount | Host):
                 children: Any = getattr(route, "routes", None)
-                if children:
-                    inner_host = route.host if isinstance(route, Host) else host
-                    yield from self._walk(
-                        children, prefix + (route.path if isinstance(route, Mount) else ""), inner_host
-                    )
-                else:
-                    app: Any = route.app
-                    base = prefix + (route.path if isinstance(route, Mount) else "")
-                    yield RouteInfo(
-                        (),
-                        base + "/{path}",
-                        _qualified(app),
-                        route.host if isinstance(route, Host) else host,
-                        None,
-                        None,
-                        route.name,
-                    )
+                inner_host = route.host if isinstance(route, Host) else host
+                base = prefix + (route.path if isinstance(route, Mount) else "")
+                app_id = id(route.app)
+                if children and app_id not in path_apps and depth < MAX_DEPTH:
+                    yield from self._walk(children, base, inner_host, path_apps | {app_id}, depth + 1)
+                else:  # no routes to list, a cycle, or past the depth cap: one opaque row, stop descending
+                    yield RouteInfo((), base + "/{path}", _qualified(route.app), inner_host, None, None, route.name)
                 continue
             yield self._leaf(route, prefix, host)
 

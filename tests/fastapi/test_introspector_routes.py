@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
@@ -114,7 +115,7 @@ def test_row_details(tmp_path: Path, no_side_effects: SideEffectGuard):
     rows = _by(FastApiIntrospector(_app(tmp_path), "/sharpit").routes())
     item = rows["GET", "/items/{item_id}"]
     assert (item.handler, item.name, item.produces, item.consumes, item.host) == (
-        f"{__name__}._app.<locals>.read_item",
+        f"{__name__}:_app.<locals>.read_item",
         "read_item",
         "application/json",
         None,
@@ -125,9 +126,9 @@ def test_row_details(tmp_path: Path, no_side_effects: SideEffectGuard):
     assert rows["GET", "/text"].produces == "text/plain"
     assert rows["GET", "/starlette"].produces is None
     assert rows["WS", "/ws"].handler.endswith("_app.<locals>.ws")
-    assert rows["WS", "/raw-ws"].handler == f"{__name__}.ws_endpoint"
+    assert rows["WS", "/raw-ws"].handler == f"{__name__}:ws_endpoint"
     assert rows["GET", "/h"].host == "api.example.com"
-    assert rows["ANY", "/static/{path}"].handler == "starlette.staticfiles.StaticFiles"
+    assert rows["ANY", "/static/{path}"].handler == "starlette.staticfiles:StaticFiles"
     assert "HEAD" not in {m for m, _ in rows}
 
 
@@ -165,3 +166,44 @@ def test_endpoint_is_flat_json_and_sharpit_excluded(tmp_path: Path, no_side_effe
     everything = client.get("/sharpit/api/mappings/flat").json()["mappings"]
     assert not [m for m in everything if m["pattern"].startswith("/sharpit")]
     assert client.get("/sharpit/api/mappings/flat", params={"limit": "x"}).status_code == 400
+
+
+def test_self_referencing_mount_stops_with_a_row(no_side_effects: SideEffectGuard):
+    loop = Mount("/loop", routes=[Route("/x", plain)])
+    loop.routes.append(loop)
+    app = Starlette(routes=[loop])
+    rows = _by(FastApiIntrospector(app, None).routes())
+    assert ("GET", "/loop/x") in rows and ("ANY", "/loop/loop/{path}") in rows
+
+
+def test_mount_chain_deeper_than_cap_stops_with_a_row(no_side_effects: SideEffectGuard):
+    inner: Starlette = Starlette(routes=[Route("/leaf", plain)])
+    for _ in range(40):
+        inner = Starlette(routes=[Mount("/n", app=inner)])
+    paths = [r.path for r in FastApiIntrospector(inner, None).routes()]
+    assert (
+        len(paths) == 1 and paths[0].endswith("/{path}") and paths[0].count("/n") == 33
+    )  # 32 descents plus the mount that stopped
+
+
+def test_failing_include_router_expansion_yields_fallback_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_side_effects: SideEffectGuard
+):
+    app = _app(tmp_path)
+    included = next(r for r in app.routes if hasattr(r, "effective_candidates"))
+
+    def boom() -> None:
+        raise RuntimeError("drift")
+
+    monkeypatch.setattr(included, "effective_candidates", boom)
+    rows = _by(FastApiIntrospector(app, "/sharpit").routes())
+    row = rows["ANY", "/v1/{path}"]
+    assert row.handler == "<unexpanded include_router>"
+    assert ("GET", "/items/{item_id}") in rows  # the rest of the listing survives
+
+
+@pytest.mark.parametrize("path", ["/dev-tools", "/dev-tools/"])
+def test_custom_sharpit_path_excluded(path: str, no_side_effects: SideEffectGuard):
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, path=path.rstrip("/"))
+    assert not [r for r in FastApiIntrospector(app, path).routes() if r.path.startswith("/dev-tools")]

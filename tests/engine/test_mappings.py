@@ -29,7 +29,7 @@ def _ctx() -> SharpitContext:
     return SharpitContext(SharpitSettings(), ActivationStatus(True, True, "on", ()), FakeIntrospector())
 
 
-def test_shape_matches_golden_keys(no_side_effects: SideEffectGuard):
+def test_shape_matches_contract_keys(no_side_effects: SideEffectGuard):
     # golden mappings.json is the raw Actuator descriptor (dropped); the flat shape is contract section 4
     report = mappings_flat(_ctx(), None, None, None)
     assert set(report) == {"total", "mappings", "page"}
