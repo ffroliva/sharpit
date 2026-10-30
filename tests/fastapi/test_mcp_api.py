@@ -59,8 +59,8 @@ def test_toggle_enables_in_memory(tmp_path: Path):
     flipped = client.post("/sharpit/api/mcp-server/toggle")  # no body: flip
     assert (flipped.json()["enabled"], flipped.json()["overridden"]) == (False, False)
     assert client.post("/sharpit/api/mcp-server/toggle", json={"enabled": None}).json()["enabled"] is True
-    bad = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": "yes"})
-    assert bad.status_code == 400
+    odd = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": "yes"})  # BootUI: not a boolean -> flip
+    assert (odd.status_code, odd.json()["enabled"]) == (200, False)
     assert list(tmp_path.iterdir()) == []  # in memory only: nothing written to the state dir
     assert _client(tmp_path).get("/sharpit/api/mcp-server").json()["enabled"] is False  # a new install starts OFF
 
@@ -122,3 +122,27 @@ def test_mcp_is_behind_the_guard():
     resp = client.post(MCP, json=PING, headers={"Origin": "http://evil.example"})
     assert resp.status_code == 403
     assert resp.json() == {"error": "sharpit rejected a cross-site request."}
+
+
+TOO_LARGE = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Request payload exceeds limit"}}
+
+
+def test_mcp_payload_cap_by_content_length_and_by_stream():
+    # new: review ruling (413 before the body is read when Content-Length is over the cap; otherwise a bounded read)
+    client = _client(mcp_enabled="ON", mcp_max_payload_bytes=64)
+    big = {**PING, "pad": "x" * 100}
+    declared = client.post(MCP, json=big)
+    assert (declared.status_code, declared.json()) == (413, TOO_LARGE)
+    chunked = client.post(MCP, content=iter([b'{"jsonrpc":"2.0",', b'"pad":"' + b"x" * 100 + b'"}']),
+                          headers={"content-type": "application/json"})  # fmt: skip
+    assert "content-length" not in chunked.request.headers
+    assert (chunked.status_code, chunked.json()) == (413, TOO_LARGE)
+    assert client.post(MCP, json=PING).json() == {"jsonrpc": "2.0", "id": 1, "result": {}}
+
+
+def test_toggle_body_is_bounded():
+    # new: review ruling (bounded read, MCP payload cap)
+    client = _client(mcp_max_payload_bytes=16)
+    resp = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": True, "pad": "x" * 100})
+    assert (resp.status_code, resp.json()) == (413, {"error": "Request payload exceeds limit"})
+    assert client.get("/sharpit/api/mcp-server").json()["enabled"] is False

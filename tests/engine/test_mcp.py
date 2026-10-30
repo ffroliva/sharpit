@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import pytest
@@ -21,9 +22,9 @@ import pytest
 from sharpit import __version__
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.context import SharpitContext
-from sharpit.engine.mcp import DISABLED_MESSAGE, PROTOCOL_VERSION, McpServer
+from sharpit.engine.mcp import DISABLED_MESSAGE, INSTRUCTIONS, PROTOCOL_VERSION, McpServer
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
-from sharpit.engine.tools import CallContext, Tool, tool_gate
+from sharpit.engine.tools import TOOLS, CallContext, Tool, tool_gate
 from sharpit.settings import PanelSettings, load_settings
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
@@ -341,7 +342,7 @@ def test_prompts_list_and_get():
     diagnose = _post(server, _rpc("prompts/get", 4, {"name": "diagnose_runtime_issue"}))[1]
     assert diagnose is not None
     text = diagnose["result"]["messages"][0]["content"]["text"]
-    assert "get_live_activity" in text and "Separate observed evidence from hypotheses" in text
+    assert "Separate observed evidence from hypotheses" in text
     assert "this FastAPI application" in text
     assess = _post(server, _rpc("prompts/get", 5, {"name": "assess_application"}))[1]
     assert assess is not None
@@ -355,6 +356,33 @@ def test_prompts_list_and_get():
         "using sharpit and its source repository",
     ):
         assert fragment in text
+
+
+SHARPIT_TOOLS = {t.name for t in TOOLS}
+
+
+def _guidance_texts() -> list[str]:
+    server = _server()
+    texts = [INSTRUCTIONS]
+    for name in ("diagnose_runtime_issue", "review_application", "assess_application"):
+        got = _post(server, _rpc("prompts/get", 9, {"name": name}))[1]
+        assert got is not None
+        texts.append(got["result"]["messages"][0]["content"]["text"])
+    return texts
+
+
+def test_guidance_names_only_sharpit_tools():
+    # new: review ruling (prompts and instructions name only the seven sharpit tools)
+    for text in _guidance_texts():
+        named = set(re.findall(r"\bget_\w+|\b\w+_scan\b", text))
+        assert named <= SHARPIT_TOOLS, named - SHARPIT_TOOLS
+    assert "vulnerabilities_scan" in INSTRUCTIONS and "CLI" in INSTRUCTIONS and "OSV" in INSTRUCTIONS
+
+
+def test_guidance_is_python_not_jvm():
+    # new: review ruling (FastAPI wording, no JVM vocabulary)
+    for text in _guidance_texts():
+        assert not re.search(r"\b(Spring|JVM|GC|Quarkus|BootUI)\b", text), text
 
 
 def test_prompts_get_unknown():

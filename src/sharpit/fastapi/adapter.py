@@ -34,7 +34,7 @@ from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
 from sharpit.engine.masking import Exposure
-from sharpit.engine.mcp import McpServer
+from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
 from sharpit.engine.singleflight import ActionBusy
@@ -249,8 +249,12 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
     def mcp_server() -> McpServer:
         return ctx.lazy("mcp", lambda: McpServer(ctx))
 
+    cap = settings.mcp_max_payload_bytes  # the CLI has no payload setting of its own; this cap bounds every body
+
     async def mcp(request: Request) -> Response:
-        raw = await request.body()  # shortcut: body fully read before size check, stream it if payloads grow large
+        raw = await _read_capped(request, cap)
+        if raw is None:
+            return json_response(payload_too_large(), 413)
         status, body, extra = await run_in_threadpool(mcp_server().handle, raw, request.headers, request.scope)
         response = (
             Response(status_code=202, headers=dict(security_headers("api")))
@@ -264,25 +268,22 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         return json_response(mcp_server().status())
 
     async def mcp_toggle(request: Request) -> Response:
-        raw = await request.body()
-        try:
-            body: object = json.loads(raw) if raw.strip() else {}
-        except ValueError:
-            body = None
-        enabled = cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
-        if not isinstance(enabled, bool | None):
-            return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
-        return json_response(mcp_server().toggle(enabled))
+        raw = await _read_capped(request, cap)
+        if raw is None:
+            return error(413, "Request payload exceeds limit")
+        body = _json_or_none(raw)
+        enabled = cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else None
+        # BootUI McpServerController: a missing or null ``enabled`` flips; anything not a boolean is treated the same
+        return json_response(mcp_server().toggle(enabled if isinstance(enabled, bool) else None))
 
     def cli(_request: Request) -> Response:
         return json_response(tools.cli_status(ctx))
 
     async def cli_tool(request: Request) -> Response:
-        raw = await request.body()
-        try:
-            args: object = json.loads(raw) if raw.strip() else {}
-        except ValueError:
-            args = None  # reported as "Tool arguments must be an object"
+        raw = await _read_capped(request, cap)
+        if raw is None:
+            return error(413, "Request payload exceeds limit")
+        args: object = _json_or_none(raw) if raw.strip() else {}  # invalid JSON -> "Tool arguments must be an object"
         call = tools.CallContext(ctx, request.scope)
         status, body = await run_in_threadpool(tools.cli_invoke, call, request.path_params["tool"], args)
         return json_response(body, status)
@@ -321,6 +322,26 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/cli", cli, methods=["GET"]),
         Route(f"{api}/cli/tools/{{tool}}", cli_tool, methods=["POST"]),
     ]
+
+
+async def _read_capped(request: Request, cap: int) -> bytes | None:
+    """The body, or ``None`` once it exceeds ``cap`` bytes (by ``Content-Length``, else after ``cap + 1`` read)."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cap:
+        return None
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > cap:
+            return None
+    return bytes(raw)
+
+
+def _json_or_none(raw: bytes) -> object:
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
 
 
 async def _json_http_error(_request: Request, exc: Exception) -> Response:

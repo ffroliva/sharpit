@@ -289,12 +289,12 @@ def test_timeout_releases_semaphore():
     # new: brief ruling (slot released on timeout; Python cannot cancel the worker)
     release, workers = threading.Event(), list[threading.Thread]()
     tools = (_blocking_tool(release, workers), _tool("get_fast", lambda _c, _a: {"fast": True}))
-    ctx = _ctx(mcp_max_concurrent_calls=1, mcp_execution_timeout="50ms")
+    ctx = _ctx(mcp_max_concurrent_calls=2, mcp_execution_timeout="50ms")
     try:
         with pytest.raises(RpcError) as exc:
             call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=tools)
         assert (exc.value.code, exc.value.message) == (TOOL_TIMEOUT, "MCP tool execution timed out")
-        assert workers[0].is_alive()  # the abandoned worker still runs, but no longer holds the only slot
+        assert workers[0].is_alive()  # the abandoned worker still runs, but no longer holds a slot
         assert call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools) == {"fast": True}
         assert tool_gate(ctx, "mcp").snapshot()["timeouts"] == 1
     finally:
@@ -302,22 +302,32 @@ def test_timeout_releases_semaphore():
         for worker in workers:
             worker.join(5)
     assert not any(w.is_alive() for w in workers)
-    # the late finish must not release a second time: still exactly one slot
-    release2, workers2 = threading.Event(), list[threading.Thread]()
-    slow2 = (_blocking_tool(release2, workers2), *tools[1:])
-    blocker = threading.Thread(target=lambda: call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=slow2))
-    blocker.start()
+    assert tool_gate(ctx, "mcp")._slots._value == 2  # pyright: ignore[reportPrivateUsage]  # late finish: no 2nd release
+
+
+def test_abandoned_workers_bound_capacity():
+    # new: review ruling (timed-out workers still count against max_concurrent until they finish)
+    release, workers = threading.Event(), list[threading.Thread]()
+    tools = (_blocking_tool(release, workers), _tool("get_fast", lambda _c, _a: {"fast": True}))
+    ctx = _ctx(mcp_max_concurrent_calls=2, mcp_execution_timeout="50ms")
     try:
-        while not workers2:
-            threading.Event().wait(0.01)
-        with pytest.raises(RpcError) as exc2:
-            call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=slow2)
-        assert exc2.value.code == SERVER_AT_CAPACITY
+        for _ in range(2):
+            with pytest.raises(RpcError) as timed_out:
+                call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=tools)
+            assert timed_out.value.code == TOOL_TIMEOUT
+        with pytest.raises(RpcError) as refused:
+            call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools)
+        assert (refused.value.code, refused.value.message) == (
+            SERVER_AT_CAPACITY,
+            "MCP server is at capacity; try again shortly.",
+        )
+        assert tool_gate(ctx, "mcp").snapshot()["capacityRefusals"] == 1
     finally:
-        release2.set()
-        blocker.join(5)
-        for worker in workers2:
+        release.set()
+        for worker in workers:
             worker.join(5)
+    assert not any(w.is_alive() for w in workers)
+    assert call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools) == {"fast": True}  # finished: not abandoned
 
 
 @pytest.mark.parametrize("name", [t.name for t in TOOLS if not t.action])

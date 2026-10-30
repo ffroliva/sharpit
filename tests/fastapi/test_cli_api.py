@@ -27,6 +27,7 @@ class FakeService:
 
     def __init__(self, busy: bool = False) -> None:
         self.busy = busy
+        self.fail = False
         self.release = threading.Event()
         self.entered = threading.Event()
         self.workers: list[threading.Thread] = []
@@ -37,6 +38,8 @@ class FakeService:
     def scan(self, wait_timeout: float | None = None) -> dict[str, Any]:
         if self.busy:
             raise ActionBusy(OPERATION, OPERATION)
+        if self.fail:
+            raise RuntimeError("secret detail")
         self.workers.append(threading.current_thread())
         self.entered.set()
         self.release.wait(5)
@@ -94,6 +97,7 @@ CASES = [
      "MCP server is at capacity; try again shortly."),
     ("timeout", {"cli_execution_timeout": "50ms"}, "vulnerabilities_scan", None, False, 504,
      "MCP tool execution timed out"),
+    ("other", {}, "vulnerabilities_scan", None, False, 500, "Internal error"),
 ]  # fmt: skip
 
 
@@ -105,6 +109,7 @@ def test_cli_outcomes(
     service = FakeService(busy=busy)
     if case == "ok-scan":
         service.release.set()
+    service.fail = case == "other"
     client = _client(service, **options)
     holder: threading.Thread | None = None
     if case == "capacity":  # a scan holds the only CLI slot while the second call arrives
@@ -173,3 +178,9 @@ def test_cli_scan_gated_by_read_only():
     status, body = _post(_client(service, read_only=True), "vulnerabilities_scan")
     assert (status, body) == (403, {"error": "sharpit is read-only via SHARPIT_READ_ONLY=true"})
     assert not service.entered.is_set()
+
+
+def test_cli_body_is_bounded():
+    # new: review ruling (bounded read; the CLI has no cap of its own, so the MCP payload cap applies)
+    status, body = _post(_client(mcp_max_payload_bytes=16), "get_config", {"query": "x" * 100})
+    assert (status, body) == (413, {"error": "Request payload exceeds limit"})
