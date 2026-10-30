@@ -4,23 +4,16 @@ import os
 import re
 from collections.abc import Mapping
 
-_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*)$")
+_LINE = re.compile(r"^\s*(?:export\s+)?([^=#\s]+)\s*=\s*(.*)$")
+_SINGLE = re.compile(r"^'([^']*)'\s*(?:#.*)?$")
+_DOUBLE = re.compile(r'^"((?:\\.|[^"\\])*)"\s*(?:#.*)?$')
+_EOL = re.compile(r"\r\n|\r|\n")
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 _ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}
 
 
-def _double_quoted(rest: str) -> str:
-    out: list[str] = []
-    i = 0
-    while i < len(rest) and rest[i] != '"':
-        if rest[i] == "\\" and i + 1 < len(rest):
-            nxt = rest[i + 1]
-            out.append(_ESCAPES.get(nxt, "\\" + nxt))
-            i += 2
-        else:
-            out.append(rest[i])
-            i += 1
-    return "".join(out)
+def _unescape(inner: str) -> str:
+    return re.sub(r"\\(.)", lambda m: _ESCAPES.get(m.group(1), m.group(0)), inner)
 
 
 def parse_dotenv(text: str, environ: Mapping[str, str] = os.environ) -> dict[str, str]:
@@ -34,15 +27,16 @@ def parse_dotenv(text: str, environ: Mapping[str, str] = os.environ) -> dict[str
 
         return _VAR.sub(sub, value)
 
-    for line in text.splitlines():
+    for line in _EOL.split(text):
         m = _LINE.match(line)
         if m is None:
             continue
         key, raw = m.group(1), m.group(2)
-        if raw.startswith("'"):
-            value = raw[1:].split("'", 1)[0]
-        elif raw.startswith('"'):
-            value = expand(_double_quoted(raw[1:]))
+        if raw[:1] in ("'", '"'):
+            q = (_SINGLE if raw[0] == "'" else _DOUBLE).match(raw)
+            if q is None:
+                continue
+            value = q.group(1) if raw[0] == "'" else expand(_unescape(q.group(1)))
         else:
             value = expand(re.split(r"\s+#", raw, maxsplit=1)[0].strip())
         result[key] = value

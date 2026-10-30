@@ -15,6 +15,8 @@ def test_corpus(tmp_path: Path) -> None:
     (pkg / "broken.py").write_text("def (:\n", encoding="utf-8")
     (pkg / "big.py").write_text('import os\nos.getenv("BIG")\n' + "#" * 1_100_000, encoding="utf-8")
     (pkg / "bad_bytes.py").write_bytes(b'import os\nos.getenv("BYTES")\n# \xff\xfe\n')
+    (pkg / "deep.py").write_text("x = " + "+".join(["1"] * 200_000) + "\n", encoding="utf-8")
+    (pkg / "deep2.py").write_text("x = " + "-" * 100_000 + "1\n", encoding="utf-8")
     for skipped in (".venv", "venv", "node_modules", "__pycache__", "site-packages"):
         (pkg / skipped).mkdir()
         (pkg / skipped / "m.py").write_text('import os\nos.getenv("SKIPPED")\n', encoding="utf-8")
@@ -30,6 +32,13 @@ def test_corpus(tmp_path: Path) -> None:
         GetenvFinding("FORM_E", None, "pkg/forms.py:8"),
         GetenvFinding("FORM_F", None, "pkg/forms.py:12"),
     ]
+
+
+def test_keyword_default(tmp_path: Path) -> None:
+    src = 'import os\nos.getenv("A", default="a")\nos.environ.get("B", default="b")\n'
+    (tmp_path / "m.py").write_text(src, encoding="utf-8")
+    found = scan_packages([tmp_path])
+    assert [(f.key, f.default) for f in found] == [("A", "a"), ("B", "b")]
 
 
 def test_unimported_names_not_matched(tmp_path: Path) -> None:

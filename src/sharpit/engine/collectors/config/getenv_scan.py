@@ -30,17 +30,18 @@ def _literal_key(node: ast.expr | None) -> str | None:
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
 
-def _literal_default(args: list[ast.expr]) -> str | None:
+def _literal_default(call: ast.Call) -> str | None:
     # Non-literal defaults stay None: never evaluated.
-    if len(args) > 1 and isinstance(args[1], ast.Constant) and args[1].value is not None:
-        return str(args[1].value)
+    arg = call.args[1] if len(call.args) > 1 else next((k.value for k in call.keywords if k.arg == "default"), None)
+    if isinstance(arg, ast.Constant) and arg.value is not None:
+        return str(arg.value)
     return None
 
 
 def _scan_source(source: str, location: str) -> list[GetenvFinding]:
     try:
         tree = ast.parse(source)
-    except (SyntaxError, ValueError):
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
         return []
     environ_names: set[str] = set()
     getenv_names: set[str] = set()
@@ -67,7 +68,7 @@ def _scan_source(source: str, location: str) -> list[GetenvFinding]:
                 or (isinstance(f, ast.Name) and f.id in getenv_names)
                 or (isinstance(f, ast.Attribute) and f.attr == "get" and is_environ(f.value))
             ):
-                key, default, line = _literal_key(node.args[0]), _literal_default(node.args), node.lineno
+                key, default, line = _literal_key(node.args[0]), _literal_default(node), node.lineno
         elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) and is_environ(node.value):
             key, line = _literal_key(node.slice), node.lineno
         if key is not None:

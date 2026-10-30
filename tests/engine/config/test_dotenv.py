@@ -19,6 +19,13 @@ from sharpit.engine.collectors.config.dotenv import parse_dotenv
         ("A=${NOPE:-fallback}\nB=${NOPE}", {"A": "fallback", "B": ""}),
         ("\n  \nnot a pair\nA=1\n", {"A": "1"}),
         ("A=", {"A": ""}),
+        ("A='x", {}),
+        ('A="x', {}),
+        ("A='x' junk", {}),
+        ('A="x" junk', {}),
+        ("A='x'  # c", {"A": "x"}),
+        ('A="x"# c', {"A": "x"}),
+        ("A:B=1", {"A:B": "1"}),
     ],
 )
 def test_grammar(text: str, expected: dict[str, str]) -> None:
@@ -33,3 +40,9 @@ def test_environ_not_mutated() -> None:
 
 def test_earlier_key_wins_over_environ() -> None:
     assert parse_dotenv("E=file\nA=${E}", environ={"E": "env"})["A"] == "file"
+
+
+def test_only_crlf_cr_lf_split_lines() -> None:
+    vt = chr(11)
+    text = f"A=x{vt}y\r\nB=2\rC=3\nD=4"
+    assert parse_dotenv(text, environ={}) == {"A": f"x{vt}y", "B": "2", "C": "3", "D": "4"}
