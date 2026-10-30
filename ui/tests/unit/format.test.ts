@@ -11,6 +11,22 @@ describe('upgradeHint', () => {
   it('has nothing to say without a fixed version', () => {
     expect(upgradeHint('pkg', '1.0', [])).toBeNull();
   });
+  it('has nothing to say when every fixed version is at or below the installed one', () => {
+    expect(upgradeHint('pkg', '2.0.0', ['1.4.2', '2.0.0'])).toBeNull();
+  });
+  // the hint is a shell command the user pastes: OSV strings must not be able to break out of it
+  it.each([
+    ['evil"; rm -rf ~; "', '1.0', ['2.0']],
+    ['pkg', '1.0', ['2.0"; touch x; "']],
+    ['pkg', '1.0', ['2.0;id']],
+    ['pkg$(id)', '1.0', ['2.0']],
+    ['pkg', '1.0', ['$(id)']],
+  ])('refuses unsafe text: %s %s %s', (pkg, installed, fixed) => {
+    expect(upgradeHint(pkg, installed, fixed)).toBeNull();
+  });
+  it('accepts the version characters PEP 440 uses', () => {
+    expect(upgradeHint('zope.interface', '0.9', ['1!2.0.post1+local'])).toBe('pip install "zope.interface>=1!2.0.post1+local"');
+  });
 });
 
 describe('firstSentence', () => {

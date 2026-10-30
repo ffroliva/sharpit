@@ -8,7 +8,16 @@ export interface Route {
 
 export function parse(hash: string): Route {
   const [path = '', query = ''] = hash.replace(/^#\/?/, '').split('?', 2);
-  return { panel: decodeURIComponent(path) || 'overview', q: new URLSearchParams(query).get('q') ?? '' };
+  return { panel: decode(path) || 'overview', q: new URLSearchParams(query).get('q') ?? '' };
+}
+
+/** A malformed escape (a lone `%`) is kept as typed instead of throwing out of routing. */
+function decode(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
 }
 
 export function href(panel: string, q = ''): string {

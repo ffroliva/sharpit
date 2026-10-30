@@ -83,7 +83,7 @@
           <dt>{kind === 'cli' ? 'Try it' : 'Connect'}</dt>
           <dd>
             <code class="cmd">{connect}</code>
-            <span class="muted sm">{kind === 'cli' ? 'Every tool below is POST …/tools/<name> with its arguments as JSON.' : 'Claude Code; other MCP clients take the same URL over streamable HTTP.'}</span>
+            <span class="muted sm">{kind === 'cli' ? 'Every tool below is POST …/tools/<name> with its arguments as JSON. Outside the browser, add the session cookie or -H "Authorization: Bearer $SHARPIT_AUTHENTICATION_TOKEN".' : 'Claude Code; other MCP clients take the same URL over streamable HTTP.'}</span>
           </dd>
           {#if data.configuredMode}
             <dt>Configured</dt>

@@ -192,6 +192,7 @@
                 <td>
                   {#if upgradeHint(dep.packageName, dep.version, v.fixedVersions)}
                     <code class="hint">{upgradeHint(dep.packageName, dep.version, v.fixedVersions)}</code>
+                  {:else if v.fixedVersions.length > 0}<span class="muted">No fix listed above your version</span>
                   {:else}<span class="muted">No fixed version yet</span>{/if}
                 </td>
                 <td class="num">

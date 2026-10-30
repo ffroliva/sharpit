@@ -27,7 +27,7 @@ beforeEach(() => {
   onauthenticated = vi.fn();
   target = document.createElement('div');
   document.body.append(target);
-  component = mount(TokenPrompt, { target, props: { onauthenticated } });
+  component = mount(TokenPrompt, { target, props: { onauthenticated: onauthenticated as unknown as () => void } });
   flushSync();
 });
 afterEach(() => {

@@ -28,12 +28,14 @@
   type Row = { kind: 'set'; p: Property } | { kind: 'unset'; s: PropertySuggestion };
 
   function split(items: readonly Property[], page: ServerPage<Property>) {
-    const unset = (page.data.propertySuggestions ?? []) as PropertySuggestion[];
+    // an unset key has no source: it belongs only to the unfiltered view
+    const unset = source ? [] : ((page.data.propertySuggestions ?? []) as PropertySuggestion[]);
     const app: Row[] = [
       ...items.filter(isApp).map((p): Row => ({ kind: 'set', p })),
       ...unset.map((s): Row => ({ kind: 'unset', s })),
     ].sort((a, b) => cmp(name(a), name(b)));
-    return { app, env: items.filter((p) => !isApp(p)) };
+    // only the loaded rows are split; with more on the server the env count is a lower bound
+    return { app, env: items.filter((p) => !isApp(p)), partial: items.length < page.matched };
   }
   const name = (r: Row) => (r.kind === 'set' ? r.p.name : r.s.name);
   const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -80,7 +82,8 @@
     <tr><th>Name</th><th>Value</th></tr>
   {/snippet}
   {#snippet body(items: readonly Property[], page: ServerPage<Property>)}
-    {@const { app, env } = split(items, page)}
+    {@const { app, env, partial } = split(items, page)}
+    {@const envCount = partial ? `at least ${env.length}` : `${env.length}`}
     {#if app.length > 0}
       <tr class="group">
         <th colspan="2" scope="colgroup">
@@ -115,10 +118,10 @@
       <tr class="group">
         <th colspan="2" scope="colgroup">
           {#if filtering}
-            Other environment variables ({env.length})
+            Other environment variables ({envCount})
           {:else}
             <button class="disclose" aria-expanded={open} onclick={() => (envOpen = !envOpen)}>
-              Other environment variables ({env.length})
+              Other environment variables ({envCount})
             </button>
           {/if}
           <span class="muted sm">this machine's own, not read by your code</span>

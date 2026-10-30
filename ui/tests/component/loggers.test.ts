@@ -85,3 +85,18 @@ it('a level change reloads the visible rows, so descendants show their new effec
   expect(document.activeElement).toBe(select()); // never dropped to <body> while the change is pending
   expect(select().value).toBe('ERROR');
 });
+
+it('the filter goes into the URL hash, and the count is not announced while it loads', async () => {
+  history.replaceState(null, '', '#/loggers');
+  component = mount(Loggers, { target, props: { panel } });
+  flushSync();
+  const count = () => target.querySelector('.count')!;
+  await vi.waitFor(() => expect(count().textContent).toContain('1 of 1'), { timeout: 1000, interval: 5 });
+  const filter = target.querySelector<HTMLInputElement>('.panel-filter')!;
+  filter.value = 'app.db';
+  filter.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync();
+  expect(count().getAttribute('aria-busy')).toBe('true'); // screen readers hold the "…" placeholder back
+  await vi.waitFor(() => expect(location.hash).toBe('#/loggers?q=app.db'), { timeout: 1000, interval: 5 });
+  await vi.waitFor(() => expect(count().getAttribute('aria-busy')).toBe('false'), { timeout: 1000, interval: 5 });
+});

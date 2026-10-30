@@ -128,7 +128,7 @@
       <input bind:this={filter} id="filter-{key}" class="panel-filter" type="search" {placeholder} bind:value={q} autocomplete="off" spellcheck="false" />
     </div>
     {@render controls?.()}
-    <span class="muted count" aria-live="polite">
+    <span class="muted count" aria-live="polite" aria-busy={loading}>
       {#if page}{loading ? '…' : page.matched} of {page.total}{/if}
     </span>
   </header>

@@ -230,4 +230,14 @@ describe('Vulnerabilities copy and next steps', () => {
     expect(text()).toContain('8.8');
     expect(text()).toContain('pip install "jinja2>=3.1.3"');
   });
+
+  it('says so when no fixed version is above the installed one, and offers no command', async () => {
+    const r = scanned();
+    r.dependencies[0]!.vulnerabilities[0]!.fixedVersions = ['3.0.0'];
+    fetchMock.mockResolvedValue(json(200, r));
+    render();
+    await until(() => expect(phase()).toBe('results'));
+    expect(text()).toContain('No fix listed above your version');
+    expect(text()).not.toContain('pip install');
+  });
 });

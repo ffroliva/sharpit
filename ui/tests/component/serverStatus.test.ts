@@ -52,6 +52,14 @@ it('the toggle keeps keyboard focus through the switch', async () => {
   expect(document.activeElement).toBe(button());
 });
 
+it('the CLI example says how to authenticate from outside the browser', async () => {
+  fetchMock.mockResolvedValue(json({ ...status(true), endpoint: '/sharpit/api/cli' }));
+  component = mount(ServerStatus, { target, props: { panel: { ...panel, id: 'cli', title: 'CLI' }, kind: 'cli' } });
+  flushSync();
+  await until(() => expect(target.textContent).toContain('curl -X POST'));
+  expect(target.textContent).toContain('Authorization: Bearer $SHARPIT_AUTHENTICATION_TOKEN');
+});
+
 it('shows the developer an absolute endpoint, a connect command and one-line tool summaries', async () => {
   fetchMock.mockResolvedValue(json(status(true)));
   component = mount(ServerStatus, { target, props: { panel, kind: 'mcp-server' } });

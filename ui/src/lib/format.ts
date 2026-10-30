@@ -10,12 +10,17 @@ function compare(a: string, b: string): number {
   return 0;
 }
 
-/** The pip command that reaches the lowest fixed version above `installed` (else the highest one listed). */
+const SAFE_NAME = /^[A-Za-z0-9._-]+$/;
+const SAFE_VERSION = /^[A-Za-z0-9._!+-]+$/;
+
+/**
+ * The pip command that reaches the lowest fixed version above `installed`, or null when there is none. The command is
+ * pasted into a shell and its parts come from OSV, so anything outside package-name and version characters gives null.
+ */
 export function upgradeHint(pkg: string, installed: string, fixed: readonly string[]): string | null {
-  if (fixed.length === 0) return null;
-  const sorted = [...fixed].sort(compare);
-  const target = sorted.find((v) => compare(v, installed) > 0) ?? sorted.at(-1)!;
-  return `pip install "${pkg}>=${target}"`;
+  if (!SAFE_NAME.test(pkg)) return null;
+  const target = [...fixed].sort(compare).find((v) => compare(v, installed) > 0);
+  return target && SAFE_VERSION.test(target) ? `pip install "${pkg}>=${target}"` : null;
 }
 
 /** Up to the first full stop that ends a sentence (followed by a space or the end), not one inside a dotted name. */

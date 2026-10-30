@@ -66,3 +66,23 @@ it('shows where a key is read and what an unset key would default to', async () 
   expect(row('JWT_SECRET').textContent).toMatch(/not set.*default \*{6}/);
   expect(row('DEBUG').querySelector('.tag.ok')?.textContent).toBe('won'); // the environment beat the code's default
 });
+
+it('with more rows on the server than loaded, the env count is a lower bound', async () => {
+  fetchMock.mockImplementation(() => Promise.resolve(json({ ...report, page: { ...report.page, total: 900, matched: 900, hasMore: true } })));
+  component = mount(Config, { target, props: {} });
+  flushSync();
+  await until(() => expect(names()).toContain('APP_NAME'));
+  expect(target.querySelector('tr.group button')!.textContent).toMatch(/Other environment variables \(at least 2\)/);
+});
+
+it('a source filter hides unset keys, which have no source', async () => {
+  component = mount(Config, { target, props: {} });
+  flushSync();
+  await until(() => expect(names()).toContain('JWT_SECRET'));
+  const select = target.querySelector<HTMLSelectElement>('#config-source')!;
+  await until(() => expect(select.options.length).toBe(3));
+  select.value = 'systemEnvironment';
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  flushSync();
+  await until(() => expect(names()).not.toContain('JWT_SECRET'));
+});
