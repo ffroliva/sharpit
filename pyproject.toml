@@ -16,7 +16,7 @@ dependencies = ["starlette>=0.40", "packaging>=23"]
 test = ["fastapi>=0.115", "pydantic-settings>=2.4", "uvicorn>=0.30", "httpx>=0.27", "pytest>=8", "pytest-timeout>=2.3"]
 
 [dependency-groups]
-dev = ["ruff>=0.6", "pyright>=1.1.380"]
+dev = ["ruff>=0.6", "pyright>=1.1.380", "pydantic-settings>=2.4"]
 
 [tool.hatch.version]
 path = "src/sharpit/__init__.py"

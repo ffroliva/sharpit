@@ -411,6 +411,7 @@ test = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pydantic-settings" },
     { name = "pyright" },
     { name = "ruff" },
 ]
@@ -430,6 +431,7 @@ provides-extras = ["test"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "pydantic-settings", specifier = ">=2.4" },
     { name = "pyright", specifier = ">=1.1.380" },
     { name = "ruff", specifier = ">=0.6" },
 ]
