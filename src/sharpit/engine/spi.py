@@ -32,7 +32,7 @@ class ProviderInfo:
     scope: Literal["request", "singleton"]
     resource: str | None
     dependencies: tuple[str, ...]
-    classification: Literal["APPLICATION", "FRAMEWORK", "PLATFORM", "OTHER"]
+    classification: Literal["APPLICATION", "FRAMEWORK", "PLATFORM", "BOOTUI", "OTHER"]
     overridden_by: str | None
 
 

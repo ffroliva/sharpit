@@ -23,6 +23,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import guard
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
+from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report, set_level
 from sharpit.engine.collectors.mappings import mappings_flat
@@ -207,6 +208,15 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
             return error(400, str(exc))
         return json_response(mappings_flat(ctx, params.get("q"), offset, limit))
 
+    def beans(request: Request) -> Response:
+        params = request.query_params
+        try:
+            offset = parse_int_param(params.get("offset"), "offset")
+            limit = parse_int_param(params.get("limit"), "limit")
+        except BadRequest as exc:
+            return error(400, str(exc))
+        return json_response(beans_report(ctx, params.get("q"), params.get("classification"), offset, limit))
+
     async def logger_level(request: Request) -> Response:
         try:
             body: object = await request.json()
@@ -229,6 +239,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/config", config, methods=["GET"]),
         Route(f"{api}/loggers", loggers, methods=["GET"]),
         Route(f"{api}/mappings/flat", mappings, methods=["GET"]),
+        Route(f"{api}/beans", beans, methods=["GET"]),
         Route(f"{api}/loggers/{{name:path}}", logger_level, methods=["POST"]),
     ]
 
@@ -262,17 +273,17 @@ def install(app: Any, *, settings: Sequence[object] = (), **options: Any) -> Sha
     profiles = tuple(active_profiles(sharpit_settings, os.environ))
     activation = decide(sharpit_settings, profiles, dev_server_signal(sys.argv))
     token, generated = guard.resolve_token(sharpit_settings) if activation.enabled else (None, False)
+    router = app.router
+    original: _Lifespan = router.lifespan_context
     ctx = SharpitContext(
         sharpit_settings,
         activation,
-        FastApiIntrospector(app, sharpit_settings.path),
+        FastApiIntrospector(app, sharpit_settings.path, original),
         token=token,
         profiles=profiles,
         app_settings=tuple(settings),
         caller_module=caller_module,
     )
-    router = app.router
-    original: _Lifespan = router.lifespan_context
     handle = SharpitHandle(sharpit_settings, activation, ctx, original)
 
     if not activation.enabled:

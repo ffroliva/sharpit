@@ -1,11 +1,14 @@
-"""FastAPI ``AppIntrospector`` (``providers`` lands in Task 10)."""
+"""FastAPI ``AppIntrospector``: routes for the mappings panel, dependency providers for the beans panel."""
 
 from __future__ import annotations
 
 import functools
+import inspect
+import sys
 from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 from starlette.routing import BaseRoute, Host, Mount, WebSocketRoute
 
@@ -31,6 +34,46 @@ def _qualified(obj: object) -> str:
     return f"{getattr(obj, '__module__', None) or '?'}:{getattr(obj, '__qualname__', '?')}"
 
 
+def _source_target(obj: object) -> object:
+    while isinstance(obj, functools.partial):
+        obj = obj.func  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    if not (inspect.isfunction(obj) or inspect.ismethod(obj) or inspect.isclass(obj)):
+        obj = type(obj)  # a callable instance is defined by its class
+    return inspect.unwrap(obj) if callable(obj) else obj
+
+
+def _resource(obj: object) -> str | None:
+    """``file:line`` where the provider is defined, or ``None`` (built-ins, ``exec``'d code)."""
+    try:
+        target: Any = _source_target(obj)
+        source = inspect.getsourcefile(target)
+        return f"{source}:{inspect.getsourcelines(target)[1]}" if source else None
+    except Exception:  # noqa: BLE001 - no source (built-in, C extension, exec'd): the bean stays, without a resource
+        return None
+
+
+def _classify(name: str) -> Literal["APPLICATION", "FRAMEWORK", "PLATFORM", "BOOTUI", "OTHER"]:
+    module = name.partition(":")[0]
+    top = module.partition(".")[0]
+    if not module or module == "?":
+        return "OTHER"
+    if top == "sharpit":
+        return "BOOTUI"
+    if top in sys.stdlib_module_names or top == "builtins":
+        return "PLATFORM"
+    file = getattr(sys.modules.get(module), "__file__", None)
+    if isinstance(file, str) and {"site-packages", "dist-packages"} & set(Path(file).parts):
+        return "FRAMEWORK"
+    return "APPLICATION"
+
+
+def _dependant_of(call: object) -> object | None:
+    """The sub-dependency tree FastAPI would build for an override (signature only; nothing is called)."""
+    from fastapi.dependencies.utils import get_dependant  # noqa: PLC0415 - FastAPI is optional for sharpit
+
+    return get_dependant(path="", call=call)  # pyright: ignore[reportArgumentType]
+
+
 def _produces(route: object) -> str | None:
     response_class: Any = getattr(route, "response_class", None)
     response_class = getattr(response_class, "value", response_class)  # FastAPI wraps defaults in DefaultPlaceholder
@@ -44,8 +87,12 @@ def _consumes(route: object) -> str | None:
 
 
 class FastApiIntrospector:
-    def __init__(self, app: object, exclude_mount: str | None = None) -> None:
+    def __init__(self, app: object, exclude_mount: str | None = None, lifespan: object | None = None) -> None:
         self.app = app
+        # The host's own lifespan: install() passes it before wrapping ``router.lifespan_context``.
+        self.lifespan = (
+            lifespan if lifespan is not None else getattr(getattr(app, "router", None), "lifespan_context", None)
+        )
         self.exclude_mount = (exclude_mount or "").rstrip(
             "/"
         ) or None  # sharpit's own mount path: its rows are not the host's
@@ -63,8 +110,11 @@ class FastApiIntrospector:
     def routes(self) -> list[RouteInfo]:
         # Read attributes only: no endpoint is called and no OpenAPI schema is built. Walked per call, so routes
         # added after install show up.
+        return [info for info, _ in self._entries()]
+
+    def _entries(self) -> Iterator[tuple[RouteInfo, object | None]]:
         routes: Any = getattr(self.app, "routes", [])
-        return list(self._walk(routes, "", None, frozenset(), 0, top=True))
+        return self._walk(routes, "", None, frozenset(), 0, top=True)
 
     def _walk(
         self,
@@ -75,7 +125,8 @@ class FastApiIntrospector:
         depth: int,
         *,
         top: bool = False,
-    ) -> Iterator[RouteInfo]:
+    ) -> Iterator[tuple[RouteInfo, object | None]]:
+        """Each listed row with its leaf route object (``None`` for opaque mount / unexpanded rows)."""
         for route in list(routes):
             if callable(getattr(route, "effective_candidates", None)):
                 # FastAPI's lazy include_router entry (private API): expand it to its effective (prefixed) routes.
@@ -86,7 +137,7 @@ class FastApiIntrospector:
                     include_prefix = getattr(getattr(route, "include_context", None), "prefix", None)
                     base = prefix + include_prefix if isinstance(include_prefix, str) and include_prefix else None
                     path = base + "/{path}" if base else "(include_router)"
-                    yield RouteInfo((), path, "<unexpanded include_router>", host, None, None, None)
+                    yield RouteInfo((), path, "<unexpanded include_router>", host, None, None, None), None
                     continue
                 yield from self._walk(flat, prefix, host, path_apps, depth)
                 continue
@@ -101,9 +152,12 @@ class FastApiIntrospector:
                 if children and app_id not in path_apps and depth < MAX_DEPTH:
                     yield from self._walk(children, base, inner_host, path_apps | {app_id}, depth + 1)
                 else:  # no routes to list, a cycle, or past the depth cap: one opaque row, stop descending
-                    yield RouteInfo((), base + "/{path}", _qualified(route.app), inner_host, None, None, route.name)
+                    yield (
+                        RouteInfo((), base + "/{path}", _qualified(route.app), inner_host, None, None, route.name),
+                        None,
+                    )
                 continue
-            yield self._leaf(route, prefix, host)
+            yield self._leaf(route, prefix, host), route
 
     @staticmethod
     def _leaf(route: BaseRoute, prefix: str, host: str | None) -> RouteInfo:
@@ -123,4 +177,72 @@ class FastApiIntrospector:
         )
 
     def providers(self) -> list[ProviderInfo]:
-        raise NotImplementedError("providers() lands in Task 10")
+        # Read attributes only: no dependency is called, the middleware stack is never built, no OpenAPI schema.
+        # Beans are dependency providers; route endpoints are mappings, not beans.
+        found: dict[int, tuple[object, Literal["request", "singleton"]]] = {}  # identity -> object, discovery order
+        edges: dict[int, dict[int, None]] = {}  # identity -> ordered direct sub-provider identities
+
+        def add(obj: object, scope: Literal["request", "singleton"]) -> tuple[int, bool]:
+            key = id(obj)
+            new = key not in found
+            if new:
+                found[key] = (obj, scope)
+                edges[key] = {}
+            return key, new
+
+        def visit(dependant: object, owner: int | None, depth: int) -> None:
+            subs: Any = getattr(dependant, "dependencies", None) or ()
+            for sub in list(subs):
+                call = getattr(sub, "call", None)
+                if call is None:
+                    continue
+                key, new = add(call, "request")  # registered before the edge, so an edge never dangles
+                if owner is not None:
+                    edges[owner][key] = None
+                if new and depth < MAX_DEPTH:
+                    visit(sub, key, depth + 1)
+
+        for _, route in self._entries():
+            try:
+                visit(getattr(route, "dependant", None), None, 0)
+            except Exception:  # noqa: BLE001,S112 - one odd route must not empty the panel
+                continue
+
+        overridden_by: dict[int, int] = {}
+        overrides: Any = getattr(self.app, "dependency_overrides", None) or {}
+        for original, override in list(overrides.items()):
+            try:
+                add(original, "request")
+                key, new = add(override, "request")
+                overridden_by[id(original)] = key
+                if new:
+                    visit(_dependant_of(override), key, 1)
+            except Exception:  # noqa: BLE001,S112
+                continue
+
+        middleware: Any = getattr(self.app, "user_middleware", None) or ()
+        for entry in list(middleware):
+            cls = getattr(entry, "cls", None)  # only the class: args/kwargs (secret keys) are never read
+            if cls is not None:
+                add(cls, "singleton")
+        if self.lifespan is not None:
+            add(self.lifespan, "singleton")
+
+        names: dict[int, str] = {}
+        seen: dict[str, int] = {}
+        for key, (obj, _) in found.items():
+            base = _qualified(obj)
+            seen[base] = seen.get(base, 0) + 1
+            names[key] = base if seen[base] == 1 else f"{base}#{seen[base]}"
+        return [
+            ProviderInfo(
+                names[key],
+                _qualified(obj),
+                scope,
+                _resource(obj),
+                tuple(names[d] for d in edges[key]),
+                _classify(names[key]),
+                names[overridden_by[key]] if key in overridden_by else None,
+            )
+            for key, (obj, scope) in found.items()
+        ]
