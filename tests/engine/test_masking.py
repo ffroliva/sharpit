@@ -464,3 +464,11 @@ def test_carries_credentials() -> None:
 def test_non_string_value_untouched() -> None:
     value: Any = 8080
     assert Masker(M, True).mask("port", value) == (8080, False)
+
+
+def test_empty_user_url_password_is_secret() -> None:
+    # sharpit widening of SecretValueDetector: an empty user still carries a password (redis://:pw@host)
+    assert is_secret_value("redis://:pw@host:6379/0")
+    assert Masker(M, True).mask("APP_CACHE", "redis://:redispw@localhost:6379/0") == (MASK, True)
+    assert mask_user_info("redis://:pw@host:6379/0") == f"redis://{MASK}@host:6379/0"
+    assert mask_uri("redis://:pw@host:6379/0") == f"redis://{MASK}@host:6379/0"

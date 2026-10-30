@@ -162,6 +162,20 @@ def test_q_cannot_probe_masked_value():
     assert _report(_ctx(), q="abc1", environ={"API_TOKEN": "abc123"})["page"]["matched"] == 0
 
 
+def test_empty_user_url_password_masked_and_not_probeable():
+    env = {"REDIS_URL": "redis://:redispw@localhost:6379/0"}
+    assert _by_name(_report(_ctx(), environ=env), "REDIS_URL")["value"] == MASK
+    assert _report(_ctx(), q="redispw", environ=env)["page"]["matched"] == 0
+
+
+def test_masked_flag_describes_the_value_only():
+    class App(BaseSettings):
+        upstream: str = "postgres://user:hunter2@db/x"
+
+    prop = _by_name(_report(_ctx(settings=(App(upstream="plain"),))), "UPSTREAM")
+    assert (prop["value"], prop["defaultValue"], prop["masked"]) == ("plain", MASK, False)
+
+
 def test_relaxed_q():
     assert _names(_report(_ctx(), q="my-prop", environ={"MY_PROP": "v"})) == ["MY_PROP"]
 

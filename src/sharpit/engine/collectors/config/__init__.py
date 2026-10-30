@@ -103,14 +103,14 @@ def config_report(
     properties: list[dict[str, Any]] = []
     for entry in sorted(entries.values(), key=lambda e: e.name):
         value, value_masked = _display(ctx, entry.name, entry.value, entry.secret_typed)
-        default, default_masked = _display(ctx, entry.name, entry.default, entry.secret_typed)
+        default = _display(ctx, entry.name, entry.default, entry.secret_typed)[0]
         properties.append(
             {
                 "name": entry.name,
                 "value": value,
                 "source": entry.source,
                 "origin": None,
-                "masked": value_masked or default_masked,
+                "masked": value_masked,  # the value only (contract 3); a masked default shows ****** on its own
                 "override": False,
                 "description": entry.description,
                 "defaultValue": default,
