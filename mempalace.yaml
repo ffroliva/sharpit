@@ -1,0 +1,98 @@
+wing: sharpit
+
+rooms:
+  - name: architecture
+    description: Structure, boundaries, data flow, module design
+    keywords: [architecture, boundary, subsystem, topology, dataflow, hexagonal, modulith,
+               arquitetura, arquitectura, camadas, acoplamento]
+  - name: decisions
+    description: Design decisions with alternatives and rationale
+    keywords: [decision, rationale, trade-off, tradeoff, alternative, superseded,
+               decisao, decisão, decisoes, decisões, justificativa, optamos, escolhemos]
+  - name: devops
+    description: CI/CD, deploy, containers, infrastructure, runbooks
+    keywords: [workflows, .github, deploy, docker, dockerfile, docker-compose, kubernetes,
+               terraform, runbook, rollback, nginx, systemd, pipelines, ansible, airflow,
+               implantacao, implantação, conteiner, contêiner]
+  - name: security
+    description: Auth, secrets, threat model, vulnerabilities
+    keywords: [security, oauth, threat model, vulnerability, encryption, credential, secret, rbac,
+               seguranca, segurança, autenticacao, autenticação, credencial, vulnerabilidade, criptografia]
+  - name: practices
+    description: Code conventions, review standards, lint and style rules
+    keywords: [practices, convention, contributing, eslint, prettier, styleguide, "code review",
+               naming, standards, onboarding,
+               convencao, convenção, convencoes, convenções, diretrizes, padronizacao, padronização]
+  - name: compliance
+    description: ISO, audit, regulatory and legal obligations
+    keywords: [gdpr, compliance, audit trail, regulatory, certification, retention, soc2,
+               conformidade, auditoria, regulamenta, legislacao, legislação, lgpd]
+  - name: business
+    description: Pricing, customers, strategy, commercial constraints
+    keywords: [pricing, revenue, billing, subscription, churn, margin, stakeholder, procurement,
+               faturamento, receita, assinatura, orcamento, orçamento]
+  - name: marketing
+    description: Positioning, content, launch, channels
+    keywords: [positioning, campaign, "landing page", funnel, newsletter,
+               divulgacao, divulgação, campanha, posicionamento]
+  - name: problems
+    description: Anything broken — open known issues, incidents, root causes, fixes
+    keywords: [problems, issues, "known issue", known_issues, troubleshoot, incident, postmortem,
+               "root cause", regression, workaround, hotfix, outage, gotcha,
+               problema, problemas, falha, falhas, incidente, correcao, correção]
+  - name: reference
+    description: Bare facts — endpoints, versions, paths, credential locations
+    keywords: [changelog, glossary, openapi, swagger, "release notes", cheatsheet,
+               referencia, referência, glossario, glossário]
+  # diary is AGENT-AUTHORED ONLY and must never win a mined file, so it has no keywords.
+  - name: diary
+    description: Chronological session log — written by agents, never mined
+    keywords: []
+
+# Source code and machine data are deliberately NOT mined: code is in the repo at full fidelity and greppable,
+# generated data is not knowledge, and worktrees (*-wt) are the same code twice. Memory holds what the repo
+# cannot recover: decisions, root causes, architecture rationale, conventions. Prose and CI config only.
+# Format copied from gflow-cli's mempalace.yaml; some extensions below are inert today and kept as guards.
+exclude_patterns:
+  - "**/node_modules/**"
+  - "**/.venv/**"
+  - "**/venv/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/target/**"
+  - "**/.git/**"
+  - "**/__pycache__/**"
+  - "**/.pytest_cache/**"
+  - "**/coverage/**"
+  - "**/htmlcov/**"
+  - "**/_backups/**"
+  - "**/_archive/**"
+  - "**/*.py"
+  - "**/*.js"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.java"
+  - "**/*.go"
+  - "**/*.rs"
+  - "**/*.css"
+  - "**/*.scss"
+  - "**/*.html"
+  - "**/*.sql"
+  - "**/*.sh"
+  - "**/*.ipynb"
+  - "**/*.json"
+  - "**/*.toml"
+  - "**/*.csv"
+  - "**/*.lock"
+  - "**/_wt/**"
+  - "**/*-wt/**"
+  - "**/*.log"
+  - "**/*output*.txt"
+  - "**/*output*.log"
+  - "**/*errors*.txt"
+  - "**/*test-output*"
+  - "**/*.min.*"
+  - "**/.sharpit/**"
+  - "**/replica/evidence/**"
+  - "**/src/sharpit/ui/static/**"
