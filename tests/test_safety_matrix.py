@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +81,15 @@ VARIANTS: list[tuple[str, tuple[str, int], dict[str, str], bool, str]] = [
     ("remote-cookie", REMOTE, {"Cookie": f"{SESSION_COOKIE}={TOKEN}"}, True, "ok"),
     ("remote-bearer-cross-origin", REMOTE, {"Authorization": f"Bearer {TOKEN}", "Origin": EVIL}, True, "403-cross"),
     ("local-xff-remote-access", LOCAL, {"X-Forwarded-For": "127.0.0.1"}, True, "token"),
-]
+    # Task P1 (stricter than BootUI, spec §14): on API paths a present Origin must be the request's own origin,
+    # scheme + host + port; the shell and assets keep the host-only check (ruling 58)
+    ("local-other-port-origin", LOCAL, {"Origin": "http://localhost:3000", "Sec-Fetch-Site": "same-site"}, False,
+     "403-cross-api"),
+    ("local-other-scheme-origin", LOCAL, {"Origin": "https://localhost"}, False, "403-cross-api"),
+    ("local-same-origin-default-port", LOCAL, {"Origin": "http://localhost:80"}, False, "ok"),
+    ("remote-bearer-other-port-origin", REMOTE, {"Authorization": f"Bearer {TOKEN}", "Origin": "http://localhost:3000"},
+     True, "403-cross-api"),
+]  # fmt: skip
 _OUTCOME_ALIASES = {"403-source": MESSAGE_NON_LOOPBACK_SOURCE, "403-cross": MESSAGE_CROSS_SITE}
 
 
@@ -117,6 +126,8 @@ def test_guard_matrix(
 ):
     resp = _send(_client(_app(remote_access), peer), method, path, headers)
     outcome = _OUTCOME_ALIASES.get(outcome, outcome)
+    if outcome == "403-cross-api":  # every API row needs a token, so needs_token is "is an API path"
+        outcome = MESSAGE_CROSS_SITE if needs_token else "ok"
     if outcome == "token":
         outcome = "401" if needs_token else "ok"
     if outcome == "ok":
@@ -215,6 +226,34 @@ def test_dismissed_rules_obey_global_read_only_only(tmp_path: Path):
         panels={"vulnerabilities": {"read_only": True}},
     )
     assert _client(panel_only).post(rule).status_code == 200  # a panel flag does not cover dismissed-rules
+
+
+# --- Origin from another local port: browser "simple" requests (text/plain, no preflight) must not mutate -------
+
+
+MUTATIONS = [
+    ("/sharpit/api/mcp-server/toggle", b""),
+    ("/sharpit/api/loggers/matrix.origin.probe", b'{"level": "DEBUG"}'),
+    ("/sharpit/api/dismissed-rules/V-1%3A%3Apypi%3Awidget", b""),
+]
+
+
+@pytest.mark.parametrize(("path", "body"), MUTATIONS, ids=["mcp-server-toggle", "loggers", "dismissed-rules"])
+def test_other_local_port_cannot_mutate(tmp_path: Path, path: str, body: bytes):
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path))
+    client = _client(app)
+    plain = {"Content-Type": "text/plain"}
+    other_port = {**plain, "Origin": "http://localhost:3000", "Sec-Fetch-Site": "same-site"}
+    resp = client.post(path, content=body, headers=other_port)
+    assert (resp.status_code, resp.json()) == (403, {"error": MESSAGE_CROSS_SITE})
+    assert list(tmp_path.iterdir()) == []  # no dismissal written
+    assert logging.getLogger("matrix.origin.probe").level == logging.NOTSET
+    assert client.get("/sharpit/api/mcp-server").json()["enabled"] is False
+    # the page's own origin, and a client that sends no Origin (curl, the CLI, MCP clients), still work
+    assert client.post(path, content=body, headers={**plain, "Origin": "http://localhost"}).status_code == 200
+    assert client.post(path, content=body, headers=plain).status_code == 200
+    logging.getLogger("matrix.origin.probe").setLevel(logging.NOTSET)
 
 
 # --- container gateway: trusted until a forwarded header appears ------------------------------------------------

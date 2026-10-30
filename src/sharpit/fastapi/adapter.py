@@ -142,7 +142,9 @@ class GuardMiddleware:
         if route_path == self.api_prefix or route_path.startswith(self.api_prefix + "/"):
             api_sub_path = route_path[len(self.api_prefix) :]
         client = scope.get("client")
-        facts = guard.RequestFacts(scope["method"], client[0] if client else None, headers, api_sub_path)
+        facts = guard.RequestFacts(
+            scope["method"], client[0] if client else None, headers, api_sub_path, scope.get("scheme", "http")
+        )
         settings = self.ctx.settings
         gateway = (
             self.ctx.lazy("gateway", guard.detect_container_gateway)

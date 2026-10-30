@@ -1,7 +1,7 @@
 """Request guard (port of BootUI ``LocalhostGuard``, ``ApiTokenAuthenticator``, ``PanelAccessFilter``).
 
-Order: trusted source -> Host allow-list -> cross-site (every method, a sharpit deviation) -> token for untrusted
-sources on API paths -> panel access. Nothing here resolves names or opens sockets.
+Order: trusted source -> Host allow-list -> cross-site (every method, and the full origin on API paths: sharpit
+deviations) -> token for untrusted sources on API paths -> panel access. Nothing here resolves names or opens sockets.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import cast
 
 from sharpit.engine.panels import disabled_reason, panel_for_api_path, read_only_reason
 from sharpit.settings import PanelSettings, SharpitSettings
@@ -58,6 +59,7 @@ class RequestFacts:
     peer: str | None
     headers: Mapping[str, str]  # lower-case keys
     api_sub_path: str | None  # path after api_path; None for the shell and assets
+    scheme: str = "http"  # the request's own scheme (ASGI ``scope["scheme"]``)
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,12 @@ def extract_origin_host(value: str | None) -> str | None:
 
 
 def _parse_authority(candidate: str) -> str | None:
+    parts = _split_authority(candidate)
+    return None if parts is None else parts[0]
+
+
+def _split_authority(candidate: str) -> tuple[str, str] | None:
+    """``(lower-cased host, port digits or "")`` of an authority, or None when malformed."""
     if candidate.startswith("["):
         close = candidate.find("]")
         if close < 0:
@@ -109,7 +117,30 @@ def _parse_authority(candidate: str) -> str | None:
             return None
     if port_suffix and (port_suffix[0] != ":" or not all("0" <= c <= "9" for c in port_suffix[1:])):
         return None
-    return host.lower()
+    return host.lower(), port_suffix[1:]
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _origin_tuple(scheme: str, authority: str) -> tuple[str, str, int] | None:
+    """``(scheme, host, port)`` with the scheme's default port filled in; None when anything is unparseable."""
+    parts = _split_authority(authority) if authority else None
+    scheme = scheme.lower()
+    if parts is None or (not parts[1] and scheme not in _DEFAULT_PORTS):
+        return None
+    host, port = parts
+    return scheme, host, int(port) if port else _DEFAULT_PORTS[scheme]
+
+
+def _request_origin(facts: RequestFacts) -> tuple[str, str, int] | None:
+    host = facts.headers.get("host")
+    return None if host is None else _origin_tuple(facts.scheme, host.strip(_JAVA_TRIM))
+
+
+def _parse_origin(value: str) -> tuple[str, str, int] | None:
+    scheme, sep, rest = value.strip(_JAVA_TRIM).partition("://")
+    return _origin_tuple(scheme, rest.partition("/")[0]) if sep else None
 
 
 def _is_registered_name(host: str) -> bool:
@@ -255,7 +286,14 @@ def _is_cross_site(facts: RequestFacts, request_host: str | None) -> bool:
     if _is_blank(origin):
         return False
     origin_host = extract_origin_host(origin)
-    return origin_host is None or origin_host != request_host
+    if origin_host is None or origin_host != request_host:
+        return True
+    # sharpit deviation (stricter than BootUI): on API paths a present Origin must be the request's own origin, port
+    # included, so a page served from another local port cannot drive sharpit with a no-preflight "simple" request
+    if facts.api_sub_path is None:
+        return False
+    expected = _request_origin(facts)
+    return expected is None or _parse_origin(cast("str", origin)) != expected
 
 
 def _panel_access(method: str, sub_path: str, settings: SharpitSettings) -> Denial | None:
