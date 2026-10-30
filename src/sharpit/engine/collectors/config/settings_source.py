@@ -41,7 +41,44 @@ def _default(field: Any) -> object:
         return None
 
 
+def _same(value: object, default: object) -> bool:
+    try:
+        return (value == default) is True
+    except Exception:
+        return False
+
+
+def _call(source: Any) -> Mapping[str, Any]:
+    try:
+        return source()
+    except Exception:  # a broken source must not hide the others
+        return {}
+
+
 def settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[list[ConfigEntry], list[str]]:
+    """Never raises: on unexpected failure falls back to default/init attribution per field."""
+    try:
+        return _settings_entries(instance, environ)
+    except Exception:
+        pass
+    try:
+        from pydantic_settings import BaseSettings
+
+        if not isinstance(instance, BaseSettings):
+            return [], []
+        cls = type(instance)
+        prefix = str(cls.model_config.get("env_prefix") or "")
+        fallback: list[ConfigEntry] = []
+        for fname, field in cls.model_fields.items():
+            value, default = getattr(instance, fname, None), _default(field)
+            label = f"{'default' if _same(value, default) else 'init'} ({cls.__name__})"
+            fallback.append(ConfigEntry((prefix + fname).upper(), value, label, field.description, default, False))
+        return fallback, []
+    except Exception:
+        return [], []
+
+
+def _settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[list[ConfigEntry], list[str]]:
     try:
         from pydantic import BaseModel, SecretBytes, SecretStr
         from pydantic_settings import BaseSettings, DotEnvSettingsSource, EnvSettingsSource, SecretsSettingsSource
@@ -58,12 +95,14 @@ def settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[list
             return parse_env_vars(environ, self.case_sensitive, self.env_ignore_empty, self.env_parse_none_str)
 
     env_src = _Env(cls)
-    sources: list[tuple[str, Mapping[str, Any]]] = [("systemEnvironment", env_src())]
+    sources: list[tuple[str, Mapping[str, Any]]] = [("systemEnvironment", _call(env_src))]
     for path in reversed(_paths(cfg.get("env_file"))):  # later files win
-        data = DotEnvSettingsSource(cls, env_file=path)() if path.is_file() else {}
+        data: Mapping[str, Any] = (
+            _call(lambda p=path: DotEnvSettingsSource(cls, env_file=p)()) if path.is_file() else {}
+        )
         sources.append((f"dotenv: {path}", data))
     for directory in _paths(cfg.get("secrets_dir")):
-        data = SecretsSettingsSource(cls, secrets_dir=directory)() if directory.is_dir() else {}
+        data = _call(lambda d=directory: SecretsSettingsSource(cls, secrets_dir=d)()) if directory.is_dir() else {}
         sources.append((f"secrets: {directory}", data))
     custom = cls.settings_customise_sources.__func__ is not BaseSettings.settings_customise_sources.__func__  # pyright: ignore[reportFunctionMemberAccess]
     delimiter = env_src.env_nested_delimiter
@@ -85,7 +124,7 @@ def settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[list
         if custom:
             label = f"settings ({name_of})"
         elif label is None:
-            label = f"{'default' if value == default else 'init'} ({name_of})"
+            label = f"{'default' if _same(value, default) else 'init'} ({name_of})"
         secret = any(issubclass(t, (SecretStr, SecretBytes)) for t in _classes(field.annotation))
         secret = secret or isinstance(value, (SecretStr, SecretBytes))
         entries.append(

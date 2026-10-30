@@ -172,3 +172,55 @@ def test_pydantic_settings_missing(monkeypatch):
     inst = Settings()
     monkeypatch.setattr(builtins, "__import__", fake)
     assert settings_entries(inst, {}) == ([], [])
+
+
+def test_private_api_drift_degrades(monkeypatch):
+    from pydantic_settings import EnvSettingsSource
+
+    class Settings(BaseSettings):
+        model_config = SettingsConfigDict(env_prefix="APP_")
+        a: str = "d"
+        b: str = "d"
+
+    inst = Settings(b="x")
+
+    def boom(*_a, **_k):
+        raise RuntimeError("drift")
+
+    monkeypatch.setattr(EnvSettingsSource, "_extract_field_info", boom)
+    entries, _ = settings_entries(inst, {})
+    e = by_name(entries)
+    assert (e["APP_A"].source, e["APP_B"].source) == ("default (Settings)", "init (Settings)")
+
+
+def test_failing_dotenv_does_not_hide_env(monkeypatch, tmp_path: Path):
+    from pydantic_settings import DotEnvSettingsSource
+
+    f = tmp_path / ".env"
+    f.write_text("NAME=x\n")
+
+    class Settings(BaseSettings):
+        model_config = SettingsConfigDict(env_file=str(f))
+        name: str = "n"
+
+    inst = _make(Settings, {"NAME": "e"})
+
+    def boom(*_a, **_k):
+        raise ValueError("bad dotenv")
+
+    monkeypatch.setattr(DotEnvSettingsSource, "__call__", boom)
+    entries, _ = settings_entries(inst, {"NAME": "e"})
+    assert (entries[0].value, entries[0].source) == ("e", "systemEnvironment")
+
+
+def test_incomparable_value_counts_as_init():
+    class Weird:
+        def __eq__(self, other):
+            raise TypeError("no")
+
+    class Settings(BaseSettings):
+        model_config = SettingsConfigDict(arbitrary_types_allowed=True)
+        w: Weird = Weird()
+
+    entries, _ = settings_entries(Settings(), {})
+    assert entries[0].source == "init (Settings)"
