@@ -28,9 +28,12 @@ export function search(index: readonly Entry[], query: string, limit = 50): Hit[
     const score = scoreOf(entry.label.toLowerCase(), q, wordStart);
     if (score > 0) hits.push({ entry, score });
   }
-  hits.sort((a, b) => b.score - a.score || a.entry.label.length - b.entry.label.length || a.entry.label.localeCompare(b.entry.label));
+  hits.sort((a, b) => b.score - a.score || a.entry.label.length - b.entry.label.length || byCodeUnit(a.entry.label, b.entry.label));
   return hits.slice(0, limit);
 }
+
+// the same order in every browser locale
+const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 function scoreOf(label: string, q: string, wordStart: RegExp): number {
   if (label === q) return EXACT;

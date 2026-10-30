@@ -30,9 +30,13 @@ export class ServerPage<T> {
     return new ServerPage<T>(path, key, params, [], emptyPage).fetch();
   }
 
-  /** The next page appended; `this` when there is nothing more. */
+  private pending: Promise<ServerPage<T>> | null = null;
+
+  /** The next page appended; `this` when there is nothing more. Concurrent calls share one request. */
   more(): Promise<ServerPage<T>> {
-    return this.page.hasMore ? this.fetch() : Promise.resolve(this);
+    if (!this.page.hasMore) return Promise.resolve(this);
+    this.pending ??= this.fetch().finally(() => (this.pending = null));
+    return this.pending;
   }
 
   get hasMore(): boolean {

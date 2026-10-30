@@ -40,3 +40,14 @@ describe('search', () => {
     expect(search(index, '  ', 3).map((h) => h.entry)).toEqual(index.slice(0, 3));
   });
 });
+
+describe('tie-break', () => {
+  it('orders equal score and length by code unit, not by locale', () => {
+    const entries: Entry[] = [
+      { kind: 'logger', id: 'lower', label: 'ax' },
+      { kind: 'logger', id: 'upper', label: 'Ax' },
+    ];
+    // localeCompare would put 'ax' first in most locales; code-unit order puts 'A' (65) before 'a' (97)
+    expect(search(entries, 'x').map((h) => h.entry.id)).toEqual(['upper', 'lower']);
+  });
+});

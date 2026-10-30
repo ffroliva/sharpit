@@ -51,3 +51,14 @@ describe('ServerPage', () => {
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
 });
+
+describe('ServerPage.more concurrency', () => {
+  it('concurrent more() calls share one request and one result', async () => {
+    const p = await ServerPage.load<Logger>('loggers', 'loggers');
+    const calls = fetchMock.mock.calls.length;
+    const [a, b] = await Promise.all([p.more(), p.more()]);
+    expect(fetchMock.mock.calls.length).toBe(calls + 1);
+    expect(a).toBe(b);
+    expect(a.items).toHaveLength(400);
+  });
+});

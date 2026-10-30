@@ -1,6 +1,6 @@
 import { get as read } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, authRequired, busyMessage, del, get, post } from '../../src/lib/api';
+import { ApiError, authRequired, busyMessage, del, get, post, session } from '../../src/lib/api';
 import apiSource from '../../src/lib/api.ts?raw';
 import overview from '../../../tests/fixtures/bootui/overview.json';
 
@@ -83,5 +83,51 @@ describe('errors', () => {
   it('a non-JSON error body becomes ApiError with body null', async () => {
     fetchMock.mockResolvedValue(new Response('<html>oops</html>', { status: 500, headers: { 'content-type': 'text/html' } }));
     await expect(get('overview')).rejects.toMatchObject({ status: 500, body: null });
+  });
+});
+
+describe('success', () => {
+  it('a 200 with a non-JSON body is a clear ApiError, not undefined', async () => {
+    fetchMock.mockResolvedValue(new Response('<html>proxy page</html>', { status: 200, headers: { 'content-type': 'text/html' } }));
+    const err = await get('overview').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 200, body: null });
+    expect((err as Error).message).toMatch(/not JSON/);
+  });
+
+  it('a 200 with malformed JSON is an ApiError too', async () => {
+    fetchMock.mockResolvedValue(new Response('{oops', { status: 200, headers: { 'content-type': 'application/json' } }));
+    await expect(get('overview')).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('a successful request clears busyMessage and authRequired', async () => {
+    authRequired.set(true);
+    busyMessage.set('busy');
+    fetchMock.mockResolvedValue(json(200, overview));
+    await get('overview');
+    expect(read(authRequired)).toBe(false);
+    expect(read(busyMessage)).toBeNull();
+  });
+});
+
+describe('session', () => {
+  it('posts api/auth/session with the bearer token and clears the prompt state', async () => {
+    authRequired.set(true);
+    busyMessage.set('busy');
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    await session('s3cret');
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('api/auth/session');
+    expect(init?.method).toBe('POST');
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer s3cret');
+    expect(read(authRequired)).toBe(false);
+    expect(read(busyMessage)).toBeNull();
+  });
+
+  it('a rejected token throws ApiError 401 and keeps the prompt up', async () => {
+    authRequired.set(true);
+    fetchMock.mockResolvedValue(json(401, { error: 'sharpit authentication required' }));
+    await expect(session('wrong')).rejects.toMatchObject({ status: 401 });
+    expect(read(authRequired)).toBe(true);
   });
 });
