@@ -25,6 +25,12 @@ _PEM_PRIVATE_KEY = re.compile(r"BEGIN[A-Z0-9 ]*PRIVATE KEY")
 _AWS_ACCESS_KEY = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", re.ASCII)
 # sharpit widening: the user part may be empty (redis://:pw@host), so `*` where BootUI has `+`
 _URL_USERINFO = re.compile(r"://[^/?#\s:@]*:[^/?#\s@]+@", re.ASCII)
+# sharpit widening: userinfo with no password is a key too (Sentry DSN https://<key>@host/1); fail closed
+_URL_USER_ONLY = re.compile(r"://[^/?#\s@]+@", re.ASCII)
+# sharpit widening: ADO.NET / ODBC / Azure connection-string credential segments
+_CONNECTION_STRING_CREDENTIAL = re.compile(
+    r"(?:^|;)\s*(?:password|pwd|accountkey|sharedaccesskey)\s*=", re.IGNORECASE | re.ASCII
+)
 _URL_QUERY_CREDENTIAL = re.compile(
     r"[?&](?:access[-_]?token|refresh[-_]?token|id[-_]?token|auth[-_]?token|session[-_]?token|client[-_]?secret"
     r"|secret[-_]?key|api[-_]?key|access[-_]?key|password|passwd|passphrase|pwd|secret|token|credential)=[^&\s]+",
@@ -41,6 +47,8 @@ def is_secret_value(value: str) -> bool:
         or _PEM_PRIVATE_KEY.search(value)
         or _AWS_ACCESS_KEY.search(value)
         or _URL_USERINFO.search(value)
+        or _URL_USER_ONLY.search(value)
+        or _CONNECTION_STRING_CREDENTIAL.search(value)
         or _URL_QUERY_CREDENTIAL.search(value)
     )
 
@@ -50,6 +58,8 @@ DEFAULT_KEY_PATTERNS = (
     "password", "passwd", "passphrase", "pwd", "secret", "token", "key", "credential", "credentials", "private",
     "apikey", "api-key", "client-secret", "client_secret", "auth", "authorization", "session-id", "session_id",
 )  # fmt: skip
+# sharpit widening: ``pass`` as a whole name segment (DB_PASS, PASS), never inside a word (bypass, compass)
+_PASS_SEGMENT = re.compile(r"(?:^|[_.-])pass(?:$|[_.-])")
 
 
 def is_sensitive_key(name: str) -> bool:
@@ -57,7 +67,7 @@ def is_sensitive_key(name: str) -> bool:
     if not name.strip():
         return False
     lowered = name.lower()
-    return any(p in lowered for p in DEFAULT_KEY_PATTERNS)
+    return any(p in lowered for p in DEFAULT_KEY_PATTERNS) or bool(_PASS_SEGMENT.search(lowered))
 
 
 # ---- SecretMasker --------------------------------------------------------------------------------------------------

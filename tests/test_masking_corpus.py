@@ -2,8 +2,9 @@
 MCP tool and CLI tool is called, error paths and ``q`` probes included. The sentinel and the JWT must appear in no
 response body, header, captured log record or stream.
 
-Plants: ``API_TOKEN`` and ``DB_PASSWORD`` (sensitive names), userinfo in ``DATABASE_URL`` (harmless name), a JWT in
-``FOO_VALUE`` (harmless name), the getenv default of ``JWT_SECRET``, a pydantic ``SecretStr`` field (the sample's
+Plants: ``API_TOKEN``, ``DB_PASSWORD``, ``MAIL_PASS`` and ``PASS`` (sensitive names), userinfo in ``DATABASE_URL``
+(harmless name), a JWT in ``FOO_VALUE`` (harmless name), a password-less DSN and connection-string credential segments
+(harmless names), the getenv default of ``JWT_SECRET``, a pydantic ``SecretStr`` field (the sample's
 ``Settings.api_token``) and a session middleware ``secret_key`` kwarg.
 """
 
@@ -40,6 +41,7 @@ LOCAL = ("127.0.0.1", 50000)
 REMOTE = ("10.0.0.5", 50000)
 API = "/sharpit/api"
 RULE = quote("V-1::pypi:widget", safe="")
+WIDENED = ("MAIL_PASS", "PASS", "MONITORING_DSN", "SQL_CONN", "ODBC_CONN", "STORAGE_CONN", "BUS_CONN")
 
 
 def _opener() -> FakeOpener:
@@ -67,6 +69,14 @@ def corpus_app(
         "GREETING": SENTINEL,  # Settings.greeting: a SecretStr under a harmless name
         "DATABASE_URL": f"postgres://u:{SENTINEL}@h/db",
         "FOO_VALUE": JWT,
+        # Task P1 widening: a `_PASS` name, a bare PASS, a password-less DSN and connection-string segments
+        "MAIL_PASS": SENTINEL,
+        "PASS": SENTINEL,
+        "MONITORING_DSN": f"https://{SENTINEL}@o1.ingest.sentry.io/1",
+        "SQL_CONN": f"Server=db;Database=app;User Id=sa;Password={SENTINEL};",
+        "ODBC_CONN": f"Driver=x;Server=db;Uid=sa;Pwd={SENTINEL}",
+        "STORAGE_CONN": f"DefaultEndpointsProtocol=https;AccountName=a;AccountKey={SENTINEL};",
+        "BUS_CONN": f"Endpoint=sb://ns.example/;SharedAccessKeyName=Root;SharedAccessKey={SENTINEL}",
     }.items():
         monkeypatch.setenv(name, value)
     package = tmp_path / "pkgs" / "corpus_app"  # the getenv scan reads packages, never single modules
@@ -195,7 +205,7 @@ def test_sentinel_never_leaks(
 
         # the plants really reached sharpit (else the sweep proves nothing); recorded like every other response
         config = {p["name"]: p for p in call("GET", f"{API}/config?limit=500").json()["properties"]}
-        for name in ("API_TOKEN", "DB_PASSWORD", "FOO_VALUE", "GREETING"):
+        for name in ("API_TOKEN", "DB_PASSWORD", "FOO_VALUE", "GREETING", *WIDENED):
             assert config[name]["masked"] is True, config[name]
         # GREETING's name and value look harmless: only the SecretStr type masks the value and the "hello" default
         assert config["GREETING"]["defaultValue"] == MASK

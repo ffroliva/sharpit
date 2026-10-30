@@ -52,6 +52,32 @@ def test_benign_values_not_detected(value: str) -> None:
     assert not is_secret_value(value)
 
 
+# sharpit widening (Task P1): DSN userinfo with no password and connection-string credential segments
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://abc123def456@o1.ingest.sentry.io/1",
+        "amqp://guestkey@broker:5672/vhost",
+        "Server=db;Database=app;User Id=sa;Password=Pa55;",
+        "Server=db;Uid=sa;Pwd=Pa55",
+        "password=Pa55;Server=db",
+        "DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=abc==;EndpointSuffix=core.windows.net",
+        "Endpoint=sb://ns.servicebus.windows.net/;SharedAccessKeyName=Root;SharedAccessKey=abc=",
+        "Server=db; PASSWORD = Pa55",
+    ],
+)
+def test_widened_secret_values_detected(value: str) -> None:
+    assert is_secret_value(value)
+    assert Masker(M, True).mask("APP_CONNECTION", value) == (MASK, True)
+
+
+@pytest.mark.parametrize(
+    "value", ["https://example.com/a@b", "user@example.com", "Server=db;Database=app;", "PasswordPolicy=strict"]
+)
+def test_widened_patterns_leave_benign_values(value: str) -> None:
+    assert not is_secret_value(value)
+
+
 # ---- KeywordPatternMasker (no upstream oracle) ---------------------------------------------------------------------
 # derived: KeywordPatternMasker (one case per DEFAULT_KEY_PATTERNS entry)
 @pytest.mark.parametrize(
@@ -70,6 +96,17 @@ def test_default_key_patterns(pattern: str) -> None:
 # derived: KeywordPatternMasker.isSecret (blank and non-matching branches)
 @pytest.mark.parametrize("name", ["", "   ", "server.port", "spring.application.name"])
 def test_non_sensitive_keys(name: str) -> None:
+    assert not is_sensitive_key(name)
+
+
+# sharpit widening (Task P1): ``pass`` as a whole name segment, so DB_PASS and PASS mask but bypass/compass do not
+@pytest.mark.parametrize("name", ["PASS", "DB_PASS", "SMTP_PASS", "pass.word.file", "redis-pass", "APP_PASS_FILE"])
+def test_pass_segment_is_sensitive(name: str) -> None:
+    assert is_sensitive_key(name)
+
+
+@pytest.mark.parametrize("name", ["CACHE_BYPASS", "COMPASS_HEADING", "PASSENGER_COUNT", "app.passthrough"])
+def test_pass_inside_a_word_is_not_sensitive(name: str) -> None:
     assert not is_sensitive_key(name)
 
 
