@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import pytest
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.testclient import TestClient
 from starlette.middleware.gzip import GZipMiddleware
@@ -15,7 +16,7 @@ from sharpit import install
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.spi import ProviderInfo
-from sharpit.fastapi.introspector import FastApiIntrospector
+from sharpit.fastapi.introspector import FastApiIntrospector, _classify  # pyright: ignore[reportPrivateUsage]
 
 LOCAL = ("127.0.0.1", 50000)
 HERE = __name__
@@ -152,6 +153,32 @@ def test_lifespan_bean_is_host_lifespan():
     assert not any(n.startswith("sharpit.") for n in names)
 
 
+def test_lifespan_bean_unwraps_include_router_merges():
+    # FastAPI wraps the lifespan in a merged one per include_router; real apps install() after including routers
+    app = FastAPI(lifespan=host_lifespan)
+    for prefix in ("/r1", "/r2", "/r3"):
+        router = APIRouter()
+
+        @router.get("/x")
+        def x() -> None: ...
+
+        app.include_router(router, prefix=prefix)
+    handle = install(app, enabled="ON", show_banner=False)
+    names = {p.name: p for p in handle.context.introspector.providers()}
+    bean = names[f"{HERE}:host_lifespan"]
+    assert bean.scope == "singleton" and bean.classification == "APPLICATION"
+    assert not any("merged_lifespan" in n for n in names)
+
+
+def test_no_lifespan_with_routers_is_default_lifespan():
+    app = FastAPI()
+    app.include_router(APIRouter(), prefix="/r")
+    handle = install(app, enabled="ON", show_banner=False)
+    names = {p.name: p for p in handle.context.introspector.providers()}
+    assert names["fastapi.routing:_DefaultLifespan"].classification == "FRAMEWORK"
+    assert not any("merged_lifespan" in n for n in names)
+
+
 def test_every_dependency_resolves_to_a_bean():
     app = FastAPI(dependencies=[Depends(app_level)])
     app.add_middleware(SessionMiddleware, secret_key="x")
@@ -176,6 +203,24 @@ def test_classification_application_vs_framework():
     assert beans[f"{HERE}:get_db"].classification == "APPLICATION"
     assert beans["fastapi.security.oauth2:OAuth2PasswordBearer"].classification == "FRAMEWORK"
     assert beans[f"{HERE}:get_db"].resource == f"{__file__}:{get_db.__code__.co_firstlineno}"
+
+
+def test_real_session_middleware_never_leaks_secret():
+    pytest.importorskip("itsdangerous")
+    from starlette.middleware.sessions import SessionMiddleware as RealSession  # noqa: PLC0415
+
+    app = FastAPI()
+    app.add_middleware(RealSession, secret_key="s3cr3t")
+    assert _by_name(app)["starlette.middleware.sessions:SessionMiddleware"].classification == "FRAMEWORK"
+    assert "s3cr3t" not in json.dumps(beans_report(_ctx(app), None, None, None, None))
+
+
+def test_stdlib_named_app_package_outside_stdlib_is_application(tmp_path: Any, monkeypatch: pytest.MonkeyPatch):
+    fake = types.ModuleType("email.appdeps")
+    fake.__file__ = str(tmp_path / "email" / "appdeps.py")
+    monkeypatch.setitem(__import__("sys").modules, "email.appdeps", fake)
+    assert _classify("email.appdeps:get_db") == "APPLICATION"
+    assert _classify("asyncio.locks:Lock") == "PLATFORM"
 
 
 def test_broken_route_is_skipped_not_fatal():

@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import inspect
 import sys
+import sysconfig
 from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -59,12 +60,38 @@ def _classify(name: str) -> Literal["APPLICATION", "FRAMEWORK", "PLATFORM", "BOO
         return "OTHER"
     if top == "sharpit":
         return "BOOTUI"
-    if top in sys.stdlib_module_names or top == "builtins":
-        return "PLATFORM"
     file = getattr(sys.modules.get(module), "__file__", None)
-    if isinstance(file, str) and {"site-packages", "dist-packages"} & set(Path(file).parts):
-        return "FRAMEWORK"
-    return "APPLICATION"
+    if isinstance(file, str):
+        path = Path(file)
+        if {"site-packages", "dist-packages"} & set(path.parts):  # first: site-packages can sit inside the stdlib dir
+            return "FRAMEWORK"
+        # By location, not name: an app package called ``email`` outside the stdlib directory is the app's.
+        return "PLATFORM" if path.is_relative_to(_STDLIB) else "APPLICATION"
+    return "PLATFORM" if top in sys.stdlib_module_names or top == "builtins" else "APPLICATION"  # no file: built-ins
+
+
+_STDLIB = Path(sysconfig.get_paths()["stdlib"])
+_MERGED_LIFESPAN = "_merge_lifespan_context.<locals>.merged_lifespan"
+
+
+def _host_lifespan(lifespan: object) -> object:
+    """Unwrap FastAPI's per-``include_router`` merged lifespan back to the host's own (closure read, never called).
+
+    shortcut: relies on FastAPI-private ``merged_lifespan``/``original_context``; any drift returns the input unchanged.
+    """
+    try:
+        current = lifespan
+        for _ in range(MAX_DEPTH):
+            inner: Any = getattr(current, "__wrapped__", None)
+            if inner is None or not str(getattr(current, "__qualname__", "")).endswith(_MERGED_LIFESPAN):
+                return current
+            cells = dict(zip(inner.__code__.co_freevars, inner.__closure__ or (), strict=False))
+            if "original_context" not in cells:
+                return current
+            current = cells["original_context"].cell_contents
+        return current
+    except Exception:  # noqa: BLE001 - private layout drifted: show what the router holds
+        return lifespan
 
 
 def _dependant_of(call: object) -> object | None:
@@ -90,9 +117,8 @@ class FastApiIntrospector:
     def __init__(self, app: object, exclude_mount: str | None = None, lifespan: object | None = None) -> None:
         self.app = app
         # The host's own lifespan: install() passes it before wrapping ``router.lifespan_context``.
-        self.lifespan = (
-            lifespan if lifespan is not None else getattr(getattr(app, "router", None), "lifespan_context", None)
-        )
+        raw = lifespan if lifespan is not None else getattr(getattr(app, "router", None), "lifespan_context", None)
+        self.lifespan = _host_lifespan(raw) if raw is not None else None
         self.exclude_mount = (exclude_mount or "").rstrip(
             "/"
         ) or None  # sharpit's own mount path: its rows are not the host's
