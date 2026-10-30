@@ -361,6 +361,20 @@ def test_route_shape_and_query_params(monkeypatch: pytest.MonkeyPatch):
     assert client.get("/sharpit/api/config", params={"overridesOnly": "true"}).json()["properties"] == []
 
 
+def test_route_reports_installed_settings(monkeypatch: pytest.MonkeyPatch):
+    class RouteApp(BaseSettings):
+        model_config = SettingsConfigDict(env_prefix="ROUTEAPP_")
+        name: str = "n"
+        signing: SecretStr = SecretStr("route-secret")
+
+    monkeypatch.setenv("ROUTEAPP_NAME", "x")
+    body = _client(config_scan=False, settings=[RouteApp()]).get("/sharpit/api/config", params={"q": "routeapp"}).json()
+    props = {p["name"]: p for p in body["properties"]}
+    assert (props["ROUTEAPP_NAME"]["value"], props["ROUTEAPP_NAME"]["source"]) == ("x", "systemEnvironment")
+    assert props["ROUTEAPP_SIGNING"]["value"] == MASK
+    assert "route-secret" not in str(body)
+
+
 def test_route_bad_paging_is_400():
     resp = _client(config_scan=False).get("/sharpit/api/config", params={"offset": "x"})
     assert resp.status_code == 400
