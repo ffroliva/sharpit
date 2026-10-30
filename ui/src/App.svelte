@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import Palette from './components/Palette.svelte';
   import TokenPrompt from './components/TokenPrompt.svelte';
   import { ApiError, authRequired, get } from './lib/api';
@@ -24,7 +25,8 @@
 
   async function loadPanels() {
     try {
-      panels = (await get<{ panels: Panel[] }>('panels')).panels;
+      // Python has providers, not Spring beans: only the label changes; the id, URL and API stay `beans`
+      panels = (await get<{ panels: Panel[] }>('panels')).panels.map((p) => (p.id === 'beans' ? { ...p, title: 'Providers' } : p));
       shellError = null;
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 401)) {
@@ -47,6 +49,23 @@
   function authenticated() {
     epoch++;
     loadPanels();
+  }
+
+  /** Focus the panel's filter, else its heading: after a navigation the old focus target no longer exists. */
+  function focusPanel() {
+    const target =
+      document.querySelector<HTMLElement>('main .panel-filter') ?? document.querySelector<HTMLElement>('main h1, main .empty .lead');
+    if (!target) return document.getElementById('main')?.focus();
+    if (!(target instanceof HTMLInputElement)) target.tabIndex = -1;
+    target.focus();
+  }
+
+  async function paletteClosed(picked: boolean) {
+    const lost = (el: Element | null) => !el || el === document.body || el.classList.contains('skip') || !el.isConnected;
+    if (!picked && !lost(document.activeElement)) return; // Esc: the dialog put focus back where it was
+    await new Promise((resolve) => setTimeout(resolve)); // after the hashchange the pick queued
+    await tick(); // and after the new view mounted
+    focusPanel();
   }
 
   function cycleTheme() {
@@ -144,7 +163,7 @@
   </main>
 </div>
 
-{#if panels}<Palette bind:open={paletteOpen} {panels} />{/if}
+{#if panels}<Palette bind:open={paletteOpen} {panels} onclosed={paletteClosed} />{/if}
 
 <style>
   .shell { display: grid; grid-template-columns: var(--rail-w) 1fr; height: 100%; }

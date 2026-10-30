@@ -15,6 +15,7 @@
   placeholder="Filter by path, method or handler"
   noun="mappings"
   columns={3}
+  cols={['6rem', '', '35%']}
 >
   {#snippet head()}
     <tr><th>Method</th><th>Path</th><th>Handler</th></tr>

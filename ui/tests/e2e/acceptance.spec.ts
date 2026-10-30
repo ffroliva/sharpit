@@ -41,10 +41,14 @@ test('§10.2 Ctrl+K jumps to a panel, a logger and a config key; everything is r
   await page.keyboard.press('Control+K');
   await expect(palette).toBeVisible();
   await expect(input).toBeFocused();
+  // a long result list scrolls: the input keeps its full height
+  await expect(palette.getByRole('option')).not.toHaveCount(0);
+  expect((await input.boundingBox())!.height).toBeGreaterThanOrEqual(47);
   await page.keyboard.type('mappings');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/#\/mappings$/);
   await expect(palette).toBeHidden();
+  await expect(page.locator('.panel-filter')).toBeFocused(); // focus lands on the new panel, never <body>
 
   await page.keyboard.press('Control+K');
   await page.keyboard.type(`${BULK}0007`);
@@ -53,6 +57,12 @@ test('§10.2 Ctrl+K jumps to a panel, a logger and a config key; everything is r
   await expect(page).toHaveURL(new RegExp(`#/loggers\\?q=${BULK.replace(/\./g, '\\.')}0007$`));
   await settled(page);
   await expect(dataRows(page)).toHaveCount(1);
+  await expect(page.locator('.panel-filter')).toBeFocused();
+
+  // Esc leaves focus where it was: not on the skip link, not on <body>
+  await page.keyboard.press('Control+K');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.panel-filter')).toBeFocused();
 
   await page.keyboard.press('Control+K');
   await page.keyboard.type('database_url');
@@ -104,11 +114,13 @@ test('§10.3 tables filter as you type and page from the server, 200 rows a page
   await more.click();
   await next;
   await expect(dataRows(page)).toHaveCount(400);
+  await expect(more).toBeFocused(); // the control keeps focus through the load
 
   const filtered = page.waitForRequest((r) => r.url().includes(`q=${encodeURIComponent(`${BULK}00`)}`));
   await page.locator('.panel-filter').pressSequentially(`${BULK}00`);
   await filtered;
   await expect(count).toHaveText(`100 of ${total}`);
+  expect(new URL(page.url()).hash).toBe(`#/loggers?q=${encodeURIComponent(`${BULK}00`)}`); // the filter is in the URL
   await expect(dataRows(page)).toHaveCount(100);
   await expect(page.getByRole('button', { name: /^Load/ })).toHaveCount(0);
 
@@ -141,12 +153,18 @@ test('test_large_table_filter_responsive: with 1,000 loggers a keystroke updates
   expect(median).toBeLessThan(1000);
 });
 
-test('§10.4 config is grouped by source with the winning source marked and masked values badged', async ({ page }) => {
+test('§10.4 config lists the app first, marks the winning source, shows provenance and badges masked values', async ({ page }) => {
   await openPanel(page, 'config');
   const groups = page.locator('main tbody tr.group');
-  expect(await groups.count()).toBeGreaterThan(1);
-  await expect(groups.first()).toContainText('highest precedence');
-  await expect(page.locator('main .tag.ok', { hasText: 'won' }).first()).toBeVisible();
+  await expect(groups.first()).toContainText('Your application');
+  await expect(groups.last()).toContainText(/Other environment variables \(\d+\)/);
+  await expect(groups.last().getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  // DEBUG=false from the environment beats the Settings default
+  await expect(dataRows(page).filter({ hasText: /^DEBUG/ }).locator('.tag.ok', { hasText: 'won' })).toBeVisible();
+  // a key the code reads with os.getenv, and where
+  const secret = dataRows(page).filter({ hasText: 'JWT_SECRET' });
+  await expect(secret).toContainText(/read at .*app\.py:\d+/);
+  await expect(secret).toContainText('not set');
 
   await page.locator('.panel-filter').fill('api_token');
   const row = dataRows(page).filter({ hasText: /api_token/i }).first();
@@ -154,14 +172,25 @@ test('§10.4 config is grouped by source with the winning source marked and mask
   await expect(page.locator('main')).not.toContainText('dev-api-token');
 });
 
-test('§10.5 the dependency graph is interactive and focuses a bean with its neighbours', async ({ page }) => {
+test('§10.5 the dependency graph is interactive and focuses a provider with its neighbours', async ({ page }) => {
   await openPanel(page, 'beans');
   await page.getByRole('button', { name: 'Graph', exact: true }).click();
   await settled(page);
-  const graph = page.getByRole('group', { name: 'Bean dependency graph' });
+  await expect(page.getByRole('button', { name: 'Graph', exact: true })).toBeFocused();
+  const graph = page.getByRole('group', { name: 'Provider dependency graph' });
   await expect(graph).toBeVisible();
   const nodes = graph.locator('g[role="button"]');
   expect(await nodes.count()).toBeGreaterThan(1);
+  // readable: no two nodes overlap, with every classification and the external nodes shown
+  await page.locator('#graph-class').selectOption('');
+  await page.getByLabel('External').check();
+  const boxes = await nodes.locator('circle').evaluateAll((cs) => cs.map((c) => c.getBoundingClientRect().toJSON()));
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const [a, b] = [boxes[i], boxes[j]];
+      expect(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top).toBe(true);
+    }
+  }
 
   const bean = graph.locator('g[role="button"][aria-label$=":get_database"]');
   await bean.click();
@@ -170,6 +199,16 @@ test('§10.5 the dependency graph is interactive and focuses a bean with its nei
   await expect(graph.locator('g.node.out')).not.toHaveCount(0); // get_settings
   await expect(graph.locator('g.node.in')).not.toHaveCount(0); // get_owner_repository
 
+  await page.keyboard.press('Escape');
+  await expect(graph.locator('g[aria-pressed="true"]')).toHaveCount(0);
+  await expect(bean).toBeFocused(); // back on the provider that was the centre
+
+  // from the list, a row's Graph button lands on that provider in the graph, and Esc works from there
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await settled(page);
+  await page.getByRole('button', { name: /^Show .*:get_database in the graph$/ }).click();
+  await settled(page);
+  await expect(graph.locator('g.node.centre')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(graph.locator('g[aria-pressed="true"]')).toHaveCount(0);
 

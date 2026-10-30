@@ -4,7 +4,13 @@
   import { href } from '../lib/route';
   import type { Panel } from '../lib/types';
 
-  let { open = $bindable(false), panels }: { open?: boolean; panels: Panel[] } = $props();
+  let {
+    open = $bindable(false),
+    panels,
+    onclosed,
+  }: { open?: boolean; panels: Panel[]; /** After the dialog closes; `picked` when it navigated. */ onclosed?: (picked: boolean) => void } =
+    $props();
+  let picked = false;
 
   let dialog: HTMLDialogElement;
   let input = $state<HTMLInputElement>();
@@ -72,10 +78,14 @@
 
   // `close` fires a task after dialog.close(): one from the last pick must not undo a quick Ctrl+K reopen
   function onclose() {
-    if (!dialog.open) open = false;
+    if (dialog.open) return;
+    open = false;
+    onclosed?.(picked);
+    picked = false;
   }
 
   function pick(entry: Entry) {
+    picked = true;
     location.hash =
       entry.kind === 'panel' ? href(entry.id) : href(entry.kind === 'logger' ? 'loggers' : 'config', entry.id);
     open = false;
@@ -170,14 +180,15 @@
   .palette input {
     width: 100%; height: 48px; padding: 0 var(--s4); border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
     background: var(--bg); font-size: 16.5px; line-height: 24px; outline: none;
+    flex: none; /* a long result list scrolls; the input and footer never shrink */
   }
   .palette input:focus-visible { box-shadow: inset 0 -2px 0 var(--accent); }
-  [role='listbox'] { overflow: auto; flex: 1; padding-bottom: var(--s2); }
+  [role='listbox'] { overflow: auto; flex: 1; min-height: 0; padding-bottom: var(--s2); }
   .kind { padding: var(--s2) var(--s4) var(--s1); }
   .opt { padding: var(--s1) var(--s4); cursor: pointer; word-break: break-all; }
   .opt[aria-selected='true'] { background: var(--sel); box-shadow: inset 0 0 0 1px var(--accent); }
   mark { background: none; color: var(--accent); font-weight: 600; }
   .none { padding: var(--s3) var(--s4); margin: 0; }
-  footer { display: flex; justify-content: space-between; gap: var(--s3); padding: var(--s2) var(--s4); border-top: 1px solid var(--line); }
+  footer { flex: none; display: flex; justify-content: space-between; gap: var(--s3); padding: var(--s2) var(--s4); border-top: 1px solid var(--line); }
   kbd { font: inherit; border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; }
 </style>

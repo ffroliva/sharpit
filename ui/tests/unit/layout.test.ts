@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { forceLayout, radialLayout } from '../../src/lib/layout';
+import { forceLayout, LAYER_ROW, layeredLayout, radialLayout } from '../../src/lib/layout';
 
 describe('forceLayout', () => {
   it('places every node at a finite point, deterministically', () => {
@@ -25,5 +25,32 @@ describe('radialLayout', () => {
     expect(r.in).toHaveLength(2);
     for (const p of r.out) expect(p.x).toBeGreaterThan(0);
     for (const p of r.in) expect(p.x).toBeLessThan(0);
+  });
+});
+
+describe('layeredLayout', () => {
+  // owner_repository(0) -> database(1) -> settings(2); 3, 4 and 5 stand alone
+  const edges: [number, number][] = [[0, 1], [1, 2]];
+
+  it('puts dependents left of their dependencies, one column per depth', () => {
+    const p = layeredLayout(6, edges);
+    expect(p[0]!.x).toBeLessThan(p[1]!.x);
+    expect(p[1]!.x).toBeLessThan(p[2]!.x);
+  });
+
+  it('never overlaps two nodes: every pair is at least a label row apart', () => {
+    const p = layeredLayout(6, edges);
+    for (let i = 0; i < p.length; i++) {
+      for (let j = i + 1; j < p.length; j++) {
+        expect(Math.hypot(p[i]!.x - p[j]!.x, p[i]!.y - p[j]!.y)).toBeGreaterThanOrEqual(LAYER_ROW);
+      }
+    }
+  });
+
+  it('survives a cycle and is deterministic', () => {
+    const cyclic: [number, number][] = [[0, 1], [1, 0], [1, 2]];
+    const a = layeredLayout(3, cyclic);
+    for (const q of a) expect(Number.isFinite(q.x) && Number.isFinite(q.y)).toBe(true);
+    expect(layeredLayout(3, cyclic)).toEqual(a);
   });
 });

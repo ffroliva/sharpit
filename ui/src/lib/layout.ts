@@ -73,3 +73,49 @@ export function radialLayout(outgoing: number, incoming: number, radius = 150): 
     in: arc(incoming, Math.PI - spread(incoming) / 2, Math.PI + spread(incoming) / 2),
   };
 }
+
+/** Column pitch and row pitch of `layeredLayout`: room for a centred label above each node. */
+export const LAYER_COL = 220;
+export const LAYER_ROW = 44;
+
+/**
+ * Left-to-right layers for a small graph: a node's column is the length of its longest dependency chain, so
+ * dependents sit left of what they depend on and edges run rightwards, clear of the nodes. Rows within a column follow
+ * the average row of the dependents already placed, which keeps a chain on one line. Cycles count once.
+ */
+export function layeredLayout(count: number, edges: readonly (readonly [number, number])[]): Point[] {
+  const deps = Array.from({ length: count }, () => [] as number[]);
+  const users = Array.from({ length: count }, () => [] as number[]);
+  for (const [s, t] of edges) {
+    if (s === t) continue;
+    deps[s]!.push(t);
+    users[t]!.push(s);
+  }
+  const height = new Array<number>(count).fill(-1);
+  const visiting = new Set<number>();
+  const measure = (i: number): number => {
+    if (height[i]! >= 0) return height[i]!;
+    if (visiting.has(i)) return 0; // a back edge: the cycle is cut here
+    visiting.add(i);
+    height[i] = Math.max(0, ...deps[i]!.map((d) => measure(d) + 1));
+    visiting.delete(i);
+    return height[i]!;
+  };
+  for (let i = 0; i < count; i++) measure(i);
+  const top = Math.max(0, ...height);
+  const pos: Point[] = new Array(count);
+  const row = new Map<number, number>();
+  for (let h = top; h >= 0; h--) {
+    const column = [...height.keys()].filter((i) => height[i] === h);
+    const weight = (i: number) => {
+      const placed = users[i]!.filter((u) => row.has(u)).map((u) => row.get(u)!);
+      return placed.length ? placed.reduce((a, b) => a + b, 0) / placed.length : Infinity; // unlinked nodes go last
+    };
+    column.sort((a, b) => weight(a) - weight(b) || a - b);
+    column.forEach((i, r) => {
+      row.set(i, r);
+      pos[i] = { x: (top - h) * LAYER_COL, y: (r - (column.length - 1) / 2) * LAYER_ROW };
+    });
+  }
+  return pos;
+}

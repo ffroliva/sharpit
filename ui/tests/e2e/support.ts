@@ -9,7 +9,7 @@ export const PANELS = [
   { id: 'config', title: 'Configuration' },
   { id: 'mappings', title: 'Mappings' },
   { id: 'loggers', title: 'Loggers' },
-  { id: 'beans', title: 'Beans' },
+  { id: 'beans', title: 'Providers' }, // the UI's label; the registry still says Beans
   { id: 'vulnerabilities', title: 'Vulnerabilities' },
   { id: 'mcp-server', title: 'MCP Server' },
   { id: 'cli', title: 'CLI' },

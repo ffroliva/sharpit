@@ -52,3 +52,36 @@ it('a failed level change puts the select back to the level actually configured'
   expect(fetchMock.mock.calls.some(([url, init]) => url === 'api/loggers/app' && init?.method === 'POST')).toBe(true);
   expect(select().value).toBe('');
 });
+
+it('a level change reloads the visible rows, so descendants show their new effective level', async () => {
+  let level: string | null = null;
+  const listed = () => [
+    { name: 'app', configuredLevel: level, effectiveLevel: level ?? 'WARNING' },
+    { name: 'app.db', configuredLevel: null, effectiveLevel: level ?? 'WARNING' },
+  ];
+  fetchMock.mockImplementation((_input, init) => {
+    if (init?.method === 'POST') {
+      level = JSON.parse(String(init.body)).level;
+      return Promise.resolve(json(200, listed()[0]));
+    }
+    return Promise.resolve(json(200, {
+      loggers: listed(), availableLevels: ['CRITICAL', 'ERROR', 'WARNING', 'DEBUG', 'NOTSET'],
+      page: { total: 2, matched: 2, offset: 0, limit: 200, returned: 2, hasMore: false },
+    }));
+  });
+  component = mount(Loggers, { target, props: { panel } });
+  flushSync();
+  const select = () => target.querySelector<HTMLSelectElement>('#level-app')!;
+  const effective = (name: string) => target.querySelector(`#level-${CSS.escape(name)}`)!.closest('tr')!.children[1]!.textContent;
+  await vi.waitFor(() => expect(select().options.length).toBe(5), { timeout: 1000, interval: 5 });
+
+  // NOTSET is how Python spells inherit: one option, which names the level it inherits
+  expect([...select().options].map((o) => o.textContent)).toEqual(['inherit (WARNING)', 'CRITICAL', 'ERROR', 'WARNING', 'DEBUG']);
+
+  select().focus();
+  select().value = 'ERROR';
+  select().dispatchEvent(new Event('change', { bubbles: true }));
+  await vi.waitFor(() => expect(effective('app.db')).toBe('ERROR'), { timeout: 1000, interval: 5 });
+  expect(document.activeElement).toBe(select()); // never dropped to <body> while the change is pending
+  expect(select().value).toBe('ERROR');
+});

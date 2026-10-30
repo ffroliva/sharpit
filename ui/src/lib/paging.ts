@@ -24,6 +24,8 @@ export class ServerPage<T> {
     private readonly params: Params,
     readonly items: readonly T[],
     readonly page: PageMetadata,
+    /** The whole last response, for fields beside the rows (e.g. config's `propertySuggestions`). */
+    readonly data: Readonly<Record<string, unknown>> = {},
   ) {}
 
   static async load<T>(path: string, key: string, params: Params = {}): Promise<ServerPage<T>> {
@@ -39,6 +41,17 @@ export class ServerPage<T> {
       page = next;
     }
     return page.items.slice(0, maxRows);
+  }
+
+  /** The same query from offset 0 again, with at least as many rows as are loaded now (Load more is kept). */
+  async refresh(): Promise<ServerPage<T>> {
+    let next = await ServerPage.load<T>(this.path, this.key, this.params);
+    while (next.hasMore && next.items.length < this.items.length) {
+      const longer = await next.more();
+      if (longer.items.length === next.items.length) break;
+      next = longer;
+    }
+    return next;
   }
 
   private pending: Promise<ServerPage<T>> | null = null;
@@ -63,7 +76,7 @@ export class ServerPage<T> {
   private async fetch(): Promise<ServerPage<T>> {
     const data = await get<Record<string, unknown>>(this.path, { ...this.params, offset: this.items.length, limit: PAGE_SIZE });
     const rows = (data[this.key] ?? []) as T[];
-    return new ServerPage(this.path, this.key, this.params, [...this.items, ...rows], data.page as PageMetadata);
+    return new ServerPage(this.path, this.key, this.params, [...this.items, ...rows], data.page as PageMetadata, data);
   }
 }
 
