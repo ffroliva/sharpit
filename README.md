@@ -52,8 +52,11 @@ To show where your own settings values come from, pass the pydantic-settings ins
 
 ### Why does a plain `uvicorn app:app` give 404?
 
-sharpit is a development tool, so it fails closed. With no reason to be on, every path under `/sharpit` answers the
-host app's own 404 and nothing reveals that sharpit is installed. It switches on when the first of these applies:
+sharpit is a development tool, so it fails closed. With no reason to be on, every path under `/sharpit` answers a
+plain 404 rendered by the host app's own 404 handler. The mount stays in place while inactive, as BootUI's does, so
+sharpit still owns the paths under it: a host route such as `/{user}/...` cannot answer for `/sharpit/...`, and a host
+with a catch-all or authenticate-first route answers `/sharpit/*` differently from its other paths (a 404 where it
+would otherwise send 401), which shows that sharpit is installed. It switches on when the first of these applies:
 
 1. `SHARPIT_ENABLED=ON` (always on; `OFF` always off).
 2. An active profile is in `SHARPIT_ENABLED_PROFILES` (default `dev,local,development`). Profiles are read from the
@@ -122,7 +125,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_PANELS_<ID>_ENABLED` | `panels={"<id>": {"enabled": ...}}` | `true` | per-panel switch |
 | `SHARPIT_PANELS_<ID>_READ_ONLY` | `panels={"<id>": {"read_only": ...}}` | `false` | per-panel read-only; `<ID>` is the panel id in capitals with `-` as `_`: `OVERVIEW`, `CONFIG`, `MAPPINGS`, `LOGGERS`, `BEANS`, `VULNERABILITIES`, `MCP_SERVER`, `CLI` |
 | `SHARPIT_EXPOSE_VALUES` | `expose_values` | `MASKED` | `MASKED`, `METADATA_ONLY` or `FULL` (FULL logs a warning) |
-| `SHARPIT_MASK_SECRETS` | `mask_secrets` | `true` | mask secret-looking names and values |
+| `SHARPIT_MASK_SECRETS` | `mask_secrets` | `true` | mask secret-looking names and values; sharpit's own token is masked even when `false` |
 | `SHARPIT_SHOW_BANNER` | `show_banner` | `true` | print the startup banner to stderr |
 | `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | where dismissed vulnerability rules are stored (`sharpit.yml`, created on first write) |
 | `SHARPIT_CONFIG_SCAN` | `config_scan` | `true` | `true` scans your top-level package for `os.getenv` keys, `false` disables, or a list of package names |
@@ -161,7 +164,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
   harmless user name in a URL is shown as `******` too. That is intentional: sharpit errs towards hiding.
 - **GET has no side effects.** No network call, no file write, no logger change. The vulnerability scan (OSV and EPSS)
   runs only on an explicit POST.
-- **Fails closed.** When off, or in a `prod`/`production` profile (unless `SHARPIT_ENABLED=ON` forces it on, with a warning), the whole mount answers 404.
+- **Fails closed.** When off, or in a `prod`/`production` profile (unless `SHARPIT_ENABLED=ON` forces it on, with a warning), the whole mount answers a plain 404 (see [Why does a plain `uvicorn app:app` give 404?](#why-does-a-plain-uvicorn-appapp-give-404) for what that does and does not hide).
 
 ### Behind a TLS-terminating proxy
 

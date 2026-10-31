@@ -23,7 +23,9 @@ First release: an embedded, local-only developer console for FastAPI apps, porte
 - Configuration through `SHARPIT_*` environment variables and `install()` keywords; the environment wins. Invalid values
   fall back to a fail-safe value and record a warning.
 - Fail-closed activation: on for `SHARPIT_ENABLED=ON`, a dev profile, `uvicorn --reload` or `fastapi dev`; a `prod`
-  profile switches it off unless `SHARPIT_ENABLED=ON` forces it. When off, every path under the mount answers the host's own 404.
+  profile switches it off unless `SHARPIT_ENABLED=ON` forces it. When off, the mount stays in place (as in BootUI) and
+  every path under it answers a plain 404 from the host's 404 handler; a host with a catch-all or authenticate-first
+  route answers those paths differently, so the mount can be told apart. `path="/"` and a trailing slash are refused.
 - Request guard: loopback-only by default, `Host` allow-list, full-origin (API paths) and `Sec-Fetch-Site` cross-site checks on
   every method, bearer token with `HttpOnly` session cookie for untrusted sources.
 - Secret masking of names, values, defaults and errors, including pydantic `SecretStr` and any URL with userinfo.

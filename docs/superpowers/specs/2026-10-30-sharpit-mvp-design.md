@@ -105,8 +105,11 @@ ui/                  UI source (Svelte 5 + Vite + TypeScript)
 ```
 
 `install(app)` reads settings once, decides activation once, and inserts a `Mount(path, sub_app)` at
-`app.router.routes[0]` so host catch-all routes cannot shadow it. Inactive → the sub-app answers 404 to every path and
-method under `path` (nothing reveals sharpit) and one INFO line is logged. Active → console + API, banner to stderr when
+`app.router.routes[0]` so host catch-all routes cannot shadow it. `path` must not be `/` or end with `/` (install raises
+`ValueError`). Inactive → the mount stays, as BootUI's shell guard does, and answers a plain 404 to every path and
+method under `path` and one INFO line is logged. The 404 is the host's own handler, but sharpit still owns those paths:
+a host route cannot answer under `path`, and a host with a catch-all or authenticate-first route answers `path/*`
+differently from its other paths, so sharpit's presence can be inferred. Active → console + API, banner to stderr when
 `show_banner`. Everything expensive (AST scan, `distributions()`, gateway detection) runs lazily on the first GET that
 needs it and is memoised. Host middleware still wraps the mount (documented); sharpit's own guard is the sub-app's
 middleware, so it adds nothing to host requests.
@@ -372,6 +375,8 @@ Internal module structure, caching details, UI component structure and visuals w
 | Spring MVC, WebFlux and Quarkus adapters | FastAPI is the only adapter in the MVP | scope; the engine is framework-neutral behind the `spi` |
 | `bootui` CLI binary | no `sharpit` console script; only `/api/cli` endpoints | MVP scope (repeats the CLI client row for the binary itself) |
 | Panel copy says "beans" | panel copy says "providers"; ids and keys (`beans`) are unchanged | no IoC container in Python; the contract stays stable |
+| `bootui.path` taken as configured | `path="/"` and a trailing slash are refused with `ValueError` at install | `/` would mount over every host route even while inactive; a trailing slash produced `/sharpit//api` |
+| sharpit's own token follows the exposure policy | sharpit's own token value is masked under every exposure except `METADATA_ONLY` (which shows no values), even with `mask_secrets=false` or `FULL` | the token grants the whole console; an MCP client would pass it to an LLM provider |
 
 ## 15. Coordinator's calls (owner to check)
 
