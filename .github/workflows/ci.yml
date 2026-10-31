@@ -84,6 +84,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
+      - name: Sonar ratchet (no new issues; master never above sonar-baseline.txt)
+        if: steps.health.outputs.up == 'true'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -n "$PR" ]; then
+            python scripts/ci/sonar_ratchet.py --pull-request "$PR"
+          else
+            python scripts/ci/sonar_ratchet.py --branch "$GITHUB_REF_NAME"
+          fi
 
   lowest:
     runs-on: ubuntu-latest
