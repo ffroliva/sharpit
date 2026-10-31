@@ -139,5 +139,6 @@ def test_helpers():
     with internal():
         assert INTERNAL.get() is True
     assert INTERNAL.get() is False
-    assert new_request_id() != new_request_id()
+    first, second = new_request_id(), new_request_id()
+    assert first != second
     assert RequestInfo("i", "c", "GET", "/", None, 0, None).finished_ns is None
