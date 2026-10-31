@@ -52,7 +52,7 @@ def several_workers(environ: Mapping[str, str], argv: Sequence[str]) -> bool:
             counts.append(argv[i + 1])
         elif arg.startswith("--workers="):
             counts.append(arg.partition("=")[2])
-    return any(c.strip().isdigit() and int(c) > 1 for c in counts)
+    return any(c.strip().isascii() and c.strip().isdecimal() and int(c) > 1 for c in counts)
 
 
 def _endpoint_name(endpoint: object) -> str | None:

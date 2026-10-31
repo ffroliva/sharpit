@@ -57,6 +57,8 @@ class _Ticker:
 
     def _signal(self) -> bool:
         """Producer side, any thread; ``False`` when the loop is closed and the subscriber must be dropped."""
+        if self._loop.is_closed():  # checked first: a wake-up pending when the loop died leaves _dirty set for good
+            return False
         if self._dirty:
             return True
         self._dirty = True
@@ -118,13 +120,18 @@ class LineSubscription(_Ticker):
         self.cursor = after
         self._queue: deque[tuple[int, Any]] = deque()
         self.overflowed = False
+        self._replayed = False
 
     @property
     def queued(self) -> int:
         return len(self._queue)
 
     def _deliver(self) -> None:
-        for seq, line in self._source(self.cursor):
+        lines = self._source(self.cursor)
+        if not self._replayed:  # the replay may exceed the queue: send its newest lines, never overflow on it
+            self._replayed = True
+            lines = lines[-LINE_QUEUE:]
+        for seq, line in lines:
             if len(self._queue) >= LINE_QUEUE:  # fell behind: disconnect, the client resumes from its last id
                 self.overflowed = True
                 self._queue.clear()

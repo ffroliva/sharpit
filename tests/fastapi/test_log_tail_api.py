@@ -413,6 +413,7 @@ def test_worker_warning_once(monkeypatch: pytest.MonkeyPatch, caplog: pytest.Log
         ({"WEB_CONCURRENCY": "1"}, ["uvicorn", "app:app"], False),
         ({"WEB_CONCURRENCY": "4"}, ["uvicorn", "app:app"], True),
         ({"WEB_CONCURRENCY": "lots"}, ["uvicorn", "app:app"], False),
+        ({"WEB_CONCURRENCY": "²"}, ["uvicorn", "app:app"], False),  # isdigit() but not int()
         ({}, ["uvicorn", "app:app", "--workers", "4"], True),
         ({}, ["uvicorn", "app:app", "--workers=2"], True),
         ({}, ["gunicorn", "-w", "3", "app:app"], True),

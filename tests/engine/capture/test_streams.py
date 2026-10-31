@@ -175,6 +175,34 @@ def test_closed_loop_subscriber_dropped():
     assert stream.subscriber_count == 0
 
 
+def test_closed_loop_subscriber_with_tick_pending_dropped():
+    # review r0: a wake-up was scheduled, then the loop died before it ran, so the dirty flag never cleared
+    loop = asyncio.new_event_loop()
+    stream = ChangeStream()
+    stream.subscribe(loop)
+    stream.signal()  # schedules _wake; the loop never runs it
+    loop.close()
+    stream.signal()
+    assert stream.subscriber_count == 0
+
+
+def test_replay_longer_than_queue_streams_newest_lines():
+    # review r0: a buffer above LINE_QUEUE lines overflowed on the replay, so the client got nothing, forever
+    lines = [(seq, {"m": seq}) for seq in range(1, LINE_QUEUE + 2)]
+
+    def source(after: int | None) -> list[tuple[int, dict[str, Any]]]:
+        return [(s, line) for s, line in lines if after is None or s > after]
+
+    async def main() -> list[int]:
+        sub = LineStream(source).subscribe(asyncio.get_running_loop(), None)
+        seen = [(await asyncio.wait_for(anext(sub), 1))[0] for _ in range(LINE_QUEUE)]
+        assert not sub.overflowed
+        sub.close()
+        return seen
+
+    assert asyncio.run(main()) == list(range(2, LINE_QUEUE + 2))
+
+
 def test_completion_releases_subscription():
     # ported: completionAndTimeoutReleaseTheirSubscriptions
     async def main() -> None:

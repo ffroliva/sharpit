@@ -133,6 +133,30 @@ def test_message_masked_and_cut(isolated: logging.Logger):
     assert second is not None and len(second) == MAX_MESSAGE == 4000 and "hunter2" not in second
 
 
+def test_mask_work_is_bounded_on_huge_message(isolated: logging.Logger):
+    # review r0: a 10 MB message ran every mask regex over all 10 MB on the host's logging thread
+    seen: list[int] = []
+
+    class Recording(Masker):
+        def mask_text(self, text: str | None) -> str | None:
+            seen.append(len(text or ""))
+            return super().mask_text(text)
+
+    handler, buffer = _handler(Recording(Exposure.MASKED, True))
+    isolated.addHandler(handler)
+    isolated.warning("password=hunter2 " + "x" * 1_000_000)
+    assert seen and max(seen) <= 4 * MAX_MESSAGE
+    (message,) = _messages(buffer)
+    assert message is not None and len(message) == MAX_MESSAGE and "hunter2" not in message
+
+
+def test_resume_point_rejects_non_ascii_digits():
+    # review r0: "²".isdigit() is True but int("²") raises, so the stream answered 500
+    buffer = LogTailBuffer(10, 1 << 20)
+    assert buffer.resume_point(f"{buffer.boot_nonce}-²") is None
+    assert buffer.resume_point(f"{buffer.boot_nonce}-7") == 7
+
+
 def test_bad_format_falls_back_to_msg(isolated: logging.Logger):
     handler, buffer = _handler()
     with bare(isolated):  # pytest's own capture handler would raise on the bad record

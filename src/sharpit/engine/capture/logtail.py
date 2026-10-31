@@ -60,7 +60,7 @@ class LogTailBuffer:
     def resume_point(self, last_event_id: str | None) -> int | None:
         """The sequence number in ``<bootNonce>-<seq>``; ``None`` (replay everything) for another process's id."""
         nonce, _, seq = (last_event_id or "").rpartition("-")
-        return int(seq) if nonce == self.boot_nonce and seq.isdigit() else None
+        return int(seq) if nonce == self.boot_nonce and seq.isascii() and seq.isdecimal() else None
 
 
 async def log_events(buffer: LogTailBuffer, after: int | None) -> AsyncIterator[tuple[str, str | None, str]]:
@@ -126,7 +126,8 @@ class SharpitLogHandler(logging.Handler):
             message = record.getMessage()
         except Exception:  # noqa: BLE001 - a bad format string
             message = str(record.msg)
-        masked = self.masker.mask_text(message)  # mask before the cut: a cut must not hide a secret
+        # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
+        masked = self.masker.mask_text(message[: 4 * MAX_MESSAGE])
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return {
