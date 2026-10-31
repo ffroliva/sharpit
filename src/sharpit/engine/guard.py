@@ -16,6 +16,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import cast
 
+from sharpit.engine.advisors.dismissals import owning_panel
 from sharpit.engine.panels import disabled_reason, panel_for_api_path, read_only_reason
 from sharpit.settings import PanelSettings, SharpitSettings
 
@@ -44,6 +45,7 @@ _BUILT_IN_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0:0:0:0:0
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _FORWARDED_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip")
 _GLOBAL_WRITE_SUBJECTS = {"/dismissed-rules": "dismissed-rules"}  # port of BootUiGlobalWritePolicy
+_DISMISSALS = "/dismissed-rules/"
 _BEARER = "bearer "
 _JAVA_TRIM = "".join(chr(c) for c in range(0x21))  # Java String.trim() strips every char <= U+0020
 # Java isBlank() whitespace, minus the Unicode spaces: a header is "absent" only when made of these (fail closed)
@@ -66,6 +68,7 @@ class RequestFacts:
     headers: Mapping[str, str]  # lower-case keys
     api_sub_path: str | None  # path after api_path; None for the shell and assets
     scheme: str = "http"  # the request's own scheme (ASGI ``scope["scheme"]``)
+    probe: bool = False
 
 
 @dataclass(frozen=True)
@@ -308,6 +311,8 @@ def _panel_access(method: str, sub_path: str, settings: SharpitSettings) -> Deni
         for prefix, subject in _GLOBAL_WRITE_SUBJECTS.items():
             if sub_path == prefix or sub_path.startswith(prefix + "/"):
                 return _panel_denied(subject, read_only_reason(subject, True))
+    if unsafe and sub_path.startswith(_DISMISSALS):
+        return _owning_panel_access(sub_path[len(_DISMISSALS) :], settings)
     panel = panel_for_api_path(sub_path)
     if panel is None:
         return None
@@ -319,10 +324,26 @@ def _panel_access(method: str, sub_path: str, settings: SharpitSettings) -> Deni
     return None
 
 
+def _owning_panel_access(rule_id: str, settings: SharpitSettings) -> Denial | None:
+    """Spec §8: dismissing a rule needs its advisor panel enabled and writable; an id with no owner reaches the
+    route, which refuses it with a 400."""
+    owner = owning_panel(rule_id)
+    if owner is None:
+        return None
+    flags = settings.panels.get(owner, PanelSettings())
+    if not flags.enabled:
+        return _panel_denied("dismissed-rules", disabled_reason(owner))
+    if flags.read_only:
+        return _panel_denied("dismissed-rules", read_only_reason(owner, False))
+    return None
+
+
 def decide_guard(
     facts: RequestFacts, settings: SharpitSettings, token: str | None, gateway: str | None
 ) -> Denial | None:
     """None when the request may proceed, else the response to send."""
+    if facts.probe:
+        return _forbidden("sharpit refused an internal probe request.")
     trusted = is_trusted_source(facts, settings, gateway)
     if not (trusted or settings.allow_non_localhost or _via_trusted_proxy(facts, settings)):
         forwarded = any(h in facts.headers for h in _FORWARDED_HEADERS)

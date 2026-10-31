@@ -5,8 +5,9 @@ The file is ``<state_dir>/sharpit.yml`` in BootUI's ``boot-ui.yml`` format: a he
 last. No YAML library: only that minimal block form is read and written. The file and its directory are created on
 the first effective ``add`` (a no-op ``remove`` never writes), and every write is atomic (temp file + ``os.replace``).
 
-sharpit deviation: rule ids must match ``<vulnId>::pypi:<name>``; anything else (quotes, newlines, backslashes...) is a
-``BadRequest`` raised before the file is touched, so an id can never inject lines into the file.
+Shared by every advisor (spec §8). sharpit deviation: a rule id must match ``[A-Za-z0-9._:-]{1,200}`` and have an
+owning panel (``owning_panel``); anything else (quotes, spaces, slashes, newlines...) is a ``BadRequest`` raised before
+the file is touched, so an id can never inject lines into the file.
 """
 
 from __future__ import annotations
@@ -17,16 +18,28 @@ import tempfile
 import threading
 from pathlib import Path
 
+from sharpit.engine.collectors.restapi.rules import RULE_IDS
 from sharpit.engine.paging import BadRequest
 
 FILE_NAME = "sharpit.yml"
 _KEY = "dismissedRules"
 _HEADER = "# sharpit configuration (developer-local; safe to delete)."
-_RULE_ID = re.compile(r"[A-Za-z0-9._:-]+::pypi:[a-z0-9._-]+")
+_RULE_ID = re.compile(r"[A-Za-z0-9._:-]{1,200}")
+# the vulnerability shape is exactly what rule_id() builds from a PEP 503 name
+_VULNERABILITY = re.compile(r"[A-Za-z0-9._:-]+::pypi:[a-z0-9._-]+")
 
 
 def rule_id(vuln_id: str, package_name: str) -> str:
     return f"{vuln_id}::pypi:{package_name}"
+
+
+def owning_panel(rule_id: str) -> str | None:
+    """The panel whose gate covers dismissing ``rule_id``; None for an id no advisor owns (refused with a 400)."""
+    if not _RULE_ID.fullmatch(rule_id):
+        return None
+    if rule_id in RULE_IDS:  # only a registered REST API rule; an unported or unknown RAPI- id has no owner
+        return "rest-api"
+    return "vulnerabilities" if _VULNERABILITY.fullmatch(rule_id) else None
 
 
 class DismissalStore:
@@ -116,7 +129,7 @@ class DismissalStore:
 
 
 def _validate(rule_id: str) -> None:
-    if not _RULE_ID.fullmatch(rule_id):
+    if owning_panel(rule_id) is None:
         raise BadRequest(f"Invalid rule id '{rule_id}'")
 
 

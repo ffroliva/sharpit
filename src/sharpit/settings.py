@@ -62,6 +62,31 @@ class SharpitSettings:
     cli_max_results: int = 200  # BootUI docs/PROPERTIES.md bootui.cli.*
     cli_max_concurrent_calls: int = 20
     cli_execution_timeout: float = 30.0
+    # 0.2.0 (spec §12)
+    http_exchanges_max_exchanges: int = 200
+    exceptions_max_groups: int = 100
+    exceptions_max_occurrences_per_group: int = 25
+    exceptions_max_stack_frames: int = 50
+    sql_trace_enabled: bool = True
+    sql_trace_recording: bool = True
+    sql_trace_capture_parameters: bool = False
+    sql_trace_capture_call_site: bool = True
+    sql_trace_max_entries: int = 200
+    sql_trace_slow_query_threshold_millis: int = 100  # 0 disables
+    sql_trace_max_sql_length: int = 2000
+    sql_trace_max_parameter_length: int = 200
+    sql_trace_n_plus_one_threshold: int = 5  # min 2
+    activity_max_entries: int = 200
+    activity_request_slow_threshold_ms: int = 1000
+    activity_n_plus_one_threshold: int = 5  # min 2
+    log_tail_max_lines: int = 500
+    log_tail_max_bytes: int = 1048576
+    alembic_config: str | None = "alembic.ini"
+    alembic_timeout: float = 5.0
+    health_timeout: float = 5.0
+    threads_max_stack_frames: int = 64
+    advisors_max_retained_violations: int = 10000
+    stream_max_seconds: float = 3.0
     warnings: tuple[str, ...] = ()
 
 
@@ -112,6 +137,17 @@ def _int(raw: object) -> int:
     if n <= 0:
         raise ValueError(raw)
     return n
+
+
+def _non_negative_int(raw: object) -> int:
+    """Like ``_int`` but 0 is allowed: it means "off"."""
+    zero = (type(raw) is int and raw == 0) or (isinstance(raw, str) and re.fullmatch(r"\s*0+\s*", raw))
+    return 0 if zero else _int(raw)
+
+
+def _min_two_int(raw: object) -> int:
+    """N+1 thresholds: one repeat is not a pattern, so anything below 2 counts as 2."""
+    return max(2, _non_negative_int(raw))
 
 
 def _duration(raw: object) -> float:
@@ -165,7 +201,8 @@ def _config_scan(raw: object) -> tuple[str, ...] | bool:
         return _items(raw)
 
 
-# field -> (parser, fail-safe override). Fields absent from the override map fall back to their default.
+# field -> (parser, fail-safe override). None falls back to the default; _UNSET makes the field None.
+_UNSET = object()
 _Parser = Callable[[object], Any]
 _SPECS: dict[str, tuple[_Parser, Any]] = {
     "enabled": (_mode, None),  # handled specially: an invalid value is kept raw so decide() can report it
@@ -200,6 +237,30 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "cli_max_results": (_int, None),
     "cli_max_concurrent_calls": (_int, None),
     "cli_execution_timeout": (_duration, None),
+    "http_exchanges_max_exchanges": (_int, None),
+    "exceptions_max_groups": (_int, None),
+    "exceptions_max_occurrences_per_group": (_int, None),
+    "exceptions_max_stack_frames": (_int, None),
+    "sql_trace_enabled": (_bool, False),
+    "sql_trace_recording": (_bool, False),
+    "sql_trace_capture_parameters": (_bool, False),
+    "sql_trace_capture_call_site": (_bool, None),
+    "sql_trace_max_entries": (_int, None),
+    "sql_trace_slow_query_threshold_millis": (_non_negative_int, None),
+    "sql_trace_max_sql_length": (_int, None),
+    "sql_trace_max_parameter_length": (_int, None),
+    "sql_trace_n_plus_one_threshold": (_min_two_int, None),
+    "activity_max_entries": (_int, None),
+    "activity_request_slow_threshold_ms": (_int, None),
+    "activity_n_plus_one_threshold": (_min_two_int, None),
+    "log_tail_max_lines": (_int, None),
+    "log_tail_max_bytes": (_int, None),
+    "alembic_config": (_str, _UNSET),
+    "alembic_timeout": (_duration, None),
+    "health_timeout": (_duration, None),
+    "threads_max_stack_frames": (_int, None),
+    "advisors_max_retained_violations": (_int, None),
+    "stream_max_seconds": (_duration, None),
 }
 _DEFAULTS = SharpitSettings()
 _FIELDS = {f.name for f in dataclasses.fields(SharpitSettings)} - {"warnings"}
@@ -287,6 +348,8 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
             # `enabled` keeps the raw text so decide() reports it; other fields take their fail-safe (or default).
             if name == "enabled":
                 values[name] = str(raw).strip()
+            elif failsafe is _UNSET:
+                values[name] = None
             elif failsafe is not None:
                 values[name] = failsafe
             continue

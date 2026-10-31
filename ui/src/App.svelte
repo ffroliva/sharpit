@@ -3,15 +3,27 @@
   import Palette from './components/Palette.svelte';
   import TokenPrompt from './components/TokenPrompt.svelte';
   import { ApiError, authRequired, get } from './lib/api';
+  import { groupPanels, notBuilt } from './lib/nav';
   import { href, route } from './lib/route';
   import { applyTheme, loadTheme, nextTheme, type Theme } from './lib/theme';
   import type { Panel } from './lib/types';
+  import Activity from './views/Activity.svelte';
+  import Alembic from './views/Alembic.svelte';
   import Beans from './views/Beans.svelte';
   import Config from './views/Config.svelte';
+  import ConnectionPools from './views/ConnectionPools.svelte';
+  import Exceptions from './views/Exceptions.svelte';
+  import Health from './views/Health.svelte';
+  import HttpExchanges from './views/HttpExchanges.svelte';
+  import HttpProbe from './views/HttpProbe.svelte';
   import Loggers from './views/Loggers.svelte';
+  import LogTail from './views/LogTail.svelte';
   import Mappings from './views/Mappings.svelte';
   import Overview from './views/Overview.svelte';
+  import RestApi from './views/RestApi.svelte';
   import ServerStatus from './views/ServerStatus.svelte';
+  import SqlTrace from './views/SqlTrace.svelte';
+  import Threads from './views/Threads.svelte';
   import Vulnerabilities from './views/Vulnerabilities.svelte';
 
   let panels = $state<Panel[] | null>(null);
@@ -98,22 +110,25 @@
   <nav class="rail" aria-label="Panels">
     <div class="brand">sharpit</div>
     {#if panels}
-      <ul>
-        {#each panels as p (p.id)}
-          {@const why = reason(p)}
-          <li>
-            <a
-              href={href(p.id)}
-              class:muted={!usable(p) || p.readOnly}
-              aria-current={p.id === $route.panel ? 'page' : undefined}
-              aria-describedby={why ? `why-${p.id}` : undefined}
-            >
-              {p.title}
-            </a>
-            {#if why}<div class="why sm" id="why-{p.id}">{why}</div>{/if}
-          </li>
-        {/each}
-      </ul>
+      {#each groupPanels(panels) as group (group.title)}
+        <div class="group">{group.title}</div>
+        <ul aria-label={group.title}>
+          {#each group.panels as p (p.id)}
+            {@const why = reason(p)}
+            <li>
+              <a
+                href={href(p.id)}
+                class:muted={!usable(p) || p.readOnly}
+                aria-current={p.id === $route.panel ? 'page' : undefined}
+                aria-describedby={why ? `why-${p.id}` : undefined}
+              >
+                {p.title}
+              </a>
+              {#if why}<div class="why sm" id="why-{p.id}">{why}</div>{/if}
+            </li>
+          {/each}
+        </ul>
+      {/each}
     {:else if !$authRequired && !shellError}
       <ul aria-hidden="true">{#each { length: 7 } as _}<li class="ghost"></li>{/each}</ul>
     {/if}
@@ -153,6 +168,17 @@
           {:else if current.id === 'loggers'}<Loggers panel={current} q={$route.q} />
           {:else if current.id === 'beans'}<Beans q={$route.q} />
           {:else if current.id === 'vulnerabilities'}<Vulnerabilities panel={current} />
+          {:else if current.id === 'activity'}<Activity q={$route.q} />
+          {:else if current.id === 'http-exchanges'}<HttpExchanges q={$route.q} />
+          {:else if current.id === 'exceptions'}<Exceptions panel={current} />
+          {:else if current.id === 'log-tail'}<LogTail />
+          {:else if current.id === 'threads'}<Threads />
+          {:else if current.id === 'health'}<Health panel={current} />
+          {:else if current.id === 'http-probe'}<HttpProbe panel={current} q={$route.q} />
+          {:else if current.id === 'sql-trace'}<SqlTrace panel={current} />
+          {:else if current.id === 'database-connection-pools'}<ConnectionPools />
+          {:else if current.id === 'alembic'}<Alembic panel={current} />
+          {:else if current.id === 'rest-api'}<RestApi panel={current} />
           {:else if current.id === 'mcp-server' || current.id === 'cli'}<ServerStatus panel={current} kind={current.id} />
           {:else}
             <div class="empty"><p class="lead">{current.title}</p><p>This version of the console has no view for this panel yet.</p></div>
@@ -163,7 +189,7 @@
   </main>
 </div>
 
-{#if panels}<Palette bind:open={paletteOpen} {panels} onclosed={paletteClosed} />{/if}
+{#if panels}<Palette bind:open={paletteOpen} panels={panels.filter((p) => !notBuilt(p))} onclosed={paletteClosed} />{/if}
 
 <style>
   .shell { display: grid; grid-template-columns: var(--rail-w) 1fr; height: 100%; }
@@ -173,6 +199,7 @@
   }
   .brand { height: var(--head); display: flex; align-items: center; padding: 0 var(--s4); font-weight: 600; font-size: 14.5px; }
   ul { list-style: none; margin: 0; padding: 0 0 var(--s3); }
+  .group { padding: var(--s2) var(--s4) var(--s1); color: var(--muted); font-size: 12px; line-height: 16px; }
   li a {
     display: flex; align-items: center; min-height: var(--row); padding: 0 var(--s4); color: var(--ink);
     text-decoration: none; transition: background-color var(--dur) var(--ease);
@@ -197,6 +224,7 @@
     .rail { flex-direction: row; align-items: stretch; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
     .brand { flex: none; }
     ul { display: flex; padding: 0; }
+    .group { display: none; }
     li { flex: none; }
     li a { height: 100%; }
     .why { display: none; }

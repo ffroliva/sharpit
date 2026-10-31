@@ -1,41 +1,13 @@
 <script lang="ts">
-  import { ApiError, del, errorText, field, get, post } from '../lib/api';
+  import AdvisorPanel from '../components/AdvisorPanel.svelte';
+  import { del, errorText, get, post } from '../lib/api';
   import { scannedWhen, upgradeHint } from '../lib/format';
-  import { scrollable } from '../lib/scrollable';
   import type { Dependency, Panel, Vulnerability, VulnReport } from '../lib/types';
 
   let { panel }: { panel: Panel } = $props();
 
   let report = $state<VulnReport | null>(null);
   let loadError = $state<string | null>(null);
-  let scanning = $state(false);
-  /** The 409 body's own text, shown next to the Scan button. */
-  let busy = $state<string | null>(null);
-  let scanError = $state<string | null>(null);
-  let actionError = $state<string | null>(null);
-  let pendingRule = $state<string | null>(null);
-
-  type Phase = 'loading' | 'load-failed' | 'never-scanned' | 'scanning' | 'failed' | 'results';
-  const phase: Phase = $derived(
-    scanning
-      ? 'scanning'
-      : scanError || report?.scan.status === 'ERROR'
-        ? 'failed'
-        : loadError
-          ? 'load-failed'
-          : !report
-            ? 'loading'
-            : report.scan.scannedAt === null
-              ? 'never-scanned'
-              : 'results',
-  );
-  const disabledReason = $derived(
-    panel.readOnly
-      ? panel.readOnlyReason
-      : report && !report.scanningEnabled
-        ? report.scan.message
-        : null,
-  );
 
   const SEVERITY = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN', 'NONE'];
   const rank = (severity: string) => (SEVERITY.indexOf(severity) + 7) % 7; // unknown words sort last
@@ -49,6 +21,7 @@
 
   // sharpit's rule id (dismissals.py): `<vulnId>::pypi:<name>`
   const ruleId = (dep: Dependency, v: Vulnerability) => `${v.id}::pypi:${dep.packageName}`;
+  const path = (rule: string) => `dismissed-rules/${encodeURIComponent(rule)}`;
 
   async function load() {
     try {
@@ -58,38 +31,7 @@
       loadError = errorText(e);
     }
   }
-
-  async function scan() {
-    if (scanning || disabledReason) return;
-    scanning = true;
-    busy = null;
-    scanError = null;
-    try {
-      report = await post<VulnReport>('vulnerabilities/scan');
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409) busy = field(e.body, 'message') ?? field(e.body, 'error') ?? 'Another scan is running.';
-      else scanError = errorText(e);
-    } finally {
-      scanning = false;
-    }
-  }
-
-  async function toggle(dep: Dependency, v: Vulnerability) {
-    const rule = ruleId(dep, v);
-    if (pendingRule || panel.readOnly) return;
-    pendingRule = rule;
-    actionError = null;
-    try {
-      const path = `dismissed-rules/${encodeURIComponent(rule)}`;
-      await (v.dismissed ? del(path) : post(path));
-      report = await get<VulnReport>('vulnerabilities'); // a failed reload keeps the old report
-    } catch (e) {
-      actionError = `${v.dismissed ? 'Restore' : 'Dismiss'} failed: ${errorText(e)}`;
-    } finally {
-      pendingRule = null;
-    }
-  }
-
+  const reload = async () => void (report = await get<VulnReport>('vulnerabilities')); // a failed reload keeps the old report
 
   const tone = (severity: string) =>
     severity === 'CRITICAL' || severity === 'HIGH' ? 'danger' : severity === 'MEDIUM' ? 'warn' : 'muted';
@@ -97,33 +39,29 @@
   load();
 </script>
 
-<div class="panel" data-phase={phase}>
-  <header class="panel-head">
-    <h1>Vulnerabilities</h1>
-    <span class="grow muted" aria-live="polite">
-      {#if phase === 'scanning'}
-        Scanning {report?.total ?? ''} packages with OSV.dev…
-      {:else if phase === 'results' && report}
-        {report.scan.packagesScanned} packages scanned {scannedWhen(report.scan.scannedAt!)}
-      {:else if report}
-        {report.total} packages
-      {/if}
-    </span>
-    {#if busy}<span class="warn" role="status">{busy}</span>{/if}
-    <button class="primary" onclick={scan} disabled={scanning || !!disabledReason} aria-busy={scanning}>
-      {scanning ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Scan with OSV.dev'}
-    </button>
-  </header>
-
-  <div class="panel-body" use:scrollable role="region" aria-label="Vulnerabilities">
-    {#if disabledReason}<p class="notice warn">{disabledReason}</p>{/if}
-    {#if actionError}<p class="notice danger" role="alert">{actionError}</p>{/if}
-
-    {#if phase === 'loading'}
-      <table aria-hidden="true"><tbody>{#each { length: 6 } as _}<tr class="skeleton"><td></td><td></td></tr>{/each}</tbody></table>
-    {:else if phase === 'load-failed'}
-      <div class="empty"><p class="lead danger">Could not load the dependency inventory</p><p>{loadError}</p></div>
-    {:else if phase === 'never-scanned' || phase === 'scanning'}
+<AdvisorPanel
+  title="Vulnerabilities"
+  {report}
+  {loadError}
+  vulnerabilities
+  readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
+  scanDisabledReason={report && !report.scanningEnabled ? report.scan.message : null}
+  scanLabel={(phase) => (phase === 'scanning' ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Scan with OSV.dev')}
+  onScan={async () => void (report = await post<VulnReport>('vulnerabilities/scan'))}
+  onDismiss={async (rule) => { await post(path(rule)); await reload(); }}
+  onRestore={async (rule) => { await del(path(rule)); await reload(); }}
+>
+  {#snippet status(phase)}
+    {#if phase === 'scanning'}
+      Scanning {report?.total ?? ''} packages with OSV.dev…
+    {:else if phase === 'results' && report}
+      {report.scan.packagesScanned} packages scanned {scannedWhen(report.scan.scannedAt!)}
+    {:else if report}
+      {report.total} packages
+    {/if}
+  {/snippet}
+  {#snippet children({ phase, pending, toggle })}
+    {#if phase === 'never-scanned' || phase === 'scanning'}
       <div class="empty">
         <p class="lead">{phase === 'scanning' ? 'Scanning…' : 'Not scanned yet'}</p>
         <p class="muted">
@@ -137,13 +75,9 @@
       </div>
       {@render inventory()}
     {:else if phase === 'failed'}
-      <div class="empty" role="alert">
-        <p class="lead danger">Scan failed</p>
-        <p>{scanError ?? report?.scan.message}</p>
-        <p class="muted">Check the network connection to api.osv.dev, then scan again.</p>
-      </div>
+      <p class="notice muted">Check the network connection to api.osv.dev, then scan again.</p>
       {@render inventory()}
-    {:else if report}
+    {:else if phase === 'results' && report}
       <section class="block summary">
         <p>
           {#if active === 0}
@@ -152,9 +86,6 @@
             <strong>{report.vulnerable}</strong> of {report.total} packages have {active} known
             {active === 1 ? 'vulnerability' : 'vulnerabilities'}.
           {/if}
-          {#each report.severityCounts.filter((c) => c.count > 0) as c (c.severity)}
-            <span class="tag {tone(c.severity)}">{c.severity} {c.count}</span>
-          {/each}
         </p>
         {#if report.scan.packagesSkipped > 0}
           <p class="warn">{report.scan.packagesSkipped} packages were not scanned (package limit reached).</p>
@@ -188,8 +119,8 @@
                 </td>
                 <td class="num">
                   <button
-                    onclick={() => toggle(dep, v)}
-                    disabled={!!pendingRule || panel.readOnly}
+                    onclick={() => toggle(ruleId(dep, v), v.dismissed)}
+                    disabled={!!pending || panel.readOnly}
                     title={panel.readOnly ? (panel.readOnlyReason ?? undefined) : undefined}
                     aria-label="{v.dismissed ? 'Restore' : 'Dismiss'} {v.id} in {dep.packageName}"
                   >
@@ -204,8 +135,8 @@
       <section class="block"><h2>Scanned packages</h2></section>
       {@render inventory(true)}
     {/if}
-  </div>
-</div>
+  {/snippet}
+</AdvisorPanel>
 
 {#snippet inventory(scanned = false)}
   {#if report && report.dependencies.length > 0}
@@ -231,7 +162,6 @@
 <style>
   .summary p { margin: 0; padding: var(--s3) var(--s4) 0; }
   .summary p:last-child { padding-bottom: var(--s3); }
-  .summary .tag { margin-left: var(--s2); }
   tr.dismissed td { color: var(--muted); }
   tr.dismissed .mono { text-decoration: line-through; }
   .line { display: block; }

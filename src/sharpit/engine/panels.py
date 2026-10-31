@@ -26,6 +26,18 @@ PANELS: tuple[Panel, ...] = (
     Panel("vulnerabilities", "Vulnerabilities", True, "/vulnerabilities"),
     Panel("mcp-server", "MCP Server", True, "/mcp-server"),
     Panel("cli", "CLI", None, None),
+    # 0.2.0 (spec §13.1); actionCapable departs from BootUI for health (true), threads and activity (false)
+    Panel("activity", "Live Activity", False, "/activity"),
+    Panel("http-exchanges", "HTTP Exchanges", False, "/http-exchanges"),
+    Panel("exceptions", "Exceptions", True, "/exceptions"),
+    Panel("sql-trace", "SQL Trace", True, "/sql-trace"),
+    Panel("log-tail", "Log Tail", False, "/log-tail"),
+    Panel("alembic", "Alembic", True, "/alembic"),
+    Panel("database-connection-pools", "Database Connection Pools", False, "/database-connection-pools"),
+    Panel("health", "Health", True, "/health"),
+    Panel("threads", "Threads", False, "/threads"),
+    Panel("rest-api", "REST API", True, "/rest-api"),
+    Panel("http-probe", "HTTP Probe", True, "/http-probe"),
 )
 
 

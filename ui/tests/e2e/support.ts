@@ -3,16 +3,27 @@ import { expect, type Page } from '@playwright/test';
 /** The server's token (playwright.config.ts sets SHARPIT_AUTHENTICATION_TOKEN to it). */
 export const TOKEN = 'e2e-token';
 
-/** The example app's registry, in rail order. */
+/** The example app's registry, in rail order: the groups of src/lib/nav.ts (spec 13.1). */
 export const PANELS = [
   { id: 'overview', title: 'Overview' },
+  { id: 'activity', title: 'Live Activity' },
+  { id: 'health', title: 'Health' },
+  { id: 'threads', title: 'Threads' },
+  { id: 'log-tail', title: 'Log Tail' },
+  { id: 'exceptions', title: 'Exceptions' },
+  { id: 'http-exchanges', title: 'HTTP Exchanges' },
+  { id: 'http-probe', title: 'HTTP Probe' },
+  { id: 'sql-trace', title: 'SQL Trace' }, // unavailable here: the example app does not import SQLAlchemy
+  { id: 'database-connection-pools', title: 'Database Connection Pools' },
+  { id: 'alembic', title: 'Alembic' },
   { id: 'config', title: 'Configuration' },
   { id: 'mappings', title: 'Mappings' },
   { id: 'loggers', title: 'Loggers' },
   { id: 'beans', title: 'Providers' }, // the UI's label; the registry still says Beans
-  { id: 'vulnerabilities', title: 'Vulnerabilities' },
   { id: 'mcp-server', title: 'MCP Server' },
   { id: 'cli', title: 'CLI' },
+  { id: 'rest-api', title: 'REST API' },
+  { id: 'vulnerabilities', title: 'Vulnerabilities' },
 ] as const;
 
 /** Open a panel by its hash route and wait until its data has rendered. */

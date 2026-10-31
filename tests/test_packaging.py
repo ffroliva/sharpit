@@ -5,8 +5,14 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+import sharpit
+
 PYPROJECT = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
 PROJECT = PYPROJECT["project"]
+
+
+def test_version_is_0_2_0() -> None:
+    assert sharpit.__version__ == "0.2.0"
 
 
 def test_runtime_dependencies_are_exactly_starlette_and_packaging() -> None:

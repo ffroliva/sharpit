@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import sys
 import time
-from collections.abc import AsyncGenerator, Callable, Iterable
+from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,13 +24,24 @@ from starlette.responses import FileResponse, Response
 from starlette.routing import BaseRoute, Match, Mount, Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from sharpit.engine import guard, tools
+from sharpit.engine import guard, sqla, tools
+from sharpit.engine import probe as probe_engine
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
+from sharpit.engine.advisors.retention import MAX_PAGE_LIMIT, AdvisorViolationError, parse_integer
+from sharpit.engine.capture import activity, route_path
+from sharpit.engine.capture.exceptions import ExceptionStore, unknown_group
+from sharpit.engine.capture.exchanges import HttpExchangeBuffer
+from sharpit.engine.capture.logtail import LogTailBuffer, log_events
+from sharpit.engine.capture.sqltrace import SqlTraceRecorder
+from sharpit.engine.capture.streams import ChangeStream, StreamSlots, change_events
+from sharpit.engine.collectors import alembic, pools
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
+from sharpit.engine.collectors.health import health_service
 from sharpit.engine.collectors.loggers import loggers_report, set_level
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
+from sharpit.engine.collectors.threads import threads_report
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
@@ -37,9 +49,11 @@ from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
 from sharpit.engine.singleflight import ActionBusy
+from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, CaptureWiring
 from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
+from sharpit.fastapi.sse import sse_response
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
 __all__ = ["GuardMiddleware", "SharpitContext", "SharpitHandle", "SharpitMount", "install"]
@@ -60,6 +74,11 @@ class SharpitHandle:
     context: SharpitContext
     original_lifespan: _Lifespan
 
+    def uninstall_capture(self) -> None:
+        """Detach every capture hook, as lifespan shutdown does (for tests and apps run without lifespan)."""
+        if self.context.capture.wiring is not None:
+            self.context.capture.wiring.detach(self.context)
+
 
 class SharpitMount(Mount):
     """A ``Mount`` that also owns the bare ``{path}`` (any method), so it reaches the sub-app and its guard.
@@ -72,7 +91,7 @@ class SharpitMount(Mount):
 
     def matches(self, scope: Scope) -> tuple[Match, Scope]:
         match, child = super().matches(scope)
-        if match is Match.NONE and scope["type"] in ("http", "websocket") and _route_path(scope) == self.path:
+        if match is Match.NONE and scope["type"] in ("http", "websocket") and route_path(scope) == self.path:
             root_path = scope.get("root_path", "")
             child = {
                 "path_params": dict(scope.get("path_params", {})),
@@ -82,15 +101,6 @@ class SharpitMount(Mount):
             }
             return Match.FULL, child
         return match, child
-
-
-def _route_path(scope: Scope) -> str:
-    """Path below ``root_path`` (as Starlette's private ``get_route_path``): ``""`` for the bare mount path."""
-    path: str = scope["path"]
-    root_path: str = scope.get("root_path", "")
-    if root_path and (path == root_path or path.startswith(root_path + "/")):
-        return path[len(root_path) :]
-    return path
 
 
 def _header_map(scope: Scope) -> dict[str, list[str]]:
@@ -139,13 +149,18 @@ class GuardMiddleware:
         if len(values.get("origin", ())) > 1 or len(values.get("sec-fetch-site", ())) > 1:
             return guard.Denial(403, {"error": guard.MESSAGE_CROSS_SITE})
         headers = {k: ("; " if k == "cookie" else ", ").join(v) for k, v in values.items()}
-        route_path = _route_path(scope)
+        sub_path = route_path(scope)
         api_sub_path = None
-        if route_path == self.api_prefix or route_path.startswith(self.api_prefix + "/"):
-            api_sub_path = route_path[len(self.api_prefix) :]
+        if sub_path == self.api_prefix or sub_path.startswith(self.api_prefix + "/"):
+            api_sub_path = sub_path[len(self.api_prefix) :]
         client = scope.get("client")
         facts = guard.RequestFacts(
-            scope["method"], client[0] if client else None, headers, api_sub_path, scope.get("scheme", "http")
+            scope["method"],
+            client[0] if client else None,
+            headers,
+            api_sub_path,
+            scope.get("scheme", "http"),
+            bool(scope.get("extensions", {}).get("sharpit.probe")),
         )
         settings = self.ctx.settings
         gateway = (
@@ -157,7 +172,28 @@ class GuardMiddleware:
         return guard.decide_guard(facts, settings, self.ctx.token, gateway)
 
 
-def _routes(ctx: SharpitContext) -> list[BaseRoute]:
+# Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
+_NOT_BUILT: tuple[str, ...] = ()
+
+
+def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
+    """Panel id -> why it is unavailable; an id that is absent or None is available."""
+    reasons: dict[str, str | None] = dict.fromkeys(_NOT_BUILT, "Not built yet")
+    exchanges = ctx.capture.exchanges
+    reasons["http-exchanges"] = exchanges.unavailable_reason if exchanges is not None else None
+    wiring = ctx.capture.wiring
+    on_root = ctx.capture.log_tail is None or (wiring is not None and wiring.log_handler_on_root())
+    reasons["log-tail"] = None if on_root else LOG_TAIL_DETACHED_REASON
+    store = ctx.capture.exceptions
+    reasons["exceptions"] = store.unavailable_reason if store is not None else None
+    reasons["sql-trace"] = tools.sql_trace_unavailable_reason(ctx)
+    reasons["activity"] = activity.unavailable_reason(ctx)
+    reasons["alembic"] = alembic.unavailable_reason(ctx)
+    reasons["database-connection-pools"] = sqla.unavailable_reason()
+    return reasons
+
+
+def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -187,7 +223,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
 
     def panels(_request: Request) -> Response:
         flags = {pid: (p.enabled, p.read_only) for pid, p in settings.panels.items()}
-        return json_response(panels_report(settings.read_only, flags, {}))
+        return json_response(panels_report(settings.read_only, flags, available_reasons(ctx)))
 
     def overview(request: Request) -> Response:
         return json_response(overview_dto(ctx, request.scope))
@@ -208,6 +244,202 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         params = request.query_params
         return json_response(beans_report(ctx, params.get("q"), params.get("classification"), *_page(request)))
 
+    def http_exchanges(request: Request) -> Response:
+        params = request.query_params
+        offset, limit = _page(request)
+        return json_response(
+            tools.http_exchanges_report(
+                ctx, params.get("q"), params.get("method"), params.get("statusClass"), offset, limit
+            )
+        )
+
+    async def http_probe(request: Request) -> Response:
+        raw = await _read_capped(request, settings.mcp_max_payload_bytes)
+        if raw is None:
+            return error(413, "Request payload exceeds limit")
+        try:
+            parsed_body: object = json.loads(raw) if raw.strip() else {}
+        except (ValueError, RecursionError):
+            return error(400, "Request body must be a JSON object")
+        if not isinstance(parsed_body, dict):
+            return error(400, "Request body must be a JSON object")
+        body = cast("dict[str, Any]", parsed_body)
+        incoming_root = request.scope.get("root_path", "")
+        mount_path = settings.path.rstrip("/")
+        host_root = incoming_root[: -len(mount_path)] if incoming_root.endswith(mount_path) else incoming_root
+        try:
+            probe_request = probe_engine.validate_probe(body, settings.path, host_root.rstrip("/"))
+        except BadRequest as exc:
+            return error(400, str(exc))
+        slots = ctx.lazy("probe_slots", probe_engine.ProbeSlots)
+        if not slots.acquire():
+            return error(409, "Too many concurrent HTTP probes")
+        released = False
+
+        def release_slot() -> None:
+            nonlocal released
+            if not released:
+                released = True
+                slots.release()
+
+        async def run_host(
+            host: ASGIApp,
+            scope: Scope,
+            receive: Receive,
+            send: Send,
+            register_cancel: Callable[[Callable[[], None]], None],
+        ) -> None:
+            import anyio
+
+            with anyio.CancelScope() as cancel_scope:
+                register_cancel(cancel_scope.cancel)
+                await host(scope, receive, send)
+
+        try:
+            result = await probe_engine.run_probe(
+                host_app,
+                probe_request,
+                request.scope,
+                host_root.rstrip("/"),
+                ctx.masker,
+                timeout=probe_engine.PROBE_TIMEOUT,
+                on_complete=release_slot,
+                host_runner=run_host,
+            )
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            release_slot()
+            raise
+        return json_response(result)
+
+    def activity_feed(request: Request) -> Response:
+        params = request.query_params
+        return json_response(
+            activity.activity_report(
+                ctx,
+                params.get("type"),
+                params.get("severity"),
+                parse_int_param(params.get("since"), "since"),
+                parse_int_param(params.get("limit"), "limit"),
+                params.get("q"),
+            )
+        )
+
+    def activity_profile(request: Request) -> Response:
+        return json_response(activity.request_profile(ctx, request.path_params["id"]))
+
+    async def activity_stream(_request: Request) -> Response:
+        changes = ctx.capture.activity_changes
+        if changes is None:  # the panel gate answers first; only a disabled panel has no fan-in
+            raise HTTPException(404)
+        return sse_response(ctx, change_events(changes))
+
+    def log_tail_recent(_request: Request) -> Response:
+        return json_response(tools.log_tail_lines(ctx))
+
+    async def log_tail_stream(request: Request) -> Response:
+        buffer = ctx.capture.log_tail
+        if buffer is None:  # the panel gate answers first; only a disabled panel has no buffer
+            raise HTTPException(404)
+        # Last-Event-ID first: an automatic reconnect sends it while the URL still carries a manual ?after=
+        last = request.headers.get("last-event-id") or request.query_params.get("after")
+        return sse_response(ctx, log_events(buffer, buffer.resume_point(last)))
+
+    def exception_store() -> ExceptionStore:
+        store = ctx.capture.exceptions
+        if store is None:  # the panel gate answers first; only a disabled panel has no store
+            raise HTTPException(404)
+        return store
+
+    def exceptions(request: Request) -> Response:
+        store = exception_store()
+        if request.method == "DELETE":
+            store.clear()
+            return Response(status_code=204, headers=dict(security_headers("api")))
+        return json_response(store.report())
+
+    async def exceptions_stream(_request: Request) -> Response:
+        return sse_response(ctx, change_events(exception_store().changes))
+
+    def exception_detail(request: Request) -> Response:
+        gid: str = request.path_params["id"]
+        detail = exception_store().detail(gid)
+        return json_response(detail) if detail is not None else error(404, unknown_group(gid))
+
+    async def exception_status(request: Request) -> Response:
+        raw = await _read_capped(request, small_cap)
+        if raw is None:
+            return error(413, "Request payload exceeds limit")
+        body = _json_or_none(raw) if raw.strip() else None
+        value = cast("dict[str, Any]", body).get("status") if isinstance(body, dict) else None
+        gid: str = request.path_params["id"]
+        try:
+            updated = exception_store().set_status(gid, value if isinstance(value, str) else None)
+        except ValueError as exc:  # checked before the group, as BootUI ExceptionsService.updateStatus
+            return error(400, str(exc))
+        return json_response(updated) if updated is not None else error(404, unknown_group(gid))
+
+    def sql_trace(_request: Request) -> Response:
+        return json_response(tools.sql_trace_report(ctx))
+
+    def sql_trace_recorder() -> SqlTraceRecorder:
+        recorder = ctx.capture.sql_trace
+        if recorder is None:  # SHARPIT_SQL_TRACE_ENABLED=false: nothing to clear or pause
+            raise HTTPException(404)
+        return recorder
+
+    async def sql_trace_stream(_request: Request) -> Response:
+        return sse_response(ctx, change_events(sql_trace_recorder().changes))
+
+    def sql_trace_clear(_request: Request) -> Response:
+        sql_trace_recorder().clear()
+        return json_response(tools.sql_trace_report(ctx))
+
+    async def sql_trace_recording(request: Request) -> Response:
+        raw = await _read_capped(request, small_cap)
+        if raw is None:
+            return error(413, "Request payload exceeds limit")
+        # BootUI SqlTraceControllerSupport.recording: an empty body or a missing/null ``enabled`` flips
+        enabled = _toggle_value(raw)
+        if not isinstance(enabled, bool | None):
+            return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
+        recorder = sql_trace_recorder()
+        recorder.set_recording(not recorder.recording if enabled is None else enabled)
+        return json_response(tools.sql_trace_report(ctx))
+
+    def alembic_migrations(_request: Request) -> Response:
+        return json_response(alembic.alembic_report(ctx))
+
+    async def alembic_refresh(_request: Request) -> Response:
+        try:
+            return json_response(await alembic.refresh_alembic(ctx))
+        except ActionBusy as exc:
+            return json_response(exc.body(), 409)
+
+    def health(_request: Request) -> Response:
+        return json_response(health_service(ctx).report())
+
+    async def health_check(_request: Request) -> Response:
+        try:
+            return json_response(await health_service(ctx).check())
+        except ActionBusy as exc:
+            return json_response(exc.body(), 409)
+
+    def connection_pools(_request: Request) -> Response:
+        return json_response(pools.pools_report(ctx))
+
+    def connection_pool_snapshot(request: Request) -> Response:
+        snapshot = pools.pool_snapshot(ctx, request.path_params["name"])
+        if snapshot is None:
+            raise HTTPException(404)
+        return json_response(snapshot)
+
+    async def thread_dump(request: Request) -> Response:
+        # on the loop: the task list is read directly; an off-loop reader (MCP) hands it to the loop instead
+        params = request.query_params
+        return json_response(threads_report(ctx, params.get("q"), params.get("state"), *_page(request)))
+
     def vulnerability_service() -> VulnerabilityService:
         return tools.vulnerability_service(ctx)
 
@@ -220,11 +452,32 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         except ActionBusy as exc:
             return json_response(exc.body(), 409)
 
+    def rest_api(_request: Request) -> Response:
+        return json_response(tools.rest_api_service(ctx).report())
+
+    def rest_api_scan(_request: Request) -> Response:
+        try:
+            return json_response(tools.rest_api_service(ctx).scan())
+        except ActionBusy as exc:
+            return json_response(exc.body(), 409)
+
+    def rest_api_violations(request: Request) -> Response:
+        params = request.query_params
+        try:
+            offset = parse_integer(params.get("offset"), "offset")
+            limit = parse_integer(params.get("limit"), "limit")
+            page = tools.rest_api_service(ctx).violations(
+                request.path_params["rule_id"], params.get("scanId"), offset, limit, MAX_PAGE_LIMIT
+            )
+        except AdvisorViolationError as exc:  # BootUI AdvisorViolationExceptionHandler
+            return json_response({"error": exc.message}, exc.status)
+        return json_response(page)
+
     def dismissed_rules(_request: Request) -> Response:
-        return json_response({"dismissed": vulnerability_service().dismissals.list()})
+        return json_response({"dismissed": tools.dismissal_store(ctx).list()})
 
     def dismissed_rule(request: Request) -> Response:
-        store = vulnerability_service().dismissals
+        store = tools.dismissal_store(ctx)
         rule: str = request.path_params["rule_id"]
         ids = store.add(rule) if request.method == "POST" else store.remove(rule)
         return json_response({"dismissed": ids})
@@ -258,12 +511,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         if raw is None:
             return error(413, "Request payload exceeds limit")
         # BootUI McpServerController: an empty body or a missing/null ``enabled`` flips; binding refuses the rest
-        # parsed inline: a JSON ``null`` body flips (BootUI ``request == null``), unparsable JSON is refused
-        try:
-            body: object = json.loads(raw) if raw.strip() else None
-        except (ValueError, RecursionError):
-            body = 0
-        enabled = None if body is None else cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
+        enabled = _toggle_value(raw)
         if not isinstance(enabled, bool | None):
             return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
         base = api_path(request)
@@ -301,9 +549,37 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/loggers", loggers, methods=["GET"]),
         Route(f"{api}/mappings/flat", mappings, methods=["GET"]),
         Route(f"{api}/beans", beans, methods=["GET"]),
+        Route(f"{api}/http-exchanges", http_exchanges, methods=["GET"]),
+        Route(f"{api}/http-probe", http_probe, methods=["POST"]),
+        Route(f"{api}/activity", activity_feed, methods=["GET"]),
+        Route(f"{api}/activity/stream", activity_stream, methods=["GET"]),
+        Route(f"{api}/activity/request/{{id}}", activity_profile, methods=["GET"]),
+        Route(f"{api}/log-tail/recent", log_tail_recent, methods=["GET"]),
+        Route(f"{api}/log-tail/stream", log_tail_stream, methods=["GET"]),
+        Route(f"{api}/exceptions", exceptions, methods=["GET", "DELETE"]),
+        Route(f"{api}/exceptions/stream", exceptions_stream, methods=["GET"]),  # before {id}: never an id
+        Route(f"{api}/exceptions/{{id}}", exception_detail, methods=["GET"]),
+        Route(f"{api}/exceptions/{{id}}/status", exception_status, methods=["POST"]),
         Route(f"{api}/loggers/{{name:path}}", logger_level, methods=["POST"]),
+        Route(f"{api}/sql-trace", sql_trace, methods=["GET"]),
+        Route(f"{api}/sql-trace/stream", sql_trace_stream, methods=["GET"]),
+        Route(f"{api}/sql-trace/clear", sql_trace_clear, methods=["POST"]),
+        Route(f"{api}/sql-trace/recording", sql_trace_recording, methods=["POST"]),
+        Route(f"{api}/alembic/migrations", alembic_migrations, methods=["GET"]),
+        Route(f"{api}/alembic/refresh", alembic_refresh, methods=["POST"]),
+        Route(f"{api}/health", health, methods=["GET"]),
+        Route(f"{api}/health/check", health_check, methods=["POST"]),
+        Route(f"{api}/database-connection-pools/pools", connection_pools, methods=["GET"]),
+        # name:path: an engine's display name holds slashes (sqlite+pysqlite:///app.db)
+        Route(
+            f"{api}/database-connection-pools/pools/{{name:path}}/snapshot", connection_pool_snapshot, methods=["GET"]
+        ),
+        Route(f"{api}/threads", thread_dump, methods=["GET"]),
         Route(f"{api}/vulnerabilities", vulnerabilities, methods=["GET"]),
         Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
+        Route(f"{api}/rest-api", rest_api, methods=["GET"]),
+        Route(f"{api}/rest-api/scan", rest_api_scan, methods=["POST"]),
+        Route(f"{api}/rest-api/rules/{{rule_id}}/violations", rest_api_violations, methods=["GET"]),
         Route(f"{api}/dismissed-rules", dismissed_rules, methods=["GET"]),
         Route(f"{api}/dismissed-rules/{{rule_id:path}}", dismissed_rule, methods=["POST", "DELETE"]),
         Route(f"{api}/mcp", mcp, methods=["POST"]),
@@ -312,6 +588,16 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/cli", cli, methods=["GET"]),
         Route(f"{api}/cli/tools/{{tool}}", cli_tool, methods=["POST"]),
     ]
+
+
+def _toggle_value(raw: bytes) -> object:
+    """``enabled`` of a toggle body: None (flip) for an empty body, JSON ``null`` or a missing/null key; ``0`` (refused)
+    for unparsable JSON or a non-object (parsed inline: a JSON ``null`` body flips, as BootUI ``request == null``)."""
+    try:
+        body: object = json.loads(raw) if raw.strip() else None
+    except (ValueError, RecursionError):
+        return 0
+    return None if body is None else cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
 
 
 async def _read_capped(request: Request, cap: int) -> bytes | None:
@@ -388,7 +674,14 @@ def _requested(settings: SharpitSettings, profiles: tuple[str, ...]) -> bool:
     return parse_mode(settings.enabled) is None or any(p in profiles for p in settings.enabled_profiles)
 
 
-def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle:
+def install(
+    app: Any,
+    *,
+    settings: object = (),
+    engines: Sequence[object] = (),
+    health_checks: Mapping[str, Callable[[], object]] | None = None,
+    **options: Any,
+) -> SharpitHandle:
     caller_module: str | None = sys._getframe(1).f_globals.get("__name__")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     router = app.router
     existing = next((r.sharpit_handle for r in router.routes if isinstance(r, SharpitMount) and r.sharpit_handle), None)
@@ -414,6 +707,8 @@ def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle
         profiles=profiles,
         app_settings=app_settings,
         caller_module=caller_module,
+        engines=tuple(engines),
+        health_checks=dict(health_checks or {}),
     )
     handle = SharpitHandle(sharpit_settings, activation, ctx, original)
     for warning in activation.warnings:  # the overview panel shows them too, but not while sharpit is inactive
@@ -428,16 +723,54 @@ def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle
         logger.log(level, "sharpit inactive: %s", activation.reason)
         return handle
 
+    capture = ctx.capture
+    capture.stream_slots = StreamSlots()
+    if sharpit_settings.panels["log-tail"].enabled:
+        capture.log_tail = LogTailBuffer(sharpit_settings.log_tail_max_lines, sharpit_settings.log_tail_max_bytes)
+    panels = sharpit_settings.panels
+    if panels["http-exchanges"].enabled or panels["activity"].enabled:  # activity's REQUEST rows (spec §7.4)
+        capture.exchanges = HttpExchangeBuffer(sharpit_settings.http_exchanges_max_exchanges)
+    if sharpit_settings.panels["exceptions"].enabled:
+        capture.exceptions = ExceptionStore(
+            sharpit_settings.exceptions_max_groups,
+            sharpit_settings.exceptions_max_occurrences_per_group,
+            sharpit_settings.exceptions_max_stack_frames,
+            ctx.masker,
+        )
+    capture.engine_registry = sqla.EngineRegistry(ctx.masker)
+    if sharpit_settings.panels["sql-trace"].enabled and sharpit_settings.sql_trace_enabled:
+        capture.sql_trace = SqlTraceRecorder(
+            ctx.masker,
+            max_entries=sharpit_settings.sql_trace_max_entries,
+            slow_query_threshold_millis=sharpit_settings.sql_trace_slow_query_threshold_millis,
+            max_sql_length=sharpit_settings.sql_trace_max_sql_length,
+            max_parameter_length=sharpit_settings.sql_trace_max_parameter_length,
+            n_plus_one_threshold=sharpit_settings.sql_trace_n_plus_one_threshold,
+            capture_call_site=sharpit_settings.sql_trace_capture_call_site,
+            recording=sharpit_settings.sql_trace_recording,
+        )
+    if panels["activity"].enabled:
+        capture.activity_changes = ChangeStream()
+        for source in (capture.exchanges, capture.exceptions, capture.sql_trace):
+            if source is not None:
+                source.changes.forward_to(capture.activity_changes)
+    wiring = capture.wiring = CaptureWiring()
+    wiring.attach_at_install(app, ctx)
+
     @asynccontextmanager
     async def lifespan(host_app: Any) -> AsyncGenerator[Any]:
-        async with original(host_app) as state:
-            if ctx.startup_time_ms is None:
-                ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
-            yield state
+        try:
+            async with original(host_app) as state:
+                if ctx.startup_time_ms is None:
+                    ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
+                wiring.on_startup(ctx)  # after the host's own startup (spec §6.1)
+                yield state
+        finally:
+            wiring.detach(ctx)
 
     router.lifespan_context = lifespan
     sub_app = Starlette(
-        routes=_routes(ctx),
+        routes=_routes(ctx, app),
         middleware=[Middleware(GuardMiddleware, ctx=ctx)],
         exception_handlers={404: _json_http_error, 405: _json_http_error, BadRequest: _bad_request},
     )

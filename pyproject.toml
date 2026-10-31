@@ -47,6 +47,9 @@ test = [
     "pytest>=8",
     "pytest-timeout>=2.3",
     "pytest-xdist>=3.6",
+    "sqlalchemy[asyncio]>=2.0.38",
+    "aiosqlite>=0.20",
+    "alembic>=1.13",
 ]
 
 [dependency-groups]
@@ -76,6 +79,7 @@ exclude = [
     "/CLAUDE.md",
     "/GEMINI.md",
     "/mempalace.yaml",
+    "/tests/test_ui_no_html.py",  # reads ui/src, which is not shipped
     "/tests/test_agent_workflow.py",  # reads skills/ and docs/, which are not shipped
     "/tests/scripts",  # tests the repo scripts/, which are not shipped
 ]
@@ -97,3 +101,6 @@ pythonVersion = "3.12"
 testpaths = ["tests"]
 pythonpath = ["."]  # examples/ (the sample app) imports as a package
 timeout = 60
+markers = [
+    "needs_sqlalchemy: needs SQLAlchemy, aiosqlite or greenlet installed (the no-sqlalchemy CI job deselects it)",
+]

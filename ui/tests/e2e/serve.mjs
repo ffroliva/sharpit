@@ -7,6 +7,8 @@ const OS = /^(path|pathext|systemroot|systemdrive|comspec|windir|temp|tmp|home|u
 const keys = new Set((process.env.SHARPIT_E2E_KEYS ?? '').split(',').filter(Boolean));
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => OS.test(name) || keys.has(name)));
 const port = process.argv[2];
-const args = ['run', 'uvicorn', 'examples.fastapi_sample.app:create_app', '--factory', '--host', '127.0.0.1', '--port', port];
+// playwright.sqla.config.ts serves the SQLAlchemy dogfood sample instead of the default example app
+const app = process.env.SHARPIT_E2E_APP || 'examples.fastapi_sample.app:create_app';
+const args = ['run', 'uvicorn', app, '--factory', '--host', '127.0.0.1', '--port', port];
 const server = spawn('uv', args, { env, stdio: 'inherit', shell: process.platform === 'win32' });
 server.on('exit', (code) => process.exit(code ?? 1));

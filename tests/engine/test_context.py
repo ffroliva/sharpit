@@ -59,3 +59,23 @@ def test_lazy_factory_runs_once_per_key_under_concurrency():
 def test_lazy_is_reentrant_across_keys():
     ctx = _ctx()
     assert ctx.lazy("outer", lambda: ctx.lazy("inner", lambda: 1) + 1) == 2
+
+
+def test_context_masker_capture_parameters_from_settings():
+    from sharpit.engine.masking import Exposure
+
+    def masker(**settings: Any):
+        return SharpitContext(SharpitSettings(**settings), ActivationStatus(True, True, "test", ()), None).masker  # pyright: ignore[reportArgumentType]
+
+    assert masker().capture_parameters is False
+    assert masker(sql_trace_capture_parameters=True).capture_parameters is True
+    meta = masker(sql_trace_capture_parameters=True, expose_values=Exposure.METADATA_ONLY)
+    assert meta.capture_parameters is False
+
+
+def test_peek_returns_cached_value_without_building():
+    ctx = _ctx()
+    assert ctx.peek("health") is None
+    assert "health" not in ctx._cache  # pyright: ignore[reportPrivateUsage]
+    ctx.lazy("health", lambda: 7)
+    assert ctx.peek("health") == 7

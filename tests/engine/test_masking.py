@@ -179,3 +179,113 @@ def test_empty_user_url_password_is_secret() -> None:
     # sharpit widening of SecretValueDetector: an empty user still carries a password (redis://:pw@host)
     assert is_secret_value("redis://:pw@host:6379/0")
     assert Masker(M, True).mask("APP_CACHE", "redis://:redispw@localhost:6379/0") == (MASK, True)
+
+
+# ---- 0.2.0 text, path and header masking (spec §11) ---------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("login failed password=hunter2 for bob", "login failed password=****** for bob"),
+        ("db.password: hunter2", "db.password: ******"),
+        ("Authorization: Bearer abc.def", "Authorization: ******"),
+        ('{"token": "abc", "user": "bob"}', '{"token": "******", "user": "bob"}'),
+        ("connect to postgres://u:p@h/db failed", "connect to postgres://******@h/db failed"),
+        ("redis://:pw@cache:6379/0", "redis://******@cache:6379/0"),
+        (f"user sent {JWT} twice", f"user sent {MASK} twice"),
+        (f'token was "{JWT}".', f'token was "{MASK}".'),
+        (
+            f'127.0.0.1:5000 - "GET /reset/{JWT} HTTP/1.1" 200 OK',
+            f'127.0.0.1:5000 - "GET /reset/{MASK} HTTP/1.1" 200 OK',
+        ),
+        (
+            "(sqlite3.IntegrityError) UNIQUE failed\n[SQL: INSERT INTO u VALUES (?, ?)]\n[parameters: ('bob', 'x')]\n"
+            "(Background on this error at: https://sqlalche.me/e/20/gkpj)",
+            "(sqlite3.IntegrityError) UNIQUE failed\n[SQL: INSERT INTO u VALUES (?, ?)]\n[parameters: ******]\n"
+            "(Background on this error at: https://sqlalche.me/e/20/gkpj)",
+        ),
+        ("[parameters: [('a', 1), ('b', 2)]]", "[parameters: ******]"),
+        ("GET /owners/42 HTTP/1.1 200", "GET /owners/42 HTTP/1.1 200"),
+        ("plain words only", "plain words only"),
+        # Python dict reprs and non-string JSON values (review r0)
+        ("{'password': 'hunter2', 'user': 'bob'}", "{'password': '******', 'user': 'bob'}"),
+        ("kwargs={'api_key': 'sk-live-abcdef123456'}", "kwargs={'api_key': '******'}"),
+        ('{"password": 12345, "user": "bob"}', '{"password": "******", "user": "bob"}'),
+        ("{'secret': None}", "{'secret': '******'}"),
+        ("secret: [1, 2]", "secret: ******"),
+        ("[parameters: ('bob', 'secret')", "[parameters: ******]"),
+        ("Cookie: session=abc123; theme=dark", "Cookie: ******; theme=dark"),
+    ],
+)
+def test_mask_text_corpus(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
+
+
+def test_mask_text_json_stays_valid() -> None:
+    import json
+
+    masked = Masker(M, True).mask_text('{"token": "abc", "nested": {"password": "p w"}, "n": 1}')
+    assert masked is not None
+    assert json.loads(masked) == {"token": MASK, "nested": {"password": MASK}, "n": 1}
+
+
+def test_mask_text_json_non_string_values_stay_valid() -> None:
+    import json
+
+    masked = Masker(M, True).mask_text('{"password": 12345, "pin_token": true, "api_keys": [1, 2], "n": null}')
+    assert masked is not None
+    assert json.loads(masked) == {"password": MASK, "pin_token": MASK, "api_keys": MASK, "n": None}
+
+
+def test_mask_text_parameters_kept_when_capture_on() -> None:
+    masker = Masker(M, True, capture_parameters=True)
+    assert masker.mask_text("[parameters: ('bob', 'x')]") == "[parameters: ('bob', 'x')]"
+    assert masker.mask_text(f"[parameters: ('bob', '{JWT}')]") == f"[parameters: ('bob', '{MASK}')]"
+
+
+def test_mask_text_parameters_dropped_even_when_mask_secrets_off() -> None:
+    assert Masker(M, False).mask_text("[parameters: ('bob',)] password=x") == "[parameters: ******] password=x"
+
+
+def test_mask_text_none() -> None:
+    assert Masker(M, True).mask_text(None) is None
+
+
+def test_mask_text_metadata_only_none() -> None:
+    assert Masker(META, True).mask_text("hello password=x") is None
+
+
+def test_mask_text_metadata_only_drops_parameters_even_when_capture_on() -> None:
+    masker = Masker(META, True, capture_parameters=True)
+    assert masker.capture_parameters is False
+    assert masker.mask_text("[parameters: ('bob', 'x')]") is None
+
+
+def test_mask_text_full_unchanged() -> None:
+    text = f"password=hunter2 {JWT} [parameters: ('bob',)] postgres://u:p@h/db"
+    assert Masker(FULL, True).mask_text(text) == text
+
+
+def test_mask_text_masks_own_token() -> None:
+    token = "tok-3f9a"
+    for masker in (Masker(M, True, token), Masker(M, False, token), Masker(FULL, True, token)):
+        assert masker.mask_text(f"GET /sharpit?x={token}&y=1 sent tok-3f9a") == f"GET /sharpit?x={MASK}&y=1 sent {MASK}"
+
+
+def test_mask_path_jwt_segment() -> None:
+    masker = Masker(M, True)
+    assert masker.mask_path(f"/reset/{JWT}/confirm") == f"/reset/{MASK}/confirm"
+    assert masker.mask_path("/owners/42/pets") == "/owners/42/pets"
+    assert masker.mask_path("/") == "/"
+    assert Masker(FULL, True).mask_path(f"/reset/{JWT}") == f"/reset/{JWT}"
+    assert Masker(M, True, "tok-3f9a").mask_path("/hook/tok-3f9a") == f"/hook/{MASK}"
+
+
+def test_mask_header_by_name_and_value() -> None:
+    masker = Masker(M, True)
+    for name in ("Authorization", "proxy-authorization", "Cookie", "Set-Cookie", "X-API-Key", "x-csrf-token"):
+        assert masker.mask_header(name, ["v1", "v2"]) == ([MASK, MASK], True), name
+    assert masker.mask_header("x-forwarded-for", [JWT, "1.2.3.4"]) == ([MASK, "1.2.3.4"], True)
+    assert masker.mask_header("accept", ["text/html"]) == (["text/html"], False)
+    assert Masker(META, True).mask_header("accept", ["text/html"]) == ([], False)
+    assert Masker(FULL, True).mask_header("cookie", ["a=b"]) == (["a=b"], False)
+    assert Masker(FULL, True, "tok-3f9a").mask_header("authorization", ["Bearer tok-3f9a"]) == ([MASK], True)

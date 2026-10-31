@@ -25,8 +25,9 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 
+from sharpit.engine.advisors.dismissals import DismissalStore, rule_id
+from sharpit.engine.advisors.report import evidence, severity_counts
 from sharpit.engine.collectors.vulns.cvss import SEVERITIES
-from sharpit.engine.collectors.vulns.dismissals import DismissalStore, rule_id
 from sharpit.engine.collectors.vulns.epss import EpssClient, canonical_cve_id
 from sharpit.engine.collectors.vulns.interpreter import Finding, compare_versions, interpret
 from sharpit.engine.collectors.vulns.inventory import Package
@@ -283,16 +284,14 @@ def _known(finding: Finding) -> bool:
 
 def _render(scan: _Scan, dismissed: set[str]) -> dict[str, Any]:
     rows: list[tuple[Package, str, list[Finding], int, dict[str, bool]]] = []
-    counts = dict.fromkeys(SEVERITIES, 0)
+    active_severities: list[str] = []
     for dep in scan.dependencies:
         name = dep.package.name
         marked = sorted(
             (replace(f, dismissed=rule_id(f.id, name) in dismissed) for f in dep.findings), key=_vulnerability_order
         )
         active = [f for f in marked if not f.dismissed]
-        for finding in active:
-            if finding.severity in counts:
-                counts[finding.severity] += 1
+        active_severities.extend(f.severity for f in active)
         assessment = {"queryComplete": dep.query_complete, "detailAssessmentComplete": dep.detail_complete}
         rows.append((dep.package, _highest(active), marked, len(active), assessment))
     version_key = functools.cmp_to_key(compare_versions)
@@ -302,7 +301,7 @@ def _render(scan: _Scan, dismissed: set[str]) -> dict[str, Any]:
         "scanningEnabled": scan.scanning_enabled,
         "total": total,
         "vulnerable": sum(1 for r in rows if r[3] > 0),
-        "severityCounts": [{"severity": s, "count": c} for s, c in counts.items()],
+        "severityCounts": severity_counts(((s, 1) for s in active_severities), SEVERITIES),
         "scan": {
             "scanner": "OSV.dev",
             "status": scan.status,
@@ -341,7 +340,7 @@ def _render(scan: _Scan, dismissed: set[str]) -> dict[str, Any]:
 def _evidence(scan: _Scan) -> dict[str, Any]:
     """BootUI ``DependencyReports.evidence`` (dismissals do not change it); coverage is always complete here."""
     if scan.status not in ("SCANNED", "PARTIAL"):
-        return {"usable": False, "coverageComplete": False, "limitations": ["Assessment evidence is unavailable."]}
+        return evidence()
     deps = scan.dependencies
     usable = any(
         (d.query_complete and d.detail_complete and all(map(_known, d.findings))) or any(map(_known, d.findings))
@@ -356,4 +355,4 @@ def _evidence(scan: _Scan) -> dict[str, Any]:
         limitations.append("Some inventory packages were excluded by the scan limit.")
     if any(not _known(f) for d in deps for f in d.findings):
         limitations.append("Findings with unknown severity are excluded from score penalties.")
-    return {"usable": usable, "coverageComplete": not limitations, "limitations": limitations}
+    return evidence(usable, not limitations, limitations)

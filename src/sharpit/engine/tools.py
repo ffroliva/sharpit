@@ -2,8 +2,8 @@
 
 Port of BootUI ``McpToolCatalog`` (the seven MVP rows), ``McpToolSchema`` rendered as in ``BootUiMcpService.schema``,
 ``McpToolDescriptions``, ``McpArguments.normalize``, ``McpDispatcher.callTool``, ``CliService`` and ``CliOutcomes``.
-MCP never sees an action tool (``vulnerabilities_scan`` is CLI-only, spec §9). Each ``via`` has its own caps, slots
-and counters, as BootUI's MCP and CLI each own a dispatcher.
+MCP never sees an action tool (``vulnerabilities_scan`` and ``rest_api_scan`` are CLI-only, spec §9). Each ``via``
+has its own caps, slots and counters, as BootUI's MCP and CLI each own a dispatcher.
 
 Timeout: Python threads cannot be interrupted (BootUI cancels the future), so the call's slot is released exactly
 once, by whichever comes first of the worker finishing or the caller giving up; an abandoned worker runs on.
@@ -20,12 +20,24 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from sharpit import __version__
+from sharpit.engine import sqla
+from sharpit.engine.advisors.dismissals import DismissalStore
+from sharpit.engine.advisors.retention import AdvisorViolationError
+from sharpit.engine.capture import activity
+from sharpit.engine.capture.exceptions import unknown_group
+from sharpit.engine.capture.exchanges import unavailable_report
+from sharpit.engine.capture.sqltrace import SqlTraceRecorder
+from sharpit.engine.capture.sqltrace import unavailable_report as sql_trace_unavailable
+from sharpit.engine.collectors.alembic import alembic_report
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
+from sharpit.engine.collectors.health import health_service
 from sharpit.engine.collectors.loggers import loggers_report
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
-from sharpit.engine.collectors.vulns.dismissals import DismissalStore
+from sharpit.engine.collectors.pools import pools_report
+from sharpit.engine.collectors.restapi.service import RestApiService
+from sharpit.engine.collectors.threads import threads_report
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import inventory
 from sharpit.engine.collectors.vulns.osv import OsvClient
@@ -33,7 +45,8 @@ from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.panels import disabled_reason, read_only_reason
-from sharpit.engine.singleflight import ActionBusy
+from sharpit.engine.singleflight import ActionBusy, SingleFlight
+from sharpit.engine.spi import ApiModel
 from sharpit.settings import PanelSettings
 
 logger = logging.getLogger("sharpit")
@@ -93,7 +106,7 @@ class Tool:
 
 # --- Schemas (BootUiMcpService.schema) ------------------------------------------------------------------------------
 
-_LIMIT = {
+_LIMIT: dict[str, Any] = {
     "type": "integer",
     "minimum": 1,
     "description": "Optional maximum number of items to return. Capped by the SHARPIT_MCP_MAX_RESULTS server limit.",
@@ -107,7 +120,48 @@ _QUERY_LIMIT: dict[str, Any] = {
     },
     "additionalProperties": False,
 }
-_SCHEMA_NAMES = {(): "NONE", ("limit",): "LIMIT", ("query", "limit"): "QUERY_LIMIT"}
+_LIMIT_ONLY: dict[str, Any] = {"type": "object", "properties": {"limit": _LIMIT}, "additionalProperties": False}
+_ID: dict[str, Any] = {
+    "type": "object",
+    "properties": {"id": {"type": "string", "description": "Exact identifier of the resource to fetch."}},
+    "required": ["id"],
+    "additionalProperties": False,
+}
+_RULE_VIOLATIONS: dict[str, Any] = {  # BootUiMcpService.schema RULE_VIOLATIONS
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "Exact identifier of the resource to fetch.", "minLength": 1},
+        "scanId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The cached report's violationDetails.scanId. Never starts a scan.",
+        },
+        "offset": {"type": "integer", "minimum": 0, "default": 0},
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page size, default 100, capped at min(1000, SHARPIT_MCP_MAX_RESULTS).",
+            "default": 100,
+        },
+    },
+    "required": ["id", "scanId"],
+    "additionalProperties": False,
+}
+_SCHEMA_NAMES = {
+    (): "NONE",
+    ("limit",): "LIMIT",
+    ("query", "limit"): "QUERY_LIMIT",
+    ("id",): "ID",
+    ("id", "scanId", "offset", "limit"): "RULE_VIOLATIONS",
+}
+
+
+_ADVISOR_GUIDANCE = (  # McpToolDescriptions.advisorGuidance
+    " sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId "
+    "with get_rest_api_rule_violations to page cached retained details without scanning again. Check truncated for "
+    "missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. "
+    "Verify each finding before changing code."
+)
 
 
 # --- Handlers (BootUiMcpTools) --------------------------------------------------------------------------------------
@@ -124,10 +178,114 @@ def vulnerability_service(ctx: SharpitContext) -> VulnerabilityService:
             OsvClient(settings.vulnerabilities_osv_base_uri, timeout),
             EpssClient(settings.vulnerabilities_epss_base_uri, timeout),
             inventory,
-            DismissalStore(Path(settings.state_dir)),
+            dismissal_store(ctx),
             ctx.single_flight,
         ),
     )
+
+
+def dismissal_store(ctx: SharpitContext) -> DismissalStore:
+    """The one per-install store every advisor and the dismissed-rules routes share."""
+    return ctx.lazy("dismissals", lambda: DismissalStore(Path(ctx.settings.state_dir)))
+
+
+_NO_ROUTE_MODEL = ApiModel((), (), ("This framework adapter does not expose route details.",))
+
+
+def rest_api_service(ctx: SharpitContext) -> RestApiService:
+    """The per-install REST API advisor (seeded in tests under the same key); scans hold their own single-flight."""
+    source: Any = getattr(ctx.introspector, "api_model", None)  # duck-typed: not part of the AppIntrospector SPI
+    model = cast("Callable[[], ApiModel]", source) if callable(source) else (lambda: _NO_ROUTE_MODEL)
+    return ctx.lazy(
+        "rest-api",
+        lambda: RestApiService(
+            model,
+            dismissal_store(ctx),
+            ctx.masker,
+            ctx.lazy("singleflight:rest-api-scan", SingleFlight),
+            max_retained=ctx.settings.advisors_max_retained_violations,
+        ),
+    )
+
+
+def _rest_api_violations(call: CallContext, args: dict[str, Any]) -> dict[str, Any]:
+    service = rest_api_service(call.ctx)
+    try:
+        return service.violations(args["id"], args["scanId"], args["offset"], args["pageLimit"], args["maxResults"])
+    except AdvisorViolationError as exc:  # BootUI: the advisor's status and message, in band
+        raise ToolCallError(exc.message, exc.status) from None
+
+
+def exceptions_report(ctx: SharpitContext) -> dict[str, Any]:
+    """``ExceptionsReport``; empty and unavailable when exception capture is not installed for this context."""
+    store = ctx.capture.exceptions
+    if store is None:
+        return {
+            "available": False,
+            "unavailableReason": "Exception capture is not installed",
+            "maxGroups": ctx.settings.exceptions_max_groups,
+            "totalExceptions": 0,
+            "groups": [],
+        }
+    return store.report()
+
+
+def exception_detail(ctx: SharpitContext, gid: str) -> dict[str, Any]:
+    store = ctx.capture.exceptions
+    detail = store.detail(gid) if store is not None else None
+    if detail is None:
+        raise ToolCallError(unknown_group(gid), 404)
+    return detail
+
+
+def clear_exceptions(ctx: SharpitContext) -> dict[str, Any]:
+    if ctx.capture.exceptions is not None:
+        ctx.capture.exceptions.clear()
+    return {"cleared": True}
+
+
+def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
+    """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app."""
+    if not ctx.settings.sql_trace_enabled:
+        return sqla.TRACING_DISABLED
+    return sqla.unavailable_reason()
+
+
+def sql_trace_report(ctx: SharpitContext) -> dict[str, Any]:
+    """``SqlTraceReport``; unavailable while tracing is off or SQLAlchemy is not imported."""
+    recorder = ctx.capture.sql_trace
+    reason = sql_trace_unavailable_reason(ctx)
+    if recorder is None or reason is not None:
+        return sql_trace_unavailable(reason or sqla.TRACING_DISABLED)
+    registry = ctx.capture.engine_registry
+    return recorder.report(registry.names() if registry is not None else [])
+
+
+def _sql_trace_action(ctx: SharpitContext, action: Callable[[SqlTraceRecorder], None]) -> dict[str, Any]:
+    if ctx.capture.sql_trace is not None:
+        action(ctx.capture.sql_trace)
+    return sql_trace_report(ctx)
+
+
+def http_exchanges_report(
+    ctx: SharpitContext,
+    q: str | None,
+    method: str | None,
+    status_class: str | None,
+    offset: int | None,
+    limit: int | None,
+) -> dict[str, Any]:
+    """``HttpExchangesReport``; unavailable when request capture is not installed for this context."""
+    buffer = ctx.capture.exchanges
+    if buffer is None:
+        return unavailable_report("Request capture is not installed")
+    return buffer.report(q, method, status_class, offset, limit)
+
+
+def log_tail_lines(ctx: SharpitContext) -> list[dict[str, Any]]:
+    """``LogLineDto[]``, oldest first; empty when the panel is disabled (no buffer)."""
+    buffer = ctx.capture.log_tail
+    return [] if buffer is None else buffer.recent()
 
 
 TOOLS: tuple[Tool, ...] = (
@@ -186,6 +344,136 @@ TOOLS: tuple[Tool, ...] = (
         lambda c, a: beans_report(c.ctx, a["query"], None, None, a["limit"]),
     ),
     Tool(
+        "get_http_exchanges",
+        "Return a bounded, newest-first snapshot of the HTTP requests this application served: method, masked "
+        "path and query, status, duration, response size and masked headers. sharpit's own requests are counted "
+        "in `hiddenSelf`, not listed.",
+        _LIMIT_ONLY,
+        "http-exchanges",
+        False,
+        lambda c, a: http_exchanges_report(c.ctx, None, None, None, None, a["limit"]),
+    ),
+    Tool(
+        "get_log_tail",
+        "Return the latest buffered application log snapshot, oldest first. Messages are masked at capture, but logs "
+        "are application-controlled and may contain sensitive data; use them only in the local diagnostic context.",
+        _NONE,
+        "log-tail",
+        False,
+        lambda c, _a: {"entries": log_tail_lines(c.ctx)},
+    ),
+    Tool(
+        "get_exceptions",
+        "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack frames, "
+        "causes, and individual occurrences.",
+        _NONE,
+        "exceptions",
+        False,
+        lambda c, _a: exceptions_report(c.ctx),
+    ),
+    Tool(
+        "get_exception_detail",
+        "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions "
+        "or get_live_activity.",
+        _ID,
+        "exceptions",
+        False,
+        lambda c, a: exception_detail(c.ctx, a["id"]),
+    ),
+    Tool(
+        "clear_exceptions",
+        "Clear sharpit's bounded in-memory exception groups and occurrences. This does not suppress, handle, or "
+        "change application exceptions.",
+        _NONE,
+        "exceptions",
+        True,
+        lambda c, _a: clear_exceptions(c.ctx),
+    ),
+    Tool(
+        "get_sql_traces",
+        "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain "
+        "sensitive values; correlate it locally with request or trace identifiers.",
+        _NONE,
+        "sql-trace",
+        False,
+        lambda c, _a: sql_trace_report(c.ctx),
+    ),
+    Tool(
+        "clear_sql_traces",
+        "Clear the bounded in-memory SQL trace buffer and return the resulting report. This does not execute SQL or "
+        "change whether trace recording is enabled.",
+        _NONE,
+        "sql-trace",
+        True,
+        lambda c, _a: _sql_trace_action(c.ctx, SqlTraceRecorder.clear),
+    ),
+    Tool(
+        "pause_sql_trace_recording",
+        "Pause SQL trace recording and return the resulting report. Existing buffered traces remain available until "
+        "explicitly cleared.",
+        _NONE,
+        "sql-trace",
+        True,
+        lambda c, _a: _sql_trace_action(c.ctx, lambda r: r.set_recording(False)),
+    ),
+    Tool(
+        "resume_sql_trace_recording",
+        "Resume SQL trace recording and return the resulting report. This only affects sharpit's bounded local "
+        "capture and does not execute SQL.",
+        _NONE,
+        "sql-trace",
+        True,
+        lambda c, _a: _sql_trace_action(c.ctx, lambda r: r.set_recording(True)),
+    ),
+    Tool(
+        "get_live_activity",
+        "Return a bounded, newest-first activity snapshot that merges HTTP requests, SQL statements and exceptions, "
+        "correlated by request id. Use first when diagnosing one request.",
+        _LIMIT_ONLY,
+        "activity",
+        False,
+        lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], None),
+    ),
+    Tool(
+        "get_alembic_migrations",
+        "Return the Alembic migration history read from the revision files, oldest first, with each database's "
+        "version as last read by the Alembic panel. Never connects to a database, imports a migration or runs "
+        "env.py; `checkedAt` null means the database was not read yet.",
+        _NONE,
+        "alembic",
+        False,
+        lambda c, _a: alembic_report(c.ctx),
+    ),
+    Tool(
+        "get_health",
+        "Return the cached health tree (database pings and the application's own checks) with each component's "
+        "status and masked details. Never runs a check: an UNKNOWN status means the checks have not run yet.",
+        _NONE,
+        "health",
+        False,
+        lambda c, _a: health_service(c.ctx).report(for_mcp=True),
+    ),
+    Tool(
+        "get_database_connection_pools",
+        "Return each registered SQLAlchemy engine's connection pool: settings and live counters (checked out, idle, "
+        "total). Reads counters only; never borrows a connection. A pool class that keeps no statistics is listed as "
+        "unavailable.",
+        _NONE,
+        "database-connection-pools",
+        False,
+        lambda c, _a: pools_report(c.ctx),
+    ),
+    Tool(
+        "get_threads",
+        "Return this process's threads with inferred states (RUNNABLE or WAITING) and stacks, plus the event loop's "
+        "asyncio tasks with their await chains and the request each one serves. `limit` caps both lists. Code "
+        "names and line numbers only: no local variables or argument values.",
+        _QUERY_LIMIT,
+        "threads",
+        False,
+        lambda c, a: threads_report(c.ctx, a["query"], None, None, a["limit"]),
+    ),
+    Tool(
         "get_vulnerabilities_report",
         "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
@@ -212,6 +500,38 @@ TOOLS: tuple[Tool, ...] = (
         True,
         lambda c, _a: vulnerability_service(c.ctx).scan(),
     ),
+    Tool(
+        "get_rest_api_report",
+        "Return the last completed REST API advisor report without starting a new endpoint scan. Use this cached "
+        "evidence before deciding whether an active rest_api_scan is necessary." + _ADVISOR_GUIDANCE,
+        _NONE,
+        "rest-api",
+        False,
+        lambda c, _a: rest_api_service(c.ctx).report(),
+    ),
+    Tool(
+        "get_rest_api_rule_violations",
+        "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. "
+        "This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport "
+        "max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained "
+        "entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a "
+        "complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing "
+        "snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry "
+        "the same scanId and offset with a smaller limit; a refusal is not an empty or completed page.",
+        _RULE_VIOLATIONS,
+        "rest-api",
+        False,
+        _rest_api_violations,
+    ),
+    Tool(
+        "rest_api_scan",
+        "Actively inspect this application's routes and API design for correctness and maintainability risks. "
+        "Verify recommendations against the public API contract." + _ADVISOR_GUIDANCE,
+        _NONE,
+        "rest-api",
+        True,
+        lambda c, _a: rest_api_service(c.ctx).scan(),
+    ),
 )
 
 COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
@@ -220,8 +540,25 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_mappings": "mappings",
     "get_loggers": "loggers",
     "get_beans": "beans",
+    "get_http_exchanges": "http exchanges",
+    "get_log_tail": "logs tail",
+    "get_exceptions": "exceptions list",
+    "get_exception_detail": "exceptions show",
+    "clear_exceptions": "exceptions clear",
+    "get_sql_traces": "sql traces",
+    "clear_sql_traces": "sql clear",
+    "pause_sql_trace_recording": "sql pause",
+    "resume_sql_trace_recording": "sql resume",
+    "get_live_activity": "activity",
+    "get_alembic_migrations": "db alembic",
+    "get_health": "health",
+    "get_database_connection_pools": "db pools",
+    "get_threads": "threads",
     "get_vulnerabilities_report": "vulnerabilities report",
     "vulnerabilities_scan": "vulnerabilities scan",
+    "get_rest_api_report": "rest-api report",
+    "get_rest_api_rule_violations": "rest-api violations",
+    "rest_api_scan": "rest-api scan",
 }
 
 
@@ -288,6 +625,8 @@ class ToolGate:
             raise ToolCallError(str(error), 409)
         if isinstance(error, BadRequest):
             raise ToolCallError(str(error), 400)
+        if isinstance(error, ToolCallError):  # a handler's own in-band refusal (an unknown id)
+            raise error
         if not isinstance(error, Exception):
             raise error
         logger.error("sharpit MCP failure while dispatching a request", exc_info=error)
@@ -314,7 +653,7 @@ def _check_arguments(args: object) -> dict[str, Any]:
     if not isinstance(args, dict):
         raise RpcError(INVALID_PARAMS, "Tool arguments must be an object")
     checked = cast("dict[str, Any]", args)
-    for key, minimum in (("query", None), ("limit", 1)):  # the only arguments any sharpit tool takes
+    for key, minimum in (("query", None), ("id", None), ("limit", 1)):  # the only arguments any sharpit tool takes
         if key not in checked:
             continue
         value = checked[key]
@@ -326,6 +665,20 @@ def _check_arguments(args: object) -> dict[str, Any]:
         elif value < minimum:
             raise RpcError(INVALID_PARAMS, f"Argument '{key}' must be at least {minimum}")
     return checked
+
+
+def _rule_violation_arguments(checked: dict[str, Any], raw_limit: object, max_results: int) -> dict[str, Any]:
+    """``scanId``/``offset`` of the RULE_VIOLATIONS schema; the raw limit (None: 100) is capped by the page itself."""
+    scan_id, offset = checked.get("scanId"), checked.get("offset")
+    if scan_id is not None and not isinstance(scan_id, str):
+        raise RpcError(INVALID_PARAMS, "Argument 'scanId' must be a string")
+    if offset is not None and not _is_int32(offset):
+        raise RpcError(INVALID_PARAMS, "Argument 'offset' must be an integer")
+    if isinstance(offset, int) and offset < 0:
+        raise RpcError(INVALID_PARAMS, "Argument 'offset' must be at least 0")
+    if not (scan_id or "").strip():
+        raise RpcError(INVALID_PARAMS, "Missing required argument: scanId")
+    return {"scanId": (scan_id or "").strip(), "offset": offset, "pageLimit": raw_limit, "maxResults": max_results}
 
 
 def call_tool(
@@ -354,7 +707,13 @@ def call_tool(
     query = query.strip() or None if isinstance(query, str) else None
     raw_limit = checked.get("limit")
     limit = min(raw_limit, gate.max_results) if isinstance(raw_limit, int) else gate.max_results
-    normalized = {"query": query, "limit": limit}
+    raw_id = checked.get("id")
+    gid = raw_id.strip() if isinstance(raw_id, str) else ""
+    if "id" in tool.input_schema["properties"] and not gid:  # BootUI: after the panel gates
+        raise RpcError(INVALID_PARAMS, "Missing required argument: id")
+    normalized = {"query": query, "limit": limit, **({"id": gid} if "id" in tool.input_schema["properties"] else {})}
+    if "scanId" in tool.input_schema["properties"]:  # RULE_VIOLATIONS: checked only on the tool that declares them
+        normalized.update(_rule_violation_arguments(checked, raw_limit, gate.max_results))
     return gate.run(tool.name, lambda: tool.handler(call, normalized))
 
 

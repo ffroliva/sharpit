@@ -13,6 +13,7 @@ Dropped, with reason:
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -22,11 +23,15 @@ import pytest
 
 from conftest import SideEffectGuard
 from sharpit.engine.activation import ActivationStatus
+from sharpit.engine.advisors.dismissals import DismissalStore
+from sharpit.engine.capture.exceptions import ExceptionStore
+from sharpit.engine.collectors.restapi.service import RestApiService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
-from sharpit.engine.singleflight import ActionBusy
-from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.singleflight import ActionBusy, SingleFlight
+from sharpit.engine.spi import ApiModel, ApiRouteInfo, AppInfo, ProviderInfo, RouteInfo
 from sharpit.engine.tools import (
+    COMMANDS,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     SERVER_AT_CAPACITY,
@@ -52,6 +57,53 @@ QUERY_LIMIT_SCHEMA: dict[str, Any] = {
     },
     "additionalProperties": False,
 }
+
+LIMIT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"limit": QUERY_LIMIT_SCHEMA["properties"]["limit"]},
+    "additionalProperties": False,
+}
+ID_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"id": {"type": "string", "description": "Exact identifier of the resource to fetch."}},
+    "required": ["id"],
+    "additionalProperties": False,
+}
+RULE_VIOLATIONS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "Exact identifier of the resource to fetch.", "minLength": 1},
+        "scanId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The cached report's violationDetails.scanId. Never starts a scan.",
+        },
+        "offset": {"type": "integer", "minimum": 0, "default": 0},
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page size, default 100, capped at min(1000, SHARPIT_MCP_MAX_RESULTS).",
+            "default": 100,
+        },
+    },
+    "required": ["id", "scanId"],
+    "additionalProperties": False,
+}
+BOOTUI_TOOLS = json.loads((Path(__file__).parents[1] / "fixtures" / "bootui_tools_0_2_0.json").read_text("utf-8"))
+RELEASE_TOOLS = (
+    "get_http_exchanges",
+    "get_log_tail",
+    "get_exceptions",
+    "get_exception_detail",
+    "get_sql_traces",
+    "get_live_activity",
+    "get_alembic_migrations",
+    "get_health",
+    "get_database_connection_pools",
+    "get_threads",
+    "get_rest_api_report",
+    "get_rest_api_rule_violations",
+)  # each 0.2.0 task adds the tools it builds
 
 
 class FakeIntrospector:
@@ -80,7 +132,7 @@ def _tool(name: str, handler: Callable[[CallContext, dict[str, Any]], dict[str, 
 
 
 def test_catalogue_names_panels_actions_and_schemas():
-    # ported: McpToolCatalog ENTRIES (the seven MVP rows: name, schema, panel, action)
+    # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows, panel and action names)
     rows = [(t.name, t.panel, t.action, t.input_schema) for t in TOOLS]
     assert rows == [
         ("get_overview", "overview", False, NONE_SCHEMA),
@@ -88,8 +140,25 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_mappings", "mappings", False, QUERY_LIMIT_SCHEMA),
         ("get_loggers", "loggers", False, QUERY_LIMIT_SCHEMA),
         ("get_beans", "beans", False, QUERY_LIMIT_SCHEMA),
+        ("get_http_exchanges", "http-exchanges", False, LIMIT_SCHEMA),
+        ("get_log_tail", "log-tail", False, NONE_SCHEMA),
+        ("get_exceptions", "exceptions", False, NONE_SCHEMA),
+        ("get_exception_detail", "exceptions", False, ID_SCHEMA),
+        ("clear_exceptions", "exceptions", True, NONE_SCHEMA),
+        ("get_sql_traces", "sql-trace", False, NONE_SCHEMA),
+        ("clear_sql_traces", "sql-trace", True, NONE_SCHEMA),
+        ("pause_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
+        ("resume_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
+        ("get_live_activity", "activity", False, LIMIT_SCHEMA),
+        ("get_alembic_migrations", "alembic", False, NONE_SCHEMA),
+        ("get_health", "health", False, NONE_SCHEMA),
+        ("get_database_connection_pools", "database-connection-pools", False, NONE_SCHEMA),
+        ("get_threads", "threads", False, QUERY_LIMIT_SCHEMA),
         ("get_vulnerabilities_report", "vulnerabilities", False, NONE_SCHEMA),
         ("vulnerabilities_scan", "vulnerabilities", True, NONE_SCHEMA),
+        ("get_rest_api_report", "rest-api", False, NONE_SCHEMA),
+        ("get_rest_api_rule_violations", "rest-api", False, RULE_VIOLATIONS_SCHEMA),
+        ("rest_api_scan", "rest-api", True, NONE_SCHEMA),
     ]
 
 
@@ -103,8 +172,27 @@ def test_descriptions_ported_with_names_substituted():
     assert by_name["get_loggers"].startswith("Search configured loggers by case-insensitive name")
     assert by_name["get_vulnerabilities_report"].startswith("Return the cached vulnerability report")
     assert by_name["vulnerabilities_scan"].startswith("Actively query OSV.dev for known vulnerabilities")
+    assert by_name["get_rest_api_report"].startswith("Return the last completed REST API advisor report")
+    assert by_name["get_rest_api_rule_violations"].startswith("Read one page of retained violations")
+    assert by_name["rest_api_scan"].startswith("Actively inspect this application's routes")
     assert "SHARPIT_MCP_ENABLED" in by_name["get_config"]
     assert all("BootUI" not in d and "bootui" not in d and "Spring" not in d for d in by_name.values())
+
+
+@pytest.mark.parametrize("name", RELEASE_TOOLS)
+def test_mcp_schema_matches_bootui(name: str):
+    # BootUI bootui-tools.json names, commands, panels and schema kinds; BootUiMcpService.schema renders inputSchema
+    entry = next(t for t in BOOTUI_TOOLS["tools"] if t.get("sharpitName", t["name"]) == name)
+    tool = next(t for t in TOOLS if t.name == name)
+    expected = json.loads(json.dumps(entry["inputSchema"]).replace("bootui.mcp.max-results", "SHARPIT_MCP_MAX_RESULTS"))
+    assert tool.input_schema == expected
+    assert (tool.panel, tool.action) == (entry.get("sharpitPanel", entry["panel"]), entry["action"])
+    assert COMMANDS[name] == entry.get("sharpitCommand", entry["command"])
+    assert "Spring" not in tool.description and "JVM" not in tool.description
+
+
+def test_bootui_tools_fixture_holds_the_release():
+    assert len(BOOTUI_TOOLS["tools"]) == 12 and len(BOOTUI_TOOLS["bootuiToolsCommit"]) == 40
 
 
 def test_every_action_tool_references_an_action_capable_panel():
@@ -134,7 +222,9 @@ def test_mcp_call_action_tool_unknown_32602():
         ("get_overview", {"b": 1, "a": 2}, "Unexpected tool arguments: a, b"),
         ("get_config", {"query": 1}, "Argument 'query' must be a string"),
         ("get_config", {"query": None}, "Argument 'query' must be a string"),
-        ("get_config", {"id": 1}, "Unexpected tool argument: id"),  # no sharpit tool takes id, scanId or offset
+        ("get_config", {"id": "x"}, "Unexpected tool argument: id"),  # get_config takes no id (Task 4 ruling)
+        ("get_exception_detail", {"id": 1}, "Argument 'id' must be a string"),  # id is type-checked first
+        ("get_config", {"scanId": "x"}, "Unexpected tool argument: scanId"),  # only the violations tool takes scanId
         ("get_config", {"limit": "5"}, "Argument 'limit' must be an integer"),
         ("get_config", {"limit": True}, "Argument 'limit' must be an integer"),
         ("get_config", {"limit": 1.5}, "Argument 'limit' must be an integer"),
@@ -142,6 +232,21 @@ def test_mcp_call_action_tool_unknown_32602():
         ("get_config", {"limit": 0}, "Argument 'limit' must be at least 1"),  # ported: rejectsNonPositiveLimit
         ("get_config", {"scanId": 1}, "Unexpected tool argument: scanId"),
         ("get_config", {"offset": -1}, "Unexpected tool argument: offset"),
+        ("get_rest_api_rule_violations", {"scanId": "x"}, "Missing required argument: id"),
+        ("get_rest_api_rule_violations", {"id": "RAPI-MAP-001"}, "Missing required argument: scanId"),
+        ("get_rest_api_rule_violations", {"id": "RAPI-MAP-001", "scanId": " "}, "Missing required argument: scanId"),
+        ("get_rest_api_rule_violations", {"id": "RAPI-MAP-001", "scanId": 1}, "Argument 'scanId' must be a string"),
+        (
+            "get_rest_api_rule_violations",
+            {"id": "R", "scanId": "x", "offset": -1},
+            "Argument 'offset' must be at least 0",
+        ),
+        (
+            "get_rest_api_rule_violations",
+            {"id": "R", "scanId": "x", "offset": "1"},
+            "Argument 'offset' must be an integer",
+        ),
+        ("get_rest_api_rule_violations", {"id": "R", "scanId": "x", "limit": 0}, "Argument 'limit' must be at least 1"),
     ],
 )
 def test_invalid_params(name: Any, args: Any, message: str):
@@ -358,8 +463,22 @@ def test_cap_counts_running_and_abandoned_together():
 def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, tmp_state_dir: Path):
     # new: brief ruling (no socket, file, logger level or os.environ change)
     ctx = _ctx(state_dir=str(tmp_state_dir))
+    arguments: dict[str, Any] = {}
+    if name == "get_exception_detail":  # the one tool with a required argument: the id of a recorded exception
+        store = ctx.capture.exceptions = ExceptionStore(10, 5, 20, ctx.masker)
+        try:
+            raise RuntimeError("for the detail")
+        except RuntimeError as exc:
+            store.record(exc, "log", None, "test")
+        arguments = {"id": store.report()["groups"][0]["id"]}
+    if name == "get_rest_api_rule_violations":  # needs a cached scan: seeded with one violating route
+        route = ApiRouteInfo(("GET",), "/getPets", "app:read_pets", summary="s", tags=("t",))
+        model = ApiModel((route,), ("app:on_error",), ())
+        service = ctx.lazy("rest-api", lambda: RestApiService(lambda: model, DismissalStore(tmp_state_dir), ctx.masker,
+                                                             SingleFlight(), max_retained=100))  # fmt: skip
+        arguments = {"id": "RAPI-NAME-001", "scanId": service.scan()["violationDetails"]["scanId"]}
     no_side_effects.rebaseline()
-    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, {}, via="mcp")
+    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")
     assert isinstance(result, dict)
 
 

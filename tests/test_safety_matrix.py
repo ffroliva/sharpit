@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -32,10 +33,12 @@ from sharpit.engine.guard import (
     SESSION_COOKIE,
 )
 from sharpit.engine.mcp import DISABLED_MESSAGE
-from sharpit.engine.panels import PANELS
-from sharpit.engine.tools import TOOLS
+from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
+from sharpit.engine.tools import TOOLS, rest_api_service
+from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle, SharpitMount
 
 LOCAL = ("127.0.0.1", 50000)
+GROUP_ID = "0123456789abcdef"  # conftest._PATH_PARAMS["id"]
 REMOTE = ("10.0.0.5", 50000)
 GATEWAY = "172.17.0.1"
 TOKEN = "matrix-token"
@@ -57,7 +60,25 @@ ROWS = [
     ("mappings", "GET", "/sharpit/api/mappings/flat", 200, True),
     ("loggers", "GET", "/sharpit/api/loggers", 200, True),
     ("beans", "GET", "/sharpit/api/beans", 200, True),
+    ("http-exchanges", "GET", "/sharpit/api/http-exchanges", 200, True),
+    ("exceptions", "GET", "/sharpit/api/exceptions", 200, True),
+    ("exceptions-stream", "GET", "/sharpit/api/exceptions/stream", 200, True),
+    ("exceptions-detail", "GET", f"/sharpit/api/exceptions/{GROUP_ID}", 404, True),  # no such group
+    ("sql-trace", "GET", "/sharpit/api/sql-trace", 200, True),
+    ("sql-trace-stream", "GET", "/sharpit/api/sql-trace/stream", 200, True),
+    ("activity", "GET", "/sharpit/api/activity", 200, True),
+    ("activity-stream", "GET", "/sharpit/api/activity/stream", 200, True),
+    ("activity-request", "GET", f"/sharpit/api/activity/request/{GROUP_ID}", 200, True),  # available: false
+    ("alembic", "GET", "/sharpit/api/alembic/migrations", 200, True),
+    ("health", "GET", "/sharpit/api/health", 200, True),
+    ("pools", "GET", "/sharpit/api/database-connection-pools/pools", 200, True),
+    ("pool-snapshot", "GET", "/sharpit/api/database-connection-pools/pools/nope/snapshot", 404, True),  # unknown name
+    ("threads", "GET", "/sharpit/api/threads", 200, True),
+    ("log-tail", "GET", "/sharpit/api/log-tail/recent", 200, True),
+    ("log-tail-stream", "GET", "/sharpit/api/log-tail/stream", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
+    ("rest-api", "GET", "/sharpit/api/rest-api", 200, True),
+    ("rest-api-violations", "GET", "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations", 400, True),  # no scanId
     ("mcp-server", "GET", "/sharpit/api/mcp-server", 200, True),
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),
     ("mcp", "POST", "/sharpit/api/mcp", 200, True),
@@ -99,7 +120,8 @@ _OUTCOME_ALIASES = {"403-source": MESSAGE_NON_LOOPBACK_SOURCE, "403-cross": MESS
 @functools.cache
 def _app(remote_access: bool) -> FastAPI:
     app = FastAPI(title="matrix")
-    install(app, enabled="ON", show_banner=False, **(REMOTE_ACCESS if remote_access else {}))
+    # streams end after 0.05 s instead of 3 s, so the stream row costs no more than any other
+    install(app, enabled="ON", show_banner=False, stream_max_seconds=0.05, **(REMOTE_ACCESS if remote_access else {}))
     return app
 
 
@@ -159,19 +181,83 @@ def _panel_denied(panel: str, reason: str) -> dict[str, str]:
     return {"error": PANEL_ACCESS_DENIED, "panel": panel, "reason": reason}
 
 
-GATED = [(p.id, p.api_prefix + ("/flat" if p.id == "mappings" else "")) for p in PANELS if p.api_prefix]
+def _panel_routes(prefix: str) -> list[tuple[str, str]]:
+    """The prefix itself (GET) plus every ROWS and WRITES route under it, stream routes included."""
+    base = f"/sharpit/api{prefix}"
+    known = [(r[1], r[2]) for r in ROWS] + [(w[1], w[2]) for w in WRITES]
+    return sorted({("GET", base), *((m, p) for m, p in known if p == base or p.startswith(base + "/"))})
 
 
-@pytest.mark.parametrize(("panel", "sub_path"), GATED, ids=[g[0] for g in GATED])
-def test_disabled_panel_denies_its_endpoints(panel: str, sub_path: str):
+GATED = [(p.id, p.api_prefix) for p in PANELS if p.api_prefix]
+
+
+@pytest.mark.parametrize(("panel", "prefix"), GATED, ids=[g[0] for g in GATED])
+def test_disabled_panel_denies_its_endpoints(panel: str, prefix: str):
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, panels={panel: {"enabled": False}})
-    resp = _client(app).get(f"/sharpit/api{sub_path}")
-    env = panel.upper().replace("-", "_")
-    assert (resp.status_code, resp.json()) == (
-        403,
-        _panel_denied(panel, f"Panel is disabled via SHARPIT_PANELS_{env}_ENABLED=false"),
-    )
+    client = _client(app)
+    for method, path in _panel_routes(prefix):
+        resp = client.request(method, path, json={} if method == "POST" else None)
+        assert (resp.status_code, resp.json()) == (403, _panel_denied(panel, disabled_reason(panel))), (method, path)
+
+
+# 0.2.0 MCP tools and their panels; each task adds the tools it builds
+PANEL_TOOLS = [
+    ("get_http_exchanges", "http-exchanges", {}),
+    ("get_log_tail", "log-tail", {}),
+    ("get_exceptions", "exceptions", {}),
+    ("get_exception_detail", "exceptions", {"id": GROUP_ID}),
+    ("get_sql_traces", "sql-trace", {}),
+    ("get_live_activity", "activity", {}),
+    ("get_alembic_migrations", "alembic", {}),
+    ("get_health", "health", {}),
+    ("get_database_connection_pools", "database-connection-pools", {}),
+    ("get_threads", "threads", {}),
+    ("get_rest_api_report", "rest-api", {}),
+    ("get_rest_api_rule_violations", "rest-api", {"id": "RAPI-MAP-001", "scanId": "x"}),
+]
+
+
+@pytest.mark.parametrize(("tool", "panel", "arguments"), PANEL_TOOLS, ids=[t[0] for t in PANEL_TOOLS])
+def test_disabled_panel_mcp_tool_refused(tool: str, panel: str, arguments: dict[str, Any]):
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, mcp_enabled="ON", panels={panel: {"enabled": False}})
+    call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
+    result = _client(app).post("/sharpit/api/mcp", json=call).json()["result"]
+    assert result["isError"] is True and result["content"][0]["text"] == disabled_reason(panel)
+
+
+# spec §7.4: a disabled source panel x every activity route and get_live_activity (what the source must not show)
+ACTIVITY_SOURCES = [
+    ("http-exchanges", None, None),
+    ("exceptions", "exceptions", "EXCEPTION"),
+    ("sql-trace", "sql", "SQL"),
+]
+
+
+@pytest.mark.parametrize(("panel", "source", "row_type"), ACTIVITY_SOURCES, ids=[s[0] for s in ACTIVITY_SOURCES])
+def test_disabled_source_activity_routes(panel: str, source: str | None, row_type: str | None):
+    app = FastAPI()
+    app.get("/host", response_model=None)(lambda: {"secret": "x"})
+    install(app, enabled="ON", show_banner=False, mcp_enabled="ON", stream_max_seconds=0.05,
+            panels={panel: {"enabled": False}})  # fmt: skip
+    client = _client(app)
+    client.get("/host", headers={"x-api-key": "k"})
+    call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_live_activity", "arguments": {}}}
+    reports = [client.get("/sharpit/api/activity").json(), client.post("/sharpit/api/mcp", json=call).json()["result"]]
+    reports[1] = reports[1]["structuredContent"]
+    for report in reports:
+        assert source not in report["sources"] and row_type not in report["typeCounts"]
+    rid = next(e["id"] for e in reports[0]["entries"] if e["type"] == "REQUEST")
+    profile = client.get(f"/sharpit/api/activity/request/{rid}").json()
+    assert profile["available"] is True
+    if panel == "http-exchanges":
+        assert (profile["request"]["requestHeaders"], profile["request"]["responseHeaders"]) == ([], [])
+    if panel == "exceptions":
+        assert profile["exceptions"] == []
+    if panel == "sql-trace":
+        assert (profile["sql"], profile["sqlGroups"]) == ([], [])
+    assert client.get("/sharpit/api/activity/stream").status_code == 200
 
 
 def test_ungated_paths_ignore_panel_flags():
@@ -183,23 +269,38 @@ def test_ungated_paths_ignore_panel_flags():
         assert client.get(path).status_code == 200, path
 
 
+# (panel, method, path, body): every state-changing panel route (test_write_route_table_is_complete keeps it whole)
 WRITES = [
-    ("loggers", "/sharpit/api/loggers/sharpit.matrix", {"level": "DEBUG"}),
-    ("vulnerabilities", "/sharpit/api/vulnerabilities/scan", None),
-    ("mcp-server", "/sharpit/api/mcp-server/toggle", {"enabled": True}),
+    ("loggers", "POST", "/sharpit/api/loggers/sharpit.matrix", {"level": "DEBUG"}),
+    ("vulnerabilities", "POST", "/sharpit/api/vulnerabilities/scan", None),
+    ("mcp-server", "POST", "/sharpit/api/mcp-server/toggle", {"enabled": True}),
+    ("exceptions", "DELETE", "/sharpit/api/exceptions", None),
+    ("exceptions", "POST", f"/sharpit/api/exceptions/{GROUP_ID}/status", {"status": "RESOLVED"}),
+    ("sql-trace", "POST", "/sharpit/api/sql-trace/clear", None),
+    ("sql-trace", "POST", "/sharpit/api/sql-trace/recording", {"enabled": False}),
+    ("alembic", "POST", "/sharpit/api/alembic/refresh", None),
+    ("health", "POST", "/sharpit/api/health/check", None),
+    ("rest-api", "POST", "/sharpit/api/rest-api/scan", None),
+    ("http-probe", "POST", "/sharpit/api/http-probe", {"method": "GET", "path": "/owners"}),
 ]
+# Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules is gated by the global flag and the
+# rule's owning panel under its own subject (test_dismissed_rules_obey_global_and_owning_panel_read_only and
+# test_dismissals_per_panel_gate), so it has no row here.
+_NOT_PANEL_WRITES = ("/api/auth/session", "/api/mcp", "/api/cli/", "/api/dismissed-rules/")
 
 
 @pytest.mark.parametrize("scope", ["global", "panel"])
-@pytest.mark.parametrize(("panel", "path", "body"), WRITES, ids=[w[0] for w in WRITES])
-def test_read_only_denies_panel_actions(no_side_effects: SideEffectGuard, panel: str, path: str, body: Any, scope: str):
+@pytest.mark.parametrize(("panel", "method", "path", "body"), WRITES, ids=[f"{w[0]}-{w[1]}" for w in WRITES])
+def test_read_only_denies_panel_actions(
+    no_side_effects: SideEffectGuard, panel: str, method: str, path: str, body: Any, scope: str
+):
     no_side_effects.unblock_network()  # the Windows Proactor loop TestClient starts connects a self-pipe socketpair
     options: dict[str, Any] = {"read_only": True} if scope == "global" else {"panels": {panel: {"read_only": True}}}
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir), **options)
     with _client(app) as client:
         no_side_effects.block_network()
-        resp = client.post(path, json=body)
+        resp = client.request(method, path, json=body)
     env = panel.upper().replace("-", "_")
     reason = (
         "sharpit is read-only via SHARPIT_READ_ONLY=true"
@@ -209,7 +310,114 @@ def test_read_only_denies_panel_actions(no_side_effects: SideEffectGuard, panel:
     assert (resp.status_code, resp.json()) == (403, _panel_denied(panel, reason))
 
 
-def test_dismissed_rules_obey_global_read_only_only(tmp_path: Path):
+def test_probe_tag_is_refused_before_other_guard_rules():
+    app = FastAPI()
+    installed = install(app, enabled="ON", show_banner=False, allow_non_localhost=True, read_only=True)
+    try:
+        middleware = GuardMiddleware(app, installed.context)
+        denial = middleware._decide(
+            {
+                "type": "http",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/sharpit/api/http-probe",
+                "root_path": "/sharpit",
+                "headers": [(b"host", b"evil.example"), (b"origin", b"http://evil.example")],
+                "client": REMOTE,
+                "extensions": {"sharpit.probe": True},
+            }
+        )
+        assert denial is not None
+        assert (denial.status, denial.body) == (403, {"error": "sharpit refused an internal probe request."})
+    finally:
+        installed.uninstall_capture()
+
+
+def _write_routes() -> set[tuple[str, str]]:
+    """(method, path format) of every POST/DELETE sub-app route, read from the sample app's own route table."""
+    mount = next(r for r in create_app(show_banner=False).router.routes if isinstance(r, SharpitMount))
+    found: set[tuple[str, str]] = set()
+    for route in mount.routes:
+        path = "/sharpit" + getattr(route, "path_format", "")
+        if any(path == "/sharpit" + s or path.startswith("/sharpit" + s.rstrip("/") + "/") for s in _NOT_PANEL_WRITES):
+            continue
+        found |= {(m, path) for m in {"POST", "DELETE"} & set(getattr(route, "methods", None) or ())}
+    return found
+
+
+def test_write_route_table_is_complete():
+    def shape(path: str) -> str:  # a concrete WRITES path back to its route's format
+        return path.replace(GROUP_ID, "{id}").replace("sharpit.matrix", "{name}")
+
+    assert _write_routes() == {(w[1], shape(w[2])) for w in WRITES}
+
+
+def _seed_exceptions(handle: SharpitHandle) -> Callable[[], object]:
+    """Record one exception (when the panel has a store) and return a probe of the store's state."""
+    store = handle.context.capture.exceptions
+    if store is None:
+        return lambda: None
+    try:
+        raise RuntimeError("seeded")
+    except RuntimeError as exc:
+        store.record(exc, "log", None, "test")
+    return lambda: store.report()["totalExceptions"]
+
+
+def _seed_rest_api(handle: SharpitHandle) -> Callable[[], object]:
+    """The cached REST API report's scan status: a refused scan leaves it NOT_SCANNED."""
+    return lambda: rest_api_service(handle.context).report()["scan"]["status"]
+
+
+def _seed_sql_trace(handle: SharpitHandle) -> Callable[[], object]:
+    """Record one statement (when tracing is on) and return a probe of the recorder's state."""
+    recorder = handle.context.capture.sql_trace
+    if recorder is None:
+        return lambda: None
+    recorder.record("select 1", duration_ns=1, thread="test", connection_id=None)
+    return lambda: (recorder.report([])["totalCaptured"], len(recorder.report([])["entries"]), recorder.recording)
+
+
+# CLI-only action tools (never on MCP): (tool, panel, seed returning a state probe); Tasks 5 and 10 add theirs
+CLI_ACTIONS: list[tuple[str, str, Callable[[SharpitHandle], Callable[[], object]]]] = [
+    ("clear_exceptions", "exceptions", _seed_exceptions),
+    ("clear_sql_traces", "sql-trace", _seed_sql_trace),
+    ("pause_sql_trace_recording", "sql-trace", _seed_sql_trace),
+    ("resume_sql_trace_recording", "sql-trace", _seed_sql_trace),
+    ("rest_api_scan", "rest-api", _seed_rest_api),
+]
+GATES: dict[str, Callable[[str], dict[str, Any]]] = {
+    "panel-disabled": lambda panel: {"panels": {panel: {"enabled": False}}},
+    "panel-read-only": lambda panel: {"panels": {panel: {"read_only": True}}},
+    "global-read-only": lambda _panel: {"read_only": True},
+}
+
+
+@pytest.mark.parametrize("gate", list(GATES))
+@pytest.mark.parametrize(("tool", "panel", "seed"), CLI_ACTIONS, ids=[a[0] for a in CLI_ACTIONS])
+def test_cli_action_tools_gated(
+    tool: str, panel: str, seed: Callable[[SharpitHandle], Callable[[], object]], gate: str
+):
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, cli_enabled=True, mcp_enabled="ON", **GATES[gate](panel))
+    try:
+        probe = seed(handle)
+        before = probe()
+        client = _client(app)
+        resp = client.post(f"/sharpit/api/cli/tools/{tool}", json={})
+        if gate == "panel-disabled":
+            reason = disabled_reason(panel)
+        else:
+            reason = read_only_reason(panel, gate == "global-read-only")
+        assert (resp.status_code, resp.json()) == (403, {"error": reason})
+        assert probe() == before
+        listed = client.post("/sharpit/api/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).json()
+        assert tool not in [t["name"] for t in listed["result"]["tools"]]
+    finally:
+        handle.uninstall_capture()
+
+
+def test_dismissed_rules_obey_global_and_owning_panel_read_only(tmp_path: Path):
     rule = "/sharpit/api/dismissed-rules/V-1%3A%3Apypi%3Awidget"
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, read_only=True, state_dir=str(tmp_path))
@@ -228,7 +436,30 @@ def test_dismissed_rules_obey_global_read_only_only(tmp_path: Path):
         state_dir=str(tmp_path),
         panels={"vulnerabilities": {"read_only": True}},
     )
-    assert _client(panel_only).post(rule).status_code == 200  # a panel flag does not cover dismissed-rules
+    resp = _client(panel_only).post(rule)  # the owning panel's read-only flag covers its rules (spec §8)
+    reason = "Panel is read-only via SHARPIT_PANELS_VULNERABILITIES_READ_ONLY=true"
+    assert (resp.status_code, resp.json()) == (403, _panel_denied("dismissed-rules", reason))
+    assert list(tmp_path.iterdir()) == []
+
+
+# (rule, owning panel): dismissals x per-panel enabled and read-only (spec §8, §14.2)
+DISMISSALS = [("RAPI-MAP-001", "rest-api"), ("V-1%3A%3Apypi%3Awidget", "vulnerabilities")]
+
+
+@pytest.mark.parametrize("gate", ["read-only", "disabled"])
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+@pytest.mark.parametrize(("rule", "owner"), DISMISSALS, ids=[d[1] for d in DISMISSALS])
+def test_dismissals_per_panel_gate(tmp_path: Path, rule: str, owner: str, method: str, gate: str):
+    flags = {"read_only": True} if gate == "read-only" else {"enabled": False}
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path), panels={owner: flags})
+    client = _client(app)
+    resp = client.request(method, f"/sharpit/api/dismissed-rules/{rule}")
+    reason = read_only_reason(owner, False) if gate == "read-only" else disabled_reason(owner)
+    assert (resp.status_code, resp.json()) == (403, _panel_denied("dismissed-rules", reason))
+    assert list(tmp_path.iterdir()) == []
+    other = next(r for r, o in DISMISSALS if o != owner)
+    assert client.request(method, f"/sharpit/api/dismissed-rules/{other}").status_code == 200
 
 
 # --- Origin from another local port: browser "simple" requests (text/plain, no preflight) must not mutate -------
@@ -384,28 +615,76 @@ def test_get_route_table_is_complete():
     assert set(GET_PATHS) == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"}
 
 
+ALEMBIC_INI = Path(__file__).resolve().parent / "fixtures" / "alembic" / "linear" / "alembic.ini"
+# spec §7.6 / §7.8: with a registered engine, a health check and an Alembic config, a GET or an MCP tool still opens
+# no database connection and runs no check (the plain app has none of them, so it cannot catch that)
+SWEEPS = ["plain", pytest.param("sqla", marks=pytest.mark.needs_sqlalchemy)]
+
+
+def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, Callable[[], list[str]]]:
+    """The sample app, and a probe of what ran: health checks called and database connections checked out."""
+    if variant == "plain":
+        return create_app(show_banner=False, state_dir=state_dir, **options), list
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine("sqlite://")
+    ran: list[str] = []
+    sa.event.listen(engine, "checkout", lambda *_a: ran.append("checkout"))
+    app = create_app(
+        show_banner=False, state_dir=state_dir, engines=[engine], alembic_config=str(ALEMBIC_INI),
+        health_checks={"spy": lambda: ran.append("check") or True}, **options,
+    )  # fmt: skip
+    return app, lambda: ran
+
+
+@pytest.mark.parametrize("variant", SWEEPS)
 @pytest.mark.parametrize("path", GET_PATHS)
-def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str):
-    app = create_app(show_banner=False, state_dir=str(no_side_effects.state_dir), mcp_enabled="ON")
+def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, variant: str):
+    state_dir = str(no_side_effects.state_dir)
+    app, ran = _sweep_app(variant, state_dir, mcp_enabled="ON", stream_max_seconds=0.05)
+    no_side_effects.rebaseline()  # SQLAlchemy sets its logger level when its test engine is constructed.
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop connects a self-pipe socketpair once
     with _client(app) as client:
+        client.get("/owners")  # one host request first: the capture wiring that attaches on it is swept too
         no_side_effects.block_network()
+        # the rest-api violations route needs a scanId: without one it answers 400 (and never scans)
+        expected = (400,) if path == "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations" else (200, 307, 404)
         for query in ("", "?q=sharpit&offset=0&limit=5"):
             resp = client.get(path + query)
-            assert resp.status_code in (200, 307, 404), resp.text
+            assert resp.status_code in expected, resp.text
     assert no_side_effects.violations == []
+    assert ran() == []
 
 
 MCP_TOOLS = [t.name for t in TOOLS if not t.action]
 
 
+def _tool_arguments(tool: str, handle: SharpitHandle) -> dict[str, Any]:
+    """A tool's required arguments: get_exception_detail gets the id of an exception recorded here and
+    get_rest_api_rule_violations a rule of a REST API scan run here (the scan only reads route metadata)."""
+    if tool == "get_rest_api_rule_violations":
+        report = rest_api_service(handle.context).scan()
+        assert report["results"], report
+        return {"id": report["results"][0]["id"], "scanId": report["violationDetails"]["scanId"]}
+    if tool != "get_exception_detail":
+        return {}
+    _seed_exceptions(handle)
+    store = handle.context.capture.exceptions
+    assert store is not None
+    return {"id": store.report()["groups"][0]["id"]}
+
+
+@pytest.mark.parametrize("variant", SWEEPS)
 @pytest.mark.parametrize("tool", MCP_TOOLS)
-def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: str):
-    app = create_app(show_banner=False, state_dir=str(no_side_effects.state_dir), mcp_enabled="ON")
+def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: str, variant: str):
+    app, ran = _sweep_app(variant, str(no_side_effects.state_dir), mcp_enabled="ON")
+    no_side_effects.rebaseline()  # SQLAlchemy sets its logger level when its test engine is constructed.
     no_side_effects.unblock_network()
     with _client(app) as client:
+        client.get("/owners")
         no_side_effects.block_network()
-        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": {}}}
+        arguments = _tool_arguments(tool, app.state.sharpit)
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
         result = client.post("/sharpit/api/mcp", json=call).json()["result"]
     assert result["isError"] is False, result
     assert no_side_effects.violations == []
+    assert ran() == []

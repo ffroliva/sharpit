@@ -20,3 +20,6 @@ ui/playwright-report/
 .serena/
 *.egg-info/
 .env
+
+# sample app database (examples/fastapi_sqla)
+examples/fastapi_sqla/sample.db

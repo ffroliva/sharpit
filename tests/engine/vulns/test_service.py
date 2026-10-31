@@ -16,7 +16,7 @@ import pytest
 from vulnfakes import FakeOpener, Reply, fixture_text
 
 from conftest import SideEffectGuard, golden
-from sharpit.engine.collectors.vulns.dismissals import DismissalStore
+from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import Package
 from sharpit.engine.collectors.vulns.osv import OsvClient

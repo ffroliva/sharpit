@@ -138,7 +138,7 @@ def test_cli_status_shape_matches_contract():
         "capacityRefusals", "timeouts", "toolCount", "tools",
     ]  # fmt: skip
     assert (body["enabled"], body["serverName"], body["serverVersion"]) == (True, "sharpit", __version__)
-    assert (body["endpoint"], body["maxResults"], body["toolCount"]) == ("/sharpit/api/cli", 200, 7)
+    assert (body["endpoint"], body["maxResults"], body["toolCount"]) == ("/sharpit/api/cli", 200, 24)
     by_name = {t["name"]: t for t in body["tools"]}
     assert {n: t["command"] for n, t in by_name.items()} == {
         "get_overview": "overview",
@@ -146,14 +146,32 @@ def test_cli_status_shape_matches_contract():
         "get_mappings": "mappings",
         "get_loggers": "loggers",
         "get_beans": "beans",
+        "get_http_exchanges": "http exchanges",
+        "get_log_tail": "logs tail",
+        "get_exceptions": "exceptions list",
+        "get_exception_detail": "exceptions show",
+        "clear_exceptions": "exceptions clear",
+        "get_sql_traces": "sql traces",
+        "clear_sql_traces": "sql clear",
+        "pause_sql_trace_recording": "sql pause",
+        "resume_sql_trace_recording": "sql resume",
+        "get_live_activity": "activity",
+        "get_alembic_migrations": "db alembic",
+        "get_health": "health",
+        "get_database_connection_pools": "db pools",
+        "get_threads": "threads",
         "get_vulnerabilities_report": "vulnerabilities report",
         "vulnerabilities_scan": "vulnerabilities scan",
+        "get_rest_api_report": "rest-api report",
+        "get_rest_api_rule_violations": "rest-api violations",
+        "rest_api_scan": "rest-api scan",
     }
     assert list(by_name["get_config"]) == [
         "name", "command", "description", "panel", "action", "schema", "arguments", "panelEnabled", "panelReadOnly",
     ]  # fmt: skip
     assert (by_name["get_config"]["schema"], by_name["get_config"]["arguments"]) == ("QUERY_LIMIT", ["query", "limit"])
     assert (by_name["vulnerabilities_scan"]["schema"], by_name["vulnerabilities_scan"]["arguments"]) == ("NONE", [])
+    assert (by_name["get_http_exchanges"]["schema"], by_name["get_http_exchanges"]["arguments"]) == ("LIMIT", ["limit"])
     assert by_name["vulnerabilities_scan"]["action"] is True
 
 
