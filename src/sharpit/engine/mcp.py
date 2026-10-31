@@ -269,11 +269,11 @@ class McpServer:
             return _error(rid, INVALID_REQUEST, 'Request must include jsonrpc: "2.0"')
         if rid is not None and (isinstance(rid, bool) or not isinstance(rid, str | int | float)):
             return _error(None, INVALID_REQUEST, "Request id must be a string, number, or null")
+        notification = rid is None  # a notification never gets a response body, whatever else is wrong with it
         params = _as_object(envelope.get("params", {}))
         if params is None:
-            return _error(rid, INVALID_PARAMS, "Request params must be an object")
+            return None if notification else _error(rid, INVALID_PARAMS, "Request params must be an object")
         method = envelope.get("method")
-        notification = rid is None
         if not isinstance(method, str) or not method:
             return None if notification else _error(rid, INVALID_PARAMS, "Missing 'method'")
         try:

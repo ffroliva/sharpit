@@ -142,6 +142,9 @@ PING = _rpc("ping")
             _err(74, -32602, "Request params must be an object"),
         ),
         ({"jsonrpc": "2.0", "id": "a"}, JSON, 200, _err("a", -32602, "Missing 'method'")),
+        # code review #15: a notification never gets a response body, even with invalid params
+        ({"jsonrpc": "2.0", "method": "ping", "params": 1}, JSON, 202, None),
+        ({"jsonrpc": "2.0", "id": None, "method": "x", "params": []}, JSON, 202, None),
     ],
 )
 def test_http_level_responses(body: Any, headers: dict[str, str], status: int, expected: dict[str, Any] | None):
