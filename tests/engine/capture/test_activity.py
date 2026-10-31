@@ -360,7 +360,7 @@ def test_disabled_http_exchanges_no_headers():
 
 
 def test_shape_keys_match_bootui():
-    # ActivityEntryDto, ActivityKpiDto, LiveActivityReport and RequestProfileDto record components, in order
+    # ported: ActivityEntryDto, ActivityKpiDto, LiveActivityReport, RequestProfileDto
     assert ENTRY_KEYS == (
         "id", "type", "timestamp", "severity", "summary", "detail", "durationMs", "correlationId", "method", "path",
         "status", "thread", "profileable", "parentId", "securedPrincipal", "sqlNPlusOneSuspected",

@@ -117,6 +117,7 @@ def test_disabled_when_nothing_to_check():
         assert any("engines=" in s for s in snippets) and any("health_checks=" in s for s in snippets)
 
 
+# ported: HealthNodeDto (contract §7 / spec §7.8)
 def test_shape_keys_match_bootui():
     sample = golden("health")
     service = _service(health_checks={"ok": lambda: True})

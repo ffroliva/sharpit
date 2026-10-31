@@ -346,7 +346,7 @@ def _one_group() -> tuple[FastAPI, SharpitHandle, TestClient, str]:
 
 
 def test_shape_keys_match_bootui():
-    # BootUI ExceptionsReport, ExceptionGroupDto, ExceptionDetailDto, ExceptionFrameDto, ExceptionOccurrenceDto
+    # ported: ExceptionsReport, ExceptionGroupDto, ExceptionDetailDto, ExceptionFrameDto, ExceptionOccurrenceDto
     _, _, client, gid = _one_group()
     report = client.get(API).json()
     assert tuple(report) == ("available", "unavailableReason", "maxGroups", "totalExceptions", "groups")

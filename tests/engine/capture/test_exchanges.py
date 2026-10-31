@@ -191,7 +191,7 @@ def test_remote_address_none_client():
 
 
 def test_shape_keys_match_bootui():
-    # BootUI bootui-core HttpExchangeDto, HttpHeaderDto, HttpExchangesReport and PageMetadata record components
+    # ported: HttpExchangeDto, HttpHeaderDto, HttpExchangesReport, PageMetadata
     assert DTO_KEYS == (
         "id", "timestamp", "method", "path", "query", "uri", "status", "statusFamily", "durationMs",
         "responseSizeBytes", "remoteAddress", "principal", "sessionId", "traceId", "requestHeaders", "responseHeaders",

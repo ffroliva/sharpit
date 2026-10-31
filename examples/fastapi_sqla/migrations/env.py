@@ -13,9 +13,9 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 db_dir = os.environ.get("SHARPIT_SQLA_DB_DIR")
-if db_dir:
-    db_file = (Path(db_dir).resolve() / "sample.db").as_posix()
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
+resolved_db_dir = Path(db_dir).resolve() if db_dir else Path(__file__).resolve().parent.parent
+db_file = (resolved_db_dir / "sample.db").resolve().as_posix()
+config.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
 
 target_metadata = None
 

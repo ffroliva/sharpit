@@ -20,6 +20,7 @@ def _status(exc: pytest.ExceptionInfo[AdvisorViolationError]) -> int:
     return exc.value.status
 
 
+# ported: AdvisorRuleViolationsDto, AdvisorViolationDetailsDto (contract §12)
 def test_shape_keys_match_bootui():
     retention = ViolationRetention(10_000)
     scan_id = retention.store({"RAPI-A": ["v1", "v2", "v3"]})
