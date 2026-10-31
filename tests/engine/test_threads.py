@@ -214,20 +214,29 @@ def test_task_stack_capture_call_graph_branch(loop_thread: LoopThread, monkeypat
 
 
 def test_cancelled_task_state_and_none_coro():
-    def fake(cancelled: bool, done: bool, coro: object) -> Any:
-        return SimpleNamespace(
-            get_name=lambda: "fake",
-            get_coro=lambda: coro,
-            cancelled=lambda: cancelled,
-            done=lambda: done,
-            get_context=contextvars.copy_context,
-        )
-
     ctx = _ctx()
-    assert task_info(ctx, fake(True, True, None), 8, names_only=False)["state"] == "CANCELLED"  # checked before done()
-    assert task_info(ctx, fake(False, True, None), 8, names_only=False)["state"] == "DONE"
-    row = task_info(ctx, fake(False, False, None), 8, names_only=False)
-    assert (row["state"], row["coroutine"], row["stackTrace"], row["request"]) == ("PENDING", None, [], None)
+
+    class FutureWithTaskMetadata(asyncio.Future[None]):
+        def get_name(self) -> str:
+            return "fake"
+
+        def get_coro(self) -> None:
+            return None
+
+        def get_context(self) -> contextvars.Context:
+            return contextvars.copy_context()
+
+    async def check() -> None:
+        loop = asyncio.get_running_loop()
+        cancelled, done, pending = (FutureWithTaskMetadata(loop=loop) for _ in range(3))
+        cancelled.cancel()
+        done.set_result(None)
+        assert task_info(ctx, cancelled, 8, names_only=False)["state"] == "CANCELLED"  # cancelled before done()
+        assert task_info(ctx, done, 8, names_only=False)["state"] == "DONE"
+        row = task_info(ctx, pending, 8, names_only=False)
+        assert (row["state"], row["coroutine"], row["stackTrace"], row["request"]) == ("PENDING", None, [], None)
+
+    asyncio.run(check())
 
 
 # --- the loop hand-off ----------------------------------------------------------------------------------------------
