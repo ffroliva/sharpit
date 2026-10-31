@@ -16,12 +16,12 @@ import re
 import sys
 import time
 import tomllib
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
+from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
 
 if TYPE_CHECKING:
@@ -384,7 +384,7 @@ def _versions(table: str, schema: str | None, conn: Any) -> list[str] | None:
 
 
 async def _read(
-    ctx: SharpitContext, files: AlembicFiles, name: str, engine: Any, flight: Flight, executor: ThreadPoolExecutor
+    ctx: SharpitContext, files: AlembicFiles, name: str, engine: Any, flight: Flight, executor: DaemonExecutor
 ) -> DatabaseRead:
     checked = int(time.time() * 1000)
     if files.table_error is not None:
@@ -421,7 +421,7 @@ async def refresh_alembic(ctx: SharpitContext) -> dict[str, Any]:
             return _report(ctx, files)
         registry = ctx.capture.engine_registry
         engines = registry.engines() if registry is not None else []
-        executor = ctx.lazy("alembic.executor", lambda: ThreadPoolExecutor(2, thread_name_prefix="sharpit-alembic"))
+        executor = ctx.lazy("alembic.executor", lambda: DaemonExecutor(2, thread_name_prefix="sharpit-alembic"))
         reads = [await _read(ctx, files, name, engine, flight, executor) for name, engine in engines]
         ctx.lazy("alembic", AlembicState).reads = reads
         return _report(ctx, files)

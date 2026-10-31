@@ -411,6 +411,7 @@ def test_configured_token_never_printed(
 LOG_CORPUS = [
     ("password_pair", "host.app", "login failed password=%s", (SENTINEL,), f"login failed password={MASK}"),
     ("jwt_value", "host.app", "user sent %s", (JWT,), f"user sent {MASK}"),
+    ("prefixed_jwt_value", "host.app", "user sent %s", (f"refresh-{JWT}",), f"user sent refresh-{MASK}"),
     ("dsn_userinfo", "host.app", "connect %s failed", (f"postgres://u:{SENTINEL}@h/db",),
      "connect postgres://******@h/db failed"),
     ("dict_repr", "host.app", "kwargs=%r", ({"api_key": SENTINEL},), f"kwargs={{'api_key': '{MASK}'}}"),

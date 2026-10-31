@@ -192,6 +192,7 @@ class Masker:
         text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
         text = _TEXT_QUOTED_PAIR.sub(_mask_quoted_pair, text)
         text = _TEXT_PAIR.sub(_mask_pair, text)
+        text = _JWT.sub(MASK, text)
         return _TEXT_TOKEN.sub(_mask_token, text)
 
     def mask_path(self, path: str) -> str:

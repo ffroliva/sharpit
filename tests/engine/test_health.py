@@ -8,6 +8,9 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
+import textwrap
 import threading
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -54,6 +57,27 @@ def _check(service: HealthService) -> dict[str, Any]:
 
 def _components(root: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {c["name"]: c for c in root["components"]}
+
+
+def test_hung_health_worker_does_not_block_interpreter_exit():
+    code = textwrap.dedent(
+        """
+        import asyncio
+        import threading
+        from fastapi import FastAPI
+        from sharpit import install
+        from sharpit.engine.collectors.health import health_service
+
+        handle = install(FastAPI(), enabled="ON", show_banner=False, health_timeout=0.05,
+                health_checks={"hung": lambda: threading.Event().wait(60)})
+        report = asyncio.run(health_service(handle.context).check())
+        assert report["components"][0]["details"]["error"].startswith("timed out")
+        print("ready to exit", flush=True)
+        """
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=6)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ready to exit"
 
 
 # --- aggregation and guidance (ported) --------------------------------------------------------------------------

@@ -7,13 +7,10 @@ import posixpath
 import re
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 from urllib.parse import quote, unquote, urlsplit
-
-import anyio
-from starlette.types import Message, Scope
 
 from sharpit.engine.capture import under
 from sharpit.engine.masking import Masker
@@ -228,6 +225,7 @@ async def run_probe(
     timeout: float = PROBE_TIMEOUT,
     max_body: int = MAX_RESPONSE_BODY_BYTES,
     on_complete: Callable[[], None] | None = None,
+    host_runner: Callable[..., Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     parsed = urlsplit(request.path)
     path_prefix = host_root_path.rstrip("/")
@@ -241,7 +239,7 @@ async def run_probe(
             incoming.append((b"host", value))
             break
     incoming.append((b"x-sharpit-probe", b"1"))
-    scope: Scope = {
+    scope: dict[str, Any] = {
         "type": "http",
         "asgi": {"version": "3.0", "spec_version": "2.4"},
         "http_version": "1.1",
@@ -264,7 +262,7 @@ async def run_probe(
     finished = asyncio.Event()
     first_receive = True
 
-    async def receive() -> Message:
+    async def receive() -> dict[str, Any]:
         nonlocal first_receive
         if first_receive:
             first_receive = False
@@ -272,7 +270,7 @@ async def run_probe(
         await finished.wait()
         return {"type": "http.disconnect"}
 
-    async def send(message: Message) -> None:
+    async def send(message: dict[str, Any]) -> None:
         nonlocal status, response_headers, truncated
         if message["type"] == "http.response.start":
             status = message["status"]
@@ -286,22 +284,22 @@ async def run_probe(
                 raise asyncio.CancelledError
 
     started = time.monotonic()
-    cancel_scopes: list[anyio.CancelScope] = []
+    cancel_host: list[Callable[[], None]] = []
 
     async def invoke_host() -> None:
-        with anyio.CancelScope() as cancel_scope:
-            cancel_scopes.append(cancel_scope)
+        if host_runner is None:
             await host_app(scope, receive, send)
+        else:
+            await host_runner(host_app, scope, receive, send, cancel_host.append)
 
     task = asyncio.create_task(invoke_host())
     transferred_slot = False
     try:
         done, _ = await asyncio.wait({task}, timeout=timeout)
         if not done:
-            # AnyIO delays cancellation until a sync endpoint's worker thread has returned.
             finished.set()
-            if cancel_scopes:
-                cancel_scopes[0].cancel()
+            if cancel_host:
+                cancel_host[0]()
             else:
                 task.cancel()
             _PENDING_TASKS.add(task)
@@ -327,7 +325,10 @@ async def run_probe(
         await task
     except asyncio.CancelledError:
         if not truncated:
-            task.cancel()
+            if cancel_host:
+                cancel_host[0]()
+            else:
+                task.cancel()
             if on_complete is not None and not transferred_slot:
                 task.add_done_callback(lambda completed: _task_done(completed, on_complete))
                 transferred_slot = True
