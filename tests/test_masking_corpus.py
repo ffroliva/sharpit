@@ -22,6 +22,7 @@ from urllib.parse import quote
 import pytest
 from examples.fastapi_sample.app import SignedSessionMiddleware, create_app
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from conftest import get_paths
 from engine.vulns.vulnfakes import FakeOpener
@@ -284,6 +285,10 @@ def test_probe_masking_corpus(tmp_path: Path):
 
         return PlainTextResponse(f"token={JWT}", headers={"Location": f"/redirect?token={SENTINEL}"})
 
+    @app.get("/probe-tag")
+    def probe_tag(request: Request):
+        return {"tag": request.headers.get("x-sharpit-probe")}
+
     handle = install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path), authentication_token=AUTH_TOKEN)
     try:
         with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
@@ -291,6 +296,10 @@ def test_probe_masking_corpus(tmp_path: Path):
                 client.post(f"{API}/http-probe", json={"method": "GET", "path": path})
                 for path in ("/probe-json", "/probe-text")
             ]
+            forged_tag = client.post(
+                f"{API}/http-probe",
+                json={"method": "GET", "path": "/probe-tag", "headers": {"X-Sharpit-Probe": "forged"}},
+            )
             exchange_rows = client.get(f"{API}/http-exchanges").json()["exchanges"]
     finally:
         handle.uninstall_capture()
@@ -298,6 +307,7 @@ def test_probe_masking_corpus(tmp_path: Path):
     assert "Set-Cookie" not in results[0].text and "session=" not in results[0].text
     assert results[1].json()["body"] == f"token={MASK}"
     assert results[1].json()["headers"]["location"] == f"/redirect?token={MASK}"
+    assert forged_tag.json()["body"] == '{"tag":"1"}'
     assert SENTINEL not in str(results) and JWT not in str(results)
     assert all(SENTINEL not in str(row) and JWT not in str(row) for row in exchange_rows)
 

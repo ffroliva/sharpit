@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.middleware import Middleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 
@@ -48,7 +50,6 @@ def _probe(client: TestClient, path: str, **extra: Any):
     "path",
     [
         "/sharpit/api/panels",
-        "/app/sharpit/api/panels",
         "/sharpit%2Fapi/panels",
         "/%73harpit/api/panels",
         "//sharpit/api/panels",
@@ -61,6 +62,34 @@ def test_probe_cannot_reach_sharpit(path: str, handle: list[SharpitHandle]):
         response = _probe(client, path)
     assert response.status_code in (400, 403)
     assert response.status_code != 200
+
+
+def test_probe_tag_bypassing_validation_is_denied_by_guard(handle: list[SharpitHandle]):
+    app = FastAPI()
+    installed = _install(app, handle)
+    from sharpit.engine.probe import ProbeRequest, run_probe
+
+    result = asyncio.run(
+        run_probe(
+            app,
+            ProbeRequest("GET", "/sharpit/api/panels", "", {}),
+            {"headers": [(b"host", b"localhost")], "state": {}, "client": LOCAL},
+            "",
+            installed.context.masker,
+        )
+    )
+    assert result["status"] == 403
+    assert result["error"] is None
+    assert result["body"] == '{"error":"sharpit refused an internal probe request."}'
+
+
+def test_probe_under_real_root_path_cannot_reach_sharpit(handle: list[SharpitHandle]):
+    app = FastAPI()
+    _install(app, handle)
+    with TestClient(app, base_url="http://localhost", client=LOCAL, root_path="/app") as client:
+        response = client.post("/app/sharpit/api/http-probe", json={"method": "GET", "path": "/app/sharpit/api/panels"})
+    assert response.status_code == 400
+    assert response.json() == {"error": "HTTP Probe cannot target sharpit itself"}
 
 
 def test_probe_opens_no_socket(no_side_effects: SideEffectGuard, handle: list[SharpitHandle]):
@@ -125,7 +154,7 @@ def test_post_probe_sends_request_body_and_response_shape_matches_bootui(handle:
 
 
 def test_host_reaches_trusted_host_middleware(handle: list[SharpitHandle]):
-    app = FastAPI()
+    app = FastAPI(middleware=[Middleware(TrustedHostMiddleware, allowed_hosts=["localhost"])])
 
     @app.get("/host")
     def host(request: Request):
@@ -159,28 +188,20 @@ def test_lifespan_state_visible(handle: list[SharpitHandle]):
 
 def test_scope_root_path_and_raw_path(handle: list[SharpitHandle]):
     app = FastAPI()
-    installed = _install(app, handle)
 
-    async def inspect(scope, receive, send):
-        del receive
-        assert scope["root_path"] == "/app"
-        assert scope["raw_path"] == b"/inspect/a%20b"
-        await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"text/plain")]})
-        await send({"type": "http.response.body", "body": b"ok", "more_body": False})
+    @app.get("/inspect")
+    def inspect(request: Request):
+        return {
+            "root_path": request.scope["root_path"],
+            "path": request.scope["path"],
+            "raw_path": request.scope["raw_path"].decode(),
+        }
 
-    from sharpit.engine.probe import ProbeRequest, run_probe
-
-    result = asyncio.run(
-        run_probe(
-            inspect,
-            ProbeRequest("GET", "/inspect/a%20b", "", {}),
-            {"headers": [], "state": {}},
-            "/app",
-            installed.context.masker,
-        )
-    )
-    assert result["status"] == 200
-    assert result["body"] == "ok"
+    _install(app, handle)
+    with TestClient(app, base_url="http://localhost", client=LOCAL, root_path="/app") as client:
+        result = client.post("/app/sharpit/api/http-probe", json={"method": "GET", "path": "/inspect"}).json()
+    assert result.get("status") == 200, result
+    assert result["body"] == '{"root_path":"/app","path":"/app/inspect","raw_path":"/app/inspect"}'
 
 
 # ported: HttpProbeServiceTests.responseOverLimitIsTruncatedAndFlagSet
@@ -199,6 +220,22 @@ def test_streaming_endpoint_truncated_at_1mib(handle: list[SharpitHandle]):
         result = _probe(client, "/large").json()
     assert result["truncated"] is True
     assert len(result["body"]) == 1024 * 1024
+
+
+def test_truncated_utf8_body_keeps_text_and_replaces_partial_character(handle: list[SharpitHandle]):
+    app = FastAPI()
+
+    @app.get("/large-text")
+    def large_text():
+        return PlainTextResponse("€" * 400_000)
+
+    _install(app, handle)
+    with _client(app) as client:
+        result = _probe(client, "/large-text").json()
+    assert result["truncated"] is True
+    assert result["body"].startswith("€")
+    assert " bytes, text/plain" not in result["body"]
+    assert len(result["body"]) >= (1 << 20) // 3 - 2
 
 
 def test_timeout_message_and_timed_out_probe_holds_slot(handle: list[SharpitHandle]):
@@ -237,6 +274,43 @@ def test_timeout_message_and_timed_out_probe_holds_slot(handle: list[SharpitHand
             if slots.count == 0:
                 break
             await asyncio.sleep(0.01)
+        assert slots.count == 0
+
+    asyncio.run(scenario())
+
+
+def test_async_probe_timeout_cancels_task_and_releases_slot(handle: list[SharpitHandle]):
+    app = FastAPI()
+    installed = _install(app, handle)
+    from sharpit.engine import probe as probe_engine
+
+    async def scenario():
+        entered, cancelled = asyncio.Event(), asyncio.Event()
+        slots = probe_engine.ProbeSlots()
+        assert slots.acquire()
+
+        async def host_app(scope, receive, send):
+            del scope, receive, send
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        result = await probe_engine.run_probe(
+            host_app,
+            probe_engine.ProbeRequest("GET", "/slow", "", {}),
+            {"headers": [], "state": {}},
+            "",
+            installed.context.masker,
+            timeout=0.01,
+            on_complete=slots.release,
+        )
+        assert result["error"] == "HTTP Probe timed out after 0.01s"
+        assert entered.is_set()
+        await asyncio.wait_for(cancelled.wait(), timeout=0.1)
+        assert cancelled.is_set()
+        assert await asyncio.to_thread(_wait_for, lambda: slots.count == 0)
         assert slots.count == 0
 
     asyncio.run(scenario())
@@ -376,6 +450,34 @@ def test_only_allow_listed_headers_returned_and_location_token_masked(handle: li
     assert result["headers"] == {"content-type": "text/plain", "content-length": "2", "location": f"/next?token={MASK}"}
 
 
+def test_probe_location_header_is_capped_by_utf8_bytes(handle: list[SharpitHandle]):
+    installed = _install(FastAPI(), handle)
+    from sharpit.engine.probe import ProbeRequest, run_probe
+
+    async def host_app(scope, receive, send):
+        del scope, receive
+        location = "/" + "€" * 3000
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 302,
+                "headers": [(b"location", location.encode("utf-8"))],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    result = asyncio.run(
+        run_probe(
+            host_app,
+            ProbeRequest("GET", "/", "", {}),
+            {"headers": [], "state": {}},
+            "",
+            installed.context.masker,
+        )
+    )
+    assert len(result["headers"]["location"].encode("utf-8")) <= 8192
+
+
 def test_json_and_text_bodies_are_masked_and_binary_is_summarized(handle: list[SharpitHandle]):
     app = FastAPI()
 
@@ -435,3 +537,32 @@ def test_probe_read_only_403(handle: list[SharpitHandle]):
     with _client(app) as client:
         response = _probe(client, "/")
     assert response.status_code == 403
+
+
+def test_status_text_fallback_and_empty_response_error_match_bootui(handle: list[SharpitHandle]):
+    installed = _install(FastAPI(), handle)
+    from sharpit.engine.probe import ProbeRequest, run_probe
+
+    async def status_response(scope, receive, send):
+        del scope, receive
+        await send({"type": "http.response.start", "status": 302, "headers": []})
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    async def empty_response(scope, receive, send):
+        del scope, receive, send
+
+    async def invoke(host_app):
+        return await run_probe(
+            host_app,
+            ProbeRequest("GET", "/", "", {}),
+            {"headers": [], "state": {}},
+            "",
+            installed.context.masker,
+        )
+
+    redirect = asyncio.run(invoke(status_response))
+    empty = asyncio.run(invoke(empty_response))
+    assert redirect["statusText"] == "HTTP 302"
+    assert empty["status"] == 0
+    assert empty["statusText"] == "Error"
+    assert empty["error"]
