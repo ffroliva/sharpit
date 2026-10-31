@@ -135,9 +135,8 @@ def facts(
     **extra: str,
 ) -> RequestFacts:
     headers = {k.replace("_", "-"): v for k, v in extra.items()}
-    for key, value in (("host", host), ("origin", origin), ("sec-fetch-site", sec_fetch_site)):
-        if value is not None:
-            headers[key] = value
+    fixed = (("host", host), ("origin", origin), ("sec-fetch-site", sec_fetch_site))
+    headers.update({key: value for key, value in fixed if value is not None})
     return RequestFacts(method=method, peer=peer, headers=headers, api_sub_path=api)
 
 

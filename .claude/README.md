@@ -30,7 +30,8 @@ commands. (Ported from gflow-cli's layout.)
     ├── changelog.md         ← /sharpit:changelog                queued vs last release
     ├── doc-review.md        ← /sharpit:doc-review               docs gate
     ├── release.md           ← /sharpit:release                  gated release prep (no PyPI publish)
-    └── optimize.md          ← /sharpit:optimize                 test-suite speed (pytest-speed)
+    ├── optimize.md          ← /sharpit:optimize                 test-suite speed (pytest-speed)
+    └── perf-audit.md        ← /sharpit:perf-audit               runtime performance, hot paths first
 ```
 
 ## How the pieces fit

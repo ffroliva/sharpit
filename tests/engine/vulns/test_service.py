@@ -459,6 +459,8 @@ def test_concurrent_fetches_count_failures(tmp_state_dir: Path):
     [
         ("2024-01-01T00:00:00Z", True),
         ("2024-01-01T00:00Z", True),
+        ("2024-01-01T00:00:00z", True),  # Instant.parse takes a lowercase z
+        ("2024-13-01T00:00:00z", False),
         ("2024-01-01T00:00:00.123456789+02:00", True),
         ("2024-01-01 00:00:00Z", False),
         ("20240101T000000Z", False),

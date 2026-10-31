@@ -6,7 +6,7 @@ Every `/sharpit:<name>` step is `skills/<name>/SKILL.md`, readable by any agent.
 
 ```
 predict → scenario → plan → subagent-driven execution → check → review → release
-                                    ↑ spike, optimize, live-verify, known-issues as needed
+                                    ↑ spike, optimize, perf-audit, live-verify, known-issues as needed
 ```
 
 ## 1. Decide: `/sharpit:predict`

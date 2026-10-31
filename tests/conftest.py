@@ -147,9 +147,11 @@ class SideEffectGuard:
         problems = list(self.violations)
         for label, before, root in (("cwd", self._cwd_snap, self.cwd), ("state dir", self._state_snap, self.state_dir)):
             after = _snapshot(root)
-            for path in sorted(before.keys() | after.keys()):
-                if before.get(path, "absent") != after.get(path, "absent"):
-                    problems.append(f"{label} changed: {path}")
+            problems.extend(
+                f"{label} changed: {path}"
+                for path in sorted(before.keys() | after.keys())
+                if before.get(path, "absent") != after.get(path, "absent")
+            )
         now = _levels()
         if any(now.get(n, 0) != self._levels.get(n, 0) for n in now.keys() | self._levels.keys()):
             problems.append("logger level changed")

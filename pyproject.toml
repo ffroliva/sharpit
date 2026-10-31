@@ -91,7 +91,7 @@ src = ["src", "tests"]
 extend-exclude = ["scripts/pytest_speed"]  # vendored verbatim; its VERSION hash catches local edits
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "I", "UP", "B", "SIM", "PERF", "C4", "FURB"]  # PERF/C4/FURB: performance rules, see AGENTS.md
 
 [tool.pyright]
 include = ["src/sharpit"]
