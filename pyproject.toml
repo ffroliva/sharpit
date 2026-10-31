@@ -33,7 +33,7 @@ dependencies = ["starlette>=0.44", "packaging>=23"]
 Homepage = "https://github.com/ffroliva/sharpit"
 Source = "https://github.com/ffroliva/sharpit"
 Issues = "https://github.com/ffroliva/sharpit/issues"
-Changelog = "https://github.com/ffroliva/sharpit/blob/master/CHANGELOG.md"
+Changelog = "https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 fastapi = ["fastapi>=0.115"]

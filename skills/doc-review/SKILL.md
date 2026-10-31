@@ -13,7 +13,7 @@ Docs lie quietly. This gate compares what the docs claim against what the branch
 ## 1. Scope the diff
 
 ```bash
-git diff --name-only master...HEAD
+git diff --name-only main...HEAD
 ```
 
 Map changed code to the docs that describe it:
@@ -38,7 +38,7 @@ Flag invented APIs: sharpit is a pre-release MVP and docs must not describe pane
 ## 3. Check links
 
 Relative links in changed Markdown files resolve to files that exist. No slash command outside the `/sharpit:` namespace, no base branch other than
-`master` (sharpit's default branch).
+`main` (sharpit's default branch).
 
 ## Output
 

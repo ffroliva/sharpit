@@ -1,22 +1,22 @@
 # sharpit
 
-[![CI](https://github.com/ffroliva/sharpit/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/ffroliva/sharpit/actions/workflows/ci.yml)
+[![CI](https://github.com/ffroliva/sharpit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ffroliva/sharpit/actions/workflows/ci.yml)
 [![Release](https://github.com/ffroliva/sharpit/actions/workflows/release.yml/badge.svg)](https://github.com/ffroliva/sharpit/actions/workflows/release.yml)
-[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=alert_status&branch=master)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=master)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=coverage&branch=master)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=coverage&branch=master)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=alert_status&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=coverage&branch=main)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=coverage&branch=main)
 
-[![Reliability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=reliability_rating&branch=master)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=master)
-[![Security](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=security_rating&branch=master)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=master)
-[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=sqale_rating&branch=master)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=master)
-[![Duplication](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=duplicated_lines_density&branch=master)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=duplicated_lines_density&branch=master)
+[![Reliability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=reliability_rating&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
+[![Security](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=security_rating&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
+[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=sqale_rating&branch=main)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=main)
+[![Duplication](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=duplicated_lines_density&branch=main)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=duplicated_lines_density&branch=main)
 
-[![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://github.com/ffroliva/sharpit/blob/master/pyproject.toml)
-[![Licence: Apache-2.0](https://img.shields.io/github/license/ffroliva/sharpit)](https://github.com/ffroliva/sharpit/blob/master/LICENSE)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](https://github.com/ffroliva/sharpit/blob/master/CHANGELOG.md)
+[![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://github.com/ffroliva/sharpit/blob/main/pyproject.toml)
+[![Licence: Apache-2.0](https://img.shields.io/github/license/ffroliva/sharpit)](https://github.com/ffroliva/sharpit/blob/main/LICENSE)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Type checked: pyright](https://img.shields.io/badge/type%20checked-pyright-blue.svg)](https://github.com/microsoft/pyright)
 
-<!-- CI and SonarCloud badges are live and pinned to master. Add the PyPI version badge with the first PyPI release. -->
+<!-- CI and SonarCloud badges are live and pinned to main. Add the PyPI version badge with the first PyPI release. -->
 
 An embedded, local-only developer console for FastAPI apps. One call mounts a web console at `/sharpit` and a
 JSON API at `/sharpit/api` inside your own app, so a running service becomes understandable in minutes: its
@@ -26,9 +26,9 @@ and a vulnerability scan of the installed packages.
 sharpit is a Python/FastAPI port of [BootUI](https://github.com/jdubois/boot-ui) by Julien Dubois (Apache-2.0), the
 Spring Boot developer console. It ports BootUI's design goals, JSON contract and test cases; the UI is new.
 
-![sharpit overview](https://raw.githubusercontent.com/ffroliva/sharpit/master/ui/tests/e2e/screenshots/overview-light.png)
+![sharpit overview](https://raw.githubusercontent.com/ffroliva/sharpit/main/ui/tests/e2e/screenshots/overview-light.png)
 
-> **Status: alpha (0.2.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/master/CHANGELOG.md).
+> **Status: alpha (0.2.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Install
 
@@ -128,7 +128,7 @@ logs at INFO. When on, it prints a banner on stderr and `GET /sharpit/api/overvi
 
 `GET /sharpit/api/panels` lists what this build offers and why a panel is unavailable or read-only.
 
-![sharpit configuration panel](https://raw.githubusercontent.com/ffroliva/sharpit/master/ui/tests/e2e/screenshots/config-light.png)
+![sharpit configuration panel](https://raw.githubusercontent.com/ffroliva/sharpit/main/ui/tests/e2e/screenshots/config-light.png)
 
 ## MCP for AI agents
 
@@ -142,7 +142,7 @@ or the switch in the MCP Server panel), then point a streamable-HTTP MCP client 
 MCP. The same guard chain and masking apply to it as to the UI.
 
 An agent skill that teaches an AI assistant to install and use sharpit is in
-[`skills/sharpit`](https://github.com/ffroliva/sharpit/tree/master/skills/sharpit). The `sharpit` command-line client
+[`skills/sharpit`](https://github.com/ffroliva/sharpit/tree/main/skills/sharpit). The `sharpit` command-line client
 is planned and not shipped; the `/sharpit/api/cli/tools/<tool>` HTTP endpoint is.
 
 ## Settings
@@ -266,9 +266,9 @@ For a dev tool, the simplest setup is one worker.
 
 sharpit follows BootUI's JSON contract and keeps its guard and masking rules, with deliberate differences (a stricter
 cross-site check, Python-specific activation, a new UI, deferred features). The log is section 14 of the
-[design spec](https://github.com/ffroliva/sharpit/blob/master/docs/superpowers/specs/2026-10-30-sharpit-mvp-design.md).
+[design spec](https://github.com/ffroliva/sharpit/blob/main/docs/superpowers/specs/2026-10-30-sharpit-mvp-design.md).
 
 ## License
 
-Apache License 2.0. See [LICENSE](https://github.com/ffroliva/sharpit/blob/master/LICENSE) and [NOTICE](https://github.com/ffroliva/sharpit/blob/master/NOTICE). sharpit is derived from
+Apache License 2.0. See [LICENSE](https://github.com/ffroliva/sharpit/blob/main/LICENSE) and [NOTICE](https://github.com/ffroliva/sharpit/blob/main/NOTICE). sharpit is derived from
 [BootUI](https://github.com/jdubois/boot-ui), Copyright Julien Dubois.

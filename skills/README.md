@@ -45,7 +45,7 @@ effects on GET or MCP, and OSV network failures.
 
 | Source skill | Here | Why |
 |---|---|---|
-| predict, scenario, plan, status, check, changelog, known-issues, doc-review, issue-assessment, issue-resolve, pr-council-review, llm-council, spike, release | Ported and rewritten | Same role; sharpit's personas, risk dimensions, gates and branch (`master`) |
+| predict, scenario, plan, status, check, changelog, known-issues, doc-review, issue-assessment, issue-resolve, pr-council-review, llm-council, spike, release | Ported and rewritten | Same role; sharpit's personas, risk dimensions, gates and branch (`main`) |
 | live-verify | Adapted | The original drove a browser against a remote service; here it installs sharpit in a sample FastAPI app and hits `/sharpit/api` |
 | optimize | New pointer | Means test-suite speed: points at the standalone pytest-speed skill, vendored in `scripts/pytest_speed/` |
 | gflow-cli (user-facing skill) | Dropped, replaced by `sharpit` | Described the other project's CLI |

@@ -1,5 +1,5 @@
 ---
-description: Council review of the current local feature branch before a PR (branch mode, default base master). Never posts to GitHub.
+description: Council review of the current local feature branch before a PR (branch mode, default base main). Never posts to GitHub.
 ---
 
 # `/sharpit:branch-review [--base <ref>]`

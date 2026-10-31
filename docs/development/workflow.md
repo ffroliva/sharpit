@@ -1,7 +1,7 @@
 # Development workflow
 
 How a change to sharpit goes from idea to release. Rules (worktrees, TDD, commits, no AI attribution, never push
-`master` or publish) are in [AGENTS.md](../../AGENTS.md); this page is the order of the steps and when to use each.
+`main` or publish) are in [AGENTS.md](../../AGENTS.md); this page is the order of the steps and when to use each.
 Every `/sharpit:<name>` step is `skills/<name>/SKILL.md`, readable by any agent.
 
 ```
@@ -31,7 +31,7 @@ A task-by-task TDD plan at `docs/superpowers/plans/<date>-<slug>.md`, contract f
 
 ## 4. Execute: subagent-driven
 
-In a worktree from `origin/master`, one task at a time with `superpowers:subagent-driven-development`: a fresh subagent
+In a worktree from `origin/main`, one task at a time with `superpowers:subagent-driven-development`: a fresh subagent
 per task, red test first, review between tasks. Before touching activation, the guard, masking, introspection or
 OSV, read **`/sharpit:known-issues`**. Delegated agents get the background-command rule in their brief.
 
@@ -50,7 +50,7 @@ marks slow or weakens a test.
 | Step | When |
 |---|---|
 | `/sharpit:doc-review` | The branch changes anything a doc describes |
-| `/sharpit:branch-review` | Before opening the PR: the council on the local branch (base `origin/master`) |
+| `/sharpit:branch-review` | Before opening the PR: the council on the local branch (base `origin/main`) |
 | `/sharpit:pr-council-review <N>` | On the open PR; posts only when asked |
 | `/sharpit:llm-council` | Activation, guard, masking, settings parsing or a release: adds Codex and Antigravity |
 
@@ -59,7 +59,7 @@ The owner merges. Agents never merge.
 ## 7. Release: `/sharpit:release`
 
 Only when the owner asks. A version bump in `src/sharpit/__init__.py` and the changelog go through a
-`chore/release-<version>` PR; after the merge, a signed tag `v<version>` on `master` is the release. Pushing that tag
+`chore/release-<version>` PR; after the merge, a signed tag `v<version>` on `main` is the release. Pushing that tag
 runs `.github/workflows/release.yml`, which publishes to PyPI with Trusted Publishing and creates the GitHub Release.
 Nobody uploads by hand, and the tag is only pushed after the owner says go.
 
