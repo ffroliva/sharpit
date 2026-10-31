@@ -41,8 +41,6 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - HTTP probe executes directly via in-process ASGI calls without opening network sockets, refusing paths under the sharpit mount.
 - Release workflow uploads only `.whl` and `.tar.gz` assets to GitHub Releases.
 - The default branch is `main` (was `master`); CI, docs, skills and badges point at it.
-- Releases publish from CI: pushing a signed `v<version>` tag runs `.github/workflows/release.yml`, which
-  publishes to PyPI with Trusted Publishing and creates the GitHub Release. `/sharpit:release` drives it.
 
 ## [0.1.0] - 2026-10-31
 
