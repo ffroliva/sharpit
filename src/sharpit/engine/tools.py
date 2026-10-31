@@ -233,8 +233,7 @@ class ToolGate:
     def __init__(self, max_results: int, max_concurrent: int, timeout: float) -> None:
         self.max_results = max_results
         self.timeout = timeout
-        self._max_concurrent = max_concurrent
-        self._abandoned = 0  # timed-out workers still running: they count against max_concurrent until they finish
+        # one slot per worker thread, released only when it finishes: timed-out workers still running count too
         self._slots = threading.Semaphore(max_concurrent)
         self._lock = threading.Lock()
         self.stats = {
@@ -254,23 +253,12 @@ class ToolGate:
             return dict(self.stats)
 
     def run(self, name: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
-        with self._lock:
-            saturated = self._abandoned >= self._max_concurrent
-        if saturated or not self._slots.acquire(blocking=False):
+        if not self._slots.acquire(blocking=False):
             self.count("capacityRefusals")
             raise RpcError(SERVER_AT_CAPACITY, "MCP server is at capacity; try again shortly.")
         started = time.monotonic()
         done = threading.Event()
-        released = threading.Event()
         outcome: dict[str, Any] = {}
-        state = {"finished": False, "abandoned": False}  # guarded by self._lock
-
-        def release() -> None:
-            with self._lock:
-                if released.is_set():
-                    return
-                released.set()
-            self._slots.release()
 
         def worker() -> None:
             try:
@@ -281,24 +269,16 @@ class ToolGate:
                 with self._lock:
                     self.stats["callCount"] += 1
                     self.stats["totalLatencyMillis"] += round((time.monotonic() - started) * 1000)
-                    state["finished"] = True
-                    if state["abandoned"]:
-                        self._abandoned -= 1
-                release()
+                self._slots.release()
                 done.set()
 
         try:
             threading.Thread(target=worker, name=f"sharpit-tool-{name}", daemon=True).start()
         except BaseException:
-            release()
+            self._slots.release()
             raise
         if not done.wait(self.timeout):
-            with self._lock:
-                self.stats["timeouts"] += 1
-                if not state["finished"]:
-                    state["abandoned"] = True
-                    self._abandoned += 1
-            release()
+            self.count("timeouts")
             raise RpcError(TOOL_TIMEOUT, "MCP tool execution timed out")
         error = outcome.get("error")
         if error is None:

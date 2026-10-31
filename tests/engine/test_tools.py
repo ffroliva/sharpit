@@ -7,7 +7,8 @@ Dropped, with reason:
 - ``advisor*`` cases (``RULE_VIOLATIONS`` schema, ``scanId``/``offset`` paging, stale snapshots): no advisor tools in
   the MVP catalogue.
 - ``McpDispatcher`` interrupt bookkeeping (``invocationState``): Python threads cannot be interrupted; the slot is
-  released once, by whichever of worker completion or caller timeout comes first (``test_timeout_releases_semaphore``).
+  released only when the worker finishes, so abandoned workers count against the cap
+  (``test_timeout_releases_semaphore``).
 """
 
 from __future__ import annotations
@@ -286,7 +287,7 @@ def test_capacity_refusal_32001():
 
 
 def test_timeout_releases_semaphore():
-    # new: brief ruling (slot released on timeout; Python cannot cancel the worker)
+    # new: brief ruling (Python cannot cancel the worker); the abandoned worker keeps its slot until it finishes
     release, workers = threading.Event(), list[threading.Thread]()
     tools = (_blocking_tool(release, workers), _tool("get_fast", lambda _c, _a: {"fast": True}))
     ctx = _ctx(mcp_max_concurrent_calls=2, mcp_execution_timeout="50ms")
@@ -294,7 +295,7 @@ def test_timeout_releases_semaphore():
         with pytest.raises(RpcError) as exc:
             call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=tools)
         assert (exc.value.code, exc.value.message) == (TOOL_TIMEOUT, "MCP tool execution timed out")
-        assert workers[0].is_alive()  # the abandoned worker still runs, but no longer holds a slot
+        assert workers[0].is_alive()  # the abandoned worker still runs and holds one of the two slots
         assert call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools) == {"fast": True}
         assert tool_gate(ctx, "mcp").snapshot()["timeouts"] == 1
     finally:
@@ -328,6 +329,29 @@ def test_abandoned_workers_bound_capacity():
             worker.join(5)
     assert not any(w.is_alive() for w in workers)
     assert call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools) == {"fast": True}  # finished: not abandoned
+
+
+def test_cap_counts_running_and_abandoned_together():
+    # code review #5: one abandoned worker plus one running call fill a cap of 2, so a third call is refused
+    release, workers = threading.Event(), list[threading.Thread]()
+    tools = (_blocking_tool(release, workers), _tool("get_fast", lambda _c, _a: {"fast": True}))
+    ctx = _ctx(mcp_max_concurrent_calls=2, mcp_execution_timeout="300ms")
+    running = threading.Thread(target=lambda: call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=tools))
+    try:
+        with pytest.raises(RpcError):
+            call_tool(_call(ctx), "get_slow", {}, via="mcp", tools=tools)  # times out: abandoned
+        running.start()
+        while len(workers) < 2:
+            threading.Event().wait(0.01)
+        with pytest.raises(RpcError) as refused:
+            call_tool(_call(ctx), "get_fast", {}, via="mcp", tools=tools)
+        assert refused.value.code == SERVER_AT_CAPACITY
+    finally:
+        release.set()
+        running.join(5)
+        for worker in workers:
+            worker.join(5)
+    assert tool_gate(ctx, "mcp")._slots._value == 2  # pyright: ignore[reportPrivateUsage]  # every slot came back
 
 
 @pytest.mark.parametrize("name", [t.name for t in TOOLS if not t.action])
