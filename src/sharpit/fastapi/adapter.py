@@ -194,40 +194,19 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
 
     def config(request: Request) -> Response:
         params = request.query_params
-        try:
-            offset = parse_int_param(params.get("offset"), "offset")
-            limit = parse_int_param(params.get("limit"), "limit")
-        except BadRequest as exc:
-            return error(400, str(exc))
+        offset, limit = _page(request)
         overrides_only = params.get("overridesOnly", "").strip().lower() == "true"
         return json_response(config_report(ctx, params.get("q"), params.get("source"), overrides_only, offset, limit))
 
     def loggers(request: Request) -> Response:
-        params = request.query_params
-        try:
-            offset = parse_int_param(params.get("offset"), "offset")
-            limit = parse_int_param(params.get("limit"), "limit")
-        except BadRequest as exc:
-            return error(400, str(exc))
-        return json_response(loggers_report(params.get("q"), offset, limit))
+        return json_response(loggers_report(request.query_params.get("q"), *_page(request)))
 
     def mappings(request: Request) -> Response:
-        params = request.query_params
-        try:
-            offset = parse_int_param(params.get("offset"), "offset")
-            limit = parse_int_param(params.get("limit"), "limit")
-        except BadRequest as exc:
-            return error(400, str(exc))
-        return json_response(mappings_flat(ctx, params.get("q"), offset, limit))
+        return json_response(mappings_flat(ctx, request.query_params.get("q"), *_page(request)))
 
     def beans(request: Request) -> Response:
         params = request.query_params
-        try:
-            offset = parse_int_param(params.get("offset"), "offset")
-            limit = parse_int_param(params.get("limit"), "limit")
-        except BadRequest as exc:
-            return error(400, str(exc))
-        return json_response(beans_report(ctx, params.get("q"), params.get("classification"), offset, limit))
+        return json_response(beans_report(ctx, params.get("q"), params.get("classification"), *_page(request)))
 
     def vulnerability_service() -> VulnerabilityService:
         return tools.vulnerability_service(ctx)
@@ -247,10 +226,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
     def dismissed_rule(request: Request) -> Response:
         store = vulnerability_service().dismissals
         rule: str = request.path_params["rule_id"]
-        try:
-            ids = store.add(rule) if request.method == "POST" else store.remove(rule)
-        except BadRequest as exc:
-            return error(400, str(exc))
+        ids = store.add(rule) if request.method == "POST" else store.remove(rule)
         return json_response({"dismissed": ids})
 
     def mcp_server() -> McpServer:
@@ -313,10 +289,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         level = cast("dict[str, Any]", body).get("level") if isinstance(body, dict) else 0
         if not isinstance(level, str | None):
             return error(400, "Request body must be a JSON object with a string or null 'level'")
-        try:
-            return json_response(set_level(request.path_params["name"], level))
-        except BadRequest as exc:
-            return error(400, str(exc))
+        return json_response(set_level(request.path_params["name"], level))
 
     return [
         Route("/", shell, methods=["GET"]),
@@ -359,6 +332,16 @@ def _json_or_none(raw: bytes) -> object:
         return json.loads(raw)
     except (ValueError, RecursionError):  # deep nesting raises RecursionError
         return None
+
+
+def _page(request: Request) -> tuple[int | None, int | None]:
+    """``offset`` and ``limit`` query parameters; a non-integer raises ``BadRequest`` (rendered as 400)."""
+    params = request.query_params
+    return parse_int_param(params.get("offset"), "offset"), parse_int_param(params.get("limit"), "limit")
+
+
+async def _bad_request(_request: Request, exc: Exception) -> Response:
+    return error(400, str(exc))
 
 
 async def _json_http_error(_request: Request, exc: Exception) -> Response:
@@ -456,7 +439,7 @@ def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle
     sub_app = Starlette(
         routes=_routes(ctx),
         middleware=[Middleware(GuardMiddleware, ctx=ctx)],
-        exception_handlers={404: _json_http_error, 405: _json_http_error},
+        exception_handlers={404: _json_http_error, 405: _json_http_error, BadRequest: _bad_request},
     )
     mount = SharpitMount(sharpit_settings.path, app=sub_app, name="sharpit")
     mount.sharpit_handle = handle
