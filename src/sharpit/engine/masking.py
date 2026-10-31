@@ -75,12 +75,16 @@ def is_sensitive_key(name: str) -> bool:
 class Masker:
     """Decides what the UI sees for a (name, value) pair under the live exposure policy."""
 
-    def __init__(self, exposure: Exposure, mask_secrets: bool) -> None:
+    def __init__(self, exposure: Exposure, mask_secrets: bool, token: str | None = None) -> None:
         self._exposure = exposure
         self._mask_secrets = mask_secrets
+        self._token = token
 
     def mask(self, name: str, value: object) -> tuple[object | None, bool]:
         """Return ``(display_value, masked)``."""
+        # sharpit's own token is never shown, whatever the mask setting or exposure: it grants the whole console
+        if self._token and value == self._token and self._exposure is not Exposure.METADATA_ONLY:
+            return MASK, True
         if self._exposure is Exposure.FULL:
             return value, False
         if self._exposure is Exposure.METADATA_ONLY:

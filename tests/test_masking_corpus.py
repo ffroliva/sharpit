@@ -259,6 +259,27 @@ def test_generated_token_printed_once_to_stderr_not_logged(
     assert all(token not in str(r.__dict__) for r in caplog.records)
 
 
+def test_own_token_masked_with_mask_secrets_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # the final review's M6: SHARPIT_MASK_SECRETS=false must not show sharpit's own token in Config or get_config
+    monkeypatch.setenv("SHARPIT_MASK_SECRETS", "false")
+    monkeypatch.setenv("SHARPIT_AUTHENTICATION_TOKEN", AUTH_TOKEN)
+    monkeypatch.setenv("TOKEN_COPY_FOR_TEST", AUTH_TOKEN)
+    app = create_app(allow_non_localhost=True, state_dir=str(tmp_path))
+    bearer = {"Authorization": f"Bearer {AUTH_TOKEN}"}
+    with TestClient(app, base_url="http://localhost", client=REMOTE) as client:
+        config = client.get(f"{API}/config?limit=500", headers=bearer)
+        tool = client.post(f"{API}/cli/tools/get_config", json={"query": "token"}, headers=bearer)
+    assert config.status_code == tool.status_code == 200
+    names = {p["name"] for p in config.json()["properties"]}
+    assert {
+        "SHARPIT_AUTHENTICATION_TOKEN",
+        "TOKEN_COPY_FOR_TEST",
+    } <= names  # listed, so the check below is meaningful
+    assert "TOKEN_COPY_FOR_TEST" in tool.text
+    for text in (config.text, tool.text):
+        assert AUTH_TOKEN not in text
+
+
 def test_configured_token_never_printed(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
 ):

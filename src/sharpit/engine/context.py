@@ -33,7 +33,9 @@ class SharpitContext:
     _locks_guard: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self.masker = Masker(self.settings.expose_values, self.settings.mask_secrets)
+        self.masker = Masker(
+            self.settings.expose_values, self.settings.mask_secrets, self.settings.authentication_token
+        )
 
     def lazy[T](self, key: str, factory: Callable[[], T]) -> T:
         """Memoised ``factory()``, at most once per key; a slow factory only holds up callers of its own key."""

@@ -146,6 +146,16 @@ def test_metadata_only_hides_value() -> None:
     assert Masker(META, True).mask("db.password", "x") == (None, False)
 
 
+def test_own_token_never_shown() -> None:
+    # sharpit's own token is masked by value whatever the mask setting or exposure (it would hand the console away)
+    token = "tok-3f9a"
+    for masker in (Masker(M, False, token), Masker(FULL, True, token), Masker(M, True, token)):
+        assert masker.mask("SHARPIT_AUTHENTICATION_TOKEN", token) == (MASK, True)
+        assert masker.mask("HARMLESS_COPY", token) == (MASK, True)
+    assert Masker(META, True, token).mask("SHARPIT_AUTHENTICATION_TOKEN", token) == (None, False)
+    assert Masker(M, False, token).mask("OTHER", "plain") == ("plain", False)
+
+
 def test_full_returns_raw() -> None:
     assert Masker(FULL, True).mask("db.password", "plain") == ("plain", False)
 
