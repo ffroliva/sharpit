@@ -12,10 +12,10 @@ import inspect
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
+from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.masking import MASK, is_sensitive_key
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
 
@@ -75,7 +75,7 @@ class HealthService:
     def __init__(self, ctx: SharpitContext) -> None:
         self._ctx = ctx
         self._last: dict[str, Any] | None = None
-        self._executor: ThreadPoolExecutor | None = None
+        self._executor: DaemonExecutor | None = None
         self._executor_lock = threading.Lock()
 
     # --- tree ---------------------------------------------------------------------------------------------------
@@ -119,11 +119,11 @@ class HealthService:
 
     # --- checks ---------------------------------------------------------------------------------------------------
 
-    def _pool(self) -> ThreadPoolExecutor:
+    def _pool(self) -> DaemonExecutor:
         """sharpit's own 2 threads, created on the first check: never anyio's limiter the host's endpoints share."""
         with self._executor_lock:
             if self._executor is None:
-                self._executor = ThreadPoolExecutor(2, thread_name_prefix="sharpit-health")
+                self._executor = DaemonExecutor(2, thread_name_prefix="sharpit-health")
             return self._executor
 
     async def check(self) -> dict[str, Any]:
@@ -159,7 +159,7 @@ class HealthService:
     def _failure(self, exc: BaseException) -> str | None:
         return self._ctx.masker.mask_text(f"{type(exc).__name__}: {exc}")
 
-    async def _ping(self, name: str, engine: Any, flight: Flight, executor: ThreadPoolExecutor) -> dict[str, Any]:
+    async def _ping(self, name: str, engine: Any, flight: Flight, executor: DaemonExecutor) -> dict[str, Any]:
         details: dict[str, Any] = {"database": engine.dialect.name, "validationQuery": "dialect ping"}
         try:
             ok = await sqla.run_db_read(
@@ -177,7 +177,7 @@ class HealthService:
         return node(name, status, {**details, "checkedAt": _now_ms()})
 
     async def _run(
-        self, name: str, fn: Callable[[], object], flight: Flight, executor: ThreadPoolExecutor
+        self, name: str, fn: Callable[[], object], flight: Flight, executor: DaemonExecutor
     ) -> dict[str, Any]:
         done = flight.worker()
         work = None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -281,6 +282,19 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
                 released = True
                 slots.release()
 
+        async def run_host(
+            host: ASGIApp,
+            scope: Scope,
+            receive: Receive,
+            send: Send,
+            register_cancel: Callable[[Callable[[], None]], None],
+        ) -> None:
+            import anyio
+
+            with anyio.CancelScope() as cancel_scope:
+                register_cancel(cancel_scope.cancel)
+                await host(scope, receive, send)
+
         try:
             result = await probe_engine.run_probe(
                 host_app,
@@ -290,7 +304,10 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
                 ctx.masker,
                 timeout=probe_engine.PROBE_TIMEOUT,
                 on_complete=release_slot,
+                host_runner=run_host,
             )
+        except asyncio.CancelledError:
+            raise
         except BaseException:
             release_slot()
             raise

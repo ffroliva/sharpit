@@ -92,6 +92,72 @@ def test_probe_under_real_root_path_cannot_reach_sharpit(handle: list[SharpitHan
     assert response.json() == {"error": "HTTP Probe cannot target sharpit itself"}
 
 
+def test_client_disconnect_keeps_probe_slot_until_sync_host_returns(handle: list[SharpitHandle]):
+    app = FastAPI()
+    entered, release = threading.Event(), threading.Event()
+
+    @app.get("/slow")
+    def slow():
+        entered.set()
+        release.wait()
+        return {"ok": True}
+
+    installed = _install(app, handle)
+
+    async def scenario():
+        body = b'{"method":"GET","path":"/slow"}'
+        sent_request = False
+
+        async def receive():
+            nonlocal sent_request
+            if not sent_request:
+                sent_request = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            await asyncio.Event().wait()
+
+        async def send(_message):
+            return None
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": API,
+            "raw_path": API.encode(),
+            "query_string": b"",
+            "root_path": "",
+            "headers": [
+                (b"host", b"localhost"),
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+            "client": LOCAL,
+            "server": ("localhost", 80),
+            "state": {},
+        }
+        pending = asyncio.create_task(app(scope, receive, send))
+        assert await asyncio.to_thread(entered.wait, 2)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+
+        slots = installed.context.peek("probe_slots")
+        assert slots is not None and slots.count == 1
+        release.set()
+        for _ in range(100):
+            if slots.count == 0:
+                break
+            await asyncio.sleep(0.01)
+        assert slots.count == 0
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        release.set()
+
+
 def test_probe_opens_no_socket(no_side_effects: SideEffectGuard, handle: list[SharpitHandle]):
     app = FastAPI()
 
@@ -151,6 +217,15 @@ def test_post_probe_sends_request_body_and_response_shape_matches_bootui(handle:
         result = client.post(API, json={"method": "POST", "path": "/request-body", "body": "payload"}).json()
     assert set(result) == {"status", "statusText", "headers", "body", "durationMs", "error", "truncated"}
     assert result["body"] == '{"body":"payload"}'
+
+
+# ported: HttpProbeResponse
+def test_shape_keys_match_bootui(handle: list[SharpitHandle]):
+    app = FastAPI()
+    _install(app, handle)
+    with _client(app) as client:
+        result = _probe(client, "/missing").json()
+    assert set(result) == {"status", "statusText", "headers", "body", "durationMs", "error", "truncated"}
 
 
 def test_host_reaches_trusted_host_middleware(handle: list[SharpitHandle]):
