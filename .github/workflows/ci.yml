@@ -28,16 +28,20 @@ jobs:
       - run: uv run pytest -q -n auto
 
   coverage:
-    # Coverage for SonarCloud. The overhead budget test times capture on vs off, which the coverage
-    # tracer distorts; it runs in the plain test matrix above.
+    # Coverage for SonarCloud. The two overhead budget tests time capture on vs off, which the coverage
+    # tracer distorts; they run in the plain test matrix above.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
       - run: uv sync --locked --extra test --python 3.13 # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
-      - run: >-
+      # coverage's per-worker data files would land in the repo, which the side-effect checks report as a change
+      - env:
+          COVERAGE_FILE: ${{ runner.temp }}/.coverage
+        run: >-
           uv run pytest -q -n auto --cov=sharpit --cov-report=xml
           --deselect tests/fastapi/test_capture_overhead.py::test_request_overhead_budget
+          --deselect tests/fastapi/test_sql_trace_overhead.py::test_statement_overhead_budget
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-xml
