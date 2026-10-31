@@ -24,7 +24,7 @@ uv add "sharpit @ git+https://github.com/ffroliva/sharpit.git"
 
 Once published, it is `pip install sharpit` or `uv add sharpit`.
 
-Python 3.12+. Runtime dependencies are only `starlette>=0.40` and `packaging>=23`. Optional extras:
+Python 3.12+. Runtime dependencies are only `starlette>=0.44` and `packaging>=23`. Optional extras:
 
 | Extra | Adds | Why |
 |---|---|---|

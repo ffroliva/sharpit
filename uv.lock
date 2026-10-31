@@ -443,7 +443,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
     { name = "pytest-timeout", marker = "extra == 'test'", specifier = ">=2.3" },
     { name = "python-multipart", marker = "extra == 'test'", specifier = ">=0.0.9" },
-    { name = "starlette", specifier = ">=0.40" },
+    { name = "starlette", specifier = ">=0.44" },
     { name = "uvicorn", marker = "extra == 'test'", specifier = ">=0.30" },
 ]
 provides-extras = ["fastapi", "settings", "test"]

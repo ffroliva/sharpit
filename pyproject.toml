@@ -27,7 +27,7 @@ classifiers = [
     "Topic :: Software Development :: Debuggers",
     "Typing :: Typed",
 ]
-dependencies = ["starlette>=0.40", "packaging>=23"]
+dependencies = ["starlette>=0.44", "packaging>=23"]
 
 [project.urls]
 Homepage = "https://github.com/ffroliva/sharpit"

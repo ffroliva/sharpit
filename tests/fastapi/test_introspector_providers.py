@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import fastapi.routing
 import pytest
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.testclient import TestClient
@@ -170,6 +171,7 @@ def test_lifespan_bean_unwraps_include_router_merges():
     assert not any("merged_lifespan" in n for n in names)
 
 
+@pytest.mark.skipif(not hasattr(fastapi.routing, "_DefaultLifespan"), reason="older FastAPI has no _DefaultLifespan")
 def test_no_lifespan_with_routers_is_default_lifespan():
     app = FastAPI()
     app.include_router(APIRouter(), prefix="/r")
