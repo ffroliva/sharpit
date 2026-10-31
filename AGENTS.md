@@ -94,7 +94,7 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    `pydantic_settings` only in `engine/collectors/config/settings_source.py`, `urllib.request`/`http.client` only in
    the OSV and EPSS clients under `engine/collectors/vulns/`. `alembic`, `socket` and `ssl` are imported nowhere.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
-   SQL listener) keep their overhead budget tests; a budget is never raised to pass. Audit with `/sharpit:perf-audit`.
+   SQL listener) keep their overhead budget tests; a budget is never raised to pass.
 
 ## Workflow
 
@@ -135,7 +135,6 @@ Each row is `skills/<name>/SKILL.md`; in Claude Code run it as `/sharpit:<comman
 | `live-verify` | Run a sample FastAPI app with sharpit and hit `/sharpit/api` |
 | `spike` | Answer a question by experiment, time-boxed, verdict only |
 | `optimize` | Test suite too slow: pytest-speed protocol, never weaken a test |
-| `perf-audit` | Runtime slowness or a hot-path change: measure, budget test per fix, never trade safety |
 | `issue-assessment` | Read-only triage of a GitHub issue |
 | `issue-resolve` | Fix an issue: worktree, red test, fix, draft PR |
 | `known-issues` | Before touching activation, guard, masking, introspection or OSV |
