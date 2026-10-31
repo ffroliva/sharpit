@@ -137,3 +137,29 @@ it('loading before the report arrives', () => {
   render({ report: null });
   expect(phase()).toBe('loading');
 });
+
+it('reopening a rule before the first page returns lists the rows once (final-review F2a)', async () => {
+  const pending: Array<(p: object) => void> = [];
+  const loadViolations = vi.fn(() => new Promise<any>((resolve) => pending.push(resolve)));
+  render({ loadViolations });
+  button(/^View violations for RAPI-NAME-001/).click(); // open
+  button(/^View violations for RAPI-NAME-001/).click(); // close
+  button(/^View violations for RAPI-NAME-001/).click(); // reopen: two requests in flight
+  const page = { violations: ['GET /a', 'GET /b'], page: { hasMore: false, offset: 0, returned: 2 } };
+  pending.forEach((resolve) => resolve(page));
+  await until(() => expect(text()).toContain('GET /b'));
+  expect(target.querySelectorAll('.violations li')).toHaveLength(2);
+});
+
+it('scanning again closes the open rule and drops its in-flight page (final-review F2c)', async () => {
+  let resolveFirst!: (p: object) => void;
+  const loadViolations = vi.fn(() => new Promise<any>((resolve) => (resolveFirst = resolve)));
+  render({ loadViolations });
+  button(/^View violations for RAPI-NAME-001/).click();
+  button(/^Scan again/).click();
+  await until(() => expect(props.onScan).toHaveBeenCalled());
+  resolveFirst({ violations: ['OLD scan row'], page: { hasMore: true, offset: 0, returned: 1 } });
+  await new Promise((r) => setTimeout(r, 20));
+  expect(text()).not.toContain('OLD scan row');
+  expect(button(/^View violations for RAPI-NAME-001/).getAttribute('aria-expanded')).toBe('false');
+});

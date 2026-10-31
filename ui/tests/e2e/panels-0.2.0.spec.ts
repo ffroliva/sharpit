@@ -107,11 +107,11 @@ test('HTTP Probe returns 200 for /owners and refuses /sharpit/api/panels', async
   const path = page.getByRole('combobox', { name: 'Path' }); // a text input with route suggestions (datalist)
   await path.fill('/owners');
   await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByRole('region', { name: 'Response' })).toContainText('200');
+  await expect(page.getByRole('region', { name: 'Response' }).locator('h2 .mono')).toHaveText(/^200 /);
 
   await path.fill('/sharpit/api/panels');
   await page.getByRole('button', { name: 'Send' }).click();
-  await expect(main(page).locator('.notice.danger[role="alert"]')).toBeVisible();
+  await expect(main(page).locator('.notice.danger[role="alert"]')).toHaveText('HTTP Probe cannot target sharpit itself');
 });
 
 for (const scheme of ['light', 'dark'] as const) {
@@ -119,8 +119,8 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
     // data on every panel first, so axe sees the populated views, not only their empty states
     for (const path of ['/owners/n-plus-one', '/boom', '/warn', '/sleeper']) await hit(page, path);
-    await page.request.post('api/rest-api/scan');
-    await page.request.post('api/alembic/refresh');
+    expect((await page.request.post('api/rest-api/scan')).ok()).toBe(true);
+    expect((await page.request.post('api/alembic/refresh')).ok()).toBe(true);
     const found: string[] = [];
     for (const id of NEW_PANELS) {
       await openPanel(page, id);

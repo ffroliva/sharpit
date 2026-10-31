@@ -68,3 +68,12 @@ it('shows the error state', async () => {
   h.mount(Health, { panel: readOnly('health') });
   await until(() => expect(h.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load'));
 });
+
+it('the header reads the newest checkedAt in the tree, not the root (final-review minor 3)', async () => {
+  const leafTree = node('application', 'UP', { components: [node('a', 'UP', { details: { checkedAt: 1_700_000_000_000 } }), node('b', 'UP', { details: { checkedAt: 1_700_000_500_000 } })] });
+  h.route(serve(leafTree));
+  h.mount(Health, { panel: panel('health') });
+  await until(() => expect(h.text()).not.toContain('Loading'));
+  expect(h.text()).not.toContain('never run');
+  expect(h.text()).toContain('last run');
+});
