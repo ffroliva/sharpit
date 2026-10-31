@@ -190,8 +190,8 @@
                   {#if v.dismissed}<span class="tag muted">dismissed</span>{/if}
                 </td>
                 <td>
-                  {#if upgradeHint(dep.packageName, dep.version, v.fixedVersions)}
-                    <code class="hint">{upgradeHint(dep.packageName, dep.version, v.fixedVersions)}</code>
+                  {#if upgradeHint(dep.packageName, v.fixedVersions)}
+                    <code class="hint">{upgradeHint(dep.packageName, v.fixedVersions)}</code>
                   {:else if v.fixedVersions.length > 0}<span class="muted">No fix listed above your version</span>
                   {:else}<span class="muted">No fixed version yet</span>{/if}
                 </td>

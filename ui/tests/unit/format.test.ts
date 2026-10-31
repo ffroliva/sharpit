@@ -2,30 +2,32 @@ import { describe, expect, it } from 'vitest';
 import { firstSentence, scannedWhen, upgradeHint } from '../../src/lib/format';
 
 describe('upgradeHint', () => {
-  it('names the lowest fixed version above the installed one', () => {
-    expect(upgradeHint('jinja2', '3.1.2', ['2.11.3', '3.1.3', '3.1.4'])).toBe('pip install "jinja2>=3.1.3"');
+  // the server sends only fixed versions above the installed one, sorted ascending by PEP 440
+  it('names the first (lowest) fixed version the server sends', () => {
+    expect(upgradeHint('jinja2', ['3.1.3', '3.1.4'])).toBe('pip install "jinja2>=3.1.3"');
   });
-  it('compares numerically, not as text', () => {
-    expect(upgradeHint('pkg', '1.9.0', ['1.10.0'])).toBe('pip install "pkg>=1.10.0"');
+  it.each([
+    ['django', '5.1rc1', ['5.1']],
+    ['urllib3', '2.0.0a3', ['2.0.0']],
+    ['pkg', '1.0', ['1.0.post1']],
+  ])('gives a hint for pre-release and post-release fixes: %s %s %s', (pkg, installed, fixed) => {
+    expect(upgradeHint(pkg, fixed)).toBe(`pip install "${pkg}>=${fixed[0]}"`);
   });
   it('has nothing to say without a fixed version', () => {
-    expect(upgradeHint('pkg', '1.0', [])).toBeNull();
-  });
-  it('has nothing to say when every fixed version is at or below the installed one', () => {
-    expect(upgradeHint('pkg', '2.0.0', ['1.4.2', '2.0.0'])).toBeNull();
+    expect(upgradeHint('pkg', [])).toBeNull();
   });
   // the hint is a shell command the user pastes: OSV strings must not be able to break out of it
   it.each([
-    ['evil"; rm -rf ~; "', '1.0', ['2.0']],
-    ['pkg', '1.0', ['2.0"; touch x; "']],
-    ['pkg', '1.0', ['2.0;id']],
-    ['pkg$(id)', '1.0', ['2.0']],
-    ['pkg', '1.0', ['$(id)']],
-  ])('refuses unsafe text: %s %s %s', (pkg, installed, fixed) => {
-    expect(upgradeHint(pkg, installed, fixed)).toBeNull();
+    ['evil"; rm -rf ~; "', ['2.0']],
+    ['pkg', ['2.0"; touch x; "']],
+    ['pkg', ['2.0;id']],
+    ['pkg$(id)', ['2.0']],
+    ['pkg', ['$(id)']],
+  ])('refuses unsafe text: %s %s', (pkg, fixed) => {
+    expect(upgradeHint(pkg, fixed)).toBeNull();
   });
   it('accepts the version characters PEP 440 uses', () => {
-    expect(upgradeHint('zope.interface', '0.9', ['1!2.0.post1+local'])).toBe('pip install "zope.interface>=1!2.0.post1+local"');
+    expect(upgradeHint('zope.interface', ['1!2.0.post1+local'])).toBe('pip install "zope.interface>=1!2.0.post1+local"');
   });
 });
 
