@@ -37,7 +37,8 @@ def test_stream_shutdown_within_lifetime():
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
         conn.request("GET", "/sharpit/api/log-tail/stream")
         resp = conn.getresponse()
-        assert resp.status == 200 and resp.getheader("content-type", "").startswith("text/event-stream")
+        assert resp.status == 200
+        assert resp.getheader("content-type", "").startswith("text/event-stream")
         started = time.monotonic()
         server.should_exit = True
         thread.join(lifetime + 5)
@@ -51,4 +52,5 @@ def test_stream_shutdown_within_lifetime():
         thread.join(10)
         sock.close()
     wiring = handle.context.capture.wiring
-    assert wiring is not None and wiring.detached  # lifespan shutdown ran after the stream drained
+    assert wiring is not None
+    assert wiring.detached

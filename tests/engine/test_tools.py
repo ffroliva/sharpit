@@ -188,11 +188,13 @@ def test_mcp_schema_matches_bootui(name: str):
     assert tool.input_schema == expected
     assert (tool.panel, tool.action) == (entry.get("sharpitPanel", entry["panel"]), entry["action"])
     assert COMMANDS[name] == entry.get("sharpitCommand", entry["command"])
-    assert "Spring" not in tool.description and "JVM" not in tool.description
+    assert "Spring" not in tool.description
+    assert "JVM" not in tool.description
 
 
 def test_bootui_tools_fixture_holds_the_release():
-    assert len(BOOTUI_TOOLS["tools"]) == 12 and len(BOOTUI_TOOLS["bootuiToolsCommit"]) == 40
+    assert len(BOOTUI_TOOLS["tools"]) == 12
+    assert len(BOOTUI_TOOLS["bootuiToolsCommit"]) == 40
 
 
 def test_every_action_tool_references_an_action_capable_panel():
@@ -388,7 +390,8 @@ def test_capacity_refusal_32001():
         first.join(5)
         for worker in workers:
             worker.join(5)
-    assert not first.is_alive() and not any(w.is_alive() for w in workers)
+    assert not first.is_alive()
+    assert not any(w.is_alive() for w in workers)
 
 
 def test_timeout_releases_semaphore():

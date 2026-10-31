@@ -67,9 +67,12 @@ def test_engine_display_names():
         "sqlite+pysqlite:///",
         "sqlite+aiosqlite:///app.db",
     ]
-    assert registry.holds(asynchronous.sync_engine) and registry.holds(first)
+    assert registry.holds(asynchronous.sync_engine)
+    assert registry.holds(first)
     names = str([name for name, _ in registry.engines()])
-    assert "hunter2" not in names and "secret" not in names and "user" not in names
+    assert "hunter2" not in names
+    assert "secret" not in names
+    assert "user" not in names
 
 
 def test_registry_holds_engines_weakly():
@@ -85,7 +88,8 @@ def test_install_seeds_registry_from_engines():
     engine = sa.create_engine("sqlite://")
     handle = _install(engines=[engine, object()])
     registry = handle.context.capture.engine_registry
-    assert registry is not None and registry.holds(engine)
+    assert registry is not None
+    assert registry.holds(engine)
 
 
 def test_statement_outside_request_routed_by_registry():
@@ -100,7 +104,8 @@ def test_statement_outside_request_routed_by_registry():
     assert (entry["category"], entry["statementType"], entry["success"], entry["traceId"]) == (
         "SELECT", "STATEMENT", True, None
     )  # fmt: skip
-    assert entry["connectionId"] is not None and int(entry["connectionId"], 16) > 0
+    assert entry["connectionId"] is not None
+    assert int(entry["connectionId"], 16) > 0
 
 
 def test_executemany_batch_size():
@@ -153,7 +158,8 @@ def test_expanding_in_parameters_masked_by_bind_name():
     with engine.connect() as conn:
         conn.execute(statement, {"a": [1, 2], "password": "hunter2-xyz", "b": [3, 4]})
     parameters = _entries(handle)[0]["parameters"]
-    assert "password=******" in parameters and not any("hunter2" in p for p in parameters)
+    assert "password=******" in parameters
+    assert not any("hunter2" in p for p in parameters)
     assert sorted(parameters) == sorted(["a_1=1", "a_2=2", "password=******", "b_1=3", "b_2=4"])
 
 
@@ -212,7 +218,9 @@ def test_sql_listener_failure_query_unchanged(monkeypatch: pytest.MonkeyPatch, c
         with pytest.raises(sa.exc.IntegrityError):
             conn.execute(sa.text("insert into t (id) values (1)"))
     warnings = [r.getMessage() for r in caplog.records if r.name == "sharpit"]
-    assert len(warnings) == 1 and "sql statement" in warnings[0] and "recorder broke" not in warnings[0], warnings
+    assert len(warnings) == 1, warnings
+    assert "sql statement" in warnings[0], warnings
+    assert "recorder broke" not in warnings[0], warnings
 
 
 def test_failed_statement_recorded_with_error():
@@ -306,7 +314,8 @@ def test_run_db_read_done_on_the_async_path():
         finally:
             await async_engine.dispose()
 
-    assert asyncio.run(main()) == 3 and calls == [1]
+    assert asyncio.run(main()) == 3
+    assert calls == [1]
 
 
 class _FakeConnection:

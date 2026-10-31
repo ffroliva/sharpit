@@ -90,7 +90,8 @@ def test_refresh_reads_sync_engine(tmp_path: Path):
     (database,) = resp.json()["databases"]
     assert _states(database) == [("a1", "Success"), ("b2", "Success"), ("c3", "Pending")]
     assert (database["currentVersion"], database["applied"], database["pending"]) == ("b2", 2, 1)
-    assert isinstance(database["checkedAt"], int) and database["unavailableReason"] is None
+    assert isinstance(database["checkedAt"], int)
+    assert database["unavailableReason"] is None
     assert client.get(URL).json()["databases"] == [database]  # the GET shows the cached read
 
 
@@ -115,7 +116,8 @@ def test_not_managed_by_alembic(tmp_path: Path):
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'plain.db'}")
     (database,) = _client([engine]).post(REFRESH).json()["databases"]
     assert database["unavailableReason"] == "Not managed by Alembic: no alembic_version table"
-    assert database["currentVersion"] is None and {s for _v, s in _states(database)} == {"Unknown"}
+    assert database["currentVersion"] is None
+    assert {s for _v, s in _states(database)} == {"Unknown"}
 
 
 def test_no_engine_reason():
@@ -128,7 +130,8 @@ def test_no_config_unavailable(tmp_path: Path):
     body = client.get(URL).json()
     assert (body["alembicPresent"], body["databases"]) == (False, [])
     panel = next(p for p in client.get("/sharpit/api/panels").json()["panels"] if p["id"] == "alembic")
-    assert panel["available"] is False and panel["unavailableReason"].startswith("No Alembic configuration")
+    assert panel["available"] is False
+    assert panel["unavailableReason"].startswith("No Alembic configuration")
 
 
 def _slow_engine(tmp_path: Path, gate: threading.Event, started: threading.Event) -> Any:
@@ -151,7 +154,8 @@ def test_timed_out_read_holds_single_flight(tmp_path: Path):
         assert database["unavailableReason"] == "Reading the database version timed out after 0.1s"
         assert started.is_set()
         busy = client.post(REFRESH)  # the thread still runs: refresh stays busy until it returns
-        assert busy.status_code == 409 and busy.json()["activeOperation"] == OPERATION
+        assert busy.status_code == 409
+        assert busy.json()["activeOperation"] == OPERATION
     finally:
         gate.set()
     for _ in range(200):

@@ -632,5 +632,7 @@ def test_aliases_and_references_are_unique_non_blank_and_capped():
     )
     f = interpret(doc, pkg(), ID)
     assert f is not None
-    assert f.aliases[:2] == ["CVE-2024-0001", "ALIAS-0"] and len(f.aliases) == 20
-    assert f.references[:2] == ["https://a", "https://r/0"] and len(f.references) == 20
+    assert f.aliases[:2] == ["CVE-2024-0001", "ALIAS-0"]
+    assert len(f.aliases) == 20
+    assert f.references[:2] == ["https://a", "https://r/0"]
+    assert len(f.references) == 20

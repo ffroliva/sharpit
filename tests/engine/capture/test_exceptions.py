@@ -66,7 +66,8 @@ def test_groups_repeated_failures():
     for exc in _same_origin(3):
         _record(store, exc)
     groups = _groups(store)
-    assert len(groups) == 1 and groups[0]["count"] == 3
+    assert len(groups) == 1
+    assert groups[0]["count"] == 3
     assert store.report()["totalExceptions"] == 3
 
 
@@ -76,7 +77,8 @@ def test_dedup_same_instance_same_request():
     exc = _raised(lambda: RuntimeError("boom"))
     _record(store, exc, _request(), source="request")
     _record(store, exc, _request(), source="log")
-    assert store.report()["totalExceptions"] == 1 and _groups(store)[0]["lastSource"] == "request"
+    assert store.report()["totalExceptions"] == 1
+    assert _groups(store)[0]["lastSource"] == "request"
 
 
 def test_separates_distinct_types():
@@ -103,7 +105,8 @@ def test_bounds_occurrences_per_group():
     group = _groups(store)[0]
     detail = store.detail(group["id"])
     assert detail is not None
-    assert group["count"] == 5 and len(detail["occurrences"]) == 3
+    assert group["count"] == 5
+    assert len(detail["occurrences"]) == 3
 
 
 def test_cause_chain():
@@ -127,9 +130,8 @@ def test_cause_chain():
     implicit = wrapped()  # __context__, not suppressed
     _record(store, implicit)
     detail = store.detail(next(g["id"] for g in _groups(store) if g["message"] == "wrapped"))
-    assert detail is not None and [c["message"] for c in detail["causes"]] == [
-        "invalid literal for int() with base 10: 'x'"
-    ]
+    assert detail is not None
+    assert [c["message"] for c in detail["causes"]] == ["invalid literal for int() with base 10: 'x'"]
 
 
 def test_suppressed_context_not_a_cause():
@@ -139,7 +141,8 @@ def test_suppressed_context_not_a_cause():
     exc.__suppress_context__ = True
     _record(store, exc)
     detail = store.detail(_groups(store)[0]["id"])
-    assert detail is not None and detail["causes"] == []
+    assert detail is not None
+    assert detail["causes"] == []
 
 
 def test_clear_and_change_signals():
@@ -153,7 +156,8 @@ def test_clear_and_change_signals():
     assert len(signals) == 2
     store.clear()
     assert len(signals) == 3
-    assert _groups(store) == [] and store.report()["totalExceptions"] == 0
+    assert _groups(store) == []
+    assert store.report()["totalExceptions"] == 0
 
 
 def test_failing_signal_never_breaks_capture():
@@ -181,7 +185,8 @@ def test_set_status_known_and_unknown():
     _record(store, _raised(lambda: RuntimeError("boom")))
     gid = _groups(store)[0]["id"]
     updated = store.set_status(gid, "acknowledged")  # BootUI parses case-insensitively
-    assert updated is not None and updated["status"] == "ACKNOWLEDGED"
+    assert updated is not None
+    assert updated["status"] == "ACKNOWLEDGED"
     assert _groups(store)[0]["status"] == "ACKNOWLEDGED"
     assert store.set_status("does-not-exist", "RESOLVED") is None
 
@@ -290,7 +295,8 @@ def test_exception_group_unwrap():
     _record(store, many)
     group = next(g for g in _groups(store) if g["exceptionClassName"] == "ValueError")
     detail = store.detail(group["id"])
-    assert detail is not None and [c["exceptionClassName"] for c in detail["causes"]] == ["TypeError"]
+    assert detail is not None
+    assert [c["exceptionClassName"] for c in detail["causes"]] == ["TypeError"]
 
 
 def test_causes_cycle_safe_max_five():
@@ -301,12 +307,14 @@ def test_causes_cycle_safe_max_five():
     chain[-1].__cause__ = chain[0]  # a cycle
     _record(store, chain[0])
     detail = store.detail(_groups(store)[0]["id"])
-    assert detail is not None and [c["message"] for c in detail["causes"]] == ["e1", "e2", "e3", "e4", "e5"]
+    assert detail is not None
+    assert [c["message"] for c in detail["causes"]] == ["e1", "e2", "e3", "e4", "e5"]
     loop = RuntimeError("loop")
     loop.__cause__ = loop
     _record(store, loop)
     detail = store.detail(next(g["id"] for g in _groups(store) if g["message"] == "loop"))
-    assert detail is not None and detail["causes"] == []
+    assert detail is not None
+    assert detail["causes"] == []
 
 
 def test_message_masked_and_cut_2000():
@@ -315,12 +323,14 @@ def test_message_masked_and_cut_2000():
     assert _groups(store)[0]["message"] == f"login failed password={MASK} token {MASK}"
     _record(store, _raised(lambda: ValueError("x" * 5000)))
     long = next(g for g in _groups(store) if g["exceptionClassName"] == "ValueError")["message"]
-    assert len(long) == MAX_MESSAGE == 2000 and long.endswith("…")
+    assert len(long) == MAX_MESSAGE == 2000
+    assert long.endswith("…")
     cause = _raised(lambda: RuntimeError("outer"))
     cause.__cause__ = RuntimeError("api_key=s3cr3t-value")
     _record(store, cause)
     detail = store.detail(next(g["id"] for g in _groups(store) if g["message"] == "outer"))
-    assert detail is not None and detail["causes"][0]["message"] == f"api_key={MASK}"
+    assert detail is not None
+    assert detail["causes"][0]["message"] == f"api_key={MASK}"
 
 
 def test_message_override_used_and_masked():
@@ -337,7 +347,9 @@ def test_metadata_only_exception_message_null():
     group = _groups(store)[0]
     detail = store.detail(group["id"])
     assert detail is not None
-    assert group["message"] is None and detail["group"]["message"] is None and detail["causes"][0]["message"] is None
+    assert group["message"] is None
+    assert detail["group"]["message"] is None
+    assert detail["causes"][0]["message"] is None
 
 
 def test_no_locals_in_frames():
@@ -368,7 +380,8 @@ def test_frames_innermost_first_and_capped():
 
     _record(store, _raised(lambda: deep(5) or RuntimeError()))  # type: ignore[func-returns-value]
     detail = store.detail(_groups(store)[0]["id"])
-    assert detail is not None and len(detail["frames"]) == 2
+    assert detail is not None
+    assert len(detail["frames"]) == 2
     assert all(f["methodName"].endswith("deep") for f in detail["frames"])  # the innermost two
 
 
@@ -385,7 +398,8 @@ def test_group_shape_and_location():
     _record(store, _raised(lambda: RuntimeError("boom")), _request(), source="request", thread="worker-1")
     group = _groups(store)[0]
     assert tuple(group) == GROUP_KEYS
-    assert len(group["id"]) == 16 and all(c in "0123456789abcdef" for c in group["id"])
+    assert len(group["id"]) == 16
+    assert all(c in "0123456789abcdef" for c in group["id"])
     assert group["location"].startswith(f"{__name__}._raised(test_exceptions.py:")
     assert group["applicationException"] is True
     assert (group["lastThread"], group["lastRequestMethod"], group["lastRequestPath"]) == ("worker-1", "GET", "/x")
@@ -530,9 +544,11 @@ def test_capped_frames_keep_the_application_location():
     _record(store, exc)
     group = _groups(store)[0]
     assert group["applicationException"] is True
-    assert group["location"] is not None and group["location"].startswith(f"{__name__}.test_capped_frames")
+    assert group["location"] is not None
+    assert group["location"].startswith(f"{__name__}.test_capped_frames")
     detail = store.detail(group["id"])
-    assert detail is not None and len(detail["frames"]) == 1
+    assert detail is not None
+    assert len(detail["frames"]) == 1
 
 
 def test_marks_are_per_store():

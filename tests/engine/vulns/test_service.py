@@ -174,7 +174,8 @@ def test_scan_report_shape_matches_golden_keys(tmp_state_dir: Path):
         "Scan completed against OSV.dev."
         " EPSS: 1 of 1 requested CVEs have scores; remaining CVEs have no available data."
     )
-    assert isinstance(scan["scannedAt"], int) and scan["scannedAt"] > 0
+    assert isinstance(scan["scannedAt"], int)
+    assert scan["scannedAt"] > 0
     assert (scan["packagesScanned"], scan["packagesSkipped"], scan["vulnerabilitiesFound"]) == (2, 0, 1)
     assert (report["total"], report["vulnerable"]) == (2, 1)
     assert {c["severity"]: c["count"] for c in report["severityCounts"]} == {
@@ -254,7 +255,8 @@ def test_osv_failure_reports_status_and_releases_lock(tmp_state_dir: Path):
     failed = svc.scan()
     assert failed["scan"]["status"] == "ERROR"
     assert failed["scan"]["message"] == "OSV scan failed: OSV query returned HTTP 503"
-    assert failed["total"] == 2 and failed["dependencies"][0]["vulnerabilities"] == []
+    assert failed["total"] == 2
+    assert failed["dependencies"][0]["vulnerabilities"] == []
     assert failed["evidence"] == {
         "usable": False,
         "coverageComplete": False,
@@ -373,7 +375,8 @@ def test_dismissed_applied_to_report(tmp_state_dir: Path):
     assert (jinja["vulnerabilityCount"], jinja["highestSeverity"]) == (0, "NONE")
     assert report["vulnerable"] == 0
     assert report["scan"]["vulnerabilitiesFound"] == 0
-    assert len(report["severityCounts"]) == 6 and all(c["count"] == 0 for c in report["severityCounts"])
+    assert len(report["severityCounts"]) == 6
+    assert all(c["count"] == 0 for c in report["severityCounts"])
     assert report["evidence"] == scanned["evidence"]  # BootUI applyDismissals keeps the evidence
 
     svc.dismissals.remove("GHSA-h75v-3vvj-5mfj::pypi:jinja2")

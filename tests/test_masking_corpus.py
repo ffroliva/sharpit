@@ -267,7 +267,8 @@ def test_http_exchanges_metadata_only_hides_values(tmp_path: Path):
     row = next(e for e in report["exchanges"] if e["path"].startswith("/reset/"))
     assert (row["query"], row["uri"]) == (None, f"/reset/{MASK}")
     assert all(h["values"] == [] for h in row["requestHeaders"] + row["responseHeaders"])
-    assert SENTINEL not in str(report) and JWT not in str(report)
+    assert SENTINEL not in str(report)
+    assert JWT not in str(report)
 
 
 def test_probe_masking_corpus(tmp_path: Path):
@@ -304,11 +305,13 @@ def test_probe_masking_corpus(tmp_path: Path):
     finally:
         handle.uninstall_capture()
     assert results[0].json()["body"] == f'{{"password":"{MASK}","ok":true}}'
-    assert "Set-Cookie" not in results[0].text and "session=" not in results[0].text
+    assert "Set-Cookie" not in results[0].text
+    assert "session=" not in results[0].text
     assert results[1].json()["body"] == f"token={MASK}"
     assert results[1].json()["headers"]["location"] == f"/redirect?token={MASK}"
     assert forged_tag.json()["body"] == '{"tag":"1"}'
-    assert SENTINEL not in str(results) and JWT not in str(results)
+    assert SENTINEL not in str(results)
+    assert JWT not in str(results)
     assert all(SENTINEL not in str(row) and JWT not in str(row) for row in exchange_rows)
 
 
@@ -322,11 +325,9 @@ def test_sentinel_never_leaks(
         _sweep(call, ctx)
         exchanges = call("GET", f"{API}/http-exchanges?limit=500").json()["exchanges"]
         planted = [e for e in exchanges if e["path"].startswith("/reset/")]
-        assert (
-            planted
-            and planted[0]["path"] == f"/reset/{MASK}"
-            and planted[0]["query"] == f"api_key={MASK}&page=1&{MASK}"
-        )
+        assert planted
+        assert planted[0]["path"] == f"/reset/{MASK}"
+        assert planted[0]["query"] == f"api_key={MASK}&page=1&{MASK}"
 
         # the plants really reached sharpit (else the sweep proves nothing); recorded like every other response
         config = {p["name"]: p for p in call("GET", f"{API}/config?limit=500").json()["properties"]}
@@ -337,7 +338,8 @@ def test_sentinel_never_leaks(
         assert config["DATABASE_URL"]["value"] != f"postgres://u:{SENTINEL}@h/db"
         suggestions = call("GET", f"{API}/config?q=jwt_secret").json()
         defaults = [p["defaultValue"] for p in suggestions["properties"] + suggestions["propertySuggestions"]]
-        assert defaults and all(d == MASK for d in defaults), defaults
+        assert defaults, defaults
+        assert all(d == MASK for d in defaults), defaults
         beans = call("GET", f"{API}/beans?q=SignedSession&limit=500").json()["beans"]
         assert [b["type"] for b in beans] == ["examples.fastapi_sample.app:SignedSessionMiddleware"]
     assert {400, 401, 403, 404, 405, 409, 413} <= call.statuses, sorted(call.statuses)
@@ -448,7 +450,8 @@ def test_log_tail_masks_messages(
     lines = [line["message"] for line in recent if line["logger"] == name]
     assert lines == ([] if expected is None else [expected]), row
     for where, text in {"recent": str(recent), "stream": stream, "mcp": mcp, "cli": cli}.items():
-        assert SENTINEL not in text and JWT not in text, (row, where)
+        assert SENTINEL not in text, (row, where)
+        assert JWT not in text, (row, where)
 
 
 # F2: exception messages and cause messages the host app raises, masked at capture (spec §7.2, §7.7)
@@ -479,7 +482,8 @@ def test_exceptions_mask_messages(tmp_path: Path):
     assert detail["causes"][0]["message"] == f"token {MASK}"
     texts = {"list": str(listed), "detail": str(detail), "stream": stream, "mcp": "".join(mcp), "cli": cli}
     for where, text in texts.items():
-        assert SENTINEL not in text and JWT not in text, where
+        assert SENTINEL not in text, where
+        assert JWT not in text, where
 
 
 # F3: SQL the host app runs, masked at capture (spec §7.3, §11); SQLAlchemy is imported lazily (needs_sqlalchemy)
@@ -538,7 +542,8 @@ def test_sql_trace_masks_statements(
         failed = next(e for e in report["entries"] if not e["success"])
         assert failed["errorMessage"] is None if "metadata" in row else "IntegrityError" in failed["errorMessage"]
     for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli, "logs": logs}.items():
-        assert SENTINEL not in text and JWT not in text, (row, where)
+        assert SENTINEL not in text, (row, where)
+        assert JWT not in text, (row, where)
 
 
 def _task_request_path(tmp_path: Path) -> str:
@@ -596,4 +601,5 @@ def _pool_username(tmp_path: Path) -> str:
 )
 def test_threads_and_pools_mask(tmp_path: Path, plant: Callable[[Path], str]):
     text = plant(tmp_path)
-    assert SENTINEL not in text and JWT not in text
+    assert SENTINEL not in text
+    assert JWT not in text

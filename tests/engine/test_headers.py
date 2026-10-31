@@ -21,9 +21,11 @@ def test_exact_policy_headers():
 # ported: BootUiSecurityHeadersTests.apiResponsesAreNeverCached, onlyContentHashedAssetsAreImmutable
 def test_cache_per_kind():
     api = dict(security_headers("api"))
-    assert api["Cache-Control"] == "no-store, must-revalidate" and api["Pragma"] == "no-cache"
+    assert api["Cache-Control"] == "no-store, must-revalidate"
+    assert api["Pragma"] == "no-cache"
     shell = dict(security_headers("shell"))
-    assert shell["Cache-Control"] == "no-cache" and shell["Pragma"] == "no-cache"
+    assert shell["Cache-Control"] == "no-cache"
+    assert shell["Pragma"] == "no-cache"
     asset = dict(security_headers("asset"))
     assert asset["Cache-Control"] == "public, max-age=31536000, immutable"
     assert "Pragma" not in asset

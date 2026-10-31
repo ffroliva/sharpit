@@ -60,5 +60,6 @@ def test_row_values_and_paging_and_q():
             "consumes": None,
         }
     ]
-    assert report["page"]["total"] == 5 and report["page"]["matched"] == 1
+    assert report["page"]["total"] == 5
+    assert report["page"]["matched"] == 1
     assert mappings_flat(_ctx(), "get", 0, 1)["page"]["hasMore"] is True  # method matches case-insensitively

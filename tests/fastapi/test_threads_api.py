@@ -55,9 +55,11 @@ def test_task_request_path_masked():
         finally:
             client.portal.call(release.set)  # pyright: ignore[reportOptionalMemberAccess]
             host.join(5)
-    assert resp.status_code == 200 and JWT not in resp.text
+    assert resp.status_code == 200
+    assert JWT not in resp.text
     rows = [t for t in resp.json()["tasks"] if t["request"] is not None and t["request"]["path"].startswith("/reset/")]
-    assert rows and rows[0]["request"]["path"] == f"/reset/{MASK}"
+    assert rows
+    assert rows[0]["request"]["path"] == f"/reset/{MASK}"
     assert "reset" in [s.split(" (", 1)[0].rsplit(".", 1)[-1] for s in rows[0]["stackTrace"]]
 
 
@@ -66,7 +68,8 @@ def test_threads_get_shape_and_filters():
     install(app, enabled="ON", show_banner=False)
     with _client(app) as client:
         body = client.get(f"{URL}?state=RUNNABLE&limit=1").json()
-        assert body["warnings"] == [] and body["page"]["limit"] == 1
+        assert body["warnings"] == []
+        assert body["page"]["limit"] == 1
         assert all(r["state"] == "RUNNABLE" for r in body["threads"])
         assert client.get(f"{URL}?limit=x").status_code == 400
 
@@ -81,6 +84,7 @@ def test_get_threads_mcp_no_side_effects(no_side_effects: SideEffectGuard):
         result = _rpc(client, "get_threads", {"limit": 5})
     assert result["isError"] is False
     content = result["structuredContent"]
-    assert content["warnings"] == [] and len(content["threads"]) <= 5
+    assert content["warnings"] == []
+    assert len(content["threads"]) <= 5
     assert threading.active_count() <= before + 1  # the ToolGate worker at most; the read itself starts no thread
     assert no_side_effects.violations == []

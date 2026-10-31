@@ -185,7 +185,8 @@ def test_cli_works_with_mcp_disabled():
     # new: brief ruling (CLI independent of MCP state, separate counters)
     client = _client(mcp_enabled="OFF")
     status, body = _post(client, "get_loggers", {"limit": 1})
-    assert status == 200 and len(body["loggers"]) == 1
+    assert status == 200
+    assert len(body["loggers"]) == 1
     assert client.get("/sharpit/api/cli").json()["callCount"] == 1
     assert client.get("/sharpit/api/mcp-server").json()["callCount"] == 0  # separate counters
 

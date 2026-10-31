@@ -138,7 +138,8 @@ def test_disabled_when_nothing_to_check():
             [],
         )
         snippets = [s for step in report["setup"] for s in step["snippets"]]
-        assert any("engines=" in s for s in snippets) and any("health_checks=" in s for s in snippets)
+        assert any("engines=" in s for s in snippets)
+        assert any("health_checks=" in s for s in snippets)
 
 
 # ported: HealthNodeDto (contract §7 / spec §7.8)
@@ -168,23 +169,27 @@ def test_bool_str_dict_results():
         "word": "OUT_OF_SERVICE",
         "mapping": "UP",
     }
-    assert report["status"] == "DOWN" and report["guidanceReason"] is None
+    assert report["status"] == "DOWN"
+    assert report["guidanceReason"] is None
     details = parts["mapping"]["details"]
-    assert (details["version"], details["region"]) == (3, "eu") and isinstance(details["checkedAt"], int)
+    assert (details["version"], details["region"]) == (3, "eu")
+    assert isinstance(details["checkedAt"], int)
 
 
 @pytest.mark.parametrize("result", ["MAYBE", {"version": 1}, None, 42])
 def test_unknown_status_string(result: object):
     report = _check(_service(health_checks={"odd": lambda: result}))
     part = _components(report)["odd"]
-    assert part["status"] == "UNKNOWN" and part["details"]["error"].startswith("unknown health status ")
+    assert part["status"] == "UNKNOWN"
+    assert part["details"]["error"].startswith("unknown health status ")
 
 
 def test_unknown_status_masked_before_cut():
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij"
     raw = "a" * 973 + " " + jwt  # repr's 1000-char cut lands inside the token's second segment
     part = _components(_check(_service(health_checks={"c": lambda: raw})))["c"]
-    assert part["status"] == "UNKNOWN" and "eyJhbGciOiJIUzI1NiJ9" not in part["details"]["error"]
+    assert part["status"] == "UNKNOWN"
+    assert "eyJhbGciOiJIUzI1NiJ9" not in part["details"]["error"]
 
 
 def test_raising_check_down_masked():
@@ -192,7 +197,8 @@ def test_raising_check_down_masked():
         raise ConnectionError(f"cannot reach {DSN} password={SECRET}")
 
     part = _components(_check(_service(health_checks={"db2": boom})))["db2"]
-    assert part["status"] == "DOWN" and part["details"]["error"].startswith("ConnectionError: cannot reach")
+    assert part["status"] == "DOWN"
+    assert part["details"]["error"].startswith("ConnectionError: cannot reach")
     assert SECRET not in str(part)
 
 
@@ -236,10 +242,13 @@ def test_details_masked_nested_and_dsn():
         }
 
     details = _components(_check(_service(health_checks={"c": check})))["c"]["details"]
-    assert details["password"] == MASK and details["nested"]["api_key"] == MASK
+    assert details["password"] == MASK
+    assert details["nested"]["api_key"] == MASK
     assert details["nested"]["items"][0]["token"] == MASK
-    assert SECRET not in str(details) and "db.internal/app" in details["nested"]["dsn"]
-    assert details["client"].startswith("Client(") and details["count"] == 3
+    assert SECRET not in str(details)
+    assert "db.internal/app" in details["nested"]["dsn"]
+    assert details["client"].startswith("Client(")
+    assert details["count"] == 3
 
 
 def test_metadata_only_health_details():
@@ -251,9 +260,11 @@ def test_metadata_only_health_details():
 
     report = _check(_service(expose_values="METADATA_ONLY", health_checks={"c": check, "b": boom}))
     parts = _components(report)
-    assert parts["c"]["status"] == "UP" and parts["b"]["status"] == "DOWN"
+    assert parts["c"]["status"] == "UP"
+    assert parts["b"]["status"] == "DOWN"
     assert (parts["c"]["details"]["dsn"], parts["c"]["details"]["count"]) == (None, None)
-    assert parts["c"]["details"]["nested"] == {"note": None} and parts["b"]["details"]["error"] is None
+    assert parts["c"]["details"]["nested"] == {"note": None}
+    assert parts["b"]["details"]["error"] is None
     assert SECRET not in str(report)
 
 
@@ -267,10 +278,13 @@ def test_get_never_runs_checks():
         None,
     )
     assert service.report(for_mcp=True)["guidanceReason"] == NEVER_CHECKED
-    assert calls == [] and service.last_status is None
+    assert calls == []
+    assert service.last_status is None
     _check(service)
-    assert calls == [1] and service.last_status == "UP"
-    assert service.report()["status"] == "UP" and service.report(for_mcp=True)["guidanceReason"] is None
+    assert calls == [1]
+    assert service.last_status == "UP"
+    assert service.report()["status"] == "UP"
+    assert service.report(for_mcp=True)["guidanceReason"] is None
 
 
 def _health_threads() -> list[str]:
@@ -282,7 +296,8 @@ def test_executor_created_on_first_check_only():
     service.report()
     assert service._executor is None  # pyright: ignore[reportPrivateUsage]
     _check(service)
-    assert service._executor is not None and _health_threads()  # pyright: ignore[reportPrivateUsage]
+    assert service._executor is not None
+    assert _health_threads()
 
 
 # --- engine pings -------------------------------------------------------------------------------------------------
@@ -299,7 +314,8 @@ def test_engine_ping_not_traced():
     assert (db["status"], ping["status"]) == ("UP", "UP")
     assert (ping["details"]["database"], ping["details"]["validationQuery"]) == ("sqlite", "dialect ping")
     recorder = _HANDLES[-1].context.capture.sql_trace
-    assert recorder is not None and recorder.report([])["entries"] == []
+    assert recorder is not None
+    assert recorder.report([])["entries"] == []
 
 
 @pytest.mark.needs_sqlalchemy
@@ -324,7 +340,8 @@ def test_engine_ping_failure_down_masked(tmp_path: Any):
     missing = tmp_path / "no-such-dir" / "app.db"  # sqlite cannot create a file in a missing directory
     engine = sa.create_engine(f"sqlite:///{missing}")
     (ping,) = _components(_check(_service(engines=[engine])))["db"]["components"]
-    assert ping["status"] == "DOWN" and ping["details"]["error"].startswith("OperationalError")
+    assert ping["status"] == "DOWN"
+    assert ping["details"]["error"].startswith("OperationalError")
 
 
 @pytest.mark.needs_sqlalchemy

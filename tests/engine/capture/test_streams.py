@@ -131,7 +131,8 @@ def test_non_reading_subscriber_memory_flat():
                 await asyncio.sleep(0.3)  # let a tick drain into the queue nobody reads
         await asyncio.sleep(0.3)
         assert sub.queued <= LINE_QUEUE
-        assert sub.overflowed and stream.subscriber_count == 0  # dropped, not grown
+        assert sub.overflowed
+        assert stream.subscriber_count == 0
         with pytest.raises(StopAsyncIteration):
             await anext(sub)
 
@@ -221,9 +222,11 @@ def test_completion_releases_subscription():
 def test_stream_slots():
     slots = StreamSlots()
     assert all(slots.acquire() for _ in range(20))
-    assert not slots.acquire() and slots.count == 20
+    assert not slots.acquire()
+    assert slots.count == 20
     slots.release()
-    assert slots.acquire() and slots.count == 20
+    assert slots.acquire()
+    assert slots.count == 20
 
 
 def test_exchange_add_signals_changes():

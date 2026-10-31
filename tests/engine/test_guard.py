@@ -384,7 +384,8 @@ def test_rejects_malformed_host_even_when_allow_list_configured():
 # ported: LocalhostGuardTests.rejectsMalformedHostHeaderWithTheCanonicalHostMessage
 def test_rejects_malformed_host_with_canonical_message():
     denial = decide(get("127.0.0.1", "[::1]junk"))
-    assert denial is not None and denial.body == {"error": HOST_MSG}
+    assert denial is not None
+    assert denial.body == {"error": HOST_MSG}
 
 
 # ported: LocalhostGuardTests.rejectsMalformedHostHeaderBeforeTheCrossSiteWriteCheck
@@ -845,7 +846,9 @@ def test_remote_access_configured():
 def test_generates_url_safe_256_bit_token():
     token, generated = resolve_token(ALLOW_NON_LOCALHOST)
     assert generated is True
-    assert token is not None and len(token) == 43 and re.fullmatch(r"[A-Za-z0-9_-]+", token)
+    assert token is not None
+    assert len(token) == 43
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", token)
     assert resolve_token(ALLOW_NON_LOCALHOST)[0] != token
 
 

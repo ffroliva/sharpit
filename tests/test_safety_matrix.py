@@ -224,7 +224,8 @@ def test_disabled_panel_mcp_tool_refused(tool: str, panel: str, arguments: dict[
     install(app, enabled="ON", show_banner=False, mcp_enabled="ON", panels={panel: {"enabled": False}})
     call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
     result = _client(app).post("/sharpit/api/mcp", json=call).json()["result"]
-    assert result["isError"] is True and result["content"][0]["text"] == disabled_reason(panel)
+    assert result["isError"] is True
+    assert result["content"][0]["text"] == disabled_reason(panel)
 
 
 # spec §7.4: a disabled source panel x every activity route and get_live_activity (what the source must not show)
@@ -247,7 +248,8 @@ def test_disabled_source_activity_routes(panel: str, source: str | None, row_typ
     reports = [client.get("/sharpit/api/activity").json(), client.post("/sharpit/api/mcp", json=call).json()["result"]]
     reports[1] = reports[1]["structuredContent"]
     for report in reports:
-        assert source not in report["sources"] and row_type not in report["typeCounts"]
+        assert source not in report["sources"]
+        assert row_type not in report["typeCounts"]
     rid = next(e["id"] for e in reports[0]["entries"] if e["type"] == "REQUEST")
     profile = client.get(f"/sharpit/api/activity/request/{rid}").json()
     assert profile["available"] is True

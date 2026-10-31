@@ -150,7 +150,8 @@ def test_parent_id_on_sql_and_exception_rows():
     assert sorted((e["correlationId"], e["parentId"]) for e in by_type["SQL"]) == [("gone", None), ("r1", "r1")]
     exception = by_type["EXCEPTION"][0]
     assert (exception["parentId"], exception["correlationId"], exception["profileable"]) == ("r1", "r1", False)
-    assert exception["id"].startswith("exc-") and all(e["id"].startswith("sql-") for e in by_type["SQL"])
+    assert exception["id"].startswith("exc-")
+    assert all(e["id"].startswith("sql-") for e in by_type["SQL"])
 
 
 def test_n_plus_one_flags_request_and_group():
@@ -256,7 +257,8 @@ def test_kpis_p50_p95_and_nulls():
         "restCallErrorRatePercent",
         "restCallP95LatencyMs",
     )
-    assert all(kpis[k] is None for k in nulls) and kpis["scheduledTaskFailureCount"] == 0
+    assert all(kpis[k] is None for k in nulls)
+    assert kpis["scheduledTaskFailureCount"] == 0
     empty = _report(_ctx())["kpis"]
     assert (empty["requestsPerMinute"], empty["p50LatencyMs"], empty["slowestQueryMs"]) == (0.0, None, None)
 
@@ -308,8 +310,10 @@ def test_request_profile_timing_and_exceptions():
         None,
         [],
     )
-    assert tuple(profile["request"]) == DTO_KEYS and profile["request"]["requestHeaders"]
-    assert len(profile["sql"]) == 1 and profile["sql"][0]["traceId"] == "r1"
+    assert tuple(profile["request"]) == DTO_KEYS
+    assert profile["request"]["requestHeaders"]
+    assert len(profile["sql"]) == 1
+    assert profile["sql"][0]["traceId"] == "r1"
     assert profile["timing"] == {"totalMs": 10, "sqlMs": 4, "sqlCount": 1, "sqlPercent": 40.0}
     assert [(e["exceptionClassName"], e["source"]) for e in profile["exceptions"]] == [("ValueError", "request")]
     assert tuple(profile["exceptions"][0]) == (
@@ -330,14 +334,16 @@ def test_sql_source_off_without_sqlalchemy(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(sqla, "unavailable_reason", lambda: sqla.UNAVAILABLE)
     ctx = _ctx()
     report = _report(ctx)
-    assert "sql" not in report["sources"] and report["warnings"] == [f"SQL: {sqla.UNAVAILABLE}"]
+    assert "sql" not in report["sources"]
+    assert report["warnings"] == [f"SQL: {sqla.UNAVAILABLE}"]
 
 
 def test_disabled_sql_trace_no_sql_rows():
     ctx = _ctx(sql=False)
     _request(ctx, "r1")
     report = _report(ctx)
-    assert "SQL" not in report["typeCounts"] and "sql" not in report["sources"]
+    assert "SQL" not in report["typeCounts"]
+    assert "sql" not in report["sources"]
     profile = request_profile(ctx, "r1")
     assert (profile["sql"], profile["sqlGroups"]) == ([], [])
 
@@ -346,7 +352,8 @@ def test_disabled_exceptions_no_exception_rows():
     ctx = _ctx(exceptions=False)
     _request(ctx, "r1")
     report = _report(ctx)
-    assert "EXCEPTION" not in report["typeCounts"] and "exceptions" not in report["sources"]
+    assert "EXCEPTION" not in report["typeCounts"]
+    assert "exceptions" not in report["sources"]
     assert report["kpis"]["activeExceptionCount"] == 0
     assert request_profile(ctx, "r1")["exceptions"] == []
 
