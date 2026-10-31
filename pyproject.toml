@@ -79,6 +79,7 @@ exclude = [
     "/CLAUDE.md",
     "/GEMINI.md",
     "/mempalace.yaml",
+    "/tests/test_ui_no_html.py",  # reads ui/src, which is not shipped
     "/tests/test_agent_workflow.py",  # reads skills/ and docs/, which are not shipped
     "/tests/scripts",  # tests the repo scripts/, which are not shipped
 ]
