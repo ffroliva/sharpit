@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from sharpit import __version__
+from sharpit.engine.capture.exchanges import unavailable_report
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report
@@ -93,7 +94,7 @@ class Tool:
 
 # --- Schemas (BootUiMcpService.schema) ------------------------------------------------------------------------------
 
-_LIMIT = {
+_LIMIT: dict[str, Any] = {
     "type": "integer",
     "minimum": 1,
     "description": "Optional maximum number of items to return. Capped by the SHARPIT_MCP_MAX_RESULTS server limit.",
@@ -107,6 +108,7 @@ _QUERY_LIMIT: dict[str, Any] = {
     },
     "additionalProperties": False,
 }
+_LIMIT_ONLY: dict[str, Any] = {"type": "object", "properties": {"limit": _LIMIT}, "additionalProperties": False}
 _SCHEMA_NAMES = {(): "NONE", ("limit",): "LIMIT", ("query", "limit"): "QUERY_LIMIT"}
 
 
@@ -128,6 +130,21 @@ def vulnerability_service(ctx: SharpitContext) -> VulnerabilityService:
             ctx.single_flight,
         ),
     )
+
+
+def http_exchanges_report(
+    ctx: SharpitContext,
+    q: str | None,
+    method: str | None,
+    status_class: str | None,
+    offset: int | None,
+    limit: int | None,
+) -> dict[str, Any]:
+    """``HttpExchangesReport``; unavailable when request capture is not installed for this context."""
+    buffer = ctx.capture.exchanges
+    if buffer is None:
+        return unavailable_report("Request capture is not installed")
+    return buffer.report(q, method, status_class, offset, limit)
 
 
 TOOLS: tuple[Tool, ...] = (
@@ -186,6 +203,16 @@ TOOLS: tuple[Tool, ...] = (
         lambda c, a: beans_report(c.ctx, a["query"], None, None, a["limit"]),
     ),
     Tool(
+        "get_http_exchanges",
+        "Return a bounded, newest-first snapshot of the HTTP requests this application served: method, masked "
+        "path and query, status, duration, response size and masked headers. sharpit's own requests are counted "
+        "in `hiddenSelf`, not listed.",
+        _LIMIT_ONLY,
+        "http-exchanges",
+        False,
+        lambda c, a: http_exchanges_report(c.ctx, None, None, None, None, a["limit"]),
+    ),
+    Tool(
         "get_vulnerabilities_report",
         "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
@@ -220,6 +247,7 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_mappings": "mappings",
     "get_loggers": "loggers",
     "get_beans": "beans",
+    "get_http_exchanges": "http exchanges",
     "get_vulnerabilities_report": "vulnerabilities report",
     "vulnerabilities_scan": "vulnerabilities scan",
 }

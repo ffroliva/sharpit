@@ -1,0 +1,210 @@
+{
+  "source": "github.com/jdubois/boot-ui bootui-cli/src/main/resources/bootui-tools.json (names, commands, schema kinds) and BootUiMcpService.schema (inputSchema rendering)",
+  "bootuiToolsCommit": "580bccbb4777db03cc904ee015432bc71ea53e19",
+  "bootuiMcpServiceCommit": "65cccd96068d63c5d2f8912922188348045454da",
+  "note": "sharpit renders bootui.mcp.max-results as SHARPIT_MCP_MAX_RESULTS; get_flyway_migrations becomes get_alembic_migrations (spec 13.3)",
+  "tools": [
+    {
+      "name": "get_http_exchanges",
+      "command": "http exchanges",
+      "schema": "LIMIT",
+      "panel": "http-exchanges",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional maximum number of items to return. Capped by the bootui.mcp.max-results server limit."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_exceptions",
+      "command": "exceptions list",
+      "schema": "NONE",
+      "panel": "exceptions",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_exception_detail",
+      "command": "exceptions show",
+      "schema": "ID",
+      "panel": "exceptions",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Exact identifier of the resource to fetch."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_sql_traces",
+      "command": "sql traces",
+      "schema": "NONE",
+      "panel": "sql-trace",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_live_activity",
+      "command": "activity",
+      "schema": "LIMIT",
+      "panel": "activity",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional maximum number of items to return. Capped by the bootui.mcp.max-results server limit."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_log_tail",
+      "command": "logs tail",
+      "schema": "NONE",
+      "panel": "log-tail",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_flyway_migrations",
+      "command": "db flyway",
+      "schema": "NONE",
+      "panel": "flyway",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "sharpitName": "get_alembic_migrations",
+      "sharpitPanel": "alembic"
+    },
+    {
+      "name": "get_database_connection_pools",
+      "command": "db pools",
+      "schema": "NONE",
+      "panel": "database-connection-pools",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_health",
+      "command": "health",
+      "schema": "NONE",
+      "panel": "health",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_threads",
+      "command": "threads",
+      "schema": "QUERY_LIMIT",
+      "panel": "threads",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Optional case-insensitive filter applied to the results."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional maximum number of items to return. Capped by the bootui.mcp.max-results server limit."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_rest_api_report",
+      "command": "rest-api report",
+      "schema": "NONE",
+      "panel": "rest-api",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_rest_api_rule_violations",
+      "command": "rest-api violations",
+      "schema": "RULE_VIOLATIONS",
+      "panel": "rest-api",
+      "action": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Exact identifier of the resource to fetch.",
+            "minLength": 1
+          },
+          "scanId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The cached report's violationDetails.scanId. Never starts a scan."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page size, default 100, capped at min(1000, bootui.mcp.max-results).",
+            "default": 100
+          }
+        },
+        "required": [
+          "id",
+          "scanId"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

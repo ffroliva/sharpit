@@ -133,7 +133,6 @@ def test_panels_platform_fastapi_and_ids():
 # Ruling C1: each later task removes its own id here in the commit that adds that panel's real availability test.
 NOT_BUILT = (
     "activity",
-    "http-exchanges",
     "exceptions",
     "sql-trace",
     "log-tail",
@@ -156,7 +155,7 @@ def test_new_panels_not_built_yet(panel_id: str):
 def test_mvp_panels_stay_available():
     body = _client(_app()).get("/sharpit/api/panels").json()
     mvp = [p for p in body["panels"] if p["id"] not in NOT_BUILT]
-    assert len(mvp) == 8
+    assert len(mvp) == 9  # the 8 MVP panels and http-exchanges (Task 2)
     assert all(p["available"] and p["unavailableReason"] is None for p in mvp)
 
 

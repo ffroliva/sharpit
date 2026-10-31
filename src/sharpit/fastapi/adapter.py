@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import time
-from collections.abc import AsyncGenerator, Callable, Iterable
+from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +25,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import guard, tools
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
+from sharpit.engine.capture import route_path
+from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report, set_level
@@ -37,6 +39,7 @@ from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
 from sharpit.engine.singleflight import ActionBusy
+from sharpit.fastapi.capture import CaptureWiring
 from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
@@ -60,6 +63,11 @@ class SharpitHandle:
     context: SharpitContext
     original_lifespan: _Lifespan
 
+    def uninstall_capture(self) -> None:
+        """Detach every capture hook, as lifespan shutdown does (for tests and apps run without lifespan)."""
+        if self.context.capture.wiring is not None:
+            self.context.capture.wiring.detach(self.context)
+
 
 class SharpitMount(Mount):
     """A ``Mount`` that also owns the bare ``{path}`` (any method), so it reaches the sub-app and its guard.
@@ -72,7 +80,7 @@ class SharpitMount(Mount):
 
     def matches(self, scope: Scope) -> tuple[Match, Scope]:
         match, child = super().matches(scope)
-        if match is Match.NONE and scope["type"] in ("http", "websocket") and _route_path(scope) == self.path:
+        if match is Match.NONE and scope["type"] in ("http", "websocket") and route_path(scope) == self.path:
             root_path = scope.get("root_path", "")
             child = {
                 "path_params": dict(scope.get("path_params", {})),
@@ -82,15 +90,6 @@ class SharpitMount(Mount):
             }
             return Match.FULL, child
         return match, child
-
-
-def _route_path(scope: Scope) -> str:
-    """Path below ``root_path`` (as Starlette's private ``get_route_path``): ``""`` for the bare mount path."""
-    path: str = scope["path"]
-    root_path: str = scope.get("root_path", "")
-    if root_path and (path == root_path or path.startswith(root_path + "/")):
-        return path[len(root_path) :]
-    return path
 
 
 def _header_map(scope: Scope) -> dict[str, list[str]]:
@@ -139,10 +138,10 @@ class GuardMiddleware:
         if len(values.get("origin", ())) > 1 or len(values.get("sec-fetch-site", ())) > 1:
             return guard.Denial(403, {"error": guard.MESSAGE_CROSS_SITE})
         headers = {k: ("; " if k == "cookie" else ", ").join(v) for k, v in values.items()}
-        route_path = _route_path(scope)
+        sub_path = route_path(scope)
         api_sub_path = None
-        if route_path == self.api_prefix or route_path.startswith(self.api_prefix + "/"):
-            api_sub_path = route_path[len(self.api_prefix) :]
+        if sub_path == self.api_prefix or sub_path.startswith(self.api_prefix + "/"):
+            api_sub_path = sub_path[len(self.api_prefix) :]
         client = scope.get("client")
         facts = guard.RequestFacts(
             scope["method"], client[0] if client else None, headers, api_sub_path, scope.get("scheme", "http")
@@ -160,7 +159,6 @@ class GuardMiddleware:
 # Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
 _NOT_BUILT = (
     "activity",
-    "http-exchanges",
     "exceptions",
     "sql-trace",
     "log-tail",
@@ -175,8 +173,10 @@ _NOT_BUILT = (
 
 def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     """Panel id -> why it is unavailable; an id that is absent or None is available."""
-    del ctx  # later tasks read the capture wiring and settings from it
-    return dict.fromkeys(_NOT_BUILT, "Not built yet")
+    reasons: dict[str, str | None] = dict.fromkeys(_NOT_BUILT, "Not built yet")
+    exchanges = ctx.capture.exchanges
+    reasons["http-exchanges"] = exchanges.unavailable_reason if exchanges is not None else None
+    return reasons
 
 
 def _routes(ctx: SharpitContext) -> list[BaseRoute]:
@@ -229,6 +229,15 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
     def beans(request: Request) -> Response:
         params = request.query_params
         return json_response(beans_report(ctx, params.get("q"), params.get("classification"), *_page(request)))
+
+    def http_exchanges(request: Request) -> Response:
+        params = request.query_params
+        offset, limit = _page(request)
+        return json_response(
+            tools.http_exchanges_report(
+                ctx, params.get("q"), params.get("method"), params.get("statusClass"), offset, limit
+            )
+        )
 
     def vulnerability_service() -> VulnerabilityService:
         return tools.vulnerability_service(ctx)
@@ -323,6 +332,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/loggers", loggers, methods=["GET"]),
         Route(f"{api}/mappings/flat", mappings, methods=["GET"]),
         Route(f"{api}/beans", beans, methods=["GET"]),
+        Route(f"{api}/http-exchanges", http_exchanges, methods=["GET"]),
         Route(f"{api}/loggers/{{name:path}}", logger_level, methods=["POST"]),
         Route(f"{api}/vulnerabilities", vulnerabilities, methods=["GET"]),
         Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
@@ -410,7 +420,14 @@ def _requested(settings: SharpitSettings, profiles: tuple[str, ...]) -> bool:
     return parse_mode(settings.enabled) is None or any(p in profiles for p in settings.enabled_profiles)
 
 
-def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle:
+def install(
+    app: Any,
+    *,
+    settings: object = (),
+    engines: Sequence[object] = (),
+    health_checks: Mapping[str, Callable[[], object]] | None = None,
+    **options: Any,
+) -> SharpitHandle:
     caller_module: str | None = sys._getframe(1).f_globals.get("__name__")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     router = app.router
     existing = next((r.sharpit_handle for r in router.routes if isinstance(r, SharpitMount) and r.sharpit_handle), None)
@@ -436,6 +453,8 @@ def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle
         profiles=profiles,
         app_settings=app_settings,
         caller_module=caller_module,
+        engines=tuple(engines),
+        health_checks=dict(health_checks or {}),
     )
     handle = SharpitHandle(sharpit_settings, activation, ctx, original)
     for warning in activation.warnings:  # the overview panel shows them too, but not while sharpit is inactive
@@ -450,12 +469,22 @@ def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle
         logger.log(level, "sharpit inactive: %s", activation.reason)
         return handle
 
+    capture = ctx.capture
+    if sharpit_settings.panels["http-exchanges"].enabled:
+        capture.exchanges = HttpExchangeBuffer(sharpit_settings.http_exchanges_max_exchanges)
+    wiring = capture.wiring = CaptureWiring()
+    wiring.attach_at_install(app, ctx)
+
     @asynccontextmanager
     async def lifespan(host_app: Any) -> AsyncGenerator[Any]:
-        async with original(host_app) as state:
-            if ctx.startup_time_ms is None:
-                ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
-            yield state
+        try:
+            async with original(host_app) as state:
+                if ctx.startup_time_ms is None:
+                    ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
+                wiring.on_startup(ctx)  # after the host's own startup (spec §6.1)
+                yield state
+        finally:
+            wiring.detach(ctx)
 
     router.lifespan_context = lifespan
     sub_app = Starlette(

@@ -222,6 +222,7 @@ def test_tools_list_has_no_action_tool():
         "get_mappings",
         "get_loggers",
         "get_beans",
+        "get_http_exchanges",
         "get_vulnerabilities_report",
     ]
     first = tools[0]

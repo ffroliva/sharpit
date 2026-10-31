@@ -57,6 +57,7 @@ ROWS = [
     ("mappings", "GET", "/sharpit/api/mappings/flat", 200, True),
     ("loggers", "GET", "/sharpit/api/loggers", 200, True),
     ("beans", "GET", "/sharpit/api/beans", 200, True),
+    ("http-exchanges", "GET", "/sharpit/api/http-exchanges", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
     ("mcp-server", "GET", "/sharpit/api/mcp-server", 200, True),
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),

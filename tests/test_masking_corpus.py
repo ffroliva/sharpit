@@ -141,7 +141,11 @@ def _sweep(call: Recorder, ctx: Any) -> None:
         query = f"?q={probe}&limit=500" if probe else ""
         for path in get_paths():
             call("GET", path + query)
-        for path in (f"{API}/config", f"{API}/beans"):  # masking happens before filtering: no hit on a secret
+        for path in (
+            f"{API}/config",
+            f"{API}/beans",
+            f"{API}/http-exchanges",
+        ):  # masking happens before filtering: no hit on a secret
             page = call("GET", f"{path}?q={probe}").json()["page"] if probe else None
             assert page is None or page["matched"] == 0, (path, probe, page)
     call("POST", f"{API}/auth/session")
@@ -210,13 +214,47 @@ def _sweep(call: Recorder, ctx: Any) -> None:
     call("POST", f"{API}/cli/tools/get_config", content=b"[1]", headers={"content-type": "application/json"})
 
 
+def _plant_host_requests(client: TestClient) -> None:
+    # F1: the sentinel and the JWT in a host request's path, query and Authorization header (spec §7.1).
+    # The test client's own httpx logger would echo the URL: that is the harness, not sharpit, so it is quiet here.
+    httpx_logger = logging.getLogger("httpx")
+    level = httpx_logger.level
+    httpx_logger.setLevel(logging.WARNING)
+    try:
+        _send_plant(client)
+    finally:
+        httpx_logger.setLevel(level)
+
+
+def _send_plant(client: TestClient) -> None:
+    client.get(
+        f"/reset/{JWT}?api_key={SENTINEL}&page=1",
+        headers={"Authorization": f"Bearer {SENTINEL}", "X-Note": JWT},  # harmless name: masked by value
+    )
+
+
+def test_http_exchanges_metadata_only_hides_values(tmp_path: Path):
+    app = create_app(show_banner=False, state_dir=str(tmp_path), expose_values="METADATA_ONLY")
+    with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
+        _plant_host_requests(client)
+        report = client.get(f"{API}/http-exchanges").json()
+    row = next(e for e in report["exchanges"] if e["path"].startswith("/reset/"))
+    assert (row["query"], row["uri"]) == (None, f"/reset/{MASK}")
+    assert all(h["values"] == [] for h in row["requestHeaders"] + row["responseHeaders"])
+    assert SENTINEL not in str(report) and JWT not in str(report)
+
+
 def test_sentinel_never_leaks(
     corpus_app: tuple[FastAPI, Any], caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
 ):
     app, ctx = corpus_app
     with TestClient(app, base_url="http://localhost", client=LOCAL, follow_redirects=False) as client:
         call = Recorder(client)
+        _plant_host_requests(client)
         _sweep(call, ctx)
+        exchanges = call("GET", f"{API}/http-exchanges?limit=500").json()["exchanges"]
+        planted = [e for e in exchanges if e["path"].startswith("/reset/")]
+        assert planted and planted[0]["path"] == f"/reset/{MASK}" and planted[0]["query"] == f"api_key={MASK}&page=1"
 
         # the plants really reached sharpit (else the sweep proves nothing); recorded like every other response
         config = {p["name"]: p for p in call("GET", f"{API}/config?limit=500").json()["properties"]}

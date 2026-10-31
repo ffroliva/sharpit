@@ -7,9 +7,11 @@ ASCII-only by default.
 
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Sequence
 from enum import StrEnum
+from urllib.parse import unquote_plus
 
 MASK = "******"
 
@@ -39,9 +41,14 @@ _URL_QUERY_CREDENTIAL = re.compile(
 )
 
 
+_SECRET_MARKERS = ("=", "://", "eyJ", "PRIVATE KEY", "AKIA", "ASIA")
+
+
 def is_secret_value(value: str) -> bool:
     """True when the value matches a high-confidence secret pattern (SecretValueDetector)."""
     if not value.strip():
+        return False
+    if not any(marker in value for marker in _SECRET_MARKERS):  # fast path: every pattern needs one of them
         return False
     return bool(
         _JWT.fullmatch(value.strip())
@@ -64,6 +71,7 @@ DEFAULT_KEY_PATTERNS = (
 _PASS_SEGMENT = re.compile(r"(?:^|[_.-])pass(?:$|[_.-])")
 
 
+@functools.lru_cache(maxsize=1024)  # names repeat (headers, config keys) and are never secret themselves
 def is_sensitive_key(name: str) -> bool:
     """Case-insensitive substring match on the default key patterns (KeywordPatternMasker.isSecret)."""
     if not name.strip():
@@ -193,6 +201,20 @@ class Masker:
         if self._exposure is Exposure.FULL or not self._mask_secrets:
             return path
         return _mask_segments(path)
+
+    def mask_query(self, query: str) -> str | None:
+        """Mask each ``name=value`` pair of a raw query string by name and by value; the raw name is kept.
+
+        Port of BootUI ``UriMasking.maskQueryString``: ``%70assword=hunter2&page=2`` -> ``%70assword=******&page=2``.
+        """
+        if self._exposure is Exposure.METADATA_ONLY:
+            return None
+        pairs = query.split("&")
+        for i, pair in enumerate(pairs):
+            raw_name, _, raw_value = pair.partition("=")
+            if raw_value and self.mask(unquote_plus(raw_name), unquote_plus(raw_value))[1]:
+                pairs[i] = f"{raw_name}={MASK}"
+        return "&".join(pairs)
 
     def mask_header(self, name: str, values: Sequence[str]) -> tuple[list[str], bool]:
         """Return ``(display_values, masked)`` for one HTTP header; credentials headers are masked by name."""

@@ -13,6 +13,7 @@ Dropped, with reason:
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -27,6 +28,7 @@ from sharpit.engine.paging import BadRequest
 from sharpit.engine.singleflight import ActionBusy
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 from sharpit.engine.tools import (
+    COMMANDS,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     SERVER_AT_CAPACITY,
@@ -52,6 +54,14 @@ QUERY_LIMIT_SCHEMA: dict[str, Any] = {
     },
     "additionalProperties": False,
 }
+
+LIMIT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"limit": QUERY_LIMIT_SCHEMA["properties"]["limit"]},
+    "additionalProperties": False,
+}
+BOOTUI_TOOLS = json.loads((Path(__file__).parents[1] / "fixtures" / "bootui_tools_0_2_0.json").read_text("utf-8"))
+RELEASE_TOOLS = ("get_http_exchanges",)  # each 0.2.0 task adds the tools it builds
 
 
 class FakeIntrospector:
@@ -88,6 +98,7 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_mappings", "mappings", False, QUERY_LIMIT_SCHEMA),
         ("get_loggers", "loggers", False, QUERY_LIMIT_SCHEMA),
         ("get_beans", "beans", False, QUERY_LIMIT_SCHEMA),
+        ("get_http_exchanges", "http-exchanges", False, LIMIT_SCHEMA),
         ("get_vulnerabilities_report", "vulnerabilities", False, NONE_SCHEMA),
         ("vulnerabilities_scan", "vulnerabilities", True, NONE_SCHEMA),
     ]
@@ -105,6 +116,22 @@ def test_descriptions_ported_with_names_substituted():
     assert by_name["vulnerabilities_scan"].startswith("Actively query OSV.dev for known vulnerabilities")
     assert "SHARPIT_MCP_ENABLED" in by_name["get_config"]
     assert all("BootUI" not in d and "bootui" not in d and "Spring" not in d for d in by_name.values())
+
+
+@pytest.mark.parametrize("name", RELEASE_TOOLS)
+def test_mcp_schema_matches_bootui(name: str):
+    # BootUI bootui-tools.json names, commands, panels and schema kinds; BootUiMcpService.schema renders inputSchema
+    entry = next(t for t in BOOTUI_TOOLS["tools"] if t.get("sharpitName", t["name"]) == name)
+    tool = next(t for t in TOOLS if t.name == name)
+    expected = json.loads(json.dumps(entry["inputSchema"]).replace("bootui.mcp.max-results", "SHARPIT_MCP_MAX_RESULTS"))
+    assert tool.input_schema == expected
+    assert (tool.panel, tool.action) == (entry.get("sharpitPanel", entry["panel"]), entry["action"])
+    assert COMMANDS[name] == entry["command"]
+    assert "Spring" not in tool.description and "JVM" not in tool.description
+
+
+def test_bootui_tools_fixture_holds_the_release():
+    assert len(BOOTUI_TOOLS["tools"]) == 12 and len(BOOTUI_TOOLS["bootuiToolsCommit"]) == 40
 
 
 def test_every_action_tool_references_an_action_capable_panel():

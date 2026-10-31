@@ -102,7 +102,7 @@ def test_mcp_server_status_shape():
     assert (body["enabled"], body["configuredMode"], body["overridden"]) == (True, "ON", False)
     assert (body["serverName"], body["serverVersion"], body["transport"]) == ("sharpit", __version__, "http")
     assert (body["endpoint"], body["protocolVersion"], body["maxResults"]) == ("/sharpit/api/mcp", "2025-06-18", 200)
-    assert body["toolCount"] == 6 and len(body["tools"]) == 6
+    assert body["toolCount"] == 7 and len(body["tools"]) == 7  # Task 2 adds get_http_exchanges
     assert all(not t["action"] for t in body["tools"])
     assert body["tools"][0] == {
         "name": "get_overview",

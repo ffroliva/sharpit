@@ -249,7 +249,7 @@ class FastApiIntrospector:
         middleware: Any = getattr(self.app, "user_middleware", None) or ()
         for entry in list(middleware):
             cls = getattr(entry, "cls", None)  # only the class: args/kwargs (secret keys) are never read
-            if cls is not None:
+            if cls is not None and not getattr(cls, "__module__", "").startswith("sharpit."):  # not sharpit's own
                 add(cls, "singleton")
         if self.lifespan is not None:
             add(self.lifespan, "singleton")
