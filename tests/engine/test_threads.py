@@ -198,17 +198,19 @@ def test_task_stuck_in_nested_sleep_full_stack(loop_thread: LoopThread, monkeypa
 def test_task_stack_capture_call_graph_branch(loop_thread: LoopThread, monkeypatch: pytest.MonkeyPatch):
     task = loop_thread.spawn(_outer, "graph")
     loop_thread.run(asyncio.sleep(0.01))
-    frame = sys._getframe()  # pyright: ignore[reportPrivateUsage]
+    frames = [_fake_frame("app", name) for name in ("inner", "middle", "outer")]  # innermost first, as 3.14 gives
+    for line, frame in enumerate(frames, 1):
+        frame.f_lineno = line
     seen: list[object] = []
 
     def fake_graph(future: object) -> Any:
         seen.append(future)
-        return SimpleNamespace(call_stack=(SimpleNamespace(frame=frame),) * 3)
+        return SimpleNamespace(call_stack=tuple(SimpleNamespace(frame=f) for f in frames))
 
     monkeypatch.setattr(asyncio, "capture_call_graph", fake_graph, raising=False)
-    stack = task_stack(task, 2)
-    assert seen == [task]
-    assert _functions(stack) == ["test_task_stack_capture_call_graph_branch"] * 2
+    assert _functions(task_stack(task, 64)) == ["inner", "middle", "outer"]  # order kept, not reversed
+    assert _functions(task_stack(task, 2)) == ["inner", "middle"]  # the innermost frames are kept
+    assert seen == [task, task]
 
 
 def test_cancelled_task_state_and_none_coro():
@@ -221,9 +223,10 @@ def test_cancelled_task_state_and_none_coro():
             get_context=contextvars.copy_context,
         )
 
-    assert task_info(fake(True, True, None), 8, names_only=False)["state"] == "CANCELLED"  # checked before done()
-    assert task_info(fake(False, True, None), 8, names_only=False)["state"] == "DONE"
-    row = task_info(fake(False, False, None), 8, names_only=False)
+    ctx = _ctx()
+    assert task_info(ctx, fake(True, True, None), 8, names_only=False)["state"] == "CANCELLED"  # checked before done()
+    assert task_info(ctx, fake(False, True, None), 8, names_only=False)["state"] == "DONE"
+    row = task_info(ctx, fake(False, False, None), 8, names_only=False)
     assert (row["state"], row["coroutine"], row["stackTrace"], row["request"]) == ("PENDING", None, [], None)
 
 
@@ -303,9 +306,43 @@ def test_metadata_only_hides_stacks(loop_thread: LoopThread):
     ctx = _ctx(expose_values="METADATA_ONLY")
     ctx.capture.loop = loop_thread.loop
     loop_thread.spawn(_forever, "t8-meta")
+    event = threading.Event()
+    threading.Thread(target=event.wait, args=(5,), name="t8-meta-wait", daemon=True).start()
+    try:
+        time.sleep(0.05)
+        report = threads_report(ctx, None, None, None, None)
+        assert all(r["stackTrace"] == [] for r in report["threads"] + report["tasks"])
+        assert _names(report) == ["t8-meta"]
+        (row,) = [r for r in report["threads"] if r["name"] == "t8-meta-wait"]
+        assert row["state"] == "WAITING"  # the state is metadata: only the stack text is hidden
+        assert [r["name"] for r in threads_report(ctx, None, "WAITING", None, None)["threads"]].count("t8-meta-wait")
+    finally:
+        event.set()
+
+
+JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0aHJlYWRzIn0.c2lnbmF0dXJlLWJ5dGVz"
+
+
+@pytest.mark.parametrize("free_threaded", [False, True])
+def test_task_names_masked(loop_thread: LoopThread, monkeypatch: pytest.MonkeyPatch, free_threaded: bool):
+    ctx = _ctx()
+    ctx.capture.loop = loop_thread.loop
+    loop_thread.spawn(_forever, JWT)
+    if free_threaded:
+        monkeypatch.setattr(sys, "_is_gil_enabled", lambda: False, raising=False)
     report = threads_report(ctx, None, None, None, None)
-    assert all(r["stackTrace"] == [] for r in report["threads"] + report["tasks"])
-    assert _names(report) == ["t8-meta"]
+    assert len(report["tasks"]) == 1
+    assert JWT not in json.dumps(report)
+
+
+def test_task_cap_follows_clamped_limit(loop_thread: LoopThread):
+    ctx = _ctx()
+    ctx.capture.loop = loop_thread.loop
+    for n in range(5):
+        loop_thread.spawn(_forever, f"t8-lim-{n}")
+    for limit in (-3, 0, 1):  # paged clamps the thread page to 1 row; the task list follows it
+        report = threads_report(ctx, None, None, None, limit)
+        assert (len(report["threads"]), _names(report)) == (1, ["t8-lim-0"]), limit
 
 
 def test_tasks_capped_500(loop_thread: LoopThread):

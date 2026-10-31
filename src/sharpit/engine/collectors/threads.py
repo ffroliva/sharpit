@@ -105,10 +105,11 @@ def task_stack(task: Any, max_frames: int) -> list[str]:
     return [_frame_text(f) for f in frames[:max_frames]]
 
 
-def task_info(task: Any, max_frames: int, *, names_only: bool) -> dict[str, Any]:
-    """``AsyncTaskDto``; ``max_frames`` 0 gives an empty stack (``METADATA_ONLY``)."""
+def task_info(ctx: SharpitContext, task: Any, max_frames: int, *, names_only: bool) -> dict[str, Any]:
+    """``AsyncTaskDto``; ``max_frames`` 0 gives an empty stack (``METADATA_ONLY``); the name is masked."""
+    name = _thread_name(ctx, task.get_name())
     if names_only:
-        return dict(zip(TASK_KEYS, (task.get_name(), None, _task_state(task), [], None), strict=True))
+        return dict(zip(TASK_KEYS, (name, None, _task_state(task), [], None), strict=True))
     info = task.get_context().get(REQUEST)
     request = (
         None
@@ -120,7 +121,7 @@ def task_info(task: Any, max_frames: int, *, names_only: bool) -> dict[str, Any]
         }
     )
     return {
-        "name": task.get_name(),
+        "name": name,
         "coroutine": getattr(task.get_coro(), "__qualname__", None),  # an eager task's coroutine can be None
         "state": _task_state(task),
         "stackTrace": task_stack(task, max_frames) if max_frames else [],
@@ -132,12 +133,12 @@ def _task_state(task: Any) -> str:
     return "CANCELLED" if task.cancelled() else "DONE" if task.done() else "PENDING"  # cancelled() first: also done
 
 
-def _collect(max_frames: int, cap: int, names_only: bool) -> tuple[list[dict[str, Any]], int]:
+def _collect(ctx: SharpitContext, max_frames: int, cap: int, names_only: bool) -> tuple[list[dict[str, Any]], int]:
     """On the loop: every task but the reader itself and sharpit's own SSE streams."""
     me = asyncio.current_task()
     tasks = [t for t in asyncio.all_tasks() if t is not me and not t.get_context().get(SSE_TASK, False)]
     tasks.sort(key=lambda t: t.get_name())
-    return [task_info(t, max_frames, names_only=names_only) for t in tasks[:cap]], len(tasks)
+    return [task_info(ctx, t, max_frames, names_only=names_only) for t in tasks[:cap]], len(tasks)
 
 
 def _tasks(
@@ -151,10 +152,10 @@ def _tasks(
     except RuntimeError:
         running = None
     if running is loop:
-        return (*_collect(max_frames, cap, names_only), None)
+        return (*_collect(ctx, max_frames, cap, names_only), None)
 
     async def collect() -> tuple[list[dict[str, Any]], int]:
-        return _collect(max_frames, cap, names_only)
+        return _collect(ctx, max_frames, cap, names_only)
 
     future = asyncio.run_coroutine_threadsafe(collect(), loop)  # all_tasks() is only safe on the loop's own thread
     try:
@@ -177,7 +178,8 @@ def threads_report(
     names_only = not getattr(sys, "_is_gil_enabled", lambda: True)()  # 3.13+; free-threaded builds are unsupported
     hide = names_only or ctx.settings.expose_values is Exposure.METADATA_ONLY  # BootUI: no stacks under METADATA_ONLY
     max_frames = 0 if hide else ctx.settings.threads_max_stack_frames
-    current: dict[int, Any] = {} if hide else sys._current_frames()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    # the state is metadata, so frames are read under METADATA_ONLY too; max_frames 0 hides only the stack text
+    current: dict[int, Any] = {} if names_only else sys._current_frames()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     rows: list[dict[str, Any]] = []
     for thread in threading.enumerate():
         frames = _thread_frames(current.get(thread.ident or 0), max(max_frames, 1))
@@ -197,7 +199,8 @@ def threads_report(
     filtered = [r for r in rows if not wanted or r["state"].lower() == wanted]  # exact, as BootUI matchesState
     page, meta = paged(filtered, q, offset, limit, lambda r: [r["name"], r["state"], *r["stackTrace"]])
     meta["total"] = len(rows)  # BootUI counts every thread, before the state filter
-    tasks, task_count, warning = _tasks(ctx, max_frames, min(MAX_TASKS, limit or MAX_TASKS), names_only)
+    cap = MAX_TASKS if limit is None else min(MAX_TASKS, max(limit, 1))  # paged clamps limit to at least 1 too
+    tasks, task_count, warning = _tasks(ctx, max_frames, cap, names_only)
     warnings = [w for w in (FREE_THREADED if names_only else None, warning) if w is not None]
     values = (
         True, None, round(time.time() * 1000), len(rows), sum(r["daemon"] for r in rows), len(rows), len(rows),
