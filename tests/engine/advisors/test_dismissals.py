@@ -163,7 +163,8 @@ def test_rapi_id_accepted_quote_space_slash_refused(tmp_path: Path):
             store.remove(bad)
     assert (tmp_path / FILE_NAME).read_bytes() == before
     longest = "V-" + "1" * 188 + "::pypi:abc"  # 200 characters is the longest id
-    assert len(longest) == 200 and store.add(longest)[-1] == longest
+    assert len(longest) == 200
+    assert store.add(longest)[-1] == longest
     with pytest.raises(BadRequest):
         store.add("V-" + "1" * 189 + "::pypi:abc")
 

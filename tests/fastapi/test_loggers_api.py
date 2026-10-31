@@ -37,7 +37,8 @@ def test_get_loggers_paged(no_side_effects: SideEffectGuard):
     assert resp.status_code == 200
     body = resp.json()
     assert [lg["name"] for lg in body["loggers"]] == ["api.pg.two"]
-    assert body["page"]["matched"] == 2 and body["availableLevels"][-1] == "NOTSET"
+    assert body["page"]["matched"] == 2
+    assert body["availableLevels"][-1] == "NOTSET"
 
 
 def test_get_loggers_bad_param_400(no_side_effects: SideEffectGuard):

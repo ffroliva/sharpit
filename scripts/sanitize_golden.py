@@ -35,7 +35,7 @@ SECRET_VALUE = re.compile(
     r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"  # AWS access key id
     r"|://(?!user:password@)[^/\s:@]+:[^/\s@]+@"  # URL userinfo (docs placeholder user:password allowed)
 )
-SENSITIVE_NAME = re.compile(r"(?:passw(?:or)?d|secret|token|api[-_.]?key|credential|private[-_.]?key)", re.I)
+SENSITIVE_NAME = re.compile(r"(?:passw(?:or)?d|secret|token|api[-_.]?key|credential|private[-_.]?key)", re.IGNORECASE)
 MASK = "******"
 
 

@@ -88,8 +88,11 @@ def test_callable_instance_named_by_class_and_second_gets_suffix():
 
     beans = _by_name(app)
     base = "fastapi.security.oauth2:OAuth2PasswordBearer"
-    assert base in beans and f"{base}#2" in beans and f"{base}#3" not in beans
-    assert beans[base].type_name == base and beans[base].scope == "request"
+    assert base in beans
+    assert f"{base}#2" in beans
+    assert f"{base}#3" not in beans
+    assert beans[base].type_name == base
+    assert beans[base].scope == "request"
 
 
 def test_nested_depends_edges():
@@ -112,7 +115,8 @@ def test_router_and_app_level_dependencies_included():
 
     app.include_router(router, prefix="/p")
     beans = _by_name(app)
-    assert f"{HERE}:app_level" in beans and f"{HERE}:router_level" in beans
+    assert f"{HERE}:app_level" in beans
+    assert f"{HERE}:router_level" in beans
 
 
 def test_middleware_bean_never_leaks_kwargs():
@@ -122,7 +126,8 @@ def test_middleware_bean_never_leaks_kwargs():
     beans = _by_name(app)
     assert beans[f"{HERE}:SessionMiddleware"].scope == "singleton"
     gzip = beans["starlette.middleware.gzip:GZipMiddleware"]
-    assert gzip.scope == "singleton" and gzip.classification == "FRAMEWORK"
+    assert gzip.scope == "singleton"
+    assert gzip.classification == "FRAMEWORK"
     report = beans_report(_ctx(app), None, None, None, None)
     assert "s3cr3t" not in json.dumps(report)
 
@@ -167,7 +172,8 @@ def test_lifespan_bean_unwraps_include_router_merges():
     handle = install(app, enabled="ON", show_banner=False)
     names = {p.name: p for p in handle.context.introspector.providers()}
     bean = names[f"{HERE}:host_lifespan"]
-    assert bean.scope == "singleton" and bean.classification == "APPLICATION"
+    assert bean.scope == "singleton"
+    assert bean.classification == "APPLICATION"
     assert not any("merged_lifespan" in n for n in names)
 
 
@@ -251,7 +257,8 @@ def test_beans_route(no_side_effects: SideEffectGuard):
     client = TestClient(app, base_url="http://localhost", client=LOCAL)
     body = client.get("/sharpit/api/beans", params={"q": "get_", "classification": "application", "limit": 2}).json()
     assert [b["name"] for b in body["beans"]] == [f"{HERE}:get_db", f"{HERE}:get_repo"]
-    assert body["page"]["matched"] == 3 and body["page"]["hasMore"] is True
+    assert body["page"]["matched"] == 3
+    assert body["page"]["hasMore"] is True
     assert client.get("/sharpit/api/beans", params={"offset": "x"}).status_code == 400
 
 

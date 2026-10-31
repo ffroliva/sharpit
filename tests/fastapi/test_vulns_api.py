@@ -196,6 +196,7 @@ def test_default_service_never_networks_on_get(
     assert resp.status_code == 200
     body = resp.json()
     assert body["scan"]["status"] == "NOT_SCANNED"
-    assert body["total"] > 0 and body["dependencies"][0]["source"] == "importlib.metadata"
+    assert body["total"] > 0
+    assert body["dependencies"][0]["source"] == "importlib.metadata"
     assert client.get("/sharpit/api/dismissed-rules").json() == {"dismissed": []}
     assert not (tmp_path / "state").exists()

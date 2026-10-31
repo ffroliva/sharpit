@@ -116,8 +116,10 @@ def test_path_query_and_header_count_caps():
     row = _row(
         path="/" + "p" * 5000, query_string=b"a=" + b"q" * 5000, request_headers=headers, response_headers=headers
     )
-    assert len(row["path"]) == 2048 and row["path"].endswith("…")
-    assert len(row["query"]) == 2048 and row["query"].endswith("…")
+    assert len(row["path"]) == 2048
+    assert row["path"].endswith("…")
+    assert len(row["query"]) == 2048
+    assert row["query"].endswith("…")
     assert len(row["requestHeaders"]) == len(row["responseHeaders"]) == 50
 
 

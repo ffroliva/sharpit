@@ -135,7 +135,8 @@ def test_root_path_self_exclusion():
 
 
 def test_helpers():
-    assert REQUEST.get() is None and INTERNAL.get() is False
+    assert REQUEST.get() is None
+    assert INTERNAL.get() is False
     with internal():
         assert INTERNAL.get() is True
     assert INTERNAL.get() is False

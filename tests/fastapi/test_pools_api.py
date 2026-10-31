@@ -30,7 +30,8 @@ def test_pools_and_snapshot_by_name(tmp_path: Path):
     (pool,) = client.get(POOLS).json()["pools"]
     assert "/" in pool["poolName"]  # sqlite+pysqlite:///...: the snapshot route takes a path-shaped name
     resp = client.get(f"{POOLS}/{quote(pool['poolName'], safe='')}/snapshot")
-    assert resp.status_code == 200 and tuple(resp.json()) == ("timestamp", "active", "idle", "total", "pending")
+    assert resp.status_code == 200
+    assert tuple(resp.json()) == ("timestamp", "active", "idle", "total", "pending")
 
 
 def test_snapshot_unknown_404(tmp_path: Path):

@@ -261,7 +261,8 @@ def test_startup_time_set_after_lifespan():
     with _client(app) as client:
         assert client.get("/flag").json() == "host-state"
         startup = client.get("/sharpit/api/overview").json()["startupTimeMillis"]
-    assert isinstance(startup, int) and startup >= 0
+    assert isinstance(startup, int)
+    assert startup >= 0
 
 
 def test_banner_prints_generated_token(capsys: pytest.CaptureFixture[str]):

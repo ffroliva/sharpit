@@ -78,6 +78,38 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
+## Architecture rules
+
+sharpit is a modular monolith with one port at the framework edge. `tests/engine/test_import_boundary.py` enforces
+these on every run (a planted violation proves each rule still bites); a failing rule is a design question, not a test
+to loosen. Change a rule only in that test and here, in the same PR, with the reason in the PR body.
+
+1. **Framework-free engine.** `engine/` never imports `fastapi` or `starlette` (a `TYPE_CHECKING` block is allowed).
+2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi` or `sharpit.ui`, not even for a type. When
+   the engine needs something from an adapter, it declares a `Protocol` port (`AppIntrospector` in `engine/spi.py`,
+   `CaptureHooks` in `engine/capture/`) and the adapter implements it.
+3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
+   the engine (`context`, `paging`, `spi`, `singleflight`, ...).
+4. **Gatekeepers.** One named file per optional or network library: SQLAlchemy only in `engine/sqla.py`,
+   `pydantic_settings` only in `engine/collectors/config/settings_source.py`, `urllib.request`/`http.client` only in
+   the OSV and EPSS clients under `engine/collectors/vulns/`. `alembic`, `socket` and `ssl` are imported nowhere.
+5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
+   SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked
+   slow or deselected (a measurement nobody runs detects nothing).
+6. **Ratchets only go down** (`tests/test_code_shape.py`, `scripts/ci/sonar_ratchet.py`): no module under `src/` over
+   1000 lines; ruff C901 counts per file pinned in `tests/complexity_baseline.json`; open code-scan issues on `main`
+   equal to `sonar-baseline.txt`. A change that fixes one lowers the pinned number in the same commit; nothing is ever raised.
+
+### Writing tests that prove something
+
+- **A crash is not a red.** An `ImportError`, `AttributeError` or collection error before the fix proves nothing; the
+  red must be the assertion that names the defect.
+- **One condition per assert** (ruff `PT018`), so a failure says which condition broke.
+- **Every error found** (review, CI, a user report) becomes a regression test seen red first. The PR lists them as a
+  `finding → test → red output` table.
+- **Test the real code.** A performance or SQL test runs the production function or query, imported, never a copy.
+- **Delete the control and re-run:** if no named test fails, the test was decoration.
+
 ## Workflow
 
 - **Worktree per change**, branched from current `origin/main` (`superpowers:using-git-worktrees`). Never work on

@@ -54,7 +54,8 @@ def test_sequence_numbers_and_after():
     assert [s for s, _ in buffer.after(None)] == [2, 3]
     assert [s for s, _ in buffer.after(2)] == [3]
     assert buffer.after(3) == []
-    assert len(buffer.boot_nonce) >= 8 and LogTailBuffer(1, 1).boot_nonce != buffer.boot_nonce
+    assert len(buffer.boot_nonce) >= 8
+    assert LogTailBuffer(1, 1).boot_nonce != buffer.boot_nonce
 
 
 @pytest.fixture
@@ -108,7 +109,8 @@ def test_line_shape(isolated: logging.Logger):
     (line,) = buffer.recent()
     assert tuple(line) == LINE_KEYS == ("timestamp", "level", "logger", "message", "thread")
     assert (line["level"], line["logger"], line["message"]) == ("WARNING", isolated.name, "hello world")
-    assert isinstance(line["timestamp"], int) and line["timestamp"] > 1_600_000_000_000  # epoch millis
+    assert isinstance(line["timestamp"], int)
+    assert line["timestamp"] > 1_600_000_000_000
     assert line["thread"] == "MainThread"
 
 
@@ -130,7 +132,9 @@ def test_message_masked_and_cut(isolated: logging.Logger):
     isolated.warning("x" * 10_000 + " password=hunter2")
     first, second = _messages(buffer)
     assert first == f"login password={MASK} token {MASK}"
-    assert second is not None and len(second) == MAX_MESSAGE == 4000 and "hunter2" not in second
+    assert second is not None
+    assert len(second) == MAX_MESSAGE == 4000
+    assert "hunter2" not in second
 
 
 def test_mask_work_is_bounded_on_huge_message(isolated: logging.Logger):
@@ -145,9 +149,12 @@ def test_mask_work_is_bounded_on_huge_message(isolated: logging.Logger):
     handler, buffer = _handler(Recording(Exposure.MASKED, True))
     isolated.addHandler(handler)
     isolated.warning("password=hunter2 " + "x" * 1_000_000)
-    assert seen and max(seen) <= 4 * MAX_MESSAGE
+    assert seen
+    assert max(seen) <= 4 * MAX_MESSAGE
     (message,) = _messages(buffer)
-    assert message is not None and len(message) == MAX_MESSAGE and "hunter2" not in message
+    assert message is not None
+    assert len(message) == MAX_MESSAGE
+    assert "hunter2" not in message
 
 
 def test_resume_point_rejects_non_ascii_digits():
@@ -171,7 +178,8 @@ def test_metadata_only_log_message_null(isolated: logging.Logger):
     isolated.addHandler(handler)
     isolated.warning("password=hunter2")
     (line,) = buffer.recent()
-    assert line["message"] is None and line["logger"] == isolated.name
+    assert line["message"] is None
+    assert line["logger"] == isolated.name
 
 
 @pytest.mark.parametrize("capture", [False, True])
@@ -253,5 +261,7 @@ def test_log_handler_failure_silent(
     isolated.warning("one")
     isolated.warning("two")
     err = capfd.readouterr().err
-    assert "Traceback" not in err and "store failed" not in err
-    assert err.count("sharpit") == 1 and "RuntimeError" in err, err
+    assert "Traceback" not in err
+    assert "store failed" not in err
+    assert err.count("sharpit") == 1, err
+    assert "RuntimeError" in err, err

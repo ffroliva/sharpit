@@ -46,7 +46,9 @@ def test_sorted_by_name_with_overridden_by_in_resource():
     assert [b["name"] for b in report["beans"]] == sorted(p.name for p in PROVIDERS)
     db = next(b for b in report["beans"] if b["name"] == "app.deps:get_db")
     assert db["resource"] == "deps.py:1 (overridden by app.tests:fake_db)"
-    assert db["dependencies"] == [] and db["scope"] == "request" and db["type"] == "app.deps:get_db"
+    assert db["dependencies"] == []
+    assert db["scope"] == "request"
+    assert db["type"] == "app.deps:get_db"
 
 
 def test_classification_bootui_filter():
@@ -60,4 +62,5 @@ def test_classification_bootui_filter():
 def test_q_matches_name_or_type_combined_with_classification():
     report = beans_report(_ctx(), "APP.DEPS", "APPLICATION", None, None)
     assert [b["name"] for b in report["beans"]] == ["app.deps:get_db", "app.deps:get_repo"]
-    assert report["page"]["total"] == 5 and report["page"]["matched"] == 2
+    assert report["page"]["total"] == 5
+    assert report["page"]["matched"] == 2

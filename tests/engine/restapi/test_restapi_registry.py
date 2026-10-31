@@ -41,7 +41,8 @@ def _documented() -> list[str]:
 
 def test_registry_covers_every_documented_id():
     documented = _documented()
-    assert len(documented) == 56 and len(set(documented)) == 56
+    assert len(documented) == 56
+    assert len(set(documented)) == 56
     assert "81d1476af6bccb2b70830d3f1b6ac72b737ae2e2" in IDS_FILE.read_text("utf-8")  # the source commit is recorded
     ported = [r.id for r in RULES]
     assert ported == PORTED  # exactly the 20 rules of spec §7.10, in BootUI order

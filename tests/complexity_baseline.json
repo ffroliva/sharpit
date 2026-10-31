@@ -1,0 +1,17 @@
+{
+  "examples/fastapi_sqla/app.py": 1,
+  "src/sharpit/engine/activation.py": 1,
+  "src/sharpit/engine/capture/activity.py": 1,
+  "src/sharpit/engine/capture/sqltrace.py": 1,
+  "src/sharpit/engine/collectors/alembic.py": 2,
+  "src/sharpit/engine/collectors/config/getenv_scan.py": 1,
+  "src/sharpit/engine/collectors/config/settings_source.py": 1,
+  "src/sharpit/engine/mcp.py": 1,
+  "src/sharpit/engine/probe.py": 2,
+  "src/sharpit/engine/tools.py": 1,
+  "src/sharpit/fastapi/adapter.py": 3,
+  "src/sharpit/fastapi/capture.py": 1,
+  "src/sharpit/fastapi/introspector.py": 1,
+  "src/sharpit/settings.py": 2,
+  "tests/test_masking_corpus.py": 1
+}

@@ -74,7 +74,8 @@ def _slots(handle: SharpitHandle) -> StreamSlots:
 
 def _log_handler(handle: SharpitHandle) -> SharpitLogHandler:
     wiring = handle.context.capture.wiring
-    assert wiring is not None and wiring.log_handler is not None
+    assert wiring is not None
+    assert wiring.log_handler is not None
     return wiring.log_handler
 
 
@@ -224,7 +225,8 @@ def test_global_cap_mixed_streams():
             OpenStream(sse_response(handle.context, ticks()), STREAM) for _ in range(10)
         ]  # a second panel's streams
         await asyncio.wait_for(asyncio.gather(*(s.started.wait() for s in logs + others)), 5)
-        assert slots.count == 20 and {s.status for s in logs + others} == {200}
+        assert slots.count == 20
+        assert {s.status for s in logs + others} == {200}
         extra = OpenStream(app, STREAM)
         await asyncio.wait_for(extra.task, 5)
         assert extra.status == 503
@@ -250,12 +252,14 @@ def test_slot_released_on_disconnect():
         stream = OpenStream(app, STREAM)
         await asyncio.wait_for(stream.started.wait(), 5)
         await asyncio.sleep(0.05)
-        assert _slots(handle).count == 1 and buffer.stream.subscriber_count == 1
+        assert _slots(handle).count == 1
+        assert buffer.stream.subscriber_count == 1
         stream.task.cancel()  # a client disconnect arrives as CancelledError
         await asyncio.gather(stream.task, return_exceptions=True)
 
     asyncio.run(main())
-    assert _slots(handle).count == 0 and buffer.stream.subscriber_count == 0
+    assert _slots(handle).count == 0
+    assert buffer.stream.subscriber_count == 0
 
 
 def test_stream_live_line_delivered():
@@ -272,7 +276,8 @@ def test_stream_live_line_delivered():
         stream.task.cancel()
         await asyncio.gather(stream.task, return_exceptions=True)
         body = b"".join(m.get("body", b"") for m in stream.sent).decode()
-        assert '"message":"live"' in body and "event: log" in body
+        assert '"message":"live"' in body
+        assert "event: log" in body
 
     asyncio.run(main())
 
@@ -365,7 +370,8 @@ def test_worker_warning_once(monkeypatch: pytest.MonkeyPatch, caplog: pytest.Log
             with _client(app) as client:
                 client.get("/host")
     warnings = [r.getMessage() for r in caplog.records if "several worker processes" in r.getMessage()]
-    assert len(warnings) == 1 and "SHARPIT_AUTHENTICATION_TOKEN" in warnings[0], warnings
+    assert len(warnings) == 1, warnings
+    assert "SHARPIT_AUTHENTICATION_TOKEN" in warnings[0], warnings
 
 
 @pytest.mark.parametrize(

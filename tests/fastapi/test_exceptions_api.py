@@ -176,7 +176,8 @@ def test_wrap_sync_async_partial_handlers():
     wrapped = app.exception_handlers
     assert isinstance(wrapped, WrappingHandlers)
     for cls, original in handlers.items():
-        assert wrapped[cls] is not original and is_async_callable(wrapped[cls]) == is_async_callable(original)
+        assert wrapped[cls] is not original
+        assert is_async_callable(wrapped[cls]) == is_async_callable(original)
     with _client(app) as client:
         bodies = [client.get(f"/{cls.__name__}").text for cls in handlers]
         groups = _groups(client)
@@ -209,7 +210,8 @@ def test_uninstall_restores_plain_handlers_dict():
     with _client(app) as client:
         client.get("/fail")
         handle.uninstall_capture()
-        assert type(app.exception_handlers) is dict and app.exception_handlers[MyError] is original
+        assert type(app.exception_handlers) is dict
+        assert app.exception_handlers[MyError] is original
         assert client.get("/fail").text == "original"  # the built stack keeps the wrapper: it passes through
     assert _store(handle).report()["totalExceptions"] == 1
 
@@ -226,7 +228,8 @@ def test_handler_wrapper_failure_still_calls_original(caplog: pytest.LogCaptureF
     with _client(app) as client:
         assert [client.get("/fail").text for _ in range(2)] == ["still handled"] * 2
     warnings = [r.getMessage() for r in caplog.records if r.name == "sharpit" and r.levelno == logging.WARNING]
-    assert len(warnings) == 1 and "exception handler" in warnings[0], warnings
+    assert len(warnings) == 1, warnings
+    assert "exception handler" in warnings[0], warnings
 
 
 def test_custom_404_handler_unwrapped():
@@ -386,8 +389,10 @@ def test_empty_status_body_400(content: bytes, shown: str):
 def test_status_update_and_case():
     _, _, client, gid = _one_group()
     resp = client.post(f"{API}/{gid}/status", json={"status": "resolved"})
-    assert resp.status_code == 200 and tuple(resp.json()) == GROUP_KEYS
-    assert resp.json()["status"] == "RESOLVED" and _groups(client)[0]["status"] == "RESOLVED"
+    assert resp.status_code == 200
+    assert tuple(resp.json()) == GROUP_KEYS
+    assert resp.json()["status"] == "RESOLVED"
+    assert _groups(client)[0]["status"] == "RESOLVED"
 
 
 def test_delete_204():
@@ -414,7 +419,8 @@ def test_status_post_refused_read_only(scope: str):
 def test_exceptions_stream_route_not_shadowed():
     _, _, client, _ = _one_group()
     resp = client.get(f"{API}/stream")
-    assert resp.status_code == 200 and resp.headers["content-type"].startswith("text/event-stream")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
     assert resp.text.endswith("retry: 1000\n\n")
 
 
@@ -428,7 +434,8 @@ def test_disabled_panel_has_no_store_and_wraps_nothing():
     app = _failing_app()
     before = app.exception_handlers
     handle = _install(app, panels={"exceptions": {"enabled": False}})
-    assert handle.context.capture.exceptions is None and app.exception_handlers is before
+    assert handle.context.capture.exceptions is None
+    assert app.exception_handlers is before
     assert _client(app).get(API).status_code == 403
 
 
@@ -456,12 +463,13 @@ def test_get_exceptions_mcp_no_side_effects(no_side_effects: SideEffectGuard):
         missing = _rpc(client, "get_exception_detail", {})
         wrong = _rpc(client, "get_exception_detail", {"id": 1})
     app.state.sharpit.uninstall_capture()
-    assert listed["isError"] is False and listed["structuredContent"]["groups"][0]["message"] == (
-        "for the agent password=******"
-    )
-    assert detail["isError"] is False and detail["structuredContent"]["group"]["id"] == gid
+    assert listed["isError"] is False
+    assert listed["structuredContent"]["groups"][0]["message"] == ("for the agent password=******")
+    assert detail["isError"] is False
+    assert detail["structuredContent"]["group"]["id"] == gid
     # ported: AbstractMcpConformanceTest.testMcpToolClientErrorIsReportedInBandInsteadOfInternalError
-    assert "error" not in unknown and unknown["result"]["isError"] is True
+    assert "error" not in unknown
+    assert unknown["result"]["isError"] is True
     assert unknown["result"]["content"][0]["text"] == "Unknown exception group 'does-not-exist'"
     assert missing["error"] == {"code": -32602, "message": "Missing required argument: id"}
     assert wrong["error"] == {"code": -32602, "message": "Argument 'id' must be a string"}

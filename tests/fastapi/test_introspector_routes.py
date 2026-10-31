@@ -144,7 +144,8 @@ def test_handler_never_uses_repr_of_closure_values(no_side_effects: SideEffectGu
 
     app.add_api_route("/c", make(secret))
     (route,) = [r for r in FastApiIntrospector(app, None).routes() if r.path == "/c"]
-    assert secret not in route.handler and "0x" not in route.handler
+    assert secret not in route.handler
+    assert "0x" not in route.handler
 
 
 def test_routes_added_after_install_appear_later(tmp_path: Path, no_side_effects: SideEffectGuard):
@@ -162,7 +163,8 @@ def test_endpoint_is_flat_json_and_sharpit_excluded(tmp_path: Path, no_side_effe
     assert resp.status_code == 200
     body = resp.json()
     assert [(m["method"], m["pattern"]) for m in body["mappings"]] == [("GET", "/v1/ping")]
-    assert body["page"]["matched"] == 1 and body["total"] > 10
+    assert body["page"]["matched"] == 1
+    assert body["total"] > 10
     everything = client.get("/sharpit/api/mappings/flat").json()["mappings"]
     assert not [m for m in everything if m["pattern"].startswith("/sharpit")]
     assert client.get("/sharpit/api/mappings/flat", params={"limit": "x"}).status_code == 400
@@ -173,7 +175,8 @@ def test_self_referencing_mount_stops_with_a_row(no_side_effects: SideEffectGuar
     loop.routes.append(loop)
     app = Starlette(routes=[loop])
     rows = _by(FastApiIntrospector(app, None).routes())
-    assert ("GET", "/loop/x") in rows and ("ANY", "/loop/loop/{path}") in rows
+    assert ("GET", "/loop/x") in rows
+    assert ("ANY", "/loop/loop/{path}") in rows
 
 
 def test_mount_chain_deeper_than_cap_stops_with_a_row(no_side_effects: SideEffectGuard):
@@ -181,9 +184,9 @@ def test_mount_chain_deeper_than_cap_stops_with_a_row(no_side_effects: SideEffec
     for _ in range(40):
         inner = Starlette(routes=[Mount("/n", app=inner)])
     paths = [r.path for r in FastApiIntrospector(inner, None).routes()]
-    assert (
-        len(paths) == 1 and paths[0].endswith("/{path}") and paths[0].count("/n") == 33
-    )  # 32 descents plus the mount that stopped
+    assert len(paths) == 1
+    assert paths[0].endswith("/{path}")
+    assert paths[0].count("/n") == 33
 
 
 def test_failing_include_router_expansion_yields_fallback_row(

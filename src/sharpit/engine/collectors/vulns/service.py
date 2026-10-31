@@ -209,10 +209,10 @@ def _valid_withdrawal(doc: dict[str, Any]) -> bool:
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError:
-        if not value.endswith(("Z", "z")):
+        if not value.endswith("z"):  # fromisoformat takes "Z" but not "z"; Instant.parse takes both
             return False
         try:
-            parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+            parsed = datetime.fromisoformat(value[:-1] + "Z")
         except ValueError:
             return False
     return parsed.tzinfo is not None  # Instant.parse rejects a local date-time
