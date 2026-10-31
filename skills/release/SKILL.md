@@ -1,74 +1,154 @@
 ---
 name: release
-version: "1.0"
+version: "2.0"
 description: >
-  Use when the owner asks to prepare a sharpit release: version bump, changelog, build sanity check, release branch.
-  Gated: it never publishes to PyPI, never tags or pushes master, and stops for the owner before anything public.
+  Use when the owner asks to cut a sharpit release: version bump, changelog, release PR, signed tag. Publishing is
+  CI's job: pushing the signed tag runs .github/workflows/release.yml (PyPI Trusted Publishing + GitHub Release).
+  Never `uv publish` by hand.
 ---
 
-# `release`: gated release preparation
+# `/sharpit:release` — cut a release
 
-> **Hard gate.** Never run `uv publish`, `twine upload`, `git push` to `master`, `git tag` pushes or `gh release create`
-> unless the owner has given an explicit instruction **in this session** naming the version. "Prepare a release" is
-> not that instruction. When in doubt, stop and print the commands for the owner.
+Follow this sequence in order. Ask the owner for anything under **Inputs** that was not given.
 
-## 1. Preconditions
+> **How publishing works.** Nobody uploads to PyPI by hand. A signed tag `v<version>` pushed to GitHub starts
+> `.github/workflows/release.yml`, which checks the signature, builds, checks the wheel version matches the tag,
+> smoke-tests the wheel, publishes to PyPI through Trusted Publishing (OIDC, no token anywhere) and creates the GitHub
+> Release with the wheel and sdist. The tag push is therefore the **point of no return**.
 
-- On an up-to-date `master` checkout with a clean tree (`git status --porcelain` empty), or stop.
-- `/sharpit:status`: the plan the release covers has no open steps, or the owner accepts what is open.
-- `/sharpit:check` green on that commit; CI green on `master` (`gh run list --branch master --limit 3`).
-- `/sharpit:known-issues`: no open Critical/High safety issue.
+## Inputs
 
-## 2. Version
+1. **Version**, PEP 440: `0.2.0`, `0.2.0rc1`, `0.2.0a1`. Patch for fixes only, minor for features, major for breaks.
+   Run `/sharpit:changelog` first if the owner wants a proposal.
+2. **Pre-release?** `a`, `b`, `rc` and `dev` versions become GitHub pre-releases automatically. Only the owner says
+   when a line is ready for a stable tag.
 
-The single version site is `__version__` in `src/sharpit/__init__.py` (hatch reads it). Follow PEP 440: the MVP is
-`0.1.0.dev0`; the first public build is `0.1.0` (or `0.1.0rc1` for a candidate). Ask the owner for the number if not
-given.
+## One-time setup (already done unless the first run fails)
 
-## 3. Release branch
+- PyPI: <https://pypi.org/manage/project/sharpit/settings/publishing/>, add a GitHub publisher with owner `ffroliva`,
+  repository `sharpit`, workflow `release.yml`, environment `pypi`. Only the owner can do this (PyPI login).
+- GitHub: the `pypi` environment exists (`gh api repos/ffroliva/sharpit/environments --jq '.environments[].name'`).
+- Signing: `git config --global gpg.format` is `ssh` and `user.signingkey` points at the key registered on GitHub.
+
+## Sequence
+
+**1. Clean, current `master`.** In the main checkout: `git status --porcelain` is empty, `git fetch origin` and
+`git rev-list --count HEAD..origin/master` is `0`. Stray build output (`dist/`) is deleted; real uncommitted work
+stops the release until the owner decides where it goes.
+
+**2. Gates.** All must pass; stop and report if one fails.
+
+- `/sharpit:check` green.
+- CI green on `master`: `gh run list --branch master --limit 3`.
+- `/sharpit:known-issues`: no open Critical or High safety issue.
+- `/sharpit:doc-review` clean: version references, links (github.com only) and the changelog footer.
+- `/sharpit:live-verify` for each user-facing change in this release, or a line in the PR saying why not.
+- `[Unreleased]` in `CHANGELOG.md` is non-empty and true.
+
+**3. Announce, then cut the branch in its own worktree.**
 
 ```bash
-git switch -c chore/release-<version>
-# edit src/sharpit/__init__.py
+python ~/.agents/skills/multi-agent-dev/scripts/agentctl.py status      # who else works on sharpit
+git worktree add -b chore/release-<version> ../sharpit-release-<version> origin/master
+cd ../sharpit-release-<version>
 ```
 
-## 4. Changelog
+Tell every live sharpit agent: "Cutting v<version> from master@<sha>; hold merges to master until the tag is pushed."
+A worktree keeps another session's `git switch` from moving the branch under you.
 
-Run `/sharpit:changelog`. If `CHANGELOG.md` exists, move `[Unreleased]` under `## [<version>] - <YYYY-MM-DD>` and open
-a fresh `[Unreleased]`. If it does not, create it now from the grouped git log (a release is the moment to bootstrap
-it).
+**4. Bump the version.** There is one declaration site: `__version__` in `src/sharpit/__init__.py` (hatch reads it;
+`uv.lock` carries no version for the editable package). Then
+`git grep -n "<old version>" -- ':!CHANGELOG.md'` and update only *declarations* that name the current release
+(for example "the current release is …" in `AGENTS.md` or `skills/sharpit/SKILL.md`). Leave records of what was
+measured or shipped alone.
 
-## 5. Build sanity check (local only)
+**5. Changelog.** Move everything under `## [Unreleased]` into `## [<version>] - <YYYY-MM-DD>`, leave `[Unreleased]`
+empty, and add the footer link in the existing form:
 
-```bash
-uv build                                           # background it
-uv run --isolated --with dist/sharpit-<version>-py3-none-any.whl python -c "import sharpit; print(sharpit.__version__)"
+```
+[<version>]: https://github.com/ffroliva/sharpit/releases/tag/v<version>
 ```
 
-Check the wheel contains `sharpit/ui/static/` and no `tests/`, `scripts/`, `replica/` or `.sharpit/`
-(`python -m zipfile -l dist/*.whl`). Do not commit `dist/`.
-
-## 6. Commit and review
+**6. Local build check.**
 
 ```bash
-git add src/sharpit/__init__.py CHANGELOG.md
+uv build --out-dir "$TEMP/sharpit-dist"                                      # background it
+python -m zipfile -l "$TEMP"/sharpit-dist/sharpit-<version>-py3-none-any.whl  # has sharpit/ui/static/, no tests/ scripts/ replica/
+```
+
+The file name must carry `<version>`; CI refuses the tag otherwise. Do not commit `dist/`.
+
+**7. Commit, PR, merge.**
+
+```bash
+git add src/sharpit/__init__.py CHANGELOG.md     # plus any declaration from step 4
 git commit -m "chore: release <version>"
+git push -u origin chore/release-<version>
+gh pr create --base master --title "chore: release <version>" --body "Release <version>. See CHANGELOG.md."
+gh pr checks <N> --watch                          # background it
 ```
 
-Run `/sharpit:llm-council --tier high` on the release branch. No AI attribution anywhere.
-
-## 7. STOP: hand over to the owner
-
-Print, do not run:
+Run `/sharpit:llm-council --tier high` on the branch. All checks green and no council blocker, then merge with a **merge commit** (never squash) and remove the worktree:
 
 ```bash
-git push -u origin chore/release-<version>
-gh pr create --base master --title "chore: release <version>"
-# after merge, on master:
-git tag v<version> && git push origin v<version>
-uv publish                                         # needs the owner's PyPI token
+gh pr merge <N> --merge --delete-branch
+cd <main checkout> && git worktree remove ../sharpit-release-<version>
 ```
 
-Report: version, branch, commit, build check result, council verdict, and the commands above.
+On Windows a held `.venv` can block the removal: merge without `--delete-branch`, run
+`git push origin --delete chore/release-<version>`, and list the directory for manual deletion.
 
-Ported from gflow-cli's `release`; reduced to one version site and gated before any publish.
+**8. Sign the tag on the merged `master`.**
+
+```bash
+git switch master && git pull --ff-only
+git log --oneline -1                              # the merge of the release PR, nothing newer
+git tag -s v<version> -m "v<version>"
+git cat-file -p v<version> | grep -cE "BEGIN (SSH|PGP) SIGNATURE"   # expect 1
+```
+
+If `master` moved past the release merge, those commits are not in the changelog section: move their entries under
+`[<version>]` in a follow-up PR first, or tag the release merge commit explicitly (`git tag -s v<version> <sha>`).
+`git tag -v` failing with `gpg.ssh.allowedSignersFile needs to be configured` is a local verify setting only; the tag is
+signed and CI accepts it.
+
+**9. Point of no return: confirm with the owner, then push the tag.** Show the version, the commit and the signature
+check, and wait for an explicit go-ahead in this session.
+
+```bash
+git push origin v<version>
+```
+
+**10. Watch the release run.**
+
+```bash
+gh run list --workflow release.yml --limit 1
+gh run watch <run id> --exit-status               # background it
+gh release view v<version>
+python -m pip index versions sharpit              # the new version is listed
+```
+
+On failure, read the log (`gh run view <run id> --log-failed`):
+
+| Failed step | Meaning | Fix |
+|---|---|---|
+| Verify the tag is signed | lightweight or unsigned tag | delete it (`git push origin :refs/tags/v<version>`, `git tag -d`), re-sign, re-push |
+| Verify the tag matches the built version | step 4 missed or a typo in the tag | same: delete, fix, re-tag |
+| pypi-publish: `invalid-publisher` | Trusted Publishing not set up or a field differs | owner fixes the PyPI publisher (one-time setup), then `gh run rerun <run id>` |
+| pypi-publish: file already exists | the version is already on PyPI | ship the next patch version |
+
+Deleting and re-pushing a tag is safe **only if PyPI never received that version**. Once it is on PyPI the tag is
+permanent: fix forward with a patch release.
+
+**11. Report.** Version, PR, tag commit, the release run link, the GitHub Release link, the PyPI page
+(<https://pypi.org/project/sharpit/>), and that the agents from step 3 may merge again.
+
+## Never
+
+- Never `uv publish` or `twine upload` from a laptop: the CI run is the record of what shipped.
+- Never push or move a tag without the owner's go-ahead in this session.
+- Never squash the release PR, never `--no-verify`, never add AI attribution to commits, PRs or tags.
+- Never change `release.yml` in the same PR as a release.
+
+Ported from gflow-cli's `release` skill and `release.yml`: same signed-tag gate, OIDC publish and Release step;
+sharpit has one branch (`master`) and one version site, so the develop back-merge and the seven-site table are gone.

@@ -5,6 +5,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Releases publish from CI: pushing a signed `v<version>` tag runs `.github/workflows/release.yml`, which
+  publishes to PyPI with Trusted Publishing and creates the GitHub Release. `/sharpit:release` drives it.
+
 ## [0.1.0] - 2026-10-31
 
 First release: an embedded, local-only developer console for FastAPI apps, ported from

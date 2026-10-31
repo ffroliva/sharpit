@@ -58,9 +58,10 @@ The owner merges. Agents never merge.
 
 ## 7. Release: `/sharpit:release`
 
-Only when the owner asks. `/sharpit:changelog` first, then a version bump in `src/sharpit/__init__.py`, the changelog,
-a local `uv build` sanity check, and a high-tier council on a `chore/release-<version>` branch. It stops and prints the
-push, tag and `uv publish` commands for the owner; it never runs them.
+Only when the owner asks. A version bump in `src/sharpit/__init__.py` and the changelog go through a
+`chore/release-<version>` PR; after the merge, a signed tag `v<version>` on `master` is the release. Pushing that tag
+runs `.github/workflows/release.yml`, which publishes to PyPI with Trusted Publishing and creates the GitHub Release.
+Nobody uploads by hand, and the tag is only pushed after the owner says go.
 
 ## Issues
 
