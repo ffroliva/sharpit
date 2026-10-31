@@ -100,3 +100,25 @@ it('close() stops everything, including a pending reopen', () => {
   vi.advanceTimersByTime(60_000);
   expect(FakeEventSource.instances).toHaveLength(1);
 });
+
+it('a stream reopened after a refused (CLOSED) connect reloads the panel, so a tick in the gap is not lost', () => {
+  const onUpdate = vi.fn();
+  open({ onUpdate });
+  FakeEventSource.last.fail(true);
+  vi.advanceTimersByTime(1000);
+  FakeEventSource.last.open();
+  expect(onUpdate).toHaveBeenCalledTimes(1);
+});
+
+it('an accepted stream resets the backoff even when it stays quiet', () => {
+  open();
+  for (const wait of [1000, 2000, 4000]) {
+    FakeEventSource.last.fail(true);
+    vi.advanceTimersByTime(wait);
+  }
+  FakeEventSource.last.open(); // healthy for a long time, no ticks
+  FakeEventSource.last.fail(true);
+  const before = FakeEventSource.instances.length;
+  vi.advanceTimersByTime(1000);
+  expect(FakeEventSource.instances.length).toBe(before + 1);
+});

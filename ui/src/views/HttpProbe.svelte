@@ -43,8 +43,13 @@
   }
   /** Method and path only: headers and bodies carry credentials and are never stored. */
   function remember(entry: Entry) {
+    entry = { method: entry.method, path: entry.path.split('?')[0]! }; // a query string can carry a token
     history = [entry, ...history.filter((e) => e.method !== entry.method || e.path !== entry.path)].slice(0, 20);
-    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    try {
+      sessionStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch {
+      // storage blocked or full: the history just is not kept
+    }
   }
 
   function parseHeaders(text: string): Record<string, string> | string {

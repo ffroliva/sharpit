@@ -60,13 +60,13 @@
         <td class="mono {statusFamilyClass(x.status)}">{x.status}</td>
         <td class="num">{x.durationMs} ms</td>
         <td class="num">{x.responseSizeBytes ?? '—'}</td>
-        <td><button class="link" aria-expanded={openId === x.id} onclick={() => (openId = openId === x.id ? null : x.id)}>Details</button></td>
+        <td><button class="link" aria-label="Details for {x.method} {x.uri}" aria-expanded={openId === x.id} onclick={() => (openId = openId === x.id ? null : x.id)}>Details</button></td>
       </tr>
       {#if openId === x.id}
         <tr class="detail">
           <td colspan="7">
             <p class="sm">
-              <a href={href('activity', x.traceId ?? x.id)}>Open in Activity</a> ·
+              <a href={href('activity', x.id)}>Open in Activity</a> ·
               <a href={href('http-probe', `${x.method} ${x.path}`)}>Replay in Probe</a>
               {#if x.principal}· user {x.principal}{/if}{#if x.remoteAddress}· from {x.remoteAddress}{/if}
             </p>

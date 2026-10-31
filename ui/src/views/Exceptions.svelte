@@ -19,6 +19,7 @@
       detail = await get<ExceptionDetail>(`exceptions/${encodeURIComponent(id)}`);
     } catch (e) {
       failure = errorText(e);
+      selected = null; // gone or evicted: do not leave the open detail on Loading…
     }
   }
   function refresh() {

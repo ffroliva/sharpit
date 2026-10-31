@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import PanelShell from '../components/PanelShell.svelte';
   import { errorText, get, post } from '../lib/api';
   import { loader } from '../lib/load.svelte';
@@ -7,13 +8,13 @@
 
   let { panel }: { panel: Panel } = $props();
 
-  const REFRESH_MS = 30_000;
   const tree = loader(() => get<HealthNode>('health'));
   let failure = $state<string | null>(null);
   let running = $state(false);
 
   /** Only a writable panel runs the checks (a POST that runs user code); a read-only one shows the cache. */
   async function refresh() {
+    if (running) return; // single-flight: never start a second check while one is running
     failure = null;
     if (!panel.readOnly) {
       running = true;
@@ -27,11 +28,8 @@
     }
     await tree.reload();
   }
-  $effect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), REFRESH_MS);
-    return () => clearInterval(timer);
-  });
+  // Once on open; there is no timer, because a check runs user code.
+  $effect(() => untrack(() => void refresh()));
 
   const cls = (status: string) => (status === 'UP' ? 'ok' : status === 'DOWN' ? 'danger' : status === 'OUT_OF_SERVICE' ? 'warn' : 'muted');
   const checkedAt = $derived(tree.data?.details?.checkedAt);

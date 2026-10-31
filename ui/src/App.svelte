@@ -3,7 +3,7 @@
   import Palette from './components/Palette.svelte';
   import TokenPrompt from './components/TokenPrompt.svelte';
   import { ApiError, authRequired, get } from './lib/api';
-  import { groupPanels } from './lib/nav';
+  import { groupPanels, notBuilt } from './lib/nav';
   import { href, route } from './lib/route';
   import { applyTheme, loadTheme, nextTheme, type Theme } from './lib/theme';
   import type { Panel } from './lib/types';
@@ -181,7 +181,7 @@
   </main>
 </div>
 
-{#if panels}<Palette bind:open={paletteOpen} {panels} onclosed={paletteClosed} />{/if}
+{#if panels}<Palette bind:open={paletteOpen} panels={panels.filter((p) => !notBuilt(p))} onclosed={paletteClosed} />{/if}
 
 <style>
   .shell { display: grid; grid-template-columns: var(--rail-w) 1fr; height: 100%; }

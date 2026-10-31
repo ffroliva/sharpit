@@ -20,7 +20,7 @@ const withAfter = (url: string, id: string) => `${url}${url.includes('?') ? '&' 
  * - the server closes every few seconds on purpose: an error while the browser is CONNECTING is a rotation, so the
  *   state stays "connected" and the panel reloads once the stream is back;
  * - a non-200 answer (503 at the stream cap, 403) leaves the source CLOSED with no browser retry, so it reopens
- *   itself after 1 s doubling to 30 s, reset by the first message, and reports "error" meanwhile;
+ *   itself after 1 s doubling to 30 s, reset once the stream opens, and reports "error" meanwhile;
  * - a tab that is hidden closes the stream; it reopens (and reloads) when visible again.
  */
 export function openStream(url: string, h: StreamHandlers): { close(): void } {
@@ -37,6 +37,7 @@ export function openStream(url: string, h: StreamHandlers): { close(): void } {
     source = es;
     h.onState?.('connecting');
     es.onopen = () => {
+      delay = 1000; // a 200 answer is the server accepting the stream, even if it stays quiet
       h.onState?.('connected');
       if (rotated) {
         rotated = false;
@@ -64,6 +65,7 @@ export function openStream(url: string, h: StreamHandlers): { close(): void } {
         return;
       }
       es.close();
+      rotated = true; // a tick during the backoff goes nowhere: reload once the stream is back
       h.onState?.('error');
       timer = setTimeout(connect, delay);
       delay = Math.min(delay * 2, 30_000);

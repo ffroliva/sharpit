@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { flushSync } from 'svelte';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import HttpProbe from '../../src/views/HttpProbe.svelte';
 import { harness, json, page, panel, readOnly, until } from './support';
 
@@ -60,6 +60,29 @@ it('keeps history as method and path only, never headers or the body', async () 
   expect(stored).not.toContain('hunter2');
   expect(stored).not.toContain('authorization');
   expect(JSON.parse(sessionStorage.getItem('sharpit.probe.history')!)).toEqual([{ method: 'GET', path: '/owners' }]);
+});
+
+it('keeps the query string out of the history', async () => {
+  serve();
+  h.mount(HttpProbe, { panel: panel('http-probe') });
+  type('input[aria-label="Path"]', '/reset?token=eyJsecret');
+  send().click();
+  await until(() => expect(h.text()).toContain('200 OK'));
+  expect(body().path).toBe('/reset?token=eyJsecret');
+  expect(sessionStorage.getItem('sharpit.probe.history')).not.toContain('eyJsecret');
+});
+
+it('still sends, and re-enables Send, when sessionStorage throws', async () => {
+  serve();
+  const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('blocked', 'SecurityError');
+  });
+  h.mount(HttpProbe, { panel: panel('http-probe') });
+  type('input[aria-label="Path"]', '/owners');
+  send().click();
+  await until(() => expect(h.text()).toContain('200 OK'));
+  expect(send().disabled).toBe(false);
+  set.mockRestore();
 });
 
 it('a report-style error and a truncated body are shown, and the body is text, never HTML', async () => {

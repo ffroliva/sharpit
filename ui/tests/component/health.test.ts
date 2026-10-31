@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import Health from '../../src/views/Health.svelte';
 import { harness, json, panel, readOnly, until } from './support';
 
@@ -31,6 +31,15 @@ it('a writable panel posts health/check once on open and again on each refresh',
   expect(h.calls('POST')).toEqual(['api/health/check']);
   runChecks().click();
   await until(() => expect(h.calls('POST')).toHaveLength(2));
+});
+
+it('never re-runs the checks on a timer', async () => {
+  const timer = vi.spyOn(globalThis, 'setInterval');
+  h.route(serve(tree));
+  h.mount(Health, { panel: panel('health') });
+  await until(() => expect(h.text()).toContain('refused'));
+  expect(timer).not.toHaveBeenCalled();
+  timer.mockRestore();
 });
 
 it('a read-only panel never posts: it shows the cache and a disabled button with the reason', async () => {

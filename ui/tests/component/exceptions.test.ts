@@ -87,3 +87,12 @@ it('a read-only panel disables the actions and says why', async () => {
   }
   expect(h.text()).toContain('Read-only: SHARPIT_READ_ONLY=true');
 });
+
+it('a detail that cannot be loaded does not stay on Loading', async () => {
+  h.route((url, init) => (url === 'api/exceptions/g1' ? json(404, { error: 'gone' }) : serve([group])(url, init)));
+  h.mount(Exceptions, { panel: panel('exceptions') });
+  await until(() => expect(h.text()).toContain('app.errors.Boom'));
+  [...h.target.querySelectorAll('button')].find((b) => b.textContent === 'app.errors.Boom')!.click();
+  await until(() => expect(h.target.querySelector('[role="alert"]')).not.toBeNull());
+  expect(h.text()).not.toContain('Loading…');
+});
