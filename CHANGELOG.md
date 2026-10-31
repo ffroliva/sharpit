@@ -23,13 +23,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - Rule dismissals now check the owning panel's enabled and read-only state (`RAPI-` for `rest-api`, `::pypi:` for `vulnerabilities`), returning 403 when the panel is read-only or disabled.
-- Client disconnect before response completion records status 499 in HTTP exchanges instead of a servlet status code.
-- Exception fingerprints group by exception class and the first application frame rather than top stack frames.
+- Client disconnect before response completion records status 499 in HTTP exchanges.
+- Exception fingerprints group by exception class and innermost application frame rather than top stack frames.
 - SQL trace uses SQLAlchemy class-level listeners rather than JDBC proxies; SQL literals are normalized and masked when parameter capture is disabled.
 - Live streams (SSE) close every 3 seconds (`SHARPIT_STREAM_MAX_SECONDS`) with a retry hint to prevent blocking uvicorn reload or lifespan shutdown.
 - Total concurrent live streams across all panels are capped at 20, returning HTTP 503 when full.
-- Alembic migration scans and database health checks run on POST requests (`alembic/refresh`, `health/check`) and serve cached results on GET to ensure GET requests have no side effects.
-- Database connection pool reports strip query strings from JDBC URLs to prevent secret leakage.
+- Alembic database-version reads and database health checks run on POST requests (`alembic/refresh`, `health/check`) and serve cached results on GET to ensure GET requests have no side effects.
+- Database connection pool reports strip query strings from database connection URLs (emitted in `jdbcUrl` for BootUI parity) to prevent secret leakage.
 - Threads panel includes asyncio tasks with request correlation; OS thread states are inferred as RUNNABLE or WAITING without JVM CPU or lock metrics.
 - HTTP probe executes directly via in-process ASGI calls without opening network sockets, refusing paths under the sharpit mount.
 - Release workflow uploads only `.whl` and `.tar.gz` assets to GitHub Releases.
