@@ -42,7 +42,7 @@ uv sync --extra test                 # background: first run downloads
 uv run ruff check                    # lint (repo-wide, scripts/ included; vendored pytest_speed excluded)
 uv run ruff format --check           # format (also formats Python blocks in Markdown)
 uv run pyright                       # strict on src/sharpit
-uv run pytest -q                     # full suite: background it
+uv run pytest -q -n auto             # full suite, parallel (pytest-xdist): background it
 uv run pytest -q tests/engine/test_guard.py   # one file
 uv run python scripts/dev/active_plan.py      # where are we?
 ```

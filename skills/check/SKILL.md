@@ -25,7 +25,7 @@ List the files it changed. Those rewrites are part of your change: stage them.
 uv run ruff check
 uv run ruff format --check
 uv run pyright                 # strict on src/sharpit
-uv run pytest -q               # background it: run_in_background, then read the log when notified
+uv run pytest -q -n auto       # parallel; background it: run_in_background, then read the log when notified
 ```
 
 If `.venv` is missing, `uv sync --extra test` first (in the background). CI also runs Python 3.12–3.14, a Windows job

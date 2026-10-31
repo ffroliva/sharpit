@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from examples.fastapi_sample.app import create_app
 from fastapi.testclient import TestClient
@@ -355,16 +356,22 @@ def test_inactive_is_404_everywhere(options: dict[str, str], profiles: str | Non
     app = FastAPI()
     install(app, **options)
     expected = _client(app).get("/not-sharpit").json()
-    for peer in (LOCAL, REMOTE):
-        client = _client(app, peer)
-        for path in INACTIVE_PATHS:
-            for method in ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"):
-                for headers in ({}, {"Authorization": f"Bearer {TOKEN}"}, {"X-Forwarded-For": "127.0.0.1"}):
-                    resp = client.request(method, path, headers=headers)
-                    assert resp.status_code == 404, (peer, method, path, headers)
-                    assert "content-security-policy" not in resp.headers
-                    if method != "HEAD":
-                        assert resp.json() == expected == {"detail": "Not Found"}
+
+    # 756 requests: one event loop for all of them (TestClient starts a thread per request, 13x slower on Windows)
+    async def sweep() -> None:
+        for peer in (LOCAL, REMOTE):
+            transport = httpx.ASGITransport(app=app, client=peer)
+            async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+                for path in INACTIVE_PATHS:
+                    for method in ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"):
+                        for headers in ({}, {"Authorization": f"Bearer {TOKEN}"}, {"X-Forwarded-For": "127.0.0.1"}):
+                            resp = await client.request(method, path, headers=headers)
+                            assert resp.status_code == 404, (peer, method, path, headers)
+                            assert "content-security-policy" not in resp.headers
+                            if method != "HEAD":
+                                assert resp.json() == expected == {"detail": "Not Found"}
+
+    asyncio.run(sweep())
 
 
 # --- no side effects on any GET, read from the sub-app's own route table -------------------------------------------

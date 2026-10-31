@@ -38,7 +38,13 @@ def test_no_side_effects_detects_dns(no_side_effects: SideEffectGuard) -> None:
     no_side_effects.rebaseline()
 
 
-def test_no_side_effects_detects_tempfile_write(no_side_effects: SideEffectGuard) -> None:
+@pytest.fixture
+def own_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # requested before the guard so it snapshots tmp_path: under xdist the shared repo root would trip other workers
+    monkeypatch.chdir(tmp_path)
+
+
+def test_no_side_effects_detects_tempfile_write(own_cwd: None, no_side_effects: SideEffectGuard) -> None:
     with tempfile.NamedTemporaryFile(dir=Path.cwd()), pytest.raises(AssertionError, match="cwd changed"):
         no_side_effects.verify()
     no_side_effects.rebaseline()
