@@ -49,10 +49,11 @@
   {#if report.data}
     {@const r = report.data}
     <div role="tablist" class="tabs" aria-label="View">
-      <button role="tab" aria-selected={tab === 'threads'} onclick={() => (tab = 'threads')}>Threads ({r.threads.length})</button>
-      <button role="tab" aria-selected={tab === 'tasks'} onclick={() => (tab = 'tasks')}>Tasks ({r.taskCount})</button>
+      <button role="tab" id="threads-tab" aria-controls="threads-panel" aria-selected={tab === 'threads'} onclick={() => (tab = 'threads')}>Threads ({r.threads.length})</button>
+      <button role="tab" id="tasks-tab" aria-controls="threads-panel" aria-selected={tab === 'tasks'} onclick={() => (tab = 'tasks')}>Tasks ({r.taskCount})</button>
     </div>
     {#each r.warnings as w}<p class="notice warn">{w}</p>{/each}
+    <div id="threads-panel" role="tabpanel" aria-labelledby={tab === 'threads' ? 'threads-tab' : 'tasks-tab'}>
     {#if tab === 'threads'}
       <p class="chips sm">
         {#each r.stateCounts as c}
@@ -85,6 +86,7 @@
         {/each}
       </ul>
     {/if}
+    </div>
   {/if}
 </PanelShell>
 

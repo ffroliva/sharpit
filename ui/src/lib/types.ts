@@ -245,3 +245,83 @@ export interface ProbeResult {
   error: string | null;
   truncated: boolean;
 }
+
+export interface SqlTraceEntry {
+  id: number;
+  timestamp: string;
+  sql: string;
+  statementType: string;
+  category: string;
+  durationMillis: number;
+  success: boolean;
+  errorMessage: string | null;
+  affectedRows: number | null;
+  slow: boolean;
+  traceId: string | null;
+  callSite: string | null;
+}
+export interface SqlTraceReport {
+  available: boolean;
+  unavailableReason: string | null;
+  capturing: boolean;
+  captureParameters: boolean;
+  bufferSize: number;
+  totalCaptured: number;
+  slowQueryThresholdMillis: number;
+  dataSources: string[];
+  entries: SqlTraceEntry[];
+  topStatements: SqlGroup[];
+  warnings: string[];
+}
+
+export interface PoolSnapshot { timestamp: number; active: number; idle: number; total: number; pending: number | null }
+export interface Pool {
+  poolName: string;
+  username: string | null;
+  driverClassName: string;
+  maximumPoolSize: number | null;
+  connectionTimeoutMs: number | null;
+  maxLifetimeMs: number | null;
+  autoCommit: boolean;
+  available: boolean;
+  unavailableReason: string | null;
+  snapshot: PoolSnapshot | null;
+}
+export interface PoolsReport { hikariPresent: boolean; total: number; pools: Pool[] }
+
+export interface AlembicMigration { version: string; description: string | null; script: string | null; state: string }
+export interface AlembicDatabase {
+  name: string;
+  currentVersion: string | null;
+  applied: number;
+  pending: number;
+  total: number;
+  migrations: AlembicMigration[];
+  checkedAt: number | null;
+  unavailableReason: string | null;
+}
+export interface AlembicReport { alembicPresent: boolean; configPath: string | null; total: number; heads: string[]; databases: AlembicDatabase[] }
+
+/** `RuleResult` (spec 8); REST API reports list only failing rules, dismissed ones included. */
+export interface AdvisorRule {
+  id: string;
+  name: string;
+  category: string;
+  severity: string;
+  description: string;
+  status: string;
+  violationCount: number;
+  sampleViolations: string[];
+  recommendation: string | null;
+  learnMoreUrl: string | null;
+  dismissed: boolean;
+}
+/** What every advisor report shares; `results` is absent on Vulnerabilities, whose view lists findings itself. */
+export interface AdvisorReport {
+  scan: { status: string; message: string; scannedAt: number | null };
+  severityCounts: { severity: string; count: number }[];
+  evidence?: { usable: boolean; coverageComplete: boolean; limitations: string[] };
+  results?: AdvisorRule[];
+  violationDetails?: { scanId: string | null };
+}
+export interface ViolationsPage { violations: string[]; page: { offset: number; returned: number; hasMore: boolean } }

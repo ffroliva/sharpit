@@ -82,7 +82,7 @@ test('§10.2 Ctrl+K jumps to a panel, a logger and a config key; everything is r
   await page.reload(); // a hash change keeps focus where it was; a fresh document starts at the top
   await settled(page);
   const reached = new Set<string>();
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < PANELS.length + 20; i++) {
     await page.keyboard.press('Tab');
     reached.add(
       await page.evaluate(() => {

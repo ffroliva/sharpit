@@ -8,8 +8,10 @@
   import { applyTheme, loadTheme, nextTheme, type Theme } from './lib/theme';
   import type { Panel } from './lib/types';
   import Activity from './views/Activity.svelte';
+  import Alembic from './views/Alembic.svelte';
   import Beans from './views/Beans.svelte';
   import Config from './views/Config.svelte';
+  import ConnectionPools from './views/ConnectionPools.svelte';
   import Exceptions from './views/Exceptions.svelte';
   import Health from './views/Health.svelte';
   import HttpExchanges from './views/HttpExchanges.svelte';
@@ -18,7 +20,9 @@
   import LogTail from './views/LogTail.svelte';
   import Mappings from './views/Mappings.svelte';
   import Overview from './views/Overview.svelte';
+  import RestApi from './views/RestApi.svelte';
   import ServerStatus from './views/ServerStatus.svelte';
+  import SqlTrace from './views/SqlTrace.svelte';
   import Threads from './views/Threads.svelte';
   import Vulnerabilities from './views/Vulnerabilities.svelte';
 
@@ -171,6 +175,10 @@
           {:else if current.id === 'threads'}<Threads />
           {:else if current.id === 'health'}<Health panel={current} />
           {:else if current.id === 'http-probe'}<HttpProbe panel={current} q={$route.q} />
+          {:else if current.id === 'sql-trace'}<SqlTrace panel={current} />
+          {:else if current.id === 'database-connection-pools'}<ConnectionPools />
+          {:else if current.id === 'alembic'}<Alembic panel={current} />
+          {:else if current.id === 'rest-api'}<RestApi panel={current} />
           {:else if current.id === 'mcp-server' || current.id === 'cli'}<ServerStatus panel={current} kind={current.id} />
           {:else}
             <div class="empty"><p class="lead">{current.title}</p><p>This version of the console has no view for this panel yet.</p></div>
