@@ -34,7 +34,6 @@ jobs:
       - run: uv run pytest -q
 
   ui:
-    if: hashFiles('ui/package-lock.json') != ''
     runs-on: ubuntu-latest
     defaults:
       run:
