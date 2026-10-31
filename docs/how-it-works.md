@@ -4,6 +4,7 @@ sharpit is a developer console that runs inside your FastAPI app while you devel
 
 ```python
 import sharpit
+
 sharpit.install(app)
 ```
 
