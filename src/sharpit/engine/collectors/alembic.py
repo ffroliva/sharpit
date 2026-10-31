@@ -200,7 +200,7 @@ def _parse_revision(path: Path, base: Path, masker: Masker) -> Revision | str | 
 def _order(revisions: dict[str, Revision]) -> list[Revision]:
     """Oldest first (bases first, each revision after its parents); ties broken by script path."""
     children: dict[str, list[str]] = {r: [] for r in revisions}
-    waiting = {r: 0 for r in revisions}
+    waiting = dict.fromkeys(revisions, 0)
     for rev in revisions.values():
         for parent in rev.down_revisions:
             if parent in revisions:

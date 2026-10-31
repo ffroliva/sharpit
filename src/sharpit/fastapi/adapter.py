@@ -402,7 +402,7 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
             return error(413, "Request payload exceeds limit")
         # BootUI SqlTraceControllerSupport.recording: an empty body or a missing/null ``enabled`` flips
         enabled = _toggle_value(raw)
-        if not isinstance(enabled, bool | None):
+        if enabled is not None and not isinstance(enabled, bool):
             return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
         recorder = sql_trace_recorder()
         recorder.set_recording(not recorder.recording if enabled is None else enabled)
@@ -512,7 +512,7 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
             return error(413, "Request payload exceeds limit")
         # BootUI McpServerController: an empty body or a missing/null ``enabled`` flips; binding refuses the rest
         enabled = _toggle_value(raw)
-        if not isinstance(enabled, bool | None):
+        if enabled is not None and not isinstance(enabled, bool):
             return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
         base = api_path(request)
         return json_response(await run_in_threadpool(lambda: mcp_server().toggle(enabled, base)))

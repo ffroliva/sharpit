@@ -100,7 +100,7 @@ _TEXT_TOKEN = re.compile(r"\S+")
 _TOKEN_EDGES = re.compile(r"^([\"'(\[{<]*)(.*?)([\"')\]}>,;.:!?]*)$", re.DOTALL)
 # SQLAlchemy StatementError: "[parameters: ...]" runs to the last "]" on its line (bind tuples nest brackets), or to
 # the end of the line when a length cap cut the closing "]" off
-_SQL_PARAMETERS = re.compile(r"\[parameters: (?:[^\n]*\]|[^\n]*$)", re.MULTILINE)
+_SQL_PARAMETERS = re.compile(r"\[parameters: (?:(?:[^\n]*\])|(?:[^\n]*$))", re.MULTILINE)
 _SQL_PARAMETERS_MASKED = f"[parameters: {MASK}]"
 
 
