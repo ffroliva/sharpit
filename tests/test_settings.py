@@ -174,6 +174,24 @@ def test_path_must_start_with_slash():
         load_settings({"path": "sharpit"}, {})
 
 
+@pytest.mark.parametrize("path", ["/", "/sharpit/"])
+@pytest.mark.parametrize("route", ["kwarg", "env"])
+def test_path_rejects_root_and_trailing_slash(path: str, route: str):
+    # "/" would mount over the whole host app (even inactive); a trailing slash yields "/sharpit//api"
+    kwargs, environ = ({"path": path}, {}) if route == "kwarg" else ({}, {"SHARPIT_PATH": path})
+    with pytest.raises(ValueError, match="path must not"):
+        load_settings(kwargs, environ)
+
+
+def test_install_refuses_root_path():
+    from starlette.applications import Starlette
+
+    import sharpit
+
+    with pytest.raises(ValueError, match="path must not"):
+        sharpit.install(Starlette(), path="/")
+
+
 def test_api_path_derives_from_path():
     s = load_settings({}, {"SHARPIT_PATH": "/dev-console"})
     assert s.api_path == "/dev-console/api"

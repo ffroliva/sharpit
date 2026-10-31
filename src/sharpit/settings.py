@@ -293,6 +293,10 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
     path = _DEFAULTS.path if path is None else str(path).strip()
     if not path.startswith("/"):
         raise ValueError(f"path must start with '/': {path!r}")
+    if path == "/":  # the mount would shadow every host route, even while inactive
+        raise ValueError("path must not be '/': sharpit needs its own prefix such as '/sharpit'")
+    if path.endswith("/"):
+        raise ValueError(f"path must not end with '/': {path!r}")
     raw_api = _pick(environ, "SHARPIT_API_PATH", kwargs, "api_path")
     api_path = f"{path}/api" if raw_api is None else str(raw_api).strip()
     rest = api_path[len(path) + 1 :]
