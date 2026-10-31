@@ -46,7 +46,10 @@ describe('firstSentence', () => {
 describe('scannedWhen', () => {
   const now = new Date(2026, 9, 30, 23, 0).getTime();
   it('says today for a scan from today', () => {
-    expect(scannedWhen(new Date(2026, 9, 30, 22, 5).getTime(), now)).toMatch(/^today 22.05/);
+    const at = new Date(2026, 9, 30, 22, 5);
+    // the time follows the viewer's locale (12h on CI, 24h elsewhere)
+    const time = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    expect(scannedWhen(at.getTime(), now)).toBe(`today ${time}`);
   });
   it('gives the date for an older scan', () => {
     expect(scannedWhen(new Date(2026, 9, 28, 9, 0).getTime(), now)).not.toMatch(/^today/);
