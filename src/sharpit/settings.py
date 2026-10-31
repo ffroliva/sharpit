@@ -289,8 +289,8 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
             elif failsafe is not None:
                 values[name] = failsafe
             continue
-        if isinstance(value, tuple) and not value and isinstance(getattr(_DEFAULTS, name), tuple):
-            continue  # a blank list falls back to the default
+        if isinstance(raw, str) and value == () and isinstance(getattr(_DEFAULTS, name), tuple):
+            continue  # a blank list string falls back to the default; an explicit empty list or tuple clears it
         values[name] = value
 
     # path / api_path are validated, never defaulted silently.

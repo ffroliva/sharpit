@@ -318,3 +318,9 @@ def test_unknown_panel_id_rejected():
     with pytest.raises(ValueError, match=r"Unknown sharpit panel\(s\): nope.*known panels: overview"):
         load_settings({"panels": {"nope": {"enabled": False}}}, {})
 
+
+@pytest.mark.parametrize("empty", [(), []])
+def test_explicit_empty_list_kwarg_clears_the_default(empty: tuple[str, ...] | list[str]):
+    # code review #14: only a blank env/string value falls back; an explicit empty sequence means "none"
+    s = load_settings({"enabled_profiles": empty, "profile_vars": empty}, {})
+    assert (s.enabled_profiles, s.profile_vars) == ((), ())
