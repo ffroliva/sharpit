@@ -150,6 +150,7 @@ Each row is `skills/<name>/SKILL.md`; in Claude Code run it as `/sharpit:<comman
 | `live-verify` | Run a sample FastAPI app with sharpit and hit `/sharpit/api` |
 | `spike` | Answer a question by experiment, time-boxed, verdict only |
 | `optimize` | Test suite too slow: pytest-speed protocol, never weaken a test |
+| `perf-audit` | sharpit slow in a host app, or a budget test fails: paired on/off measurement first |
 | `issue-assessment` | Read-only triage of a GitHub issue |
 | `issue-resolve` | Fix an issue: worktree, red test, fix, draft PR |
 | `known-issues` | Before touching activation, guard, masking, introspection or OSV |
