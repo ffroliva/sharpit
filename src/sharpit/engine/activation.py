@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from sharpit.engine.guard import remote_access_configured
 from sharpit.settings import SharpitSettings, parse_mode
 
 
@@ -37,7 +38,7 @@ def active_profiles(settings: SharpitSettings, environ: Mapping[str, str]) -> li
 
 def decide(settings: SharpitSettings, profiles: Sequence[str], dev_signal: str | None) -> ActivationStatus:
     warnings = list(settings.warnings)
-    localhost_only = not settings.allow_non_localhost
+    localhost_only = not remote_access_configured(settings)  # sharpit: trusted proxies and gateway trust count too
 
     def result(enabled: bool, reason: str) -> ActivationStatus:
         return ActivationStatus(enabled, localhost_only, reason, tuple(warnings))

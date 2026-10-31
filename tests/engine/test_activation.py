@@ -285,6 +285,13 @@ def test_localhost_only_follows_allow_non_localhost():
     assert run({"APP_ENV": "dev", "SHARPIT_ALLOW_NON_LOCALHOST": "true"}).localhost_only is False
 
 
+def test_localhost_only_is_false_whenever_remote_access_is_configured():
+    # code review #9: trusted proxies and container gateway trust admit non-loopback callers too (spec §14)
+    assert run({"APP_ENV": "dev", "SHARPIT_TRUSTED_PROXIES": "10.0.0.0/8"}).localhost_only is False
+    assert run({"APP_ENV": "dev", "SHARPIT_TRUST_CONTAINER_GATEWAY": "AUTO"}).localhost_only is False
+    assert run({"APP_ENV": "dev", "SHARPIT_TRUST_CONTAINER_GATEWAY": "OFF"}).localhost_only is True
+
+
 def test_to_dto_shape():
     a = ActivationStatus(enabled=True, localhost_only=True, reason="r", warnings=("w",))
     assert a.to_dto() == {"enabled": True, "localhostOnly": True, "reason": "r", "warnings": ["w"]}

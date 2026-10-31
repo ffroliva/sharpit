@@ -127,7 +127,8 @@ OverviewDto {
 - `serverPort` comes from `local.server.port`, then `server.port`, default 8080.
 - `contextPath` comes from `server.servlet.context-path`.
 - `startupTimeMillis` comes from `spring.boot.application.startup.time`.
-- `activation.localhostOnly` = `!bootui.allow-non-localhost`.
+- `activation.localhostOnly` = `!bootui.allow-non-localhost`. sharpit: false whenever any remote access is configured
+  (`allow_non_localhost`, `trusted_proxies` or container gateway trust), see spec §14.
 - `openApiUrl` is the springdoc path (default `/swagger-ui/index.html`) when springdoc is present, otherwise null.
 - Python mapping:
   - [JVM] `javaVersion` and `javaVendor` become the Python version and implementation, and `frameworkName` becomes "Django", "FastAPI" or "Flask".
