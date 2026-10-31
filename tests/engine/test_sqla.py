@@ -272,13 +272,20 @@ def test_run_db_read_times_out():
 class _FakeConnection:
     """Records the statements sharpit sends around ``fn``; ``dialect.name`` picks the timeout syntax."""
 
-    def __init__(self, dialect: str) -> None:
-        self.dialect = types.SimpleNamespace(name=dialect)
+    def __init__(self, dialect: str, *, is_mariadb: bool = False, fails: str = "") -> None:
+        self.dialect = types.SimpleNamespace(name=dialect, is_mariadb=is_mariadb)
         self.sent: list[str] = []
+        self.fails = fails
+        self.invalidated = False
 
     def exec_driver_sql(self, sql: str) -> Any:
+        if self.fails and sql.startswith(self.fails):
+            raise RuntimeError(f"server refused {sql}")
         self.sent.append(sql)
         return types.SimpleNamespace(scalar=lambda: 7)
+
+    def invalidate(self) -> None:
+        self.invalidated = True
 
 
 @pytest.mark.parametrize(
@@ -301,3 +308,30 @@ def test_statement_timeout_applied_inside_the_read(dialect: str, expected: list[
     conn = _FakeConnection(dialect)
     assert sqla.bounded(conn, lambda c: c.sent.append("read") or 42, 2.5) == 42
     assert conn.sent == expected
+
+
+def test_mariadb_through_a_mysql_url_uses_max_statement_time():
+    # a mysql+pymysql:// engine on a MariaDB server keeps dialect.name "mysql"; MariaDB has no max_execution_time
+    conn = _FakeConnection("mysql", is_mariadb=True, fails="SELECT @@SESSION.max_execution_time")
+    assert sqla.bounded(conn, lambda c: c.sent.append("read") or 42, 2.5) == 42
+    assert conn.sent == [
+        "SELECT @@SESSION.max_statement_time",
+        "SET SESSION max_statement_time = 2.5",
+        "read",
+        "SET SESSION max_statement_time = 7.0",
+    ]
+
+
+def test_read_runs_without_timeout_when_the_server_has_no_timeout_variable():
+    # MySQL before 5.7.8 has no max_execution_time: the read still runs, only unbounded on the server
+    conn = _FakeConnection("mysql", fails="SELECT @@SESSION.max_execution_time")
+    assert sqla.bounded(conn, lambda c: c.sent.append("read") or 42, 2.5) == 42
+    assert conn.sent == ["read"]
+
+
+def test_failed_timeout_restore_invalidates_the_app_connection():
+    # the connection goes back to the app's pool: never with sharpit's timeout still set on it
+    conn = _FakeConnection("mysql", fails="SET SESSION max_execution_time = 7")
+    with pytest.raises(RuntimeError):
+        sqla.bounded(conn, lambda c: 42, 2.5)
+    assert conn.invalidated

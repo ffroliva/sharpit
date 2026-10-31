@@ -194,6 +194,9 @@ def _named(parameters: Any, context: Any, executemany: bool) -> tuple[Any, int |
     rows = getattr(context, "compiled_parameters", None) if getattr(context, "compiled", None) is not None else None
     if not rows or not parameters:
         return parameters, None
+    # shortcut: an insertmanyvalues execute split into pages (over insertmanyvalues_page_size rows, 1000 by default)
+    # records every page with the whole execute's rows and count, since SQLAlchemy does not show the listener which
+    # page it is; still masked. Upgrade if per-page batch sizes matter: track the page offset on the context.
     return (rows, len(rows)) if executemany else (rows[0], None)
 
 
@@ -341,20 +344,31 @@ def attached() -> dict[str, bool]:
 def bounded[T](conn: Any, fn: Callable[[Any], T], timeout: float) -> T:
     """``fn(conn)`` with the server-side statement timeout set to ``timeout`` where the dialect has one.
 
-    PostgreSQL's ``SET LOCAL`` ends with the transaction. MySQL's session value is put back, because the connection
-    goes back to the app's pool. sqlite has none: its wait is the driver's busy timeout.
+    PostgreSQL's ``SET LOCAL`` ends with the transaction. MySQL's session value (MariaDB's ``max_statement_time``, in
+    seconds, also behind a ``mysql://`` URL) is put back, because the connection goes back to the app's pool; a server
+    without the variable runs the read unbounded. sqlite has none: its wait is the driver's busy timeout.
     """
-    millis = max(1, int(timeout * 1000))
     name = conn.dialect.name
     if name == "postgresql":
-        conn.exec_driver_sql(f"SET LOCAL statement_timeout = {millis}")
-    elif name == "mysql":
-        previous = int(conn.exec_driver_sql("SELECT @@SESSION.max_execution_time").scalar() or 0)
-        conn.exec_driver_sql(f"SET SESSION max_execution_time = {millis}")
+        conn.exec_driver_sql(f"SET LOCAL statement_timeout = {max(1, int(timeout * 1000))}")
+    elif name in ("mysql", "mariadb"):
+        if name == "mariadb" or getattr(conn.dialect, "is_mariadb", False):
+            variable, convert, value = "max_statement_time", float, round(max(timeout, 0.001), 3)
+        else:
+            variable, convert, value = "max_execution_time", int, max(1, int(timeout * 1000))
+        try:
+            previous = convert(conn.exec_driver_sql(f"SELECT @@SESSION.{variable}").scalar() or 0)
+        except Exception:  # noqa: BLE001 - MySQL before 5.7.8 has no such variable
+            return fn(conn)
+        conn.exec_driver_sql(f"SET SESSION {variable} = {value}")
         try:
             return fn(conn)
         finally:
-            conn.exec_driver_sql(f"SET SESSION max_execution_time = {previous}")
+            try:
+                conn.exec_driver_sql(f"SET SESSION {variable} = {previous}")
+            except BaseException:
+                conn.invalidate()  # never hand the app's pool a connection that keeps sharpit's timeout
+                raise
     return fn(conn)
 
 
