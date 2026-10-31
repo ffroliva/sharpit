@@ -82,21 +82,23 @@ def test_sqlalchemy_blocked_reports_unavailable():
         """
     )
     assert done.returncode == 0, done.stderr
-    assert done.stdout.strip() == f'[false, "{sqla.UNAVAILABLE}", false]'
+    assert done.stdout.strip() == '[false, "SQLAlchemy is not imported by this application", false]'
 
 
 def test_old_sqlalchemy_unavailable(monkeypatch: pytest.MonkeyPatch):
     old = types.ModuleType("sqlalchemy")
     old.__version__ = "1.4.52"  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "sqlalchemy", old)
-    assert sqla.sqlalchemy() is None
+    assert sqla.sqlalchemy_module() is None
+    old_reason = "SQLAlchemy 1.4.52 is imported, but sharpit needs 2.0 or later"
+    assert sqla.unavailable_reason() == old_reason
     app = FastAPI()
     handle = install(app, enabled="ON", show_banner=False)
     try:
         client = _client(app)
-        assert (_sql_panel(client)["available"], _sql_panel(client)["unavailableReason"]) == (False, sqla.UNAVAILABLE)
+        assert (_sql_panel(client)["available"], _sql_panel(client)["unavailableReason"]) == (False, old_reason)
         report = client.get("/sharpit/api/sql-trace").json()
-        assert tuple(report) == REPORT_KEYS and report["unavailableReason"] == sqla.UNAVAILABLE
+        assert tuple(report) == REPORT_KEYS and report["unavailableReason"] == old_reason
         assert sqla.routed(handle.context) == (False, False)
     finally:
         handle.uninstall_capture()
@@ -108,6 +110,7 @@ def test_sqla_panels_empty_state_without_sqlalchemy():
     handle = install(app, enabled="ON", show_banner=False)
     try:
         client = _client(app)
+        assert sqla.unavailable_reason() == "SQLAlchemy is not imported by this application"
         assert (_sql_panel(client)["available"], _sql_panel(client)["unavailableReason"]) == (False, sqla.UNAVAILABLE)
         report = client.get("/sharpit/api/sql-trace").json()
         assert (report["available"], report["entries"], report["dataSources"]) == (False, [], [])

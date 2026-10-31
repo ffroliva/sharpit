@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import re
 import sys
 import threading
 import time
@@ -448,6 +449,7 @@ class SqlTraceRecorder:
         rowcount: int = -1,
         request_id: str | None = None,
         call_site: str | None = None,
+        batch_size: int | None = None,
     ) -> None:
         """Build the masked row once, at capture time; a paused recorder returns before any work."""
         if not self.recording:
@@ -458,8 +460,10 @@ class SqlTraceRecorder:
         error_message: str | None = None
         if error is not None:
             text = str(error)
-            if not masker.capture_parameters and sql:
-                text = text.replace(sql.strip(), normalized.sql)  # SQLAlchemy repeats the raw statement in [SQL: ...]
+            if not masker.capture_parameters:
+                text = _driver_values_dropped(text)
+                if sql:
+                    text = text.replace(sql.strip(), normalized.sql)  # SQLAlchemy repeats the statement in [SQL: ...]
             masked = masker.mask_text(text)
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
@@ -476,7 +480,9 @@ class SqlTraceRecorder:
             "success": success and error is None,
             "errorMessage": error_message,
             "affectedRows": rowcount if rowcount >= 0 and error is None else None,
-            "batchSize": len(cast_sequence(parameters)) if executemany and has_parameters else 0,
+            "batchSize": (batch_size if batch_size is not None else len(cast_sequence(parameters)))
+            if executemany and has_parameters
+            else 0,
             "connectionId": connection_id,
             "thread": thread,
             "slow": self._slow(millis),
@@ -580,6 +586,19 @@ class SqlTraceRecorder:
             "topStatements": top,
             "warnings": warnings,
         }
+
+
+_QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
+
+
+def _driver_values_dropped(text: str) -> str:
+    """The driver's message without the row values it echoes: PostgreSQL's ``DETAIL:`` lines and quoted values.
+
+    Only the message's first line is kept, with quoted runs as ``?``. SQLAlchemy's ``[SQL: ...]`` and
+    ``[parameters: ...]`` lines that follow are kept for the caller to normalise and mask.
+    """
+    head, sep, tail = text.partition("\n[SQL: ")
+    return _QUOTED.sub("?", head.split("\n", 1)[0]) + sep + tail
 
 
 def cast_sets(parameters: object, executemany: bool) -> Sequence[object]:

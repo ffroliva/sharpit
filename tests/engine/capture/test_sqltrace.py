@@ -454,6 +454,35 @@ def test_error_message_masked_and_inline_sql_normalised():
     )
 
 
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (
+            '(psycopg.errors.UniqueViolation) duplicate key value violates unique constraint "u_secret_key"\n'
+            "DETAIL:  Key (secret)=(hunter2-xyz) already exists.",
+            "(psycopg.errors.UniqueViolation) duplicate key value violates unique constraint ?",
+        ),
+        (
+            '(psycopg.errors.InvalidTextRepresentation) invalid input syntax for type integer: "hunter2-xyz"',
+            "(psycopg.errors.InvalidTextRepresentation) invalid input syntax for type integer: ?",
+        ),
+        (
+            "(pymysql.err.IntegrityError) (1062, \"Duplicate entry 'hunter2-xyz' for key 'secret'\")",
+            "(pymysql.err.IntegrityError) (1062, ?)",
+        ),
+    ],
+)
+def test_driver_message_values_dropped_with_parameters_off(message: str, expected: str):
+    # derived: spec §11 every captured value masked; PostgreSQL and MySQL echo row values in their messages
+    recorder = _recorder()
+    sql = "insert into u (secret) values (%(secret)s)"
+    error = RuntimeError(f"{message}\n[SQL: {sql}]\n[parameters: {{'secret': 'hunter2-xyz'}}]")
+    _record(recorder, sql, success=False, error=error)
+    stored = _entries(recorder)[0]["errorMessage"]
+    assert "hunter2" not in stored
+    assert stored == f"{expected}\n[SQL: {sql}]\n[parameters: {MASK}]"
+
+
 def test_sql_cut_at_max_length():
     # ported: SqlTraceRecorder.truncate (strip, cut, ellipsis)
     recorder = _recorder(max_sql_length=20)

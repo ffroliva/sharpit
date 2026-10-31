@@ -139,7 +139,22 @@ def test_insertmanyvalues_parameters_masked_by_bind_name():
         table.create(conn)
         conn.execute(sa.insert(table).returning(table.c.id), [{"password": "a-secret"}, {"password": "b-secret"}])
     batched = next(e for e in _entries(handle) if "RETURNING" in e["sql"])
-    assert batched["parameters"] == ["password=******", "password#2=******"]
+    assert batched["parameters"] == ["password=******", "password=******"]
+    assert batched["batchSize"] == 2  # one per row, though the DBAPI got one flat batch
+
+
+def test_expanding_in_parameters_masked_by_bind_name():
+    # an expanding IN list renders one placeholder per value: the names must follow the values, not positiontup
+    engine = sa.create_engine("sqlite://")
+    handle = _install(engines=[engine], sql_trace_capture_parameters=True)
+    statement = sa.text("select 1 where 1 in :a and 'x' = :password and 3 in :b").bindparams(
+        sa.bindparam("a", expanding=True), sa.bindparam("b", expanding=True)
+    )
+    with engine.connect() as conn:
+        conn.execute(statement, {"a": [1, 2], "password": "hunter2-xyz", "b": [3, 4]})
+    parameters = _entries(handle)[0]["parameters"]
+    assert "password=******" in parameters and not any("hunter2" in p for p in parameters)
+    assert sorted(parameters) == sorted(["a_1=1", "a_2=2", "password=******", "b_1=3", "b_2=4"])
 
 
 def test_conn_info_fallback_without_request():
@@ -252,3 +267,37 @@ def test_run_db_read_times_out():
 
     with pytest.raises(TimeoutError):
         asyncio.run(main())
+
+
+class _FakeConnection:
+    """Records the statements sharpit sends around ``fn``; ``dialect.name`` picks the timeout syntax."""
+
+    def __init__(self, dialect: str) -> None:
+        self.dialect = types.SimpleNamespace(name=dialect)
+        self.sent: list[str] = []
+
+    def exec_driver_sql(self, sql: str) -> Any:
+        self.sent.append(sql)
+        return types.SimpleNamespace(scalar=lambda: 7)
+
+
+@pytest.mark.parametrize(
+    ("dialect", "expected"),
+    [
+        ("postgresql", ["SET LOCAL statement_timeout = 2500", "read"]),
+        (
+            "mysql",
+            [
+                "SELECT @@SESSION.max_execution_time",
+                "SET SESSION max_execution_time = 2500",
+                "read",
+                "SET SESSION max_execution_time = 7",
+            ],
+        ),
+        ("sqlite", ["read"]),  # sqlite's busy wait is the driver's own connect timeout
+    ],
+)
+def test_statement_timeout_applied_inside_the_read(dialect: str, expected: list[str]):
+    conn = _FakeConnection(dialect)
+    assert sqla.bounded(conn, lambda c: c.sent.append("read") or 42, 2.5) == 42
+    assert conn.sent == expected

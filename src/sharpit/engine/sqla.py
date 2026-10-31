@@ -3,7 +3,7 @@
 sharpit never imports SQLAlchemy: it reads ``sys.modules``, so an app that does not use it pays nothing, and the
 listeners attach at install, at startup or on the first request, whichever first finds it imported. Listeners are
 class-level on ``Engine`` (they see engines created before and after install) and shared by every installed
-context; ``StatementRouter`` sends each statement to the contexts it belongs to.
+context; ``_statement_targets`` sends each statement to the contexts it belongs to.
 """
 
 from __future__ import annotations
@@ -30,11 +30,11 @@ STATEMENT_EVENTS = ("before_cursor_execute", "after_cursor_execute", "handle_err
 DISCOVERY_EVENT = "engine_connect"
 DISCOVERY_PANELS = ("alembic", "database-connection-pools", "health")  # panels that read the registered engines
 START_KEY = "sharpit_sql_start"
-UNAVAILABLE = "SQLAlchemy 2.0 or later is not imported by the application"
+UNAVAILABLE = "SQLAlchemy is not imported by this application"
 TRACING_DISABLED = "SQL tracing is disabled via SHARPIT_SQL_TRACE_ENABLED=false"
 
 
-def sqlalchemy() -> Any | None:
+def sqlalchemy_module() -> Any | None:
     """The imported ``sqlalchemy`` module when it is 2.0 or later, else ``None``; never imports it."""
     module = sys.modules.get("sqlalchemy")
     version = str(getattr(module, "__version__", "0"))
@@ -45,8 +45,18 @@ def sqlalchemy() -> Any | None:
     return module if module is not None and major >= 2 else None
 
 
+def unavailable_reason() -> str | None:
+    """Why the SQLAlchemy-backed panels are empty: not imported, or imported but older than 2.0."""
+    module = sys.modules.get("sqlalchemy")
+    if module is None:
+        return UNAVAILABLE
+    if sqlalchemy_module() is None:
+        return f"SQLAlchemy {getattr(module, '__version__', '?')} is imported, but sharpit needs 2.0 or later"
+    return None
+
+
 def _engine_class() -> type | None:
-    sa = sqlalchemy()
+    sa = sqlalchemy_module()
     return sa.engine.Engine if sa is not None else None
 
 
@@ -174,23 +184,17 @@ def _pop_start(conn: Any, context: Any) -> tuple[int, list[SharpitContext]] | No
     return conn.info.pop(START_KEY, None)
 
 
-def _named(parameters: Any, context: Any, executemany: bool) -> Any:
-    """Positional DBAPI parameters keyed by their bind names again, so the masker sees ``password`` and not ``0``."""
-    names = getattr(getattr(context, "compiled", None), "positiontup", None)
-    if not names or not parameters or isinstance(parameters, dict):
-        return cast(Any, parameters)
+def _named(parameters: Any, context: Any, executemany: bool) -> tuple[Any, int | None]:
+    """The parameters keyed by bind name, so the masker sees ``password`` and not ``0``, and the row count.
 
-    def key(values: Any) -> Any:
-        rows, rest = divmod(len(values), len(names))
-        if rows == 0 or rest:
-            return values
-        # insertmanyvalues batches rows into one statement: each row repeats the names, suffixed after the first
-        keys = [name if row == 0 else f"{name}#{row + 1}" for row in range(rows) for name in names]
-        return dict[Any, Any](zip(keys, values, strict=True))
-
-    # insertmanyvalues reports executemany with one flat batch of values, not one sequence per row
-    many = executemany and isinstance(parameters[0], list | tuple | dict)
-    return [key(v) for v in parameters] if many else key(parameters)
+    ``compiled_parameters`` holds one dict per row after IN-list expansion (``a_1``, ``a_2``), also for an
+    insertmanyvalues batch the DBAPI gets as one flat tuple. Without a compiled statement the DBAPI parameters are
+    kept and masked by value.
+    """
+    rows = getattr(context, "compiled_parameters", None) if getattr(context, "compiled", None) is not None else None
+    if not rows or not parameters:
+        return parameters, None
+    return (rows, len(rows)) if executemany else (rows[0], None)
 
 
 def _record(
@@ -201,6 +205,7 @@ def _record(
     executemany: bool,
     rowcount: int,
     error: BaseException | None,
+    batch_size: int | None = None,
 ) -> None:
     started, targets = start
     duration = time.perf_counter_ns() - started
@@ -230,6 +235,7 @@ def _record(
                 rowcount=rowcount,
                 request_id=info.id if info is not None else None,
                 call_site=site,
+                batch_size=batch_size,
             )
         except Exception as exc:  # noqa: BLE001
             _context_failed(ctx, exc)
@@ -241,8 +247,8 @@ def after_cursor_execute(
     try:
         start = _pop_start(conn, context)
         if start is not None:
-            parameters = _named(parameters, context, executemany)
-            _record(start, conn, statement, parameters, executemany, getattr(cursor, "rowcount", -1), None)
+            parameters, rows = _named(parameters, context, executemany)
+            _record(start, conn, statement, parameters, executemany, getattr(cursor, "rowcount", -1), None, rows)
     except Exception as exc:  # noqa: BLE001
         _routing_failed(exc)
 
@@ -255,8 +261,8 @@ def handle_error(exception_context: Any) -> None:
         if start is not None:
             error = exception_context.sqlalchemy_exception or exception_context.original_exception
             executemany = bool(getattr(context, "executemany", False))
-            parameters = _named(exception_context.parameters, context, executemany)
-            _record(start, conn, exception_context.statement or "", parameters, executemany, -1, error)
+            parameters, rows = _named(exception_context.parameters, context, executemany)
+            _record(start, conn, exception_context.statement or "", parameters, executemany, -1, error, rows)
     except Exception as exc:  # noqa: BLE001
         _routing_failed(exc)
 
@@ -274,7 +280,7 @@ def _sync_listeners() -> None:
     global _statement_refs, _discovery_refs  # noqa: PLW0603 - swapped whole under the lock, read lock-free
     _statement_refs = tuple(weakref.ref(c) for c in _statement_contexts.values())
     _discovery_refs = tuple(weakref.ref(c) for c in _discovery_contexts.values())
-    sa = sqlalchemy()
+    sa = sqlalchemy_module()
     if sa is None:
         return
     wanted = {DISCOVERY_EVENT: bool(_discovery_contexts), **dict.fromkeys(STATEMENT_EVENTS, bool(_statement_contexts))}
@@ -288,7 +294,7 @@ def _sync_listeners() -> None:
 
 def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
     """Route statements and/or engine discovery to ``ctx``; False while SQLAlchemy is not imported (retry later)."""
-    if sqlalchemy() is None:
+    if sqlalchemy_module() is None:
         return False
     registry = ctx.capture.engine_registry
     if registry is not None:
@@ -326,16 +332,38 @@ def routed(ctx: SharpitContext) -> tuple[bool, bool]:
 
 def attached() -> dict[str, bool]:
     """Event name -> whether sharpit's class-level listener is on ``Engine``."""
-    sa = sqlalchemy()
+    sa = sqlalchemy_module()
     if sa is None:
         return dict.fromkeys(_LISTENERS, False)
     return {name: bool(sa.event.contains(sa.engine.Engine, name, fn)) for name, fn in _LISTENERS.items()}
+
+
+def bounded[T](conn: Any, fn: Callable[[Any], T], timeout: float) -> T:
+    """``fn(conn)`` with the server-side statement timeout set to ``timeout`` where the dialect has one.
+
+    PostgreSQL's ``SET LOCAL`` ends with the transaction. MySQL's session value is put back, because the connection
+    goes back to the app's pool. sqlite has none: its wait is the driver's busy timeout.
+    """
+    millis = max(1, int(timeout * 1000))
+    name = conn.dialect.name
+    if name == "postgresql":
+        conn.exec_driver_sql(f"SET LOCAL statement_timeout = {millis}")
+    elif name == "mysql":
+        previous = int(conn.exec_driver_sql("SELECT @@SESSION.max_execution_time").scalar() or 0)
+        conn.exec_driver_sql(f"SET SESSION max_execution_time = {millis}")
+        try:
+            return fn(conn)
+        finally:
+            conn.exec_driver_sql(f"SET SESSION max_execution_time = {previous}")
+    return fn(conn)
 
 
 async def run_db_read[T](engine: Any, fn: Callable[[Any], T], timeout: float) -> T:
     """Run ``fn(connection)`` for sharpit's own read, off the event loop and invisible to SQL Trace.
 
     An async dialect runs through ``AsyncEngine.run_sync`` (the driver needs the loop); a sync one in a thread.
+    The statement timeout is set inside the read (``bounded``). The connect wait is the driver's own connect
+    timeout: setting one would need a hook on every app connection or a copy of the app's engine.
     """
     with internal():  # the thread and the greenlet copy this context, so the listeners see the marker
         async with asyncio.timeout(timeout):
@@ -343,10 +371,10 @@ async def run_db_read[T](engine: Any, fn: Callable[[Any], T], timeout: float) ->
                 from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: PLC0415 - only once the app imported it
 
                 async with AsyncEngine(engine).connect() as conn:
-                    return await conn.run_sync(fn)
+                    return await conn.run_sync(bounded, fn, timeout)
 
             def read() -> T:
                 with engine.connect() as conn:
-                    return fn(conn)
+                    return bounded(conn, fn, timeout)
 
             return await asyncio.to_thread(read)

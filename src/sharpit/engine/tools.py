@@ -174,7 +174,7 @@ def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
     """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app."""
     if not ctx.settings.sql_trace_enabled:
         return sqla.TRACING_DISABLED
-    return sqla.UNAVAILABLE if sqla.sqlalchemy() is None else None
+    return sqla.unavailable_reason()
 
 
 def sql_trace_report(ctx: SharpitContext) -> dict[str, Any]:
