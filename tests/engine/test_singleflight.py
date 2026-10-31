@@ -1,23 +1,39 @@
-import time
+import threading
 
 import pytest
 
-from sharpit.engine.singleflight import ActionBusy, SingleFlight, WaitTimeout
+from sharpit.engine.singleflight import ActionBusy, SingleFlight
+
+
+def _hold(sf: SingleFlight, operation: str) -> tuple[threading.Event, threading.Thread]:
+    """Run ``operation`` on a thread until the returned event is set."""
+    entered, release = threading.Event(), threading.Event()
+
+    def fn() -> None:
+        entered.set()
+        release.wait(5)
+
+    thread = threading.Thread(target=sf.run, args=(operation, fn))
+    thread.start()
+    assert entered.wait(5)
+    return release, thread
 
 
 def test_second_call_busy_409_body():
     sf = SingleFlight()
-    with pytest.raises(WaitTimeout):
-        sf.run("scan", lambda: time.sleep(0.3), wait_timeout=0.02)
-    with pytest.raises(ActionBusy) as ei:
-        sf.run("dismiss", lambda: None)
+    release, thread = _hold(sf, "scan")
+    try:
+        with pytest.raises(ActionBusy) as ei:
+            sf.run("dismiss", lambda: None)
+    finally:
+        release.set()
+        thread.join(5)
     assert ei.value.body() == {
         "error": "BootUI action already in progress".replace("BootUI", "sharpit"),
         "operation": "dismiss",
         "activeOperation": "scan",
         "message": "Operation 'dismiss' cannot start while 'scan' is in progress.",
     }
-    time.sleep(0.4)
 
 
 def test_returns_value_and_propagates_exception():
@@ -42,11 +58,11 @@ def test_lock_released_after_exception():
     assert sf.run("b", lambda: "ok") == "ok"
 
 
-def test_lock_held_until_worker_finishes():
+def test_lock_held_until_the_call_finishes():
     sf = SingleFlight()
-    with pytest.raises(WaitTimeout):
-        sf.run("slow", lambda: time.sleep(0.5), wait_timeout=0.05)
+    release, thread = _hold(sf, "slow")
     with pytest.raises(ActionBusy):
         sf.run("other", lambda: None)
-    time.sleep(0.6)
+    release.set()
+    thread.join(5)
     assert sf.run("other", lambda: "done") == "done"

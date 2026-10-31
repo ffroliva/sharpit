@@ -21,7 +21,7 @@ from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import Package
 from sharpit.engine.collectors.vulns.osv import OsvClient
 from sharpit.engine.collectors.vulns.service import OPERATION, VulnerabilityService, _valid_withdrawal  # pyright: ignore[reportPrivateUsage]
-from sharpit.engine.singleflight import ActionBusy, SingleFlight, WaitTimeout
+from sharpit.engine.singleflight import ActionBusy, SingleFlight
 from sharpit.settings import SharpitSettings
 
 JINJA = Package("jinja2", "3.1.3", None)
@@ -311,27 +311,22 @@ def test_disabled_not_cached(no_side_effects: SideEffectGuard, tmp_state_dir: Pa
     assert osv.opener.requests == []
 
 
-def _join_scan_threads() -> None:
-    for thread in threading.enumerate():
-        if thread.name == f"sharpit-{OPERATION}":
-            thread.join(5.0)
-            assert not thread.is_alive()
-
-
-def test_scan_outlives_caller_and_caches(tmp_state_dir: Path):
+def test_running_scan_is_busy_then_cached(tmp_state_dir: Path):
     osv = FakeOsv(ids={"jinja2": ["V-1"]}, docs={"V-1": advisory("V-1", JINJA)})
     osv.release = threading.Event()
     svc = service(osv, [JINJA], tmp_state_dir)
+    running = threading.Thread(target=svc.scan)  # stands in for a caller that stopped waiting (ToolGate timeout)
+    running.start()
     try:
-        with pytest.raises(WaitTimeout):
-            svc.scan(wait_timeout=0.1)
+        while not osv.opener.requests:
+            threading.Event().wait(0.01)
         with pytest.raises(ActionBusy) as busy:  # test_concurrent_scan_409 at the engine level
             svc.scan()
         assert busy.value.body()["activeOperation"] == OPERATION
         assert svc.report()["scan"]["status"] == "NOT_SCANNED"
     finally:
         osv.release.set()
-        _join_scan_threads()
+        running.join(5)
     report = svc.report()
     assert report["scan"]["status"] == "SCANNED"
     assert dep(report, "jinja2")["vulnerabilityCount"] == 1

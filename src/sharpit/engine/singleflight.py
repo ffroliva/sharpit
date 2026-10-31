@@ -4,11 +4,6 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from typing import Any
-
-
-class WaitTimeout(Exception):
-    """The caller stopped waiting; the worker keeps running and still holds the lock."""
 
 
 class ActionBusy(Exception):
@@ -31,31 +26,12 @@ class SingleFlight:
         self._lock = threading.Lock()
         self._active = ""
 
-    def run[T](self, operation: str, fn: Callable[[], T], wait_timeout: float | None = None) -> T:
+    def run[T](self, operation: str, fn: Callable[[], T]) -> T:
         if not self._lock.acquire(blocking=False):
             raise ActionBusy(operation, self._active)
         self._active = operation
-        done = threading.Event()
-        outcome: dict[str, Any] = {}
-
-        def worker() -> None:
-            try:
-                outcome["value"] = fn()
-            except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
-                outcome["error"] = exc
-            finally:
-                self._active = ""
-                self._lock.release()
-                done.set()  # after release, so a returning caller can immediately run again
-
         try:
-            threading.Thread(target=worker, name=f"sharpit-{operation}", daemon=True).start()
-        except BaseException:
+            return fn()
+        finally:
             self._active = ""
             self._lock.release()
-            raise
-        if not done.wait(wait_timeout):
-            raise WaitTimeout(operation)
-        if "error" in outcome:
-            raise outcome["error"]
-        return outcome["value"]

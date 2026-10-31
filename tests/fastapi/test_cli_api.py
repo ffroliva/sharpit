@@ -35,7 +35,7 @@ class FakeService:
     def report(self) -> dict[str, Any]:
         return {"scan": {"status": "NOT_SCANNED"}}
 
-    def scan(self, wait_timeout: float | None = None) -> dict[str, Any]:
+    def scan(self) -> dict[str, Any]:
         if self.busy:
             raise ActionBusy(OPERATION, OPERATION)
         if self.fail:

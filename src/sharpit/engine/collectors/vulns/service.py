@@ -3,9 +3,9 @@
 ``scanMessage``; plus ``DependencyReports`` ``report``, ``evidence``, ordering and ``applyDismissals``).
 
 ``report()`` never touches the network: it renders the cached scan, or the bare inventory as ``NOT_SCANNED``. ``scan()``
-is the only path to OSV/EPSS; it runs under the single-flight lock and caches its result from inside the worker, so a
-scan that outlives its caller still lands in the cache. Dismissals are re-read and applied on every render; the cache
-itself is never mutated by them.
+is the only path to OSV/EPSS; it runs under the single-flight lock and caches its result itself, so a scan whose
+caller stopped waiting (a ToolGate timeout) still lands in the cache. Dismissals are re-read and applied on every
+render; the cache itself is never mutated by them.
 
 PyPI adaptations: ``groupId`` is ``"pypi"``, ``artifactId``/``packageName`` the PEP 503 name, ``source``
 ``"importlib.metadata"``, and the Maven-worded messages are reworded. Coverage is always ``COMPLETE`` over the
@@ -89,12 +89,12 @@ class VulnerabilityService:
             )
         return _render(cached, set(self.dismissals.list()))
 
-    def scan(self, wait_timeout: float | None = None) -> dict[str, Any]:
-        """Scan OSV.dev (single-flight ``ActionBusy``/``WaitTimeout``); DISABLED is returned but never cached."""
+    def scan(self) -> dict[str, Any]:
+        """Scan OSV.dev (single-flight ``ActionBusy``); DISABLED is returned but never cached."""
         if not self._settings.vulnerabilities_osv_enabled:
             result = self._inventory_only("DISABLED", DISABLED_MESSAGE, False, refresh=True)
         else:
-            result = self._single_flight.run(OPERATION, self._scan_and_cache, wait_timeout)
+            result = self._single_flight.run(OPERATION, self._scan_and_cache)
         return _render(result, set(self.dismissals.list()))
 
     def _inventory_only(self, status: str, message: str, enabled: bool, refresh: bool = False) -> _Scan:
@@ -105,7 +105,7 @@ class VulnerabilityService:
 
     def _scan_and_cache(self) -> _Scan:
         result = self._scan()
-        self._cached = result  # inside the worker: a caller that stopped waiting still gets it cached
+        self._cached = result  # inside the call: a ToolGate caller that timed out still gets it cached
         return result
 
     def _scan(self) -> _Scan:

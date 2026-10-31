@@ -30,7 +30,6 @@ from sharpit.engine.collectors.vulns.osv import OsvClient
 from sharpit.engine.collectors.vulns.service import OPERATION, VulnerabilityService
 from sharpit.engine.masking import MASK
 from sharpit.engine.mcp import PROMPTS
-from sharpit.engine.singleflight import WaitTimeout
 from sharpit.engine.tools import COMMANDS, TOOLS
 
 SENTINEL = "S3NT1NEL9f3c"
@@ -168,14 +167,18 @@ def _sweep(call: Recorder, ctx: Any) -> None:
     call("GET", f"{API}/nope")
     call("GET", f"{API}/mcp")
     call("POST", f"{API}/mcp", content=b"x" * (ctx.settings.mcp_max_payload_bytes + 1))
-    release = threading.Event()
-    with pytest.raises(WaitTimeout):  # hold the single-flight lock so the next scans are busy
-        ctx.single_flight.run(OPERATION, lambda: release.wait(5), wait_timeout=0)
+    entered, release = threading.Event(), threading.Event()
+    holder = threading.Thread(  # hold the single-flight lock so the next scans are busy
+        target=ctx.single_flight.run, args=(OPERATION, lambda: entered.set() or release.wait(5))
+    )
+    holder.start()
     try:
+        assert entered.wait(5)
         call("POST", f"{API}/vulnerabilities/scan")
         call("POST", f"{API}/cli/tools/vulnerabilities_scan", json={})
     finally:
         release.set()
+        holder.join(5)
 
     # MCP: enabled in memory, every method, every tool, every prompt, error paths
     call("POST", f"{API}/mcp-server/toggle", json={"enabled": True})
