@@ -147,6 +147,11 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_CLI_MAX_CONCURRENT_CALLS` | `cli_max_concurrent_calls` | `20` | parallel calls |
 | `SHARPIT_CLI_EXECUTION_TIMEOUT` | `cli_execution_timeout` | `30s` | per call |
 
+The first Config load scans your package's source for `os.getenv` keys and caches the result. On a large application
+that one-time scan can take several seconds. Set `SHARPIT_CONFIG_SCAN=false` to skip it, or narrow it to the smaller
+top-level packages that read settings (`SHARPIT_CONFIG_SCAN=billing_config,accounts`; a dotted name scans its whole
+top-level package).
+
 ## Safety model
 
 - **Local only.** Requests must come from a loopback address with a loopback or allow-listed `Host`. If `Forwarded`,
