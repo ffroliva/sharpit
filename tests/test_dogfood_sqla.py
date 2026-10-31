@@ -106,6 +106,7 @@ def test_health_runs_user_check_up(client: TestClient) -> None:
 
 def test_probe_reaches_app_not_sharpit(client: TestClient) -> None:
     owners = client.post(f"{API}/http-probe", json={"method": "GET", "path": "/owners"})
-    assert owners.status_code == 200 and owners.json()["status"] == 200
+    assert owners.status_code == 200
+    assert owners.json()["status"] == 200
     refused = client.post(f"{API}/http-probe", json={"method": "GET", "path": "/sharpit/api/panels"})
     assert refused.status_code in (400, 403)

@@ -321,7 +321,8 @@ def test_hook_failure_leaves_response(monkeypatch: pytest.MonkeyPatch, caplog: p
             assert (resp.status_code, resp.json()) == (200, {"ok": True})
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1, warnings
-    assert "request end" in warnings[0] and "secret-bearing" not in warnings[0]
+    assert "request end" in warnings[0]
+    assert "secret-bearing" not in warnings[0]
 
 
 # --- wiring ---------------------------------------------------------------------------------------------------------
@@ -354,7 +355,8 @@ def _assert_adds_nothing(with_sqlalchemy: bool, **options: Any) -> None:
     after = _host_state(app)
     assert after[0] == before[0]  # user_middleware
     assert after[1] is before[1]  # the exception_handlers dict itself
-    assert after[2] == before[2] and all(a[1] is b[1] for a, b in zip(after[2], before[2], strict=True))
+    assert after[2] == before[2]
+    assert all(a[1] is b[1] for a, b in zip(after[2], before[2], strict=True))
     assert after[3] == before[3]  # handlers on every logger
     with TestClient(app) as client:
         assert client.get("/host").status_code == 200
@@ -403,7 +405,8 @@ def test_middleware_added_after_install_warns_once(caplog: pytest.LogCaptureFixt
         for _ in range(2):
             client.get("/host")
     warnings = _order_warnings(caplog)
-    assert len(warnings) == 1 and "CORSMiddleware" in warnings[0], warnings
+    assert len(warnings) == 1, warnings
+    assert "CORSMiddleware" in warnings[0], warnings
 
     caplog.clear()
     last = FastAPI()
@@ -433,7 +436,8 @@ def test_uninstall_capture_removes_hooks():
     handle.uninstall_capture()
     handle.uninstall_capture()  # idempotent
     client.get("/host")
-    assert seen[0] is not None and seen[1] is None
+    assert seen[0] is not None
+    assert seen[1] is None
     assert len(_rows(handle)) == 1
 
 
@@ -442,10 +446,12 @@ def test_uninstall_capture_removes_sql_listeners():
     pytest.importorskip("sqlalchemy")
     sqla.detach_all()  # earlier tests in this worker may have left contexts behind
     handle = install(FastAPI(), enabled="ON", show_banner=False)
-    assert all(sqla.attached().values()) and sqla.routed(handle.context) == (True, True)
+    assert all(sqla.attached().values())
+    assert sqla.routed(handle.context) == (True, True)
     handle.uninstall_capture()
     handle.uninstall_capture()  # idempotent
-    assert not any(sqla.attached().values()) and sqla.routed(handle.context) == (False, False)
+    assert not any(sqla.attached().values())
+    assert sqla.routed(handle.context) == (False, False)
 
 
 def test_lifespan_shutdown_detaches_and_startup_attaches():
@@ -472,7 +478,8 @@ def test_install_creates_no_threads():
 
     handle = install(app, enabled="ON", show_banner=False, engines=[object()], health_checks={"db": lambda: True})
     assert set(threading.enumerate()) <= before
-    assert handle.context.engines and set(handle.context.health_checks) == {"db"}
+    assert handle.context.engines
+    assert set(handle.context.health_checks) == {"db"}
 
     async def main() -> None:
         transport = httpx.ASGITransport(app=app, client=LOCAL)

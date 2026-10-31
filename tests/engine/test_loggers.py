@@ -49,7 +49,8 @@ def test_placeholders_skipped_and_listing_creates_no_logger(no_side_effects: Sid
     before = set(logging.root.manager.loggerDict)
     names = _by_name(loggers_report(None, None, None))
     assert "phx.mid.leaf" in names
-    assert "phx" not in names and "phx.mid" not in names
+    assert "phx" not in names
+    assert "phx.mid" not in names
     assert set(logging.root.manager.loggerDict) == before
 
 
@@ -60,10 +61,12 @@ def test_filters_own_loggers_sorts_by_name_and_pages(no_side_effects: SideEffect
     report = loggers_report("PG.COM", 1, 1)
     assert [lg["name"] for lg in report["loggers"]] == ["pg.com.Beta"]
     assert report["page"]["matched"] == 2
-    assert report["page"]["offset"] == 1 and report["page"]["returned"] == 1
+    assert report["page"]["offset"] == 1
+    assert report["page"]["returned"] == 1
     everything = loggers_report(None, None, None)
     assert [lg["name"] for lg in everything["loggers"]] == sorted(lg["name"] for lg in everything["loggers"])
-    assert "sharpit.pgsecret" not in _by_name(everything) and "sharpit" not in _by_name(everything)
+    assert "sharpit.pgsecret" not in _by_name(everything)
+    assert "sharpit" not in _by_name(everything)
     assert everything["page"]["total"] == len(everything["loggers"])
 
 

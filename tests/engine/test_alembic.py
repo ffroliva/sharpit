@@ -30,7 +30,8 @@ def _revs(files: AlembicFiles) -> list[tuple[str, tuple[str, ...]]]:
 
 def test_linear_history():
     files = read_alembic_files(FIXTURES / "linear" / "alembic.ini", MASKER)
-    assert files.reason is None and files.table_error is None
+    assert files.reason is None
+    assert files.table_error is None
     assert _revs(files) == [("a1", ()), ("b2", ("a1",)), ("c3", ("b2",))]
     assert files.heads == ["c3"]
     first = files.revisions[0]
@@ -56,12 +57,15 @@ def test_modern_template_annassign():
 def test_revision_raising_at_import_still_parses():
     # c3_add_visits.py raises at module level: ast reads it, nothing executes it (env.py raises too)
     files = read_alembic_files(FIXTURES / "linear" / "alembic.ini", MASKER)
-    assert "c3" in [r.revision for r in files.revisions] and files.skipped == []
+    assert "c3" in [r.revision for r in files.revisions]
+    assert files.skipped == []
 
 
 def test_package_dir_unimported_unresolved_not_imported():
     files = read_alembic_files(FIXTURES / "package_dir" / "alembic.ini", MASKER)
-    assert files.reason is not None and "unresolved" in files.reason and "not imported" in files.reason
+    assert files.reason is not None
+    assert "unresolved" in files.reason
+    assert "not imported" in files.reason
     assert "sharpit_alembic_fixture_pkg" not in sys.modules  # its __init__ raises: importing it would fail the test
 
 
@@ -70,14 +74,16 @@ def test_package_dir_resolved_through_an_imported_package(monkeypatch: pytest.Mo
     package.__path__ = [str(FIXTURES / "package_dir" / "sharpit_alembic_fixture_pkg")]
     monkeypatch.setitem(sys.modules, "sharpit_alembic_fixture_pkg", package)
     files = read_alembic_files(FIXTURES / "package_dir" / "alembic.ini", MASKER)
-    assert files.reason is None and [r.revision for r in files.revisions] == ["p1"]
+    assert files.reason is None
+    assert [r.revision for r in files.revisions] == ["p1"]
 
 
 def test_pyproject_tool_alembic(tmp_path: Path):
     shutil.copytree(FIXTURES / "linear" / "migrations", tmp_path / "db")
     (tmp_path / "pyproject.toml").write_text('[tool.alembic]\nscript_location = "%(here)s/db"\n', "utf-8")
     files = read_alembic_files(tmp_path / "alembic.ini", MASKER)  # no ini: [tool.alembic] next to where it would be
-    assert files.reason is None and files.config_path == str(tmp_path / "pyproject.toml")
+    assert files.reason is None
+    assert files.config_path == str(tmp_path / "pyproject.toml")
     assert files.heads == ["c3"]
 
 
@@ -116,8 +122,10 @@ def test_hostile_version_table_refused(tmp_path: Path, option: str, value: str):
     shutil.copytree(FIXTURES / "linear" / "migrations", tmp_path / "migrations")
     (tmp_path / "alembic.ini").write_text(f"[alembic]\nscript_location = %(here)s/migrations\n{option} = {value}\n")
     files = read_alembic_files(tmp_path / "alembic.ini", MASKER)
-    assert files.table_error is not None and option in files.table_error
-    assert files.reason is None and files.heads == ["c3"]  # the file side still shows
+    assert files.table_error is not None
+    assert option in files.table_error
+    assert files.reason is None
+    assert files.heads == ["c3"]
 
 
 def test_hostile_version_table_schema_refused(tmp_path: Path):
@@ -126,7 +134,8 @@ def test_hostile_version_table_schema_refused(tmp_path: Path):
         "[alembic]\nscript_location = %(here)s/migrations\nversion_table_schema = public.x\n"
     )
     files = read_alembic_files(tmp_path / "alembic.ini", MASKER)
-    assert files.table_error is not None and "version_table_schema" in files.table_error
+    assert files.table_error is not None
+    assert "version_table_schema" in files.table_error
 
 
 def test_large_and_unparsable_revision_skipped_with_reason(tmp_path: Path):
@@ -155,7 +164,8 @@ def test_large_and_unparsable_revision_skipped_with_reason(tmp_path: Path):
 def test_ini_error_masked(tmp_path: Path, ini: str):
     (tmp_path / "alembic.ini").write_text(ini, "utf-8")
     files = read_alembic_files(tmp_path / "alembic.ini", MASKER)
-    assert files.reason is not None and files.reason.startswith("Cannot read")
+    assert files.reason is not None
+    assert files.reason.startswith("Cannot read")
     assert SECRET not in files.reason
 
 
@@ -176,5 +186,6 @@ def test_alembic_docstring_masked(tmp_path: Path):
 
 def test_no_ini_unavailable(tmp_path: Path):
     files = read_alembic_files(tmp_path / "alembic.ini", MASKER)
-    assert files.reason is not None and files.reason.startswith("No Alembic configuration")
+    assert files.reason is not None
+    assert files.reason.startswith("No Alembic configuration")
     assert files.revisions == []

@@ -163,7 +163,8 @@ def test_integrity_error_parameters_dropped():
     assert client.get("/dupe").status_code == 500
     report = client.get(API).json()
     failed = next(e for e in report["entries"] if not e["success"])
-    assert "IntegrityError" in failed["errorMessage"] and f"[parameters: {MASK}]" in failed["errorMessage"]
+    assert "IntegrityError" in failed["errorMessage"]
+    assert f"[parameters: {MASK}]" in failed["errorMessage"]
     assert SENTINEL not in str(report)
 
 
@@ -210,9 +211,8 @@ def test_recording_post_read_only_403():
     client = _client(app)
     for path in (f"{API}/recording", f"{API}/clear"):
         resp = client.post(path, json={"enabled": False})
-        assert resp.status_code == 403 and resp.json()["reason"] == (
-            "Panel is read-only via SHARPIT_PANELS_SQL_TRACE_READ_ONLY=true"
-        )
+        assert resp.status_code == 403
+        assert resp.json()["reason"] == ("Panel is read-only via SHARPIT_PANELS_SQL_TRACE_READ_ONLY=true")
     assert client.get(API).json()["capturing"] is True
 
 
@@ -249,7 +249,8 @@ def test_sql_trace_enabled_false_attaches_nothing():
     handle = _install(app, sql_trace_enabled=False)
     assert handle.context.capture.sql_trace is None
     attached = sqla.attached()
-    assert not any(attached[e] for e in sqla.STATEMENT_EVENTS) and attached["engine_connect"]
+    assert not any(attached[e] for e in sqla.STATEMENT_EVENTS)
+    assert attached["engine_connect"]
     report = _client(app).get(API).json()
     assert (report["available"], report["unavailableReason"]) == (False, sqla.TRACING_DISABLED)
     panel = next(p for p in _client(app).get("/sharpit/api/panels").json()["panels"] if p["id"] == "sql-trace")
@@ -282,7 +283,8 @@ def test_discovery_listener_skipped_when_db_panels_disabled():
     app = FastAPI()
     _install(app, panels={p: {"enabled": False} for p in sqla.DISCOVERY_PANELS})
     attached = sqla.attached()
-    assert attached["engine_connect"] is False and all(attached[e] for e in sqla.STATEMENT_EVENTS)
+    assert attached["engine_connect"] is False
+    assert all(attached[e] for e in sqla.STATEMENT_EVENTS)
 
 
 def test_no_lifespan_first_request_attaches_listeners(monkeypatch: pytest.MonkeyPatch):
@@ -379,7 +381,8 @@ def test_sql_cli_tools_cli_only():
     listed = client.post("/sharpit/api/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).json()
     names = [t["name"] for t in listed["result"]["tools"]]
     tools = ("clear_sql_traces", "pause_sql_trace_recording", "resume_sql_trace_recording")
-    assert "get_sql_traces" in names and not set(tools) & set(names)
+    assert "get_sql_traces" in names
+    assert not set(tools) & set(names)
     paused = client.post("/sharpit/api/cli/tools/pause_sql_trace_recording", json={}).json()
     assert (paused["capturing"], len(paused["entries"])) == (False, 1)
     assert client.post("/sharpit/api/cli/tools/resume_sql_trace_recording", json={}).json()["capturing"] is True

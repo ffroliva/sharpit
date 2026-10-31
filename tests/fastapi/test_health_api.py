@@ -42,7 +42,8 @@ def test_timed_out_check_holds_single_flight():
         assert (part["status"], part["details"]["error"]) == ("DOWN", "timed out after 0.1s; still running")
         assert started.is_set()
         busy = client.post(CHECK)  # the check's thread still runs: health-check stays busy until it returns
-        assert busy.status_code == 409 and busy.json()["activeOperation"] == OPERATION
+        assert busy.status_code == 409
+        assert busy.json()["activeOperation"] == OPERATION
     finally:
         gate.set()
     for _ in range(200):
@@ -60,6 +61,8 @@ def test_executor_created_on_first_check_only():
     client, handle = _client(health_checks={"ok": lambda: True})
     assert client.get(URL).status_code == 200
     service = health_service(handle.context)
-    assert service._executor is None and _health_threads() <= before  # pyright: ignore[reportPrivateUsage]
+    assert service._executor is None
+    assert _health_threads() <= before
     assert client.post(CHECK).status_code == 200
-    assert service._executor is not None and _health_threads() - before  # pyright: ignore[reportPrivateUsage]
+    assert service._executor is not None
+    assert _health_threads() - before

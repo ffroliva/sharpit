@@ -250,7 +250,8 @@ def test_off_loop_reader_collects_on_loop(loop_thread: LoopThread):
     (row,) = [t for t in report["tasks"] if t["name"] == "t8-sleeper"]
     assert (row["coroutine"], row["state"], row["request"]) == ("_forever", "PENDING", None)
     assert _functions(row["stackTrace"])[-1] == "_forever"
-    assert report["taskCount"] == len(report["tasks"]) and report["warnings"] == []
+    assert report["taskCount"] == len(report["tasks"])
+    assert report["warnings"] == []
 
 
 def test_on_loop_reader_skips_itself():
@@ -411,6 +412,7 @@ def test_shape_keys_match_bootui(loop_thread: LoopThread):
     loop_thread.spawn(_forever, "t8-shape")
     report = threads_report(ctx, None, None, None, None)
     assert tuple(report) == REPORT_KEYS
-    assert tuple(report["threads"][0]) == THREAD_KEYS and tuple(report["tasks"][0]) == TASK_KEYS
+    assert tuple(report["threads"][0]) == THREAD_KEYS
+    assert tuple(report["tasks"][0]) == TASK_KEYS
     assert tuple(report["stateCounts"][0]) == ("state", "count")
     assert tuple(report["page"]) == ("total", "matched", "offset", "limit", "returned", "hasMore")

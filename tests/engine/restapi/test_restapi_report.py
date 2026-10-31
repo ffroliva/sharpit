@@ -67,7 +67,8 @@ def _service(tmp_path: Path, routes: tuple[ApiRouteInfo, ...] = ROUTES, **kw: ob
 
 def test_get_before_scan_not_scanned(tmp_path: Path):
     report = _service(tmp_path).report()
-    assert set(report) == REPORT_KEYS and set(report["scan"]) == SCAN_KEYS
+    assert set(report) == REPORT_KEYS
+    assert set(report["scan"]) == SCAN_KEYS
     assert report["scan"] == {
         "analyzer": "sharpit rest-api",
         "status": "NOT_SCANNED",
@@ -90,7 +91,8 @@ def test_get_before_scan_not_scanned(tmp_path: Path):
 def test_shape_keys_match_bootui(tmp_path: Path):
     # ported: RestApiReport and RestApiScanStatusDto components (+ RESULT_KEYS for RestApiRuleResultDto)
     report = _service(tmp_path).scan()
-    assert set(report) == REPORT_KEYS and set(report["scan"]) == SCAN_KEYS
+    assert set(report) == REPORT_KEYS
+    assert set(report["scan"]) == SCAN_KEYS
     assert set(report["results"][0]) == RESULT_KEYS
     assert report["disclaimer"] == DISCLAIMER
     assert (report["basePackages"], report["controllersAnalyzed"], report["handlersAnalyzed"]) == (
@@ -99,7 +101,8 @@ def test_shape_keys_match_bootui(tmp_path: Path):
         5,
     )
     assert report["rulesEvaluated"] == report["scan"]["rulesEvaluated"] == 20
-    assert report["scan"]["status"] == "SCANNED" and isinstance(report["scan"]["scannedAt"], int)
+    assert report["scan"]["status"] == "SCANNED"
+    assert isinstance(report["scan"]["scannedAt"], int)
     assert report["scan"]["message"] == (
         "REST API rules completed against 3 module(s) and 5 route handler(s) in the host application."
     )
@@ -135,7 +138,8 @@ def test_violations_are_masked(tmp_path: Path):
     secret = _route("/v1/Token/password=hunter2", "read_token")  # NAME-003
     report = _service(tmp_path, (secret,)).scan()
     text = str(report)
-    assert "hunter2" not in text and MASK in text
+    assert "hunter2" not in text
+    assert MASK in text
 
 
 def test_limitations_mark_scan_partial(tmp_path: Path):

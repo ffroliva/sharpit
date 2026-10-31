@@ -1,9 +1,10 @@
-"""Sonar ratchet: a pull request may add no Sonar issue, and master may never hold more open issues than the baseline.
+"""Sonar ratchet: a pull request may add no Sonar issue, and main must hold exactly the baseline count of open issues.
 
 Run after the SonarCloud scan (which waits for the quality gate, so the analysis is processed):
     python scripts/ci/sonar_ratchet.py --pull-request 12
-    python scripts/ci/sonar_ratchet.py --branch master
-Lower `sonar-baseline.txt` in the same commit that fixes issues; it may only go down.
+    python scripts/ci/sonar_ratchet.py --branch main
+Lower `sonar-baseline.txt` in the same commit that fixes issues; it may only go down. main below the baseline fails
+too: a fix that left the baseline high would let a later change add an issue back unnoticed.
 """
 
 from __future__ import annotations
@@ -27,9 +28,10 @@ def verdict(open_issues: int, baseline: int | None) -> tuple[bool, str]:
             return False, f"this pull request adds {open_issues} Sonar issue(s); fix them before merging"
         return True, "no new Sonar issues"
     if open_issues > baseline:
-        return False, f"{open_issues} open Sonar issues on master, above the baseline of {baseline}"
+        return False, f"{open_issues} open Sonar issues on main, above the baseline of {baseline}"
     if open_issues < baseline:
-        return True, f"{open_issues} open Sonar issues, below the baseline of {baseline}: lower sonar-baseline.txt"
+        below = f"{open_issues} open Sonar issues, below the baseline of {baseline}"
+        return False, f"{below}: lower sonar-baseline.txt to {open_issues}"
     return True, f"{open_issues} open Sonar issues, at the baseline"
 
 

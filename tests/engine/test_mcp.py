@@ -188,7 +188,8 @@ def test_initialize_returns_server_info_and_echoes_protocol_version():
     # ported: BootUiMcpServiceTests.initializeReturnsServerInfoAndEchoesProtocolVersion,
     # AbstractMcpConformanceTest.testMcpInitializeWhenEnabled
     status, body = _post(_server(), _rpc("initialize", 1, {"protocolVersion": PROTOCOL_VERSION}))
-    assert status == 200 and body is not None
+    assert status == 200
+    assert body is not None
     result = body["result"]
     assert result["protocolVersion"] == "2025-06-18"
     assert result["serverInfo"] == {"name": "sharpit", "version": __version__}
@@ -203,7 +204,8 @@ def test_initialize_falls_back_to_default_protocol_version(params: dict[str, Any
     # ported: BootUiMcpServiceTests.initializeFallsBackToDefaultProtocolVersion,
     # AbstractMcpConformanceTest.testMcpInitiateVersionNegotiation
     body = _post(_server(), _rpc("initialize", 1, params))[1]
-    assert body is not None and body["result"]["protocolVersion"] == PROTOCOL_VERSION
+    assert body is not None
+    assert body["result"]["protocolVersion"] == PROTOCOL_VERSION
 
 
 def test_ping():
@@ -289,7 +291,8 @@ def test_tool_call_arguments_null_and_non_object():
     assert _post(server, null)[1] == _err(72, -32602, "Tool arguments must be an object")
     absent = _rpc("tools/call", 73, {"name": "get_overview"})
     body = _post(server, absent)[1]
-    assert body is not None and body["result"]["isError"] is False
+    assert body is not None
+    assert body["result"]["isError"] is False
 
 
 def test_disabled_panel_is_in_band_error():
@@ -352,7 +355,8 @@ def test_prompts_list_and_get():
         assert result["description"] == prompt["description"]
         assert len(result["messages"]) == 1
         message = result["messages"][0]
-        assert message["role"] == "user" and message["content"]["type"] == "text"
+        assert message["role"] == "user"
+        assert message["content"]["type"] == "text"
         assert message["content"]["text"].strip()
         assert "BootUI" not in message["content"]["text"]
     diagnose = _post(server, _rpc("prompts/get", 4, {"name": "diagnose_runtime_issue"}))[1]
@@ -392,7 +396,9 @@ def test_guidance_names_only_sharpit_tools():
     for text in _guidance_texts():
         named = set(re.findall(r"\bget_\w+|\b\w+_scan\b", text))
         assert named <= SHARPIT_TOOLS, named - SHARPIT_TOOLS
-    assert "vulnerabilities_scan" in INSTRUCTIONS and "CLI" in INSTRUCTIONS and "OSV" in INSTRUCTIONS
+    assert "vulnerabilities_scan" in INSTRUCTIONS
+    assert "CLI" in INSTRUCTIONS
+    assert "OSV" in INSTRUCTIONS
 
 
 def test_guidance_is_python_not_jvm():

@@ -99,7 +99,8 @@ def test_old_sqlalchemy_unavailable(monkeypatch: pytest.MonkeyPatch):
         client = _client(app)
         assert (_sql_panel(client)["available"], _sql_panel(client)["unavailableReason"]) == (False, old_reason)
         report = client.get("/sharpit/api/sql-trace").json()
-        assert tuple(report) == REPORT_KEYS and report["unavailableReason"] == old_reason
+        assert tuple(report) == REPORT_KEYS
+        assert report["unavailableReason"] == old_reason
         assert sqla.routed(handle.context) == (False, False)
     finally:
         handle.uninstall_capture()
