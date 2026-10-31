@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # later tasks add these modules; the adapter owns the wiring
     from sharpit.engine.capture.exceptions import ExceptionStore  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
     from sharpit.engine.capture.exchanges import HttpExchangeBuffer
-    from sharpit.engine.capture.logtail import LogTailBuffer  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
+    from sharpit.engine.capture.logtail import LogTailBuffer
     from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
-    from sharpit.engine.capture.streams import ChangeStream, StreamSlots  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
+    from sharpit.engine.capture.streams import ChangeStream, StreamSlots
     from sharpit.engine.sqla import EngineRegistry  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
     from sharpit.fastapi.capture import CaptureWiring
 

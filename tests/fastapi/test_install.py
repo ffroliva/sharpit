@@ -135,7 +135,6 @@ NOT_BUILT = (
     "activity",
     "exceptions",
     "sql-trace",
-    "log-tail",
     "alembic",
     "database-connection-pools",
     "health",
@@ -155,7 +154,7 @@ def test_new_panels_not_built_yet(panel_id: str):
 def test_mvp_panels_stay_available():
     body = _client(_app()).get("/sharpit/api/panels").json()
     mvp = [p for p in body["panels"] if p["id"] not in NOT_BUILT]
-    assert len(mvp) == 9  # the 8 MVP panels and http-exchanges (Task 2)
+    assert len(mvp) == 10  # the 8 MVP panels, http-exchanges (Task 2) and log-tail (Task 3)
     assert all(p["available"] and p["unavailableReason"] is None for p in mvp)
 
 

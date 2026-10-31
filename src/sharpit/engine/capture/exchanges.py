@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.paging import paged
 
@@ -136,10 +137,12 @@ class HttpExchangeBuffer:
         self._lock = threading.Lock()
         self.hidden_self = 0
         self.unavailable_reason: str | None = None  # set by the wiring when the middleware could not be added
+        self.changes = ChangeStream()
 
     def add(self, row: dict[str, Any]) -> None:
         with self._lock:
             self._rows.append(row)
+        self.changes.signal()
 
     def count_hidden_self(self) -> None:
         with self._lock:

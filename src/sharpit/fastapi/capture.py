@@ -9,7 +9,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
+import sys
 import time
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -17,6 +20,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, new_request_id
 from sharpit.engine.capture.exchanges import exchange_row
+from sharpit.engine.capture.logtail import SharpitLogHandler
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -26,8 +30,29 @@ logger = logging.getLogger("sharpit")
 CAPTURE_TOO_LATE = "request capture unavailable: install() ran after the app started"
 CAPTURE_TOO_LATE_REASON = "Request capture is unavailable: install() ran after the app started"
 CAPTURE_PANELS = ("http-exchanges", "exceptions", "sql-trace", "activity")  # any of them enabled needs the middleware
+LOG_PANELS = ("log-tail", "exceptions")  # either enabled needs the log handler (spec §6.1 step 3)
+LOG_TAIL_DETACHED_REASON = (
+    "The sharpit log handler is not on the root logger: the app reconfigured logging (dictConfig or "
+    "basicConfig(force=True)) after startup, or the app has not started"
+)
+SEVERAL_WORKERS = (
+    "sharpit sees several worker processes: each worker has its own capture buffers and streams, and a generated "
+    "authentication token works only in the worker that printed it. Set SHARPIT_AUTHENTICATION_TOKEN for remote access."
+)
 PROBE_HEADER = b"x-sharpit-probe"
 PROBE_EXTENSION = "sharpit.probe"
+
+
+def several_workers(environ: Mapping[str, str], argv: Sequence[str]) -> bool:
+    """What the process can tell (spec §10): ``WEB_CONCURRENCY`` > 1, or ``--workers N`` / ``-w N`` > 1 in argv
+    (uvicorn's spawned workers and gunicorn's forked ones keep the parent's argv)."""
+    counts = [environ.get("WEB_CONCURRENCY", "")]
+    for i, arg in enumerate(argv):
+        if arg in ("--workers", "-w") and i + 1 < len(argv):
+            counts.append(argv[i + 1])
+        elif arg.startswith("--workers="):
+            counts.append(arg.partition("=")[2])
+    return any(c.strip().isdigit() and int(c) > 1 for c in counts)
 
 
 def _endpoint_name(endpoint: object) -> str | None:
@@ -49,12 +74,17 @@ class CaptureWiring:
         self.middleware_added = False
         self.detached = False
         self.started = False  # startup or first request has run its checks
+        self.log_handler: SharpitLogHandler | None = None
+        self.log_attached: list[logging.Logger] = []  # every logger the handler was added to, removed on detach
         self._warned: set[str] = set()
 
     def attach_at_install(self, app: Any, ctx: SharpitContext) -> None:
         if self.app is not None:
             return
         self.app = app
+        if any(ctx.settings.panels[p].enabled for p in LOG_PANELS):
+            self.log_handler = SharpitLogHandler(ctx.masker, ctx.capture.log_tail)
+            self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
         if not any(ctx.settings.panels[p].enabled for p in CAPTURE_PANELS):
             return
         try:
@@ -65,19 +95,47 @@ class CaptureWiring:
                 ctx.capture.exchanges.unavailable_reason = CAPTURE_TOO_LATE_REASON
             return
         self.middleware_added = True
-        # Tasks 3-5: exception-handler wrapping, log handlers and SQL listeners attach here
+        # Tasks 4-5: exception-handler wrapping and SQL listeners attach here
 
     def on_startup(self, ctx: SharpitContext) -> None:
         self.detached = False
         self._first_run(ctx)
-        # Tasks 3-5: root log handler, logger rescan, SQL listener retry
+        self._attach_logging()  # after the host's startup: its basicConfig()/dictConfig() has run
+        # Tasks 4-5: SQL listener retry
 
     def on_first_request(self, ctx: SharpitContext) -> None:
         self._first_run(ctx)
+        self._attach_logging()
 
     def detach(self, ctx: SharpitContext) -> None:
-        del ctx  # Tasks 3-5 remove the log handlers, exception-handler wrappers and SQL listeners they attached
+        del ctx  # Tasks 4-5 remove the exception-handler wrappers and SQL listeners they attached
+        if self.log_handler is not None:
+            for attached in self.log_attached:
+                attached.removeHandler(self.log_handler)
+        self.log_attached.clear()
         self.detached = True
+
+    def log_handler_on_root(self) -> bool:
+        return self.log_handler is not None and self.log_handler in logging.root.handlers
+
+    def _attach(self, target: logging.Logger) -> None:
+        assert self.log_handler is not None
+        if self.log_handler not in target.handlers:
+            target.addHandler(self.log_handler)
+        if target not in self.log_attached:
+            self.log_attached.append(target)
+
+    def _attach_non_propagating(self) -> None:
+        """Loggers that never reach root but print somewhere (uvicorn's ``uvicorn`` and ``uvicorn.access``)."""
+        for name, candidate in list(logging.root.manager.loggerDict.items()):
+            own = name == "sharpit" or name.startswith("sharpit.")
+            if isinstance(candidate, logging.Logger) and not candidate.propagate and candidate.handlers and not own:
+                self._attach(candidate)
+
+    def _attach_logging(self) -> None:
+        if self.log_handler is not None:
+            self._attach(logging.root)
+            self._attach_non_propagating()  # again: uvicorn's dictConfig after install() dropped the handler
 
     def _first_run(self, ctx: SharpitContext) -> None:
         if self.started:
@@ -86,6 +144,8 @@ class CaptureWiring:
         if ctx.capture.loop is None:
             with contextlib.suppress(RuntimeError):  # no running loop: a later startup or request fills it
                 ctx.capture.loop = asyncio.get_running_loop()
+        if several_workers(os.environ, sys.argv):  # once: started is never reset
+            logger.warning("%s", SEVERAL_WORKERS)
         stack = getattr(self.app, "user_middleware", None) or ()
         if self.middleware_added and stack and stack[0].cls is not CaptureMiddleware:
             outer = getattr(stack[0].cls, "__name__", repr(stack[0].cls))

@@ -27,6 +27,8 @@ from sharpit.engine import guard, tools
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
 from sharpit.engine.capture import route_path
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
+from sharpit.engine.capture.logtail import LogTailBuffer, log_events
+from sharpit.engine.capture.streams import StreamSlots
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report, set_level
@@ -39,10 +41,11 @@ from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
 from sharpit.engine.singleflight import ActionBusy
-from sharpit.fastapi.capture import CaptureWiring
+from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, CaptureWiring
 from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
+from sharpit.fastapi.sse import sse_response
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
 __all__ = ["GuardMiddleware", "SharpitContext", "SharpitHandle", "SharpitMount", "install"]
@@ -161,7 +164,6 @@ _NOT_BUILT = (
     "activity",
     "exceptions",
     "sql-trace",
-    "log-tail",
     "alembic",
     "database-connection-pools",
     "health",
@@ -176,6 +178,9 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     reasons: dict[str, str | None] = dict.fromkeys(_NOT_BUILT, "Not built yet")
     exchanges = ctx.capture.exchanges
     reasons["http-exchanges"] = exchanges.unavailable_reason if exchanges is not None else None
+    wiring = ctx.capture.wiring
+    on_root = ctx.capture.log_tail is None or (wiring is not None and wiring.log_handler_on_root())
+    reasons["log-tail"] = None if on_root else LOG_TAIL_DETACHED_REASON
     return reasons
 
 
@@ -238,6 +243,17 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
                 ctx, params.get("q"), params.get("method"), params.get("statusClass"), offset, limit
             )
         )
+
+    def log_tail_recent(_request: Request) -> Response:
+        return json_response(tools.log_tail_lines(ctx))
+
+    async def log_tail_stream(request: Request) -> Response:
+        buffer = ctx.capture.log_tail
+        if buffer is None:  # the panel gate answers first; only a disabled panel has no buffer
+            raise HTTPException(404)
+        # Last-Event-ID first: an automatic reconnect sends it while the URL still carries a manual ?after=
+        last = request.headers.get("last-event-id") or request.query_params.get("after")
+        return sse_response(ctx, log_events(buffer, buffer.resume_point(last)))
 
     def vulnerability_service() -> VulnerabilityService:
         return tools.vulnerability_service(ctx)
@@ -333,6 +349,8 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/mappings/flat", mappings, methods=["GET"]),
         Route(f"{api}/beans", beans, methods=["GET"]),
         Route(f"{api}/http-exchanges", http_exchanges, methods=["GET"]),
+        Route(f"{api}/log-tail/recent", log_tail_recent, methods=["GET"]),
+        Route(f"{api}/log-tail/stream", log_tail_stream, methods=["GET"]),
         Route(f"{api}/loggers/{{name:path}}", logger_level, methods=["POST"]),
         Route(f"{api}/vulnerabilities", vulnerabilities, methods=["GET"]),
         Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
@@ -470,6 +488,9 @@ def install(
         return handle
 
     capture = ctx.capture
+    capture.stream_slots = StreamSlots()
+    if sharpit_settings.panels["log-tail"].enabled:
+        capture.log_tail = LogTailBuffer(sharpit_settings.log_tail_max_lines, sharpit_settings.log_tail_max_bytes)
     if sharpit_settings.panels["http-exchanges"].enabled:
         capture.exchanges = HttpExchangeBuffer(sharpit_settings.http_exchanges_max_exchanges)
     wiring = capture.wiring = CaptureWiring()

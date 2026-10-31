@@ -147,6 +147,12 @@ def http_exchanges_report(
     return buffer.report(q, method, status_class, offset, limit)
 
 
+def log_tail_lines(ctx: SharpitContext) -> list[dict[str, Any]]:
+    """``LogLineDto[]``, oldest first; empty when the panel is disabled (no buffer)."""
+    buffer = ctx.capture.log_tail
+    return [] if buffer is None else buffer.recent()
+
+
 TOOLS: tuple[Tool, ...] = (
     Tool(
         "get_overview",
@@ -213,6 +219,15 @@ TOOLS: tuple[Tool, ...] = (
         lambda c, a: http_exchanges_report(c.ctx, None, None, None, None, a["limit"]),
     ),
     Tool(
+        "get_log_tail",
+        "Return the latest buffered application log snapshot, oldest first. Messages are masked at capture, but logs "
+        "are application-controlled and may contain sensitive data; use them only in the local diagnostic context.",
+        _NONE,
+        "log-tail",
+        False,
+        lambda c, _a: {"entries": log_tail_lines(c.ctx)},
+    ),
+    Tool(
         "get_vulnerabilities_report",
         "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
@@ -248,6 +263,7 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_loggers": "loggers",
     "get_beans": "beans",
     "get_http_exchanges": "http exchanges",
+    "get_log_tail": "logs tail",
     "get_vulnerabilities_report": "vulnerabilities report",
     "vulnerabilities_scan": "vulnerabilities scan",
 }

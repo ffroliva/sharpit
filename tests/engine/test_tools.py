@@ -61,7 +61,7 @@ LIMIT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 BOOTUI_TOOLS = json.loads((Path(__file__).parents[1] / "fixtures" / "bootui_tools_0_2_0.json").read_text("utf-8"))
-RELEASE_TOOLS = ("get_http_exchanges",)  # each 0.2.0 task adds the tools it builds
+RELEASE_TOOLS = ("get_http_exchanges", "get_log_tail")  # each 0.2.0 task adds the tools it builds
 
 
 class FakeIntrospector:
@@ -99,6 +99,7 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_loggers", "loggers", False, QUERY_LIMIT_SCHEMA),
         ("get_beans", "beans", False, QUERY_LIMIT_SCHEMA),
         ("get_http_exchanges", "http-exchanges", False, LIMIT_SCHEMA),
+        ("get_log_tail", "log-tail", False, NONE_SCHEMA),
         ("get_vulnerabilities_report", "vulnerabilities", False, NONE_SCHEMA),
         ("vulnerabilities_scan", "vulnerabilities", True, NONE_SCHEMA),
     ]

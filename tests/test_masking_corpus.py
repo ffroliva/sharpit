@@ -100,6 +100,7 @@ def corpus_app(
         config_scan="corpus_app,examples",  # first finding per key wins: the corpus default for JWT_SECRET
         allow_non_localhost=True,
         authentication_token=AUTH_TOKEN,
+        stream_max_seconds=0.05,  # the sweep GETs every stream route: each ends after 0.05 s, not 3 s
     )
     app.add_middleware(SignedSessionMiddleware, secret_key=SENTINEL)
     ctx = app.state.sharpit.context
@@ -337,3 +338,46 @@ def test_configured_token_never_printed(
     assert "sharpit active at /sharpit/" in captured.err  # the banner is printed, just without the token
     for text in (captured.out, captured.err, caplog.text, *bodies):
         assert AUTH_TOKEN not in text
+
+
+# F5: log messages the host app logs, masked before they reach the buffer (spec §7.5, §11)
+LOG_CORPUS = [
+    ("password_pair", "host.app", "login failed password=%s", (SENTINEL,), f"login failed password={MASK}"),
+    ("jwt_value", "host.app", "user sent %s", (JWT,), f"user sent {MASK}"),
+    ("dsn_userinfo", "host.app", "connect %s failed", (f"postgres://u:{SENTINEL}@h/db",),
+     "connect postgres://******@h/db failed"),
+    ("dict_repr", "host.app", "kwargs=%r", ({"api_key": SENTINEL},), f"kwargs={{'api_key': '{MASK}'}}"),
+    (
+        "access_log_jwt_path",
+        "uvicorn.access",
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:5000", "GET", f"/reset/{JWT}", "1.1", 200),
+        f'127.0.0.1:5000 - "GET /reset/{MASK} HTTP/1.1" 200',
+    ),
+    (
+        "statement_error_parameters",
+        "host.app",
+        "%s",
+        (f"(sqlite3.IntegrityError) failed\n[SQL: INSERT INTO u VALUES (?)]\n[parameters: ('{SENTINEL}',)]",),
+        f"(sqlite3.IntegrityError) failed\n[SQL: INSERT INTO u VALUES (?)]\n[parameters: {MASK}]",
+    ),
+    ("sqlalchemy_echo_parameters", "sqlalchemy.engine.Engine", "[%s] %r", ("generated in 0.0001s", (SENTINEL,)), None),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(("row", "name", "msg", "args", "expected"), LOG_CORPUS, ids=[r[0] for r in LOG_CORPUS])
+def test_log_tail_masks_messages(
+    tmp_path: Path, row: str, name: str, msg: str, args: tuple[Any, ...], expected: str | None
+):
+    app = create_app(show_banner=False, state_dir=str(tmp_path), mcp_enabled="ON", stream_max_seconds=0.05)
+    with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
+        logging.getLogger(name).warning(msg, *args)
+        recent = client.get(f"{API}/log-tail/recent").json()
+        stream = client.get(f"{API}/log-tail/stream").text
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_log_tail", "arguments": {}}}
+        mcp = client.post(f"{API}/mcp", json=call).text
+        cli = client.post(f"{API}/cli/tools/get_log_tail", json={}).text
+    lines = [line["message"] for line in recent if line["logger"] == name]
+    assert lines == ([] if expected is None else [expected]), row
+    for where, text in {"recent": str(recent), "stream": stream, "mcp": mcp, "cli": cli}.items():
+        assert SENTINEL not in text and JWT not in text, (row, where)

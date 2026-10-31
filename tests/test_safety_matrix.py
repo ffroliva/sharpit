@@ -58,6 +58,8 @@ ROWS = [
     ("loggers", "GET", "/sharpit/api/loggers", 200, True),
     ("beans", "GET", "/sharpit/api/beans", 200, True),
     ("http-exchanges", "GET", "/sharpit/api/http-exchanges", 200, True),
+    ("log-tail", "GET", "/sharpit/api/log-tail/recent", 200, True),
+    ("log-tail-stream", "GET", "/sharpit/api/log-tail/stream", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
     ("mcp-server", "GET", "/sharpit/api/mcp-server", 200, True),
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),
@@ -100,7 +102,8 @@ _OUTCOME_ALIASES = {"403-source": MESSAGE_NON_LOOPBACK_SOURCE, "403-cross": MESS
 @functools.cache
 def _app(remote_access: bool) -> FastAPI:
     app = FastAPI(title="matrix")
-    install(app, enabled="ON", show_banner=False, **(REMOTE_ACCESS if remote_access else {}))
+    # streams end after 0.05 s instead of 3 s, so the stream row costs no more than any other
+    install(app, enabled="ON", show_banner=False, stream_max_seconds=0.05, **(REMOTE_ACCESS if remote_access else {}))
     return app
 
 
@@ -387,7 +390,8 @@ def test_get_route_table_is_complete():
 
 @pytest.mark.parametrize("path", GET_PATHS)
 def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str):
-    app = create_app(show_banner=False, state_dir=str(no_side_effects.state_dir), mcp_enabled="ON")
+    state_dir = str(no_side_effects.state_dir)
+    app = create_app(show_banner=False, state_dir=state_dir, mcp_enabled="ON", stream_max_seconds=0.05)
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop connects a self-pipe socketpair once
     with _client(app) as client:
         no_side_effects.block_network()
