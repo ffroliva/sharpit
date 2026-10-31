@@ -178,6 +178,19 @@ def test_allows_loopback_ipv4():
     assert decide(get("127.0.0.1", None)) is None
 
 
+def test_decide_guard_probe_first():
+    facts = RequestFacts(
+        "POST",
+        "10.0.0.5",
+        {"host": "evil.example", "origin": "http://evil.example"},
+        "/http-probe",
+        probe=True,
+    )
+    denial = decide_guard(facts, SharpitSettings(read_only=True), None, None)
+    assert denial is not None
+    assert (denial.status, denial.body) == (403, {"error": "sharpit refused an internal probe request."})
+
+
 # ported: LocalhostGuardTests.allowsLoopbackIpv6
 def test_allows_loopback_ipv6():
     assert decide(get("::1", None)) is None

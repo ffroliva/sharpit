@@ -269,6 +269,39 @@ def test_http_exchanges_metadata_only_hides_values(tmp_path: Path):
     assert SENTINEL not in str(report) and JWT not in str(report)
 
 
+def test_probe_masking_corpus(tmp_path: Path):
+    app = FastAPI()
+
+    @app.get("/probe-json")
+    def probe_json():
+        from starlette.responses import JSONResponse
+
+        return JSONResponse({"password": SENTINEL, "ok": True}, headers={"Set-Cookie": f"session={SENTINEL}"})
+
+    @app.get("/probe-text")
+    def probe_text():
+        from starlette.responses import PlainTextResponse
+
+        return PlainTextResponse(f"token={JWT}", headers={"Location": f"/redirect?token={SENTINEL}"})
+
+    handle = install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path), authentication_token=AUTH_TOKEN)
+    try:
+        with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
+            results = [
+                client.post(f"{API}/http-probe", json={"method": "GET", "path": path})
+                for path in ("/probe-json", "/probe-text")
+            ]
+            exchange_rows = client.get(f"{API}/http-exchanges").json()["exchanges"]
+    finally:
+        handle.uninstall_capture()
+    assert results[0].json()["body"] == f'{{"password":"{MASK}","ok":true}}'
+    assert "Set-Cookie" not in results[0].text and "session=" not in results[0].text
+    assert results[1].json()["body"] == f"token={MASK}"
+    assert results[1].json()["headers"]["location"] == f"/redirect?token={MASK}"
+    assert SENTINEL not in str(results) and JWT not in str(results)
+    assert all(SENTINEL not in str(row) and JWT not in str(row) for row in exchange_rows)
+
+
 def test_sentinel_never_leaks(
     corpus_app: tuple[FastAPI, Any], caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
 ):
