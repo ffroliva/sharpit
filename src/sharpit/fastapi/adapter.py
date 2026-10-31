@@ -24,6 +24,7 @@ from starlette.routing import BaseRoute, Match, Mount, Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import guard, sqla, tools
+from sharpit.engine import probe as probe_engine
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
 from sharpit.engine.advisors.retention import MAX_PAGE_LIMIT, AdvisorViolationError, parse_integer
 from sharpit.engine.capture import activity, route_path
@@ -153,7 +154,12 @@ class GuardMiddleware:
             api_sub_path = sub_path[len(self.api_prefix) :]
         client = scope.get("client")
         facts = guard.RequestFacts(
-            scope["method"], client[0] if client else None, headers, api_sub_path, scope.get("scheme", "http")
+            scope["method"],
+            client[0] if client else None,
+            headers,
+            api_sub_path,
+            scope.get("scheme", "http"),
+            bool(scope.get("extensions", {}).get("sharpit.probe")),
         )
         settings = self.ctx.settings
         gateway = (
@@ -166,7 +172,7 @@ class GuardMiddleware:
 
 
 # Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
-_NOT_BUILT = ("http-probe",)
+_NOT_BUILT: tuple[str, ...] = ()
 
 
 def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
@@ -186,7 +192,7 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     return reasons
 
 
-def _routes(ctx: SharpitContext) -> list[BaseRoute]:
+def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -245,6 +251,50 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
                 ctx, params.get("q"), params.get("method"), params.get("statusClass"), offset, limit
             )
         )
+
+    async def http_probe(request: Request) -> Response:
+        raw = await _read_capped(request, settings.mcp_max_payload_bytes)
+        if raw is None:
+            return error(413, "Request payload exceeds limit")
+        try:
+            parsed_body: object = json.loads(raw) if raw.strip() else {}
+        except (ValueError, RecursionError):
+            return error(400, "Request body must be a JSON object")
+        if not isinstance(parsed_body, dict):
+            return error(400, "Request body must be a JSON object")
+        body = cast("dict[str, Any]", parsed_body)
+        try:
+            probe_request = probe_engine.validate_probe(body, settings.path)
+        except BadRequest as exc:
+            return error(400, str(exc))
+        slots = ctx.lazy("probe_slots", probe_engine.ProbeSlots)
+        if not slots.acquire():
+            return error(409, "Too many concurrent HTTP probes")
+        released = False
+
+        def release_slot() -> None:
+            nonlocal released
+            if not released:
+                released = True
+                slots.release()
+
+        incoming_root = request.scope.get("root_path", "")
+        mount_path = settings.path.rstrip("/")
+        host_root = incoming_root[: -len(mount_path)] if incoming_root.endswith(mount_path) else incoming_root
+        try:
+            result = await probe_engine.run_probe(
+                host_app,
+                probe_request,
+                request.scope,
+                host_root.rstrip("/"),
+                ctx.masker,
+                timeout=probe_engine.PROBE_TIMEOUT,
+                on_complete=release_slot,
+            )
+        except BaseException:
+            release_slot()
+            raise
+        return json_response(result)
 
     def activity_feed(request: Request) -> Response:
         params = request.query_params
@@ -483,6 +533,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/mappings/flat", mappings, methods=["GET"]),
         Route(f"{api}/beans", beans, methods=["GET"]),
         Route(f"{api}/http-exchanges", http_exchanges, methods=["GET"]),
+        Route(f"{api}/http-probe", http_probe, methods=["POST"]),
         Route(f"{api}/activity", activity_feed, methods=["GET"]),
         Route(f"{api}/activity/stream", activity_stream, methods=["GET"]),
         Route(f"{api}/activity/request/{{id}}", activity_profile, methods=["GET"]),
@@ -702,7 +753,7 @@ def install(
 
     router.lifespan_context = lifespan
     sub_app = Starlette(
-        routes=_routes(ctx),
+        routes=_routes(ctx, app),
         middleware=[Middleware(GuardMiddleware, ctx=ctx)],
         exception_handlers={404: _json_http_error, 405: _json_http_error, BadRequest: _bad_request},
     )

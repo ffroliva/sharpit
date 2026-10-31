@@ -35,7 +35,7 @@ from sharpit.engine.guard import (
 from sharpit.engine.mcp import DISABLED_MESSAGE
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
 from sharpit.engine.tools import TOOLS, rest_api_service
-from sharpit.fastapi.adapter import SharpitHandle, SharpitMount
+from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle, SharpitMount
 
 LOCAL = ("127.0.0.1", 50000)
 GROUP_ID = "0123456789abcdef"  # conftest._PATH_PARAMS["id"]
@@ -281,6 +281,7 @@ WRITES = [
     ("alembic", "POST", "/sharpit/api/alembic/refresh", None),
     ("health", "POST", "/sharpit/api/health/check", None),
     ("rest-api", "POST", "/sharpit/api/rest-api/scan", None),
+    ("http-probe", "POST", "/sharpit/api/http-probe", {"method": "GET", "path": "/owners"}),
 ]
 # Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules is gated by the global flag and the
 # rule's owning panel under its own subject (test_dismissed_rules_obey_global_and_owning_panel_read_only and
@@ -307,6 +308,29 @@ def test_read_only_denies_panel_actions(
         else f"Panel is read-only via SHARPIT_PANELS_{env}_READ_ONLY=true"
     )
     assert (resp.status_code, resp.json()) == (403, _panel_denied(panel, reason))
+
+
+def test_probe_tag_is_refused_before_other_guard_rules():
+    app = FastAPI()
+    installed = install(app, enabled="ON", show_banner=False, allow_non_localhost=True, read_only=True)
+    try:
+        middleware = GuardMiddleware(app, installed.context)
+        denial = middleware._decide(
+            {
+                "type": "http",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/sharpit/api/http-probe",
+                "root_path": "/sharpit",
+                "headers": [(b"host", b"evil.example"), (b"origin", b"http://evil.example")],
+                "client": REMOTE,
+                "extensions": {"sharpit.probe": True},
+            }
+        )
+        assert denial is not None
+        assert (denial.status, denial.body) == (403, {"error": "sharpit refused an internal probe request."})
+    finally:
+        installed.uninstall_capture()
 
 
 def _write_routes() -> set[tuple[str, str]]:
@@ -617,6 +641,7 @@ def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, C
 def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, variant: str):
     state_dir = str(no_side_effects.state_dir)
     app, ran = _sweep_app(variant, state_dir, mcp_enabled="ON", stream_max_seconds=0.05)
+    no_side_effects.rebaseline()  # SQLAlchemy sets its logger level when its test engine is constructed.
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop connects a self-pipe socketpair once
     with _client(app) as client:
         client.get("/owners")  # one host request first: the capture wiring that attaches on it is swept too
@@ -652,6 +677,7 @@ def _tool_arguments(tool: str, handle: SharpitHandle) -> dict[str, Any]:
 @pytest.mark.parametrize("tool", MCP_TOOLS)
 def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: str, variant: str):
     app, ran = _sweep_app(variant, str(no_side_effects.state_dir), mcp_enabled="ON")
+    no_side_effects.rebaseline()  # SQLAlchemy sets its logger level when its test engine is constructed.
     no_side_effects.unblock_network()
     with _client(app) as client:
         client.get("/owners")

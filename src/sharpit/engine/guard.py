@@ -68,6 +68,7 @@ class RequestFacts:
     headers: Mapping[str, str]  # lower-case keys
     api_sub_path: str | None  # path after api_path; None for the shell and assets
     scheme: str = "http"  # the request's own scheme (ASGI ``scope["scheme"]``)
+    probe: bool = False
 
 
 @dataclass(frozen=True)
@@ -341,6 +342,8 @@ def decide_guard(
     facts: RequestFacts, settings: SharpitSettings, token: str | None, gateway: str | None
 ) -> Denial | None:
     """None when the request may proceed, else the response to send."""
+    if facts.probe:
+        return _forbidden("sharpit refused an internal probe request.")
     trusted = is_trusted_source(facts, settings, gateway)
     if not (trusted or settings.allow_non_localhost or _via_trusted_proxy(facts, settings)):
         forwarded = any(h in facts.headers for h in _FORWARDED_HEADERS)
