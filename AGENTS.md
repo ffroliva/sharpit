@@ -5,8 +5,8 @@ Single source of truth for every agent working in this repo (Claude Code, Codex,
 
 ## What sharpit is
 
-An embedded, local-only developer console for Python web apps: a Python port of BootUI (Spring Boot). It is a
-**pre-release MVP** (`0.1.0.dev0`, not on PyPI). The MVP targets FastAPI. One call mounts it:
+An embedded, local-only developer console for Python web apps: a Python port of BootUI (Spring Boot). It is at
+**0.1.0, the first release.** It targets FastAPI. One call mounts it:
 
 ```python
 import sharpit
