@@ -1,0 +1,82 @@
+site_name: sharpit
+site_description: >-
+  An embedded, local-only developer console for FastAPI apps: configuration, routes, loggers,
+  SQL, exceptions and vulnerabilities, in the browser and over read-only MCP.
+site_url: https://ffroliva.github.io/sharpit/
+repo_url: https://github.com/ffroliva/sharpit
+repo_name: ffroliva/sharpit
+edit_uri: edit/main/website/docs/
+copyright: >-
+  Apache-2.0 · a Python port of BootUI by Julien Dubois
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  # System fonts only: no Google Fonts fetch, works offline.
+  font: false
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.details
+
+nav:
+  - Getting started:
+      - Introduction: index.md
+      - Installation: installation.md
+      - Quickstart: quickstart.md
+      - Activation: activation.md
+  - Using sharpit:
+      - Panels: panels.md
+      - MCP for AI agents: mcp.md
+      - Settings: settings.md
+  - Reference:
+      - Safety model: safety.md
+      - How it works: how-it-works.md
+      - Deviations from BootUI: deviations.md
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ffroliva/sharpit

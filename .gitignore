@@ -23,3 +23,4 @@ ui/playwright-report/
 
 # sample app database (examples/fastapi_sqla)
 examples/fastapi_sqla/sample.db
+website/site/
