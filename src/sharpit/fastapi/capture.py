@@ -20,6 +20,7 @@ from starlette._utils import is_async_callable  # pyright: ignore[reportPrivateU
 from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from sharpit.engine import sqla
 from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, new_request_id
 from sharpit.engine.capture.exchanges import exchange_row
@@ -165,6 +166,7 @@ class CaptureWiring:
                 self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
         self._wrap_handlers(ctx)  # step 2 (spec §6.1), before the middleware: a too-late install still wraps
+        self._attach_sql(ctx)  # steps 4a/4b: listeners trace outside requests too, so a too-late install still traces
         if not any(ctx.settings.panels[p].enabled for p in CAPTURE_PANELS):
             return
         try:
@@ -177,7 +179,6 @@ class CaptureWiring:
                 store.unavailable_reason = CAPTURE_TOO_LATE_REASON
             return
         self.middleware_added = True
-        # Task 5: SQL listeners attach here
 
     def _wrap_handlers(self, ctx: SharpitContext) -> None:
         store = ctx.capture.exceptions
@@ -190,20 +191,29 @@ class CaptureWiring:
         self._wrap_handlers(ctx)  # again after a shutdown restored the plain dict
         self._first_run(ctx)
         self._attach_logging()  # after the host's startup: its basicConfig()/dictConfig() has run
-        # Tasks 4-5: SQL listener retry
+        self._attach_sql(ctx)  # the lifespan may have imported SQLAlchemy, or a shutdown removed the listeners
 
     def on_first_request(self, ctx: SharpitContext) -> None:
         self._first_run(ctx)
         self._attach_logging()
+        self._attach_sql(ctx)  # no lifespan: the first request is the last chance to find SQLAlchemy imported
 
     def detach(self, ctx: SharpitContext) -> None:
-        del ctx  # Task 5 removes the SQL listeners it attached
+        sqla.remove(ctx)
         unwrap_exception_handlers(self.app)
         if self.log_handler is not None:
             for attached in self.log_attached:
                 attached.removeHandler(self.log_handler)
         self.log_attached.clear()
         self.detached = True
+
+    def _attach_sql(self, ctx: SharpitContext) -> None:
+        """Step 4a (engine discovery) when a database panel is enabled, 4b (statements) when tracing is on."""
+        try:
+            discovery = any(ctx.settings.panels[p].enabled for p in sqla.DISCOVERY_PANELS)
+            sqla.add(ctx, statements=ctx.capture.sql_trace is not None, discovery=discovery)
+        except Exception as exc:  # noqa: BLE001 - the host's startup never fails on sharpit
+            self.hook_failed("sql listeners", exc)
 
     def log_handler_on_root(self) -> bool:
         return self.log_handler is not None and self.log_handler in logging.root.handlers

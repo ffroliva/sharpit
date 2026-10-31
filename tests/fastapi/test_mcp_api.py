@@ -102,8 +102,8 @@ def test_mcp_server_status_shape():
     assert (body["enabled"], body["configuredMode"], body["overridden"]) == (True, "ON", False)
     assert (body["serverName"], body["serverVersion"], body["transport"]) == ("sharpit", __version__, "http")
     assert (body["endpoint"], body["protocolVersion"], body["maxResults"]) == ("/sharpit/api/mcp", "2025-06-18", 200)
-    assert body["toolCount"] == 10 and len(body["tools"]) == 10  # Tasks 2-4 add get_http_exchanges, get_log_tail,
-    # get_exceptions and get_exception_detail (clear_exceptions is CLI-only)
+    assert body["toolCount"] == 11 and len(body["tools"]) == 11  # Tasks 2-5 add get_http_exchanges, get_log_tail,
+    # get_exceptions, get_exception_detail and get_sql_traces (the clear/pause/resume actions are CLI-only)
     assert all(not t["action"] for t in body["tools"])
     assert body["tools"][0] == {
         "name": "get_overview",

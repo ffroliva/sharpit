@@ -23,12 +23,13 @@ from starlette.responses import FileResponse, Response
 from starlette.routing import BaseRoute, Match, Mount, Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from sharpit.engine import guard, tools
+from sharpit.engine import guard, sqla, tools
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
 from sharpit.engine.capture import route_path
 from sharpit.engine.capture.exceptions import ExceptionStore, unknown_group
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.logtail import LogTailBuffer, log_events
+from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import StreamSlots, change_events
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
@@ -163,7 +164,6 @@ class GuardMiddleware:
 # Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
 _NOT_BUILT = (
     "activity",
-    "sql-trace",
     "alembic",
     "database-connection-pools",
     "health",
@@ -183,6 +183,7 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     reasons["log-tail"] = None if on_root else LOG_TAIL_DETACHED_REASON
     store = ctx.capture.exceptions
     reasons["exceptions"] = store.unavailable_reason if store is not None else None
+    reasons["sql-trace"] = tools.sql_trace_unavailable_reason(ctx)
     return reasons
 
 
@@ -291,6 +292,34 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
             return error(400, str(exc))
         return json_response(updated) if updated is not None else error(404, unknown_group(gid))
 
+    def sql_trace(_request: Request) -> Response:
+        return json_response(tools.sql_trace_report(ctx))
+
+    def sql_trace_recorder() -> SqlTraceRecorder:
+        recorder = ctx.capture.sql_trace
+        if recorder is None:  # SHARPIT_SQL_TRACE_ENABLED=false: nothing to clear or pause
+            raise HTTPException(404)
+        return recorder
+
+    async def sql_trace_stream(_request: Request) -> Response:
+        return sse_response(ctx, change_events(sql_trace_recorder().changes))
+
+    def sql_trace_clear(_request: Request) -> Response:
+        sql_trace_recorder().clear()
+        return json_response(tools.sql_trace_report(ctx))
+
+    async def sql_trace_recording(request: Request) -> Response:
+        raw = await _read_capped(request, small_cap)
+        if raw is None:
+            return error(413, "Request payload exceeds limit")
+        # BootUI SqlTraceControllerSupport.recording: an empty body or a missing/null ``enabled`` flips
+        enabled = _toggle_value(raw)
+        if not isinstance(enabled, bool | None):
+            return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
+        recorder = sql_trace_recorder()
+        recorder.set_recording(not recorder.recording if enabled is None else enabled)
+        return json_response(tools.sql_trace_report(ctx))
+
     def vulnerability_service() -> VulnerabilityService:
         return tools.vulnerability_service(ctx)
 
@@ -341,12 +370,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         if raw is None:
             return error(413, "Request payload exceeds limit")
         # BootUI McpServerController: an empty body or a missing/null ``enabled`` flips; binding refuses the rest
-        # parsed inline: a JSON ``null`` body flips (BootUI ``request == null``), unparsable JSON is refused
-        try:
-            body: object = json.loads(raw) if raw.strip() else None
-        except (ValueError, RecursionError):
-            body = 0
-        enabled = None if body is None else cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
+        enabled = _toggle_value(raw)
         if not isinstance(enabled, bool | None):
             return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
         base = api_path(request)
@@ -392,6 +416,10 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/exceptions/{{id}}", exception_detail, methods=["GET"]),
         Route(f"{api}/exceptions/{{id}}/status", exception_status, methods=["POST"]),
         Route(f"{api}/loggers/{{name:path}}", logger_level, methods=["POST"]),
+        Route(f"{api}/sql-trace", sql_trace, methods=["GET"]),
+        Route(f"{api}/sql-trace/stream", sql_trace_stream, methods=["GET"]),
+        Route(f"{api}/sql-trace/clear", sql_trace_clear, methods=["POST"]),
+        Route(f"{api}/sql-trace/recording", sql_trace_recording, methods=["POST"]),
         Route(f"{api}/vulnerabilities", vulnerabilities, methods=["GET"]),
         Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
         Route(f"{api}/dismissed-rules", dismissed_rules, methods=["GET"]),
@@ -402,6 +430,16 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/cli", cli, methods=["GET"]),
         Route(f"{api}/cli/tools/{{tool}}", cli_tool, methods=["POST"]),
     ]
+
+
+def _toggle_value(raw: bytes) -> object:
+    """``enabled`` of a toggle body: None (flip) for an empty body, JSON ``null`` or a missing/null key; ``0`` (refused)
+    for unparsable JSON or a non-object (parsed inline: a JSON ``null`` body flips, as BootUI ``request == null``)."""
+    try:
+        body: object = json.loads(raw) if raw.strip() else None
+    except (ValueError, RecursionError):
+        return 0
+    return None if body is None else cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
 
 
 async def _read_capped(request: Request, cap: int) -> bytes | None:
@@ -539,6 +577,18 @@ def install(
             sharpit_settings.exceptions_max_occurrences_per_group,
             sharpit_settings.exceptions_max_stack_frames,
             ctx.masker,
+        )
+    capture.engine_registry = sqla.EngineRegistry(ctx.masker)
+    if sharpit_settings.panels["sql-trace"].enabled and sharpit_settings.sql_trace_enabled:
+        capture.sql_trace = SqlTraceRecorder(
+            ctx.masker,
+            max_entries=sharpit_settings.sql_trace_max_entries,
+            slow_query_threshold_millis=sharpit_settings.sql_trace_slow_query_threshold_millis,
+            max_sql_length=sharpit_settings.sql_trace_max_sql_length,
+            max_parameter_length=sharpit_settings.sql_trace_max_parameter_length,
+            n_plus_one_threshold=sharpit_settings.sql_trace_n_plus_one_threshold,
+            capture_call_site=sharpit_settings.sql_trace_capture_call_site,
+            recording=sharpit_settings.sql_trace_recording,
         )
     wiring = capture.wiring = CaptureWiring()
     wiring.attach_at_install(app, ctx)

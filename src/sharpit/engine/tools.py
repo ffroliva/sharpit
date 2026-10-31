@@ -20,8 +20,11 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from sharpit import __version__
+from sharpit.engine import sqla
 from sharpit.engine.capture.exceptions import unknown_group
 from sharpit.engine.capture.exchanges import unavailable_report
+from sharpit.engine.capture.sqltrace import SqlTraceRecorder
+from sharpit.engine.capture.sqltrace import unavailable_report as sql_trace_unavailable
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report
@@ -167,6 +170,29 @@ def clear_exceptions(ctx: SharpitContext) -> dict[str, Any]:
     return {"cleared": True}
 
 
+def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
+    """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app."""
+    if not ctx.settings.sql_trace_enabled:
+        return sqla.TRACING_DISABLED
+    return sqla.UNAVAILABLE if sqla.sqlalchemy() is None else None
+
+
+def sql_trace_report(ctx: SharpitContext) -> dict[str, Any]:
+    """``SqlTraceReport``; unavailable while tracing is off or SQLAlchemy is not imported."""
+    recorder = ctx.capture.sql_trace
+    reason = sql_trace_unavailable_reason(ctx)
+    if recorder is None or reason is not None:
+        return sql_trace_unavailable(reason or sqla.TRACING_DISABLED)
+    registry = ctx.capture.engine_registry
+    return recorder.report(registry.names() if registry is not None else [])
+
+
+def _sql_trace_action(ctx: SharpitContext, action: Callable[[SqlTraceRecorder], None]) -> dict[str, Any]:
+    if ctx.capture.sql_trace is not None:
+        action(ctx.capture.sql_trace)
+    return sql_trace_report(ctx)
+
+
 def http_exchanges_report(
     ctx: SharpitContext,
     q: str | None,
@@ -290,6 +316,42 @@ TOOLS: tuple[Tool, ...] = (
         lambda c, _a: clear_exceptions(c.ctx),
     ),
     Tool(
+        "get_sql_traces",
+        "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain "
+        "sensitive values; correlate it locally with request or trace identifiers.",
+        _NONE,
+        "sql-trace",
+        False,
+        lambda c, _a: sql_trace_report(c.ctx),
+    ),
+    Tool(
+        "clear_sql_traces",
+        "Clear the bounded in-memory SQL trace buffer and return the resulting report. This does not execute SQL or "
+        "change whether trace recording is enabled.",
+        _NONE,
+        "sql-trace",
+        True,
+        lambda c, _a: _sql_trace_action(c.ctx, SqlTraceRecorder.clear),
+    ),
+    Tool(
+        "pause_sql_trace_recording",
+        "Pause SQL trace recording and return the resulting report. Existing buffered traces remain available until "
+        "explicitly cleared.",
+        _NONE,
+        "sql-trace",
+        True,
+        lambda c, _a: _sql_trace_action(c.ctx, lambda r: r.set_recording(False)),
+    ),
+    Tool(
+        "resume_sql_trace_recording",
+        "Resume SQL trace recording and return the resulting report. This only affects sharpit's bounded local "
+        "capture and does not execute SQL.",
+        _NONE,
+        "sql-trace",
+        True,
+        lambda c, _a: _sql_trace_action(c.ctx, lambda r: r.set_recording(True)),
+    ),
+    Tool(
         "get_vulnerabilities_report",
         "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
@@ -329,6 +391,10 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_exceptions": "exceptions list",
     "get_exception_detail": "exceptions show",
     "clear_exceptions": "exceptions clear",
+    "get_sql_traces": "sql traces",
+    "clear_sql_traces": "sql clear",
+    "pause_sql_trace_recording": "sql pause",
+    "resume_sql_trace_recording": "sql resume",
     "get_vulnerabilities_report": "vulnerabilities report",
     "vulnerabilities_scan": "vulnerabilities scan",
 }

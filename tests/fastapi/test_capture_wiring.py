@@ -22,6 +22,7 @@ from starlette.types import Message, Receive, Scope, Send
 
 from fastapi import FastAPI, Request, WebSocket
 from sharpit import install
+from sharpit.engine import sqla
 from sharpit.engine.capture.correlation import REQUEST
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.context import SharpitContext
@@ -335,7 +336,16 @@ def _host_state(app: FastAPI) -> tuple[list[object], object, list[tuple[object, 
     return list(app.user_middleware), app.exception_handlers, list(app.exception_handlers.items()), _logger_handlers()
 
 
-def _assert_adds_nothing(**options: Any) -> None:
+WITH_SQLALCHEMY = [
+    pytest.param(False, id="plain"),
+    pytest.param(True, id="sqlalchemy", marks=pytest.mark.needs_sqlalchemy),
+]
+
+
+def _assert_adds_nothing(with_sqlalchemy: bool, **options: Any) -> None:
+    if with_sqlalchemy:
+        pytest.importorskip("sqlalchemy")  # imported first, so install() could attach its class-level listeners
+        sqla.detach_all()  # earlier tests in this worker may have left contexts behind
     app = FastAPI()
     seen: list[object] = []
     app.get("/host")(lambda: seen.append(REQUEST.get()) or {})
@@ -349,14 +359,20 @@ def _assert_adds_nothing(**options: Any) -> None:
     with TestClient(app) as client:
         assert client.get("/host").status_code == 200
     assert seen == [None]  # the request contextvar was never set
+    if with_sqlalchemy:
+        assert not any(sqla.attached().values())  # no SQLAlchemy listener on Engine
 
 
-def test_inactive_adds_nothing():
-    _assert_adds_nothing(enabled="OFF")
+@pytest.mark.parametrize("with_sqlalchemy", WITH_SQLALCHEMY)
+def test_inactive_adds_nothing(with_sqlalchemy: bool):
+    _assert_adds_nothing(with_sqlalchemy, enabled="OFF")
 
 
-def test_all_capture_panels_disabled_adds_nothing():
-    _assert_adds_nothing(enabled="ON", panels={p: {"enabled": False} for p in CAPTURE_PANELS})
+@pytest.mark.parametrize("with_sqlalchemy", WITH_SQLALCHEMY)
+def test_all_capture_panels_disabled_adds_nothing(with_sqlalchemy: bool):
+    # the database panels read the engine registry, so they are off too for "nothing" (step 4a, spec §6.1)
+    disabled = (*CAPTURE_PANELS, *sqla.DISCOVERY_PANELS) if with_sqlalchemy else CAPTURE_PANELS
+    _assert_adds_nothing(with_sqlalchemy, enabled="ON", panels={p: {"enabled": False} for p in disabled})
 
 
 def test_add_middleware_after_start_warns_and_unavailable(caplog: pytest.LogCaptureFixture):
@@ -419,6 +435,17 @@ def test_uninstall_capture_removes_hooks():
     client.get("/host")
     assert seen[0] is not None and seen[1] is None
     assert len(_rows(handle)) == 1
+
+
+@pytest.mark.needs_sqlalchemy
+def test_uninstall_capture_removes_sql_listeners():
+    pytest.importorskip("sqlalchemy")
+    sqla.detach_all()  # earlier tests in this worker may have left contexts behind
+    handle = install(FastAPI(), enabled="ON", show_banner=False)
+    assert all(sqla.attached().values()) and sqla.routed(handle.context) == (True, True)
+    handle.uninstall_capture()
+    handle.uninstall_capture()  # idempotent
+    assert not any(sqla.attached().values()) and sqla.routed(handle.context) == (False, False)
 
 
 def test_lifespan_shutdown_detaches_and_startup_attaches():

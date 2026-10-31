@@ -10,8 +10,10 @@ Plants: ``API_TOKEN``, ``DB_PASSWORD``, ``MAIL_PASS`` and ``PASS`` (sensitive na
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -412,3 +414,62 @@ def test_exceptions_mask_messages(tmp_path: Path):
     texts = {"list": str(listed), "detail": str(detail), "stream": stream, "mcp": "".join(mcp), "cli": cli}
     for where, text in texts.items():
         assert SENTINEL not in text and JWT not in text, where
+
+
+# F3: SQL the host app runs, masked at capture (spec §7.3, §11); SQLAlchemy is imported lazily (needs_sqlalchemy)
+def _sql_inline_literal(sa: Any, conn: Any) -> None:
+    conn.execute(sa.text(f"select '{SENTINEL}' as token, '{JWT}' as jwt"))
+
+
+def _sql_bind_values(sa: Any, conn: Any) -> None:
+    conn.execute(sa.text("select :password as p, :jwt as j"), {"password": SENTINEL, "jwt": JWT})
+
+
+def _sql_integrity_error(sa: Any, conn: Any) -> None:
+    conn.execute(sa.text("create table creds (id integer primary key, secret text)"))
+    for _ in range(2):
+        with contextlib.suppress(sa.exc.IntegrityError):
+            conn.execute(sa.text("insert into creds values (1, :s)"), {"s": SENTINEL})
+
+
+SQL_CORPUS = [
+    pytest.param("inline_literal", {}, False, _sql_inline_literal, marks=pytest.mark.needs_sqlalchemy),
+    pytest.param("bind_values_on", {"sql_trace_capture_parameters": True}, False, _sql_bind_values,
+                 marks=pytest.mark.needs_sqlalchemy),
+    pytest.param("integrity_error", {}, False, _sql_integrity_error, marks=pytest.mark.needs_sqlalchemy),
+    pytest.param("echo_bind_values", {}, True, _sql_bind_values, marks=pytest.mark.needs_sqlalchemy),
+    pytest.param("metadata_only_error", {"expose_values": "METADATA_ONLY", "sql_trace_capture_parameters": True},
+                 False, _sql_integrity_error, marks=pytest.mark.needs_sqlalchemy),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(("row", "options", "echo", "run"), SQL_CORPUS)
+def test_sql_trace_masks_statements(
+    tmp_path: Path, row: str, options: dict[str, Any], echo: bool, run: Callable[[Any, Any], None]
+):
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine("sqlite://", echo=echo)
+    app = create_app(
+        show_banner=False, state_dir=str(tmp_path), mcp_enabled="ON", stream_max_seconds=0.05, engines=[engine],
+        **options,
+    )  # fmt: skip
+    with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
+        with engine.connect() as conn:
+            run(sa, conn)
+        report = client.get(f"{API}/sql-trace").json()
+        stream = client.get(f"{API}/sql-trace/stream").text
+        call = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "get_sql_traces", "arguments": {}},
+        }
+        mcp = client.post(f"{API}/mcp", json=call).text
+        cli = client.post(f"{API}/cli/tools/get_sql_traces", json={}).text
+        logs = str(client.get(f"{API}/log-tail/recent").json())
+    assert report["entries"], row
+    if "error" in row:
+        failed = next(e for e in report["entries"] if not e["success"])
+        assert failed["errorMessage"] is None if "metadata" in row else "IntegrityError" in failed["errorMessage"]
+    for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli, "logs": logs}.items():
+        assert SENTINEL not in text and JWT not in text, (row, where)

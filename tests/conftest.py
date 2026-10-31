@@ -1,5 +1,6 @@
 """Shared fixtures: golden BootUI payloads and the no-side-effects guard."""
 
+import ast
 import asyncio
 import json
 import logging
@@ -14,6 +15,45 @@ import pytest
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}
 _BLOCKED = ("connect", "create_connection", "getaddrinfo", "gethostbyname")
+
+
+_SQLALCHEMY_MODULES = {"sqlalchemy", "aiosqlite", "alembic", "greenlet"}
+NEEDS_SQLALCHEMY_MISSING = "imports {} at module level without pytestmark = pytest.mark.needs_sqlalchemy"
+
+
+def sqlalchemy_imports_without_marker(source: str) -> list[str]:
+    """Top-level imports of the optional SQLAlchemy stack in a module that lacks the ``needs_sqlalchemy`` mark.
+
+    The no-sqlalchemy CI job runs ``-m "not needs_sqlalchemy"``: an unmarked module would fail at import there.
+    """
+    tree = ast.parse(source)
+    found: list[str] = []
+    marked = False
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            found += [a.name for a in node.names if a.name.split(".")[0] in _SQLALCHEMY_MODULES]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found += [node.module] if node.module.split(".")[0] in _SQLALCHEMY_MODULES else []
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets
+        ):
+            marked = "needs_sqlalchemy" in ast.unparse(node.value)
+    return [] if marked else found
+
+
+def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> None:
+    del parent
+    found = sqlalchemy_imports_without_marker(module_path.read_text(encoding="utf-8"))
+    if found:
+        pytest.fail(f"{module_path.name} {NEEDS_SQLALCHEMY_MISSING.format(', '.join(found))}", pytrace=False)
+
+
+TIMING_MODULES = ("test_capture_overhead.py", "test_sql_trace_overhead.py")
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Timing budgets run last: xdist hands out tests in this order, so they meet a draining pool, not 22 busy ones."""
+    items.sort(key=lambda item: item.path.name in TIMING_MODULES)  # stable: everything else keeps its order
 
 
 def golden(name: str) -> dict[str, Any]:

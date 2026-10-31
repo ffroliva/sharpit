@@ -29,8 +29,15 @@ def _raise_into_exceptions(handle: SharpitHandle) -> None:
         store.record(exc, "log", None, "test")
 
 
+def _record_sql(handle: SharpitHandle) -> None:
+    recorder = handle.context.capture.sql_trace
+    assert recorder is not None
+    recorder.record("select 1", duration_ns=1, thread="test", connection_id=None)
+
+
 ROUTES: list[tuple[str, str, Callable[[SharpitHandle], None]]] = [
     ("exceptions", "/sharpit/api/exceptions/stream", _raise_into_exceptions),
+    ("sql-trace", "/sharpit/api/sql-trace/stream", _record_sql),
 ]
 
 _HANDLES: list[SharpitHandle] = []

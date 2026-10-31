@@ -100,3 +100,6 @@ pythonVersion = "3.12"
 testpaths = ["tests"]
 pythonpath = ["."]  # examples/ (the sample app) imports as a package
 timeout = 60
+markers = [
+    "needs_sqlalchemy: needs SQLAlchemy, aiosqlite or greenlet installed (the no-sqlalchemy CI job deselects it)",
+]

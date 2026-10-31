@@ -36,6 +36,17 @@ jobs:
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
       - run: uv run --no-sync pytest -q -n auto
 
+  no-sqlalchemy:
+    # SQLAlchemy is optional: sharpit must install, import and serve every panel without it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: >-
+          uv sync --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
+          --no-install-package alembic --no-install-package greenlet
+      - run: uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy"
+
   ui:
     runs-on: ubuntu-latest
     defaults:

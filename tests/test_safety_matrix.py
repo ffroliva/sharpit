@@ -64,6 +64,8 @@ ROWS = [
     ("exceptions", "GET", "/sharpit/api/exceptions", 200, True),
     ("exceptions-stream", "GET", "/sharpit/api/exceptions/stream", 200, True),
     ("exceptions-detail", "GET", f"/sharpit/api/exceptions/{GROUP_ID}", 404, True),  # no such group
+    ("sql-trace", "GET", "/sharpit/api/sql-trace", 200, True),
+    ("sql-trace-stream", "GET", "/sharpit/api/sql-trace/stream", 200, True),
     ("log-tail", "GET", "/sharpit/api/log-tail/recent", 200, True),
     ("log-tail-stream", "GET", "/sharpit/api/log-tail/stream", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
@@ -195,6 +197,7 @@ PANEL_TOOLS = [
     ("get_log_tail", "log-tail", {}),
     ("get_exceptions", "exceptions", {}),
     ("get_exception_detail", "exceptions", {"id": GROUP_ID}),
+    ("get_sql_traces", "sql-trace", {}),
 ]
 
 
@@ -223,6 +226,8 @@ WRITES = [
     ("mcp-server", "POST", "/sharpit/api/mcp-server/toggle", {"enabled": True}),
     ("exceptions", "DELETE", "/sharpit/api/exceptions", None),
     ("exceptions", "POST", f"/sharpit/api/exceptions/{GROUP_ID}/status", {"status": "RESOLVED"}),
+    ("sql-trace", "POST", "/sharpit/api/sql-trace/clear", None),
+    ("sql-trace", "POST", "/sharpit/api/sql-trace/recording", {"enabled": False}),
 ]
 # Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules obeys only the global read-only
 # flag (test_dismissed_rules_obey_global_read_only_only), so it has no panel-scope row here.
@@ -281,9 +286,21 @@ def _seed_exceptions(handle: SharpitHandle) -> Callable[[], object]:
     return lambda: store.report()["totalExceptions"]
 
 
+def _seed_sql_trace(handle: SharpitHandle) -> Callable[[], object]:
+    """Record one statement (when tracing is on) and return a probe of the recorder's state."""
+    recorder = handle.context.capture.sql_trace
+    if recorder is None:
+        return lambda: None
+    recorder.record("select 1", duration_ns=1, thread="test", connection_id=None)
+    return lambda: (recorder.report([])["totalCaptured"], len(recorder.report([])["entries"]), recorder.recording)
+
+
 # CLI-only action tools (never on MCP): (tool, panel, seed returning a state probe); Tasks 5 and 10 add theirs
 CLI_ACTIONS: list[tuple[str, str, Callable[[SharpitHandle], Callable[[], object]]]] = [
     ("clear_exceptions", "exceptions", _seed_exceptions),
+    ("clear_sql_traces", "sql-trace", _seed_sql_trace),
+    ("pause_sql_trace_recording", "sql-trace", _seed_sql_trace),
+    ("resume_sql_trace_recording", "sql-trace", _seed_sql_trace),
 ]
 GATES: dict[str, Callable[[str], dict[str, Any]]] = {
     "panel-disabled": lambda panel: {"panels": {panel: {"enabled": False}}},
