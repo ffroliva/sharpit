@@ -62,12 +62,21 @@ def test_validate_probe_limits_and_messages(body, message):
         "/sharpit/api/panels",
         "/sharpit%2Fapi/panels",
         "/%73harpit/api/panels",
-        "/app/sharpit/api/panels",
     ],
 )
 def test_validate_probe_refuses_normalized_sharpit_paths(path):
     with pytest.raises(BadRequest, match="HTTP Probe cannot target sharpit itself"):
         validate_probe({"method": "GET", "path": path}, "/sharpit")
+
+
+def test_validate_probe_allows_host_route_with_sharpit_segment():
+    request = validate_probe({"method": "GET", "path": "/blog/sharpit/intro"}, "/sharpit")
+    assert request.path == "/blog/sharpit/intro"
+
+
+def test_validate_probe_refuses_sharpit_under_host_root_path():
+    with pytest.raises(BadRequest, match="HTTP Probe cannot target sharpit itself"):
+        validate_probe({"path": "/app/sharpit/api/panels"}, "/sharpit", "/app")
 
 
 # ported: HttpProbeServiceTests.lowercaseMethodNormalizedToUppercase
@@ -85,6 +94,18 @@ def test_validate_probe_normalizes_method_strips_restricted_headers_and_preserve
 def test_validate_probe_ignores_null_header_values():
     request = validate_probe({"path": "/", "headers": {"X-Empty": None}}, "/sharpit")
     assert request.headers == {}
+
+
+def test_validate_probe_strips_user_supplied_probe_tag_header():
+    request = validate_probe({"path": "/", "headers": {"X-Sharpit-Probe": "forged"}}, "/sharpit")
+    assert "x-sharpit-probe" not in request.headers
+
+
+@pytest.mark.parametrize("body", [{"path": "/echo\ud800"}, {"method": "POST", "body": "x\ud800"}])
+# Adapted from: HttpProbeServiceTests.unpairedSurrogatesAreChargedTheWorstCaseReplacementSize
+def test_validate_probe_rejects_unpaired_surrogates_before_encoding(body):
+    with pytest.raises(BadRequest):
+        validate_probe(body, "/sharpit")
 
 
 def test_probe_slots_are_bounded_and_release():

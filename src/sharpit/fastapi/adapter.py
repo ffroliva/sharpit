@@ -263,8 +263,11 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         if not isinstance(parsed_body, dict):
             return error(400, "Request body must be a JSON object")
         body = cast("dict[str, Any]", parsed_body)
+        incoming_root = request.scope.get("root_path", "")
+        mount_path = settings.path.rstrip("/")
+        host_root = incoming_root[: -len(mount_path)] if incoming_root.endswith(mount_path) else incoming_root
         try:
-            probe_request = probe_engine.validate_probe(body, settings.path)
+            probe_request = probe_engine.validate_probe(body, settings.path, host_root.rstrip("/"))
         except BadRequest as exc:
             return error(400, str(exc))
         slots = ctx.lazy("probe_slots", probe_engine.ProbeSlots)
@@ -278,9 +281,6 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
                 released = True
                 slots.release()
 
-        incoming_root = request.scope.get("root_path", "")
-        mount_path = settings.path.rstrip("/")
-        host_root = incoming_root[: -len(mount_path)] if incoming_root.endswith(mount_path) else incoming_root
         try:
             result = await probe_engine.run_probe(
                 host_app,

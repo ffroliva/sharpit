@@ -9,10 +9,10 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from http import HTTPStatus
 from typing import Any, cast
 from urllib.parse import quote, unquote, urlsplit
 
+import anyio
 from starlette.types import Message, Scope
 
 from sharpit.engine.capture import under
@@ -39,6 +39,7 @@ RESTRICTED_HEADERS = frozenset(
         "proxy-connection",
         "keep-alive",
         "te",
+        "x-sharpit-probe",
     }
 )
 ALLOWED_RESPONSE_HEADERS = frozenset({"content-type", "content-length", "location"})
@@ -55,7 +56,10 @@ class ProbeRequest:
 
 
 def _utf8_size(value: str) -> int:
-    return len(value.encode("utf-8", errors="replace"))
+    try:
+        return len(value.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise BadRequest("HTTP Probe request contains invalid Unicode") from exc
 
 
 def _normal_path(path: str) -> str:
@@ -65,7 +69,7 @@ def _normal_path(path: str) -> str:
     return ("/" + normalized.lstrip("/")) if leading else normalized
 
 
-def validate_probe(body: dict[str, Any], settings_path: str) -> ProbeRequest:
+def validate_probe(body: dict[str, Any], settings_path: str, host_root_path: str = "") -> ProbeRequest:
     method = body.get("method")
     if method is None or not str(method).strip():
         method = "GET"
@@ -94,12 +98,8 @@ def validate_probe(body: dict[str, Any], settings_path: str) -> ProbeRequest:
     if ".." in segments:
         raise BadRequest("HTTP Probe request path must not contain '..' segments")
     normalized = _normal_path(parsed.path)
-    path_parts = [p for p in normalized.split("/") if p]
-    mount_parts = [p for p in settings_path.split("/") if p]
-    if under(normalized, settings_path) or any(
-        path_parts[i : i + len(mount_parts)] == mount_parts
-        for i in range(max(0, len(path_parts) - len(mount_parts) + 1))
-    ):
+    host_mount = host_root_path.rstrip("/") + settings_path
+    if under(normalized, settings_path) or under(normalized, host_mount):
         raise BadRequest("HTTP Probe cannot target sharpit itself")
 
     payload = body.get("body")
@@ -169,10 +169,17 @@ class ProbeSlots:
 
 
 def _status_text(status: int) -> str:
-    try:
-        return HTTPStatus(status).phrase
-    except ValueError:
-        return "Unknown"
+    return {
+        200: "OK",
+        201: "Created",
+        204: "No Content",
+        400: "Bad Request",
+        401: "Unauthorized",
+        403: "Forbidden",
+        404: "Not Found",
+        405: "Method Not Allowed",
+        500: "Internal Server Error",
+    }.get(status, f"HTTP {status}")
 
 
 def _headers(headers: list[tuple[bytes, bytes]], masker: Masker) -> dict[str, str]:
@@ -183,7 +190,8 @@ def _headers(headers: list[tuple[bytes, bytes]], masker: Masker) -> dict[str, st
             grouped.setdefault(name, []).append(value.decode("latin-1"))
     result = {name: ", ".join(values) for name, values in grouped.items()}
     if "location" in result:
-        result["location"] = (masker.mask_text(result["location"]) or "")[:MAX_HEADER_VALUE_BYTES]
+        masked = (masker.mask_text(result["location"]) or "").encode("utf-8")[:MAX_HEADER_VALUE_BYTES]
+        result["location"] = masked.decode("utf-8", errors="ignore")
     return result
 
 
@@ -197,10 +205,7 @@ def _body(raw: bytes, content_type: str | None, masker: Masker) -> str | None:
         )
         if not textual:
             return f"<{len(raw)} bytes, {content_type}>"
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return f"<{len(raw)} bytes, {content_type or 'unknown'}>"
+    text = raw.decode("utf-8", errors="replace")
     return masker.mask_text(text)
 
 
@@ -209,6 +214,9 @@ def _task_done(task: asyncio.Task[Any], on_complete: Callable[[], None]) -> None
     if not task.cancelled():
         task.exception()
     on_complete()
+
+
+_PENDING_TASKS: set[asyncio.Task[Any]] = set()
 
 
 async def run_probe(
@@ -222,7 +230,8 @@ async def run_probe(
     on_complete: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     parsed = urlsplit(request.path)
-    raw_path = quote(parsed.path, safe="/%:@!$&'()*+,;=-._~").encode("ascii")
+    path_prefix = host_root_path.rstrip("/")
+    raw_path = quote(path_prefix + parsed.path, safe="/%:@!$&'()*+,;=-._~").encode("ascii")
     request_body = request.body.encode("utf-8") if request.method in {"POST", "PUT", "PATCH"} else b""
     incoming = [
         (name.encode("latin-1"), value.encode("latin-1", errors="replace")) for name, value in request.headers.items()
@@ -238,7 +247,7 @@ async def run_probe(
         "http_version": "1.1",
         "method": request.method,
         "scheme": "http",
-        "path": unquote(parsed.path),
+        "path": path_prefix + unquote(parsed.path),
         "raw_path": raw_path,
         "query_string": quote(parsed.query, safe="%=&;/:@!$'()*+,-._~?").encode("ascii"),
         "root_path": host_root_path,
@@ -277,17 +286,35 @@ async def run_probe(
                 raise asyncio.CancelledError
 
     started = time.monotonic()
-    task = asyncio.create_task(host_app(scope, receive, send))
+    cancel_scopes: list[anyio.CancelScope] = []
+
+    async def invoke_host() -> None:
+        with anyio.CancelScope() as cancel_scope:
+            cancel_scopes.append(cancel_scope)
+            await host_app(scope, receive, send)
+
+    task = asyncio.create_task(invoke_host())
     transferred_slot = False
     try:
         done, _ = await asyncio.wait({task}, timeout=timeout)
         if not done:
-            # Timeout is a wait limit. Cancelling Starlette's ASGI task can return before its sync
-            # endpoint's worker thread does, so leave the task alive and hold the slot to completion.
+            # AnyIO delays cancellation until a sync endpoint's worker thread has returned.
             finished.set()
+            if cancel_scopes:
+                cancel_scopes[0].cancel()
+            else:
+                task.cancel()
+            _PENDING_TASKS.add(task)
             if on_complete is not None:
-                task.add_done_callback(lambda completed: _task_done(completed, on_complete))
+
+                def finish(completed: asyncio.Task[Any]) -> None:
+                    _PENDING_TASKS.discard(completed)
+                    _task_done(completed, on_complete)
+
+                task.add_done_callback(finish)
                 transferred_slot = True
+            else:
+                task.add_done_callback(lambda completed: _PENDING_TASKS.discard(completed))
             return {
                 "status": status,
                 "statusText": _status_text(status) if status else "Error",
@@ -329,6 +356,6 @@ async def run_probe(
         "headers": headers,
         "body": body,
         "durationMs": round((time.monotonic() - started) * 1000),
-        "error": None,
+        "error": "HTTP Probe target returned no response" if status == 0 else None,
         "truncated": truncated,
     }
