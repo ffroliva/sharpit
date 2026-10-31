@@ -184,11 +184,11 @@ def test_violations_paging_and_errors(tmp_state_dir: Path):
     assert (resp.status_code, resp.json()) == (404, {"error": "Advisor rule has no findings in the current scan."})
 
 
-def test_unregistered_rapi_id_400(tmp_state_dir: Path):
+def test_unregistered_rapi_id_violations_404_dismissal_400(tmp_state_dir: Path):
     client, _ = _client(tmp_state_dir)
     scan_id = client.post(f"{API}/scan").json()["violationDetails"]["scanId"]
     resp = client.get(f"{API}/rules/RAPI-MAP-004/violations", params={"scanId": scan_id})
-    assert (resp.status_code, resp.json()) == (400, {"error": "Unknown REST API rule id: RAPI-MAP-004"})
+    assert (resp.status_code, resp.json()) == (404, {"error": "Advisor rule has no findings in the current scan."})
     assert client.post("/sharpit/api/dismissed-rules/RAPI-MAP-004").status_code == 400
 
 
@@ -218,5 +218,5 @@ def test_get_rest_api_report_mcp_never_scans(tmp_state_dir: Path):
     assert (page["violationCount"], len(page["violations"]), page["page"]["hasMore"]) == (2, 1, True)
     with pytest.raises(ToolCallError) as unknown:
         call_tool(call, "get_rest_api_rule_violations", {"id": "RAPI-NOPE-1", "scanId": scan_id}, via="mcp")
-    assert unknown.value.status == 400
+    assert unknown.value.status == 404
     assert client.get(API).json()["violationDetails"]["scanId"] == scan_id

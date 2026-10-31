@@ -88,8 +88,10 @@ def test_get_before_scan_not_scanned(tmp_path: Path):
 
 
 def test_shape_keys_match_bootui(tmp_path: Path):
+    # ported: RestApiReport and RestApiScanStatusDto components (+ RESULT_KEYS for RestApiRuleResultDto)
     report = _service(tmp_path).scan()
     assert set(report) == REPORT_KEYS and set(report["scan"]) == SCAN_KEYS
+    assert set(report["results"][0]) == RESULT_KEYS
     assert report["disclaimer"] == DISCLAIMER
     assert (report["basePackages"], report["controllersAnalyzed"], report["handlersAnalyzed"]) == (
         ["app", "other"],
@@ -160,9 +162,6 @@ def test_violation_paging(tmp_path: Path):
     with pytest.raises(AdvisorViolationError) as missing:
         service.violations("RAPI-MAP-001", scan_id, None, None, 1000)
     assert missing.value.status == 404
-    with pytest.raises(AdvisorViolationError) as unregistered:
-        service.violations("RAPI-NOPE-1", scan_id, None, None, 1000)
-    assert (unregistered.value.status, unregistered.value.message) == (400, "Unknown REST API rule id: RAPI-NOPE-1")
     service.scan()
     with pytest.raises(AdvisorViolationError) as stale:
         service.violations("RAPI-NAME-001", scan_id, None, None, 1000)
@@ -179,3 +178,64 @@ def test_scan_busy(tmp_path: Path):
     finally:
         release()
     assert service.scan()["scan"]["status"] == "SCANNED"
+
+
+# derived: RestApiRuleResultDto components (review r0 finding 4)
+RESULT_KEYS = {
+    "id",
+    "name",
+    "category",
+    "severity",
+    "description",
+    "recommendation",
+    "learnMoreUrl",
+    "status",
+    "violationCount",
+    "sampleViolations",
+    "dismissed",
+}
+
+
+def test_result_keys_match_bootui(tmp_path: Path):
+    # ported: RestApiRuleResultDto (11 components)
+    assert set(_service(tmp_path).scan()["results"][0]) == RESULT_KEYS
+
+
+def test_unknown_rule_violations_are_404(tmp_path: Path):
+    # ported: AdvisorScanState.java:102 -- an unknown rule has no findings in the current scan (review r0 finding 1)
+    service = _service(tmp_path)
+    scan_id = service.scan()["violationDetails"]["scanId"]
+    with pytest.raises(AdvisorViolationError) as unknown:
+        service.violations("RAPI-NOPE-1", scan_id, None, None, 1000)
+    assert (unknown.value.status, unknown.value.message) == (
+        404,
+        "Advisor rule has no findings in the current scan.",
+    )
+
+
+class _Meta(type):
+    def __getattr__(cls, name: str) -> object:
+        raise RuntimeError("lazy proxy")
+
+
+class _Lazy(metaclass=_Meta):
+    pass
+
+
+def test_raising_rule_makes_scan_partial_not_crash(tmp_path: Path):
+    # ported: RestApiScanner.evaluate catches per-rule failures and returns a PARTIAL report (review r0 finding 2)
+    broken = ApiRouteInfo(("GET",), "/v1/things", "app.x:read_things", response_model=_Lazy)
+    report = _service(tmp_path, (broken,)).scan()
+    assert report["scan"]["status"] == "PARTIAL"
+    assert "rule evaluation: required REST API evidence was unavailable." in report["evidence"]["limitations"]
+
+
+def test_failed_build_leaves_retention_and_cache_unchanged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # a scan whose report cannot be built must not replace the retained details (review r0 finding 3)
+    service = _service(tmp_path)
+    first = service.scan()["violationDetails"]["scanId"]
+    monkeypatch.setattr("sharpit.engine.collectors.restapi.service.report.build", lambda *a, **k: 1 / 0)
+    with pytest.raises(ZeroDivisionError):
+        service.scan()
+    assert service.report()["violationDetails"]["scanId"] == first
+    assert service.violations("RAPI-NAME-001", first, None, None, 1000)["violationCount"] == 1  # still pages

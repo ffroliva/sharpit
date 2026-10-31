@@ -698,10 +698,25 @@ def application_routes(routes: Sequence[ApiRouteInfo]) -> list[ApiRouteInfo]:
     return [r for r in routes if not _is_framework(r)]
 
 
+def evaluate(
+    routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]
+) -> tuple[dict[str, list[str]], set[str]]:
+    """Every ported rule's violations, in ``RULES`` order, and the ids of rules that raised (BootUI ``evaluate``)."""
+    own = application_routes(routes)
+    found: dict[str, list[str]] = {}
+    errored: set[str] = set()
+    for rule in RULES:
+        try:
+            found[rule.id] = _CHECKS[rule.id](own, exception_handlers)
+        except Exception:  # a broken model (e.g. a lazy proxy) fails its rule, never the scan
+            found[rule.id] = []
+            errored.add(rule.id)
+    return found, errored
+
+
 def violations(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> dict[str, list[str]]:
     """Every ported rule's violations, in ``RULES`` order. Pure: reads the given metadata only."""
-    own = application_routes(routes)
-    return {rule.id: _CHECKS[rule.id](own, exception_handlers) for rule in RULES}
+    return evaluate(routes, exception_handlers)[0]
 
 
 def scan(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> list[RuleResult]:

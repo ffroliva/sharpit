@@ -622,7 +622,7 @@ def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, 
         client.get("/owners")  # one host request first: the capture wiring that attaches on it is swept too
         no_side_effects.block_network()
         # the rest-api violations route needs a scanId: without one it answers 400 (and never scans)
-        expected = (400,) if path.endswith("/violations") else (200, 307, 404)
+        expected = (400,) if path == "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations" else (200, 307, 404)
         for query in ("", "?q=sharpit&offset=0&limit=5"):
             resp = client.get(path + query)
             assert resp.status_code in expected, resp.text
