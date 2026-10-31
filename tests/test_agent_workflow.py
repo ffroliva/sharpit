@@ -30,7 +30,8 @@ def test_skill_frontmatter_name_matches_directory(skill: Path) -> None:
     match = re.match(r"---\n(.*?)\n---\n", text, re.DOTALL)
     assert match, f"{skill} has no frontmatter"
     name = re.search(r"^name:\s*(\S+)\s*$", match.group(1), re.MULTILINE)
-    assert name and name.group(1) == skill.parent.name
+    assert name
+    assert name.group(1) == skill.parent.name
 
 
 BANNED = ("/gflow:", "origin/develop", "reCAPTCHA", "Sonar")

@@ -73,7 +73,8 @@ def test_async_adapted_queue_pool(tmp_path: Path):
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'a.db'}")
     (pool,) = pools_report(_ctx(engine))["pools"]
-    assert pool["available"] is True and pool["driverClassName"] == "sqlite+aiosqlite (AsyncAdaptedQueuePool)"
+    assert pool["available"] is True
+    assert pool["driverClassName"] == "sqlite+aiosqlite (AsyncAdaptedQueuePool)"
     assert pool["snapshot"]["total"] == 0
 
 
@@ -96,7 +97,8 @@ def test_names_unique_and_no_query(tmp_path: Path):
         engine.url = engine.url.update_query_dict({"timeout": "5", "password": "hunter2"})
     pools = pools_report(_ctx(first, second))["pools"]
     names = [p["poolName"] for p in pools]
-    assert len(set(names)) == 2 and names[1] == names[0] + "#2"
+    assert len(set(names)) == 2
+    assert names[1] == names[0] + "#2"
     assert all("?" not in p["jdbcUrl"] and "hunter2" not in str(p) for p in pools)
     assert all(p["beanName"] == p["poolName"] == p["jdbcUrl"] for p in pools)
 

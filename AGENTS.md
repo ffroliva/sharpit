@@ -94,7 +94,21 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    `pydantic_settings` only in `engine/collectors/config/settings_source.py`, `urllib.request`/`http.client` only in
    the OSV and EPSS clients under `engine/collectors/vulns/`. `alembic`, `socket` and `ssl` are imported nowhere.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
-   SQL listener) keep their overhead budget tests; a budget is never raised to pass.
+   SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked
+   slow or deselected (a measurement nobody runs detects nothing).
+6. **Ratchets only go down** (`tests/test_code_shape.py`, `scripts/ci/sonar_ratchet.py`): no module under `src/` over
+   1000 lines; ruff C901 counts per file pinned in `tests/complexity_baseline.json`; Sonar open issues on `main` equal
+   to `sonar-baseline.txt`. A change that fixes one lowers the pinned number in the same commit; nothing is ever raised.
+
+### Writing tests that prove something
+
+- **A crash is not a red.** An `ImportError`, `AttributeError` or collection error before the fix proves nothing; the
+  red must be the assertion that names the defect.
+- **One condition per assert** (ruff `PT018`), so a failure says which condition broke.
+- **Every error found** (review, CI, a user report) becomes a regression test seen red first. The PR lists them as a
+  `finding → test → red output` table.
+- **Test the real code.** A performance or SQL test runs the production function or query, imported, never a copy.
+- **Delete the control and re-run:** if no named test fails, the test was decoration.
 
 ## Workflow
 

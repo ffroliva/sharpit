@@ -101,7 +101,8 @@ def test_stream_ends_after_lifetime_with_retry(panel: str, path: str, change: Ca
     del change
     app, _ = _handle(stream_max_seconds=0.05)
     resp = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)).get(path)
-    assert resp.status_code == 200 and resp.text.endswith("retry: 1000\n\n"), panel
+    assert resp.status_code == 200, panel
+    assert resp.text.endswith("retry: 1000\n\n"), panel
 
 
 @pytest.mark.parametrize(("panel", "path", "change"), ROUTES, ids=[r[0] for r in ROUTES])

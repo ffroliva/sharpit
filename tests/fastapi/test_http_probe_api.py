@@ -144,7 +144,8 @@ def test_client_disconnect_keeps_probe_slot_until_sync_host_returns(handle: list
             await pending
 
         slots = installed.context.peek("probe_slots")
-        assert slots is not None and slots.count == 1
+        assert slots is not None
+        assert slots.count == 1
         release.set()
         for _ in range(100):
             if slots.count == 0:

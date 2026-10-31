@@ -58,5 +58,6 @@ def test_statement_overhead_budget(handle: SharpitHandle):
         overhead = min(_overhead(handle, conn, statement) for _ in range(ATTEMPTS))
     recorder = handle.context.capture.sql_trace
     captured = (ROUNDS * ATTEMPTS + 1) * PER_ROUND  # with the warm-up
-    assert recorder is not None and recorder.report([])["totalCaptured"] == captured
+    assert recorder is not None
+    assert recorder.report([])["totalCaptured"] == captured
     assert overhead <= BUDGET_NS, f"{overhead / 1000:.1f} µs per statement (budget {BUDGET_NS / 1000:.0f} µs)"

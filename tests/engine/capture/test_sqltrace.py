@@ -68,7 +68,8 @@ def test_replaces_string_and_numeric_literals():
 def test_never_leaves_a_literal_value():
     # ported: SqlStatementNormalizerTests.neverLeavesALiteralValueInTheNormalizedText
     result = normalize("insert into audit (actor, token) values ('ada@example.com', 'sk-live-9f3b')")
-    assert "ada@example.com" not in result.sql and "sk-live-9f3b" not in result.sql
+    assert "ada@example.com" not in result.sql
+    assert "sk-live-9f3b" not in result.sql
     assert result.literal_count == 2
 
 
@@ -172,7 +173,8 @@ def test_collapses_in_lists_but_not_projections():
 
 def test_empty_result_for_blank_sql():
     # ported: SqlStatementNormalizerTests.returnsAnEmptyResultForNullOrBlankSql
-    assert normalize("   ").fingerprint == "" and normalize("").sql == ""
+    assert normalize("   ").fingerprint == ""
+    assert normalize("").sql == ""
 
 
 def test_escape_string_literal():
@@ -221,7 +223,8 @@ def test_drops_parameters_when_capture_disabled():
     recorder = _recorder()
     _record(recorder, "select ?", parameters=("x",))
     entry = _entries(recorder)[0]
-    assert entry["parameters"] == [] and entry["statementType"] == "PREPARED"
+    assert entry["parameters"] == []
+    assert entry["statementType"] == "PREPARED"
 
 
 def test_keeps_parameters_and_thread_when_capture_enabled():
@@ -426,7 +429,8 @@ def test_parameter_caps_and_masking():
     _record(recorder, "select", parameters={"password": "hunter2", "name": "bob", "tok": JWT, "long": "x" * 50})
     _record(recorder, "select", parameters=(JWT, "plain"))
     positional, named, batch = _entries(recorder)
-    assert batch["batchSize"] == 8 and batch["parameters"] == ["0", "1", "2", "3", "4"] * 5
+    assert batch["batchSize"] == 8
+    assert batch["parameters"] == ["0", "1", "2", "3", "4"] * 5
     assert named["parameters"] == [f"password={MASK}", "name='bob'", f"tok={MASK}", "long='" + "x" * 19 + "…"]
     assert positional["parameters"] == [MASK, "'plain'"]
     assert positional["batchSize"] == 0
@@ -495,7 +499,8 @@ def test_unavailable_report_and_keys():
     report = unavailable_report("why")
     assert tuple(report) == REPORT_KEYS
     assert (report["available"], report["unavailableReason"], report["entries"]) == (False, "why", [])
-    assert tuple(report["stats"]) == STATS_KEYS and set(report["stats"].values()) == {0}
+    assert tuple(report["stats"]) == STATS_KEYS
+    assert set(report["stats"].values()) == {0}
 
 
 def test_entry_and_group_keys():
@@ -527,7 +532,8 @@ def _app_function() -> str | None:
 def test_call_site_is_first_application_frame():
     # derived: spec §7.3, the first application frame as module:function:line
     site = _app_function()
-    assert site is not None and re.fullmatch(r"test_sqltrace:_app_function:\d+", site), site
+    assert site is not None, site
+    assert re.fullmatch(r"test_sqltrace:_app_function:\d+", site), site
 
 
 @pytest.mark.needs_sqlalchemy
@@ -535,7 +541,8 @@ def test_call_site_follows_greenlet_parent():
     # derived: spec §7.3, an AsyncSession listener runs in a greenlet with only SQLAlchemy frames
     greenlet = pytest.importorskip("greenlet")
     site = greenlet.greenlet(functools.partial(sqltrace.call_site, None)).switch()
-    assert site is not None and re.fullmatch(r"test_sqltrace:test_call_site_follows_greenlet_parent:\d+", site)
+    assert site is not None
+    assert re.fullmatch(r"test_sqltrace:test_call_site_follows_greenlet_parent:\d+", site)
 
 
 @pytest.mark.needs_sqlalchemy

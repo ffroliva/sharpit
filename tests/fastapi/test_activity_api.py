@@ -63,7 +63,8 @@ def test_activity_feed_and_profile():
     client.get("/pets")
     client.get("/boom")
     report = client.get(API).json()
-    assert tuple(report) == REPORT_KEYS and report["available"] is True
+    assert tuple(report) == REPORT_KEYS
+    assert report["available"] is True
     requests = [e for e in report["entries"] if e["type"] == "REQUEST"]
     assert [(e["path"], e["status"], e["severity"]) for e in requests] == [
         ("/boom", 500, "ERROR"),
@@ -72,7 +73,8 @@ def test_activity_feed_and_profile():
     exception = next(e for e in report["entries"] if e["type"] == "EXCEPTION")
     assert exception["parentId"] == requests[0]["id"]
     profile = client.get(f"{API}/request/{requests[0]['id']}").json()
-    assert profile["available"] is True and profile["request"]["path"] == "/boom"
+    assert profile["available"] is True
+    assert profile["request"]["path"] == "/boom"
     assert [e["exceptionClassName"] for e in profile["exceptions"]] == ["RuntimeError"]
     assert client.get(f"{API}/request/0123456789abcdef").json()["unavailableReason"] == EVICTED
     assert [e["type"] for e in client.get(API, params={"type": "REQUEST", "limit": 1}).json()["entries"]] == ["REQUEST"]
@@ -101,7 +103,8 @@ def test_disabled_sql_trace_no_sql_rows():
     client = _client(app)
     client.get("/pets")
     for report in (client.get(API).json(), _rpc(client, "get_live_activity", {})["structuredContent"]):
-        assert "sql" not in report["sources"] and "SQL" not in report["typeCounts"]
+        assert "sql" not in report["sources"]
+        assert "SQL" not in report["typeCounts"]
 
 
 def test_disabled_exceptions_no_exception_rows():
@@ -109,7 +112,8 @@ def test_disabled_exceptions_no_exception_rows():
     client = _client(app)
     client.get("/boom")
     for report in (client.get(API).json(), _rpc(client, "get_live_activity", {})["structuredContent"]):
-        assert "exceptions" not in report["sources"] and "EXCEPTION" not in report["typeCounts"]
+        assert "exceptions" not in report["sources"]
+        assert "EXCEPTION" not in report["typeCounts"]
         assert [e["status"] for e in report["entries"]] == [500]
 
 

@@ -96,7 +96,8 @@ def test_operations_independent():
     # one instance per operation (ctx.lazy("singleflight:<op>")): a stuck health check never blocks a refresh
     health, alembic = SingleFlight(), SingleFlight()
     held = health.try_acquire("health-check")
-    assert held is not None and alembic.try_acquire("alembic-refresh") is not None
+    assert held is not None
+    assert alembic.try_acquire("alembic-refresh") is not None
 
 
 def test_flight_held_until_every_worker_is_done():

@@ -39,7 +39,8 @@ def test_has_more():
     assert rows == ["item2", "item3", "item4"]
     assert page["hasMore"] is True
     _, page = _page(offset=7, limit=3)
-    assert page["hasMore"] is False and page["returned"] == 3
+    assert page["hasMore"] is False
+    assert page["returned"] == 3
 
 
 def test_q_case_insensitive_trimmed():
@@ -65,4 +66,6 @@ def test_parse_int_rejects_abc():
 def test_offset_past_end_clamped_to_matched():
     rows, page = _page(offset=50)
     assert rows == []
-    assert page["offset"] == 10 and page["returned"] == 0 and page["hasMore"] is False
+    assert page["offset"] == 10
+    assert page["returned"] == 0
+    assert page["hasMore"] is False
