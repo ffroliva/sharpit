@@ -327,11 +327,17 @@ def test_default_opener_is_built_lazily(no_side_effects, monkeypatch: pytest.Mon
     assert len(built[0].requests) == 1
 
 
-# new: urljoin with an absolute path matches Java URI.resolve
-def test_base_uri_path_is_replaced_like_java_uri_resolve(no_side_effects):
-    opener = replies((200, '{"results":[{}]}'))
-    OsvClient("http://osv.test/ignored/", 1.0, opener=opener).querybatch([WIDGET])
-    assert opener.requests[0].full_url == "http://osv.test/v1/querybatch"
+# new (code review #8, spec §14): the base URI's path is kept, so a mirror under a path prefix works
+@pytest.mark.parametrize("base", ["http://osv.test/mirror", "http://osv.test/mirror/"])
+def test_base_uri_path_is_kept(no_side_effects, base: str):
+    opener = replies((200, '{"results":[{}]}'), (200, '{"id":"X-1"}'))
+    client = OsvClient(base, 1.0, opener=opener)
+    client.querybatch([WIDGET])
+    client.vuln("X-1")
+    assert [r.full_url for r in opener.requests] == [
+        "http://osv.test/mirror/v1/querybatch",
+        "http://osv.test/mirror/v1/vulns/X-1",
+    ]
 
 
 # ported: OsvVulnerabilityScannerTests.preservesCompletedQueryChunksWhenALaterChunkFails (each failure type)

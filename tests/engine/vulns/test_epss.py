@@ -256,3 +256,11 @@ def test_chunks_dedupe_canonicalise_and_respect_2000_chars():
     assert [c for chunk in chunks for c in chunk] == many
     assert all(len(",".join(chunk)) <= 2000 for chunk in chunks)
     assert len(",".join(chunks[0])) + len(many[len(chunks[0])]) + 1 > 2000
+
+
+# new (code review #8, spec §14): the base URI's path is kept, so a mirror under a path prefix works
+@pytest.mark.parametrize("base", ["http://epss.test/mirror", "http://epss.test/mirror/"])
+def test_base_uri_path_is_kept(no_side_effects, base: str):
+    opener = replies((200, fixture_text("epss/CVE-2024-34064.json")))
+    EpssClient(base, 2.0, opener=opener).scores(["CVE-2024-34064"])
+    assert opener.requests[0].full_url == "http://epss.test/mirror/data/v1/epss?cve=CVE-2024-34064&limit=1&offset=0"

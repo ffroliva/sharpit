@@ -377,6 +377,7 @@ Internal module structure, caching details, UI component structure and visuals w
 | Spring MVC, WebFlux and Quarkus adapters | FastAPI is the only adapter in the MVP | scope; the engine is framework-neutral behind the `spi` |
 | `bootui` CLI binary | no `sharpit` console script; only `/api/cli` endpoints | MVP scope (repeats the CLI client row for the binary itself) |
 | Panel copy says "beans" | panel copy says "providers"; ids and keys (`beans`) are unchanged | no IoC container in Python; the contract stays stable |
+| OSV and EPSS base URIs resolved with an absolute path (`URI.resolve("/v1/querybatch")` drops the base path) | the base URI's path is kept (`https://mirror/osv` + `v1/querybatch`) | a mirror or proxy under a path prefix works |
 | `bootui.path` taken as configured | `path="/"` and a trailing slash are refused with `ValueError` at install | `/` would mount over every host route even while inactive; a trailing slash produced `/sharpit//api` |
 | sharpit's own token follows the exposure policy | sharpit's own token value is masked under every exposure except `METADATA_ONLY` (which shows no values), even with `mask_secrets=false` or `FULL` | the token grants the whole console; an MCP client would pass it to an LLM provider |
 

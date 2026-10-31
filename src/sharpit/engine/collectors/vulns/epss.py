@@ -65,7 +65,7 @@ def epss_cve_chunks(cve_ids: Sequence[str]) -> list[list[str]]:
 
 class EpssClient:
     def __init__(self, base_uri: str, timeout: float, opener: Opener | None = None) -> None:
-        self._base_uri = base_uri
+        self._base_uri = base_uri.rstrip("/") + "/"  # joined with relative paths, so a base path is kept
         self._timeout = timeout
         self._opener = opener
 
@@ -129,7 +129,7 @@ class EpssClient:
 
     def _fetch_page(self, cve_ids: list[str], offset: int) -> dict[str, Any]:
         query = f"cve={','.join(cve_ids)}&limit={len(cve_ids)}&offset={offset}"
-        request = urllib.request.Request(urllib.parse.urljoin(self._base_uri, "/data/v1/epss?" + query), method="GET")
+        request = urllib.request.Request(urllib.parse.urljoin(self._base_uri, "data/v1/epss?" + query), method="GET")
         root = request_json(self._open(), request, self._timeout, EPSS_MAX_BYTES, "EPSS query")
         if not isinstance(root, dict) or not isinstance(cast(dict[str, Any], root).get("data"), list):
             raise _EpssError("EPSS response did not contain a data array")

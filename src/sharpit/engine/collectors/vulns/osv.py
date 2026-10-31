@@ -71,7 +71,7 @@ def request_json(opener: Opener, request: urllib.request.Request, timeout: float
 
 class OsvClient:
     def __init__(self, base_uri: str, timeout: float, opener: Opener | None = None) -> None:
-        self._base_uri = base_uri
+        self._base_uri = base_uri.rstrip("/") + "/"  # joined with relative paths, so a base path is kept
         self._timeout = timeout
         self._opener = opener
 
@@ -138,7 +138,7 @@ class OsvClient:
                 query["page_token"] = token
             queries.append(query)
         request = urllib.request.Request(
-            urllib.parse.urljoin(self._base_uri, "/v1/querybatch"),
+            urllib.parse.urljoin(self._base_uri, "v1/querybatch"),
             data=json.dumps({"queries": queries}, separators=(",", ":")).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -148,7 +148,7 @@ class OsvClient:
 
     def vuln(self, id: str) -> dict[str, Any]:
         """``GET /v1/vulns/{id}``; any failure, or a body that is not a JSON object, raises ``OsvError``."""
-        url = urllib.parse.urljoin(self._base_uri, "/v1/vulns/" + urllib.parse.quote(id, safe=""))
+        url = urllib.parse.urljoin(self._base_uri, "v1/vulns/" + urllib.parse.quote(id, safe=""))
         doc = request_json(
             self._open(),
             urllib.request.Request(url, method="GET"),
