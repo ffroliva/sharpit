@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ApiError, get } from '../lib/api';
+  import { linkable } from '../lib/links';
   import { scrollable } from '../lib/scrollable';
   import type { Overview } from '../lib/types';
 
@@ -11,8 +12,6 @@
     (e: unknown) => (error = e instanceof ApiError ? `HTTP ${e.status}` : 'The application is not responding.'),
   );
 
-  // only app-relative or http(s) URLs become links (no javascript: and the like)
-  const linkable = (url: string) => /^(\/|https?:\/\/)/i.test(url);
   const list = (xs: string[]) => (xs.length ? xs.join(', ') : 'none');
 </script>
 
