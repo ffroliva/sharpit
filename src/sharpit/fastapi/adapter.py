@@ -285,7 +285,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         # parsed inline: a JSON ``null`` body flips (BootUI ``request == null``), unparsable JSON is refused
         try:
             body: object = json.loads(raw) if raw.strip() else None
-        except ValueError:
+        except (ValueError, RecursionError):
             body = 0
         enabled = None if body is None else cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
         if not isinstance(enabled, bool | None):
@@ -357,7 +357,7 @@ async def _read_capped(request: Request, cap: int) -> bytes | None:
 def _json_or_none(raw: bytes) -> object:
     try:
         return json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):  # deep nesting raises RecursionError
         return None
 
 

@@ -221,7 +221,7 @@ class McpServer:
             return 413, payload_too_large(), []
         try:
             request: object = json.loads(body, parse_constant=_reject_constant)
-        except ValueError:
+        except (ValueError, RecursionError):  # deep nesting raises RecursionError
             return 400, _error(None, PARSE_ERROR, "Invalid JSON-RPC request"), []
         if isinstance(request, list):
             return 400, _error(None, INVALID_REQUEST, BATCH_MESSAGE), []

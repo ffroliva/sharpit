@@ -162,3 +162,19 @@ def test_toggle_body_has_its_own_small_cap():
     resp = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": True, "pad": "x" * 5000})
     assert (resp.status_code, resp.json()) == (413, {"error": "Request payload exceeds limit"})
     assert client.get("/sharpit/api/mcp-server").json()["enabled"] is False
+
+
+def test_deeply_nested_json_is_a_parse_error_not_a_500():
+    # code review #6: json.loads raises RecursionError, not ValueError, on deep nesting
+    client = _client()
+    deep, small = b"[" * 100_000, b"[" * 4000  # small stays under the 4 KiB toggle/logger cap
+    headers = {"content-type": "application/json"}
+    rpc = client.post(MCP, content=deep, headers=headers)
+    assert (rpc.status_code, rpc.json()["error"]["code"]) == (400, -32700)
+    for path, body in (
+        ("/sharpit/api/mcp-server/toggle", small),
+        ("/sharpit/api/loggers/deep.json", small),
+        ("/sharpit/api/cli/tools/get_overview", deep),
+    ):
+        resp = client.post(path, content=body, headers=headers)
+        assert (resp.status_code, "error" in resp.json()) == (400, True), path
