@@ -357,6 +357,21 @@ Internal module structure, caching details, UI component structure and visuals w
 | Docker Desktop `gateway.docker.internal` DNS lookup for gateway trust | route-table gateway only, no DNS | no network or DNS at request time |
 | bare `{path}` handled by the host router (Spring) | guarded `SharpitMount` also matches bare `{path}` | a Starlette `Mount` never receives it |
 | `pydantic-settings` custom `settings_customise_sources` | source shown as `settings (<Class>)` | provenance cannot be inferred |
+| Host-only Origin check on writes | full origin (scheme+host+port) compared on every API path | stricter against cross-port and cross-scheme requests; a TLS-terminating proxy must run `uvicorn --proxy-headers` or same-origin writes are refused |
+| No per-endpoint body caps | per-endpoint caps answer `413 {"error":"Request payload exceeds limit"}` | bounded memory for a console on a dev machine; oversized payloads are refused |
+| Forwarded-header 403 generic text | 403 text names `SHARPIT_TRUSTED_PROXIES` and `SHARPIT_ALLOW_NON_LOCALHOST` | the user can fix it without reading source |
+| `BOOTUI_ENABLED` boolean | `SHARPIT_ENABLED` accepts 1/0/true/false/yes/no/on/off, case-insensitive; `ON` overrides a disabled profile and adds a warning | env var ergonomics; a loud opt-in instead of silent profile precedence |
+| Vulnerabilities `scannedAt` always a timestamp | `scannedAt` is `null` before the first scan | no scan has happened; no invented time |
+| Beans carry no `overriddenBy` key | provider `overridden_by` is appended to `resource` as `(overridden by X)` | keeps the bean DTO keys; the override is still visible |
+| URL userinfo masked only with a non-empty user | any URL with userinfo is masked, including an empty user (`scheme://:x@host`) | fail closed; an odd non-secret `://:x@` URL is masked too |
+| FULL exposure shows raw values | FULL keeps the `SecretStr` placeholder `**********` and shows plain-`str` defaults | Pydantic `SecretStr` cannot be unwrapped safely; FULL is an explicit opt-in |
+| Config suggestions unfiltered | suggestions are filtered by `q` (relaxed name or description) | contract §3 is silent; fewer, relevant hits while searching |
+| MCP `prompts/list = []` (spec §9) | BootUI's 3 prompt names and 5 conformance fragments kept, rewritten for sharpit's tools and Python | the conformance tests need them; wording follows the Python port |
+| Localhost grant survives forwarded headers | a forwarded header voids the localhost grant unless a trusted proxy is configured | uvicorn `FORWARDED_ALLOW_IPS=*` rewrites the peer; a local reverse proxy that adds `X-Forwarded-For` needs a token |
+| Vue UI look and feel (Svelte row above) | the UI is a new design (DESIGN.md), not a restyle of BootUI's | owner wants a new look; behaviour follows the contract |
+| Spring MVC, WebFlux and Quarkus adapters | FastAPI is the only adapter in the MVP | scope; the engine is framework-neutral behind the `spi` |
+| `bootui` CLI binary | no `sharpit` console script; only `/api/cli` endpoints | MVP scope (repeats the CLI client row for the binary itself) |
+| Panel copy says "beans" | panel copy says "providers"; ids and keys (`beans`) are unchanged | no IoC container in Python; the contract stays stable |
 
 ## 15. Coordinator's calls (owner to check)
 
