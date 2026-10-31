@@ -22,6 +22,7 @@ jobs:
       - run: uv sync --extra test --python ${{ matrix.python }}
       - run: uv run ruff check
       - run: "! git grep -n 'cloud[n]s' -- ." # links must point at github.com, never a mirror
+        shell: bash
       - run: uv run ruff format --check
       - run: uv run pyright
       - run: uv run pytest -q
