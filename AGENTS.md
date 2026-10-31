@@ -97,8 +97,8 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked
    slow or deselected (a measurement nobody runs detects nothing).
 6. **Ratchets only go down** (`tests/test_code_shape.py`, `scripts/ci/sonar_ratchet.py`): no module under `src/` over
-   1000 lines; ruff C901 counts per file pinned in `tests/complexity_baseline.json`; Sonar open issues on `main` equal
-   to `sonar-baseline.txt`. A change that fixes one lowers the pinned number in the same commit; nothing is ever raised.
+   1000 lines; ruff C901 counts per file pinned in `tests/complexity_baseline.json`; open code-scan issues on `main`
+   equal to `sonar-baseline.txt`. A change that fixes one lowers the pinned number in the same commit; nothing is ever raised.
 
 ### Writing tests that prove something
 

@@ -13,6 +13,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 MAX_LINES = 1000
 BASELINE = ROOT / "tests" / "complexity_baseline.json"
@@ -27,6 +29,7 @@ def oversized(root: Path = ROOT / "src", limit: int = MAX_LINES) -> list[str]:
 
 
 def complexity_counts() -> Counter[str]:
+    pytest.importorskip("ruff")  # CI's lowest-direct job installs without the dev group; the other jobs run this
     out = subprocess.run(
         [sys.executable, "-m", "ruff", "check", "--select", "C901", "--output-format", "json", "--exit-zero", "."],
         cwd=ROOT,
