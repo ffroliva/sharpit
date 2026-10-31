@@ -90,7 +90,8 @@ Full report: [`docs/reports/2026-10-31-dogfood-klipermedia.md`](2026-10-31-dogfo
    applies, and a prod profile still wins.
 3. **The KliperMedia security assessment you asked about is not started.** It is still waiting on your go-ahead.
 4. **Merge and release.** README image links and the CHANGELOG compare link point at `master` and a `v0.1.0` tag, so
-   they 404 until you merge and tag. The CI workflow has never run on GitHub; it was only validated locally.
+   they 404 until you merge and tag. CI runs on GitHub for `mvp`; its first runs caught a bad job condition, a
+   locale-bound test and a too-low Starlette floor (now 0.44), all fixed.
 
 All deviations from BootUI are in spec §14. The coordinator's rulings are below.
 
