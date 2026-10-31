@@ -118,7 +118,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_API_PATH` | `api_path` | `/sharpit/api` | must sit under `path` |
 | `SHARPIT_ALLOW_NON_LOCALHOST` | `allow_non_localhost` | `false` | accept non-loopback callers (token required) |
 | `SHARPIT_ALLOWED_HOSTS` | `allowed_hosts` | empty | extra `Host` names to accept |
-| `SHARPIT_TRUSTED_PROXIES` | `trusted_proxies` | empty | proxy addresses or ranges whose forwarded headers are accepted |
+| `SHARPIT_TRUSTED_PROXIES` | `trusted_proxies` | empty | proxy addresses or ranges admitted as remote callers (token still required) |
 | `SHARPIT_TRUST_CONTAINER_GATEWAY` | `trust_container_gateway` | `OFF` | `AUTO` trusts the detected container gateway |
 | `SHARPIT_AUTHENTICATION_TOKEN` | `authentication_token` | generated | bearer token for untrusted sources |
 | `SHARPIT_READ_ONLY` | `read_only` | `false` | refuse every write action |
@@ -164,7 +164,7 @@ top-level package).
   peer) must present the token as `Authorization: Bearer <token>`. Set `SHARPIT_AUTHENTICATION_TOKEN`; otherwise a
   token is generated per process and printed once to stderr. A browser trades it for an `HttpOnly; SameSite=Strict`
   cookie through `POST /sharpit/api/auth/session`.
-- **Secrets are masked** (`******`) in names, values, defaults, errors and MCP output, including pydantic `SecretStr`.
+- **Secrets are masked** (`******`) in values, defaults and suggestions, in API, MCP and CLI output, including pydantic `SecretStr`.
   sharpit masks any URL that carries userinfo, including a user name with no password
   (`https://<key>@o1.ingest.sentry.io/1`, `redis://admin@cache:6379`), because DSN-style keys sit in that slot. A
   harmless user name in a URL is shown as `******` too. That is intentional: sharpit errs towards hiding.

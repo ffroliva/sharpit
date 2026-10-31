@@ -28,7 +28,7 @@ First release: an embedded, local-only developer console for FastAPI apps, porte
   route answers those paths differently, so the mount can be told apart. `path="/"` and a trailing slash are refused.
 - Request guard: loopback-only by default, `Host` allow-list, full-origin (API paths) and `Sec-Fetch-Site` cross-site checks on
   every method, bearer token with `HttpOnly` session cookie for untrusted sources.
-- Secret masking of names, values, defaults and errors, including pydantic `SecretStr` and any URL with userinfo.
+- Secret masking of values, defaults and suggestions in API, MCP and CLI output, including pydantic `SecretStr` and any URL with userinfo.
 - Extras `sharpit[fastapi]` and `sharpit[settings]`; typed package (`py.typed`); prebuilt UI in the wheel, so end users
   never need Node.
 
