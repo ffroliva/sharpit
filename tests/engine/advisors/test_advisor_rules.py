@@ -36,6 +36,7 @@ def test_failed_result_keeps_first_ten_samples():
     assert RuleResult.skipped(RULE).status == "SKIPPED"
 
 
+# ported: RestApiRuleResultDto (contract §12)
 def test_result_dto_keys_match_bootui():
     # RestApiRuleResultDto component order
     assert list(RuleResult.evaluate(RULE, ["x"]).to_dto()) == [

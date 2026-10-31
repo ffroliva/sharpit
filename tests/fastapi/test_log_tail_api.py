@@ -133,7 +133,7 @@ def uvicorn_logging() -> Iterator[None]:
 
 
 def test_shape_keys_match_bootui():
-    # BootUI LogLineDto(long timestamp, String level, String logger, String message, String thread)
+    # ported: LogLineDto
     app, _ = _handle()
     with _client(app) as client:
         logging.getLogger("host.app").warning("hello %s", "log tail")

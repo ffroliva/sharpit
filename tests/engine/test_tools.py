@@ -132,7 +132,7 @@ def _tool(name: str, handler: Callable[[CallContext, dict[str, Any]], dict[str, 
 
 
 def test_catalogue_names_panels_actions_and_schemas():
-    # ported: McpToolCatalog ENTRIES (the seven MVP rows: name, schema, panel, action)
+    # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows, panel and action names)
     rows = [(t.name, t.panel, t.action, t.input_schema) for t in TOOLS]
     assert rows == [
         ("get_overview", "overview", False, NONE_SCHEMA),

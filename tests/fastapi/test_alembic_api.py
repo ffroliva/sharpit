@@ -62,7 +62,8 @@ def test_get_never_connects(tmp_path: Path):
     assert {state for _v, state in _states(database)} == {"Unknown"}
 
 
-def test_shape_matches_flyway_dto(tmp_path: Path):
+# ported: FlywayReport, FlywayDatabaseDto, FlywayMigrationDto (contract §8)
+def test_shape_keys_match_bootui(tmp_path: Path):
     body = _client([_engine(tmp_path, "b2")]).get(URL).json()
     assert list(body) == ["alembicPresent", "configPath", "total", "heads", "databases"]
     (database,) = body["databases"]
@@ -76,6 +77,9 @@ def test_shape_matches_flyway_dto(tmp_path: Path):
     ]  # fmt: skip
     assert (database["migrateEnabled"], database["cleanEnabled"]) == (False, False)
     assert database["migrateDisabledReason"] == database["cleanDisabledReason"] == NEVER_RUNS
+
+
+test_shape_matches_flyway_dto = test_shape_keys_match_bootui
 
 
 def test_refresh_reads_sync_engine(tmp_path: Path):

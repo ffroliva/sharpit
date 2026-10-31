@@ -385,8 +385,8 @@ def test_no_locals_or_args(loop_thread: LoopThread):
 
 
 def test_shape_keys_match_bootui(loop_thread: LoopThread):
-    # ThreadDumpReport, ThreadInfoDto, ThreadStateCountDto, PageMetadata record components, in order; tasks,
-    # taskCount and warnings are sharpit's additions (spec §17)
+    # ported: ThreadDumpReport, ThreadInfoDto, ThreadStateCountDto, PageMetadata
+    # (tasks, taskCount and warnings are sharpit additions, spec §17)
     assert REPORT_KEYS == (
         "available", "unavailableReason", "capturedAt", "totalThreads", "daemonThreads", "peakThreads",
         "startedThreadCount", "virtualThreadsSupported", "cpuTimeSupported", "deadlockDetected", "deadlockedThreadIds",

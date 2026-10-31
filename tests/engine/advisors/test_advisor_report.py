@@ -7,6 +7,7 @@ from sharpit.engine.advisors.report import apply_dismissals, evidence, sanitize_
 from sharpit.engine.advisors.rules import SEVERITIES
 
 
+# ported: SeverityOrder.occurrenceCounts
 def test_severity_counts_every_severity_zero_included():
     assert severity_counts([], SEVERITIES) == [{"severity": s, "count": 0} for s in SEVERITIES]
     counts = severity_counts([("HIGH", 3), ("LOW", 1), ("HIGH", 2), ("UNKNOWN", 9)], SEVERITIES)
@@ -36,6 +37,7 @@ def _report() -> dict[str, Any]:
     }
 
 
+# ported: RestApiScanner.applyDismissals
 def test_dismissal_recomputes_counts():
     report = _report()
     applied = apply_dismissals(report, {"RAPI-A", "RAPI-unrelated"})

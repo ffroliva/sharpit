@@ -134,7 +134,7 @@ def test_autocommit_from_isolation_level(tmp_path: Path):
 
 
 def test_shape_keys_match_bootui(tmp_path: Path):
-    # HikariPoolsReport, HikariPoolDto and HikariPoolSnapshotDto record components, in order
+    # ported: HikariPoolsReport, HikariPoolDto, HikariPoolSnapshotDto
     report = pools_report(_ctx(_queue_engine(tmp_path)))
     assert tuple(report) == ("hikariPresent", "total", "pools")
     assert (report["hikariPresent"], report["total"]) == (True, 1)

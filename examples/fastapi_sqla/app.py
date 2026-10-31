@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import tempfile
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -102,9 +101,9 @@ def create_app(db_dir: Path | None = None, **sharpit_options: Any) -> FastAPI:
 
     if db_dir is None:
         env_dir = os.environ.get("SHARPIT_SQLA_DB_DIR")
-        resolved_db_dir = Path(env_dir) if env_dir else Path(tempfile.mkdtemp(prefix="sharpit_sqla_"))
+        resolved_db_dir = Path(env_dir).resolve() if env_dir else Path(__file__).resolve().parent
     else:
-        resolved_db_dir = Path(db_dir)
+        resolved_db_dir = Path(db_dir).resolve()
     resolved_db_dir.mkdir(parents=True, exist_ok=True)
     db_file = (resolved_db_dir / "sample.db").resolve()
 

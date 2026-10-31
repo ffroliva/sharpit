@@ -79,3 +79,60 @@ def test_sqla_sample_pending_revision(tmp_path: Path) -> None:
         assert db_read["currentVersion"] == "0002"
         assert db_read["pending"] == 1
         assert db_read["applied"] == 2
+
+
+def test_db_path_matches_alembic_env_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SHARPIT_SQLA_DB_DIR", raising=False)
+    ini_path = Path(__file__).resolve().parent.parent / "examples" / "fastapi_sqla" / "alembic.ini"
+    expected_folder = ini_path.parent.resolve()
+    expected_db = (expected_folder / "sample.db").resolve()
+
+    app = create_app(show_banner=False)
+    app_db = Path(app.state.sync_engine.url.database).resolve()
+
+    from alembic.config import Config
+    from alembic.runtime.environment import EnvironmentContext
+    from alembic.script import ScriptDirectory
+    from sqlalchemy.engine import make_url
+
+    cfg = Config(str(ini_path))
+    script = ScriptDirectory.from_config(cfg)
+    env = EnvironmentContext(cfg, script, fn=lambda rev, ctx: [], as_sql=True)
+    with env:
+        script.run_env()
+    alembic_url = cfg.get_main_option("sqlalchemy.url")
+    assert alembic_url is not None
+    alembic_db = Path(make_url(alembic_url).database).resolve()
+
+    assert app_db == expected_db
+    assert alembic_db == expected_db
+    assert app_db == alembic_db
+
+
+def test_db_path_matches_alembic_env_when_override_set(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    custom_dir = (tmp_path / "custom_db").resolve()
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("SHARPIT_SQLA_DB_DIR", str(custom_dir))
+    ini_path = Path(__file__).resolve().parent.parent / "examples" / "fastapi_sqla" / "alembic.ini"
+    expected_db = (custom_dir / "sample.db").resolve()
+
+    app = create_app(show_banner=False)
+    app_db = Path(app.state.sync_engine.url.database).resolve()
+
+    from alembic.config import Config
+    from alembic.runtime.environment import EnvironmentContext
+    from alembic.script import ScriptDirectory
+    from sqlalchemy.engine import make_url
+
+    cfg = Config(str(ini_path))
+    script = ScriptDirectory.from_config(cfg)
+    env = EnvironmentContext(cfg, script, fn=lambda rev, ctx: [], as_sql=True)
+    with env:
+        script.run_env()
+    alembic_url = cfg.get_main_option("sqlalchemy.url")
+    assert alembic_url is not None
+    alembic_db = Path(make_url(alembic_url).database).resolve()
+
+    assert app_db == expected_db
+    assert alembic_db == expected_db
+    assert app_db == alembic_db
