@@ -12,4 +12,9 @@ describe('linkable', () => {
       expect(linkable(url), url).toBe(false);
     }
   });
+  it('refuses URLs that tab, CR or LF turn protocol-relative (browsers drop them while parsing)', () => {
+    for (const url of ['/\t/evil.example', '/\n/evil.example', '/\r\\evil.example', '/\r\n/evil.example']) {
+      expect(linkable(url), JSON.stringify(url)).toBe(false);
+    }
+  });
 });
