@@ -41,7 +41,7 @@ ROWS: list[tuple[str, str, dict[str, Any], str | None, str | None]] = [
     ("health", "health", {}, "absent", None),
     ("threads", "threads", {}, "absent", None),
     ("rest-api", "rest-api", {}, None, None),  # Task 10: always available
-    ("http-probe", "http-probe", {}, None, "Not built yet"),  # Task 11
+    ("http-probe", "http-probe", {}, None, None),
 ]
 
 
