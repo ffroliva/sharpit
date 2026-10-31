@@ -27,6 +27,57 @@ jobs:
       - run: uv run pyright
       - run: uv run pytest -q -n auto
 
+  coverage:
+    # Coverage for SonarCloud. The overhead budget test times capture on vs off, which the coverage
+    # tracer distorts; it runs in the plain test matrix above.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra test --python 3.13
+      - run: >-
+          uv run pytest -q -n auto --cov=sharpit --cov-report=xml
+          --deselect tests/fastapi/test_capture_overhead.py::test_request_overhead_budget
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 1
+
+  sonar:
+    needs: coverage
+    runs-on: ubuntu-latest
+    # Forked PRs and Dependabot runs get no SONAR_TOKEN; scan trusted pushes and internal PRs only.
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # blame and new-code detection need full history
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-xml
+      - name: Check SonarCloud availability
+        id: health
+        run: |
+          if curl -sf -m 10 https://sonarcloud.io/api/system/status | grep -q '"status":"UP"'; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SonarCloud is unreachable; scan skipped for this run (not a code failure)."
+          fi
+      - name: SonarCloud scan
+        if: steps.health.outputs.up == 'true'
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+
   lowest:
     runs-on: ubuntu-latest
     steps:

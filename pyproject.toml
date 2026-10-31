@@ -47,6 +47,7 @@ test = [
     "pytest>=8",
     "pytest-timeout>=2.3",
     "pytest-xdist>=3.6",
+    "pytest-cov>=5",
     "sqlalchemy[asyncio]>=2.0.38",
     "aiosqlite>=0.20",
     "alembic>=1.13",
