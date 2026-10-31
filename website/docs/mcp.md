@@ -54,11 +54,11 @@ Then point a streamable-HTTP MCP client at `http://127.0.0.1:8000/sharpit/api/mc
 ## What an agent cannot do
 
 There is no action tool. Over MCP an agent cannot change a logger level, clear a buffer, pause SQL recording or start
-a vulnerability or REST API scan. Those stay in the UI and the CLI endpoint (`POST /sharpit/api/cli/tools/<tool>`),
-so anything that changes state or sends data off the machine needs a person.
+a vulnerability or REST API scan. Those stay in the UI, or a plain HTTP call to
+`POST /sharpit/api/cli/tools/<tool>`, so anything that changes state or sends data off the machine needs a person.
 
 ## Agent skill
 
 An agent skill that teaches an AI assistant to install and use sharpit is in
-[`skills/sharpit`](https://github.com/ffroliva/sharpit/tree/main/skills/sharpit). The `sharpit` command-line client
-is planned and not shipped yet.
+[`skills/sharpit`](https://github.com/ffroliva/sharpit/tree/main/skills/sharpit). There is no `sharpit` command-line tool yet.
+The HTTP endpoint above is what a future command would call.
