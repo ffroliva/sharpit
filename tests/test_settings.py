@@ -319,6 +319,13 @@ def test_unknown_panel_id_rejected():
         load_settings({"panels": {"nope": {"enabled": False}}}, {})
 
 
+def test_unknown_panel_flag_rejected():
+    # a typo like "readonly" must not silently leave the panel writable
+    match = r"Unknown flag\(s\) for sharpit panel config: readonly; known flags: enabled, read_only"
+    with pytest.raises(ValueError, match=match):
+        load_settings({"panels": {"config": {"readonly": True}}}, {})
+
+
 @pytest.mark.parametrize("empty", [(), []])
 def test_explicit_empty_list_kwarg_clears_the_default(empty: tuple[str, ...] | list[str]):
     # code review #14: only a blank env/string value falls back; an explicit empty sequence means "none"

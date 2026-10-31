@@ -244,6 +244,11 @@ def _panels(kwargs: Mapping[str, object], environ: Mapping[str, str], warnings: 
             flags = {"enabled": base.enabled, "read_only": base.read_only}
         elif isinstance(base, Mapping):
             given_flags = cast("Mapping[str, object]", base)
+            bad = sorted(str(k) for k in given_flags if k not in flags)
+            if bad:
+                raise ValueError(
+                    f"Unknown flag(s) for sharpit panel {pid}: {', '.join(bad)}; known flags: enabled, read_only"
+                )
             flags.update({k: given_flags[k] for k in flags if k in given_flags})
         for key, failsafe in (("enabled", False), ("read_only", True)):
             env = f"SHARPIT_PANELS_{pid.upper().replace('-', '_')}_{key.upper()}"
