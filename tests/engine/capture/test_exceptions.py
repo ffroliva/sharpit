@@ -470,6 +470,71 @@ def test_reentrant_log_while_locked_no_deadlock():
     assert [g["message"] for g in _groups(store)] == ["outer"]  # the re-entrant record was dropped
 
 
+@pytest.mark.parametrize("operation", ["report", "detail", "set_status", "clear", "forget_request"])
+def test_reentrant_log_while_reading_no_deadlock(operation: str, monkeypatch: pytest.MonkeyPatch):
+    # every locked section, not only record(): a finalizer that logs while report() holds the lock must not deadlock
+    from sharpit.engine.capture import exceptions as module
+
+    store = _store()
+    _record(store, _raised(lambda: RuntimeError("outer")))
+    gid = _groups(store)[0]["id"]
+    inner = SlotsError("from finalizer")  # refuses attributes: its mark needs the fallback lock too
+
+    class Finalizer:
+        def __del__(self) -> None:
+            _record(store, inner)
+
+    owner, name = (module, "_FALLBACK_LOCK") if operation == "forget_request" else (store, "_lock")
+    original = getattr(owner, name)
+
+    class Hook:
+        def __enter__(self) -> None:
+            original.acquire()
+            Finalizer()
+            gc.collect()
+
+        def __exit__(self, *_: object) -> None:
+            original.release()
+
+    monkeypatch.setattr(owner, name, Hook())
+    calls: dict[str, Callable[[], object]] = {
+        "report": store.report,
+        "detail": lambda: store.detail(gid),
+        "set_status": lambda: store.set_status(gid, "RESOLVED"),
+        "clear": store.clear,
+        "forget_request": lambda: store.forget_request("r1"),
+    }
+    done = threading.Event()
+    worker = threading.Thread(target=lambda: (calls[operation](), done.set()), daemon=True)
+    worker.start()
+    worker.join(5)
+    assert done.is_set()
+
+
+def test_fallback_keeps_no_reference_to_the_exception():
+    # spec decision log: the fallback stores the id and the mark only; a strong reference keeps frames alive
+    import sys
+
+    exc = SlotsError("refuses attributes")
+    before = sys.getrefcount(exc)
+    mark_seen(exc, None, "_ref")
+    assert sys.getrefcount(exc) == before
+
+
+def test_capped_frames_keep_the_application_location():
+    # location and applicationException come from the same uncapped walk as the fingerprint
+    import json
+
+    store = _store(frames=1)
+    exc = _raised(lambda: json.loads("x"))
+    _record(store, exc)
+    group = _groups(store)[0]
+    assert group["applicationException"] is True
+    assert group["location"] is not None and group["location"].startswith(f"{__name__}.test_capped_frames")
+    detail = store.detail(group["id"])
+    assert detail is not None and len(detail["frames"]) == 1
+
+
 def test_marks_are_per_store():
     # two installed contexts (or a leftover handler of an earlier app) each record the exception once
     first, second = _store(), _store()

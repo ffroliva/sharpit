@@ -16,6 +16,7 @@ import threading
 import time
 import traceback
 from collections import deque
+from collections.abc import Generator
 from typing import Any, cast
 
 from sharpit.engine.capture.correlation import RequestInfo
@@ -33,28 +34,40 @@ GROUP_KEYS = (
 )  # fmt: skip
 
 _FALLBACK_MAX = 64
-# exceptions that refuse attributes: (id, store slot) -> (exception, mark)
-_FALLBACK: dict[tuple[int, str], tuple[BaseException, str]] = {}
+# exceptions that refuse attributes: (id, store slot) -> mark; no reference, so frames are not kept alive (spec §7.2)
+_FALLBACK: dict[tuple[int, str], str] = {}
 _FALLBACK_LOCK = threading.Lock()
+# set while this thread holds a store or fallback lock: a record from a finalizer then is dropped, not deadlocked
+_BUSY = threading.local()
 _TOKENS = itertools.count()
 _SLOTS = itertools.count()
+
+
+@contextlib.contextmanager
+def _guarded(lock: threading.Lock) -> Generator[None]:
+    prior = getattr(_BUSY, "on", False)
+    _BUSY.on = True
+    try:
+        with lock:
+            yield
+    finally:
+        _BUSY.on = prior
 
 
 def _mark(exc: BaseException, slot: str) -> str | None:
     mark = getattr(exc, f"__sharpit_seen{slot}__", None)
     if isinstance(mark, str):
         return mark
-    entry = _FALLBACK.get((id(exc), slot))
-    return entry[1] if entry is not None and entry[0] is exc else None
+    return _FALLBACK.get((id(exc), slot))
 
 
 def _set_mark(exc: BaseException, slot: str, mark: str) -> None:
     try:
         setattr(exc, f"__sharpit_seen{slot}__", mark)
     except (AttributeError, TypeError):
-        with _FALLBACK_LOCK:
+        with _guarded(_FALLBACK_LOCK):
             _FALLBACK.pop((id(exc), slot), None)
-            _FALLBACK[(id(exc), slot)] = (exc, mark)
+            _FALLBACK[(id(exc), slot)] = mark
             while len(_FALLBACK) > _FALLBACK_MAX:
                 del _FALLBACK[next(iter(_FALLBACK))]
 
@@ -105,9 +118,9 @@ def _chosen(frames: list[dict[str, Any]]) -> dict[str, Any] | None:
     return next((f for f in frames if f["applicationFrame"]), frames[0] if frames else None)
 
 
-def fingerprint(exc: BaseException) -> str:
-    """The class and the place it came from; equal fingerprints share a group."""
-    frame = _chosen(_frames(exc))
+def fingerprint(exc: BaseException, frames: list[dict[str, Any]] | None = None) -> str:
+    """The class and the place it came from (``frames``: the uncapped walk); equal fingerprints share a group."""
+    frame = _chosen(_frames(exc) if frames is None else frames)
     name = _class_name(exc)
     return name if frame is None else f"{name}\n{frame['declaringClass']}:{frame['methodName']}:{frame['lineNumber']}"
 
@@ -197,7 +210,6 @@ class ExceptionStore:
         self.changes = ChangeStream()
         self._groups: dict[str, _Group] = {}
         self._lock = threading.Lock()
-        self._busy = threading.local()  # a record from a finalizer while this thread holds the lock is dropped
         self._order = itertools.count(1)
         self._slot = f"_{next(_SLOTS)}"  # marks are per store: two installed apps each record an exception once
 
@@ -221,15 +233,11 @@ class ExceptionStore:
         thread: str | None,
         message_override: str | None = None,
     ) -> None:
-        if not isinstance(exc, Exception) or getattr(self._busy, "on", False):  # CancelledError, KeyboardInterrupt
+        if not isinstance(exc, Exception) or getattr(_BUSY, "on", False):  # CancelledError, KeyboardInterrupt
             return
-        self._busy.on = True
-        try:
-            if not mark_seen(exc, request.id if request is not None else None, self._slot):
-                return
-            self._record(exc, source, request, thread, message_override)
-        finally:
-            self._busy.on = False
+        if not mark_seen(exc, request.id if request is not None else None, self._slot):
+            return
+        self._record(exc, source, request, thread, message_override)
         self._signal()
 
     def _record(
@@ -242,7 +250,8 @@ class ExceptionStore:
     ) -> None:
         leaves = _leaves(exc)
         exc, extra = (leaves[0], leaves[1:]) if leaves else (exc, [])
-        frames = _frames(exc, self.max_frames)
+        walked = _frames(exc)  # one uncapped walk: fingerprint, location and applicationException agree
+        frames = walked[: self.max_frames]
         causes: list[dict[str, Any]] = []
         for cause in _causes(exc, extra):
             cause_frames = _frames(cause, self.max_frames)
@@ -257,8 +266,8 @@ class ExceptionStore:
         message = self._text(exc)
         if message is None and message_override:
             message = self._message(message_override)
-        key = fingerprint(exc)
-        chosen = _chosen(frames)
+        key = fingerprint(exc, walked)
+        chosen = _chosen(walked)
         location = None
         if chosen is not None:
             location = f"{chosen['declaringClass']}.{chosen['methodName']}({chosen['fileName']}:{chosen['lineNumber']})"
@@ -273,7 +282,7 @@ class ExceptionStore:
             "traceId": request.id if request else None,
         }
         gid = hashlib.sha256(key.encode()).hexdigest()[:16]
-        with self._lock:
+        with _guarded(self._lock):
             group = self._groups.get(gid)
             if group is None:
                 group = self._groups[gid] = _Group(gid, _class_name(exc), now_ms)
@@ -281,7 +290,7 @@ class ExceptionStore:
                 group.status = "OPEN"
                 group.regressions += 1
             group.message, group.frames, group.causes = message, frames, causes
-            group.location, group.application = location, any(f["applicationFrame"] for f in frames)
+            group.location, group.application = location, chosen is not None and chosen["applicationFrame"]
             group.last_seen, group.order = now_ms, next(self._order)
             group.count += 1
             group.occurrences.appendleft(occurrence)
@@ -291,7 +300,7 @@ class ExceptionStore:
                 del self._groups[min(self._groups.values(), key=lambda g: g.order).id]
 
     def report(self) -> dict[str, Any]:
-        with self._lock:
+        with _guarded(self._lock):
             groups = sorted(self._groups.values(), key=lambda g: g.order, reverse=True)
             summaries = [g.summary() for g in groups]
             total = sum(g.count for g in groups)
@@ -304,7 +313,7 @@ class ExceptionStore:
         }
 
     def detail(self, gid: str) -> dict[str, Any] | None:
-        with self._lock:
+        with _guarded(self._lock):
             group = self._groups.get(gid)
             if group is None:
                 return None
@@ -321,7 +330,7 @@ class ExceptionStore:
         if status not in STATUSES:
             shown = "null" if value is None else value
             raise ValueError(f"Invalid status '{shown}'; expected one of OPEN, ACKNOWLEDGED, RESOLVED")
-        with self._lock:
+        with _guarded(self._lock):
             group = self._groups.get(gid)
             if group is None:
                 return None
@@ -331,14 +340,14 @@ class ExceptionStore:
         return updated
 
     def clear(self) -> None:
-        with self._lock:
+        with _guarded(self._lock):
             self._groups.clear()
         self._signal()
 
     def forget_request(self, request_id: str) -> None:
         """Request end: drop the fallback marks of exceptions that refuse attributes."""
-        with _FALLBACK_LOCK:
-            for key in [k for k, (_, mark) in _FALLBACK.items() if k[1] == self._slot and mark == request_id]:
+        with _guarded(_FALLBACK_LOCK):
+            for key in [k for k, mark in _FALLBACK.items() if k[1] == self._slot and mark == request_id]:
                 del _FALLBACK[key]
 
     def _signal(self) -> None:
