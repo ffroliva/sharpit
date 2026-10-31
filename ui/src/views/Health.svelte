@@ -32,7 +32,10 @@
   $effect(() => untrack(() => void refresh()));
 
   const cls = (status: string) => (status === 'UP' ? 'ok' : status === 'DOWN' ? 'danger' : status === 'OUT_OF_SERVICE' ? 'warn' : 'muted');
-  const checkedAt = $derived(tree.data?.details?.checkedAt);
+  // the server sets checkedAt on leaf checks only, so take the newest one in the tree
+  const newest = (n: HealthNode): number =>
+    Math.max(typeof n.details?.checkedAt === 'number' ? n.details.checkedAt : -Infinity, ...n.components.map(newest));
+  const checkedAt = $derived(tree.data ? newest(tree.data) : -Infinity);
   const shown = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 </script>
 
@@ -55,7 +58,7 @@
   error={tree.error}
   onretry={tree.reload}
   notice={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
-  count={typeof checkedAt === 'number' ? `last run ${clock(checkedAt)}` : 'never run'}
+  count={Number.isFinite(checkedAt) ? `last run ${clock(checkedAt)}` : 'never run'}
 >
   {#snippet controls()}
     <button class="primary run" onclick={refresh} disabled={panel.readOnly || running} title={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : undefined}>Run checks</button>

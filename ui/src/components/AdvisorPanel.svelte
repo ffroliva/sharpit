@@ -69,6 +69,7 @@
   async function scan() {
     if (scanning || scanBlocked) return;
     scanning = true;
+    closeViolations(); // the open rule's rows belong to the old scan
     busy = null;
     scanError = null;
     try {
@@ -99,24 +100,39 @@
   let violations = $state<string[]>([]);
   let hasMore = $state(false);
   let violationError = $state<string | null>(null);
+  let paging = $state(false);
+  let seq = 0; // a page whose request is no longer the latest (closed, reopened, rescanned) is dropped
   async function more(ruleId: string, offset: number) {
-    if (!loadViolations) return;
+    if (!loadViolations || paging) return;
+    const mine = seq;
     violationError = null;
+    paging = true;
     try {
       const page = await loadViolations(ruleId, offset);
-      if (openRule !== ruleId) return; // closed or switched meanwhile
+      if (mine !== seq) return;
       violations = [...violations, ...page.violations];
       hasMore = page.page.hasMore;
     } catch (e) {
-      violationError = errorText(e);
+      if (mine === seq) violationError = errorText(e);
+    } finally {
+      if (mine === seq) paging = false;
     }
+  }
+  function closeViolations() {
+    seq++;
+    openRule = null;
+    violations = [];
+    hasMore = false;
+    paging = false;
+    violationError = null;
   }
   function view(ruleId: string) {
     const opening = openRule !== ruleId;
-    openRule = opening ? ruleId : null;
-    violations = [];
-    hasMore = false;
-    if (opening) void more(ruleId, 0);
+    closeViolations();
+    if (opening) {
+      openRule = ruleId;
+      void more(ruleId, 0);
+    }
   }
 
   const tone = (severity: string) =>
@@ -220,7 +236,7 @@
       <div class="violations">
         {#if violationError}<p class="danger sm" role="alert">{violationError}</p>{/if}
         <ol class="mono sm">{#each violations as v}<li>{v}</li>{/each}</ol>
-        {#if hasMore}<button onclick={() => more(r.id, violations.length)}>Load more</button>{/if}
+        {#if hasMore}<button disabled={paging} onclick={() => more(r.id, violations.length)}>Load more</button>{/if}
       </div>
     {/if}
   </article>
