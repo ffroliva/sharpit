@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:  # later tasks add these modules; the adapter owns the wiring
     from sharpit.engine.capture.exceptions import ExceptionStore
@@ -14,7 +14,12 @@ if TYPE_CHECKING:  # later tasks add these modules; the adapter owns the wiring
     from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
     from sharpit.engine.capture.streams import ChangeStream, StreamSlots
     from sharpit.engine.sqla import EngineRegistry  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
-    from sharpit.fastapi.capture import CaptureWiring
+
+
+class CaptureHooks(Protocol):
+    """The port the engine reports hook failures through; the adapter's ``CaptureWiring`` implements it."""
+
+    def hook_failed(self, hook: str, exc: BaseException) -> None: ...
 
 
 @dataclass(eq=False)
@@ -26,7 +31,7 @@ class CaptureState:
     stream_slots: StreamSlots | None = None
     engine_registry: EngineRegistry | None = None
     loop: asyncio.AbstractEventLoop | None = None
-    wiring: CaptureWiring | None = None
+    wiring: CaptureHooks | None = None
     activity_changes: ChangeStream | None = None
 
 

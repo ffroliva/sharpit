@@ -139,6 +139,11 @@ def _record_logged(store: ExceptionStore, record: logging.LogRecord) -> None:
         store.record(exc, "log", REQUEST.get(), record.threadName, message_override=record.getMessage())
 
 
+def wiring_of(ctx: SharpitContext) -> CaptureWiring | None:
+    """The context's wiring as this adapter's own type (the engine only knows the ``CaptureHooks`` port)."""
+    return cast("CaptureWiring | None", ctx.capture.wiring)
+
+
 class CaptureWiring:
     """Owns which capture hooks are attached for one context; every method is idempotent.
 
@@ -268,7 +273,7 @@ class CaptureMiddleware:
         self.ctx = ctx
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        wiring = self.ctx.capture.wiring
+        wiring = wiring_of(self.ctx)
         if scope["type"] != "http" or wiring is None or wiring.detached:
             await self.app(scope, receive, send)
             return

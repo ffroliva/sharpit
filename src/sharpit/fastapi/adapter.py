@@ -49,7 +49,7 @@ from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
 from sharpit.engine.singleflight import ActionBusy
-from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, CaptureWiring
+from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, CaptureWiring, wiring_of
 from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
@@ -76,8 +76,8 @@ class SharpitHandle:
 
     def uninstall_capture(self) -> None:
         """Detach every capture hook, as lifespan shutdown does (for tests and apps run without lifespan)."""
-        if self.context.capture.wiring is not None:
-            self.context.capture.wiring.detach(self.context)
+        if (wiring := wiring_of(self.context)) is not None:
+            wiring.detach(self.context)
 
 
 class SharpitMount(Mount):
@@ -181,7 +181,7 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     reasons: dict[str, str | None] = dict.fromkeys(_NOT_BUILT, "Not built yet")
     exchanges = ctx.capture.exchanges
     reasons["http-exchanges"] = exchanges.unavailable_reason if exchanges is not None else None
-    wiring = ctx.capture.wiring
+    wiring = wiring_of(ctx)
     on_root = ctx.capture.log_tail is None or (wiring is not None and wiring.log_handler_on_root())
     reasons["log-tail"] = None if on_root else LOG_TAIL_DETACHED_REASON
     store = ctx.capture.exceptions
@@ -266,7 +266,7 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         body = cast("dict[str, Any]", parsed_body)
         incoming_root = request.scope.get("root_path", "")
         mount_path = settings.path.rstrip("/")
-        host_root = incoming_root[: -len(mount_path)] if incoming_root.endswith(mount_path) else incoming_root
+        host_root = incoming_root.removesuffix(mount_path)
         try:
             probe_request = probe_engine.validate_probe(body, settings.path, host_root.rstrip("/"))
         except BadRequest as exc:

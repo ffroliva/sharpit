@@ -78,6 +78,24 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
+## Architecture rules
+
+sharpit is a modular monolith with one port at the framework edge. `tests/engine/test_import_boundary.py` enforces
+these on every run (a planted violation proves each rule still bites); a failing rule is a design question, not a test
+to loosen. Change a rule only in that test and here, in the same PR, with the reason in the PR body.
+
+1. **Framework-free engine.** `engine/` never imports `fastapi` or `starlette` (a `TYPE_CHECKING` block is allowed).
+2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi` or `sharpit.ui`, not even for a type. When
+   the engine needs something from an adapter, it declares a `Protocol` port (`AppIntrospector` in `engine/spi.py`,
+   `CaptureHooks` in `engine/capture/`) and the adapter implements it.
+3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
+   the engine (`context`, `paging`, `spi`, `singleflight`, ...).
+4. **Gatekeepers.** One named file per optional or network library: SQLAlchemy only in `engine/sqla.py`,
+   `pydantic_settings` only in `engine/collectors/config/settings_source.py`, `urllib.request`/`http.client` only in
+   the OSV and EPSS clients under `engine/collectors/vulns/`. `alembic`, `socket` and `ssl` are imported nowhere.
+5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
+   SQL listener) keep their overhead budget tests; a budget is never raised to pass.
+
 ## Workflow
 
 - **Worktree per change**, branched from current `origin/main` (`superpowers:using-git-worktrees`). Never work on
