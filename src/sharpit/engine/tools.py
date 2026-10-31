@@ -313,7 +313,7 @@ def _check_arguments(args: object) -> dict[str, Any]:
     if not isinstance(args, dict):
         raise RpcError(INVALID_PARAMS, "Tool arguments must be an object")
     checked = cast("dict[str, Any]", args)
-    for key, minimum in (("query", None), ("id", None), ("limit", 1), ("scanId", None), ("offset", 0)):
+    for key, minimum in (("query", None), ("limit", 1)):  # the only arguments any sharpit tool takes
         if key not in checked:
             continue
         value = checked[key]
@@ -359,7 +359,7 @@ def call_tool(
 
 # --- CLI (CliService, CliOutcomes) ----------------------------------------------------------------------------------
 
-_CLI_STATUS = {SERVER_AT_CAPACITY: 429, TOOL_TIMEOUT: 504, SERVER_DISABLED: 503}
+_CLI_STATUS = {SERVER_AT_CAPACITY: 429, TOOL_TIMEOUT: 504}  # a disabled CLI answers 503 before any call
 
 
 def _panel_read_only(ctx: SharpitContext, panel: str) -> bool:
@@ -387,7 +387,7 @@ def cli_status(ctx: SharpitContext, api_path: str | None = None) -> dict[str, An
     for tool in TOOLS if settings.cli_enabled else ():
         arguments = list(tool.input_schema["properties"])
         info = tool_info(ctx, tool)
-        infos.append(
+        infos.append(  # field by field: BootUI's CliToolInfo key order, which test_cli_status_shape pins
             {
                 "name": tool.name,
                 "command": COMMANDS[tool.name],

@@ -134,14 +134,14 @@ def test_mcp_call_action_tool_unknown_32602():
         ("get_overview", {"b": 1, "a": 2}, "Unexpected tool arguments: a, b"),
         ("get_config", {"query": 1}, "Argument 'query' must be a string"),
         ("get_config", {"query": None}, "Argument 'query' must be a string"),
-        ("get_config", {"id": 1}, "Argument 'id' must be a string"),
+        ("get_config", {"id": 1}, "Unexpected tool argument: id"),  # no sharpit tool takes id, scanId or offset
         ("get_config", {"limit": "5"}, "Argument 'limit' must be an integer"),
         ("get_config", {"limit": True}, "Argument 'limit' must be an integer"),
         ("get_config", {"limit": 1.5}, "Argument 'limit' must be an integer"),
         ("get_config", {"limit": 2**31}, "Argument 'limit' must be an integer"),
         ("get_config", {"limit": 0}, "Argument 'limit' must be at least 1"),  # ported: rejectsNonPositiveLimit
-        ("get_config", {"scanId": 1}, "Argument 'scanId' must be a string"),
-        ("get_config", {"offset": -1}, "Argument 'offset' must be at least 0"),
+        ("get_config", {"scanId": 1}, "Unexpected tool argument: scanId"),
+        ("get_config", {"offset": -1}, "Unexpected tool argument: offset"),
     ],
 )
 def test_invalid_params(name: Any, args: Any, message: str):
