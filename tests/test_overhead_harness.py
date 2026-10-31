@@ -82,8 +82,9 @@ def test_a_result_within_budget_passes_and_leaves_one_record(records: tuple[Path
 
 def test_a_result_over_budget_fails_but_still_leaves_its_record(records: tuple[Path, Path]):
     log, summary = records
+    measured = result(25.0)
     with pytest.raises(AssertionError):
-        check_budget("hook", result(25.0), BUDGET, "us", 1.0)
+        check_budget("hook", measured, BUDGET, "us", 1.0)
     assert log.exists(), "a failed budget check wrote no log line"  # an assertion, not a crash, when it breaks
     assert summary.exists(), "a failed budget check wrote no summary row"
     lines = log.read_text(encoding="utf-8").splitlines()
@@ -97,8 +98,9 @@ def test_a_result_over_budget_fails_but_still_leaves_its_record(records: tuple[P
 @pytest.mark.parametrize(("overhead", "suspected"), [(15.0, True), (20.0, True), (21.0, False), (40.0, False)])
 def test_a_busy_machine_is_suspected_only_when_the_overshoot_is_within_the_noise(overhead: float, suspected: bool):
     """Noise is 10 and the budget 10: an overshoot of 5 and exactly 10 are within it, 11 and 30 are not."""
+    measured = result(overhead)
     with pytest.raises(AssertionError) as failure:
-        check_budget("hook", result(overhead), BUDGET, "us", 1.0)
+        check_budget("hook", measured, BUDGET, "us", 1.0)
     assert (SUSPECT in str(failure.value)) is suspected
 
 
@@ -113,6 +115,7 @@ def test_nothing_is_written_when_neither_variable_is_set(monkeypatch: pytest.Mon
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     monkeypatch.chdir(tmp_path)
     check_budget("hook", result(5.0), BUDGET, "us", 1.0)
+    measured = result(25.0)
     with pytest.raises(AssertionError):
-        check_budget("hook", result(25.0), BUDGET, "us", 1.0)
+        check_budget("hook", measured, BUDGET, "us", 1.0)
     assert list(tmp_path.iterdir()) == []
