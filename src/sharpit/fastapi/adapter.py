@@ -157,6 +157,28 @@ class GuardMiddleware:
         return guard.decide_guard(facts, settings, self.ctx.token, gateway)
 
 
+# Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
+_NOT_BUILT = (
+    "activity",
+    "http-exchanges",
+    "exceptions",
+    "sql-trace",
+    "log-tail",
+    "alembic",
+    "database-connection-pools",
+    "health",
+    "threads",
+    "rest-api",
+    "http-probe",
+)
+
+
+def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
+    """Panel id -> why it is unavailable; an id that is absent or None is available."""
+    del ctx  # later tasks read the capture wiring and settings from it
+    return dict.fromkeys(_NOT_BUILT, "Not built yet")
+
+
 def _routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
@@ -187,7 +209,7 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
 
     def panels(_request: Request) -> Response:
         flags = {pid: (p.enabled, p.read_only) for pid, p in settings.panels.items()}
-        return json_response(panels_report(settings.read_only, flags, {}))
+        return json_response(panels_report(settings.read_only, flags, available_reasons(ctx)))
 
     def overview(request: Request) -> Response:
         return json_response(overview_dto(ctx, request.scope))

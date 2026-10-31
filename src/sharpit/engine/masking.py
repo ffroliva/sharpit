@@ -8,6 +8,7 @@ ASCII-only by default.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from enum import StrEnum
 
 MASK = "******"
@@ -71,14 +72,68 @@ def is_sensitive_key(name: str) -> bool:
     return any(p in lowered for p in DEFAULT_KEY_PATTERNS) or bool(_PASS_SEGMENT.search(lowered))
 
 
+# ---- text masking (0.2.0, spec §11) --------------------------------------------------------------------------------
+# userinfo (user:password@ or a bare key@) is replaced whole, before the token pass can swallow the URL
+_TEXT_USERINFO = re.compile(r"://[^/?#\s@]+@", re.ASCII)
+# "key": "value" (JSON); the value keeps its quotes so the text stays valid JSON
+_TEXT_JSON_PAIR = re.compile(r'("([^"\\]*)"\s*:\s*")((?:[^"\\]|\\.)*)(")')
+# key=value / key: value; an auth scheme word (Bearer abc) belongs to the value, quoted values keep their quotes
+_TEXT_PAIR = re.compile(
+    r"(?<![\w.-])([\w.-]+)(\s*[=:]\s*)"
+    r"(\"[^\"]*\"|'[^']*'|(?:(?:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
+    re.ASCII,
+)
+_TEXT_TOKEN = re.compile(r"\S+")
+_TOKEN_EDGES = re.compile(r"^([\"'(\[{<]*)(.*?)([\"')\]}>,;.:!?]*)$", re.DOTALL)
+# SQLAlchemy StatementError: "[parameters: ...]" runs to the last "]" on its line (bind tuples nest brackets)
+_SQL_PARAMETERS = re.compile(r"\[parameters: [^\n]*\]")
+_SQL_PARAMETERS_MASKED = f"[parameters: {MASK}]"
+
+
+def _mask_segments(path: str) -> str:
+    return "/".join(MASK if is_secret_value(seg) else seg for seg in path.split("/"))
+
+
+def _mask_pair(m: re.Match[str]) -> str:
+    if not is_sensitive_key(m.group(1)):
+        return m.group(0)
+    value = m.group(3)
+    quote = value[0] if value[:1] in ("'", '"') else ""
+    return f"{m.group(1)}{m.group(2)}{quote}{MASK}{quote}"
+
+
+def _mask_json_pair(m: re.Match[str]) -> str:
+    return f"{m.group(1)}{MASK}{m.group(4)}" if is_sensitive_key(m.group(2)) else m.group(0)
+
+
+def _mask_token(m: re.Match[str]) -> str:
+    edges = _TOKEN_EDGES.match(m.group(0))
+    assert edges is not None  # the pattern matches any string
+    lead, core, trail = edges.groups()
+    if not core or MASK in core:  # already masked by an earlier rule (userinfo, key=value)
+        return m.group(0)
+    if is_secret_value(core):
+        return f"{lead}{MASK}{trail}"
+    if "/" in core:  # a path such as an access-log "GET /reset/<jwt>"
+        return f"{lead}{_mask_segments(core)}{trail}"
+    return m.group(0)
+
+
+_SECRET_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key"})
+
+
 # ---- SecretMasker --------------------------------------------------------------------------------------------------
 class Masker:
     """Decides what the UI sees for a (name, value) pair under the live exposure policy."""
 
-    def __init__(self, exposure: Exposure, mask_secrets: bool, token: str | None = None) -> None:
+    def __init__(
+        self, exposure: Exposure, mask_secrets: bool, token: str | None = None, capture_parameters: bool = False
+    ) -> None:
         self._exposure = exposure
         self._mask_secrets = mask_secrets
         self._token = (token or "").strip()
+        # SQL bind values are never shown under METADATA_ONLY, whatever the capture setting
+        self.capture_parameters = capture_parameters and exposure is not Exposure.METADATA_ONLY
 
     def mask(self, name: str, value: object) -> tuple[object | None, bool]:
         """Return ``(display_value, masked)``."""
@@ -104,3 +159,36 @@ class Masker:
         if is_sensitive_key(name) or (isinstance(value, str) and is_secret_value(value)):
             return MASK, True
         return value, False
+
+    def mask_text(self, text: str | None) -> str | None:
+        """Mask secrets inside free text: log lines, exception messages, SQL errors (spec §11)."""
+        if text is None or self._exposure is Exposure.METADATA_ONLY:
+            return None
+        if self._token:
+            text = text.replace(self._token, MASK)
+        if self._exposure is Exposure.FULL:
+            return text
+        if not self.capture_parameters:
+            text = _SQL_PARAMETERS.sub(_SQL_PARAMETERS_MASKED, text)
+        if not self._mask_secrets:
+            return text
+        text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
+        text = _TEXT_JSON_PAIR.sub(_mask_json_pair, text)
+        text = _TEXT_PAIR.sub(_mask_pair, text)
+        return _TEXT_TOKEN.sub(_mask_token, text)
+
+    def mask_path(self, path: str) -> str:
+        """Replace each URL path segment that looks like a secret (a JWT in ``/reset/<jwt>``) with the mask."""
+        if self._token:
+            path = "/".join(MASK if self._token in seg else seg for seg in path.split("/"))
+        if self._exposure is Exposure.FULL or not self._mask_secrets:
+            return path
+        return _mask_segments(path)
+
+    def mask_header(self, name: str, values: Sequence[str]) -> tuple[list[str], bool]:
+        """Return ``(display_values, masked)`` for one HTTP header; credentials headers are masked by name."""
+        if self._exposure is Exposure.METADATA_ONLY:
+            return [], False
+        key = "authorization" if name.lower() in _SECRET_HEADERS else name  # mask() treats it as a sensitive key
+        shown = [self.mask(key, v) for v in values]
+        return [str(v) for v, _ in shown], any(masked for _, masked in shown)

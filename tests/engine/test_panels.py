@@ -3,7 +3,8 @@ from sharpit.engine.panels import PANELS, panel_for_api_path, panels_report
 RO = "sharpit is read-only via SHARPIT_READ_ONLY=true"
 
 
-def test_registry_order_titles_and_action_capability():
+def test_registry_rows_0_2_0():
+    # spec §13.1: MVP rows first, then the 0.2.0 rows; health is action-capable, threads and activity are not
     assert [(p.id, p.title, p.action_capable, p.api_prefix) for p in PANELS] == [
         ("overview", "Overview", None, None),
         ("config", "Configuration", False, "/config"),
@@ -13,6 +14,17 @@ def test_registry_order_titles_and_action_capability():
         ("vulnerabilities", "Vulnerabilities", True, "/vulnerabilities"),
         ("mcp-server", "MCP Server", True, "/mcp-server"),
         ("cli", "CLI", None, None),
+        ("activity", "Live Activity", False, "/activity"),
+        ("http-exchanges", "HTTP Exchanges", False, "/http-exchanges"),
+        ("exceptions", "Exceptions", True, "/exceptions"),
+        ("sql-trace", "SQL Trace", True, "/sql-trace"),
+        ("log-tail", "Log Tail", False, "/log-tail"),
+        ("alembic", "Alembic", True, "/alembic"),
+        ("database-connection-pools", "Database Connection Pools", False, "/database-connection-pools"),
+        ("health", "Health", True, "/health"),
+        ("threads", "Threads", False, "/threads"),
+        ("rest-api", "REST API", True, "/rest-api"),
+        ("http-probe", "HTTP Probe", True, "/http-probe"),
     ]
 
 
@@ -64,3 +76,9 @@ def test_mcp_not_under_mcp_server_prefix():
     assert panel_for_api_path("/mcp-server/x").id == "mcp-server"  # type: ignore[union-attr]
     assert panel_for_api_path("/loggersX") is None
     assert panel_for_api_path("/overview") is None
+
+
+def test_dismissed_rules_prefix_unchanged():
+    # /dismissed-rules stays a global write subject, owned by no panel prefix (spec §8 changes that in Task 9)
+    assert panel_for_api_path("/dismissed-rules") is None
+    assert panel_for_api_path("/dismissed-rules/V-1") is None

@@ -34,7 +34,10 @@ class SharpitContext:
 
     def __post_init__(self) -> None:
         self.masker = Masker(
-            self.settings.expose_values, self.settings.mask_secrets, self.settings.authentication_token
+            self.settings.expose_values,
+            self.settings.mask_secrets,
+            self.settings.authentication_token,
+            capture_parameters=self.settings.sql_trace_capture_parameters,
         )
 
     def lazy[T](self, key: str, factory: Callable[[], T]) -> T:

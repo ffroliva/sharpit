@@ -254,7 +254,150 @@ PROPERTIES = {
     "bootui.cli.max-results": ("cli_max_results", "14"),
     "bootui.cli.max-concurrent-calls": ("cli_max_concurrent_calls", "15"),
     "bootui.cli.execution-timeout": ("cli_execution_timeout", "16s"),
+    # 0.2.0 (spec §12)
+    "bootui.http-exchanges.max-exchanges": ("http_exchanges_max_exchanges", "17"),
+    "bootui.exceptions.max-groups": ("exceptions_max_groups", "18"),
+    "bootui.exceptions.max-occurrences-per-group": ("exceptions_max_occurrences_per_group", "19"),
+    "bootui.exceptions.max-stack-frames": ("exceptions_max_stack_frames", "20"),
+    "bootui.sql-trace.enabled": ("sql_trace_enabled", "false"),
+    "bootui.sql-trace.recording": ("sql_trace_recording", "false"),
+    "bootui.sql-trace.capture-parameters": ("sql_trace_capture_parameters", "true"),
+    "bootui.sql-trace.capture-call-site": ("sql_trace_capture_call_site", "false"),
+    "bootui.sql-trace.max-entries": ("sql_trace_max_entries", "21"),
+    "bootui.sql-trace.slow-query-threshold-millis": ("sql_trace_slow_query_threshold_millis", "22"),
+    "bootui.sql-trace.max-sql-length": ("sql_trace_max_sql_length", "23"),
+    "bootui.sql-trace.max-parameter-length": ("sql_trace_max_parameter_length", "24"),
+    "bootui.sql-trace.n-plus-one-threshold": ("sql_trace_n_plus_one_threshold", "25"),
+    "bootui.activity.max-entries": ("activity_max_entries", "26"),
+    "bootui.activity.request-slow-threshold-ms": ("activity_request_slow_threshold_ms", "27"),
+    "bootui.activity.n-plus-one-threshold": ("activity_n_plus_one_threshold", "28"),
+    "bootui.log-tail.max-lines": ("log_tail_max_lines", "29"),
+    "bootui.log-tail.max-bytes": ("log_tail_max_bytes", "30"),
+    "bootui.alembic.config": ("alembic_config", "db/alembic.ini"),
+    "bootui.alembic.timeout": ("alembic_timeout", "31s"),
+    "bootui.health.timeout": ("health_timeout", "32s"),
+    "bootui.threads.max-stack-frames": ("threads_max_stack_frames", "33"),
+    "bootui.advisors.max-retained-violations": ("advisors_max_retained_violations", "34"),
+    "bootui.stream.max-seconds": ("stream_max_seconds", "35s"),
 }
+
+NEW_DEFAULTS_0_2_0: dict[str, Any] = {
+    "http_exchanges_max_exchanges": 200,
+    "exceptions_max_groups": 100,
+    "exceptions_max_occurrences_per_group": 25,
+    "exceptions_max_stack_frames": 50,
+    "sql_trace_enabled": True,
+    "sql_trace_recording": True,
+    "sql_trace_capture_parameters": False,
+    "sql_trace_capture_call_site": True,
+    "sql_trace_max_entries": 200,
+    "sql_trace_slow_query_threshold_millis": 100,
+    "sql_trace_max_sql_length": 2000,
+    "sql_trace_max_parameter_length": 200,
+    "sql_trace_n_plus_one_threshold": 5,
+    "activity_max_entries": 200,
+    "activity_request_slow_threshold_ms": 1000,
+    "activity_n_plus_one_threshold": 5,
+    "log_tail_max_lines": 500,
+    "log_tail_max_bytes": 1048576,
+    "alembic_config": "alembic.ini",
+    "alembic_timeout": 5.0,
+    "health_timeout": 5.0,
+    "threads_max_stack_frames": 64,
+    "advisors_max_retained_violations": 10000,
+    "stream_max_seconds": 3.0,
+}
+
+
+def test_new_settings_defaults():
+    s = load_settings({}, {})
+    assert {name: getattr(s, name) for name in NEW_DEFAULTS_0_2_0} == NEW_DEFAULTS_0_2_0
+    assert s.warnings == ()
+
+
+def test_new_settings_env_names():
+    # every spec §12 env var is in the env-name table, so test_env_name_table checks its spelling and parsing
+    covered = {field for field, _ in PROPERTIES.values()}
+    assert set(NEW_DEFAULTS_0_2_0) <= covered
+
+
+# spec §12 fail-safe column: (field, env name, invalid raw, fail-safe value)
+NEW_FAIL_SAFE: list[tuple[str, str, str, Any]] = [
+    ("http_exchanges_max_exchanges", "SHARPIT_HTTP_EXCHANGES_MAX_EXCHANGES", "lots", 200),
+    ("exceptions_max_groups", "SHARPIT_EXCEPTIONS_MAX_GROUPS", "0", 100),
+    ("exceptions_max_occurrences_per_group", "SHARPIT_EXCEPTIONS_MAX_OCCURRENCES_PER_GROUP", "-1", 25),
+    ("exceptions_max_stack_frames", "SHARPIT_EXCEPTIONS_MAX_STACK_FRAMES", "x", 50),
+    ("sql_trace_enabled", "SHARPIT_SQL_TRACE_ENABLED", "maybe", False),
+    ("sql_trace_recording", "SHARPIT_SQL_TRACE_RECORDING", "maybe", False),
+    ("sql_trace_capture_parameters", "SHARPIT_SQL_TRACE_CAPTURE_PARAMETERS", "maybe", False),
+    ("sql_trace_capture_call_site", "SHARPIT_SQL_TRACE_CAPTURE_CALL_SITE", "maybe", True),
+    ("sql_trace_max_entries", "SHARPIT_SQL_TRACE_MAX_ENTRIES", "many", 200),
+    ("sql_trace_slow_query_threshold_millis", "SHARPIT_SQL_TRACE_SLOW_QUERY_THRESHOLD_MILLIS", "-5", 100),
+    ("sql_trace_max_sql_length", "SHARPIT_SQL_TRACE_MAX_SQL_LENGTH", "long", 2000),
+    ("sql_trace_max_parameter_length", "SHARPIT_SQL_TRACE_MAX_PARAMETER_LENGTH", "0", 200),
+    ("sql_trace_n_plus_one_threshold", "SHARPIT_SQL_TRACE_N_PLUS_ONE_THRESHOLD", "x", 5),
+    ("activity_max_entries", "SHARPIT_ACTIVITY_MAX_ENTRIES", "x", 200),
+    ("activity_request_slow_threshold_ms", "SHARPIT_ACTIVITY_REQUEST_SLOW_THRESHOLD_MS", "slow", 1000),
+    ("activity_n_plus_one_threshold", "SHARPIT_ACTIVITY_N_PLUS_ONE_THRESHOLD", "-2", 5),
+    ("log_tail_max_lines", "SHARPIT_LOG_TAIL_MAX_LINES", "x", 500),
+    ("log_tail_max_bytes", "SHARPIT_LOG_TAIL_MAX_BYTES", "x", 1048576),
+    ("alembic_timeout", "SHARPIT_ALEMBIC_TIMEOUT", "soon", 5.0),
+    ("health_timeout", "SHARPIT_HEALTH_TIMEOUT", "0s", 5.0),
+    ("threads_max_stack_frames", "SHARPIT_THREADS_MAX_STACK_FRAMES", "x", 64),
+    ("advisors_max_retained_violations", "SHARPIT_ADVISORS_MAX_RETAINED_VIOLATIONS", "x", 10000),
+    ("stream_max_seconds", "SHARPIT_STREAM_MAX_SECONDS", "forever", 3.0),
+]
+
+
+@pytest.mark.parametrize(("field", "env", "raw", "expected"), NEW_FAIL_SAFE, ids=[f[0] for f in NEW_FAIL_SAFE])
+def test_new_settings_fail_safe(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field) == expected
+    assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
+
+
+def test_invalid_sql_trace_enabled_kwarg_fails_safe_even_over_default():
+    s = load_settings({"sql_trace_enabled": "maybe"}, {})
+    assert s.sql_trace_enabled is False
+
+
+def test_alembic_config_fail_safe_is_unset():
+    # spec §12: an unusable ini path is "unset" (no Alembic panel), not the default "alembic.ini"
+    s = load_settings({"alembic_config": 5}, {})
+    assert s.alembic_config is None
+    assert "Ignoring invalid SHARPIT_ALEMBIC_CONFIG value '5'" in s.warnings
+
+
+def test_zero_threshold_allowed():
+    s = load_settings({}, {"SHARPIT_SQL_TRACE_SLOW_QUERY_THRESHOLD_MILLIS": "0"})
+    assert (s.sql_trace_slow_query_threshold_millis, s.warnings) == (0, ())
+
+
+@pytest.mark.parametrize("field", ["sql_trace_n_plus_one_threshold", "activity_n_plus_one_threshold"])
+@pytest.mark.parametrize(("raw", "expected"), [("0", 2), ("1", 2), ("2", 2), ("7", 7)])
+def test_n_plus_one_min_two(field: str, raw: str, expected: int):
+    s = load_settings({}, {"SHARPIT_" + field.upper(): raw})
+    assert (getattr(s, field), s.warnings) == (expected, ())
+
+
+def test_log_tail_max_bytes_zero_rejected():
+    s = load_settings({"log_tail_max_bytes": 0}, {})
+    assert s.log_tail_max_bytes == 1048576
+    assert "Ignoring invalid SHARPIT_LOG_TAIL_MAX_BYTES value '0'" in s.warnings
+
+
+def test_new_panel_env_flags():
+    s = load_settings({}, {"SHARPIT_PANELS_SQL_TRACE_READ_ONLY": "true", "SHARPIT_PANELS_HTTP_PROBE_ENABLED": "no"})
+    assert s.panels["sql-trace"] == PanelSettings(enabled=True, read_only=True)
+    assert s.panels["http-probe"] == PanelSettings(enabled=False, read_only=False)
+    assert s.panels["database-connection-pools"] == PanelSettings()
+
+
+def test_alembic_config_env_overrides_kwarg():
+    assert load_settings({"alembic_config": "a.ini"}, {}).alembic_config == "a.ini"
+    s = load_settings({"alembic_config": "a.ini"}, {"SHARPIT_ALEMBIC_CONFIG": " b.ini "})
+    assert (s.alembic_config, s.warnings) == ("b.ini", ())
+    assert load_settings({"alembic_config": "a.ini"}, {"SHARPIT_ALEMBIC_CONFIG": ""}).alembic_config == "a.ini"
 
 
 def _env_name(prop: str) -> str:

@@ -113,10 +113,51 @@ def test_panels_platform_fastapi_and_ids():
         "vulnerabilities",
         "mcp-server",
         "cli",
+        "activity",
+        "http-exchanges",
+        "exceptions",
+        "sql-trace",
+        "log-tail",
+        "alembic",
+        "database-connection-pools",
+        "health",
+        "threads",
+        "rest-api",
+        "http-probe",
     ]
     loggers = body["panels"][3]
     assert loggers["readOnly"] is True
     assert loggers["readOnlyReason"] == "Panel is read-only via SHARPIT_PANELS_LOGGERS_READ_ONLY=true"
+
+
+# Ruling C1: each later task removes its own id here in the commit that adds that panel's real availability test.
+NOT_BUILT = (
+    "activity",
+    "http-exchanges",
+    "exceptions",
+    "sql-trace",
+    "log-tail",
+    "alembic",
+    "database-connection-pools",
+    "health",
+    "threads",
+    "rest-api",
+    "http-probe",
+)
+
+
+@pytest.mark.parametrize("panel_id", NOT_BUILT)
+def test_new_panels_not_built_yet(panel_id: str):
+    body = _client(_app()).get("/sharpit/api/panels").json()
+    panel = next(p for p in body["panels"] if p["id"] == panel_id)
+    assert (panel["available"], panel["unavailableReason"]) == (False, "Not built yet")
+
+
+def test_mvp_panels_stay_available():
+    body = _client(_app()).get("/sharpit/api/panels").json()
+    mvp = [p for p in body["panels"] if p["id"] not in NOT_BUILT]
+    assert len(mvp) == 8
+    assert all(p["available"] and p["unavailableReason"] is None for p in mvp)
 
 
 def test_catch_all_does_not_shadow():
