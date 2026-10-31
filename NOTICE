@@ -1,0 +1,10 @@
+sharpit
+Copyright 2026 Flavio Oliva
+
+Licensed under the Apache License, Version 2.0.
+
+This product is a derivative work of BootUI (https://github.com/jdubois/boot-ui),
+Copyright Julien Dubois, licensed under the Apache License, Version 2.0.
+sharpit ports BootUI's design goals, JSON contract and test cases from Java/Spring
+Boot to Python/FastAPI. Files carrying ported logic or test cases are modified from
+the originals. The sharpit UI is a new implementation.

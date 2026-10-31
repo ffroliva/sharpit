@@ -1,0 +1,10 @@
+[pytest-speed]
+# Test-suite speed check (https://github.com/ffroliva/pytest-speed), vendored in scripts/pytest_speed/.
+# Driven by /sharpit:optimize. Paths are relative to this file.
+module = "scripts.pytest_speed"
+root = "."
+baseline = "tests/test_durations.json"
+exceptions = "tests/pytest_speed_exceptions.json"
+approvers = ["ffroliva"]
+block = false
+run = "uv run pytest"

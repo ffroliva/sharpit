@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sharpit"
+dynamic = ["version"]
+description = "Embedded, local-only developer console for Python apps (a port of BootUI)."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.12"
+authors = [{ name = "Flavio Oliva" }]
+keywords = ["fastapi", "starlette", "developer-tools", "devtools", "debugging", "introspection", "mcp", "bootui"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Debuggers",
+    "Typing :: Typed",
+]
+dependencies = ["starlette>=0.44", "packaging>=23"]
+
+[project.urls]
+Homepage = "https://github.com/ffroliva/sharpit"
+Source = "https://github.com/ffroliva/sharpit"
+Issues = "https://github.com/ffroliva/sharpit/issues"
+Changelog = "https://github.com/ffroliva/sharpit/blob/master/CHANGELOG.md"
+
+[project.optional-dependencies]
+fastapi = ["fastapi>=0.115"]
+settings = ["pydantic-settings>=2.4"]
+test = ["fastapi>=0.115", "pydantic-settings>=2.4", "uvicorn>=0.30", "httpx>=0.27", "python-multipart>=0.0.9", "pytest>=8", "pytest-timeout>=2.3"]
+
+[dependency-groups]
+dev = ["ruff>=0.6", "pyright>=1.1.380", "pydantic-settings>=2.4"]
+
+[tool.hatch.version]
+path = "src/sharpit/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sharpit"]
+include = ["src/sharpit/**"]  # covers src/sharpit/ui/static/**
+
+[tool.hatch.build.targets.sdist]
+# the sdist carries the package, tests and the example; agent workflows, research and UI sources stay in git
+exclude = [
+    "/.superpowers",
+    "/.claude",
+    "/.github",
+    "/replica",
+    "/skills",
+    "/docs/superpowers",
+    "/ui",
+    "/scripts",
+    "/pytest-speed.toml",
+    "/uv.lock",
+    "/AGENTS.md",
+    "/CLAUDE.md",
+    "/GEMINI.md",
+    "/mempalace.yaml",
+    "/tests/test_agent_workflow.py",  # reads skills/ and docs/, which are not shipped
+    "/tests/scripts",  # tests the repo scripts/, which are not shipped
+]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+extend-exclude = ["scripts/pytest_speed"]  # vendored verbatim; its VERSION hash catches local edits
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+include = ["src/sharpit"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]  # examples/ (the sample app) imports as a package
+timeout = 60

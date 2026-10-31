@@ -1,0 +1,46 @@
+feature,area,priority,original,clone,notes
+Fail-closed activation: OFF/ON/AUTO with enabled and disabled profiles and a dev-server signal,safe-mode,must,yes,yes,contract §10; reasons verbatim with sharpit names; evidence: tests/engine/test_activation.py
+Inactive sharpit returns 404 for every path under its mounts,safe-mode,must,yes,yes,BootUiShellGuardFilter; evidence: tests/test_safety_matrix.py; tests/fastapi/test_install.py
+Loopback-only source check with allow-non-localhost and trusted-proxies,safe-mode,must,yes,yes,LocalhostGuard; evidence: tests/engine/test_guard.py
+Host header check against DNS rebinding with allowed-hosts,safe-mode,must,yes,yes,always on; evidence: tests/engine/test_guard.py; tests/test_safety_matrix.py
+Cross-site write check (Sec-Fetch-Site / Origin vs Host) on unsafe methods,safe-mode,must,yes,yes,always on; evidence: tests/engine/test_guard.py::test_rejects_cross_site_origin_on_state_changing_request
+Bearer token / session cookie for untrusted sources with generated token logged once,safe-mode,should,yes,yes,only when remote access configured; evidence: tests/engine/test_guard.py; ui/tests/component/tokenPrompt.test.ts; test_banner_prints_generated_token
+Global read-only and per-panel enabled/read-only gates with 403 bodies,safe-mode,must,yes,yes,PanelAccessFilter; evidence: tests/engine/test_panels.py; tests/test_safety_matrix.py
+Security headers (CSP etc.) and no-store caching on API,safe-mode,must,yes,yes,BootUiSecurityHeaders; evidence: tests/engine/test_headers.py
+Secret masking: name patterns plus value detectors; expose-values MASKED/METADATA_ONLY/FULL,safe-mode,must,yes,yes,KeywordPatternMasker + SecretValueDetector; evidence: tests/engine/test_masking.py; tests/test_masking_corpus.py
+No network or mutation on any GET,safe-mode,must,yes,yes,rule enforced by tests; evidence: tests/test_safety_matrix.py
+Panel registry GET /api/panels with availability and read-only reasons,registry,must,yes,yes,platform=fastapi; evidence: tests/engine/test_panels.py
+Overview with activation status,overview,must,yes,yes,javaVersion key kept carrying the Python version; evidence: tests/engine/test_overview.py
+Config report with sources in precedence order and winning source per key,config,must,yes,yes,pydantic-settings / environ / .env / static getenv discovery; evidence: tests/engine/config/test_config_report.py
+Config filters q (relaxed names) source overridesOnly and paging,config,must,yes,yes,PagedList semantics; evidence: tests/engine/config/test_config_report.py; tests/engine/test_paging.py; test_relaxed.py
+Config descriptions and defaults from metadata,config,should,yes,yes,pydantic Field + getenv defaults; evidence: tests/engine/config/test_config_report.py::test_getenv_suggestions_and_metadata_on_set_keys
+Config overrides persisted to an override file,config,could,yes,skip,deferred post-MVP (writes files)
+Mappings flat list with paging,mappings,must,yes,yes,/mappings/flat; evidence: tests/engine/test_mappings.py; tests/fastapi/test_introspector_routes.py
+Loggers list with configured and effective level and paging,loggers,must,yes,yes,evidence: tests/engine/test_loggers.py; tests/fastapi/test_loggers_api.py
+Change a logger level (POST) with validation,loggers,must,yes,yes,runtime only; evidence: tests/fastapi/test_loggers_api.py; ui/tests/component/loggers.test.ts
+Beans list (dependency providers) with dependencies and paging,beans,must,yes,yes,FastAPI dependant tree + middleware + routers; evidence: tests/engine/test_beans.py; tests/fastapi/test_introspector_providers.py
+Dependency graph view built from bean dependencies,beans,must,yes,yes,graph built client side from dependencies; evidence: ui/tests/unit/graph.test.ts; ui/tests/unit/layout.test.ts
+Vulnerabilities inventory GET without network,vulnerabilities,must,yes,yes,importlib.metadata; evidence: tests/engine/vulns/test_service.py; tests/fastapi/test_vulns_api.py
+Vulnerability scan on POST via OSV querybatch with caps and timeouts,vulnerabilities,must,yes,yes,ecosystem PyPI; evidence: tests/engine/vulns/test_service.py; tests/fixtures/osv
+EPSS enrichment during scan and failure tolerance,vulnerabilities,should,yes,yes,evidence: tests/engine/vulns/test_epss.py
+Severity scoring ordering and fix availability,vulnerabilities,must,yes,yes,evidence: tests/engine/vulns/test_interpreter.py
+Dismiss and restore a vulnerability,vulnerabilities,should,yes,yes,dismissal file next to overrides; evidence: tests/engine/vulns/test_dismissals.py
+Single-flight scan with 409 busy body,vulnerabilities,must,yes,yes,evidence: tests/engine/test_singleflight.py::test_second_call_busy_409_body; tests/fastapi/test_vulns_api.py::test_concurrent_scan_409
+MCP server opt-in (OFF by default) on api/mcp,mcp,must,yes,yes,JSON-RPC over streamable HTTP; evidence: tests/engine/test_mcp.py; tests/fastapi/test_mcp_api.py; tests/test_conformance.py
+MCP get_* tools for MVP panels with input schemas and caps,mcp,must,yes,yes,evidence: tests/engine/test_tools.py
+MCP vulnerabilities_scan action tool gated by read-only,mcp,could,yes,skip,MCP is read-only in the MVP; scan via UI and CLI endpoint
+MCP server status panel GET /api/mcp-server,mcp,should,yes,yes,evidence: tests/engine/test_panels.py; ui/tests/component/serverStatus.test.ts
+CLI endpoint GET /api/cli and POST /api/cli/tools/{tool},cli,must,yes,yes,same dispatcher as MCP; evidence: tests/fastapi/test_cli_api.py
+sharpit console script with --url --token --json and exit codes,cli,could,yes,skip,deferred post-MVP; endpoint kept
+Web UI shell at /sharpit consuming the contract,ui,must,yes,yes,new look and feel; evidence: ui/tests/e2e/acceptance.spec.ts; tests/test_example_app.py
+UI navigation from the panel registry with unavailable/read-only states,ui,must,yes,yes,evidence: ui/tests/e2e/acceptance.spec.ts; ui/tests/unit/route.test.ts
+UI panels for overview config mappings loggers beans vulnerabilities mcp-server,ui,must,yes,yes,evidence: ui/tests/e2e/acceptance.spec.ts; ui/tests/component/*.test.ts
+UI dependency graph view,ui,must,yes,yes,evidence: ui/tests/unit/graph.test.ts; e2e acceptance.spec.ts
+UI command palette and keyboard navigation,ui,should,no,yes,sharpit addition (not in parity score); evidence: ui/tests/unit/palette.test.ts; ui/src/components/Palette.svelte
+One-line install sharpit.install(app),install,must,yes,yes,starter equivalent; evidence: tests/fastapi/test_install.py; tests/test_example_app.py
+Startup banner printing the console URL,install,could,yes,yes,show-banner; evidence: tests/fastapi/test_install.py::test_banner_prints_generated_token
+Health panel,health,could,yes,skip,deferred post-MVP
+Profile diff panel,config,could,yes,skip,deferred post-MVP
+Conditions panel,beans,could,yes,skip,Spring auto-configuration has no Python equivalent
+DevTools/devservices/free-on-idle,runtime,could,yes,skip,JVM-only
+All other BootUI panels (database security activity advisors ...),other,could,yes,skip,deferred post-MVP; see BOOTUI-PYTHON-MAPPING.md

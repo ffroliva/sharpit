@@ -1,0 +1,22 @@
+# raw BootUI runtime captures can contain this machine's environment: never commit them.
+# Sanitised fixtures are committed under tests/fixtures/bootui/.
+replica/evidence/
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+node_modules/
+ui/node_modules/
+ui/dist/
+.sharpit/
+ui/test-results/
+ui/playwright-report/
+.superpowers/
+.serena/
+*.egg-info/
+.env
