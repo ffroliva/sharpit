@@ -104,3 +104,22 @@ Portability: **P** = ports directly · **A** = needs an adapter per framework ·
    Spring's "everything registered in one place" model than FastAPI is.
 5. gflow-cli has no long-running server. It would need a "run and report" mode (wrap a run, collect the same
    data, write a report) rather than an embedded console.
+
+## 0.2.0 Parity notes
+
+Each row documents a panel added in 0.2.0 and its deliberate deviations from BootUI (spec §17).
+
+| Panel | BootUI counterpart | Python source / implementation | Spec §17 deviations |
+|---|---|---|---|
+| `http-exchanges` | Actuator `HttpExchangeRepository` | `CaptureMiddleware` ASGI ring buffer | Custom ASGI middleware instead of Actuator. Status 499 when client disconnects before response. `sessionId` is always null (Starlette uses signed cookies). |
+| `exceptions` | `HandlerExceptionResolver` / `ExceptionStore` | ASGI middleware + wrapped exception handlers + `SharpitLogHandler` `exc_info` | Captured across three Python paths and deduped. Grouping fingerprint uses exception class and innermost application frame instead of class and top 5 frames. `errorContract` cross-link is always null. |
+| `sql-trace` | JDBC proxy `DataSource` | SQLAlchemy class-level event listeners | SQLAlchemy class-level cursor listeners instead of JDBC proxy. SQL literals are normalized and masked when parameter capture is disabled. `/sql-trace/insights` route not built. SSE stream closes every 3 s. |
+| `activity` | `LiveActivityController` | `ContextVar` request correlation and event ring buffer | Parameters `until`, `cursor`, and `pageSize` not accepted (no persistence). Event types limited to REQUEST, SQL, and EXCEPTION. KPIs heap/cache/REST client are null. SSE stream closes every 3 s. |
+| `log-tail` | Logback appender / `LogTailBuffer` | `SharpitLogHandler` stdlib logging ring buffer | Uses stdlib `logging.Handler` on root and non-propagating loggers. Memory capped at 1 MiB by default (`max-bytes` must be > 0). Stream limit returns HTTP 503 across all streams. SSE `id` formatted as `<bootNonce>-<seq>`. SSE stream closes every 3 s. |
+| `alembic` | Flyway / Liquibase panels | Alembic environment and script directory | Alembic panel outputs Flyway-shaped JSON with `alembicPresent`, `configPath`, `heads`, `checkedAt`, and `unavailableReason`. Read-only (`migrateEnabled` and `cleanEnabled` false). DB state refreshed on POST `alembic/refresh` only (no socket on GET). MCP tool `get_alembic_migrations`. |
+| `database-connection-pools` | HikariCP pool metrics | SQLAlchemy engine pool inspection | Inspects SQLAlchemy engine pools instead of HikariCP. Unknown fields and `pending` are null. Query strings stripped from JDBC URLs to prevent secret leakage. |
+| `health` | Spring Boot Health contributors | Dialect ping on engines + user callables | Health checks run on POST `health/check`, cached on GET (no socket or user code on GET). Panel marked action-capable. Database health check runs dialect ping (`validationQuery` `"dialect ping"`). |
+| `threads` | JVM ThreadDump | `threading.enumerate()` + `asyncio.all_tasks()` | Adds `tasks`, `taskCount`, and `warnings` for running asyncio tasks with request correlation. Thread states inferred as RUNNABLE or WAITING without JVM CPU or lock metrics. `POST /threads/download` dropped. |
+| `rest-api` | Spring REST controller rules | Static analysis over FastAPI route objects | Rules inspect FastAPI route definitions rather than Spring annotations. Spring-only and retired rules skipped. `/rest-api/error-contract` not built. Dismissal IDs use `[A-Za-z0-9._:-]{1,200}` with per-panel dismissal gates. |
+| `http-probe` | Loopback socket HTTP client | In-process ASGI call with caller client | In-process ASGI call without loopback socket. Refuses tagged probe scopes and paths under the sharpit mount. Response body and location header masked through `mask_text`. Bounded to 4 concurrent probes. |
+
