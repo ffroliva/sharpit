@@ -329,7 +329,7 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     def activity_profile(request: Request) -> Response:
         return json_response(activity.request_profile(ctx, request.path_params["id"]))
 
-    async def activity_stream(_request: Request) -> Response:
+    async def activity_stream(_request: Request) -> Response:  # NOSONAR - SSE stream runs on the event loop
         changes = ctx.capture.activity_changes
         if changes is None:  # the panel gate answers first; only a disabled panel has no fan-in
             raise HTTPException(404)
@@ -338,7 +338,7 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     def log_tail_recent(_request: Request) -> Response:
         return json_response(tools.log_tail_lines(ctx))
 
-    async def log_tail_stream(request: Request) -> Response:
+    async def log_tail_stream(request: Request) -> Response:  # NOSONAR - SSE stream runs on the event loop
         buffer = ctx.capture.log_tail
         if buffer is None:  # the panel gate answers first; only a disabled panel has no buffer
             raise HTTPException(404)
@@ -359,7 +359,7 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
             return Response(status_code=204, headers=dict(security_headers("api")))
         return json_response(store.report())
 
-    async def exceptions_stream(_request: Request) -> Response:
+    async def exceptions_stream(_request: Request) -> Response:  # NOSONAR - SSE stream runs on the event loop
         return sse_response(ctx, change_events(exception_store().changes))
 
     def exception_detail(request: Request) -> Response:
@@ -389,7 +389,7 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
             raise HTTPException(404)
         return recorder
 
-    async def sql_trace_stream(_request: Request) -> Response:
+    async def sql_trace_stream(_request: Request) -> Response:  # NOSONAR - SSE stream runs on the event loop
         return sse_response(ctx, change_events(sql_trace_recorder().changes))
 
     def sql_trace_clear(_request: Request) -> Response:
@@ -435,7 +435,7 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
             raise HTTPException(404)
         return json_response(snapshot)
 
-    async def thread_dump(request: Request) -> Response:
+    async def thread_dump(request: Request) -> Response:  # NOSONAR - reads asyncio task state on the event loop
         # on the loop: the task list is read directly; an off-loop reader (MCP) hands it to the loop instead
         params = request.query_params
         return json_response(threads_report(ctx, params.get("q"), params.get("state"), *_page(request)))
@@ -626,11 +626,11 @@ def _page(request: Request) -> tuple[int | None, int | None]:
     return parse_int_param(params.get("offset"), "offset"), parse_int_param(params.get("limit"), "limit")
 
 
-async def _bad_request(_request: Request, exc: Exception) -> Response:
+async def _bad_request(_request: Request, exc: Exception) -> Response:  # NOSONAR - Starlette coroutine handler
     return error(400, str(exc))
 
 
-async def _json_http_error(_request: Request, exc: Exception) -> Response:
+async def _json_http_error(_request: Request, exc: Exception) -> Response:  # NOSONAR - Starlette coroutine handler
     """404/405 inside the active sub-app answer in the API's JSON error shape (405 keeps its ``Allow`` header)."""
     assert isinstance(exc, HTTPException)
     response = error(exc.status_code, "Not Found" if exc.status_code == 404 else "Method Not Allowed")
@@ -758,7 +758,7 @@ def install(
     wiring.attach_at_install(app, ctx)
 
     @asynccontextmanager
-    async def lifespan(host_app: Any) -> AsyncGenerator[Any]:
+    async def lifespan(host_app: Any) -> AsyncGenerator[Any]:  # NOSONAR - asynccontextmanager coroutine
         try:
             async with original(host_app) as state:
                 if ctx.startup_time_ms is None:

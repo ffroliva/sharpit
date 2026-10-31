@@ -1,6 +1,6 @@
 """Sanitise raw BootUI captures into committed test fixtures.
 
-Usage: python scripts/sanitize_golden.py <src_dir> <dst_dir>
+Usage: python scripts/sanitize_golden.py <replica/evidence src_dir> <tests/fixtures/bootui dst_dir>
 
 Keeps every item (no truncation, so ``page`` stays consistent), replaces only an enumerated list of
 volatile values, then aborts if anything that looks like a secret is left.
@@ -35,7 +35,7 @@ SECRET_VALUE = re.compile(
     r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"  # AWS access key id
     r"|://(?!user:password@)[^/\s:@]+:[^/\s@]+@"  # URL userinfo (docs placeholder user:password allowed)
 )
-SENSITIVE_NAME = re.compile(r"passw(?:or)?d|passwd|secret|token|api[-_.]?key|credential|private[-_.]?key", re.I)
+SENSITIVE_NAME = re.compile(r"(?:passw(?:or)?d|secret|token|api[-_.]?key|credential|private[-_.]?key)", re.I)
 MASK = "******"
 
 
@@ -81,6 +81,13 @@ def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
 
 
 def main(src: Path, dst: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    src = src.resolve()
+    dst = dst.resolve()
+    allowed_src = (repo / "replica" / "evidence").resolve()
+    allowed_dst = (repo / "tests" / "fixtures" / "bootui").resolve()
+    if not src.is_relative_to(allowed_src) or not dst.is_relative_to(allowed_dst):
+        raise ValueError("source must be under replica/evidence and destination under tests/fixtures/bootui")
     dst.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     for path in sorted(src.glob("*.json")):

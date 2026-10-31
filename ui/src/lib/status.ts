@@ -13,7 +13,12 @@ export function statusFamilyClass(status: number | null): 'ok' | 'muted' | 'warn
  */
 export function isApplicationFrame(frame: string | { applicationFrame: boolean }): boolean {
   if (typeof frame !== 'string') return frame.applicationFrame;
-  const file = /\((.*):\d+\)$/.exec(frame)?.[1];
+  const open = frame.lastIndexOf('(');
+  const close = frame.length - 1;
+  const colon = frame.lastIndexOf(':', close);
+  if (open < 0 || frame[close] !== ')' || colon <= open || colon === close - 1) return false;
+  for (let i = colon + 1; i < close; i++) if (frame.charCodeAt(i) < 48 || frame.charCodeAt(i) > 57) return false;
+  const file = frame.slice(open + 1, colon);
   if (!file || file.startsWith('<')) return false;
   // shortcut: the standard library is recognised by its usual install layouts, so an unusual prefix reads as app code
   return !/site-packages|dist-packages|[\\/]lib[\\/]python\d|python\d+[\\/]lib[\\/]/i.test(file);

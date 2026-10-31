@@ -21,4 +21,5 @@ it('a thread stack line is judged by its file: installed packages, the standard 
   expect(isApplicationFrame('threading.wait (/usr/lib/python3.12/threading.py:320)')).toBe(false);
   expect(isApplicationFrame('importlib._bootstrap (<frozen importlib._bootstrap>:1)')).toBe(false);
   expect(isApplicationFrame('no location at all')).toBe(false);
+  expect(isApplicationFrame('app.handler (C:\\work\\app\\main.py:12x)')).toBe(false);
 });
