@@ -206,6 +206,14 @@ def test_empty_user_url_password_is_secret() -> None:
         ("[parameters: [('a', 1), ('b', 2)]]", "[parameters: ******]"),
         ("GET /owners/42 HTTP/1.1 200", "GET /owners/42 HTTP/1.1 200"),
         ("plain words only", "plain words only"),
+        # Python dict reprs and non-string JSON values (review r0)
+        ("{'password': 'hunter2', 'user': 'bob'}", "{'password': '******', 'user': 'bob'}"),
+        ("kwargs={'api_key': 'sk-live-abcdef123456'}", "kwargs={'api_key': '******'}"),
+        ('{"password": 12345, "user": "bob"}', '{"password": "******", "user": "bob"}'),
+        ("{'secret': None}", "{'secret': '******'}"),
+        ("secret: [1, 2]", "secret: ******"),
+        ("[parameters: ('bob', 'secret')", "[parameters: ******]"),
+        ("Cookie: session=abc123; theme=dark", "Cookie: ******; theme=dark"),
     ],
 )
 def test_mask_text_corpus(text: str, expected: str) -> None:
@@ -218,6 +226,14 @@ def test_mask_text_json_stays_valid() -> None:
     masked = Masker(M, True).mask_text('{"token": "abc", "nested": {"password": "p w"}, "n": 1}')
     assert masked is not None
     assert json.loads(masked) == {"token": MASK, "nested": {"password": MASK}, "n": 1}
+
+
+def test_mask_text_json_non_string_values_stay_valid() -> None:
+    import json
+
+    masked = Masker(M, True).mask_text('{"password": 12345, "pin_token": true, "api_keys": [1, 2], "n": null}')
+    assert masked is not None
+    assert json.loads(masked) == {"password": MASK, "pin_token": MASK, "api_keys": MASK, "n": None}
 
 
 def test_mask_text_parameters_kept_when_capture_on() -> None:

@@ -75,18 +75,24 @@ def is_sensitive_key(name: str) -> bool:
 # ---- text masking (0.2.0, spec §11) --------------------------------------------------------------------------------
 # userinfo (user:password@ or a bare key@) is replaced whole, before the token pass can swallow the URL
 _TEXT_USERINFO = re.compile(r"://[^/?#\s@]+@", re.ASCII)
-# "key": "value" (JSON); the value keeps its quotes so the text stays valid JSON
-_TEXT_JSON_PAIR = re.compile(r'("([^"\\]*)"\s*:\s*")((?:[^"\\]|\\.)*)(")')
-# key=value / key: value; an auth scheme word (Bearer abc) belongs to the value, quoted values keep their quotes
+# "key": value (JSON) or 'key': value (a Python dict repr). A quoted value keeps its quotes; a bare value (12345,
+# true, None, a [list]) becomes a quoted mask, so JSON stays valid.
+_TEXT_QUOTED_PAIR = re.compile(
+    r"""(["'])([^"'\\\n]*)\1(\s*:\s*)"""
+    r"""(?:(["'])(?:(?!\4)[^\\]|\\.)*\4|\[[^\]\n]*\]|\([^)\n]*\)|[^\s,}\]{\[]+)"""
+)
+# key=value / key: value; an auth scheme word (Bearer abc) belongs to the value, quoted values keep their quotes,
+# a bracketed value ([1, 2]) is one value
 _TEXT_PAIR = re.compile(
     r"(?<![\w.-])([\w.-]+)(\s*[=:]\s*)"
-    r"(\"[^\"]*\"|'[^']*'|(?:(?:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
+    r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]*\]|\([^)\n]*\)|(?:(?:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
     re.ASCII,
 )
 _TEXT_TOKEN = re.compile(r"\S+")
 _TOKEN_EDGES = re.compile(r"^([\"'(\[{<]*)(.*?)([\"')\]}>,;.:!?]*)$", re.DOTALL)
-# SQLAlchemy StatementError: "[parameters: ...]" runs to the last "]" on its line (bind tuples nest brackets)
-_SQL_PARAMETERS = re.compile(r"\[parameters: [^\n]*\]")
+# SQLAlchemy StatementError: "[parameters: ...]" runs to the last "]" on its line (bind tuples nest brackets), or to
+# the end of the line when a length cap cut the closing "]" off
+_SQL_PARAMETERS = re.compile(r"\[parameters: (?:[^\n]*\]|[^\n]*$)", re.MULTILINE)
 _SQL_PARAMETERS_MASKED = f"[parameters: {MASK}]"
 
 
@@ -95,15 +101,18 @@ def _mask_segments(path: str) -> str:
 
 
 def _mask_pair(m: re.Match[str]) -> str:
-    if not is_sensitive_key(m.group(1)):
+    if not (is_sensitive_key(m.group(1)) or m.group(1).lower() in _SECRET_HEADERS):  # Cookie: session=abc
         return m.group(0)
     value = m.group(3)
     quote = value[0] if value[:1] in ("'", '"') else ""
     return f"{m.group(1)}{m.group(2)}{quote}{MASK}{quote}"
 
 
-def _mask_json_pair(m: re.Match[str]) -> str:
-    return f"{m.group(1)}{MASK}{m.group(4)}" if is_sensitive_key(m.group(2)) else m.group(0)
+def _mask_quoted_pair(m: re.Match[str]) -> str:
+    if not is_sensitive_key(m.group(2)):
+        return m.group(0)
+    quote = m.group(4) or m.group(1)  # a bare value takes the key's quote
+    return f"{m.group(1)}{m.group(2)}{m.group(1)}{m.group(3)}{quote}{MASK}{quote}"
 
 
 def _mask_token(m: re.Match[str]) -> str:
@@ -173,7 +182,7 @@ class Masker:
         if not self._mask_secrets:
             return text
         text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
-        text = _TEXT_JSON_PAIR.sub(_mask_json_pair, text)
+        text = _TEXT_QUOTED_PAIR.sub(_mask_quoted_pair, text)
         text = _TEXT_PAIR.sub(_mask_pair, text)
         return _TEXT_TOKEN.sub(_mask_token, text)
 
