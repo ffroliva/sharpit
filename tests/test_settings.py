@@ -305,3 +305,16 @@ def test_invalid_token_warning_never_echoes_the_value():
     s = load_settings({"authentication_token": b"bytes-secret-value"}, {})
     assert s.authentication_token is None
     assert s.warnings == ("Ignoring invalid SHARPIT_AUTHENTICATION_TOKEN value",)
+
+
+def test_panel_flag_none_fails_safe():
+    # code review #10: None (or blank) must not fail open; read_only=None means read-only
+    s = load_settings({"panels": {"loggers": {"read_only": None}, "beans": {"enabled": None, "read_only": " "}}}, {})
+    assert s.panels["loggers"] == PanelSettings(enabled=True, read_only=True)
+    assert s.panels["beans"] == PanelSettings(enabled=False, read_only=True)
+
+
+def test_unknown_panel_id_rejected():
+    with pytest.raises(ValueError, match=r"Unknown sharpit panel\(s\): nope.*known panels: overview"):
+        load_settings({"panels": {"nope": {"enabled": False}}}, {})
+
