@@ -1,6 +1,7 @@
 """SQL Trace overhead budget (spec §7.3): the listeners add at most 50 µs per statement.
 
-The fastest round of each side is compared: contention from other xdist workers only ever slows a round down.
+Rounds alternate and the first side swaps every round, through tests/overhead.py; how to read a failure:
+docs/development/overhead-budgets.md.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import pytest
 
 sa = pytest.importorskip("sqlalchemy")
 
+from tests.overhead import check_budget, paired  # noqa: E402
+
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
@@ -20,7 +23,7 @@ from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 pytestmark = pytest.mark.needs_sqlalchemy
 
 BUDGET_NS = 50_000
-ROUNDS, PER_ROUND, ATTEMPTS = 15, 200, 3
+ROUNDS, PER_ROUND = 45, 200
 
 
 @pytest.fixture
@@ -39,25 +42,25 @@ def _round(conn: object, statement: object) -> int:
     return (time.perf_counter_ns() - started) // PER_ROUND
 
 
-def _overhead(handle: SharpitHandle, conn: object, statement: object) -> int:
-    traced: list[int] = []
-    plain: list[int] = []
-    for _ in range(ROUNDS):  # interleaved, so machine noise hits both sides alike
-        sqla.add(handle.context, statements=True, discovery=True)
-        traced.append(_round(conn, statement))
-        sqla.remove(handle.context)
-        plain.append(_round(conn, statement))
-    return min(traced) - min(plain)
-
-
 def test_statement_overhead_budget(handle: SharpitHandle):
     engine = handle.context.engines[0]
     statement = sa.text("select * from (select 1 as n) where n = :n")
     with engine.connect() as conn:  # type: ignore[attr-defined]
         _round(conn, statement)  # warm the statement cache and the normaliser cache
-        overhead = min(_overhead(handle, conn, statement) for _ in range(ATTEMPTS))
+        sqla.remove(handle.context)
+
+        def on() -> int:
+            sqla.add(handle.context, statements=True, discovery=True)
+            r = _round(conn, statement)
+            sqla.remove(handle.context)
+            return r
+
+        def off() -> int:
+            return _round(conn, statement)
+
+        result = paired(off, on, ROUNDS)
     recorder = handle.context.capture.sql_trace
-    captured = (ROUNDS * ATTEMPTS + 1) * PER_ROUND  # with the warm-up
+    captured = (ROUNDS + 1) * PER_ROUND  # with the warm-up
     assert recorder is not None
     assert recorder.report([])["totalCaptured"] == captured
-    assert overhead <= BUDGET_NS, f"{overhead / 1000:.1f} µs per statement (budget {BUDGET_NS / 1000:.0f} µs)"
+    check_budget("SQL listener per statement", result, BUDGET_NS, "µs", 1000)
