@@ -154,7 +154,7 @@ def _tasks(
     if running is loop:
         return (*_collect(ctx, max_frames, cap, names_only), None)
 
-    async def collect() -> tuple[list[dict[str, Any]], int]:
+    async def collect() -> tuple[list[dict[str, Any]], int]:  # NOSONAR - all_tasks() is only safe on the loop thread
         return _collect(ctx, max_frames, cap, names_only)
 
     future = asyncio.run_coroutine_threadsafe(collect(), loop)  # all_tasks() is only safe on the loop's own thread

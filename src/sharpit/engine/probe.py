@@ -270,7 +270,7 @@ async def run_probe(
         await finished.wait()
         return {"type": "http.disconnect"}
 
-    async def send(message: dict[str, Any]) -> None:
+    async def send(message: dict[str, Any]) -> None:  # NOSONAR - ASGI send protocol requires a coroutine
         nonlocal status, response_headers, truncated
         if message["type"] == "http.response.start":
             status = message["status"]

@@ -1,6 +1,7 @@
 """Flag test files that got much slower than their baseline."""
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
@@ -105,7 +106,7 @@ def _verdict(
         return "excepted" if measured <= exception.ceiling_seconds else "over-exception"
     if measured - base < min_rise:
         return "ok"
-    return "flagged" if base == 0.0 or measured / base / box >= ratio else "ok"
+    return "flagged" if math.isclose(base, 0.0) or measured / base / box >= ratio else "ok"
 
 
 def check(

@@ -1,5 +1,23 @@
 # sharpit
 
+[![CI](https://github.com/ffroliva/sharpit/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/ffroliva/sharpit/actions/workflows/ci.yml)
+[![Release](https://github.com/ffroliva/sharpit/actions/workflows/release.yml/badge.svg)](https://github.com/ffroliva/sharpit/actions/workflows/release.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=alert_status&branch=master)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=master)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=coverage&branch=master)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=coverage&branch=master)
+
+[![Reliability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=reliability_rating&branch=master)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=master)
+[![Security](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=security_rating&branch=master)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=master)
+[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=sqale_rating&branch=master)](https://sonarcloud.io/summary/overall?id=ffroliva_sharpit&branch=master)
+[![Duplication](https://sonarcloud.io/api/project_badges/measure?project=ffroliva_sharpit&metric=duplicated_lines_density&branch=master)](https://sonarcloud.io/component_measures?id=ffroliva_sharpit&metric=duplicated_lines_density&branch=master)
+
+[![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://github.com/ffroliva/sharpit/blob/master/pyproject.toml)
+[![Licence: Apache-2.0](https://img.shields.io/github/license/ffroliva/sharpit)](https://github.com/ffroliva/sharpit/blob/master/LICENSE)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](https://github.com/ffroliva/sharpit/blob/master/CHANGELOG.md)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Type checked: pyright](https://img.shields.io/badge/type%20checked-pyright-blue.svg)](https://github.com/microsoft/pyright)
+
+<!-- CI and SonarCloud badges are live and pinned to master. Add the PyPI version badge with the first PyPI release. -->
+
 An embedded, local-only developer console for FastAPI apps. One call mounts a web console at `/sharpit` and a
 JSON API at `/sharpit/api` inside your own app, so a running service becomes understandable in minutes: its
 configuration and where each value came from, every route, the dependency providers, loggers you can retune live,
