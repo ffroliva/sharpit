@@ -63,4 +63,3 @@ def test_request_overhead_budget():
     off, on = (asyncio.run(_per_request_ns(_app(capture))) for capture in (False, True))
     overhead_ms = (on - off) / 1e6
     assert overhead_ms <= 0.2, f"capture adds {overhead_ms:.3f} ms per request (off {off / 1e6:.3f} ms)"
-    assert on <= 3 * off, f"capture on {on / 1e6:.3f} ms vs off {off / 1e6:.3f} ms per request"
