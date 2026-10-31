@@ -54,4 +54,4 @@ Capture overhead measured 0.12 to 0.18 ms per request.
 
 Under bursty load (every core busy 0.7 s, idle 0.7 s) the old sequential harness failed 3 of 12 runs (0.530, 0.244 and 0.259 ms against a 0.2 ms budget). On a quiet machine it passed 10 of 10 runs.
 
-After the alternating harness: TBD
+After the alternating harness, on the same machine and load: 0 of 12 runs failed under load (overhead 0.119 to 0.191 ms, median noise 0.044 ms) and 0 of 10 quiet (0.117 to 0.160 ms, median noise 0.024 ms). The worst loaded run is still close to the budget, so a rare failure on a very busy runner remains possible; the noise in the message tells it apart.
