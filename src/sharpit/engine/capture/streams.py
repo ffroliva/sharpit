@@ -11,8 +11,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import threading
+import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextvars import ContextVar
 from typing import Any
 
@@ -202,3 +203,13 @@ class LineStream(_Hub):
         if not subscriber._signal():  # pyright: ignore[reportPrivateUsage]  # the first tick is the replay
             self._remove(subscriber)
         return subscriber
+
+
+async def change_events(stream: ChangeStream) -> AsyncIterator[tuple[str, str | None, str]]:
+    """SSE events ``(event, id, data)`` for a ``ChangeStream``: one ``update`` per coalesced tick, as BootUI sends."""
+    subscription = stream.subscribe(asyncio.get_running_loop())
+    try:
+        async for _ in subscription:
+            yield "update", None, f'{{"ts":{time.time_ns() // 1_000_000}}}'
+    finally:
+        subscription.close()

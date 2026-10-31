@@ -23,6 +23,7 @@ import pytest
 
 from conftest import SideEffectGuard
 from sharpit.engine.activation import ActivationStatus
+from sharpit.engine.capture.exceptions import ExceptionStore
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.singleflight import ActionBusy
@@ -60,8 +61,19 @@ LIMIT_SCHEMA: dict[str, Any] = {
     "properties": {"limit": QUERY_LIMIT_SCHEMA["properties"]["limit"]},
     "additionalProperties": False,
 }
+ID_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"id": {"type": "string", "description": "Exact identifier of the resource to fetch."}},
+    "required": ["id"],
+    "additionalProperties": False,
+}
 BOOTUI_TOOLS = json.loads((Path(__file__).parents[1] / "fixtures" / "bootui_tools_0_2_0.json").read_text("utf-8"))
-RELEASE_TOOLS = ("get_http_exchanges", "get_log_tail")  # each 0.2.0 task adds the tools it builds
+RELEASE_TOOLS = (
+    "get_http_exchanges",
+    "get_log_tail",
+    "get_exceptions",
+    "get_exception_detail",
+)  # each 0.2.0 task adds the tools it builds
 
 
 class FakeIntrospector:
@@ -100,6 +112,9 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_beans", "beans", False, QUERY_LIMIT_SCHEMA),
         ("get_http_exchanges", "http-exchanges", False, LIMIT_SCHEMA),
         ("get_log_tail", "log-tail", False, NONE_SCHEMA),
+        ("get_exceptions", "exceptions", False, NONE_SCHEMA),
+        ("get_exception_detail", "exceptions", False, ID_SCHEMA),
+        ("clear_exceptions", "exceptions", True, NONE_SCHEMA),
         ("get_vulnerabilities_report", "vulnerabilities", False, NONE_SCHEMA),
         ("vulnerabilities_scan", "vulnerabilities", True, NONE_SCHEMA),
     ]
@@ -162,7 +177,9 @@ def test_mcp_call_action_tool_unknown_32602():
         ("get_overview", {"b": 1, "a": 2}, "Unexpected tool arguments: a, b"),
         ("get_config", {"query": 1}, "Argument 'query' must be a string"),
         ("get_config", {"query": None}, "Argument 'query' must be a string"),
-        ("get_config", {"id": 1}, "Unexpected tool argument: id"),  # no sharpit tool takes id, scanId or offset
+        ("get_config", {"id": "x"}, "Unexpected tool argument: id"),  # get_config takes no id (Task 4 ruling)
+        ("get_exception_detail", {"id": 1}, "Argument 'id' must be a string"),  # id is type-checked first
+        ("get_config", {"scanId": "x"}, "Unexpected tool argument: scanId"),  # no sharpit tool takes scanId
         ("get_config", {"limit": "5"}, "Argument 'limit' must be an integer"),
         ("get_config", {"limit": True}, "Argument 'limit' must be an integer"),
         ("get_config", {"limit": 1.5}, "Argument 'limit' must be an integer"),
@@ -386,8 +403,16 @@ def test_cap_counts_running_and_abandoned_together():
 def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, tmp_state_dir: Path):
     # new: brief ruling (no socket, file, logger level or os.environ change)
     ctx = _ctx(state_dir=str(tmp_state_dir))
+    arguments: dict[str, Any] = {}
+    if name == "get_exception_detail":  # the one tool with a required argument: the id of a recorded exception
+        store = ctx.capture.exceptions = ExceptionStore(10, 5, 20, ctx.masker)
+        try:
+            raise RuntimeError("for the detail")
+        except RuntimeError as exc:
+            store.record(exc, "log", None, "test")
+        arguments = {"id": store.report()["groups"][0]["id"]}
     no_side_effects.rebaseline()
-    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, {}, via="mcp")
+    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")
     assert isinstance(result, dict)
 
 

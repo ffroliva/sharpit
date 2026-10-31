@@ -1,5 +1,6 @@
 """Shared fixtures: golden BootUI payloads and the no-side-effects guard."""
 
+import asyncio
 import json
 import logging
 import os
@@ -21,7 +22,10 @@ def golden(name: str) -> dict[str, Any]:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
 
 
-_PATH_PARAMS = {"file": "app.js"}  # a new path parameter fails collection until it gets a value here
+_PATH_PARAMS = {
+    "file": "app.js",
+    "id": "0123456789abcdef",
+}  # a new path parameter fails collection until it gets a value here
 
 
 def get_paths() -> list[str]:
@@ -126,3 +130,50 @@ def no_side_effects(tmp_state_dir: Path) -> Iterator[SideEffectGuard]:
     finally:
         guard.unblock_network()
     guard.verify()
+
+
+# --- SSE streams held open on the ASGI app (TestClient buffers a body until the stream ends) -----------------------
+
+
+def stream_scope(path: str) -> dict[str, Any]:
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "root_path": "",
+        "query_string": b"",
+        "headers": [(b"host", b"localhost")],
+        "client": ("127.0.0.1", 50000),
+        "server": ("localhost", 80),
+    }
+
+
+class OpenStream:
+    """One stream held open on the app (call inside a running loop): ``started`` once its response head went out."""
+
+    def __init__(self, app: Any, path: str) -> None:
+        self.sent: list[dict[str, Any]] = []
+        self.started = asyncio.Event()
+
+        async def receive() -> dict[str, Any]:
+            await asyncio.Event().wait()
+            raise AssertionError  # pragma: no cover
+
+        async def send(message: dict[str, Any]) -> None:
+            self.sent.append(message)
+            if message["type"] == "http.response.start":
+                self.started.set()
+
+        self.task = asyncio.ensure_future(app(stream_scope(path), receive, send))
+
+    @property
+    def status(self) -> int:
+        return self.sent[0]["status"]
+
+    @property
+    def body(self) -> str:
+        return b"".join(m.get("body", b"") for m in self.sent).decode()

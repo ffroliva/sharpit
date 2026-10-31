@@ -381,3 +381,34 @@ def test_log_tail_masks_messages(
     assert lines == ([] if expected is None else [expected]), row
     for where, text in {"recent": str(recent), "stream": stream, "mcp": mcp, "cli": cli}.items():
         assert SENTINEL not in text and JWT not in text, (row, where)
+
+
+# F2: exception messages and cause messages the host app raises, masked at capture (spec §7.2, §7.7)
+def test_exceptions_mask_messages(tmp_path: Path):
+    app = create_app(show_banner=False, state_dir=str(tmp_path), mcp_enabled="ON", stream_max_seconds=0.05)
+
+    @app.get("/corpus-fail")
+    def corpus_fail() -> None:  # pyright: ignore[reportUnusedFunction]
+        try:
+            raise ValueError(f"token {JWT}")
+        except ValueError as cause:
+            raise RuntimeError(f"login failed password={SENTINEL}") from cause
+
+    app.router.routes.insert(1, app.router.routes.pop())  # ahead of the sample's catch-all /{path:path}
+    with TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False) as client:
+        assert client.get("/corpus-fail").status_code == 500
+        listed = client.get(f"{API}/exceptions").json()
+        group = next(g for g in listed["groups"] if g["lastRequestPath"] == "/corpus-fail")
+        detail = client.get(f"{API}/exceptions/{group['id']}").json()
+        stream = client.get(f"{API}/exceptions/stream").text
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call"}
+        mcp = [
+            client.post(f"{API}/mcp", json={**call, "params": {"name": n, "arguments": a}}).text
+            for n, a in (("get_exceptions", {}), ("get_exception_detail", {"id": group["id"]}))
+        ]
+        cli = client.post(f"{API}/cli/tools/get_exception_detail", json={"id": group["id"]}).text
+    assert group["message"] == f"login failed password={MASK}"
+    assert detail["causes"][0]["message"] == f"token {MASK}"
+    texts = {"list": str(listed), "detail": str(detail), "stream": stream, "mcp": "".join(mcp), "cli": cli}
+    for where, text in texts.items():
+        assert SENTINEL not in text and JWT not in text, where

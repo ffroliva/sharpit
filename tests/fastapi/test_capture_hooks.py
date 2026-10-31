@@ -1,6 +1,6 @@
 """Each capture hook of spec §6.1 is installed only when a panel that needs it is enabled.
 
-Task 3 covers step 3 (the log handler); Tasks 4 and 5 add their hooks to the table.
+Task 3 covers step 3 (the log handler), Task 4 step 2 (the exception-handler wrappers); Task 5 adds its hooks.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.fastapi.adapter import SharpitHandle
+from sharpit.fastapi.capture import LOG_PANELS, WrappingHandlers
 
 
 def _log_handlers() -> list[logging.Handler]:
@@ -29,9 +30,15 @@ def _log_handler_present(handle: SharpitHandle) -> bool:
     return own is not None and own in _log_handlers()
 
 
+def _handlers_wrapped(handle: SharpitHandle) -> bool:
+    wiring = handle.context.capture.wiring
+    return wiring is not None and isinstance(wiring.app.exception_handlers, WrappingHandlers)
+
+
 # (disabled panels, hook, probe run while the app is started)
 HOOKS: list[tuple[tuple[str, ...], str, Callable[[SharpitHandle], bool]]] = [
     (("log-tail", "exceptions"), "log handler", _log_handler_present),
+    (("exceptions",), "exception handlers", _handlers_wrapped),
 ]
 
 
@@ -51,7 +58,8 @@ def test_disabled_panel_installs_no_hook(
     with TestClient(app) as client:
         client.get("/host")
         assert not present(handle), hook
-        assert _log_handlers() == before
+        if set(LOG_PANELS) <= set(disabled):  # no log panel left: no sharpit log handler anywhere
+            assert _log_handlers() == before
     for panel in disabled:  # any one of the panels left enabled is enough to install the hook
         app, handle = _started(tuple(p for p in disabled if p != panel))
         with TestClient(app) as client:

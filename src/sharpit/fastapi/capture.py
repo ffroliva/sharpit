@@ -11,10 +11,13 @@ import contextlib
 import logging
 import os
 import sys
+import threading
 import time
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, cast
 
+from starlette._utils import is_async_callable  # pyright: ignore[reportPrivateUsage]  # Starlette's own dispatch test
+from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine.capture import route_path, under
@@ -23,6 +26,7 @@ from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
 
 if TYPE_CHECKING:
+    from sharpit.engine.capture.exceptions import ExceptionStore
     from sharpit.engine.context import SharpitContext
 
 logger = logging.getLogger("sharpit")
@@ -62,6 +66,78 @@ def _endpoint_name(endpoint: object) -> str | None:
     return f"{getattr(endpoint, '__module__', None) or '?'}:{qualname}"
 
 
+def _wrapped_key(key: object) -> bool:
+    """Handlers that see real failures: ``Exception`` classes and 500. HTTP errors and validation errors are
+    answers, not failures (FastAPI's classes are found without importing FastAPI)."""
+    if isinstance(key, int):
+        return key == 500
+    if not isinstance(key, type) or issubclass(key, HTTPException):
+        return False
+    fastapi_errors = sys.modules.get("fastapi.exceptions")
+    skipped = [getattr(fastapi_errors, n, None) for n in ("RequestValidationError", "WebSocketRequestValidationError")]
+    return not any(isinstance(c, type) and issubclass(key, c) for c in skipped)
+
+
+def _wrap_handler(original: Callable[..., Any], wiring: CaptureWiring, store: ExceptionStore) -> Callable[..., Any]:
+    def record(conn: Any, exc: Exception) -> None:
+        if wiring.detached:  # the built stack keeps this wrapper after uninstall: it only passes through
+            return
+        try:
+            info = REQUEST.get()
+            if info is not None and info.endpoint is None:
+                info.endpoint = _endpoint_name(conn.scope.get("endpoint"))
+            store.record(exc, "handler", info, threading.current_thread().name)
+        except Exception as failure:  # noqa: BLE001 - the host's handler always runs
+            wiring.hook_failed("exception handler", failure)
+
+    if is_async_callable(original):
+
+        async def async_wrapper(conn: Any, exc: Exception) -> Any:
+            record(conn, exc)
+            return await original(conn, exc)
+
+        wrapper: Callable[..., Any] = async_wrapper
+    else:
+
+        def sync_wrapper(conn: Any, exc: Exception) -> Any:
+            record(conn, exc)
+            return original(conn, exc)
+
+        wrapper = sync_wrapper
+    wrapper.__sharpit_original__ = original  # type: ignore[attr-defined]
+    return wrapper
+
+
+class WrappingHandlers(dict[Any, Any]):
+    """``app.exception_handlers`` while sharpit is installed: handlers set later (``@app.exception_handler``) are
+    wrapped too. Reads return the stored value, so a wrapped handler reads as its wrapper."""
+
+    def __init__(self, handlers: Mapping[Any, Any], wiring: CaptureWiring, store: ExceptionStore) -> None:
+        super().__init__()
+        self._wiring = wiring
+        self._store = store
+        for key, handler in handlers.items():
+            self[key] = handler
+
+    def __setitem__(self, key: Any, handler: Any) -> None:
+        if _wrapped_key(key) and not hasattr(handler, "__sharpit_original__"):
+            handler = _wrap_handler(handler, self._wiring, self._store)
+        super().__setitem__(key, handler)
+
+
+def unwrap_exception_handlers(app: Any) -> None:
+    handlers = getattr(app, "exception_handlers", None)
+    if isinstance(handlers, WrappingHandlers):
+        app.exception_handlers = {k: getattr(v, "__sharpit_original__", v) for k, v in handlers.items()}
+
+
+def _record_logged(store: ExceptionStore, record: logging.LogRecord) -> None:
+    """The log source: ``logger.exception(...)`` and any record with ``exc_info``."""
+    exc = record.exc_info[1] if record.exc_info else None
+    if exc is not None:
+        store.record(exc, "log", REQUEST.get(), record.threadName, message_override=record.getMessage())
+
+
 class CaptureWiring:
     """Owns which capture hooks are attached for one context; every method is idempotent.
 
@@ -82,9 +158,13 @@ class CaptureWiring:
         if self.app is not None:
             return
         self.app = app
+        store = ctx.capture.exceptions
         if any(ctx.settings.panels[p].enabled for p in LOG_PANELS):
             self.log_handler = SharpitLogHandler(ctx.masker, ctx.capture.log_tail)
+            if store is not None:
+                self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
+        self._wrap_handlers(ctx)  # step 2 (spec §6.1), before the middleware: a too-late install still wraps
         if not any(ctx.settings.panels[p].enabled for p in CAPTURE_PANELS):
             return
         try:
@@ -93,12 +173,21 @@ class CaptureWiring:
             logger.warning("%s", CAPTURE_TOO_LATE)
             if ctx.capture.exchanges is not None:
                 ctx.capture.exchanges.unavailable_reason = CAPTURE_TOO_LATE_REASON
+            if store is not None:
+                store.unavailable_reason = CAPTURE_TOO_LATE_REASON
             return
         self.middleware_added = True
-        # Tasks 4-5: exception-handler wrapping and SQL listeners attach here
+        # Task 5: SQL listeners attach here
+
+    def _wrap_handlers(self, ctx: SharpitContext) -> None:
+        store = ctx.capture.exceptions
+        handlers = getattr(self.app, "exception_handlers", None)
+        if store is not None and isinstance(handlers, dict) and not isinstance(handlers, WrappingHandlers):
+            self.app.exception_handlers = WrappingHandlers(cast("dict[Any, Any]", handlers), self, store)
 
     def on_startup(self, ctx: SharpitContext) -> None:
         self.detached = False
+        self._wrap_handlers(ctx)  # again after a shutdown restored the plain dict
         self._first_run(ctx)
         self._attach_logging()  # after the host's startup: its basicConfig()/dictConfig() has run
         # Tasks 4-5: SQL listener retry
@@ -108,7 +197,8 @@ class CaptureWiring:
         self._attach_logging()
 
     def detach(self, ctx: SharpitContext) -> None:
-        del ctx  # Tasks 4-5 remove the exception-handler wrappers and SQL listeners they attached
+        del ctx  # Task 5 removes the SQL listeners it attached
+        unwrap_exception_handlers(self.app)
         if self.log_handler is not None:
             for attached in self.log_attached:
                 attached.removeHandler(self.log_handler)
@@ -231,13 +321,14 @@ class CaptureMiddleware:
 
         token = REQUEST.set(info)
         failed = cancelled = False
+        raised: Exception | None = None
         try:
             await self.app(scope, capture_receive, capture_send)
         except asyncio.CancelledError:
             cancelled = True
             raise
-        except Exception:
-            failed = True
+        except Exception as exc:
+            failed, raised = True, exc
             raise
         finally:
             REQUEST.reset(token)
@@ -245,6 +336,11 @@ class CaptureMiddleware:
                 finished = end_ns or time.perf_counter_ns()
                 info.finished_ns = finished
                 info.endpoint = _endpoint_name(scope.get("endpoint"))
+                store = self.ctx.capture.exceptions
+                if store is not None:
+                    if raised is not None:
+                        store.record(raised, "request", info, threading.current_thread().name)
+                    store.forget_request(info.id)
                 if buffer is not None:
                     if status is not None:  # the status that went out is the status; anything after is an error
                         recorded, error = status, failed or cancelled or disconnected

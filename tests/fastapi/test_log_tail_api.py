@@ -19,10 +19,9 @@ from typing import Any
 import pytest
 from examples.fastapi_sample.app import create_app
 from fastapi.testclient import TestClient
-from starlette.types import Message, Scope
 from uvicorn.config import LOGGING_CONFIG
 
-from conftest import SideEffectGuard
+from conftest import OpenStream, SideEffectGuard
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.capture.logtail import LINE_KEYS, LogTailBuffer, SharpitLogHandler
@@ -34,6 +33,7 @@ from sharpit.fastapi.sse import TOO_MANY_STREAMS, sse_response
 
 LOCAL = ("127.0.0.1", 50000)
 API = "/sharpit/api/log-tail"
+STREAM = f"{API}/stream"
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
@@ -209,46 +209,6 @@ def test_21st_stream_503():
     assert slots.count == 19
 
 
-def _stream_scope(path: str = f"{API}/stream") -> Scope:
-    return {
-        "type": "http",
-        "asgi": {"version": "3.0"},
-        "http_version": "1.1",
-        "method": "GET",
-        "scheme": "http",
-        "path": path,
-        "raw_path": path.encode(),
-        "root_path": "",
-        "query_string": b"",
-        "headers": [(b"host", b"localhost")],
-        "client": LOCAL,
-        "server": ("localhost", 80),
-    }
-
-
-class _Open:
-    """One stream held open on the app: ``started`` once its response head went out."""
-
-    def __init__(self, app: Any, scope: Scope | None = None) -> None:
-        self.sent: list[Message] = []
-        self.started = asyncio.Event()
-
-        async def receive() -> Message:
-            await asyncio.Event().wait()
-            raise AssertionError  # pragma: no cover
-
-        async def send(message: Message) -> None:
-            self.sent.append(message)
-            if message["type"] == "http.response.start":
-                self.started.set()
-
-        self.task = asyncio.ensure_future(app(scope or _stream_scope(), receive, send))
-
-    @property
-    def status(self) -> int:
-        return self.sent[0]["status"]
-
-
 def test_global_cap_mixed_streams():
     app, handle = _handle(stream_max_seconds=30)
     slots = _slots(handle)
@@ -259,17 +219,19 @@ def test_global_cap_mixed_streams():
             yield "update", None, "{}"
 
     async def main() -> None:
-        logs = [_Open(app) for _ in range(10)]
-        others = [_Open(sse_response(handle.context, ticks())) for _ in range(10)]  # a second panel's streams
+        logs = [OpenStream(app, STREAM) for _ in range(10)]
+        others = [
+            OpenStream(sse_response(handle.context, ticks()), STREAM) for _ in range(10)
+        ]  # a second panel's streams
         await asyncio.wait_for(asyncio.gather(*(s.started.wait() for s in logs + others)), 5)
         assert slots.count == 20 and {s.status for s in logs + others} == {200}
-        extra = _Open(app)
+        extra = OpenStream(app, STREAM)
         await asyncio.wait_for(extra.task, 5)
         assert extra.status == 503
         assert json.loads(b"".join(m.get("body", b"") for m in extra.sent)) == {"error": TOO_MANY_STREAMS}
         others[0].task.cancel()
         await asyncio.gather(others[0].task, return_exceptions=True)
-        again = _Open(app)
+        again = OpenStream(app, STREAM)
         await asyncio.wait_for(again.started.wait(), 5)
         assert again.status == 200
         for stream in [*logs, *others[1:], again]:
@@ -285,7 +247,7 @@ def test_slot_released_on_disconnect():
     buffer = _buffer(handle)
 
     async def main() -> None:
-        stream = _Open(app)
+        stream = OpenStream(app, STREAM)
         await asyncio.wait_for(stream.started.wait(), 5)
         await asyncio.sleep(0.05)
         assert _slots(handle).count == 1 and buffer.stream.subscriber_count == 1
@@ -300,7 +262,7 @@ def test_stream_live_line_delivered():
     app, handle = _handle(stream_max_seconds=30)
 
     async def main() -> None:
-        stream = _Open(app)
+        stream = OpenStream(app, STREAM)
         await asyncio.wait_for(stream.started.wait(), 5)
         _buffer(handle).append({"timestamp": 0, "level": "WARNING", "logger": "x", "message": "live", "thread": "t"})
         for _ in range(100):

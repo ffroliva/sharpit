@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from sharpit import __version__
+from sharpit.engine.capture.exceptions import unknown_group
 from sharpit.engine.capture.exchanges import unavailable_report
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
@@ -109,7 +110,13 @@ _QUERY_LIMIT: dict[str, Any] = {
     "additionalProperties": False,
 }
 _LIMIT_ONLY: dict[str, Any] = {"type": "object", "properties": {"limit": _LIMIT}, "additionalProperties": False}
-_SCHEMA_NAMES = {(): "NONE", ("limit",): "LIMIT", ("query", "limit"): "QUERY_LIMIT"}
+_ID: dict[str, Any] = {
+    "type": "object",
+    "properties": {"id": {"type": "string", "description": "Exact identifier of the resource to fetch."}},
+    "required": ["id"],
+    "additionalProperties": False,
+}
+_SCHEMA_NAMES = {(): "NONE", ("limit",): "LIMIT", ("query", "limit"): "QUERY_LIMIT", ("id",): "ID"}
 
 
 # --- Handlers (BootUiMcpTools) --------------------------------------------------------------------------------------
@@ -130,6 +137,34 @@ def vulnerability_service(ctx: SharpitContext) -> VulnerabilityService:
             ctx.single_flight,
         ),
     )
+
+
+def exceptions_report(ctx: SharpitContext) -> dict[str, Any]:
+    """``ExceptionsReport``; empty and unavailable when exception capture is not installed for this context."""
+    store = ctx.capture.exceptions
+    if store is None:
+        return {
+            "available": False,
+            "unavailableReason": "Exception capture is not installed",
+            "maxGroups": ctx.settings.exceptions_max_groups,
+            "totalExceptions": 0,
+            "groups": [],
+        }
+    return store.report()
+
+
+def exception_detail(ctx: SharpitContext, gid: str) -> dict[str, Any]:
+    store = ctx.capture.exceptions
+    detail = store.detail(gid) if store is not None else None
+    if detail is None:
+        raise ToolCallError(unknown_group(gid), 404)
+    return detail
+
+
+def clear_exceptions(ctx: SharpitContext) -> dict[str, Any]:
+    if ctx.capture.exceptions is not None:
+        ctx.capture.exceptions.clear()
+    return {"cleared": True}
 
 
 def http_exchanges_report(
@@ -228,6 +263,33 @@ TOOLS: tuple[Tool, ...] = (
         lambda c, _a: {"entries": log_tail_lines(c.ctx)},
     ),
     Tool(
+        "get_exceptions",
+        "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack frames, "
+        "causes, and individual occurrences.",
+        _NONE,
+        "exceptions",
+        False,
+        lambda c, _a: exceptions_report(c.ctx),
+    ),
+    Tool(
+        "get_exception_detail",
+        "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions "
+        "or get_live_activity.",
+        _ID,
+        "exceptions",
+        False,
+        lambda c, a: exception_detail(c.ctx, a["id"]),
+    ),
+    Tool(
+        "clear_exceptions",
+        "Clear sharpit's bounded in-memory exception groups and occurrences. This does not suppress, handle, or "
+        "change application exceptions.",
+        _NONE,
+        "exceptions",
+        True,
+        lambda c, _a: clear_exceptions(c.ctx),
+    ),
+    Tool(
         "get_vulnerabilities_report",
         "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
@@ -264,6 +326,9 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_beans": "beans",
     "get_http_exchanges": "http exchanges",
     "get_log_tail": "logs tail",
+    "get_exceptions": "exceptions list",
+    "get_exception_detail": "exceptions show",
+    "clear_exceptions": "exceptions clear",
     "get_vulnerabilities_report": "vulnerabilities report",
     "vulnerabilities_scan": "vulnerabilities scan",
 }
@@ -332,6 +397,8 @@ class ToolGate:
             raise ToolCallError(str(error), 409)
         if isinstance(error, BadRequest):
             raise ToolCallError(str(error), 400)
+        if isinstance(error, ToolCallError):  # a handler's own in-band refusal (an unknown id)
+            raise error
         if not isinstance(error, Exception):
             raise error
         logger.error("sharpit MCP failure while dispatching a request", exc_info=error)
@@ -358,7 +425,7 @@ def _check_arguments(args: object) -> dict[str, Any]:
     if not isinstance(args, dict):
         raise RpcError(INVALID_PARAMS, "Tool arguments must be an object")
     checked = cast("dict[str, Any]", args)
-    for key, minimum in (("query", None), ("limit", 1)):  # the only arguments any sharpit tool takes
+    for key, minimum in (("query", None), ("id", None), ("limit", 1)):  # the only arguments any sharpit tool takes
         if key not in checked:
             continue
         value = checked[key]
@@ -398,7 +465,11 @@ def call_tool(
     query = query.strip() or None if isinstance(query, str) else None
     raw_limit = checked.get("limit")
     limit = min(raw_limit, gate.max_results) if isinstance(raw_limit, int) else gate.max_results
-    normalized = {"query": query, "limit": limit}
+    raw_id = checked.get("id")
+    gid = raw_id.strip() if isinstance(raw_id, str) else ""
+    if "id" in tool.input_schema["properties"] and not gid:  # BootUI: after the panel gates
+        raise RpcError(INVALID_PARAMS, "Missing required argument: id")
+    normalized = {"query": query, "limit": limit, **({"id": gid} if "id" in tool.input_schema["properties"] else {})}
     return gate.run(tool.name, lambda: tool.handler(call, normalized))
 
 

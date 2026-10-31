@@ -26,9 +26,10 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from sharpit.engine import guard, tools
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
 from sharpit.engine.capture import route_path
+from sharpit.engine.capture.exceptions import ExceptionStore, unknown_group
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.logtail import LogTailBuffer, log_events
-from sharpit.engine.capture.streams import StreamSlots
+from sharpit.engine.capture.streams import StreamSlots, change_events
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report, set_level
@@ -162,7 +163,6 @@ class GuardMiddleware:
 # Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
 _NOT_BUILT = (
     "activity",
-    "exceptions",
     "sql-trace",
     "alembic",
     "database-connection-pools",
@@ -181,6 +181,8 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     wiring = ctx.capture.wiring
     on_root = ctx.capture.log_tail is None or (wiring is not None and wiring.log_handler_on_root())
     reasons["log-tail"] = None if on_root else LOG_TAIL_DETACHED_REASON
+    store = ctx.capture.exceptions
+    reasons["exceptions"] = store.unavailable_reason if store is not None else None
     return reasons
 
 
@@ -254,6 +256,40 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         # Last-Event-ID first: an automatic reconnect sends it while the URL still carries a manual ?after=
         last = request.headers.get("last-event-id") or request.query_params.get("after")
         return sse_response(ctx, log_events(buffer, buffer.resume_point(last)))
+
+    def exception_store() -> ExceptionStore:
+        store = ctx.capture.exceptions
+        if store is None:  # the panel gate answers first; only a disabled panel has no store
+            raise HTTPException(404)
+        return store
+
+    def exceptions(request: Request) -> Response:
+        store = exception_store()
+        if request.method == "DELETE":
+            store.clear()
+            return Response(status_code=204, headers=dict(security_headers("api")))
+        return json_response(store.report())
+
+    async def exceptions_stream(_request: Request) -> Response:
+        return sse_response(ctx, change_events(exception_store().changes))
+
+    def exception_detail(request: Request) -> Response:
+        gid: str = request.path_params["id"]
+        detail = exception_store().detail(gid)
+        return json_response(detail) if detail is not None else error(404, unknown_group(gid))
+
+    async def exception_status(request: Request) -> Response:
+        raw = await _read_capped(request, small_cap)
+        if raw is None:
+            return error(413, "Request payload exceeds limit")
+        body = _json_or_none(raw) if raw.strip() else None
+        value = cast("dict[str, Any]", body).get("status") if isinstance(body, dict) else None
+        gid: str = request.path_params["id"]
+        try:
+            updated = exception_store().set_status(gid, value if isinstance(value, str) else None)
+        except ValueError as exc:  # checked before the group, as BootUI ExceptionsService.updateStatus
+            return error(400, str(exc))
+        return json_response(updated) if updated is not None else error(404, unknown_group(gid))
 
     def vulnerability_service() -> VulnerabilityService:
         return tools.vulnerability_service(ctx)
@@ -351,6 +387,10 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/http-exchanges", http_exchanges, methods=["GET"]),
         Route(f"{api}/log-tail/recent", log_tail_recent, methods=["GET"]),
         Route(f"{api}/log-tail/stream", log_tail_stream, methods=["GET"]),
+        Route(f"{api}/exceptions", exceptions, methods=["GET", "DELETE"]),
+        Route(f"{api}/exceptions/stream", exceptions_stream, methods=["GET"]),  # before {id}: never an id
+        Route(f"{api}/exceptions/{{id}}", exception_detail, methods=["GET"]),
+        Route(f"{api}/exceptions/{{id}}/status", exception_status, methods=["POST"]),
         Route(f"{api}/loggers/{{name:path}}", logger_level, methods=["POST"]),
         Route(f"{api}/vulnerabilities", vulnerabilities, methods=["GET"]),
         Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
@@ -493,6 +533,13 @@ def install(
         capture.log_tail = LogTailBuffer(sharpit_settings.log_tail_max_lines, sharpit_settings.log_tail_max_bytes)
     if sharpit_settings.panels["http-exchanges"].enabled:
         capture.exchanges = HttpExchangeBuffer(sharpit_settings.http_exchanges_max_exchanges)
+    if sharpit_settings.panels["exceptions"].enabled:
+        capture.exceptions = ExceptionStore(
+            sharpit_settings.exceptions_max_groups,
+            sharpit_settings.exceptions_max_occurrences_per_group,
+            sharpit_settings.exceptions_max_stack_frames,
+            ctx.masker,
+        )
     wiring = capture.wiring = CaptureWiring()
     wiring.attach_at_install(app, ctx)
 

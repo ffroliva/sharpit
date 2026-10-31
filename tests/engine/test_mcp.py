@@ -224,6 +224,8 @@ def test_tools_list_has_no_action_tool():
         "get_beans",
         "get_http_exchanges",
         "get_log_tail",
+        "get_exceptions",
+        "get_exception_detail",
         "get_vulnerabilities_report",
     ]
     first = tools[0]
