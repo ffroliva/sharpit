@@ -11,7 +11,7 @@ sharpit.install(app)
 Then open `http://127.0.0.1:8000/sharpit` and you see what your app is really running with: its configuration, its
 routes, its loggers, its dependency graph and the known vulnerabilities in its packages. An AI agent can ask the same
 questions over MCP, the protocol coding agents use to call tools. sharpit is a Python port of
-[BootUI](https://gh.ali360.cloudns.ch/jdubois/boot-ui), the console for Spring Boot. It speaks BootUI's JSON contract and has
+[BootUI](https://github.com/jdubois/boot-ui), the console for Spring Boot. It speaks BootUI's JSON contract and has
 a new UI of its own.
 
 ## The parts
