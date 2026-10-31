@@ -212,7 +212,7 @@ class HealthService:
         status = raw.strip().upper() if isinstance(raw, str) else None
         if status in STATUSES:
             return status, details
-        shown = self._ctx.masker.mask_text(repr(raw)[:_MAX_DETAIL])
+        shown = (self._ctx.masker.mask_text(repr(raw)) or "")[:_MAX_DETAIL]  # mask first: a cut token escapes
         return "UNKNOWN", {**details, "error": f"unknown health status {shown}"}
 
     def _mask(self, value: object, key: str = "") -> object:

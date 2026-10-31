@@ -155,6 +155,13 @@ def test_unknown_status_string(result: object):
     assert part["status"] == "UNKNOWN" and part["details"]["error"].startswith("unknown health status ")
 
 
+def test_unknown_status_masked_before_cut():
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij"
+    raw = "a" * 973 + " " + jwt  # repr's 1000-char cut lands inside the token's second segment
+    part = _components(_check(_service(health_checks={"c": lambda: raw})))["c"]
+    assert part["status"] == "UNKNOWN" and "eyJhbGciOiJIUzI1NiJ9" not in part["details"]["error"]
+
+
 def test_raising_check_down_masked():
     def boom() -> bool:
         raise ConnectionError(f"cannot reach {DSN} password={SECRET}")

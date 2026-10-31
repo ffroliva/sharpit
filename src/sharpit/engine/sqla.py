@@ -396,6 +396,8 @@ async def run_db_read[T](
                 if engine.dialect.is_async:
                     from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: PLC0415 - only once the app imported it
 
+                    # shortcut: on timeout `done` fires once the await is cancelled, while the driver's own thread
+                    # (aiosqlite) may still run the call, so one extra read can overlap; track the driver if it matters
                     async with AsyncEngine(engine).connect() as conn:
                         return await conn.run_sync(bounded, fn, timeout)
 

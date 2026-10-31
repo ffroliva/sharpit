@@ -579,6 +579,7 @@ def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, 
     app, ran = _sweep_app(variant, state_dir, mcp_enabled="ON", stream_max_seconds=0.05)
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop connects a self-pipe socketpair once
     with _client(app) as client:
+        client.get("/owners")  # one host request first: the capture wiring that attaches on it is swept too
         no_side_effects.block_network()
         for query in ("", "?q=sharpit&offset=0&limit=5"):
             resp = client.get(path + query)
@@ -606,6 +607,7 @@ def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: 
     app, ran = _sweep_app(variant, str(no_side_effects.state_dir), mcp_enabled="ON")
     no_side_effects.unblock_network()
     with _client(app) as client:
+        client.get("/owners")
         no_side_effects.block_network()
         arguments = _tool_arguments(tool, app.state.sharpit)
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
