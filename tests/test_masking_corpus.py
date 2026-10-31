@@ -228,7 +228,7 @@ def _plant_host_requests(client: TestClient) -> None:
 
 def _send_plant(client: TestClient) -> None:
     client.get(
-        f"/reset/{JWT}?api_key={SENTINEL}&page=1",
+        f"/reset/{JWT}?api_key={SENTINEL}&page=1&{JWT}",  # a bare part: masked by value
         headers={"Authorization": f"Bearer {SENTINEL}", "X-Note": JWT},  # harmless name: masked by value
     )
 
@@ -254,7 +254,11 @@ def test_sentinel_never_leaks(
         _sweep(call, ctx)
         exchanges = call("GET", f"{API}/http-exchanges?limit=500").json()["exchanges"]
         planted = [e for e in exchanges if e["path"].startswith("/reset/")]
-        assert planted and planted[0]["path"] == f"/reset/{MASK}" and planted[0]["query"] == f"api_key={MASK}&page=1"
+        assert (
+            planted
+            and planted[0]["path"] == f"/reset/{MASK}"
+            and planted[0]["query"] == f"api_key={MASK}&page=1&{MASK}"
+        )
 
         # the plants really reached sharpit (else the sweep proves nothing); recorded like every other response
         config = {p["name"]: p for p in call("GET", f"{API}/config?limit=500").json()["properties"]}

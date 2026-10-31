@@ -133,6 +133,10 @@ def test_query_pairs_masked():
     assert _row(query_string=b"token=abc&page=2")["query"] == f"token={MASK}&page=2"
     assert _row(query_string=b"%70assword=hunter2&page=2")["query"] == f"%70assword={MASK}&page=2"
     assert _row(query_string=f"next={JWT}".encode())["query"] == f"next={MASK}"  # by value
+    assert _row(query_string=JWT.encode())["query"] == MASK  # a bare part with no "=" is masked by value
+    assert _row(query_string=f"a&{JWT}&b=1".encode())["query"] == f"a&{MASK}&b=1"
+    token = Masker(Exposure.MASKED, True, "sharpit-own-token")
+    assert _row(token, query_string=b"sharpit-own-token")["query"] == MASK
     plain = _row(path="/orders", query_string=b"page=2&sort=asc")
     assert (plain["path"], plain["query"], plain["uri"]) == ("/orders", "page=2&sort=asc", "/orders?page=2&sort=asc")
     assert _row(query_string=b"")["query"] is None

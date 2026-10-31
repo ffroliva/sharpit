@@ -396,8 +396,8 @@ def test_middleware_added_after_install_warns_once(caplog: pytest.LogCaptureFixt
     install(last, enabled="ON", show_banner=False)
     with caplog.at_level(logging.WARNING, logger="sharpit"), TestClient(last) as client:
         client.get("/host")
+        TestClient(late).get("/host")  # without lifespan the first request checks too: still one warning in all
     assert _order_warnings(caplog) == []
-    TestClient(late).get("/host")  # without lifespan the first request checks too: still one warning in all
 
 
 def test_second_install_no_double_middleware():

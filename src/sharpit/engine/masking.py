@@ -211,8 +211,11 @@ class Masker:
             return None
         pairs = query.split("&")
         for i, pair in enumerate(pairs):
-            raw_name, _, raw_value = pair.partition("=")
-            if raw_value and self.mask(unquote_plus(raw_name), unquote_plus(raw_value))[1]:
+            raw_name, sep, raw_value = pair.partition("=")
+            if not sep:  # a bare part (``?<token>``) is a value with no name: masked whole by value
+                if self.mask("", unquote_plus(raw_name))[1]:
+                    pairs[i] = MASK
+            elif raw_value and self.mask(unquote_plus(raw_name), unquote_plus(raw_value))[1]:
                 pairs[i] = f"{raw_name}={MASK}"
         return "&".join(pairs)
 
