@@ -9,7 +9,7 @@ description: >
 
 # sharpit: the local developer console for FastAPI apps
 
-> **Pre-release MVP (`0.1.0.dev0`).** Not on PyPI yet. APIs, panels and settings can change before the first release.
+> **0.1.0, the first release.** APIs, panels and settings can still change before 1.0.
 > The design source is `docs/superpowers/specs/2026-10-30-sharpit-mvp-design.md`; when this file and the code
 > disagree, the code wins.
 
