@@ -168,7 +168,8 @@ Order as BootUI: security headers → trusted-source → Host allow-list → cro
   `Sec-Fetch-Site: cross-site`, or `Origin` is present and, on API paths, its full origin (scheme, host and port) differs from the request's
   (stricter than BootUI's host-only comparison). Reason: a host app's `CORSMiddleware(allow_origins=["*"])` wraps sharpit's mount, so a cross-origin GET
   would otherwise be readable by any website the developer visits.
-- **Token.** Only for untrusted sources (allowed through `SHARPIT_ALLOW_NON_LOCALHOST` or trusted proxies). Token from
+- **Token.** Only loopback or the trusted container gateway, with no forwarded header, skip it. Every other admitted
+  caller (through `SHARPIT_ALLOW_NON_LOCALHOST` or a `SHARPIT_TRUSTED_PROXIES` peer) must present it. Token from
   `SHARPIT_AUTHENTICATION_TOKEN`, else generated per process with `secrets.token_urlsafe(32)` when remote access is
   enabled, printed once to stderr in the banner. Multi-worker deployments must configure the token (documented).
   `POST {api}/auth/session` with `Authorization: Bearer` → 204 and `SHARPIT_SESSION=<token>; Path=<root_path><api_path>;
@@ -371,6 +372,7 @@ Internal module structure, caching details, UI component structure and visuals w
 | Config suggestions unfiltered | suggestions are filtered by `q` (relaxed name or description) | contract §3 is silent; fewer, relevant hits while searching |
 | MCP `prompts/list = []` (spec §9) | BootUI's 3 prompt names and 5 conformance fragments kept, rewritten for sharpit's tools and Python | the conformance tests need them; wording follows the Python port |
 | Localhost grant survives forwarded headers | a forwarded header voids the localhost grant unless a trusted proxy is configured | uvicorn `FORWARDED_ALLOW_IPS=*` rewrites the peer; a local reverse proxy that adds `X-Forwarded-For` needs a token |
+| A trusted-proxies peer needs no token (`ApiAuthenticationFilterTests.sourcesTrustedViaTrustedProxiesDoNotRequireAuthentication`) | a trusted-proxies peer is admitted past the source check but must present the token | the ASGI server may have rewritten the peer from `X-Forwarded-For` (`--forwarded-allow-ips='*'`), so a spoofed header could land inside the range |
 | Vue UI look and feel (Svelte row above) | the UI is a new design (DESIGN.md), not a restyle of BootUI's | owner wants a new look; behaviour follows the contract |
 | Spring MVC, WebFlux and Quarkus adapters | FastAPI is the only adapter in the MVP | scope; the engine is framework-neutral behind the `spi` |
 | `bootui` CLI binary | no `sharpit` console script; only `/api/cli` endpoints | MVP scope (repeats the CLI client row for the binary itself) |

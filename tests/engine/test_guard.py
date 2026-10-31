@@ -249,7 +249,27 @@ def test_any_forwarded_header_makes_source_untrusted(header: str):
     assert is_trusted_source(f, SharpitSettings(), None) is False
     assert is_trusted_source(f, trusted_range("10.0.0.0/8"), None) is False  # loopback grant never applies
     in_range = RequestFacts("GET", "10.0.0.5", {header: "127.0.0.1"}, None)
-    assert is_trusted_source(in_range, trusted_range("10.0.0.0/8"), None) is True  # the range still trusts
+    assert is_trusted_source(in_range, trusted_range("10.0.0.0/8"), None) is False  # the range admits, never trusts
+    assert decide_guard(in_range, trusted_range("10.0.0.0/8"), TOKEN, None) is None  # admitted to the shell
+
+
+@pytest.mark.parametrize("peer", ["10.0.0.5", "127.0.0.1"])
+@pytest.mark.parametrize("forwarded", [{}, {"x-forwarded-for": "127.0.0.1"}])
+def test_trusted_proxy_peer_must_present_the_token(peer: str, forwarded: dict[str, str]):
+    # sharpit deviation: BootUI lets a trusted range skip the token; here the range only admits the caller, because
+    # the ASGI server may have rewritten the peer from X-Forwarded-For (--forwarded-allow-ips='*')
+    settings = trusted_range("10.0.0.0/8", "127.0.0.1")
+    f = facts(peer=peer, host="localhost", api="/overview", **forwarded)
+    if not forwarded and peer == "127.0.0.1":
+        assert decide(f, settings) is None  # a plain loopback peer is still trusted
+        return
+    assert decide(f, settings) == AUTH
+    assert (
+        decide(
+            facts(peer=peer, host="localhost", api="/overview", authorization=f"Bearer {TOKEN}", **forwarded), settings
+        )
+        is None
+    )
 
 
 def test_xff_loopback_denied_even_with_trusted_proxies():
@@ -593,7 +613,7 @@ def test_ignores_malformed_trusted_proxy_entries():
     ],
 )
 def test_trusted_proxy_parsing(cidr: str, peer: str, trusted: bool):
-    assert is_trusted_source(facts(peer=peer), trusted_range(cidr), None) is trusted
+    assert (decide(get(peer, "localhost:8080"), trusted_range(cidr)) is None) is trusted
 
 
 # --- Container gateway ----------------------------------------------------------------------------------------------
@@ -788,9 +808,9 @@ def test_shell_and_assets_need_no_token():
     assert decide(facts(peer="10.0.0.5", host="localhost:8000"), ALLOW_NON_LOCALHOST) is None
 
 
-# ported: ApiAuthenticationFilterTests.sourcesTrustedViaTrustedProxiesDoNotRequireAuthentication
-def test_trusted_proxy_source_needs_no_token():
-    assert decide(facts(peer="10.0.0.5", api="/overview"), trusted_range("10.0.0.0/24")) is None
+# inverts ApiAuthenticationFilterTests.sourcesTrustedViaTrustedProxiesDoNotRequireAuthentication (spec §14 deviation)
+def test_trusted_proxy_source_needs_the_token():
+    assert decide(facts(peer="10.0.0.5", api="/overview"), trusted_range("10.0.0.0/24")) == AUTH
 
 
 def test_auth_session_path_needs_token():

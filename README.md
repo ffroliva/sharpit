@@ -158,9 +158,10 @@ top-level package).
   `X-Forwarded-For` or `X-Real-IP` is present and no trusted proxy is configured, the caller counts as remote.
 - **Cross-site requests are refused** on every method (`Sec-Fetch-Site: cross-site`, or, on API paths, an `Origin` that differs from
   the request's full origin: scheme, host and port; other paths compare the host), even when your app has `CORSMiddleware(allow_origins=["*"])`.
-- **Remote access needs a token.** `SHARPIT_ALLOW_NON_LOCALHOST=true`,
-  `SHARPIT_TRUST_CONTAINER_GATEWAY=AUTO` or a trusted proxy admits untrusted sources, and
-  those must present the token as `Authorization: Bearer <token>`. Set `SHARPIT_AUTHENTICATION_TOKEN`; otherwise a
+- **Remote access needs a token.** Only loopback, or the container gateway under
+  `SHARPIT_TRUST_CONTAINER_GATEWAY=AUTO`, with no forwarded header skips the token. Callers admitted by
+  `SHARPIT_ALLOW_NON_LOCALHOST=true` or by a `SHARPIT_TRUSTED_PROXIES` address (whose requests may carry a rewritten
+  peer) must present the token as `Authorization: Bearer <token>`. Set `SHARPIT_AUTHENTICATION_TOKEN`; otherwise a
   token is generated per process and printed once to stderr. A browser trades it for an `HttpOnly; SameSite=Strict`
   cookie through `POST /sharpit/api/auth/session`.
 - **Secrets are masked** (`******`) in names, values, defaults, errors and MCP output, including pydantic `SecretStr`.
@@ -176,7 +177,7 @@ top-level package).
 The Origin check compares scheme, host and port. If a proxy terminates TLS and forwards plain HTTP, uvicorn must see
 the original scheme or browser POSTs from the UI are rejected. Start uvicorn with `--proxy-headers` and
 `--forwarded-allow-ips` (or set `FORWARDED_ALLOW_IPS`) to the proxy's address, and add that address to
-`SHARPIT_TRUSTED_PROXIES`.
+`SHARPIT_TRUSTED_PROXIES`. Requests through the proxy still need the token.
 
 ### Multiple workers and `--reload`
 

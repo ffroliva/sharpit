@@ -288,6 +288,19 @@ def test_spoofed_xff_is_never_loopback(peer: tuple[str, int], path: str):
     assert resp.status_code == (200 if path == "/sharpit/" else 401)  # untrusted: the API needs the token
 
 
+@pytest.mark.parametrize(("proxy", "spoofed"), [("127.0.0.1", "127.0.0.1"), ("10.0.0.0/8", "10.0.0.7")])
+@pytest.mark.parametrize("peer", [LOCAL, REMOTE], ids=["local-peer", "remote-peer"])
+def test_spoofed_xff_into_a_trusted_proxy_range_needs_the_token(proxy: str, spoofed: str, peer: tuple[str, int]):
+    # --forwarded-allow-ips='*' rewrites the peer to whatever X-Forwarded-For says, here an address in the range
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, trusted_proxies=[proxy], authentication_token=TOKEN)
+    client = _client(ProxyHeadersMiddleware(app, trusted_hosts="*"), peer)
+    spoof = {"X-Forwarded-For": spoofed}
+    assert client.get("/sharpit/api/overview", headers=spoof).status_code == 401
+    authed = {**spoof, "Authorization": f"Bearer {TOKEN}"}
+    assert client.get("/sharpit/api/overview", headers=authed).status_code == 200
+
+
 # --- duplicate headers (raw ASGI: httpx would merge them) -----------------------------------------------------------
 
 

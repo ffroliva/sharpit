@@ -205,23 +205,23 @@ def _is_numeric_ip_literal(value: str) -> bool:
 
 
 def is_trusted_source(facts: RequestFacts, settings: SharpitSettings, gateway: str | None) -> bool:
-    """Loopback, a trusted-proxies range, or the detected container gateway; never via forwarded headers.
+    """Loopback or the detected container gateway with no forwarded header: the only callers that skip the token.
 
-    sharpit deviation: with any forwarded header present only a trusted-proxies range can grant trust (never loopback
-    or the gateway), because the ASGI server may already have rewritten the peer from those headers.
+    sharpit deviation: any forwarded header voids trust, and a trusted-proxies range only admits the caller (it must
+    still present the token), because the ASGI server may already have rewritten the peer from those headers.
     """
-    forwarded = any(h in facts.headers for h in _FORWARDED_HEADERS)
-    if forwarded and not settings.trusted_proxies:
+    if any(h in facts.headers for h in _FORWARDED_HEADERS):
         return False
     address = _parse_ip(facts.peer)
     if address is None:
         return False
-    if address.is_loopback and not forwarded:
-        return True
-    if any(address in network for network in _trusted_ranges(tuple(settings.trusted_proxies))):
-        return True
     mode = settings.trust_container_gateway.upper()
-    return not forwarded and mode in ("AUTO", "ON") and address == _parse_ip(gateway)
+    return address.is_loopback or (mode in ("AUTO", "ON") and address == _parse_ip(gateway))
+
+
+def _via_trusted_proxy(facts: RequestFacts, settings: SharpitSettings) -> bool:
+    address = _parse_ip(facts.peer)
+    return address is not None and any(address in n for n in _trusted_ranges(tuple(settings.trusted_proxies)))
 
 
 # --- Token ----------------------------------------------------------------------------------------------------------
@@ -324,7 +324,7 @@ def decide_guard(
 ) -> Denial | None:
     """None when the request may proceed, else the response to send."""
     trusted = is_trusted_source(facts, settings, gateway)
-    if not settings.allow_non_localhost and not trusted:
+    if not (trusted or settings.allow_non_localhost or _via_trusted_proxy(facts, settings)):
         forwarded = any(h in facts.headers for h in _FORWARDED_HEADERS)
         return _forbidden(
             MESSAGE_FORWARDED_SOURCE if forwarded and not settings.trusted_proxies else MESSAGE_NON_LOOPBACK_SOURCE
