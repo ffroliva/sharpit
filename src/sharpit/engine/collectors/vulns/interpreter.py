@@ -268,7 +268,7 @@ class _Entry:
         for listed in self.affected.versions:
             if listed is None or not listed.strip():
                 unresolved = True
-            elif version == listed:
+            elif (_version(version) or version) == (_version(listed) or listed):  # PEP 440 equality, else the text
                 matched = True
         for timeline in self.timelines:
             applicability = timeline.evaluate(version)

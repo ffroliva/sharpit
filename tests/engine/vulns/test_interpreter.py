@@ -114,6 +114,22 @@ def test_explicit_versions_never_manufacture_a_fix():
     assert run("1.6", item).unresolved is True
 
 
+# new (code review #13): explicit versions match by PEP 440 equality, falling back to the text when unparsable
+@pytest.mark.parametrize(
+    ("installed", "listed", "severity"),
+    [
+        ("1.5.0", "1.5", "LOW"),
+        ("1.5", "v1.5.0", "LOW"),
+        ("2.0.0rc1", "2.0rc1", "LOW"),
+        ("1.5.1", "1.5", "UNKNOWN"),
+        ("weird-build", "weird-build", "LOW"),  # not PEP 440 on either side: plain text equality
+        ("weird-build", "weird-build.0", "UNKNOWN"),
+    ],
+)
+def test_explicit_versions_compare_as_pep440(installed: str, listed: str, severity: str):
+    assert run(installed, explicit([listed], [LOW])).severity == severity
+
+
 # ported: OsvAdvisoryInterpreterTests.versionsAndRangesAreAUnionIncludingExplicitVersionsOutsideTheRange
 def test_versions_and_ranges_union():
     item = explicit(["3"], [LOW], [rng(ev("introduced", "1"), ev("fixed", "2"))])
