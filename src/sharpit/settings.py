@@ -165,10 +165,6 @@ def _config_scan(raw: object) -> tuple[str, ...] | bool:
         return _items(raw)
 
 
-def _token(raw: object) -> str | None:
-    return _str(raw)
-
-
 # field -> (parser, fail-safe override). Fields absent from the override map fall back to their default.
 _Parser = Callable[[object], Any]
 _SPECS: dict[str, tuple[_Parser, Any]] = {
@@ -180,7 +176,7 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "allowed_hosts": (_items, None),
     "trusted_proxies": (_items, None),
     "trust_container_gateway": (_mode, "OFF"),
-    "authentication_token": (_token, None),
+    "authentication_token": (_str, None),
     "read_only": (_bool, True),
     "expose_values": (_exposure, Exposure.MASKED),
     "mask_secrets": (_bool, True),
