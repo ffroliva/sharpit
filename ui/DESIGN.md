@@ -125,6 +125,29 @@ scripts.
   hidden.
 - Below 720px the rail becomes a single row that scrolls horizontally above the panel. There is no hamburger menu.
 
+## Runtime panels (0.2.0)
+
+New pieces only; everything else reuses the tokens and patterns above.
+
+- **Rail groups.** `lib/nav.ts` sorts the rail into Overview, Runtime, Database, Configuration and Advisors. A group title is a
+  12px `--muted` line (`--t-sm`), not a heading and not clickable. A panel the server calls "Not built yet" is hidden; every
+  other unavailable panel keeps its reason (see Layout). Below 720px the group titles are dropped with the rest of the chrome.
+- **PanelShell.** One header line (title, controls, a right-aligned muted count) over a scroll region. Its three states are fixed:
+  loading is one muted "Loading…" line, error is a `--danger` lead with the server's text and a Retry button, and a read-only panel
+  gets a `--warn` notice with the reason. Actions stay visible, are `disabled`, and carry the reason as their `title`.
+- **Live panels** (Activity, Exceptions, HTTP Exchanges, Log Tail) show no connection badge: a planned stream rotation is
+  invisible. Only a refused stream (`error`) shows a `--danger` notice, and it clears itself when the stream is back.
+- **Log lines.** Monospace, one per row, wrapped. ERROR and above in `--danger`, WARNING in `--warn`, DEBUG in `--muted`. The level
+  is also written as a word. Auto-follow stops on Pause.
+- **Stack frames.** An ordered list in `--muted`; the application's own frames are `--ink` at weight 600. Frames are plain text.
+- **Status chips.** The `.tag` outline in the status colour with its word (`UP`, `DOWN`, `OPEN`, `slow`). An HTTP status is a
+  coloured number: 2xx `--ok`, 3xx `--muted`, 4xx `--warn`, 5xx `--danger`.
+- **Expandable rows.** A `Details` link button (`aria-expanded`) opens a `--rail` row under the line. Nothing animates.
+- **Probe.** Method select, path input (mono, with a route datalist), two mono textareas for headers and body, and one primary
+  `Send` button. The response is a status line, the allow-listed headers, then the body in a wrapped `<pre>` on `--rail`.
+  Headers and bodies are never stored; history keeps method and path.
+- Every captured value is text. No view uses `{@html}` (`tests/test_ui_no_html.py`).
+
 ## States and motion
 
 - Focus is a 2px `--accent` outline with a 1px offset on every interactive element, and it is never removed.
