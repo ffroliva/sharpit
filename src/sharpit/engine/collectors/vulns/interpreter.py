@@ -28,8 +28,9 @@ from packaging.version import InvalidVersion, Version
 
 from sharpit.engine.collectors.vulns.cvss import parse_score, severity_for, severity_from_text
 from sharpit.engine.collectors.vulns.inventory import Package
+from sharpit.engine.collectors.vulns.osv import ECOSYSTEM
+from sharpit.engine.collectors.vulns.osv import text_field as _text
 
-ECOSYSTEM = "PyPI"
 _EVENT_TYPES = ("introduced", "fixed", "last_affected", "limit")
 _REFERENCE_PRIORITY = ("ADVISORY", "FIX")
 _MAX_ALIASES = 20
@@ -375,12 +376,6 @@ def _strings(node: Any) -> list[str]:
     if not isinstance(node, list):
         return []
     return list(dict.fromkeys(v for v in cast(list[Any], node) if isinstance(v, str) and v.strip()))
-
-
-def _text(node: dict[str, Any], key: str) -> str | None:
-    """BootUI ``text``: a non-blank string field, else None."""
-    value = node.get(key)
-    return value if isinstance(value, str) and value.strip() else None
 
 
 def _version(raw: str | None) -> Version | None:

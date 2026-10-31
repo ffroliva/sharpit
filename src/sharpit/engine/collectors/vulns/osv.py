@@ -120,7 +120,7 @@ class OsvClient:
                     if vuln_id not in seen[pkg]:
                         seen[pkg].add(vuln_id)
                         ids[pkg].append(vuln_id)
-                token = _text(item, "next_page_token")
+                token = text_field(item, "next_page_token")
                 if token is None:
                     complete.add(pkg)
                 else:
@@ -177,7 +177,7 @@ def _validate_results(root: Any, expected: int) -> list[dict[str, Any]]:
             if not isinstance(vulns, list):
                 raise OsvError("OSV querybatch returned a non-array vulns field")
             for vuln in cast(list[Any], vulns):
-                if not isinstance(vuln, dict) or _text(cast(dict[str, Any], vuln), "id") is None:
+                if not isinstance(vuln, dict) or text_field(cast(dict[str, Any], vuln), "id") is None:
                     raise OsvError("OSV querybatch returned a vulnerability without a non-blank id")
         token = result.get("next_page_token")
         if token is not None and not isinstance(token, str):
@@ -185,6 +185,7 @@ def _validate_results(root: Any, expected: int) -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], items)
 
 
-def _text(node: dict[str, Any], key: str) -> str | None:
+def text_field(node: dict[str, Any], key: str) -> str | None:
+    """BootUI ``text``: a non-blank string field, else None."""
     value = node.get(key)
     return value if isinstance(value, str) and value.strip() else None

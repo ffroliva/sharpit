@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from sharpit.engine.collectors.vulns.osv import MAX_QUERY_BATCH_PAGES, Opener, OsvError, request_json
+from sharpit.engine.collectors.vulns.osv import text_field as _text
 
 CVE_PARAMETER_MAX_LENGTH = 2000  # FIRST.org's documented limit on the comma-joined cve parameter
 EPSS_MAX_BYTES = 1024 * 1024
@@ -153,8 +154,3 @@ def _integer(root: dict[str, Any], key: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0 or value > 2**31 - 1:
         raise _EpssError(f"EPSS returned invalid {key} metadata")
     return value
-
-
-def _text(node: dict[str, Any], key: str) -> str | None:
-    value = node.get(key)
-    return value if isinstance(value, str) and value.strip() else None
