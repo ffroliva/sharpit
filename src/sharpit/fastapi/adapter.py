@@ -463,4 +463,6 @@ def install(app: Any, *, settings: object = (), **options: Any) -> SharpitHandle
     router.routes.insert(0, mount)
     if sharpit_settings.show_banner:
         print(_banner(ctx, generated), file=sys.stderr)
+    elif generated:  # nothing else can ever reveal a generated token
+        print(f"sharpit authentication token (generated for this process): {token}", file=sys.stderr)
     return handle

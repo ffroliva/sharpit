@@ -248,6 +248,21 @@ def test_banner_prints_generated_token(capsys: pytest.CaptureFixture[str]):
     assert token in capsys.readouterr().err
 
 
+def test_generated_token_printed_once_without_banner(capsys: pytest.CaptureFixture[str]):
+    handle = install(FastAPI(), enabled="ON", allow_non_localhost=True, show_banner=False)
+    token = handle.context.token
+    assert token
+    err = capsys.readouterr().err
+    assert err.count(token) == 1
+    assert err.count("\n") == 1
+    assert "sharpit active at" not in err
+
+
+def test_no_output_without_banner_or_generated_token(capsys: pytest.CaptureFixture[str]):
+    install(FastAPI(), enabled="ON", allow_non_localhost=True, authentication_token="configured", show_banner=False)
+    assert capsys.readouterr().err == ""
+
+
 def test_banner_never_prints_configured_token(capsys: pytest.CaptureFixture[str]):
     install(FastAPI(), enabled="ON", allow_non_localhost=True, authentication_token="configured-secret")
     err = capsys.readouterr().err
