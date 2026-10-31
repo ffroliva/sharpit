@@ -16,10 +16,10 @@ jobs:
             python: "3.14"
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
       - run: uv python install ${{ matrix.python }}
-      - run: uv sync --extra test --python ${{ matrix.python }}
+      - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
       - run: uv run ruff check
       - run: "! git grep -n 'cloud[n]s' -- ." # links must point at github.com, never a mirror
         shell: bash
@@ -32,13 +32,13 @@ jobs:
     # tracer distorts; it runs in the plain test matrix above.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync --extra test --python 3.13
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - run: uv sync --locked --extra test --python 3.13 # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
       - run: >-
           uv run pytest -q -n auto --cov=sharpit --cov-report=xml
           --deselect tests/fastapi/test_capture_overhead.py::test_request_overhead_budget
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-xml
           path: coverage.xml
@@ -55,12 +55,17 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # blame and new-code detection need full history
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: coverage-xml
+      - name: Read project version
+        id: version
+        run: |
+          VERSION=$(python -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('src/sharpit/__init__.py').read()).group(1))")
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Check SonarCloud availability
         id: health
         run: |
@@ -73,6 +78,8 @@ jobs:
       - name: SonarCloud scan
         if: steps.health.outputs.up == 'true'
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        with:
+          args: -Dsonar.projectVersion=${{ steps.version.outputs.value }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -81,9 +88,9 @@ jobs:
   lowest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
       - run: uv run --no-sync pytest -q -n auto
 
@@ -91,11 +98,11 @@ jobs:
     # SQLAlchemy is optional: sharpit must install, import and serve every panel without it
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
       - run: >-
-          uv sync --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
-          --no-install-package alembic --no-install-package greenlet
+          uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
+          --no-install-package alembic --no-install-package greenlet # NOSONAR - this job installs sharpit from source and excludes optional dependencies
       - run: uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy"
 
   ui:
@@ -104,11 +111,11 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-      - run: npm ci && npm run build
+      - run: npm ci --ignore-scripts && npm run build
       - run: git diff --exit-code -- ../src/sharpit/ui/static
 
   vitest:
@@ -117,17 +124,17 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-      - run: npm ci && npm test
+      - run: npm ci --ignore-scripts && npm test
 
   wheel:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
       - run: uv build --out-dir "$RUNNER_TEMP/dist"
       - run: |
           uv venv "$RUNNER_TEMP/smoke" --python 3.12
