@@ -7,6 +7,7 @@ import sys
 from collections.abc import Mapping
 from typing import Any
 
+from sharpit import __version__
 from sharpit.engine.context import SharpitContext
 
 
@@ -16,8 +17,6 @@ def _vendor() -> str:
 
 
 def overview_dto(ctx: SharpitContext, scope: Mapping[str, Any]) -> dict[str, Any]:
-    from sharpit import __version__  # deferred: sharpit/__init__ imports the adapter, which imports this module
-
     info = ctx.introspector.app_info()
     server = scope.get("server")
     # app_root_path is the host's root_path; inside the mount root_path already ends with the sharpit path

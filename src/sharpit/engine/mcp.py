@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
+from sharpit import __version__
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.tools import (
     INTERNAL_ERROR,
@@ -250,7 +251,7 @@ class McpServer:
             "configuredMode": settings.mcp_enabled,
             "overridden": self.enabled != (settings.mcp_enabled == "ON"),
             "serverName": SERVER_NAME,
-            "serverVersion": _version(),
+            "serverVersion": __version__,
             "transport": "http",
             "endpoint": (api_path or settings.api_path) + "/mcp",
             "protocolVersion": PROTOCOL_VERSION,
@@ -302,7 +303,7 @@ class McpServer:
             return {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}, "prompts": {"listChanged": False}},
-                "serverInfo": {"name": SERVER_NAME, "version": _version()},
+                "serverInfo": {"name": SERVER_NAME, "version": __version__},
                 "instructions": INSTRUCTIONS,
             }
         if method == "ping":
@@ -332,12 +333,6 @@ class McpServer:
             message = {"role": "user", "content": {"type": "text", "text": prompt.text}}
             return {"description": prompt.description, "messages": [message]}
         raise RpcError(METHOD_NOT_FOUND, f"Unknown method: {method}")
-
-
-def _version() -> str:
-    from sharpit import __version__  # deferred: sharpit/__init__ imports the adapter, which imports this module
-
-    return __version__
 
 
 def _describe(tool: Tool) -> dict[str, Any]:

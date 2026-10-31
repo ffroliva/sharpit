@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from sharpit import __version__
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report
@@ -380,8 +381,6 @@ def tool_info(ctx: SharpitContext, tool: Tool) -> dict[str, Any]:
 
 def cli_status(ctx: SharpitContext, api_path: str | None = None) -> dict[str, Any]:
     """``CliServerStatus``; answered while disabled too, with no tools (nothing is invocable)."""
-    from sharpit import __version__  # deferred: sharpit/__init__ imports the adapter, which imports this module
-
     settings = ctx.settings
     infos: list[dict[str, Any]] = []
     for tool in TOOLS if settings.cli_enabled else ():
