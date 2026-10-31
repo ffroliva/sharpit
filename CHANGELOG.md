@@ -21,6 +21,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - F10 (REST API advisor): `rest-api` advisor panel and endpoints running static analysis checks over FastAPI routes with severity scoring and violation paging.
 - F11 (Shared advisor plumbing): shared rule definitions, single-flight scans, violation retention endpoint, and per-panel dismissal gates.
 - F12 (HTTP Probe): `http-probe` panel and endpoint executing in-process ASGI calls against local routes with loopback protection and response masking.
+- MCP and CLI tools for the new panels: `get_http_exchanges`, `get_exceptions`, `get_exception_detail`, `get_sql_traces`,
+  `get_live_activity`, `get_log_tail`, `get_alembic_migrations`, `get_database_connection_pools`, `get_health`, `get_threads`,
+  `get_rest_api_report`, `get_rest_api_rule_violations`.
+- Documentation site (MkDocs Material) published to GitHub Pages; the README links to it.
+- `fastapi_sqla` sample app for trying the SQL panels against a real FastAPI app.
 
 ### Changed
 
@@ -35,6 +40,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Threads panel includes asyncio tasks with request correlation; OS thread states are inferred as RUNNABLE or WAITING without JVM CPU or lock metrics.
 - HTTP probe executes directly via in-process ASGI calls without opening network sockets, refusing paths under the sharpit mount.
 - Release workflow uploads only `.whl` and `.tar.gz` assets to GitHub Releases.
+- The default branch is `main` (was `master`); CI, docs, skills and badges point at it.
 - Releases publish from CI: pushing a signed `v<version>` tag runs `.github/workflows/release.yml`, which
   publishes to PyPI with Trusted Publishing and creates the GitHub Release. `/sharpit:release` drives it.
 
