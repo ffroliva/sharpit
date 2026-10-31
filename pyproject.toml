@@ -38,7 +38,16 @@ Changelog = "https://github.com/ffroliva/sharpit/blob/master/CHANGELOG.md"
 [project.optional-dependencies]
 fastapi = ["fastapi>=0.115"]
 settings = ["pydantic-settings>=2.4"]
-test = ["fastapi>=0.115", "pydantic-settings>=2.4", "uvicorn>=0.30", "httpx>=0.27", "python-multipart>=0.0.9", "pytest>=8", "pytest-timeout>=2.3"]
+test = [
+    "fastapi>=0.115",
+    "pydantic-settings>=2.4",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "python-multipart>=0.0.9",
+    "pytest>=8",
+    "pytest-timeout>=2.3",
+    "pytest-xdist>=3.6",
+]
 
 [dependency-groups]
 dev = ["ruff>=0.6", "pyright>=1.1.380", "pydantic-settings>=2.4"]

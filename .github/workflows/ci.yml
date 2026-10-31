@@ -25,7 +25,7 @@ jobs:
         shell: bash
       - run: uv run ruff format --check
       - run: uv run pyright
-      - run: uv run pytest -q
+      - run: uv run pytest -q -n auto
 
   lowest:
     runs-on: ubuntu-latest
@@ -34,7 +34,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
-      - run: uv run --no-sync pytest -q
+      - run: uv run --no-sync pytest -q -n auto
 
   ui:
     runs-on: ubuntu-latest
