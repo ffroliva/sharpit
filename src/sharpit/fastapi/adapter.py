@@ -282,8 +282,12 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         if raw is None:
             return error(413, "Request payload exceeds limit")
         # BootUI McpServerController: an empty body or a missing/null ``enabled`` flips; binding refuses the rest
-        body: object = _json_or_none(raw) if raw.strip() else {}
-        enabled = cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
+        # parsed inline: a JSON ``null`` body flips (BootUI ``request == null``), unparsable JSON is refused
+        try:
+            body: object = json.loads(raw) if raw.strip() else None
+        except ValueError:
+            body = 0
+        enabled = None if body is None else cast("dict[str, Any]", body).get("enabled") if isinstance(body, dict) else 0
         if not isinstance(enabled, bool | None):
             return error(400, "Request body must be a JSON object with a boolean or null 'enabled'")
         base = api_path(request)
