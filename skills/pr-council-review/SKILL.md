@@ -17,7 +17,7 @@ findings are merged, de-duplicated and ranked.
 | Mode | Invoked by | Input | Posts? |
 |---|---|---|---|
 | PR | `/sharpit:pr-council-review <N>` | `gh pr diff <N>`, `gh pr view <N>` | Only if the owner asks |
-| Branch | `/sharpit:branch-review [--base <ref>]` | `git diff <base>...HEAD` (default base `origin/master`) | Never |
+| Branch | `/sharpit:branch-review [--base <ref>]` | `git diff <base>...HEAD` (default base `origin/main`) | Never |
 
 ## 1. Gather
 
@@ -35,7 +35,7 @@ around a changed route.
 
 - CI status (`gh pr checks <N>`) or a local `/sharpit:check` result. Red CI → report it and stop.
 - No AI attribution in any commit message or the PR body.
-- No change to `master`-only files without a reason (`pyproject.toml` version, `src/sharpit/__init__.py` `__version__`).
+- No change to `main`-only files without a reason (`pyproject.toml` version, `src/sharpit/__init__.py` `__version__`).
 - The built UI (`src/sharpit/ui/static/`) matches `ui/` if `ui/` changed.
 
 ## 3. The council
@@ -80,8 +80,8 @@ Fix findings on the same branch (TDD), re-run `/sharpit:check`, and re-review on
 
 ## 8. Branch mode
 
-- Base defaults to `origin/master` (`git fetch origin` first); `--base <ref>` overrides.
-- **Refuse when the current branch is `master`** (or `main`): there is nothing to review; say so and stop.
+- Base defaults to `origin/main` (`git fetch origin` first); `--base <ref>` overrides.
+- **Refuse when the current branch is `main`**: there is nothing to review; say so and stop.
 - Skip §2's CI check (use `/sharpit:check` output instead) and §6 entirely.
 - End with: "Branch review done. Next: open a draft PR, then `/sharpit:pr-council-review <N>`."
 

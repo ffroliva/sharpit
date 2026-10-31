@@ -1,6 +1,6 @@
 name: release
 
-# The only path to PyPI: push a signed tag `v<version>` on master. See skills/release/SKILL.md.
+# The only path to PyPI: push a signed tag `v<version>` on main. See skills/release/SKILL.md.
 on:
   push:
     tags:

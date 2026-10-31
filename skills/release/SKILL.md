@@ -32,14 +32,14 @@ Follow this sequence in order. Ask the owner for anything under **Inputs** that 
 
 ## Sequence
 
-**1. Clean, current `master`.** In the main checkout: `git status --porcelain` is empty, `git fetch origin` and
-`git rev-list --count HEAD..origin/master` is `0`. Stray build output (`dist/`) is deleted; real uncommitted work
+**1. Clean, current `main`.** In the main checkout: `git status --porcelain` is empty, `git fetch origin` and
+`git rev-list --count HEAD..origin/main` is `0`. Stray build output (`dist/`) is deleted; real uncommitted work
 stops the release until the owner decides where it goes.
 
 **2. Gates.** All must pass; stop and report if one fails.
 
 - `/sharpit:check` green.
-- CI green on `master`: `gh run list --branch master --limit 3`.
+- CI green on `main`: `gh run list --branch main --limit 3`.
 - `/sharpit:known-issues`: no open Critical or High safety issue.
 - `/sharpit:doc-review` clean: version references, links (github.com only) and the changelog footer.
 - `/sharpit:live-verify` for each user-facing change in this release, or a line in the PR saying why not.
@@ -49,11 +49,11 @@ stops the release until the owner decides where it goes.
 
 ```bash
 python ~/.agents/skills/multi-agent-dev/scripts/agentctl.py status      # who else works on sharpit
-git worktree add -b chore/release-<version> ../sharpit-release-<version> origin/master
+git worktree add -b chore/release-<version> ../sharpit-release-<version> origin/main
 cd ../sharpit-release-<version>
 ```
 
-Tell every live sharpit agent: "Cutting v<version> from master@<sha>; hold merges to master until the tag is pushed."
+Tell every live sharpit agent: "Cutting v<version> from main@<sha>; hold merges to main until the tag is pushed."
 A worktree keeps another session's `git switch` from moving the branch under you.
 
 **4. Bump the version.** There is one declaration site: `__version__` in `src/sharpit/__init__.py` (hatch reads it;
@@ -84,7 +84,7 @@ The file name must carry `<version>`; CI refuses the tag otherwise. Do not commi
 git add src/sharpit/__init__.py CHANGELOG.md     # plus any declaration from step 4
 git commit -m "chore: release <version>"
 git push -u origin chore/release-<version>
-gh pr create --base master --title "chore: release <version>" --body "Release <version>. See CHANGELOG.md."
+gh pr create --base main --title "chore: release <version>" --body "Release <version>. See CHANGELOG.md."
 gh pr checks <N> --watch                          # background it
 ```
 
@@ -98,16 +98,16 @@ cd <main checkout> && git worktree remove ../sharpit-release-<version>
 On Windows a held `.venv` can block the removal: merge without `--delete-branch`, run
 `git push origin --delete chore/release-<version>`, and list the directory for manual deletion.
 
-**8. Sign the tag on the merged `master`.**
+**8. Sign the tag on the merged `main`.**
 
 ```bash
-git switch master && git pull --ff-only
+git switch main && git pull --ff-only
 git log --oneline -1                              # the merge of the release PR, nothing newer
 git tag -s v<version> -m "v<version>"
 git cat-file -p v<version> | grep -cE "BEGIN (SSH|PGP) SIGNATURE"   # expect 1
 ```
 
-If `master` moved past the release merge, those commits are not in the changelog section: move their entries under
+If `main` moved past the release merge, those commits are not in the changelog section: move their entries under
 `[<version>]` in a follow-up PR first, or tag the release merge commit explicitly (`git tag -s v<version> <sha>`).
 `git tag -v` failing with `gpg.ssh.allowedSignersFile needs to be configured` is a local verify setting only; the tag is
 signed and CI accepts it.
@@ -151,4 +151,4 @@ permanent: fix forward with a patch release.
 - Never change `release.yml` in the same PR as a release.
 
 Ported from gflow-cli's `release` skill and `release.yml`: same signed-tag gate, OIDC publish and Release step;
-sharpit has one branch (`master`) and one version site, so the develop back-merge and the seven-site table are gone.
+sharpit has one branch (`main`) and one version site, so the develop back-merge and the seven-site table are gone.

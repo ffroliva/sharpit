@@ -2,7 +2,7 @@
 name: issue-resolve
 version: "1.0"
 description: >
-  Use when asked to fix a sharpit GitHub issue end to end: worktree from master, a failing test that reproduces it,
+  Use when asked to fix a sharpit GitHub issue end to end: worktree from main, a failing test that reproduces it,
   the fix, the gates, and a draft PR. Never merges.
 ---
 
@@ -20,11 +20,11 @@ Run `/sharpit:issue-assessment <N>` unless it already ran this session. If the f
 
 ```bash
 git fetch origin
-git worktree add ../sharpit-<N>-<slug> -b fix/<N>-<slug> origin/master
+git worktree add ../sharpit-<N>-<slug> -b fix/<N>-<slug> origin/main
 cd ../sharpit-<N>-<slug> && uv sync --extra test      # background it
 ```
 
-Never fix on a shared checkout, on `master`, or on another agent's branch.
+Never fix on a shared checkout, on `main`, or on another agent's branch.
 
 ## 3. Red
 
@@ -47,7 +47,7 @@ The smallest change in the module that owns the cause. If the code ports BootUI,
 git add <explicit paths>
 git commit -m "fix: <what was wrong> (#<N>)"
 git push -u origin fix/<N>-<slug>             # only when the owner allows pushing in this session
-gh pr create --draft --base master --title "fix: ... (#<N>)" --body "Fixes #<N> ..."
+gh pr create --draft --base main --title "fix: ... (#<N>)" --body "Fixes #<N> ..."
 ```
 
 PR body: cause (with evidence), the red test name and its failing output, the fix, gates run. No AI attribution
@@ -57,4 +57,4 @@ anywhere in commits or the PR. If pushing is not allowed in this session, stop a
 
 `/sharpit:pr-council-review <PR>`. Never merge; the owner merges.
 
-Ported from gflow-cli's `issue-resolve`; base branch is `master`, gates are sharpit's.
+Ported from gflow-cli's `issue-resolve`; base branch is `main`, gates are sharpit's.

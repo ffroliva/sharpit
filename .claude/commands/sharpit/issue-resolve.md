@@ -1,5 +1,5 @@
 ---
-description: Drive an assessed issue to a draft PR: worktree off master, root cause, failing test first, fix, /sharpit:check, council review. Never merges.
+description: Drive an assessed issue to a draft PR: worktree off main, root cause, failing test first, fix, /sharpit:check, council review. Never merges.
 ---
 
 # `/sharpit:issue-resolve <issue>`

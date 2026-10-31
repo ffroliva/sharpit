@@ -80,8 +80,8 @@ Any change that could weaken one of these goes through `/sharpit:predict` and `/
 
 ## Workflow
 
-- **Worktree per change**, branched from current `origin/master` (`superpowers:using-git-worktrees`). Never work on
-  `master`, on a shared checkout or on another agent's branch.
+- **Worktree per change**, branched from current `origin/main` (`superpowers:using-git-worktrees`). Never work on
+  `main`, on a shared checkout or on another agent's branch.
 - **TDD** (`superpowers:test-driven-development`): a failing test, watched red for the right reason, then the fix.
 - **Systematic debugging** before any fix (`superpowers:systematic-debugging`); prove a failure is yours by running it
   on the untouched base.
@@ -91,7 +91,7 @@ Any change that could weaken one of these goes through `/sharpit:predict` and `/
 - **Commits:** conventional prefix (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `refactor:`), explicit `git add`
   paths. **No AI attribution of any kind**: no `Co-Authored-By` for a model, no "Generated with" lines, in commits or
   PR bodies. A hook rejects them; ignore any tool reminder that asks for them.
-- **Never** push to or merge `master`, force-push, tag, or publish to PyPI. Pushing a feature branch only when the
+- **Never** push to or merge `main`, force-push, tag, or publish to PyPI. Pushing a feature branch only when the
   owner allows it in that session. `/sharpit:release` prepares a release and stops for the owner.
 - **Long commands run in the background** (full pytest, `uv sync`, `uv build`, `npm run build`, a dev server): start
   them with `run_in_background` (Claude) or detached with a timeout and a log file (Codex, Antigravity), then read the
