@@ -132,8 +132,6 @@ def test_panels_platform_fastapi_and_ids():
 
 # Ruling C1: each later task removes its own id here in the commit that adds that panel's real availability test.
 NOT_BUILT = (
-    "database-connection-pools",
-    "threads",
     "rest-api",
     "http-probe",
 )
@@ -150,9 +148,11 @@ def test_mvp_panels_stay_available():
     body = _client(_app()).get("/sharpit/api/panels").json()
     # sql-trace depends on whether SQLAlchemy is imported: test_sql_trace_api and test_sqla_absent cover both states
     # alembic depends on whether an Alembic config is found: test_alembic_api covers both states
-    mvp = [p for p in body["panels"] if p["id"] not in (*NOT_BUILT, "sql-trace", "alembic")]
-    assert len(mvp) == 13  # the 8 MVP panels, http-exchanges (Task 2), log-tail (Task 3), exceptions (Task 4),
-    # activity (Task 6), health (Task 7)
+    # database-connection-pools depends on whether SQLAlchemy is imported: test_panel_availability covers both states
+    excluded = (*NOT_BUILT, "sql-trace", "alembic", "database-connection-pools")
+    mvp = [p for p in body["panels"] if p["id"] not in excluded]
+    assert len(mvp) == 14  # the 8 MVP panels, http-exchanges (Task 2), log-tail (Task 3), exceptions (Task 4),
+    # activity (Task 6), health (Task 7), threads (Task 8)
     assert all(p["available"] and p["unavailableReason"] is None for p in mvp)
 
 

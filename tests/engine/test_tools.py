@@ -77,6 +77,8 @@ RELEASE_TOOLS = (
     "get_live_activity",
     "get_alembic_migrations",
     "get_health",
+    "get_database_connection_pools",
+    "get_threads",
 )  # each 0.2.0 task adds the tools it builds
 
 
@@ -126,6 +128,8 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_live_activity", "activity", False, LIMIT_SCHEMA),
         ("get_alembic_migrations", "alembic", False, NONE_SCHEMA),
         ("get_health", "health", False, NONE_SCHEMA),
+        ("get_database_connection_pools", "database-connection-pools", False, NONE_SCHEMA),
+        ("get_threads", "threads", False, QUERY_LIMIT_SCHEMA),
         ("get_vulnerabilities_report", "vulnerabilities", False, NONE_SCHEMA),
         ("vulnerabilities_scan", "vulnerabilities", True, NONE_SCHEMA),
     ]

@@ -65,6 +65,7 @@ def golden(name: str) -> dict[str, Any]:
 _PATH_PARAMS = {
     "file": "app.js",
     "id": "0123456789abcdef",
+    "name": "nope",  # an unknown pool name (404)
 }  # a new path parameter fails collection until it gets a value here
 
 

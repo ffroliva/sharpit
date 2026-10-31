@@ -31,13 +31,14 @@ from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.logtail import LogTailBuffer, log_events
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import ChangeStream, StreamSlots, change_events
-from sharpit.engine.collectors import alembic
+from sharpit.engine.collectors import alembic, pools
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.health import health_service
 from sharpit.engine.collectors.loggers import loggers_report, set_level
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
+from sharpit.engine.collectors.threads import threads_report
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
@@ -165,8 +166,6 @@ class GuardMiddleware:
 
 # Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
 _NOT_BUILT = (
-    "database-connection-pools",
-    "threads",
     "rest-api",
     "http-probe",
 )
@@ -185,6 +184,7 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     reasons["sql-trace"] = tools.sql_trace_unavailable_reason(ctx)
     reasons["activity"] = activity.unavailable_reason(ctx)
     reasons["alembic"] = alembic.unavailable_reason(ctx)
+    reasons["database-connection-pools"] = sqla.unavailable_reason()
     return reasons
 
 
@@ -361,6 +361,20 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         except ActionBusy as exc:
             return json_response(exc.body(), 409)
 
+    def connection_pools(_request: Request) -> Response:
+        return json_response(pools.pools_report(ctx))
+
+    def connection_pool_snapshot(request: Request) -> Response:
+        snapshot = pools.pool_snapshot(ctx, request.path_params["name"])
+        if snapshot is None:
+            raise HTTPException(404)
+        return json_response(snapshot)
+
+    async def thread_dump(request: Request) -> Response:
+        # on the loop: the task list is read directly; an off-loop reader (MCP) hands it to the loop instead
+        params = request.query_params
+        return json_response(threads_report(ctx, params.get("q"), params.get("state"), *_page(request)))
+
     def vulnerability_service() -> VulnerabilityService:
         return tools.vulnerability_service(ctx)
 
@@ -468,6 +482,12 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/alembic/refresh", alembic_refresh, methods=["POST"]),
         Route(f"{api}/health", health, methods=["GET"]),
         Route(f"{api}/health/check", health_check, methods=["POST"]),
+        Route(f"{api}/database-connection-pools/pools", connection_pools, methods=["GET"]),
+        # name:path: an engine's display name holds slashes (sqlite+pysqlite:///app.db)
+        Route(
+            f"{api}/database-connection-pools/pools/{{name:path}}/snapshot", connection_pool_snapshot, methods=["GET"]
+        ),
+        Route(f"{api}/threads", thread_dump, methods=["GET"]),
         Route(f"{api}/vulnerabilities", vulnerabilities, methods=["GET"]),
         Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
         Route(f"{api}/dismissed-rules", dismissed_rules, methods=["GET"]),

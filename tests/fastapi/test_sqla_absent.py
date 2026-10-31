@@ -54,6 +54,7 @@ def test_sqlalchemy_not_imported_after_install():
         with TestClient(app) as client:
             client.get("/host")
             client.get("/sharpit/api/sql-trace")
+            client.get("/sharpit/api/database-connection-pools/pools")
             client.get("/sharpit/api/panels")
             client.post("/sharpit/api/cli/tools/clear_sql_traces", json={})
         loaded = sorted(m for m in sys.modules if m.split(".")[0] in ("sqlalchemy", "aiosqlite", "alembic", "greenlet"))
@@ -115,6 +116,22 @@ def test_sqla_panels_empty_state_without_sqlalchemy():
         report = client.get("/sharpit/api/sql-trace").json()
         assert (report["available"], report["entries"], report["dataSources"]) == (False, [], [])
         assert sqla.attached() == dict.fromkeys(sqla.attached(), False)
+    finally:
+        handle.uninstall_capture()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("sqlalchemy") is not None, reason="runs in the no-sqlalchemy CI job")
+def test_sqlalchemy_absent_empty_state():
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+    try:
+        client = _client(app)
+        report = client.get("/sharpit/api/database-connection-pools/pools").json()
+        assert report == {"hikariPresent": False, "total": 0, "pools": []}
+        panel = next(
+            p for p in client.get("/sharpit/api/panels").json()["panels"] if p["id"] == "database-connection-pools"
+        )
+        assert (panel["available"], panel["unavailableReason"]) == (False, sqla.UNAVAILABLE)
     finally:
         handle.uninstall_capture()
 

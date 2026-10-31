@@ -10,6 +10,7 @@ Plants: ``API_TOKEN``, ``DB_PASSWORD``, ``MAIL_PASS`` and ``PASS`` (sensitive na
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import threading
@@ -25,6 +26,7 @@ from fastapi.testclient import TestClient
 from conftest import get_paths
 from engine.vulns.vulnfakes import FakeOpener
 from fastapi import FastAPI
+from sharpit import install
 from sharpit.engine.collectors.vulns.dismissals import DismissalStore
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import Package
@@ -489,3 +491,61 @@ def test_sql_trace_masks_statements(
         assert failed["errorMessage"] is None if "metadata" in row else "IntegrityError" in failed["errorMessage"]
     for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli, "logs": logs}.items():
         assert SENTINEL not in text and JWT not in text, (row, where)
+
+
+def _task_request_path(tmp_path: Path) -> str:
+    """A host request parked on the loop while the Threads panel, MCP and CLI read its task's request path."""
+    app = FastAPI()
+    entered, release = threading.Event(), asyncio.Event()
+
+    @app.get("/reset/{token}")
+    async def reset(token: str) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
+        entered.set()
+        await release.wait()
+        return {}
+
+    install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path), mcp_enabled="ON", cli_enabled=True)
+    with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
+        host = threading.Thread(target=lambda: client.get(f"/reset/{JWT}"), daemon=True)
+        host.start()
+        try:
+            assert entered.wait(5)
+            seen = [client.get(f"{API}/threads").text, client.post(f"{API}/cli/tools/get_threads", json={}).text]
+            call = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "get_threads", "arguments": {}},
+            }
+            seen.append(client.post(f"{API}/mcp", json=call).text)
+        finally:
+            client.portal.call(release.set)  # pyright: ignore[reportOptionalMemberAccess]
+            host.join(5)
+    assert all(f"/reset/{MASK}" in text for text in seen), seen  # the plant really reached the report
+    return "\n".join(seen)
+
+
+def _pool_username(tmp_path: Path) -> str:
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'app.db'}", poolclass=sa.QueuePool)
+    engine.url = engine.url.set(username=SENTINEL)  # pysqlite refuses userinfo at create_engine
+    app = create_app(show_banner=False, state_dir=str(tmp_path), mcp_enabled="ON", engines=[engine])
+    with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
+        report = client.get(f"{API}/database-connection-pools/pools").json()
+        call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call"}
+        params = {"name": "get_database_connection_pools", "arguments": {}}
+        mcp = client.post(f"{API}/mcp", json={**call, "params": params}).text
+    assert [p["username"] for p in report["pools"]] == [MASK]
+    return f"{report}\n{mcp}"
+
+
+@pytest.mark.parametrize(
+    "plant",
+    [
+        pytest.param(_task_request_path, id="task_request_path"),
+        pytest.param(_pool_username, id="pool_username", marks=pytest.mark.needs_sqlalchemy),
+    ],
+)
+def test_threads_and_pools_mask(tmp_path: Path, plant: Callable[[Path], str]):
+    text = plant(tmp_path)
+    assert SENTINEL not in text and JWT not in text

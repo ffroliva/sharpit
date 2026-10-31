@@ -71,6 +71,9 @@ ROWS = [
     ("activity-request", "GET", f"/sharpit/api/activity/request/{GROUP_ID}", 200, True),  # available: false
     ("alembic", "GET", "/sharpit/api/alembic/migrations", 200, True),
     ("health", "GET", "/sharpit/api/health", 200, True),
+    ("pools", "GET", "/sharpit/api/database-connection-pools/pools", 200, True),
+    ("pool-snapshot", "GET", "/sharpit/api/database-connection-pools/pools/nope/snapshot", 404, True),  # unknown name
+    ("threads", "GET", "/sharpit/api/threads", 200, True),
     ("log-tail", "GET", "/sharpit/api/log-tail/recent", 200, True),
     ("log-tail-stream", "GET", "/sharpit/api/log-tail/stream", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
@@ -206,6 +209,8 @@ PANEL_TOOLS = [
     ("get_live_activity", "activity", {}),
     ("get_alembic_migrations", "alembic", {}),
     ("get_health", "health", {}),
+    ("get_database_connection_pools", "database-connection-pools", {}),
+    ("get_threads", "threads", {}),
 ]
 
 

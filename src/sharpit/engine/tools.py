@@ -33,6 +33,8 @@ from sharpit.engine.collectors.health import health_service
 from sharpit.engine.collectors.loggers import loggers_report
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
+from sharpit.engine.collectors.pools import pools_report
+from sharpit.engine.collectors.threads import threads_report
 from sharpit.engine.collectors.vulns.dismissals import DismissalStore
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import inventory
@@ -383,6 +385,26 @@ TOOLS: tuple[Tool, ...] = (
         lambda c, _a: health_service(c.ctx).report(for_mcp=True),
     ),
     Tool(
+        "get_database_connection_pools",
+        "Return each registered SQLAlchemy engine's connection pool: settings and live counters (checked out, idle, "
+        "total). Reads counters only; never borrows a connection. A pool class that keeps no statistics is listed as "
+        "unavailable.",
+        _NONE,
+        "database-connection-pools",
+        False,
+        lambda c, _a: pools_report(c.ctx),
+    ),
+    Tool(
+        "get_threads",
+        "Return this process's threads with inferred states (RUNNABLE or WAITING) and stacks, plus the event loop's "
+        "asyncio tasks with their await chains and the request each one serves. `limit` caps both lists. Code "
+        "names and line numbers only: no local variables or argument values.",
+        _QUERY_LIMIT,
+        "threads",
+        False,
+        lambda c, a: threads_report(c.ctx, a["query"], None, None, a["limit"]),
+    ),
+    Tool(
         "get_vulnerabilities_report",
         "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
@@ -429,6 +451,8 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_live_activity": "activity",
     "get_alembic_migrations": "db alembic",
     "get_health": "health",
+    "get_database_connection_pools": "db pools",
+    "get_threads": "threads",
     "get_vulnerabilities_report": "vulnerabilities report",
     "vulnerabilities_scan": "vulnerabilities scan",
 }
