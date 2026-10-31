@@ -62,6 +62,6 @@ def test_release_uploads_only_wheel_and_sdist() -> None:
 
 
 def test_how_it_works_cli_route() -> None:
-    doc = (Path(__file__).resolve().parents[1] / "docs" / "how-it-works.md").read_text(encoding="utf-8")
+    doc = (Path(__file__).resolve().parents[1] / "website" / "docs" / "how-it-works.md").read_text(encoding="utf-8")
     assert "/cli/tools/" in doc
     assert "/cli/<tool>" not in doc

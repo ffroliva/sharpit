@@ -2,6 +2,7 @@
 
 | Path | What it is |
 |---|---|
+| [../website/docs/how-it-works.md](../website/docs/how-it-works.md) | How sharpit works; published with the rest of the user docs at https://ffroliva.github.io/sharpit/ |
 | [development/workflow.md](development/workflow.md) | How a change goes from idea to release with the `/sharpit:*` skills |
 | [reference/BOOTUI-CONTRACT-MVP.md](reference/BOOTUI-CONTRACT-MVP.md) | The BootUI HTTP contract the MVP must match: DTOs, error strings, activation reasons |
 | [reference/BOOTUI-PYTHON-MAPPING.md](reference/BOOTUI-PYTHON-MAPPING.md) | How BootUI's Spring concepts map to Python/FastAPI |
