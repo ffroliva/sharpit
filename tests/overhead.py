@@ -45,7 +45,7 @@ def check_budget(name: str, result: Paired, budget: float, unit: str, scale: flo
     verdict = "ok" if result.overhead <= budget else "OVER"
     if log := os.environ.get("SHARPIT_OVERHEAD_LOG"):  # scripts/dev/overhead_check.py reads this, one JSON per line
         record = {"name": name, "verdict": verdict, "budget": budget, "overhead": result.overhead}
-        record |= {"noise": result.noise, "off": result.off, "on": result.on}
+        record |= {"noise": result.noise, "off": result.off, "on": result.on, "unit": unit, "scale": scale}
         with open(log, "a", encoding="utf-8") as out:
             out.write(json.dumps(record) + "\n")
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):

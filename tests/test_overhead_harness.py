@@ -72,6 +72,8 @@ def test_a_result_within_budget_passes_and_leaves_one_record(records: tuple[Path
         "noise": 10.0,
         "off": [100.0, 110.0, 120.0],
         "on": [105.0, 115.0, 125.0],
+        "unit": "us",
+        "scale": 1.0,
     }
     rows = summary.read_text(encoding="utf-8").splitlines()
     assert len(rows) == 1
@@ -82,6 +84,8 @@ def test_a_result_over_budget_fails_but_still_leaves_its_record(records: tuple[P
     log, summary = records
     with pytest.raises(AssertionError):
         check_budget("hook", result(25.0), BUDGET, "us", 1.0)
+    assert log.exists(), "a failed budget check wrote no log line"  # an assertion, not a crash, when it breaks
+    assert summary.exists(), "a failed budget check wrote no summary row"
     lines = log.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0])["verdict"] == "OVER"

@@ -86,16 +86,17 @@ def _print_summary(records: list[dict[str, Any]]) -> bool:
 
     regression = False
     for name, named_records in by_name.items():
-        overheads = [record["overhead"] for record in named_records]
-        noises = [record["noise"] for record in named_records]
+        scale, unit = named_records[0].get("scale", 1.0), named_records[0].get("unit", "")
+        overheads = [record["overhead"] / scale for record in named_records]
+        noises = [record["noise"] / scale for record in named_records]
         failures = sum(record["verdict"] == "OVER" for record in named_records)
         verdict = classify(named_records)
         regression |= verdict == OVER_BUDGET
         print(
             f"{name}: runs={len(named_records)} failures={failures} "
             f"overhead min/median/max={min(overheads):.3f}/{statistics.median(overheads):.3f}/"
-            f"{max(overheads):.3f} noise median={statistics.median(noises):.3f} "
-            f"budget={named_records[0]['budget']:.3f}; {verdict}"
+            f"{max(overheads):.3f} {unit} noise median={statistics.median(noises):.3f} {unit} "
+            f"budget={named_records[0]['budget'] / scale:.3f} {unit}; {verdict}"
         )
     return regression
 
