@@ -156,6 +156,16 @@ def test_own_token_never_shown() -> None:
     assert Masker(M, False, token).mask("OTHER", "plain") == ("plain", False)
 
 
+def test_own_token_masked_when_padded_or_embedded() -> None:
+    # the configured token may carry whitespace; a copy of it can sit inside a URL or a padded value
+    for configured in ("tok-3f9a", "  tok-3f9a\n"):
+        for masker in (Masker(M, False, configured), Masker(FULL, True, configured)):
+            assert masker.mask("PADDED", " tok-3f9a ") == (MASK, True)
+            assert masker.mask("CALLBACK", "https://ci.example/hook?token=tok-3f9a&x=1") == (MASK, True)
+            assert masker.mask("OTHER", "tok-3f9") == ("tok-3f9", False)
+    assert Masker(M, False, "   ").mask("OTHER", "plain") == ("plain", False)  # a blank token masks nothing
+
+
 def test_full_returns_raw() -> None:
     assert Masker(FULL, True).mask("db.password", "plain") == ("plain", False)
 

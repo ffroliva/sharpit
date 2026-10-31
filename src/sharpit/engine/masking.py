@@ -78,12 +78,18 @@ class Masker:
     def __init__(self, exposure: Exposure, mask_secrets: bool, token: str | None = None) -> None:
         self._exposure = exposure
         self._mask_secrets = mask_secrets
-        self._token = token
+        self._token = (token or "").strip()
 
     def mask(self, name: str, value: object) -> tuple[object | None, bool]:
         """Return ``(display_value, masked)``."""
-        # sharpit's own token is never shown, whatever the mask setting or exposure: it grants the whole console
-        if self._token and value == self._token and self._exposure is not Exposure.METADATA_ONLY:
+        # sharpit's own token is never shown, whatever the mask setting or exposure: it grants the whole console.
+        # Any value that contains it is masked whole (a URL or padded copy would leak it otherwise).
+        if (
+            self._token
+            and value is not None
+            and self._token in str(value)
+            and self._exposure is not Exposure.METADATA_ONLY
+        ):
             return MASK, True
         if self._exposure is Exposure.FULL:
             return value, False
