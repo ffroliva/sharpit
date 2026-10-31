@@ -21,6 +21,7 @@ from typing import Any, Literal, cast
 
 from sharpit import __version__
 from sharpit.engine import sqla
+from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture import activity
 from sharpit.engine.capture.exceptions import unknown_group
 from sharpit.engine.capture.exchanges import unavailable_report
@@ -35,7 +36,6 @@ from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
 from sharpit.engine.collectors.pools import pools_report
 from sharpit.engine.collectors.threads import threads_report
-from sharpit.engine.collectors.vulns.dismissals import DismissalStore
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import inventory
 from sharpit.engine.collectors.vulns.osv import OsvClient

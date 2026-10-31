@@ -27,7 +27,7 @@ from conftest import get_paths
 from engine.vulns.vulnfakes import FakeOpener
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine.collectors.vulns.dismissals import DismissalStore
+from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import Package
 from sharpit.engine.collectors.vulns.osv import OsvClient

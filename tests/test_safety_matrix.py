@@ -277,8 +277,9 @@ WRITES = [
     ("alembic", "POST", "/sharpit/api/alembic/refresh", None),
     ("health", "POST", "/sharpit/api/health/check", None),
 ]
-# Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules obeys only the global read-only
-# flag (test_dismissed_rules_obey_global_read_only_only), so it has no panel-scope row here.
+# Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules is gated by the global flag and the
+# rule's owning panel under its own subject (test_dismissed_rules_obey_global_and_owning_panel_read_only and
+# test_dismissals_per_panel_gate), so it has no row here.
 _NOT_PANEL_WRITES = ("/api/auth/session", "/api/mcp", "/api/cli/", "/api/dismissed-rules/")
 
 
@@ -381,7 +382,7 @@ def test_cli_action_tools_gated(
         handle.uninstall_capture()
 
 
-def test_dismissed_rules_obey_global_read_only_only(tmp_path: Path):
+def test_dismissed_rules_obey_global_and_owning_panel_read_only(tmp_path: Path):
     rule = "/sharpit/api/dismissed-rules/V-1%3A%3Apypi%3Awidget"
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, read_only=True, state_dir=str(tmp_path))
@@ -400,7 +401,30 @@ def test_dismissed_rules_obey_global_read_only_only(tmp_path: Path):
         state_dir=str(tmp_path),
         panels={"vulnerabilities": {"read_only": True}},
     )
-    assert _client(panel_only).post(rule).status_code == 200  # a panel flag does not cover dismissed-rules
+    resp = _client(panel_only).post(rule)  # the owning panel's read-only flag covers its rules (spec §8)
+    reason = "Panel is read-only via SHARPIT_PANELS_VULNERABILITIES_READ_ONLY=true"
+    assert (resp.status_code, resp.json()) == (403, _panel_denied("dismissed-rules", reason))
+    assert list(tmp_path.iterdir()) == []
+
+
+# (rule, owning panel): dismissals x per-panel enabled and read-only (spec §8, §14.2)
+DISMISSALS = [("RAPI-MAP-001", "rest-api"), ("V-1%3A%3Apypi%3Awidget", "vulnerabilities")]
+
+
+@pytest.mark.parametrize("gate", ["read-only", "disabled"])
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+@pytest.mark.parametrize(("rule", "owner"), DISMISSALS, ids=[d[1] for d in DISMISSALS])
+def test_dismissals_per_panel_gate(tmp_path: Path, rule: str, owner: str, method: str, gate: str):
+    flags = {"read_only": True} if gate == "read-only" else {"enabled": False}
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path), panels={owner: flags})
+    client = _client(app)
+    resp = client.request(method, f"/sharpit/api/dismissed-rules/{rule}")
+    reason = read_only_reason(owner, False) if gate == "read-only" else disabled_reason(owner)
+    assert (resp.status_code, resp.json()) == (403, _panel_denied("dismissed-rules", reason))
+    assert list(tmp_path.iterdir()) == []
+    other = next(r for r, o in DISMISSALS if o != owner)
+    assert client.request(method, f"/sharpit/api/dismissed-rules/{other}").status_code == 200
 
 
 # --- Origin from another local port: browser "simple" requests (text/plain, no preflight) must not mutate -------

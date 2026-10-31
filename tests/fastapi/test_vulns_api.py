@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from conftest import SideEffectGuard
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine.collectors.vulns.dismissals import FILE_NAME, DismissalStore
+from sharpit.engine.advisors.dismissals import FILE_NAME, DismissalStore
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import Package
 from sharpit.engine.collectors.vulns.osv import OsvClient
@@ -174,8 +174,10 @@ def test_vulnerabilities_read_only_panel_blocks_scan(tmp_state_dir: Path):
         "reason": "Panel is read-only via SHARPIT_PANELS_VULNERABILITIES_READ_ONLY=true",
     }
     assert opener.calls == 0
-    # the panel flag does not cover dismissed-rules (not a panel), only global read-only does
-    assert client.post(f"/sharpit/api/dismissed-rules/{quote(RULE, safe='')}").status_code == 200
+    # the owning panel's read-only flag covers its dismissals too (spec §8)
+    resp = client.post(f"/sharpit/api/dismissed-rules/{quote(RULE, safe='')}")
+    assert resp.status_code == 403
+    assert resp.json()["reason"] == "Panel is read-only via SHARPIT_PANELS_VULNERABILITIES_READ_ONLY=true"
 
 
 def test_default_service_never_networks_on_get(

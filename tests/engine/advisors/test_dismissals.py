@@ -1,15 +1,16 @@
 """DismissalStore (port of BootUI ``DismissedRulesStore`` and ``DismissedRulesStoreTests``).
 
-Ported ids are rewritten into sharpit's vulnerability rule-id form (``<vulnId>::pypi:<name>``), since the store only
-accepts those. Dropped: ``roundTripsRuleIdsContainingSlashesAndSpaces`` (sharpit rejects such ids, see
-``test_dismiss_rejects_bad_ids``).
+Ported ids are rewritten into sharpit's vulnerability rule-id form (``<vulnId>::pypi:<name>``); REST API ids
+(``RAPI-...``) are accepted too (spec §8: charset ``[A-Za-z0-9._:-]{1,200}`` and an owning panel). Dropped:
+``roundTripsRuleIdsContainingSlashesAndSpaces`` (sharpit rejects such ids, see ``test_dismiss_rejects_bad_ids`` and
+``test_rapi_id_accepted_quote_space_slash_refused``).
 """
 
 from pathlib import Path
 
 import pytest
 
-from sharpit.engine.collectors.vulns.dismissals import FILE_NAME, DismissalStore
+from sharpit.engine.advisors.dismissals import FILE_NAME, DismissalStore, owning_panel
 from sharpit.engine.paging import BadRequest
 
 A = "GHSA-aaaa-bbbb-cccc::pypi:jinja2"
@@ -145,3 +146,44 @@ def test_list_reads_the_file_once_until_it_changes(tmp_path: Path, monkeypatch: 
     target = tmp_path / FILE_NAME
     target.write_text(target.read_text(encoding="utf-8") + f"  - {C}\n", encoding="utf-8")  # an edit by hand
     assert store.list() == [A, B, C]
+
+
+def test_rapi_id_accepted_quote_space_slash_refused(tmp_path: Path):
+    store = DismissalStore(tmp_path)
+    assert store.add("RAPI-MAP-001") == ["RAPI-MAP-001"]
+    assert store.add(A) == ["RAPI-MAP-001", A]
+    assert DismissalStore(tmp_path).list() == ["RAPI-MAP-001", A]
+    before = (tmp_path / FILE_NAME).read_bytes()
+    for bad in ['RAPI-"1', "RAPI-MAP 001", "RAPI-MAP/001", "RAPI-\\1", "RAPI-1\n  - x", "RAPI-", "RAPI-" + "1" * 196]:
+        with pytest.raises(BadRequest):
+            store.add(bad)
+        with pytest.raises(BadRequest):
+            store.remove(bad)
+    assert (tmp_path / FILE_NAME).read_bytes() == before
+    assert store.add("RAPI-" + "1" * 195)[-1] == "RAPI-" + "1" * 195  # 200 characters is the longest id
+
+
+@pytest.mark.parametrize(
+    ("rule_id", "panel"),
+    [
+        ("RAPI-MAP-001", "rest-api"),
+        ("RAPI-DOC-002", "rest-api"),
+        (A, "vulnerabilities"),
+        ("PYSEC-2017-9999::pypi:zope.interface", "vulnerabilities"),
+        ("SPRING-WEB-001", None),
+        ("rapi-map-001", None),
+        ("GHSA-1::pypi:Jinja2", None),
+        ("::pypi:jinja2", None),
+        ("GHSA-1::jinja2", None),
+        ("", None),
+    ],
+)
+def test_owning_panel(rule_id: str, panel: str | None):
+    assert owning_panel(rule_id) == panel
+
+
+def test_unknown_owner_refused_before_the_file_is_touched(tmp_path: Path):
+    store = DismissalStore(tmp_path)
+    with pytest.raises(BadRequest):
+        store.add("SPRING-WEB-001")
+    assert list(tmp_path.iterdir()) == []
