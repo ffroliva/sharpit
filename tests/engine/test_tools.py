@@ -74,6 +74,7 @@ RELEASE_TOOLS = (
     "get_exceptions",
     "get_exception_detail",
     "get_sql_traces",
+    "get_live_activity",
 )  # each 0.2.0 task adds the tools it builds
 
 
@@ -120,6 +121,7 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("clear_sql_traces", "sql-trace", True, NONE_SCHEMA),
         ("pause_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
         ("resume_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
+        ("get_live_activity", "activity", False, LIMIT_SCHEMA),
         ("get_vulnerabilities_report", "vulnerabilities", False, NONE_SCHEMA),
         ("vulnerabilities_scan", "vulnerabilities", True, NONE_SCHEMA),
     ]

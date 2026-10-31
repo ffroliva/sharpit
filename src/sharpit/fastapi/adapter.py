@@ -25,12 +25,12 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import guard, sqla, tools
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
-from sharpit.engine.capture import route_path
+from sharpit.engine.capture import activity, route_path
 from sharpit.engine.capture.exceptions import ExceptionStore, unknown_group
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.logtail import LogTailBuffer, log_events
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
-from sharpit.engine.capture.streams import StreamSlots, change_events
+from sharpit.engine.capture.streams import ChangeStream, StreamSlots, change_events
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.loggers import loggers_report, set_level
@@ -163,7 +163,6 @@ class GuardMiddleware:
 
 # Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
 _NOT_BUILT = (
-    "activity",
     "alembic",
     "database-connection-pools",
     "health",
@@ -184,6 +183,7 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     store = ctx.capture.exceptions
     reasons["exceptions"] = store.unavailable_reason if store is not None else None
     reasons["sql-trace"] = tools.sql_trace_unavailable_reason(ctx)
+    reasons["activity"] = activity.unavailable_reason(ctx)
     return reasons
 
 
@@ -246,6 +246,28 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
                 ctx, params.get("q"), params.get("method"), params.get("statusClass"), offset, limit
             )
         )
+
+    def activity_feed(request: Request) -> Response:
+        params = request.query_params
+        return json_response(
+            activity.activity_report(
+                ctx,
+                params.get("type"),
+                params.get("severity"),
+                parse_int_param(params.get("since"), "since"),
+                parse_int_param(params.get("limit"), "limit"),
+                params.get("q"),
+            )
+        )
+
+    def activity_profile(request: Request) -> Response:
+        return json_response(activity.request_profile(ctx, request.path_params["id"]))
+
+    async def activity_stream(_request: Request) -> Response:
+        changes = ctx.capture.activity_changes
+        if changes is None:  # the panel gate answers first; only a disabled panel has no fan-in
+            raise HTTPException(404)
+        return sse_response(ctx, change_events(changes))
 
     def log_tail_recent(_request: Request) -> Response:
         return json_response(tools.log_tail_lines(ctx))
@@ -409,6 +431,9 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/mappings/flat", mappings, methods=["GET"]),
         Route(f"{api}/beans", beans, methods=["GET"]),
         Route(f"{api}/http-exchanges", http_exchanges, methods=["GET"]),
+        Route(f"{api}/activity", activity_feed, methods=["GET"]),
+        Route(f"{api}/activity/stream", activity_stream, methods=["GET"]),
+        Route(f"{api}/activity/request/{{id}}", activity_profile, methods=["GET"]),
         Route(f"{api}/log-tail/recent", log_tail_recent, methods=["GET"]),
         Route(f"{api}/log-tail/stream", log_tail_stream, methods=["GET"]),
         Route(f"{api}/exceptions", exceptions, methods=["GET", "DELETE"]),
@@ -569,7 +594,8 @@ def install(
     capture.stream_slots = StreamSlots()
     if sharpit_settings.panels["log-tail"].enabled:
         capture.log_tail = LogTailBuffer(sharpit_settings.log_tail_max_lines, sharpit_settings.log_tail_max_bytes)
-    if sharpit_settings.panels["http-exchanges"].enabled:
+    panels = sharpit_settings.panels
+    if panels["http-exchanges"].enabled or panels["activity"].enabled:  # activity's REQUEST rows (spec §7.4)
         capture.exchanges = HttpExchangeBuffer(sharpit_settings.http_exchanges_max_exchanges)
     if sharpit_settings.panels["exceptions"].enabled:
         capture.exceptions = ExceptionStore(
@@ -590,6 +616,11 @@ def install(
             capture_call_site=sharpit_settings.sql_trace_capture_call_site,
             recording=sharpit_settings.sql_trace_recording,
         )
+    if panels["activity"].enabled:
+        capture.activity_changes = ChangeStream()
+        for source in (capture.exchanges, capture.exceptions, capture.sql_trace):
+            if source is not None:
+                source.changes.forward_to(capture.activity_changes)
     wiring = capture.wiring = CaptureWiring()
     wiring.attach_at_install(app, ctx)
 

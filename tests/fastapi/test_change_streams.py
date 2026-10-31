@@ -35,9 +35,18 @@ def _record_sql(handle: SharpitHandle) -> None:
     recorder.record("select 1", duration_ns=1, thread="test", connection_id=None)
 
 
+def _serve_request(handle: SharpitHandle) -> None:
+    buffer = handle.context.capture.exchanges
+    assert buffer is not None
+    buffer.add({"id": "r1"})  # the fan-in ticks on any source change; the row's shape does not matter here
+
+
 ROUTES: list[tuple[str, str, Callable[[SharpitHandle], None]]] = [
     ("exceptions", "/sharpit/api/exceptions/stream", _raise_into_exceptions),
     ("sql-trace", "/sharpit/api/sql-trace/stream", _record_sql),
+    ("activity", "/sharpit/api/activity/stream", _serve_request),
+    ("activity-sql", "/sharpit/api/activity/stream", _record_sql),
+    ("activity-exceptions", "/sharpit/api/activity/stream", _raise_into_exceptions),
 ]
 
 _HANDLES: list[SharpitHandle] = []

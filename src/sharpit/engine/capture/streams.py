@@ -184,6 +184,19 @@ class _Hub:
 class ChangeStream(_Hub):
     """Coalesced ``update`` ticks for a panel whose data changed (activity, exceptions, SQL trace)."""
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._forwards: tuple[ChangeStream, ...] = ()
+
+    def forward_to(self, target: ChangeStream) -> None:
+        """Fan-in: every signal here also signals ``target`` (Live Activity ticks on any of its sources)."""
+        self._forwards = (*self._forwards, target)
+
+    def signal(self) -> None:
+        for target in self._forwards:  # before the no-subscriber shortcut: nobody may watch this source
+            target.signal()
+        super().signal()
+
     def subscribe(self, loop: asyncio.AbstractEventLoop) -> Subscription:
         subscriber = Subscription(loop, self._remove)
         self._add(subscriber)

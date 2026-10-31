@@ -21,6 +21,7 @@ from typing import Any, Literal, cast
 
 from sharpit import __version__
 from sharpit.engine import sqla
+from sharpit.engine.capture import activity
 from sharpit.engine.capture.exceptions import unknown_group
 from sharpit.engine.capture.exchanges import unavailable_report
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
@@ -352,6 +353,15 @@ TOOLS: tuple[Tool, ...] = (
         lambda c, _a: _sql_trace_action(c.ctx, lambda r: r.set_recording(True)),
     ),
     Tool(
+        "get_live_activity",
+        "Return a bounded, newest-first activity snapshot that merges HTTP requests, SQL statements and exceptions, "
+        "correlated by request id. Use first when diagnosing one request.",
+        _LIMIT_ONLY,
+        "activity",
+        False,
+        lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], None),
+    ),
+    Tool(
         "get_vulnerabilities_report",
         "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
@@ -395,6 +405,7 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "clear_sql_traces": "sql clear",
     "pause_sql_trace_recording": "sql pause",
     "resume_sql_trace_recording": "sql resume",
+    "get_live_activity": "activity",
     "get_vulnerabilities_report": "vulnerabilities report",
     "vulnerabilities_scan": "vulnerabilities scan",
 }

@@ -363,6 +363,11 @@ def unavailable_report(reason: str) -> dict[str, Any]:
     }
 
 
+def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
+    """``SqlTraceEntryDto`` from a stored row."""
+    return {**row, "timestamp": _iso(row["timestamp"])}
+
+
 def _truncate(text: str, limit: int) -> str:
     text = text.strip()
     return text if len(text) <= limit else text[:limit] + "…"
@@ -524,6 +529,11 @@ class SqlTraceRecorder:
             self.recording = enabled
             self.changes.signal()
 
+    def rows(self) -> list[dict[str, Any]]:
+        """The ring as stored, oldest first (``timestamp`` in epoch ns); ``entry_dto`` formats one row."""
+        with self._lock:
+            return list(self._entries)
+
     def report(self, data_sources: list[str]) -> dict[str, Any]:
         """``SqlTraceReport``: entries newest first, stats over the ring, top statements since the last clear."""
         with self._lock:
@@ -582,7 +592,7 @@ class SqlTraceRecorder:
             "slowQueryThresholdMillis": self.slow_query_threshold_millis,
             "dataSources": data_sources,
             "stats": stats,
-            "entries": [{**row, "timestamp": _iso(row["timestamp"])} for row in reversed(rows)],
+            "entries": [entry_dto(row) for row in reversed(rows)],
             "topStatements": top,
             "warnings": warnings,
         }

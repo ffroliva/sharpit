@@ -312,6 +312,25 @@ class ExceptionStore:
             "groups": summaries,
         }
 
+    def request_occurrences(self, request_id: str) -> list[dict[str, Any]]:
+        """``RequestProfileExceptionDto`` rows of one request, oldest first."""
+        with _guarded(self._lock):
+            found = [
+                {
+                    "exceptionClassName": g.class_name,
+                    "message": g.message,
+                    "location": g.location,
+                    "timestamp": o["timestamp"],
+                    "thread": o["thread"],
+                    "handler": o["handler"],
+                    "source": o["source"],
+                }
+                for g in self._groups.values()
+                for o in g.occurrences
+                if o["traceId"] == request_id
+            ]
+        return sorted(found, key=lambda r: r["timestamp"])
+
     def detail(self, gid: str) -> dict[str, Any] | None:
         with _guarded(self._lock):
             group = self._groups.get(gid)

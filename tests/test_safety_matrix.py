@@ -66,6 +66,9 @@ ROWS = [
     ("exceptions-detail", "GET", f"/sharpit/api/exceptions/{GROUP_ID}", 404, True),  # no such group
     ("sql-trace", "GET", "/sharpit/api/sql-trace", 200, True),
     ("sql-trace-stream", "GET", "/sharpit/api/sql-trace/stream", 200, True),
+    ("activity", "GET", "/sharpit/api/activity", 200, True),
+    ("activity-stream", "GET", "/sharpit/api/activity/stream", 200, True),
+    ("activity-request", "GET", f"/sharpit/api/activity/request/{GROUP_ID}", 200, True),  # available: false
     ("log-tail", "GET", "/sharpit/api/log-tail/recent", 200, True),
     ("log-tail-stream", "GET", "/sharpit/api/log-tail/stream", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
@@ -198,6 +201,7 @@ PANEL_TOOLS = [
     ("get_exceptions", "exceptions", {}),
     ("get_exception_detail", "exceptions", {"id": GROUP_ID}),
     ("get_sql_traces", "sql-trace", {}),
+    ("get_live_activity", "activity", {}),
 ]
 
 
@@ -208,6 +212,39 @@ def test_disabled_panel_mcp_tool_refused(tool: str, panel: str, arguments: dict[
     call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
     result = _client(app).post("/sharpit/api/mcp", json=call).json()["result"]
     assert result["isError"] is True and result["content"][0]["text"] == disabled_reason(panel)
+
+
+# spec §7.4: a disabled source panel x every activity route and get_live_activity (what the source must not show)
+ACTIVITY_SOURCES = [
+    ("http-exchanges", None, None),
+    ("exceptions", "exceptions", "EXCEPTION"),
+    ("sql-trace", "sql", "SQL"),
+]
+
+
+@pytest.mark.parametrize(("panel", "source", "row_type"), ACTIVITY_SOURCES, ids=[s[0] for s in ACTIVITY_SOURCES])
+def test_disabled_source_activity_routes(panel: str, source: str | None, row_type: str | None):
+    app = FastAPI()
+    app.get("/host", response_model=None)(lambda: {"secret": "x"})
+    install(app, enabled="ON", show_banner=False, mcp_enabled="ON", stream_max_seconds=0.05,
+            panels={panel: {"enabled": False}})  # fmt: skip
+    client = _client(app)
+    client.get("/host", headers={"x-api-key": "k"})
+    call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_live_activity", "arguments": {}}}
+    reports = [client.get("/sharpit/api/activity").json(), client.post("/sharpit/api/mcp", json=call).json()["result"]]
+    reports[1] = reports[1]["structuredContent"]
+    for report in reports:
+        assert source not in report["sources"] and row_type not in report["typeCounts"]
+    rid = next(e["id"] for e in reports[0]["entries"] if e["type"] == "REQUEST")
+    profile = client.get(f"/sharpit/api/activity/request/{rid}").json()
+    assert profile["available"] is True
+    if panel == "http-exchanges":
+        assert (profile["request"]["requestHeaders"], profile["request"]["responseHeaders"]) == ([], [])
+    if panel == "exceptions":
+        assert profile["exceptions"] == []
+    if panel == "sql-trace":
+        assert (profile["sql"], profile["sqlGroups"]) == ([], [])
+    assert client.get("/sharpit/api/activity/stream").status_code == 200
 
 
 def test_ungated_paths_ignore_panel_flags():

@@ -86,8 +86,10 @@ def exchange_row(
     response_headers: RawHeaders,
     error: bool = False,
     endpoint: str | None = None,
+    finished_epoch_ns: int | None = None,
 ) -> dict[str, Any]:
-    """One masked, capped row: the ``HttpExchangeDto`` keys plus ``error`` and ``endpoint``."""
+    """One masked, capped row: the ``HttpExchangeDto`` keys plus ``error``, ``endpoint``, ``startNs`` and ``endNs``
+    (epoch ns, for Live Activity's ordering and its after-the-response check)."""
     shown_path = _cut(masker.mask_path(path), MAX_PATH)
     raw_query = query_string.decode("latin-1")
     query = masker.mask_query(raw_query) if raw_query else None
@@ -114,6 +116,8 @@ def exchange_row(
         "responseHeaders": _headers(masker, response_headers),
         "error": error,
         "endpoint": endpoint,
+        "startNs": started_epoch_ns,
+        "endNs": finished_epoch_ns if finished_epoch_ns is not None else started_epoch_ns + duration_ms * 1_000_000,
     }
 
 
@@ -147,6 +151,11 @@ class HttpExchangeBuffer:
     def count_hidden_self(self) -> None:
         with self._lock:
             self.hidden_self += 1
+
+    def rows(self) -> list[dict[str, Any]]:
+        """The stored rows, oldest first, internal keys included."""
+        with self._lock:
+            return list(self._rows)
 
     def get(self, request_id: str) -> dict[str, Any] | None:
         """The stored row (``error`` and ``endpoint`` included), or ``None`` once evicted."""

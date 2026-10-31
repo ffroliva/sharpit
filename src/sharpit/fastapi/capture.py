@@ -377,6 +377,7 @@ class CaptureMiddleware:
                             response_headers=response_headers,
                             error=error,
                             endpoint=info.endpoint,
+                            finished_epoch_ns=started_epoch_ns + finished - info.started_ns,
                         )
                     )
             except Exception as exc:  # noqa: BLE001
