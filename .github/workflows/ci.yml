@@ -45,7 +45,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci && npm run build
-      - run: git diff --exit-code src/sharpit/ui/static
+      - run: git diff --exit-code -- ../src/sharpit/ui/static
 
   vitest:
     runs-on: ubuntu-latest
