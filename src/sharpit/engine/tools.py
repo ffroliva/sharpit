@@ -2,8 +2,8 @@
 
 Port of BootUI ``McpToolCatalog`` (the seven MVP rows), ``McpToolSchema`` rendered as in ``BootUiMcpService.schema``,
 ``McpToolDescriptions``, ``McpArguments.normalize``, ``McpDispatcher.callTool``, ``CliService`` and ``CliOutcomes``.
-MCP never sees an action tool (``vulnerabilities_scan`` is CLI-only, spec §9). Each ``via`` has its own caps, slots
-and counters, as BootUI's MCP and CLI each own a dispatcher.
+MCP never sees an action tool (``vulnerabilities_scan`` and ``rest_api_scan`` are CLI-only, spec §9). Each ``via``
+has its own caps, slots and counters, as BootUI's MCP and CLI each own a dispatcher.
 
 Timeout: Python threads cannot be interrupted (BootUI cancels the future), so the call's slot is released exactly
 once, by whichever comes first of the worker finishing or the caller giving up; an abandoned worker runs on.
@@ -22,6 +22,7 @@ from typing import Any, Literal, cast
 from sharpit import __version__
 from sharpit.engine import sqla
 from sharpit.engine.advisors.dismissals import DismissalStore
+from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.capture import activity
 from sharpit.engine.capture.exceptions import unknown_group
 from sharpit.engine.capture.exchanges import unavailable_report
@@ -35,6 +36,7 @@ from sharpit.engine.collectors.loggers import loggers_report
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
 from sharpit.engine.collectors.pools import pools_report
+from sharpit.engine.collectors.restapi.service import RestApiService
 from sharpit.engine.collectors.threads import threads_report
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import inventory
@@ -43,7 +45,8 @@ from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.panels import disabled_reason, read_only_reason
-from sharpit.engine.singleflight import ActionBusy
+from sharpit.engine.singleflight import ActionBusy, SingleFlight
+from sharpit.engine.spi import ApiModel
 from sharpit.settings import PanelSettings
 
 logger = logging.getLogger("sharpit")
@@ -124,7 +127,41 @@ _ID: dict[str, Any] = {
     "required": ["id"],
     "additionalProperties": False,
 }
-_SCHEMA_NAMES = {(): "NONE", ("limit",): "LIMIT", ("query", "limit"): "QUERY_LIMIT", ("id",): "ID"}
+_RULE_VIOLATIONS: dict[str, Any] = {  # BootUiMcpService.schema RULE_VIOLATIONS
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "Exact identifier of the resource to fetch.", "minLength": 1},
+        "scanId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The cached report's violationDetails.scanId. Never starts a scan.",
+        },
+        "offset": {"type": "integer", "minimum": 0, "default": 0},
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page size, default 100, capped at min(1000, SHARPIT_MCP_MAX_RESULTS).",
+            "default": 100,
+        },
+    },
+    "required": ["id", "scanId"],
+    "additionalProperties": False,
+}
+_SCHEMA_NAMES = {
+    (): "NONE",
+    ("limit",): "LIMIT",
+    ("query", "limit"): "QUERY_LIMIT",
+    ("id",): "ID",
+    ("id", "scanId", "offset", "limit"): "RULE_VIOLATIONS",
+}
+
+
+_ADVISOR_GUIDANCE = (  # McpToolDescriptions.advisorGuidance
+    " sampleViolations are bounded previews (up to 10), not the full violationCount. Use violationDetails.scanId "
+    "with get_rest_api_rule_violations to page cached retained details without scanning again. Check truncated for "
+    "missing details, including retention overflow; a terminal page does not guarantee completeness when truncated. "
+    "Verify each finding before changing code."
+)
 
 
 # --- Handlers (BootUiMcpTools) --------------------------------------------------------------------------------------
@@ -141,10 +178,42 @@ def vulnerability_service(ctx: SharpitContext) -> VulnerabilityService:
             OsvClient(settings.vulnerabilities_osv_base_uri, timeout),
             EpssClient(settings.vulnerabilities_epss_base_uri, timeout),
             inventory,
-            DismissalStore(Path(settings.state_dir)),
+            dismissal_store(ctx),
             ctx.single_flight,
         ),
     )
+
+
+def dismissal_store(ctx: SharpitContext) -> DismissalStore:
+    """The one per-install store every advisor and the dismissed-rules routes share."""
+    return ctx.lazy("dismissals", lambda: DismissalStore(Path(ctx.settings.state_dir)))
+
+
+_NO_ROUTE_MODEL = ApiModel((), (), ("This framework adapter does not expose route details.",))
+
+
+def rest_api_service(ctx: SharpitContext) -> RestApiService:
+    """The per-install REST API advisor (seeded in tests under the same key); scans hold their own single-flight."""
+    source: Any = getattr(ctx.introspector, "api_model", None)  # duck-typed: not part of the AppIntrospector SPI
+    model = cast("Callable[[], ApiModel]", source) if callable(source) else (lambda: _NO_ROUTE_MODEL)
+    return ctx.lazy(
+        "rest-api",
+        lambda: RestApiService(
+            model,
+            dismissal_store(ctx),
+            ctx.masker,
+            ctx.lazy("singleflight:rest-api-scan", SingleFlight),
+            max_retained=ctx.settings.advisors_max_retained_violations,
+        ),
+    )
+
+
+def _rest_api_violations(call: CallContext, args: dict[str, Any]) -> dict[str, Any]:
+    service = rest_api_service(call.ctx)
+    try:
+        return service.violations(args["id"], args["scanId"], args["offset"], args["pageLimit"], args["maxResults"])
+    except AdvisorViolationError as exc:  # BootUI: the advisor's status and message, in band
+        raise ToolCallError(exc.message, exc.status) from None
 
 
 def exceptions_report(ctx: SharpitContext) -> dict[str, Any]:
@@ -431,6 +500,38 @@ TOOLS: tuple[Tool, ...] = (
         True,
         lambda c, _a: vulnerability_service(c.ctx).scan(),
     ),
+    Tool(
+        "get_rest_api_report",
+        "Return the last completed REST API advisor report without starting a new endpoint scan. Use this cached "
+        "evidence before deciding whether an active rest_api_scan is necessary." + _ADVISOR_GUIDANCE,
+        _NONE,
+        "rest-api",
+        False,
+        lambda c, _a: rest_api_service(c.ctx).report(),
+    ),
+    Tool(
+        "get_rest_api_rule_violations",
+        "Read one page of retained violations for the exact rule id and cached report's violationDetails.scanId. "
+        "This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport "
+        "max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained "
+        "entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a "
+        "complete list. Verify each finding before changing code. Unknown rule returns 404; stale or missing "
+        "snapshot returns 409: reread the cached report, not a new scan. On MCP -32003 byte-budget refusal, retry "
+        "the same scanId and offset with a smaller limit; a refusal is not an empty or completed page.",
+        _RULE_VIOLATIONS,
+        "rest-api",
+        False,
+        _rest_api_violations,
+    ),
+    Tool(
+        "rest_api_scan",
+        "Actively inspect this application's routes and API design for correctness and maintainability risks. "
+        "Verify recommendations against the public API contract." + _ADVISOR_GUIDANCE,
+        _NONE,
+        "rest-api",
+        True,
+        lambda c, _a: rest_api_service(c.ctx).scan(),
+    ),
 )
 
 COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
@@ -455,6 +556,9 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_threads": "threads",
     "get_vulnerabilities_report": "vulnerabilities report",
     "vulnerabilities_scan": "vulnerabilities scan",
+    "get_rest_api_report": "rest-api report",
+    "get_rest_api_rule_violations": "rest-api violations",
+    "rest_api_scan": "rest-api scan",
 }
 
 
@@ -563,6 +667,20 @@ def _check_arguments(args: object) -> dict[str, Any]:
     return checked
 
 
+def _rule_violation_arguments(checked: dict[str, Any], raw_limit: object, max_results: int) -> dict[str, Any]:
+    """``scanId``/``offset`` of the RULE_VIOLATIONS schema; the raw limit (None: 100) is capped by the page itself."""
+    scan_id, offset = checked.get("scanId"), checked.get("offset")
+    if scan_id is not None and not isinstance(scan_id, str):
+        raise RpcError(INVALID_PARAMS, "Argument 'scanId' must be a string")
+    if offset is not None and not _is_int32(offset):
+        raise RpcError(INVALID_PARAMS, "Argument 'offset' must be an integer")
+    if isinstance(offset, int) and offset < 0:
+        raise RpcError(INVALID_PARAMS, "Argument 'offset' must be at least 0")
+    if not (scan_id or "").strip():
+        raise RpcError(INVALID_PARAMS, "Missing required argument: scanId")
+    return {"scanId": (scan_id or "").strip(), "offset": offset, "pageLimit": raw_limit, "maxResults": max_results}
+
+
 def call_tool(
     call: CallContext, name: object, args: object, *, via: Via, tools: Sequence[Tool] | None = None
 ) -> dict[str, Any]:
@@ -594,6 +712,8 @@ def call_tool(
     if "id" in tool.input_schema["properties"] and not gid:  # BootUI: after the panel gates
         raise RpcError(INVALID_PARAMS, "Missing required argument: id")
     normalized = {"query": query, "limit": limit, **({"id": gid} if "id" in tool.input_schema["properties"] else {})}
+    if "scanId" in tool.input_schema["properties"]:  # RULE_VIOLATIONS: checked only on the tool that declares them
+        normalized.update(_rule_violation_arguments(checked, raw_limit, gate.max_results))
     return gate.run(tool.name, lambda: tool.handler(call, normalized))
 
 

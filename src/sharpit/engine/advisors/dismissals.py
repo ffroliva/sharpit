@@ -18,17 +18,15 @@ import tempfile
 import threading
 from pathlib import Path
 
+from sharpit.engine.collectors.restapi.rules import RULE_IDS
 from sharpit.engine.paging import BadRequest
 
 FILE_NAME = "sharpit.yml"
 _KEY = "dismissedRules"
 _HEADER = "# sharpit configuration (developer-local; safe to delete)."
 _RULE_ID = re.compile(r"[A-Za-z0-9._:-]{1,200}")
-# (owning panel, id shape); the vulnerability shape is exactly what rule_id() builds from a PEP 503 name
-_OWNERS = (
-    ("rest-api", re.compile(r"RAPI-[A-Za-z0-9._:-]+")),
-    ("vulnerabilities", re.compile(r"[A-Za-z0-9._:-]+::pypi:[a-z0-9._-]+")),
-)
+# the vulnerability shape is exactly what rule_id() builds from a PEP 503 name
+_VULNERABILITY = re.compile(r"[A-Za-z0-9._:-]+::pypi:[a-z0-9._-]+")
 
 
 def rule_id(vuln_id: str, package_name: str) -> str:
@@ -39,7 +37,9 @@ def owning_panel(rule_id: str) -> str | None:
     """The panel whose gate covers dismissing ``rule_id``; None for an id no advisor owns (refused with a 400)."""
     if not _RULE_ID.fullmatch(rule_id):
         return None
-    return next((panel for panel, shape in _OWNERS if shape.fullmatch(rule_id)), None)
+    if rule_id in RULE_IDS:  # only a registered REST API rule; an unported or unknown RAPI- id has no owner
+        return "rest-api"
+    return "vulnerabilities" if _VULNERABILITY.fullmatch(rule_id) else None
 
 
 class DismissalStore:

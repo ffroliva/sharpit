@@ -6,14 +6,17 @@ import functools
 import inspect
 import sys
 import sysconfig
+import typing
 from collections.abc import Iterator
+from enum import Enum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
+from starlette.responses import Response
 from starlette.routing import BaseRoute, Host, Mount, WebSocketRoute
 
-from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.spi import ApiModel, ApiRouteInfo, AppInfo, ProviderInfo, RouteInfo
 
 
 def _version(dist: str) -> str | None:
@@ -113,6 +116,57 @@ def _consumes(route: object) -> str | None:
     return media_type if isinstance(media_type, str) else None
 
 
+def _return_annotation(endpoint: object) -> object | None:
+    """The resolved return annotation: None when there is none, ``type(None)`` for ``-> None``."""
+    try:
+        return typing.get_type_hints(endpoint, include_extras=True).get("return")
+    except Exception:  # noqa: BLE001 - an unresolvable forward reference: fall back to the raw annotation
+        try:
+            raw = inspect.signature(endpoint).return_annotation  # pyright: ignore[reportArgumentType]
+        except (TypeError, ValueError):
+            return None
+        return None if raw is inspect.Signature.empty else type(None) if raw is None else raw
+
+
+def _query_params(dependant: object, depth: int = 0) -> tuple[str, ...]:
+    """Query parameter names of the route and its sub-dependencies (signature metadata only; nothing is called)."""
+    params: Any = getattr(dependant, "query_params", None) or ()
+    names = [str(getattr(p, "alias", None) or getattr(p, "name", "")) for p in params]
+    if depth < MAX_DEPTH:
+        for sub in getattr(dependant, "dependencies", None) or ():
+            names.extend(_query_params(sub, depth + 1))
+    return tuple(names)
+
+
+def _api_route(info: RouteInfo, route: object) -> ApiRouteInfo:
+    endpoint: Any = getattr(route, "endpoint", None)
+    annotation: object = _return_annotation(endpoint)
+    dependant = getattr(route, "dependant", None)
+    returns_response = isinstance(annotation, type) and issubclass(annotation, Response)
+    status_code = getattr(route, "status_code", None)
+    summary = getattr(route, "summary", None)
+    description = getattr(route, "description", None)
+    tags: Any = getattr(route, "tags", None) or ()
+    return ApiRouteInfo(
+        methods=info.methods,
+        path=info.path,
+        handler=info.handler,
+        status_code=status_code if isinstance(status_code, int) else None,
+        response_model=getattr(route, "response_model", None),
+        return_annotation=cast(object, annotation),
+        dynamic_response=returns_response or bool(getattr(dependant, "response_param_name", None)),
+        has_body=getattr(route, "body_field", None) is not None,
+        query_params=_query_params(dependant),
+        summary=summary if isinstance(summary, str) else None,
+        description=description if isinstance(description, str) else None,
+        tags=tuple(str(t.value if isinstance(t, Enum) else t) for t in tags),
+    )
+
+
+def _framework(handler: str) -> bool:
+    return handler.partition(":")[0].partition(".")[0] in ("fastapi", "starlette", "sharpit")
+
+
 class FastApiIntrospector:
     def __init__(self, app: object, exclude_mount: str | None = None, lifespan: object | None = None) -> None:
         self.app = app
@@ -137,6 +191,24 @@ class FastApiIntrospector:
         # Read attributes only: no endpoint is called and no OpenAPI schema is built. Walked per call, so routes
         # added after install show up.
         return [info for info, _ in self._entries()]
+
+    def api_model(self) -> ApiModel:
+        """Route metadata for the REST API advisor: ``APIRoute`` attributes only, never ``app.openapi()``."""
+        routes: list[ApiRouteInfo] = []
+        limitations: list[str] = []
+        for info, route in self._entries():
+            if route is None:
+                if info.handler == "<unexpanded include_router>":
+                    limitations.append(f"Included router at {info.path} could not be expanded.")
+                elif not _framework(info.handler):  # StaticFiles and other framework apps serve no API
+                    base = info.path.removesuffix("/{path}") or "/"
+                    limitations.append(f"Mounted application at {base} has no inspectable routes.")
+            elif not isinstance(route, WebSocketRoute) and getattr(route, "endpoint", None) is not None:
+                routes.append(_api_route(info, route))
+        handlers: Any = getattr(self.app, "exception_handlers", None) or {}
+        # sharpit's exception capture wraps each handler: report the host's own function
+        names = tuple(_qualified(getattr(h, "__sharpit_original__", h)) for h in list(handlers.values()))
+        return ApiModel(tuple(routes), names, tuple(limitations))
 
     def _entries(self) -> Iterator[tuple[RouteInfo, object | None]]:
         routes: Any = getattr(self.app, "routes", [])

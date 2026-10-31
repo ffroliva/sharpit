@@ -138,7 +138,7 @@ def test_cli_status_shape_matches_contract():
         "capacityRefusals", "timeouts", "toolCount", "tools",
     ]  # fmt: skip
     assert (body["enabled"], body["serverName"], body["serverVersion"]) == (True, "sharpit", __version__)
-    assert (body["endpoint"], body["maxResults"], body["toolCount"]) == ("/sharpit/api/cli", 200, 21)
+    assert (body["endpoint"], body["maxResults"], body["toolCount"]) == ("/sharpit/api/cli", 200, 24)
     by_name = {t["name"]: t for t in body["tools"]}
     assert {n: t["command"] for n, t in by_name.items()} == {
         "get_overview": "overview",
@@ -162,6 +162,9 @@ def test_cli_status_shape_matches_contract():
         "get_threads": "threads",
         "get_vulnerabilities_report": "vulnerabilities report",
         "vulnerabilities_scan": "vulnerabilities scan",
+        "get_rest_api_report": "rest-api report",
+        "get_rest_api_rule_violations": "rest-api violations",
+        "rest_api_scan": "rest-api scan",
     }
     assert list(by_name["get_config"]) == [
         "name", "command", "description", "panel", "action", "schema", "arguments", "panelEnabled", "panelReadOnly",

@@ -172,6 +172,10 @@ def _sweep(call: Recorder, ctx: Any) -> None:
     call("POST", f"{API}/alembic/refresh")
     call("POST", f"{API}/vulnerabilities/scan")
     call("GET", f"{API}/vulnerabilities")
+    scan_id = call("POST", f"{API}/rest-api/scan").json()["violationDetails"]["scanId"]
+    call("GET", f"{API}/rest-api")
+    for result in call("GET", f"{API}/rest-api").json()["results"]:
+        call("GET", f"{API}/rest-api/rules/{result['id']}/violations?scanId={scan_id}&limit=1000")
     call("POST", f"{API}/dismissed-rules/{RULE}")
     call("DELETE", f"{API}/dismissed-rules/{RULE}")
     call("POST", f"{API}/loggers/corpus.logger", json={"level": "NOPE"})  # 400: an invalid level changes nothing

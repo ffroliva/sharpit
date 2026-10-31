@@ -154,13 +154,18 @@ def test_rapi_id_accepted_quote_space_slash_refused(tmp_path: Path):
     assert store.add(A) == ["RAPI-MAP-001", A]
     assert DismissalStore(tmp_path).list() == ["RAPI-MAP-001", A]
     before = (tmp_path / FILE_NAME).read_bytes()
-    for bad in ['RAPI-"1', "RAPI-MAP 001", "RAPI-MAP/001", "RAPI-\\1", "RAPI-1\n  - x", "RAPI-", "RAPI-" + "1" * 196]:
+    unregistered = ("RAPI-MAP-004", "RAPI-" + "1" * 195)  # T10: only registered REST API rule ids have an owner
+    for bad in ['RAPI-"1', "RAPI-MAP 001", "RAPI-MAP/001", "RAPI-\\1", "RAPI-1\n  - x", "RAPI-", "RAPI-" + "1" * 196,
+                *unregistered]:  # fmt: skip
         with pytest.raises(BadRequest):
             store.add(bad)
         with pytest.raises(BadRequest):
             store.remove(bad)
     assert (tmp_path / FILE_NAME).read_bytes() == before
-    assert store.add("RAPI-" + "1" * 195)[-1] == "RAPI-" + "1" * 195  # 200 characters is the longest id
+    longest = "V-" + "1" * 188 + "::pypi:abc"  # 200 characters is the longest id
+    assert len(longest) == 200 and store.add(longest)[-1] == longest
+    with pytest.raises(BadRequest):
+        store.add("V-" + "1" * 189 + "::pypi:abc")
 
 
 @pytest.mark.parametrize(
@@ -168,6 +173,8 @@ def test_rapi_id_accepted_quote_space_slash_refused(tmp_path: Path):
     [
         ("RAPI-MAP-001", "rest-api"),
         ("RAPI-DOC-002", "rest-api"),
+        ("RAPI-MAP-004", None),  # documented by BootUI, not ported (T10)
+        ("RAPI-NOPE-1", None),
         (A, "vulnerabilities"),
         ("PYSEC-2017-9999::pypi:zope.interface", "vulnerabilities"),
         ("SPRING-WEB-001", None),

@@ -233,7 +233,10 @@ def test_tools_list_has_no_action_tool():
         "get_database_connection_pools",
         "get_threads",
         "get_vulnerabilities_report",
+        "get_rest_api_report",
+        "get_rest_api_rule_violations",
     ]
+    assert "rest_api_scan" not in {t["name"] for t in tools}
     first = tools[0]
     assert set(first) == {"name", "description", "inputSchema", "outputSchema"}
     assert first["inputSchema"]["type"] == "object"

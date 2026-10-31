@@ -131,10 +131,7 @@ def test_panels_platform_fastapi_and_ids():
 
 
 # Ruling C1: each later task removes its own id here in the commit that adds that panel's real availability test.
-NOT_BUILT = (
-    "rest-api",
-    "http-probe",
-)
+NOT_BUILT = ("http-probe",)
 
 
 @pytest.mark.parametrize("panel_id", NOT_BUILT)
@@ -151,8 +148,8 @@ def test_mvp_panels_stay_available():
     # database-connection-pools depends on whether SQLAlchemy is imported: test_panel_availability covers both states
     excluded = (*NOT_BUILT, "sql-trace", "alembic", "database-connection-pools")
     mvp = [p for p in body["panels"] if p["id"] not in excluded]
-    assert len(mvp) == 14  # the 8 MVP panels, http-exchanges (Task 2), log-tail (Task 3), exceptions (Task 4),
-    # activity (Task 6), health (Task 7), threads (Task 8)
+    assert len(mvp) == 15  # the 8 MVP panels, http-exchanges (Task 2), log-tail (Task 3), exceptions (Task 4),
+    # activity (Task 6), health (Task 7), threads (Task 8), rest-api (Task 10)
     assert all(p["available"] and p["unavailableReason"] is None for p in mvp)
 
 

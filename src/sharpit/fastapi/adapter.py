@@ -25,6 +25,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import guard, sqla, tools
 from sharpit.engine.activation import ActivationStatus, active_profiles, decide
+from sharpit.engine.advisors.retention import MAX_PAGE_LIMIT, AdvisorViolationError, parse_integer
 from sharpit.engine.capture import activity, route_path
 from sharpit.engine.capture.exceptions import ExceptionStore, unknown_group
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
@@ -165,10 +166,7 @@ class GuardMiddleware:
 
 
 # Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
-_NOT_BUILT = (
-    "rest-api",
-    "http-probe",
-)
+_NOT_BUILT = ("http-probe",)
 
 
 def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
@@ -387,11 +385,32 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         except ActionBusy as exc:
             return json_response(exc.body(), 409)
 
+    def rest_api(_request: Request) -> Response:
+        return json_response(tools.rest_api_service(ctx).report())
+
+    def rest_api_scan(_request: Request) -> Response:
+        try:
+            return json_response(tools.rest_api_service(ctx).scan())
+        except ActionBusy as exc:
+            return json_response(exc.body(), 409)
+
+    def rest_api_violations(request: Request) -> Response:
+        params = request.query_params
+        try:
+            offset = parse_integer(params.get("offset"), "offset")
+            limit = parse_integer(params.get("limit"), "limit")
+            page = tools.rest_api_service(ctx).violations(
+                request.path_params["rule_id"], params.get("scanId"), offset, limit, MAX_PAGE_LIMIT
+            )
+        except AdvisorViolationError as exc:  # BootUI AdvisorViolationExceptionHandler
+            return json_response({"error": exc.message}, exc.status)
+        return json_response(page)
+
     def dismissed_rules(_request: Request) -> Response:
-        return json_response({"dismissed": vulnerability_service().dismissals.list()})
+        return json_response({"dismissed": tools.dismissal_store(ctx).list()})
 
     def dismissed_rule(request: Request) -> Response:
-        store = vulnerability_service().dismissals
+        store = tools.dismissal_store(ctx)
         rule: str = request.path_params["rule_id"]
         ids = store.add(rule) if request.method == "POST" else store.remove(rule)
         return json_response({"dismissed": ids})
@@ -490,6 +509,9 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/threads", thread_dump, methods=["GET"]),
         Route(f"{api}/vulnerabilities", vulnerabilities, methods=["GET"]),
         Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
+        Route(f"{api}/rest-api", rest_api, methods=["GET"]),
+        Route(f"{api}/rest-api/scan", rest_api_scan, methods=["POST"]),
+        Route(f"{api}/rest-api/rules/{{rule_id}}/violations", rest_api_violations, methods=["GET"]),
         Route(f"{api}/dismissed-rules", dismissed_rules, methods=["GET"]),
         Route(f"{api}/dismissed-rules/{{rule_id:path}}", dismissed_rule, methods=["POST", "DELETE"]),
         Route(f"{api}/mcp", mcp, methods=["POST"]),

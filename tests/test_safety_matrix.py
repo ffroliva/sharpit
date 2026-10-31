@@ -34,7 +34,7 @@ from sharpit.engine.guard import (
 )
 from sharpit.engine.mcp import DISABLED_MESSAGE
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
-from sharpit.engine.tools import TOOLS
+from sharpit.engine.tools import TOOLS, rest_api_service
 from sharpit.fastapi.adapter import SharpitHandle, SharpitMount
 
 LOCAL = ("127.0.0.1", 50000)
@@ -77,6 +77,8 @@ ROWS = [
     ("log-tail", "GET", "/sharpit/api/log-tail/recent", 200, True),
     ("log-tail-stream", "GET", "/sharpit/api/log-tail/stream", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
+    ("rest-api", "GET", "/sharpit/api/rest-api", 200, True),
+    ("rest-api-violations", "GET", "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations", 400, True),  # no scanId
     ("mcp-server", "GET", "/sharpit/api/mcp-server", 200, True),
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),
     ("mcp", "POST", "/sharpit/api/mcp", 200, True),
@@ -211,6 +213,8 @@ PANEL_TOOLS = [
     ("get_health", "health", {}),
     ("get_database_connection_pools", "database-connection-pools", {}),
     ("get_threads", "threads", {}),
+    ("get_rest_api_report", "rest-api", {}),
+    ("get_rest_api_rule_violations", "rest-api", {"id": "RAPI-MAP-001", "scanId": "x"}),
 ]
 
 
@@ -276,6 +280,7 @@ WRITES = [
     ("sql-trace", "POST", "/sharpit/api/sql-trace/recording", {"enabled": False}),
     ("alembic", "POST", "/sharpit/api/alembic/refresh", None),
     ("health", "POST", "/sharpit/api/health/check", None),
+    ("rest-api", "POST", "/sharpit/api/rest-api/scan", None),
 ]
 # Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules is gated by the global flag and the
 # rule's owning panel under its own subject (test_dismissed_rules_obey_global_and_owning_panel_read_only and
@@ -335,6 +340,11 @@ def _seed_exceptions(handle: SharpitHandle) -> Callable[[], object]:
     return lambda: store.report()["totalExceptions"]
 
 
+def _seed_rest_api(handle: SharpitHandle) -> Callable[[], object]:
+    """The cached REST API report's scan status: a refused scan leaves it NOT_SCANNED."""
+    return lambda: rest_api_service(handle.context).report()["scan"]["status"]
+
+
 def _seed_sql_trace(handle: SharpitHandle) -> Callable[[], object]:
     """Record one statement (when tracing is on) and return a probe of the recorder's state."""
     recorder = handle.context.capture.sql_trace
@@ -350,6 +360,7 @@ CLI_ACTIONS: list[tuple[str, str, Callable[[SharpitHandle], Callable[[], object]
     ("clear_sql_traces", "sql-trace", _seed_sql_trace),
     ("pause_sql_trace_recording", "sql-trace", _seed_sql_trace),
     ("resume_sql_trace_recording", "sql-trace", _seed_sql_trace),
+    ("rest_api_scan", "rest-api", _seed_rest_api),
 ]
 GATES: dict[str, Callable[[str], dict[str, Any]]] = {
     "panel-disabled": lambda panel: {"panels": {panel: {"enabled": False}}},
@@ -610,9 +621,11 @@ def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, 
     with _client(app) as client:
         client.get("/owners")  # one host request first: the capture wiring that attaches on it is swept too
         no_side_effects.block_network()
+        # the rest-api violations route needs a scanId: without one it answers 400 (and never scans)
+        expected = (400,) if path.endswith("/violations") else (200, 307, 404)
         for query in ("", "?q=sharpit&offset=0&limit=5"):
             resp = client.get(path + query)
-            assert resp.status_code in (200, 307, 404), resp.text
+            assert resp.status_code in expected, resp.text
     assert no_side_effects.violations == []
     assert ran() == []
 
@@ -621,7 +634,12 @@ MCP_TOOLS = [t.name for t in TOOLS if not t.action]
 
 
 def _tool_arguments(tool: str, handle: SharpitHandle) -> dict[str, Any]:
-    """A tool's required arguments: get_exception_detail gets the id of an exception recorded here."""
+    """A tool's required arguments: get_exception_detail gets the id of an exception recorded here and
+    get_rest_api_rule_violations a rule of a REST API scan run here (the scan only reads route metadata)."""
+    if tool == "get_rest_api_rule_violations":
+        report = rest_api_service(handle.context).scan()
+        assert report["results"], report
+        return {"id": report["results"][0]["id"], "scanId": report["violationDetails"]["scanId"]}
     if tool != "get_exception_detail":
         return {}
     _seed_exceptions(handle)
