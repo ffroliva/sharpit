@@ -28,7 +28,7 @@ your FastAPI app
          ├─ /sharpit/            the UI (Svelte 5 bundle)   src/sharpit/ui/static/
          ├─ /sharpit/api/...     JSON panels               engine/collectors/*
          ├─ /sharpit/api/cli/tools/<tool>  CLI tools over HTTP engine/tools.py
-         └─ /sharpit/mcp         MCP server (off by default) engine/mcp.py
+         └─ /sharpit/api/mcp     MCP server (off by default) engine/mcp.py
 ```
 
 There are two layers:
@@ -161,7 +161,7 @@ Values that look secret are masked (`******`) across the UI, JSON API, live stre
 - **Path masking (`Masker.mask_path`).**
   Replaces sensitive segments in URL paths with `******`.
 - **Header filtering.**
-  Exchanges and HTTP probe allow-list safe headers and mask sensitive values.
+  HTTP Probe allow-lists response headers (`content-type`, `content-length`, `location`). HTTP Exchanges captures request and response headers with sensitive header names and values masked.
 - **Always masked.**
   sharpit's own token is always masked, even when `SHARPIT_EXPOSE_VALUES=FULL`.
   `SHARPIT_EXPOSE_VALUES` can hide values entirely (`METADATA_ONLY`) or expose them (`FULL`, which logs a warning).
@@ -169,9 +169,12 @@ Values that look secret are masked (`******`) across the UI, JSON API, live stre
 
 ## MCP
 
-MCP is off until you set `SHARPIT_MCP_ENABLED=true`. It then serves JSON-RPC at `/sharpit/mcp`, behind the same guard.
-Its tools are read-only: overview, config, mappings, loggers, providers, vulnerabilities, and database migrations.
-A vulnerability scan can only be started from the CLI endpoint or the UI.
+MCP is off until you set `SHARPIT_MCP_ENABLED=true`. It then serves JSON-RPC at `/sharpit/api/mcp`, behind the same guard.
+Its 18 tools are read-only: `get_overview`, `get_config`, `get_mappings`, `get_loggers`, `get_beans`,
+`get_http_exchanges`, `get_log_tail`, `get_exceptions`, `get_exception_detail`, `get_sql_traces`,
+`get_live_activity`, `get_alembic_migrations`, `get_health`, `get_database_connection_pools`, `get_threads`,
+`get_vulnerabilities_report`, `get_rest_api_report`, and `get_rest_api_rule_violations`.
+Action tools (such as starting a vulnerability or REST API scan) can only be called from the CLI endpoint or the UI.
 The tools never execute arbitrary code or evaluate expressions.
 
 ## How it was tested
