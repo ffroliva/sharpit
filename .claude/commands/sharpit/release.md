@@ -1,5 +1,5 @@
 ---
-description: Prepare a sharpit release on a chore/release branch. Gated: never pushes master, never publishes to PyPI without an explicit owner instruction.
+description: Cut a sharpit release - version bump, changelog, release PR, signed tag. CI publishes to PyPI when the tag is pushed.
 ---
 
 # `/sharpit:release [version]`

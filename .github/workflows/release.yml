@@ -1,0 +1,79 @@
+name: release
+
+# The only path to PyPI: push a signed tag `v<version>` on master. See skills/release/SKILL.md.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# Write scopes live on the job, so no other job can ever inherit them.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the GitHub Release
+      id-token: write # PyPI Trusted Publishing (OIDC), no stored token
+    environment:
+      name: pypi
+      url: https://pypi.org/p/sharpit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          # a cache another workflow can write must never reach a published wheel
+          enable-cache: false
+
+      - name: Verify the tag is signed
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ "$(git cat-file -t "$TAG")" != "tag" ]; then
+            echo "::error::$TAG is a lightweight tag. Create it with 'git tag -s'."
+            exit 1
+          fi
+          if ! git cat-file -p "$TAG" | grep -qE "BEGIN (PGP|SSH) SIGNATURE"; then
+            echo "::error::$TAG is not signed. Create it with 'git tag -s'."
+            exit 1
+          fi
+
+      - name: Classify the tag
+        id: kind
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          case "${TAG#v}" in
+            *a*|*b*|*rc*|*dev*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *)                  echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - run: uv build
+
+      - name: Verify the tag matches the built version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ ! -f "dist/sharpit-${TAG#v}-py3-none-any.whl" ]; then
+            echo "::error::$TAG does not match __version__ in src/sharpit/__init__.py. Built: $(ls dist)"
+            exit 1
+          fi
+
+      - name: Smoke-test the wheel
+        run: |
+          uv venv "$RUNNER_TEMP/smoke" --python 3.12
+          uv pip install --python "$RUNNER_TEMP/smoke/bin/python" dist/sharpit-*.whl fastapi pydantic-settings uvicorn httpx
+          PYTHONPATH=. "$RUNNER_TEMP/smoke/bin/python" scripts/ci/wheel_smoke.py
+
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          files: dist/*
+          generate_release_notes: true
+          prerelease: ${{ steps.kind.outputs.prerelease == 'true' }}
