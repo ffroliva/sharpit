@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ApiError, get, post } from '../lib/api';
+  import { errorText, get, post } from '../lib/api';
   import { firstSentence } from '../lib/format';
   import { scrollable } from '../lib/scrollable';
   import type { Panel, ServerStatus } from '../lib/types';
@@ -12,16 +12,10 @@
   let toggling = $state(false);
   let toggleError = $state<string | null>(null);
 
-  const describe = (e: unknown) => {
-    const body = e instanceof ApiError ? e.body : null;
-    if (typeof body === 'object' && body !== null && 'error' in body) return String(body.error);
-    return e instanceof ApiError ? `HTTP ${e.status}` : 'The application is not responding.';
-  };
-
   // svelte-ignore state_referenced_locally (one view instance per panel)
   get<ServerStatus>(kind).then(
     (d) => (data = d),
-    (e: unknown) => (error = describe(e)),
+    (e: unknown) => (error = errorText(e)),
   );
 
   async function toggle() {
@@ -31,7 +25,7 @@
     try {
       data = await post<ServerStatus>('mcp-server/toggle', { enabled: !data.enabled });
     } catch (e) {
-      toggleError = describe(e);
+      toggleError = errorText(e);
     } finally {
       toggling = false;
     }

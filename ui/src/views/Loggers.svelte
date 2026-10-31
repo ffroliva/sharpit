@@ -1,6 +1,6 @@
 <script lang="ts">
   import ServerTable from '../components/ServerTable.svelte';
-  import { ApiError, get, post } from '../lib/api';
+  import { errorText, get, post } from '../lib/api';
   import type { Logger, Panel } from '../lib/types';
 
   let { panel, q = '' }: { panel: Panel; q?: string } = $props();
@@ -36,9 +36,7 @@
       await table?.reload();
       changed = {};
     } catch (e) {
-      const body = e instanceof ApiError ? e.body : null;
-      const text = typeof body === 'object' && body !== null && 'error' in body ? String(body.error) : 'The change failed.';
-      failure = { name: logger.name, text };
+      failure = { name: logger.name, text: errorText(e, 'The change failed.') };
       select.value = logger.configuredLevel ?? ''; // the change was not applied: show what is configured
     } finally {
       pending = null;

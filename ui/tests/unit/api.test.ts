@@ -1,6 +1,6 @@
 import { get as read } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, authRequired, busyMessage, del, get, post, session } from '../../src/lib/api';
+import { ApiError, authRequired, del, errorText, get, post, session } from '../../src/lib/api';
 import apiSource from '../../src/lib/api.ts?raw';
 import overview from '../../../tests/fixtures/bootui/overview.json';
 
@@ -14,7 +14,6 @@ beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
   authRequired.set(false);
-  busyMessage.set(null);
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -54,10 +53,9 @@ describe('errors', () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ status: 401, body });
     expect(read(authRequired)).toBe(true);
-    expect(read(busyMessage)).toBeNull();
   });
 
-  it('409 busy sets busyMessage from the server body', async () => {
+  it('409 busy throws ApiError with the server body for the view to show', async () => {
     const body = {
       error: 'sharpit action already in progress',
       operation: 'vulnerability-scan',
@@ -66,18 +64,23 @@ describe('errors', () => {
     };
     fetchMock.mockResolvedValue(json(409, body));
     await expect(post('vulnerabilities')).rejects.toMatchObject({ status: 409, body });
-    expect(read(busyMessage)).toBe(body.message);
     expect(read(authRequired)).toBe(false);
-  });
-
-  it('409 without a message falls back to the error text', async () => {
-    fetchMock.mockResolvedValue(json(409, { error: 'sharpit action already in progress' }));
-    await expect(post('vulnerabilities')).rejects.toBeInstanceOf(ApiError);
-    expect(read(busyMessage)).toBe('sharpit action already in progress');
   });
 
   it('the busy text is never hard-coded in api.ts', () => {
     expect(apiSource).not.toContain('already in progress');
+  });
+
+  it('errorText prefers the server error, then the fallback, then the status or "not responding"', () => {
+    const withError = new ApiError(400, { error: 'Invalid level' });
+    const bare = new ApiError(500, null);
+    expect(errorText(withError)).toBe('Invalid level');
+    expect(errorText(withError, 'The change failed.')).toBe('Invalid level');
+    expect(errorText(new ApiError(400, { error: 7 }), 'The change failed.')).toBe('The change failed.');
+    expect(errorText(bare)).toBe('HTTP 500');
+    expect(errorText(bare, 'The change failed.')).toBe('The change failed.');
+    expect(errorText(new TypeError('Failed to fetch'))).toBe('The application is not responding.');
+    expect(errorText(new TypeError('Failed to fetch'), 'The change failed.')).toBe('The change failed.');
   });
 
   it('a non-JSON error body becomes ApiError with body null', async () => {
@@ -100,20 +103,17 @@ describe('success', () => {
     await expect(get('overview')).rejects.toBeInstanceOf(ApiError);
   });
 
-  it('a successful request clears busyMessage and authRequired', async () => {
+  it('a successful request clears authRequired', async () => {
     authRequired.set(true);
-    busyMessage.set('busy');
     fetchMock.mockResolvedValue(json(200, overview));
     await get('overview');
     expect(read(authRequired)).toBe(false);
-    expect(read(busyMessage)).toBeNull();
   });
 });
 
 describe('session', () => {
   it('posts api/auth/session with the bearer token and clears the prompt state', async () => {
     authRequired.set(true);
-    busyMessage.set('busy');
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     await session('s3cret');
     const [url, init] = fetchMock.mock.calls[0]!;
@@ -121,7 +121,6 @@ describe('session', () => {
     expect(init?.method).toBe('POST');
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer s3cret');
     expect(read(authRequired)).toBe(false);
-    expect(read(busyMessage)).toBeNull();
   });
 
   it('a rejected token throws ApiError 401 and keeps the prompt up', async () => {

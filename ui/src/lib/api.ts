@@ -2,8 +2,6 @@ import { writable } from 'svelte/store';
 
 /** Set when the server answers 401: the UI shows the token prompt, which calls `auth/session`. */
 export const authRequired = writable(false);
-/** The server's own busy text from a 409, shown next to the action that hit it. */
-export const busyMessage = writable<string | null>(null);
 
 export type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -53,11 +51,9 @@ async function request<T>(
   const data = await readJson(res);
   if (!res.ok) {
     if (res.status === 401) authRequired.set(true);
-    if (res.status === 409) busyMessage.set(field(data, 'message') ?? field(data, 'error') ?? `HTTP ${res.status}`);
     throw new ApiError(res.status, data === NOT_JSON ? null : data);
   }
   authRequired.set(false);
-  busyMessage.set(null);
   if (res.status === 204) return undefined as T;
   // e.g. a proxy's HTML page with 200: fail loudly rather than hand the view `undefined`
   if (data === NOT_JSON) throw new ApiError(res.status, null, `HTTP ${res.status}: the response is not JSON`);
@@ -75,7 +71,14 @@ async function readJson(res: Response): Promise<unknown> {
   }
 }
 
-function field(data: unknown, key: string): string | undefined {
+/** A string field of an error body, else undefined. */
+export function field(data: unknown, key: string): string | undefined {
   const value = typeof data === 'object' && data !== null ? (data as Record<string, unknown>)[key] : undefined;
   return typeof value === 'string' ? value : undefined;
+}
+
+/** The server's `error` text for a failed request, else `fallback`, else the status line or "not responding". */
+export function errorText(e: unknown, fallback?: string): string {
+  if (!(e instanceof ApiError)) return fallback ?? 'The application is not responding.';
+  return field(e.body, 'error') ?? fallback ?? e.message;
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ApiError, del, get, post } from '../lib/api';
+  import { ApiError, del, errorText, field, get, post } from '../lib/api';
   import { scannedWhen, upgradeHint } from '../lib/format';
   import { scrollable } from '../lib/scrollable';
   import type { Dependency, Panel, Vulnerability, VulnReport } from '../lib/types';
@@ -55,7 +55,7 @@
       report = await get<VulnReport>('vulnerabilities');
       loadError = null;
     } catch (e) {
-      loadError = describe(e);
+      loadError = errorText(e);
     }
   }
 
@@ -68,7 +68,7 @@
       report = await post<VulnReport>('vulnerabilities/scan');
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) busy = field(e.body, 'message') ?? field(e.body, 'error') ?? 'Another scan is running.';
-      else scanError = describe(e);
+      else scanError = errorText(e);
     } finally {
       scanning = false;
     }
@@ -84,21 +84,12 @@
       await (v.dismissed ? del(path) : post(path));
       report = await get<VulnReport>('vulnerabilities'); // a failed reload keeps the old report
     } catch (e) {
-      actionError = `${v.dismissed ? 'Restore' : 'Dismiss'} failed: ${describe(e)}`;
+      actionError = `${v.dismissed ? 'Restore' : 'Dismiss'} failed: ${errorText(e)}`;
     } finally {
       pendingRule = null;
     }
   }
 
-  function describe(e: unknown): string {
-    if (e instanceof ApiError) return field(e.body, 'error') ?? e.message;
-    return 'The application is not responding.';
-  }
-
-  function field(body: unknown, key: string): string | undefined {
-    const value = typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[key] : undefined;
-    return typeof value === 'string' ? value : undefined;
-  }
 
   const tone = (severity: string) =>
     severity === 'CRITICAL' || severity === 'HIGH' ? 'danger' : severity === 'MEDIUM' ? 'warn' : 'muted';
