@@ -231,9 +231,10 @@ describe('Vulnerabilities copy and next steps', () => {
     expect(text()).toContain('pip install "jinja2>=3.1.3"');
   });
 
-  it('says so when no fixed version is above the installed one, and offers no command', async () => {
+  // the server sends only fixed versions above the installed one, so the hint is refused only for unsafe text
+  it('offers no command when the fixed version has characters a shell would interpret', async () => {
     const r = scanned();
-    r.dependencies[0]!.vulnerabilities[0]!.fixedVersions = ['3.0.0'];
+    r.dependencies[0]!.vulnerabilities[0]!.fixedVersions = ['3.1.3"; touch x; "'];
     fetchMock.mockResolvedValue(json(200, r));
     render();
     await until(() => expect(phase()).toBe('results'));
