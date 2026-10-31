@@ -35,6 +35,7 @@ The full guide, with when to use each step, is [docs/development/workflow.md](..
 | `spike` | `/sharpit:spike` | Time-boxed experiment with a written verdict |
 | `live-verify` | `/sharpit:live-verify` | Run a sample FastAPI app with sharpit and hit `/sharpit/api` |
 | `optimize` | `/sharpit:optimize` | Test-suite speed: a pointer to the pytest-speed skill and `pytest-speed.toml` |
+| `perf-audit` | `/sharpit:perf-audit` | Runtime overhead in a host app: paired on/off measurement, budget tests, masking stays safe |
 | `release` | `/sharpit:release` | Gated release prep; never publishes to PyPI without the owner |
 
 ## Provenance: ported, adapted, dropped
