@@ -9,12 +9,14 @@ context; ``_statement_targets`` sends each statement to the contexts it belongs 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import sys
 import threading
 import time
 import weakref
 from collections.abc import Callable
+from concurrent.futures import Executor
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, internal
@@ -372,23 +374,43 @@ def bounded[T](conn: Any, fn: Callable[[Any], T], timeout: float) -> T:
     return fn(conn)
 
 
-async def run_db_read[T](engine: Any, fn: Callable[[Any], T], timeout: float) -> T:
+async def run_db_read[T](
+    engine: Any,
+    fn: Callable[[Any], T],
+    timeout: float,
+    *,
+    executor: Executor | None = None,
+    done: Callable[[], None] | None = None,
+) -> T:
     """Run ``fn(connection)`` for sharpit's own read, off the event loop and invisible to SQL Trace.
 
-    An async dialect runs through ``AsyncEngine.run_sync`` (the driver needs the loop); a sync one in a thread.
-    The statement timeout is set inside the read (``bounded``). The connect wait is the driver's own connect
-    timeout: setting one would need a hook on every app connection or a copy of the app's engine.
+    An async dialect runs through ``AsyncEngine.run_sync`` (the driver needs the loop); a sync one in a thread, on
+    ``executor`` when given. The statement timeout is set inside the read (``bounded``). The connect wait is the
+    driver's own connect timeout: setting one would need a hook on every app connection or a copy of the app's engine.
+    ``done`` runs once the read really ended: a sync read that timed out keeps its thread (Python cannot stop it), so
+    ``done`` waits for that thread when it runs on ``executor``; single-flight callers release on it.
     """
     with internal():  # the thread and the greenlet copy this context, so the listeners see the marker
-        async with asyncio.timeout(timeout):
-            if engine.dialect.is_async:
-                from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: PLC0415 - only once the app imported it
+        try:
+            async with asyncio.timeout(timeout):
+                if engine.dialect.is_async:
+                    from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: PLC0415 - only once the app imported it
 
-                async with AsyncEngine(engine).connect() as conn:
-                    return await conn.run_sync(bounded, fn, timeout)
+                    async with AsyncEngine(engine).connect() as conn:
+                        return await conn.run_sync(bounded, fn, timeout)
 
-            def read() -> T:
-                with engine.connect() as conn:
-                    return bounded(conn, fn, timeout)
+                def read() -> T:
+                    with engine.connect() as conn:
+                        return bounded(conn, fn, timeout)
 
-            return await asyncio.to_thread(read)
+                if executor is None:
+                    return await asyncio.to_thread(read)
+                work = executor.submit(contextvars.copy_context().run, read)
+                if done is not None:
+                    # fires when the thread returns, or at once when the queued read is cancelled before it starts
+                    work.add_done_callback(lambda _work, done=done: done())
+                    done = None
+                return await asyncio.wrap_future(work)
+        finally:
+            if done is not None:
+                done()

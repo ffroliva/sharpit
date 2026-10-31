@@ -46,6 +46,10 @@ class SharpitContext:
             capture_parameters=self.settings.sql_trace_capture_parameters,
         )
 
+    def peek(self, key: str) -> object | None:
+        """The value ``lazy(key, ...)`` cached, or None; never builds it."""
+        return self._cache.get(key)
+
     def lazy[T](self, key: str, factory: Callable[[], T]) -> T:
         """Memoised ``factory()``, at most once per key; a slow factory only holds up callers of its own key."""
         if key in self._cache:  # fast path: a cached value never takes a lock

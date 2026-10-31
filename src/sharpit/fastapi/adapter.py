@@ -31,8 +31,10 @@ from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.logtail import LogTailBuffer, log_events
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import ChangeStream, StreamSlots, change_events
+from sharpit.engine.collectors import alembic
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
+from sharpit.engine.collectors.health import health_service
 from sharpit.engine.collectors.loggers import loggers_report, set_level
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
@@ -163,9 +165,7 @@ class GuardMiddleware:
 
 # Each 0.2.0 task replaces its own entry with the panel's real availability (spec §13.1).
 _NOT_BUILT = (
-    "alembic",
     "database-connection-pools",
-    "health",
     "threads",
     "rest-api",
     "http-probe",
@@ -184,6 +184,7 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     reasons["exceptions"] = store.unavailable_reason if store is not None else None
     reasons["sql-trace"] = tools.sql_trace_unavailable_reason(ctx)
     reasons["activity"] = activity.unavailable_reason(ctx)
+    reasons["alembic"] = alembic.unavailable_reason(ctx)
     return reasons
 
 
@@ -342,6 +343,24 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         recorder.set_recording(not recorder.recording if enabled is None else enabled)
         return json_response(tools.sql_trace_report(ctx))
 
+    def alembic_migrations(_request: Request) -> Response:
+        return json_response(alembic.alembic_report(ctx))
+
+    async def alembic_refresh(_request: Request) -> Response:
+        try:
+            return json_response(await alembic.refresh_alembic(ctx))
+        except ActionBusy as exc:
+            return json_response(exc.body(), 409)
+
+    def health(_request: Request) -> Response:
+        return json_response(health_service(ctx).report())
+
+    async def health_check(_request: Request) -> Response:
+        try:
+            return json_response(await health_service(ctx).check())
+        except ActionBusy as exc:
+            return json_response(exc.body(), 409)
+
     def vulnerability_service() -> VulnerabilityService:
         return tools.vulnerability_service(ctx)
 
@@ -445,6 +464,10 @@ def _routes(ctx: SharpitContext) -> list[BaseRoute]:
         Route(f"{api}/sql-trace/stream", sql_trace_stream, methods=["GET"]),
         Route(f"{api}/sql-trace/clear", sql_trace_clear, methods=["POST"]),
         Route(f"{api}/sql-trace/recording", sql_trace_recording, methods=["POST"]),
+        Route(f"{api}/alembic/migrations", alembic_migrations, methods=["GET"]),
+        Route(f"{api}/alembic/refresh", alembic_refresh, methods=["POST"]),
+        Route(f"{api}/health", health, methods=["GET"]),
+        Route(f"{api}/health/check", health_check, methods=["POST"]),
         Route(f"{api}/vulnerabilities", vulnerabilities, methods=["GET"]),
         Route(f"{api}/vulnerabilities/scan", vulnerabilities_scan, methods=["POST"]),
         Route(f"{api}/dismissed-rules", dismissed_rules, methods=["GET"]),

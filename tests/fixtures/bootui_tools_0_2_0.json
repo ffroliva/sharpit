@@ -108,7 +108,8 @@
         "additionalProperties": false
       },
       "sharpitName": "get_alembic_migrations",
-      "sharpitPanel": "alembic"
+      "sharpitPanel": "alembic",
+      "sharpitCommand": "db alembic"
     },
     {
       "name": "get_database_connection_pools",

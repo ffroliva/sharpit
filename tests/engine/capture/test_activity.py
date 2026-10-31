@@ -28,6 +28,7 @@ from sharpit.engine.capture.exceptions import ExceptionStore
 from sharpit.engine.capture.exchanges import DTO_KEYS, HttpExchangeBuffer, exchange_row
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import ChangeStream
+from sharpit.engine.collectors.health import health_service
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 from sharpit.settings import load_settings
@@ -258,6 +259,17 @@ def test_kpis_p50_p95_and_nulls():
     assert all(kpis[k] is None for k in nulls) and kpis["scheduledTaskFailureCount"] == 0
     empty = _report(_ctx())["kpis"]
     assert (empty["requestsPerMinute"], empty["p50LatencyMs"], empty["slowestQueryMs"]) == (0.0, None, None)
+
+
+def test_activity_kpi_health_status_from_cache():
+    # spec §7.4 / §7.8: healthStatus is the last cached Health root; the activity report never runs a check
+    ctx = _ctx()
+    assert _report(ctx)["kpis"]["healthStatus"] is None  # no Health service built yet: none is built here either
+    assert ctx.peek("health") is None
+    service = health_service(ctx)
+    assert _report(ctx)["kpis"]["healthStatus"] is None  # built, never checked
+    service._last = {"status": "DOWN"}  # pyright: ignore[reportPrivateUsage]
+    assert _report(ctx)["kpis"]["healthStatus"] == "DOWN"
 
 
 def test_active_exception_count_counts_open_groups_only():

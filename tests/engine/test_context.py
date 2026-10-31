@@ -71,3 +71,11 @@ def test_context_masker_capture_parameters_from_settings():
     assert masker(sql_trace_capture_parameters=True).capture_parameters is True
     meta = masker(sql_trace_capture_parameters=True, expose_values=Exposure.METADATA_ONLY)
     assert meta.capture_parameters is False
+
+
+def test_peek_returns_cached_value_without_building():
+    ctx = _ctx()
+    assert ctx.peek("health") is None
+    assert "health" not in ctx._cache  # pyright: ignore[reportPrivateUsage]
+    ctx.lazy("health", lambda: 7)
+    assert ctx.peek("health") == 7

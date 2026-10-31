@@ -26,8 +26,10 @@ from sharpit.engine.capture.exceptions import unknown_group
 from sharpit.engine.capture.exchanges import unavailable_report
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.sqltrace import unavailable_report as sql_trace_unavailable
+from sharpit.engine.collectors.alembic import alembic_report
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
+from sharpit.engine.collectors.health import health_service
 from sharpit.engine.collectors.loggers import loggers_report
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
@@ -362,6 +364,25 @@ TOOLS: tuple[Tool, ...] = (
         lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], None),
     ),
     Tool(
+        "get_alembic_migrations",
+        "Return the Alembic migration history read from the revision files, oldest first, with each database's "
+        "version as last read by the Alembic panel. Never connects to a database, imports a migration or runs "
+        "env.py; `checkedAt` null means the database was not read yet.",
+        _NONE,
+        "alembic",
+        False,
+        lambda c, _a: alembic_report(c.ctx),
+    ),
+    Tool(
+        "get_health",
+        "Return the cached health tree (database pings and the application's own checks) with each component's "
+        "status and masked details. Never runs a check: an UNKNOWN status means the checks have not run yet.",
+        _NONE,
+        "health",
+        False,
+        lambda c, _a: health_service(c.ctx).report(for_mcp=True),
+    ),
+    Tool(
         "get_vulnerabilities_report",
         "Return the cached vulnerability report, or the local dependency inventory before the first scan, "
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
@@ -406,6 +427,8 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "pause_sql_trace_recording": "sql pause",
     "resume_sql_trace_recording": "sql resume",
     "get_live_activity": "activity",
+    "get_alembic_migrations": "db alembic",
+    "get_health": "health",
     "get_vulnerabilities_report": "vulnerabilities report",
     "vulnerabilities_scan": "vulnerabilities scan",
 }

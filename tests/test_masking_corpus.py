@@ -97,8 +97,21 @@ def corpus_app(
     (package / "__init__.py").write_text(f'import os\n\nJWT_SECRET = os.getenv("JWT_SECRET", "{SENTINEL}")\n')
     monkeypatch.syspath_prepend(str(tmp_path / "pkgs"))
     state = tmp_path / "state"
+    versions = tmp_path / "alembic" / "versions"  # alembic_docstring: a revision's description is masked
+    versions.mkdir(parents=True)
+    (tmp_path / "alembic.ini").write_text("[alembic]\nscript_location = %(here)s/alembic\n", "utf-8")
+    (versions / "r1.py").write_text(f'"""rotate password={SENTINEL}"""\n\nrevision = "r1"\n', "utf-8")
+
+    def failing_check() -> bool:
+        raise ConnectionError(f"cannot reach postgres://u:{SENTINEL}@h/db")
+
     app = create_app(
         state_dir=str(state),
+        alembic_config=str(tmp_path / "alembic.ini"),
+        health_checks={  # health details: nested keys, a DSN value and a raised message are masked
+            "nested": lambda: {"status": "UP", "password": SENTINEL, "pool": {"dsn": f"postgres://u:{SENTINEL}@h/db"}},
+            "failing": failing_check,
+        },
         config_scan="corpus_app,examples",  # first finding per key wins: the corpus default for JWT_SECRET
         allow_non_localhost=True,
         authentication_token=AUTH_TOKEN,
@@ -152,6 +165,9 @@ def _sweep(call: Recorder, ctx: Any) -> None:
             page = call("GET", f"{path}?q={probe}").json()["page"] if probe else None
             assert page is None or page["matched"] == 0, (path, probe, page)
     call("POST", f"{API}/auth/session")
+    call("POST", f"{API}/health/check")
+    call("GET", f"{API}/health")
+    call("POST", f"{API}/alembic/refresh")
     call("POST", f"{API}/vulnerabilities/scan")
     call("GET", f"{API}/vulnerabilities")
     call("POST", f"{API}/dismissed-rules/{RULE}")

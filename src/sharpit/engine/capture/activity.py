@@ -251,7 +251,7 @@ def activity_report(
         "activeExceptionCount": sum(g["status"] == "OPEN" for g in groups),
         "sqlPerMinute": round(_per_minute([s["timestamp"] // 1_000_000 for s in statements]), 2),
         "slowestQueryMs": max((s["durationMillis"] for s in statements), default=None),
-        "healthStatus": None,  # TODO(Task 7): the last cached Health status
+        "healthStatus": getattr(ctx.peek("health"), "last_status", None),  # cached only: never runs a check
         "heapUsedBytes": None,
         "heapMaxBytes": None,
         "cacheHitRatioPercent": None,

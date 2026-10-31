@@ -69,6 +69,8 @@ ROWS = [
     ("activity", "GET", "/sharpit/api/activity", 200, True),
     ("activity-stream", "GET", "/sharpit/api/activity/stream", 200, True),
     ("activity-request", "GET", f"/sharpit/api/activity/request/{GROUP_ID}", 200, True),  # available: false
+    ("alembic", "GET", "/sharpit/api/alembic/migrations", 200, True),
+    ("health", "GET", "/sharpit/api/health", 200, True),
     ("log-tail", "GET", "/sharpit/api/log-tail/recent", 200, True),
     ("log-tail-stream", "GET", "/sharpit/api/log-tail/stream", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
@@ -202,6 +204,8 @@ PANEL_TOOLS = [
     ("get_exception_detail", "exceptions", {"id": GROUP_ID}),
     ("get_sql_traces", "sql-trace", {}),
     ("get_live_activity", "activity", {}),
+    ("get_alembic_migrations", "alembic", {}),
+    ("get_health", "health", {}),
 ]
 
 
@@ -265,6 +269,8 @@ WRITES = [
     ("exceptions", "POST", f"/sharpit/api/exceptions/{GROUP_ID}/status", {"status": "RESOLVED"}),
     ("sql-trace", "POST", "/sharpit/api/sql-trace/clear", None),
     ("sql-trace", "POST", "/sharpit/api/sql-trace/recording", {"enabled": False}),
+    ("alembic", "POST", "/sharpit/api/alembic/refresh", None),
+    ("health", "POST", "/sharpit/api/health/check", None),
 ]
 # Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules obeys only the global read-only
 # flag (test_dismissed_rules_obey_global_read_only_only), so it has no panel-scope row here.
@@ -545,10 +551,32 @@ def test_get_route_table_is_complete():
     assert set(GET_PATHS) == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"}
 
 
+ALEMBIC_INI = Path(__file__).resolve().parent / "fixtures" / "alembic" / "linear" / "alembic.ini"
+# spec §7.6 / §7.8: with a registered engine, a health check and an Alembic config, a GET or an MCP tool still opens
+# no database connection and runs no check (the plain app has none of them, so it cannot catch that)
+SWEEPS = ["plain", pytest.param("sqla", marks=pytest.mark.needs_sqlalchemy)]
+
+
+def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, Callable[[], list[str]]]:
+    """The sample app, and a probe of what ran: health checks called and database connections checked out."""
+    if variant == "plain":
+        return create_app(show_banner=False, state_dir=state_dir, **options), list
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine("sqlite://")
+    ran: list[str] = []
+    sa.event.listen(engine, "checkout", lambda *_a: ran.append("checkout"))
+    app = create_app(
+        show_banner=False, state_dir=state_dir, engines=[engine], alembic_config=str(ALEMBIC_INI),
+        health_checks={"spy": lambda: ran.append("check") or True}, **options,
+    )  # fmt: skip
+    return app, lambda: ran
+
+
+@pytest.mark.parametrize("variant", SWEEPS)
 @pytest.mark.parametrize("path", GET_PATHS)
-def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str):
+def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, variant: str):
     state_dir = str(no_side_effects.state_dir)
-    app = create_app(show_banner=False, state_dir=state_dir, mcp_enabled="ON", stream_max_seconds=0.05)
+    app, ran = _sweep_app(variant, state_dir, mcp_enabled="ON", stream_max_seconds=0.05)
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop connects a self-pipe socketpair once
     with _client(app) as client:
         no_side_effects.block_network()
@@ -556,6 +584,7 @@ def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str):
             resp = client.get(path + query)
             assert resp.status_code in (200, 307, 404), resp.text
     assert no_side_effects.violations == []
+    assert ran() == []
 
 
 MCP_TOOLS = [t.name for t in TOOLS if not t.action]
@@ -571,9 +600,10 @@ def _tool_arguments(tool: str, handle: SharpitHandle) -> dict[str, Any]:
     return {"id": store.report()["groups"][0]["id"]}
 
 
+@pytest.mark.parametrize("variant", SWEEPS)
 @pytest.mark.parametrize("tool", MCP_TOOLS)
-def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: str):
-    app = create_app(show_banner=False, state_dir=str(no_side_effects.state_dir), mcp_enabled="ON")
+def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: str, variant: str):
+    app, ran = _sweep_app(variant, str(no_side_effects.state_dir), mcp_enabled="ON")
     no_side_effects.unblock_network()
     with _client(app) as client:
         no_side_effects.block_network()
@@ -582,3 +612,4 @@ def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: 
         result = client.post("/sharpit/api/mcp", json=call).json()["result"]
     assert result["isError"] is False, result
     assert no_side_effects.violations == []
+    assert ran() == []

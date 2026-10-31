@@ -228,6 +228,8 @@ def test_tools_list_has_no_action_tool():
         "get_exception_detail",
         "get_sql_traces",
         "get_live_activity",
+        "get_alembic_migrations",
+        "get_health",
         "get_vulnerabilities_report",
     ]
     first = tools[0]

@@ -75,6 +75,8 @@ RELEASE_TOOLS = (
     "get_exception_detail",
     "get_sql_traces",
     "get_live_activity",
+    "get_alembic_migrations",
+    "get_health",
 )  # each 0.2.0 task adds the tools it builds
 
 
@@ -122,6 +124,8 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("pause_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
         ("resume_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
         ("get_live_activity", "activity", False, LIMIT_SCHEMA),
+        ("get_alembic_migrations", "alembic", False, NONE_SCHEMA),
+        ("get_health", "health", False, NONE_SCHEMA),
         ("get_vulnerabilities_report", "vulnerabilities", False, NONE_SCHEMA),
         ("vulnerabilities_scan", "vulnerabilities", True, NONE_SCHEMA),
     ]
@@ -149,7 +153,7 @@ def test_mcp_schema_matches_bootui(name: str):
     expected = json.loads(json.dumps(entry["inputSchema"]).replace("bootui.mcp.max-results", "SHARPIT_MCP_MAX_RESULTS"))
     assert tool.input_schema == expected
     assert (tool.panel, tool.action) == (entry.get("sharpitPanel", entry["panel"]), entry["action"])
-    assert COMMANDS[name] == entry["command"]
+    assert COMMANDS[name] == entry.get("sharpitCommand", entry["command"])
     assert "Spring" not in tool.description and "JVM" not in tool.description
 
 

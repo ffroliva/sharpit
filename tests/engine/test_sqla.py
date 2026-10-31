@@ -269,6 +269,46 @@ def test_run_db_read_times_out():
         asyncio.run(main())
 
 
+def test_run_db_read_done_once_the_worker_thread_really_returns():
+    # spec §7.6 / §7.8: single-flight is held until the read actually returns, not when the caller gives up
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    engine = sa.create_engine("sqlite://")
+    gate, done = threading.Event(), threading.Event()
+
+    def slow(_conn: Any) -> None:
+        gate.wait(5)
+
+    async def main() -> None:
+        with ThreadPoolExecutor(1, thread_name_prefix="test-db-read") as executor:
+            with pytest.raises(TimeoutError):
+                await sqla.run_db_read(engine, slow, 0.05, executor=executor, done=done.set)
+            assert not done.is_set()  # the caller gave up, the thread still runs
+            gate.set()
+            assert await asyncio.to_thread(done.wait, 5)
+
+    asyncio.run(main())
+
+
+def test_run_db_read_done_on_the_async_path():
+    async_engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine("sqlite+aiosqlite://")
+    calls: list[int] = []
+
+    async def main() -> int:
+        try:
+            return await sqla.run_db_read(
+                async_engine.sync_engine,
+                lambda c: c.exec_driver_sql("select 3").scalar(),
+                5.0,
+                done=lambda: calls.append(1),
+            )
+        finally:
+            await async_engine.dispose()
+
+    assert asyncio.run(main()) == 3 and calls == [1]
+
+
 class _FakeConnection:
     """Records the statements sharpit sends around ``fn``; ``dialect.name`` picks the timeout syntax."""
 
