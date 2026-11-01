@@ -53,6 +53,7 @@ from sharpit.engine.sources import dispatch
 from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, CaptureWiring, wiring_of
 from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
+from sharpit.fastapi.route_registry import register_routes
 from sharpit.fastapi.signals import dev_server_signal
 from sharpit.fastapi.sse import sse_response
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
@@ -773,10 +774,11 @@ def install(
 
     router.lifespan_context = lifespan
     sub_app = Starlette(
-        routes=_routes(ctx, app),
+        routes=[],
         middleware=[Middleware(GuardMiddleware, ctx=ctx)],
         exception_handlers={404: _json_http_error, 405: _json_http_error, BadRequest: _bad_request},
     )
+    register_routes(sub_app, _routes(ctx, app))
     mount = SharpitMount(sharpit_settings.path, app=sub_app, name="sharpit")
     mount.sharpit_handle = handle
     router.routes.insert(0, mount)

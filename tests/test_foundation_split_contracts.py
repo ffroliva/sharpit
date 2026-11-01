@@ -6,7 +6,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 from sharpit.engine.tool_registry import catalogue
-from sharpit.engine.tools import TOOLS, Tool
+from sharpit.engine.tools import TOOLS
 from sharpit.fastapi.route_registry import register_routes
 from sharpit.pytest_plugin.options import PluginOptions, resolve
 from sharpit.pytest_plugin.session import resolve_options

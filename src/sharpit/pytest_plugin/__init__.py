@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import inspect
 import logging
 import os
@@ -25,20 +24,24 @@ from sharpit import __version__
 from sharpit.engine import sqla
 from sharpit.engine.activation import active_profiles
 from sharpit.engine.advisors.dismissals import DismissalStore
-from sharpit.engine.advisors.findings import AdvisorRun
-from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.capture.correlation import TEST
-from sharpit.engine.collectors.restapi.rules import application_routes
-from sharpit.engine.collectors.restapi.service import assess
 from sharpit.engine.sources import dispatch, sqlite
-from sharpit.engine.spi import ApiModel
 from sharpit.engine.testsession import gates, outcome, report
 from sharpit.engine.testsession.facts import SessionFacts
 from sharpit.engine.testsession.finish import GateOptions, finish
-from sharpit.engine.testsession.sink import TestSessionSink, report_masker, report_masker_warnings
-from sharpit.fastapi.introspector import FastApiIntrospector
+from sharpit.engine.testsession.sink import TestSessionSink, report_masker_warnings
+from sharpit.pytest_plugin.apps import (
+    _load_app as _load_app,
+)
+from sharpit.pytest_plugin.apps import (
+    _model_of as _model_of,
+)
+from sharpit.pytest_plugin.apps import (
+    _run_advisors as _run_advisors,
+)
 from sharpit.pytest_plugin.marker import budget_for
-from sharpit.pytest_plugin.options import PluginOptions, resolve
+from sharpit.pytest_plugin.options import PluginOptions
+from sharpit.pytest_plugin.session import resolve_options as resolve
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
 _STATE_ATTR = "_sharpit_pytest_state"
@@ -506,57 +509,6 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
             test.outcome = "failed"
     except Exception as exc:  # noqa: BLE001
         _record_hook_failure(state.sink, exc)
-
-
-def _load_app(spec: str) -> tuple[str, object]:
-    module_name, separator, attr = spec.partition(":")
-    if not separator:
-        raise ValueError("--sharpit-app must be MOD:ATTR")
-    app = getattr(importlib.import_module(module_name), attr)
-    return spec, app() if callable(app) and not hasattr(app, "router") else app
-
-
-def _model_of(app: object) -> ApiModel:
-    return FastApiIntrospector(app).api_model()
-
-
-def _run_advisors(state: _State) -> None:
-    if not state.options.advisors:
-        return
-    models = state.sink.app_snapshots()
-    if state.options.app:
-        try:
-            name, app = _load_app(state.options.app)
-            models = [(name, FastApiIntrospector(app).api_model())]
-        except Exception as exc:  # noqa: BLE001
-            state.sink.facts.advisor_runs.append(
-                AdvisorRun(
-                    "rest-api",
-                    "UNKNOWN",
-                    (),
-                    {},
-                    f"application could not load ({type(exc).__name__})",
-                    state.options.app,
-                )
-            )
-            return
-    if not models:
-        return
-    for name, model in models:
-        if not application_routes(model.routes) and not state.options.app:
-            state.sink.facts.advisor_runs.append(
-                AdvisorRun("rest-api", "UNKNOWN", (), {}, "no routes seen after install", name)
-            )
-        else:
-            state.sink.facts.advisor_runs.append(
-                assess(
-                    model,
-                    report_masker(),
-                    fail_on=cast("Severity", state.options.fail_on),
-                    app=name,
-                    dismissed=state.dismissed,
-                )
-            )
 
 
 def _advisors(state: _State) -> None:

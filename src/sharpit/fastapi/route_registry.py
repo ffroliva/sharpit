@@ -8,4 +8,4 @@ from typing import Any
 
 def register_routes(app: Any, routes: Iterable[Any]) -> None:
     """Add the adapter's ordered routes to a Starlette application."""
-    return None
+    app.routes.extend(routes)

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-from sharpit.engine.tools import Tool
+if TYPE_CHECKING:
+    from sharpit.engine.tools import Tool
 
 
 def catalogue() -> Sequence[Tool]:
-    return ()
+    from sharpit.engine.tools import TOOLS
+
+    return TOOLS
