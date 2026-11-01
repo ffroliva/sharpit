@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -76,3 +77,24 @@ def test_options_resolve_defaults_and_ini(tmp_path) -> None:
     assert options.app == "app:app"
     assert options.advisors is False
     assert options.max_unattributed == 20
+
+
+def test_ini_types_exist_in_the_oldest_supported_pytest() -> None:
+    # regression: type="int"/"float" are pytest 8.4+; pytest 8.0-8.3 assert at plugin load and crash every run
+    from sharpit.pytest_plugin import pytest_addoption
+
+    pytest_8_0_types = {None, "string", "paths", "pathlist", "args", "linelist", "bool"}
+    types: dict[str, Any] = {}
+
+    class Parser:
+        def getgroup(self, name: str) -> Parser:
+            return self
+
+        def addoption(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def addini(self, name: str, help: str, type: Any = None, default: Any = None) -> None:  # noqa: A002
+            types[name] = type
+
+    pytest_addoption(Parser())
+    assert {name: kind for name, kind in types.items() if kind not in pytest_8_0_types} == {}
