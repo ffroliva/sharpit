@@ -6,6 +6,7 @@ Status: Task 1 implementation complete; fresh review pending before Task 2.
 - Untouched-base suite at `7e5fc15`: 3491 passed, 5 skipped, 34 warnings in 93.95 s (`uv run pytest -q -n 4`).
 - Task 1 red commits: `869db29d181a3ad98df7eb5ba6201b4cbc0e091f`, `45797333bd99647623073cb8b7b0b6755bd6a3f7`, `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9`, and `d0ea233ea90a7e2f5cd800a6df7582a6ae114d1e`; node IDs/assertions are in `findings.md`.
 - Completed responsibility extraction commit: `45a3e98b53119be0c7427a42122bf8f99a385760`.
+- Final Task 1 responsibility-split commit: `526e53f51e24bfa532a8555c82b939e4d72069eb`.
 - Current focused regression run: 193 passed, 16 warnings in 45.02 s. It covers new structure/capture/compatibility/equivalence tests plus existing tool, pytest, xdist, capture-wiring, install, and code-shape suites.
 - Pyright: 0 errors, 0 warnings. Ruff check and format check passed for changed Python files. C901 ratchet test passed after lowering the `engine/tools.py` and `fastapi/adapter.py` entries from 1/3 to 0/0; the new route and dispatch modules add no C901 findings.
 - The first focused rerun logged inside the repo and tripped the no-side-effects fixture's cwd scan; the clean rerun
