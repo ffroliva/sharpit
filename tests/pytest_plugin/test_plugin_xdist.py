@@ -49,6 +49,55 @@ def test_xdist_report_written_once_by_controller(pytester: pytest.Pytester) -> N
     assert sqlite3.connect is original_connect
 
 
+def test_xdist_app_seen_by_one_worker_passes(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        def test_register_app():
+            from fastapi import FastAPI
+            import sharpit
+            app = FastAPI()
+            app.get('/ok')(lambda: {'ok': True})
+            sharpit.install(app)
+        """
+    )
+    result = pytester.runpytest_subprocess(
+        "-n", "2", "--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["advisors"][0]["status"] == "PASSED"
+
+
+def test_xdist_untraced_driver_unknown(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        import sys, types
+        sys.modules['asyncpg'] = types.ModuleType('asyncpg')
+        import sqlite3
+        def test_sql(): sqlite3.connect(':memory:').execute('SELECT 1')
+        """
+    )
+    result = pytester.runpytest_subprocess(
+        "-n", "2", "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert any("untraced database driver in use: asyncpg" in r for r in data["statusReasons"])
+
+
+def test_controller_warning_does_not_add_a_master_worker(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytester.makepyfile("import sqlite3\ndef test_sql(): sqlite3.connect(':memory:').execute('SELECT 1')")
+    monkeypatch.setenv("SHARPIT_EXPOSE_VALUES", "FULL")
+    result = pytester.runpytest_subprocess(
+        "-n", "2", "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert "master" not in {worker["id"] for worker in data["workers"]}
+
+
 def test_reports_written_and_valid(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_empty(): pass")
 

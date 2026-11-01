@@ -257,6 +257,26 @@ def test_early_connection_limitation_in_report(pytester: pytest.Pytester) -> Non
     assert any("_EARLY_CONNECT" in reason for reason in data["statusReasons"])
 
 
+def test_factory_pass_through_limitation_reaches_report(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        import sqlite3
+        def test_factory():
+            try:
+                sqlite3.connect(':memory:', factory=lambda: None)
+            except TypeError:
+                pass
+        """
+    )
+    result = pytester.runpytest(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    data = json.loads((pytester.path / "report.json").read_text())
+    source = next(item for item in data["sources"] if item["name"] == "sqlite3")
+    assert any("factory or cursor class" in limitation for limitation in source["limitations"])
+
+
 def test_pytest_failure_code_never_lowered(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_fails(): assert False")
 
