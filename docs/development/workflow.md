@@ -54,6 +54,16 @@ marks slow or weakens a test.
 | `/sharpit:pr-council-review <N>` | On the open PR; posts only when asked |
 | `/sharpit:llm-council` | Activation, guard, masking, settings parsing or a release: adds Codex and Antigravity |
 
+**Prove the reds of review fixes.** A fix round's report can say "test added, passed" without a red. Before merging,
+copy the round's new test files onto the pre-fix tree (a detached scratch worktree at the merge base) and run them:
+each must fail on its assertion. In 0.3.0 this caught one test that passed on both trees and had to be strengthened.
+Re-review the fix commits on their own: in 0.3.0 the fixes for two review rounds introduced two new defects.
+
+**Tests that wait on background work wait on a condition, never on luck.** A lifespan task, a thread or a poller gets
+a bounded wait for an observable event (a counter, an event), not a sleep or an assumption that it already ran; a
+test that runs pytest in-process restores the logging configuration it changes (`tests/conftest.py` guards
+`pytest_plugin/` and `testsession/` for this).
+
 The owner merges. Agents never merge.
 
 ## 7. Release: `/sharpit:release`
