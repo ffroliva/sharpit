@@ -15,7 +15,7 @@ def test_plugin_import_no_side_effects(tmp_path: Path) -> None:
     script = textwrap.dedent(
         """
         import json, logging, os, sqlite3, sys
-        assert "sitecustomize" not in sys.modules
+        assert not any(name == "sharpit" or name.startswith("sharpit.") for name in sys.modules)
         before = {
             "connect": id(sqlite3.connect),
             "handlers": [id(handler) for handler in logging.root.handlers],
@@ -51,14 +51,18 @@ def test_plain_run_untouched(pytester: pytest.Pytester) -> None:
         import logging
         import sqlite3
         from pathlib import Path
-        from sqlalchemy import event
-        from sqlalchemy.engine import Engine
         from sharpit.engine.sqla import before_cursor_execute
 
         def test_plain():
             assert sqlite3.connect is sqlite3.dbapi2.connect
             assert not any(type(handler).__name__ == '_ExceptionHandler' for handler in logging.root.handlers)
-            assert not event.contains(Engine, 'before_cursor_execute', before_cursor_execute)
+            try:  # the no-sqlalchemy CI job runs this too
+                from sqlalchemy import event
+                from sqlalchemy.engine import Engine
+            except ImportError:
+                pass
+            else:
+                assert not event.contains(Engine, 'before_cursor_execute', before_cursor_execute)
             assert not Path('sharpit-report.json').exists()
         """
     )

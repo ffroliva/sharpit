@@ -86,7 +86,10 @@ def test_failed_gate_findings_listed_on_the_test(pytester: pytest.Pytester) -> N
     )
 
 
+@pytest.mark.needs_sqlalchemy
 def test_live_engine_driver_counts_as_covered(pytester: pytest.Pytester) -> None:
+    pytest.importorskip("sqlalchemy")
+    pytest.importorskip("aiosqlite")
     pytester.makepyfile(
         appmod="""
         import aiosqlite
