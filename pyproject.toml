@@ -111,3 +111,7 @@ timeout = 60
 markers = [
     "needs_sqlalchemy: needs SQLAlchemy, aiosqlite or greenlet installed (the no-sqlalchemy CI job deselects it)",
 ]
+
+[tool.coverage.run]
+# the pytest plugin tests run pytest in a subprocess (pytester.runpytest_subprocess); measure those too
+patch = ["subprocess"]
