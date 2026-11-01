@@ -24,6 +24,7 @@ FRAMEWORKS = ("fastapi", "starlette")
 ADAPTERS = ("sharpit.fastapi", "sharpit.ui")
 GATEKEEPERS: dict[str, set[str]] = {
     "sqlalchemy": {"sharpit/engine/sqla.py"},
+    "sqlite3": {"sharpit/engine/sources/sqlite.py"},
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
     "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},

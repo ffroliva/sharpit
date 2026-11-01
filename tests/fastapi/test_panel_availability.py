@@ -26,13 +26,14 @@ NO_INI = (
 OLD = "SQLAlchemy 1.4.52 is imported, but sharpit needs 2.0 or later"
 
 # (row id, panel, install options, sqlalchemy in sys.modules: "absent" | "old" | None (as is), expected reason)
+NO_SQLITE3 = {"sql_trace_sqlite3_enabled": False}  # with the raw sqlite3 source on, SQL Trace has data (0.3.0 §8.6)
 ROWS: list[tuple[str, str, dict[str, Any], str | None, str | None]] = [
     ("activity", "activity", {}, None, None),
     ("http-exchanges", "http-exchanges", {}, None, None),
     ("exceptions", "exceptions", {}, None, None),
     ("exceptions-other-capture-off", "exceptions", ONLY_EXCEPTIONS, None, None),
     ("sql-trace-switched-off", "sql-trace", {"sql_trace_enabled": False}, None, sqla.TRACING_DISABLED),
-    ("sql-trace-no-sqlalchemy", "sql-trace", {}, "absent", sqla.UNAVAILABLE),
+    ("sql-trace-no-sqlalchemy", "sql-trace", NO_SQLITE3, "absent", sqla.UNAVAILABLE),
     ("log-tail", "log-tail", {}, None, None),
     ("alembic-no-ini", "alembic", {}, None, NO_INI),
     ("alembic-ini", "alembic", {"alembic_config": INI}, "absent", None),  # reading files needs no SQLAlchemy (C4)

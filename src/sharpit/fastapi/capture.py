@@ -25,6 +25,7 @@ from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, new_request_id
 from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.sources import dispatch, sqlite
 
 if TYPE_CHECKING:
     from sharpit.engine.capture.exceptions import ExceptionStore
@@ -139,6 +140,10 @@ def _record_logged(store: ExceptionStore, record: logging.LogRecord) -> None:
         store.record(exc, "log", REQUEST.get(), record.threadName, message_override=record.getMessage())
 
 
+def sqlite_holder(ctx: SharpitContext) -> str:
+    return f"console:{ctx.context_id}"
+
+
 def wiring_of(ctx: SharpitContext) -> CaptureWiring | None:
     """The context's wiring as this adapter's own type (the engine only knows the ``CaptureHooks`` port)."""
     return cast("CaptureWiring | None", ctx.capture.wiring)
@@ -205,6 +210,7 @@ class CaptureWiring:
 
     def detach(self, ctx: SharpitContext) -> None:
         sqla.remove(ctx)
+        sqlite.detach(sqlite_holder(ctx))
         unwrap_exception_handlers(self.app)
         if self.log_handler is not None:
             for attached in self.log_attached:
@@ -217,6 +223,9 @@ class CaptureWiring:
         try:
             discovery = any(ctx.settings.panels[p].enabled for p in sqla.DISCOVERY_PANELS)
             sqla.add(ctx, statements=ctx.capture.sql_trace is not None, discovery=discovery)
+            if ctx.capture.sql_trace is not None and ctx.settings.sql_trace_sqlite3_enabled:
+                dispatch.add_context(ctx)  # raw sqlite3 needs no SQLAlchemy: route its statements here too
+                sqlite.attach(sqlite_holder(ctx))
         except Exception as exc:  # noqa: BLE001 - the host's startup never fails on sharpit
             self.hook_failed("sql listeners", exc)
 

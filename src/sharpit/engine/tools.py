@@ -46,6 +46,7 @@ from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.panels import disabled_reason, read_only_reason
 from sharpit.engine.singleflight import ActionBusy, SingleFlight
+from sharpit.engine.sources import sqlite
 from sharpit.engine.spi import ApiModel
 from sharpit.settings import PanelSettings
 
@@ -244,11 +245,16 @@ def clear_exceptions(ctx: SharpitContext) -> dict[str, Any]:
     return {"cleared": True}
 
 
+def _sqlite3_traced(ctx: SharpitContext) -> bool:
+    """The raw sqlite3 source feeds this context: its own switch is on and the patch is in (any holder's)."""
+    return ctx.settings.sql_trace_sqlite3_enabled and sqlite.is_attached()
+
+
 def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
     """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app."""
     if not ctx.settings.sql_trace_enabled:
         return sqla.TRACING_DISABLED
-    return sqla.unavailable_reason()
+    return None if _sqlite3_traced(ctx) else sqla.unavailable_reason()
 
 
 def sql_trace_report(ctx: SharpitContext) -> dict[str, Any]:
@@ -258,7 +264,13 @@ def sql_trace_report(ctx: SharpitContext) -> dict[str, Any]:
     if recorder is None or reason is not None:
         return sql_trace_unavailable(reason or sqla.TRACING_DISABLED)
     registry = ctx.capture.engine_registry
-    return recorder.report(registry.names() if registry is not None else [])
+    sources = registry.names() if registry is not None else []
+    traced = _sqlite3_traced(ctx)
+    if traced:
+        sources = [*sources, "sqlite3"]
+    report = recorder.report(sources)
+    report["warnings"] = [*report["warnings"], *(sqlite.limitations() if traced else [])]
+    return report
 
 
 def _sql_trace_action(ctx: SharpitContext, action: Callable[[SqlTraceRecorder], None]) -> dict[str, Any]:

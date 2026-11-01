@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import sqlite3
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -585,6 +586,35 @@ def test_sql_trace_masks_statements(
     for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli, "logs": logs}.items():
         assert SENTINEL not in text, (row, where)
         assert JWT not in text, (row, where)
+
+
+@pytest.mark.parametrize("prefix", VENDOR_PREFIXES)
+def test_sqlite3_source_masks_positional_secrets(tmp_path: Path, prefix: str):
+    """A4: a vendor token as a positional parameter of raw ``sqlite3`` never reaches any surface."""
+    app = create_app(
+        show_banner=False, state_dir=str(tmp_path), mcp_enabled="ON", stream_max_seconds=0.05,
+        sql_trace_capture_parameters=True,
+    )  # fmt: skip
+    secret = f"{prefix}{SENTINEL}{SENTINEL}"
+    with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
+        connection = sqlite3.connect(":memory:")
+        connection.execute("create table creds (secret text)")
+        connection.execute("insert into creds values (?)", (secret,))
+        connection.close()
+        report = client.get(f"{API}/sql-trace").json()
+        stream = client.get(f"{API}/sql-trace/stream").text
+        call = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "get_sql_traces", "arguments": {}},
+        }
+        mcp = client.post(f"{API}/mcp", json=call).text
+        cli = client.post(f"{API}/cli/tools/get_sql_traces", json={}).text
+    insert_entry = next(e for e in report["entries"] if "insert" in e["sql"])
+    assert insert_entry["parameters"] == [MASK]
+    for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli}.items():
+        assert SENTINEL not in text, (prefix, where)
 
 
 def _task_request_path(tmp_path: Path) -> str:

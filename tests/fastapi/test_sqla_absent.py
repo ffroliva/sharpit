@@ -75,7 +75,7 @@ def test_sqlalchemy_blocked_reports_unavailable():
         import sharpit
 
         app = FastAPI()
-        handle = sharpit.install(app, enabled="ON", show_banner=False)
+        handle = sharpit.install(app, enabled="ON", show_banner=False, sql_trace_sqlite3_enabled=False)
         with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
             report = client.get("/sharpit/api/sql-trace").json()
             panel = [p for p in client.get("/sharpit/api/panels").json()["panels"] if p["id"] == "sql-trace"][0]
@@ -94,7 +94,7 @@ def test_old_sqlalchemy_unavailable(monkeypatch: pytest.MonkeyPatch):
     old_reason = "SQLAlchemy 1.4.52 is imported, but sharpit needs 2.0 or later"
     assert sqla.unavailable_reason() == old_reason
     app = FastAPI()
-    handle = install(app, enabled="ON", show_banner=False)
+    handle = install(app, enabled="ON", show_banner=False, sql_trace_sqlite3_enabled=False)
     try:
         client = _client(app)
         assert (_sql_panel(client)["available"], _sql_panel(client)["unavailableReason"]) == (False, old_reason)

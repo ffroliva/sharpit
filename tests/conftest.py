@@ -12,6 +12,9 @@ from typing import Any
 
 import pytest
 
+from sharpit.engine import sqla
+from sharpit.engine.sources import sqlite
+
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}
 _BLOCKED = ("connect", "create_connection", "getaddrinfo", "gethostbyname")
@@ -158,6 +161,24 @@ class SideEffectGuard:
         if _environ() != self._environ:
             problems.append("os.environ changed")
         assert not problems, "side effects detected: " + "; ".join(problems)
+
+
+@pytest.fixture(autouse=True)
+def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
+    """sqlite3 source tests detach what they attach: a leak fails them. Elsewhere install() without a lifespan leaks.
+
+    shortcut: 230+ tests install an app and never run its shutdown (a supported use), so the leak is only asserted
+    for the files that exercise the source itself; upgrade if those tests get a shared fixture that uninstalls.
+    """
+    sqlite.detach_all()
+    sqla.detach_all()  # install() without shutdown leaves contexts; 2+ make routing outside a request ambiguous
+    yield
+    leaked = sqlite.is_attached()
+    sqlite.detach_all()
+    strict = any(word in request.node.path.name for word in ("sqlite", "dispatch", "sources"))
+    assert not (leaked and strict), (
+        "the test left sqlite3.connect patched; detach it (uninstall_capture / sqlite.detach)"
+    )
 
 
 @pytest.fixture

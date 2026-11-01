@@ -74,7 +74,7 @@ def _request_id(client: TestClient, path: str) -> str:
 def test_request_statement_traced_with_request_id_and_call_site():
     engine = sa.create_engine("sqlite://")
     app = _db_app(engine)
-    _install(app)
+    _install(app, sql_trace_sqlite3_enabled=False)  # the raw sqlite3 source would add "sqlite3" to dataSources
     client = _client(app)
     assert client.get("/users").json() == {"n": 42}
     report = client.get(API).json()
