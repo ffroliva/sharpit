@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import gc
 import logging
 import sys
 import threading
@@ -61,6 +62,22 @@ def unavailable_reason() -> str | None:
 def _engine_class() -> type | None:
     sa = sqlalchemy_module()
     return sa.engine.Engine if sa is not None else None
+
+
+def live_engine_drivers() -> set[str]:
+    """Drivers of live SQLAlchemy Engine objects; inspect once without importing SQLAlchemy."""
+    sa = sqlalchemy_module()
+    if sa is None:
+        return set()
+    engine_class = sa.engine.Engine
+    drivers: set[str] = set()
+    try:
+        for obj in gc.get_objects():
+            if type(obj) is engine_class:
+                drivers.add(obj.dialect.driver)
+    except Exception:  # noqa: BLE001 - best-effort evidence must not affect the host
+        return drivers
+    return drivers
 
 
 class EngineRegistry:

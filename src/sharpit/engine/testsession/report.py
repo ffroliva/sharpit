@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from sharpit.engine.advisors.report import severity_counts
-from sharpit.engine.advisors.rules import SEVERITIES
+from sharpit.engine.advisors.rules import SEVERITIES, severity_rank
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, TestFacts
 from sharpit.engine.testsession.filters import FILTER_RULES
 from sharpit.engine.testsession.outcome import (
@@ -131,7 +131,11 @@ def write_junit(path: Path, data: dict[str, Any], *, allow_unknown: bool) -> Non
     for finding in data["findings"]:
         case = ET.SubElement(suite, "testcase", classname=finding["advisor"], name=finding["fingerprint"])
         cases += 1
-        if not finding["dismissed"]:
+        properties = ET.SubElement(case, "properties")
+        ET.SubElement(properties, "property", name="severity", value=finding["severity"])
+        if not finding["dismissed"] and severity_rank(finding["severity"]) <= severity_rank(
+            data["gates"]["failOnSeverity"]
+        ):
             failure = ET.SubElement(case, "failure", type=finding["ruleId"], message=_clean(finding["message"]))
             failure.text = _clean(finding["target"])
             failures += 1
