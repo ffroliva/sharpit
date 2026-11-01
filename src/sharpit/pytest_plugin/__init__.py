@@ -1,4 +1,4 @@
-"""pytest adapter for sharpit's test-session capture."""
+"""pytest >= 8 adapter for sharpit's test-session capture."""
 
 from __future__ import annotations
 
@@ -14,10 +14,15 @@ from functools import wraps
 from typing import Any, cast
 
 import pytest
-from pluggy import Result
+
+try:
+    from pluggy import Result
+except ImportError:  # pluggy before the public re-export
+    from pluggy._result import Result
 
 from sharpit import __version__
 from sharpit.engine import sqla
+from sharpit.engine.activation import active_profiles
 from sharpit.engine.advisors.findings import AdvisorRun
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.capture.correlation import TEST
@@ -40,6 +45,15 @@ def _record_hook_failure(sink: TestSessionSink, exc: BaseException) -> None:
     warning = f"a sharpit session hook failed ({type(exc).__name__}); some facts may be missing"
     if warning not in sink.facts.warnings:
         sink.facts.warnings.append(warning)
+    source = next((item for item in sink.facts.sources if item["name"] == "pytest-plugin"), None)
+    if source is None:
+        sink.facts.sources.append({"name": "pytest-plugin", "attached": False, "reason": warning, "limitations": []})
+
+
+def _record_config_hook_failure(config: Any, exc: BaseException) -> None:
+    state = getattr(config, _STATE_ATTR, None) or _active_state
+    if state is not None:
+        _record_hook_failure(state.sink, exc)
 
 
 class _ExceptionHandler(logging.Handler):
@@ -124,7 +138,12 @@ def pytest_configure(config: Any) -> None:
             _validate_activation()
         except ValueError as exc:
             raise pytest.UsageError(str(exc)) from exc
-        _attach(config)  # also covers pytester.runpytest_inprocess, where initial conftests already ran
+        try:
+            _attach(config)  # also covers pytester.runpytest_inprocess, where initial conftests already ran
+        except pytest.UsageError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _record_config_hook_failure(config, exc)
 
 
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
@@ -144,9 +163,7 @@ def _validate_activation() -> list[str]:
     if mode is None:
         reason = settings.warnings[0] if settings.warnings else "SHARPIT_ENABLED is invalid"
         raise ValueError(f"sharpit: --sharpit refused because {reason}")
-    profiles: set[str] = set()
-    for variable in settings.profile_vars:
-        profiles.update(p.strip().lower() for p in os.environ.get(variable, "").split(",") if p.strip())
+    profiles = active_profiles(settings, os.environ)
     disabled = next((p for p in settings.disabled_profiles if p in profiles), None)
     if disabled and mode != "ON":
         raise ValueError(
@@ -206,21 +223,21 @@ def _attach(config: Any) -> None:
     sink.facts.warnings.extend(warnings)
     sink.facts.warnings.extend(report_masker_warnings(os.environ))
     sink.facts.warnings.extend(load_settings({}, os.environ).warnings)
-    dispatch.set_session_sink(sink)
-    sqlite_ok = sqlite.attach("pytest-session")
-    # attach() returns False when an earlier sharPit holder already owns the patch.
-    sqlite_ok = sqlite.is_attached()
-    sqlalchemy_ok = sqla.attach_session()
-    _source_state(sink, sqlite_ok)
-    sink.facts.sources.append(
-        {"name": "exceptions", "attached": False, "reason": "no test phase has started", "limitations": []}
-    )
     handler = _ExceptionHandler(sink)
-    state = _State(options, sink, sqlite_ok, sqlalchemy_ok, handler, [], [], [])
-    _record_sqlalchemy_source(state)
+    state = _State(options, sink, False, False, handler, [], [], [])
     _active_state = state
     setattr(config, _STATE_ATTR, state)
     config.add_cleanup(lambda: _detach(config))
+    dispatch.set_session_sink(sink)
+    sqlite.attach("pytest-session")
+    # attach() returns False when an earlier sharPit holder already owns the patch.
+    state.sqlite_attached = sqlite.is_attached()
+    state.sqlalchemy_attached = sqla.attach_session()
+    _source_state(sink, state.sqlite_attached)
+    sink.facts.sources.append(
+        {"name": "exceptions", "attached": False, "reason": "no test phase has started", "limitations": []}
+    )
+    _record_sqlalchemy_source(state)
 
 
 def _detach(config: Any) -> None:
@@ -228,10 +245,16 @@ def _detach(config: Any) -> None:
     state = _state(config)
     if state is None:
         return
-    logging.root.removeHandler(state.handler)
-    dispatch.set_session_sink(None)
-    sqlite.detach("pytest-session")
-    sqla.detach_session()
+    for cleanup in (
+        lambda: logging.root.removeHandler(state.handler),
+        lambda: dispatch.set_session_sink(None),
+        lambda: sqlite.detach("pytest-session"),
+        sqla.detach_session,
+    ):
+        try:
+            cleanup()
+        except Exception as exc:  # noqa: BLE001
+            _record_hook_failure(state.sink, exc)
     if hasattr(config, _STATE_ATTR):
         delattr(config, _STATE_ATTR)
     _active_state = None
@@ -246,6 +269,12 @@ def pytest_load_initial_conftests(early_config: Any, parser: Any, args: list[str
             enabled = bool(early_config.getini("sharpit"))
         if enabled:
             _attach(early_config)
+    except pytest.UsageError:
+        _detach(early_config)
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _record_config_hook_failure(early_config, exc)
+    try:
         hook_result = cast(Result[Any], (yield))
         if hook_result.excinfo is not None:
             _detach(early_config)
@@ -256,9 +285,17 @@ def pytest_load_initial_conftests(early_config: Any, parser: Any, args: list[str
 
 def pytest_sessionstart(session: Any) -> None:
     state = _state(session.config)
-    if state is not None and not state.sqlalchemy_attached:
-        state.sqlalchemy_attached = sqla.attach_session()
-        _record_sqlalchemy_source(state)
+    if state is None:
+        return
+    try:
+        worker_id = getattr(session.config, "workerinput", {}).get("workerid")
+        if worker_id:
+            state.sink.facts.worker = worker_id
+        if not state.sqlalchemy_attached:
+            state.sqlalchemy_attached = sqla.attach_session()
+            _record_sqlalchemy_source(state)
+    except Exception as exc:  # noqa: BLE001
+        _record_hook_failure(state.sink, exc)
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -266,66 +303,94 @@ def pytest_runtest_protocol(item: Any, nextitem: Any) -> Any:
     del nextitem
     state = _state(item.config)
     if state:
-        state.sink.begin_test(item.nodeid)
+        try:
+            state.sink.begin_test(item.nodeid)
+        except Exception as exc:  # noqa: BLE001
+            _record_hook_failure(state.sink, exc)
     try:
         yield
     finally:
         if state:
-            state.sink.end_test()
+            try:
+                state.sink.end_test()
+            except Exception as exc:  # noqa: BLE001
+                _record_hook_failure(state.sink, exc)
 
 
 def _phase(item: Any, name: str) -> Any:
     state = _state(item.config)
     if state is None:
         return None
-    current = state.sink.current_test
-    if current is None:
+    try:
+        current = state.sink.current_test
+        if current is None:
+            return None
+        if not state.sqlalchemy_attached:
+            state.sqlalchemy_attached = sqla.attach_session()
+            _record_sqlalchemy_source(state)
+        token = TEST.set((item.nodeid, current.key.attempt, name))
+        state.log_targets = [logging.root]
+        state.log_targets.extend(
+            logger
+            for name, logger in logging.root.manager.loggerDict.items()
+            if isinstance(logger, logging.Logger)
+            and not logger.propagate
+            and logger.handlers
+            and name != "sharpit"
+            and not name.startswith("sharpit.")
+        )
+        for logger in state.log_targets:
+            logger.addHandler(state.handler)
+        exception_source = next(s for s in state.sink.facts.sources if s["name"] == "exceptions")
+        exception_source.update(attached=True, reason=None)
+        return state, token
+    except Exception as exc:  # noqa: BLE001
+        _record_hook_failure(state.sink, exc)
         return None
-    if not state.sqlalchemy_attached:
-        state.sqlalchemy_attached = sqla.attach_session()
-        _record_sqlalchemy_source(state)
-    token = TEST.set((item.nodeid, current.key.attempt, name))
-    state.log_targets = [logging.root]
-    state.log_targets.extend(
-        logger
-        for name, logger in logging.root.manager.loggerDict.items()
-        if isinstance(logger, logging.Logger)
-        and not logger.propagate
-        and logger.handlers
-        and name != "sharpit"
-        and not name.startswith("sharpit.")
-    )
-    for logger in state.log_targets:
-        logger.addHandler(state.handler)
-    exception_source = next(s for s in state.sink.facts.sources if s["name"] == "exceptions")
-    exception_source.update(attached=True, reason=None)
-    return state, token
 
 
 def _phase_done(phase: Any) -> None:
     if phase is None:
         return
     state, token = phase
-    missing = False
-    for logger in state.log_targets:
-        if state.handler not in logger.handlers:
-            missing = True
-        logger.removeHandler(state.handler)
-    state.log_targets.clear()
-    if missing:
-        state.sink.facts.exceptions_source_ok = False
-        exception_source = next(s for s in state.sink.facts.sources if s["name"] == "exceptions")
-        exception_source.update(attached=False, reason="application reconfigured logging during a test phase")
-    TEST.reset(token)
+    try:
+        missing = False
+        for logger in state.log_targets:
+            if state.handler not in logger.handlers:
+                missing = True
+            logger.removeHandler(state.handler)
+        state.log_targets.clear()
+        if missing:
+            state.sink.facts.exceptions_source_ok = False
+            exception_source = next(s for s in state.sink.facts.sources if s["name"] == "exceptions")
+            exception_source.update(attached=False, reason="application reconfigured logging during a test phase")
+    except Exception as exc:  # noqa: BLE001
+        _record_hook_failure(state.sink, exc)
+    finally:
+        try:
+            TEST.reset(token)
+        except Exception as exc:  # noqa: BLE001
+            _record_hook_failure(state.sink, exc)
 
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_setup(item: Any) -> Any:
-    state = _state(item.config)
-    current = state.sink.current_test if state is not None else None
-    if state is not None and current is not None and current.key.node_id == item.nodeid and "call" in current.phases:
-        state.sink.begin_test(item.nodeid)
-    phase = _phase(item, "setup")
+    state = None
+    try:
+        state = _state(item.config)
+        current = state.sink.current_test if state is not None else None
+        if (
+            state is not None
+            and current is not None
+            and current.key.node_id == item.nodeid
+            and "call" in current.phases
+        ):
+            state.sink.begin_test(item.nodeid)
+        phase = _phase(item, "setup")
+    except Exception as exc:  # noqa: BLE001
+        phase = None
+        if state is not None:
+            _record_hook_failure(state.sink, exc)
     try:
         yield
     finally:
@@ -334,22 +399,28 @@ def pytest_runtest_setup(item: Any) -> Any:
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_call(item: Any) -> Any:
-    phase = _phase(item, "call")
-    original = item.obj
-    state = _state(item.config)
-    test = state.sink.current_test if state else None
-    if state and test and inspect.iscoroutinefunction(original):
-        attempt = test.key.attempt
+    state = None
+    original = getattr(item, "obj", None)
+    phase = None
+    try:
+        state = _state(item.config)
+        phase = _phase(item, "call")
+        test = state.sink.current_test if state else None
+        if state and test and inspect.iscoroutinefunction(original):
+            attempt = test.key.attempt
 
-        @wraps(original)
-        async def run_in_context(*args: Any, **kwargs: Any) -> Any:
-            token = TEST.set((item.nodeid, attempt, "call"))
-            try:
-                return await original(*args, **kwargs)
-            finally:
-                TEST.reset(token)
+            @wraps(original)
+            async def run_in_context(*args: Any, **kwargs: Any) -> Any:
+                token = TEST.set((item.nodeid, attempt, "call"))
+                try:
+                    return await original(*args, **kwargs)
+                finally:
+                    TEST.reset(token)
 
-        item.obj = run_in_context
+            item.obj = run_in_context
+    except Exception as exc:  # noqa: BLE001
+        if state is not None:
+            _record_hook_failure(state.sink, exc)
     try:
         yield
     finally:
@@ -360,12 +431,21 @@ def pytest_runtest_call(item: Any) -> Any:
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_teardown(item: Any, nextitem: Any) -> Any:
     del nextitem
-    phase = _phase(item, "teardown")
+    state = _state(item.config)
+    try:
+        phase = _phase(item, "teardown")
+    except Exception as exc:  # noqa: BLE001
+        phase = None
+        if state is not None:
+            _record_hook_failure(state.sink, exc)
     try:
         yield
     finally:
         if phase is not None:
-            phase[0].sink.snapshot_apps(_model_of)
+            try:
+                phase[0].sink.snapshot_apps(_model_of)
+            except Exception as exc:  # noqa: BLE001
+                _record_hook_failure(phase[0].sink, exc)
         _phase_done(phase)
 
 
@@ -414,7 +494,7 @@ def _model_of(app: object) -> ApiModel:
     return FastApiIntrospector(app).api_model()
 
 
-def _advisors(state: _State) -> None:
+def _run_advisors(state: _State) -> None:
     if not state.options.advisors:
         return
     models = state.sink.app_snapshots()
@@ -452,10 +532,46 @@ def _advisors(state: _State) -> None:
             )
 
 
+def _advisors(state: _State) -> None:
+    try:
+        _run_advisors(state)
+    except Exception as exc:  # noqa: BLE001
+        _record_hook_failure(state.sink, exc)
+
+
+def _xdist_controller(config: Any, state: _State) -> bool:
+    manager = getattr(config, "pluginmanager", None)
+    has_dsession = bool(manager and manager.hasplugin("dsession"))
+    return has_dsession or bool(state.parts or state.missing_workers)
+
+
+def _refresh_report_after_hook_failure(state: _State, config: Any, exc: BaseException) -> None:
+    data = cast("dict[str, Any] | None", getattr(config, "_sharpit_report", None))
+    if not isinstance(data, dict):
+        return
+    warning = f"a sharpit session hook failed ({type(exc).__name__}); some facts may be missing"
+    data["status"] = "unknown"
+    source: dict[str, Any] = {"name": "pytest-plugin", "attached": False, "reason": warning, "limitations": []}
+    if not any(item.get("name") == "pytest-plugin" for item in data["sources"]):
+        data["sources"].append(source)
+    reason = warning.replace("a sharpit ", "sharpit ").replace("; some facts may be missing", "")
+    if reason not in data["statusReasons"]:
+        data["statusReasons"].append(reason)
+    if warning not in data["warnings"]:
+        data["warnings"].append(warning)
+    try:
+        report.write_json(state.options.report, data)
+        if state.options.junit:
+            report.write_junit(state.options.junit, data, allow_unknown=state.options.allow_unknown)
+    except Exception as write_exc:  # noqa: BLE001
+        _record_hook_failure(state.sink, write_exc)
+
+
 def _write_report(state: _State, session: Any, exitstatus: int) -> None:
     sink = state.sink
     try:
-        _advisors(state)
+        if not _xdist_controller(session.config, state):
+            _advisors(state)
         facts = sink.facts
         facts.untraced_drivers.update(
             module
@@ -463,7 +579,10 @@ def _write_report(state: _State, session: Any, exitstatus: int) -> None:
             if module in sys.modules
         )
         facts.engine_drivers.update(dispatch.engine_drivers())
-        parts = state.parts if getattr(session.config.option, "numprocesses", 0) else [facts]
+        if _xdist_controller(session.config, state):
+            parts = [*state.parts, facts] if facts.warnings else state.parts
+        else:
+            parts = [facts]
         merged = outcome.merge(parts, state.missing_workers)
         status, reasons = outcome.session_status(
             merged,
@@ -501,22 +620,45 @@ def _write_report(state: _State, session: Any, exitstatus: int) -> None:
 
 
 def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
-    state = _state(session.config)
+    state = None
+    try:
+        state = _state(session.config)
+    except Exception as exc:  # noqa: BLE001
+        fallback = _active_state
+        if fallback is not None:
+            _record_hook_failure(fallback.sink, exc)
+        return
     if state is None:
         return
     if hasattr(session.config, "workerinput"):
         _advisors(state)
-        session.config.workeroutput["sharpit"] = state.sink.facts.to_json()
+        try:
+            session.config.workeroutput["sharpit"] = state.sink.facts.to_json()
+        except Exception as exc:  # noqa: BLE001
+            _record_hook_failure(state.sink, exc)
         return
     _write_report(state, session, exitstatus)
 
 
 def pytest_testnodedown(node: Any, error: Any) -> None:
-    state = _state(node.config)
-    if state is None:
-        return
+    state = None
+    try:
+        state = _state(node.config)
+        if state is None:
+            return
+        _collect_worker_data(state, node, error)
+    except Exception as exc:  # noqa: BLE001
+        if state is not None:
+            _record_hook_failure(state.sink, exc)
+            try:
+                state.missing_workers.append(getattr(getattr(node, "gateway", None), "id", "unknown"))
+            except Exception as append_exc:  # noqa: BLE001
+                _record_hook_failure(state.sink, append_exc)
+
+
+def _collect_worker_data(state: _State, node: Any, error: Any) -> None:
     data = getattr(node, "workeroutput", {}).get("sharpit")
-    if data is None:
+    if error is not None or data is None:
         state.missing_workers.append(node.gateway.id)
     else:
         from sharpit.engine.testsession.facts import SessionFacts
@@ -529,25 +671,38 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
     data = getattr(config, "_sharpit_report", None)
     if data is None:
         return
-    terminalreporter.write_sep("=", f"sharpit: {data['status']}")
-    terminalreporter.write_line(f"status: {data['status']}")
-    terminalreporter.write_line(f"tests with findings: {sum(1 for test in data['tests'] if test['findings'])}")
-    counts = Counter(finding["ruleId"] for finding in data["findings"])
-    terminalreporter.write_line("gate counts:")
-    for rule, count in sorted(counts.items()):
-        terminalreporter.write_line(f"  {rule}: {count}")
-    terminalreporter.write_line("worst tests:")
-    worst = sorted(
-        (test for test in data["tests"] if test["findings"]), key=lambda test: (-len(test["findings"]), test["nodeId"])
-    )[:5]
-    for test in worst:
-        terminalreporter.write_line(f"  {test['nodeId']}: {len(test['findings'])} finding(s)")
-    if not worst:
-        terminalreporter.write_line("  (none)")
-    terminalreporter.write_line(f"report: {config.option.sharpit_report or config.getini('sharpit_report')}")
-    for warning in data["warnings"]:
-        terminalreporter.write_line(f"warning: {warning}")
+    state = _state(config)
+    if state is None:
+        return
+    try:
+        terminalreporter.write_sep("=", f"sharpit: {data['status']}")
+        terminalreporter.write_line(f"status: {data['status']}")
+        terminalreporter.write_line(f"tests with findings: {sum(1 for test in data['tests'] if test['findings'])}")
+        counts = Counter(finding["ruleId"] for finding in data["findings"])
+        terminalreporter.write_line("gate counts:")
+        for rule, count in sorted(counts.items()):
+            terminalreporter.write_line(f"  {rule}: {count}")
+        terminalreporter.write_line("worst tests:")
+        worst = sorted(
+            (test for test in data["tests"] if test["findings"]),
+            key=lambda test: (-len(test["findings"]), test["nodeId"]),
+        )[:5]
+        for test in worst:
+            terminalreporter.write_line(f"  {test['nodeId']}: {len(test['findings'])} finding(s)")
+        if not worst:
+            terminalreporter.write_line("  (none)")
+        terminalreporter.write_line(f"report: {config.option.sharpit_report or config.getini('sharpit_report')}")
+        for warning in data["warnings"]:
+            terminalreporter.write_line(f"warning: {warning}")
+    except Exception as exc:  # noqa: BLE001
+        _record_hook_failure(state.sink, exc)
+        _refresh_report_after_hook_failure(state, config, exc)
 
 
 def pytest_unconfigure(config: Any) -> None:
-    _detach(config)
+    try:
+        _detach(config)
+    except Exception as exc:  # noqa: BLE001
+        state = _state(config)
+        if state is not None:
+            _record_hook_failure(state.sink, exc)

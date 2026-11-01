@@ -53,7 +53,9 @@ def _finalizer_on_stack() -> bool:
                 return False
             name = frame.f_code.co_name
             module = frame.f_globals.get("__name__", "")
-            if name in {"__del__", "_finalize_fairy"} or ("weakref" in module and "callback" in name.lower()):
+            if name in {"__del__", "_finalize_fairy"} or (
+                "weakref" in module and ("callback" in name.lower() or name == "__call__")
+            ):
                 return True
             frame = frame.f_back
         return False

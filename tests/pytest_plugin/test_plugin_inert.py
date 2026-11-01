@@ -32,6 +32,19 @@ def test_plain_run_untouched(pytester: pytest.Pytester) -> None:
     assert result.ret == 0
 
 
+def test_inprocess_session_clears_global_state(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("def test_inner(): pass")
+
+    result = pytester.runpytest_inprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 0
+    from sharpit import pytest_plugin
+
+    assert pytest_plugin._active_state is None
+
+
 def test_nothing_assessed_unknown_fails_unless_allowed(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_empty(): pass")
 

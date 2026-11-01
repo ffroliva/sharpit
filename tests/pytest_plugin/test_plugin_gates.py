@@ -29,6 +29,28 @@ def test_n_plus_one_fails_the_test(pytester: pytest.Pytester) -> None:
     assert data["tests"][0]["findings"]
 
 
+def test_fail_on_medium_gates_medium_findings(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="from fastapi import FastAPI\napp=FastAPI()\n"
+        "def handler(): return 1\napp.add_api_route('/items', handler, methods=['GET','POST'])"
+    )
+    pytester.makepyfile("def test_empty(): pass")
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit",
+        "--sharpit-app=appmod:app",
+        "--sharpit-fail-on=MEDIUM",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "-q",
+    )
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["status"] == "fail"
+    assert any(finding["severity"] == "MEDIUM" for finding in data["findings"])
+
+
 def test_marker_budget(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         """
@@ -228,23 +250,111 @@ def test_pytest_failure_code_never_lowered(pytester: pytest.Pytester) -> None:
     assert result.ret == 1
 
 
-def test_plugin_hook_raises_session_continues(pytester: pytest.Pytester) -> None:
+@pytest.mark.parametrize(
+    ("patch", "xdist", "advisors"),
+    [
+        ("begin_test", False, False),
+        ("phase", False, False),
+        ("makereport", False, False),
+        ("sessionstart", False, False),
+        ("testnodedown", True, False),
+        ("terminal_summary", False, False),
+        ("worker_advisors", True, True),
+    ],
+)
+def test_plugin_hook_raises_session_continues(
+    pytester: pytest.Pytester, patch: str, xdist: bool, advisors: bool
+) -> None:
     pytester.makeconftest(
-        """
+        f"""
+        import sharpit.pytest_plugin as plugin
+        from sharpit.engine.testsession.sink import TestSessionSink
         from sharpit.engine.testsession import gates
-        def broken(*args, **kwargs): raise RuntimeError('hook')
-        gates.evaluate_test = broken
+        from sharpit.engine import sqla
+
+        def broken(*args, **kwargs): raise RuntimeError('injected')
+        if {patch!r} == 'begin_test':
+            TestSessionSink.begin_test = broken
+        elif {patch!r} == 'phase':
+            plugin._phase = broken
+        elif {patch!r} == 'makereport':
+            gates.evaluate_test = broken
+        elif {patch!r} == 'sessionstart':
+            if plugin._active_state is not None:
+                plugin._active_state.sqlalchemy_attached = False
+            sqla.attach_session = broken
+        elif {patch!r} == 'testnodedown':
+            plugin._collect_worker_data = broken
+        elif {patch!r} == 'terminal_summary':
+            plugin.Counter = broken
+        elif {patch!r} == 'worker_advisors':
+            plugin.assess = broken
         """
     )
+    app_arg = ""
+    if advisors:
+        pytester.makepyfile(appmod="from fastapi import FastAPI\napp=FastAPI()\n@app.get('/x')\ndef x(): return 1")
+        app_arg = "--sharpit-app=appmod:app"
     pytester.makepyfile("def test_continues(): assert True")
+    args = ["-n", "2"] if xdist else []
+    if not advisors:
+        args.append("--sharpit-no-advisors")
+    result = pytester.runpytest_subprocess(
+        *args,
+        "--sharpit",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        *([app_arg] if app_arg else []),
+        "-q",
+    )
+
+    assert result.ret == 0
+    output = result.stdout.str() + result.stderr.str()
+    assert "INTERNALERROR" not in output
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["status"] == "unknown"
+    assert sum("session hook failed (RuntimeError)" in warning for warning in data["warnings"]) == 1
+    assert any(source["name"] == "pytest-plugin" and not source["attached"] for source in data["sources"])
+
+
+def test_snapshot_failure_does_not_error_the_test(pytester: pytest.Pytester) -> None:
+    pytester.makeconftest(
+        "from sharpit.engine.testsession.sink import TestSessionSink\n"
+        "def broken(*args, **kwargs): raise RuntimeError('snapshot')\n"
+        "TestSessionSink.snapshot_apps = broken\n"
+    )
+    pytester.makepyfile("def test_passes(): assert True")
 
     result = pytester.runpytest_subprocess(
         "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
 
     assert result.ret == 0
+    assert "1 passed" in result.stdout.str()
     data = json.loads((pytester.path / "report.json").read_text())
-    assert any("session hook failed (RuntimeError)" in warning for warning in data["warnings"])
+    assert data["status"] == "unknown"
+    assert sum("session hook failed (RuntimeError)" in warning for warning in data["warnings"]) == 1
+    assert any(source["name"] == "pytest-plugin" and not source["attached"] for source in data["sources"])
+
+
+def test_early_attach_failure_does_not_interrupt_session(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        sitecustomize="""
+        from sharpit.engine.sources import sqlite
+        def broken(*args, **kwargs): raise RuntimeError('early attach')
+        sqlite.attach = broken
+        """
+    )
+    pytester.makepyfile("def test_passes(): assert True")
+
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
+
+    assert result.ret == 0
+    assert "1 passed" in result.stdout.str()
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["status"] == "unknown"
+    assert sum("session hook failed (RuntimeError)" in warning for warning in data["warnings"]) == 1
+    assert any(source["name"] == "pytest-plugin" and not source["attached"] for source in data["sources"])
 
 
 def test_dictconfig_in_conftest_keeps_basicconfig_working(pytester: pytest.Pytester) -> None:
