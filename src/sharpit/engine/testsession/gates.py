@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sharpit.engine.advisors.findings import Finding
@@ -27,8 +27,8 @@ class Budget:
 def _finding(
     rule_id: str, target: str, message: str, node_id: str, dismissed: Collection[str], identity: str | None = None
 ) -> Finding:
-    finding = Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, identity=identity)
-    return replace(finding, dismissed=finding.fingerprint in dismissed)
+    fingerprint = Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, identity=identity).fingerprint
+    return Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, fingerprint in dismissed, identity)
 
 
 def evaluate_test(

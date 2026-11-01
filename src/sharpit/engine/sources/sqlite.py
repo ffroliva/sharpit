@@ -108,17 +108,22 @@ def _event(
     )
 
 
+def _cursor(obj: object) -> sqlite3.Cursor:
+    """``obj`` seen as the stdlib cursor it is mixed into (``super()`` and ``self`` of the mixin)."""
+    return cast("sqlite3.Cursor", obj)
+
+
 class _TracedCursorMixin:
     """The three statement methods of a cursor; ``super()`` is the stdlib (or the caller's) cursor class."""
 
     def execute(self, sql: str, parameters: Any = (), /) -> Any:
         started = time.perf_counter_ns()
         try:
-            result = cast("sqlite3.Cursor", super()).execute(sql, parameters)
+            result = _cursor(super()).execute(sql, parameters)
         except BaseException as exc:
-            _event(cast("sqlite3.Cursor", self), sql, parameters, False, None, started, -1, exc)
+            _event(_cursor(self), sql, parameters, False, None, started, -1, exc)
             raise
-        _event(cast("sqlite3.Cursor", self), sql, parameters, False, None, started, result.rowcount, None)
+        _event(_cursor(self), sql, parameters, False, None, started, result.rowcount, None)
         return result
 
     def executemany(self, sql: str, parameters: Any, /) -> Any:
@@ -128,21 +133,21 @@ class _TracedCursorMixin:
         shown: object = sized
         started = time.perf_counter_ns()
         try:
-            result = cast("sqlite3.Cursor", super()).executemany(sql, cast("Any", parameters))
+            result = _cursor(super()).executemany(sql, cast("Any", parameters))
         except BaseException as exc:
-            _event(cast("sqlite3.Cursor", self), sql, shown, True, batch, started, -1, exc)
+            _event(_cursor(self), sql, shown, True, batch, started, -1, exc)
             raise
-        _event(cast("sqlite3.Cursor", self), sql, shown, True, batch, started, result.rowcount, None)
+        _event(_cursor(self), sql, shown, True, batch, started, result.rowcount, None)
         return result
 
     def executescript(self, sql_script: str, /) -> Any:
         started = time.perf_counter_ns()
         try:
-            result = cast("sqlite3.Cursor", super()).executescript(sql_script)
+            result = _cursor(super()).executescript(sql_script)
         except BaseException as exc:
-            _event(cast("sqlite3.Cursor", self), sql_script, None, False, None, started, -1, exc)
+            _event(_cursor(self), sql_script, None, False, None, started, -1, exc)
             raise
-        _event(cast("sqlite3.Cursor", self), sql_script, None, False, None, started, result.rowcount, None)
+        _event(_cursor(self), sql_script, None, False, None, started, result.rowcount, None)
         return result
 
 
@@ -163,7 +168,8 @@ class _TracedConnectionMixin:
     """Connection-level statements run through ``self.cursor()``: the stdlib ones do not call a Python override."""
 
     def cursor(self, factory: Any = None) -> Any:
-        global _passed_through  # noqa: PLW0603 - a limitation flag, set once
+        # a limitation flag, set once
+        global _passed_through  # noqa: PLW0603
         if factory is None or factory is sqlite3.Cursor:
             cls: Any = TracedCursor
         elif isinstance(factory, type) and issubclass(factory, sqlite3.Cursor):
@@ -331,12 +337,14 @@ def early_aliases() -> list[str]:
     """``"<module>.<name>"`` for module globals bound to the original ``sqlite3.connect`` or ``dbapi2.connect``."""
     originals: list[object] = [f for f in (_real, dbapi2.connect) if f is not None]
     found: list[str] = []
-    for name, module in list(sys.modules.items()):
+    for name, module in tuple(sys.modules.items()):  # a snapshot: imports on other threads
         if name in _SKIPPED_MODULES or name == __name__ or name.startswith("sqlalchemy.") or name == "sqlalchemy":
             continue
         try:
             namespace = vars(module)
-            found += [f"{name}.{attr}" for attr, value in list(namespace.items()) if any(value is o for o in originals)]
+            found += [
+                f"{name}.{attr}" for attr, value in tuple(namespace.items()) if any(value is o for o in originals)
+            ]
         except TypeError:  # an entry without a __dict__
             continue
     return found

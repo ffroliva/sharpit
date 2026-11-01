@@ -174,7 +174,7 @@ def test_never_uses_trace_callback(monkeypatch: pytest.MonkeyPatch, sink: Sink):
     traced.close()
 
 
-def test_attach_idempotent_detach_own_only(caplog: pytest.LogCaptureFixture):
+def test_attach_idempotent_detach_own_only(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch):
     """A5: a second attach does nothing; detach restores only sharpit's own function."""
     assert sqlite.attach(HOLDER) is True
     patched = sqlite3.connect
@@ -184,7 +184,7 @@ def test_attach_idempotent_detach_own_only(caplog: pytest.LogCaptureFixture):
     def foreign(*args: Any, **kwargs: Any) -> sqlite3.Connection:
         return patched(*args, **kwargs)
 
-    sqlite3.connect = foreign
+    monkeypatch.setattr(sqlite3, "connect", foreign)
     with caplog.at_level(logging.WARNING, logger="sharpit"):
         assert sqlite.detach(HOLDER) is False
     assert sqlite3.connect is foreign

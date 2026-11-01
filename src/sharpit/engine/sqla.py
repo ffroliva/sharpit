@@ -262,7 +262,8 @@ _LISTENERS: dict[str, Callable[..., None]] = {
 
 def _sync_listeners() -> None:
     """Listen while a context needs the event, remove once none does (callers hold ``_lock``)."""
-    global _discovery_refs  # noqa: PLW0603 - swapped whole under the lock, read lock-free
+    # swapped whole under the lock, read lock-free
+    global _discovery_refs  # noqa: PLW0603
     _discovery_refs = tuple(weakref.ref(c) for c in _discovery_contexts.values())
     sa = sqlalchemy_module()
     if sa is None:

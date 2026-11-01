@@ -5,8 +5,6 @@ from typing import Any
 
 import pytest
 
-pytest_plugins = ["pytester"]
-
 
 def test_cli_wins_over_ini(pytester: pytest.Pytester) -> None:
     pytester.makeini("""

@@ -211,44 +211,49 @@ class TestSessionSink:
         except Exception as exc:  # noqa: BLE001
             self._failed(exc)
 
-    def snapshot_apps(self, model_of: Callable[[object], ApiModel], *, force: bool = False) -> None:
-        """Take the model of every registered app that is still alive; the latest snapshot per registration is kept."""
+    def _live_registrations(self) -> list[_Registration]:
+        """The registrations whose app is alive; a dead one keeps its last snapshot as an orphan."""
         with self._lock:
             registrations = list(self._registrations)
-            for registration in self._registrations:
+            for registration in registrations:
                 if registration.ref() is None and registration.snapshot is not None:
                     title, model = registration.snapshot
                     digest = hashlib.sha256(repr(model).encode("utf-8")).hexdigest()[:8]
                     self._orphan_snapshots.setdefault(f"{title}#{digest}", registration.snapshot)
             self._registrations = [r for r in self._registrations if r.ref() is not None]
-        for registration in registrations:
+        return registrations
+
+    def _signature(self, app: object) -> tuple[str, tuple[tuple[object, ...], ...]]:
+        """The title and routes that decide whether an app's model must be taken again."""
+        routes = getattr(getattr(app, "router", None), "routes", ())
+        title = self._mask(str(getattr(app, "title", type(app).__name__)))
+        return title, tuple(
+            (
+                getattr(route, "path", None),
+                tuple(sorted(getattr(route, "methods", None) or ())),
+                # the code object: per-test apps from one factory share it, different handlers do not
+                getattr(getattr(route, "endpoint", None), "__code__", None),
+                repr(getattr(route, "response_model", None)),
+                getattr(route, "status_code", None),
+            )
+            for route in routes
+        )
+
+    def snapshot_apps(self, model_of: Callable[[object], ApiModel], *, force: bool = False) -> None:
+        """Take the model of every registered app that is still alive; the latest snapshot per registration is kept."""
+        for registration in self._live_registrations():
             app = registration.ref()
             if app is None:
                 continue
             try:
-                routes = getattr(getattr(app, "router", None), "routes", ())
-                title = self._mask(str(getattr(app, "title", type(app).__name__)))
-                signature = (
-                    title,
-                    tuple(
-                        (
-                            getattr(route, "path", None),
-                            tuple(sorted(getattr(route, "methods", None) or ())),
-                            # the code object: per-test apps from one factory share it, different handlers do not
-                            getattr(getattr(route, "endpoint", None), "__code__", None),
-                            repr(getattr(route, "response_model", None)),
-                            getattr(route, "status_code", None),
-                        )
-                        for route in routes
-                    ),
-                )
+                signature = self._signature(app)
                 if not force and registration.snapshot is not None and registration.route_token == signature:
                     continue
-                model = self._models_by_signature.get(signature) if not force else None
+                model = None if force else self._models_by_signature.get(signature)
                 if model is None:
                     model = model_of(app)
                     self._models_by_signature[signature] = model
-                registration.snapshot = (title, model)
+                registration.snapshot = (signature[0], model)
                 registration.route_token = signature
             except Exception as exc:  # noqa: BLE001
                 self._failed(exc)

@@ -107,25 +107,30 @@ def _combine_sources(parts: Sequence[SessionFacts], untraced: set[str], engines:
     return list(by_name.values())
 
 
+def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN"]:
+    """FAILED over UNKNOWN over PASSED."""
+    present = set(statuses)
+    if "FAILED" in present:
+        return "FAILED"
+    return "UNKNOWN" if "UNKNOWN" in present else "PASSED"
+
+
+def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> AdvisorRun:
+    findings: dict[str, Finding] = {}
+    for finding in (f for run in runs for f in run.findings):
+        findings.setdefault(finding.fingerprint, finding)
+    status = _worst(r.status for r in runs)
+    chosen = next((r for r in runs if r.status == status), runs[0])
+    reason = chosen.reason if status == "UNKNOWN" else None
+    return AdvisorRun(advisor, status, tuple(findings.values()), chosen.evidence, reason, app)
+
+
 def _merge_runs(parts: Sequence[SessionFacts]) -> list[AdvisorRun]:
     """One run per (advisor, app): findings de-duplicated by fingerprint, FAILED over UNKNOWN over PASSED."""
     groups: dict[tuple[str, str | None], list[AdvisorRun]] = {}
-    for part in parts:
-        for run in part.advisor_runs:
-            groups.setdefault((run.advisor, run.app), []).append(run)
-    merged: list[AdvisorRun] = []
-    for (advisor, app), runs in groups.items():
-        findings: dict[str, Finding] = {}
-        for run in runs:
-            for finding in run.findings:
-                findings.setdefault(finding.fingerprint, finding)
-        failed = [r for r in runs if r.status == "FAILED"]
-        unknown = [r for r in runs if r.status == "UNKNOWN"]
-        chosen = (failed or unknown or runs)[0]
-        status = "FAILED" if failed else "UNKNOWN" if unknown else "PASSED"
-        reason = unknown[0].reason if status == "UNKNOWN" else None
-        merged.append(AdvisorRun(advisor, status, tuple(findings.values()), chosen.evidence, reason, app))
-    return merged
+    for run in (r for part in parts for r in part.advisor_runs):
+        groups.setdefault((run.advisor, run.app), []).append(run)
+    return [_merge_group(advisor, app, runs) for (advisor, app), runs in groups.items()]
 
 
 def _exceptions_lost(parts: Sequence[SessionFacts]) -> list[str]:
@@ -194,28 +199,30 @@ def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str]) -> Merg
     )
 
 
+def _advisor_summary(advisor: str, runs: list[AdvisorRun], *, advisors_enabled: bool) -> dict[str, Any]:
+    if not runs:
+        reason = NO_APPLICATION if advisors_enabled else ADVISORS_DISABLED
+        return {"advisor": advisor, "status": "UNKNOWN", "reason": reason, "apps": [], "findings": []}
+    status = _worst(r.status for r in runs)
+    reason = next((r.reason for r in runs if r.status == "UNKNOWN"), None) if status == "UNKNOWN" else None
+    found: dict[str, dict[str, Any]] = {}
+    for finding in (f for run in runs for f in run.findings):
+        found.setdefault(finding.fingerprint, finding.to_dto())
+    apps = [{"app": r.app, "status": r.status, "reason": r.reason, "evidence": r.evidence} for r in runs]
+    return {"advisor": advisor, "status": status, "reason": reason, "apps": apps, "findings": list(found.values())}
+
+
 def advisor_summaries(merged: MergedFacts, *, advisors_enabled: bool) -> list[dict[str, Any]]:
     """The report's ``advisors``: one entry per advisor with its apps; an app-reading advisor with no app is UNKNOWN."""
     ids = list(dict.fromkeys([*APP_ADVISORS, *(r.advisor for r in merged.advisor_runs)]))
-    summaries: list[dict[str, Any]] = []
-    for advisor in ids:
-        runs = [r for r in merged.advisor_runs if r.advisor == advisor] if advisors_enabled else []
-        if not runs:
-            reason = NO_APPLICATION if advisors_enabled else ADVISORS_DISABLED
-            summaries.append({"advisor": advisor, "status": "UNKNOWN", "reason": reason, "apps": [], "findings": []})
-            continue
-        statuses = {r.status for r in runs}
-        status = "FAILED" if "FAILED" in statuses else "UNKNOWN" if "UNKNOWN" in statuses else "PASSED"
-        reason = next((r.reason for r in runs if r.status == "UNKNOWN"), None) if status == "UNKNOWN" else None
-        found: dict[str, dict[str, Any]] = {}
-        for run in runs:
-            for finding in run.findings:
-                found.setdefault(finding.fingerprint, finding.to_dto())
-        apps = [{"app": r.app, "status": r.status, "reason": r.reason, "evidence": r.evidence} for r in runs]
-        summaries.append(
-            {"advisor": advisor, "status": status, "reason": reason, "apps": apps, "findings": list(found.values())}
+    return [
+        _advisor_summary(
+            advisor,
+            [r for r in merged.advisor_runs if r.advisor == advisor] if advisors_enabled else [],
+            advisors_enabled=advisors_enabled,
         )
-    return summaries
+        for advisor in ids
+    ]
 
 
 def _plural(count: int, noun: str) -> str:
