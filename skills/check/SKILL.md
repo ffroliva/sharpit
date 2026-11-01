@@ -32,7 +32,7 @@ If `.venv` is missing, `uv sync --extra test` first (in the background). CI also
 and a `--resolution lowest-direct` job; a change that touches dependency floors or version-specific APIs should be
 checked with `uv sync --extra test --resolution lowest-direct` too.
 
-**Before opening a PR that adds a dependency, a pytest plugin or test-time code, run CI's special jobs locally**, each
+**Before opening a PR that adds a dependency, a pytest plugin or test-time code, run CI's special jobs locally** (every job and its local command: `docs/development/ci.md`), each
 in its own env so the worktree's `.venv` stays intact (`UV_PROJECT_ENVIRONMENT=<scratch dir>`), with the exact
 commands from `.github/workflows/ci.yml`: `lowest` (lowest-direct, Python 3.12), `no-sqlalchemy` (the
 `--no-install-package` list, `-m "not needs_sqlalchemy"`) and `coverage` (`--cov`, `COVERAGE_FILE` outside the repo).
