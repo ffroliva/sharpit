@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import functools
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -136,6 +137,22 @@ def test_collectors_never_import_each_other():
 
 def test_optional_and_network_libraries_stay_behind_their_gatekeeper():
     assert gatekeeper_violations() == []
+
+
+def test_pytest_gatekeeper_allows_every_plugin_submodule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "src"
+    plugin = source / "sharpit" / "pytest_plugin"
+    engine = source / "sharpit" / "engine"
+    plugin.mkdir(parents=True)
+    engine.mkdir(parents=True)
+    (plugin / "session.py").write_text("import pytest\n", encoding="utf-8")
+    (plugin / "apps.py").write_text("import _pytest\n", encoding="utf-8")
+    (engine / "rogue.py").write_text("import pytest\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    violations = gatekeeper_violations()
+
+    assert violations == ["sharpit/engine/rogue.py imports pytest: only ['sharpit/pytest_plugin'] may import pytest"]
 
 
 def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
