@@ -127,7 +127,8 @@ _lock = threading.Lock()
 _discovery_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
 # what the listener reads per event: a plain tuple, refreshed on every change (iterating the dict is slow)
 _discovery_refs: tuple[weakref.ref[SharpitContext], ...] = ()
-_statement_ids: set[str] = set()  # contexts that asked for statements through ``add`` (``routed`` reads it)
+# contexts that asked for statements through ``add`` (``routed`` reads it); weak, so a collected one stops counting
+_statement_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
 _session = False  # the test-session sink wants statements too (spec 0.3.0 §8.1)
 
 
@@ -268,7 +269,7 @@ def _sync_listeners() -> None:
         return
     wanted = {
         DISCOVERY_EVENT: bool(_discovery_contexts),
-        **dict.fromkeys(STATEMENT_EVENTS, bool(_statement_ids) or _session),
+        **dict.fromkeys(STATEMENT_EVENTS, bool(_statement_contexts) or _session),
     }
     for name, fn in _LISTENERS.items():
         present = sa.event.contains(sa.engine.Engine, name, fn)
@@ -289,7 +290,7 @@ def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
     with _lock:
         if statements:
             dispatch.add_context(ctx)
-            _statement_ids.add(ctx.context_id)
+            _statement_contexts[ctx.context_id] = ctx
         if discovery:
             _discovery_contexts[ctx.context_id] = ctx
         _sync_listeners()
@@ -299,7 +300,7 @@ def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
 def remove(ctx: SharpitContext) -> None:
     with _lock:
         dispatch.remove_context(ctx)
-        _statement_ids.discard(ctx.context_id)
+        _statement_contexts.pop(ctx.context_id, None)
         _discovery_contexts.pop(ctx.context_id, None)
         _sync_listeners()
 
@@ -309,7 +310,7 @@ def detach_all() -> None:
     global _session  # noqa: PLW0603
     with _lock:
         dispatch.clear_contexts()
-        _statement_ids.clear()
+        _statement_contexts.clear()
         _discovery_contexts.clear()
         _session = False
         _sync_listeners()
@@ -336,7 +337,7 @@ def detach_session() -> None:
 def routed(ctx: SharpitContext) -> tuple[bool, bool]:
     """``(statements, discovery)``: whether ``ctx`` receives traced statements and discovered engines."""
     with _lock:
-        return ctx.context_id in _statement_ids, ctx.context_id in _discovery_contexts
+        return ctx.context_id in _statement_contexts, ctx.context_id in _discovery_contexts
 
 
 def attached() -> dict[str, bool]:

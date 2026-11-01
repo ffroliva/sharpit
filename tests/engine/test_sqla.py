@@ -6,6 +6,7 @@ Every case is derived (BootUI wraps a JDBC ``DataSource``; SQLAlchemy events hav
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import types
 from collections.abc import Iterator
@@ -384,3 +385,21 @@ def test_failed_timeout_restore_invalidates_the_app_connection():
     with pytest.raises(RuntimeError):
         sqla.bounded(conn, lambda c: 42, 2.5)
     assert conn.invalidated
+
+
+class _Ctx:
+    context_id = "feedc0de00000000"
+    engines: tuple[()] = ()
+    capture = types.SimpleNamespace(engine_registry=None)
+
+
+def test_collected_context_detaches_listeners():
+    """Review finding 6: a context dropped without ``remove`` must not keep the class-level listeners on."""
+    sqla.detach_all()
+    ctx = _Ctx()
+    assert sqla.add(ctx, statements=True, discovery=False) is True  # type: ignore[arg-type]
+    assert sqla.attached()["before_cursor_execute"] is True
+    del ctx
+    gc.collect()
+    sqla.detach_session()  # any listener sync prunes the dead context
+    assert not any(sqla.attached().values())
