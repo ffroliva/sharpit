@@ -66,5 +66,8 @@ The capture contract reds at `d0ea233`, `82b9177` and `3075c91` are deliberate w
 | `tests/test_foundation_runtime_types.py::test_tool_call_types_resolve_at_runtime` | `359fbe92310fb07b5fdb9553786086ca3303a7a3` | `assert hints.get("call") is CallContext` |
 | `tests/test_foundation_runtime_types.py::test_tool_gate_context_and_via_types_resolve_at_runtime` | `359fbe92310fb07b5fdb9553786086ca3303a7a3` | `assert hints.get("ctx") is SharpitContext` |
 | `tests/engine/test_import_boundary.py::test_opentelemetry_stays_behind_engine_otel_gatekeeper` | `7df27495026acd28f9ba0e8e60e7028113b8cf70` | `assert violations == [...]` (`sharpit/engine/tools.py imports opentelemetry.trace`) |
+| `tests/fastapi/test_unimplemented_panel_surface.py::test_panel_implemented_defaults_true` | `c11ed916979054a6b994c9733964021e4ac5354f` | `assert panel.implemented is True` |
+| `tests/fastapi/test_unimplemented_panel_surface.py::test_unimplemented_panel_has_no_surface` | `c11ed916979054a6b994c9733964021e4ac5354f` | `assert set(IMPLEMENTED.values()) == {False}` |
+| `Vitest: ui/tests/unit/nav.test.ts::keeps every 0.4 panel unimplemented and out of navigation` | `c11ed916979054a6b994c9733964021e4ac5354f` | `expect(Object.values(PANEL_04_IMPLEMENTED)).toEqual(PANEL_04_IDS.map(() => false))` |
 
 Capture red SHAs `d0ea233`, `82b9177`, and `3075c91` are mutation-based contract checks: each substitutes an intentionally wrong value and the assertions detect the missing result or attachment. They are not claims of pre-existing production regressions. The `3ff293b` rows are the review-found production compatibility regressions.
