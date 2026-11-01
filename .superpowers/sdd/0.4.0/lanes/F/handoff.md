@@ -15,6 +15,8 @@ Status: Task 1 implementation complete; fresh review pending before Task 2.
   placed logs outside the worktree.
 - Current state: ready for the fresh Task 1 review; Task 2 has not started.
 
+The capture contract reds at `d0ea233`, `82b9177` and `3075c91` are deliberate wrong-value-stub checks required by COMMON/R2. They prove that the returned capture wiring is created, stored on the context, and is the same object; they are contract/mutation reds, not reports of a defect at the untouched base. The implementation is restored and verified by `e1a3256`.
+
 ## Consumer interface table
 
 | Module / symbol | Contract for later lanes |
@@ -57,3 +59,5 @@ Status: Task 1 implementation complete; fresh review pending before Task 2.
 | `tests/test_foundation_structure.py::test_installed_routes_use_adapter_read_capped_compatibility_target` | `3ff293b0f49a325e25d31e743febfe9cea3c91f2` | `assert response.status_code == 413` |
 | `tests/test_foundation_capture_setup.py::test_configure_capture_stores_wiring_on_context` | `82b9177fc659abc6691712d9e706b8186e34329c` | `assert ctx.capture.wiring is not None` |
 | `tests/test_foundation_capture_setup.py::test_configure_capture_stores_returned_wiring` | `3075c9104fd1cc4939baefc2e7071e370fe6e635` | `assert ctx.capture.wiring is wiring` |
+
+Capture red SHAs `d0ea233`, `82b9177`, and `3075c91` are mutation-based contract checks: each substitutes an intentionally wrong value and the assertions detect the missing result or attachment. They are not claims of pre-existing production regressions. The `3ff293b` rows are the review-found production compatibility regressions.
