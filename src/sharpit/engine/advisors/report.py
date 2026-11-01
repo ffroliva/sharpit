@@ -7,7 +7,7 @@ import re
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import Any
 
-from sharpit.engine.advisors.rules import SEVERITIES
+from sharpit.engine.advisors.rules import SAMPLE_LIMIT, SEVERITIES
 
 UNKNOWN_EVIDENCE = "Assessment evidence is unavailable."
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")  # Java \p{Cntrl}
@@ -25,10 +25,18 @@ def severity_counts(results: Iterable[tuple[str, int]], severities: Sequence[str
     return [{"severity": s, "count": c} for s, c in counts.items()]
 
 
-def apply_dismissals(report: Mapping[str, Any], dismissed: Collection[str]) -> dict[str, Any]:
+def apply_dismissals(
+    report: Mapping[str, Any],
+    dismissed: Collection[str],
+    occurrences: Mapping[str, Sequence[tuple[str, str]]] | None = None,
+) -> dict[str, Any]:
     """A copy of ``report`` with each result's ``dismissed`` set and ``violationsFound``, ``severityCounts`` and
-    ``scan.violationsFound`` recomputed from the active failing rules. The input is never mutated."""
-    marked: list[dict[str, Any]] = [{**r, "dismissed": r["id"] in dismissed} for r in report["results"]]
+    ``scan.violationsFound`` recomputed from the active failing rules. The input is never mutated.
+
+    ``occurrences`` maps a rule id to every occurrence's ``(fingerprint, text)`` in violation order. A dismissed
+    fingerprint removes that occurrence from the rule's count; the samples are refilled from the remaining ones, up
+    to ``SAMPLE_LIMIT``; a rule whose every occurrence is dismissed is marked ``dismissed`` (spec §5.6)."""
+    marked = [_mark(r, dismissed, (occurrences or {}).get(r["id"])) for r in report["results"]]
     active = [r for r in marked if not r["dismissed"] and r["status"] == "FAILED"]
     return {
         **report,
@@ -36,6 +44,24 @@ def apply_dismissals(report: Mapping[str, Any], dismissed: Collection[str]) -> d
         "severityCounts": severity_counts(((r["severity"], r["violationCount"]) for r in active), SEVERITIES),
         "scan": {**report["scan"], "violationsFound": len(active)},
         "results": marked,
+    }
+
+
+def _mark(
+    result: dict[str, Any], dismissed: Collection[str], occurrences: Sequence[tuple[str, str]] | None
+) -> dict[str, Any]:
+    if result["id"] in dismissed:
+        return {**result, "dismissed": True}
+    remaining = [text for fingerprint, text in occurrences or () if fingerprint not in dismissed]
+    if len(remaining) == len(occurrences or ()):
+        return {**result, "dismissed": False}
+    if not remaining:
+        return {**result, "dismissed": True}
+    return {
+        **result,
+        "dismissed": False,
+        "violationCount": len(remaining),
+        "sampleViolations": remaining[:SAMPLE_LIMIT],
     }
 
 

@@ -324,4 +324,4 @@ export interface AdvisorReport {
   results?: AdvisorRule[];
   violationDetails?: { scanId: string | null };
 }
-export interface ViolationsPage { violations: string[]; page: { offset: number; returned: number; hasMore: boolean } }
+export interface ViolationsPage { violations: string[]; fingerprints?: string[]; page: { offset: number; returned: number; hasMore: boolean } }

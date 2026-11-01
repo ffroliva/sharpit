@@ -156,6 +156,8 @@ def test_no_routes(tmp_path: Path):
     report = _service(tmp_path, ()).scan()
     assert (report["scan"]["status"], report["rulesEvaluated"], report["results"]) == ("SCANNED", 0, [])
     assert report["scan"]["message"] == "No route handlers were found in the host application."
+    # ported: RestApiScannerTests.scanWithNoControllersProducesEmptyScannedReport (0.3.0 spec 5.3: confirmed empty)
+    assert report["evidence"] == {"usable": False, "coverageComplete": True, "limitations": []}
 
 
 def test_violation_paging(tmp_path: Path):

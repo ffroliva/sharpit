@@ -15,7 +15,7 @@
    * renders its own body through `children` and reuses the rest.
    */
   let {
-    title, report, loadError = null, onScan, onDismiss, onRestore, loadViolations, readOnlyReason = null,
+    title, report, loadError = null, onScan, onDismiss, onRestore, onDismissFinding, loadViolations, readOnlyReason = null,
     scanDisabledReason = null, vulnerabilities = false, scanLabel, status, children,
   }: {
     title: string;
@@ -26,6 +26,8 @@
     /** Dismiss or restore and reload the report; a throw keeps the old report and shows the action error. */
     onDismiss: (ruleId: string) => Promise<void>;
     onRestore: (ruleId: string) => Promise<void>;
+    /** Dismiss one finding by its fingerprint and reload the report; offered on a violation row that has one. */
+    onDismissFinding?: (fingerprint: string) => Promise<void>;
     loadViolations?: (ruleId: string, offset: number) => Promise<ViolationsPage>;
     /** Disables Scan and Dismiss/Restore. */
     readOnlyReason?: string | null;
@@ -98,6 +100,8 @@
   // "View violations": one rule open at a time, pages appended
   let openRule = $state<string | null>(null);
   let violations = $state<string[]>([]);
+  let fingerprints = $state<(string | null)[]>([]); // parallel to `violations`
+  let dismissedFindings = $state<string[]>([]);
   let hasMore = $state(false);
   let violationError = $state<string | null>(null);
   let paging = $state(false);
@@ -111,6 +115,7 @@
       const page = await loadViolations(ruleId, offset);
       if (mine !== seq) return;
       violations = [...violations, ...page.violations];
+      fingerprints = [...fingerprints, ...page.violations.map((_, i) => page.fingerprints?.[i] ?? null)];
       hasMore = page.page.hasMore;
     } catch (e) {
       if (mine === seq) violationError = errorText(e);
@@ -122,6 +127,8 @@
     seq++;
     openRule = null;
     violations = [];
+    fingerprints = [];
+    dismissedFindings = [];
     hasMore = false;
     paging = false;
     violationError = null;
@@ -132,6 +139,20 @@
     if (opening) {
       openRule = ruleId;
       void more(ruleId, 0);
+    }
+  }
+
+  async function dismissFinding(fingerprint: string) {
+    if (!onDismissFinding || pending || readOnlyReason) return;
+    pending = fingerprint;
+    actionError = null;
+    try {
+      await onDismissFinding(fingerprint);
+      dismissedFindings = [...dismissedFindings, fingerprint];
+    } catch (e) {
+      actionError = `Dismiss failed: ${errorText(e)}`;
+    } finally {
+      pending = null;
     }
   }
 
@@ -235,7 +256,27 @@
     {#if openRule === r.id}
       <div class="violations">
         {#if violationError}<p class="danger sm" role="alert">{violationError}</p>{/if}
-        <ol class="mono sm">{#each violations as v}<li>{v}</li>{/each}</ol>
+        <ol class="mono sm">
+          {#each violations as v, i}
+            {@const fingerprint = fingerprints[i]}
+            <li>
+              {v}
+              {#if onDismissFinding && fingerprint}
+                {#if dismissedFindings.includes(fingerprint)}
+                  <span class="tag muted">dismissed</span>
+                {:else}
+                  <button
+                    class="link"
+                    onclick={() => dismissFinding(fingerprint)}
+                    disabled={!!pending || !!readOnlyReason}
+                    title={readOnlyReason ?? undefined}
+                    aria-label="Dismiss finding {fingerprint}"
+                  >Dismiss this finding</button>
+                {/if}
+              {/if}
+            </li>
+          {/each}
+        </ol>
         {#if hasMore}<button disabled={paging} onclick={() => more(r.id, violations.length)}>Load more</button>{/if}
       </div>
     {/if}
