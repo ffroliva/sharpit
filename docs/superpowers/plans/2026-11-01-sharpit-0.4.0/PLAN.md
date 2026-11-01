@@ -81,7 +81,7 @@ Verbatim from AGENTS.md and the spec; every lane's requirements include these.
 | A-transactions | `A-transactions.md` (never edits `sqla.py`) | best effort 1 | F | codex |
 | A-sqlalchemy-statistics | `A-sqlalchemy-statistics.md` | best effort 2 | F | claude-flavio (Sonnet) |
 | F-rest | the pieces F's minimum cut deferred (council-r2-fixes, F) | best effort 3 | F | any |
-| T-n-plus-one-message | `T-n-plus-one-message.md` (spike F5 + F6) | best effort 4 | G1G2, A-sqlalchemy-statistics | codex (high) |
+| T-n-plus-one-message | `T-n-plus-one-message.md` (spike F5 + F6) | best effort 4 | G1G2, A-sqlalchemy-statistics, A-postgresql | codex (high) |
 | T-swallowed-exceptions | `T-swallowed-exceptions.md` (spike F1) | best effort 5 | T-n-plus-one-message | claude-flavio (Opus) |
 | T-unbounded-read | `T-unbounded-read.md` (spike F2) | best effort 6 | T-swallowed-exceptions | codex |
 | A-traces | `A-traces.md` | best effort 7 | F | agy (Argon) |
@@ -98,8 +98,12 @@ serial because they share `facts.py`, `gates.py` and `marker.py`.
 
 **Critical path:** F (minimum cut) → G6 → G1G2 → G3, about 8–9 h with review. After F merges, start in this order:
 G6, D1, A-postgresql, A-data (the four slots), G4 in the docs-only fifth slot; G1G2 takes the first slot freed after
-G6 merges, ahead of any best-effort lane. Whichever of D1 and G1G2 merges second wires D1's `dismissed_pairs()` into
-the plugin (`test_per_finding_dismissal_reaches_gate`). Parallelism: at most **four code lanes in flight** (one per
+G6 merges, ahead of any best-effort lane. G1G2 owns all dismissal matching (`test_per_finding_dismissal_reaches_gate`);
+D1 only implements F's `dismissed_pairs()` stub (council-r3 R1).
+
+**Rule R0: two lanes whose May-touch lists intersect never run at the same time.** Before starting a lane, compare its
+May-touch list with every lane in flight; any overlap → wait. Known chains: `A-traces → B-security-logs → D2`,
+`D2 → D3 → D4`, `T-swallowed-exceptions → D4`, `A-postgresql → T-n-plus-one-message`. Parallelism: at most **four code lanes in flight** (one per
 worker account) plus one docs-only lane and G0a/G0b. `agent_capacity.py` before each start. Ownership rules O1–O4
 (`council-r2-fixes.md`) decide which files a lane may edit; two lanes in flight never share a file.
 
@@ -162,6 +166,7 @@ database` and writes `gate/leased-pg.log`; skipped = unverified (not committed-d
 ### Step 5: final integration (wake time − 90 min; no new lane after wake time − 2 h)
 
 - [ ] Full gate set on `release/0.4.0`; outputs saved under `.superpowers/sdd/0.4.0/final/`.
+- [ ] Merge every merged lane's `docs.md` into `README.md` / `skills/sharpit/SKILL.md` in one commit (O3), reviewed.
 - [ ] `PARITY.md` counts (parity / unverified / parked / not started).
 - [ ] `.superpowers/sdd/0.4.0/morning-report.md`: shipped lanes (sha), parked lanes (reason + handoff path), rulings,
       open findings, the side-by-side check (tiny-ledger-bootui under BootUI vs sharpit on tiny-ledger-py or the
