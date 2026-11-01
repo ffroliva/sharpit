@@ -11,8 +11,8 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-A.md` §5; BootUI `engine/postgres/*` (`PostgresInsightService.java`, `PostgresQuery.java`, the eight `*Collector.java`, `PostgresSectionIds.java`), DTOs `Postgres*Dto` |
 | **Worker** | L, judgement-heavy (transaction safety) → codex; reviewer from another family + `ponytail-review` (touches `sqla.py`) |
 | **Depends on** | F (PLAN.md; F adds `psycopg[binary]` to the test extra, F1d — see Task 0). Consumes F's F1a table (`F-foundation.md`): `fastapi/routes/postgresql.py`, the `implemented` flag, the MCP stub module, `tests/golden.py::assert_parity`, the `ui/src/views/Postgresql.svelte` placeholder, the `tests/safety/` + `tests/masking/` helpers |
-| **May touch** | `src/sharpit/engine/sqla.py` (**only** `run_db_read` keyword-only parameters and the new `bounded_read_only`; this lane owns these edits), `src/sharpit/engine/collectors/postgresql/` (new package), `src/sharpit/fastapi/routes/postgresql.py` (F stub), the panel's pre-registered rows (flag flip), F's MCP stubs, `ui/src/views/Postgresql.svelte` (replace F's placeholder) + `.test.ts`, `tests/engine/test_sqla_read_only.py`, `tests/engine/postgresql/`, `tests/fastapi/test_postgresql_api.py`, `tests/safety/test_a_postgresql_safety.py`, `tests/masking/test_a_postgresql_masking.py`, `tests/fixtures/bootui/2.2.0/postgresql/*`, the implementer files in the lane folder (C2) |
-| **Must NOT touch** | §10.3 protected files (no dependency edit: a missing driver is a coordinator `Ruling:`); `bounded` (`sqla.py:352-380`) and its callers `collectors/alembic.py`, `collectors/health.py` — **unchanged**; other lanes' modules; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
+| **May touch** | `src/sharpit/engine/sqla.py` (**only** `run_db_read` keyword-only parameters and the new `bounded_read_only`; this lane owns these edits), `src/sharpit/engine/collectors/postgresql/` (new package), `src/sharpit/fastapi/routes/postgresql.py` (F stub), this panel's `src/sharpit/engine/panels04/postgresql.py` and `ui/src/lib/panels04/postgresql.ts` implemented flags only, `ui/src/views/Postgresql.svelte` (replace F's placeholder) + `.test.ts`, `tests/engine/test_sqla_read_only.py`, `tests/engine/postgresql/`, `tests/fastapi/test_postgresql_api.py`, `tests/safety/test_a_postgresql_safety.py`, `tests/masking/test_a_postgresql_masking.py`, `tests/fixtures/bootui/2.2.0/postgresql/*`, the implementer files in the lane folder (C2) |
+| **Must NOT touch** | §10.3 protected files (no dependency edit: a missing driver is a coordinator `Ruling:`); `bounded` (`sqla.py:352-380`) and its callers `collectors/alembic.py`, `collectors/health.py` — **unchanged**; `examples/fastapi_sqla/`, `tests/test_example_app.py`, `README.md`, `skills/sharpit/SKILL.md` (F owns shared wiring; user text goes in lane `docs.md`); other lanes' modules; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
 
 **Architecture:** `async def run_db_read` (`sqla.py:383`) gains `*, wall_timeout: float | None = None, statement_timeout: float |
 None = None, read_only: bool = False` (both timeouts default to today's `timeout`, so alembic/health are byte-for-byte
@@ -36,7 +36,7 @@ every optional query runs in `conn.begin_nested()`. State (last report, previous
   row limits `postgresql_max_sessions=100, max_statements=100, max_indexes=500, max_tables=200,
   max_vacuum_tables=200, max_replicas=10, max_settings=40` (env `SHARPIT_POSTGRESQL_*`, 1..2147483646, invalid →
   default + warning). Constants `STATEMENT_TIMEOUT = 5.0`, `LOCK_TIMEOUT = 2.0`, `READ_BUDGET = 15.0`.
-- Statement and session query text masked (`normalize` from `engine/capture/sqltrace.py:231`, then
+- Statement and session query text masked (`normalize_sql` from `capture/sqltrace.py:280`, then
   `ctx.masker.mask_text`, then 400-char cut); client addresses follow the exposure policy; setting values withheld
   under `METADATA_ONLY`.
 - Errors strings from BootUI with `BootUI`→`sharpit`. Ported tests cite `# ported:`. Red is an assertion. PT018.
@@ -154,7 +154,7 @@ read.".
 
 **Interfaces:** `postgresql_report(ctx) -> dict[str, Any]` (cached or initial `NOT_READ`, never connects);
 `async refresh_postgresql(ctx) -> dict[str, Any]` (single-flight `"postgresql-read"`, `ActionBusy` → 409, iterates
-`ctx.capture.engine_registry.engines()` with `dialect.name == "postgresql"`). Report keys `localOnly, disclaimer,
+`ctx.capture.engine_registry.engines()` with `dialect.name == "postgresql"`); `engine_registry` is optional and `engines()` yields `(name, engine)` tuples. Report keys `localOnly, disclaimer,
 status, message, readAt, databasesRead, truncated, databases, diagnostics, limitations` with BootUI's `DISCLAIMER`
 and messages; status `NOT_READ`/`DISABLED`/`ERROR`/`PARTIAL`/`READ` by `PostgresInsightService.java:196-207`.
 
@@ -222,6 +222,15 @@ in F's `ui/src/lib/nav.ts` wiring (flag only).
 | 8 four gates + lowest-direct + no-SQLAlchemy | 5, 7 (gated logs: coordinator) |
 | 9 live check + leased database (skipped ⇒ unverified) | 0, 1, 3, 7 |
 | 10 handoff current | every commit |
+
+## Leased-database evidence (council round 2)
+
+The implementer runs the leased tests (`SHARPIT_TEST_POSTGRES_URL` from its own `agentctl lease database`) and records
+the command in `handoff.md`, but **that is not the evidence**. Before the merge the coordinator runs the same tests with
+its own lease and writes `gate/leased-pg.log` in the integration worktree, the lane head SHA on its first line. If the
+tests skipped there, the lane is **unverified**: it may merge, but it does not meet the committed definition of done,
+and the morning report says so. `test_read_only_wrapper_rejects_write` and `test_autocommit_engine_is_unavailable` must
+appear as passed (not skipped) in `gate/leased-pg.log`.
 
 ## Lane evidence (C2: `.superpowers/sdd/0.4.0/lanes/A-postgresql/`)
 

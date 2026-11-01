@@ -10,9 +10,9 @@
 | **Spec** | §2 (Wave B needs predict + high-tier council), §4 (no GET calls user code), §6.1, §6.2 (rename), §8 intro, §8.1 row `fastapi-security`, §11 ("static on GET") |
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-B.md` §3; BootUI `SpringSecurityService.java`, `SpringSecurityReport`, `SpringSecurityFilterChainDto`, `SpringSecurityAuthDto`, `SpringSecurityExplainDto`, `SpringSecurityEndpointsReport`, `SpringSecurityEndpointDto` |
 | **Worker** | M, security lane → claude-flavio (Opus); reviewer another family + `ponytail-review` (introspection) |
-| **Depends on** | F (PLAN.md). Consumes F's F1a table (`F-foundation.md`): `fastapi/routes/fastapi_security.py`, the `implemented` flag, the MCP stub module, `tests/golden.py::assert_parity` + `ids.json` (`spring-security` → `fastapi-security`), the `ui/src/views/FastapiSecurity.svelte` placeholder, the `tests/safety/` + `tests/masking/` helpers |
-| **May touch** | `src/sharpit/engine/collectors/appsecurity.py` (new), `src/sharpit/engine/spi.py` (append `SecurityModel` dataclasses only), `src/sharpit/fastapi/introspector.py` (new method `security_model()`), `src/sharpit/fastapi/routes/fastapi_security.py` (F stub), the panel's pre-registered rows, F's MCP stub, `ui/src/views/FastapiSecurity.svelte` (replace F's placeholder) + `.test.ts`, `tests/engine/test_appsecurity.py`, `tests/fastapi/test_introspector_security.py`, `tests/fastapi/test_fastapi_security_api.py`, `tests/safety/test_b_fastapi_security_safety.py`, `tests/masking/test_b_fastapi_security_masking.py`, `tests/fixtures/bootui/2.2.0/fastapi-security/*` (F's `ids.json` already maps the id), the implementer files in the lane folder (C2) |
-| **Must NOT touch** | §10.3 protected files; `engine/guard.py`; the `AppIntrospector` Protocol (`engine/spi.py:64`: the route module calls `security_model()` on the concrete adapter and hands the `SecurityModel` value to the engine, so the port is unchanged); other lanes' modules; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
+| **Depends on** | F (PLAN.md). Consumes these rows of F's consumer interface table (`F-foundation.md`): `sharpit.fastapi.routes.<id>` (`routes/fastapi_security.py`), "implemented flag files" (`engine/panels04/<id>.py` + `ui/src/lib/panels04/<id>.ts`, O4, here `fastapi_security`), `sharpit.engine.tool_stubs.<id>`, `tests.golden.assert_parity` (O2) + `ids.json` (`spring-security` → `fastapi-security`), the `ui/src/views/FastapiSecurity.svelte` placeholder; F's `examples/fastapi_sqla` wiring (O3: OAuth2-protected routes for the live check). The MCP stub modules and `tests/safety/` + `tests/masking/` are F-rest pieces: if absent, the lane creates its own stub module and its own two test files |
+| **May touch** | `src/sharpit/engine/collectors/appsecurity.py` (new), `src/sharpit/engine/spi.py` (append `SecurityModel` dataclasses only), `src/sharpit/fastapi/introspector.py` (new method `security_model()`), `src/sharpit/fastapi/routes/fastapi_security.py` (F stub), `src/sharpit/engine/panels04/fastapi_security.py` and `ui/src/lib/panels04/fastapi_security.ts` (flag flip only, O4), `src/sharpit/engine/tool_stubs/fastapi_security.py`, `ui/src/views/FastapiSecurity.svelte` (replace F's placeholder) + `.test.ts`, `tests/engine/test_appsecurity.py`, `tests/fastapi/test_introspector_security.py`, `tests/fastapi/test_fastapi_security_api.py`, `tests/safety/test_b_fastapi_security_safety.py`, `tests/masking/test_b_fastapi_security_masking.py`, `tests/fixtures/bootui/2.2.0/fastapi-security/nullable.json` (O2), the implementer files in the lane folder (C2) plus `docs.md` (O3) |
+| **Must NOT touch** | §10.3 protected files; `engine/guard.py`; the `AppIntrospector` Protocol (`engine/spi.py:64`: the route module calls `security_model()` on the concrete adapter and hands the `SecurityModel` value to the engine, so the port is unchanged); `PANELS`, `nav.ts`, `App.svelte`, `types.ts` (O4); `captured.json` / `provisional.json` (O2); `README.md`, `skills/sharpit/SKILL.md`, `examples/`, `tests/test_example_app.py` (O3); other lanes' modules; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
 
 **Architecture:** The adapter reads; the engine assembles. `FastApiIntrospector.security_model() -> SecurityModel`
 (a new method on `class FastApiIntrospector`, `fastapi/introspector.py:170`, reusing `_walk` at `:217` and the
@@ -100,7 +100,8 @@ str, matcher: Callable[[str, str], SecuredRoute | None]) -> dict`. Rules: no sch
 
 ### Task 3: Routes, MCP, safety
 
-**Files:** `src/sharpit/fastapi/routes/fastapi_security.py` (F stub), flag flip; Tests
+**Files:** `src/sharpit/fastapi/routes/fastapi_security.py` (F stub), `engine/panels04/fastapi_security.py`
+`IMPLEMENTED = True` (O4); Tests
 `tests/fastapi/test_fastapi_security_api.py`, `tests/safety/test_b_fastapi_security_safety.py`,
 `tests/masking/test_b_fastapi_security_masking.py` (C5).
 
@@ -109,8 +110,9 @@ BootUI's; `path` must start with `/` and be ≤ 2048 chars), `GET {api}/fastapi-
 `get_fastapi_security` (read; BootUI's description with "Spring Security" → "FastAPI security"). `actionCapable=False`.
 
 - [ ] **Step 1:** Tests: `test_report_golden_parity` (`assert_parity("fastapi-security", "report", body)`),
-  `test_endpoints_golden_parity` (`assert_parity("fastapi-security", "endpoints", body)`; fixtures under
-  `tests/fixtures/bootui/2.2.0/fastapi-security/` + `nullable.json`, C3), `test_explain_matches_route`
+  `test_endpoints_golden_parity` (`assert_parity("fastapi-security", "endpoints", body)`; per O2 a multi-endpoint
+  panel: the loader reads G0a's `tests/fixtures/bootui/2.2.0/fastapi-security/{report,endpoints}.captured.json`, else
+  another worker's `<name>.provisional.json` (result unverified); the lane writes only `nullable.json`), `test_explain_matches_route`
   (`# ported: ...explainMatchesChainWhenPathMatches`), `test_explain_absent_is_unmatched`
   (`# ported: ...explainEndpointWithAbsentProxyReturnsUnmatchedResult`), `test_explain_input_edges`,
   `test_middleware_values_never_exposed`, `test_get_no_side_effects` (all three GETs), `test_mcp_read_tool_only`,
@@ -119,10 +121,12 @@ BootUI's; `path` must start with `/` and be ≤ 2048 chars), `GET {api}/fastapi-
 
 ### Task 4: Svelte view, live check, evidence
 
-- [ ] **Step 1:** Replace F's placeholder `ui/src/views/FastapiSecurity.svelte`, flip the panel's `implemented` in F's
-  `ui/src/lib/nav.ts` wiring (flag only); vitest (chain list, endpoint table filter by rule, explain
+- [ ] **Step 1:** Replace F's placeholder `ui/src/views/FastapiSecurity.svelte`, set `implemented = true` in
+  `ui/src/lib/panels04/fastapi_security.ts` (O4; `nav.ts` untouched); vitest (chain list, endpoint table filter by rule, explain
   form; `bestEffort` badge). `npm --prefix ui run check` PASS.
-- [ ] **Step 2:** Live on `examples/fastapi_sample` / tiny-ledger-py (OAuth2 routes); record requests in `handoff.md`
+- [ ] **Step 2:** Live on `examples/fastapi_sqla` with the OAuth2 routes F wired (O3; no example edit; neither example
+  has OAuth2 routes today), else tiny-ledger-py; user-facing text goes to the lane folder's `docs.md` (O3); record
+  requests in `handoff.md`
   §Live check (`live-verify.md` is the coordinator's, C2); lowest-direct + no-SQLAlchemy as a local pre-check only.
 - [ ] **Step 3:** Commit `feat: fastapi-security view and lane evidence`.
 

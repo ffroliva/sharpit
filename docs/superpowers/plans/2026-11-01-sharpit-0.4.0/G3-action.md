@@ -39,7 +39,7 @@
 
 **Files:** Create `src/sharpit/report/summary.py` (or a focused module consistent with existing CLI dispatch); modify `src/sharpit/__main__.py` only as needed; create `tests/test_report_summary.py` and `tests/fixtures/report-summary.md`.
 
-**Interfaces:** `render_summary(report: Mapping[str, object]) -> str` returns Markdown with status, mode, totals, baseline counts when present, and at most 20 top findings. Escape every interpolated value; use stable ordering. CLI `python -m sharpit.report summary <report.json>` writes Markdown to stdout and exits nonzero on unreadable/invalid JSON.
+**Interfaces:** `render_summary(report: Mapping[str, object]) -> str` returns Markdown with status, mode, totals, baseline counts when present, and at most 20 top findings. Escape every interpolated value; use stable ordering. `python -m sharpit.report summary <report.json>` is implemented by `src/sharpit/report/__main__.py`, writes Markdown to stdout and exits nonzero on unreadable/invalid JSON.
 
 - [ ] **Step 1: Failing tests.** `test_summary_golden`, Review Focus 4–5, `test_summary_has_status_mode_totals`, `test_summary_includes_baseline_counts_when_present`, `test_summary_without_baseline_is_stable`, `test_summary_cli_reads_report_and_writes_stdout`, `test_summary_cli_invalid_json_returns_error`.
 - [ ] **Step 2: Run `tests/test_report_summary.py`; expected assertion failures, not import/collection errors.**

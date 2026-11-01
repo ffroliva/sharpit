@@ -1,20 +1,26 @@
 # T-unbounded-read — Implementation Plan
 
 > **For agentic workers:** Use superpowers:subagent-driven-development or
-> superpowers:executing-plans. Best-effort lane 3; one task/commit at a time.
+> superpowers:executing-plans. Best-effort lane 6 (PLAN.md); one task/commit at a time.
 
 **Goal:** Flag ORM SELECTs that materialise at least twice the bound page size during a request
 to an endpoint declaring paging parameters, with a marker override (spike F2).
 
-**Architecture:** The rule **requires `sharpit.install`**: the capture middleware is what knows
-the matched route and the request's bound `limit`/`page_size`, so it records a small paging
-context on the request (`RequestInfo`). Without `install` (no capture middleware) the rule reports
-a limitation and does not fire. Counting is per statement through a test-session-only
-`InstanceEvents.load` listener (class-level on mapped classes, through `engine/sqla.py`): each
-load increments the counter of the statement currently executing in that request. This is a
-separate listener from T-n-plus-one-message's `SessionEvents.do_orm_execute` (which identifies
-lazy relationships); a lookup-table query is its own statement, so it never adds to another's
-count. Page size is never inferred when none is bound.
+**Architecture:** The rule **requires `sharpit.install`**: the capture middleware creates the
+request's `RequestInfo`, and only it holds the ASGI `scope`. The route match is **not** visible to
+the middleware up front (routing runs inside `call_next`, after the middleware started), so the
+middleware only keeps a reference to the request's `scope` on `RequestInfo`; the paging context is
+computed **lazily at the first counted load** of that request, when the router has already written
+`scope["route"]` (Starlette's `Router` updates the same scope dict) and `scope["query_string"]` is
+there. Without `install` (no `RequestInfo`) the rule reports a limitation and does not fire.
+Counting is per statement through one test-session-only listener on **`sqlalchemy.orm.Mapper`
+`load`** (`event.listen(Mapper, "load", fn)`, class-level, covers every mapper): the event's second
+argument is the `QueryContext` of the executing ORM statement, and counts are keyed by that
+`QueryContext` (by `id()` in a per-request dict, dropped when the request ends), so a lookup-table
+query has its own key and never adds to another's count. Objects already in the session's identity
+map do not fire `load`, so a repeated read undercounts: the safe direction (fewer findings, never a
+false one), recorded in §11. This is a separate listener from T-n-plus-one-message's
+`SessionEvents.do_orm_execute`. Page size is never inferred when none is bound.
 
 **Tech Stack:** Python >=3.12, SQLAlchemy 2 optional, pytest, Starlette/FastAPI adapter
 metadata.
@@ -24,7 +30,7 @@ metadata.
 
 ## Header and ownership
 
-- **Lane:** `T-unbounded-read` (best effort 3; F2). Evidence folder
+- **Lane:** `T-unbounded-read` (best effort 6; F2). Evidence folder
   `.superpowers/sdd/0.4.0/lanes/T-unbounded-read/`.
 - **Worker profile:** L, judgement-heavy (request/ORM correlation and conservative gate
   semantics).
@@ -32,22 +38,33 @@ metadata.
   `G1G2 → T-n-plus-one-message → T-swallowed-exceptions → T-unbounded-read` because they share
   `engine/testsession/facts.py`, `engine/testsession/gates.py` and `pytest_plugin/marker.py`; this
   lane rebases onto both predecessors' `PhaseFacts`/`Budget` additions and uses G1G2's
-  `evaluate_test` signature. Consumes F's F1a table (`F-foundation.md`) for the post-split
-  `fastapi/capture.py` and `pytest_plugin/` modules.
-- **May touch:** `src/sharpit/engine/sqla.py` (the new `InstanceEvents.load` listener, attached
-  and removed with `attach_session()` `:320` / `detach_session()` `:331`);
-  `src/sharpit/engine/capture/correlation.py` (`RequestInfo` at `:13` gains one optional field
-  `paging: PagingContext | None = None`); `src/sharpit/fastapi/capture.py` (`CaptureMiddleware`
-  at `:283`: set `paging` once the route is matched; F1a names the post-F location);
-  `src/sharpit/settings.py` (one field `activity_unbounded_read_factor: int = 2`, min 2, beside
-  `activity_n_plus_one_threshold` at `:82`, plus its parser row); `src/sharpit/engine/testsession/facts.py`,
-  `gates.py`; `src/sharpit/pytest_plugin/marker.py`; `tests/engine/test_sqla.py`,
+  `evaluate_test` signature. Consumes these rows of F's consumer interface table
+  (`F-foundation.md`): "Pre-created settings fields" (`activity_unbounded_read_factor: int = 2`, min 2, env
+  `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR`; F pre-creates it, this lane never edits `settings.py`),
+  `sharpit.pytest_plugin.session`, `sharpit.engine.testsession.gates.evaluate_test`; and G1G2's
+  `gates.py::fails(dto)` predicate.
+- **Start gate (O1):** `engine/sqla.py` is owned by A-postgresql. This lane edits it only after
+  A-postgresql has merged or parked; the coordinator checks before launch (the T-* chain makes that
+  near certain, but it is checked, not assumed).
+- **May touch:** `src/sharpit/engine/sqla.py` (one `Mapper` `load` listener, attached and removed
+  with `attach_session()` `:320` / `detach_session()` `:331`; subject to the start gate);
+  `src/sharpit/engine/capture/correlation.py` (`RequestInfo`, a plain mutable `@dataclass` at `:13`,
+  gains three defaulted fields `scope: MutableMapping[str, Any] | None = None`, `paging:
+  PagingContext | None = None` and `loads: dict[int, Counter[str]] = field(default_factory=dict)`,
+  plus `PagingContext` and `paging_of(scope)`); `src/sharpit/fastapi/capture.py` (`CaptureMiddleware`
+  at `:283`: one keyword, `scope=scope`, where it builds `RequestInfo`; nothing else);
+  `src/sharpit/engine/testsession/facts.py`, `gates.py`; `src/sharpit/pytest_plugin/marker.py`;
+  `src/sharpit/pytest_plugin/session.py` (only to pass the factor into `budget_for`);
+  `tests/engine/test_sqla.py`,
   `tests/engine/testsession/test_gates.py`, `tests/fastapi/test_capture_paging.py` (new),
   `tests/pytest_plugin/test_plugin_unbounded_read.py` (new); fixture
   `tests/fixtures/apps/unbounded_read/` (with a `conftest.py` that calls `sharpit.install(app)`);
   the implementer files in the lane evidence folder (C2).
 - **Must not touch:** N+1 message format/fingerprint and the `do_orm_execute` listener
-  (T-n-plus-one-message), other lanes' modules, `engine/guard.py`, panel routes/UI, report schema,
+  (T-n-plus-one-message), `src/sharpit/settings.py` (F owns the field), `before_cursor_execute`
+  (counts no longer need it), `README.md`, `skills/sharpit/SKILL.md`, `examples/`,
+  `tests/test_example_app.py` (O3: user-facing text goes to the lane folder's `docs.md`), other
+  lanes' modules, `engine/guard.py`, panel routes/UI, report schema,
   `scripts/dev/lane_gate.py`, import-boundary rules, existing overhead constants, complexity/sonar
   baselines, dependency lists or `uv.lock`, `tests/test_safety_matrix.py`,
   `tests/test_masking_corpus.py` (C5), any `review.md` or `gate/` path.
@@ -58,8 +75,10 @@ metadata.
   `@pytest.mark.sharpit(allow_unbounded_read=True)` relaxes it; report-only and baselines apply.
 - Fire only on routes declaring `skip`, `limit`, `offset`, `page`, or `page_size` and a SELECT
   with no SQL `LIMIT`/`FETCH`.
-- Count ORM instances materialised per statement; threshold `loaded >= page_size * factor`,
-  factor default 2, setting `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR`.
+- Count ORM instances materialised per statement (`Mapper` `load`, keyed by `QueryContext`);
+  threshold `loaded >= page_size * factor`, factor default 2 from F's settings row
+  `activity_unbounded_read_factor` (`SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR`), carried in `Budget`.
+- Identity-map hits do not fire `load`: a known undercount, never an overcount.
 - Page size comes from the request's bound `limit` or `page_size` (a positive integer); no bound
   value means no finding; never guess from `skip`, `offset` or `page`.
 - **Needs `sharpit.install`.** No capture middleware → the source reports the limitation
@@ -109,25 +128,29 @@ and `limit`, and Python-side slicing after `.all()`; 52 rows and a requested pag
 
 ### Task 2: Per-statement ORM load counts in the test session
 
-**Files:** Modify `src/sharpit/engine/sqla.py`, `src/sharpit/engine/testsession/facts.py`,
-`src/sharpit/settings.py`; tests `tests/engine/test_sqla.py`, `tests/test_settings.py` (one
-row); use the fixture from Task 1.
+**Files:** Modify `src/sharpit/engine/sqla.py` (start gate, O1), `src/sharpit/engine/testsession/facts.py`;
+tests `tests/engine/test_sqla.py`; use the fixture from Task 1.
 
-**Interfaces:** A test-session-only `InstanceEvents.load` listener (registered through
-`sqla.sqlalchemy_module()` with `propagate=True` on the mapper base, removed at
-`detach_session()`) increments `loads[(request_id, statement_key)][entity]`, where
-`statement_key` is the statement `before_cursor_execute` (`sqla.py:153`) is executing for that
-request. Add `UnboundedReadFact(route: str, statement: str, entity: str, loaded: int, page_size:
-int, has_limit: bool, location: str | None)` to `PhaseFacts` (serialised for xdist). Settings
-field `activity_unbounded_read_factor: int = 2` (min 2; invalid → default + warning, as
-`activity_n_plus_one_threshold`).
+**Interfaces:** One test-session-only listener `sqla._mapper_load(target, context)` registered as
+`sa.event.listen(sa.orm.Mapper, "load", _mapper_load)` (through `sqla.sqlalchemy_module()` inside
+`sqla.py`, added by `attach_session()` and removed by `detach_session()`, like `_session` today).
+It returns at once unless `REQUEST.get()` is set; otherwise it increments
+`REQUEST.get().loads[id(context)][type(target).__name__]` (so the counts die with the request), and on the first count for a `QueryContext` records the statement shape once
+(`normalize(str(context.query)).sql`, masked) and `has_limit` (the select's `_limit_clause` /
+`_fetch_clause` read with `getattr` defaults; unreadable → treated as limited, so no finding).
+At request end the counts become `UnboundedReadFact(route: str, statement: str, entity: str,
+loaded: int, page_size: int, has_limit: bool, location: str | None)` rows on `PhaseFacts`
+(serialised for xdist), only when the request's lazily computed `paging` (Task 3) has a page size.
 
-- [ ] **Step 1: Write failing tests** `test_load_counts_are_per_statement`,
-  `test_load_counts_are_scoped_to_request`, `test_multiple_entities_count_separately`,
-  `test_listener_does_not_change_query_results`, `test_unbounded_read_factor_default_and_override`.
+- [ ] **Step 1: Write failing tests** `test_load_counts_are_per_statement` (two statements in one
+  request → two keys), `test_load_counts_are_scoped_to_request`,
+  `test_multiple_entities_count_separately`, `test_listener_does_not_change_query_results`,
+  `test_identity_map_hits_are_not_counted` (documents the undercount: a second `.all()` in the same
+  session counts 0 new loads), `test_unbounded_read_factor_default_and_override` (F's settings row
+  default 2 and an env override reach `Budget.unbounded_read_factor`).
 - [ ] **Step 2: Run;** expected named assertions fail (stubs), no collection errors (C4).
 - [ ] **Step 3: Implement** the listener and facts; one registration only, removed with the
-  session.
+  session; a raising listener warns once (`dispatch.routing_failed`) and never changes the query.
 - [ ] **Step 4: Verify** request isolation, worker/test attribution, fact serialisation.
 - [ ] **Step 5: Commit** `feat: count ORM rows loaded per statement in paged requests`.
 
@@ -137,16 +160,21 @@ field `activity_unbounded_read_factor: int = 2` (min 2; invalid → default + wa
 tests `tests/fastapi/test_capture_paging.py`, `tests/pytest_plugin/test_plugin_unbounded_read.py`.
 
 **Interfaces:** `@dataclass(frozen=True) class PagingContext: route: str; parameter_names:
-frozenset[str]; page_size: int | None` in `correlation.py`; `RequestInfo.paging: PagingContext |
-None = None`. The middleware fills it once the route is matched, from the route's declared query
-parameter names (the same reading as `ApiRouteInfo.query_params`, `engine/spi.py:40`; nothing is
-called) and the request's `limit`/`page_size` query value, accepted only as a positive integer.
-No route declares a paging name → `paging` stays `None`. The pytest source reports the
-no-`install` limitation when no request in the session carried a `RequestInfo`.
+frozenset[str]; page_size: int | None` and `paging_of(scope: Mapping[str, Any]) -> PagingContext |
+None` in `correlation.py` (engine, framework-free: reads only `scope.get("route")`'s `path` and its
+`dependant.query_params` names with `getattr` defaults, the same reading as
+`ApiRouteInfo.query_params`, `engine/spi.py:40`, nothing called; and `scope["query_string"]` parsed
+with `urllib.parse.parse_qs`). `RequestInfo` gains `scope` (set by the middleware at request start,
+`fastapi/capture.py:283`, the only adapter edit) and `paging` (computed by `paging_of` at the first
+counted load, then cached; a missing `scope["route"]` at that point → `None`, no finding). The
+`limit`/`page_size` value is accepted only as a positive integer. No paging name declared →
+`None`. The pytest source reports the no-`install` limitation when no request in the session
+carried a `RequestInfo`.
 
 - [ ] **Step 1: Add failing tests** `test_paging_route_without_bound_page_size_does_not_guess`,
   `test_page_size_binding_validation_is_conservative`, `test_paging_context_reset_after_exception`,
-  `test_without_install_reports_limitation_and_does_not_fire`.
+  `test_paging_computed_lazily_after_route_match` (the middleware sees no `scope["route"]` at
+  request start; the first load does), `test_without_install_reports_limitation_and_does_not_fire`.
 - [ ] **Step 2: Run;** expected context/limitation assertions fail.
 - [ ] **Step 3: Implement**; never derive a page size from `page`, `skip` or `offset`.
 - [ ] **Step 4: Verify** the context clears across requests and test attempts, including
@@ -159,10 +187,13 @@ no-`install` limitation when no request in the session carried a `RequestInfo`.
 **Files:** Modify `src/sharpit/engine/testsession/gates.py`, `src/sharpit/pytest_plugin/marker.py`,
 `tests/engine/testsession/test_gates.py`; extend the Task 1 test.
 
-**Interfaces:** Rule `sharpit.unbounded-read`; `Budget` gains `allow_unbounded_read: bool = False`
-(`marker.budget_for`, `marker.py:12`, accepts the key). `evaluate_test` keeps the signature G1G2
-leaves it with; it emits a HIGH finding when the request was paged, the statement has no
-`LIMIT`/`FETCH` and `loaded >= page_size * factor`. Message names route, entity, loaded count and
+**Interfaces:** Rule `sharpit.unbounded-read`; `Budget` (`gates.py:21`) gains
+`allow_unbounded_read: bool = False` and `unbounded_read_factor: int = 2`; `marker.budget_for`
+(`marker.py:12`) accepts the marker key and a keyword `unbounded_read_factor: int = 2`, which the
+session module passes from `state.settings.activity_unbounded_read_factor` (as it passes
+`activity_n_plus_one_threshold` today, `pytest_plugin/__init__.py:499` before F's split).
+`evaluate_test` keeps the signature G1G2 leaves it with; it emits a HIGH finding when the request
+was paged, the statement has no `LIMIT`/`FETCH` and `loaded >= page_size * budget.unbounded_read_factor`. Message names route, entity, loaded count and
 page size, with the masked SQL and the first application location. The fingerprint uses the
 statement identity (normalised shape + route), never the runtime counts.
 
@@ -184,7 +215,7 @@ statement identity (normalised shape + route), never the runtime counts.
 | 1 golden parity, `nullable.json`, field map | `N/A`: not a panel lane |
 | 2 `# ported:` citations | `N/A`: no BootUI behaviour ported (spike tests cite `# spike: F2`) |
 | 3 safety (`no_side_effects`, masking) | 3–4 (masked SQL; no parameters; the middleware reads only the query string; no GET/MCP surface) |
-| 4 gatekeeper | 2 (`InstanceEvents.load` only in `engine/sqla.py`; boundary test green) |
+| 4 gatekeeper | 2 (`Mapper` `load` listener only in `engine/sqla.py`; boundary test green) |
 | 5 overhead budget | 3 Step 4 (existing capture budget unchanged); the load listener is test-session only |
 | 6 MCP read-only | `N/A`: no MCP tool |
 | 7 Svelte view | `N/A`: no UI |
@@ -206,9 +237,10 @@ statement identity (normalised shape + route), never the runtime counts.
 ## Definition of done
 
 - [ ] Task 1 reproduces F2 red on the base (52 loaded for 5) for the right reason.
-- [ ] Task 2 counts per statement via `InstanceEvents.load`; one listener, removed with the
-  session.
-- [ ] Task 3 takes the page size only from a bound `limit`/`page_size`, resets per request, and
-  reports the no-`install` limitation.
+- [ ] Task 2 counts per statement via `Mapper` `load` keyed by `QueryContext`; one listener,
+  removed with the session; the identity-map undercount is documented.
+- [ ] Task 3 computes `PagingContext` lazily from `scope` at the first counted load, takes the page
+  size only from a bound `limit`/`page_size`, resets per request, and reports the no-`install`
+  limitation.
 - [ ] Task 4 gates only the defined case, honours the marker, report-only and baselines.
 - [ ] Incomplete best-effort work is parked with reason, evidence and next step in `handoff.md`.

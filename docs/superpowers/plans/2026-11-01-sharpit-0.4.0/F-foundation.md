@@ -15,8 +15,8 @@
 - **Lane:** F (foundation; must merge before any fan-out).
 - **Worker profile:** L, judgement-heavy (responsibility splits, import behavior, gate safety).
 - **Dependencies:** — (PLAN.md canonical id `F`). All lanes that list F depend on this merge.
-- **May touch:** `src/sharpit/fastapi/adapter.py` and new `fastapi/` responsibility modules; `src/sharpit/engine/tools.py` and new tool modules; `src/sharpit/pytest_plugin/__init__.py` and new plugin modules; `engine/panels.py`, settings/registries, capture wiring, `engine/sqla.py`; `ui/src/` navigation; `tests/` for parity and stubs; `tests/engine/test_import_boundary.py` (foundation gatekeeper rows only); `AGENTS.md` where §10.2 requires; `pyproject.toml`, `uv.lock` (only specified test dependencies); both testsession report schema copies; `docs/reference/bootui/2.2.0/`; `docs/reference/PARITY.md`; `scripts/dev/lane_gate.py`, its tests, and handoff template under `.superpowers/sdd/0.4.0/`.
-- **Must not touch:** Later lane-owned feature implementation or panel modules; `sonar-baseline.txt`, overhead budget constants, existing behavior assertions except equivalent coverage; dependency lists except the specified test extras with synchronized lock entries. F may re-key moved-code entries in `tests/complexity_baseline.json` only when the per-finding total does not rise; lane_gate permits downstream edits only when every value decreases or an entry is removed.
+- **May touch:** `src/sharpit/fastapi/adapter.py` and new `fastapi/` responsibility modules; `src/sharpit/engine/tools.py` and new tool modules; `src/sharpit/pytest_plugin/__init__.py` and new plugin modules; `engine/panels.py`, settings/registries, capture wiring, `engine/sqla.py` only for the inert connection-event slot; `ui/src/` navigation and placeholders; `tests/` for parity and stubs; `tests/engine/test_import_boundary.py` (foundation gatekeeper rows only); `AGENTS.md` where §10.2 requires; `pyproject.toml`, `uv.lock` (only `psycopg[binary]`); both testsession report schema copies; `tests/fixtures/bootui/2.2.0/`; `docs/reference/PARITY.md`; `scripts/dev/lane_gate.py`, its tests, and handoff template under `.superpowers/sdd/0.4.0/`; `examples/fastapi_sqla/` and `tests/test_example_app.py` for shared panel wiring.
+- **Must not touch:** Later lane-owned feature implementation or panel modules; `sonar-baseline.txt`, overhead budget constants, existing behavior assertions except equivalent coverage; dependency lists except `psycopg[binary]` with synchronized lock entry. F may re-key moved-code entries in `tests/complexity_baseline.json` only when the per-finding total does not rise; lane_gate permits downstream edits only when every value decreases or an entry is removed.
 
 ## Global constraints
 
@@ -52,7 +52,7 @@
 
 **Files:** Modify `src/sharpit/engine/panels.py`, `src/sharpit/settings.py`, advisor/capture/discovery registries, `src/sharpit/engine/sqla.py`, post-split adapter/plugin/tools modules, `ui/src/`; corresponding `tests/`; `tests/engine/test_import_boundary.py`; `AGENTS.md` only for §10.2 gatekeeper rows.
 
-**Interfaces:** `Panel` gains `implemented: bool = True`. `install(models=...)` stores `SharpitContext.models`. Add inert SQLAlchemy connection-event slot, capture middleware 401/403 callback, and span-processor wiring slot. Add pytest options `--sharpit-report-only`, `--sharpit-baseline`, `--sharpit-write-baseline` (accepted, inert). Every §6.2 0.4 id is registered with `implemented=False`, including Python stand-ins, settings/advisors/capture/discovery/MCP/nav stubs. Per-panel route modules are included only when implemented.
+**Interfaces:** `Panel` gains `implemented: bool = True`. `install(models=...)` stores `SharpitContext.models`. Add inert SQLAlchemy connection-event slot `add_connection_listener(event: Literal["begin", "commit", "rollback", "savepoint", "rollback_savepoint", "release_savepoint"], fn: Callable[..., None]) -> Callable[[], None]`, capture middleware 401/403 callback `Callable[[Scope, int], None]`, and span-processor wiring slot. Add pytest options `--sharpit-report-only`, `--sharpit-baseline`, `--sharpit-write-baseline` (accepted, inert). Every §6.2 0.4 id is registered with `implemented=False`, including Python stand-ins, settings/advisors/capture/discovery/MCP/nav stubs. Per-panel route modules are included only when implemented.
 
 **Foundation choices required by downstream lanes:** Create `ui/src/views/<Panel>.svelte` placeholders for every 0.4 panel, wire each through `ui/src/App.svelte`, `ui/src/lib/nav.ts`, and `ui/src/lib/types.ts`, and gate each on `implemented`. Later lanes replace only their own view. Add test extras for the OpenTelemetry SDK, a MySQL driver, and `psycopg[binary]`. In `tests/engine/test_import_boundary.py`, permit pytest/`_pytest` in every module below `sharpit/pytest_plugin/` and add `"opentelemetry": {"sharpit/engine/otel.py"}`. Create `tests/safety/` and `tests/masking/` packages with READMEs and shared helpers. `test_unimplemented_panel_has_no_surface` is the canonical absent-surface test. F may re-key moved-code entries in `tests/complexity_baseline.json` only with a per-finding total that does not rise; lane_gate permits downstream edits only when every value decreases or an entry is removed.
 
@@ -131,6 +131,13 @@
 | `sharpit.engine.headers.security_headers`, `sharpit.engine.panels.read_only_reason`, `sharpit.engine.guard` | Existing `security_headers(kind: Literal["api", "shell", "asset"]) -> list[tuple[str, str]]`, called as `security_headers("api")`; `read_only_reason(panel_id: str, global_read_only: bool) -> str` returns `sharpit is read-only via SHARPIT_READ_ONLY=true` globally or `Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true`; guard panel-denial body is exactly `sharpit panel access denied`. |
 | `sharpit.fastapi.adapter._read_capped`, nested `send_with_headers` | Existing `_read_capped(request: Request, cap: int) -> bytes | None`; nested `send_with_headers(message: Message) -> None` already skips CSP when response already has it. |
 | `sharpit.engine.sqla.sqlalchemy_module`, `sharpit.engine.collectors.pools.pools_report` | Existing `sqlalchemy_module() -> Any | None`; `pools_report(ctx: SharpitContext) -> dict[str, Any]`. |
+| `sharpit.engine.sqla.add_connection_listener` | `add_connection_listener(event: Literal["begin", "commit", "rollback", "savepoint", "rollback_savepoint", "release_savepoint"], fn: Callable[..., None]) -> Callable[[], None]`; returns a remover; A-transactions registers here and never edits `sqla.py`. |
+| Pre-created settings fields | Each F-created setting has a table row with exact type, default and parser, including `security_logs_max_logs`, every `postgresql_max_*` field, and `activity_unbounded_read_factor`. |
+| `sharpit.engine.capture.CaptureState.security_logs` | `security_logs: Any | None = None`. |
+| 401/403 capture hook | `Callable[[Scope, int], None]`; consumer reads method/path from `scope["method"]` and `scope["path"]`. |
+| SqlTraceRecorder construction | F records the post-split module that constructs `SqlTraceRecorder`; consumers use that construction point rather than the pre-split adapter line. |
+| `sharpit.pytest_plugin.apps` | `_load_app` and `_run_advisors` live here; autodetection API name is `autodetect_apps()`. |
+| implemented flag files | F creates `src/sharpit/engine/panels04/<id_underscored>.py` (`IMPLEMENTED = False`) and `ui/src/lib/panels04/<id_underscored>.ts` (`implemented = false`); each panel lane owns only its pair. |
 
 - [ ] **Step 1:** Verify all newly created panel routes are mounted only through their per-panel route module and the `implemented` check; no shared route list is owned by a later lane.
 - [ ] **Step 2:** Verify panel configuration defaults are inert: disabled panels neither activate nor create collectors/listeners, and a request to their path is a 404.
@@ -146,6 +153,21 @@ Each refusal test builds a temporary git/lane fixture and asserts both nonzero e
 - [ ] **Step 3:** `test_lane_gate_refuses_missing_field_map_handoff_or_checklist` covers each missing required artifact and each missing §6.1 evidence path.
 - [ ] **Step 4:** `test_lane_gate_refuses_protected_diff` covers the protected file list one path at a time; `test_lane_gate_refuses_gate_log_for_other_sha` covers stale logs.
 - [ ] **Step 5:** `test_lane_gate_accepts_complete_evidence` proves a well-formed lane with matching head-SHA logs is accepted.
+
+### Council round 2 additions
+
+**Red replay in `lane_gate.py`:** for every red-test name in the lane's `findings.md`, the gate checks that the test
+exists in the lane diff, passes at the lane head, and **fails** when run on the merge-base with only the lane's
+changed test files overlaid (in a temporary worktree it removes afterwards). Any miss refuses the merge. Tests (Task 4):
+`test_lane_gate_refuses_fake_red` (a "red" test that already passes on the base) and
+`test_lane_gate_refuses_missing_red_test` (a named red test absent from the diff).
+
+**Minimum cut at T0 + 2 h (spec §10.6), exactly:** Task 1 (the three splits), the O4 per-panel flag files with
+`test_unimplemented_panel_has_no_surface`, Task 4 (`lane_gate.py` with its tests, red replay included), Task 3's golden
+loader, and the UI placeholders/wiring. **Deferred to lane `F-rest`** (best effort, any worker, files of its own):
+MCP stub modules, the `tests/safety/` and `tests/masking/` packages, test extras other than `psycopg[binary]`. A lane
+that needs a deferred piece before F-rest merges creates its own file for it, never a shared one. Record the cut in
+F's `handoff.md`.
 
 ## Lane evidence checklist
 

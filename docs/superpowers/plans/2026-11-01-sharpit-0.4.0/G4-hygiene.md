@@ -15,8 +15,8 @@
 - **Lane:** G4.
 - **Worker profile:** S/M, mechanical with judgement-heavy security wording.
 - **Dependencies:** F (exactly as PLAN.md). G1G2/G3 are not dependencies; verify described flags/action against merged artifacts or describe only accepted spec surface.
-- **May touch:** `README.md`, `SECURITY.md` (create if absent), `.github/dependabot.yml`, only the stale line in `skills/README.md`, and this lane’s evidence folder.
-- **Must not touch:** Python source, tests, `pyproject.toml`, `uv.lock`, workflows/action code, panel docs owned by feature lanes, `scripts/dev/lane_gate.py`, complexity/sonar baselines, or other README/skill content.
+- **May touch:** `README.md`, `SECURITY.md` (create if absent), `.github/dependabot.yml`, `tests/docs/test_procurement_docs.py` (documentation-only assertions), only the stale line in `skills/README.md`, and this lane’s evidence folder.
+- **Must not touch:** Python source, tests other than `tests/docs/test_procurement_docs.py`, `pyproject.toml`, `uv.lock`, workflows/action code, panel docs owned by feature lanes, `scripts/dev/lane_gate.py`, complexity/sonar baselines, or other README/skill content.
 
 ## Global constraints
 

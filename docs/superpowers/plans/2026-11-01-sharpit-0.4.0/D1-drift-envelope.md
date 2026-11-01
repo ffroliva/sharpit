@@ -7,27 +7,39 @@
 - **Goal:** Bring the global API envelope (`GET/POST/DELETE /dismissed-findings`, `overview` run stamp & `"Scorecard"` title, security header deduplication, and `config`/`beans`/`mappings`/`loggers`/`cli` MCP projection defaults) to BootUI 2.2.0 contract parity.
 - **Spec sections:** §9 D1, §6.1 (definition of done), §10.2 (Order 2, committed lane), §10.3 (lane gate & review requirements); contract `docs/reference/BOOTUI-CONTRACT-0.4-DRIFT.md` §§1–6, 9 and `docs/reference/BOOTUI-CONTRACT-MVP.md` §§1, 10.
 - **Worker profile:** **M**, **judgement-heavy** (touches `src/sharpit/engine/guard.py` and shared advisor dismissal state; default worker in `PLAN.md`: `claude-flavio (Opus)`).
-- **Depends on:** `F` (`F-foundation.md` §"Foundation consumer interface table"). `G1G2`, `D2`, `D3`, and `D4` depend on `D1` so advisor panels and the pytest plugin inherit `DismissedFinding` support.
+- **Depends on:** `F` (`F-foundation.md` §"Foundation consumer interface table"). `D1` no longer gates `G1G2`: **whichever of `D1` and `G1G2` merges second** wires `DismissalStore.dismissed_pairs()` into the pytest plugin's dismissed set (`src/sharpit/pytest_plugin/session.py` and `src/sharpit/pytest_plugin/apps.py` post-`F` split; `src/sharpit/pytest_plugin/__init__.py:241, 499, 557` pre-`F`) and `src/sharpit/engine/testsession/gates.py::_finding`, with `test_per_finding_dismissal_reaches_gate`. `D2`, `D3`, and `D4` depend on `D1`.
 - **Foundation interfaces consumed (`F-foundation.md` §"Foundation consumer interface table"):**
-  - `sharpit.fastapi.routes.dismissed_findings`, `sharpit.fastapi.routes.overview`, `sharpit.fastapi.routes.panels`, `sharpit.fastapi.adapter` (`_read_capped(request: Request, cap: int) -> bytes | None`, `GuardMiddleware.send_with_headers`)
-  - `sharpit.engine.tools` (compatibility facade) and `sharpit.engine.tool_stubs.*`
-  - `tests.golden.assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None`
+  - `sharpit.fastapi.routes.<id>` (`sharpit.fastapi.routes.dismissed_findings`, `sharpit.fastapi.routes.overview`, `sharpit.fastapi.routes.panels`) and `sharpit.fastapi.adapter._read_capped`, nested `send_with_headers` (`_read_capped(request: Request, cap: int) -> bytes | None`)
+  - `sharpit.engine.headers.security_headers`, `sharpit.engine.panels.read_only_reason`, `sharpit.engine.guard`
+  - `sharpit.engine.advisors.report.apply_dismissals`
+  - `sharpit.engine.collectors.restapi.service._evaluate`, `_run`, `assess`
+  - `sharpit.engine.testsession.gates.evaluate_test` (`_finding`), `sharpit.pytest_plugin.session`, `sharpit.pytest_plugin.apps`
+  - `sharpit.engine.tools` (compatibility facade) and `sharpit.engine.tool_stubs.<id>` (`config`, `beans`)
+  - `tests.golden.assert_parity` (`assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None`)
+  - `scripts/dev/lane_gate.py`
   - `tests/safety/` and `tests/masking/` packages (`tests/safety/test_d1_safety.py`, `tests/masking/test_d1_masking.py`)
 - **Files this lane MAY touch:**
   - `src/sharpit/engine/guard.py`
   - `src/sharpit/engine/headers.py`
-  - `src/sharpit/engine/panels.py`
+  - `src/sharpit/engine/panels.py` (only `Panel("overview", "Scorecard", None, None)` at line 21)
   - `src/sharpit/engine/context.py`
   - `src/sharpit/engine/advisors/dismissals.py`
   - `src/sharpit/engine/advisors/report.py`
   - `src/sharpit/engine/collectors/overview.py`
   - `src/sharpit/engine/collectors/restapi/service.py`
+  - `src/sharpit/engine/testsession/gates.py` (`_finding`, `evaluate_test`)
+  - `src/sharpit/pytest_plugin/session.py`, `src/sharpit/pytest_plugin/apps.py` (or `src/sharpit/pytest_plugin/__init__.py` compatibility facade, when `D1` merges second after `G1G2`)
   - `src/sharpit/engine/tools.py` (and `src/sharpit/engine/tool_stubs/{config,beans}.py` if split by `F`)
   - `src/sharpit/fastapi/adapter.py`, `src/sharpit/fastapi/routes/dismissed_findings.py` (new or stubbed by `F`), `src/sharpit/fastapi/routes/overview.py`
-  - `tests/engine/advisors/test_dismissals.py`, `tests/engine/advisors/test_advisor_report.py`, `tests/engine/test_guard.py`, `tests/engine/test_headers.py`, `tests/engine/test_panels.py`, `tests/engine/test_overview.py`, `tests/engine/test_context.py`, `tests/engine/test_tools.py`, `tests/fastapi/test_dismissed_rules_api.py`, `tests/fastapi/test_dismissed_findings_api.py` (new), `tests/safety/test_d1_safety.py` (new), `tests/masking/test_d1_masking.py` (new)
-  - `.superpowers/sdd/0.4.0/lanes/D1/{predict-council.md,handoff.md,findings.md,field-map.md,checklist.md}`
-- **Files this lane MUST NOT touch (spec §10.3 & conventions C2/C5):**
+  - `tests/fixtures/bootui/2.2.0/{overview,config,mappings,loggers,beans,cli}/nullable.json` (O2: panel lanes own `nullable.json`)
+  - `tests/engine/advisors/test_dismissals.py`, `tests/engine/advisors/test_advisor_report.py`, `tests/engine/restapi/test_restapi_findings.py`, `tests/engine/testsession/test_gates.py`, `tests/pytest_plugin/test_plugin_gates.py`, `tests/engine/test_guard.py`, `tests/engine/test_headers.py`, `tests/engine/test_panels.py`, `tests/engine/test_overview.py`, `tests/engine/test_context.py`, `tests/engine/test_tools.py`, `tests/fastapi/test_dismissed_rules_api.py`, `tests/fastapi/test_dismissed_findings_api.py` (new), `tests/safety/test_d1_safety.py` (new), `tests/masking/test_d1_masking.py` (new)
+  - `.superpowers/sdd/0.4.0/lanes/D1/{predict-council.md,handoff.md,findings.md,field-map.md,checklist.md,docs.md}`
+- **Files this lane MUST NOT touch (spec §10.3, conventions C2/C5, & ownership O1–O4):**
   - `scripts/dev/lane_gate.py`, `tests/complexity_baseline.json` (unless every touched value strictly decreases or an entry is removed), `sonar-baseline.txt`, `tests/engine/test_import_boundary.py` rules, overhead budget constants, `uv.lock`, `pyproject.toml` dependency lists.
+  - `src/sharpit/engine/sqla.py` (O1: owned by `A-postgresql`).
+  - `tests/fixtures/bootui/2.2.0/<sharpit-id>/captured.json` (or `<name>.captured.json`) and `provisional.json` (O2: `G0a` owns `captured.json`; `provisional.json` is written by a different worker than the lane).
+  - `README.md`, `skills/sharpit/SKILL.md`, `examples/fastapi_sqla/`, `tests/test_example_app.py` (O3: any user-facing text goes in `.superpowers/sdd/0.4.0/lanes/D1/docs.md`).
+  - `src/sharpit/engine/panels04/*`, `ui/src/lib/panels04/*`, `ui/src/lib/nav.ts` (O4: per-panel `implemented` flags belong to 0.4 panel lanes).
   - `tests/test_safety_matrix.py` and `tests/test_masking_corpus.py` (C5: add D1 rows only in `tests/safety/test_d1_safety.py` and `tests/masking/test_d1_masking.py`).
   - `.superpowers/sdd/0.4.0/lanes/*/review.md` and `.superpowers/sdd/0.4.0/lanes/*/gate/*` or `live-verify.md` (C2: written only by the coordinator/reviewer in the integration worktree; `lane_gate.py` refuses lane diffs touching them).
   - Capture modules (`src/sharpit/engine/capture/*` — Lane `D2`), DB/runtime modules (`pools.py`, `alembic.py`, `health.py`, `threads.py` — Lane `D3`), `vulns/*`, `mcp.py`, `restapi/rules.py` (Lane `D4`), or any other lane's collector.
@@ -36,7 +48,7 @@
 
 | # | Spec §6.1 Item (in spec order) | Satisfying Task |
 |---|---|---|
-| 1 | **Golden parity:** `tests/golden.py::assert_parity` against `tests/fixtures/bootui/2.2.0/<sharpit-id>/<name>.json` + `nullable.json`, and `field-map.md` | Task 3 (Step 4) |
+| 1 | **Golden parity:** `tests/golden.py::assert_parity` (reads `captured.json` or `<name>.captured.json` when present, else `provisional.json`, plus lane-owned `nullable.json` per O2) and `field-map.md` | Task 3 (Step 4) |
 | 2 | **Ported tests:** each ported behaviour test cites `# ported: <BootUI class>.<method>` | Task 1 (Step 1), Task 2 (Step 1), Task 3 (Step 1) |
 | 3 | **Safety & masking:** `no_side_effects` on every GET; panel in `PANELS` with `actionCapable` and `SHARPIT_PANELS_<ID>_ENABLED/_READ_ONLY`; guard chain unchanged; `tests/safety/test_d1_safety.py` & `tests/masking/test_d1_masking.py` | Task 0, Task 1 (Step 1), Task 2 (Steps 1–3), Task 3 (Step 4) |
 | 4 | **Gatekeeper / import boundary:** optional imports via gatekeepers only (§6.3); `tests/engine/test_import_boundary.py` green | Task 3 (Step 4) |
@@ -51,7 +63,7 @@
 
 1. **Global write policy on `/dismissed-findings` (`src/sharpit/engine/guard.py:42, 47, 287-288, 308-324`; `src/sharpit/engine/panels.py:51-55`)**: `GET /dismissed-findings` must be allowed whenever sharpit is active (even if all advisor panels are disabled or `read_only=True`), whereas `POST` and `DELETE /dismissed-findings` must return `403` via `_panel_denied("dismissed-findings", read_only_reason("dismissed-findings", True))` with exact verbatim body `{"error": "sharpit panel access denied", "panel": "dismissed-findings", "reason": "sharpit is read-only via SHARPIT_READ_ONLY=true"}` when `settings.read_only=True`. Pinned by `test_mvc_global_read_only_blocks_the_mutations_but_not_the_list` in **Task 2**.
 2. **Error body never echoes raw request payload or `note` on `/dismissed-findings`**: Malformed JSON, wrong field types, blank `ruleId`/`identity`, or array payloads on `POST`/`DELETE /dismissed-findings` must return the fixed message `"Request body must be a JSON object with string fields ruleId, identity and an optional note."` without quoting the body or note (which may hold sensitive user notes), reading the body via `await _read_capped(request, small_cap)` (`src/sharpit/fastapi/adapter.py:490, 604-614`). Pinned by `test_mvc_refuses_bad_bodies_with_a_fixed_message_that_never_quotes_the_note` and `test_mvc_reads_the_body_as_bytes_so_the_framework_never_logs_the_note` in **Task 2**.
-3. **YAML round-trip fidelity & Base64URL note encoding in `DismissalStore` (`src/sharpit/engine/advisors/dismissals.py:43-127`)**: Notes may contain newlines, colons, quotes, or Unicode; they serialize as `n=<base64url_no_pad>` after `<ruleId> <identity>`, preserve unrelated YAML sections (`dismissedRules:`, custom keys) and unparseable lines (`ignored` count), enforce `MAX_FINDINGS = 1000` (HTTP 409) and `MAX_NOTE_LENGTH = 200` (HTTP 400), and produce byte-identical rewrites. `DismissalStore.dismissed_set(self) -> set[str]` merges rule IDs from `self.list()` and finding identities from `self.list_findings()` for advisor services and `G1G2`. Pinned by `test_preserves_other_top_level_sections_across_writes`, `test_repeated_writes_are_byte_stable`, and `test_dismissed_findings_note_and_cap_validation` in **Task 1**.
+3. **YAML round-trip fidelity & Base64URL note encoding in `DismissalStore` (`src/sharpit/engine/advisors/dismissals.py:43-127`)**: Notes may contain newlines, colons, quotes, or Unicode; they serialize as `n=<base64url_no_pad>` after `<ruleId> <identity>`, preserve unrelated YAML sections (`dismissedRules:`, custom keys) and unparseable lines (`ignored` count), enforce `MAX_FINDINGS = 1000` (HTTP 409) and `MAX_NOTE_LENGTH = 200` (HTTP 400), and produce byte-identical rewrites. `DismissalStore.list() -> list[str]` returns rule IDs (`dismissals.py:51`), while `DismissalStore.dismissed_pairs() -> set[tuple[str, str]]` returns `(rule_id, identity)` pairs; matching is `(f.rule_id, f.identity or f.target) in pairs` in `restapi/service.py::_run` (module-level function, `service.py:83`), `engine/advisors/report.py::apply_dismissals` (`report.py:28`), and `testsession/gates.py::_finding` (`gates.py:27`). Pinned by `test_preserves_other_top_level_sections_across_writes`, `test_repeated_writes_are_byte_stable`, and `test_dismissed_findings_note_and_cap_validation` in **Task 1**.
 4. **Per-header case-insensitive deduplication in `GuardMiddleware.send_with_headers` (`src/sharpit/fastapi/adapter.py:135-142`, `src/sharpit/engine/headers.py:20-32`)**: `GuardMiddleware.send_with_headers` currently gates the entire `security_headers("api")` loop on `if "content-security-policy" not in headers:`. Deduplicate each header from `security_headers("api")` case-insensitively by header name (`if name.lower() not in headers:`) so pre-existing individual downstream headers (e.g. `X-Content-Type-Options`, `Cache-Control`) are never duplicated while missing baseline headers are still added. Pinned by `test_security_headers_are_not_duplicated_when_downstream_sets_them` in **Task 2**.
 5. **Overview `run` identity stability vs restart ordinal (`src/sharpit/engine/context.py:25-61`, `src/sharpit/engine/collectors/overview.py:19-40`)**: `instanceId` (8-char lowercase hex) is fixed per Python process, while `runId` (8-char lowercase hex), `ordinal` (1-based `itertools.count(1)`), and `startedAt` (epoch ms) advance on each `SharpitContext` creation. Pinned by `test_overview_emits_run_metadata_and_scorecard_panel_title` in **Task 3**.
 
@@ -78,44 +90,55 @@ Run workflow `skills/llm-council/SKILL.md` (`--tier high`) with the same brief p
 ### Task 1: `DismissalStore` Support for `dismissedFindings` and Advisor Occurrence Matching
 
 **Files:**
-- Modify: `src/sharpit/engine/advisors/dismissals.py:1-128`
+- Modify: `src/sharpit/engine/advisors/dismissals.py:1-143`
 - Modify: `src/sharpit/engine/advisors/report.py:28-66`
-- Modify: `src/sharpit/engine/collectors/restapi/service.py:83-95, 127-177`
-- Test: `tests/engine/advisors/test_dismissals.py`, `tests/engine/advisors/test_advisor_report.py`
+- Modify: `src/sharpit/engine/collectors/restapi/service.py:83-99, 127-177`
+- Modify: `src/sharpit/engine/testsession/gates.py:27-56`
+- Modify (when `D1` merges second after `G1G2`): `src/sharpit/pytest_plugin/session.py`, `src/sharpit/pytest_plugin/apps.py` (or `src/sharpit/pytest_plugin/__init__.py:241, 499, 557` pre-`F`)
+- Test: `tests/engine/advisors/test_dismissals.py`, `tests/engine/advisors/test_advisor_report.py`, `tests/engine/restapi/test_restapi_findings.py`, `tests/engine/testsession/test_gates.py`, `tests/pytest_plugin/test_plugin_gates.py`
 
 **Interfaces:**
 - Produces in `src/sharpit/engine/advisors/dismissals.py`:
   - `MAX_FINDINGS: Final[int] = 1000`
   - `MAX_NOTE_LENGTH: Final[int] = 200`
+  - `class DismissalValidationError(BadRequest): ...`
+  - `class DismissalCapError(Exception): ...`
+  - `class DismissalStorageError(Exception): ...`
   - `@dataclass(frozen=True, slots=True) class DismissedFinding: rule_id: str; identity: str; note: str | None = None` with `def to_dto(self) -> dict[str, str | None]`
   - `@dataclass(frozen=True, slots=True) class Findings: dismissed: list[DismissedFinding]; ignored: int` with `def to_dto(self) -> dict[str, Any]`
   - `DismissalStore`:
+    - `def list(self) -> list[str]` (existing at `dismissals.py:51`, unchanged)
     - `def list_findings(self) -> Findings`
     - `def dismiss_finding(self, rule_id: str, identity: str, note: str | None = None) -> Findings`
     - `def restore_finding(self, rule_id: str, identity: str) -> Findings`
-    - `def dismissed_set(self) -> set[str]` (merges rule IDs from `self.list().dismissed` and finding identities from `self.list_findings().dismissed`; consumed by `RestApiService.report`/`_scan` in `src/sharpit/engine/collectors/restapi/service.py:129, 152` and by `G1G2` in `pytest_plugin`)
-- Updates `apply_dismissals(report: Mapping[str, Any], dismissed: Collection[str], occurrences: Mapping[str, Sequence[tuple[str, str]]] | None = None) -> dict[str, Any]` (`src/sharpit/engine/advisors/report.py:28-66`) and `_run(done: _Evaluation, dismissed: Collection[str], fail_on: Severity, app: str | None) -> AdvisorRun` (`src/sharpit/engine/collectors/restapi/service.py:83-87`) so findings dismissed via `DismissalStore.dismissed_set()` or `(rule_id, identity)` are marked dismissed and counted in `dismissedTotal`.
+    - `def dismissed_pairs(self) -> set[tuple[str, str]]` returning `{(f.rule_id, f.identity) for f in self.list_findings().dismissed}` (do **not** invent `dismissed_set()`)
+- Updates per-finding dismissal matching (`(f.rule_id, f.identity or f.target) in pairs`) across all three sites:
+  - `src/sharpit/engine/collectors/restapi/service.py`: module-level `_run(done: _Evaluation, dismissed: Collection[str], fail_on: Severity, app: str | None, dismissed_pairs: Collection[tuple[str, str]] = ()) -> AdvisorRun` (`service.py:83-87`) and `assess(..., dismissed_pairs: Collection[tuple[str, str]] = ()) -> AdvisorRun` (`service.py:90-99`), where a `Finding` is marked `dismissed=True` when `f.rule_id in dismissed or f.fingerprint in dismissed or (f.rule_id, f.identity or f.target) in dismissed_pairs`. `RestApiService` holds `self.dismissals` (`service.py:120`, no `self._ctx`); its call sites `RestApiService.report` (`service.py:132`) and `RestApiService.scan` (`service.py:137`) pass `set(self.dismissals.list())` and `dismissed_pairs=self.dismissals.dismissed_pairs()` to `apply_dismissals`.
+  - `src/sharpit/engine/advisors/report.py`: `apply_dismissals(report: Mapping[str, Any], dismissed: Collection[str], occurrences: Mapping[str, Sequence[tuple[str, str]]] | None = None, dismissed_pairs: Collection[tuple[str, str]] = ()) -> dict[str, Any]` (`report.py:28-66`), matching `(rule_id, identity_or_target) in dismissed_pairs` as well as `fingerprint in dismissed`.
+  - `src/sharpit/engine/testsession/gates.py`: `_finding` (`gates.py:27-32`) and `evaluate_test` (`gates.py:34-56`), matching `fingerprint in dismissed or (rule_id, identity or target) in dismissed_pairs`.
+  - **Second-merger rule with `G1G2`:** whichever of `D1` and `G1G2` merges second wires `DismissalStore(Path(settings.state_dir)).dismissed_pairs()` into the pytest plugin's dismissed set (`src/sharpit/pytest_plugin/session.py` and `src/sharpit/pytest_plugin/apps.py` post-`F` split; `src/sharpit/pytest_plugin/__init__.py:241, 499, 557` pre-`F`) and adds `test_per_finding_dismissal_reaches_gate`.
 
-- [ ] **Step 1: Add minimal stubs in `dismissals.py`, then write failing unit tests in `tests/engine/advisors/test_dismissals.py` and `tests/engine/advisors/test_advisor_report.py` (C4: RED must be an assertion failure, never `ImportError`/`AttributeError`)**
+- [ ] **Step 1: Add minimal stubs in `dismissals.py`, then write failing unit tests in `tests/engine/advisors/test_dismissals.py`, `tests/engine/advisors/test_advisor_report.py`, and `tests/engine/testsession/test_gates.py` (C4: RED must be an assertion failure, never `ImportError`/`AttributeError`)**
 
-First add minimal stub signatures (`DismissedFinding`, `Findings(dismissed=[], ignored=0)`, and `DismissalStore.{list_findings,dismiss_finding,restore_finding,dismissed_set}` returning empty `Findings([], 0)` / `set()`) so test collection succeeds and fails on assertions. Then add tests citing BootUI 2.2.0 `DismissedRulesStoreTests`:
+First add minimal stub signatures (`DismissalValidationError`, `DismissalCapError`, `DismissalStorageError`, `DismissedFinding`, `Findings(dismissed=[], ignored=0)`, and `DismissalStore.{list_findings,dismiss_finding,restore_finding,dismissed_pairs}` returning empty `Findings([], 0)` / `set()`) so test collection succeeds and fails on assertions. Then add tests citing BootUI 2.2.0 `DismissedRulesStoreTests`:
 - `# ported: DismissedRulesStoreTests.preservesOtherTopLevelSectionsAcrossWrites` (`test_preserves_other_top_level_sections_across_writes`: dismissing a rule and a finding preserves both `dismissedRules:` and `dismissedFindings:` plus unrelated top-level YAML sections).
 - `# ported: DismissedRulesStoreTests.repeatedWritesAreByteStable` (`test_repeated_writes_are_byte_stable`: dismissing the same `(rule_id, identity, note)` twice produces byte-identical `sharpit.yml` and updates the note in place).
 - `test_dismissed_findings_note_and_cap_validation`: verifies Base64URL no-pad round-trip for notes with spaces/newlines/Unicode, whitespace-only note normalizes to `None`, `len(note) > 200` raises `DismissalValidationError("Dismissed finding note must be at most 200 characters.")`, >1000 distinct findings raises `DismissalCapError("Too many dismissed findings: restore some before dismissing more.")`, and malformed lines under `dismissedFindings:` increment `ignored` and survive rewrites.
-- `test_apply_dismissals_marks_dismissed_finding_by_identity_or_fingerprint`: verifies `apply_dismissals` (`src/sharpit/engine/advisors/report.py:28-66`) and `RestApiService._run` (`src/sharpit/engine/collectors/restapi/service.py:83-87`) mark an occurrence as dismissed when its `id` or `fingerprint` is in `store.dismissed_set()`.
+- `test_apply_dismissals_and_run_match_dismissed_pairs`: verifies `apply_dismissals` (`src/sharpit/engine/advisors/report.py:28-66`), module-level `restapi/service.py::_run` (`src/sharpit/engine/collectors/restapi/service.py:83-87`), `RestApiService.report`/`scan` (`service.py:132, 137`), and `testsession/gates.py::_finding` (`src/sharpit/engine/testsession/gates.py:27-32`) mark a finding as dismissed when `(f.rule_id, f.identity or f.target) in store.dismissed_pairs()`. If `G1G2` has already merged, also add `test_per_finding_dismissal_reaches_gate` in `tests/pytest_plugin/test_plugin_gates.py`.
 
-- [ ] **Step 2: Run `uv run pytest -q tests/engine/advisors/test_dismissals.py tests/engine/advisors/test_advisor_report.py` and verify RED**
+- [ ] **Step 2: Run `uv run pytest -q tests/engine/advisors/test_dismissals.py tests/engine/advisors/test_advisor_report.py tests/engine/testsession/test_gates.py` and verify RED**
 
-Expected failure: `AssertionError` on `list_findings().dismissed` / `apply_dismissals` count (not `ImportError` or `AttributeError`).
+Expected failure: `AssertionError` on `list_findings().dismissed` / `dismissed_pairs()` / `apply_dismissals` count (not `ImportError` or `AttributeError`).
 
-- [ ] **Step 3: Implement `DismissedFinding`, `Findings`, YAML `dismissedFindings:` parser/serializer, and advisor matching**
+- [ ] **Step 3: Implement `DismissedFinding`, `Findings`, YAML `dismissedFindings:` parser/serializer, and `(rule_id, identity or target)` matching**
 
 In `src/sharpit/engine/advisors/dismissals.py`:
 - Validate `rule_id` (`_RULE_ID_RE`, max 64 chars, no whitespace), `identity` (trimmed non-empty, max 512 chars, no whitespace/control chars), and `note` (trimmed; empty becomes `None`; `len(note) <= 200`, no `\x00`).
 - Encode note as `n=` + `base64.urlsafe_b64encode(note.encode("utf-8")).decode("ascii").rstrip("=")` on `  - <ruleId> <identity>[ n=<b64>]` lines under `dismissedFindings:`.
-- Implement `DismissalStore.dismissed_set(self) -> set[str]` returning `set(self.list().dismissed) | {f.identity for f in self.list_findings().dismissed}` and wire `RestApiService.report` / `RestApiService._scan` (`src/sharpit/engine/collectors/restapi/service.py:129, 152`) to pass `self._ctx.dismissals.dismissed_set()` into `apply_dismissals` and `_run`.
+- Implement `DismissalStore.dismissed_pairs(self) -> set[tuple[str, str]]` returning `{(f.rule_id, f.identity) for f in self.list_findings().dismissed}` (keep `self.list() -> list[str]` unchanged).
+- Wire `(f.rule_id, f.identity or f.target) in pairs` in `restapi/service.py::_run` (`service.py:83-87`), `engine/advisors/report.py::apply_dismissals` (`report.py:28-66`), `RestApiService.report` (`service.py:132`) and `RestApiService.scan` (`service.py:137`, using `self.dismissals.list()` and `self.dismissals.dismissed_pairs()`), and `testsession/gates.py::_finding` (`gates.py:27-32`). If `D1` merges second after `G1G2`, also wire `dismissed_pairs()` into the pytest plugin (`sharpit/pytest_plugin/session.py` and `apps.py`).
 
-- [ ] **Step 4: Run `uv run pytest -q tests/engine/advisors/test_dismissals.py tests/engine/advisors/test_advisor_report.py` and commit**
+- [ ] **Step 4: Run `uv run pytest -q tests/engine/advisors/test_dismissals.py tests/engine/advisors/test_advisor_report.py tests/engine/testsession/test_gates.py` and commit**
 
 Expected: PASS. Commit: `feat(advisors): add dismissedFindings YAML store and occurrence matching`.
 
@@ -170,11 +193,11 @@ Run `uv run pytest -q tests/engine/test_guard.py tests/engine/test_headers.py te
 **Files:**
 - Modify: `src/sharpit/engine/context.py:1-62`
 - Modify: `src/sharpit/engine/collectors/overview.py:19-40`
-- Modify: `src/sharpit/engine/tools.py:160-175, 425-445` (and `src/sharpit/engine/tool_stubs/{config,beans}.py` if split by `F`)
+- Modify: `src/sharpit/engine/tools.py:312-357, 696-730` (and `src/sharpit/engine/tool_stubs/{config,beans}.py` if split by `F`)
 - Test: `tests/engine/test_overview.py`, `tests/engine/test_context.py`, `tests/engine/test_tools.py`
 
 **Interfaces:**
-- Consumes: `tests/golden.py::assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None` from `F`.
+- Consumes: `tests/golden.py::assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None` from `F` (reads `captured.json` when present, else `provisional.json` per O2).
 - Produces:
   - `SharpitContext.instance_id: str`, `run_id: str`, `run_ordinal: int`, `started_at_ms: int` in `src/sharpit/engine/context.py`.
   - `overview_dto` key `"run": {"instanceId": str, "runId": str, "ordinal": int, "startedAt": int}` in `src/sharpit/engine/collectors/overview.py`.
@@ -199,7 +222,7 @@ Expected failure: `AssertionError` on `'run' in overview` in `test_overview.py` 
 
 Run detached with timeout and log files:
 1. `uv run ruff check && uv run ruff format --check && uv run pyright`
-2. `uv run pytest -q tests/engine/test_overview.py tests/engine/test_context.py tests/engine/test_tools.py tests/engine/advisors/test_dismissals.py tests/engine/advisors/test_advisor_report.py tests/engine/test_guard.py tests/engine/test_headers.py tests/engine/test_panels.py tests/fastapi/test_dismissed_rules_api.py tests/fastapi/test_dismissed_findings_api.py tests/safety/test_d1_safety.py tests/masking/test_d1_masking.py tests/engine/test_import_boundary.py tests/test_code_shape.py`
+2. `uv run pytest -q tests/engine/test_overview.py tests/engine/test_context.py tests/engine/test_tools.py tests/engine/advisors/test_dismissals.py tests/engine/advisors/test_advisor_report.py tests/engine/testsession/test_gates.py tests/engine/test_guard.py tests/engine/test_headers.py tests/engine/test_panels.py tests/fastapi/test_dismissed_rules_api.py tests/fastapi/test_dismissed_findings_api.py tests/safety/test_d1_safety.py tests/masking/test_d1_masking.py tests/engine/test_import_boundary.py tests/test_code_shape.py`
 3. Update `.superpowers/sdd/0.4.0/lanes/D1/{field-map.md,findings.md,checklist.md,handoff.md}` (never touch `review.md` or `gate/`).
 4. Commit: `feat(overview,mcp): add 2.2.0 run metadata and MCP inventory default limits`.
 

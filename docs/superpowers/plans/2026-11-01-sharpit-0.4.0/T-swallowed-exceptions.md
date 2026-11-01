@@ -1,7 +1,7 @@
 # T-swallowed-exceptions — Implementation Plan
 
 > **For agentic workers:** Use superpowers:subagent-driven-development or
-> superpowers:executing-plans. Best-effort lane 2; Task 0 is mandatory before implementation.
+> superpowers:executing-plans. Best-effort lane 5 (PLAN.md); Task 0 is mandatory before implementation.
 
 **Goal:** Detect broad application handlers that swallow exceptions during a test; fail the test
 by default only when the swallowed exception is a programming error, record every other swallow
@@ -26,28 +26,35 @@ gates and G1G2's report-only/baseline machinery.
 
 ## Header and ownership
 
-- **Lane:** `T-swallowed-exceptions` (best effort 2; F1). Evidence folder
+- **Lane:** `T-swallowed-exceptions` (best effort 5; F1). Evidence folder
   `.superpowers/sdd/0.4.0/lanes/T-swallowed-exceptions/`.
 - **Worker profile:** L, judgement-heavy (monitoring lifecycle, AST handler semantics, gating).
 - **Depends on:** T-n-plus-one-message (PLAN.md). The T-* lanes are serial
   `G1G2 → T-n-plus-one-message → T-swallowed-exceptions → T-unbounded-read` because they share
   `engine/testsession/facts.py`, `engine/testsession/gates.py` and `pytest_plugin/marker.py`;
   this lane rebases onto T-n-plus-one-message's `PhaseFacts` additions and uses G1G2's
-  `evaluate_test` signature. Consumes F's F1a table (`F-foundation.md`) for the post-split
-  `pytest_plugin/` session module.
+  `evaluate_test` signature. Consumes these rows of F's consumer interface table
+  (`F-foundation.md`): `sharpit.pytest_plugin.session` (session lifecycle/hooks) and
+  `sharpit.engine.testsession.gates.evaluate_test`; and G1G2's predicate
+  `testsession/gates.py::fails(dto: Mapping[str, Any]) -> bool` (not dismissed, `baselineState !=
+  "existing"`, `severity != "INFO"`), which is what keeps this lane's notes non-failing.
 - **May touch:** create `src/sharpit/engine/testsession/swallowed.py`;
   `src/sharpit/engine/testsession/gates.py` (`evaluate_test` at `:34`, `Budget` at `:21`),
   `facts.py` (`PhaseFacts` at `:56`, `TestFacts` at `:87`); create
-  `src/sharpit/pytest_plugin/swallowed.py`; the post-F session module named in F's F1a table
-  (today's `pytest_sessionstart` `__init__.py:309`, `pytest_runtest_protocol` `:325`,
-  `pytest_runtest_call` `:428`, `pytest_sessionfinish` `:646`); `src/sharpit/pytest_plugin/marker.py`
+  `src/sharpit/pytest_plugin/swallowed.py`; `src/sharpit/pytest_plugin/session.py` (F's
+  `sharpit.pytest_plugin.session` row; today's `pytest_sessionstart` `__init__.py:309`,
+  `pytest_runtest_protocol` `:325`, `pytest_runtest_call` `:428`, `pytest_sessionfinish` `:646`)
+  only to attach/detach the capture; `src/sharpit/pytest_plugin/marker.py`
   (`budget_for` at `:12`); `src/sharpit/engine/collectors/restapi/rules.py` (`evaluate` at `:731`)
   and its tests; create `tests/engine/testsession/test_swallowed.py`, modify
   `tests/engine/testsession/test_gates.py`, create `tests/pytest_plugin/test_plugin_swallowed.py`,
   create `tests/engine/restapi/test_swallowed_rule.py`; create
   `tests/engine/test_swallowed_overhead.py`; fixture app `tests/fixtures/apps/swallowed_exception/`;
   the implementer files in the lane evidence folder (C2).
-- **Must not touch:** `engine/sqla.py` (SQLAlchemy lanes), G6 app/terminal modules,
+- **Must not touch:** `engine/sqla.py` (O1: A-postgresql), G6's `pytest_plugin/apps.py` and
+  `pytest_plugin/terminal.py` (the notes line is G6's, not this lane's), `README.md`,
+  `skills/sharpit/SKILL.md`, `examples/`, `tests/test_example_app.py` (O3: user-facing text goes to
+  the lane folder's `docs.md`),
   report/baseline schema (the finding is a `Finding` DTO row; no schema change), other lanes'
   modules, guard/masking/panel files, `scripts/dev/lane_gate.py`, import-boundary rules, existing
   overhead constants, complexity/sonar baselines, dependency lists or `uv.lock`,
@@ -67,8 +74,9 @@ gates and G1G2's report-only/baseline machinery.
   re-raises nor calls a logger/`warnings`.
 - **Gating:** fails the test by default only for programming-error types (`AttributeError`,
   `TypeError`, `NameError`, `ImportError`, `UnboundLocalError`, matched with `isinstance`, so
-  `ModuleNotFoundError` counts as `ImportError`); every other swallow is a non-failing note in the
-  report. Marker `sharpit(allow_swallowed=True)` relaxes; report-only and baselines apply.
+  `ModuleNotFoundError` counts as `ImportError`); every other swallow is a non-failing note: a
+  `Finding` with severity `INFO`, which G1G2's `fails()` excludes. Marker
+  `sharpit(allow_swallowed=True)` relaxes; report-only and baselines apply.
 - Preserve `sharpit-report/1`, fingerprint semantics, and host exception behaviour.
 - A red is the assertion that names the defect (C4); the spike test asserts the **desired**
   failing finding, so it is red on 0.3.0.
@@ -190,21 +198,26 @@ Add `PhaseFacts.swallowed: list[SwallowedFact]` (handler file/line, exception ty
 `src/sharpit/pytest_plugin/marker.py`; the post-F finish/report module; tests
 `tests/engine/testsession/test_gates.py`, `tests/pytest_plugin/test_plugin_swallowed.py`.
 
-**Interfaces:** Rule id `sharpit.swallowed-exception`; `Budget` gains `allow_swallowed: bool =
-False` (and `marker.budget_for` reads it, as `allow_n_plus_one` today). `evaluate_test` keeps the
-signature G1G2 leaves it with (no new parameter) and emits, per qualifying handler, a HIGH failing
-`Finding` when `programming_error` is true and the marker does not relax it; otherwise a
-non-failing note (the advisor note path G6 uses, counted in the notes line). Report-only and
-baselines apply through G1G2's machinery; no new schema field beyond the `Finding` DTO.
+**Interfaces:** Rule id `sharpit.swallowed-exception`; `Budget` (`gates.py:21`) gains
+`allow_swallowed: bool = False` (and `marker.budget_for` reads it, as `allow_n_plus_one` today).
+`gates.py::_finding` (`:27`, which hard-codes `"HIGH"` today) gains a keyword `severity: Severity =
+"HIGH"` (`Severity` from `engine/advisors/rules.py:12`; the fingerprint ignores severity, so
+existing fingerprints are unchanged). `evaluate_test` keeps the signature G1G2 leaves it with (no
+new parameter) and emits, per qualifying handler, a `HIGH` `Finding` when `programming_error` is
+true and the marker does not relax it; otherwise a `Finding` with severity `INFO` (a note).
+Whether a finding fails the test is decided only by G1G2's `fails()` (it excludes `INFO`); this
+lane adds no note count or terminal line. Report-only and baselines apply through G1G2's
+machinery; no new schema field beyond the `Finding` DTO.
 
 - [ ] **Step 1: Write failing tests** `test_swallowed_attribute_error_fails_test_by_default`,
   `test_non_programming_error_swallow_is_a_note` (canonical; a `ValueError` swallowed → test
-  passes, finding present as a note), `test_allow_swallowed_marker`,
+  passes; the finding is present with `severity == "INFO"`; `fails(dto)` is false),
+  `test_allow_swallowed_marker`,
   `test_bare_exception_handler_gates`, `test_swallowed_respects_report_only_and_baseline`.
 - [ ] **Step 2: Run on the base;** expected rule and marker assertions fail.
 - [ ] **Step 3: Implement** gate and marker semantics; messages sanitised, no source snippets or
   local values.
-- [ ] **Step 4: Verify** default gate, note path, explicit marker, report-only, baseline, xdist
+- [ ] **Step 4: Verify** default gate, `INFO` note, explicit marker, report-only, baseline, xdist
   fact serialisation, and `test_spike_f1_swallowed_attribute_error_fails` green.
 - [ ] **Step 5: Commit** `feat: gate swallowed exception findings`.
 
@@ -256,6 +269,6 @@ baselines apply through G1G2's machinery; no new schema field beyond the `Findin
 - [ ] Task 2 static predicate and advisor rule obey the exact broad-catch/log/re-raise conditions.
 - [ ] Task 3 uses `EXCEPTION_HANDLED` only, only while a test runs, filters on the handler's
   location, claims id 3 or 4 and releases it.
-- [ ] Task 4 fails by default only for programming-error types; other swallows are notes; marker,
-  report-only and baseline semantics are covered.
+- [ ] Task 4 fails by default only for programming-error types; other swallows are `INFO`
+  findings that `fails()` excludes; marker, report-only and baseline semantics are covered.
 - [ ] Task 5 overhead budget stays active and is not raised.

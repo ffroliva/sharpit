@@ -22,7 +22,7 @@ Reports retain all advisor findings regardless of terminal verbosity.
 - **Worker profile:** M, judgement-heavy (pytest lifecycle, safe introspection, fail-closed
   status).
 - **Dependencies:** F only. G6 runs beside D1 and owns no-app behavior and `SKIPPED`.
-- **May touch:** F table modules `src/sharpit/pytest_plugin/options.py`, `apps.py`, `terminal.py`; `src/sharpit/engine/advisors/findings.py` (`AdvisorRun.status` adds `SKIPPED`); `src/sharpit/engine/testsession/outcome.py` (`_advisor_summary`, `_worst`, `_unknown_reasons`); both `report.schema.json` copies; `tests/pytest_plugin/`; lane evidence folder.
+- **May touch:** F table modules `src/sharpit/pytest_plugin/options.py`, `apps.py`, `session.py` (xdist workeroutput key), `terminal.py`; `src/sharpit/engine/advisors/findings.py` (`AdvisorRun.status` adds `SKIPPED`); `src/sharpit/engine/testsession/outcome.py` (`_advisor_summary`, `_worst`, `_unknown_reasons`); both `report.schema.json` copies; `tests/pytest_plugin/`; lane evidence folder.
 - **Must not touch:** `src/sharpit/pytest_plugin/__init__.py` compatibility facade or G1G2-owned
   gate/baseline modules; `engine/guard.py`, capture/SQL sources, other lanes' modules, panel
   registries/routes/UI; `scripts/dev/lane_gate.py`, import-boundary rules, overhead constants,
@@ -59,7 +59,7 @@ not count.
 `_load_app` at `__init__.py:511`, app assessment at `:525–545`, `pytest_sessionfinish` at
 `:646`); tests `tests/pytest_plugin/test_plugin_apps.py` and `test_plugin_gate_defaults.py`.
 
-**Interfaces:** `autodetect_apps() -> tuple[tuple[str, object], ...]` returns candidate module/attribute pairs; `select_app(explicit: str | None, candidates: Sequence[tuple[str, object]]) -> tuple[str, object] | None` selects only an explicit app or one unique candidate. Consume `PluginOptions.app` and F's session/terminal modules. Iterate `vars(mod).values()` only when `type(mod) is ModuleType`; never call `getattr` or PEP 562 `__getattr__`. Match values by exact `type(v)` and an MRO check against `fastapi.FastAPI` / `starlette.applications.Starlette` classes found only in `sys.modules` (never import either framework); dedupe by `id()`, drop apps mounted inside another candidate and sharpit's own sub-app. Under xdist carry the chosen app or candidates in the report and print from the controller terminal summary. No unique candidate means no app is selected.
+**Interfaces:** Use one name everywhere: `autodetect_apps() -> tuple[tuple[str, object], ...]`. `select_app(explicit: str | None, candidates: Sequence[tuple[str, object]]) -> tuple[str, object] | None` selects only an explicit app or one unique candidate. Consume `PluginOptions.app` and F's session/terminal modules. Iterate `vars(mod).values()` only when `type(mod) is ModuleType`; never call `getattr` or PEP 562 `__getattr__`. Match by exact type and MRO against framework classes already in `sys.modules`; dedupe by `id()`, drop mounted inner apps and sharpit's own sub-app. Each xdist worker ships candidate `module:attr` names in `workeroutput`; the controller decides uniqueness over the union and drops `rest-api` runs if multiple distinct apps appear. `test_autodetect_ambiguous_across_workers_uses_none` uses two workers and two apps.
 
 - [ ] **Step 1: Write failing pytester cases.** `test_spike_f3_clean_suite_reaches_green` creates
   the clean spike shape: one passing test, no sharpit install and no `--sharpit-app`; assert 0
@@ -67,7 +67,7 @@ not count.
   status remains independently evaluated. On 0.3.0 expect exit 1 from the no-app unknown. Add `test_autodetect_single_prints_choice`, `test_autodetect_ambiguous_uses_none`, and `test_autodetect_never_imports`.
 - [ ] **Step 2: Run only these tests on 0.3.0.** Expected: no-app assertion fails specifically
   on current unknown/exit 1; fixture setup and collection succeed.
-- [ ] **Step 3: Implement `autodetect_app()`.** Scan a snapshot of `sys.modules` and module
+- [ ] **Step 3: Implement `autodetect_apps()`.** Scan a snapshot of `sys.modules` and module
   globals; accept FastAPI/Starlette instances, use only one candidate, and return none with
   candidate descriptions for zero or multiple candidates. Do not import modules or call app
   code. Explicit `--sharpit-app` retains precedence.

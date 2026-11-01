@@ -1,7 +1,7 @@
 # T-n-plus-one-message — Implementation Plan
 
 > **For agentic workers:** Use superpowers:subagent-driven-development or
-> superpowers:executing-plans. Best-effort lane 1; one task/commit at a time.
+> superpowers:executing-plans. Best-effort lane 4 (PLAN.md); one task/commit at a time.
 
 **Goal:** Make SQLAlchemy N+1 findings identify the lazy relationship, show the masked query and
 first application source location, while keeping the existing fingerprint stable and query-heavy
@@ -27,7 +27,7 @@ remains the optional-library gatekeeper.
 
 ## Header and ownership
 
-- **Lane:** `T-n-plus-one-message` (best effort 1). Evidence folder
+- **Lane:** `T-n-plus-one-message` (best effort 4). Evidence folder
   `.superpowers/sdd/0.4.0/lanes/T-n-plus-one-message/`.
 - **Worker profile:** L, judgement-heavy (ORM event lifecycle, relationship attribution,
   hot-path budget).
@@ -36,19 +36,28 @@ remains the optional-library gatekeeper.
   `engine/testsession/facts.py`, `engine/testsession/gates.py` and `pytest_plugin/marker.py`.
   A-sqlalchemy-statistics: both lanes extend the SQL recorder path (that lane adds lifetime
   totals to `SqlTraceRecorder.record`; this one adds relationship tagging on the statement
-  listeners in `sqla.py`), so this lane rebases onto it. Consumes F's F1a table
-  (`F-foundation.md`) for the post-split `pytest_plugin/` modules.
-- **May touch:** `src/sharpit/engine/sqla.py` (`attach_session()` at `:320`, `detach_session()`
-  at `:331`, `_LISTENERS`/`_sync_listeners` at `:255-281`, `before_cursor_execute` at `:153`;
-  the new `do_orm_execute` listener); `src/sharpit/engine/testsession/facts.py` (`PhaseFacts` at
+  listeners in `sqla.py`), so this lane rebases onto it. Consumes these rows of F's consumer
+  interface table (`F-foundation.md`): `sharpit.pytest_plugin.session` and
+  `sharpit.engine.testsession.gates.evaluate_test`; and G1G2's `gates.py::fails(dto)` predicate
+  (a relationship finding stays `HIGH`, so it fails as today's N+1 does).
+- **Start gate (O1):** `engine/sqla.py` is owned by A-postgresql (`run_db_read` keywords,
+  `bounded_read_only`). This lane edits it only after A-postgresql has merged or parked; the
+  coordinator checks before launch. If A-postgresql is still in flight, this lane waits (it is
+  best effort; nothing is gained by racing the owner of `sqla.py`).
+- **May touch:** `src/sharpit/engine/sqla.py`, subject to the start gate (`attach_session()` at
+  `:320`, `detach_session()` at `:331`, `_LISTENERS`/`_sync_listeners` at `:256-281`,
+  `before_cursor_execute` at `:153`, `_emit` at `:195`; the new `do_orm_execute` listener), never
+  F's `add_connection_listener` slot or A-postgresql's read helpers; `src/sharpit/engine/testsession/facts.py` (`PhaseFacts` at
   `:56`, `TestFacts` at `:87`); `src/sharpit/engine/testsession/gates.py` (`evaluate_test` at
-  `:34`, the `N_PLUS_ONE` branch at `:46-51`); the post-split `src/sharpit/pytest_plugin/`
-  session wiring (F1a names it) only to call the new `sqla` lifecycle helper;
+  `:34`, the `N_PLUS_ONE` branch at `:46-51`); `src/sharpit/pytest_plugin/session.py` (F's `sharpit.pytest_plugin.session` row) only to call
+  the new `sqla` lifecycle helper;
   `tests/engine/test_sqla.py`, `tests/engine/testsession/test_gates.py`,
   `tests/engine/test_n_plus_one_overhead.py` (new), `tests/pytest_plugin/test_plugin_gates.py`;
   fixture app `tests/fixtures/apps/n_plus_one/` (new, Task 1); the implementer files in the lane
   evidence folder (C2).
-- **Must not touch:** Other lanes' modules, `engine/guard.py`, report/baseline schema or
+- **Must not touch:** `README.md`, `skills/sharpit/SKILL.md`, `examples/`,
+  `tests/test_example_app.py` (O3: user-facing text goes to the lane folder's `docs.md`), other
+  lanes' modules, `engine/guard.py`, report/baseline schema or
   fingerprints, panel modules/UI, `engine/capture/sqltrace.py` (A-sqlalchemy-statistics owns it),
   `scripts/dev/lane_gate.py`, import-boundary rules, existing overhead budget constants,
   complexity/sonar baselines, dependency lists, `uv.lock`, `tests/test_safety_matrix.py`,

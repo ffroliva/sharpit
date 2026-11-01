@@ -1,6 +1,6 @@
 # G1+G2 — Report-Only and Baselines Implementation Plan
 
-> **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans. One task/commit at a time; start only after F, D1 and G6 have merged.
+> **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans. One task/commit at a time; start after F and G6. D1 is not a dependency; whichever of D1 and G1G2 merges second wires per-finding dismissals into the pytest gate.
 
 **Goal:** Let CI report findings without gating on them and compare stable fingerprints to an explicitly written baseline, while unknown capture reasons continue to fail closed.
 
@@ -14,9 +14,9 @@
 
 - **Lane:** G1G2 (one lane because both alter the gate path).
 - **Worker profile:** L, judgement-heavy (unknown precedence, partial-run facts, fingerprint semantics).
-- **Dependencies:** F, D1, G6 (exactly as PLAN.md). G6 supplies `SKIPPED` support; F supplies plugin split, accepted inert CLI options and lane gate.
+- **Dependencies:** F and G6 (exactly as PLAN.md). G6 supplies `SKIPPED` support; F supplies plugin split, accepted inert CLI options and lane gate.
 - **May touch:** `src/sharpit/engine/testsession/gates.py` (`evaluate_test`, line 34), `outcome.py` (`exit_fails`, line 303), `facts.py`, `report.py` (`render`, line 69), `report.schema.json`; `src/sharpit/engine/advisors/findings.py` (`Finding`, line 17), advisor assessment call sites; pytest plugin option/gate/report/xdist modules created by F; `tests/engine/testsession/`, `tests/pytest_plugin/`, both schema copies, `docs/reference/` report contract, lane evidence folder.
-- **Must not touch:** G3 action/summary modules; G4 procurement docs/dependabot; panel routes, registries or UI; `scripts/dev/lane_gate.py`; `tests/complexity_baseline.json`, `sonar-baseline.txt`, overhead budget constants, dependency lists or `uv.lock`.
+- **Must not touch:** G3 action/summary modules; G4 procurement docs/Dependabot; panel routes, registries or UI; `scripts/dev/lane_gate.py`; `tests/complexity_baseline.json`, `sonar-baseline.txt`, overhead budget constants, dependency lists or `uv.lock`.
 
 ## Global constraints
 
@@ -88,7 +88,7 @@
 
 **Files:** Modify plugin option modules/hooks, baseline/report modules and both `report.schema.json` copies; tests `tests/pytest_plugin/test_plugin_baseline.py`, `tests/test_report_schema.py`; update report contract under `docs/reference/`.
 
-**Interfaces:** `--sharpit-baseline=PATH` / ini `sharpit_baseline`; `--sharpit-write-baseline=PATH` / ini `sharpit_write_baseline`. Bad/unreadable input raises `pytest.UsageError` at session start. Load baseline on every worker. Write only for complete runs with zero unknown reasons; otherwise session-end `pytest.UsageError` and destination absent/unchanged. `outcome.py::session_status` and `testsession/finish.py::finish` always compute unknown reasons, including when aggregate status is `fail`; `_failing_tests` and `_fail_reasons` exclude findings with `baselineState == "existing"`. Compute `fixed` on the controller from merged findings, never per worker. Report adds `baseline: null | {path,sha256,existing,new,fixed,fixedReason}` plus finding `baselineState` and `observed`, all keys emitted. Merge D1's new per-finding dismissal list into the dismissed set loaded by the current plugin site `pytest_plugin/__init__.py:241`; preserve the existing `DismissalStore.list()` rule-id behavior.
+**Interfaces:** `--sharpit-baseline=PATH` / ini `sharpit_baseline`; `--sharpit-write-baseline=PATH` / ini `sharpit_write_baseline`. Bad/unreadable input raises `pytest.UsageError` at session start. Load baseline on every worker. Write only for complete runs with zero unknown reasons; otherwise session-end `pytest.UsageError` and destination absent/unchanged. `outcome.py::session_status` and `testsession/finish.py::finish` always compute unknown reasons, including when aggregate status is `fail`; `_failing_tests` and `_fail_reasons` exclude findings with `baselineState == "existing"`. Compute `fixed` on the controller from merged findings, never per worker. Report adds `baseline: null | {path,sha256,existing,new,fixed,fixedReason}` plus finding `baselineState` and `observed`, all keys emitted. Per-finding dismissals are Task 6's conditional step (the second of D1 and G1G2 to merge wires `dismissed_pairs()`); preserve the existing `DismissalStore.list()` rule-id behavior.
 
 - [ ] **Step 1: Failing tests.** `test_bad_baseline_usage_error_at_session_start`, `test_write_baseline_is_only_writer`, `test_write_refuses_partial_run`, `test_write_refuses_any_unknown_even_when_status_fail`, `test_write_refusal_leaves_file_absent`, `test_baseline_loaded_on_every_xdist_worker`, `test_report_baseline_counts_and_nulls`, `test_schema_accepts_additive_baseline_fields`, `test_schema_copies_identical`, and canonical `test_write_baseline_refused_on_partial_xdist_run`.
 - [ ] **Step 2: Run tests; expected assertions fail.**
@@ -123,6 +123,36 @@ Schema and render tests pin baseline object keys (`path`, `sha256`, `existing`, 
 - [ ] **Step 1:** Assert baseline summary counts equal per-finding states, with vulnerability findings excluded from every count.
 - [ ] **Step 2:** Assert a missing baseline emits `baseline: null`, `baselineState: null`, and `observed: null` in rendered output.
 - [ ] **Step 3:** Assert schema validation accepts older reports without additive fields and new reports with them.
+
+### Task 6 (council round 2): failing predicate, status tuple, errored rules, per-finding dismissals
+
+**Files:** `src/sharpit/engine/testsession/gates.py`, `src/sharpit/engine/testsession/outcome.py`,
+`src/sharpit/engine/collectors/restapi/service.py`, F's post-split pytest-plugin modules (F table), tests under
+`tests/engine/testsession/` and `tests/pytest_plugin/`.
+
+**Interfaces:**
+- `gates.fails(dto: Mapping[str, Any]) -> bool` = `not dto["dismissed"] and dto.get("baselineState") != "existing"
+  and dto["severity"] != "INFO"`; used by `pytest_runtest_makereport` (F's post-split module) and
+  `outcome._failing_tests`. Nothing else decides whether a finding fails.
+- `outcome.session_status(...) -> SessionStatus` where `class SessionStatus(NamedTuple): status: str;
+  fail_reasons: list[str]; unknown_reasons: list[str]`; unknown reasons are computed even when `status == "fail"`.
+  Every caller of `session_status` is updated; `exit_fails(...)` takes `unknown_reasons` from it.
+- `restapi/service.py::_run`: an errored rule yields `RuleResult.skipped(rule)` (the existing constructor in
+  `engine/advisors/rules.py`) plus an unknown reason; `RestApiService.summary` counts `SKIPPED`.
+- Per-finding dismissals: if D1 is already merged when this lane starts, wire `DismissalStore.dismissed_pairs()` into
+  the dismissed set the plugin loads (F's post-split module, not the stale `__init__.py:241`) and match
+  `(f.rule_id, f.identity or f.target)`; if D1 merges after this lane, D1 does it. Either way the second lane to merge
+  owns `test_per_finding_dismissal_reaches_gate`.
+
+- [ ] **Step 1: Failing tests.** `test_fails_excludes_existing_and_info` (a baselined `existing` finding and an `INFO`
+  finding do not fail; a `HIGH` new one does), `test_session_status_reports_unknown_reasons_when_fail`,
+  `test_errored_rule_is_skipped_with_unknown_reason`, and, if D1 is merged, `test_per_finding_dismissal_reaches_gate`.
+  Expected red: the assertions (no `fails`, `session_status` returns a 2-tuple or drops unknown reasons, errored rules
+  are `FAILED`), never an import error.
+- [ ] **Step 2: Implement** the predicate, `SessionStatus`, the errored-rule mapping and (if applicable) the dismissal
+  wiring; update every caller found by `grep -rn "session_status\|_failing_tests" src tests`.
+- [ ] **Step 3: Run** the four gates; `test_schema_copies_identical` already exists and is not a red.
+- [ ] **Step 4: Commit** `feat: one failing predicate and unknown reasons alongside fail`.
 
 ## Lane evidence checklist
 

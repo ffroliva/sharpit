@@ -10,9 +10,9 @@
 | **Spec** | §4 ("A counter Python cannot measure is `null` with a reason"), §6.1, §6.2 (id rename, `ids.json`), §7 row `sqlalchemy-statistics`, §11 |
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-A.md` §3; BootUI `HibernateStatisticsReport`, `HibernateStatisticsDto`, `HibernateCacheRegionStatisticsDto`, `HibernateStatisticsService.java` |
 | **Worker** | M/L, judgement-heavy (what is honest) → codex |
-| **Depends on** | F (PLAN.md). Not on A-transactions (rule 3: no collector imports another). Consumes F's F1a table (`F-foundation.md`): `fastapi/routes/sqlalchemy_statistics.py`, the `implemented` flag, the MCP stub module, `tests/golden.py::assert_parity` + `ids.json`, the `ui/src/views/SqlalchemyStatistics.svelte` placeholder, the `tests/safety/` + `tests/masking/` helpers. T-n-plus-one-message depends on this lane (both extend the SQL recorder). |
-| **May touch** | `src/sharpit/engine/collectors/sqlastats.py` (new), `src/sharpit/engine/capture/sqltrace.py` (**only** the lifetime-totals addition in Task 2), `src/sharpit/fastapi/routes/sqlalchemy_statistics.py` (F stub), the panel's pre-registered rows (flag flip), F's MCP stubs, `ui/src/views/SqlalchemyStatistics.svelte` (replace F's placeholder) + `.test.ts`, `tests/engine/test_sqlastats.py`, `tests/engine/capture/test_sqltrace_totals.py`, `tests/fastapi/test_sqlalchemy_statistics_api.py`, `tests/safety/test_a_sqlalchemy_statistics_safety.py`, `tests/masking/test_a_sqlalchemy_statistics_masking.py`, `tests/fixtures/bootui/2.2.0/sqlalchemy-statistics/*`, `examples/fastapi_sqla/` (Task 6 route only if missing), the implementer files in the lane folder (C2) |
-| **Must NOT touch** | §10.3 protected files; `BUDGET_NS` in `tests/fastapi/test_sql_trace_overhead.py:25` (it must stay green **unchanged**); `engine/sqla.py`; `engine/sources/dispatch.py`; other lanes' modules; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
+| **Depends on** | F (PLAN.md). Not on A-transactions (rule 3: no collector imports another). Consumes these rows of F's consumer interface table (`F-foundation.md`): `sharpit.fastapi.routes.<id>` (`routes/sqlalchemy_statistics.py`), "implemented flag files" (`engine/panels04/<id>.py` + `ui/src/lib/panels04/<id>.ts`, O4, here `sqlalchemy_statistics`), `sharpit.engine.tool_stubs.<id>`, `tests.golden.assert_parity` (O2) + `ids.json`, the `ui/src/views/SqlalchemyStatistics.svelte` placeholder; F's `examples/fastapi_sqla` wiring (O3: a list route that lazy-loads a relationship per row). `tests/safety/` + `tests/masking/` are F-rest: if absent, the lane creates its own two files without shared helpers. T-n-plus-one-message depends on this lane (both extend the SQL recorder). |
+| **May touch** | `src/sharpit/engine/collectors/sqlastats.py` (new), `src/sharpit/engine/capture/sqltrace.py` (**only** the lifetime-totals addition in Task 2), `src/sharpit/fastapi/routes/sqlalchemy_statistics.py` (F stub), `src/sharpit/engine/panels04/sqlalchemy_statistics.py` and `ui/src/lib/panels04/sqlalchemy_statistics.ts` (flag flip only, O4), `src/sharpit/engine/tool_stubs/sqlalchemy_statistics.py` (F-rest's; created by the lane if absent), `ui/src/views/SqlalchemyStatistics.svelte` (replace F's placeholder) + `.test.ts`, `tests/engine/test_sqlastats.py`, `tests/engine/capture/test_sqltrace_totals.py`, `tests/fastapi/test_sqlalchemy_statistics_api.py`, `tests/safety/test_a_sqlalchemy_statistics_safety.py`, `tests/masking/test_a_sqlalchemy_statistics_masking.py`, `tests/fixtures/bootui/2.2.0/sqlalchemy-statistics/nullable.json` (O2), the implementer files in the lane folder (C2) plus `docs.md` (O3) |
+| **Must NOT touch** | §10.3 protected files; `BUDGET_NS` in `tests/fastapi/test_sql_trace_overhead.py:25` (it must stay green **unchanged**); `engine/sqla.py` (O1); `engine/sources/dispatch.py`; `PANELS`, `nav.ts`, `App.svelte`, `types.ts` (O4); `captured.json` / `provisional.json` (O2); `README.md`, `skills/sharpit/SKILL.md`, `examples/fastapi_sqla/`, `tests/test_example_app.py` (O3); other lanes' modules; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
 
 **Architecture:** The collector `engine/collectors/sqlastats.py` is pure: it reads `ctx.capture.sql_trace` (lifetime
 totals + the ring) and `ctx.capture.exchanges` (request id → method, endpoint via `HttpExchangeBuffer.get`,
@@ -68,12 +68,12 @@ changes nothing (statistics are always on while SQL Trace records), logged §11.
 
 ### Task 1: Golden, `ids.json` row, nullable keys
 
-**Files:** `tests/fixtures/bootui/2.2.0/sqlalchemy-statistics/report.json`, `.../nullable.json` (one entry per null
-key above, path `statistics.<key>`); check `ids.json` has `"hibernate-statistics": "sqlalchemy-statistics"` (F).
+**Files:** `tests/fixtures/bootui/2.2.0/sqlalchemy-statistics/nullable.json` only (one entry per null key above, path
+`statistics.<key>`; O2); check `ids.json` has `"hibernate-statistics": "sqlalchemy-statistics"` (F).
 
-- [ ] **Step 1:** G0a capture at `tests/fixtures/bootui/2.2.0/sqlalchemy-statistics/report.json` (C3; sharpit id
-  folder, no flat file) or provisional (§12.11). **Step 2:** Commit
-  `test: sqlalchemy-statistics golden fixture`.
+- [ ] **Step 1:** The golden is G0a's `tests/fixtures/bootui/2.2.0/sqlalchemy-statistics/captured.json`; if absent, the
+  coordinator has another worker write `provisional.json` (§12.11) and `checklist.md` item 1 says "unverified".
+  **Step 2:** Commit `test: sqlalchemy-statistics nullable keys`.
 
 ### Task 2: Lifetime totals in `SqlTraceRecorder`
 
@@ -116,10 +116,11 @@ where `traceId` is not `null`; a group with `>= threshold` rows is one occurrenc
 
 ### Task 4: Routes, MCP, safety
 
-**Files:** `src/sharpit/fastapi/routes/sqlalchemy_statistics.py` (F stub), flag flip; Test
+**Files:** `src/sharpit/fastapi/routes/sqlalchemy_statistics.py` (F stub), `src/sharpit/engine/panels04/sqlalchemy_statistics.py`
+`IMPLEMENTED = True` (O4); Test
 `tests/fastapi/test_sqlalchemy_statistics_api.py`, `tests/safety/test_a_sqlalchemy_statistics_safety.py`, and
 `tests/masking/test_a_sqlalchemy_statistics_masking.py` (a `STRIPE_KEY` literal in a slow query under
-`capture_parameters=true` never appears) on F's shared helpers (C5).
+`capture_parameters=true` never appears) on F-rest's shared helpers when present (C5).
 
 **Interfaces:** `GET {api}/sqlalchemy-statistics`, `POST {api}/sqlalchemy-statistics/enable` (returns the report,
 read-only gate applies). MCP `get_sqlalchemy_statistics` (read); `enable_sqlalchemy_statistics` `action=True`.
@@ -135,8 +136,8 @@ read-only gate applies). MCP `get_sqlalchemy_statistics` (read); `enable_sqlalch
 
 ### Task 5: Svelte view
 
-**Files:** Replace F's placeholder `ui/src/views/SqlalchemyStatistics.svelte`, create `.test.ts`; flip the panel's
-`implemented` in F's `ui/src/lib/nav.ts` wiring (flag only).
+**Files:** Replace F's placeholder `ui/src/views/SqlalchemyStatistics.svelte`, create `.test.ts`; set
+`implemented = true` in `ui/src/lib/panels04/sqlalchemy_statistics.ts` (O4; `nav.ts` untouched).
 
 - [ ] **Step 1:** vitest: a `null` counter renders "not measured" with the reason as a tooltip (never "0"); N+1 table
   links the route to HTTP Exchanges; `enableAvailable:false` hides the enable button. Reference
@@ -145,12 +146,13 @@ read-only gate applies). MCP `get_sqlalchemy_statistics` (read); `enable_sqlalch
 
 ### Task 6: Live check and evidence
 
-- [ ] **Step 1:** `examples/fastapi_sqla`: hit a list route that lazy-loads a relationship per row (add the route
-  only if the example lacks one, with its test red first in `test_example_app.py::test_example_n_plus_one_route`);
-  the panel shows one N+1 entry for that route. Record requests in `handoff.md` §Live check (`live-verify.md` is the
+- [ ] **Step 1:** `examples/fastapi_sqla` as F wired it (O3; no edit to the example or `tests/test_example_app.py`):
+  hit its list route that lazy-loads a relationship per row; the panel shows one N+1 entry for that route. If F's
+  wiring lacks the route, record it as an open finding for the coordinator, not a lane edit. Record requests in `handoff.md` §Live check (`live-verify.md` is the
   coordinator's, C2).
 - [ ] **Step 2:** lowest-direct + no-SQLAlchemy as a local pre-check (commands in `checklist.md` item 8; gated logs are
-  the coordinator's). Commit `docs: sqlalchemy-statistics lane evidence`.
+  the coordinator's). User-facing text (SKILL row, the `hibernate-statistics` → `sqlalchemy-statistics` rename) goes
+  to the lane folder's `docs.md` (O3). Commit `docs: sqlalchemy-statistics lane evidence`.
 
 ## §6.1 → task (spec order; `checklist.md` adds the evidence paths)
 
