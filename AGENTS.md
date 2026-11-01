@@ -91,8 +91,9 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
    the engine (`context`, `paging`, `spi`, `singleflight`, ...).
 4. **Gatekeepers.** One named file per optional or network library: SQLAlchemy only in `engine/sqla.py`,
-   `pydantic_settings` only in `engine/collectors/config/settings_source.py`, `urllib.request`/`http.client` only in
-   the OSV and EPSS clients under `engine/collectors/vulns/`. `alembic`, `socket` and `ssl` are imported nowhere.
+   `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
+   `engine/collectors/config/settings_source.py`, `urllib.request`/`http.client` only in the OSV and EPSS clients under
+   `engine/collectors/vulns/`. `alembic`, `socket` and `ssl` are imported nowhere.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
    SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked
    slow or deselected (a measurement nobody runs detects nothing). See `docs/development/overhead-budgets.md` for what

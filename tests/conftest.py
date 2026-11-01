@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 
+from sharpit.engine.sources import sqlite
+
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}
 _BLOCKED = ("connect", "create_connection", "getaddrinfo", "gethostbyname")
@@ -158,6 +160,14 @@ class SideEffectGuard:
         if _environ() != self._environ:
             problems.append("os.environ changed")
         assert not problems, "side effects detected: " + "; ".join(problems)
+
+
+@pytest.fixture(autouse=True)
+def _sqlite3_patch_released() -> Iterator[None]:
+    """An app installed without a lifespan never detaches its sqlite3 hold: no test inherits another's patch."""
+    sqlite.detach_all()
+    yield
+    sqlite.detach_all()
 
 
 @pytest.fixture

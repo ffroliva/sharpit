@@ -174,14 +174,6 @@ def clear_contexts() -> None:
         _refresh()
 
 
-def has_context(ctx: SharpitContext) -> bool:
-    return ctx.context_id in _contexts
-
-
-def has_contexts() -> bool:
-    return bool(_contexts)
-
-
 def engine_drivers() -> set[str]:
     """``engine.dialect.driver`` of every engine an event came from while the sink was set."""
     return set(_drivers)
