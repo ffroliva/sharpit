@@ -4,11 +4,12 @@ Status: Task 1 implementation complete; fresh review pending before Task 2.
 
 - Base: `7e5fc150946ee4d870433d96a41a6627b343364a` (`release/0.4.0`); worktree branch `lane/0.4.0-F`.
 - Untouched-base suite at `7e5fc15`: 3491 passed, 5 skipped, 34 warnings in 93.95 s (`uv run pytest -q -n 4`).
-- Task 1 red commits: `869db29d181a3ad98df7eb5ba6201b4cbc0e091f`, `45797333bd99647623073cb8b7b0b6755bd6a3f7`, `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9`, `d0ea233ea90a7e2f5cd800a6df7582a6ae114d1e`, `3ff293b0f49a325e25d31e743febfe9cea3c91f2`, and `82b9177fc659abc6691712d9e706b8186e34329c`; node IDs/assertions are in `findings.md`.
+- Task 1 red commits: `869db29d181a3ad98df7eb5ba6201b4cbc0e091f`, `45797333bd99647623073cb8b7b0b6755bd6a3f7`, `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9`, `d0ea233ea90a7e2f5cd800a6df7582a6ae114d1e`, `3ff293b0f49a325e25d31e743febfe9cea3c91f2`, `82b9177fc659abc6691712d9e706b8186e34329c`, and `3075c9104fd1cc4939baefc2e7071e370fe6e635`; see the red-test table below and `findings.md`.
 - Completed responsibility extraction commit: `45a3e98b53119be0c7427a42122bf8f99a385760`.
 - Final Task 1 responsibility-split commit: `526e53f51e24bfa532a8555c82b939e4d72069eb`.
 - Adapter compatibility fix: `1d5e1f7d9fd1ff66744d3e55693bd0b7691a94e4` (adapter route/helper seams now delegate dynamically).
-- Current focused regression run: 196 passed, 16 warnings in 32.96 s. It covers structure/capture/compatibility/equivalence tests plus existing tool, pytest, xdist, capture-wiring, install, and code-shape suites.
+- Capture wiring attachment fix: pending commit after final focused verification.
+- Current focused regression run: 197 passed, 16 warnings in 36.92 s. It covers structure/capture/compatibility/equivalence tests plus existing tool, pytest, xdist, capture-wiring, install, and code-shape suites.
 - Pyright: 0 errors, 0 warnings. Ruff check and format check passed for changed Python files. C901 ratchet test passed after lowering the `engine/tools.py` and `fastapi/adapter.py` entries from 1/3 to 0/0; the new route and dispatch modules add no C901 findings.
 - The first focused rerun logged inside the repo and tripped the no-side-effects fixture's cwd scan; the clean rerun
   placed logs outside the worktree.
@@ -34,3 +35,25 @@ Status: Task 1 implementation complete; fresh review pending before Task 2.
 | `sharpit.pytest_plugin.report_io.write_report` | `write_report(state, session, exitstatus) -> None` owns report serialization and exit status; plugin keeps `_write_report` compatibility alias. |
 | `sharpit.pytest_plugin.terminal.pytest_terminal_summary` | Existing pytest terminal summary hook moved intact; dynamically resolves plugin helper seams. |
 | `sharpit.pytest_plugin.__init__` | Existing pytest hook names remain importable for plugin registration. |
+
+## Red-test replay table
+
+| Test id | Red SHA | Assertion message |
+|---|---|---|
+| `tests/test_foundation_split_contracts.py::test_route_registration_preserves_order` | `869db29d181a3ad98df7eb5ba6201b4cbc0e091f` | `assert app.routes == [first, second]` |
+| `tests/test_foundation_split_contracts.py::test_tool_catalogue_matches_registered_tools` | `869db29d181a3ad98df7eb5ba6201b4cbc0e091f` | `assert [tool.name for tool in catalog] == [tool.name for tool in TOOLS]` |
+| `tests/test_foundation_split_contracts.py::test_plugin_session_options_match_resolver` | `869db29d181a3ad98df7eb5ba6201b4cbc0e091f` | `assert actual == expected` |
+| `tests/test_foundation_split_compat.py::test_capture_configuration_contract_is_owned_by_install_module` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert get_type_hints(_configure_capture)["return"] is CaptureWiring` |
+| `tests/test_foundation_split_compat.py::test_tool_dispatch_import_is_cycle_free` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert result.returncode == 0, result.stderr` |
+| `tests/engine/test_tools.py::test_call_tool_uses_facade_catalogue` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert result == {"facade": True}` |
+| `tests/engine/test_tools.py::test_call_tool_uses_facade_tool_gate` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert calls == [expected.name]` |
+| `tests/pytest_plugin/test_plugin_apps.py::test_plugin_loader_facade_remains_monkeypatchable` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert state.sink.facts.advisor_runs[0].status != "UNKNOWN"` |
+| `tests/test_foundation_structure.py::test_install_facade_reexports_install_module_implementation` | `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9` | `assert adapter.install is install_module.install` |
+| `tests/test_foundation_structure.py::test_adapter_install_uses_route_builder_module` | `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9` | `assert called == [True]` |
+| `tests/test_foundation_structure.py::test_option_registration_is_owned_by_options_module` | `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9` | `assert plugin.pytest_addoption is options.pytest_addoption` |
+| `tests/test_foundation_structure.py::test_gate_hook_is_owned_by_session_module` | `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9` | `assert plugin.pytest_runtest_makereport is session.pytest_runtest_makereport` |
+| `tests/test_foundation_capture_setup.py::test_configure_capture_attaches_wiring` | `d0ea233ea90a7e2f5cd800a6df7582a6ae114d1e` | `assert isinstance(wiring, CaptureWiring)` |
+| `tests/test_foundation_structure.py::test_install_uses_adapter_route_compatibility_target` | `3ff293b0f49a325e25d31e743febfe9cea3c91f2` | `assert calls == [True]` |
+| `tests/test_foundation_structure.py::test_installed_routes_use_adapter_read_capped_compatibility_target` | `3ff293b0f49a325e25d31e743febfe9cea3c91f2` | `assert response.status_code == 413` |
+| `tests/test_foundation_capture_setup.py::test_configure_capture_stores_wiring_on_context` | `82b9177fc659abc6691712d9e706b8186e34329c` | `assert ctx.capture.wiring is not None` |
+| `tests/test_foundation_capture_setup.py::test_configure_capture_stores_returned_wiring` | `3075c9104fd1cc4939baefc2e7071e370fe6e635` | `assert ctx.capture.wiring is wiring` |
