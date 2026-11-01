@@ -22,6 +22,7 @@ from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
 from starlette.requests import Request
 
 from fastapi import BackgroundTasks, FastAPI
@@ -37,6 +38,10 @@ class Settings(BaseSettings):
     app_name: str = "fastapi-sqla"
     api_token: SecretStr = SecretStr("dev-api-token")
     debug: bool = False
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 class HandledSampleError(Exception):
