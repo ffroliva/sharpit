@@ -32,8 +32,17 @@ If `.venv` is missing, `uv sync --extra test` first (in the background). CI also
 and a `--resolution lowest-direct` job; a change that touches dependency floors or version-specific APIs should be
 checked with `uv sync --extra test --resolution lowest-direct` too.
 
+**Before opening a PR that adds a dependency, a pytest plugin or test-time code, run CI's special jobs locally**, each
+in its own env so the worktree's `.venv` stays intact (`UV_PROJECT_ENVIRONMENT=<scratch dir>`), with the exact
+commands from `.github/workflows/ci.yml`: `lowest` (lowest-direct, Python 3.12), `no-sqlalchemy` (the
+`--no-install-package` list, `-m "not needs_sqlalchemy"`) and `coverage` (`--cov`, `COVERAGE_FILE` outside the repo).
+0.3.0 passed the full local gate and still failed all three on its first PR run: an ini option type pytest 8.2 does not
+know (it would have crashed every user on older pytest), tests that assumed SQLAlchemy, and test order under coverage.
+
 When `ui/` changed: `cd ui && npm ci && npm run build`, then `git diff --exit-code src/sharpit/ui/static`
-(the built UI is committed; CI fails on drift).
+(the built UI is committed; CI fails on drift). Never build the UI in a worktree while its pytest runs: the
+`no_side_effects` fixture sees the new files under `src/sharpit/ui/static` as a side effect of whichever test is
+running (seen in 0.3.0 as a spurious `test_osv` teardown error).
 
 ## 3. Contract and safety checklist
 
