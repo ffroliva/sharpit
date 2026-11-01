@@ -104,6 +104,9 @@ class Fixture:
                 "pass": "",
                 "failure": '<failure message="AssertionError: assert 1 == 2">trace</failure>',
                 "typeerror": '<failure message="TypeError: bad">trace</failure>',
+                # real pytest: a rewritten assert's message names no exception; --tb=long ends "<file>:<line>: <type>"
+                "rewritten": '<failure message="assert 1 == 2">E   assert 1 == 2\nt.py:2: AssertionError</failure>',
+                "rpcerror": '<failure message="pkg.RpcError: x">E   pkg.RpcError: x\nt.py:2: RpcError</failure>',
                 "error": '<error message="failed on setup">trace</error>',
                 "skip": '<skipped message="skip" />',
             }
@@ -435,3 +438,25 @@ def test_lane_gate_accepts_postgresql_with_leased_db_log(tmp_path: Path) -> None
     result = fx.evaluate()
     assert _refusals(result) == []
     assert list(result.unverified) == []  # type: ignore[attr-defined]
+
+
+# --- real pytest junit shapes (found replaying lane F's own reds) -----------------------------------------------------
+
+
+def test_lane_gate_accepts_rewritten_assert_failure_as_red(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "rewritten"
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_refuses_non_assertion_failure_with_assert_like_message(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "rpcerror"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: RpcError failure")
+
+
+def test_lane_gate_replays_with_long_tracebacks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(lane_gate.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    lane_gate.run_pytest_in(tmp_path)(tmp_path, [TEST_ID], tmp_path / "junit.xml")
+    assert "--tb=long" in calls[0]
