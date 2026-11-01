@@ -188,7 +188,8 @@ def _panel_routes(prefix: str) -> list[tuple[str, str]]:
     return sorted({("GET", base), *((m, p) for m, p in known if p == base or p.startswith(base + "/"))})
 
 
-GATED = [(p.id, p.api_prefix) for p in PANELS if p.api_prefix]
+# an unimplemented 0.4 panel has no routes at all (404): test_unimplemented_panel_has_no_surface covers it
+GATED = [(p.id, p.api_prefix) for p in PANELS if p.api_prefix and p.implemented]
 
 
 @pytest.mark.parametrize(("panel", "prefix"), GATED, ids=[g[0] for g in GATED])
