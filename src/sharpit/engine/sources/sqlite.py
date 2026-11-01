@@ -11,26 +11,46 @@ from __future__ import annotations
 import contextlib
 import gc
 import logging
-import sqlite3
-import sqlite3.dbapi2 as dbapi2
 import sys
 import threading
 import time
+import types
 from collections.abc import Callable, Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sources.dispatch import SqlEvent
 
+if TYPE_CHECKING:
+    import sqlite3
+    import sqlite3.dbapi2 as dbapi2
+
+    AVAILABLE = True
+else:
+    try:
+        import sqlite3
+        import sqlite3.dbapi2 as dbapi2
+
+        AVAILABLE = True
+    except ImportError:  # a Python built without _sqlite3: sharpit still imports, the source never attaches
+        AVAILABLE = False
+        # stand-ins so the classes below still define
+        sqlite3 = types.SimpleNamespace(Connection=object, Cursor=object, connect=None)
+        dbapi2 = types.SimpleNamespace(connect=None)
+
 logger = logging.getLogger("sharpit")
 
 UNTRACED_CALLERS = ("coverage", "_pytest", "aiosqlite")
+UNAVAILABLE = "sqlite3 is not available in this Python build"
 EARLY_CONNECTIONS = "connections opened before capture started are not traced"
 COUNT_FAILED = "connections opened before capture started could not be counted"
 FACTORY_PASSED_THROUGH = (
     "a connection factory or cursor class that does not subclass sqlite3.Connection / sqlite3.Cursor is not traced"
 )
 _OWNERS_NOT_EARLY = (*UNTRACED_CALLERS, "sqlalchemy")  # their connections are untraced by design or traced elsewhere
+_POOL_MODULES = ("sqlalchemy.pool", "sqlalchemy.engine")  # a connection they open is SQLAlchemy's source
+_CALLER_FRAMES = 32
+_RESCAN_SECONDS = 60.0
 _SKIPPED_MODULES = ("sqlite3", "sqlite3.dbapi2", "_sqlite3")
 
 _lock = threading.Lock()
@@ -39,6 +59,8 @@ _real: Callable[..., sqlite3.Connection] | None = None  # the stdlib function wh
 _patched: Callable[..., sqlite3.Connection] | None = None
 _preexisting = 0
 _count_failed = False
+_early: list[str] = []  # early aliases, found once per attach (limitations() runs on every SQL Trace GET)
+_scanned_at: float | None = None  # monotonic time of the last heap and module scan
 _passed_through = False
 # shortcut: one derived class per caller factory class, unbounded; factories are few per process
 _derived: dict[tuple[type, type], type] = {}
@@ -163,9 +185,21 @@ class TracedConnection(_TracedConnectionMixin, sqlite3.Connection):
 
 
 def _caller_untraced(depth: int) -> bool:
-    """Whether the code that called ``sqlite3.connect`` is one of ``UNTRACED_CALLERS`` (decided once per connection)."""
-    name = sys._getframe(depth).f_globals.get("__name__", "")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-    return isinstance(name, str) and name.partition(".")[0] in UNTRACED_CALLERS
+    """Whether ``sqlite3.connect`` was called by one of ``UNTRACED_CALLERS``, or from inside SQLAlchemy's pool or engine
+    (a ``creator`` callable): decided once per connection, over at most ``_CALLER_FRAMES`` frames."""
+    frame = sys._getframe(depth)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    direct = True
+    for _ in range(_CALLER_FRAMES):
+        name = frame.f_globals.get("__name__", "")
+        if isinstance(name, str) and (
+            (direct and name.partition(".")[0] in UNTRACED_CALLERS) or name.startswith(_POOL_MODULES)
+        ):
+            return True
+        direct = False
+        if frame.f_back is None:
+            return False
+        frame = frame.f_back
+    return False
 
 
 def _make_connect(real: Callable[..., sqlite3.Connection]) -> Callable[..., sqlite3.Connection]:
@@ -218,27 +252,47 @@ def _owned_elsewhere(conn: object) -> bool:
     return False
 
 
+def _scan() -> tuple[int, bool, list[str]]:
+    """``(pre-existing connections, count failed, early aliases)``; both walks are best effort."""
+    try:
+        count, failed = _count_preexisting(), False
+    except Exception:  # noqa: BLE001 - counting is best effort; attach never raises into the host
+        count, failed = 0, True
+    try:
+        aliases = early_aliases()
+    except Exception:  # noqa: BLE001
+        aliases = []
+    return count, failed, aliases
+
+
 def attach(holder: str = "api") -> bool:
     """Patch ``sqlite3.connect`` for ``holder``; True when this call did the patching (a second holder shares it)."""
-    global _real, _patched, _preexisting, _count_failed
+    global _real, _patched, _preexisting, _count_failed, _early, _scanned_at
+    if not AVAILABLE:
+        return False
     with _lock:
         _holders.add(holder)
         if _real is not None:
             return False
-        try:
-            count, _count_failed = _count_preexisting(), False
-        except Exception:  # noqa: BLE001 - counting is best effort; attach never raises into the host
-            count, _count_failed = 0, True
+        fresh = _scanned_at is not None and time.monotonic() - _scanned_at < _RESCAN_SECONDS
+    # the heap walk runs outside the lock; a re-attach right after a detach reuses the last scan
+    scanned = (_preexisting, _count_failed, _early) if fresh else _scan()
+    with _lock:
+        if _real is not None or holder not in _holders:  # another attach won, or this holder already left
+            return False
         real = sqlite3.connect
         patched = _make_connect(real)
         sqlite3.connect = patched  # type: ignore[assignment]
-        _real, _patched, _preexisting = real, patched, count  # state only once the patch is in
+        _real, _patched = real, patched  # state only once the patch is in
+        _preexisting, _count_failed, _early = scanned
+        if not fresh:
+            _scanned_at = time.monotonic()
         return True
 
 
 def detach(holder: str = "api") -> bool:
     """Drop ``holder``; restore the stdlib function when the last holder leaves and nobody else re-patched it."""
-    global _real, _patched, _passed_through, _count_failed
+    global _real, _patched, _passed_through
     with _lock:
         _holders.discard(holder)
         if _holders or _real is None:
@@ -249,15 +303,17 @@ def detach(holder: str = "api") -> bool:
         else:
             logger.warning("sharpit left sqlite3.connect alone: another library replaced it after sharpit's patch")
         _real = _patched = None
-        _passed_through = _count_failed = False
+        _passed_through = False
         return restored
 
 
 def detach_all() -> None:
     """Forget every holder and restore ``sqlite3.connect`` (tests start from a clean slate with it)."""
+    global _scanned_at
     with _lock:
         _holders.clear()
     detach("")
+    _scanned_at = None  # the next attach scans again
 
 
 def is_attached() -> bool:
@@ -284,8 +340,10 @@ def early_aliases() -> list[str]:
 
 
 def limitations() -> list[str]:
+    if not AVAILABLE:
+        return [UNAVAILABLE]
     lines: list[str] = []
-    if _real is not None and (_preexisting > 0 or early_aliases()):
+    if _real is not None and (_preexisting > 0 or _early):
         lines.append(EARLY_CONNECTIONS)
     if _real is not None and _count_failed:
         lines.append(COUNT_FAILED)

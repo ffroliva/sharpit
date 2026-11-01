@@ -156,6 +156,20 @@
     }
   }
 
+  async function restoreFinding(fingerprint: string) {
+    if (pending || readOnlyReason) return;
+    pending = fingerprint;
+    actionError = null;
+    try {
+      await onRestore(fingerprint);
+      dismissedFindings = dismissedFindings.filter((f) => f !== fingerprint);
+    } catch (e) {
+      actionError = `Restore failed: ${errorText(e)}`;
+    } finally {
+      pending = null;
+    }
+  }
+
   const tone = (severity: string) =>
     severity === 'CRITICAL' || severity === 'HIGH' ? 'danger' : severity === 'MEDIUM' ? 'warn' : 'muted';
 </script>
@@ -264,6 +278,13 @@
               {#if onDismissFinding && fingerprint}
                 {#if dismissedFindings.includes(fingerprint)}
                   <span class="tag muted">dismissed</span>
+                  <button
+                    class="link"
+                    onclick={() => restoreFinding(fingerprint)}
+                    disabled={!!pending || !!readOnlyReason}
+                    title={readOnlyReason ?? undefined}
+                    aria-label="Restore finding {fingerprint}"
+                  >Restore this finding</button>
                 {:else}
                   <button
                     class="link"

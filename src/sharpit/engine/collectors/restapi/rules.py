@@ -419,8 +419,10 @@ def _is_framework(route: ApiRouteInfo) -> bool:
 
 
 def _route_target(route: ApiRouteInfo) -> str:
-    """``"<METHOD> <path>"``; a route serving several methods names each, sorted and joined with ``" | "``."""
-    return " | ".join(f"{method} {route.path}" for method in sorted(route.methods))
+    """``"<METHOD> <path> <module:qualname>"``; several methods are each named, sorted and joined with ``" | "``.
+
+    The handler keeps two handlers on one method and path apart (a fingerprint dismisses one finding)."""
+    return " | ".join(f"{method} {route.path}" for method in sorted(route.methods)) + f" {route.handler}"
 
 
 def _describe(route: ApiRouteInfo, suffix: str | None = None) -> str:

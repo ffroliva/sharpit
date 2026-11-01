@@ -9,6 +9,7 @@ import asyncio
 import logging
 import re
 import sqlite3
+import subprocess
 import sys
 import threading
 import types
@@ -47,7 +48,7 @@ class Sink:
 @pytest.fixture(autouse=True)
 def _stdlib_restored() -> Iterator[None]:
     yield
-    sqlite.detach(HOLDER)
+    sqlite.detach_all()  # also drops the cached scan, so each test counts its own early connections
     sqlite3.connect = REAL_CONNECT  # a test that re-patched on purpose
     dispatch.set_session_sink(None)
     sqla.detach_session()
@@ -351,3 +352,49 @@ def test_attach_count_failure_falls_back_with_limitation(monkeypatch: pytest.Mon
     assert sqlite.attach(HOLDER) is True
     assert sqlite.preexisting_connections() == 0
     assert sqlite.COUNT_FAILED in sqlite.limitations()
+
+
+def test_sqlalchemy_creator_connection_counted_once(sink: Sink):
+    """Review finding 2: a ``creator`` calling ``sqlite3.connect`` inside SQLAlchemy stays the SQLAlchemy source."""
+    sa = pytest.importorskip("sqlalchemy")
+    from sqlalchemy.pool import StaticPool
+
+    sqlite.attach(HOLDER)
+    assert sqla.attach_session() is True
+    engine = sa.create_engine(
+        "sqlite://", creator=lambda: sqlite3.connect(":memory:", check_same_thread=False), poolclass=StaticPool
+    )
+    with engine.connect() as connection:
+        for _ in range(3):
+            connection.execute(sa.text("select 1"))
+    assert [e.source for e in sink.events] == ["sqlalchemy"] * 3
+
+
+def test_sharpit_imports_without_sqlite3():
+    """Review finding 3: a Python without ``_sqlite3`` still imports sharpit and its pytest plugin."""
+    code = (
+        "import sys\n"
+        "sys.modules['sqlite3'] = None\n"
+        "sys.modules['_sqlite3'] = None\n"
+        "import sharpit\n"
+        "import sharpit.pytest_plugin\n"
+        "from sharpit.engine.sources import sqlite\n"
+        "assert sqlite.attach('x') is False\n"
+        "assert sqlite.is_attached() is False\n"
+        "assert sqlite.limitations() == ['sqlite3 is not available in this Python build']\n"
+    )
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False)  # noqa: S603
+    assert done.stderr.strip().splitlines()[-1:] == []
+    assert done.returncode == 0
+
+
+def test_limitations_does_not_rescan_modules(monkeypatch: pytest.MonkeyPatch):
+    """Review finding 5: the module scan runs at attach, not on every SQL Trace GET."""
+    sqlite.detach_all()
+    calls: list[int] = []
+    real_scan = sqlite.early_aliases
+    monkeypatch.setattr(sqlite, "early_aliases", lambda: calls.append(1) or real_scan())
+    sqlite.attach(HOLDER)
+    for _ in range(5):
+        sqlite.limitations()
+    assert len(calls) == 1

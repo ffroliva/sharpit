@@ -1,8 +1,9 @@
 """REST API advisor on the finding contract (0.3.0 spec §5.3, §5.5, §5.6).
 
 The ``CASES`` table doubles as the per-rule target list: for every rule, one route set that triggers it and the
-target each occurrence gets. Route rules target ``"<METHOD> <path>"`` (several methods sorted and joined with
-``" | "``), ``RAPI-MAP-002`` the duplicated ``"<METHOD> <path>"``, and the two app-wide rules ``"application"``.
+target each occurrence gets. Route rules target ``"<METHOD> <path> <module:qualname>"`` (several methods sorted and
+joined with ``" | "``, the handler last), ``RAPI-MAP-002`` the duplicated ``"<METHOD> <path>"``, and the two app-wide
+rules ``"application"``.
 No ported rule is about a handler with no route, so none targets ``module:qualname`` today.
 """
 
@@ -48,26 +49,46 @@ def route(
 
 # rule id -> (routes, exception handlers, expected target of each violation, in rule order)
 CASES: dict[str, tuple[list[ApiRouteInfo], tuple[str, ...], list[str]]] = {
-    "RAPI-MAP-001": ([route(methods=("POST", "GET"))], APP_HANDLER, ["GET /v1/pets | POST /v1/pets"]),
+    "RAPI-MAP-001": (
+        [route(methods=("POST", "GET"))],
+        APP_HANDLER,
+        ["GET /v1/pets | POST /v1/pets app.pets:read_pets"],
+    ),
     "RAPI-MAP-002": ([route(), route(name="again")], APP_HANDLER, ["GET /v1/pets"]),
-    "RAPI-MAP-003": ([route(name="delete_pet")], APP_HANDLER, ["GET /v1/pets"]),
-    "RAPI-MAP-005": ([route("/v1/pets/")], APP_HANDLER, ["GET /v1/pets/"]),
-    "RAPI-MAP-007": ([route(methods=("DELETE",), has_body=True)], APP_HANDLER, ["DELETE /v1/pets"]),
-    "RAPI-MAP-010": ([route("/v1/files/{rest:path}")], APP_HANDLER, ["GET /v1/files/{rest:path}"]),
-    "RAPI-MAP-011": ([route("/v1/a/{a}/b/{b}/c/{c}/d/{d}")], APP_HANDLER, ["GET /v1/a/{a}/b/{b}/c/{c}/d/{d}"]),
-    "RAPI-NAME-001": ([route("/v1/getPets")], APP_HANDLER, ["GET /v1/getPets"]),
-    "RAPI-NAME-002": ([route("/v1/pet", return_annotation=list[Pet])], APP_HANDLER, ["GET /v1/pet"]),
-    "RAPI-NAME-003": ([route("/v1/petTypes")], APP_HANDLER, ["GET /v1/petTypes"]),
-    "RAPI-RESP-001": ([route(methods=("POST",), name="create_pet")], APP_HANDLER, ["POST /v1/pets"]),
-    "RAPI-RESP-002": ([route(methods=("DELETE",), return_annotation=type(None))], APP_HANDLER, ["DELETE /v1/pets"]),
-    "RAPI-RESP-006": ([route(status_code=204, return_annotation=Pet)], APP_HANDLER, ["GET /v1/pets"]),
-    "RAPI-DTO-001": ([route(response_model=PetTable)], APP_HANDLER, ["GET /v1/pets"]),
-    "RAPI-DTO-002": ([route(return_annotation=None)], APP_HANDLER, ["GET /v1/pets"]),
-    "RAPI-PAGE-001": ([route(return_annotation=list[Pet])], APP_HANDLER, ["GET /v1/pets"]),
+    "RAPI-MAP-003": ([route(name="delete_pet")], APP_HANDLER, ["GET /v1/pets app.pets:delete_pet"]),
+    "RAPI-MAP-005": ([route("/v1/pets/")], APP_HANDLER, ["GET /v1/pets/ app.pets:read_pets"]),
+    "RAPI-MAP-007": ([route(methods=("DELETE",), has_body=True)], APP_HANDLER, ["DELETE /v1/pets app.pets:read_pets"]),
+    "RAPI-MAP-010": ([route("/v1/files/{rest:path}")], APP_HANDLER, ["GET /v1/files/{rest:path} app.pets:read_pets"]),
+    "RAPI-MAP-011": (
+        [route("/v1/a/{a}/b/{b}/c/{c}/d/{d}")],
+        APP_HANDLER,
+        ["GET /v1/a/{a}/b/{b}/c/{c}/d/{d} app.pets:read_pets"],
+    ),
+    "RAPI-NAME-001": ([route("/v1/getPets")], APP_HANDLER, ["GET /v1/getPets app.pets:read_pets"]),
+    "RAPI-NAME-002": ([route("/v1/pet", return_annotation=list[Pet])], APP_HANDLER, ["GET /v1/pet app.pets:read_pets"]),
+    "RAPI-NAME-003": ([route("/v1/petTypes")], APP_HANDLER, ["GET /v1/petTypes app.pets:read_pets"]),
+    "RAPI-RESP-001": (
+        [route(methods=("POST",), name="create_pet")],
+        APP_HANDLER,
+        ["POST /v1/pets app.pets:create_pet"],
+    ),
+    "RAPI-RESP-002": (
+        [route(methods=("DELETE",), return_annotation=type(None))],
+        APP_HANDLER,
+        ["DELETE /v1/pets app.pets:read_pets"],
+    ),
+    "RAPI-RESP-006": (
+        [route(status_code=204, return_annotation=Pet)],
+        APP_HANDLER,
+        ["GET /v1/pets app.pets:read_pets"],
+    ),
+    "RAPI-DTO-001": ([route(response_model=PetTable)], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
+    "RAPI-DTO-002": ([route(return_annotation=None)], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
+    "RAPI-PAGE-001": ([route(return_annotation=list[Pet])], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
     "RAPI-VER-001": ([route("/pets")], APP_HANDLER, ["application"]),
     "RAPI-ERR-001": ([route()], (), ["application"]),
-    "RAPI-DOC-001": ([route(summary=None)], APP_HANDLER, ["GET /v1/pets"]),
-    "RAPI-DOC-002": ([route(tags=())], APP_HANDLER, ["GET /v1/pets"]),
+    "RAPI-DOC-001": ([route(summary=None)], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
+    "RAPI-DOC-002": ([route(tags=())], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
 }
 
 # the 0.2.0 violation strings for CASES, frozen from the code before this change
@@ -103,25 +124,25 @@ FROZEN_TEXT: dict[str, list[str]] = {
 
 # frozen fingerprints (sha256 of rule, target, "" computed independently of the code)
 FROZEN_FINGERPRINTS: dict[str, str] = {
-    "RAPI-DOC-001": "rest-api:RAPI-DOC-001:d6900900c9dc9df4",
-    "RAPI-DOC-002": "rest-api:RAPI-DOC-002:efbf3d8a5e791f62",
-    "RAPI-DTO-001": "rest-api:RAPI-DTO-001:9f4d91b35e73e822",
-    "RAPI-DTO-002": "rest-api:RAPI-DTO-002:f343b4f44cffcb55",
+    "RAPI-DOC-001": "rest-api:RAPI-DOC-001:ead5b05c408c07ac",
+    "RAPI-DOC-002": "rest-api:RAPI-DOC-002:8a3754c73efc8b9b",
+    "RAPI-DTO-001": "rest-api:RAPI-DTO-001:29c3648c64bc2f4f",
+    "RAPI-DTO-002": "rest-api:RAPI-DTO-002:4ca8549f767f5266",
     "RAPI-ERR-001": "rest-api:RAPI-ERR-001:87254157ae547365",
-    "RAPI-MAP-001": "rest-api:RAPI-MAP-001:d67b3bc552e9b6de",
+    "RAPI-MAP-001": "rest-api:RAPI-MAP-001:368b9fbd424fe196",
     "RAPI-MAP-002": "rest-api:RAPI-MAP-002:98f3455ef40e7396",
-    "RAPI-MAP-003": "rest-api:RAPI-MAP-003:af725f599da4413a",
-    "RAPI-MAP-005": "rest-api:RAPI-MAP-005:251bed2ea5bb42db",
-    "RAPI-MAP-007": "rest-api:RAPI-MAP-007:9541c9fadf6a5dc4",
-    "RAPI-MAP-010": "rest-api:RAPI-MAP-010:f96c9d051567f3a8",
-    "RAPI-MAP-011": "rest-api:RAPI-MAP-011:c9a72e74bb6b7dab",
-    "RAPI-NAME-001": "rest-api:RAPI-NAME-001:feacef0115f2d48f",
-    "RAPI-NAME-002": "rest-api:RAPI-NAME-002:1c029f31f03e7e1b",
-    "RAPI-NAME-003": "rest-api:RAPI-NAME-003:b852598fd1d0d646",
-    "RAPI-PAGE-001": "rest-api:RAPI-PAGE-001:e00cb87448c015fb",
-    "RAPI-RESP-001": "rest-api:RAPI-RESP-001:036b89f56cd649a6",
-    "RAPI-RESP-002": "rest-api:RAPI-RESP-002:2153958625930ed9",
-    "RAPI-RESP-006": "rest-api:RAPI-RESP-006:23f0a67feddf63df",
+    "RAPI-MAP-003": "rest-api:RAPI-MAP-003:8ab7e35ec7d83aa7",
+    "RAPI-MAP-005": "rest-api:RAPI-MAP-005:0571f0fc14419dc1",
+    "RAPI-MAP-007": "rest-api:RAPI-MAP-007:d84547e332ffcb7e",
+    "RAPI-MAP-010": "rest-api:RAPI-MAP-010:9efaa8fc6c0f72be",
+    "RAPI-MAP-011": "rest-api:RAPI-MAP-011:ebe7ae3204846926",
+    "RAPI-NAME-001": "rest-api:RAPI-NAME-001:96687824dfd45c71",
+    "RAPI-NAME-002": "rest-api:RAPI-NAME-002:93d0aeb267830e2f",
+    "RAPI-NAME-003": "rest-api:RAPI-NAME-003:0e0bc354b50c31da",
+    "RAPI-PAGE-001": "rest-api:RAPI-PAGE-001:e04d3c8b317cbb82",
+    "RAPI-RESP-001": "rest-api:RAPI-RESP-001:40e1bd988af5aa98",
+    "RAPI-RESP-002": "rest-api:RAPI-RESP-002:311078b48490c174",
+    "RAPI-RESP-006": "rest-api:RAPI-RESP-006:727e9bcc02d4b9e2",
     "RAPI-VER-001": "rest-api:RAPI-VER-001:222e408e5ca73df7",
 }
 
@@ -310,11 +331,13 @@ def test_fingerprint_dismissal_reduces_panel_count(tmp_path: Path):
     assert {c["severity"]: c["count"] for c in after["severityCounts"]}["INFO"] == 3  # 4 INFO minus the dismissed one
 
 
-def test_every_occurrence_dismissed_marks_the_rule(tmp_path: Path):
+def test_every_occurrence_dismissed_leaves_the_rule_restorable(tmp_path: Path):
     service = _service(tmp_path)
     for fingerprint in _page(service, "RAPI-NAME-001")["fingerprints"]:
         service.dismissals.add(fingerprint)
-    assert _result(service.report(), "RAPI-NAME-001")["dismissed"] is True
+    result = _result(service.report(), "RAPI-NAME-001")
+    assert result["dismissed"] is False
+    assert result["violationCount"] == 0
 
 
 def test_panel_and_report_severity_counts_equal(tmp_path: Path):
@@ -324,3 +347,11 @@ def test_panel_and_report_severity_counts_equal(tmp_path: Path):
     service.dismissals.add("RAPI-DOC-002")
     run = assess(_model(PETS), _masker(), dismissed=service.dismissals.list())
     assert service.report()["severityCounts"] == severity_counts_of(run.findings)
+
+
+def test_duplicate_route_violations_have_distinct_fingerprints():
+    """Review finding 4: two handlers on one method and path are two findings, dismissable one at a time."""
+    routes = [route("/v1/getPets"), route("/v1/getPets", name="read_pets_again")]
+    found = [f.fingerprint for f in assess(_model(routes), _masker()).findings if f.rule_id == "RAPI-NAME-001"]
+    assert len(found) == 2
+    assert len(set(found)) == 2
