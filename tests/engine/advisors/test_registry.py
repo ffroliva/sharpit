@@ -2,9 +2,11 @@
 
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
+from sharpit.engine.advisors.dismissals import BadRequest, DismissalStore, owning_panel
 from sharpit.engine.advisors.registry import ADVISORS, advisor_for
 from sharpit.engine.collectors.restapi.rules import RULE_IDS
 
@@ -32,9 +34,29 @@ def test_registry_specs():
     }
 
 
-@pytest.mark.parametrize("advisor", ["rest-api", "vulnerabilities", "test-runtime"])
-def test_registry_owns_fingerprints_by_prefix(advisor: str):
-    assert _owner(_FP.format(advisor=advisor, rule="X-1")) == advisor
+@pytest.mark.parametrize(
+    ("advisor", "rule"),
+    [("rest-api", "RAPI-MAP-001"), ("vulnerabilities", "GHSA-1::pypi:jinja2"), ("test-runtime", "sharpit.n-plus-one")],
+)
+def test_registry_owns_fingerprints_by_prefix(advisor: str, rule: str):
+    assert _owner(_FP.format(advisor=advisor, rule=rule)) == advisor
+
+
+def test_test_runtime_prefix_wins_over_vulnerability_shape(tmp_path: Path):
+    fingerprint = "test-runtime:sharpit.x::pypi:y"
+    assert _owner(fingerprint) != "vulnerabilities"
+    assert owning_panel(fingerprint) is None
+    with pytest.raises(BadRequest):
+        DismissalStore(tmp_path).add(fingerprint)  # refused, not filed under the vulnerabilities panel
+
+
+def test_fingerprint_with_unknown_rule_is_refused():
+    assert advisor_for("rest-api:RAPI-NOPE:0123456789abcdef") is None
+
+
+@pytest.mark.parametrize("digest", ["zz", "0123456789abcde", "0123456789abcdef0", "0123456789ABCDEF"])
+def test_fingerprint_needs_16_hex(digest: str):
+    assert advisor_for(f"rest-api:RAPI-MAP-001:{digest}") is None
 
 
 def test_registry_owns_sharpit_rule_ids_for_test_runtime():

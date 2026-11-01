@@ -200,7 +200,7 @@ def test_unknown_owner_refused_before_the_file_is_touched(tmp_path: Path):
     assert list(tmp_path.iterdir()) == []
 
 
-FP = "rest-api:RAPI-004:0123456789abcdef"
+FP = "rest-api:RAPI-MAP-001:0123456789abcdef"
 RUNTIME_FP = "test-runtime:sharpit.n-plus-one:0123456789abcdef"
 
 
@@ -214,7 +214,7 @@ def test_fingerprint_dismissal_round_trip(tmp_path: Path):
 
 def test_owning_panel_for_fingerprints():
     assert owning_panel(FP) == "rest-api"
-    assert owning_panel("vulnerabilities:GHSA-1:0123456789abcdef") == "vulnerabilities"
+    assert owning_panel("vulnerabilities:GHSA-1::pypi:jinja2:0123456789abcdef") == "vulnerabilities"
     assert owning_panel(RUNTIME_FP) is None
 
 
@@ -243,7 +243,9 @@ def _occurrence_report() -> dict[str, Any]:
     }
 
 
-_OCCURRENCES = {"RAPI-004": ["rest-api:RAPI-004:a", "rest-api:RAPI-004:b", "rest-api:RAPI-004:c"]}
+_OCCURRENCES = {
+    "RAPI-004": [("rest-api:RAPI-004:a", "one"), ("rest-api:RAPI-004:b", "two"), ("rest-api:RAPI-004:c", "three")]
+}
 
 
 def test_apply_dismissals_per_occurrence():
@@ -257,7 +259,7 @@ def test_apply_dismissals_per_occurrence():
 
 
 def test_apply_dismissals_every_occurrence_marks_rule_dismissed():
-    out = apply_dismissals(_occurrence_report(), set(_OCCURRENCES["RAPI-004"]), _OCCURRENCES)
+    out = apply_dismissals(_occurrence_report(), {fp for fp, _ in _OCCURRENCES["RAPI-004"]}, _OCCURRENCES)
     assert out["results"][0]["dismissed"] is True
     assert out["violationsFound"] == 0
     assert {c["severity"]: c["count"] for c in out["severityCounts"]}["HIGH"] == 0
@@ -266,3 +268,14 @@ def test_apply_dismissals_every_occurrence_marks_rule_dismissed():
 def test_apply_dismissals_without_occurrences_ignores_fingerprints():
     out = apply_dismissals(_occurrence_report(), {"rest-api:RAPI-004:a"})
     assert out["results"][0]["violationCount"] == 3
+
+
+def test_partial_dismissal_refills_samples_beyond_the_first_ten():
+    texts = [f"occurrence {i}" for i in range(12)]
+    fingerprints = [f"rest-api:RAPI-004:{i:016x}" for i in range(12)]
+    report = _occurrence_report()
+    report["results"][0].update(violationCount=12, sampleViolations=texts[:10])
+    out = apply_dismissals(report, set(fingerprints[:10]), {"RAPI-004": list(zip(fingerprints, texts, strict=True))})
+    result = out["results"][0]
+    assert result["violationCount"] == 2
+    assert result["sampleViolations"] == texts[10:]

@@ -86,7 +86,7 @@ def test_global_read_only_checked_before_owner(tmp_state_dir: Path):
         assert (resp.status_code, resp.json()) == (403, _denied("sharpit is read-only via SHARPIT_READ_ONLY=true"))
 
 
-FP = "rest-api:RAPI-004:0123456789abcdef"
+FP = "rest-api:RAPI-MAP-001:0123456789abcdef"
 
 
 def test_fingerprint_dismissal_round_trip(tmp_state_dir: Path):

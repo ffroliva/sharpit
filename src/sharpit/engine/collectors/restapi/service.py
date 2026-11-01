@@ -103,7 +103,7 @@ def assess(
 class _Scan:
     report: dict[str, Any]  # as built, before dismissals
     done: _Evaluation
-    occurrences: dict[str, list[str]]  # rule id -> its occurrences' fingerprints, in violation order
+    occurrences: dict[str, list[tuple[str, str]]]  # rule id -> its occurrences' (fingerprint, text), in violation order
 
 
 class RestApiService:
@@ -154,10 +154,10 @@ class RestApiService:
         scanned_at = int(time.time() * 1000)
         done = _evaluate(self._model(), self._masker)
         found: dict[str, list[str]] = {rule_id: [] for rule_id in done.evaluated}
-        occurrences: dict[str, list[str]] = {}
+        occurrences: dict[str, list[tuple[str, str]]] = {}
         for finding in done.findings:
             found[finding.rule_id].append(finding.message)
-            occurrences.setdefault(finding.rule_id, []).append(finding.fingerprint)
+            occurrences.setdefault(finding.rule_id, []).append((finding.fingerprint, finding.message))
         results = [RuleResult.evaluate(rule, found[rule.id]) for rule in RULES if rule.id in found]
         if done.limitations:
             status, message = "PARTIAL", report.incomplete_message(done.limitations)
@@ -179,7 +179,7 @@ class RestApiService:
         )
         scan = _Scan(result, done, occurrences)
         with self._swap:  # build first: a failed build must leave retention and cache as they were
-            self._retention.store(found, occurrences)
+            self._retention.store(found, {rule: [fp for fp, _ in pairs] for rule, pairs in occurrences.items()})
             result["violationDetails"] = self._retention.details()
             self._cached = scan
         return scan

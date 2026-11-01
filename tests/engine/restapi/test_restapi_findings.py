@@ -172,7 +172,7 @@ def _fingerprints(rule_id: str) -> list[str]:
 
 @pytest.mark.parametrize("rule_id", sorted(CASES))
 def test_fingerprints_golden(rule_id: str):
-    assert _fingerprints(rule_id)[:1] == [FROZEN_FINGERPRINTS[rule_id]]
+    assert _fingerprints(rule_id) == [FROZEN_FINGERPRINTS[rule_id]] * len(CASES[rule_id][2])
 
 
 def test_no_routes_is_confirmed_empty():
@@ -201,12 +201,14 @@ def test_assess_masks_the_message():
 
 
 def test_dismissed_set_marks_rule_and_fingerprint():
-    routes, handlers, _ = CASES["RAPI-MAP-002"]
-    by_fingerprint = assess(_model(routes, handlers), _masker(), dismissed=_fingerprints("RAPI-MAP-002")[:1])
-    by_rule = assess(_model(routes, handlers), _masker(), dismissed=["RAPI-MAP-002"])
-    flagged = {f.rule_id for f in by_fingerprint.findings if f.dismissed}
-    assert flagged == {"RAPI-MAP-002"}
-    assert {f.rule_id for f in by_rule.findings if f.dismissed} == {"RAPI-MAP-002"}
+    routes = [route("/v1/getPets", name="read_pets"), route("/v1/getOwners", name="read_owners")]  # two NAME-001
+    both = [f.fingerprint for f in assess(_model(routes), _masker()).findings if f.rule_id == "RAPI-NAME-001"]
+    assert len(set(both)) == 2
+    by_fingerprint = assess(_model(routes), _masker(), dismissed=both[:1])
+    by_rule = assess(_model(routes), _masker(), dismissed=["RAPI-NAME-001"])
+    assert [f.fingerprint for f in by_fingerprint.findings if f.dismissed] == both[:1]
+    assert {f.rule_id for f in by_rule.findings if f.dismissed} == {"RAPI-NAME-001"}
+    assert sum(f.dismissed for f in by_rule.findings if f.rule_id == "RAPI-NAME-001") == 2
 
 
 # --- the service (single-flight, cached) -----------------------------------------------------------------------
