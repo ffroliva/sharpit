@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import sqla
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.panels import panel_is_implemented
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import LOG_PANELS, WrappingHandlers
 
@@ -75,7 +76,35 @@ def test_disabled_panel_installs_no_hook(
         if set(LOG_PANELS) <= set(disabled):  # no log panel left: no sharpit log handler anywhere
             assert _log_handlers() == before
     for panel in disabled:  # any one of the panels left enabled is enough to install the hook
+        if not panel_is_implemented(panel):
+            continue
         app, handle = _started(tuple(p for p in disabled if p != panel))
         with TestClient(app) as client:
             client.get("/host")
             assert present(handle), (hook, panel)
+
+
+def test_unimplemented_security_logs_does_not_add_capture_middleware() -> None:
+    app = FastAPI()
+    disabled = ("http-exchanges", "exceptions", "sql-trace", "activity", "log-tail")
+    handle = install(app, enabled="ON", show_banner=False, panels={p: {"enabled": False} for p in disabled})
+    wiring = handle.context.capture.wiring
+
+    assert wiring is not None
+    assert wiring.middleware_added is False
+
+
+def test_unimplemented_database_panels_do_not_enable_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[bool, bool]] = []
+
+    def add(_ctx: Any, *, statements: bool, discovery: bool) -> bool:
+        calls.append((statements, discovery))
+        return False
+
+    monkeypatch.setattr(sqla, "add", add)
+    app = FastAPI()
+    disabled = ("alembic", "database-connection-pools", "health", "sql-trace")
+    install(app, enabled="ON", show_banner=False, panels={p: {"enabled": False} for p in disabled})
+
+    assert calls
+    assert calls[0] == (False, False)

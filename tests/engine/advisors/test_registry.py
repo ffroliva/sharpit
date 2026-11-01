@@ -8,6 +8,7 @@ import pytest
 
 from sharpit.engine.advisors.dismissals import BadRequest, DismissalStore, owning_panel
 from sharpit.engine.advisors.registry import ADVISORS, advisor_for
+from sharpit.engine.panels04 import IMPLEMENTED
 from sharpit.engine.collectors.restapi.rules import RULE_IDS
 
 _FP = "{advisor}:{rule}:0123456789abcdef"
@@ -31,7 +32,20 @@ def test_registry_specs():
         "rest-api": "rest-api",
         "vulnerabilities": "vulnerabilities",
         "test-runtime": None,
+        "database-advisor": "database-advisor",
+        "security": "security",
+        "architecture": "architecture",
+        "fastapi": "fastapi",
     }
+
+
+def test_0_4_advisor_specs_are_registered_and_gated():
+    advisor_ids = {"database-advisor", "security", "architecture", "fastapi"}
+    by_id = {spec.id: spec for spec in ADVISORS}
+
+    assert advisor_ids <= set(by_id)
+    assert all(by_id[advisor_id].implemented is IMPLEMENTED[advisor_id] for advisor_id in advisor_ids)
+    assert advisor_for("DB-TEST-001") is None
 
 
 @pytest.mark.parametrize(

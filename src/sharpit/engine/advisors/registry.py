@@ -20,6 +20,7 @@ class AdvisorSpec:
     panel: str | None
     owns: Callable[[str], bool]
     fingerprint: re.Pattern[str] | None  # ``<advisor>:<a rule id it owns>:<16 hex>``; None: no finding fingerprints
+    implemented: bool = True
 
 
 def _fingerprint(advisor: str, rule: str) -> re.Pattern[str]:
@@ -47,6 +48,16 @@ ADVISORS: tuple[AdvisorSpec, ...] = (
         lambda value: value.startswith("sharpit."),
         fingerprint=_fingerprint("test-runtime", r"sharpit\.[a-z0-9.-]+"),
     ),
+    AdvisorSpec(
+        "database-advisor",
+        "database-advisor",
+        lambda value: value.startswith("DB-TEST-"),
+        fingerprint=None,
+        implemented=True,  # deliberate wrong-value red stub; the fix uses IMPLEMENTED[]
+    ),
+    AdvisorSpec("security", "security", lambda _value: False, fingerprint=None, implemented=True),
+    AdvisorSpec("architecture", "architecture", lambda _value: False, fingerprint=None, implemented=True),
+    AdvisorSpec("fastapi", "fastapi", lambda _value: False, fingerprint=None, implemented=True),
 )
 
 

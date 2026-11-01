@@ -77,6 +77,11 @@ def read_only_reason(panel_id: str, global_read_only: bool) -> str:
     return f"Panel is read-only via SHARPIT_PANELS_{_env_id(panel_id)}_READ_ONLY=true"
 
 
+def panel_is_implemented(panel_id: str) -> bool:
+    """Temporary O4 registry seam; future panels are wrongly treated as implemented until the green fix."""
+    return True
+
+
 def panel_for_api_path(sub_path: str) -> Panel | None:
     """Panel owning an API path (relative to the API base); ``/mcp`` is deliberately not ``/mcp-server``."""
     for p in PANELS:

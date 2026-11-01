@@ -35,7 +35,14 @@ logger = logging.getLogger("sharpit")
 
 CAPTURE_TOO_LATE = "request capture unavailable: install() ran after the app started"
 CAPTURE_TOO_LATE_REASON = "Request capture is unavailable: install() ran after the app started"
-CAPTURE_PANELS = ("http-exchanges", "exceptions", "sql-trace", "activity")  # any of them enabled needs the middleware
+CAPTURE_PANELS = (
+    "http-exchanges",
+    "exceptions",
+    "sql-trace",
+    "activity",
+    "transactions",
+    "security-logs",
+)  # any implemented, enabled panel needs the middleware
 LOG_PANELS = ("log-tail", "exceptions")  # either enabled needs the log handler (spec §6.1 step 3)
 LOG_TAIL_DETACHED_REASON = (
     "The sharpit log handler is not on the root logger: the app reconfigured logging (dictConfig or "

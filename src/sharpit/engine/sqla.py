@@ -32,7 +32,15 @@ logger = logging.getLogger("sharpit")
 
 STATEMENT_EVENTS = ("before_cursor_execute", "after_cursor_execute", "handle_error")
 DISCOVERY_EVENT = "engine_connect"
-DISCOVERY_PANELS = ("alembic", "database-connection-pools", "health")  # panels that read the registered engines
+DISCOVERY_PANELS = (
+    "alembic",
+    "database-connection-pools",
+    "health",
+    "postgresql",
+    "mysql",
+    "database-advisor",
+    "sqlalchemy-statistics",
+)  # panels that read the registered engines
 START_KEY = "sharpit_sql_start"
 UNAVAILABLE = "SQLAlchemy is not imported by this application"
 TRACING_DISABLED = "SQL tracing is disabled via SHARPIT_SQL_TRACE_ENABLED=false"
