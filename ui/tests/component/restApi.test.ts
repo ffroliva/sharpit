@@ -94,3 +94,42 @@ it('shows the error state', async () => {
   h.mount(RestApi, { panel: panel('rest-api') });
   await until(() => expect(h.target.querySelector('[role="alert"]')?.textContent).toContain('Internal Server Error'));
 });
+
+it('dismisses one finding', async () => {
+  const fingerprint = 'rest-api:RAPI-NAME-001:0123456789abcdef';
+  let reloads = 0;
+  h.route((url, init) => {
+    if (url === 'api/rest-api') { reloads++; return json(200, report('SCANNED')); }
+    if (url.startsWith('api/rest-api/rules/RAPI-NAME-001/violations')) {
+      return json(200, { scanId: 'scan1', ruleId: 'RAPI-NAME-001', violationCount: 1, retainedCount: 1, truncated: false,
+        violations: ['GET /getOwners (main.get_owners)'], fingerprints: [fingerprint],
+        page: { total: 1, matched: 1, offset: 0, limit: 100, returned: 1, hasMore: false } });
+    }
+    if (url === `api/dismissed-rules/${encodeURIComponent(fingerprint)}` && init?.method === 'POST') return json(200, { dismissed: [fingerprint] });
+    return undefined;
+  });
+  h.mount(RestApi, { panel: panel('rest-api') });
+  await until(() => expect(text()).toContain('RAPI-NAME-001'));
+  button(/^View violations for RAPI-NAME-001/).click();
+  await until(() => expect(button(/^Dismiss finding/)).toBeTruthy());
+  button(/^Dismiss finding/).click();
+  await until(() => expect(h.calls('POST')).toContain(`api/dismissed-rules/${encodeURIComponent(fingerprint)}`));
+  await until(() => expect(reloads).toBe(2)); // the report is reloaded so the panel counts follow
+});
+
+it('read-only: the finding action is disabled', async () => {
+  h.route((url) => {
+    if (url === 'api/rest-api') return json(200, report('SCANNED'));
+    if (url.startsWith('api/rest-api/rules/RAPI-NAME-001/violations')) {
+      return json(200, { scanId: 'scan1', ruleId: 'RAPI-NAME-001', violationCount: 1, retainedCount: 1, truncated: false,
+        violations: ['GET /getOwners'], fingerprints: ['rest-api:RAPI-NAME-001:0123456789abcdef'],
+        page: { total: 1, matched: 1, offset: 0, limit: 100, returned: 1, hasMore: false } });
+    }
+    return undefined;
+  });
+  h.mount(RestApi, { panel: readOnly('rest-api') });
+  await until(() => expect(text()).toContain('RAPI-NAME-001'));
+  button(/^View violations for RAPI-NAME-001/).click();
+  await until(() => expect(button(/^Dismiss finding/)).toBeTruthy());
+  expect(button(/^Dismiss finding/).disabled).toBe(true);
+});
