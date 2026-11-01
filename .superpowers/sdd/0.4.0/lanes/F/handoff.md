@@ -1,6 +1,6 @@
 # Lane F handoff
 
-Status: Task 1 implementation complete/reviewed; Task 2 O4 red committed, registry fix in progress.
+Status: Task 1 implementation complete/reviewed; Task 2 O4 implementation committed; lane_gate is next.
 
 - Base: `7e5fc150946ee4d870433d96a41a6627b343364a` (`release/0.4.0`); worktree branch `lane/0.4.0-F`.
 - Untouched-base suite at `7e5fc15`: 3491 passed, 5 skipped, 34 warnings in 93.95 s (`uv run pytest -q -n 4`).
@@ -11,11 +11,13 @@ Status: Task 1 implementation complete/reviewed; Task 2 O4 red committed, regist
 - Capture wiring attachment fix: `e1a3256fa56e9c4f4ea269f06f943037c2d32ddc` (returns the exact wiring stored on `CaptureState`).
 - Final Task 1 contract fix: `32b39ac9c30465205f645edd3a25dc976aa13431` (named route, runtime-resolvable annotations, and F1e gatekeepers).
 - Task 2 O4 red commits: `c11ed916979054a6b994c9733964021e4ac5354f` (surface/default flags and Vitest nav control) and `fbcd986` (PANELS registry coverage); see the red-test table below.
+- Task 2 O4 fix: `e23e936` (`feat: register inert 0.4 panel surfaces`).
+- Task 2 targeted verification: Python API/panel/tool/MCP/CLI tests: 118 passed; Vitest nav: 4 passed; Ruff check passed, format check reported 404 files already formatted, Pyright 0 errors, UI `tsc --noEmit` passed.
 - Current focused regression run: 208 passed, 16 warnings in 31.61 s. It covers structure/capture/compatibility/equivalence/runtime-type/import-boundary tests plus existing tool, pytest, xdist, capture-wiring, install, and code-shape suites.
 - Pyright: 0 errors, 0 warnings. Ruff check and format check passed for changed Python files. C901 ratchet test passed after lowering the `engine/tools.py` and `fastapi/adapter.py` entries from 1/3 to 0/0; the new route and dispatch modules add no C901 findings.
 - The first focused rerun logged inside the repo and tripped the no-side-effects fixture's cwd scan; the clean rerun
   placed logs outside the worktree.
-- Current state: O4 wrong-value flags/stubs are committed on the two red commits above; registry implementation is in progress.
+- Current state: O4 flags are false and filtered from the panels API, guard/path matching, MCP/CLI, per-panel routes, and UI nav. Per-panel empty tool and route modules are ready for owner lanes. Next is Task 3 `scripts/dev/lane_gate.py` and its refusal tests.
 - UI red was run with Vitest (`npm --prefix ui run test -- tests/unit/nav.test.ts`) after `npm --prefix ui ci`; the assertion failed as expected because all 0.4 flags were temporarily true.
 
 The capture contract reds at `d0ea233`, `82b9177` and `3075c91` are deliberate wrong-value-stub checks required by COMMON/R2. They prove that the returned capture wiring is created, stored on the context, and is the same object; they are contract/mutation reds, not reports of a defect at the untouched base. The implementation is restored and verified by `e1a3256`.
@@ -40,6 +42,12 @@ The capture contract reds at `d0ea233`, `82b9177` and `3075c91` are deliberate w
 | `sharpit.pytest_plugin.report_io.write_report` | `write_report(state, session, exitstatus) -> None` owns report serialization and exit status; plugin keeps `_write_report` compatibility alias. |
 | `sharpit.pytest_plugin.terminal.pytest_terminal_summary` | Existing pytest terminal summary hook moved intact; dynamically resolves plugin helper seams. |
 | `sharpit.pytest_plugin.__init__` | Existing pytest hook names remain importable for plugin registration. |
+| `sharpit.engine.panels.Panel.implemented` | `bool = True`; existing panels default true, while each 0.4 panel row reads its own `panels04/<id_underscored>.py::IMPLEMENTED`. False rows are omitted from `panels_report` and `panel_for_api_path`. |
+| `sharpit.engine.panels04.IMPLEMENTED` / `PANEL_04_IDS` | `IMPLEMENTED: dict[str, bool]` maps sharpit ids to their local flags; `PANEL_04_IDS: tuple[str, ...]` lists the 12 ids. |
+| `sharpit.engine.panels04.tool_definitions` | `tool_definitions() -> tuple[tuple[Any, ...], dict[str, str]]`; gathers `TOOLS` and `COMMANDS` only from implemented panel modules. |
+| `sharpit.engine.tools04.<id>.TOOLS` / `COMMANDS` | Each per-panel module exports `TOOLS = ()` and `COMMANDS = {}` for its owning lane to fill. |
+| `sharpit.fastapi.routes.<id>.build_routes` | `build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]`; empty per-panel route modules are called only when the corresponding `Panel.implemented` is true. |
+| UI `lib/panels04` registry | Each `ui/src/lib/panels04/<id_underscored>.ts` exports `implemented = false`; `PANEL_04_IMPLEMENTED` and `panelImplemented(id: string) -> boolean` keep false ids out of `groupPanels`. |
 
 ## Red-test replay table
 
