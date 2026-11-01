@@ -8,7 +8,7 @@ Status: Task 1 implementation complete; fresh review pending before Task 2.
 - Completed responsibility extraction commit: `45a3e98b53119be0c7427a42122bf8f99a385760`.
 - Final Task 1 responsibility-split commit: `526e53f51e24bfa532a8555c82b939e4d72069eb`.
 - Adapter compatibility fix: `1d5e1f7d9fd1ff66744d3e55693bd0b7691a94e4` (adapter route/helper seams now delegate dynamically).
-- Capture wiring attachment fix: pending commit after final focused verification.
+- Capture wiring attachment fix: `e1a3256fa56e9c4f4ea269f06f943037c2d32ddc` (returns the exact wiring stored on `CaptureState`).
 - Current focused regression run: 197 passed, 16 warnings in 36.92 s. It covers structure/capture/compatibility/equivalence tests plus existing tool, pytest, xdist, capture-wiring, install, and code-shape suites.
 - Pyright: 0 errors, 0 warnings. Ruff check and format check passed for changed Python files. C901 ratchet test passed after lowering the `engine/tools.py` and `fastapi/adapter.py` entries from 1/3 to 0/0; the new route and dispatch modules add no C901 findings.
 - The first focused rerun logged inside the repo and tripped the no-side-effects fixture's cwd scan; the clean rerun
