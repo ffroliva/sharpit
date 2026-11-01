@@ -67,7 +67,7 @@ def _finalizer_on_stack() -> bool:
 class _Registration:
     ref: weakref.ref[object]
     snapshot: tuple[str, ApiModel] | None = None  # (title, model), the latest one taken
-    route_token: tuple[str, tuple[tuple[object, tuple[str, ...]], ...]] | None = None
+    route_token: tuple[str, tuple[tuple[object, ...], ...]] | None = None
 
 
 class TestSessionSink:
@@ -87,7 +87,7 @@ class TestSessionSink:
         self._registrations: list[_Registration] = []
         self._exception_ids: dict[int, BaseException] = {}
         self._orphan_snapshots: dict[str, tuple[str, ApiModel]] = {}
-        self._models_by_signature: dict[tuple[str, tuple[tuple[object, tuple[str, ...]], ...]], ApiModel] = {}
+        self._models_by_signature: dict[tuple[str, tuple[tuple[object, ...], ...]], ApiModel] = {}
 
     def _mask(self, text: str) -> str:
         return self._masker.mask_text(text) or ""
@@ -234,6 +234,10 @@ class TestSessionSink:
                         (
                             getattr(route, "path", None),
                             tuple(sorted(getattr(route, "methods", None) or ())),
+                            # the code object: per-test apps from one factory share it, different handlers do not
+                            getattr(getattr(route, "endpoint", None), "__code__", None),
+                            repr(getattr(route, "response_model", None)),
+                            getattr(route, "status_code", None),
                         )
                         for route in routes
                     ),

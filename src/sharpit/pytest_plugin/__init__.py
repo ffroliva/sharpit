@@ -610,9 +610,9 @@ def _final_facts(state: _State) -> SessionFacts:
 def _write_report(state: _State, session: Any, exitstatus: int) -> None:
     sink = state.sink
     try:
+        facts = _final_facts(state)  # takes the forced app snapshot the advisors below assess
         if not _xdist_controller(session.config, state):
             _advisors(state)
-        facts = _final_facts(state)
         parts = state.parts if _xdist_controller(session.config, state) else [facts]
         data, status, _reasons = finish(
             parts,

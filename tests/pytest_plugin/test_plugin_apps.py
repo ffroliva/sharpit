@@ -87,3 +87,25 @@ def test_sharpit_app_option(pytester: pytest.Pytester) -> None:
     run = _rest_run(pytester)
     assert run["status"] != "UNKNOWN"
     assert run["apps"][0]["app"] == "app:app"
+
+
+def test_single_process_assesses_routes_added_after_the_last_test(pytester: pytest.Pytester) -> None:
+    pytester.makeconftest(
+        """
+        import pytest
+        from fastapi import FastAPI
+        from sharpit.fastapi.adapter import install
+        app = FastAPI()
+        install(app, show_banner=False)
+        def handler(): return 1
+        @pytest.hookimpl(tryfirst=True)
+        def pytest_sessionfinish(session):
+            app.add_api_route('/items', handler, methods=['GET', 'POST'])
+        """
+    )
+    pytester.makepyfile("def test_snapshot(): pass")
+
+    pytester.runpytest("--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert any(finding["advisor"] == "rest-api" for finding in data["findings"])
