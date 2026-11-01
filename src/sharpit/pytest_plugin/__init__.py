@@ -478,7 +478,7 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
         dismissed = DismissalStore(Path(settings.state_dir)).list()
         findings = gates.evaluate_test(test, budget, settings.activity_n_plus_one_threshold, dismissed)
         test.findings = [finding.to_dto() for finding in findings]
-        messages = [f"sharpit: {finding.rule_id}: {finding.message}" for finding in findings]
+        messages = [f"sharpit: {finding.rule_id}: {finding.message}" for finding in findings if not finding.dismissed]
         if messages:
             report_obj.longrepr = f"{report_obj.longrepr}\n" if report_obj.failed else ""
             report_obj.longrepr = f"{report_obj.longrepr}{'\n'.join(messages)}"

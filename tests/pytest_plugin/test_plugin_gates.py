@@ -51,6 +51,40 @@ def test_fail_on_medium_gates_medium_findings(pytester: pytest.Pytester) -> None
     assert any(finding["severity"] == "MEDIUM" for finding in data["findings"])
 
 
+def test_committed_dismissals_are_honoured(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="from fastapi import FastAPI\napp=FastAPI()\n"
+        "def handler(): return 1\napp.add_api_route('/items', handler, methods=['GET','POST'])"
+    )
+    pytester.makepyfile(
+        "import sqlite3\ndef test_repeated_selects():\n"
+        " c=sqlite3.connect(':memory:')\n"
+        " for _ in range(5): c.execute('SELECT 1').fetchone()"
+    )
+    args = [
+        "--sharpit",
+        "--sharpit-app=appmod:app",
+        "--sharpit-fail-on=MEDIUM",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "-q",
+    ]
+    first = pytester.runpytest_subprocess(*args)
+    assert first.ret == 1
+    before = json.loads((pytester.path / "report.json").read_text())
+    n_plus_one = next(f["fingerprint"] for f in before["findings"] if f["advisor"] == "test-runtime")
+    rest_rule = next(f["ruleId"] for f in before["findings"] if f["advisor"] == "rest-api")
+    state_dir = pytester.path / ".sharpit"
+    state_dir.mkdir(exist_ok=True)
+    (state_dir / "sharpit.yml").write_text(f"dismissedRules:\n  - {n_plus_one}\n  - {rest_rule}\n")
+    second = pytester.runpytest_subprocess(*args)
+    assert second.ret == 0, second.stdout.str() + second.stderr.str()
+    after = json.loads((pytester.path / "report.json").read_text())
+    assert next(f["dismissed"] for f in after["findings"] if f["fingerprint"] == n_plus_one)
+    assert next(f["dismissed"] for f in after["findings"] if f["ruleId"] == rest_rule)
+    assert after["status"] == "pass"
+
+
 def test_marker_budget(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         """
