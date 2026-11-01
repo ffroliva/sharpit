@@ -264,6 +264,23 @@ def test_junit_dismissed_has_no_failure(tmp_path: Path) -> None:
     assert cases[1].find("failure") is not None
 
 
+def test_junit_failures_match_the_gate(tmp_path: Path) -> None:
+    data = render_parts(part())
+    medium = Finding("RAPI-MAP-001", "rest-api", "MEDIUM", "GET /medium", "medium")
+    high = Finding("RAPI-MAP-002", "rest-api", "HIGH", "GET /high", "high")
+    data["findings"] = [medium.to_dto(), high.to_dto()]
+    data["gates"]["failOnSeverity"] = "HIGH"
+
+    high_gate_cases = _junit(tmp_path, data).findall("testcase")
+    assert sum(case.find("failure") is not None for case in high_gate_cases) == 1
+    medium_case = next(case for case in high_gate_cases if case.get("name") == medium.fingerprint)
+    assert medium_case.find("properties/property[@name='severity']").get("value") == "MEDIUM"
+
+    data["gates"]["failOnSeverity"] = "MEDIUM"
+    medium_gate_cases = _junit(tmp_path, data).findall("testcase")
+    assert sum(case.find("failure") is not None for case in medium_gate_cases) == 2
+
+
 def test_junit_survives_control_characters(tmp_path: Path) -> None:
     data = render_parts(busy_part())
     data["findings"][0]["message"] = "bad \x00 byte \x1b[0m"

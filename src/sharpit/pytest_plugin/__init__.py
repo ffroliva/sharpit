@@ -579,6 +579,7 @@ def _write_report(state: _State, session: Any, exitstatus: int) -> None:
             if module in sys.modules
         )
         facts.engine_drivers.update(dispatch.engine_drivers())
+        facts.engine_drivers.update(sqla.live_engine_drivers())
         if _xdist_controller(session.config, state):
             parts = [*state.parts, facts] if facts.warnings else state.parts
         else:

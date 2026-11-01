@@ -63,6 +63,47 @@ def test_plugin_report_corpus_default(pytester: pytest.Pytester, monkeypatch: py
     _run_report_corpus(pytester, monkeypatch, None, None, None)
 
 
+def test_failed_gate_findings_listed_on_the_test(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        import sqlite3
+        def test_n_plus_one():
+            db = sqlite3.connect(':memory:')
+            db.execute('CREATE TABLE owners (id INTEGER)')
+            for _ in range(6):
+                db.execute('SELECT * FROM owners WHERE id = 1').fetchall()
+        """
+    )
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    test = next(test for test in data["tests"] if test["nodeId"].endswith("::test_n_plus_one"))
+    assert test["findings"]
+    assert test["findings"][0].startswith("test-runtime:sharpit.n-plus-one:")
+    assert test["findings"][0] == next(
+        finding["fingerprint"] for finding in data["findings"] if finding["ruleId"] == "sharpit.n-plus-one"
+    )
+
+
+def test_live_engine_driver_counts_as_covered(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+        import aiosqlite
+        from sqlalchemy.ext.asyncio import create_async_engine
+        engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+        """,
+        test_app="def test_no_query(): pass",
+    )
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-app=appmod:engine", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 0
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert "untraced database driver in use: aiosqlite" not in data["statusReasons"]
+
+
 def test_plugin_report_corpus_full_exposure(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     _run_report_corpus(
         pytester, monkeypatch, "SHARPIT_EXPOSE_VALUES", "FULL", "report ignores SHARPIT_EXPOSE_VALUES=FULL"
