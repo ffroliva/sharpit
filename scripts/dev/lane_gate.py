@@ -341,8 +341,21 @@ def red_integrity(opts: Options, base: str, reds: Sequence[Red]) -> _Integrity:
     return out
 
 
+def _exception_name(failure: ET.Element) -> str:
+    """The failing exception's class name: from the ``--tb=long`` last line ``<file>:<line>: <type>``, else the message.
+
+    A rewritten ``assert`` reports message ``assert 1 == 2`` with no exception name, so the message alone is not enough.
+    """
+    tail = (failure.text or "").strip().splitlines()[-1:]
+    found = re.search(r":\d+: ([\w.]+)$", tail[0]) if tail else None
+    if found is None:
+        found = re.match(r"([\w.]+):", failure.get("message", ""))
+    return found.group(1).rsplit(".", 1)[-1] if found else ""
+
+
 def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, tuple[str, str]]:
-    """nodeid -> (outcome, message); outcome is passed|failure|error|skipped|not collected."""
+    """nodeid -> (outcome, detail); outcome is passed|failure|error|skipped|not collected; a failure's detail is
+    its exception class name."""
     cases = ET.parse(junit).getroot().iter("testcase") if junit.is_file() else iter(())
     by_key: dict[tuple[str, str], tuple[str, str]] = {}
     for case in cases:
@@ -350,7 +363,8 @@ def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, tuple[str, str]]
         for kind in ("failure", "error", "skipped"):
             child = case.find(kind)
             if child is not None:
-                outcome, message = kind, child.get("message", "")
+                outcome = kind
+                message = _exception_name(child) if kind == "failure" else child.get("message", "")
                 break
         name = case.get("name", "").split("[", 1)[0]
         previous = by_key.get((case.get("classname", ""), name))
@@ -382,12 +396,10 @@ def replay_refusals(opts: Options, reds: Sequence[Red], run_pytest: PytestRunner
     for sha in dict.fromkeys(red.sha for red in reds):
         ids = [red.test for red in reds if red.sha == sha]
         for nodeid, (outcome, message) in _replay(opts, sha, ids, run_pytest).items():
-            if outcome == "failure" and message.startswith("AssertionError"):
+            if outcome == "failure" and message == "AssertionError":
                 continue
-            detail = f"{message.split(':', 1)[0]} failure" if outcome == "failure" else outcome
-            if outcome == "passed":
-                detail = "passed"
-            problems.append(f"red {nodeid}: {detail} at red SHA {sha} (needs a failure starting with AssertionError)")
+            detail = f"{message or 'unnamed exception'} failure" if outcome == "failure" else outcome
+            problems.append(f"red {nodeid}: {detail} at red SHA {sha} (needs an AssertionError failure)")
     head_ids = list(dict.fromkeys(red.test for red in reds))
     if head_ids:
         for nodeid, (outcome, _message) in _replay(opts, opts.sha, head_ids, run_pytest).items():
@@ -433,7 +445,7 @@ def run_pytest_in(integration: Path) -> PytestRunner:
     def run(tree: Path, nodeids: Sequence[str], junit: Path) -> None:
         env = _env(PYTHONPATH=os.pathsep.join([str(tree / "src"), str(tree)]))
         command = ["uv", "run", "--project", str(integration), "--frozen", "python", "-m", "pytest", "-q"]
-        command += ["-p", "no:cacheprovider", "-p", "no:randomly", f"--junitxml={junit}", *nodeids]
+        command += ["-p", "no:cacheprovider", "-p", "no:randomly", "--tb=long", f"--junitxml={junit}", *nodeids]
         subprocess.run(command, cwd=tree, env=env, capture_output=True, timeout=900, check=False)
 
     return run
