@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from sharpit import __version__
 from sharpit.engine.context import SharpitContext
@@ -26,6 +26,19 @@ def _contracts() -> Any:
     from sharpit.engine import tools
 
     return tools
+
+
+def _raise_tool_error(error: BaseException, contracts: Any) -> NoReturn:
+    if isinstance(error, ActionBusy):
+        raise contracts.ToolCallError(str(error), 409)
+    if isinstance(error, BadRequest):
+        raise contracts.ToolCallError(str(error), 400)
+    if isinstance(error, contracts.ToolCallError):  # a handler's own in-band refusal (an unknown id)
+        raise error
+    if not isinstance(error, Exception):
+        raise error
+    logger.error("sharpit MCP failure while dispatching a request", exc_info=error)
+    raise contracts.RpcError(contracts.INTERNAL_ERROR, contracts.INTERNAL_ERROR_MESSAGE)
 
 
 # --- Dispatcher (McpDispatcher.callTool) ----------------------------------------------------------------------------
@@ -88,16 +101,7 @@ class ToolGate:
         error = outcome.get("error")
         if error is None:
             return outcome["value"]
-        if isinstance(error, ActionBusy):
-            raise contracts.ToolCallError(str(error), 409)
-        if isinstance(error, BadRequest):
-            raise contracts.ToolCallError(str(error), 400)
-        if isinstance(error, contracts.ToolCallError):  # a handler's own in-band refusal (an unknown id)
-            raise error
-        if not isinstance(error, Exception):
-            raise error
-        logger.error("sharpit MCP failure while dispatching a request", exc_info=error)
-        raise contracts.RpcError(contracts.INTERNAL_ERROR, contracts.INTERNAL_ERROR_MESSAGE)
+        _raise_tool_error(error, contracts)
 
 
 def tool_gate(ctx: SharpitContext, via: Via) -> ToolGate:

@@ -24,21 +24,24 @@ from sharpit.engine.activation import active_profiles
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.sources import dispatch, sqlite
-from sharpit.engine.testsession import gates, outcome, report
+from sharpit.engine.testsession import gates as gates
+from sharpit.engine.testsession import outcome, report
 from sharpit.engine.testsession.facts import SessionFacts
 from sharpit.engine.testsession.sink import TestSessionSink, report_masker_warnings
 from sharpit.pytest_plugin.apps import (
-    _load_app as _load_app,
+    load_app as _load_app,
 )
 from sharpit.pytest_plugin.apps import (
-    _model_of as _model_of,
+    model_of as _model_of,
 )
 from sharpit.pytest_plugin.apps import (
-    _run_advisors as _run_advisors_impl,
+    run_advisors as _run_advisors_impl,
 )
 from sharpit.pytest_plugin.marker import budget_for
 from sharpit.pytest_plugin.options import PluginOptions
+from sharpit.pytest_plugin.options import pytest_addoption as pytest_addoption
 from sharpit.pytest_plugin.report_io import write_report as _write_report  # noqa: F401 - compatibility re-export
+from sharpit.pytest_plugin.session import pytest_runtest_makereport as pytest_runtest_makereport
 from sharpit.pytest_plugin.session import pytest_sessionfinish as pytest_sessionfinish
 from sharpit.pytest_plugin.session import resolve_options as resolve
 from sharpit.pytest_plugin.terminal import pytest_terminal_summary as pytest_terminal_summary
@@ -47,6 +50,30 @@ from sharpit.settings import SharpitSettings, load_settings, parse_mode
 _STATE_ATTR = "_sharpit_pytest_state"
 _HOOK_FAILURE_WARNING = "a sharpit session hook failed ({}); some facts may be missing"
 _active_state: _State | None = None
+
+__all__ = [
+    "pytest_addoption",
+    "pytest_configure",
+    "pytest_collection_modifyitems",
+    "pytest_sessionstart",
+    "pytest_runtest_protocol",
+    "pytest_runtest_setup",
+    "pytest_runtest_call",
+    "pytest_runtest_teardown",
+    "pytest_runtest_makereport",
+    "pytest_sessionfinish",
+    "pytest_testnodedown",
+    "pytest_terminal_summary",
+    "pytest_unconfigure",
+    "_load_app",
+    "_model_of",
+    "_run_advisors",
+    "_write_report",
+    "_advisors",
+    "_xdist_controller",
+    "_refresh_report_after_hook_failure",
+    "_final_facts",
+]
 
 
 def _record_hook_failure(sink: TestSessionSink, exc: BaseException) -> None:
@@ -100,45 +127,6 @@ def _state(config: Any) -> _State | None:
 
 def _run_advisors(state: _State) -> None:
     _run_advisors_impl(state, load_app=_load_app)
-
-
-def _add_ini(parser: Any) -> None:
-    parser.addini("sharpit", "Enable sharpit test capture", type="bool", default=False)
-    parser.addini("sharpit_report", "Sharpit JSON report path", default="sharpit-report.json")
-    parser.addini("sharpit_junit", "Sharpit JUnit report path", default="")
-    # plain strings: ini type="int"/"float" are absent in pytest 8.2, and options.resolve converts them
-    parser.addini("sharpit_max_queries", "Default sharpit per-test query budget", default="")
-    parser.addini("sharpit_fail_on", "Minimum advisor severity that fails", default="HIGH")
-    parser.addini("sharpit_allow_unknown", "Allow an unknown capture result", type="bool", default=False)
-    parser.addini("sharpit_app", "Application module and attribute", default="")
-    parser.addini("sharpit_advisors", "Run application advisors", type="bool", default=True)
-    parser.addini("sharpit_max_unattributed", "Maximum unattributed SQL percentage", default="10")
-
-
-def pytest_addoption(parser: Any) -> None:
-    group = parser.getgroup("sharpit")
-    group.addoption(
-        "--sharpit", action="store_true", default=None, dest="sharpit", help="capture test SQL and exceptions"
-    )
-    group.addoption("--sharpit-report", default=None, metavar="PATH", help="JSON report path")
-    group.addoption("--sharpit-junit", default=None, metavar="PATH", help="JUnit findings path")
-    group.addoption(
-        "--sharpit-max-queries", type=int, default=None, metavar="N", help="default call-phase query budget"
-    )
-    group.addoption("--sharpit-fail-on", default=None, metavar="SEV", help="advisor severity gate")
-    group.addoption("--sharpit-allow-unknown", action="store_true", default=None, help="allow unknown capture status")
-    group.addoption("--sharpit-app", default=None, metavar="MOD:ATTR", help="application to assess")
-    group.addoption(
-        "--sharpit-no-advisors",
-        action="store_false",
-        default=None,
-        dest="sharpit_advisors",
-        help="run count gates only",
-    )
-    group.addoption(
-        "--sharpit-max-unattributed", type=float, default=None, metavar="PCT", help="unattributed SQL limit"
-    )
-    _add_ini(parser)
 
 
 def pytest_configure(config: Any) -> None:
@@ -481,38 +469,6 @@ def pytest_runtest_teardown(item: Any, nextitem: Any) -> Any:
             except Exception as exc:  # noqa: BLE001
                 _record_hook_failure(phase[0].sink, exc)
         _phase_done(phase)
-
-
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item: Any, call: Any) -> Any:
-    outcome_result = cast(Result[Any], (yield))
-    state = _state(item.config)
-    report_obj = outcome_result.get_result()
-    if state is None:
-        return
-    try:
-        test = state.sink.current_test
-        if test is None:
-            return
-        if report_obj.when != "call":
-            if report_obj.skipped:
-                test.outcome = "skipped"
-            elif report_obj.failed:
-                test.outcome = "error"
-            return
-        test.outcome = report_obj.outcome
-        budget = budget_for(item, state.options.max_queries)
-        test.budget = budget
-        findings = gates.evaluate_test(test, budget, state.settings.activity_n_plus_one_threshold, state.dismissed)
-        test.findings = [finding.to_dto() for finding in findings]
-        messages = [f"sharpit: {finding.rule_id}: {finding.message}" for finding in findings if not finding.dismissed]
-        if messages:
-            report_obj.longrepr = f"{report_obj.longrepr}\n" if report_obj.failed else ""
-            report_obj.longrepr = f"{report_obj.longrepr}{'\n'.join(messages)}"
-            report_obj.outcome = "failed"
-            test.outcome = "failed"
-    except Exception as exc:  # noqa: BLE001
-        _record_hook_failure(state.sink, exc)
 
 
 def _advisors(state: _State) -> None:

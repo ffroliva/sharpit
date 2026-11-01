@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from starlette.testclient import TestClient
+from functools import partial
+
+from starlette.testclient import TestClient as _TestClient
 
 import sharpit.fastapi.adapter as adapter
 import sharpit.fastapi.install as install_module
@@ -10,6 +12,8 @@ import sharpit.pytest_plugin.options as options
 import sharpit.pytest_plugin.session as session
 from fastapi import FastAPI
 from sharpit.fastapi.capture import CaptureWiring
+
+TestClient = partial(_TestClient, client=("127.0.0.1", 50000), base_url="http://localhost")
 
 
 def test_capture_setup_populates_installed_context() -> None:

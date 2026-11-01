@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any
+from typing import Any, cast
 
 
 def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
     from sharpit import pytest_plugin
 
+    plugin = cast(Any, pytest_plugin)
     del exitstatus
     data = getattr(config, "_sharpit_report", None)
     if data is None:
         return
-    state = pytest_plugin._state(config)
+    state = plugin._state(config)
     if state is None:
         return
     try:
@@ -37,5 +38,5 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
         for warning in data["warnings"]:
             terminalreporter.write_line(f"warning: {warning}")
     except Exception as exc:  # noqa: BLE001
-        pytest_plugin._record_hook_failure(state.sink, exc)
-        pytest_plugin._refresh_report_after_hook_failure(state, config, exc)
+        plugin._record_hook_failure(state.sink, exc)
+        plugin._refresh_report_after_hook_failure(state, config, exc)

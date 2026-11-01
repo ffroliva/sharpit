@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
-
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.context import SharpitContext
 from sharpit.fastapi.capture import CaptureWiring

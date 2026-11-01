@@ -14,8 +14,10 @@ from sharpit.engine.spi import ApiModel
 from sharpit.engine.testsession.sink import report_masker
 from sharpit.fastapi.introspector import FastApiIntrospector
 
+__all__ = ["load_app", "model_of", "run_advisors", "_load_app", "_model_of", "_run_advisors"]
 
-def _load_app(spec: str) -> tuple[str, object]:
+
+def load_app(spec: str) -> tuple[str, object]:
     module_name, separator, attr = spec.partition(":")
     if not separator:
         raise ValueError("--sharpit-app must be MOD:ATTR")
@@ -23,11 +25,11 @@ def _load_app(spec: str) -> tuple[str, object]:
     return spec, app() if callable(app) and not hasattr(app, "router") else app
 
 
-def _model_of(app: object) -> ApiModel:
+def model_of(app: object) -> ApiModel:
     return FastApiIntrospector(app).api_model()
 
 
-def _run_advisors(state: Any, *, load_app: Callable[[str], tuple[str, object]] | None = None) -> None:
+def run_advisors(state: Any, *, load_app: Callable[[str], tuple[str, object]] | None = None) -> None:
     if not state.options.advisors:
         return
     models = state.sink.app_snapshots()
@@ -64,3 +66,8 @@ def _run_advisors(state: Any, *, load_app: Callable[[str], tuple[str, object]] |
                     dismissed=state.dismissed,
                 )
             )
+
+
+_load_app = load_app
+_model_of = model_of
+_run_advisors = run_advisors

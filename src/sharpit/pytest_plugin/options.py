@@ -10,7 +10,42 @@ from sharpit.engine.advisors.rules import SEVERITIES
 
 
 def pytest_addoption(parser: Any) -> None:
-    return None
+    group = parser.getgroup("sharpit")
+    group.addoption(
+        "--sharpit", action="store_true", default=None, dest="sharpit", help="capture test SQL and exceptions"
+    )
+    group.addoption("--sharpit-report", default=None, metavar="PATH", help="JSON report path")
+    group.addoption("--sharpit-junit", default=None, metavar="PATH", help="JUnit findings path")
+    group.addoption(
+        "--sharpit-max-queries", type=int, default=None, metavar="N", help="default call-phase query budget"
+    )
+    group.addoption("--sharpit-fail-on", default=None, metavar="SEV", help="advisor severity gate")
+    group.addoption("--sharpit-allow-unknown", action="store_true", default=None, help="allow unknown capture status")
+    group.addoption("--sharpit-app", default=None, metavar="MOD:ATTR", help="application to assess")
+    group.addoption(
+        "--sharpit-no-advisors",
+        action="store_false",
+        default=None,
+        dest="sharpit_advisors",
+        help="run count gates only",
+    )
+    group.addoption(
+        "--sharpit-max-unattributed", type=float, default=None, metavar="PCT", help="unattributed SQL limit"
+    )
+    _add_ini(parser)
+
+
+def _add_ini(parser: Any) -> None:
+    parser.addini("sharpit", "Enable sharpit test capture", type="bool", default=False)
+    parser.addini("sharpit_report", "Sharpit JSON report path", default="sharpit-report.json")
+    parser.addini("sharpit_junit", "Sharpit JUnit report path", default="")
+    # plain strings: ini type="int"/"float" are absent in pytest 8.2, and options.resolve converts them
+    parser.addini("sharpit_max_queries", "Default sharpit per-test query budget", default="")
+    parser.addini("sharpit_fail_on", "Minimum advisor severity that fails", default="HIGH")
+    parser.addini("sharpit_allow_unknown", "Allow an unknown capture result", type="bool", default=False)
+    parser.addini("sharpit_app", "Application module and attribute", default="")
+    parser.addini("sharpit_advisors", "Run application advisors", type="bool", default=True)
+    parser.addini("sharpit_max_unattributed", "Maximum unattributed SQL percentage", default="10")
 
 
 @dataclass(frozen=True)

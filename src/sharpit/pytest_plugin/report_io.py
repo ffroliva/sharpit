@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, cast
 
 from sharpit import __version__
 from sharpit.engine.testsession import outcome, report
@@ -13,12 +13,13 @@ from sharpit.engine.testsession.finish import GateOptions, finish
 def write_report(state: Any, session: Any, exitstatus: int) -> None:
     from sharpit import pytest_plugin
 
+    plugin = cast(Any, pytest_plugin)
     sink = state.sink
     try:
-        facts = pytest_plugin._final_facts(state)  # forced app snapshot precedes advisor assessment
-        if not pytest_plugin._xdist_controller(session.config, state):
-            pytest_plugin._advisors(state)
-        parts = state.parts if pytest_plugin._xdist_controller(session.config, state) else [facts]
+        facts = plugin._final_facts(state)  # forced app snapshot precedes advisor assessment
+        if not plugin._xdist_controller(session.config, state):
+            plugin._advisors(state)
+        parts = state.parts if plugin._xdist_controller(session.config, state) else [facts]
         data, status, _reasons = finish(
             parts,
             state.missing_workers,
@@ -42,6 +43,6 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
         session._sharpit_report = data
         session.config._sharpit_report = data
     except Exception as exc:  # noqa: BLE001
-        pytest_plugin._record_hook_failure(sink, exc)
+        plugin._record_hook_failure(sink, exc)
         if exitstatus == 0:
             session.exitstatus = 1
