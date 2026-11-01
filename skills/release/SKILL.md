@@ -39,7 +39,7 @@ stops the release until the owner decides where it goes.
 **2. Gates.** All must pass; stop and report if one fails.
 
 - `/sharpit:check` green.
-- CI green on `main`: `gh run list --branch main --limit 3`, the `sonar` job included. The Sonar ratchet
+- CI green on `main`: `gh run list --branch main --limit 3`, the `sonar` job included. The code-scan ratchet
   (`scripts/ci/sonar_ratchet.py`) fails on `main` when a merged PR fixed issues and `sonar-baseline.txt` was not
   lowered (0.3.0: 122 open against 123); lower it in a one-line PR before tagging, and tag the release merge commit
   explicitly if `main` moved (step 8).
