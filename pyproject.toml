@@ -29,6 +29,9 @@ classifiers = [
 ]
 dependencies = ["starlette>=0.44", "packaging>=23"]
 
+[project.entry-points.pytest11]
+sharpit = "sharpit.pytest_plugin"
+
 [project.urls]
 Homepage = "https://github.com/ffroliva/sharpit"
 Source = "https://github.com/ffroliva/sharpit"
@@ -51,6 +54,9 @@ test = [
     "sqlalchemy[asyncio]>=2.0.38",
     "aiosqlite>=0.20",
     "alembic>=1.13",
+    "jsonschema>=4.21",
+    "pytest-asyncio>=0.24",
+    "pytest-rerunfailures>=14",
 ]
 
 [dependency-groups]
@@ -105,3 +111,7 @@ timeout = 60
 markers = [
     "needs_sqlalchemy: needs SQLAlchemy, aiosqlite or greenlet installed (the no-sqlalchemy CI job deselects it)",
 ]
+
+[tool.coverage.run]
+# the pytest plugin tests run pytest in a subprocess (pytester.runpytest_subprocess); measure those too
+patch = ["subprocess"]

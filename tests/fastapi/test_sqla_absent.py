@@ -75,7 +75,7 @@ def test_sqlalchemy_blocked_reports_unavailable():
         import sharpit
 
         app = FastAPI()
-        handle = sharpit.install(app, enabled="ON", show_banner=False)
+        handle = sharpit.install(app, enabled="ON", show_banner=False, sql_trace_sqlite3_enabled=False)
         with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
             report = client.get("/sharpit/api/sql-trace").json()
             panel = [p for p in client.get("/sharpit/api/panels").json()["panels"] if p["id"] == "sql-trace"][0]
@@ -94,7 +94,7 @@ def test_old_sqlalchemy_unavailable(monkeypatch: pytest.MonkeyPatch):
     old_reason = "SQLAlchemy 1.4.52 is imported, but sharpit needs 2.0 or later"
     assert sqla.unavailable_reason() == old_reason
     app = FastAPI()
-    handle = install(app, enabled="ON", show_banner=False)
+    handle = install(app, enabled="ON", show_banner=False, sql_trace_sqlite3_enabled=False)
     try:
         client = _client(app)
         assert (_sql_panel(client)["available"], _sql_panel(client)["unavailableReason"]) == (False, old_reason)
@@ -109,13 +109,27 @@ def test_old_sqlalchemy_unavailable(monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.skipif(importlib.util.find_spec("sqlalchemy") is not None, reason="runs in the no-sqlalchemy CI job")
 def test_sqla_panels_empty_state_without_sqlalchemy():
     app = FastAPI()
-    handle = install(app, enabled="ON", show_banner=False)
+    handle = install(app, enabled="ON", show_banner=False, sql_trace_sqlite3_enabled=False)
     try:
         client = _client(app)
         assert sqla.unavailable_reason() == "SQLAlchemy is not imported by this application"
         assert (_sql_panel(client)["available"], _sql_panel(client)["unavailableReason"]) == (False, sqla.UNAVAILABLE)
         report = client.get("/sharpit/api/sql-trace").json()
         assert (report["available"], report["entries"], report["dataSources"]) == (False, [], [])
+        assert sqla.attached() == dict.fromkeys(sqla.attached(), False)
+    finally:
+        handle.uninstall_capture()
+
+
+@pytest.mark.skipif(importlib.util.find_spec("sqlalchemy") is not None, reason="runs in the no-sqlalchemy CI job")
+def test_sql_trace_available_through_sqlite3_without_sqlalchemy():
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+    try:
+        client = _client(app)
+        assert sqla.unavailable_reason() == sqla.UNAVAILABLE
+        assert (_sql_panel(client)["available"], _sql_panel(client)["unavailableReason"]) == (True, None)
+        assert client.get("/sharpit/api/sql-trace").json()["available"] is True
         assert sqla.attached() == dict.fromkeys(sqla.attached(), False)
     finally:
         handle.uninstall_capture()

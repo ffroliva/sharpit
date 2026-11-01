@@ -142,6 +142,58 @@ Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client t
 `get_mappings`, `get_loggers`, `get_beans`, `get_vulnerabilities_report`. There is no action tool: an agent cannot
 change a logger or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token.
 
+## Running test gates (`pytest --sharpit`)
+
+In addition to running inside the dev console, sharpit provides a pytest plugin to gate CI on runtime findings.
+
+### Running the test plugin
+
+Run tests with `--sharpit`:
+
+```bash
+pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-junit.xml
+```
+
+Key CLI flags:
+- `--sharpit-app=module:app`: Point to the ASGI app instance or factory for offline advisors (e.g. `rest-api`).
+- `--sharpit-max-queries=N`: Default per-test query budget for the `call` phase.
+- `--sharpit-fail-on=SEV`: Minimum advisor severity that fails the run (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`; default `HIGH`).
+- `--sharpit-allow-unknown`: Prevent `unknown` status from failing the session.
+- `--sharpit-no-advisors`: Run count gates only and skip advisor scans.
+
+### Reading the report and statuses
+
+The JSON report (`sharpit-report.json`) yields one of three statuses in `.status`:
+- `pass`: All gates passed and advisors completed with full coverage.
+- `fail`: One or more tests violated a count gate (budget, N+1, swallowed exception), or an advisor failed.
+- `unknown`: Capture was incomplete or compromised. By default, this fails the session (exit code 1).
+
+When inspecting an `unknown` or `fail` result, check:
+- `.statusReasons`: Explains why the status was assigned.
+- `.severityCounts`: Array of counts per severity (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`).
+- `.totals`: Check `unattributedShare` (must be <= 10%) and `queries`.
+- `.sources`: Verify that expected sources (`sqlalchemy`, `sqlite3`, `exceptions`) show `attached: true`.
+- `.tests[]`: Lists per-test query counts across `setup`, `call`, and `teardown`, detected N+1 queries, and finding fingerprints.
+- `.findings[]`: Flat list of all findings with their `fingerprint`, `ruleId`, `target`, and `message`.
+
+### Per-finding dismissal via `sharpit.yml`
+
+Findings have a stable `fingerprint` of the form `<advisor>:<rule_id>:<hash>`.
+To dismiss an accepted finding without ignoring the entire rule, add its fingerprint directly to the `dismissedRules:`
+list in `<state_dir>/sharpit.yml` (default `.sharpit/sharpit.yml`):
+
+```yaml
+dismissedRules:
+  - "RAPI-MAP-002"                                            # Dismisses all occurrences of rule RAPI-MAP-002
+  - "rest-api:RAPI-MAP-002:a1b2c3d4e5f67890"                  # Dismisses this specific REST API finding
+  - "test-runtime:sharpit.n-plus-one:3f9a12c4b5e67890"    # Dismisses this specific N+1 query finding
+```
+
+- A rule ID dismisses every finding for that rule.
+- A fingerprint dismisses only that exact occurrence.
+- The web console UI also provides a "dismiss this finding" action in the REST API details drawer.
+- Committing `sharpit.yml` to version control establishes the accepted baseline for CI gates.
+
 ## Common mistakes
 
 | Mistake | Fix |

@@ -78,6 +78,51 @@ def test_widened_patterns_leave_benign_values(value: str) -> None:
     assert not is_secret_value(value)
 
 
+VENDOR_PREFIXES = (
+    "sk_live_",
+    "sk_test_",
+    "rk_live_",
+    "pk_live_",
+    "ghp_",
+    "gho_",
+    "ghs_",
+    "ghu_",
+    "github_pat_",
+    "glpat-",
+    "xoxb-",
+    "xoxp-",
+    "xoxa-",
+    "AIza",
+    "sk-ant-",
+    "sk-proj-",
+)
+
+
+# sharpit widening (0.3.0 spec §9 A4): vendor token prefixes
+@pytest.mark.parametrize(
+    "value",
+    [f"{prefix}0123456789abcdefABCDEF-_" for prefix in VENDOR_PREFIXES],
+)
+def test_vendor_prefix_is_secret(value: str) -> None:
+    """A4: Vendor token prefixes in secret values."""
+    assert is_secret_value(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [f"{prefix}{'a' * 15}" for prefix in VENDOR_PREFIXES],
+)
+def test_vendor_prefix_needs_16_token_chars(value: str) -> None:
+    """A4: Vendor token prefix needs at least 16 token characters."""
+    assert not is_secret_value(value)
+
+
+@pytest.mark.parametrize("value", ["task_live_report", "mask-ant-farm"])
+def test_prefix_inside_a_word_is_not_secret(value: str) -> None:
+    """A4: Vendor token prefix inside a word is not secret."""
+    assert not is_secret_value(value)
+
+
 # ---- KeywordPatternMasker (no upstream oracle) ---------------------------------------------------------------------
 # derived: KeywordPatternMasker (one case per DEFAULT_KEY_PATTERNS entry)
 @pytest.mark.parametrize(
@@ -289,3 +334,17 @@ def test_mask_header_by_name_and_value() -> None:
     assert Masker(META, True).mask_header("accept", ["text/html"]) == ([], False)
     assert Masker(FULL, True).mask_header("cookie", ["a=b"]) == (["a=b"], False)
     assert Masker(FULL, True, "tok-3f9a").mask_header("authorization", ["Bearer tok-3f9a"]) == ([MASK], True)
+
+
+def test_vendor_regex_skipped_without_a_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine import masking
+
+    searched: list[str] = []
+
+    class Spy:
+        def search(self, value: str) -> None:
+            searched.append(value)
+
+    monkeypatch.setattr(masking, "_VENDOR_TOKEN", Spy())
+    assert not is_secret_value("an ordinary word")
+    assert searched == []

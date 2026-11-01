@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import sqlite3
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -39,6 +40,10 @@ from sharpit.engine.tools import COMMANDS, TOOLS
 
 SENTINEL = "S3NT1NEL9f3c"
 JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjb3JwdXMifQ.c2lnbmF0dXJlLWJ5dGVz"
+# shaped secrets for the report writers (tests/engine/testsession/test_report.py plants them in both report files)
+STRIPE_KEY = "sk_live_Z9y8X7w6V5u4T3s2R1q0"
+AWS_KEY = "AKIAABCDEFGHIJKLMNOP"
+GITHUB_TOKEN = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2"
 PROBES = ("S3NT1NEL", "9f3c")  # fragments: an echoed probe is not a leak, a matched secret would be
 AUTH_TOKEN = "corpus-auth-token"  # distinct from the sentinel: it legitimately appears in Set-Cookie
 LOCAL = ("127.0.0.1", 50000)
@@ -502,6 +507,34 @@ def _sql_integrity_error(sa: Any, conn: Any) -> None:
             conn.execute(sa.text("insert into creds values (1, :s)"), {"s": SENTINEL})
 
 
+def _sql_positional(val: str) -> Callable[[Any, Any], None]:
+    def _run(sa: Any, conn: Any) -> None:
+        conn.exec_driver_sql("create table if not exists creds (secret text)")
+        conn.exec_driver_sql("insert into creds values (?)", (val,))
+
+    return _run
+
+
+VENDOR_PREFIXES = (
+    "sk_live_",
+    "sk_test_",
+    "rk_live_",
+    "pk_live_",
+    "ghp_",
+    "gho_",
+    "ghs_",
+    "ghu_",
+    "github_pat_",
+    "glpat-",
+    "xoxb-",
+    "xoxp-",
+    "xoxa-",
+    "AIza",
+    "sk-ant-",
+    "sk-proj-",
+)
+
+
 SQL_CORPUS = [
     pytest.param("inline_literal", {}, False, _sql_inline_literal, marks=pytest.mark.needs_sqlalchemy),
     pytest.param("bind_values_on", {"sql_trace_capture_parameters": True}, False, _sql_bind_values,
@@ -510,6 +543,16 @@ SQL_CORPUS = [
     pytest.param("echo_bind_values", {}, True, _sql_bind_values, marks=pytest.mark.needs_sqlalchemy),
     pytest.param("metadata_only_error", {"expose_values": "METADATA_ONLY", "sql_trace_capture_parameters": True},
                  False, _sql_integrity_error, marks=pytest.mark.needs_sqlalchemy),
+    *(
+        pytest.param(
+            f"positional_{p}",
+            {"sql_trace_capture_parameters": True},
+            False,
+            _sql_positional(f"{p}{SENTINEL}{SENTINEL}"),
+            marks=pytest.mark.needs_sqlalchemy,
+        )
+        for p in VENDOR_PREFIXES
+    ),
 ]  # fmt: skip
 
 
@@ -541,9 +584,41 @@ def test_sql_trace_masks_statements(
     if "error" in row:
         failed = next(e for e in report["entries"] if not e["success"])
         assert failed["errorMessage"] is None if "metadata" in row else "IntegrityError" in failed["errorMessage"]
+    if "positional" in row:
+        insert_entry = next(e for e in report["entries"] if "insert" in e["sql"])
+        assert insert_entry["parameters"] == [MASK]
     for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli, "logs": logs}.items():
         assert SENTINEL not in text, (row, where)
         assert JWT not in text, (row, where)
+
+
+@pytest.mark.parametrize("prefix", VENDOR_PREFIXES)
+def test_sqlite3_source_masks_positional_secrets(tmp_path: Path, prefix: str):
+    """A4: a vendor token as a positional parameter of raw ``sqlite3`` never reaches any surface."""
+    app = create_app(
+        show_banner=False, state_dir=str(tmp_path), mcp_enabled="ON", stream_max_seconds=0.05,
+        sql_trace_capture_parameters=True,
+    )  # fmt: skip
+    secret = f"{prefix}{SENTINEL}{SENTINEL}"
+    with TestClient(app, base_url="http://localhost", client=LOCAL) as client:
+        connection = sqlite3.connect(":memory:")
+        connection.execute("create table creds (secret text)")
+        connection.execute("insert into creds values (?)", (secret,))
+        connection.close()
+        report = client.get(f"{API}/sql-trace").json()
+        stream = client.get(f"{API}/sql-trace/stream").text
+        call = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "get_sql_traces", "arguments": {}},
+        }
+        mcp = client.post(f"{API}/mcp", json=call).text
+        cli = client.post(f"{API}/cli/tools/get_sql_traces", json={}).text
+    insert_entry = next(e for e in report["entries"] if "insert" in e["sql"])
+    assert insert_entry["parameters"] == [MASK]
+    for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli}.items():
+        assert SENTINEL not in text, (prefix, where)
 
 
 def _task_request_path(tmp_path: Path) -> str:

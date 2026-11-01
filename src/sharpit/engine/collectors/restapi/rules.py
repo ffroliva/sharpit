@@ -13,7 +13,7 @@ import re
 import types
 import typing
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 from sharpit.engine.advisors.rules import RuleDefinition, RuleResult
 from sharpit.engine.spi import ApiRouteInfo
@@ -418,6 +418,13 @@ def _is_framework(route: ApiRouteInfo) -> bool:
     return route.handler.partition(":")[0].partition(".")[0] in _FRAMEWORK_MODULES
 
 
+def _route_target(route: ApiRouteInfo) -> str:
+    """``"<METHOD> <path> <module:qualname>"``; several methods are each named, sorted and joined with ``" | "``.
+
+    The handler keeps two handlers on one method and path apart (a fingerprint dismisses one finding)."""
+    return " | ".join(f"{method} {route.path}" for method in sorted(route.methods)) + f" {route.handler}"
+
+
 def _describe(route: ApiRouteInfo, suffix: str | None = None) -> str:
     base = f"{route.handler} [{' '.join(route.methods)} {route.path}]"
     return f"{base} — {suffix}" if suffix else base
@@ -499,18 +506,30 @@ def _has_body_type(route: ApiRouteInfo) -> bool:
 
 # --- rules (RestApiRules doEvaluate) --------------------------------------------------------------------------------
 
-Check = Callable[[Sequence[ApiRouteInfo], Sequence[str]], list[str]]
+APPLICATION = "application"  # the target of a rule about the whole app rather than one route
+
+
+class Violation(NamedTuple):
+    """One occurrence of a rule: what it is about (``target``) and today's violation string (``message``).
+
+    Counts never appear in a target, so a fingerprint survives a route being added or removed elsewhere."""
+
+    target: str
+    message: str
+
+
+Check = Callable[[Sequence[ApiRouteInfo], Sequence[str]], list[Violation]]
 
 
 def _each(predicate: Callable[[ApiRouteInfo], str | None]) -> Check:
     """One violation per route for which ``predicate`` returns a suffix (BootUI ``handlersMatching``)."""
 
-    def check(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[str]:
-        out: list[str] = []
+    def check(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Violation]:
+        out: list[Violation] = []
         for route in routes:
             suffix = predicate(route)
             if suffix is not None:
-                out.append(_describe(route, suffix))
+                out.append(Violation(_route_target(route), _describe(route, suffix)))
         return out
 
     return check
@@ -521,13 +540,15 @@ def _map001(route: ApiRouteInfo) -> str | None:
     return f"GET combined with {', '.join(mutating)}" if "GET" in route.methods and mutating else None
 
 
-def _map002(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[str]:
+def _map002(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Violation]:
     by_route: dict[tuple[str, str], list[str]] = {}
     for route in routes:
         for method in route.methods:
             by_route.setdefault((method, route.path), []).append(route.handler)
     return [
-        f"{method} {path} with matching dispatch conditions handled by {', '.join(handlers)}"
+        Violation(
+            f"{method} {path}", f"{method} {path} with matching dispatch conditions handled by {', '.join(handlers)}"
+        )
         for (method, path), handlers in by_route.items()
         if len(handlers) > 1
     ]
@@ -634,30 +655,39 @@ def _page001(route: ApiRouteInfo) -> str | None:
     return "collection response without limit/offset/page/cursor parameters"
 
 
-def _ver001(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[str]:
+def _ver001(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Violation]:
     api = [r for r in routes if _segments(r.path) and _segments(r.path)[0].lower() not in _NON_API_SEGMENTS]
     unversioned = [r for r in api if not any(_VERSION.fullmatch(s) for s in _segments(r.path))]
     if not unversioned:
         return []
     if len(unversioned) == len(api):
         return [
-            "No API version signal (no /vN path, version header/param, or versioned media type) was detected across"
-            f" {len(api)} handler(s)."
+            Violation(
+                APPLICATION,
+                "No API version signal (no /vN path, version header/param, or versioned media type) was detected"
+                f" across {len(api)} handler(s).",
+            )
         ]
     examples = ", ".join(_describe(r) for r in unversioned[:5])
     return [
-        f"Versioning is applied inconsistently: {len(unversioned)} of {len(api)} API handler(s) have no version"
-        f" signal while others do. Unversioned example(s): {examples}"
+        Violation(
+            APPLICATION,
+            f"Versioning is applied inconsistently: {len(unversioned)} of {len(api)} API handler(s) have no version"
+            f" signal while others do. Unversioned example(s): {examples}",
+        )
     ]
 
 
-def _err001(routes: Sequence[ApiRouteInfo], handlers: Sequence[str]) -> list[str]:
+def _err001(routes: Sequence[ApiRouteInfo], handlers: Sequence[str]) -> list[Violation]:
     app_handlers = [h for h in handlers if h.partition(":")[0].partition(".")[0] not in _FRAMEWORK_MODULES]
     if not routes or app_handlers:
         return []
     return [
-        "No application-wide exception handler was registered in app.exception_handlers for"
-        f" {len(routes)} route handler(s)."
+        Violation(
+            APPLICATION,
+            "No application-wide exception handler was registered in app.exception_handlers for"
+            f" {len(routes)} route handler(s).",
+        )
     ]
 
 
@@ -700,10 +730,10 @@ def application_routes(routes: Sequence[ApiRouteInfo]) -> list[ApiRouteInfo]:
 
 def evaluate(
     routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]
-) -> tuple[dict[str, list[str]], set[str]]:
+) -> tuple[dict[str, list[Violation]], set[str]]:
     """Every ported rule's violations, in ``RULES`` order, and the ids of rules that raised (BootUI ``evaluate``)."""
     own = application_routes(routes)
-    found: dict[str, list[str]] = {}
+    found: dict[str, list[Violation]] = {}
     errored: set[str] = set()
     for rule in RULES:
         try:
@@ -716,7 +746,7 @@ def evaluate(
 
 def violations(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> dict[str, list[str]]:
     """Every ported rule's violations, in ``RULES`` order. Pure: reads the given metadata only."""
-    return evaluate(routes, exception_handlers)[0]
+    return {rule_id: [v.message for v in items] for rule_id, items in evaluate(routes, exception_handlers)[0].items()}
 
 
 def scan(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> list[RuleResult]:

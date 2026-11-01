@@ -21,15 +21,18 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 ENGINE = SRC / "sharpit" / "engine"
 COLLECTORS = ENGINE / "collectors"
 FRAMEWORKS = ("fastapi", "starlette")
-ADAPTERS = ("sharpit.fastapi", "sharpit.ui")
+ADAPTERS = ("sharpit.fastapi", "sharpit.pytest_plugin", "sharpit.ui")
 GATEKEEPERS: dict[str, set[str]] = {
     "sqlalchemy": {"sharpit/engine/sqla.py"},
+    "sqlite3": {"sharpit/engine/sources/sqlite.py"},
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
     "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},
     "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
     "socket": set(),
     "ssl": set(),
+    "pytest": {"sharpit/pytest_plugin/__init__.py", "sharpit/pytest_plugin/marker.py"},
+    "_pytest": {"sharpit/pytest_plugin/__init__.py", "sharpit/pytest_plugin/marker.py"},
 }
 
 

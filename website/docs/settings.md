@@ -26,7 +26,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_EXPOSE_VALUES` | `expose_values` | `MASKED` | `MASKED`, `METADATA_ONLY` or `FULL` (FULL logs a warning) |
 | `SHARPIT_MASK_SECRETS` | `mask_secrets` | `true` | mask secret-looking names and values; sharpit's own token is masked even when `false` |
 | `SHARPIT_SHOW_BANNER` | `show_banner` | `true` | print the startup banner to stderr |
-| `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | where dismissed vulnerability rules are stored (`sharpit.yml`, created on first write) |
+| `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | where dismissed rules and findings are stored (`sharpit.yml`, created on first write) |
 | `SHARPIT_CONFIG_SCAN` | `config_scan` | `true` | `true` scans your top-level package for `os.getenv` keys, `false` disables, or a list of package names |
 | `SHARPIT_VULNERABILITIES_OSV_ENABLED` | `vulnerabilities_osv_enabled` | `true` | allow the OSV scan |
 | `SHARPIT_VULNERABILITIES_OSV_BASE_URI` | `vulnerabilities_osv_base_uri` | `https://api.osv.dev` | OSV endpoint |
@@ -50,6 +50,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_EXCEPTIONS_MAX_OCCURRENCES_PER_GROUP` | `exceptions_max_occurrences_per_group` | `25` | occurrences kept per exception group |
 | `SHARPIT_EXCEPTIONS_MAX_STACK_FRAMES` | `exceptions_max_stack_frames` | `50` | stack frames kept per exception |
 | `SHARPIT_SQL_TRACE_ENABLED` | `sql_trace_enabled` | `true` | attach SQLAlchemy event listeners |
+| `SHARPIT_SQL_TRACE_SQLITE3_ENABLED` | `sql_trace_sqlite3_enabled` | `true` | attach sqlite3 trace function in console (off keeps it detached; plugin always attaches with `--sharpit`) |
 | `SHARPIT_SQL_TRACE_RECORDING` | `sql_trace_recording` | `true` | initial SQL trace recording state |
 | `SHARPIT_SQL_TRACE_CAPTURE_PARAMETERS` | `sql_trace_capture_parameters` | `false` | capture SQL bind parameters |
 | `SHARPIT_SQL_TRACE_CAPTURE_CALL_SITE` | `sql_trace_capture_call_site` | `true` | capture call-site stack frame |

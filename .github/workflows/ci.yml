@@ -120,6 +120,25 @@ jobs:
           --no-install-package alembic --no-install-package greenlet # NOSONAR - this job installs sharpit from source and excludes optional dependencies
       - run: uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy"
 
+  sharpit-gate:
+    # Dogfood: the example's fixed route must pass `pytest --sharpit`, its planted N+1 must fail it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - run: uv sync --locked --extra test --python 3.13 # NOSONAR - installs sharpit from source for the gate
+      - run: uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: sharpit-gate-reports
+          path: |
+            sharpit-report.json
+            sharpit-junit.xml
+          retention-days: 7
+      - name: The planted N+1 must fail the gate
+        run: "! uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit --sharpit-report=planted-report.json"
+
   ui:
     runs-on: ubuntu-latest
     defaults:

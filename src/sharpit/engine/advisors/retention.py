@@ -41,7 +41,7 @@ class _Scan:
     scan_id: str
     total: int
     retained: int
-    rules: dict[str, tuple[int, tuple[str, ...]]]  # rule id -> (violation count, retained details)
+    rules: dict[str, tuple[int, tuple[str, ...], tuple[str, ...] | None]]  # id -> (count, details, fingerprints)
 
 
 class ViolationRetention:
@@ -51,15 +51,21 @@ class ViolationRetention:
         self.max_retained = max_retained
         self._scan: _Scan | None = None  # replaced whole, so a reader always sees one consistent scan
 
-    def store(self, results: Mapping[str, Sequence[str]]) -> str:
-        """Index every rule's violation strings (in order, up to ``max_retained`` across rules) as the new scan."""
-        rules: dict[str, tuple[int, tuple[str, ...]]] = {}
+    def store(
+        self, results: Mapping[str, Sequence[str]], fingerprints: Mapping[str, Sequence[str]] | None = None
+    ) -> str:
+        """Index every rule's violation strings (in order, up to ``max_retained`` across rules) as the new scan.
+
+        ``fingerprints`` (sharpit-only, 0.3.0 spec §14) maps a rule id to one fingerprint per violation, in the same
+        order; pages of a scan stored with it carry a parallel ``fingerprints`` list."""
+        rules: dict[str, tuple[int, tuple[str, ...], tuple[str, ...] | None]] = {}
         total = retained = 0
         for rule_id, violations in results.items():
             if not violations:
                 continue  # BootUI record() skips a rule with no violations
             kept = tuple(violations[: self.max_retained - retained])
-            rules[rule_id] = (len(violations), kept)
+            kept_fingerprints = None if fingerprints is None else tuple(fingerprints.get(rule_id, ()))[: len(kept)]
+            rules[rule_id] = (len(violations), kept, kept_fingerprints)
             total += len(violations)
             retained += len(kept)
         scan = _Scan(secrets.token_hex(8), total, retained, rules)
@@ -103,15 +109,18 @@ class ViolationRetention:
         rule = scan.rules.get(rule_id)
         if rule is None:
             raise AdvisorViolationError(404, "Advisor rule has no findings in the current scan.")
-        count, kept = rule
+        count, kept, kept_fingerprints = rule
         page_limit = min(DEFAULT_PAGE_LIMIT if limit is None else limit, MAX_PAGE_LIMIT, max(max_results, 1))
-        violations, page = paged(kept, None, offset, page_limit, lambda _v: ())
-        return {
+        window, page = paged(range(len(kept)), None, offset, page_limit, lambda _i: ())
+        dto: dict[str, Any] = {
             "scanId": scan.scan_id,
             "ruleId": rule_id,
             "violationCount": count,
             "retainedCount": len(kept),
             "truncated": len(kept) < count,
-            "violations": violations,
-            "page": page,
+            "violations": [kept[i] for i in window],
         }
+        if kept_fingerprints is not None:
+            dto["fingerprints"] = [kept_fingerprints[i] for i in window]
+        dto["page"] = page
+        return dto

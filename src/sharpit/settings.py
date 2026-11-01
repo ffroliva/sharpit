@@ -68,6 +68,7 @@ class SharpitSettings:
     exceptions_max_occurrences_per_group: int = 25
     exceptions_max_stack_frames: int = 50
     sql_trace_enabled: bool = True
+    sql_trace_sqlite3_enabled: bool = True  # sharpit-only: the raw sqlite3 source (spec 0.3.0 §10)
     sql_trace_recording: bool = True
     sql_trace_capture_parameters: bool = False
     sql_trace_capture_call_site: bool = True
@@ -242,6 +243,7 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "exceptions_max_occurrences_per_group": (_int, None),
     "exceptions_max_stack_frames": (_int, None),
     "sql_trace_enabled": (_bool, False),
+    "sql_trace_sqlite3_enabled": (_bool, False),
     "sql_trace_recording": (_bool, False),
     "sql_trace_capture_parameters": (_bool, False),
     "sql_trace_capture_call_site": (_bool, None),

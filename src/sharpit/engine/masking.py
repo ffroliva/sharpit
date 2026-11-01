@@ -39,9 +39,35 @@ _URL_QUERY_CREDENTIAL = re.compile(
     r"|secret[-_]?key|api[-_]?key|access[-_]?key|password|passwd|passphrase|pwd|secret|token|credential)=[^&\s]+",
     re.IGNORECASE | re.ASCII,
 )
+# sharpit widening (0.3.0 spec §14): vendor token prefixes for positional values
+_VENDOR_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9_-])(?:sk_live_|sk_test_|rk_live_|pk_live_|ghp_|gho_|ghs_|ghu_|github_pat_|glpat-|xoxb-|xoxp-|xoxa-|AIza|sk-ant-|sk-proj-)[A-Za-z0-9_-]{16,}"
+)
 
 
+_VENDOR_PREFIXES = (
+    "sk_live_",
+    "sk_test_",
+    "rk_live_",
+    "pk_live_",
+    "ghp_",
+    "gho_",
+    "ghs_",
+    "ghu_",
+    "github_pat_",
+    "glpat-",
+    "xoxb-",
+    "xoxp-",
+    "xoxa-",
+    "AIza",
+    "sk-ant-",
+    "sk-proj-",
+)  # fmt: skip: keep in step with _VENDOR_TOKEN
 _SECRET_MARKERS = ("=", "://", "eyJ", "PRIVATE KEY", "AKIA", "ASIA")
+
+
+def _has_vendor_token(value: str) -> bool:
+    return any(prefix in value for prefix in _VENDOR_PREFIXES) and _VENDOR_TOKEN.search(value) is not None
 
 
 def is_secret_value(value: str) -> bool:
@@ -49,7 +75,8 @@ def is_secret_value(value: str) -> bool:
     if not value.strip():
         return False
     if not any(marker in value for marker in _SECRET_MARKERS):  # fast path: every pattern needs one of them
-        return False
+        # sharpit widening (0.3.0 spec §14): vendor token prefixes for positional values
+        return _has_vendor_token(value)
     return bool(
         _JWT.fullmatch(value.strip())
         or _PEM_PRIVATE_KEY.search(value)
@@ -58,6 +85,7 @@ def is_secret_value(value: str) -> bool:
         or _URL_USER_ONLY.search(value)
         or _CONNECTION_STRING_CREDENTIAL.search(value)
         or _URL_QUERY_CREDENTIAL.search(value)
+        or _has_vendor_token(value)
     )
 
 

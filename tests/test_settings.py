@@ -260,6 +260,7 @@ PROPERTIES = {
     "bootui.exceptions.max-occurrences-per-group": ("exceptions_max_occurrences_per_group", "19"),
     "bootui.exceptions.max-stack-frames": ("exceptions_max_stack_frames", "20"),
     "bootui.sql-trace.enabled": ("sql_trace_enabled", "false"),
+    "bootui.sql-trace.sqlite3-enabled": ("sql_trace_sqlite3_enabled", "false"),  # sharpit-only: no BootUI property
     "bootui.sql-trace.recording": ("sql_trace_recording", "false"),
     "bootui.sql-trace.capture-parameters": ("sql_trace_capture_parameters", "true"),
     "bootui.sql-trace.capture-call-site": ("sql_trace_capture_call_site", "false"),
@@ -287,6 +288,7 @@ NEW_DEFAULTS_0_2_0: dict[str, Any] = {
     "exceptions_max_occurrences_per_group": 25,
     "exceptions_max_stack_frames": 50,
     "sql_trace_enabled": True,
+    "sql_trace_sqlite3_enabled": True,
     "sql_trace_recording": True,
     "sql_trace_capture_parameters": False,
     "sql_trace_capture_call_site": True,
@@ -328,6 +330,7 @@ NEW_FAIL_SAFE: list[tuple[str, str, str, Any]] = [
     ("exceptions_max_occurrences_per_group", "SHARPIT_EXCEPTIONS_MAX_OCCURRENCES_PER_GROUP", "-1", 25),
     ("exceptions_max_stack_frames", "SHARPIT_EXCEPTIONS_MAX_STACK_FRAMES", "x", 50),
     ("sql_trace_enabled", "SHARPIT_SQL_TRACE_ENABLED", "maybe", False),
+    ("sql_trace_sqlite3_enabled", "SHARPIT_SQL_TRACE_SQLITE3_ENABLED", "maybe", False),
     ("sql_trace_recording", "SHARPIT_SQL_TRACE_RECORDING", "maybe", False),
     ("sql_trace_capture_parameters", "SHARPIT_SQL_TRACE_CAPTURE_PARAMETERS", "maybe", False),
     ("sql_trace_capture_call_site", "SHARPIT_SQL_TRACE_CAPTURE_CALL_SITE", "maybe", True),

@@ -34,6 +34,8 @@
   onScan={async () => void (report = await post<RestApiReport>('rest-api/scan'))}
   onDismiss={async (id) => { await post(rule(id)); await reload(); }}
   onRestore={async (id) => { await del(rule(id)); await reload(); }}
+  onDismissFinding={async (fingerprint) => { await post(rule(fingerprint)); await reload(); }}
+  loadDismissed={async () => (await get<{ dismissed: string[] }>('dismissed-rules')).dismissed}
   loadViolations={(id, offset) =>
     get<ViolationsPage>(`rest-api/rules/${encodeURIComponent(id)}/violations`, { scanId: report?.violationDetails?.scanId, offset, limit: 100 })}
 >

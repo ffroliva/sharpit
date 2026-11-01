@@ -84,12 +84,29 @@ Other options are keyword arguments or environment variables, see [Settings](htt
 
 If `/sharpit` answers 404, read [Activation](https://ffroliva.github.io/sharpit/activation/): sharpit stays off unless a dev signal turns it on.
 
+## Gate CI on findings
+
+sharpit turns runtime capture into automated test gates with `pytest --sharpit`. It tracks SQL
+statements and observable exceptions per test, detects N+1 queries, checks query budgets, and runs
+static analysis advisors. If a test exceeds its query budget, triggers an N+1 query, or swallows an
+unhandled exception, the build fails. When capture cannot see enough to judge, the run status is
+`unknown` and fails closed.
+
+```bash
+pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-junit.xml
+```
+
+Read [Pytest plugin](https://ffroliva.github.io/sharpit/pytest-plugin/) and [Test report](https://ffroliva.github.io/sharpit/report/) for options, gates, and CI examples.
+
 ## Documentation
 
 The full documentation is at **<https://ffroliva.github.io/sharpit/>**:
 
 - [Activation](https://ffroliva.github.io/sharpit/activation/): when sharpit turns on, and why a plain `uvicorn app:app` gives 404
 - [Panels](https://ffroliva.github.io/sharpit/panels/): what each panel shows
+- [Pytest plugin](https://ffroliva.github.io/sharpit/pytest-plugin/): CI gates for queries, N+1, exceptions, and advisors
+- [Test report](https://ffroliva.github.io/sharpit/report/): the `sharpit-report/1` JSON schema and JUnit XML
+- [SQL sources](https://ffroliva.github.io/sharpit/sql-sources/): tracing SQLAlchemy and raw `sqlite3`
 - [MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/): the read-only MCP endpoint and its 18 tools
 - [Settings](https://ffroliva.github.io/sharpit/settings/): every environment variable and `install()` keyword
 - [Safety model](https://ffroliva.github.io/sharpit/safety/): local-only guard, tokens, masking, proxies and workers

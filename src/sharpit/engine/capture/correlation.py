@@ -21,6 +21,8 @@ class RequestInfo:
 
 
 REQUEST: ContextVar[RequestInfo | None] = ContextVar("sharpit_request", default=None)
+# the running test as the pytest plugin tags it: (nodeid, attempt, phase); None outside a test (spec 0.3.0 §6.4)
+TEST: ContextVar[tuple[str, int, str] | None] = ContextVar("sharpit_test", default=None)
 INTERNAL: ContextVar[bool] = ContextVar("sharpit_internal", default=False)
 
 
