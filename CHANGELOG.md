@@ -5,10 +5,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-01
+
 ### Added
 
 - Finding contract (`Finding`, `AdvisorRun`) and advisor registry with pass/fail/unknown status semantics (#19).
-- `pytest --sharpit` plugin with test-id tagging, unattributed bucket, phase split, xdist merge, and JSON (`sharpit-report/1`) and JUnit reports (#20).
+- `pytest --sharpit` plugin with test-id tagging, unattributed bucket, phase split, xdist merge, and JSON (`sharpit-report/1`) and JUnit reports (#20). Count gates (queries per test with `--sharpit-max-queries`, N+1, swallowed exceptions) fail the test; advisor findings at or above `--sharpit-fail-on` fail the run; `unknown` fails it unless `--sharpit-allow-unknown` (limit for unattributed SQL: `--sharpit-max-unattributed`).
 - Per-test budget marker `@pytest.mark.sharpit(max_queries=..., allow_n_plus_one=..., max_exceptions=...)` (#21).
 - REST API advisor on the contract, per-finding dismissal via fingerprint in `sharpit.yml`, and panel detail action (#22).
 - Raw `sqlite3` SQL source, unified source dispatcher, and public `attach_sql_sources()` / `detach_sql_sources()` helpers (#23).
@@ -107,6 +109,7 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.1.0

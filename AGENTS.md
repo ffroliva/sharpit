@@ -6,7 +6,7 @@ Single source of truth for every agent working in this repo (Claude Code, Codex,
 ## What sharpit is
 
 An embedded, local-only developer console for Python web apps: a Python port of BootUI (Spring Boot). It is at
-**0.2.0.** It targets FastAPI. One call mounts it:
+**0.3.0.** It targets FastAPI. One call mounts it:
 
 ```python
 import sharpit

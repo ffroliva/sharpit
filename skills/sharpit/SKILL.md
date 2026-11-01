@@ -9,7 +9,7 @@ description: >
 
 # sharpit: the local developer console for FastAPI apps
 
-> **0.2.0.** APIs, panels and settings can still change before 1.0.
+> **0.3.0.** APIs, panels and settings can still change before 1.0.
 > The design source is `docs/superpowers/specs/2026-10-30-sharpit-mvp-design.md`; when this file and the code
 > disagree, the code wins.
 

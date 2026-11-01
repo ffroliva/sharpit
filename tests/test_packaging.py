@@ -11,8 +11,8 @@ PYPROJECT = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml
 PROJECT = PYPROJECT["project"]
 
 
-def test_version_is_0_2_0() -> None:
-    assert sharpit.__version__ == "0.2.0"
+def test_version_is_0_3_0() -> None:
+    assert sharpit.__version__ == "0.3.0"
 
 
 def test_runtime_dependencies_are_exactly_starlette_and_packaging() -> None:
