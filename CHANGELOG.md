@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-01
+
 ### Added
 
 - Finding contract (`Finding`, `AdvisorRun`) and advisor registry with pass/fail/unknown status semantics (#19).
@@ -107,6 +109,7 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.1.0
