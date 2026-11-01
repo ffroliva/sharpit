@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from sharpit.engine import sqla
 from sharpit.engine.sources import sqlite
 
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
@@ -170,6 +171,7 @@ def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
     for the files that exercise the source itself; upgrade if those tests get a shared fixture that uninstalls.
     """
     sqlite.detach_all()
+    sqla.detach_all()  # install() without shutdown leaves contexts; 2+ make routing outside a request ambiguous
     yield
     leaked = sqlite.is_attached()
     sqlite.detach_all()
