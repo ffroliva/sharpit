@@ -33,18 +33,21 @@ from sharpit.engine.collectors.restapi.service import assess
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.spi import ApiModel
 from sharpit.engine.testsession import gates, outcome, report
+from sharpit.engine.testsession.facts import SessionFacts
+from sharpit.engine.testsession.finish import GateOptions, finish
 from sharpit.engine.testsession.sink import TestSessionSink, report_masker, report_masker_warnings
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.pytest_plugin.marker import budget_for
 from sharpit.pytest_plugin.options import PluginOptions, resolve
-from sharpit.settings import load_settings, parse_mode
+from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
 _STATE_ATTR = "_sharpit_pytest_state"
+_HOOK_FAILURE_WARNING = "a sharpit session hook failed ({}); some facts may be missing"
 _active_state: _State | None = None
 
 
 def _record_hook_failure(sink: TestSessionSink, exc: BaseException) -> None:
-    warning = f"a sharpit session hook failed ({type(exc).__name__}); some facts may be missing"
+    warning = _HOOK_FAILURE_WARNING.format(type(exc).__name__)
     if warning not in sink.facts.warnings:
         sink.facts.warnings.append(warning)
     source = next((item for item in sink.facts.sources if item["name"] == "pytest-plugin"), None)
@@ -76,12 +79,16 @@ class _ExceptionHandler(logging.Handler):
 class _State:
     options: PluginOptions
     sink: TestSessionSink
+    settings: SharpitSettings
+    dismissed: list[str]
     sqlite_attached: bool
     sqlalchemy_attached: bool
     handler: _ExceptionHandler
     parts: list[Any]
     missing_workers: list[str]
     log_targets: list[logging.Logger]
+    logger_cache: tuple[logging.Logger, ...]
+    logger_cache_size: int
 
 
 def _state(config: Any) -> _State | None:
@@ -162,9 +169,6 @@ def _validate_activation() -> list[str]:
         warning = next((w for w in settings.warnings if "SHARPIT_ENABLED" in w), "invalid SHARPIT_ENABLED value")
         raise ValueError(f"sharpit: --sharpit refused because {warning}")
     mode = parse_mode(settings.enabled)
-    if mode is None:
-        reason = settings.warnings[0] if settings.warnings else "SHARPIT_ENABLED is invalid"
-        raise ValueError(f"sharpit: --sharpit refused because {reason}")
     profiles = active_profiles(settings, os.environ)
     disabled = next((p for p in settings.disabled_profiles if p in profiles), None)
     if disabled and mode != "ON":
@@ -224,11 +228,25 @@ def _attach(config: Any) -> None:
         raise pytest.UsageError(str(exc)) from exc
     worker = getattr(config, "workerinput", {}).get("workerid", "master")
     sink = TestSessionSink(worker)
+    settings = load_settings({}, os.environ)
     sink.facts.warnings.extend(warnings)
     sink.facts.warnings.extend(report_masker_warnings(os.environ))
-    sink.facts.warnings.extend(load_settings({}, os.environ).warnings)
+    sink.facts.warnings.extend(settings.warnings)
     handler = _ExceptionHandler(sink)
-    state = _State(options, sink, False, False, handler, [], [], [])
+    state = _State(
+        options,
+        sink,
+        settings,
+        DismissalStore(Path(settings.state_dir)).list(),
+        False,
+        False,
+        handler,
+        [],
+        [],
+        [],
+        (),
+        -1,
+    )
     _active_state = state
     setattr(config, _STATE_ATTR, state)
     config.add_cleanup(lambda: _detach(config))
@@ -333,16 +351,19 @@ def _phase(item: Any, name: str) -> Any:
             state.sqlalchemy_attached = sqla.attach_session()
             _record_sqlalchemy_source(state)
         token = TEST.set((item.nodeid, current.key.attempt, name))
-        state.log_targets = [logging.root]
-        state.log_targets.extend(
-            logger
-            for name, logger in logging.root.manager.loggerDict.items()
-            if isinstance(logger, logging.Logger)
-            and not logger.propagate
-            and logger.handlers
-            and name != "sharpit"
-            and not name.startswith("sharpit.")
-        )
+        logger_dict = logging.root.manager.loggerDict
+        if state.logger_cache_size != len(logger_dict):
+            state.logger_cache = tuple(
+                logger
+                for name, logger in logger_dict.items()
+                if isinstance(logger, logging.Logger)
+                and not logger.propagate
+                and logger.handlers
+                and name != "sharpit"
+                and not name.startswith("sharpit.")
+            )
+            state.logger_cache_size = len(logger_dict)
+        state.log_targets = [logging.root, *state.logger_cache]
         for logger in state.log_targets:
             logger.addHandler(state.handler)
         exception_source = next(s for s in state.sink.facts.sources if s["name"] == "exceptions")
@@ -474,9 +495,7 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
         test.outcome = report_obj.outcome
         budget = budget_for(item, state.options.max_queries)
         test.budget = budget
-        settings = load_settings({}, os.environ)
-        dismissed = DismissalStore(Path(settings.state_dir)).list()
-        findings = gates.evaluate_test(test, budget, settings.activity_n_plus_one_threshold, dismissed)
+        findings = gates.evaluate_test(test, budget, state.settings.activity_n_plus_one_threshold, state.dismissed)
         test.findings = [finding.to_dto() for finding in findings]
         messages = [f"sharpit: {finding.rule_id}: {finding.message}" for finding in findings if not finding.dismissed]
         if messages:
@@ -521,15 +540,7 @@ def _run_advisors(state: _State) -> None:
             )
             return
     if not models:
-        if state.sink.facts.worker != "master":
-            return
-        state.sink.facts.advisor_runs.append(
-            AdvisorRun(
-                "rest-api", "UNKNOWN", (), {}, "no application: pass --sharpit-app or call sharpit.install in the tests"
-            )
-        )
         return
-    dismissed = DismissalStore(Path(load_settings({}, os.environ).state_dir)).list()
     for name, model in models:
         if not application_routes(model.routes) and not state.options.app:
             state.sink.facts.advisor_runs.append(
@@ -542,7 +553,7 @@ def _run_advisors(state: _State) -> None:
                     report_masker(),
                     fail_on=cast("Severity", state.options.fail_on),
                     app=name,
-                    dismissed=dismissed,
+                    dismissed=state.dismissed,
                 )
             )
 
@@ -564,7 +575,7 @@ def _refresh_report_after_hook_failure(state: _State, config: Any, exc: BaseExce
     data = cast("dict[str, Any] | None", getattr(config, "_sharpit_report", None))
     if not isinstance(data, dict):
         return
-    warning = f"a sharpit session hook failed ({type(exc).__name__}); some facts may be missing"
+    warning = _HOOK_FAILURE_WARNING.format(type(exc).__name__)
     data["status"] = "unknown"
     source: dict[str, Any] = {"name": "pytest-plugin", "attached": False, "reason": warning, "limitations": []}
     if not any(item.get("name") == "pytest-plugin" for item in data["sources"]):
@@ -582,75 +593,41 @@ def _refresh_report_after_hook_failure(state: _State, config: Any, exc: BaseExce
         _record_hook_failure(state.sink, write_exc)
 
 
-def _snapshot_report_apps(sink: TestSessionSink) -> None:
+def _final_facts(state: _State) -> SessionFacts:
+    sink = state.sink
     try:
         sink.snapshot_apps(_model_of, force=True)
     except Exception as exc:  # noqa: BLE001
         _record_hook_failure(sink, exc)
+    facts = sink.facts
+    facts.untraced_drivers.update(module for module in outcome.DRIVER_DIALECTS if module in sys.modules)
+    facts.engine_drivers.update(dispatch.engine_drivers())
+    facts.engine_drivers.update(sqla.live_engine_drivers())
+    _source_state(sink, state.sqlite_attached)
+    return facts
 
 
 def _write_report(state: _State, session: Any, exitstatus: int) -> None:
     sink = state.sink
     try:
-        _snapshot_report_apps(sink)
         if not _xdist_controller(session.config, state):
             _advisors(state)
-        facts = sink.facts
-        facts.untraced_drivers.update(
-            module
-            for module in ("aiosqlite", "asyncpg", "psycopg", "psycopg2", "pymysql", "MySQLdb", "oracledb", "pyodbc")
-            if module in sys.modules
-        )
-        facts.engine_drivers.update(dispatch.engine_drivers())
-        facts.engine_drivers.update(sqla.live_engine_drivers())
-        _source_state(sink, state.sqlite_attached)
+        facts = _final_facts(state)
         parts = state.parts if _xdist_controller(session.config, state) else [facts]
-        merged = outcome.merge(parts, state.missing_workers)
-        controller_plugin_source = next(
-            (source for source in sink.facts.sources if source["name"] == "pytest-plugin"), None
-        )
-        if controller_plugin_source is not None and not any(
-            source["name"] == "pytest-plugin" for source in merged.sources
-        ):
-            merged.sources.append(controller_plugin_source)
-        for warning in sink.facts.warnings:
-            if warning not in merged.warnings:
-                merged.warnings.append(warning)
-        if (
-            state.options.advisors
-            and not state.options.app
-            and not any(r.advisor == "rest-api" for r in merged.advisor_runs)
-        ):
-            merged.advisor_runs.append(
-                AdvisorRun(
-                    "rest-api",
-                    "UNKNOWN",
-                    (),
-                    {},
-                    "no application: pass --sharpit-app or call sharpit.install in the tests",
-                )
-            )
-        status, reasons = outcome.session_status(
-            merged,
-            allow_unknown=state.options.allow_unknown,
-            max_unattributed=state.options.max_unattributed,
-            advisors_enabled=state.options.advisors,
-            fail_on=state.options.fail_on,
-        )
-        data = report.render(
-            merged,
-            status,
-            reasons,
-            gates={
-                "maxQueriesPerTest": state.options.max_queries,
-                "nPlusOneThreshold": load_settings({}, os.environ).activity_n_plus_one_threshold,
-                "failOnSeverity": state.options.fail_on,
-                "allowUnknown": state.options.allow_unknown,
-                "maxUnattributedPercent": state.options.max_unattributed,
-            },
+        data, status, _reasons = finish(
+            parts,
+            state.missing_workers,
+            options=GateOptions(
+                state.options.max_queries,
+                state.settings.activity_n_plus_one_threshold,
+                state.options.fail_on,
+                state.options.allow_unknown,
+                state.options.max_unattributed,
+                state.options.advisors,
+            ),
             version=__version__,
             now_ms=time.time_ns() // 1_000_000,
-            advisors_enabled=state.options.advisors,
+            warnings=sink.facts.warnings,
         )
         report.write_json(state.options.report, data)
         if state.options.junit:
@@ -678,24 +655,7 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
         return
     if hasattr(session.config, "workerinput"):
         try:
-            state.sink.snapshot_apps(_model_of, force=True)
-            _source_state(state.sink, state.sqlite_attached)
-            state.sink.facts.untraced_drivers.update(
-                module
-                for module in (
-                    "aiosqlite",
-                    "asyncpg",
-                    "psycopg",
-                    "psycopg2",
-                    "pymysql",
-                    "MySQLdb",
-                    "oracledb",
-                    "pyodbc",
-                )
-                if module in sys.modules
-            )
-            state.sink.facts.engine_drivers.update(dispatch.engine_drivers())
-            state.sink.facts.engine_drivers.update(sqla.live_engine_drivers())
+            _final_facts(state)
         except Exception as exc:  # noqa: BLE001
             _record_hook_failure(state.sink, exc)
         _advisors(state)

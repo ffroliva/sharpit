@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import json
 import os
+import weakref
 
 import pytest
 
@@ -159,6 +160,26 @@ def test_exception_dedup_by_object() -> None:
     assert SECRET not in json.dumps(sink.facts.to_json())
 
 
+def test_sink_releases_exceptions_after_the_test() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    tag = (NODE, attempt, "call")
+
+    class Payload:
+        pass
+
+    payload = Payload()
+    reference = weakref.ref(payload)
+    error = ValueError("failure")
+    error.payload = payload  # type: ignore[attr-defined]
+    sink.on_exception(error, "log", tag)
+    del error, payload
+    sink.end_test()
+    sink.begin_test("tests/test_next.py::test_next")
+    gc.collect()
+    assert reference() is None
+
+
 def test_escaped_exception_excluded() -> None:
     """A copy already counted is taken back, and a later logged copy is ignored."""
     sink = _sink()
@@ -237,6 +258,56 @@ def test_snapshot_skipped_when_routes_unchanged() -> None:
     app.router.routes.append(object())
     sink.snapshot_apps(model)
     assert calls == 2
+
+
+def test_identical_per_test_apps_build_one_model() -> None:
+    class Route:
+        path = "/pets"
+        methods = {"GET"}
+
+    class Router:
+        routes = [Route()]
+
+    class App:
+        title = "API"
+        router = Router()
+
+    sink = _sink()
+    calls = 0
+
+    def model(_app: object) -> ApiModel:
+        nonlocal calls
+        calls += 1
+        return EMPTY
+
+    for _ in range(50):
+        app = App()
+        sink.register_app(app)
+        sink.snapshot_apps(model)
+    assert calls == 1
+
+
+def test_orphans_are_deduplicated() -> None:
+    class Route:
+        path = "/pets"
+        methods = {"GET"}
+
+    class Router:
+        routes = [Route()]
+
+    class App:
+        title = "API"
+        router = Router()
+
+    sink = _sink()
+    for _ in range(50):
+        app = App()
+        sink.register_app(app)
+        sink.snapshot_apps(lambda _app: EMPTY)
+        del app
+        gc.collect()
+        sink.snapshot_apps(lambda _app: EMPTY)
+    assert len(sink._orphan_snapshots) == 1
 
 
 def test_unprintable_exception_still_gates() -> None:
