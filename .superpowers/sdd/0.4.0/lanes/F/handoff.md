@@ -1,6 +1,6 @@
 # Lane F handoff
 
-Status: Task 1 implementation complete; fresh review pending before Task 2.
+Status: Task 1 implementation complete/reviewed; Task 2 O4 red committed, registry fix in progress.
 
 - Base: `7e5fc150946ee4d870433d96a41a6627b343364a` (`release/0.4.0`); worktree branch `lane/0.4.0-F`.
 - Untouched-base suite at `7e5fc15`: 3491 passed, 5 skipped, 34 warnings in 93.95 s (`uv run pytest -q -n 4`).
@@ -10,11 +10,13 @@ Status: Task 1 implementation complete; fresh review pending before Task 2.
 - Adapter compatibility fix: `1d5e1f7d9fd1ff66744d3e55693bd0b7691a94e4` (adapter route/helper seams now delegate dynamically).
 - Capture wiring attachment fix: `e1a3256fa56e9c4f4ea269f06f943037c2d32ddc` (returns the exact wiring stored on `CaptureState`).
 - Final Task 1 contract fix: `32b39ac9c30465205f645edd3a25dc976aa13431` (named route, runtime-resolvable annotations, and F1e gatekeepers).
+- Task 2 O4 red commits: `c11ed916979054a6b994c9733964021e4ac5354f` (surface/default flags and Vitest nav control) and `fbcd986` (PANELS registry coverage); see the red-test table below.
 - Current focused regression run: 208 passed, 16 warnings in 31.61 s. It covers structure/capture/compatibility/equivalence/runtime-type/import-boundary tests plus existing tool, pytest, xdist, capture-wiring, install, and code-shape suites.
 - Pyright: 0 errors, 0 warnings. Ruff check and format check passed for changed Python files. C901 ratchet test passed after lowering the `engine/tools.py` and `fastapi/adapter.py` entries from 1/3 to 0/0; the new route and dispatch modules add no C901 findings.
 - The first focused rerun logged inside the repo and tripped the no-side-effects fixture's cwd scan; the clean rerun
   placed logs outside the worktree.
-- Current state: ready for the fresh Task 1 review; Task 2 has not started.
+- Current state: O4 wrong-value flags/stubs are committed on the two red commits above; registry implementation is in progress.
+- UI red was run with Vitest (`npm --prefix ui run test -- tests/unit/nav.test.ts`) after `npm --prefix ui ci`; the assertion failed as expected because all 0.4 flags were temporarily true.
 
 The capture contract reds at `d0ea233`, `82b9177` and `3075c91` are deliberate wrong-value-stub checks required by COMMON/R2. They prove that the returned capture wiring is created, stored on the context, and is the same object; they are contract/mutation reds, not reports of a defect at the untouched base. The implementation is restored and verified by `e1a3256`.
 
@@ -68,6 +70,7 @@ The capture contract reds at `d0ea233`, `82b9177` and `3075c91` are deliberate w
 | `tests/engine/test_import_boundary.py::test_opentelemetry_stays_behind_engine_otel_gatekeeper` | `7df27495026acd28f9ba0e8e60e7028113b8cf70` | `assert violations == [...]` (`sharpit/engine/tools.py imports opentelemetry.trace`) |
 | `tests/fastapi/test_unimplemented_panel_surface.py::test_panel_implemented_defaults_true` | `c11ed916979054a6b994c9733964021e4ac5354f` | `assert panel.implemented is True` |
 | `tests/fastapi/test_unimplemented_panel_surface.py::test_unimplemented_panel_has_no_surface` | `c11ed916979054a6b994c9733964021e4ac5354f` | `assert set(IMPLEMENTED.values()) == {False}` |
+| `tests/engine/test_panel04_registry.py::test_0_4_panels_are_registered_but_unimplemented` | `fbcd986` | `assert set(panels) == PANEL_IDS` |
 | `Vitest: ui/tests/unit/nav.test.ts::keeps every 0.4 panel unimplemented and out of navigation` | `c11ed916979054a6b994c9733964021e4ac5354f` | `expect(Object.values(PANEL_04_IMPLEMENTED)).toEqual(PANEL_04_IDS.map(() => false))` |
 
 Capture red SHAs `d0ea233`, `82b9177`, and `3075c91` are mutation-based contract checks: each substitutes an intentionally wrong value and the assertions detect the missing result or attachment. They are not claims of pre-existing production regressions. The `3ff293b` rows are the review-found production compatibility regressions.
