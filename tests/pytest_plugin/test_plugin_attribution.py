@@ -102,9 +102,13 @@ def test_lifespan_worker_unattributed(pytester: pytest.Pytester) -> None:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
+        import time
+        polls = [0]
+
         async def poll():
             while True:
                 sqlite3.connect(':memory:').execute('SELECT 1')
+                polls[0] += 1
                 await asyncio.sleep(0.005)
 
         @asynccontextmanager
@@ -130,6 +134,11 @@ def test_lifespan_worker_unattributed(pytester: pytest.Pytester) -> None:
 
         def test_later_request(client):
             assert client.get('/').status_code == 200
+            # wait for the lifespan worker to poll inside this test's window (it races the test otherwise)
+            seen, deadline = polls[0], time.monotonic() + 5
+            while polls[0] < seen + 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert polls[0] >= seen + 2
         """
     )
 

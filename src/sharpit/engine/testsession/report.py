@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, cast
@@ -27,7 +26,13 @@ from sharpit.engine.testsession.outcome import (
 SCHEMA = "sharpit-report/1"
 MAX_N_PLUS_ONE = 10  # per test
 MAX_TOP_STATEMENTS = 20
-_XML_ILLEGAL = re.compile(r"[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+_REPLACEMENT = "\ufffd"
+
+
+def _xml_char(char: str) -> bool:
+    """A character XML 1.0 allows (also rejects lone surrogates, which UTF-8 cannot encode)."""
+    code = ord(char)
+    return code in (0x9, 0xA, 0xD) or 0x20 <= code <= 0xD7FF or 0xE000 <= code <= 0xFFFD or code >= 0x10000
 
 
 def _test_entry(test: TestFacts, threshold: int) -> dict[str, Any]:
@@ -119,7 +124,7 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 
     def clean(value: Any) -> Any:
         if isinstance(value, str):
-            return _XML_ILLEGAL.sub("�", value)
+            return _clean(value)
         if isinstance(value, list):
             items = cast(list[Any], value)
             return [clean(item) for item in items]
@@ -132,7 +137,7 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def _clean(text: str) -> str:
-    return _XML_ILLEGAL.sub("�", text)
+    return "".join(char if _xml_char(char) else _REPLACEMENT for char in text)
 
 
 def write_junit(path: Path, data: dict[str, Any], *, allow_unknown: bool) -> None:
