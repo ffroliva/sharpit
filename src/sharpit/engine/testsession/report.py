@@ -69,7 +69,7 @@ def render(
     gates: dict[str, Any],
     version: str,
     now_ms: int,
-    advisors_enabled: bool = True,
+    advisors_enabled: bool,
 ) -> dict[str, Any]:
     """The report as a dict: every key of spec §7.1 present, nulls kept, camelCase, epoch ms."""
     attributed = attributed_queries(merged.tests)

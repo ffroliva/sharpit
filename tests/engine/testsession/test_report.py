@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from engine.testsession.tsfakes import NODE, busy_part, call_test, event, part, passed_run, render_parts, source
+from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.collectors.restapi.service import assess
 from sharpit.engine.spi import ApiModel, ApiRouteInfo
 from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey
@@ -50,6 +51,18 @@ KEYS = {
     "tests[].phases.call": ["exceptions", "filtered", "queries"],
     "advisors[]": ["advisor", "apps", "findings", "reason", "status"],
     "advisors[].apps[]": ["app", "evidence", "reason", "status"],
+    "unattributed.topStatements[]": ["count", "sql"],
+    "advisors[].findings[]": [
+        "advisor",
+        "dismissed",
+        "fingerprint",
+        "message",
+        "ruleId",
+        "severity",
+        "target",
+        "testNodeId",
+    ],
+    "advisors[].apps[].evidence": ["coverageComplete", "limitations", "usable"],
     "findings[]": [
         "advisor",
         "dismissed",
@@ -86,6 +99,17 @@ def test_render_has_every_key() -> None:
     assert _keys(data["advisors"][0]) == KEYS["advisors[]"]
     assert _keys(data["advisors"][0]["apps"][0]) == KEYS["advisors[].apps[]"]
     assert _keys(data["findings"][0]) == KEYS["findings[]"]
+
+
+def test_render_nested_keys_of_statements_advisor_findings_and_evidence() -> None:
+    finding = Finding("RAPI-MAP-001", "rest-api", "HIGH", "GET /x", "m")
+    evidence = {"usable": True, "coverageComplete": True, "limitations": []}
+    run = AdvisorRun.of("rest-api", [finding], evidence, app="App#00000001")
+    data = render_parts(busy_part(), part("gw1", advisor_runs=[run]))
+    advisor = next(a for a in data["advisors"] if a["findings"])
+    assert _keys(data["unattributed"]["topStatements"][0]) == KEYS["unattributed.topStatements[]"]
+    assert _keys(advisor["findings"][0]) == KEYS["advisors[].findings[]"]
+    assert _keys(advisor["apps"][0]["evidence"]) == KEYS["advisors[].apps[].evidence"]
 
 
 def test_render_header_and_totals() -> None:
@@ -254,6 +278,20 @@ def test_write_json_atomic(tmp_path: Path) -> None:
     write_json(target, {"schema": "second"})
     assert json.loads(target.read_text(encoding="utf-8")) == {"schema": "second"}
     assert [p.name for p in target.parent.iterdir()] == ["report.json"]
+
+
+def test_write_json_replace_failure_keeps_the_old_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "report.json"
+    write_json(target, {"ok": True})
+
+    def boom(src: object, dst: object) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(OSError, match="replace failed"):
+        write_json(target, {"ok": False})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
+    assert [p.name for p in tmp_path.iterdir()] == ["report.json"]
 
 
 def test_write_json_failure_keeps_the_old_file(tmp_path: Path) -> None:

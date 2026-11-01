@@ -6,6 +6,7 @@ from pathlib import Path
 
 import sharpit.engine.testsession as testsession_pkg
 from engine.testsession.tsfakes import NODE, event, run_phase, selects
+from sharpit.engine.capture.sqltrace import normalize
 from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey
 from sharpit.engine.testsession.gates import Budget, evaluate_test
 from sharpit.engine.testsession.sink import TestSessionSink
@@ -50,13 +51,23 @@ def test_n_plus_one_allowed_by_the_marker() -> None:
 
 
 def test_n_plus_one_case_and_literal_folding() -> None:
-    """``WHERE id=41`` and ``WHERE ID = 42`` are one group."""
+    """``WHERE id=41`` and ``WHERE ID=42`` are one group (case and literal fold, spacing is the fingerprint's)."""
     sink = TestSessionSink("gw0")
     attempt = sink.begin_test(NODE)
-    run_phase(sink, NODE, attempt, "call", "SELECT * FROM pets WHERE id=41", "SELECT * FROM pets WHERE ID = 42")
+    run_phase(sink, NODE, attempt, "call", "SELECT * FROM pets WHERE id=41", "SELECT * FROM pets WHERE ID=42")
     assert sink.current_test is not None
     [finding] = evaluate_test(sink.current_test, NONE, 2, ())
     assert finding.message == "2 executions of one SELECT in the call phase"
+
+
+def test_n_plus_one_identity_is_the_normalized_fingerprint() -> None:
+    sink = TestSessionSink("gw0")
+    attempt = sink.begin_test(NODE)
+    sql = "SELECT * FROM pets WHERE id = 41"
+    run_phase(sink, NODE, attempt, "call", sql, "SELECT * FROM pets WHERE ID = 42")
+    assert sink.current_test is not None
+    [finding] = evaluate_test(sink.current_test, NONE, 2, ())
+    assert finding.identity == normalize(sql).fingerprint
 
 
 def test_n_plus_one_ignores_writes() -> None:

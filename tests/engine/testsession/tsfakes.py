@@ -69,7 +69,7 @@ NOW = 1_761_955_200_000
 def render_parts(*parts: SessionFacts, missing: tuple[str, ...] = (), advisors_enabled: bool = True) -> dict[str, Any]:
     merged = merge(list(parts), list(missing))
     status, reasons = session_status(
-        merged, allow_unknown=False, max_unattributed=10.0, advisors_enabled=advisors_enabled
+        merged, allow_unknown=False, max_unattributed=10.0, advisors_enabled=advisors_enabled, fail_on="HIGH"
     )
     return render(merged, status, reasons, gates=GATES, version="0.3.0", now_ms=NOW, advisors_enabled=advisors_enabled)
 

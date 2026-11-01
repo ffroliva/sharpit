@@ -13,7 +13,12 @@ NO_APP = "no application: pass --sharpit-app or call sharpit.install in the test
 
 
 def _status(*parts: SessionFacts, missing: tuple[str, ...] = (), **kwargs: Any) -> tuple[str, list[str]]:
-    options: dict[str, Any] = {"allow_unknown": False, "max_unattributed": 10.0, "advisors_enabled": True}
+    options: dict[str, Any] = {
+        "allow_unknown": False,
+        "max_unattributed": 10.0,
+        "advisors_enabled": True,
+        "fail_on": "HIGH",
+    }
     return session_status(merge(list(parts), list(missing)), **{**options, **kwargs})
 
 
@@ -207,7 +212,9 @@ def test_merge_dist_each_entries() -> None:
     """``--dist each``: one entry per worker, each decides on its own."""
     merged = merge([part("gw0", tests=[_failing(worker="gw0")]), part("gw1", tests=[_failing(worker="gw1")])], [])
     assert len(merged.tests) == 2
-    assert session_status(merged, allow_unknown=False, max_unattributed=10.0, advisors_enabled=True) == (
+    assert session_status(
+        merged, allow_unknown=False, max_unattributed=10.0, advisors_enabled=True, fail_on="HIGH"
+    ) == (
         "fail",
         ["2 tests failed sharpit gates"],
     )
@@ -235,3 +242,10 @@ def test_exit_fails(status: str, allow: bool, fails: bool) -> None:
 
 def test_empty_merge_is_a_merged_facts() -> None:
     assert isinstance(merge([], []), MergedFacts)
+
+
+def test_earlier_attempt_findings_may_not_resolve() -> None:
+    """Only the last attempt decides: an earlier attempt's finding fingerprint can be absent from the flat list."""
+    merged = merge([part(tests=[_failing(attempt=1), call_test(attempt=2)])], [])
+    earlier = merged.tests[0].findings[0]["fingerprint"]
+    assert earlier not in [f["fingerprint"] for f in merged.findings]

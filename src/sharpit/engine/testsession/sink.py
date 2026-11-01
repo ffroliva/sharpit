@@ -7,7 +7,6 @@ duration (spec §6.4, B4 and B8).
 from __future__ import annotations
 
 import hashlib
-import re
 import threading
 import weakref
 from collections import Counter
@@ -25,7 +24,6 @@ from sharpit.settings import SharpitSettings
 
 MAX_UNATTRIBUTED_STATEMENTS = 500  # distinct masked statements kept for the top list; the count stays exact
 _MASKING_OFF = ("false", "0", "no", "off")
-_PUNCTUATION = re.compile(r"\s*([=<>!,()])\s*")
 
 
 def report_masker() -> Masker:
@@ -42,11 +40,6 @@ def report_masker_warnings(environ: Mapping[str, str]) -> list[str]:
     if environ.get("SHARPIT_MASK_SECRETS", "").strip().lower() in _MASKING_OFF:
         warnings.append("report ignores SHARPIT_MASK_SECRETS=false")
     return warnings
-
-
-def _group_key(fingerprint_text: str) -> str:
-    """The activity fingerprint with its spacing folded, so ``id=?`` and ``id = ?`` are one N+1 group."""
-    return _PUNCTUATION.sub(r"\1", " ".join(fingerprint_text.split()))
 
 
 @dataclass
@@ -118,7 +111,7 @@ class TestSessionSink:
                     if phase is not None:
                         phase.filtered += 1
                     return
-                key = _group_key(normalized.fingerprint)
+                key = self._mask(normalized.fingerprint)  # the raw fingerprint never leaves this call
                 if phase is None:
                     self._count_unattributed(key, normalized.sql)
                     return

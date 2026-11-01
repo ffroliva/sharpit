@@ -274,3 +274,18 @@ def test_test_facts_json_round_trip_is_exact() -> None:
     assert again.key == TestKey(NODE, "gw0", 1)
     assert again.budget == Budget(5, False, 0)
     assert again.phases["call"].selects == test.phases["call"].selects
+
+
+def test_shaped_secret_absent_from_facts_json() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    secret = "ghp_" + "a1B2c3D4e5" * 3
+    run_phase(
+        sink,
+        NODE,
+        attempt,
+        "call",
+        f"SELECT * FROM t WHERE token = {secret}",
+        f"SELECT * FROM t WHERE token = {secret}",
+    )
+    assert "ghp_" not in json.dumps(sink.facts.to_json())

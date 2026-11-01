@@ -281,7 +281,7 @@ def session_status(
     allow_unknown: bool,
     max_unattributed: float,
     advisors_enabled: bool,
-    fail_on: str = "HIGH",
+    fail_on: str,
 ) -> tuple[Status, list[str]]:
     """Spec §6.6: ``fail`` lists every fail reason, else ``unknown`` lists every unknown reason, else ``pass``."""
     del allow_unknown  # the status never depends on it; ``exit_fails`` does
