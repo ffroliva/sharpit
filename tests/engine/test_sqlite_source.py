@@ -320,3 +320,33 @@ def test_traced_connection_survives_detach(sink: Sink):
     sqlite.detach(HOLDER)
     assert traced.execute("select 7").fetchone() == (7,)
     traced.close()
+
+
+class _Hostile:
+    """A heap object whose ``__class__`` raises: ``isinstance`` on it runs this property."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        raise RuntimeError("hostile proxy")
+
+
+def test_attach_survives_a_hostile_heap_object():
+    """Review finding 2: counting pre-existing connections never makes attach raise or leaves half-attached state."""
+    hostile = _Hostile()
+    assert sqlite.attach(HOLDER) is True
+    assert sqlite.is_attached() is True
+    assert sqlite3.connect is not REAL_CONNECT
+    assert sqlite.attach(HOLDER) is False
+    assert sqlite.detach(HOLDER) is True
+    assert sqlite3.connect is REAL_CONNECT
+    del hostile
+
+
+def test_attach_count_failure_falls_back_with_limitation(monkeypatch: pytest.MonkeyPatch):
+    def boom() -> int:
+        raise RuntimeError("heap walk failed")
+
+    monkeypatch.setattr(sqlite, "_count_preexisting", boom)
+    assert sqlite.attach(HOLDER) is True
+    assert sqlite.preexisting_connections() == 0
+    assert sqlite.COUNT_FAILED in sqlite.limitations()

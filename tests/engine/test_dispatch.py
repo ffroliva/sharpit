@@ -188,3 +188,20 @@ def test_context_removal_keeps_session_listeners():
     assert all(sqla.attached()[e] for e in sqla.STATEMENT_EVENTS)
     sqla.detach_session()
     assert not any(sqla.attached()[e] for e in sqla.STATEMENT_EVENTS)
+
+
+def test_sql_event_is_a_tuple():
+    """Coordinator's call 2026-11-01: per-statement cost; a NamedTuple builds ~40x faster than a frozen dataclass."""
+    assert issubclass(SqlEvent, tuple)
+
+
+def test_before_returns_early_without_targets_or_sink(monkeypatch: pytest.MonkeyPatch):
+    """Two contexts, none holds the engine, no sink: nobody can receive the statement, so nothing is timed or built."""
+    _install()
+    _install()
+    named: list[object] = []
+    monkeypatch.setattr(sqla, "_named", lambda *a: named.append(a) or (None, None))
+    engine = sa.create_engine("sqlite://")
+    with engine.connect() as conn:
+        conn.exec_driver_sql("select 1")
+    assert named == []

@@ -164,3 +164,30 @@ def test_attach_sql_sources_respects_both_switches():
     assert sqlite3.connect is REAL_CONNECT
     assert attach_sql_sources(enabled="ON", sql_trace_sqlite3_enabled=False).enabled is True
     assert sqlite3.connect is REAL_CONNECT
+
+
+def test_sqlite3_switch_off_context_ignores_sqlite3_while_other_holder_attached():
+    """Review finding 1: a context whose own sqlite3 switch is off records nothing and lists no sqlite3 source."""
+    handle = _install(sql_trace_sqlite3_enabled=False)
+    sqlite.attach("other-holder")
+    connection = sqlite3.connect(":memory:")
+    connection.execute("select 1")
+    recorder = handle.context.capture.sql_trace
+    assert recorder is not None
+    assert recorder.report([])["entries"] == []
+    assert "sqlite3" not in tools.sql_trace_report(handle.context)["dataSources"]
+    connection.close()
+
+
+def test_panel_available_with_sqlite3_only(monkeypatch: pytest.MonkeyPatch):
+    """SQLAlchemy absent, sqlite3 on: SQL Trace is available through the panels API."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(sqla, "unavailable_reason", lambda: "SQLAlchemy is not imported")
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+    _HANDLES.append(handle)
+    body = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)).get("/sharpit/api/panels").json()
+    row = next(p for p in body["panels"] if p["id"] == "sql-trace")
+    assert row["available"] is True
+    assert row["unavailableReason"] is None

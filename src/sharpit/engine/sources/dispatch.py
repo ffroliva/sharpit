@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import weakref
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST
 from sharpit.engine.capture.sqltrace import call_site
@@ -15,8 +14,8 @@ if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
 
-@dataclass(frozen=True, slots=True)
-class SqlEvent:
+class SqlEvent(NamedTuple):
+    # a NamedTuple, not a dataclass: it is built once per statement (~0.06 µs against ~2.3 µs)
     source: str  # "sqlalchemy" | "sqlite3"
     sql: str  # placeholder SQL, never expanded
     parameters: object  # passed to the recorder for masking; the session sink drops it
@@ -80,17 +79,15 @@ def _targets(engine: object | None) -> list[SharpitContext]:
     return held or (contexts if len(contexts) == 1 else [])
 
 
-def _recording(engine: object | None) -> list[SharpitContext]:
-    return [c for c in _targets(engine) if c.capture.sql_trace is not None and c.capture.sql_trace.recording]
-
-
-def wants() -> bool:
-    """Whether a statement is worth timing: the sink is set or some context records. Routing is emit's job."""
-    if _sink is not None:
-        return True
-    return any(
-        (c := r()) is not None and c.capture.sql_trace is not None and c.capture.sql_trace.recording for r in _refs
-    )
+def recording(engine: object | None, source: str = "sqlalchemy") -> list[SharpitContext]:
+    """The contexts a statement from ``source`` is recorded by: routed, recording, and (sqlite3) switched on."""
+    return [
+        c
+        for c in _targets(engine)
+        if c.capture.sql_trace is not None
+        and c.capture.sql_trace.recording
+        and (source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled)
+    ]
 
 
 def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
@@ -123,11 +120,18 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
 
 
 def emit(event: SqlEvent) -> None:
-    """Send one statement to the console contexts it belongs to, then to the session sink. Never raises."""
+    """Route one statement (a source that does not precompute its targets) and deliver it. Never raises."""
     try:
         if INTERNAL.get():
             return
-        targets = _recording(event.engine)
+        deliver(event, recording(event.engine, event.source))
+    except Exception as exc:  # noqa: BLE001 - a source never changes the host's query
+        routing_failed(exc)
+
+
+def deliver(event: SqlEvent, targets: list[SharpitContext]) -> None:
+    """Send one statement to ``targets``, then to the session sink. Never raises; the caller did the routing."""
+    try:
         if targets:
             _record(event, targets)
         sink = _sink

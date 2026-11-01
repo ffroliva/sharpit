@@ -137,9 +137,12 @@ def before_cursor_execute(
 ) -> None:
     del cursor, statement, parameters, executemany
     try:
-        if INTERNAL.get() or not dispatch.wants():
+        if INTERNAL.get():
             return
-        start = time.perf_counter_ns()
+        targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets
+        if not targets and dispatch.session_sink() is None:
+            return
+        start = (time.perf_counter_ns(), targets)
         if context is not None:
             context._sharpit_start = start  # noqa: SLF001
         else:
@@ -148,7 +151,7 @@ def before_cursor_execute(
         dispatch.routing_failed(exc)
 
 
-def _pop_start(conn: Any, context: Any) -> int | None:
+def _pop_start(conn: Any, context: Any) -> tuple[int, list[SharpitContext]] | None:
     state = cast("dict[str, Any]", vars(context)) if context is not None else None
     if state is not None and "_sharpit_start" in state:
         return state.pop("_sharpit_start")
@@ -172,7 +175,7 @@ def _named(parameters: Any, context: Any, executemany: bool) -> tuple[Any, int |
 
 
 def _emit(
-    started: int,
+    state: tuple[int, list[SharpitContext]],
     conn: Any,
     statement: str,
     parameters: Any,
@@ -181,12 +184,13 @@ def _emit(
     error: BaseException | None,
     batch_size: int | None = None,
 ) -> None:
+    started, targets = state
     duration = time.perf_counter_ns() - started
     try:
         connection_id: str | None = hex(id(conn.connection.dbapi_connection))
     except Exception:  # noqa: BLE001 - an invalidated connection has no DBAPI connection
         connection_id = None
-    dispatch.emit(
+    dispatch.deliver(
         SqlEvent(
             "sqlalchemy",
             statement,
@@ -199,7 +203,8 @@ def _emit(
             error,
             connection_id,
             conn.engine,
-        )  # fmt: skip
+        ),  # fmt: skip
+        targets,
     )
 
 

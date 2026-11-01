@@ -8,6 +8,7 @@ bound values, which the masker cannot see).
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import logging
 import sqlite3
@@ -25,6 +26,7 @@ logger = logging.getLogger("sharpit")
 
 UNTRACED_CALLERS = ("coverage", "_pytest", "aiosqlite")
 EARLY_CONNECTIONS = "connections opened before capture started are not traced"
+COUNT_FAILED = "connections opened before capture started could not be counted"
 FACTORY_PASSED_THROUGH = (
     "a connection factory or cursor class that does not subclass sqlite3.Connection / sqlite3.Cursor is not traced"
 )
@@ -36,8 +38,22 @@ _holders: set[str] = set()
 _real: Callable[..., sqlite3.Connection] | None = None  # the stdlib function while attached
 _patched: Callable[..., sqlite3.Connection] | None = None
 _preexisting = 0
+_count_failed = False
 _passed_through = False
+# shortcut: one derived class per caller factory class, unbounded; factories are few per process
 _derived: dict[tuple[type, type], type] = {}
+
+
+def _connection_id(connection: sqlite3.Connection) -> str:
+    """``hex(id(connection))``, built once per traced connection and kept on it."""
+    try:
+        return connection.__dict__["_sharpit_id"]
+    except (KeyError, AttributeError):
+        pass
+    cid = hex(id(connection))
+    with contextlib.suppress(AttributeError):  # a caller's factory with __slots__: computed per statement
+        connection.__dict__["_sharpit_id"] = cid
+    return cid
 
 
 def _event(
@@ -61,7 +77,7 @@ def _event(
             time.perf_counter_ns() - started,
             rowcount,
             error,
-            hex(id(cursor.connection)),
+            _connection_id(cursor.connection),
             None,
         )  # fmt: skip
     )
@@ -183,7 +199,8 @@ def _count_preexisting() -> int:
     """Connections that already exist, minus those owned by coverage, pytest, aiosqlite or SQLAlchemy."""
     count = 0
     for obj in gc.get_objects():
-        if isinstance(obj, sqlite3.Connection) and not isinstance(obj, _TracedConnectionMixin):
+        kind = cast("type[object]", type(obj))  # never isinstance: a proxy's __class__ would run its own code
+        if issubclass(kind, sqlite3.Connection) and not issubclass(kind, _TracedConnectionMixin):
             count += not _owned_elsewhere(obj)
     return count
 
@@ -203,21 +220,25 @@ def _owned_elsewhere(conn: object) -> bool:
 
 def attach(holder: str = "api") -> bool:
     """Patch ``sqlite3.connect`` for ``holder``; True when this call did the patching (a second holder shares it)."""
-    global _real, _patched, _preexisting
+    global _real, _patched, _preexisting, _count_failed
     with _lock:
         _holders.add(holder)
         if _real is not None:
             return False
-        _real = sqlite3.connect
-        _preexisting = _count_preexisting()
-        _patched = _make_connect(_real)
-        sqlite3.connect = _patched  # type: ignore[assignment]
+        try:
+            count, _count_failed = _count_preexisting(), False
+        except Exception:  # noqa: BLE001 - counting is best effort; attach never raises into the host
+            count, _count_failed = 0, True
+        real = sqlite3.connect
+        patched = _make_connect(real)
+        sqlite3.connect = patched  # type: ignore[assignment]
+        _real, _patched, _preexisting = real, patched, count  # state only once the patch is in
         return True
 
 
 def detach(holder: str = "api") -> bool:
     """Drop ``holder``; restore the stdlib function when the last holder leaves and nobody else re-patched it."""
-    global _real, _patched, _passed_through
+    global _real, _patched, _passed_through, _count_failed
     with _lock:
         _holders.discard(holder)
         if _holders or _real is None:
@@ -228,7 +249,7 @@ def detach(holder: str = "api") -> bool:
         else:
             logger.warning("sharpit left sqlite3.connect alone: another library replaced it after sharpit's patch")
         _real = _patched = None
-        _passed_through = False
+        _passed_through = _count_failed = False
         return restored
 
 
@@ -266,6 +287,8 @@ def limitations() -> list[str]:
     lines: list[str] = []
     if _real is not None and (_preexisting > 0 or early_aliases()):
         lines.append(EARLY_CONNECTIONS)
+    if _real is not None and _count_failed:
+        lines.append(COUNT_FAILED)
     if _passed_through:
         lines.append(FACTORY_PASSED_THROUGH)
     return lines
