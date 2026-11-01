@@ -9,6 +9,10 @@ from typing import Any
 from sharpit.engine.advisors.rules import SEVERITIES
 
 
+def pytest_addoption(parser: Any) -> None:
+    return None
+
+
 @dataclass(frozen=True)
 class PluginOptions:
     enabled: bool
