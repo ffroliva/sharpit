@@ -11,7 +11,6 @@ Status: Task 1 implementation complete/reviewed; Task 2 O4 implementation commit
 - Capture wiring attachment fix: `e1a3256fa56e9c4f4ea269f06f943037c2d32ddc` (returns the exact wiring stored on `CaptureState`).
 - Final Task 1 contract fix: `32b39ac9c30465205f645edd3a25dc976aa13431` (named route, runtime-resolvable annotations, and F1e gatekeepers).
 - Task 2 O4 red commits: `c11ed916979054a6b994c9733964021e4ac5354f` (surface/default flags and Vitest nav control) and `fbcd986` (PANELS registry coverage); see the red-test table below.
-- Task 2 registry-gating red: `acbccbb` (AdvisorSpec, capture and SQL discovery gating tests); fixed in `4e14bab`.
 - Task 2 O4 fix: `e23e936` (`feat: register inert 0.4 panel surfaces`).
 - Task 2 registry-gating red/fix: `acbccbb` / `4e14bab` (AdvisorSpec, capture middleware, and SQL discovery honor panel flags).
 - Task 2 final verification: Python O4/API/panel/tool/MCP/CLI/advisor/capture set: 141 passed, 1 warning; final advisor/capture/surface subset: 27 passed, 1 warning; Vitest nav: 5 passed; Ruff check passed, format check reported 404 files already formatted, Pyright 0 errors, UI `tsc --noEmit` passed.
