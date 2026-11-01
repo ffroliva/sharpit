@@ -3,7 +3,7 @@
 sharpit never imports SQLAlchemy: it reads ``sys.modules``, so an app that does not use it pays nothing, and the
 listeners attach at install, at startup or on the first request, whichever first finds it imported. Listeners are
 class-level on ``Engine`` (they see engines created before and after install) and shared by every installed
-context; ``_statement_targets`` sends each statement to the contexts it belongs to.
+context and the test session; ``sources.dispatch`` sends each statement to the contexts it belongs to.
 """
 
 from __future__ import annotations
@@ -20,8 +20,9 @@ from concurrent.futures import Executor
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, internal
-from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.masking import Masker
+from sharpit.engine.sources import dispatch
+from sharpit.engine.sources.dispatch import SqlEvent
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -103,41 +104,13 @@ class EngineRegistry:
         return [name for name, _ in self.engines()]
 
 
-# --- routing --------------------------------------------------------------------------------------------------------
+# --- discovery and listener syncing --------------------------------------------------------------------------------
 
 _lock = threading.Lock()
-_statement_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
 _discovery_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
-# what the listeners read per statement: a plain tuple, refreshed on every change (iterating the dicts is slow)
-_statement_refs: tuple[weakref.ref[SharpitContext], ...] = ()
+# what the listener reads per event: a plain tuple, refreshed on every change (iterating the dict is slow)
 _discovery_refs: tuple[weakref.ref[SharpitContext], ...] = ()
-_warned = False
-
-
-def _routing_failed(exc: BaseException) -> None:
-    global _warned  # noqa: PLW0603 - one warning per process for a failure before any context is known
-    if not _warned:
-        _warned = True
-        logger.warning("sharpit SQL listener failed (%s); queries are unaffected", type(exc).__name__)
-
-
-def _context_failed(ctx: SharpitContext, exc: BaseException) -> None:
-    wiring = ctx.capture.wiring
-    if wiring is not None:
-        wiring.hook_failed("sql statement", exc)
-    else:
-        _routing_failed(exc)
-
-
-def _statement_targets(conn: Any) -> list[SharpitContext]:
-    """In a request: its own context only. Outside: the contexts holding the engine, else the only context."""
-    contexts = [c for r in _statement_refs if (c := r()) is not None]
-    info = REQUEST.get()
-    if info is not None:
-        return [c for c in contexts if c.context_id == info.context_id]
-    engine = conn.engine
-    held = [c for c in contexts if c.capture.engine_registry is not None and c.capture.engine_registry.holds(engine)]
-    return held or (contexts if len(contexts) == 1 else [])
+_session = False  # the test-session sink wants statements too (spec 0.3.0 §8.1)
 
 
 def engine_connect(conn: Any) -> None:
@@ -155,7 +128,7 @@ def engine_connect(conn: Any) -> None:
             if ctx.capture.engine_registry is not None:
                 ctx.capture.engine_registry.add(conn.engine)
     except Exception as exc:  # noqa: BLE001 - a listener never changes the host's query
-        _routing_failed(exc)
+        dispatch.routing_failed(exc)
 
 
 def before_cursor_execute(
@@ -163,23 +136,18 @@ def before_cursor_execute(
 ) -> None:
     del cursor, statement, parameters, executemany
     try:
-        if INTERNAL.get():
+        if INTERNAL.get() or not dispatch.wants():
             return
-        targets = [
-            c for c in _statement_targets(conn) if c.capture.sql_trace is not None and c.capture.sql_trace.recording
-        ]
-        if not targets:
-            return
-        start = (time.perf_counter_ns(), targets)
+        start = time.perf_counter_ns()
         if context is not None:
             context._sharpit_start = start  # noqa: SLF001
         else:
             conn.info[START_KEY] = start
     except Exception as exc:  # noqa: BLE001
-        _routing_failed(exc)
+        dispatch.routing_failed(exc)
 
 
-def _pop_start(conn: Any, context: Any) -> tuple[int, list[SharpitContext]] | None:
+def _pop_start(conn: Any, context: Any) -> int | None:
     state = cast("dict[str, Any]", vars(context)) if context is not None else None
     if state is not None and "_sharpit_start" in state:
         return state.pop("_sharpit_start")
@@ -202,8 +170,8 @@ def _named(parameters: Any, context: Any, executemany: bool) -> tuple[Any, int |
     return (rows, len(rows)) if executemany else (rows[0], None)
 
 
-def _record(
-    start: tuple[int, list[SharpitContext]],
+def _emit(
+    started: int,
     conn: Any,
     statement: str,
     parameters: Any,
@@ -212,38 +180,26 @@ def _record(
     error: BaseException | None,
     batch_size: int | None = None,
 ) -> None:
-    started, targets = start
     duration = time.perf_counter_ns() - started
-    info = REQUEST.get()
-    site = (
-        call_site(None) if any(c.capture.sql_trace and c.capture.sql_trace.capture_call_site for c in targets) else None
-    )
     try:
         connection_id: str | None = hex(id(conn.connection.dbapi_connection))
     except Exception:  # noqa: BLE001 - an invalidated connection has no DBAPI connection
         connection_id = None
-    thread = threading.current_thread().name
-    for ctx in targets:
-        recorder = ctx.capture.sql_trace
-        if recorder is None:
-            continue
-        try:
-            recorder.record(
-                statement,
-                duration_ns=duration,
-                thread=thread,
-                connection_id=connection_id,
-                parameters=parameters,
-                executemany=executemany,
-                success=error is None,
-                error=error,
-                rowcount=rowcount,
-                request_id=info.id if info is not None else None,
-                call_site=site,
-                batch_size=batch_size,
-            )
-        except Exception as exc:  # noqa: BLE001
-            _context_failed(ctx, exc)
+    dispatch.emit(
+        SqlEvent(
+            "sqlalchemy",
+            statement,
+            parameters,
+            executemany,
+            batch_size,
+            started,
+            duration,
+            rowcount,
+            error,
+            connection_id,
+            conn.engine,
+        )  # fmt: skip
+    )
 
 
 def after_cursor_execute(
@@ -253,9 +209,9 @@ def after_cursor_execute(
         start = _pop_start(conn, context)
         if start is not None:
             parameters, rows = _named(parameters, context, executemany)
-            _record(start, conn, statement, parameters, executemany, getattr(cursor, "rowcount", -1), None, rows)
+            _emit(start, conn, statement, parameters, executemany, getattr(cursor, "rowcount", -1), None, rows)
     except Exception as exc:  # noqa: BLE001
-        _routing_failed(exc)
+        dispatch.routing_failed(exc)
 
 
 def handle_error(exception_context: Any) -> None:
@@ -267,9 +223,9 @@ def handle_error(exception_context: Any) -> None:
             error = exception_context.sqlalchemy_exception or exception_context.original_exception
             executemany = bool(getattr(context, "executemany", False))
             parameters, rows = _named(exception_context.parameters, context, executemany)
-            _record(start, conn, exception_context.statement or "", parameters, executemany, -1, error, rows)
+            _emit(start, conn, exception_context.statement or "", parameters, executemany, -1, error, rows)
     except Exception as exc:  # noqa: BLE001
-        _routing_failed(exc)
+        dispatch.routing_failed(exc)
 
 
 _LISTENERS: dict[str, Callable[..., None]] = {
@@ -282,13 +238,15 @@ _LISTENERS: dict[str, Callable[..., None]] = {
 
 def _sync_listeners() -> None:
     """Listen while a context needs the event, remove once none does (callers hold ``_lock``)."""
-    global _statement_refs, _discovery_refs  # noqa: PLW0603 - swapped whole under the lock, read lock-free
-    _statement_refs = tuple(weakref.ref(c) for c in _statement_contexts.values())
+    global _discovery_refs  # noqa: PLW0603 - swapped whole under the lock, read lock-free
     _discovery_refs = tuple(weakref.ref(c) for c in _discovery_contexts.values())
     sa = sqlalchemy_module()
     if sa is None:
         return
-    wanted = {DISCOVERY_EVENT: bool(_discovery_contexts), **dict.fromkeys(STATEMENT_EVENTS, bool(_statement_contexts))}
+    wanted = {
+        DISCOVERY_EVENT: bool(_discovery_contexts),
+        **dict.fromkeys(STATEMENT_EVENTS, dispatch.has_contexts() or _session),
+    }
     for name, fn in _LISTENERS.items():
         present = sa.event.contains(sa.engine.Engine, name, fn)
         if wanted[name] and not present:
@@ -307,7 +265,7 @@ def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
             registry.add(engine)
     with _lock:
         if statements:
-            _statement_contexts[ctx.context_id] = ctx
+            dispatch.add_context(ctx)
         if discovery:
             _discovery_contexts[ctx.context_id] = ctx
         _sync_listeners()
@@ -316,23 +274,43 @@ def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
 
 def remove(ctx: SharpitContext) -> None:
     with _lock:
-        _statement_contexts.pop(ctx.context_id, None)
+        dispatch.remove_context(ctx)
         _discovery_contexts.pop(ctx.context_id, None)
         _sync_listeners()
 
 
 def detach_all() -> None:
     """Forget every context and remove every listener (tests start from a clean slate with it)."""
+    global _session  # noqa: PLW0603
     with _lock:
-        _statement_contexts.clear()
+        dispatch.clear_contexts()
         _discovery_contexts.clear()
+        _session = False
+        _sync_listeners()
+
+
+def attach_session() -> bool:
+    """Keep the statement listeners on for the test-session sink; False while SQLAlchemy is not imported (retry)."""
+    global _session  # noqa: PLW0603 - read by _sync_listeners under the lock
+    if sqlalchemy_module() is None:
+        return False
+    with _lock:
+        _session = True
+        _sync_listeners()
+    return True
+
+
+def detach_session() -> None:
+    global _session  # noqa: PLW0603
+    with _lock:
+        _session = False
         _sync_listeners()
 
 
 def routed(ctx: SharpitContext) -> tuple[bool, bool]:
     """``(statements, discovery)``: whether ``ctx`` receives traced statements and discovered engines."""
     with _lock:
-        return ctx.context_id in _statement_contexts, ctx.context_id in _discovery_contexts
+        return dispatch.has_context(ctx), ctx.context_id in _discovery_contexts
 
 
 def attached() -> dict[str, bool]:
