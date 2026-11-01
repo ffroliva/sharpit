@@ -11,14 +11,18 @@ Status: Task 1 implementation complete/reviewed; Task 2 O4 implementation commit
 - Capture wiring attachment fix: `e1a3256fa56e9c4f4ea269f06f943037c2d32ddc` (returns the exact wiring stored on `CaptureState`).
 - Final Task 1 contract fix: `32b39ac9c30465205f645edd3a25dc976aa13431` (named route, runtime-resolvable annotations, and F1e gatekeepers).
 - Task 2 O4 red commits: `c11ed916979054a6b994c9733964021e4ac5354f` (surface/default flags and Vitest nav control) and `fbcd986` (PANELS registry coverage); see the red-test table below.
+- Task 2 registry-gating red: `acbccbb` (AdvisorSpec, capture and SQL discovery gating tests); fixed in `4e14bab`.
 - Task 2 O4 fix: `e23e936` (`feat: register inert 0.4 panel surfaces`).
-- Task 2 targeted verification: Python API/panel/tool/MCP/CLI tests: 118 passed; Vitest nav: 4 passed; Ruff check passed, format check reported 404 files already formatted, Pyright 0 errors, UI `tsc --noEmit` passed.
+- Task 2 registry-gating red/fix: `acbccbb` / `4e14bab` (AdvisorSpec, capture middleware, and SQL discovery honor panel flags).
+- Task 2 final verification: Python O4/API/panel/tool/MCP/CLI/advisor/capture set: 141 passed, 1 warning; final advisor/capture/surface subset: 27 passed, 1 warning; Vitest nav: 5 passed; Ruff check passed, format check reported 404 files already formatted, Pyright 0 errors, UI `tsc --noEmit` passed.
 - Current focused regression run: 208 passed, 16 warnings in 31.61 s. It covers structure/capture/compatibility/equivalence/runtime-type/import-boundary tests plus existing tool, pytest, xdist, capture-wiring, install, and code-shape suites.
 - Pyright: 0 errors, 0 warnings. Ruff check and format check passed for changed Python files. C901 ratchet test passed after lowering the `engine/tools.py` and `fastapi/adapter.py` entries from 1/3 to 0/0; the new route and dispatch modules add no C901 findings.
 - The first focused rerun logged inside the repo and tripped the no-side-effects fixture's cwd scan; the clean rerun
   placed logs outside the worktree.
-- Current state: O4 flags are false and filtered from the panels API, guard/path matching, MCP/CLI, per-panel routes, and UI nav. Per-panel empty tool and route modules are ready for owner lanes. Next is Task 3 `scripts/dev/lane_gate.py` and its refusal tests.
+- Current state: O4 flags are false and filtered from the panels API, guard/path matching, MCP/CLI, per-panel routes, and UI nav. Advisor, request-capture, and SQL-discovery registries also gate on implementation flags. Per-panel empty tool and route modules are ready for owner lanes. Next is Task 3 `scripts/dev/lane_gate.py` and its refusal tests.
 - UI red was run with Vitest (`npm --prefix ui run test -- tests/unit/nav.test.ts`) after `npm --prefix ui ci`; the assertion failed as expected because all 0.4 flags were temporarily true.
+- The GET side-effect control uses `httpx.ASGITransport` and a module-scoped loop created before `no_side_effects` blocks sockets; the requests run with the socket guard still active.
+- The capture/discovery absence tests skip only after their owner flips a panel flag; the owner lane must provide positive behavior coverage.
 
 The capture contract reds at `d0ea233`, `82b9177` and `3075c91` are deliberate wrong-value-stub checks required by COMMON/R2. They prove that the returned capture wiring is created, stored on the context, and is the same object; they are contract/mutation reds, not reports of a defect at the untouched base. The implementation is restored and verified by `e1a3256`.
 
@@ -47,6 +51,9 @@ The capture contract reds at `d0ea233`, `82b9177` and `3075c91` are deliberate w
 | `sharpit.engine.panels04.tool_definitions` | `tool_definitions() -> tuple[tuple[Any, ...], dict[str, str]]`; gathers `TOOLS` and `COMMANDS` only from implemented panel modules. |
 | `sharpit.engine.tools04.<id>.TOOLS` / `COMMANDS` | Each per-panel module exports `TOOLS = ()` and `COMMANDS = {}` for its owning lane to fill. |
 | `sharpit.fastapi.routes.<id>.build_routes` | `build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]`; empty per-panel route modules are called only when the corresponding `Panel.implemented` is true. |
+| `sharpit.engine.advisors.registry.AdvisorSpec.implemented` | `bool = True`; the four pre-registered advisors (`database-advisor`, `security`, `architecture`, `fastapi`) read their `panels04` flags; `advisor_for()` ignores false specs. Rule ownership/fingerprints remain empty until the owner lane fills them. |
+| `sharpit.fastapi.capture.CAPTURE_PANELS` | Contains `transactions` and `security-logs` in addition to legacy capture panels; middleware attaches only when both the settings flag and `Panel.implemented` are true. |
+| `sharpit.engine.sqla.DISCOVERY_PANELS` | Contains `postgresql`, `mysql`, `database-advisor`, and `sqlalchemy-statistics`; engine discovery attaches only when both the settings flag and `Panel.implemented` are true. |
 | UI `lib/panels04` registry | Each `ui/src/lib/panels04/<id_underscored>.ts` exports `implemented = false`; `PANEL_04_IMPLEMENTED` and `panelImplemented(id: string) -> boolean` keep false ids out of `groupPanels`. |
 
 ## Red-test replay table
@@ -76,6 +83,12 @@ The capture contract reds at `d0ea233`, `82b9177` and `3075c91` are deliberate w
 | `tests/test_foundation_runtime_types.py::test_tool_call_types_resolve_at_runtime` | `359fbe92310fb07b5fdb9553786086ca3303a7a3` | `assert hints.get("call") is CallContext` |
 | `tests/test_foundation_runtime_types.py::test_tool_gate_context_and_via_types_resolve_at_runtime` | `359fbe92310fb07b5fdb9553786086ca3303a7a3` | `assert hints.get("ctx") is SharpitContext` |
 | `tests/engine/test_import_boundary.py::test_opentelemetry_stays_behind_engine_otel_gatekeeper` | `7df27495026acd28f9ba0e8e60e7028113b8cf70` | `assert violations == [...]` (`sharpit/engine/tools.py imports opentelemetry.trace`) |
+| `tests/engine/advisors/test_registry.py::test_0_4_advisor_specs_are_registered_and_gated` | `acbccbb` | `assert all(by_id[advisor_id].implemented is IMPLEMENTED[advisor_id] for advisor_id in advisor_ids)` |
+| `tests/fastapi/test_capture_hooks.py::test_unimplemented_security_logs_does_not_add_capture_middleware` | `acbccbb` | `assert wiring.middleware_added is False` |
+| `tests/fastapi/test_capture_hooks.py::test_unimplemented_database_panels_do_not_enable_discovery` | `acbccbb` | `assert calls[0] == (False, False)` |
+| `tests/engine/advisors/test_registry.py::test_0_4_advisor_specs_are_registered_and_gated` | `acbccbb` | `assert all(by_id[advisor_id].implemented is IMPLEMENTED[advisor_id] for advisor_id in advisor_ids)` |
+| `tests/fastapi/test_capture_hooks.py::test_unimplemented_security_logs_does_not_add_capture_middleware` | `acbccbb` | `assert wiring.middleware_added is False` |
+| `tests/fastapi/test_capture_hooks.py::test_unimplemented_database_panels_do_not_enable_discovery` | `acbccbb` | `assert calls[0] == (False, False)` |
 | `tests/fastapi/test_unimplemented_panel_surface.py::test_panel_implemented_defaults_true` | `c11ed916979054a6b994c9733964021e4ac5354f` | `assert panel.implemented is True` |
 | `tests/fastapi/test_unimplemented_panel_surface.py::test_unimplemented_panel_has_no_surface` | `c11ed916979054a6b994c9733964021e4ac5354f` | `assert set(IMPLEMENTED.values()) == {False}` |
 | `tests/engine/test_panel04_registry.py::test_0_4_panels_are_registered_but_unimplemented` | `fbcd986` | `assert set(panels) == PANEL_IDS` |
