@@ -214,7 +214,7 @@ def test_fingerprint_dismissal_round_trip(tmp_path: Path):
 
 def test_owning_panel_for_fingerprints():
     assert owning_panel(FP) == "rest-api"
-    assert owning_panel("vulnerabilities:GHSA-1::pypi:jinja2:0123456789abcdef") == "vulnerabilities"
+    assert owning_panel("vulnerabilities:GHSA-1::pypi:jinja2:0123456789abcdef") is None  # nothing builds these
     assert owning_panel(RUNTIME_FP) is None
 
 

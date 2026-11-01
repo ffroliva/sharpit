@@ -1,9 +1,9 @@
 """REST API advisor service (port of BootUI ``RestApiScanner.scan``/``lastReport`` and ``RestApiController``).
 
 ``report()`` never scans: it renders the last completed scan, or ``NOT_SCANNED``. ``scan()`` is the only way to run the
-rules; it runs on its own single-flight lock. ``run()`` is the same scan as an ``AdvisorRun`` (0.3.0 spec §5.5), and
-``assess()`` is the pure form of it for callers with no console (the pytest plugin). Violation strings, targets and
-limitations are masked before they are kept. The report and the retained details are replaced together, so a report's
+rules; it runs on its own single-flight lock. ``assess()`` is the same scan as an ``AdvisorRun`` (0.3.0 spec §5.5),
+pure, for callers with no console (the pytest plugin). Violation strings, targets and limitations are masked before
+they are kept. The report and the retained details are replaced together, so a report's
 ``scanId`` always pages its own details. Dismissals (rule ids and finding fingerprints) are re-read and applied on every
 render; the cache is never changed by them.
 """
@@ -135,14 +135,6 @@ class RestApiService:
         """Run the rules (single-flight ``ActionBusy``) and cache the result."""
         scanned = self.single_flight.run(OPERATION, self._scan)
         return apply_dismissals(scanned.report, set(self.dismissals.list()), scanned.occurrences)
-
-    def run(self) -> AdvisorRun:
-        """The cached scan as an ``AdvisorRun`` with the current dismissals applied; scans when there is none."""
-        with self._swap:
-            cached = self._cached
-        if cached is None:
-            cached = self.single_flight.run(OPERATION, self._scan)
-        return _run(cached.done, set(self.dismissals.list()), DEFAULT_FAIL_ON, None)
 
     def violations(
         self, rule_id: str | None, scan_id: str | None, offset: int | None, limit: int | None, max_results: int

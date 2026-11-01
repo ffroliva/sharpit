@@ -156,3 +156,29 @@ it('restores a dismissed finding', async () => {
   await until(() => expect(h.calls('DELETE')).toEqual([`api/dismissed-rules/${encodeURIComponent(fingerprint)}`]));
   await until(() => expect(button(/^Dismiss finding/)).toBeTruthy());
 });
+
+it('remembers dismissed findings after reopening the drawer', async () => {
+  const fingerprint = 'rest-api:RAPI-NAME-001:0123456789abcdef';
+  let dismissed: string[] = [];
+  h.route((url, init) => {
+    if (url === 'api/rest-api') return json(200, report('SCANNED'));
+    if (url.startsWith('api/rest-api/rules/RAPI-NAME-001/violations')) {
+      return json(200, { scanId: 'scan1', ruleId: 'RAPI-NAME-001', violationCount: 1, retainedCount: 1, truncated: false,
+        violations: ['GET /getOwners (main.get_owners)'], fingerprints: [fingerprint],
+        page: { total: 1, matched: 1, offset: 0, limit: 100, returned: 1, hasMore: false } });
+    }
+    if (url === `api/dismissed-rules/${encodeURIComponent(fingerprint)}` && init?.method === 'POST') return json(200, { dismissed: (dismissed = [fingerprint]) });
+    if (url === 'api/dismissed-rules') return json(200, { dismissed });
+    return undefined;
+  });
+  h.mount(RestApi, { panel: panel('rest-api') });
+  await until(() => expect(text()).toContain('RAPI-NAME-001'));
+  button(/^View violations for RAPI-NAME-001/).click();
+  await until(() => expect(button(/^Dismiss finding/)).toBeTruthy());
+  button(/^Dismiss finding/).click();
+  await until(() => expect(button(/^Restore finding/)).toBeTruthy());
+  button(/^View violations for RAPI-NAME-001/).click(); // close
+  await until(() => expect(button(/^Restore finding/)).toBeFalsy());
+  button(/^View violations for RAPI-NAME-001/).click(); // reopen
+  await until(() => expect(button(/^Restore finding/)).toBeTruthy());
+});

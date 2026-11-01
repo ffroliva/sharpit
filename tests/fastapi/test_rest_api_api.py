@@ -220,3 +220,9 @@ def test_get_rest_api_report_mcp_never_scans(tmp_state_dir: Path):
         call_tool(call, "get_rest_api_rule_violations", {"id": "RAPI-NOPE-1", "scanId": scan_id}, via="mcp")
     assert unknown.value.status == 404
     assert client.get(API).json()["violationDetails"]["scanId"] == scan_id
+
+
+def test_vulnerability_fingerprint_is_refused(tmp_state_dir: Path):
+    client, _ = _client(tmp_state_dir)
+    resp = client.post("/sharpit/api/dismissed-rules/vulnerabilities:GHSA-1::pypi:jinja2:0123456789abcdef")
+    assert resp.status_code == 400

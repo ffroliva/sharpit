@@ -170,7 +170,7 @@ def test_targets_per_rule(rule_id: str):
 def test_violation_text_unchanged(rule_id: str):
     routes, handlers, _ = CASES[rule_id]
     found, _errored = evaluate(routes, handlers)
-    assert [v.text for v in found[rule_id]] == FROZEN_TEXT[rule_id]
+    assert [v.message for v in found[rule_id]] == FROZEN_TEXT[rule_id]
     assert violations(routes, handlers)[rule_id] == FROZEN_TEXT[rule_id]
 
 
@@ -248,16 +248,13 @@ def _service(tmp_path: Path, routes: Sequence[ApiRouteInfo] = PETS, limitations:
     return RestApiService(lambda: model, DismissalStore(tmp_path), _masker(), SingleFlight(), max_retained=10000)
 
 
-def test_assess_matches_run(tmp_path: Path):
-    run = _service(tmp_path).run()
-    assert run.findings == assess(_model(PETS), _masker()).findings
-    assert run.status == "PASSED"
+def test_assess_status_is_passed():
+    assert assess(_model(PETS), _masker()).status == "PASSED"
 
 
-def test_run_is_cached_for_the_panel(tmp_path: Path):
-    service = _service(tmp_path)
-    run = service.run()
-    assert service.report()["violationsFound"] == len({f.rule_id for f in run.findings})
+def test_scan_counts_match_assess(tmp_path: Path):
+    run = assess(_model(PETS), _masker())
+    assert _service(tmp_path).scan()["violationsFound"] == len({f.rule_id for f in run.findings})
 
 
 def test_panel_dto_shape_unchanged(tmp_path: Path):
@@ -306,7 +303,7 @@ def _result(report: dict[str, Any], rule_id: str) -> dict[str, Any]:
 def test_retained_page_has_fingerprints(tmp_path: Path):
     service = _service(tmp_path)
     page = _page(service, "RAPI-NAME-001")
-    expected = [f.fingerprint for f in service.run().findings if f.rule_id == "RAPI-NAME-001"]
+    expected = [f.fingerprint for f in assess(_model(PETS), _masker()).findings if f.rule_id == "RAPI-NAME-001"]
     assert page["fingerprints"] == expected
     assert len(page["fingerprints"]) == len(page["violations"])
 

@@ -27,16 +27,16 @@ def test_registry_owns_today_ids():
 
 def test_registry_specs():
     by_id = {a.id: a for a in ADVISORS}
-    assert {k: (v.panel, v.offline) for k, v in by_id.items()} == {
-        "rest-api": ("rest-api", True),
-        "vulnerabilities": ("vulnerabilities", False),
-        "test-runtime": (None, True),
+    assert {k: v.panel for k, v in by_id.items()} == {
+        "rest-api": "rest-api",
+        "vulnerabilities": "vulnerabilities",
+        "test-runtime": None,
     }
 
 
 @pytest.mark.parametrize(
     ("advisor", "rule"),
-    [("rest-api", "RAPI-MAP-001"), ("vulnerabilities", "GHSA-1::pypi:jinja2"), ("test-runtime", "sharpit.n-plus-one")],
+    [("rest-api", "RAPI-MAP-001"), ("test-runtime", "sharpit.n-plus-one")],
 )
 def test_registry_owns_fingerprints_by_prefix(advisor: str, rule: str):
     assert _owner(_FP.format(advisor=advisor, rule=rule)) == advisor
@@ -77,3 +77,7 @@ def test_registry_is_static():
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert out.stdout.split() == ["rest-api", "vulnerabilities", "None"]
+
+
+def test_vulnerability_fingerprint_is_refused():
+    assert advisor_for("vulnerabilities:GHSA-1::pypi:jinja2:0123456789abcdef") is None

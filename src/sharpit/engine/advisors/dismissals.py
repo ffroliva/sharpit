@@ -127,9 +127,9 @@ class DismissalStore:
 
 
 def _validate(rule_id: str) -> None:
-    if owning_panel(rule_id) is not None:
-        return
     spec = advisor_for(rule_id) if _RULE_ID.fullmatch(rule_id) else None
+    if spec is not None and spec.panel is not None:
+        return
     if spec is not None:  # owned, but by an advisor with no panel whose gate covers the HTTP route
         raise BadRequest(NO_PANEL_MESSAGE.format(advisor=spec.id))
     raise BadRequest(f"Invalid rule id '{rule_id}'")

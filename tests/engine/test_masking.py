@@ -334,3 +334,17 @@ def test_mask_header_by_name_and_value() -> None:
     assert Masker(META, True).mask_header("accept", ["text/html"]) == ([], False)
     assert Masker(FULL, True).mask_header("cookie", ["a=b"]) == (["a=b"], False)
     assert Masker(FULL, True, "tok-3f9a").mask_header("authorization", ["Bearer tok-3f9a"]) == ([MASK], True)
+
+
+def test_vendor_regex_skipped_without_a_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine import masking
+
+    searched: list[str] = []
+
+    class Spy:
+        def search(self, value: str) -> None:
+            searched.append(value)
+
+    monkeypatch.setattr(masking, "_VENDOR_TOKEN", Spy())
+    assert not is_secret_value("an ordinary word")
+    assert searched == []
