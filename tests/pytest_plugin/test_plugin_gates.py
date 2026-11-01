@@ -244,6 +244,7 @@ def test_finalizer_logged_exception_is_unattributed(pytester: pytest.Pytester) -
     assert data["totals"]["exceptions"] == 1
 
 
+@pytest.mark.usefixtures("restore_logging")
 def test_logging_reconfigured_mid_test_makes_status_unknown(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         """
@@ -265,6 +266,7 @@ def test_logging_reconfigured_mid_test_makes_status_unknown(pytester: pytest.Pyt
     assert any("exception capture was lost" in reason for reason in data["statusReasons"])
 
 
+@pytest.mark.usefixtures("restore_logging")
 def test_logging_lost_in_setup_stays_lost(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         """
@@ -436,6 +438,7 @@ def test_early_attach_failure_does_not_interrupt_session(pytester: pytest.Pytest
     assert any(source["name"] == "pytest-plugin" and not source["attached"] for source in data["sources"])
 
 
+@pytest.mark.usefixtures("restore_logging")
 def test_dictconfig_in_conftest_keeps_basicconfig_working(pytester: pytest.Pytester) -> None:
     pytester.makeconftest(
         """
@@ -455,6 +458,7 @@ def test_dictconfig_in_conftest_keeps_basicconfig_working(pytester: pytest.Pytes
     assert result.ret == 0
 
 
+@pytest.mark.usefixtures("restore_logging")
 def test_pytest_raises_escaped_not_counted(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     pytester.makepyfile(
         """

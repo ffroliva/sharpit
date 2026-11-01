@@ -244,3 +244,38 @@ class OpenStream:
     @property
     def body(self) -> str:
         return b"".join(m.get("body", b"") for m in self.sent).decode()
+
+
+# Logging isolation for tests that run pytest in-process (``pytester.runpytest``). They share ``logging`` with every
+# later test on the worker: a conftest calling ``basicConfig(level=INFO)`` once left root at INFO, so httpx's request
+# lines landed in the log-tail tests. The guard fails the leaking test itself; ``restore_logging`` undoes a reconfigure.
+# (Lives here, not in tests/pytest_plugin/: a second ``conftest`` module name collides without ``__init__.py``.)
+_LOGGING_GUARDED = {"pytest_plugin", "testsession"}
+
+
+def _logging_snapshot() -> dict[str, tuple[bool, int, bool, tuple[logging.Handler, ...]]]:
+    loggers = [logging.root, *(lg for lg in logging.root.manager.loggerDict.values() if isinstance(lg, logging.Logger))]
+    return {lg.name: (lg.disabled, lg.level, lg.propagate, tuple(lg.handlers)) for lg in loggers}
+
+
+@pytest.fixture
+def restore_logging() -> Iterator[None]:
+    """Put every logger back as it was, for a test whose in-process run reconfigures logging."""
+    saved = _logging_snapshot()
+    yield
+    for name, (disabled, level, propagate, handlers) in saved.items():
+        lg = logging.getLogger(None if name == "root" else name)
+        lg.disabled, lg.level, lg.propagate = disabled, level, propagate
+        lg.handlers[:] = handlers
+
+
+@pytest.fixture(autouse=True)
+def _logging_unchanged(request: pytest.FixtureRequest) -> Iterator[None]:
+    if not _LOGGING_GUARDED.intersection(request.path.parts):
+        yield
+        return
+    before = _logging_snapshot()
+    yield
+    after = _logging_snapshot()
+    changed = sorted(name for name in before if after.get(name) != before[name])
+    assert changed == [], "test leaked logging state (use the restore_logging fixture)"
