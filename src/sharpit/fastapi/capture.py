@@ -181,6 +181,9 @@ class CaptureWiring:
         self.log_handler: SharpitLogHandler | None = None
         self.log_attached: list[logging.Logger] = []  # every logger the handler was added to, removed on detach
         self._warned: set[str] = set()
+        # 0.4.0 slots (lane F), inert until their lanes fill them
+        self.on_security_event: Callable[[Scope, int], None] | None = None  # B-security-logs: 401/403 exchanges
+        self.span_processor: object | None = None  # A-traces: one lazily re-armed SDK span processor
 
     def attach_at_install(self, app: Any, ctx: SharpitContext) -> None:
         if self.app is not None:
@@ -233,6 +236,12 @@ class CaptureWiring:
             for attached in self.log_attached:
                 attached.removeHandler(self.log_handler)
         self.log_attached.clear()
+        teardowns = ctx.capture.teardowns
+        while teardowns:  # lanes' listener/processor removers (R17): newest first, once each, a failure stops none
+            try:
+                teardowns.pop()()
+            except Exception as exc:  # noqa: BLE001
+                self.hook_failed("teardown", exc)
         self.detached = True
 
     def _attach_sql(self, ctx: SharpitContext) -> None:
@@ -374,6 +383,12 @@ class CaptureMiddleware:
                 sink.on_escaped(exc)
             raise
         finally:
+            sent = cast("int | None", status)  # set by capture_send; pyright cannot see the closure
+            if sent in (401, 403) and wiring.on_security_event is not None:  # before reset: REQUEST names it (R12)
+                try:
+                    wiring.on_security_event(scope, sent)
+                except Exception as exc:  # noqa: BLE001
+                    wiring.hook_failed("security event", exc)
             REQUEST.reset(token)
             try:
                 finished = end_ns or time.perf_counter_ns()

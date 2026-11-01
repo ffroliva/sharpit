@@ -97,6 +97,18 @@ def _app_settings(settings: object) -> tuple[object, ...]:
     return items
 
 
+def _models(models: object) -> tuple[object, ...]:
+    """``install(models=...)`` as a tuple; a lone class (``models=Base``) or other non-iterable is one element.
+
+    The elements are never inspected (A-data reads them; spec §10.2, council R3/R15).
+    """
+    if models is None:
+        return ()
+    if isinstance(models, type) or not isinstance(models, Iterable):
+        return (models,)
+    return tuple(cast("Iterable[object]", models))
+
+
 def _requested(settings: SharpitSettings, profiles: tuple[str, ...]) -> bool:
     """sharpit was asked for (an unusable SHARPIT_ENABLED, or an enabled profile is active) yet ended up inactive."""
     return parse_mode(settings.enabled) is None or any(p in profiles for p in settings.enabled_profiles)
@@ -147,6 +159,7 @@ def install(
         caller_module=caller_module,
         engines=tuple(engines),
         health_checks=dict(health_checks or {}),
+        models=_models(models),
     )
     handle = SharpitHandle(sharpit_settings, activation, ctx, original)
     for warning in activation.warnings:  # the overview panel shows them too, but not while sharpit is inactive

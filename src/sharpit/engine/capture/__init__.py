@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:  # later tasks add these modules; the adapter owns the wiring
@@ -33,6 +33,10 @@ class CaptureState:
     loop: asyncio.AbstractEventLoop | None = None
     wiring: CaptureHooks | None = None
     activity_changes: ChangeStream | None = None
+    # 0.4.0 slots (lane F), inert until their lanes fill them
+    security_logs: Any | None = None  # B-security-logs' bounded audit buffer
+    transactions: object | None = None  # A-transactions' recorder
+    teardowns: list[Callable[[], None]] = field(default_factory=list[Callable[[], None]])  # run by uninstall (R17)
 
 
 def route_path(scope: Mapping[str, Any]) -> str:

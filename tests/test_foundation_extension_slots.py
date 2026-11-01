@@ -1,4 +1,4 @@
-"""Lane F Task 2: the inert 0.4 extension slots later lanes consume (F-foundation.md interface table, council R1/R4/R12/R17)."""
+"""Lane F Task 2: the inert 0.4 extension slots later lanes consume (F-foundation.md table; council R1/R4/R12/R17)."""
 
 from __future__ import annotations
 

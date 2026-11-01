@@ -280,6 +280,21 @@ PROPERTIES = {
     "bootui.threads.max-stack-frames": ("threads_max_stack_frames", "33"),
     "bootui.advisors.max-retained-violations": ("advisors_max_retained_violations", "34"),
     "bootui.stream.max-seconds": ("stream_max_seconds", "35s"),
+    # 0.4.0 fields pre-created by lane F
+    "bootui.activity.unbounded-read-factor": ("activity_unbounded_read_factor", "36"),
+    "bootui.security-logs.max-logs": ("security_logs_max_logs", "37"),
+    "bootui.postgresql.max-sessions": ("postgresql_max_sessions", "38"),
+    "bootui.postgresql.max-statements": ("postgresql_max_statements", "39"),
+    "bootui.postgresql.max-indexes": ("postgresql_max_indexes", "40"),
+    "bootui.postgresql.max-tables": ("postgresql_max_tables", "41"),
+    "bootui.postgresql.max-vacuum-tables": ("postgresql_max_vacuum_tables", "42"),
+    "bootui.postgresql.max-replicas": ("postgresql_max_replicas", "43"),
+    "bootui.postgresql.max-settings": ("postgresql_max_settings", "44"),
+    "bootui.transactions.enabled": ("transactions_enabled", "false"),
+    "bootui.transactions.recording": ("transactions_recording", "false"),
+    "bootui.transactions.max-entries": ("transactions_max_entries", "45"),
+    "bootui.transactions.slow-transaction-threshold-millis": ("transactions_slow_transaction_threshold_millis", "46"),
+    "bootui.transactions.connection-hold-threshold-millis": ("transactions_connection_hold_threshold_millis", "47"),
 }
 
 NEW_DEFAULTS_0_2_0: dict[str, Any] = {

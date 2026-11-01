@@ -71,7 +71,8 @@ class DismissalStore:
             return ids
 
     def dismissed_pairs(self) -> set[tuple[str, str]]:
-        return {("", "")}
+        """Per-finding dismissals as ``(rule_id, identity)`` pairs; inert (empty) until D1 implements it (R1)."""
+        return set()
 
     def _lines(self) -> list[str]:
         try:

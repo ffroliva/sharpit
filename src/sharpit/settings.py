@@ -80,6 +80,7 @@ class SharpitSettings:
     activity_max_entries: int = 200
     activity_request_slow_threshold_ms: int = 1000
     activity_n_plus_one_threshold: int = 5  # min 2
+    activity_unbounded_read_factor: int = 2  # min 2; T-unbounded-read
     log_tail_max_lines: int = 500
     log_tail_max_bytes: int = 1048576
     alembic_config: str | None = "alembic.ini"
@@ -88,6 +89,20 @@ class SharpitSettings:
     threads_max_stack_frames: int = 64
     advisors_max_retained_violations: int = 10000
     stream_max_seconds: float = 3.0
+    # 0.4.0 panels: pre-created by lane F, inert until the owning lane reads them (F-foundation.md interface table)
+    security_logs_max_logs: int = 500
+    postgresql_max_sessions: int = 100
+    postgresql_max_statements: int = 100
+    postgresql_max_indexes: int = 500
+    postgresql_max_tables: int = 200
+    postgresql_max_vacuum_tables: int = 200
+    postgresql_max_replicas: int = 10
+    postgresql_max_settings: int = 40
+    transactions_enabled: bool = True
+    transactions_recording: bool = True
+    transactions_max_entries: int = 200
+    transactions_slow_transaction_threshold_millis: int = 200
+    transactions_connection_hold_threshold_millis: int = 500
     warnings: tuple[str, ...] = ()
 
 
@@ -149,6 +164,14 @@ def _non_negative_int(raw: object) -> int:
 def _min_two_int(raw: object) -> int:
     """N+1 thresholds: one repeat is not a pattern, so anything below 2 counts as 2."""
     return max(2, _non_negative_int(raw))
+
+
+def _postgresql_limit(raw: object) -> int:
+    """PostgreSQL row limits: 1..2147483646, so ``limit + 1`` (one past, to detect truncation) fits an int4."""
+    n = _int(raw)
+    if n > 2147483646:
+        raise ValueError(raw)
+    return n
 
 
 def _duration(raw: object) -> float:
@@ -255,6 +278,7 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "activity_max_entries": (_int, None),
     "activity_request_slow_threshold_ms": (_int, None),
     "activity_n_plus_one_threshold": (_min_two_int, None),
+    "activity_unbounded_read_factor": (_min_two_int, None),
     "log_tail_max_lines": (_int, None),
     "log_tail_max_bytes": (_int, None),
     "alembic_config": (_str, _UNSET),
@@ -263,6 +287,19 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "threads_max_stack_frames": (_int, None),
     "advisors_max_retained_violations": (_int, None),
     "stream_max_seconds": (_duration, None),
+    "security_logs_max_logs": (_int, None),
+    "postgresql_max_sessions": (_postgresql_limit, None),
+    "postgresql_max_statements": (_postgresql_limit, None),
+    "postgresql_max_indexes": (_postgresql_limit, None),
+    "postgresql_max_tables": (_postgresql_limit, None),
+    "postgresql_max_vacuum_tables": (_postgresql_limit, None),
+    "postgresql_max_replicas": (_postgresql_limit, None),
+    "postgresql_max_settings": (_postgresql_limit, None),
+    "transactions_enabled": (_bool, False),
+    "transactions_recording": (_bool, False),
+    "transactions_max_entries": (_int, None),
+    "transactions_slow_transaction_threshold_millis": (_int, None),
+    "transactions_connection_hold_threshold_millis": (_int, None),
 }
 _DEFAULTS = SharpitSettings()
 _FIELDS = {f.name for f in dataclasses.fields(SharpitSettings)} - {"warnings"}

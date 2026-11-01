@@ -18,7 +18,7 @@ import time
 import weakref
 from collections.abc import Callable
 from concurrent.futures import Executor
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, internal
 from sharpit.engine.masking import Masker
@@ -32,6 +32,15 @@ logger = logging.getLogger("sharpit")
 
 STATEMENT_EVENTS = ("before_cursor_execute", "after_cursor_execute", "handle_error")
 DISCOVERY_EVENT = "engine_connect"
+ConnectionEvent = Literal["begin", "commit", "rollback", "savepoint", "rollback_savepoint", "release_savepoint"]
+CONNECTION_EVENTS: tuple[ConnectionEvent, ...] = (
+    "begin",
+    "commit",
+    "rollback",
+    "savepoint",
+    "rollback_savepoint",
+    "release_savepoint",
+)  # add_connection_listener's events (O1)
 DISCOVERY_PANELS = (
     "alembic",
     "database-connection-pools",
@@ -349,8 +358,26 @@ def routed(ctx: SharpitContext) -> tuple[bool, bool]:
         return ctx.context_id in _statement_contexts, ctx.context_id in _discovery_contexts
 
 
-def add_connection_listener(event: str, fn: Callable[..., None]) -> Callable[[], None]:
-    return lambda: None
+def add_connection_listener(event: ConnectionEvent, fn: Callable[..., None]) -> Callable[[], None]:
+    """Listen to the class-level ``Engine`` connection event ``event`` (O1 slot); returns an idempotent remover.
+
+    Inert until a lane calls it (A-transactions registers here and never edits this module).
+    shortcut: a no-op remover while SQLAlchemy is not imported; the caller retries later, as ``add`` does.
+    """
+    if event not in CONNECTION_EVENTS:
+        raise ValueError(f"unknown connection event {event!r}")
+    sa = sqlalchemy_module()
+    if sa is None:
+        return lambda: None
+    with _lock:
+        sa.event.listen(sa.engine.Engine, event, fn)
+
+    def remove() -> None:
+        with _lock:
+            if sa.event.contains(sa.engine.Engine, event, fn):
+                sa.event.remove(sa.engine.Engine, event, fn)
+
+    return remove
 
 
 def attached() -> dict[str, bool]:

@@ -31,6 +31,7 @@ class SharpitContext:
     startup_time_ms: int | None = None
     engines: tuple[object, ...] = ()  # install(engines=...): seeds the engine registry (Task 5)
     health_checks: Mapping[str, Callable[[], object]] = field(default_factory=dict[str, Callable[[], object]])
+    models: tuple[object, ...] = ()  # install(models=...): never inspected here; A-data reads it
     context_id: str = field(default_factory=lambda: secrets.token_hex(8))
     capture: CaptureState = field(default_factory=CaptureState)
     masker: Masker = field(init=False)

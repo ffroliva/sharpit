@@ -32,6 +32,10 @@ def pytest_addoption(parser: Any) -> None:
     group.addoption(
         "--sharpit-max-unattributed", type=float, default=None, metavar="PCT", help="unattributed SQL limit"
     )
+    # 0.4.0 (spec §5.1-5.2): accepted and inert until G1G2 reads them in resolve()
+    group.addoption("--sharpit-report-only", action="store_true", default=None, help="report findings, never fail")
+    group.addoption("--sharpit-baseline", default=None, metavar="PATH", help="baseline of accepted findings")
+    group.addoption("--sharpit-write-baseline", action="store_true", default=None, help="write the baseline file")
     _add_ini(parser)
 
 
