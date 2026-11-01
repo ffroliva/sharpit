@@ -13,6 +13,7 @@ class Panel:
     title: str
     action_capable: bool | None
     api_prefix: str | None
+    implemented: bool = False
 
 
 # overview and cli register no API prefix, as in BootUI: GET {api}/overview is the shell's chrome data source and the

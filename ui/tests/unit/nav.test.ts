@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { NAV, groupPanels } from '../../src/lib/nav';
+import { PANEL_04_IDS, PANEL_04_IMPLEMENTED } from '../../src/lib/panels04';
 import { panel } from '../component/support';
 
 const ALL = [
@@ -33,4 +34,11 @@ it('hides a panel that is not built yet, drops empty groups and keeps an unknown
     ['Database', ['sql-trace']],
     ['Other', ['mystery']],
   ]);
+});
+
+it('keeps every 0.4 panel unimplemented and out of navigation', () => {
+  expect(Object.values(PANEL_04_IMPLEMENTED)).toEqual(PANEL_04_IDS.map(() => false));
+  const groups = groupPanels(PANEL_04_IDS.map((id) => panel(id)));
+  const shown = groups.flatMap((group) => group.panels.map((item) => item.id));
+  expect(shown.every((id) => !PANEL_04_IDS.includes(id))).toBe(true);
 });
