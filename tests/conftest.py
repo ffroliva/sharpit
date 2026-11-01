@@ -15,6 +15,8 @@ import pytest
 from sharpit.engine import sqla
 from sharpit.engine.sources import sqlite
 
+pytest_plugins = ["pytester"]
+
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}
 _BLOCKED = ("connect", "create_connection", "getaddrinfo", "gethostbyname")

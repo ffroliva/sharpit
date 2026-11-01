@@ -49,6 +49,7 @@ from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
 from sharpit.engine.singleflight import ActionBusy
+from sharpit.engine.sources import dispatch
 from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, CaptureWiring, wiring_of
 from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.introspector import FastApiIntrospector
@@ -695,6 +696,8 @@ def install(
         return existing
     app_settings = _app_settings(settings)
     sharpit_settings = load_settings(options, os.environ)
+    if (sink := dispatch.session_sink()) is not None:
+        sink.register_app(app)
     profiles = tuple(active_profiles(sharpit_settings, os.environ))
     activation = decide(sharpit_settings, profiles, dev_server_signal(sys.argv))
     token, generated = guard.resolve_token(sharpit_settings) if activation.enabled else (None, False)

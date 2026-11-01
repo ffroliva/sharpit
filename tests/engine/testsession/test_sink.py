@@ -127,6 +127,25 @@ def test_report_masker_no_warning_by_default() -> None:
     assert report_masker_warnings({}) == []
 
 
+def test_weakref_finalize_logged_exception_unattributed() -> None:
+    import weakref
+
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    error = ValueError("finalized")
+
+    class Target:
+        pass
+
+    target = Target()
+    finalizer = weakref.finalize(target, sink.on_exception, error, "log", (NODE, attempt, "call"))
+    finalizer()
+    assert sink.facts.unattributed_exceptions == 1
+    assert sink.current_test is not None
+    assert "call" not in sink.current_test.phases
+    finalizer.detach()
+
+
 def test_exception_dedup_by_object() -> None:
     sink = _sink()
     attempt = sink.begin_test(NODE)

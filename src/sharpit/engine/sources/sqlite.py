@@ -273,7 +273,7 @@ def early_aliases() -> list[str]:
     originals: list[object] = [f for f in (_real, dbapi2.connect) if f is not None]
     found: list[str] = []
     for name, module in list(sys.modules.items()):
-        if name in _SKIPPED_MODULES or name.startswith("sqlalchemy.") or name == "sqlalchemy":
+        if name in _SKIPPED_MODULES or name == __name__ or name.startswith("sqlalchemy.") or name == "sqlalchemy":
             continue
         try:
             namespace = vars(module)

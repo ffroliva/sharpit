@@ -25,6 +25,7 @@ src/sharpit/__init__.py        install, __version__ (the only version site)
 src/sharpit/settings.py        SharpitSettings, load_settings (SHARPIT_* env + kwargs)
 src/sharpit/engine/            framework-free core: activation, guard, masking, panels, collectors, paging
 src/sharpit/fastapi/           the FastAPI/Starlette adapter: routes, introspection, dev-server signals
+src/sharpit/pytest_plugin/     the pytest adapter: optional plugin entry point and test-session hooks
 src/sharpit/ui/static/         the built UI (committed; CI checks it matches ui/ when ui/ exists)
 tests/                         mirrors src/; conftest.py has the no_side_effects fixture; golden fixtures
 scripts/sanitize_golden.py     sanitises BootUI responses into golden fixtures
@@ -85,7 +86,7 @@ these on every run (a planted violation proves each rule still bites); a failing
 to loosen. Change a rule only in that test and here, in the same PR, with the reason in the PR body.
 
 1. **Framework-free engine.** `engine/` never imports `fastapi` or `starlette` (a `TYPE_CHECKING` block is allowed).
-2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi` or `sharpit.ui`, not even for a type. When
+2. **Dependencies point inward.** `engine/` never imports `sharpit.fastapi`, `sharpit.pytest_plugin` or `sharpit.ui`, not even for a type. When
    the engine needs something from an adapter, it declares a `Protocol` port (`AppIntrospector` in `engine/spi.py`,
    `CaptureHooks` in `engine/capture/`) and the adapter implements it.
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
@@ -93,7 +94,7 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 4. **Gatekeepers.** One named file per optional or network library: SQLAlchemy only in `engine/sqla.py`,
    `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
    `engine/collectors/config/settings_source.py`, `urllib.request`/`http.client` only in the OSV and EPSS clients under
-   `engine/collectors/vulns/`. `alembic`, `socket` and `ssl` are imported nowhere.
+   `engine/collectors/vulns/`, and `pytest`/`_pytest` only in `pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
    SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked
    slow or deselected (a measurement nobody runs detects nothing). See `docs/development/overhead-budgets.md` for what

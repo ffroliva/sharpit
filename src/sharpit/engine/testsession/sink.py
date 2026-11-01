@@ -7,6 +7,7 @@ duration (spec §6.4, B4 and B8).
 from __future__ import annotations
 
 import hashlib
+import inspect
 import threading
 import weakref
 from collections import Counter
@@ -40,6 +41,26 @@ def report_masker_warnings(environ: Mapping[str, str]) -> list[str]:
     if environ.get("SHARPIT_MASK_SECRETS", "").strip().lower() in _MASKING_OFF:
         warnings.append("report ignores SHARPIT_MASK_SECRETS=false")
     return warnings
+
+
+def _finalizer_on_stack() -> bool:
+    """Finalizer logs can happen during any test; do not assign them to the active test window."""
+    frame = inspect.currentframe()
+    try:
+        frame = frame.f_back if frame is not None else None
+        for _ in range(64):
+            if frame is None:
+                return False
+            name = frame.f_code.co_name
+            module = frame.f_globals.get("__name__", "")
+            if name in {"__del__", "_finalize_fairy"} or (
+                "weakref" in module and ("callback" in name.lower() or name == "__call__")
+            ):
+                return True
+            frame = frame.f_back
+        return False
+    finally:
+        del frame
 
 
 @dataclass
@@ -134,8 +155,9 @@ class TestSessionSink:
         top[masked] = top.get(masked, 0) + 1
 
     def on_exception(self, exc: BaseException, source: str, test: TestTag | None) -> None:
-        del source  # every source shares the one de-duplication by object
         try:
+            if source == "log" and _finalizer_on_stack():
+                test = None
             with self._lock:
                 phase = self._phase_of(test)
                 if phase is None or test is None:
