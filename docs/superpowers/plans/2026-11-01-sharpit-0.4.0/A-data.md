@@ -10,9 +10,9 @@
 | **Spec** | `docs/superpowers/specs/2026-11-01-sharpit-0.4.0-design.md` §4 (anti-goals), §6.1–§6.3, §7 row `data`, §11, §12.5 |
 | **Contract** | `docs/reference/BOOTUI-CONTRACT-0.4-WAVE-A.md` §1; BootUI `DataController.java`, `RepositoriesReport`, `RepositoryDto`, `RepositoryDetailDto`, `RepositoryMethodDto` |
 | **Worker** | M, mostly mechanical; one judgement point (the `mapper.configured` guard) |
-| **Depends on** | F (PLAN.md). Consumes these rows of F's consumer interface table (`F-foundation.md`): "implemented flag files" (`engine/panels04/<id>.py` + `ui/src/lib/panels04/<id>.ts`, O4 flag files, here `data`), `sharpit.fastapi.routes.<id>` (`routes/data.py`), `sharpit.install` / `SharpitContext.models`, `tests.golden.assert_parity` (O2 loader) + `ids.json`, `sharpit.engine.tool_stubs.<id>`, the `ui/src/views/Data.svelte` placeholder, `scripts/dev/lane_gate.py`; the `examples/fastapi_sqla` wiring F does once (O3: `install(models=Base)`). `tests/safety/` + `tests/masking/` are F-rest pieces: if not merged when this lane starts, the lane creates its own `tests/safety/test_a_data_safety.py` without shared helpers |
-| **May touch** | `src/sharpit/engine/collectors/data.py` (new), `src/sharpit/fastapi/routes/data.py` (F's stub for this panel), `src/sharpit/engine/panels04/data.py` and `ui/src/lib/panels04/data.ts` (flip the flag only, O4), `src/sharpit/engine/tool_stubs/data.py` (F-rest's MCP stub; the lane creates it if F-rest has not merged), `ui/src/views/Data.svelte` (replace F's placeholder only) + `Data.test.ts`, `tests/engine/test_data.py`, `tests/fastapi/test_data_api.py`, `tests/safety/test_a_data_safety.py`, `tests/fixtures/bootui/2.2.0/data/nullable.json` (O2: the lane owns only this fixture), the implementer files in `.superpowers/sdd/0.4.0/lanes/A-data/` (C2) plus `docs.md` there (O3) |
-| **Must NOT touch** | §10.3 protected files (`scripts/dev/lane_gate.py`, `tests/complexity_baseline.json`, `sonar-baseline.txt`, rules in `tests/engine/test_import_boundary.py`, overhead budget constants, dependency lists in `pyproject.toml`/`uv.lock`); `src/sharpit/engine/sqla.py` (O1: A-postgresql); other lanes' modules; `src/sharpit/fastapi/adapter.py`; `PANELS` in `engine/panels.py`, `ui/src/App.svelte`, `ui/src/lib/nav.ts`, `ui/src/lib/types.ts` (O4); `captured.json` / `provisional.json` under `tests/fixtures/bootui/` (O2: G0a / another worker); `README.md`, `skills/sharpit/SKILL.md`, `examples/fastapi_sqla/`, `tests/test_example_app.py` (O3); `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
+| **Depends on** | F (PLAN.md). Consumes these rows of F's consumer interface table (`F-foundation.md`): "implemented flag files" (`engine/panels04/<id>.py` + `ui/src/lib/panels04/<id>.ts`, O4 flag files, here `data`), `sharpit.fastapi.routes.<id>` (`routes/data.py`), `sharpit.install` / `SharpitContext.models`, `tests.golden.assert_parity` (O2 loader) + `ids.json`, `sharpit.engine.tools04.<id>` (`engine/tools04/data.py`, `TOOLS = ()` until this lane fills it; `tools.py` discovers it, R3), the `ui/src/views/Data.svelte` placeholder, `scripts/dev/lane_gate.py`; the `examples/fastapi_sqla` wiring F does once (O3: `install(models=Base)`). `tests/safety/` + `tests/masking/` are F-rest pieces: if not merged when this lane starts, the lane creates its own `tests/safety/test_a_data_safety.py` without shared helpers |
+| **May touch** | `src/sharpit/engine/collectors/data.py` (new), `src/sharpit/fastapi/routes/data.py` (F's stub for this panel), `src/sharpit/engine/panels04/data.py` and `ui/src/lib/panels04/data.ts` (flip the flag only, O4), `src/sharpit/engine/tools04/data.py` (F's per-panel MCP module; this lane replaces `TOOLS = ()` with the `get_data_repositories` tool, R3), `ui/src/views/Data.svelte` (replace F's placeholder only) + `Data.test.ts`, `tests/engine/test_data.py`, `tests/fastapi/test_data_api.py`, `tests/safety/test_a_data_safety.py`, `tests/fixtures/bootui/2.2.0/data/nullable.json` (O2: the lane owns only this fixture), the implementer files in `.superpowers/sdd/0.4.0/lanes/A-data/` (C2) plus `docs.md` there (O3) |
+| **Must NOT touch** | §10.3 protected files (`scripts/dev/lane_gate.py`, `tests/complexity_baseline.json`, `sonar-baseline.txt`, rules in `tests/engine/test_import_boundary.py`, overhead budget constants, dependency lists in `pyproject.toml`/`uv.lock`); `src/sharpit/engine/sqla.py` (O1: A-postgresql); `src/sharpit/engine/tools.py` (R3: MCP tools go in `engine/tools04/data.py`); other lanes' modules; `src/sharpit/fastapi/adapter.py`; `PANELS` in `engine/panels.py`, `ui/src/App.svelte`, `ui/src/lib/nav.ts`, `ui/src/lib/types.ts` (O4); `captured.json` / `provisional.json` under `tests/fixtures/bootui/` (O2: G0a / another worker); `README.md`, `skills/sharpit/SKILL.md`, `examples/fastapi_sqla/`, `tests/test_example_app.py` (O3); `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
 
 **Architecture:** One framework-free collector (`engine/collectors/data.py`) that walks the objects passed in
 `models=` by duck-typed public attributes; it imports nothing from SQLAlchemy (gatekeeper rule 4 holds trivially; if a
@@ -26,7 +26,11 @@ serialises. No GET opens a connection: mapper metadata is in-process.
   run SQL, call user code, **configure ORM mappers**.
 - Every contract DTO key emitted (nulls included), camelCase, no envelope. Error strings verbatim with `BootUI`→`sharpit`.
 - Each ported test cites `# ported: DataControllerTests.<method>`; derived tests `# derived: <reason>`.
-- A red is an assertion, never a crash: Step 1 of each task stubs every Produces name first.
+- A red is an assertion, never a crash (R2): each task's red is a **red commit** (subject starts `test:`) holding the
+  failing tests plus the minimal stubs that make them import; a stub returns a wrong value, it never raises
+  `NotImplementedError`. Record the red commit's SHA per red test in `findings.md` and `handoff.md`; `lane_gate.py`
+  replays each test at that SHA (needs `AssertionError`) and again at the lane head (must pass). Every "FAIL" step
+  below means this red commit.
 - One condition per assert (PT018). No module over 1000 lines; ratchets only go down.
 - Commits: conventional prefix, explicit `git add` paths, no AI attribution. Long commands in the background.
 
@@ -67,8 +71,8 @@ serialises. No GET opens a connection: mapper metadata is in-process.
 
 ### Task 1: Golden fixture, nullable keys, id mapping
 
-**Files:** Create `tests/fixtures/bootui/2.2.0/data/nullable.json`; Test `tests/fastapi/test_data_api.py` (parity
-test only, skipped-red until Task 4).
+**Files:** Create `tests/fixtures/bootui/2.2.0/data/nullable.json`; Test `tests/fastapi/test_data_api.py` (the parity
+test is written in Task 4's red commit; nothing here is skipped).
 
 **Interfaces:** Consumes F's golden loader `tests/golden.py::assert_parity(sharpit_id: str, name: str, payload:
 Mapping[str, Any]) -> None` and `tests/fixtures/bootui/2.2.0/ids.json` (`"data": "data"`). Per O2 (amends C3), `data`
@@ -86,17 +90,18 @@ a worker other than this lane) and marks the result unverified. The lane writes 
 
 **Files:** Create `src/sharpit/engine/collectors/data.py`; Test `tests/engine/test_data.py`.
 
-**Interfaces:** Consumes `SharpitContext.models: tuple[object, ...]` (F), `sqla.unavailable_reason()`
+**Interfaces:** Consumes `SharpitContext.models: tuple[object, ...]` (F stores `tuple(models)` and never inspects elements; this lane does, R15), `sqla.unavailable_reason()`
 (`engine/sqla.py:52`), `ctx.masker`. Produces:
 - `NO_MODELS = "pass models= to sharpit.install"` (exact, spec §7)
 - `UNCONFIGURED = "Mappers are not configured yet: the app has not run a query"` (sharpit text; logged §11)
-- `registries(models: Sequence[object]) -> tuple[list[object], list[str]]` — `(registries, warnings)`; a declarative
+- `registries(models: tuple[object, ...]) -> tuple[list[object], list[str]]` — `(registries, warnings)`; a declarative
   base → `base.registry`; a `registry` → itself (duck-typed: has `.mappers`); duplicates by identity dropped.
 - `repositories_report(ctx: SharpitContext) -> dict[str, Any]` — `{springDataPresent, total, repositories,
   unavailableReason, warnings}` (`unavailableReason`/`warnings` are extra keys, logged §11).
 - `repository_detail(ctx: SharpitContext, name: str) -> dict[str, Any] | None`
 
-- [ ] **Step 1:** Stub the Produces names. Write tests (sqlite in-memory declarative models built in the test):
+- [ ] **Step 1:** Stub the Produces names with wrong-value returns (R2: e.g. `registries` returns `([], [])`,
+  `repositories_report` returns `{}`; never `NotImplementedError`). Write tests (sqlite in-memory declarative models built in the test):
   - `test_lists_one_row_per_mapped_class` — `# ported: DataControllerTests.repositoriesReturnsSummaryForDiscoveredRepository`;
     asserts `report["total"] == 2`, row keys equal the golden's key set plus `table`, `relationships`,
     `row["storeModule"] == "SQLAlchemy"`, `row["idType"] == "Integer"`.
@@ -110,7 +115,8 @@ a worker other than this lane) and marks the result unverified. The lane writes 
   - `test_models_forms_dedupe` — `[Base, Base.registry, Base]` → each class once; `object()` → one warning.
   - `test_sqlalchemy_absent` — `monkeypatch.delitem(sys.modules, "sqlalchemy")` → `unavailableReason ==
     sqla.UNAVAILABLE` (`engine/sqla.py:37`; `sqla.unavailable_reason()` at `:52` returns it).
-- [ ] **Step 2:** `uv run --no-sync pytest -q tests/engine/test_data.py` → FAIL on the named assertions.
+- [ ] **Step 2:** `uv run --no-sync pytest -q tests/engine/test_data.py` → FAIL on the named assertions. Commit this
+  as the red commit `test: data collector reds` and record its SHA per test (R2).
 - [ ] **Step 3:** Implement. Read only `registry.mappers`, `mapper.class_`, `mapper.configured`, `mapper.primary_key`,
   `mapper.local_table`; `mapper.relationships` only behind `if mapper.configured`. Rows sorted by
   `repositoryInterface`. Every attribute read wrapped so one bad mapper drops only its own row (warning).
@@ -136,8 +142,8 @@ False, namedQuery: None}`; empty when unconfigured. `fragments = []`.
 
 **Files:** Modify `src/sharpit/fastapi/routes/data.py` (F's stub), `src/sharpit/engine/panels04/data.py`
 (`IMPLEMENTED = True`, O4; F's pre-registered `data` row in `PANELS` already reads it with `action_capable=False`,
-`api_prefix="/data"`; `Panel` at `engine/panels.py:11`), the `get_data_repositories` MCP stub (F-rest's, or the lane's own if absent) in
-`src/sharpit/engine/tool_stubs/data.py`; Test `tests/fastapi/test_data_api.py`, `tests/safety/test_a_data_safety.py` (this lane's safety rows, on F-rest's
+`api_prefix="/data"`; `Panel` at `engine/panels.py:11`), the `get_data_repositories` MCP tool in F's `TOOLS = ()` module
+`src/sharpit/engine/tools04/data.py` (never `engine/tools.py`, R3); Test `tests/fastapi/test_data_api.py`, `tests/safety/test_a_data_safety.py` (this lane's safety rows, on F-rest's
 shared helpers; C5).
 
 **Interfaces:** `GET {api}/data/repositories` → `repositories_report`; `GET {api}/data/repositories/{name}` → detail

@@ -31,7 +31,7 @@ remains the optional-library gatekeeper.
   `.superpowers/sdd/0.4.0/lanes/T-n-plus-one-message/`.
 - **Worker profile:** L, judgement-heavy (ORM event lifecycle, relationship attribution,
   hot-path budget).
-- **Depends on:** G1G2, A-sqlalchemy-statistics (PLAN.md). G1G2: the T-* lanes are serial
+- **Depends on:** G1G2, A-sqlalchemy-statistics, A-postgresql (PLAN.md; R0 chain `A-postgresql → T-n-plus-one-message`). G1G2: the T-* lanes are serial
   `G1G2 → T-n-plus-one-message → T-swallowed-exceptions → T-unbounded-read` because they share
   `engine/testsession/facts.py`, `engine/testsession/gates.py` and `pytest_plugin/marker.py`.
   A-sqlalchemy-statistics: both lanes extend the SQL recorder path (that lane adds lifetime
@@ -40,10 +40,12 @@ remains the optional-library gatekeeper.
   interface table (`F-foundation.md`): `sharpit.pytest_plugin.session` and
   `sharpit.engine.testsession.gates.evaluate_test`; and G1G2's `gates.py::fails(dto)` predicate
   (a relationship finding stays `HIGH`, so it fails as today's N+1 does).
-- **Start gate (O1):** `engine/sqla.py` is owned by A-postgresql (`run_db_read` keywords,
-  `bounded_read_only`). This lane edits it only after A-postgresql has merged or parked; the
-  coordinator checks before launch. If A-postgresql is still in flight, this lane waits (it is
-  best effort; nothing is gained by racing the owner of `sqla.py`).
+- **Start gate (O1, R0):** `engine/sqla.py` is owned by A-postgresql (`run_db_read` keywords,
+  `bounded_read_only`), and the two May-touch lists intersect on it, so they never run at the
+  same time. This lane starts only after A-postgresql has merged or parked, and edits `sqla.py`
+  on top of that merge; the coordinator compares the lists before launch. If A-postgresql is
+  still in flight, this lane waits (it is best effort; nothing is gained by racing the owner of
+  `sqla.py`). The same gate applies to T-unbounded-read, which also edits `sqla.py`.
 - **May touch:** `src/sharpit/engine/sqla.py`, subject to the start gate (`attach_session()` at
   `:320`, `detach_session()` at `:331`, `_LISTENERS`/`_sync_listeners` at `:256-281`,
   `before_cursor_execute` at `:153`, `_emit` at `:195`; the new `do_orm_execute` listener), never
@@ -57,7 +59,7 @@ remains the optional-library gatekeeper.
   evidence folder (C2).
 - **Must not touch:** `README.md`, `skills/sharpit/SKILL.md`, `examples/`,
   `tests/test_example_app.py` (O3: user-facing text goes to the lane folder's `docs.md`), other
-  lanes' modules, `engine/guard.py`, report/baseline schema or
+  lanes' modules, `engine/tools.py` (R3), `engine/guard.py`, report/baseline schema or
   fingerprints, panel modules/UI, `engine/capture/sqltrace.py` (A-sqlalchemy-statistics owns it),
   `scripts/dev/lane_gate.py`, import-boundary rules, existing overhead budget constants,
   complexity/sonar baselines, dependency lists, `uv.lock`, `tests/test_safety_matrix.py`,
@@ -74,6 +76,12 @@ remains the optional-library gatekeeper.
   budget.
 - A red is the assertion that names the defect (C4); the spike test asserts the **desired**
   message, so it is red on 0.3.0.
+- Each task's red is a **red commit** (R2): subject starts `test:`, holding the failing tests plus the
+  minimal stubs that make them import; a stub returns a wrong value (an empty `Counter`/`dict`, the old
+  statement message), it never raises `NotImplementedError`. Its SHA per red test goes into `findings.md`
+  and `handoff.md`; `lane_gate.py` replays each test at that SHA with `--junitxml` (needs a `<failure>`
+  starting `AssertionError`) and again at the lane head (must pass). The "Run on the base" steps below
+  mean this red commit; a review-finding red is replayed on the parent of its fix commit.
 
 ## Review Focus
 
@@ -118,7 +126,8 @@ fields (xdist round trip).
   times` and `selectinload(Player.performances)` (one assert each, PT018). Keep the
   SQLAlchemy/SQLite fixture deterministic and run its normal app query. Run with
   `--sharpit-no-advisors --sharpit-allow-unknown` so app discovery does not obscure the result.
-- [ ] **Step 2: Run on the base.** Expected red: the assertion on `Player.performances` fails
+- [ ] **Step 2: Commit the red** (`test: reproduce n+1 message spike F5`, with the empty `PhaseFacts`
+  fields and `RELATIONSHIP_KEY` as wrong-value stubs) and run it. Expected red: the assertion on `Player.performances` fails
   because 0.3.0 emits only `1018 executions of one SELECT in the call phase`; the N+1 gate itself
   still fires (a separate control assert). Quote the red in `findings.md`.
 - [ ] **Step 3: Implement** the `do_orm_execute` listener and the `before_cursor_execute`
@@ -149,7 +158,8 @@ today's statement message. Message keys are additive; the fingerprint is unchang
   `test_statement_fingerprint_unchanged_with_relationship_detail`; assert `Player.performances`,
   count, masked SQL, suggestion, location, and equal fingerprint after message enrichment (one
   condition per assert).
-- [ ] **Step 2: Run on the base;** expected relationship/message/location assertions fail, while
+- [ ] **Step 2: Commit the red** (`test: relationship n+1 message reds`; the render helper is a stub that returns
+  today's statement message) and run it; expected relationship/message/location assertions fail, while
   the fingerprint control passes.
 - [ ] **Step 3: Implement rendering** from Task 1 facts; never put raw parameters or credentials
   in a message.

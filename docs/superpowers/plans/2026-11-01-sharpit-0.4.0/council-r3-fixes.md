@@ -91,3 +91,5 @@ only `nullable.json`. A-postgresql's May-touch and Task 5 use `postgresql/nullab
 - **R14 G6:** `_worst` ranks `FAILED > UNKNOWN > SKIPPED > PASSED` across workers.
 - **R15 A-data:** `models` is `tuple[object, ...]` (R3); the lane inspects elements, F does not.
 - **R16 G3:** its header names `src/sharpit/report/__main__.py`.
+- **R17 F:** `CaptureState.teardowns: list[Callable[[], None]]`; `uninstall_capture()` runs them in reverse, each guarded;
+  A-transactions and A-traces register their removers there.

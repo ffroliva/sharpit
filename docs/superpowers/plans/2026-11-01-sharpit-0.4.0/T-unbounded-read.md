@@ -43,9 +43,12 @@ metadata.
   `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR`; F pre-creates it, this lane never edits `settings.py`),
   `sharpit.pytest_plugin.session`, `sharpit.engine.testsession.gates.evaluate_test`; and G1G2's
   `gates.py::fails(dto)` predicate.
-- **Start gate (O1):** `engine/sqla.py` is owned by A-postgresql. This lane edits it only after
+- **Start gate (O1, R0):** `engine/sqla.py` is owned by A-postgresql. This lane edits it only after
   A-postgresql has merged or parked; the coordinator checks before launch (the T-* chain makes that
-  near certain, but it is checked, not assumed).
+  near certain, but it is checked, not assumed). Its May-touch list also names
+  `src/sharpit/fastapi/capture.py`, which A-traces, B-security-logs and D2 edit: by R0 this lane
+  never runs while any of them is in flight (and vice versa); the coordinator compares the lists
+  before launch.
 - **May touch:** `src/sharpit/engine/sqla.py` (one `Mapper` `load` listener, attached and removed
   with `attach_session()` `:320` / `detach_session()` `:331`; subject to the start gate);
   `src/sharpit/engine/capture/correlation.py` (`RequestInfo`, a plain mutable `@dataclass` at `:13`,
@@ -88,6 +91,14 @@ metadata.
   remain masked/dropped.
 - A red is the assertion that names the defect (C4); the spike test asserts the **desired**
   finding, so it is red on 0.3.0.
+- Each task's red is a **red commit** (R2): subject starts `test:`, holding the failing tests plus the
+  minimal stubs that make them import; a stub returns a wrong value (an empty `Counter`, `None`, no
+  finding), it never raises `NotImplementedError`. Its SHA per red test goes into `findings.md` and
+  `handoff.md`; `lane_gate.py` replays each test at that SHA with `--junitxml` (needs a `<failure>`
+  starting `AssertionError`) and again at the lane head (must pass). The "Run on the base" /
+  "Run; expected ... fail" steps below mean this red commit; a review-finding red is replayed on the
+  parent of its fix commit.
+- This lane edits no `engine/tools.py` (R3) and no `ui/src/lib/nav.ts` (O4); it has no panel.
 
 ## Review Focus
 
@@ -124,7 +135,8 @@ and `limit`, and Python-side slicing after `.all()`; 52 rows and a requested pag
 - [ ] **Step 3:** Run on the base. Expected red: the assertion on the finding fails (0.3.0 has no
   such rule); the successful response and collection prove the planted case executes. Quote the
   red in `findings.md`.
-- [ ] **Step 4:** Commit `test: reproduce unbounded paged-read spike`.
+- [ ] **Step 4:** Commit `test: reproduce unbounded paged-read spike` (this is the red commit, R2);
+  record its SHA for `test_spike_f2_unbounded_read_found` in `findings.md` and `handoff.md`.
 
 ### Task 2: Per-statement ORM load counts in the test session
 
@@ -148,7 +160,8 @@ loaded: int, page_size: int, has_limit: bool, location: str | None)` rows on `Ph
   `test_identity_map_hits_are_not_counted` (documents the undercount: a second `.all()` in the same
   session counts 0 new loads), `test_unbounded_read_factor_default_and_override` (F's settings row
   default 2 and an env override reach `Budget.unbounded_read_factor`).
-- [ ] **Step 2: Run;** expected named assertions fail (stubs), no collection errors (C4).
+- [ ] **Step 2: Commit the red** (`test: per-statement load count reds`, wrong-value stubs) and run;
+  expected named assertions fail, no collection errors (C4, R2).
 - [ ] **Step 3: Implement** the listener and facts; one registration only, removed with the
   session; a raising listener warns once (`dispatch.routing_failed`) and never changes the query.
 - [ ] **Step 4: Verify** request isolation, worker/test attribution, fact serialisation.
@@ -175,7 +188,8 @@ carried a `RequestInfo`.
   `test_page_size_binding_validation_is_conservative`, `test_paging_context_reset_after_exception`,
   `test_paging_computed_lazily_after_route_match` (the middleware sees no `scope["route"]` at
   request start; the first load does), `test_without_install_reports_limitation_and_does_not_fire`.
-- [ ] **Step 2: Run;** expected context/limitation assertions fail.
+- [ ] **Step 2: Commit the red** (`test: paging context reds`, wrong-value stubs) and run; expected
+  context/limitation assertions fail.
 - [ ] **Step 3: Implement**; never derive a page size from `page`, `skip` or `offset`.
 - [ ] **Step 4: Verify** the context clears across requests and test attempts, including
   exception paths; the capture overhead test (`tests/fastapi/test_capture_overhead.py`) stays
@@ -201,7 +215,8 @@ statement identity (normalised shape + route), never the runtime counts.
   `test_non_paged_route_is_not_flagged`, `test_lookup_query_does_not_add_to_count`,
   `test_exact_threshold_boundary_flags`, `test_allow_unbounded_read_marker`,
   `test_unbounded_read_respects_report_only_and_baseline`.
-- [ ] **Step 2:** Run; expected rule/marker assertions fail; the Task 1 spike stays red.
+- [ ] **Step 2:** Commit the red (`test: unbounded-read gate reds`, wrong-value stubs) and run;
+  expected rule/marker assertions fail; the Task 1 spike stays red.
 - [ ] **Step 3: Implement the gate and marker relax** through the existing gate path; xdist fact
   round trip covered.
 - [ ] **Step 4:** Run targeted tests: `test_spike_f2_unbounded_read_found` green, controls do not

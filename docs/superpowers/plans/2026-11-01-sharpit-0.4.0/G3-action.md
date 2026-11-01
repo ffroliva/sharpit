@@ -15,7 +15,7 @@
 - **Lane:** G3.
 - **Worker profile:** M, judgement-heavy (shell injection boundary, quoting, summary UX).
 - **Dependencies:** G1G2 (exactly as PLAN.md). F is an indirect dependency through G1G2.
-- **May touch:** Create `action.yml`; create focused summary CLI module under `src/sharpit/` and add dispatch in `src/sharpit/__main__.py` or project script wiring as current layout requires; tests under `tests/action/` and `tests/`; summary golden under `tests/fixtures/`; this lane’s evidence folder.
+- **May touch:** Create `action.yml`, `src/sharpit/report/summary.py`, and `src/sharpit/report/__main__.py`; tests under `tests/action/` and `tests/`; summary golden under `tests/fixtures/`; this lane’s evidence folder.
 - **Must not touch:** G1G2 gate/baseline or plugin code; G4 docs/dependabot; panels/UI; report schema except reading additive keys; `scripts/dev/lane_gate.py`; dependency lists, `uv.lock`, complexity/sonar baselines, overhead budget constants.
 
 ## Global constraints
@@ -37,15 +37,16 @@
 
 ### Task 1: Add pure summary renderer and CLI entry point
 
-**Files:** Create `src/sharpit/report/summary.py` (or a focused module consistent with existing CLI dispatch); modify `src/sharpit/__main__.py` only as needed; create `tests/test_report_summary.py` and `tests/fixtures/report-summary.md`.
+**Files:** Create `src/sharpit/report/__init__.py`, `src/sharpit/report/summary.py`, and `src/sharpit/report/__main__.py`; create `tests/test_report_summary.py` and `tests/fixtures/report-summary.md`.
 
-**Interfaces:** `render_summary(report: Mapping[str, object]) -> str` returns Markdown with status, mode, totals, baseline counts when present, and at most 20 top findings. Escape every interpolated value; use stable ordering. `python -m sharpit.report summary <report.json>` is implemented by `src/sharpit/report/__main__.py`, writes Markdown to stdout and exits nonzero on unreadable/invalid JSON.
+**Interfaces:** `render_summary(report: Mapping[str, object]) -> str` in `sharpit.report.summary` returns Markdown with status, mode, totals, baseline counts when present, and at most 20 top findings. Escape every interpolated value; use stable ordering. `python -m sharpit.report summary <report.json>` is implemented by `src/sharpit/report/__main__.py`, writes Markdown to stdout and exits nonzero on unreadable/invalid JSON.
 
-- [ ] **Step 1: Failing tests.** `test_summary_golden`, Review Focus 4–5, `test_summary_has_status_mode_totals`, `test_summary_includes_baseline_counts_when_present`, `test_summary_without_baseline_is_stable`, `test_summary_cli_reads_report_and_writes_stdout`, `test_summary_cli_invalid_json_returns_error`.
-- [ ] **Step 2: Run `tests/test_report_summary.py`; expected assertion failures, not import/collection errors.**
-- [ ] **Step 3: Implement pure renderer and CLI dispatch.** No environment or network access.
-- [ ] **Step 4: Run tests; expect golden and behavior assertions pass.**
-- [ ] **Step 5: Commit** `feat: add sharpit report Markdown summary command`.
+- [ ] **Step 1: Failing tests and importable stubs.** `test_summary_golden`, Review Focus 4–5, `test_summary_has_status_mode_totals`, `test_summary_includes_baseline_counts_when_present`, `test_summary_without_baseline_is_stable`, `test_summary_cli_reads_report_and_writes_stdout`, `test_summary_cli_invalid_json_returns_error`; stubs return incorrect output and do not raise `NotImplementedError`.
+- [ ] **Step 2: Commit the red** as `test: pin report summary and CLI contract`; record each red test name and SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3: Replay named assertions at their recorded red SHA** with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4: Implement pure renderer and CLI dispatch** in `src/sharpit/report/__main__.py`; do not modify `src/sharpit/__main__.py`. No environment or network access.
+- [ ] **Step 5: Run tests; expect golden and behavior assertions pass.**
+- [ ] **Step 6: Commit** `feat: add sharpit report Markdown summary command`.
 
 ### Task 2: Define and statically verify composite action inputs
 
@@ -53,11 +54,12 @@
 
 **Interfaces:** Inputs exactly `pytest-args`, `report-only` (default `true`), `baseline`, `fail-on`, `report-path`, `install` (`pip` default, `none` supported), `runner` (default `python -m pytest`). Composite steps install literal sharpit version when requested, invoke selected runner with parsed pytest args and sharpit flags, render report, then append it to `$GITHUB_STEP_SUMMARY`.
 
-- [ ] **Step 1: Failing tests.** Review Focus 1–3; `test_action_declares_all_inputs_and_defaults`, `test_action_version_is_literal`, `test_action_respects_install_none`, `test_action_forwards_report_only_baseline_fail_on_and_report_path`, `test_action_runner_default`, `test_action_invokes_summary_cli`, `test_action_has_no_unquoted_or_expression_run_values`.
-- [ ] **Step 2: Run static tests; expected missing-action or exact-rule assertions fail.**
-- [ ] **Step 3: Implement composite action.** Copy inputs through `env`, quote expansions, and use Python `shlex.split` then `subprocess` argv (never concatenate into shell command text).
-- [ ] **Step 4: Run action static tests; expected PASS.**
-- [ ] **Step 5: Commit** `feat: add safe sharpit GitHub Action`.
+- [ ] **Step 1: Failing tests and importable stubs.** Review Focus 1–3; `test_action_declares_all_inputs_and_defaults`, `test_action_version_is_literal`, `test_action_respects_install_none`, `test_action_forwards_report_only_baseline_fail_on_and_report_path`, `test_action_runner_default`, `test_action_invokes_summary_cli`, `test_action_has_no_unquoted_or_expression_run_values`; stubs return incorrect values and do not raise `NotImplementedError`.
+- [ ] **Step 2: Commit the red** as `test: pin composite action safety contract`; record each red test name and SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3: Replay named assertions at their recorded red SHA** with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4: Implement composite action.** Copy inputs through `env`, quote expansions, and use Python `shlex.split` then `subprocess` argv (never concatenate into shell command text).
+- [ ] **Step 5: Run action static tests; expected PASS.**
+- [ ] **Step 6: Commit** `feat: add safe sharpit GitHub Action`.
 
 ### Task 3: Record manual wheel verification and lane handoff
 

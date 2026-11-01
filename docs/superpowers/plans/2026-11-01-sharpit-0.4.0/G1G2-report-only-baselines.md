@@ -1,6 +1,6 @@
 # G1+G2 — Report-Only and Baselines Implementation Plan
 
-> **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans. One task/commit at a time; start after F and G6. D1 is not a dependency; whichever of D1 and G1G2 merges second wires per-finding dismissals into the pytest gate.
+> **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans. One task/commit at a time; start after F and G6. This lane owns all per-finding dismissal matching; D1 only implements the `DismissalStore.dismissed_pairs()` stub from F.
 
 **Goal:** Let CI report findings without gating on them and compare stable fingerprints to an explicitly written baseline, while unknown capture reasons continue to fail closed.
 
@@ -15,7 +15,7 @@
 - **Lane:** G1G2 (one lane because both alter the gate path).
 - **Worker profile:** L, judgement-heavy (unknown precedence, partial-run facts, fingerprint semantics).
 - **Dependencies:** F and G6 (exactly as PLAN.md). G6 supplies `SKIPPED` support; F supplies plugin split, accepted inert CLI options and lane gate.
-- **May touch:** `src/sharpit/engine/testsession/gates.py` (`evaluate_test`, line 34), `outcome.py` (`exit_fails`, line 303), `facts.py`, `report.py` (`render`, line 69), `report.schema.json`; `src/sharpit/engine/advisors/findings.py` (`Finding`, line 17), advisor assessment call sites; pytest plugin option/gate/report/xdist modules created by F; `tests/engine/testsession/`, `tests/pytest_plugin/`, both schema copies, `docs/reference/` report contract, lane evidence folder.
+- **May touch:** `src/sharpit/engine/testsession/gates.py` (`evaluate_test`, `_finding`, `fails`), `outcome.py` (`exit_fails`, `_unknown_reasons`, `session_status`, `_failing_tests`), `finish.py`, `facts.py`, `report.py` (`render`), `report.schema.json`; `src/sharpit/engine/advisors/findings.py` (`Finding`, `AdvisorRun.of`), `advisors/report.py::apply_dismissals`, `collectors/restapi/service.py` (`_run`, `_scan`, `assess`, `report`, `scan` call sites); pytest plugin option/gate/report/xdist modules created by F; `tests/engine/testsession/`, `tests/engine/advisors/`, `tests/engine/collectors/restapi/`, `tests/pytest_plugin/`, both schema copies, `docs/reference/` report contract, lane evidence folder.
 - **Must not touch:** G3 action/summary modules; G4 procurement docs/Dependabot; panel routes, registries or UI; `scripts/dev/lane_gate.py`; `tests/complexity_baseline.json`, `sonar-baseline.txt`, overhead budget constants, dependency lists or `uv.lock`.
 
 ## Global constraints
@@ -42,11 +42,12 @@
 
 **Interfaces:** `read(path: Path) -> Baseline` validates schema `sharpit-baseline/1`, shape, unique fingerprints and readable JSON. `compare(findings: Sequence[Finding], baseline: Baseline | None, *, partial: bool) -> BaselineComparison` returns per-finding state (`existing`/`new`) and unseen fingerprints as `fixed` only for complete runs; partial unseen entries have `fixed=None`, `fixedReason="partial run"`. Baseline entries include `ruleId`. `write(path: Path, findings: Sequence[Finding]) -> None` emits stable sorted keys `fingerprint,target,ruleId,message,observed`, masked messages, and no timestamp/version.
 
-- [ ] **Step 1: Failing tests.** `test_baseline_schema_and_sorted_bytes`, `test_baseline_rejects_bad_schema`, `test_baseline_rejects_duplicate_fingerprint`, `test_compare_existing_new_and_fixed`, `test_partial_unseen_is_null_with_reason`, `test_baseline_write_masks_values`, `test_count_gate_increase_is_new`.
-- [ ] **Step 2: Run `tests/engine/testsession/test_baseline.py`; expected named assertion failures.**
-- [ ] **Step 3: Implement read/compare/write.** `observed` is null for non-count findings; a count increase changes a listed fingerprint to `new`.
-- [ ] **Step 4: Run targeted tests; expected PASS.**
-- [ ] **Step 5: Commit** `feat: add stable sharpit baseline format and comparison`.
+- [ ] **Step 1: Failing tests and importable stubs.** `test_baseline_schema_and_sorted_bytes`, `test_baseline_rejects_bad_schema`, `test_baseline_rejects_duplicate_fingerprint`, `test_compare_existing_new_and_fixed`, `test_partial_unseen_is_null_with_reason`, `test_baseline_write_masks_values`, `test_count_gate_increase_is_new`; stubs return incorrect values and do not raise `NotImplementedError`.
+- [ ] **Step 2: Commit the red** as `test: pin baseline document and comparison`; record each red test name and red SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3: Replay named assertions at their recorded red SHA** with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4: Implement read/compare/write.** `observed` is null for non-count findings; a count increase changes a listed fingerprint to `new`.
+- [ ] **Step 5: Run targeted tests; expected PASS.**
+- [ ] **Step 6: Commit** `feat: add stable sharpit baseline format and comparison`.
 
 ### Task 2: Apply baselines to gates and advisor findings
 
@@ -54,11 +55,12 @@
 
 **Interfaces:** Add `Finding.observed: int | None = None`, emitted by `Finding.to_dto`; preserve `observed` and `baselineState` through `engine/testsession/facts.py::_finding_from` and `Finding.to_dto`. Extend `gates.evaluate_test` with optional baseline input and annotate findings with `baselineState`. Only `not dismissed and baselineState != "existing"` fails. Preserve existing calls with no baseline.
 
-- [ ] **Step 1: Failing tests.** Review Focus 3–5 plus `test_unlisted_finding_is_new`, `test_unbaselined_run_has_null_baseline_state`, `test_explicit_dismissed_finding_stays_dismissed`, `test_max_queries_fingerprint_is_node_id`, `test_vulnerability_findings_excluded_from_baseline`.
-- [ ] **Step 2: Run owning tests; expected baseline-state/count assertions fail.**
-- [ ] **Step 3: Implement additive finding fields and baseline-aware gate/advisor evaluation.** Keep dismissal semantics unchanged.
-- [ ] **Step 4: Run tests; expected PASS.**
-- [ ] **Step 5: Commit** `feat: apply baseline states to gate and advisor findings`.
+- [ ] **Step 1: Failing tests and importable stubs.** Review Focus 3–5 plus `test_unlisted_finding_is_new`, `test_unbaselined_run_has_null_baseline_state`, `test_explicit_dismissed_finding_stays_dismissed`, `test_max_queries_fingerprint_is_node_id`, `test_vulnerability_findings_excluded_from_baseline`; stubs return incorrect values and do not raise `NotImplementedError`.
+- [ ] **Step 2: Commit the red** as `test: pin baseline-aware findings`; record each red test name and red SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3: Replay named assertions at their recorded red SHA** with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4: Implement additive finding fields and baseline-aware gate/advisor evaluation.** Keep dismissal semantics unchanged.
+- [ ] **Step 5: Run tests; expected PASS.**
+- [ ] **Step 6: Commit** `feat: apply baseline states to gate and advisor findings`.
 
 ### Task 3: Capture complete/partial execution facts across xdist
 
@@ -66,11 +68,12 @@
 
 **Interfaces:** Worker facts carry deselected count and selection inputs (`-k`, `-m`, node ids, `--lf`, `--deselect`, `--sw`); controller facts carry `-x`/`--maxfail`, `session.shouldstop`, `KeyboardInterrupt`, and collected vs run. `partial_run(worker_facts, controller_facts) -> bool`. Controller reads `workeroutput` without relying on its own collection.
 
-- [ ] **Step 1: Failing tests.** Review Focus 2; `test_partial_when_deselected`, `test_partial_when_keyword_or_nodeid_selected`, `test_partial_when_last_failed_or_deselect_used`, `test_partial_when_maxfail_or_shouldstop`, `test_partial_when_interrupted`, `test_xdist_partial_facts_merged`.
-- [ ] **Step 2: Run pytester tests; expected partial-classification assertions fail.**
-- [ ] **Step 3: Implement transport and deterministic partial classification.**
-- [ ] **Step 4: Run targeted single-process and xdist tests; expected PASS.**
-- [ ] **Step 5: Commit** `feat: detect partial sharpit pytest runs across xdist`.
+- [ ] **Step 1: Failing tests and importable stubs.** Review Focus 2; `test_partial_when_deselected`, `test_partial_when_keyword_or_nodeid_selected`, `test_partial_when_last_failed_or_deselect_used`, `test_partial_when_maxfail_or_shouldstop`, `test_partial_when_interrupted`, `test_xdist_partial_facts_merged`; stubs return incorrect values and do not raise `NotImplementedError`.
+- [ ] **Step 2: Commit the red** as `test: pin partial-run facts across xdist`; record each red test name and red SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3: Replay named assertions at their recorded red SHA** with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4: Implement transport and deterministic partial classification.**
+- [ ] **Step 5: Run targeted single-process and xdist tests; expected PASS.**
+- [ ] **Step 6: Commit** `feat: detect partial sharpit pytest runs across xdist`.
 
 ### Task 4: Add report-only mode and preserve unknown failure semantics
 
@@ -78,23 +81,25 @@
 
 **Interfaces:** `PluginOptions` gains `report_only: bool`. Extend `outcome.exit_fails(status, allow_unknown, *, report_only=False, unknown_reasons=()) -> bool`. In report-only, gate findings do not fail pytest reports or session exitstatus; unknown reasons fail unless allowed, regardless of aggregate status. Report adds `mode` and `unknownReasons`; JUnit finding cases have no `<failure>`, while `sharpit.status` fails only for unknown reasons. Terminal line: `sharpit report-only: N tests would fail, status <status>`.
 
-- [ ] **Step 1: Failing tests.** Review Focus 1; `test_report_only_does_not_fail_finding_test`, `test_report_only_junit_finding_without_failure`, `test_report_only_unknown_reason_fails`, `test_report_only_still_fails_on_unknown_reason_when_status_is_fail`, `test_report_only_allow_unknown_exits_zero`, `test_report_only_mode_report_and_summary`, `test_fail_on_still_selects_advisor_findings`.
-- [ ] **Step 2: Run targeted tests; expected report, JUnit and exit assertions fail.**
-- [ ] **Step 3: Implement mode-specific behavior without changing gate/advisor computation.**
-- [ ] **Step 4: Run targeted plugin/outcome tests; expected PASS.**
-- [ ] **Step 5: Commit** `feat: add report-only pytest mode with unknown guard`.
+- [ ] **Step 1: Failing tests and importable stubs.** Review Focus 1; `test_report_only_does_not_fail_finding_test`, `test_report_only_junit_finding_without_failure`, `test_report_only_unknown_reason_fails`, `test_report_only_still_fails_on_unknown_reason_when_status_is_fail`, `test_report_only_allow_unknown_exits_zero`, `test_report_only_mode_report_and_summary`, `test_fail_on_still_selects_advisor_findings`; stubs return incorrect values and do not raise `NotImplementedError`.
+- [ ] **Step 2: Commit the red** as `test: pin report-only unknown handling`; record each red test name and red SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3: Replay named assertions at their recorded red SHA** with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4: Implement mode-specific behavior without changing gate/advisor computation.**
+- [ ] **Step 5: Run targeted plugin/outcome tests; expected PASS.**
+- [ ] **Step 6: Commit** `feat: add report-only pytest mode with unknown guard`.
 
 ### Task 5: Wire read/write options and baseline lifecycle
 
-**Files:** Modify plugin option modules/hooks, baseline/report modules and both `report.schema.json` copies; tests `tests/pytest_plugin/test_plugin_baseline.py`, `tests/test_report_schema.py`; update report contract under `docs/reference/`.
+**Files:** Modify plugin option modules/hooks, baseline/report modules and both `report.schema.json` copies; tests `tests/pytest_plugin/test_plugin_baseline.py`; update report contract under `docs/reference/`. `tests/test_report_schema.py::test_schema_copies_identical` already exists and is a passing control, not a red.
 
-**Interfaces:** `--sharpit-baseline=PATH` / ini `sharpit_baseline`; `--sharpit-write-baseline=PATH` / ini `sharpit_write_baseline`. Bad/unreadable input raises `pytest.UsageError` at session start. Load baseline on every worker. Write only for complete runs with zero unknown reasons; otherwise session-end `pytest.UsageError` and destination absent/unchanged. `outcome.py::session_status` and `testsession/finish.py::finish` always compute unknown reasons, including when aggregate status is `fail`; `_failing_tests` and `_fail_reasons` exclude findings with `baselineState == "existing"`. Compute `fixed` on the controller from merged findings, never per worker. Report adds `baseline: null | {path,sha256,existing,new,fixed,fixedReason}` plus finding `baselineState` and `observed`, all keys emitted. Per-finding dismissals are Task 6's conditional step (the second of D1 and G1G2 to merge wires `dismissed_pairs()`); preserve the existing `DismissalStore.list()` rule-id behavior.
+**Interfaces:** `--sharpit-baseline=PATH` / ini `sharpit_baseline`; `--sharpit-write-baseline=PATH` / ini `sharpit_write_baseline`. Bad/unreadable input raises `pytest.UsageError` at session start. Load baseline on every worker. Write only for complete runs with zero unknown reasons; otherwise session-end `pytest.UsageError` and destination absent/unchanged. `outcome.py::session_status` and `testsession/finish.py::finish` always compute unknown reasons, including when aggregate status is `fail`; `_failing_tests` and `_fail_reasons` exclude findings with `baselineState == "existing"`. Compute `fixed` on the controller from merged findings, never per worker. Report adds `baseline: null | {path,sha256,existing,new,fixed,fixedReason}` plus finding `baselineState` and `observed`, all keys emitted. Task 6 owns all matching between `DismissalStore.dismissed_pairs()` and the gate; preserve `DismissalStore.list()` rule-id behavior too.
 
-- [ ] **Step 1: Failing tests.** `test_bad_baseline_usage_error_at_session_start`, `test_write_baseline_is_only_writer`, `test_write_refuses_partial_run`, `test_write_refuses_any_unknown_even_when_status_fail`, `test_write_refusal_leaves_file_absent`, `test_baseline_loaded_on_every_xdist_worker`, `test_report_baseline_counts_and_nulls`, `test_schema_accepts_additive_baseline_fields`, `test_schema_copies_identical`, and canonical `test_write_baseline_refused_on_partial_xdist_run`.
-- [ ] **Step 2: Run tests; expected assertions fail.**
-- [ ] **Step 3: Implement lifecycle and synchronized schema changes.**
-- [ ] **Step 4: Run targeted tests and four gates; expected PASS.** Update the lane-owned handoff with current head and next step; the coordinator stores gate output separately in integration evidence.
-- [ ] **Step 5: Commit** `feat: wire baseline options and report contract`.
+- [ ] **Step 1: Failing tests and importable stubs.** `test_bad_baseline_usage_error_at_session_start`, `test_write_baseline_is_only_writer`, `test_write_refuses_partial_run`, `test_write_refuses_any_unknown_even_when_status_fail`, `test_write_refusal_leaves_file_absent`, `test_baseline_loaded_on_every_xdist_worker`, `test_report_baseline_counts_and_nulls`, `test_schema_accepts_additive_baseline_fields`, and canonical `test_write_baseline_refused_on_partial_xdist_run`; stubs return incorrect values and do not raise `NotImplementedError`.
+- [ ] **Step 2: Commit the red** as `test: pin baseline lifecycle and report schema`; record each red test name and red SHA in `findings.md` and `handoff.md`. Keep `test_schema_copies_identical` as a green control, not a red.
+- [ ] **Step 3: Replay named assertions at their recorded red SHA** with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4: Implement lifecycle and synchronized schema changes.**
+- [ ] **Step 5: Run targeted tests and four gates; expected PASS.** Update the lane-owned handoff with current head and next step; the coordinator stores gate output separately in integration evidence.
+- [ ] **Step 6: Commit** `feat: wire baseline options and report contract`.
 
 ### Compatibility and precedence matrix
 
@@ -124,11 +129,13 @@ Schema and render tests pin baseline object keys (`path`, `sha256`, `existing`, 
 - [ ] **Step 2:** Assert a missing baseline emits `baseline: null`, `baselineState: null`, and `observed: null` in rendered output.
 - [ ] **Step 3:** Assert schema validation accepts older reports without additive fields and new reports with them.
 
-### Task 6 (council round 2): failing predicate, status tuple, errored rules, per-finding dismissals
+### Task 6 (council round 3): failing predicate, status, incomplete failed runs, per-finding dismissals
 
 **Files:** `src/sharpit/engine/testsession/gates.py`, `src/sharpit/engine/testsession/outcome.py`,
-`src/sharpit/engine/collectors/restapi/service.py`, F's post-split pytest-plugin modules (F table), tests under
-`tests/engine/testsession/` and `tests/pytest_plugin/`.
+`src/sharpit/engine/testsession/finish.py`, `src/sharpit/engine/advisors/report.py`,
+`src/sharpit/engine/advisors/findings.py`, `src/sharpit/engine/collectors/restapi/service.py`, F's post-split
+pytest-plugin modules (F table), tests under `tests/engine/testsession/`, `tests/engine/advisors/`,
+`tests/engine/collectors/restapi/` and `tests/pytest_plugin/`.
 
 **Interfaces:**
 - `gates.fails(dto: Mapping[str, Any]) -> bool` = `not dto["dismissed"] and dto.get("baselineState") != "existing"
@@ -136,23 +143,30 @@ Schema and render tests pin baseline object keys (`path`, `sha256`, `existing`, 
   `outcome._failing_tests`. Nothing else decides whether a finding fails.
 - `outcome.session_status(...) -> SessionStatus` where `class SessionStatus(NamedTuple): status: str;
   fail_reasons: list[str]; unknown_reasons: list[str]`; unknown reasons are computed even when `status == "fail"`.
-  Every caller of `session_status` is updated; `exit_fails(...)` takes `unknown_reasons` from it.
-- `restapi/service.py::_run`: an errored rule yields `RuleResult.skipped(rule)` (the existing constructor in
-  `engine/advisors/rules.py`) plus an unknown reason; `RestApiService.summary` counts `SKIPPED`.
-- Per-finding dismissals: if D1 is already merged when this lane starts, wire `DismissalStore.dismissed_pairs()` into
-  the dismissed set the plugin loads (F's post-split module, not the stale `__init__.py:241`) and match
-  `(f.rule_id, f.identity or f.target)`; if D1 merges after this lane, D1 does it. Either way the second lane to merge
-  owns `test_per_finding_dismissal_reaches_gate`.
+  Callers `outcome.py` and `testsession/finish.py:42` consume its three fields; `exit_fails(...)` takes
+  `unknown_reasons` from it.
+- Incomplete failed advisor runs: `AdvisorRun.of` (`engine/advisors/findings.py:70-71`) preserves the incompleteness
+  reason and limitations on a `FAILED` run; `outcome._unknown_reasons` emits those limitations even for `FAILED`.
+  Add `test_failed_run_with_incomplete_scan_has_unknown_reason`. `_evaluate` already skips errored rules
+  (`service.py:61-63`) and a `PARTIAL` scan already becomes `UNKNOWN`.
+- Per-finding dismissals are wholly owned here: `RestApiService._scan` changes each occurrence from
+  `(fingerprint, message)` to `(fingerprint, message, identity_or_target)`; `_run` and `assess` accept dismissed pairs
+  and match `(f.rule_id, f.identity or f.target)`; `advisors/report.py::apply_dismissals` accepts
+  `occurrences: Mapping[str, Sequence[tuple[str, str, str]]] | None` and `dismissed_pairs`, matching
+  `(rule_id, identity_or_target) in pairs`.
+  Plugin gate loading passes `DismissalStore.dismissed_pairs()` to `testsession.gates._finding`.
+  `test_per_finding_dismissal_reaches_gate` uses a store returning a fixed pair, independent of D1's implementation.
 
-- [ ] **Step 1: Failing tests.** `test_fails_excludes_existing_and_info` (a baselined `existing` finding and an `INFO`
-  finding do not fail; a `HIGH` new one does), `test_session_status_reports_unknown_reasons_when_fail`,
-  `test_errored_rule_is_skipped_with_unknown_reason`, and, if D1 is merged, `test_per_finding_dismissal_reaches_gate`.
-  Expected red: the assertions (no `fails`, `session_status` returns a 2-tuple or drops unknown reasons, errored rules
-  are `FAILED`), never an import error.
-- [ ] **Step 2: Implement** the predicate, `SessionStatus`, the errored-rule mapping and (if applicable) the dismissal
-  wiring; update every caller found by `grep -rn "session_status\|_failing_tests" src tests`.
-- [ ] **Step 3: Run** the four gates; `test_schema_copies_identical` already exists and is not a red.
-- [ ] **Step 4: Commit** `feat: one failing predicate and unknown reasons alongside fail`.
+- [ ] **Step 1: Failing tests and importable stubs.** `test_fails_excludes_existing_and_info` (a baselined `existing`
+  finding and an `INFO` finding do not fail; a `HIGH` new one does), `test_session_status_reports_unknown_reasons_when_fail`,
+  `test_failed_run_with_incomplete_scan_has_unknown_reason`, and `test_per_finding_dismissal_reaches_gate`; stubs return
+  incorrect values and do not raise `NotImplementedError`.
+- [ ] **Step 2: Commit the red** as `test: pin gate status and per-finding dismissal contracts`; record each red test name and SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3: Replay named assertions at their recorded red SHA** with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4: Implement** the predicate, `SessionStatus`, preservation/emission of incomplete-run limitations, and all
+  dismissal matching; update callers in `outcome.py` and `testsession/finish.py`.
+- [ ] **Step 5: Run** the four gates and verify `test_schema_copies_identical` remains green (it is not a red).
+- [ ] **Step 6: Commit** `feat: preserve unknown reasons and match per-finding dismissals`.
 
 ## Lane evidence checklist
 
@@ -166,7 +180,7 @@ Schema and render tests pin baseline object keys (`path`, `sha256`, `existing`, 
 - A red is a defect-naming assertion, not import/collection failure. Spike tests assert desired behavior and are red on 0.3.0.
 - Do not edit shared `tests/test_safety_matrix.py` or `tests/test_masking_corpus.py`; use `tests/safety/test_g1g2_safety.py` and `tests/masking/test_g1g2_masking.py`.
 - PLAN.md Review Focus names are canonical; use `test_report_only_still_fails_on_unknown_reason_when_status_is_fail` and `test_write_baseline_refused_on_partial_xdist_run` verbatim.
-- Dependencies are exactly `F, D1, G6`; no stale wave or P1–P3 names.
+- Dependencies are exactly `F, G6`; no stale wave, P1–P3 or D1 dependency.
 - §6.1 checklist follows its ten items in order, attributed to the owning task; non-panel items are `N/A` with reason.
 
 | Spec §6.1 item | G1G2 task / evidence owner |

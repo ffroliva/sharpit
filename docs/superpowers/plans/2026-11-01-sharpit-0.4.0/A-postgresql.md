@@ -10,8 +10,8 @@
 | **Spec** | §4, §6.1 (esp. 3 masking of `pg_stat_statements`/`pg_stat_activity`, 9 leased database), §6.3, **§6.4 entire**, §7 row `postgresql`, §11 |
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-A.md` §5; BootUI `engine/postgres/*` (`PostgresInsightService.java`, `PostgresQuery.java`, the eight `*Collector.java`, `PostgresSectionIds.java`), DTOs `Postgres*Dto` |
 | **Worker** | L, judgement-heavy (transaction safety) → codex; reviewer from another family + `ponytail-review` (touches `sqla.py`) |
-| **Depends on** | F (PLAN.md; F adds `psycopg[binary]` to the test extra, F1d — see Task 0). Consumes F's F1a table (`F-foundation.md`): `fastapi/routes/postgresql.py`, the `implemented` flag, the MCP stub module, `tests/golden.py::assert_parity`, the `ui/src/views/Postgresql.svelte` placeholder, the `tests/safety/` + `tests/masking/` helpers |
-| **May touch** | `src/sharpit/engine/sqla.py` (**only** `run_db_read` keyword-only parameters and the new `bounded_read_only`; this lane owns these edits), `src/sharpit/engine/collectors/postgresql/` (new package), `src/sharpit/fastapi/routes/postgresql.py` (F stub), this panel's `src/sharpit/engine/panels04/postgresql.py` and `ui/src/lib/panels04/postgresql.ts` implemented flags only, `ui/src/views/Postgresql.svelte` (replace F's placeholder) + `.test.ts`, `tests/engine/test_sqla_read_only.py`, `tests/engine/postgresql/`, `tests/fastapi/test_postgresql_api.py`, `tests/safety/test_a_postgresql_safety.py`, `tests/masking/test_a_postgresql_masking.py`, `tests/fixtures/bootui/2.2.0/postgresql/*`, the implementer files in the lane folder (C2) |
+| **Depends on** | F (PLAN.md; F adds `psycopg[binary]` to the test extra, F1d — see Task 0). Consumes F's interface table (`F-foundation.md`): `fastapi/routes/postgresql.py`, the two `implemented` flag files, `engine/tools04/postgresql.py` if F-rest has supplied it (otherwise this lane creates its own module), `tests/golden.py::assert_parity`, the `ui/src/views/Postgresql.svelte` placeholder. The shared `tests/safety/` and `tests/masking/` helpers are deferred to F-rest; if absent, this lane uses its own tests without shared helpers. |
+| **May touch** | `src/sharpit/engine/sqla.py` (**only** `run_db_read` keyword-only parameters and the new `bounded_read_only`; this lane owns these edits), `src/sharpit/engine/collectors/postgresql/` (new package), `src/sharpit/fastapi/routes/postgresql.py` (F stub), this panel's `src/sharpit/engine/panels04/postgresql.py` and `ui/src/lib/panels04/postgresql.ts` implemented flags only, `ui/src/views/Postgresql.svelte` (replace F's placeholder) + `Postgresql.test.ts`, `tests/engine/test_sqla_read_only.py`, `tests/engine/postgresql/`, `tests/fastapi/test_postgresql_api.py`, `tests/safety/test_a_postgresql_safety.py`, `tests/masking/test_a_postgresql_masking.py`, `tests/fixtures/bootui/2.2.0/postgresql/nullable.json` only, the implementer files in the lane folder (C2) |
 | **Must NOT touch** | §10.3 protected files (no dependency edit: a missing driver is a coordinator `Ruling:`); `bounded` (`sqla.py:352-380`) and its callers `collectors/alembic.py`, `collectors/health.py` — **unchanged**; `examples/fastapi_sqla/`, `tests/test_example_app.py`, `README.md`, `skills/sharpit/SKILL.md` (F owns shared wiring; user text goes in lane `docs.md`); other lanes' modules; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
 
 **Architecture:** `async def run_db_read` (`sqla.py:383`) gains `*, wall_timeout: float | None = None, statement_timeout: float |
@@ -33,8 +33,9 @@ every optional query runs in `conn.begin_nested()`. State (last report, previous
 - Every optional catalog query inside `begin_nested()`, always; one failing query never aborts the transaction.
 - No driver imported by sharpit; SQL through the app's engine (async engines via `run_sync`, `sqla.py:402-408`).
 - BootUI bounds: statement 5 s, lock 2 s, overall 15 s; statement text ≤ 400 chars; curated settings allow-list;
-  row limits `postgresql_max_sessions=100, max_statements=100, max_indexes=500, max_tables=200,
-  max_vacuum_tables=200, max_replicas=10, max_settings=40` (env `SHARPIT_POSTGRESQL_*`, 1..2147483646, invalid →
+  row limits `postgresql_max_sessions=100, postgresql_max_statements=100, postgresql_max_indexes=500, postgresql_max_tables=200,
+  postgresql_max_vacuum_tables=200, postgresql_max_replicas=10, postgresql_max_settings=40` (each field's env is its name
+  with `SHARPIT_` prefix, 1..2147483646, invalid →
   default + warning). Constants `STATEMENT_TIMEOUT = 5.0`, `LOCK_TIMEOUT = 2.0`, `READ_BUDGET = 15.0`.
 - Statement and session query text masked (`normalize_sql` from `capture/sqltrace.py:280`, then
   `ctx.masker.mask_text`, then 400-char cut); client addresses follow the exposure policy; setting values withheld
@@ -89,7 +90,7 @@ every optional query runs in `conn.begin_nested()`. State (last report, previous
   supported for <dialect>")`.
 - `READ_ONLY_REFUSED = "The read-only transaction could not be established, so sharpit skipped this read"`.
 
-- [ ] **Step 1:** Stub, then tests:
+- [ ] **Step 1: Add importable stubs and tests:**
   - `test_default_path_unchanged` — a spy on `bounded`; `run_db_read(e, fn, 5)` calls it with `5`; alembic and health
     tests untouched and green (run `tests/engine/test_alembic.py tests/engine/test_health.py`).
   - `test_separate_wall_and_statement_timeouts` — statement 0.2, wall 2 → `SET LOCAL statement_timeout = 200`.
@@ -106,8 +107,10 @@ every optional query runs in `conn.begin_nested()`. State (last report, previous
     `test_autocommit_engine_is_unavailable` (canonical names, PLAN.md Review Focus 4), `test_async_engine_read_only`
     (`postgresql+psycopg` async).
   - `test_internal_marker_kept` — SQL Trace records none of the setup statements.
-- [ ] **Step 2:** FAIL on assertions. **Step 3:** Implement; transaction ends with rollback (never commit).
-- [ ] **Step 4:** PASS (leased tests ran: paste output). Commit `feat: read-only bounded reads for catalog panels`.
+- [ ] **Step 2: Commit the red** plus wrong-value stubs as `test: pin read-only SQL wrapper contracts`; record each red test name and SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3:** Replay named assertions at their recorded red SHA with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4:** Implement; transaction ends with rollback (never commit).
+- [ ] **Step 5:** PASS (leased tests ran: paste output). Commit `feat: read-only bounded reads for catalog panels`.
 
 ### Task 2: Query text, formatting and row limits
 
@@ -117,11 +120,14 @@ every optional query runs in `conn.begin_nested()`. State (last report, previous
 **Interfaces:** `query_text(masker: Masker, sql: str | None) -> str | None` (normalise, mask, collapse whitespace,
 cut 400 + `"..."`); `RowLimits` dataclass from settings; `read_one_past(rows, limit) -> tuple[list, bool]`.
 
-- [ ] **Step 1:** Tests (`# ported: PostgresHelpersTests.queryTextAppliesExposureRedactionWhitespaceAndTruncation`,
+- [ ] **Step 1: Add importable stubs and tests** (`# ported: PostgresHelpersTests.queryTextAppliesExposureRedactionWhitespaceAndTruncation`,
   `.queryTextMasksDollarQuotedBodies`, `.queryTextMasksEscapeStringsInsteadOfStoppingAtTheEscapedQuote`,
   `.rowsDistinguishEmptyAvailableFromFailedAndCopyRows`; `PostgresRowLimitsTests.defaultsIncreaseRowCoverageWithoutRelaxingTimeOrTextBounds`;
   `PostgresCollectorsTests.listQueriesReadOnePastTheBoundAndReportTruncation`; `PostgresInsightServiceTests.exactlyTheRowLimitIsNotReportedAsTruncated`).
-- [ ] **Step 2:** FAIL → **Step 3:** implement → **Step 4:** PASS. Commit `feat: postgresql query text and row limits`.
+- [ ] **Step 2:** Commit assertion reds plus wrong-value stubs as `test: pin PostgreSQL query text and row limits`; record each red test name and SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3:** Replay named assertions at their recorded red SHA with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4:** Implement.
+- [ ] **Step 5:** PASS. Commit `feat: postgresql query text and row limits`.
 
 ### Task 3: Section collectors
 
@@ -136,7 +142,7 @@ reason (`CredentialRedaction` analogue: `masker.mask_text`). `ReadBudget(deadlin
 `exhausted()`; an exhausted budget marks remaining sections `SKIPPED` "The read budget ran out before this section was
 read.".
 
-- [ ] **Step 1:** Tests ported from `PostgresCollectorsTests`: `statementCollectorPicksTimingColumnsFromTheExtensionNotTheServer`,
+- [ ] **Step 1: Add importable stubs and tests** ported from `PostgresCollectorsTests`: `statementCollectorPicksTimingColumnsFromTheExtensionNotTheServer`,
   `missingPgStatStatementsExtensionIsSkippedWithActionableHint`, `failedCollectorQueriesKeepCredentialRedactedReason`,
   `aFailedQueryDoesNotPoisonTheSectionsReadAfterIt`, `vitalSignsReportTheSessionBreakdownAsUnknownWhenBackendsAreHidden`,
   `sessionClientAddressFollowsTheExposurePolicy`, `replicaClientAddressFollowsTheExposurePolicy`,
@@ -145,8 +151,10 @@ read.".
   `aBudgetExhaustedBeforeTheFirstRowDoesNotProduceAnAvailableEmptyList`; from `PostgresHelpersTests`:
   `vacuumDueHonoursPerTableReloptionsOverrides`, `vacuumThresholdFloorsSoTheComparisonMatchesPostgreSql`.
   Leased PG: `test_sections_on_real_server` (every section `AVAILABLE` or `SKIPPED` with a reason; DTO keys complete).
-- [ ] **Step 2:** FAIL → **Step 3:** implement (version-dependent views resolved from the catalog, as BootUI) →
-  **Step 4:** PASS. Commit `feat: postgresql catalog section collectors`.
+- [ ] **Step 2:** Commit assertion reds plus wrong-value stubs as `test: pin PostgreSQL section collector contracts`; record each red test name and SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3:** Replay named assertions at their recorded red SHA with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4:** Implement (version-dependent views resolved from the catalog, as BootUI).
+- [ ] **Step 5:** PASS. Commit `feat: postgresql catalog section collectors`.
 
 ### Task 4: Service: report, refresh, comparison
 
@@ -158,7 +166,7 @@ read.".
 status, message, readAt, databasesRead, truncated, databases, diagnostics, limitations` with BootUI's `DISCLAIMER`
 and messages; status `NOT_READ`/`DISABLED`/`ERROR`/`PARTIAL`/`READ` by `PostgresInsightService.java:196-207`.
 
-- [ ] **Step 1:** Tests (`# ported: PostgresInsightServiceTests.*`): `initialReportTouchesNeitherDiscoveryNorDatabase`,
+- [ ] **Step 1: Add importable stubs and tests** (`# ported: PostgresInsightServiceTests.*`): `initialReportTouchesNeitherDiscoveryNorDatabase`,
   `nonPostgresDatasourceIsReportedHonestlyWithoutADatabaseReport`, `datasourceThatRefusesConnectionsProducesErrorAndDiagnostic`,
   `aDatasourceConnectionAlreadyInManualCommitModeIsSkipped` (→ AUTOCOMMIT analogue, sharpit text `READ_ONLY_REFUSED`),
   `configuredRowLimitsReachEveryCollector`, `statementTextGoesThroughExposurePolicy`,
@@ -168,11 +176,14 @@ and messages; status `NOT_READ`/`DISABLED`/`ERROR`/`PARTIAL`/`READ` by `Postgres
   `inMemoryPreviousReadDeltaAppearsOnlyFromSecondReadAndIsNotPersisted`,
   `aPartialReadKeepsTheBaselineOfTheSectionsItCouldNotRead`; plus `test_no_engine_is_disabled`,
   `test_non_postgres_engine_is_skipped`, `test_concurrent_read_is_busy`.
-- [ ] **Step 2:** FAIL → **Step 3:** implement → **Step 4:** PASS. Commit `feat: postgresql read service`.
+- [ ] **Step 2:** Commit assertion reds plus wrong-value stubs as `test: pin PostgreSQL report service contracts`; record each red test name and SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3:** Replay named assertions at their recorded red SHA with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4:** Implement.
+- [ ] **Step 5:** PASS. Commit `feat: postgresql read service`.
 
 ### Task 5: Routes, MCP, safety, masking corpus
 
-**Files:** `src/sharpit/fastapi/routes/postgresql.py` (F stub), flag flip; Tests `tests/fastapi/test_postgresql_api.py`,
+**Files:** `src/sharpit/fastapi/routes/postgresql.py` (F stub), `src/sharpit/engine/tools04/postgresql.py` only if F-rest has not created it, flag flip; Tests `tests/fastapi/test_postgresql_api.py`,
 `tests/safety/test_a_postgresql_safety.py`, `tests/masking/test_a_postgresql_masking.py` (rows: `pg_stat_activity.query`
 with `STRIPE_KEY`, `pg_stat_statements.query` with `password=`, an error carrying a DSN password), on F's shared
 helpers (C5).
@@ -180,24 +191,26 @@ helpers (C5).
 **Interfaces:** `GET {api}/postgresql`, `POST {api}/postgresql/read`. MCP `get_postgresql_report` (read);
 `postgresql_read` `action=True` (CLI-only). `actionCapable=True`; read-only → 403 on POST.
 
-- [ ] **Step 1:** Tests: `test_golden_parity` (`assert_parity("postgresql", "report", body)` after a leased read; the
-  `NOT_READ` report against the golden otherwise), `getReturnsTheNotReadReportBeforeAnyRead`,
+- [ ] **Step 1: Add importable stubs and tests:** `test_golden_parity` (`assert_parity("postgresql", "report", body)` after a leased read; use G0a's `captured.json` or `<name>.captured.json` when present, otherwise the coordinator-requested `provisional.json` marked unverified; compare nullable fields with this lane's `nullable.json`), `getReturnsTheNotReadReportBeforeAnyRead`,
   `readPerformsTheReadAndReturnsAReport`, `getReturnsTheLastReadReportAfterARead` (`# ported: PostgresqlControllerTests.*`),
   `test_get_no_side_effects` (no socket, no SQL: a `before_cursor_execute` spy sees nothing), `test_read_only_403`,
-  `test_mcp_read_tool_only`, the masking rows. Fixture at `tests/fixtures/bootui/2.2.0/postgresql/report.json` +
-  `nullable.json` (C3).
-- [ ] **Step 2:** FAIL → **Step 3:** implement → **Step 4:** PASS + full gate (background). Commit
-  `feat: postgresql panel routes and MCP read tool`.
+  `test_mcp_read_tool_only`, the masking rows. This lane writes only `tests/fixtures/bootui/2.2.0/postgresql/nullable.json`; G0a's worker owns `captured.json`, and a different worker writes `provisional.json` when requested.
+- [ ] **Step 2:** Commit assertion reds plus wrong-value stubs as `test: pin PostgreSQL API and safety contracts`; record each red test name and SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3:** Replay named assertions at their recorded red SHA with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4:** Implement.
+- [ ] **Step 5:** PASS + full gate (background). Commit `feat: postgresql panel routes and MCP read tool`.
 
 ### Task 6: Svelte view
 
-**Files:** Replace F's placeholder `ui/src/views/Postgresql.svelte`, create `.test.ts`; flip the panel's `implemented`
-in F's `ui/src/lib/nav.ts` wiring (flag only).
+**Files:** Replace F's placeholder `ui/src/views/Postgresql.svelte`, create `Postgresql.test.ts`; flip only
+`src/sharpit/engine/panels04/postgresql.py::IMPLEMENTED` and `ui/src/lib/panels04/postgresql.ts::implemented`.
 
-- [ ] **Step 1:** vitest: `NOT_READ` shows the read button and message; sections render status/reason/hint;
+- [ ] **Step 1:** Write vitest assertions: `NOT_READ` shows the read button and message; sections render status/reason/hint;
   `changes` render only from the second read; the read button is hidden when `readOnly`. Reference
   `views/Postgresql.vue`.
-- [ ] **Step 2:** FAIL → implement → `npm --prefix ui run check` + tests PASS. Commit `feat: postgresql view`.
+- [ ] **Step 2:** Commit the assertion red as `test: pin PostgreSQL panel view`; record each red test name and SHA in `findings.md` and `handoff.md`.
+- [ ] **Step 3:** Replay named tests at their recorded red SHA with `--junitxml` in the integration worktree's environment; require a `<failure>` message beginning with `AssertionError`, reject `<error>`/collection errors/passes, and confirm the same tests pass at lane HEAD.
+- [ ] **Step 4:** Implement; `npm --prefix ui run check` + tests PASS. Commit `feat: postgresql view`.
 
 ### Task 7: Live check and evidence
 
@@ -223,14 +236,15 @@ in F's `ui/src/lib/nav.ts` wiring (flag only).
 | 9 live check + leased database (skipped ⇒ unverified) | 0, 1, 3, 7 |
 | 10 handoff current | every commit |
 
-## Leased-database evidence (council round 2)
+## Leased-database evidence (council rounds 2–3)
 
 The implementer runs the leased tests (`SHARPIT_TEST_POSTGRES_URL` from its own `agentctl lease database`) and records
 the command in `handoff.md`, but **that is not the evidence**. Before the merge the coordinator runs the same tests with
-its own lease and writes `gate/leased-pg.log` in the integration worktree, the lane head SHA on its first line. If the
-tests skipped there, the lane is **unverified**: it may merge, but it does not meet the committed definition of done,
-and the morning report says so. `test_read_only_wrapper_rejects_write` and `test_autocommit_engine_is_unavailable` must
-appear as passed (not skipped) in `gate/leased-pg.log`.
+its own lease and writes `gate/leased-pg.log` in the integration worktree, the lane head SHA on its first line. If tests
+are missing or skipped there, the lane is **unverified**. Missing or skipped tests permit gate exit 0 only with
+`--accept-unverified`, which writes `unverified` to the ledger line; otherwise the gate refuses. The two tests
+`test_read_only_wrapper_rejects_write` and `test_autocommit_engine_is_unavailable` must appear as passed (not skipped)
+in `gate/leased-pg.log`.
 
 ## Lane evidence (C2: `.superpowers/sdd/0.4.0/lanes/A-postgresql/`)
 

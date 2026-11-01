@@ -38,6 +38,10 @@ gates and G1G2's report-only/baseline machinery.
   `sharpit.engine.testsession.gates.evaluate_test`; and G1G2's predicate
   `testsession/gates.py::fails(dto: Mapping[str, Any]) -> bool` (not dismissed, `baselineState !=
   "existing"`, `severity != "INFO"`), which is what keeps this lane's notes non-failing.
+  **Ordering (R0):** this lane's May-touch list intersects D4's on
+  `src/sharpit/engine/collectors/restapi/rules.py`, so the chain is serial
+  `T-swallowed-exceptions → D4`: D4 does not start while this lane is in flight, and rebases onto
+  its merge.
 - **May touch:** create `src/sharpit/engine/testsession/swallowed.py`;
   `src/sharpit/engine/testsession/gates.py` (`evaluate_test` at `:34`, `Budget` at `:21`),
   `facts.py` (`PhaseFacts` at `:56`, `TestFacts` at `:87`); create
@@ -51,7 +55,7 @@ gates and G1G2's report-only/baseline machinery.
   create `tests/engine/restapi/test_swallowed_rule.py`; create
   `tests/engine/test_swallowed_overhead.py`; fixture app `tests/fixtures/apps/swallowed_exception/`;
   the implementer files in the lane evidence folder (C2).
-- **Must not touch:** `engine/sqla.py` (O1: A-postgresql), G6's `pytest_plugin/apps.py` and
+- **Must not touch:** `engine/sqla.py` (O1: A-postgresql), `engine/tools.py` (R3), `ui/src/lib/nav.ts` (O4), G6's `pytest_plugin/apps.py` and
   `pytest_plugin/terminal.py` (the notes line is G6's, not this lane's), `README.md`,
   `skills/sharpit/SKILL.md`, `examples/`, `tests/test_example_app.py` (O3: user-facing text goes to
   the lane folder's `docs.md`),
@@ -80,6 +84,13 @@ gates and G1G2's report-only/baseline machinery.
 - Preserve `sharpit-report/1`, fingerprint semantics, and host exception behaviour.
 - A red is the assertion that names the defect (C4); the spike test asserts the **desired**
   failing finding, so it is red on 0.3.0.
+- Each task's red is a **red commit** (R2): subject starts `test:`, holding the failing tests plus the
+  minimal stubs that make them import; a stub returns a wrong value (`False`, an empty list, no
+  finding), it never raises `NotImplementedError`. Its SHA per red test goes into `findings.md` and
+  `handoff.md`; `lane_gate.py` replays each test at that SHA with `--junitxml` (needs a `<failure>`
+  starting `AssertionError`) and again at the lane head (must pass). The "Run on the base" /
+  "Run; expected ... fail" steps below mean this red commit; a review-finding red is replayed on the
+  parent of its fix commit.
 
 ## Review Focus
 
@@ -138,7 +149,9 @@ endpoint returning the incorrect zero count with HTTP 200, and runs under the ex
 - [ ] **Step 3:** Run on the base. Expected red: the assertion on the finding fails (0.3.0
   records no such finding; the endpoint returns 200 with `week_count == 0`); collection and
   imports succeed. Quote the red in `findings.md`.
-- [ ] **Step 4:** Commit `test: reproduce swallowed application exception spike`.
+- [ ] **Step 4:** Commit `test: reproduce swallowed application exception spike` (this is the red
+  commit, R2); record its SHA for `test_spike_f1_swallowed_attribute_error_fails` in `findings.md`
+  and `handoff.md`.
 
 ### Task 2: Specify and test the AST handler predicate
 
@@ -158,8 +171,9 @@ TypeError, NameError, ImportError, UnboundLocalError)`; `is_programming_error(ex
   `test_programming_error_types`; static advisor cases
   `test_fastapi_err_rule_flags_swallowed_broad_handler` and
   `test_fastapi_err_rule_ignores_logged_handler`.
-- [ ] **Step 2: Run on the base;** expected predicate/rule assertions fail (stubs return the
-  wrong value), never an `ImportError` (C4).
+- [ ] **Step 2: Commit the red** (`test: swallowed-handler predicate reds`, stubs return the
+  wrong value) and run it; expected predicate/rule assertions fail, never an `ImportError` or
+  `NotImplementedError` (C4, R2).
 - [ ] **Step 3: Implement cached AST analysis** selecting the handler from the
   `EXCEPTION_HANDLED` code location; match only the §5.5 conditions.
 - [ ] **Step 4: Verify** the static advisor scans route handler modules without invoking
@@ -186,7 +200,8 @@ Add `PhaseFacts.swallowed: list[SwallowedFact]` (handler file/line, exception ty
   both claimed → `attached: false`, no crash), `test_monitoring_tool_freed_at_session_end`
   (also after a hook error), `test_raise_is_not_subscribed` (`sys.monitoring.get_events(id)`
   equals `EXCEPTION_HANDLED` only).
-- [ ] **Step 2:** Run; expected status/event assertions fail; the Task 1 spike stays red.
+- [ ] **Step 2:** Commit the red (`test: monitoring capture reds`, wrong-value stubs) and run;
+  expected status/event assertions fail; the Task 1 spike stays red.
 - [ ] **Step 3: Implement capture and lifecycle**; hook errors warn once and never change test
   results or exception behaviour.
 - [ ] **Step 4: Verify** the filter, contention and cleanup tests green.
@@ -214,7 +229,8 @@ machinery; no new schema field beyond the `Finding` DTO.
   passes; the finding is present with `severity == "INFO"`; `fails(dto)` is false),
   `test_allow_swallowed_marker`,
   `test_bare_exception_handler_gates`, `test_swallowed_respects_report_only_and_baseline`.
-- [ ] **Step 2: Run on the base;** expected rule and marker assertions fail.
+- [ ] **Step 2: Commit the red** (`test: swallowed-exception gate reds`, wrong-value stubs) and run;
+  expected rule and marker assertions fail.
 - [ ] **Step 3: Implement** gate and marker semantics; messages sanitised, no source snippets or
   local values.
 - [ ] **Step 4: Verify** default gate, `INFO` note, explicit marker, report-only, baseline, xdist
