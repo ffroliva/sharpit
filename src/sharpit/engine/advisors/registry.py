@@ -27,33 +27,27 @@ def _fingerprint(advisor: str, rule: str) -> re.Pattern[str]:
     return re.compile(f"{re.escape(advisor)}:{rule}{_DIGEST}")
 
 
-def _owns(advisor: str, exact: Callable[[str], bool]) -> Callable[[str], bool]:
-    """Owns the advisor's fingerprints (``<advisor>:`` prefix) and the rule ids ``exact`` accepts."""
-    prefix = f"{advisor}:"
-    return lambda value: value.startswith(prefix) or exact(value)
-
-
 _RAPI_RULES = "|".join(sorted(map(re.escape, RULE_IDS)))
 
 ADVISORS: tuple[AdvisorSpec, ...] = (
     AdvisorSpec(
         "rest-api",
         "rest-api",
-        _owns("rest-api", RULE_IDS.__contains__),
+        RULE_IDS.__contains__,
         offline=True,
         fingerprint=_fingerprint("rest-api", f"(?:{_RAPI_RULES})"),
     ),
     AdvisorSpec(
         "vulnerabilities",
         "vulnerabilities",
-        _owns("vulnerabilities", lambda value: _VULNERABILITY.fullmatch(value) is not None),
+        lambda value: _VULNERABILITY.fullmatch(value) is not None,
         offline=False,
         fingerprint=_fingerprint("vulnerabilities", _VULNERABILITY_KEY),
     ),
     AdvisorSpec(
         "test-runtime",
         None,
-        _owns("test-runtime", lambda value: value.startswith("sharpit.")),
+        lambda value: value.startswith("sharpit."),
         offline=True,
         fingerprint=_fingerprint("test-runtime", r"sharpit\.[a-z0-9.-]+"),
     ),

@@ -258,9 +258,14 @@ def test_apply_dismissals_per_occurrence():
     assert out["violationsFound"] == 1
 
 
-def test_apply_dismissals_every_occurrence_marks_rule_dismissed():
+def test_all_occurrences_dismissed_keeps_rule_restorable():
+    # a rule is `dismissed` only when its own id is dismissed: Restore DELETEs that id, which fingerprints never stored
     out = apply_dismissals(_occurrence_report(), {fp for fp, _ in _OCCURRENCES["RAPI-004"]}, _OCCURRENCES)
-    assert out["results"][0]["dismissed"] is True
+    result = out["results"][0]
+    assert result["dismissed"] is False
+    assert result["violationCount"] == 0
+    assert result["sampleViolations"] == []
+    assert result["status"] == "PASSED"
     assert out["violationsFound"] == 0
     assert {c["severity"]: c["count"] for c in out["severityCounts"]}["HIGH"] == 0
 
