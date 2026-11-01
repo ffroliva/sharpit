@@ -28,6 +28,7 @@ GATEKEEPERS: dict[str, set[str]] = {
     "sqlite3": {"sharpit/engine/sources/sqlite.py"},
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
+    "opentelemetry": {"sharpit/engine/otel.py"},
     "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},
     "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
     "socket": set(),

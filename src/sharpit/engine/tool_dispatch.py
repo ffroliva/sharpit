@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, NoReturn, cast
+from typing import Any, NoReturn, cast
 
 from sharpit import __version__
 from sharpit.engine.context import SharpitContext
@@ -14,9 +14,6 @@ from sharpit.engine.paging import BadRequest
 from sharpit.engine.panels import disabled_reason, read_only_reason
 from sharpit.engine.singleflight import ActionBusy
 from sharpit.settings import PanelSettings
-
-if TYPE_CHECKING:
-    from sharpit.engine.tools import CallContext, Tool, Via
 
 logger = logging.getLogger("sharpit")
 
@@ -261,3 +258,10 @@ def cli_invoke(call: CallContext, name: str, args: object) -> tuple[int, dict[st
         else:
             status = {contracts.SERVER_AT_CAPACITY: 429, contracts.TOOL_TIMEOUT: 504}.get(exc.code, 500)
         return status, {"error": exc.message}
+
+
+from sharpit.engine.tools import (  # noqa: E402, I001 - resolve facade types after definitions
+    CallContext as CallContext,
+    Tool as Tool,
+    Via as Via,
+)

@@ -9,7 +9,7 @@ import time
 from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -24,6 +24,7 @@ from sharpit.engine.capture.streams import ChangeStream, StreamSlots
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
+from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import CaptureWiring
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.route_registry import register_routes
@@ -31,9 +32,6 @@ from sharpit.fastapi.signals import dev_server_signal
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
 __all__ = ["install", "_configure_capture"]
-
-if TYPE_CHECKING:
-    from sharpit.fastapi.adapter import SharpitHandle
 
 logger = logging.getLogger("sharpit")
 _Lifespan = Callable[[Any], AbstractAsyncContextManager[Any]]

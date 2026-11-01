@@ -349,7 +349,7 @@ async def _http_probe(ctx: SharpitContext, host_app: Any, request: Request) -> R
 def _http_probe_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
-    return [Route(f"{api}/http-probe", partial(_http_probe, ctx, host_app), methods=["POST"])]
+    return [Route(f"{api}/http-probe", partial(_http_probe, ctx, host_app), methods=["POST"], name="http_probe")]
 
 
 def _exception_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
