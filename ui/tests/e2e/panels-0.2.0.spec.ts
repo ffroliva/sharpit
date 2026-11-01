@@ -102,6 +102,29 @@ test('REST API scan shows findings; dismiss and restore change the score', async
   await expect.poll(async () => Number(await score.getAttribute('data-score'))).toBe(before);
 });
 
+// 0.3.0: one finding, not the whole rule, is dismissed by its fingerprint, survives a reopened drawer, and is restored
+test('REST API: dismiss one finding by fingerprint, reopen the drawer, restore it', async ({ page }) => {
+  await openPanel(page, 'rest-api');
+  await page.getByRole('button', { name: /^(Run REST API checks|Scan again)$/ }).click();
+  await expect(main(page)).toContainText('RAPI-RESP-001');
+  await page.getByRole('button', { name: 'View violations for RAPI-RESP-001' }).click();
+
+  const dismiss = page.getByRole('button', { name: /^Dismiss finding rest-api:RAPI-RESP-001:[0-9a-f]{16}$/ }).first();
+  const label = await dismiss.getAttribute('aria-label');
+  const fingerprint = label!.replace('Dismiss finding ', '');
+  await dismiss.click();
+  const restore = page.getByRole('button', { name: `Restore finding ${fingerprint}` });
+  await expect(restore).toBeVisible();
+
+  // the dismissal is stored server-side: closing and reopening the drawer still offers the restore
+  await page.getByRole('button', { name: 'View violations for RAPI-RESP-001' }).click();
+  await page.getByRole('button', { name: 'View violations for RAPI-RESP-001' }).click();
+  await expect(restore).toBeVisible();
+
+  await restore.click();
+  await expect(page.getByRole('button', { name: `Dismiss finding ${fingerprint}` })).toBeVisible();
+});
+
 test('HTTP Probe returns 200 for /owners and refuses /sharpit/api/panels', async ({ page }) => {
   await openPanel(page, 'http-probe');
   const path = page.getByRole('combobox', { name: 'Path' }); // a text input with route suggestions (datalist)
