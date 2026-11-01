@@ -310,6 +310,7 @@ def test_early_alias_detected(monkeypatch: pytest.MonkeyPatch):
     sqlite.attach(HOLDER)
     assert "early_alias_module.connect" in sqlite.early_aliases()
     assert "early_alias_module.dbapi2_connect" in sqlite.early_aliases()
+    assert "sharpit.engine.sources.sqlite._real" not in sqlite.early_aliases()
     assert not any(alias.startswith(("sqlite3.", "_sqlite3.", "sqlalchemy.")) for alias in sqlite.early_aliases())
 
 

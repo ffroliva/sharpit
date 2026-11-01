@@ -29,6 +29,9 @@ classifiers = [
 ]
 dependencies = ["starlette>=0.44", "packaging>=23"]
 
+[project.entry-points.pytest11]
+sharpit = "sharpit.pytest_plugin"
+
 [project.urls]
 Homepage = "https://github.com/ffroliva/sharpit"
 Source = "https://github.com/ffroliva/sharpit"

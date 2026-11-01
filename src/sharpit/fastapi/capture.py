@@ -22,7 +22,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import sqla
 from sharpit.engine.capture import route_path, under
-from sharpit.engine.capture.correlation import REQUEST, RequestInfo, new_request_id
+from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_request_id
 from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.sources import dispatch, sqlite
@@ -85,6 +85,8 @@ def _wrap_handler(original: Callable[..., Any], wiring: CaptureWiring, store: Ex
         if wiring.detached:  # the built stack keeps this wrapper after uninstall: it only passes through
             return
         try:
+            if (sink := dispatch.session_sink()) is not None:
+                sink.on_exception(exc, "handler", TEST.get())
             info = REQUEST.get()
             if info is not None and info.endpoint is None:
                 info.endpoint = _endpoint_name(conn.scope.get("endpoint"))
@@ -137,6 +139,8 @@ def _record_logged(store: ExceptionStore, record: logging.LogRecord) -> None:
     """The log source: ``logger.exception(...)`` and any record with ``exc_info``."""
     exc = record.exc_info[1] if record.exc_info else None
     if exc is not None:
+        if (sink := dispatch.session_sink()) is not None:
+            sink.on_exception(exc, "log", TEST.get())
         store.record(exc, "log", REQUEST.get(), record.threadName, message_override=record.getMessage())
 
 
@@ -353,6 +357,8 @@ class CaptureMiddleware:
             raise
         except Exception as exc:
             failed, raised = True, exc
+            if (sink := dispatch.session_sink()) is not None:
+                sink.on_escaped(exc)
             raise
         finally:
             REQUEST.reset(token)
