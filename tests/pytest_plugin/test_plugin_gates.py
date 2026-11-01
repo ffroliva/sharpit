@@ -278,6 +278,10 @@ def test_logging_lost_in_setup_stays_lost(pytester: pytest.Pytester) -> None:
     assert result.ret == 0
     data = json.loads((pytester.path / "report.json").read_text())
     assert any("exception capture was lost" in reason for reason in data["statusReasons"])
+    source = next(s for s in data["sources"] if s["name"] == "exceptions")
+    assert source["attached"] is False
+    assert source["reason"] == "application reconfigured logging during a test phase"
+    assert data["status"] == "unknown"
 
 
 def test_early_connection_limitation_in_report(pytester: pytest.Pytester) -> None:
