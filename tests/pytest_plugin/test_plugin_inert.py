@@ -39,8 +39,9 @@ def test_plugin_import_no_side_effects(tmp_path: Path) -> None:
         env=environment,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert result.returncode == 0, result.stderr
     before, after = json.loads(result.stdout)
     assert after == before
 

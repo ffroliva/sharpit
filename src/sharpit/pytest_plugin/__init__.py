@@ -99,7 +99,7 @@ def _add_ini(parser: Any) -> None:
     parser.addini("sharpit", "Enable sharpit test capture", type="bool", default=False)
     parser.addini("sharpit_report", "Sharpit JSON report path", default="sharpit-report.json")
     parser.addini("sharpit_junit", "Sharpit JUnit report path", default="")
-    # plain strings: ini type="int"/"float" need pytest 8.4, and options.resolve converts them
+    # plain strings: ini type="int"/"float" are absent in pytest 8.2, and options.resolve converts them
     parser.addini("sharpit_max_queries", "Default sharpit per-test query budget", default="")
     parser.addini("sharpit_fail_on", "Minimum advisor severity that fails", default="HIGH")
     parser.addini("sharpit_allow_unknown", "Allow an unknown capture result", type="bool", default=False)

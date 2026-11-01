@@ -80,7 +80,7 @@ def test_options_resolve_defaults_and_ini(tmp_path) -> None:
 
 
 def test_ini_types_exist_in_the_oldest_supported_pytest() -> None:
-    # regression: type="int"/"float" are pytest 8.4+; pytest 8.0-8.3 assert at plugin load and crash every run
+    # regression: type="int"/"float" are newer than pytest 8.2; older pytest asserts at plugin load and crash every run
     from sharpit.pytest_plugin import pytest_addoption
 
     pytest_8_0_types = {None, "string", "paths", "pathlist", "args", "linelist", "bool"}
