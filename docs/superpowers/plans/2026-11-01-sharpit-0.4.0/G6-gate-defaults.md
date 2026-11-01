@@ -21,14 +21,8 @@ Reports retain all advisor findings regardless of terminal verbosity.
 - **Lane:** G6 (committed; F3 + F4).
 - **Worker profile:** M, judgement-heavy (pytest lifecycle, safe introspection, fail-closed
   status).
-- **Dependencies:** F and G1G2 merged; starts only after G1G2. Per §2 it is committed after
-  G1G2.
-- **May touch:** `src/sharpit/pytest_plugin/options.py` (`PluginOptions`, `resolve`, lines
-  13–55); `src/sharpit/pytest_plugin/apps.py` and `terminal.py` (created by F's responsibility
-  split; if F names differ, F must map those responsibilities before G6 starts); corresponding
-  post-F hook modules; `src/sharpit/engine/testsession/finish.py` only for advisor status input;
-  `tests/pytest_plugin/test_plugin_apps.py`, new `test_plugin_gate_defaults.py`,
-  `test_plugin_terminal.py`; lane evidence folder.
+- **Dependencies:** F only. G6 runs beside D1 and owns no-app behavior and `SKIPPED`.
+- **May touch:** F table modules `src/sharpit/pytest_plugin/options.py`, `apps.py`, `terminal.py`; `src/sharpit/engine/advisors/findings.py` (`AdvisorRun.status` adds `SKIPPED`); `src/sharpit/engine/testsession/outcome.py` (`_advisor_summary`, `_worst`, `_unknown_reasons`); both `report.schema.json` copies; `tests/pytest_plugin/`; lane evidence folder.
 - **Must not touch:** `src/sharpit/pytest_plugin/__init__.py` compatibility facade or G1G2-owned
   gate/baseline modules; `engine/guard.py`, capture/SQL sources, other lanes' modules, panel
   registries/routes/UI; `scripts/dev/lane_gate.py`, import-boundary rules, overhead constants,
@@ -47,9 +41,7 @@ Reports retain all advisor findings regardless of terminal verbosity.
 
 ## Review Focus
 
-1. **No app / exactly one app / multiple candidates:** `test_spike_f3_no_app_is_not_unknown`,
-`test_autodetect_single_app_reports_module_attribute`, `test_autodetect_ambiguous_uses_none`,
-`test_autodetect_never_imports` in Task 1.
+1. **No app / exactly one app / multiple candidates:** `test_autodetect_single_prints_choice`, `test_autodetect_ambiguous_uses_none`, and `test_autodetect_never_imports` in Task 1; spike case `test_spike_f3_clean_suite_reaches_green`.
 2. **App class and global-value lookalikes:**
 `test_autodetect_accepts_fastapi_and_starlette_only` in Task 1; attributes of other types must
 not count.
@@ -67,26 +59,19 @@ not count.
 `_load_app` at `__init__.py:511`, app assessment at `:525–545`, `pytest_sessionfinish` at
 `:646`); tests `tests/pytest_plugin/test_plugin_apps.py` and `test_plugin_gate_defaults.py`.
 
-**Interfaces:** Consumes `PluginOptions.app` and G1G2 report/status behavior. Produces
-`autodetect_app() -> tuple[str, object] | None` and `select_app(explicit: str | None) ->
-tuple[str, object] | None`; candidate diagnostics are returned as strings, not printed by engine
-code.
+**Interfaces:** `autodetect_apps() -> tuple[tuple[str, object], ...]` returns candidate module/attribute pairs; `select_app(explicit: str | None, candidates: Sequence[tuple[str, object]]) -> tuple[str, object] | None` selects only an explicit app or one unique candidate. Consume `PluginOptions.app` and F's session/terminal modules. Iterate `vars(mod).values()` only when `type(mod) is ModuleType`; never call `getattr` or PEP 562 `__getattr__`. Match values by exact `type(v)` and an MRO check against `fastapi.FastAPI` / `starlette.applications.Starlette` classes found only in `sys.modules` (never import either framework); dedupe by `id()`, drop apps mounted inside another candidate and sharpit's own sub-app. Under xdist carry the chosen app or candidates in the report and print from the controller terminal summary. No unique candidate means no app is selected.
 
-- [ ] **Step 1: Write failing pytester cases.** `test_spike_f3_no_app_is_not_unknown` creates
+- [ ] **Step 1: Write failing pytester cases.** `test_spike_f3_clean_suite_reaches_green` creates
   the clean spike shape: one passing test, no sharpit install and no `--sharpit-app`; assert 0
   exit, `rest-api` is `SKIPPED`, reason names `--sharpit-app module:attr`, and SQL capture
-  status remains independently evaluated. On 0.3.0 expect exit 1 with `advisor 'rest-api' could
-  not assess: no application`. Add single-app, ambiguous-app and no-import cases from Review
-  Focus.
+  status remains independently evaluated. On 0.3.0 expect exit 1 from the no-app unknown. Add `test_autodetect_single_prints_choice`, `test_autodetect_ambiguous_uses_none`, and `test_autodetect_never_imports`.
 - [ ] **Step 2: Run only these tests on 0.3.0.** Expected: no-app assertion fails specifically
   on current unknown/exit 1; fixture setup and collection succeed.
 - [ ] **Step 3: Implement `autodetect_app()`.** Scan a snapshot of `sys.modules` and module
   globals; accept FastAPI/Starlette instances, use only one candidate, and return none with
   candidate descriptions for zero or multiple candidates. Do not import modules or call app
   code. Explicit `--sharpit-app` retains precedence.
-- [ ] **Step 4: Verify targeted tests.** Expected: unique app is used and prints `sharpit: using
-  app <module>:<attr> (pass --sharpit-app to choose)`; zero/multiple apps skip only `rest-api`
-  and do not make status unknown.
+- [ ] **Step 4: Verify targeted tests.** Unique app prints exactly `sharpit: using app <module>:<attr> (pass --sharpit-app to choose)`; multiple candidates print `sharpit: several apps found (<m:a>, <m:a>); pass --sharpit-app module:attr`; no app prints `sharpit: no application found; rest-api skipped (pass --sharpit-app module:attr)`. Assert each line in terminal output; no-app and ambiguity skip only `rest-api` and do not make status unknown.
 - [ ] **Step 5: Commit** `feat: autodetect pytest app for sharpit advisor`.
 
 ### Task 2: Add explicit require-app compatibility option
@@ -95,9 +80,7 @@ code.
 (created by F); tests `tests/pytest_plugin/test_plugin_options.py` and
 `test_plugin_gate_defaults.py`.
 
-**Interfaces:** Extend `PluginOptions` with `require_app: bool`; expose `--sharpit-require-app`
-and ini `sharpit_require_app`, default false. App selector from Task 1 consumes it at session
-finish.
+**Interfaces:** Extend `PluginOptions` with `require_app: bool`; expose `--sharpit-require-app` and ini `sharpit_require_app`, default false. App selector from Task 1 consumes it at session finish. Add `SKIPPED` to `AdvisorRun.status`; `_advisor_summary`, `_worst`, and `_unknown_reasons` treat no-app rest-api as skipped without an unknown reason by default, and as unknown when require-app is true. Add `SKIPPED` to both report schema copies and record the additive enum in spec §11.
 
 - [ ] **Step 1: Add failing cases** `test_require_app_no_app_is_unknown`,
   `test_require_app_cli_and_ini`, and `test_explicit_app_ignores_autodetect_candidates`;
@@ -119,28 +102,21 @@ finish.
 `__init__.py:698–729`); tests `tests/pytest_plugin/test_plugin_terminal.py` and
 `test_plugin_reports.py`.
 
-**Interfaces:** Add `verbose: bool` resolved from `--sharpit-verbose` or pytest verbosity >=2
-(`-vv`). Terminal formatter consumes merged findings/status/report path and writes no individual
-non-failing advisor notes unless verbose.
+**Interfaces:** Add `verbose: bool` resolved from `--sharpit-verbose` or pytest verbosity >=2 (`-vv`). Terminal formatter consumes merged findings/status/report path and omits non-failing advisor findings from `gate counts:` unless verbose. Summary adds exactly `sharpit: <N> advisor notes in <report path>`.
 
 - [ ] **Step 1: Add failing pytester tests** named in Review Focus; assert default output has
-  gate failures, status and exactly one `sharpit: N advisor notes in <report path>` count line;
+  gate failures, status and exactly one `sharpit: <N> advisor notes in <report path>` count line;
   assert JSON and JUnit still include the same findings and verbose mode prints notes.
 - [ ] **Step 2: Run on 0.3.0;** expected default terminal assertions fail because notes print
   individually and the count line is absent.
 - [ ] **Step 3: Implement summary behavior** in `terminal.py`; preserve `-vv` behavior and do
   not change the report/JUnit render path.
-- [ ] **Step 4: Verify** quiet, `--sharpit-verbose`, `-vv`, and gate failure output.
+- [ ] **Step 4: Verify** quiet, `--sharpit-verbose`, `-vv`, gate failure output, and the four gates; update the current lane handoff. Coordinator stores gate logs in integration evidence.
 - [ ] **Step 5: Commit** `feat: quiet non-failing sharpit advisor output`.
 
 ## Lane evidence checklist
 
-`.superpowers/sdd/0.4.0/lanes/G6/` must contain `handoff.md`, `review.md` (fresh reviewer,
-different id, head SHA, final line `VERDICT: APPROVE`), `findings.md` (every finding fixed with
-red-test name or parked with reason), `field-map.md` (`N/A — no DTO keys changed`),
-`checklist.md` mapping applicable §6.1 items to test/report evidence and marking panel-only
-items not applicable, and `gate/` logs for four gates plus lowest-direct and no-SQLAlchemy
-pinned to the head SHA.
+`.superpowers/sdd/0.4.0/lanes/G6/` contains implementer-owned `handoff.md`, `findings.md`, `field-map.md` (`N/A — not a panel lane`), and `checklist.md`. Checklist follows spec §6.1 items 1–10 in order, mapped to owning tasks with evidence paths or `N/A` plus reason. Coordinator/reviewer alone creates `review.md`, `gate/<name>.log` for ruff-check, ruff-format, pyright, pytest, lowest-direct and no-sqlalchemy, and `live-verify.md` in integration; lane diff cannot touch those paths.
 
 ## Definition of done
 
@@ -151,3 +127,27 @@ pinned to the head SHA.
   JSON/JUnit.
 - [ ] Spike F3 is reproduced red on 0.3.0 for the no-app unknown/exit-1 reason; all Review Focus
   tests are green in the lane.
+
+## Canonical lane conventions (C1–C8)
+
+- Lane id is exactly `G6`; evidence folder is `.superpowers/sdd/0.4.0/lanes/G6/`.
+- All lanes consume module names and signatures in F's consumer interface table.
+- Golden fixture paths and `tests/golden.py::assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None` follow C3, with no flat panel files.
+- A red is a defect-naming assertion, not import/collection failure. Spike tests assert desired behavior and are red on 0.3.0.
+- Do not edit shared safety/masking matrices; use `tests/safety/test_g6_safety.py` and `tests/masking/test_g6_masking.py` if needed.
+- PLAN.md Review Focus names are canonical: `test_autodetect_single_prints_choice`, `test_autodetect_ambiguous_uses_none`, and `test_autodetect_never_imports`.
+- Dependencies are exactly `F`; G6 runs beside D1.
+- Checklist follows spec §6.1 items 1–10 in order, mapped to owning tasks; non-panel items are `N/A` with reason.
+
+| Spec §6.1 item | G6 task / evidence owner |
+|---|---|
+| 1 Golden parity | N/A — gate-defaults lane, not a panel lane. |
+| 2 Ported behavior tests | N/A — no BootUI panel behavior is ported. |
+| 3 Safety and masking | N/A — no panel source or new secret source. |
+| 4 Gatekeeper | N/A — no new library import. |
+| 5 Hot-path overhead | N/A — no hot-path code change. |
+| 6 MCP read-only surface | N/A — no MCP surface change. |
+| 7 Svelte view | N/A — no panel view. |
+| 8 Four gates | Task 3: final targeted verification; coordinator owns gate logs. |
+| 9 Live check | N/A — no panel implementation; integration reviewer owns live verification. |
+| 10 Handoff | Task 3: update current handoff with output and next step. |

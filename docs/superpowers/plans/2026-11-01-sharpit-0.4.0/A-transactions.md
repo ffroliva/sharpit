@@ -10,14 +10,14 @@
 | **Spec** | §4, §6.1–§6.3, §7 row `transactions`, §11, §15 (round 1 "Transactions via class-level Session events"; round 3 "hot-path queries; field map") |
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-A.md` §2; BootUI `TransactionRecorder.java` (statuses `COMMITTED`/`ROLLED_BACK`/`UNKNOWN`, propagation `NEW`/`PARTICIPATING`, warnings at `:540-552`) |
 | **Worker** | M, judgement-heavy (event semantics, hot path) → codex or Opus |
-| **Depends on** | F (connection-event hook slot in `sqla.py`, `implemented` flag, route module stub, settings fields, golden loader); D1 |
-| **May touch** | `src/sharpit/engine/capture/transactions.py` (new), `src/sharpit/fastapi/routes/transactions.py` (F stub), the `transactions` rows F pre-registered (flag flip), the `CaptureState.transactions` slot F added, F's MCP stubs, `ui/src/views/Transactions.svelte` (+ test), `tests/engine/capture/test_transactions.py`, `tests/fastapi/test_transactions_api.py`, `tests/fastapi/test_transactions_overhead.py`, `tests/fixtures/bootui/2.2.0/transactions/*`, lane folder |
-| **Must NOT touch** | §10.3 protected files (incl. **existing** budget constants: this lane adds a new budget, never edits one); `engine/sqla.py` beyond filling F's connection-event slot; `engine/capture/sqltrace.py` (A-sqlalchemy-statistics owns it); other lanes' modules |
+| **Depends on** | F (PLAN.md). Consumes F's F1a table (`F-foundation.md`): the connection-event slot in `sqla.py`, `CaptureState.transactions`, the `implemented` flag, `fastapi/routes/transactions.py`, settings fields, the MCP stub module, `tests/golden.py::assert_parity`, the `ui/src/views/Transactions.svelte` placeholder, the `tests/safety/` + `tests/masking/` helpers |
+| **May touch** | `src/sharpit/engine/capture/transactions.py` (new), `src/sharpit/fastapi/routes/transactions.py` (F stub), the `transactions` rows F pre-registered (flag flip), the `CaptureState.transactions` slot F added, F's MCP stubs, `ui/src/views/Transactions.svelte` (replace F's placeholder) + `Transactions.test.ts`, `tests/engine/capture/test_transactions.py`, `tests/fastapi/test_transactions_api.py`, `tests/fastapi/test_transactions_overhead.py`, `tests/safety/test_a_transactions_safety.py`, `tests/masking/test_a_transactions_masking.py`, `tests/fixtures/bootui/2.2.0/transactions/*`, the implementer files in the lane folder (C2) |
+| **Must NOT touch** | §10.3 protected files (incl. **existing** budget constants: this lane adds a new budget, never edits one); `engine/sqla.py` beyond filling F's connection-event slot; `engine/capture/sqltrace.py` (A-sqlalchemy-statistics owns it); other lanes' modules; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
 
 **Architecture:** A `TransactionRecorder` in `engine/capture/transactions.py` (bounded deque + stats, like
 `SqlTraceRecorder`, `engine/capture/sqltrace.py:386`) owns state. The listener functions live behind F's slot in
-`engine/sqla.py`, class-level on `Engine` like the statement listeners (`sqla.py:255-281`), routed with
-`dispatch.recording`'s target rule (`engine/sources/dispatch.py:68`): in a request its own context; outside, the
+`engine/sqla.py`, class-level on `Engine` like the statement listeners (`_LISTENERS`/`_sync_listeners`, `sqla.py:255-281`), routed
+with `dispatch.recording`'s target rule (`dispatch._targets`, `engine/sources/dispatch.py:68`; `recording` at `:82`): in a request its own context; outside, the
 context whose registry holds the engine, else the only one. Per-connection state lives in `conn.info`. SQL counts are
 correlated at **report** time from the SQL Trace ring (BootUI correlates on the begin thread too), never on the hot path.
 
@@ -25,8 +25,9 @@ correlated at **report** time from the SQL Trace ring (BootUI correlates on the 
 
 - No GET or MCP tool opens a socket, runs SQL, writes a file, changes logging/`os.environ`. **The listener never
   queries the database** (spec §7): isolation and read-only are not looked up.
-- Every listener catches its own errors (`dispatch.routing_failed`), never changes the host's transaction; a raising
-  recorder costs one warning (`CaptureWiring.hook_failed`).
+- Every listener catches its own errors (`dispatch.routing_failed`, `engine/sources/dispatch.py:53`), never changes the
+  host's transaction; a raising recorder costs one warning (`CaptureWiring.hook_failed`, `fastapi/capture.py:276`; the
+  `CaptureHooks` port at `engine/capture/__init__.py:22`), as `sqla._context_failed` does.
 - `INTERNAL.get()` true → skip (sharpit's own reads in `run_db_read` are invisible).
 - Overhead budget test, never marked slow or deselected; the budget is set once in this lane and never raised.
 - Keys verbatim from `TransactionReport`/`TransactionStatsDto`/`TransactionEntryDto`; epoch ms; nulls emitted.
@@ -77,7 +78,8 @@ Settings (F adds fields; env `SHARPIT_TRANSACTIONS_*`): `transactions_enabled=Tr
 
 **Files:** `tests/fixtures/bootui/2.2.0/transactions/report.json`, `.../nullable.json`.
 
-- [ ] **Step 1:** G0 capture (or provisional from another worker, §12.11), sanitised. `nullable.json`:
+- [ ] **Step 1:** G0a capture (or provisional from another worker, §12.11), sanitised, at
+  `tests/fixtures/bootui/2.2.0/transactions/report.json` (C3; no flat file). `nullable.json`:
   `{"entries[].readOnly": "<reason above>"}`.
 - [ ] **Step 2:** Commit `test: transactions golden fixture`.
 
@@ -116,22 +118,27 @@ Settings (F adds fields; env `SHARPIT_TRANSACTIONS_*`): `transactions_enabled=Tr
   - `test_listener_raising_recorder_is_swallowed` (`# ported: BootUiTransactionExecutionListenerTests.failsOpenWhenRecorderThrowsOnBegin`)
   - `test_listener_never_executes_sql` — `before_cursor_execute` spy counts zero statements issued during
     `tx_begin`/`tx_commit`.
+  - `test_error_message_masked` (`# derived: secret source errorMessage`) — a failed commit whose error text holds a
+    DSN password; `errorMessage` is `ctx.masker.mask_text` output. Its corpus row goes in
+    `tests/masking/test_a_transactions_masking.py` (C5).
 - [ ] **Step 2:** FAIL on assertions. **Step 3:** Implement. `report()` key order = `TransactionReport`.
 - [ ] **Step 4:** PASS. Commit `feat: transaction recorder over connection events`.
 
 ### Task 3: Wiring, routes, MCP, safety
 
 **Files:** `src/sharpit/fastapi/routes/transactions.py` (F stub); the recorder construction in F's per-panel capture
-setup (where `SqlTraceRecorder` is built, `fastapi/adapter.py:744` before F's split); flag flip; Tests
-`tests/fastapi/test_transactions_api.py`, rows in `tests/test_safety_matrix.py`.
+setup (where `SqlTraceRecorder` is built, `fastapi/adapter.py:745` before F's split; its post-split home is in F's F1a
+table) assigned to `CaptureState.transactions`; flag flip; Tests `tests/fastapi/test_transactions_api.py`,
+`tests/safety/test_a_transactions_safety.py` (C5).
 
 **Interfaces:** `GET {api}/transactions`, `POST {api}/transactions/clear`, `POST {api}/transactions/recording` (body
 `{"enabled": bool|null}`; null/absent toggles — `TransactionsControllerSupportTests.recordingTogglesWhenNoExplicitValueIsGiven`),
-`GET {api}/transactions/stream` (SSE `update`, reuse `sse_response` + `change_events`). MCP read tool
+`GET {api}/transactions/stream` (SSE `update`, reuse `fastapi/sse.py:72::sse_response` +
+`engine/capture/streams.py:221::change_events`). MCP read tool
 `get_transactions`; `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording` registered with
 `action=True` (CLI-only, §6.1.6). Panel `actionCapable=True`.
 
-- [ ] **Step 1:** Tests: `test_report_golden_parity`; `test_unavailable_without_recorder`
+- [ ] **Step 1:** Tests: `test_report_golden_parity` (`assert_parity("transactions", "report", body)`); `test_unavailable_without_recorder`
   (`# ported: TransactionsControllerSupportTests.traceReportsUnavailableWhenRecorderIsAbsent`);
   `test_unavailable_when_disabled` (`...WhenRecorderIsDisabled`); `test_clear` (`...clearEmptiesTheBuffer`);
   `test_recording_toggle` / `test_recording_explicit` (`...recordingTogglesWhenNoExplicitValueIsGiven`,
@@ -146,8 +153,9 @@ setup (where `SqlTraceRecorder` is built, `fastapi/adapter.py:744` before F's sp
 
 **Files:** Create `tests/fastapi/test_transactions_overhead.py`.
 
-- [ ] **Step 1:** Paired on/off with `tests/overhead.py::paired` and `check_budget`, as
-  `tests/fastapi/test_sql_trace_overhead.py:45`: `BUDGET_NS = 30_000` per begin+commit pair (sqlite in-memory).
+- [ ] **Step 1:** Paired on/off with `tests/overhead.py::paired` (`:65`) and `check_budget` (`:38`), as
+  `tests/fastapi/test_sql_trace_overhead.py:61-66` (its own `BUDGET_NS = 50_000` at `:25` is untouched):
+  `BUDGET_NS = 30_000` per begin+commit pair (sqlite in-memory), a new constant in the new file.
   Record the measured value and noise in `checklist.md`. Prove it bites: temporarily add a `time.sleep(0.0001)` in
   `tx_begin`, see FAIL, remove.
 - [ ] **Step 2:** Commit `test: transactions hot-path overhead budget`.
@@ -156,33 +164,40 @@ setup (where `SqlTraceRecorder` is built, `fastapi/adapter.py:744` before F's sp
 
 **Files:** `ui/src/views/Transactions.svelte`, `ui/src/views/Transactions.test.ts`.
 
-- [ ] **Step 1:** vitest: table from the golden; parent/child indentation by `parentId`; `null` `readOnly` shows "—";
+- [ ] **Step 1:** Replace F's placeholder view; flip the `transactions` `implemented` flag in F's `ui/src/lib/nav.ts`
+  wiring (flag only). vitest: table from the golden; parent/child indentation by `parentId`; `null` `readOnly` shows "—";
   pause/resume/clear buttons hidden when `readOnly`; stream `update` triggers a refetch. Reference `views/Transactions.vue`.
 - [ ] **Step 2:** FAIL → implement → `npm --prefix ui run check` + tests PASS. Commit `feat: transactions view`.
 
 ### Task 6: Live check and evidence
 
 - [ ] **Step 1:** `/sharpit:live-verify` on `examples/fastapi_sqla` (a write route produces a `COMMITTED` row; a forced
-  error route a `ROLLED_BACK` row); tiny-ledger-py deposits when available. Record in `live-verify.md`.
-- [ ] **Step 2:** lowest-direct + no-SQLAlchemy logs with head SHA. Commit `docs: transactions lane evidence`.
+  error route a `ROLLED_BACK` row); tiny-ledger-py deposits when available. Record requests in `handoff.md` §Live
+  check (`live-verify.md` is the coordinator's, C2).
+- [ ] **Step 2:** lowest-direct + no-SQLAlchemy as a local pre-check (commands in `checklist.md` item 8; gated logs are
+  the coordinator's). Commit `docs: transactions lane evidence`.
 
-## §6.1 → task
+## §6.1 → task (spec order; `checklist.md` adds the evidence paths)
 
 | Item | Task |
 |---|---|
-| 1 parity, nullable, field map | 1, 3 `test_report_golden_parity`, field map |
-| 2 ported citations | 2, 3 |
-| 3 safety (no_side_effects, PANELS, flags, guard, masking: `errorMessage` via `ctx.masker.mask_text`, test `test_error_message_masked` in Task 2 with a password in the DSN text) | 2, 3 |
+| 1 golden parity, `nullable.json`, field map | 1, 3 `test_report_golden_parity`, field map |
+| 2 `# ported:` citations | 2, 3 |
+| 3 safety (`no_side_effects`, `PANELS`, flags, guard, masking: `errorMessage` via `ctx.masker.mask_text`, `test_error_message_masked` in Task 2 + `tests/masking/test_a_transactions_masking.py`) | 2, 3 |
 | 4 gatekeeper (listeners only in `sqla.py`) | 2 |
 | 5 overhead budget | 4 |
 | 6 MCP read-only | 3 |
-| 7 Svelte | 5 |
-| 8 gates + lowest-direct + no-SQLAlchemy | 3, 6 |
+| 7 Svelte view | 5 |
+| 8 four gates + lowest-direct + no-SQLAlchemy | 3, 6 (gated logs: coordinator) |
 | 9 live check | 6 |
-| 10 handoff | every commit |
+| 10 handoff current | every commit |
 
-## Lane evidence checklist (`.superpowers/sdd/0.4.0/lanes/A-transactions/`)
+## Lane evidence (C2: `.superpowers/sdd/0.4.0/lanes/A-transactions/`)
 
-`handoff.md` · `field-map.md` · `checklist.md` (incl. measured overhead) · `findings.md` · `review.md` (`VERDICT: APPROVE`,
-reviewer ≠ implementer, head SHA; `ponytail-review` too, since it touches `sqla.py`) · `gate/` (four gates, lowest-direct, no-SQLAlchemy logs, each naming the head SHA) ·
-`live-verify.md`.
+- **Implementer, in the lane worktree:** `handoff.md` (last green command, next step, open findings, live-check
+  requests), `findings.md` (`finding → test → red output`, each row `fixed` + red-test name or `parked` + reason),
+  `field-map.md` (the field map above), `checklist.md` (the ten §6.1 items above in the spec's order, each with an evidence
+  path or `N/A` + reason). `checklist.md` item 5 records the measured overhead and noise. Review includes `ponytail-review` (touches `sqla.py`).
+- **Coordinator/reviewer, in the integration worktree only:** `review.md` (`VERDICT: APPROVE`, reviewer id ≠
+  implementer id, head SHA), `gate/{ruff-check,ruff-format,pyright,pytest,lowest-direct,no-sqlalchemy}.log`,
+  `live-verify.md`. This lane's diff never touches any `review.md` or `gate/` path (`lane_gate.py` refuses it).

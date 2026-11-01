@@ -12,9 +12,9 @@
 
 ## Header and ownership
 
-- **Lane:** G3-action.
+- **Lane:** G3.
 - **Worker profile:** M, judgement-heavy (shell injection boundary, quoting, summary UX).
-- **Dependencies:** F merged. G1G2 is not required for base report summary; merge after G1G2 if displaying its baseline-specific fields.
+- **Dependencies:** G1G2 (exactly as PLAN.md). F is an indirect dependency through G1G2.
 - **May touch:** Create `action.yml`; create focused summary CLI module under `src/sharpit/` and add dispatch in `src/sharpit/__main__.py` or project script wiring as current layout requires; tests under `tests/action/` and `tests/`; summary golden under `tests/fixtures/`; this lane’s evidence folder.
 - **Must not touch:** G1G2 gate/baseline or plugin code; G4 docs/dependabot; panels/UI; report schema except reading additive keys; `scripts/dev/lane_gate.py`; dependency lists, `uv.lock`, complexity/sonar baselines, overhead budget constants.
 
@@ -61,7 +61,7 @@
 
 ### Task 3: Record manual wheel verification and lane handoff
 
-**Files:** Create `.superpowers/sdd/0.4.0/lanes/G3-action/lane-report.md`, `handoff.md`.
+**Files:** Create `.superpowers/sdd/0.4.0/lanes/G3/lane-report.md`, `handoff.md`.
 
 **Interfaces:** Lane report records locally built wheel version/path, exact action invocation, result and summary. This is evidence only; no network test or publishing (§5.3).
 
@@ -96,10 +96,34 @@ Do not add a third-party YAML parser solely for this lane. Reuse an existing pro
 
 ## Lane evidence checklist
 
-`.superpowers/sdd/0.4.0/lanes/G3-action/` contains current `handoff.md`, `lane-report.md` with local wheel run, independent reviewer `review.md` ending `VERDICT: APPROVE` and naming head SHA, `findings.md` (fixed/red-test or parked/reason per row), `field-map.md` for summary inputs, `checklist.md` with §5.3 evidence, and four-gate logs pinned to head SHA.
+`.superpowers/sdd/0.4.0/lanes/G3/` contains implementer-owned `handoff.md`, `lane-report.md`, `findings.md`, `field-map.md` (`N/A — not a panel lane`), and `checklist.md`. Checklist follows spec §6.1 items 1–10 in order, mapped to owning tasks with evidence paths or `N/A` plus reason. Coordinator/reviewer alone creates `review.md`, `gate/<name>.log` for ruff-check, ruff-format, pyright, pytest, lowest-direct and no-sqlalchemy, and `live-verify.md` in integration; lane diff cannot touch these paths.
 
 ## Definition of done
 
 - [ ] Tasks 1–3 cover all §5.3 inputs/defaults, safe env boundary/quoting, shlex parsing, literal version, pure golden-tested summary and local wheel evidence.
 - [ ] Action static and summary golden tests plus four gates pass.
 - [ ] Lane evidence passes `scripts/dev/lane_gate.py`; no publishing or tagging occurs.
+
+## Canonical lane conventions (C1–C8)
+
+- Lane id is exactly `G3`; evidence folder is `.superpowers/sdd/0.4.0/lanes/G3/`.
+- All lanes consume module names and signatures in F's consumer interface table.
+- Golden fixture paths and `tests/golden.py::assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None` follow C3, with no flat panel files.
+- A red is a defect-naming assertion, not import/collection failure. No spike test is owned by G3.
+- Do not edit shared safety/masking matrices; use `tests/safety/test_g3_safety.py` and `tests/masking/test_g3_masking.py` if needed.
+- PLAN.md Review Focus test names remain canonical: `test_action_pytest_args_are_shlex_split_not_shell_evaluated`, `test_action_has_no_expressions_inside_run_and_all_inputs_use_env`, `test_action_quotes_every_expansion`, `test_summary_escapes_markdown_values`, and `test_summary_limits_findings_to_top_20_and_reports_totals`.
+- Dependencies are exactly `G1G2`.
+- Checklist follows §6.1 items 1–10 in order; all panel-specific items are `N/A — not a panel lane`, while applicable handoff evidence maps to G3's tasks.
+
+| Spec §6.1 item | G3 task / evidence owner |
+|---|---|
+| 1 Golden parity | N/A — action/summary lane, not a panel lane. |
+| 2 Ported behavior tests | N/A — no BootUI panel behavior is ported. |
+| 3 Safety and masking | N/A — no panel data source or new secret source. |
+| 4 Gatekeeper | N/A — no new runtime library. |
+| 5 Hot-path overhead | N/A — no hot-path code change. |
+| 6 MCP read-only surface | N/A — no MCP surface change. |
+| 7 Svelte view | N/A — no panel view. |
+| 8 Four gates | Task 3, Step 2: run four gates; coordinator owns gate logs. |
+| 9 Live check | N/A — no panel implementation; integration reviewer owns live verification. |
+| 10 Handoff | Task 3: lane report and current handoff. |

@@ -5,149 +5,204 @@
 
 **Goal:** Make SQLAlchemy N+1 findings identify the lazy relationship, show the masked query and
 first application source location, while keeping the existing fingerprint stable and query-heavy
-overhead within budget.
+overhead within budget (spike F5 + F6).
 
-**Architecture:** Extend the SQLAlchemy bridge in `engine/sqla.py` with test-session-only ORM
-load/lazy-load observation. Aggregate relationship counts and first application frame into
-per-test facts; enrich only the finding message/details, preserving `sharpit.n-plus-one`
-identity as the normalized statement fingerprint. The bridge remains the optional-library
-gatekeeper.
+**Architecture:** Extend the SQLAlchemy bridge in `engine/sqla.py` with one test-session-only
+`SessionEvents.do_orm_execute` listener (class-level on `sqlalchemy.orm.Session`). For a lazy
+load (`orm_execute_state.is_relationship_load`) it reads `lazy_loaded_from` (the parent
+`InstanceState`) and `loader_strategy_path` (its last element is the `RelationshipProperty`),
+and tags the statement with `orm_execute_state.update_execution_options(sharpit_relationship=…)`.
+The existing `before_cursor_execute` (`sqla.py:153`) reads the tag back from
+`context.execution_options` and records the relationship identity next to the statement group it
+already counts. `prop.direction` (`ONETOMANY`/`MANYTOMANY` → collection, `MANYTOONE` →
+many-to-one) picks the loader hint. Not `InstanceEvents.load` (that is T-unbounded-read's counter,
+per statement). Aggregates go into per-test facts; only the finding message/details are
+enriched, `sharpit.n-plus-one` identity stays the normalised statement fingerprint. The bridge
+remains the optional-library gatekeeper.
 
 **Tech Stack:** Python >=3.12, SQLAlchemy 2 optional, pytest, existing paired overhead harness.
 
-**Spec:** `docs/superpowers/specs/2026-11-01-sharpit-0.4.0-design.md` §§5.5 F5–F6, 6.3,
-10.2–10.3.
+**Spec:** `docs/superpowers/specs/2026-11-01-sharpit-0.4.0-design.md` §5.5 F5–F6 (r5), §6.3,
+§10.2–10.3, §11.
 
 ## Header and ownership
 
-- **Lane:** T-n-plus-one-message (best effort 1).
+- **Lane:** `T-n-plus-one-message` (best effort 1). Evidence folder
+  `.superpowers/sdd/0.4.0/lanes/T-n-plus-one-message/`.
 - **Worker profile:** L, judgement-heavy (ORM event lifecycle, relationship attribution,
   hot-path budget).
-- **Dependencies:** F and A-sqlalchemy-statistics merged; F5 precedes T-unbounded-read, which
-  consumes its ORM load hooks. Best-effort lane per §2.
-- **May touch:** `src/sharpit/engine/sqla.py` (`attach_session()` line 320 and shared listener
-  registration); `src/sharpit/engine/testsession/facts.py` (`PhaseFacts`, `TestFacts`);
-  `src/sharpit/engine/testsession/gates.py` (`evaluate_test`, line 34); existing
-  `src/sharpit/pytest_plugin/` session wiring only if it needs to call the new `sqla` lifecycle
-  helper; `tests/engine/test_sqla.py`,
-  `tests/engine/testsession/test_gates.py`, new `tests/engine/test_n_plus_one_overhead.py`,
-  `tests/pytest_plugin/test_plugin_gates.py`; fixture app under
-  `tests/fixtures/apps/n_plus_one/` (create in Task 1); lane evidence folder.
+- **Depends on:** G1G2, A-sqlalchemy-statistics (PLAN.md). G1G2: the T-* lanes are serial
+  `G1G2 → T-n-plus-one-message → T-swallowed-exceptions → T-unbounded-read` because they share
+  `engine/testsession/facts.py`, `engine/testsession/gates.py` and `pytest_plugin/marker.py`.
+  A-sqlalchemy-statistics: both lanes extend the SQL recorder path (that lane adds lifetime
+  totals to `SqlTraceRecorder.record`; this one adds relationship tagging on the statement
+  listeners in `sqla.py`), so this lane rebases onto it. Consumes F's F1a table
+  (`F-foundation.md`) for the post-split `pytest_plugin/` modules.
+- **May touch:** `src/sharpit/engine/sqla.py` (`attach_session()` at `:320`, `detach_session()`
+  at `:331`, `_LISTENERS`/`_sync_listeners` at `:255-281`, `before_cursor_execute` at `:153`;
+  the new `do_orm_execute` listener); `src/sharpit/engine/testsession/facts.py` (`PhaseFacts` at
+  `:56`, `TestFacts` at `:87`); `src/sharpit/engine/testsession/gates.py` (`evaluate_test` at
+  `:34`, the `N_PLUS_ONE` branch at `:46-51`); the post-split `src/sharpit/pytest_plugin/`
+  session wiring (F1a names it) only to call the new `sqla` lifecycle helper;
+  `tests/engine/test_sqla.py`, `tests/engine/testsession/test_gates.py`,
+  `tests/engine/test_n_plus_one_overhead.py` (new), `tests/pytest_plugin/test_plugin_gates.py`;
+  fixture app `tests/fixtures/apps/n_plus_one/` (new, Task 1); the implementer files in the lane
+  evidence folder (C2).
 - **Must not touch:** Other lanes' modules, `engine/guard.py`, report/baseline schema or
-  fingerprints, panel modules/UI, `scripts/dev/lane_gate.py`, import-boundary rules, overhead
-  budget constants, complexity/sonar baselines, dependency lists, `uv.lock`.
+  fingerprints, panel modules/UI, `engine/capture/sqltrace.py` (A-sqlalchemy-statistics owns it),
+  `scripts/dev/lane_gate.py`, import-boundary rules, existing overhead budget constants,
+  complexity/sonar baselines, dependency lists, `uv.lock`, `tests/test_safety_matrix.py`,
+  `tests/test_masking_corpus.py` (C5), any `review.md` or `gate/` path.
 
 ## Global constraints
 
 - SQLAlchemy is imported only through `engine/sqla.py`; no new runtime dependency.
-- Hooks attach only during pytest test sessions and detach at session end; failures cannot
-  change host query behavior.
+- Hooks attach only during pytest test sessions (`attach_session`) and detach at session end
+  (`detach_session`); failures cannot change host query behaviour (a raising listener warns once,
+  query result unchanged).
 - Mask SQL before report output; parameters are never retained.
-- Existing fingerprint remains based on normalized statement shape; never raise an overhead
+- Existing fingerprint remains based on normalised statement shape; never raise an overhead
   budget.
+- A red is the assertion that names the defect (C4); the spike test asserts the **desired**
+  message, so it is red on 0.3.0.
 
 ## Review Focus
 
-1. **Relationship evidence vs repeated statement without ORM relationship evidence:**
-`test_n_plus_one_names_lazy_relationship_or_keeps_statement_fallback` in Task 2.
-2. **Collections vs many-to-one, sync and async loads:**
-`test_lazy_load_reports_suggested_loader_by_direction`, `test_async_lazy_load_is_attributed` in
-Task 2.
-3. **Application frame filtering and absent app frame:**
-`test_first_lazy_load_uses_innermost_application_frame`, `test_no_application_frame_is_null` in
-Task 2.
-4. **Session lifecycle and listener failure:** `test_orm_hooks_attach_only_for_test_session`,
-`test_listener_failure_does_not_change_query_result` in Task 1.
-5. **35,000 SELECT regression:** `test_sqlalchemy_orm_hook_overhead_budget` in Task 3 using
-`tests/overhead.py::paired` and `check_budget`.
+1. **Spike F5 reproduced (canonical, PLAN.md Review Focus 7):**
+   `test_spike_f5_message_names_relationship` in Task 1.
+2. **Relationship evidence vs repeated statement without ORM relationship evidence:**
+   `test_n_plus_one_names_lazy_relationship_or_keeps_statement_fallback` in Task 2.
+3. **Collections vs many-to-one, sync and async loads:**
+   `test_lazy_load_reports_suggested_loader_by_direction`, `test_async_lazy_load_is_attributed`
+   in Task 2; empty collections still count (`do_orm_execute` fires once per lazy-load SELECT).
+4. **Application frame filtering and absent app frame:**
+   `test_first_lazy_load_uses_innermost_application_frame`, `test_no_application_frame_is_null`
+   in Task 2 (frame rule: `engine/capture/frames.py:21::is_application_frame`).
+5. **Session lifecycle and listener failure:** `test_orm_hooks_attach_only_for_test_session`,
+   `test_listener_failure_does_not_change_query_result` in Task 1.
+6. **Query-heavy regression (F6):** `test_sqlalchemy_orm_hook_overhead_budget` in Task 3 using
+   `tests/overhead.py::paired` (`:65`) and `check_budget` (`:38`).
 
 ---
 
-### Task 1: Reproduce F5 and add bounded ORM load facts
+### Task 1: Reproduce F5 and add bounded relationship-load facts
 
-**Files:** Create fixture app `tests/fixtures/apps/n_plus_one/` and
-`tests/engine/test_n_plus_one_overhead.py`; modify `src/sharpit/engine/sqla.py` and
-`src/sharpit/engine/testsession/facts.py`; test `tests/engine/test_sqla.py`.
+**Files:** Create fixture app `tests/fixtures/apps/n_plus_one/`; modify
+`src/sharpit/engine/sqla.py` and `src/sharpit/engine/testsession/facts.py`; tests
+`tests/engine/test_sqla.py`, `tests/pytest_plugin/test_plugin_gates.py`.
 
-**Interfaces:** `sqla.attach_session() -> bool` remains the entry point; add private
-attach/detach of SQLAlchemy instance/attribute listeners paired with existing test-session
-start/stop calls. Add `PhaseFacts.relationship_loads: Counter[str]`,
-`relationship_sql: dict[str, str]`, `relationship_sites: dict[str, str | None]`.
-Listener records only current test tag, relationship identity, masked statement text and first
-application location.
+**Interfaces:** `sqla.attach_session() -> bool` / `sqla.detach_session() -> None` remain the
+entry points; they also add/remove the `do_orm_execute` listener on `sqlalchemy.orm.Session`
+(through `sqla.sqlalchemy_module()`, never `import sqlalchemy`). Execution-option key
+`RELATIONSHIP_KEY = "sharpit_relationship"`, value `(identity: str, collection: bool)` with
+identity `"<Model>.<relationship>"` (`lazy_loaded_from.class_.__name__` +
+`loader_strategy_path[-1].key`). `before_cursor_execute` reads
+`context.execution_options.get(RELATIONSHIP_KEY)` and passes it with the statement it already
+records. Add `PhaseFacts.relationship_loads: Counter[str]`, `relationship_of: dict[str, tuple[str,
+bool]]` (statement group → identity, collection) and `relationship_sites: dict[str, str | None]`
+(identity → first application location); serialised and restored with the other `PhaseFacts`
+fields (xdist round trip).
 
-- [ ] **Step 1: Build the fixture first and write failing pytester test**
-  `test_spike_f5_names_player_performances`. Mirror spike T1 (`Player.performances`, 1,018 lazy
-  loads); assert current 0.3.0 emits only `1018 executions of one SELECT in the call phase`,
-  with no relationship name, suggestion or app source. Keep SQLAlchemy/SQLite fixture
-  deterministic and execute its normal app query. Run with `--sharpit-no-advisors
-  --sharpit-allow-unknown` so app discovery does not obscure the N+1 message result.
-- [ ] **Step 2: Run on 0.3.0.** Expected red: the message lacks `Player.performances`; the
-  existing N+1 gate itself still fires.
-- [ ] **Step 3: Implement test-session listener facts** in `sqla.py` and `PhaseFacts`; correlate
-  load callbacks to `TEST` tag and remove listeners when the session detaches. A failed optional
-  listener warns once and leaves query results unchanged.
-- [ ] **Step 4: Verify** listener attach/detach, test attribution, serialization round trip, and
-  exception isolation with named tests in Review Focus.
+- [ ] **Step 1: Build the fixture first and write the failing pytester test**
+  `test_spike_f5_message_names_relationship`. Mirror spike T1 (`Player.performances`, 1,018 lazy
+  loads); assert the **desired** finding message contains `Player.performances lazy-loaded 1018
+  times` and `selectinload(Player.performances)` (one assert each, PT018). Keep the
+  SQLAlchemy/SQLite fixture deterministic and run its normal app query. Run with
+  `--sharpit-no-advisors --sharpit-allow-unknown` so app discovery does not obscure the result.
+- [ ] **Step 2: Run on the base.** Expected red: the assertion on `Player.performances` fails
+  because 0.3.0 emits only `1018 executions of one SELECT in the call phase`; the N+1 gate itself
+  still fires (a separate control assert). Quote the red in `findings.md`.
+- [ ] **Step 3: Implement** the `do_orm_execute` listener and the `before_cursor_execute`
+  read-back in `sqla.py`, and the `PhaseFacts` fields; attribute to the current test tag; remove
+  the listener when the session detaches. A failed listener warns once and leaves query results
+  unchanged.
+- [ ] **Step 4: Verify** `test_orm_hooks_attach_only_for_test_session`,
+  `test_listener_failure_does_not_change_query_result`, the facts serialisation round trip, and
+  `test_spike_f5_message_names_relationship` green after Task 2.
 - [ ] **Step 5: Commit** `feat: capture SQLAlchemy lazy relationship loads`.
 
 ### Task 2: Render actionable relationship finding
 
 **Files:** Modify `src/sharpit/engine/testsession/gates.py`; tests
-`tests/engine/testsession/test_gates.py`, `tests/pytest_plugin/test_plugin_gates.py`, and
+`tests/engine/testsession/test_gates.py`, `tests/pytest_plugin/test_plugin_gates.py`, and the
 fixture from Task 1.
 
-**Interfaces:** Extend `evaluate_test(facts: TestFacts, budget: Budget, n_plus_one_threshold:
-int, dismissed: Collection[str]) -> list[Finding]` without changing parameters. For ORM-backed
-groups, `Finding.message` includes `<Model>.<relationship> lazy-loaded <N> times`, masked
-statement and loader hint (`selectinload(Model.relationship)` for collection;
-`joinedload(Model.relationship)` for many-to-one), and first application frame. Non-ORM N+1
-groups retain the current statement fallback. Fingerprint remains unchanged.
+**Interfaces:** `evaluate_test` keeps the signature G1G2 leaves it with (today
+`evaluate_test(facts: TestFacts, budget: Budget, n_plus_one_threshold: int, dismissed:
+Collection[str]) -> list[Finding]`, `gates.py:34`, plus G1G2's optional baseline keyword); this
+lane adds no parameter. For relationship-tagged groups, `Finding.message` includes
+`<Model>.<relationship> lazy-loaded <N> times`, the masked statement and the loader hint
+(`selectinload(Model.relationship)` for a collection; `joinedload(Model.relationship)` for
+many-to-one, from `prop.direction`), and the first application location. Untagged N+1 groups keep
+today's statement message. Message keys are additive; the fingerprint is unchanged.
 
-- [ ] **Step 1: Add failing tests** from Review Focus and
+- [ ] **Step 1: Add failing tests** from Review Focus 2–4 and
   `test_statement_fingerprint_unchanged_with_relationship_detail`; assert `Player.performances`,
-  count, masked SQL, suggestion, location, and equal fingerprint after message enrichment.
-- [ ] **Step 2: Run tests against 0.3.0;** expected relationship/message/location assertions
-  fail, while fingerprint control passes.
+  count, masked SQL, suggestion, location, and equal fingerprint after message enrichment (one
+  condition per assert).
+- [ ] **Step 2: Run on the base;** expected relationship/message/location assertions fail, while
+  the fingerprint control passes.
 - [ ] **Step 3: Implement rendering** from Task 1 facts; never put raw parameters or credentials
   in a message.
-- [ ] **Step 4: Verify** ORM and sqlite-only fallback messages, report serialization and
+- [ ] **Step 4: Verify** ORM and sqlite-only fallback messages, report serialisation and
   fingerprint stability.
 - [ ] **Step 5: Commit** `feat: explain SQLAlchemy N+1 relationships`.
 
-### Task 3: Pin the query-heavy overhead budget
+### Task 3: Pin the query-heavy overhead budget (F6)
 
-**Files:** Modify `tests/engine/test_n_plus_one_overhead.py`; reuse `tests/overhead.py::paired`
-and `check_budget`; reference `docs/development/overhead-budgets.md`.
+**Files:** Create/modify `tests/engine/test_n_plus_one_overhead.py`; reuse
+`tests/overhead.py::paired` and `check_budget`; reference `docs/development/overhead-budgets.md`.
 
-**Interfaces:** Run the same approximately 35,000 SELECT workload with ORM hooks off/on and
-sharpit off/on in paired rounds; pin per-statement overhead to measured lane results plus the
-usual margin. No production API changes.
+**Interfaces:** Paired rounds of the query-heavy workload with sharpit off/on (ORM hooks
+attached). Spec F6 targets about 35,000 SELECTs; **a smaller workload with the same
+per-statement overhead ratio is allowed** so the test stays fast on every CI leg (spec §5.5 F6,
+logged in §11). Pin the per-statement ratio at the measured value plus the usual margin. A new
+constant in the new file; no shared budget constant changes. No production API change.
 
-- [ ] **Step 1: Add failing budget assertion** `test_sqlalchemy_orm_hook_overhead_budget`;
-  retain Task 1 fixture and independently verify query count so a shortened workload cannot
-  pass.
-- [ ] **Step 2: Measure the baseline in the lane run** and record off/on rounds and noise in
-  `handoff.md`; spike reference is 23.5 s plain, 39.3 s sharpit, 38.4 s queryguard.
-- [ ] **Step 3: Keep the measured threshold in the test** without changing shared budget
-  constants; allowed margin follows `docs/development/overhead-budgets.md`.
-- [ ] **Step 4: Verify** the test stays selected in normal pytest jobs and run lane gates.
+- [ ] **Step 1: Add the failing budget assertion** `test_sqlalchemy_orm_hook_overhead_budget`;
+  assert the workload's query count independently (so a shortened run cannot pass), then prove it
+  bites (temporary `time.sleep` in the listener → FAIL, removed).
+- [ ] **Step 2: Measure** in the lane run; record off/on rounds, noise and the chosen workload
+  size in `handoff.md` and `checklist.md` item 5. Spike reference: 23.5 s plain, 39.3 s sharpit,
+  38.4 s queryguard.
+- [ ] **Step 3: Keep the measured threshold in the test**; margin per
+  `docs/development/overhead-budgets.md`.
+- [ ] **Step 4: Verify** the test stays selected in normal pytest jobs (never marked slow or
+  deselected) and run the four gates locally.
 - [ ] **Step 5: Commit** `test: budget SQLAlchemy ORM observation overhead`.
 
-## Lane evidence checklist
+## §6.1 → task (spec order; non-panel lane, `checklist.md` adds the evidence paths)
 
-`.superpowers/sdd/0.4.0/lanes/T-n-plus-one-message/` must contain `handoff.md`, `review.md`
-(fresh reviewer, different id, head SHA, final line `VERDICT: APPROVE`), `findings.md` (each
-finding fixed with red-test/output or parked with reason), `field-map.md` (`N/A — no panel DTO
-change; map message details to `Finding.message`), `checklist.md` with applicable
-safety/performance evidence and non-panel items marked N/A, and `gate/` logs for four gates plus
-lowest-direct and no-SQLAlchemy pinned to head SHA.
+| Item | Task |
+|---|---|
+| 1 golden parity, `nullable.json`, field map | `N/A`: not a panel lane |
+| 2 `# ported:` citations | `N/A`: no BootUI behaviour ported (F5 tests cite the spike: `# spike: F5 T1`) |
+| 3 safety (`no_side_effects`, masking) | 2 (masked statement, no parameters in the message); no GET/MCP surface |
+| 4 gatekeeper | 1 (`do_orm_execute` only in `engine/sqla.py`; boundary test green) |
+| 5 overhead budget | 3 |
+| 6 MCP read-only | `N/A`: no MCP tool |
+| 7 Svelte view | `N/A`: no UI |
+| 8 four gates + lowest-direct + no-SQLAlchemy | 3 Step 4 (gated logs: coordinator) |
+| 9 live check | `N/A`: test-session feature; the pytester spike test is the end-to-end check |
+| 10 handoff current | every commit |
+
+## Lane evidence (C2: `.superpowers/sdd/0.4.0/lanes/T-n-plus-one-message/`)
+
+- **Implementer, in the lane worktree:** `handoff.md` (last green command, next step, open
+  findings, measured overhead), `findings.md` (`finding → test → red output`, each row `fixed` +
+  red-test name or `parked` + reason; the F5 red quoted), `field-map.md` (`N/A — not a panel
+  lane`), `checklist.md` (the ten §6.1 items above in order, each with an evidence path or `N/A`
+  + reason).
+- **Coordinator/reviewer, in the integration worktree only:** `review.md` (`VERDICT: APPROVE`,
+  reviewer id ≠ implementer id, head SHA; `ponytail-review` too, since it touches `sqla.py`),
+  `gate/{ruff-check,ruff-format,pyright,pytest,lowest-direct,no-sqlalchemy}.log`,
+  `live-verify.md`. This lane's diff never touches any `review.md` or `gate/` path.
 
 ## Definition of done
 
-- [ ] Task 1 reproduces F5 on 0.3.0 first and collects ORM relationship facts only during a test
-  session.
+- [ ] Task 1 reproduces F5 (red on the base for the right reason) and collects relationship facts
+  from `do_orm_execute` only during a test session.
 - [ ] Task 2 reports relationship, masked statement, correct loader suggestion, first
   application location; stable fingerprint.
-- [ ] Task 3 pins the 35,000 SELECT overhead without raising or deselecting a budget.
+- [ ] Task 3 pins the query-heavy overhead without raising or deselecting a budget.
 - [ ] Any unfinished best-effort item is parked with reason and exact next step in `handoff.md`.

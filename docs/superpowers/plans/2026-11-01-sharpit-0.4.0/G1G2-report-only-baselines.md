@@ -1,6 +1,6 @@
 # G1+G2 — Report-Only and Baselines Implementation Plan
 
-> **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans. One task/commit at a time; start only after D1 and F have merged.
+> **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans. One task/commit at a time; start only after F, D1 and G6 have merged.
 
 **Goal:** Let CI report findings without gating on them and compare stable fingerprints to an explicitly written baseline, while unknown capture reasons continue to fail closed.
 
@@ -14,7 +14,7 @@
 
 - **Lane:** G1G2 (one lane because both alter the gate path).
 - **Worker profile:** L, judgement-heavy (unknown precedence, partial-run facts, fingerprint semantics).
-- **Dependencies:** F and D1 merged first; F supplies plugin split, accepted inert CLI options and lane gate.
+- **Dependencies:** F, D1, G6 (exactly as PLAN.md). G6 supplies `SKIPPED` support; F supplies plugin split, accepted inert CLI options and lane gate.
 - **May touch:** `src/sharpit/engine/testsession/gates.py` (`evaluate_test`, line 34), `outcome.py` (`exit_fails`, line 303), `facts.py`, `report.py` (`render`, line 69), `report.schema.json`; `src/sharpit/engine/advisors/findings.py` (`Finding`, line 17), advisor assessment call sites; pytest plugin option/gate/report/xdist modules created by F; `tests/engine/testsession/`, `tests/pytest_plugin/`, both schema copies, `docs/reference/` report contract, lane evidence folder.
 - **Must not touch:** G3 action/summary modules; G4 procurement docs/dependabot; panel routes, registries or UI; `scripts/dev/lane_gate.py`; `tests/complexity_baseline.json`, `sonar-baseline.txt`, overhead budget constants, dependency lists or `uv.lock`.
 
@@ -28,8 +28,8 @@
 
 ## Review Focus
 
-1. Aggregate `fail` masks a simultaneous unknown reason: `test_report_only_unknown_fails_when_status_fail` asserts exit 1 without allow-unknown.
-2. xdist controller lacks collection facts: `test_xdist_partial_selection_facts_reach_controller` asserts worker and controller facts mark partial.
+1. Aggregate `fail` masks a simultaneous unknown reason: `test_report_only_still_fails_on_unknown_reason_when_status_is_fail` asserts exit 1 without allow-unknown.
+2. xdist controller lacks collection facts: `test_write_baseline_refused_on_partial_xdist_run` asserts a partial `-n 2 -k x` run refuses writing and keeps `fixed` null.
 3. Count regression stays existing: `test_baselined_query_count_increase_is_new` asserts baseline 12 vs observed 500 fails.
 4. Runtime values churn baselines: `test_fingerprint_stable_across_runtime_values` runs real gate/advisor code twice while varying ids, timings and parameters and compares fingerprints.
 5. Baseline acts like dismissal or hides dismissal: `test_existing_baseline_keeps_dismissed_false` and `test_explicit_dismissal_wins_over_baseline` pin precedence.
@@ -40,7 +40,7 @@
 
 **Files:** Create `src/sharpit/engine/testsession/baseline.py`; test `tests/engine/testsession/test_baseline.py`.
 
-**Interfaces:** `read(path: Path) -> Baseline` validates schema `sharpit-baseline/1`, shape, unique fingerprints and readable JSON. `compare(findings: Sequence[Finding], baseline: Baseline | None, *, partial: bool) -> BaselineComparison` returns per-finding state (`existing`/`new`) and unseen fingerprints as `fixed` only for complete runs; partial unseen entries have `fixed=None`, `fixed_reason="partial run"`. `write(path: Path, findings: Sequence[Finding]) -> None` emits stable sorted keys `fingerprint,target,message,observed`, masked messages, and no timestamp/version.
+**Interfaces:** `read(path: Path) -> Baseline` validates schema `sharpit-baseline/1`, shape, unique fingerprints and readable JSON. `compare(findings: Sequence[Finding], baseline: Baseline | None, *, partial: bool) -> BaselineComparison` returns per-finding state (`existing`/`new`) and unseen fingerprints as `fixed` only for complete runs; partial unseen entries have `fixed=None`, `fixedReason="partial run"`. Baseline entries include `ruleId`. `write(path: Path, findings: Sequence[Finding]) -> None` emits stable sorted keys `fingerprint,target,ruleId,message,observed`, masked messages, and no timestamp/version.
 
 - [ ] **Step 1: Failing tests.** `test_baseline_schema_and_sorted_bytes`, `test_baseline_rejects_bad_schema`, `test_baseline_rejects_duplicate_fingerprint`, `test_compare_existing_new_and_fixed`, `test_partial_unseen_is_null_with_reason`, `test_baseline_write_masks_values`, `test_count_gate_increase_is_new`.
 - [ ] **Step 2: Run `tests/engine/testsession/test_baseline.py`; expected named assertion failures.**
@@ -52,7 +52,7 @@
 
 **Files:** Modify `gates.py`, `engine/advisors/findings.py`, advisor assessment entry points including `engine/collectors/restapi/service.py`; tests under `tests/engine/testsession/` and advisor tests.
 
-**Interfaces:** Add `Finding.observed: int | None = None`, emitted as `observed` in its DTO. Extend `gates.evaluate_test(facts, budget, n_plus_one_threshold, dismissed, baseline=None)` and advisor `assess(..., baseline=None)`; annotate findings with `baselineState`. Only `not dismissed and baselineState != "existing"` fails. Preserve existing calls with `baseline=None`.
+**Interfaces:** Add `Finding.observed: int | None = None`, emitted by `Finding.to_dto`; preserve `observed` and `baselineState` through `engine/testsession/facts.py::_finding_from` and `Finding.to_dto`. Extend `gates.evaluate_test` with optional baseline input and annotate findings with `baselineState`. Only `not dismissed and baselineState != "existing"` fails. Preserve existing calls with no baseline.
 
 - [ ] **Step 1: Failing tests.** Review Focus 3–5 plus `test_unlisted_finding_is_new`, `test_unbaselined_run_has_null_baseline_state`, `test_explicit_dismissed_finding_stays_dismissed`, `test_max_queries_fingerprint_is_node_id`, `test_vulnerability_findings_excluded_from_baseline`.
 - [ ] **Step 2: Run owning tests; expected baseline-state/count assertions fail.**
@@ -78,7 +78,7 @@
 
 **Interfaces:** `PluginOptions` gains `report_only: bool`. Extend `outcome.exit_fails(status, allow_unknown, *, report_only=False, unknown_reasons=()) -> bool`. In report-only, gate findings do not fail pytest reports or session exitstatus; unknown reasons fail unless allowed, regardless of aggregate status. Report adds `mode` and `unknownReasons`; JUnit finding cases have no `<failure>`, while `sharpit.status` fails only for unknown reasons. Terminal line: `sharpit report-only: N tests would fail, status <status>`.
 
-- [ ] **Step 1: Failing tests.** Review Focus 1; `test_report_only_does_not_fail_finding_test`, `test_report_only_junit_finding_without_failure`, `test_report_only_unknown_reason_fails`, `test_report_only_unknown_fails_when_status_fail`, `test_report_only_allow_unknown_exits_zero`, `test_report_only_mode_report_and_summary`, `test_fail_on_still_selects_advisor_findings`.
+- [ ] **Step 1: Failing tests.** Review Focus 1; `test_report_only_does_not_fail_finding_test`, `test_report_only_junit_finding_without_failure`, `test_report_only_unknown_reason_fails`, `test_report_only_still_fails_on_unknown_reason_when_status_is_fail`, `test_report_only_allow_unknown_exits_zero`, `test_report_only_mode_report_and_summary`, `test_fail_on_still_selects_advisor_findings`.
 - [ ] **Step 2: Run targeted tests; expected report, JUnit and exit assertions fail.**
 - [ ] **Step 3: Implement mode-specific behavior without changing gate/advisor computation.**
 - [ ] **Step 4: Run targeted plugin/outcome tests; expected PASS.**
@@ -88,12 +88,12 @@
 
 **Files:** Modify plugin option modules/hooks, baseline/report modules and both `report.schema.json` copies; tests `tests/pytest_plugin/test_plugin_baseline.py`, `tests/test_report_schema.py`; update report contract under `docs/reference/`.
 
-**Interfaces:** `--sharpit-baseline=PATH` / ini `sharpit_baseline`; `--sharpit-write-baseline=PATH` / ini `sharpit_write_baseline`. Bad/unreadable input raises `pytest.UsageError` at session start. Load baseline on every worker. Write only for complete runs with zero unknown reasons; otherwise session-end `pytest.UsageError` and destination absent/unchanged. Report adds `baseline: null | {path,sha256,existing,new,fixed,fixedReason}` plus finding `baselineState` and `observed`, all keys emitted.
+**Interfaces:** `--sharpit-baseline=PATH` / ini `sharpit_baseline`; `--sharpit-write-baseline=PATH` / ini `sharpit_write_baseline`. Bad/unreadable input raises `pytest.UsageError` at session start. Load baseline on every worker. Write only for complete runs with zero unknown reasons; otherwise session-end `pytest.UsageError` and destination absent/unchanged. `outcome.py::session_status` and `testsession/finish.py::finish` always compute unknown reasons, including when aggregate status is `fail`; `_failing_tests` and `_fail_reasons` exclude findings with `baselineState == "existing"`. Compute `fixed` on the controller from merged findings, never per worker. Report adds `baseline: null | {path,sha256,existing,new,fixed,fixedReason}` plus finding `baselineState` and `observed`, all keys emitted. Merge D1's new per-finding dismissal list into the dismissed set loaded by the current plugin site `pytest_plugin/__init__.py:241`; preserve the existing `DismissalStore.list()` rule-id behavior.
 
-- [ ] **Step 1: Failing tests.** `test_bad_baseline_usage_error_at_session_start`, `test_write_baseline_is_only_writer`, `test_write_refuses_partial_run`, `test_write_refuses_any_unknown_even_when_status_fail`, `test_write_refusal_leaves_file_absent`, `test_baseline_loaded_on_every_xdist_worker`, `test_report_baseline_counts_and_nulls`, `test_schema_accepts_additive_baseline_fields`, `test_schema_copies_identical`.
+- [ ] **Step 1: Failing tests.** `test_bad_baseline_usage_error_at_session_start`, `test_write_baseline_is_only_writer`, `test_write_refuses_partial_run`, `test_write_refuses_any_unknown_even_when_status_fail`, `test_write_refusal_leaves_file_absent`, `test_baseline_loaded_on_every_xdist_worker`, `test_report_baseline_counts_and_nulls`, `test_schema_accepts_additive_baseline_fields`, `test_schema_copies_identical`, and canonical `test_write_baseline_refused_on_partial_xdist_run`.
 - [ ] **Step 2: Run tests; expected assertions fail.**
 - [ ] **Step 3: Implement lifecycle and synchronized schema changes.**
-- [ ] **Step 4: Run targeted tests and four gates; expected PASS.**
+- [ ] **Step 4: Run targeted tests and four gates; expected PASS.** Update the lane-owned handoff with current head and next step; the coordinator stores gate output separately in integration evidence.
 - [ ] **Step 5: Commit** `feat: wire baseline options and report contract`.
 
 ### Compatibility and precedence matrix
@@ -110,7 +110,7 @@ Use these assertions as the acceptance matrix for Tasks 2–5; do not infer beha
 | Unseen baseline entry, complete run | fixed | none | report fixed |
 | Unseen baseline entry, partial run | fixed is null | partial reason | never write new baseline |
 
-- [ ] **Step 1:** Add `test_report_only_advisor_error_is_unknown` for a BootUI ERROR mapped to sharpit SKIPPED; assert unknown reason appears and report-only still exits 1 by default.
+- [ ] **Step 1:** Add `test_report_only_advisor_error_is_unknown` for an errored REST API advisor rule mapped to sharpit `SKIPPED`; assert its limitation is an unknown reason and report-only still exits 1 by default.
 - [ ] **Step 2:** Add `test_partial_run_from_worker_selection_only` and `test_partial_run_from_controller_stop_only` so no single source of partial facts is omitted.
 - [ ] **Step 3:** Add `test_baseline_bytes_stable_across_runtime_values` for timestamp/version omission and sorted stable JSON bytes.
 - [ ] **Step 4:** Add `test_fixed_reason_null_on_complete_run` and `test_fixed_reason_partial_run_exact_string` for exact nullability and `partial run` contract.
@@ -126,7 +126,31 @@ Schema and render tests pin baseline object keys (`path`, `sha256`, `existing`, 
 
 ## Lane evidence checklist
 
-`.superpowers/sdd/0.4.0/lanes/G1G2/` contains current `handoff.md`; reviewer `review.md` ending `VERDICT: APPROVE` with head SHA and reviewer distinct from implementer; `findings.md` with each row fixed/red-test or parked/reason; `field-map.md` for changed report keys; `checklist.md` mapping requirements to evidence; four-gate logs pinned to head SHA.
+`.superpowers/sdd/0.4.0/lanes/G1G2/` contains implementer-owned `handoff.md`, `findings.md`, `field-map.md` (`N/A — not a panel lane`), and `checklist.md`. Checklist follows spec §6.1 items 1–10 in order, mapped to owning tasks with evidence paths or `N/A` plus reason. Coordinator/reviewer alone creates `review.md`, `gate/<name>.log` for ruff-check, ruff-format, pyright, pytest, lowest-direct and no-sqlalchemy, and `live-verify.md` in integration; lane diff cannot touch these.
+
+## Canonical lane conventions (C1–C8)
+
+- Lane id is exactly `G1G2`; evidence folder is `.superpowers/sdd/0.4.0/lanes/G1G2/`.
+- All lanes consume module names and signatures in F's consumer interface table.
+- Golden fixture paths and `tests/golden.py::assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None` follow C3, with no flat panel files.
+- A red is a defect-naming assertion, not import/collection failure. Spike tests assert desired behavior and are red on 0.3.0.
+- Do not edit shared `tests/test_safety_matrix.py` or `tests/test_masking_corpus.py`; use `tests/safety/test_g1g2_safety.py` and `tests/masking/test_g1g2_masking.py`.
+- PLAN.md Review Focus names are canonical; use `test_report_only_still_fails_on_unknown_reason_when_status_is_fail` and `test_write_baseline_refused_on_partial_xdist_run` verbatim.
+- Dependencies are exactly `F, D1, G6`; no stale wave or P1–P3 names.
+- §6.1 checklist follows its ten items in order, attributed to the owning task; non-panel items are `N/A` with reason.
+
+| Spec §6.1 item | G1G2 task / evidence owner |
+|---|---|
+| 1 Golden parity | N/A — report-only/baseline lane, not a panel lane. |
+| 2 Ported behavior tests | N/A — no BootUI panel behavior is ported. |
+| 3 Safety and masking | N/A — no panel data source or new secret source. |
+| 4 Gatekeeper | N/A — no new library import. |
+| 5 Hot-path overhead | N/A — no hot-path listener or middleware change. |
+| 6 MCP read-only surface | N/A — no MCP surface change. |
+| 7 Svelte view | N/A — no panel view. |
+| 8 Four gates | Task 5: run targeted tests and four gates; coordinator owns gate logs. |
+| 9 Live check | N/A — no panel implementation; integration reviewer owns live verification. |
+| 10 Handoff | Task 5: include current lane handoff with baseline/report evidence. |
 
 ## Definition of done
 

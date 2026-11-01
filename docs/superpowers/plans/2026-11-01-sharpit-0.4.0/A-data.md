@@ -10,9 +10,9 @@
 | **Spec** | `docs/superpowers/specs/2026-11-01-sharpit-0.4.0-design.md` §4 (anti-goals), §6.1–§6.3, §7 row `data`, §11, §12.5 |
 | **Contract** | `docs/reference/BOOTUI-CONTRACT-0.4-WAVE-A.md` §1; BootUI `DataController.java`, `RepositoriesReport`, `RepositoryDto`, `RepositoryDetailDto`, `RepositoryMethodDto` |
 | **Worker** | M, mostly mechanical; one judgement point (the `mapper.configured` guard) |
-| **Depends on** | F merged (§10.2: `implemented` flag, per-panel route modules, `SharpitContext.models`, golden loader + `ids.json`, `lane_gate.py`); D1 merged (envelope) |
-| **May touch** | `src/sharpit/engine/collectors/data.py` (new), `src/sharpit/fastapi/routes/data.py` (F's stub for this panel), the `data` row F pre-registered (flip `implemented=True` only), the `get_data_*` MCP stub F created, `ui/src/views/Data.svelte` (new) + its test, `tests/engine/test_data.py`, `tests/fastapi/test_data_api.py`, `tests/fixtures/bootui/2.2.0/data/*`, `.superpowers/sdd/0.4.0/lanes/A-data/*` |
-| **Must NOT touch** | §10.3 protected files (`scripts/dev/lane_gate.py`, `tests/complexity_baseline.json`, `sonar-baseline.txt`, rules in `tests/engine/test_import_boundary.py`, overhead budget constants, dependency lists in `pyproject.toml`/`uv.lock`); `src/sharpit/engine/sqla.py` (A-postgresql owns its edits); other lanes' modules; `src/sharpit/fastapi/adapter.py` beyond the line F reserved |
+| **Depends on** | F (PLAN.md). Consumes the symbols in F's F1a table (`F-foundation.md`): the `implemented` flag, `fastapi/routes/data.py`, `SharpitContext.models` (`install(models=)`), `tests/golden.py::assert_parity` + `ids.json`, the MCP stub module, the `ui/src/views/Data.svelte` placeholder, the `tests/safety/` + `tests/masking/` helpers, `lane_gate.py` |
+| **May touch** | `src/sharpit/engine/collectors/data.py` (new), `src/sharpit/fastapi/routes/data.py` (F's stub for this panel), the `data` row F pre-registered (flip `implemented=True` only), the `get_data_*` MCP stub F created, `ui/src/views/Data.svelte` (replace F's placeholder only) + `Data.test.ts`, `tests/engine/test_data.py`, `tests/fastapi/test_data_api.py`, `tests/safety/test_a_data_safety.py`, `tests/fixtures/bootui/2.2.0/data/*`, `examples/fastapi_sqla/` (the `install` call), the implementer files in `.superpowers/sdd/0.4.0/lanes/A-data/` (C2) |
+| **Must NOT touch** | §10.3 protected files (`scripts/dev/lane_gate.py`, `tests/complexity_baseline.json`, `sonar-baseline.txt`, rules in `tests/engine/test_import_boundary.py`, overhead budget constants, dependency lists in `pyproject.toml`/`uv.lock`); `src/sharpit/engine/sqla.py` (A-postgresql owns its edits); other lanes' modules; `src/sharpit/fastapi/adapter.py` beyond the line F reserved; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); `ui/src/App.svelte`, `ui/src/lib/nav.ts`, `ui/src/lib/types.ts` beyond this panel's `implemented` flag; any `review.md` or `gate/` path |
 
 **Architecture:** One framework-free collector (`engine/collectors/data.py`) that walks the objects passed in
 `models=` by duck-typed public attributes; it imports nothing from SQLAlchemy (gatekeeper rule 4 holds trivially; if a
@@ -70,11 +70,11 @@ serialises. No GET opens a connection: mapper metadata is in-process.
 **Files:** Create `tests/fixtures/bootui/2.2.0/data/repositories.json`, `.../data/repository-detail.json`,
 `.../data/nullable.json`; Test `tests/fastapi/test_data_api.py` (parity test only, skipped-red until Task 4).
 
-**Interfaces:** Consumes F's golden loader (expected `tests/golden.py::assert_parity(sharpit_id: str, name: str,
-payload: dict[str, Any]) -> None`; if F named it differently, use F's name and fix this line in the commit) and
-`tests/fixtures/bootui/2.2.0/ids.json` (`"data": "data"`).
+**Interfaces:** Consumes F's golden loader `tests/golden.py::assert_parity(sharpit_id: str, name: str, payload:
+Mapping[str, Any]) -> None` (C3) and `tests/fixtures/bootui/2.2.0/ids.json` (`"data": "data"`). Fixtures live only at
+`tests/fixtures/bootui/2.2.0/data/<name>.json` and `.../data/nullable.json` (no flat `data.json`).
 
-- [ ] **Step 1:** If G0 captured `data` from tiny-ledger-bootui, sanitise with `scripts/sanitize_golden.py`; else ask
+- [ ] **Step 1:** If G0a captured `data` from tiny-ledger-bootui, sanitise with `scripts/sanitize_golden.py`; else ask
   the coordinator for a **provisional** fixture from another worker (§6.1.1, §12.11) and mark it so in `checklist.md`.
 - [ ] **Step 2:** Write `nullable.json`: `{"repositories[].queryMethodCount": "SQLAlchemy has no repository methods",
   "repositories[].fragmentCount": "SQLAlchemy has no repository fragments"}`.
@@ -107,7 +107,7 @@ payload: dict[str, Any]) -> None`; if F named it differently, use F's name and f
   - `test_broken_registry_degrades` — a relationship to `"Missing"`; report returns, no exception.
   - `test_models_forms_dedupe` — `[Base, Base.registry, Base]` → each class once; `object()` → one warning.
   - `test_sqlalchemy_absent` — `monkeypatch.delitem(sys.modules, "sqlalchemy")` → `unavailableReason ==
-    sqla.UNAVAILABLE`.
+    sqla.UNAVAILABLE` (`engine/sqla.py:37`; `sqla.unavailable_reason()` at `:52` returns it).
 - [ ] **Step 2:** `uv run --no-sync pytest -q tests/engine/test_data.py` → FAIL on the named assertions.
 - [ ] **Step 3:** Implement. Read only `registry.mappers`, `mapper.class_`, `mapper.configured`, `mapper.primary_key`,
   `mapper.local_table`; `mapper.relationships` only behind `if mapper.configured`. Rows sorted by
@@ -133,25 +133,29 @@ False, namedQuery: None}`; empty when unconfigured. `fragments = []`.
 ### Task 4: Routes, panel flag, MCP read tool, safety
 
 **Files:** Modify `src/sharpit/fastapi/routes/data.py` (F's stub), the `data` `Panel` row (`implemented=True`,
-`action_capable=False`, `api_prefix="/data"`), the `get_data_repositories` MCP stub F created; Test
-`tests/fastapi/test_data_api.py`, `tests/test_safety_matrix.py` (add rows only).
+`action_capable=False`, `api_prefix="/data"`; `Panel` at `engine/panels.py:11`), the `get_data_repositories` MCP stub
+F created; Test `tests/fastapi/test_data_api.py`, `tests/safety/test_a_data_safety.py` (this lane's safety rows on F's
+shared helpers; C5).
 
 **Interfaces:** `GET {api}/data/repositories` → `repositories_report`; `GET {api}/data/repositories/{name}` → detail
 or **404 empty body** (contract §1). MCP `get_data_repositories` (read, `action=False`).
 
 - [ ] **Step 1:** Tests: `test_repositories_golden_parity` (`assert_parity("data", "repositories", body)`),
-  `test_detail_404_empty_body`, `test_get_has_no_side_effects` (uses `no_side_effects`; also asserts
-  `configure_mappers` not called, via the Task 2 spy), `test_panel_disabled_403` (`SHARPIT_PANELS_DATA_ENABLED=false` →
-  `{"error":"sharpit panel access denied","panel":"data","reason":disabled_reason("data")}`),
+  `test_detail_404_empty_body`, `test_get_never_configures_mappers` (canonical, PLAN.md Review Focus 5: both GETs
+  under `no_side_effects` with an **unconfigured** registry; asserts the Task 2 spy saw no `configure_mappers` /
+  `Mapper._check_configure` call and no statement was issued), `test_panel_disabled_403`
+  (`SHARPIT_PANELS_DATA_ENABLED=false` → `{"error":"sharpit panel access denied","panel":"data","reason":
+  disabled_reason("data")}`; `PANEL_ACCESS_DENIED` at `engine/guard.py:42`, `disabled_reason` at `engine/panels.py:48`),
   `test_panel_listed_when_implemented` (`/panels` contains `data`, `actionCapable` false), `test_mcp_lists_read_tool_only`.
-- [ ] **Step 2:** FAIL (404 from the unimplemented stub — that is an assertion on status, acceptable red).
+- [ ] **Step 2:** FAIL on the status assertion (F's unimplemented panel answers 404; `assert response.status_code ==
+  200` names it); never an `ImportError` (C4).
 - [ ] **Step 3:** Fill the route module; flip `implemented`. **Step 4:** PASS + full gate in background. Commit
   `feat: data panel routes and MCP read tool`.
 
 ### Task 5: Svelte view
 
-**Files:** Create `ui/src/views/Data.svelte`, `ui/src/views/Data.test.ts`; Modify the nav entry F pre-registered (flag
-only).
+**Files:** Replace F's placeholder `ui/src/views/Data.svelte`; create `ui/src/views/Data.test.ts`; flip the `data`
+entry's `implemented` in F's `ui/src/lib/nav.ts` wiring (flag only; `App.svelte`, `types.ts` untouched).
 
 - [ ] **Step 1:** vitest `Data.test.ts`: renders rows from a fixture copy of `repositories.json`; shows
   `unavailableReason` text when `springDataPresent` false; detail drawer lists relationships with `lazy`; `null`
@@ -162,33 +166,38 @@ only).
 ### Task 6: Live check, docs, lane evidence
 
 **Files:** `examples/fastapi_sqla/` (pass `models=Base` in its `install` call), `skills/sharpit/SKILL.md` (one row),
-`docs/reference/BOOTUI-CONTRACT-0.4-WAVE-A.md` (no edit; cite), `.superpowers/sdd/0.4.0/lanes/A-data/*`.
+`docs/reference/BOOTUI-CONTRACT-0.4-WAVE-A.md` (no edit; cite), the implementer evidence files (C2).
 
 - [ ] **Step 1:** `test_example_app.py` gains `test_example_data_panel_lists_models` (red first: example has no
   `models=`).
 - [ ] **Step 2:** `/sharpit:live-verify` on `examples/fastapi_sqla` (port from `agentctl lease app-port`); record
-  requests and responses in `live-verify.md`; repeat on tiny-ledger-py if its increment exists.
-- [ ] **Step 3:** lowest-direct and no-SQLAlchemy jobs in a throwaway copy, logs naming the head SHA.
+  requests and responses in `handoff.md` §Live check and point `checklist.md` item 9 at it; repeat on tiny-ledger-py if
+  its increment exists. `live-verify.md` is the coordinator's (C2).
+- [ ] **Step 3:** lowest-direct and no-SQLAlchemy as a local pre-check (commands in `checklist.md` item 8); the gated
+  logs are re-run and written by the coordinator in the integration worktree (C2).
 - [ ] **Step 4:** Commit `docs: data panel usage and lane evidence`.
 
-## §6.1 definition of done → task
+## §6.1 definition of done → task (spec order; `checklist.md` adds the evidence paths)
 
 | §6.1 item | Satisfied by |
 |---|---|
 | 1 golden parity, `nullable.json`, field map | Task 1, Task 4 `test_repositories_golden_parity`, field map above |
 | 2 `# ported:` citations | Tasks 2–3 |
-| 3 safety: `no_side_effects`, `PANELS`, env flags, guard unchanged, masking | Task 4 (no new secret source: class/table names only; `test_panel_disabled_403`) |
+| 3 safety: `no_side_effects`, `PANELS`, env flags, guard unchanged, masking | Task 4 (`test_get_never_configures_mappers`, `test_panel_disabled_403`, rows in `tests/safety/test_a_data_safety.py`); masking `N/A`: no new secret source (class/table names only) |
 | 4 gatekeeper | Task 2 (no SQLAlchemy import; boundary test unchanged and green) |
-| 5 overhead budget | n/a: no hot path (stated in `checklist.md`) |
+| 5 overhead budget | `N/A`: no hot path |
 | 6 MCP read-only | Task 4 `test_mcp_lists_read_tool_only` |
 | 7 Svelte view | Task 5 |
-| 8 four gates + lowest-direct + no-SQLAlchemy | Task 4 Step 4, Task 6 Step 3 |
+| 8 four gates + lowest-direct + no-SQLAlchemy | Task 4 Step 4, Task 6 Step 3 (gated logs: coordinator) |
 | 9 live check | Task 6 Step 2 |
 | 10 handoff current | every commit |
 
-## Lane evidence checklist (`.superpowers/sdd/0.4.0/lanes/A-data/`)
+## Lane evidence (C2: `.superpowers/sdd/0.4.0/lanes/A-data/`)
 
-`handoff.md` (last green command, next step, open findings) · `field-map.md` · `checklist.md` (the table above with evidence
-paths) · `findings.md` (`finding → test → red output`, each row `fixed` or `parked`) · `review.md` (last line
-`VERDICT: APPROVE`, reviewer id ≠ implementer id, head SHA) · `gate/` (four gates, lowest-direct and
-no-SQLAlchemy logs, each naming the head SHA) · `live-verify.md`. File names follow `lane_gate.py` on `release/0.4.0` if it names them differently.
+- **Implementer, in the lane worktree:** `handoff.md` (last green command, next step, open findings, live-check
+  requests), `findings.md` (`finding → test → red output`, each row `fixed` + red-test name or `parked` + reason),
+  `field-map.md` (the field map above), `checklist.md` (the ten §6.1 items above in the spec's order, each with an evidence
+  path or `N/A` + reason).
+- **Coordinator/reviewer, in the integration worktree only:** `review.md` (`VERDICT: APPROVE`, reviewer id ≠
+  implementer id, head SHA), `gate/{ruff-check,ruff-format,pyright,pytest,lowest-direct,no-sqlalchemy}.log`,
+  `live-verify.md`. This lane's diff never touches any `review.md` or `gate/` path (`lane_gate.py` refuses it).

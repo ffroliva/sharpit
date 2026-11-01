@@ -12,9 +12,9 @@
 
 ## Header and ownership
 
-- **Lane:** G4-hygiene.
+- **Lane:** G4.
 - **Worker profile:** S/M, mechanical with judgement-heavy security wording.
-- **Dependencies:** F merged; G1G2/G3 optional. Verify described flags/action against merged artifacts or describe only accepted spec surface.
+- **Dependencies:** F (exactly as PLAN.md). G1G2/G3 are not dependencies; verify described flags/action against merged artifacts or describe only accepted spec surface.
 - **May touch:** `README.md`, `SECURITY.md` (create if absent), `.github/dependabot.yml`, only the stale line in `skills/README.md`, and this lane’s evidence folder.
 - **Must not touch:** Python source, tests, `pyproject.toml`, `uv.lock`, workflows/action code, panel docs owned by feature lanes, `scripts/dev/lane_gate.py`, complexity/sonar baselines, or other README/skill content.
 
@@ -84,7 +84,7 @@
 
 ### Task 5: Review claims and record evidence
 
-**Files:** Update only `.superpowers/sdd/0.4.0/lanes/G4-hygiene/` artifacts.
+**Files:** Update only `.superpowers/sdd/0.4.0/lanes/G4/` artifacts.
 
 - [ ] **Step 1:** Check README install against `pyproject.toml`, egress against `osv.py`/`epss.py`, and Dependabot paths against repo folders.
 - [ ] **Step 2:** Run targeted docs checks and four standard gates; save output paths pinned to head SHA.
@@ -109,10 +109,34 @@ The security policy must be actionable for a reporter and precise about what sha
 
 ## Lane evidence checklist
 
-`.superpowers/sdd/0.4.0/lanes/G4-hygiene/` contains current `handoff.md`, independent reviewer `review.md` ending `VERDICT: APPROVE` with reviewer id and head SHA, `findings.md` (fixed/red-test or parked/reason), `field-map.md` linking factual README/SECURITY claims to sources or null reason, `checklist.md` mapping §5.4 to evidence, and four-gate logs pinned to head SHA.
+`.superpowers/sdd/0.4.0/lanes/G4/` contains implementer-owned `handoff.md`, `findings.md`, `field-map.md` (`N/A — not a panel lane`), and `checklist.md`. Checklist follows spec §6.1 items 1–10 in order, mapped to owning tasks with evidence paths or `N/A` plus reason. Coordinator/reviewer alone creates `review.md`, `gate/<name>.log` for ruff-check, ruff-format, pyright, pytest, lowest-direct and no-sqlalchemy, and `live-verify.md` in integration; lane diff cannot touch those paths.
 
 ## Definition of done
 
 - [ ] Tasks 1–5 cover every §5.4 deliverable: README (PyPI install, gate/gflow proof, 60 seconds), SECURITY (versions, private reporting, egress), Dependabot’s three ecosystems, stale skills index line.
 - [ ] Documentation claims match current repository state and checks pass.
 - [ ] Lane evidence passes `scripts/dev/lane_gate.py`; source and dependency files remain untouched.
+
+## Canonical lane conventions (C1–C8)
+
+- Lane id is exactly `G4`; evidence folder is `.superpowers/sdd/0.4.0/lanes/G4/`.
+- All lanes consume module names and signatures in F's consumer interface table.
+- Golden fixture paths and `tests/golden.py::assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None` follow C3, with no flat panel files.
+- A red is a defect-naming assertion, not import/collection failure. No spike test is owned by G4.
+- Do not edit shared safety/masking matrices; use `tests/safety/test_g4_safety.py` and `tests/masking/test_g4_masking.py` if needed.
+- PLAN.md Review Focus test names remain canonical: `test_readme_install_uses_current_pypi_version_and_valid_extra`, `test_security_policy_network_claim_matches_gatekeepers`, `test_security_policy_has_private_reporting_route`, `test_dependabot_covers_uv_pip_actions_and_ui_npm`, and `test_readme_gate_and_gflow_proof_precede_details`.
+- Dependencies are exactly `F`; no G1G2/G3 dependency.
+- Checklist follows §6.1 items 1–10 in order; panel-specific items are `N/A — not a panel lane`, with evidence paths for applicable handoff items.
+
+| Spec §6.1 item | G4 task / evidence owner |
+|---|---|
+| 1 Golden parity | N/A — procurement hygiene lane, not a panel lane. |
+| 2 Ported behavior tests | N/A — no BootUI panel behavior is ported. |
+| 3 Safety and masking | N/A — no panel data source or new secret source. |
+| 4 Gatekeeper | N/A — no library import change. |
+| 5 Hot-path overhead | N/A — no hot-path code change. |
+| 6 MCP read-only surface | N/A — no MCP surface change. |
+| 7 Svelte view | N/A — no panel view. |
+| 8 Four gates | Task 5, Step 2: run four gates; coordinator owns gate logs. |
+| 9 Live check | N/A — no panel implementation; integration reviewer owns live verification. |
+| 10 Handoff | Task 5: current handoff and review findings. |

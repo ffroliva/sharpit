@@ -10,16 +10,16 @@
 | **Spec** | §2, §4, §6.1 (3: masking of security event data), §8 intro, §8.1 row `security-logs` (every clause), §11 ("`security-logs` has a sharpit recording API") |
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-B.md` §4; BootUI `SecurityLogsService.java`, `SecurityLogsController.java`, `SecurityLogsReport`, `SecurityLogEventDto`, `SecurityLogDataDto`, `SecurityLogTypeSummaryDto` |
 | **Worker** | M, security lane → claude-flavio; reviewer another family + `ponytail-review` (capture middleware) |
-| **Depends on** | F (the 401/403 hook in `CaptureMiddleware`, `implemented` flag, settings field `security_logs_max_logs`), D1 |
-| **May touch** | `src/sharpit/engine/capture/securitylogs.py` (new), F's 401/403 hook body in `src/sharpit/fastapi/capture.py`, `src/sharpit/__init__.py` (one export line: `record_security_event`), `src/sharpit/fastapi/routes/security_logs.py` (F stub), the panel's pre-registered rows, F's MCP stub, `ui/src/views/SecurityLogs.svelte` (+ test), `tests/engine/capture/test_securitylogs.py`, `tests/fastapi/test_security_logs_api.py`, `tests/fastapi/test_security_logs_overhead.py`, goldens, lane folder |
-| **Must NOT touch** | §10.3 protected files; `engine/capture/logtail.py` (this is not a log filter); `engine/guard.py`; other lanes' modules |
+| **Depends on** | F (PLAN.md). Consumes F's F1a table (`F-foundation.md`): the 401/403 hook in `fastapi/capture.py`, `fastapi/routes/security_logs.py`, the `implemented` flag, the settings field `security_logs_max_logs`, the MCP stub module, `tests/golden.py::assert_parity`, the `ui/src/views/SecurityLogs.svelte` placeholder, the `tests/safety/` + `tests/masking/` helpers. **Ordering:** if both run, this lane merges **before D2** (both edit `fastapi/capture.py`; D2 rebases onto it) |
+| **May touch** | `src/sharpit/engine/capture/securitylogs.py` (new), F's 401/403 hook body in `src/sharpit/fastapi/capture.py`, `src/sharpit/__init__.py` (one export line: `record_security_event`), `src/sharpit/fastapi/routes/security_logs.py` (F stub), the panel's pre-registered rows, F's MCP stub, `ui/src/views/SecurityLogs.svelte` (replace F's placeholder) + `.test.ts`, `tests/engine/capture/test_securitylogs.py`, `tests/fastapi/test_security_logs_api.py`, `tests/fastapi/test_security_logs_overhead.py`, `tests/safety/test_b_security_logs_safety.py`, `tests/masking/test_b_security_logs_masking.py`, `tests/fixtures/bootui/2.2.0/security-logs/*`, `skills/sharpit/SKILL.md` + `README.md` (Task 4 usage only), the implementer files in the lane folder (C2) |
+| **Must NOT touch** | §10.3 protected files; `engine/capture/logtail.py` (this is not a log filter); `engine/guard.py`; `fastapi/capture.py` beyond F's 401/403 hook body; other lanes' modules; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
 
 **Architecture:** `SecurityEventBuffer` (deque, `maxlen = clamp(security_logs_max_logs, 1, 10000)`, default 500) on
-`CaptureState`; events stored raw-but-bounded (`timestamp_ns`, `principal`, `type`, `data` dict copied, `request_id`)
+`CaptureState` (`engine/capture/__init__.py:26`; the slot is in F's F1a table); events stored raw-but-bounded (`timestamp_ns`, `principal`, `type`, `data` dict copied, `request_id`)
 and masked **at read** with the live exposure policy (BootUI masks per read). A module-level
 `WeakValueDictionary[str, SharpitContext]` keyed by `context_id` is filled at install only when the panel is
 implemented and enabled; `record_security_event` looks up `REQUEST.get().context_id` there
-(`engine/capture/correlation.py:22`), so it is a no-op outside a request, for an inactive sharpit, or for another app.
+(`REQUEST` at `engine/capture/correlation.py:23`, `RequestInfo.context_id` at `:15`), so it is a no-op outside a request, for an inactive sharpit, or for another app.
 
 ## Global Constraints
 
@@ -46,7 +46,7 @@ implemented and enabled; `record_security_event` looks up `REQUEST.get().context
    `test_principal_never_runs_user_properties`.
 3. **Secrets in `data`** (`token=`, `password=`, a `session_id`, a client IP, a 10 kB value, 30 keys). Pinned in
    Task 1: `test_masks_sensitive_data_entries` (`# ported: SecurityLogsServiceTests.masksSensitiveDataEntries`) and a
-   masking corpus row in Task 3.
+   row in `tests/masking/test_b_security_logs_masking.py` in Task 3.
 4. **`after` input**: naive datetime, garbage, `Z`, `+02:00`. Expect 400
    `{"error": "Invalid 'after' parameter: expected an ISO-8601 instant with an offset"}` (never echoing the value) for
    the first two. Pinned in Task 3: `test_invalid_after_is_400` (`# ported: SecurityLogsControllerTests.invalidAfterParameterReturnsBadRequest`).
@@ -57,8 +57,9 @@ implemented and enabled; `record_security_event` looks up `REQUEST.get().context
 
 ### Task 0: Predict and council (spec §8)
 
-- [ ] **Step 1:** `/sharpit:predict` → `predict.md`. **Step 2:** `/sharpit:llm-council --tier high` on this plan →
-  `council.md`; apply changes here in a `docs:` commit before any code.
+- [ ] **Step 1:** `/sharpit:predict` → `.superpowers/sdd/0.4.0/lanes/B-security-logs/predict.md`. **Step 2:**
+  `/sharpit:llm-council --tier high` on this plan → `.../B-security-logs/council.md`; apply changes here in a `docs:`
+  commit before any code.
 
 ### Task 1: `SecurityEventBuffer` and the report
 
@@ -81,15 +82,15 @@ required, raises `ValueError`); `clamp_max_logs(n: int) -> int`.
 
 ### Task 2: Sources: the 401/403 hook and `record_security_event`
 
-**Files:** F's hook in `src/sharpit/fastapi/capture.py` (the `finally` of `CaptureMiddleware.__call__`, `:383`
-area, where `status` is known); `src/sharpit/engine/capture/securitylogs.py` (`register(ctx)`, `unregister(ctx)`,
+**Files:** F's hook in `src/sharpit/fastapi/capture.py` (the `finally` of `CaptureMiddleware.__call__`, `:363`
+today, where `status` is known; F's F1a table names its post-F location); `src/sharpit/engine/capture/securitylogs.py` (`register(ctx)`, `unregister(ctx)`,
 `record_security_event(type: str, principal: str | None = None, **data: object) -> None`, `principal_of(user: object)
 -> str | None`); `src/sharpit/__init__.py` export; Tests in `tests/engine/capture/test_securitylogs.py` and
 `tests/fastapi/test_security_logs_api.py`.
 
 **Interfaces:** hook data `{"method": info.method, "path": info.path, "status": status}`; 401 →
 `AUTHENTICATION_FAILURE`, 403 → `AUTHORIZATION_FAILURE`; sharpit's own traffic is already skipped before the hook
-(`fastapi/capture.py:295`).
+(`under(route_path(scope), self.ctx.settings.path)`, `fastapi/capture.py:297`).
 
 - [ ] **Step 1:** Tests: `test_401_becomes_authentication_failure`, `test_403_becomes_authorization_failure`,
   `test_200_records_nothing`, `test_sharpit_403_not_recorded`, `test_record_goes_to_the_current_apps_context_only`,
@@ -102,38 +103,56 @@ area, where `status` is known); `src/sharpit/engine/capture/securitylogs.py` (`r
 ### Task 3: Routes, stream, MCP, safety, budget
 
 **Files:** `src/sharpit/fastapi/routes/security_logs.py` (F stub), flag flip; Tests
-`tests/fastapi/test_security_logs_api.py`, `tests/fastapi/test_security_logs_overhead.py`, safety-matrix and corpus rows.
+`tests/fastapi/test_security_logs_api.py`, `tests/fastapi/test_security_logs_overhead.py`,
+`tests/safety/test_b_security_logs_safety.py`, `tests/masking/test_b_security_logs_masking.py` (C5).
 
 **Interfaces:** `GET {api}/security-logs?principal=&type=&after=&offset=&limit=`, `GET {api}/security-logs/stream`
-(SSE `update`, reuse `fastapi/sse.py::sse_response` + `change_events`; if the shared stream's coalescing differs from
+(SSE `update`, reuse `fastapi/sse.py:72::sse_response` + `engine/capture/streams.py:221::change_events`; if the shared stream's coalescing differs from
 BootUI's 750 ms, log §11 — do not change the shared stream). MCP `get_security_logs` (read, `limit`, default 20).
 `actionCapable=False`. Unavailable (capture middleware not attached): `auditEventsPresent: true`, `unavailableReason:
 "Request capture is unavailable: install() ran after the app started; only record_security_event() events are shown"`.
 
-- [ ] **Step 1:** Tests: `test_golden_parity`, `test_events_newest_first_bounded` (`# ported: SecurityLogsControllerTests.eventsAreNewestFirstAndBoundedByConfiguredMaximum`),
+- [ ] **Step 1:** Tests: `test_golden_parity` (`assert_parity("security-logs", "report", body)`; fixture
+  `tests/fixtures/bootui/2.2.0/security-logs/report.json` + `nullable.json`, C3), `test_events_newest_first_bounded` (`# ported: SecurityLogsControllerTests.eventsAreNewestFirstAndBoundedByConfiguredMaximum`),
   `test_filters` (`# ported: SecurityLogsControllerTests.filtersByPrincipalTypeAndAfter`), `test_masks_and_metadata_only`
   (`# ported: ...masksSensitiveEventDataAndHidesValuesInMetadataOnlyMode`), `test_unavailable_when_capture_missing`
   (`# ported: ...absentAuditRepositoryReturnsUnavailableReport`, sharpit reason), `test_invalid_after_is_400`,
   `test_get_no_side_effects` (GET + stream), `test_mcp_read_tool_only`, `test_panel_disabled_drops_events`; budget:
-  paired on/off over 200-status requests, `BUDGET_NS = 2_000` per request added by the hook.
-- [ ] **Step 2:** FAIL → **Step 3:** implement → **Step 4:** PASS + full gate. Commit `feat: security-logs routes, stream and MCP read tool`.
+  paired on/off over 200-status requests (`tests/overhead.py::paired` + `check_budget`), `BUDGET_NS = 2_000` per
+  request added by the hook, a new constant in the new file.
+- [ ] **Step 2:** FAIL on assertions (F's unimplemented panel answers 404; never an `ImportError`, C4) → **Step 3:** implement → **Step 4:** PASS + full gate. Commit `feat: security-logs routes, stream and MCP read tool`.
 
 ### Task 4: Svelte view, docs, live check, evidence
 
-- [ ] **Step 1:** `ui/src/views/SecurityLogs.svelte` + vitest (type summaries, filters, masked badge, refetch on
+- [ ] **Step 1:** Replace F's placeholder `ui/src/views/SecurityLogs.svelte`, flip the panel's `implemented` in F's
+  `ui/src/lib/nav.ts` wiring (flag only); vitest (type summaries, filters, masked badge, refetch on
   `update`). `npm --prefix ui run check` PASS.
 - [ ] **Step 2:** `skills/sharpit/SKILL.md` + README: `record_security_event` usage (success events only come from it).
-- [ ] **Step 3:** Live on tiny-ledger-py / `examples/fastapi_sample` (a 401 route) → `live-verify.md`. Commit
+- [ ] **Step 3:** Live on tiny-ledger-py / `examples/fastapi_sample` (a 401 route); record requests in `handoff.md`
+  §Live check (`live-verify.md` is the coordinator's, C2); lowest-direct + no-SQLAlchemy as a local pre-check only. Commit
   `feat: security-logs view, docs and lane evidence`.
 
-## §6.1 → task
+## §6.1 → task (spec order; `checklist.md` adds the evidence paths)
 
-1 parity + field map (`traceId` = request id; `requestId` = request id): 1, 3 · 2 citations: 1–3 · 3 safety/masking
-(security event data): 1–3 · 4 gatekeeper: n/a (no library) · 5 budget: 3 · 6 MCP read-only: 3 · 7 Svelte: 4 ·
-8 gates: 3–4 · 9 live: 4 · 10 handoff.
+| Item | Task |
+|---|---|
+| 1 golden parity, `nullable.json`, field map (`traceId` = request id; `requestId` = request id) | 1, 3 |
+| 2 `# ported:` citations | 1–3 |
+| 3 safety + masking (security event data) | 1–3 |
+| 4 gatekeeper | `N/A`: no library imported |
+| 5 overhead budget | 3 |
+| 6 MCP read-only | 3 |
+| 7 Svelte view | 4 |
+| 8 four gates + lowest-direct + no-SQLAlchemy | 3–4 (gated logs: coordinator) |
+| 9 live check | 4 |
+| 10 handoff current | every commit |
 
-## Lane evidence checklist (`.superpowers/sdd/0.4.0/lanes/B-security-logs/`)
+## Lane evidence (C2: `.superpowers/sdd/0.4.0/lanes/B-security-logs/`)
 
-`predict.md` · `council.md` · `handoff.md` · `field-map.md` · `checklist.md` (incl. measured overhead) · `findings.md` ·
-`review.md` (`VERDICT: APPROVE`, reviewer ≠ implementer, head SHA, plus `ponytail-review`) · `gate/` (four gates, lowest-direct, no-SQLAlchemy logs, each naming the head SHA) ·
-`live-verify.md`.
+- **Implementer, in the lane worktree:** `handoff.md` (last green command, next step, open findings, live-check
+  requests), `findings.md` (`finding → test → red output`, each row `fixed` + red-test name or `parked` + reason),
+  `field-map.md` (the field map above), `checklist.md` (the ten §6.1 items above in the spec's order, each with an evidence
+  path or `N/A` + reason). Task 0 adds `predict.md` and `council.md`; `checklist.md` item 5 records the measured overhead. Review includes `ponytail-review` (capture middleware).
+- **Coordinator/reviewer, in the integration worktree only:** `review.md` (`VERDICT: APPROVE`, reviewer id ≠
+  implementer id, head SHA), `gate/{ruff-check,ruff-format,pyright,pytest,lowest-direct,no-sqlalchemy}.log`,
+  `live-verify.md`. This lane's diff never touches any `review.md` or `gate/` path (`lane_gate.py` refuses it).

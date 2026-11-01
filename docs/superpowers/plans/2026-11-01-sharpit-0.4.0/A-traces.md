@@ -10,15 +10,16 @@
 | **Spec** | §2 (best effort), §4, §6.1, §6.3 (`engine/otel.py` gatekeeper), §7 row `traces`, §11, §15 (round 1 "Traces cannot remove a processor"; round 3 "attach during requests; pile-up") |
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-A.md` §7; BootUI `TracesService.java` (limit clamp 1..500, `MAX_SUMMARY_SERVICES = 20`), `TraceSummaryDto`, `SpanDto`, `SpanAttributeDto(key,type,value)`, `SpanEventDto(name,timeOffsetNanos,attributes)` |
 | **Worker** | M, judgement on lifecycle → Opus or codex |
-| **Depends on** | F (span-processor slot in the capture wiring, `engine/otel.py` row in `GATEKEEPERS`, OTel SDK in the test extra), D1 |
-| **May touch** | `src/sharpit/engine/otel.py` (new gatekeeper), `src/sharpit/engine/capture/traces.py` (new), F's span slot in `src/sharpit/fastapi/capture.py`, `src/sharpit/fastapi/routes/traces.py` (F stub), the panel's pre-registered rows, F's MCP stubs, `ui/src/views/Traces.svelte` (+ test), `tests/engine/capture/test_traces.py`, `tests/fastapi/test_traces_api.py`, `tests/fastapi/test_traces_overhead.py`, goldens, lane folder |
-| **Must NOT touch** | §10.3 protected files; other lanes' modules; any OTel import outside `engine/otel.py` |
+| **Depends on** | F (PLAN.md). Consumes F's F1a table (`F-foundation.md`): the span slot in `fastapi/capture.py`, the `"opentelemetry": {"sharpit/engine/otel.py"}` row in `GATEKEEPERS` (`tests/engine/test_import_boundary.py:25`, F1e), the OTel SDK in the test extra (F1d), `fastapi/routes/traces.py`, the `implemented` flag, the MCP stub module, `tests/golden.py::assert_parity`, the `ui/src/views/Traces.svelte` placeholder, the `tests/safety/` + `tests/masking/` helpers |
+| **May touch** | `src/sharpit/engine/otel.py` (new gatekeeper), `src/sharpit/engine/capture/traces.py` (new), F's span slot in `src/sharpit/fastapi/capture.py`, `src/sharpit/fastapi/routes/traces.py` (F stub), the panel's pre-registered rows, F's MCP stubs, `ui/src/views/Traces.svelte` (replace F's placeholder) + `.test.ts`, `tests/engine/test_otel.py`, `tests/engine/capture/test_traces.py`, `tests/fastapi/test_traces_api.py`, `tests/fastapi/test_traces_overhead.py`, `tests/safety/test_a_traces_safety.py`, `tests/masking/test_a_traces_masking.py`, `tests/fixtures/bootui/2.2.0/traces/*`, the implementer files in the lane folder (C2) |
+| **Must NOT touch** | §10.3 protected files (incl. the import-boundary rules: F already added the `opentelemetry` row); other lanes' modules; any OTel import outside `engine/otel.py`; `fastapi/capture.py` beyond F's span slot; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
 
 **Architecture:** `engine/otel.py` reads `sys.modules` (never imports `opentelemetry` unless already imported, like
 `sqla.sqlalchemy_module`, `sqla.py:41`) and exposes the processor: one module-level `SharpitSpanProcessor` instance
 whose `on_end` forwards `ReadableSpan`s to the armed contexts' `SpanBuffer` (`engine/capture/traces.py`, bounded by
 traces, masked at read). `CaptureWiring.attach_at_install` and `on_startup` (`fastapi/capture.py:172,203`) call
-`otel.attach(ctx)`; never a request or GET. `detach` disarms; a later attach re-arms the same processor (the SDK cannot
+`otel.attach(ctx)` through F's span slot; never a request or GET. `CaptureWiring.detach` (`fastapi/capture.py:215`)
+calls `otel.disarm(ctx)`; a later attach re-arms the same processor (the SDK cannot
 remove one).
 
 ## Global Constraints
@@ -44,7 +45,7 @@ remove one).
    `test_list_and_detail_hide_sharpit_self_traces` (`# ported: TracesServiceTests.listAndDetailHideBootUiSelfTraces`).
 4. **Secrets in attributes** (`db.statement` literal, `http.request.header.authorization`, `url.full` with userinfo).
    Pinned in Task 2: `test_span_reads_mask_nested_values` (`# ported: TracesServiceTests.spanReadsMaskNestedValuesWithoutChangingStoredEvidence`)
-   and a masking corpus row.
+   and a row in `tests/masking/test_a_traces_masking.py`.
 5. **Limit edge values** `limit=0`, `-5`, `10000`, `abc`. Expect clamp 1..500; non-integer → 400 via
    `engine/paging.py::parse_int_param`. Pinned in Task 3: `test_limit_clamped`.
 
@@ -52,13 +53,15 @@ remove one).
 
 ### Task 1: Gatekeeper `engine/otel.py`
 
+**Files:** Create `src/sharpit/engine/otel.py`; Test `tests/engine/test_otel.py`.
+
 **Interfaces:** `otel_sdk() -> Any | None`; `unavailable_reason() -> str | None` (`"OpenTelemetry SDK is not imported
 by this application"`, `"The global tracer provider is not an SDK TracerProvider"`); `attach(ctx) -> bool`;
 `disarm(ctx) -> None`; `PROCESSOR: SharpitSpanProcessor` (module-level).
 
 - [ ] **Step 1:** Tests `test_no_sdk_is_unavailable`, `test_proxy_provider_is_unavailable`, `test_attach_adds_once`,
   `test_disarm_stops_delivery`, `test_on_end_raising_is_swallowed`. **Step 2:** FAIL. **Step 3:** implement.
-- [ ] **Step 4:** PASS; boundary test green with F's `opentelemetry` row. Commit `feat: OpenTelemetry gatekeeper and span processor`.
+- [ ] **Step 4:** PASS; `tests/engine/test_import_boundary.py` green with F's `opentelemetry` row (unchanged). Commit `feat: OpenTelemetry gatekeeper and span processor`.
 
 ### Task 2: `SpanBuffer` and the trace DTOs
 
@@ -79,32 +82,52 @@ by this application"`, `"The global tracer provider is not an SDK TracerProvider
 ### Task 3: Wiring, routes, MCP, safety, budget
 
 **Files:** F's span slot in `fastapi/capture.py`; `fastapi/routes/traces.py`; flag flip; Tests
-`tests/fastapi/test_traces_api.py`, `tests/fastapi/test_traces_overhead.py`, safety-matrix and corpus rows.
+`tests/fastapi/test_traces_api.py`, `tests/fastapi/test_traces_overhead.py`, `tests/safety/test_a_traces_safety.py`,
+`tests/masking/test_a_traces_masking.py` (C5).
 
 **Interfaces:** `GET {api}/traces?limit=100`, `GET {api}/traces/{traceId}` (404 `{"error": "trace <id> not found"}`),
-`DELETE {api}/traces` (204, read-only → 403). MCP `get_traces` (read, `limit`); `clear_traces` `action=True`.
+`DELETE {api}/traces` (204, read-only → 403). `limit` parsed with `engine/paging.py:15::parse_int_param`. MCP `get_traces` (read, `limit`); `clear_traces` `action=True`.
 `actionCapable=True`.
 
-- [ ] **Step 1:** Tests `test_golden_parity`, `test_limit_clamped`, `test_unknown_trace_404`, `test_clear_204`,
+- [ ] **Step 1:** Tests `test_golden_parity` (`assert_parity("traces", "list", body)` and `("traces", "detail", …)`;
+  fixtures `tests/fixtures/bootui/2.2.0/traces/{list,detail,nullable}.json`, C3), `test_limit_clamped`, `test_unknown_trace_404`, `test_clear_204`,
   `test_get_no_side_effects` (also asserts `PROCESSOR` attach count unchanged by GET), `test_mcp_read_tool_only`,
-  `test_attach_never_during_request`; budget `BUDGET_NS = 20_000` per `on_end` (paired, `tests/overhead.py`).
-- [ ] **Step 2:** FAIL → **Step 3:** implement → **Step 4:** PASS + full gate. Commit `feat: traces panel routes and MCP read tool`.
+  `test_attach_never_during_request`; budget `BUDGET_NS = 20_000` per `on_end` (a new constant in the new file; paired
+  with `tests/overhead.py::paired` and `check_budget`).
+- [ ] **Step 2:** FAIL on assertions (F's unimplemented panel answers 404; never an `ImportError`, C4) → **Step 3:** implement → **Step 4:** PASS + full gate. Commit `feat: traces panel routes and MCP read tool`.
 
 ### Task 4: Svelte view, live check, evidence
 
-- [ ] **Step 1:** `ui/src/views/Traces.svelte` + vitest (list → detail waterfall; nanos rendered as ms; `enabled:false`
+- [ ] **Step 1:** Replace F's placeholder `ui/src/views/Traces.svelte`, flip the panel's `implemented` in F's
+  `ui/src/lib/nav.ts` wiring (flag only); vitest (list → detail waterfall; nanos rendered as ms; `enabled:false`
   shows the reason). `npm --prefix ui run check` PASS.
 - [ ] **Step 2:** Live: `examples/fastapi_sqla` with an SDK provider set in the test harness app (no example change
-  if it lacks OTel: use tiny-ledger-py, whose OTel goes to the reference compose's collector, §12.8). `live-verify.md`.
+  if it lacks OTel: use tiny-ledger-py, whose OTel goes to the reference compose's collector, §12.8). Record requests in
+  `handoff.md` §Live check (`live-verify.md` is the coordinator's, C2); lowest-direct + no-SQLAlchemy as a local
+  pre-check only.
 - [ ] **Step 3:** Commit `feat: traces view and lane evidence`.
 
-## §6.1 → task
+## §6.1 → task (spec order; `checklist.md` adds the evidence paths)
 
-1 parity: 2–3 (+ field map in `field-map.md`) · 2 citations: 2 · 3 safety/masking (span attributes, headers): 2–3 ·
-4 gatekeeper `engine/otel.py`: 1 · 5 budget: 3 · 6 MCP read-only: 3 · 7 Svelte: 4 · 8 gates: 3–4 · 9 live: 4 ·
-10 handoff: every commit.
+| Item | Task |
+|---|---|
+| 1 golden parity, `nullable.json`, field map | 2–3 (+ field map in `field-map.md`) |
+| 2 `# ported:` citations | 2 |
+| 3 safety + masking (span attributes, headers) | 2–3 |
+| 4 gatekeeper `engine/otel.py` | 1 |
+| 5 overhead budget | 3 |
+| 6 MCP read-only | 3 |
+| 7 Svelte view | 4 |
+| 8 four gates + lowest-direct + no-SQLAlchemy | 3–4 (gated logs: coordinator) |
+| 9 live check | 4 |
+| 10 handoff current | every commit |
 
-## Lane evidence checklist (`.superpowers/sdd/0.4.0/lanes/A-traces/`)
+## Lane evidence (C2: `.superpowers/sdd/0.4.0/lanes/A-traces/`)
 
-`handoff.md` · `field-map.md` · `checklist.md` · `findings.md` · `review.md` (`VERDICT: APPROVE`, reviewer ≠ implementer,
-head SHA) · `gate/` (four gates, lowest-direct, no-SQLAlchemy logs, each naming the head SHA) · `live-verify.md`.
+- **Implementer, in the lane worktree:** `handoff.md` (last green command, next step, open findings, live-check
+  requests), `findings.md` (`finding → test → red output`, each row `fixed` + red-test name or `parked` + reason),
+  `field-map.md` (every `TraceSummaryDto`/`SpanDto` key → its OTel source or `null` + reason), `checklist.md` (the ten §6.1 items above in the spec's order, each with an evidence
+  path or `N/A` + reason).
+- **Coordinator/reviewer, in the integration worktree only:** `review.md` (`VERDICT: APPROVE`, reviewer id ≠
+  implementer id, head SHA), `gate/{ruff-check,ruff-format,pyright,pytest,lowest-direct,no-sqlalchemy}.log`,
+  `live-verify.md`. This lane's diff never touches any `review.md` or `gate/` path (`lane_gate.py` refuses it).

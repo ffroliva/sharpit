@@ -10,9 +10,9 @@
 | **Spec** | §2 (best effort), §4, §6.1, §7 row `sql-trace insights`, §11 |
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-A.md` §8; BootUI `SqlTraceInsightsService.java`, `SqlStatementRanking.java` (`TOP_PER_CRITERION = 10`, `MAX_RANKED_STATEMENTS = 70`, `Criterion`: `TOTAL_DURATION, MAX_DURATION, EXECUTIONS, AVG_DURATION, ERROR_COUNT, P95_DURATION, P99_DURATION`), `SqlRouteAttribution.java`, DTOs `SqlTraceInsightsReport`, `SqlTraceWindowDto`, `SqlStatementRankingDto`, `SqlRouteAttributionDto`, `SqlRouteRankingDto`, `SqlAttributionBucketDto` |
 | **Worker** | M, mechanical port → agy |
-| **Depends on** | F, D1, **A-sqlalchemy-statistics merged** (it last touched `sqltrace.py`); D2 follows this lane |
-| **May touch** | `src/sharpit/engine/capture/sqlinsights.py` (new), the insights route in F's `fastapi/routes/sql_trace.py` module, `get_sql_trace_insights` MCP stub, `ui/src/views/SqlTrace.svelte` (an Insights tab only), `tests/engine/capture/test_sqlinsights.py`, `tests/fastapi/test_sql_trace_insights_api.py`, goldens, lane folder |
-| **Must NOT touch** | §10.3 protected files; `engine/capture/sqltrace.py` (read its public API only); other panels' collectors |
+| **Depends on** | F (PLAN.md). This lane reads `sqltrace.py`'s public API only (`rows()`, `normalize`), so it needs no ordering against A-sqlalchemy-statistics (which adds `totals()`); D2 follows this lane. Consumes F's F1a table (`F-foundation.md`): `fastapi/routes/sql_trace.py`, the `get_sql_trace_insights` MCP stub, `tests/golden.py::assert_parity`, the `tests/safety/` + `tests/masking/` helpers |
+| **May touch** | `src/sharpit/engine/capture/sqlinsights.py` (new), the insights route in F's `fastapi/routes/sql_trace.py` module, `get_sql_trace_insights` MCP stub, `ui/src/views/SqlTrace.svelte` (an Insights tab only) + its vitest, `tests/engine/capture/test_sqlinsights.py`, `tests/fastapi/test_sql_trace_insights_api.py`, `tests/safety/test_a_sqltrace_insights_safety.py`, `tests/masking/test_a_sqltrace_insights_masking.py`, `tests/fixtures/bootui/2.2.0/sql-trace/{insights,nullable}.json`, the implementer files in the lane folder (C2) |
+| **Must NOT touch** | §10.3 protected files; `engine/capture/sqltrace.py` (read its public API only); other panels' collectors; `tests/test_safety_matrix.py`, `tests/test_masking_corpus.py` (C5); any `review.md` or `gate/` path |
 
 **Architecture:** A pure function over `SqlTraceRecorder.rows()` (`sqltrace.py:532`, oldest first, epoch-ns
 timestamps) and `HttpExchangeBuffer.get(request_id)`. Statements group by `normalize(row["sql"]).fingerprint`
@@ -47,6 +47,8 @@ socket.
 
 ### Task 1: `engine/capture/sqlinsights.py`
 
+**Files:** Create `src/sharpit/engine/capture/sqlinsights.py`; Test `tests/engine/capture/test_sqlinsights.py`.
+
 **Interfaces:** `insights_report(recorder: SqlTraceRecorder | None, exchanges: HttpExchangeBuffer | None, reason: str |
 None) -> dict[str, Any]`; `rank(groups: list[Group]) -> list[dict[str, Any]]`; `percentile(sorted_ms: list[int], p:
 int) -> float`; `topFor` values are the enum names verbatim (`"TOTAL_DURATION"`, …, `"P99_DURATION"`;
@@ -62,27 +64,48 @@ int) -> float`; `topFor` values are the enum names verbatim (`"TOTAL_DURATION"`,
 
 ### Task 2: Route, MCP, safety
 
+**Files:** The insights route in F's `src/sharpit/fastapi/routes/sql_trace.py`; F's `get_sql_trace_insights` MCP stub;
+Tests `tests/fastapi/test_sql_trace_insights_api.py`, `tests/safety/test_a_sqltrace_insights_safety.py`,
+`tests/masking/test_a_sqltrace_insights_masking.py` (C5).
+
 **Interfaces:** `GET {api}/sql-trace/insights` (panel `sql-trace`, already `actionCapable=True`); MCP
 `get_sql_trace_insights` (read).
 
-- [ ] **Step 1:** Tests `test_insights_golden_parity` (`tests/fixtures/bootui/2.2.0/sql-trace/insights.json`),
-  `test_insights_no_side_effects`, `test_insights_respects_panel_disabled`, `test_mcp_read_tool_only`, a masking
-  corpus row (literal secret under `capture_parameters=true` absent from `/insights`).
-- [ ] **Step 2:** FAIL → **Step 3:** implement → **Step 4:** PASS + full gate. Commit `feat: sql-trace insights route and MCP read tool`.
+- [ ] **Step 1:** Tests `test_insights_golden_parity` (`assert_parity("sql-trace", "insights", body)`; fixture
+  `tests/fixtures/bootui/2.2.0/sql-trace/insights.json` + `nullable.json`, C3), `test_insights_no_side_effects`,
+  `test_insights_respects_panel_disabled`, `test_mcp_read_tool_only`, a row in
+  `tests/masking/test_a_sqltrace_insights_masking.py` (literal secret under `capture_parameters=true` absent from
+  `/insights`).
+- [ ] **Step 2:** FAIL on assertions (the route is absent → status assertion; never an `ImportError`, C4) → **Step 3:** implement → **Step 4:** PASS + full gate. Commit `feat: sql-trace insights route and MCP read tool`.
 
 ### Task 3: UI tab, live check, evidence
 
 - [ ] **Step 1:** Insights tab in `ui/src/views/SqlTrace.svelte` (+ vitest: criterion switcher, route table, notes
   shown). `npm --prefix ui run check` PASS.
-- [ ] **Step 2:** Live on `examples/fastapi_sqla` after a few requests; `live-verify.md`. Commit `feat: sql-trace insights tab and lane evidence`.
+- [ ] **Step 2:** Live on `examples/fastapi_sqla` after a few requests; record requests in `handoff.md` §Live check
+  (`live-verify.md` is the coordinator's, C2); lowest-direct + no-SQLAlchemy as a local pre-check only. Commit `feat: sql-trace insights tab and lane evidence`.
 
-## §6.1 → task
+## §6.1 → task (spec order; `checklist.md` adds the evidence paths)
 
-1 parity + field map: 2 · 2 citations: 1 · 3 safety/masking: 1 (RF1), 2 · 4 gatekeeper: n/a (no library) · 5 budget:
-n/a (no hot path; GET compute bounded by the ring size) · 6 MCP read-only: 2 · 7 Svelte: 3 · 8 gates: 2–3 · 9 live: 3 ·
-10 handoff: every commit.
+| Item | Task |
+|---|---|
+| 1 golden parity, `nullable.json`, field map | 2 |
+| 2 `# ported:` citations | 1 |
+| 3 safety + masking | 1 (RF1), 2 |
+| 4 gatekeeper | `N/A`: no library imported |
+| 5 overhead budget | `N/A`: no hot path (GET compute bounded by the ring size) |
+| 6 MCP read-only | 2 |
+| 7 Svelte view | 3 |
+| 8 four gates + lowest-direct + no-SQLAlchemy | 2–3 (gated logs: coordinator) |
+| 9 live check | 3 |
+| 10 handoff current | every commit |
 
-## Lane evidence checklist (`.superpowers/sdd/0.4.0/lanes/A-sqltrace-insights/`)
+## Lane evidence (C2: `.superpowers/sdd/0.4.0/lanes/A-sqltrace-insights/`)
 
-`handoff.md` · `field-map.md` · `checklist.md` · `findings.md` · `review.md` (`VERDICT: APPROVE`, reviewer ≠ implementer,
-head SHA) · `gate/` (four gates, lowest-direct, no-SQLAlchemy logs, each naming the head SHA) · `live-verify.md`.
+- **Implementer, in the lane worktree:** `handoff.md` (last green command, next step, open findings, live-check
+  requests), `findings.md` (`finding → test → red output`, each row `fixed` + red-test name or `parked` + reason),
+  `field-map.md` (every `SqlTraceInsightsReport` key → its source or `null` + reason), `checklist.md` (the ten §6.1 items above in the spec's order, each with an evidence
+  path or `N/A` + reason).
+- **Coordinator/reviewer, in the integration worktree only:** `review.md` (`VERDICT: APPROVE`, reviewer id ≠
+  implementer id, head SHA), `gate/{ruff-check,ruff-format,pyright,pytest,lowest-direct,no-sqlalchemy}.log`,
+  `live-verify.md`. This lane's diff never touches any `review.md` or `gate/` path (`lane_gate.py` refuses it).
