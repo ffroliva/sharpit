@@ -67,7 +67,7 @@ def _finalizer_on_stack() -> bool:
 class _Registration:
     ref: weakref.ref[object]
     snapshot: tuple[str, ApiModel] | None = None  # (title, model), the latest one taken
-    route_token: tuple[int, int] | None = None
+    route_token: tuple[str, tuple[tuple[object, tuple[str, ...]], ...]] | None = None
 
 
 class TestSessionSink:
@@ -86,7 +86,8 @@ class TestSessionSink:
         self._unattributed_by_key: dict[str, str] = {}  # group key -> masked statement
         self._registrations: list[_Registration] = []
         self._exception_ids: dict[int, BaseException] = {}
-        self._orphan_snapshots: list[tuple[str, ApiModel]] = []
+        self._orphan_snapshots: dict[str, tuple[str, ApiModel]] = {}
+        self._models_by_signature: dict[tuple[str, tuple[tuple[object, tuple[str, ...]], ...]], ApiModel] = {}
 
     def _mask(self, text: str) -> str:
         return self._masker.mask_text(text) or ""
@@ -105,6 +106,7 @@ class TestSessionSink:
             self.facts.tests.append(self.current_test)
             self._window = (node_id, attempt)
             self._seen.clear()
+            self._exception_ids.clear()
             self._escaped.clear()
             self._group_refs.clear()
             return attempt
@@ -113,6 +115,7 @@ class TestSessionSink:
         with self._lock:
             self._window = None
             self._seen.clear()
+            self._exception_ids.clear()
             self._escaped.clear()
 
     def _phase_of(self, test: TestTag | None) -> PhaseFacts | None:
@@ -212,9 +215,11 @@ class TestSessionSink:
         """Take the model of every registered app that is still alive; the latest snapshot per registration is kept."""
         with self._lock:
             registrations = list(self._registrations)
-            self._orphan_snapshots.extend(
-                r.snapshot for r in self._registrations if r.ref() is None and r.snapshot is not None
-            )
+            for registration in self._registrations:
+                if registration.ref() is None and registration.snapshot is not None:
+                    title, model = registration.snapshot
+                    digest = hashlib.sha256(repr(model).encode("utf-8")).hexdigest()[:8]
+                    self._orphan_snapshots.setdefault(f"{title}#{digest}", registration.snapshot)
             self._registrations = [r for r in self._registrations if r.ref() is not None]
         for registration in registrations:
             app = registration.ref()
@@ -222,12 +227,25 @@ class TestSessionSink:
                 continue
             try:
                 routes = getattr(getattr(app, "router", None), "routes", ())
-                token = (id(routes), len(routes))
-                if not force and registration.snapshot is not None and registration.route_token == token:
-                    continue
                 title = self._mask(str(getattr(app, "title", type(app).__name__)))
-                registration.snapshot = (title, model_of(app))
-                registration.route_token = token
+                signature = (
+                    title,
+                    tuple(
+                        (
+                            getattr(route, "path", None),
+                            tuple(sorted(getattr(route, "methods", None) or ())),
+                        )
+                        for route in routes
+                    ),
+                )
+                if not force and registration.snapshot is not None and registration.route_token == signature:
+                    continue
+                model = self._models_by_signature.get(signature) if not force else None
+                if model is None:
+                    model = model_of(app)
+                    self._models_by_signature[signature] = model
+                registration.snapshot = (title, model)
+                registration.route_token = signature
             except Exception as exc:  # noqa: BLE001
                 self._failed(exc)
 
@@ -235,7 +253,10 @@ class TestSessionSink:
         """``(identity, model)`` per distinct content, identity ``"<title>#<8 hex of sha256 of the model>"``."""
         found: dict[str, ApiModel] = {}
         with self._lock:
-            snapshots = [*self._orphan_snapshots, *(r.snapshot for r in self._registrations if r.snapshot is not None)]
+            snapshots = [
+                *self._orphan_snapshots.values(),
+                *(r.snapshot for r in self._registrations if r.snapshot is not None),
+            ]
         for title, model in snapshots:
             digest = hashlib.sha256(repr(model).encode("utf-8")).hexdigest()[:8]
             found.setdefault(f"{title}#{digest}", model)
