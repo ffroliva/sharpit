@@ -68,35 +68,43 @@ Verbatim from AGENTS.md and the spec; every lane's requirements include these.
 
 | Lane | Plan file | Class | Depends on | Default worker (coordinator decides) |
 |---|---|---|---|---|
-| F | `F-foundation.md` | committed | — | codex (gpt-6-luna, high) |
+| F | `F-foundation.md` | committed (minimum cut at T0 + 2 h) | — | codex (gpt-6-luna, high) |
 | G0a | `G0-goldens-and-tiny-ledger-py.md` §G0a | parallel, never blocking | F | codex (medium) |
 | G0b | `G0-goldens-and-tiny-ledger-py.md` §G0b (own repo, not gated by lane_gate) | parallel, never blocking | — | agy (Argon), a different account from G0a |
-| D1 | `D1-drift-envelope.md` | committed | F | claude-flavio (Opus) — guard.py |
-| G6 | `G6-gate-defaults.md` (spike F3 + F4; owns advisor `SKIPPED`) | committed | F | codex |
-| G4 | `G4-hygiene.md` | committed | F | agy (Flash) |
-| A-data | `A-data.md` | committed | F | agy (Argon) |
-| A-transactions | `A-transactions.md` | committed | F | codex |
-| A-sqlalchemy-statistics | `A-sqlalchemy-statistics.md` | committed | F | claude-flavio (Sonnet) |
-| A-postgresql | `A-postgresql.md` | committed | F | codex (high) |
-| G1G2 | `G1G2-report-only-baselines.md` | committed | F, D1, G6 | codex (high) |
+| G6 | `G6-gate-defaults.md` (spike F3 + F4; owns advisor `SKIPPED`) | committed — start 1st after F | F | codex |
+| D1 | `D1-drift-envelope.md` | committed — start 2nd after F | F | claude-flavio (Opus) — guard.py |
+| A-postgresql | `A-postgresql.md` (owns `engine/sqla.py`) | committed — start 3rd after F | F | codex (high) |
+| A-data | `A-data.md` | committed — start 4th after F | F | agy (Argon) |
+| G4 | `G4-hygiene.md` (docs only; may run as a 5th, docs-only slot) | committed | F | agy (Flash) |
+| G1G2 | `G1G2-report-only-baselines.md` | committed — start as soon as G6 merges | F, G6 | codex (high) |
 | G3 | `G3-action.md` | committed | G1G2 | claude-flavio (Sonnet) |
-| T-n-plus-one-message | `T-n-plus-one-message.md` (spike F5 + F6) | best effort 1 | G1G2, A-sqlalchemy-statistics | codex (high) |
-| T-swallowed-exceptions | `T-swallowed-exceptions.md` (spike F1) | best effort 2 | T-n-plus-one-message | claude-flavio (Opus) |
-| T-unbounded-read | `T-unbounded-read.md` (spike F2) | best effort 3 | T-swallowed-exceptions | codex |
-| A-traces | `A-traces.md` | best effort 4 | F | agy (Argon) |
-| A-sqltrace-insights | `A-sqltrace-insights.md` | best effort 5 | F | agy (Flash) |
-| B-fastapi-security | `B-fastapi-security.md` | best effort 6 | F | claude-flavio (Opus) |
-| B-security-logs | `B-security-logs.md` | best effort 7 | F | claude-flavio (Opus) |
-| D2 | `D2-drift-capture.md` | best effort 8 | D1, every A-* merged or parked, B-security-logs if it runs (both edit `fastapi/capture.py`) | agy / codex |
-| D3 | `D3-drift-db-runtime.md` | best effort 9 | D1 | agy |
-| D4 | `D4-drift-vulns-mcp-restapi.md` | best effort 10 | D1, G1G2 | codex |
+| A-transactions | `A-transactions.md` (never edits `sqla.py`) | best effort 1 | F | codex |
+| A-sqlalchemy-statistics | `A-sqlalchemy-statistics.md` | best effort 2 | F | claude-flavio (Sonnet) |
+| F-rest | the pieces F's minimum cut deferred (council-r2-fixes, F) | best effort 3 | F | any |
+| T-n-plus-one-message | `T-n-plus-one-message.md` (spike F5 + F6) | best effort 4 | G1G2, A-sqlalchemy-statistics | codex (high) |
+| T-swallowed-exceptions | `T-swallowed-exceptions.md` (spike F1) | best effort 5 | T-n-plus-one-message | claude-flavio (Opus) |
+| T-unbounded-read | `T-unbounded-read.md` (spike F2) | best effort 6 | T-swallowed-exceptions | codex |
+| A-traces | `A-traces.md` | best effort 7 | F | agy (Argon) |
+| A-sqltrace-insights | `A-sqltrace-insights.md` | best effort 8 | F | agy (Flash) |
+| B-fastapi-security | `B-fastapi-security.md` | best effort 9 | F | claude-flavio (Opus) |
+| B-security-logs | `B-security-logs.md` | best effort 10 | F | claude-flavio (Opus) |
+| D2 | `D2-drift-capture.md` | best effort 11 | D1, every A-* merged or parked, B-security-logs if it runs (both edit `fastapi/capture.py`) | agy / codex |
+| D3 | `D3-drift-db-runtime.md` | best effort 12 | D1 | agy |
+| D4 | `D4-drift-vulns-mcp-restapi.md` | best effort 13 | D1, G1G2 | codex |
 | stretch | none yet | stretch | all above merged or parked | plan in-session with `/sharpit:plan` |
 
 This table is the single source for ids and dependencies; a lane header that disagrees is wrong. The T-* lanes are
 serial because they share `facts.py`, `gates.py` and `marker.py`.
 
-**Critical path:** F → (D1 ∥ G6 ∥ A-* ∥ G4 ∥ G0a) → G1G2 → G3. Parallelism: at most **four sharpit lanes in flight**
-at once (one per worker account), plus G0a/G0b. `agent_capacity.py` before each start.
+**Critical path:** F (minimum cut) → G6 → G1G2 → G3, about 8–9 h with review. After F merges, start in this order:
+G6, D1, A-postgresql, A-data (the four slots), G4 in the docs-only fifth slot; G1G2 takes the first slot freed after
+G6 merges, ahead of any best-effort lane. Whichever of D1 and G1G2 merges second wires D1's `dismissed_pairs()` into
+the plugin (`test_per_finding_dismissal_reaches_gate`). Parallelism: at most **four code lanes in flight** (one per
+worker account) plus one docs-only lane and G0a/G0b. `agent_capacity.py` before each start. Ownership rules O1–O4
+(`council-r2-fixes.md`) decide which files a lane may edit; two lanes in flight never share a file.
+
+**Leased-database evidence:** the coordinator runs A-postgresql's leased tests itself with its own `agentctl lease
+database` and writes `gate/leased-pg.log`; skipped = unverified (not committed-done).
 
 **Lane evidence (one layout, plan-fixes C2):** the implementer writes `handoff.md`, `findings.md`, `field-map.md`
 (`N/A — not a panel lane` outside panels) and `checklist.md` in the lane worktree under
