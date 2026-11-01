@@ -55,3 +55,29 @@ def test_option_registration_is_owned_by_options_module() -> None:
 
 def test_gate_hook_is_owned_by_session_module() -> None:
     assert plugin.pytest_runtest_makereport is session.pytest_runtest_makereport
+
+
+def test_install_uses_adapter_route_compatibility_target(monkeypatch) -> None:
+    original = adapter._routes
+    calls: list[bool] = []
+
+    def observe(ctx, host_app):
+        calls.append(True)
+        return original(ctx, host_app)
+
+    monkeypatch.setattr(adapter, "_routes", observe)
+    adapter.install(FastAPI(), enabled="ON", show_banner=False)
+
+    assert calls == [True]
+
+
+def test_installed_routes_use_adapter_read_capped_compatibility_target(monkeypatch) -> None:
+    async def reject(_request, _cap):
+        return None
+
+    monkeypatch.setattr(adapter, "_read_capped", reject)
+    app = FastAPI()
+    adapter.install(app, enabled="ON", show_banner=False)
+    response = TestClient(app).post("/sharpit/api/mcp-server/toggle", content=b"{}")
+
+    assert response.status_code == 413
