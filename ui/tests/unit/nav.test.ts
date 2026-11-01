@@ -7,6 +7,8 @@ const ALL = [
   'overview', 'activity', 'health', 'threads', 'log-tail', 'exceptions', 'http-exchanges', 'http-probe', 'sql-trace',
   'database-connection-pools', 'alembic', 'config', 'loggers', 'mappings', 'beans', 'mcp-server', 'cli', 'rest-api',
   'vulnerabilities',
+  'data', 'transactions', 'postgresql', 'mysql', 'traces', 'security', 'security-logs', 'database-advisor',
+  'architecture', 'sqlalchemy-statistics', 'fastapi-security', 'fastapi',
 ];
 
 it('every panel id sits in exactly one group', () => {
@@ -17,7 +19,9 @@ it('every panel id sits in exactly one group', () => {
 
 it('keeps the spec groups in order', () => {
   expect(NAV.map((g) => g.title)).toEqual(['Overview', 'Runtime', 'Database', 'Configuration', 'Advisors']);
-  expect(NAV[1]!.ids).toEqual(['health', 'threads', 'log-tail', 'exceptions', 'http-exchanges', 'http-probe']);
+  expect(NAV[1]!.ids).toEqual([
+    'health', 'threads', 'log-tail', 'exceptions', 'http-exchanges', 'http-probe', 'traces', 'security-logs',
+  ]);
 });
 
 it('hides a panel that is not built yet, drops empty groups and keeps an unknown id visible', () => {

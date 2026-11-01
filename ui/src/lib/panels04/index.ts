@@ -27,3 +27,7 @@ export const PANEL_04_IMPLEMENTED = {
 } as const;
 
 export const PANEL_04_IDS = Object.keys(PANEL_04_IMPLEMENTED);
+
+export function panelImplemented(id: string): boolean {
+  return PANEL_04_IMPLEMENTED[id as keyof typeof PANEL_04_IMPLEMENTED] ?? true;
+}

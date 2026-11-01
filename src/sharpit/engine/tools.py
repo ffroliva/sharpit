@@ -291,7 +291,7 @@ def log_tail_lines(ctx: SharpitContext) -> list[dict[str, Any]]:
     return [] if buffer is None else buffer.recent()
 
 
-TOOLS: tuple[Tool, ...] = (
+_BASE_TOOLS: tuple[Tool, ...] = (
     Tool(
         "get_overview",
         "Return stable application identity and runtime context, including versions, active profiles, and "
@@ -537,7 +537,7 @@ TOOLS: tuple[Tool, ...] = (
     ),
 )
 
-COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
+_BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_overview": "overview",
     "get_config": "config",
     "get_mappings": "mappings",
@@ -564,6 +564,11 @@ COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "rest_api_scan": "rest-api scan",
 }
 
+from sharpit.engine.panels04 import tool_definitions as _tool_definitions  # noqa: E402, I001
+
+_PANEL_04_TOOLS, _PANEL_04_COMMANDS = _tool_definitions()
+TOOLS: tuple[Tool, ...] = (*_BASE_TOOLS, *_PANEL_04_TOOLS)
+COMMANDS = {**_BASE_COMMANDS, **_PANEL_04_COMMANDS}
 
 from sharpit.engine.tool_dispatch import (  # noqa: E402, I001 - dispatcher imports the catalog built above
     ToolGate as ToolGate,

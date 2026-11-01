@@ -35,7 +35,8 @@ from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
-from sharpit.engine.panels import panels_report
+from sharpit.engine.panels import PANELS, panels_report
+from sharpit.engine.panels04 import PANEL_04_IDS
 from sharpit.engine.singleflight import ActionBusy
 from sharpit.fastapi.sse import sse_response
 
@@ -625,6 +626,16 @@ def _cli_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     ]
 
 
+def _panel_04_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
+    routes: list[BaseRoute] = []
+    for panel in PANELS:
+        if panel.id not in PANEL_04_IDS or not panel.implemented:
+            continue
+        module = import_module(f"sharpit.fastapi.routes.{panel.id.replace('-', '_')}")
+        routes.extend(module.build_routes(ctx, host_app))
+    return routes
+
+
 def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     return [
         *_root_routes(ctx, host_app),
@@ -644,4 +655,5 @@ def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         *_dismissed_routes(ctx, host_app),
         *_mcp_routes(ctx, host_app),
         *_cli_routes(ctx, host_app),
+        *_panel_04_routes(ctx, host_app),
     ]

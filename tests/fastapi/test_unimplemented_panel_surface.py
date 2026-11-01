@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from conftest import SideEffectGuard
+from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.panels import Panel
 from sharpit.engine.panels04 import IMPLEMENTED
@@ -81,3 +82,14 @@ def test_unimplemented_panel_has_no_surface() -> None:
     for panel_id in sorted(PANEL_IDS):
         response = client.get(f"/sharpit/api/{panel_id}")
         assert response.status_code == 404, panel_id
+
+
+def test_unimplemented_panel_gets_have_no_side_effects(no_side_effects: SideEffectGuard) -> None:
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, config_scan=False)
+    no_side_effects.unblock_network()  # TestClient's Windows Proactor loop creates a self-pipe socketpair.
+    client = TestClient(app, base_url="http://localhost", client=LOCAL)
+
+    client.get("/sharpit/api/panels")
+    for panel_id in sorted(PANEL_IDS):
+        client.get(f"/sharpit/api/{panel_id}")
