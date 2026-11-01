@@ -25,10 +25,16 @@ def severity_counts(results: Iterable[tuple[str, int]], severities: Sequence[str
     return [{"severity": s, "count": c} for s, c in counts.items()]
 
 
-def apply_dismissals(report: Mapping[str, Any], dismissed: Collection[str]) -> dict[str, Any]:
+def apply_dismissals(
+    report: Mapping[str, Any], dismissed: Collection[str], occurrences: Mapping[str, Sequence[str]] | None = None
+) -> dict[str, Any]:
     """A copy of ``report`` with each result's ``dismissed`` set and ``violationsFound``, ``severityCounts`` and
-    ``scan.violationsFound`` recomputed from the active failing rules. The input is never mutated."""
-    marked: list[dict[str, Any]] = [{**r, "dismissed": r["id"] in dismissed} for r in report["results"]]
+    ``scan.violationsFound`` recomputed from the active failing rules. The input is never mutated.
+
+    ``occurrences`` maps a rule id to its occurrence fingerprints in ``sampleViolations`` order. A dismissed
+    fingerprint removes that occurrence from the rule's count and samples; a rule whose every occurrence is
+    dismissed is marked ``dismissed`` (spec §5.6)."""
+    marked = [_mark(r, dismissed, (occurrences or {}).get(r["id"])) for r in report["results"]]
     active = [r for r in marked if not r["dismissed"] and r["status"] == "FAILED"]
     return {
         **report,
@@ -37,6 +43,18 @@ def apply_dismissals(report: Mapping[str, Any], dismissed: Collection[str]) -> d
         "scan": {**report["scan"], "violationsFound": len(active)},
         "results": marked,
     }
+
+
+def _mark(result: dict[str, Any], dismissed: Collection[str], fingerprints: Sequence[str] | None) -> dict[str, Any]:
+    if result["id"] in dismissed:
+        return {**result, "dismissed": True}
+    hidden = [fp in dismissed for fp in fingerprints or ()]
+    if not any(hidden):
+        return {**result, "dismissed": False}
+    if all(hidden):
+        return {**result, "dismissed": True}
+    samples = [s for s, gone in zip(result["sampleViolations"], hidden, strict=False) if not gone]
+    return {**result, "dismissed": False, "violationCount": hidden.count(False), "sampleViolations": samples}
 
 
 def sanitize_limitations(items: Iterable[str | None] | None) -> list[str]:

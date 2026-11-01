@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine.advisors.dismissals import FILE_NAME
+from sharpit.engine.advisors.dismissals import FILE_NAME, NO_PANEL_MESSAGE
 
 LOCAL = ("127.0.0.1", 50000)
 API = "/sharpit/api/dismissed-rules"
@@ -84,3 +84,39 @@ def test_global_read_only_checked_before_owner(tmp_state_dir: Path):
     for rule in (RAPI, "SPRING-WEB-001"):
         resp = client.post(f"{API}/{rule}")
         assert (resp.status_code, resp.json()) == (403, _denied("sharpit is read-only via SHARPIT_READ_ONLY=true"))
+
+
+FP = "rest-api:RAPI-004:0123456789abcdef"
+
+
+def test_fingerprint_dismissal_round_trip(tmp_state_dir: Path):
+    client = _client(tmp_state_dir)
+    assert client.post(f"{API}/{quote(FP, safe='')}").json() == {"dismissed": [FP]}
+    assert client.get(API).json() == {"dismissed": [FP]}
+    assert client.delete(f"{API}/{quote(FP, safe='')}").json() == {"dismissed": []}
+
+
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+def test_fingerprint_dismissal_respects_panel_gate(tmp_state_dir: Path, method: str):
+    disabled = _client(tmp_state_dir, panels={"rest-api": {"enabled": False}})
+    resp = disabled.request(method, f"{API}/{quote(FP, safe='')}")
+    assert (resp.status_code, resp.json()) == (
+        403,
+        _denied("Panel is disabled via SHARPIT_PANELS_REST_API_ENABLED=false"),
+    )
+    read_only = _client(tmp_state_dir, panels={"rest-api": {"read_only": True}})
+    resp = read_only.request(method, f"{API}/{quote(FP, safe='')}")
+    assert (resp.status_code, resp.json()) == (
+        403,
+        _denied("Panel is read-only via SHARPIT_PANELS_REST_API_READ_ONLY=true"),
+    )
+    assert not (tmp_state_dir / FILE_NAME).exists()
+
+
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+def test_test_runtime_dismissal_refused_over_http(tmp_state_dir: Path, method: str):
+    client = _client(tmp_state_dir)
+    resp = client.request(method, f"{API}/{quote('test-runtime:sharpit.n-plus-one:0123456789abcdef', safe='')}")
+    assert resp.status_code == 400
+    assert resp.json() == {"error": NO_PANEL_MESSAGE.format(advisor="test-runtime")}
+    assert not (tmp_state_dir / FILE_NAME).exists()

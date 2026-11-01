@@ -7,10 +7,13 @@ Ported ids are rewritten into sharpit's vulnerability rule-id form (``<vulnId>::
 """
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from sharpit.engine.advisors.dismissals import FILE_NAME, DismissalStore, owning_panel
+from sharpit.engine.advisors.dismissals import FILE_NAME, NO_PANEL_MESSAGE, DismissalStore, owning_panel
+from sharpit.engine.advisors.report import apply_dismissals, severity_counts
+from sharpit.engine.advisors.rules import SEVERITIES
 from sharpit.engine.paging import BadRequest
 
 A = "GHSA-aaaa-bbbb-cccc::pypi:jinja2"
@@ -195,3 +198,71 @@ def test_unknown_owner_refused_before_the_file_is_touched(tmp_path: Path):
     with pytest.raises(BadRequest):
         store.add("SPRING-WEB-001")
     assert list(tmp_path.iterdir()) == []
+
+
+FP = "rest-api:RAPI-004:0123456789abcdef"
+RUNTIME_FP = "test-runtime:sharpit.n-plus-one:0123456789abcdef"
+
+
+def test_fingerprint_dismissal_round_trip(tmp_path: Path):
+    store = DismissalStore(tmp_path)
+    assert store.add(FP) == [FP]
+    assert "dismissedRules:\n  - " + FP in (tmp_path / FILE_NAME).read_text(encoding="utf-8")
+    assert DismissalStore(tmp_path).list() == [FP]
+    assert store.remove(FP) == []
+
+
+def test_owning_panel_for_fingerprints():
+    assert owning_panel(FP) == "rest-api"
+    assert owning_panel("vulnerabilities:GHSA-1:0123456789abcdef") == "vulnerabilities"
+    assert owning_panel(RUNTIME_FP) is None
+
+
+def test_test_runtime_fingerprint_refused_with_no_panel_message(tmp_path: Path):
+    store = DismissalStore(tmp_path)
+    with pytest.raises(BadRequest) as raised:
+        store.add(RUNTIME_FP)
+    assert str(raised.value) == NO_PANEL_MESSAGE.format(advisor="test-runtime")
+    assert list(tmp_path.iterdir()) == []
+
+
+def _occurrence_report() -> dict[str, Any]:
+    result = {
+        "id": "RAPI-004",
+        "severity": "HIGH",
+        "status": "FAILED",
+        "violationCount": 3,
+        "sampleViolations": ["one", "two", "three"],
+        "dismissed": False,
+    }
+    return {
+        "violationsFound": 1,
+        "severityCounts": severity_counts([("HIGH", 3)], SEVERITIES),
+        "scan": {"violationsFound": 1},
+        "results": [result],
+    }
+
+
+_OCCURRENCES = {"RAPI-004": ["rest-api:RAPI-004:a", "rest-api:RAPI-004:b", "rest-api:RAPI-004:c"]}
+
+
+def test_apply_dismissals_per_occurrence():
+    out = apply_dismissals(_occurrence_report(), {"rest-api:RAPI-004:a", "rest-api:RAPI-004:b"}, _OCCURRENCES)
+    result = out["results"][0]
+    assert result["violationCount"] == 1
+    assert result["sampleViolations"] == ["three"]
+    assert result["dismissed"] is False
+    assert {c["severity"]: c["count"] for c in out["severityCounts"]}["HIGH"] == 1
+    assert out["violationsFound"] == 1
+
+
+def test_apply_dismissals_every_occurrence_marks_rule_dismissed():
+    out = apply_dismissals(_occurrence_report(), set(_OCCURRENCES["RAPI-004"]), _OCCURRENCES)
+    assert out["results"][0]["dismissed"] is True
+    assert out["violationsFound"] == 0
+    assert {c["severity"]: c["count"] for c in out["severityCounts"]}["HIGH"] == 0
+
+
+def test_apply_dismissals_without_occurrences_ignores_fingerprints():
+    out = apply_dismissals(_occurrence_report(), {"rest-api:RAPI-004:a"})
+    assert out["results"][0]["violationCount"] == 3

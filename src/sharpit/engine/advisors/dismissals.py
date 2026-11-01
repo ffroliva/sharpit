@@ -18,15 +18,14 @@ import tempfile
 import threading
 from pathlib import Path
 
-from sharpit.engine.collectors.restapi.rules import RULE_IDS
+from sharpit.engine.advisors.registry import advisor_for
 from sharpit.engine.paging import BadRequest
 
 FILE_NAME = "sharpit.yml"
 _KEY = "dismissedRules"
 _HEADER = "# sharpit configuration (developer-local; safe to delete)."
+NO_PANEL_MESSAGE = "Findings of advisor '{advisor}' are dismissed in sharpit.yml"
 _RULE_ID = re.compile(r"[A-Za-z0-9._:-]{1,200}")
-# the vulnerability shape is exactly what rule_id() builds from a PEP 503 name
-_VULNERABILITY = re.compile(r"[A-Za-z0-9._:-]+::pypi:[a-z0-9._-]+")
 
 
 def rule_id(vuln_id: str, package_name: str) -> str:
@@ -37,9 +36,8 @@ def owning_panel(rule_id: str) -> str | None:
     """The panel whose gate covers dismissing ``rule_id``; None for an id no advisor owns (refused with a 400)."""
     if not _RULE_ID.fullmatch(rule_id):
         return None
-    if rule_id in RULE_IDS:  # only a registered REST API rule; an unported or unknown RAPI- id has no owner
-        return "rest-api"
-    return "vulnerabilities" if _VULNERABILITY.fullmatch(rule_id) else None
+    spec = advisor_for(rule_id)  # an unported or unknown RAPI- id has no owner
+    return spec.panel if spec else None
 
 
 class DismissalStore:
@@ -129,8 +127,12 @@ class DismissalStore:
 
 
 def _validate(rule_id: str) -> None:
-    if owning_panel(rule_id) is None:
-        raise BadRequest(f"Invalid rule id '{rule_id}'")
+    if owning_panel(rule_id) is not None:
+        return
+    spec = advisor_for(rule_id) if _RULE_ID.fullmatch(rule_id) else None
+    if spec is not None:  # owned, but by an advisor with no panel whose gate covers the HTTP route
+        raise BadRequest(NO_PANEL_MESSAGE.format(advisor=spec.id))
+    raise BadRequest(f"Invalid rule id '{rule_id}'")
 
 
 def _is_top_level_key(line: str) -> bool:
