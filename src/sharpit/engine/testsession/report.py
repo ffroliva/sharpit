@@ -27,7 +27,7 @@ from sharpit.engine.testsession.outcome import (
 SCHEMA = "sharpit-report/1"
 MAX_N_PLUS_ONE = 10  # per test
 MAX_TOP_STATEMENTS = 20
-_XML_ILLEGAL = re.compile("[^\t\n\r\x20-퟿-�\U00010000-\U0010ffff]")
+_XML_ILLEGAL = re.compile(r"[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 
 
 def _test_entry(test: TestFacts, threshold: int) -> dict[str, Any]:

@@ -46,8 +46,9 @@ def test_test_runtime_prefix_wins_over_vulnerability_shape(tmp_path: Path):
     fingerprint = "test-runtime:sharpit.x::pypi:y"
     assert _owner(fingerprint) != "vulnerabilities"
     assert owning_panel(fingerprint) is None
+    store = DismissalStore(tmp_path)
     with pytest.raises(BadRequest):
-        DismissalStore(tmp_path).add(fingerprint)  # refused, not filed under the vulnerabilities panel
+        store.add(fingerprint)  # refused, not filed under the vulnerabilities panel
 
 
 def test_fingerprint_with_unknown_rule_is_refused():

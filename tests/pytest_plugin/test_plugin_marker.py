@@ -37,5 +37,6 @@ def test_marker_unknown_argument_is_usage_error() -> None:
         def listchain(self):
             return [self]
 
+    item = Item()
     with pytest.raises(pytest.UsageError, match="sharpit marker: unknown argument 'mystery'"):
-        budget_for(Item(), None)
+        budget_for(item, None)

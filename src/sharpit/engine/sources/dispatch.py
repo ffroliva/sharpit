@@ -145,7 +145,8 @@ def deliver(event: SqlEvent, targets: list[SharpitContext]) -> None:
 
 
 def set_session_sink(sink: SessionSink | None) -> None:
-    global _sink  # noqa: PLW0603 - one sink per process, read lock-free by emit
+    # one sink per process, read lock-free by emit
+    global _sink  # noqa: PLW0603
     _sink = sink
     if sink is None:
         _drivers.clear()
@@ -156,7 +157,8 @@ def session_sink() -> SessionSink | None:
 
 
 def _refresh() -> None:
-    global _refs  # noqa: PLW0603 - swapped whole under the lock, read lock-free
+    # swapped whole under the lock, read lock-free
+    global _refs  # noqa: PLW0603
     _refs = tuple(weakref.ref(c) for c in _contexts.values())
 
 
