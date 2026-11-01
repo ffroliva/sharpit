@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from sharpit.engine.panels import PANELS
+from sharpit.engine.panels04 import IMPLEMENTED
 
-PANEL_IDS = {
+ALL_PANEL_IDS = {
     "data",
     "transactions",
     "postgresql",
@@ -16,6 +17,7 @@ PANEL_IDS = {
     "fastapi-security",
     "fastapi",
 }
+PANEL_IDS = {panel_id for panel_id, implemented in IMPLEMENTED.items() if not implemented}
 
 
 def test_0_4_panels_are_registered_but_unimplemented() -> None:
@@ -23,3 +25,8 @@ def test_0_4_panels_are_registered_but_unimplemented() -> None:
 
     assert set(panels) == PANEL_IDS
     assert all(not panel.implemented for panel in panels.values())
+
+
+def test_all_0_4_panel_ids_remain_registered() -> None:
+    assert set(IMPLEMENTED) == ALL_PANEL_IDS
+    assert ALL_PANEL_IDS.issubset({panel.id for panel in PANELS})
