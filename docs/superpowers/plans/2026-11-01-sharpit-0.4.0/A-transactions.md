@@ -139,7 +139,7 @@ callbacks only read `conn.info` and the arguments the slot passes); Test `tests/
 
 **Files:** `src/sharpit/fastapi/routes/transactions.py` (F stub); the recorder construction in
 `fastapi/install.py::_configure_capture` (F's row "SqlTraceRecorder construction", R5; it is `fastapi/adapter.py` before F's split),
-assigned to `CaptureState.transactions`, plus `transactions.attach()` with its remover kept for uninstall;
+assigned to `CaptureState.transactions`, plus `transactions.attach()` with its removers appended to `ctx.capture.teardowns` at attach (R17);
 `src/sharpit/engine/panels04/transactions.py` `IMPLEMENTED = True` (O4); Tests `tests/fastapi/test_transactions_api.py`,
 `tests/safety/test_a_transactions_safety.py` (C5).
 

@@ -18,8 +18,8 @@
 `sqla.sqlalchemy_module`, `sqla.py:41`) and exposes the processor: one module-level `SharpitSpanProcessor` instance
 whose `on_end` forwards `ReadableSpan`s to the armed contexts' `SpanBuffer` (`engine/capture/traces.py`, bounded by
 traces, masked at read). `CaptureWiring.attach_at_install` and `on_startup` (`fastapi/capture.py:172,203`) call
-`otel.attach(ctx)` through F's `CaptureWiring.span_processor` slot; never a request or GET. `CaptureWiring.detach` (`fastapi/capture.py:215`)
-calls `otel.disarm(ctx)`; a later attach re-arms the same processor (the SDK cannot
+`otel.attach(ctx)` through F's `CaptureWiring.span_processor` slot; never a request or GET. at attach it appends `lambda: otel.disarm(ctx)` to `ctx.capture.teardowns` (R17; no edit to `CaptureWiring.detach`, which runs
+the teardowns); a later attach re-arms the same processor (the SDK cannot
 remove one).
 
 ## Global Constraints

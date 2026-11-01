@@ -102,7 +102,7 @@
 | Concern | Owner after split | Compatibility requirement |
 |---|---|---|
 | FastAPI install/route wiring | `sharpit/fastapi/adapter.py` facade; install/capture setup in `sharpit/fastapi/install.py`; `sharpit/fastapi/routes/<id>.py` per panel | `sharpit.install(models: Iterable[object] | None = None, ...) -> SharpitHandle`; preserve current parameters and imports |
-| MCP/CLI tool definitions | Keep `sharpit/engine/tools.py` compatibility facade and per-panel discovery under `sharpit/engine/tools04/<id_underscored>.py` in F-rest or the panel lane | tool names, schemas, ordering and dispatch results stay stable; empty `TOOLS = ()` is the discovery contract |
+| MCP/CLI tool definitions | Keep `sharpit/engine/tools.py` compatibility facade and per-panel discovery under `sharpit/engine/tools04/<id_underscored>.py`, every module created by F with `TOOLS = ()` | tool names, schemas, ordering and dispatch results stay stable; empty `TOOLS = ()` is the discovery contract |
 | pytest options and session flow | `sharpit/pytest_plugin/options.py`, `apps.py`, `session.py`, `terminal.py`, `report_io.py`; `__init__.py` remains compatibility facade | preserve hook registration and current defaults; later lanes use the owning module listed here |
 | Future panel exposure | `engine/panels.py` plus each surface’s existing registry | false means absent everywhere, including direct route paths |
 
@@ -116,9 +116,9 @@
 | `sharpit.pytest_plugin.session` | Session lifecycle/hooks; G1G2 owns baseline/report gate integration. |
 | `sharpit.pytest_plugin.terminal` | G6 owns quiet advisor-note behavior and the notes count line. |
 | `sharpit.pytest_plugin.report_io` | Report/JUnit writing; G1G2 preserves output while changing report-only exit semantics. |
-| `sharpit.engine.tools` discovery | Read per-panel modules at `sharpit/engine/tools04/<id_underscored>.py`, each exporting `TOOLS = ()` until its lane fills it; no lane edits `engine/tools.py` after F. |
+| `sharpit.engine.tools` discovery | Read per-panel modules at `sharpit/engine/tools04/<id_underscored>.py`, each exporting `TOOLS = ()` until its lane fills it (F creates one per §6.2 0.4 id); no panel lane edits `engine/tools.py` after F; D1 → D2 → D3 → D4 edit it serially (R0). |
 | `sharpit.engine.capture.CaptureState.transactions` | `transactions: object | None = None`; A-transactions supplies its implementation without engine-to-adapter imports. |
-| `sharpit.fastapi.capture.CaptureWiring.on_security_event` | Inert `Callable[[Scope, int], None] | None` callback slot, invoked for 401/403 exchanges; B-security-logs attaches its bounded audit recorder here. |
+| `sharpit.fastapi.capture.CaptureWiring.on_security_event` | Inert `Callable[[Scope, int], None] | None` callback slot, invoked for 401/403 exchanges from the `finally` of `CaptureMiddleware.__call__` **before** `REQUEST.reset(token)` (so `REQUEST.get()` still names the request); test `test_security_event_hook_sees_request_id`; B-security-logs attaches its bounded audit recorder here. |
 | `sharpit.fastapi.capture.CaptureWiring.span_processor` | Inert `object | None` slot for one lazily re-armed SDK processor; A-traces consumes it. |
 | `sharpit.install` / `SharpitContext.models` | Existing `install(app: Any, *, settings: object = (), engines: Sequence[object] = (), health_checks: Mapping[str, Callable[[], object]] | None = None, models: Iterable[object] | None = None, **options: Any) -> SharpitHandle`; store `tuple(models)` (or `()` when omitted) as `SharpitContext.models: tuple[object, ...]`; F does not inspect elements or configure mappers; A-data consumes it. |
 | `tests.golden.assert_parity` | `assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None`; reads captured or provisional fixture plus `nullable.json` as described in Task 3. |
@@ -187,8 +187,8 @@ replayed on the parent of its fix commit. The merge-base overlay is removed. Tas
 loader, UI placeholders/wiring, `install(models=...)`, every pre-created settings field, the three inert pytest options,
 `psycopg[binary]`, the import-boundary changes, `DismissalStore.dismissed_pairs()` stub, and Task 2's explicit example
 wiring step. **Deferred to lane `F-rest`** (best effort, any worker, files of its own):
-per-panel MCP stub modules under `engine/tools04/`, the `tests/safety/` and `tests/masking/` packages, and test extras
-other than `psycopg[binary]`. `engine/tools.py` discovers each future `engine/tools04/<id_underscored>.py` module with
+the `tests/safety/` and `tests/masking/` packages and test extras other than `psycopg[binary]` (F itself creates every
+`engine/tools04/<id_underscored>.py`). `engine/tools.py` discovers each future `engine/tools04/<id_underscored>.py` module with
 `TOOLS = ()` until its lane supplies real tools; no lane edits `engine/tools.py`. A lane
 that needs a deferred piece before F-rest merges creates its own file for it, never a shared one. Record the cut in
 F's `handoff.md`.
@@ -198,6 +198,11 @@ F's `handoff.md`.
 run) and clears the list. Lanes that attach listeners or processors (A-transactions' connection-listener removers,
 A-traces' processor disarm) append their remover here at attach time; nothing else tears them down.
 Test: `test_uninstall_runs_teardowns_in_reverse_even_if_one_fails`.
+
+**Red integrity (council round 4):** for each recorded red SHA, `lane_gate.py` also requires that the red SHA is an
+ancestor of the lane head and that the red test's function body is byte-identical between the red SHA and the head
+(only implementation files may change after the red commit); the reviewer confirms each red assertion names the
+recorded finding. Refusal test: `test_lane_gate_refuses_red_test_changed_after_red_commit`.
 
 ## Lane evidence checklist
 

@@ -93,3 +93,13 @@ only `nullable.json`. A-postgresql's May-touch and Task 5 use `postgresql/nullab
 - **R16 G3:** its header names `src/sharpit/report/__main__.py`.
 - **R17 F:** `CaptureState.teardowns: list[Callable[[], None]]`; `uninstall_capture()` runs them in reverse, each guarded;
   A-transactions and A-traces register their removers there.
+
+## Round 4 (confirmation): consensus
+
+Verdicts: codex **approve with changes**, agy **approve with changes**, claude **approve with changes**; each said the
+changes are a few lines and need no further review. Applied by the coordinator: F creates every
+`engine/tools04/<id>.py` (R3, nothing MCP deferred to F-rest); F's 401/403 hook fires before `REQUEST.reset(token)`
+(`test_security_event_hook_sees_request_id`, R12); D4 consumes the 3-tuple occurrences (R13); A-transactions and
+A-traces register their removers in `ctx.capture.teardowns` (R17); `tool_stubs` → `tools04` in B-fastapi-security and
+A-sqltrace-insights; red integrity in lane_gate (red SHA is an ancestor of head, red test body unchanged,
+`test_lane_gate_refuses_red_test_changed_after_red_commit`). **The plan is approved by the council.**
