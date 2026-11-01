@@ -229,6 +229,23 @@ def test_logging_reconfigured_mid_test_makes_status_unknown(pytester: pytest.Pyt
     assert any("exception capture was lost" in reason for reason in data["statusReasons"])
 
 
+def test_logging_lost_in_setup_stays_lost(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        import logging.config
+        def test_reconfigure():
+            logging.config.dictConfig({'version': 1, 'handlers': {}, 'root': {'handlers': [], 'level': 'WARNING'}})
+        def test_after_reconfigure(): pass
+        """
+    )
+    result = pytester.runpytest(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert any("exception capture was lost" in reason for reason in data["statusReasons"])
+
+
 def test_early_connection_limitation_in_report(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_empty(): pass")
     assert callable(_EARLY_CONNECT)

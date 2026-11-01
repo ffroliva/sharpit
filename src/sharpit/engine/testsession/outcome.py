@@ -132,7 +132,7 @@ def _exceptions_lost(parts: Sequence[SessionFacts]) -> list[str]:
     lost: list[str] = []
     for part in parts:
         entry = next((s for s in part.sources if s["name"] == "exceptions"), None)
-        if not part.exceptions_source_ok or (entry is not None and not entry["attached"]):
+        if part.tests and entry is not None and (not part.exceptions_source_ok or not entry["attached"]):
             lost.append((entry or {}).get("reason") or "the exceptions source did not attach")
     return lost
 

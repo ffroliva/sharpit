@@ -38,6 +38,11 @@ def test_status_pass() -> None:
     assert _status(part()) == ("pass", [])
 
 
+def test_idle_worker_does_not_make_run_unknown() -> None:
+    idle = part("gw3", tests=[], sources=[source("exceptions", attached=False, reason="no test phase has started")])
+    assert merge([part("gw0"), idle], []).exceptions_lost == []
+
+
 def test_status_fail_beats_unknown() -> None:
     assert _status(part(tests=[_failing()], sources=[])) == ("fail", ["1 test failed sharpit gates"])
 

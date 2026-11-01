@@ -67,6 +67,7 @@ def _finalizer_on_stack() -> bool:
 class _Registration:
     ref: weakref.ref[object]
     snapshot: tuple[str, ApiModel] | None = None  # (title, model), the latest one taken
+    route_token: tuple[int, int] | None = None
 
 
 class TestSessionSink:
@@ -84,6 +85,8 @@ class TestSessionSink:
         self._group_refs: Counter[tuple[str, str]] = Counter()
         self._unattributed_by_key: dict[str, str] = {}  # group key -> masked statement
         self._registrations: list[_Registration] = []
+        self._exception_ids: dict[int, BaseException] = {}
+        self._orphan_snapshots: list[tuple[str, ApiModel]] = []
 
     def _mask(self, text: str) -> str:
         return self._masker.mask_text(text) or ""
@@ -159,16 +162,23 @@ class TestSessionSink:
             if source == "log" and _finalizer_on_stack():
                 test = None
             with self._lock:
+                identity = id(exc)
+                if identity in self._exception_ids:
+                    return
+                self._exception_ids[identity] = exc
                 phase = self._phase_of(test)
                 if phase is None or test is None:
                     self.facts.unattributed_exceptions += 1
                     return
-                identity = id(exc)
                 if identity in self._seen or identity in self._escaped:
                     return
                 group = fingerprint(exc)
+                try:
+                    message = self._mask(str(exc))
+                except Exception:
+                    message = f"<unprintable {type(exc).__name__}>"
+                phase.exception_groups.setdefault(group, (type(exc).__name__, message))
                 phase.exceptions += 1
-                phase.exception_groups.setdefault(group, (type(exc).__name__, self._mask(str(exc))))
                 self._seen[identity] = (exc, test[2], group)
                 self._group_refs[test[2], group] += 1
         except Exception as error:  # noqa: BLE001
@@ -198,17 +208,26 @@ class TestSessionSink:
         except Exception as exc:  # noqa: BLE001
             self._failed(exc)
 
-    def snapshot_apps(self, model_of: Callable[[object], ApiModel]) -> None:
+    def snapshot_apps(self, model_of: Callable[[object], ApiModel], *, force: bool = False) -> None:
         """Take the model of every registered app that is still alive; the latest snapshot per registration is kept."""
         with self._lock:
             registrations = list(self._registrations)
+            self._orphan_snapshots.extend(
+                r.snapshot for r in self._registrations if r.ref() is None and r.snapshot is not None
+            )
+            self._registrations = [r for r in self._registrations if r.ref() is not None]
         for registration in registrations:
             app = registration.ref()
             if app is None:
                 continue
             try:
+                routes = getattr(getattr(app, "router", None), "routes", ())
+                token = (id(routes), len(routes))
+                if not force and registration.snapshot is not None and registration.route_token == token:
+                    continue
                 title = self._mask(str(getattr(app, "title", type(app).__name__)))
                 registration.snapshot = (title, model_of(app))
+                registration.route_token = token
             except Exception as exc:  # noqa: BLE001
                 self._failed(exc)
 
@@ -216,7 +235,7 @@ class TestSessionSink:
         """``(identity, model)`` per distinct content, identity ``"<title>#<8 hex of sha256 of the model>"``."""
         found: dict[str, ApiModel] = {}
         with self._lock:
-            snapshots = [r.snapshot for r in self._registrations if r.snapshot is not None]
+            snapshots = [*self._orphan_snapshots, *(r.snapshot for r in self._registrations if r.snapshot is not None)]
         for title, model in snapshots:
             digest = hashlib.sha256(repr(model).encode("utf-8")).hexdigest()[:8]
             found.setdefault(f"{title}#{digest}", model)

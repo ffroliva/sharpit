@@ -129,7 +129,7 @@ def test_render_header_and_totals() -> None:
     }
     assert data["filtered"] == {
         "count": 1,
-        "rules": ["PRAGMA", "sqlite_schema", "alembic_version", "transaction control"],
+        "rules": ["PRAGMA", "sqlite_schema", "migration tables", "transaction control"],
     }
 
 
@@ -294,6 +294,13 @@ def test_write_json_atomic(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8").startswith('{\n  "schema"')
     write_json(target, {"schema": "second"})
     assert json.loads(target.read_text(encoding="utf-8")) == {"schema": "second"}
+    assert [p.name for p in target.parent.iterdir()] == ["report.json"]
+
+
+def test_write_json_survives_lone_surrogate(tmp_path: Path) -> None:
+    target = tmp_path / "report.json"
+    write_json(target, {"message": "bad\ud800text"})
+    assert json.loads(target.read_text(encoding="utf-8"))["message"] == "bad�text"
     assert [p.name for p in target.parent.iterdir()] == ["report.json"]
 
 

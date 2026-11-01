@@ -8,6 +8,16 @@ from pathlib import Path
 import pytest
 
 
+def test_plugin_loads_without_xdist(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("def test_pass(): assert True")
+    plain = pytester.runpytest_subprocess("-p", "no:xdist", "-q")
+    enabled = pytester.runpytest_subprocess(
+        "-p", "no:xdist", "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q"
+    )
+    assert plain.ret == 0
+    assert enabled.ret == 0
+
+
 def test_conftest_crash_still_restores(pytester: pytest.Pytester) -> None:
     original_connect = sqlite3.connect
     pytester.makeconftest("raise RuntimeError('conftest import failed')")

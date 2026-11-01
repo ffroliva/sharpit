@@ -10,7 +10,7 @@ import os
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from sharpit.engine.advisors.report import severity_counts
 from sharpit.engine.advisors.rules import SEVERITIES, severity_rank
@@ -116,7 +116,19 @@ def _write_atomic(path: Path, text: str) -> None:
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
     """UTF-8, ``indent=2``, atomic (a temporary file, then ``os.replace``); serialised before anything is touched."""
-    _write_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, str):
+            return _XML_ILLEGAL.sub("�", value)
+        if isinstance(value, list):
+            items = cast(list[Any], value)
+            return [clean(item) for item in items]
+        if isinstance(value, dict):
+            mapping = cast(dict[str, Any], value)
+            return {clean(key): clean(item) for key, item in mapping.items()}
+        return value
+
+    _write_atomic(path, json.dumps(clean(data), indent=2, ensure_ascii=False) + "\n")
 
 
 def _clean(text: str) -> str:
