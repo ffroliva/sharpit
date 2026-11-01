@@ -1,4 +1,8 @@
 /** Contract DTOs (docs/reference/BOOTUI-CONTRACT-MVP.md), only the fields the views read. */
+import type { PANEL_04_IMPLEMENTED } from './panels04';
+
+/** A 0.4 panel id (one flag module each under `lib/panels04/`). */
+export type Panel04Id = keyof typeof PANEL_04_IMPLEMENTED;
 
 export interface Panel {
   id: string;
