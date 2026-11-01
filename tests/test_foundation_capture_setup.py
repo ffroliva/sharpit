@@ -17,3 +17,13 @@ def test_configure_capture_attaches_wiring() -> None:
     wiring = _configure_capture(app, ctx, settings)
 
     assert isinstance(wiring, CaptureWiring)
+
+
+def test_configure_capture_stores_wiring_on_context() -> None:
+    app = FastAPI()
+    settings = load_settings({"enabled": "ON"}, {})
+    ctx = SharpitContext(settings, ActivationStatus(True, True, "enabled in test", ()), FastApiIntrospector(app))
+
+    _configure_capture(app, ctx, settings)
+
+    assert ctx.capture.wiring is not None
