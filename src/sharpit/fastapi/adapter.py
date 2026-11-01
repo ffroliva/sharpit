@@ -14,7 +14,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.routing import Match, Mount
+from starlette.routing import BaseRoute, Match, Mount
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import guard, sqla, tools
@@ -243,4 +243,9 @@ async def _not_found(scope: Scope, receive: Receive, send: Send) -> None:
 
 
 from sharpit.fastapi.install import install as install  # noqa: E402 - public adapter compatibility facade
-from sharpit.fastapi.routes import build_routes as _routes  # noqa: E402 - route-builder compatibility facade
+
+
+def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
+    from sharpit.fastapi.routes import build_routes
+
+    return build_routes(ctx, host_app)

@@ -7,7 +7,7 @@ import json
 from collections.abc import Callable
 from functools import partial
 from importlib import import_module
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -33,25 +33,49 @@ from sharpit.engine.collectors.overview import overview_dto
 from sharpit.engine.collectors.threads import threads_report
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
-from sharpit.engine.headers import security_headers
 from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
 from sharpit.engine.singleflight import ActionBusy
-from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.sse import sse_response
 
 _adapter = cast(Any, import_module("sharpit.fastapi.adapter"))
-_ASSETS: Any = _adapter._ASSETS
-_SMALL_BODY_CAP: Any = _adapter._SMALL_BODY_CAP
-_STATIC: Any = _adapter._STATIC
-_TRUSTED_KEY: Any = _adapter._TRUSTED_KEY
-_json_or_none: Any = _adapter._json_or_none
-_page: Any = _adapter._page
-_toggle_value: Any = _adapter._toggle_value
-_read_capped: Any = _adapter._read_capped
-available_reasons: Any = _adapter.available_reasons
-log_events: Any = _adapter.log_events
+
+
+async def _read_capped(request: Request, cap: int) -> bytes | None:
+    return await _adapter._read_capped(request, cap)
+
+
+def _json_or_none(raw: bytes) -> object:
+    return _adapter._json_or_none(raw)
+
+
+def _page(request: Request) -> tuple[int | None, int | None]:
+    return _adapter._page(request)
+
+
+def _toggle_value(raw: bytes) -> object:
+    return _adapter._toggle_value(raw)
+
+
+def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
+    return _adapter.available_reasons(ctx)
+
+
+def log_events(buffer: Any, resume: Any) -> Any:
+    return _adapter.log_events(buffer, resume)
+
+
+def security_headers(kind: Literal["api", "shell", "asset"]) -> list[tuple[str, str]]:
+    return _adapter.security_headers(kind)
+
+
+def error(status: int, message: str, **extra: Any) -> Response:
+    return _adapter.error(status, message, **extra)
+
+
+def json_response(data: Any, status: int = 200) -> Response:
+    return _adapter.json_response(data, status)
 
 
 def _probe_request_body(raw: bytes) -> dict[str, Any] | Response:
@@ -73,20 +97,20 @@ def _root_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         return request.scope.get("root_path", "") + api
 
     def shell(_request: Request) -> Response:
-        html = ctx.lazy("shell", lambda: (_STATIC / "index.html").read_bytes())
+        html = ctx.lazy("shell", lambda: (_adapter._STATIC / "index.html").read_bytes())
         return Response(html, media_type="text/html; charset=utf-8", headers=dict(security_headers("shell")))
 
     def asset(request: Request) -> Response:
         name: str = request.path_params["file"]
-        target = (_ASSETS / name).resolve()
-        if target.parent != _ASSETS.resolve() or not target.is_file():
+        target = (_adapter._ASSETS / name).resolve()
+        if target.parent != _adapter._ASSETS.resolve() or not target.is_file():
             raise HTTPException(404)
         return FileResponse(target, headers=dict(security_headers("asset")))
 
     def session(request: Request) -> Response:
         # Reached only once the guard has authorised the request (trusted source, bearer or session cookie).
         response = Response(status_code=204, headers=dict(security_headers("api")))
-        if not request.scope.get(_TRUSTED_KEY, False) and ctx.token:
+        if not request.scope.get(_adapter._TRUSTED_KEY, False) and ctx.token:
             secure = "; Secure" if request.url.scheme == "https" else ""
             cookie = f"{guard.SESSION_COOKIE}={ctx.token}; Path={api_path(request)}; HttpOnly; SameSite=Strict"
             response.headers.append("set-cookie", cookie + secure)
@@ -186,7 +210,7 @@ def _sql_trace_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
     cap = settings.mcp_max_payload_bytes
-    small_cap = min(cap, _SMALL_BODY_CAP)
+    small_cap = min(cap, _adapter._SMALL_BODY_CAP)
 
     def sql_trace(_request: Request) -> Response:
         return json_response(tools.sql_trace_report(ctx))
@@ -229,7 +253,7 @@ def _logger_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     api = settings.api_path[len(settings.path) :]
 
     cap = settings.mcp_max_payload_bytes  # MCP and CLI bodies (the CLI has no payload setting of its own)
-    small_cap = min(cap, _SMALL_BODY_CAP)  # the toggle and logger-level bodies are a few bytes of JSON
+    small_cap = min(cap, _adapter._SMALL_BODY_CAP)  # the toggle and logger-level bodies are a few bytes of JSON
 
     async def logger_level(request: Request) -> Response:
         raw = await _read_capped(request, small_cap)
@@ -358,7 +382,7 @@ def _exception_status_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRou
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
     cap = settings.mcp_max_payload_bytes
-    small_cap = min(cap, _SMALL_BODY_CAP)
+    small_cap = min(cap, _adapter._SMALL_BODY_CAP)
 
     async def exception_status(request: Request) -> Response:
         raw = await _read_capped(request, small_cap)
@@ -532,7 +556,7 @@ def _mcp_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         return request.scope.get("root_path", "") + api
 
     cap = settings.mcp_max_payload_bytes  # MCP and CLI bodies (the CLI has no payload setting of its own)
-    small_cap = min(cap, _SMALL_BODY_CAP)  # the toggle and logger-level bodies are a few bytes of JSON
+    small_cap = min(cap, _adapter._SMALL_BODY_CAP)  # the toggle and logger-level bodies are a few bytes of JSON
 
     def mcp_server() -> McpServer:
         return ctx.lazy("mcp", lambda: McpServer(ctx))
