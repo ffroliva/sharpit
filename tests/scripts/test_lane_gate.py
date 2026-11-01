@@ -106,6 +106,8 @@ class Fixture:
                 "typeerror": '<failure message="TypeError: bad">trace</failure>',
                 # real pytest: a rewritten assert's message names no exception; --tb=long ends "<file>:<line>: <type>"
                 "rewritten": '<failure message="assert 1 == 2">E   assert 1 == 2\nt.py:2: AssertionError</failure>',
+                "bare-assert": '<failure message="assert 0 == 2">no traceback tail</failure>',
+                "typed": '<failure type="AssertionError" message="custom text">no traceback tail</failure>',
                 "rpcerror": '<failure message="pkg.RpcError: x">E   pkg.RpcError: x\nt.py:2: RpcError</failure>',
                 "error": '<error message="failed on setup">trace</error>',
                 "skip": '<skipped message="skip" />',
@@ -460,3 +462,10 @@ def test_lane_gate_replays_with_long_tracebacks(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(lane_gate.subprocess, "run", lambda command, **kwargs: calls.append(command))
     lane_gate.run_pytest_in(tmp_path)(tmp_path, [TEST_ID], tmp_path / "junit.xml")
     assert "--tb=long" in calls[0]
+
+
+@pytest.mark.parametrize("outcome", ["bare-assert", "typed"])
+def test_lane_gate_accepts_assert_message_or_type_without_traceback(tmp_path: Path, outcome: str) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = outcome
+    assert _refusals(fx.evaluate()) == []
