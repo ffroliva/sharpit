@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ffroliva/sharpit/blob/main/docs/reference/report.schema.json",
+  "title": "sharpit-report/1",
+  "description": "The report `pytest --sharpit --sharpit-report <path>` writes. Every key is emitted, nulls included. Adding a key is a minor change within /1: consumers must ignore unknown keys. Removing or renaming a key, or changing a meaning, is /2.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "tool",
+    "generatedAt",
+    "status",
+    "statusReasons",
+    "warnings",
+    "gates",
+    "sources",
+    "workers",
+    "severityCounts",
+    "totals",
+    "tests",
+    "unattributed",
+    "filtered",
+    "advisors",
+    "findings"
+  ],
+  "properties": {
+    "schema": {"const": "sharpit-report/1"},
+    "tool": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "version"],
+      "properties": {"name": {"const": "sharpit"}, "version": {"type": "string"}}
+    },
+    "generatedAt": {"type": "integer", "description": "Epoch milliseconds."},
+    "status": {"enum": ["pass", "fail", "unknown"]},
+    "statusReasons": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "gates": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["maxQueriesPerTest", "nPlusOneThreshold", "failOnSeverity", "allowUnknown", "maxUnattributedPercent"],
+      "properties": {
+        "maxQueriesPerTest": {"type": ["integer", "null"]},
+        "nPlusOneThreshold": {"type": "integer"},
+        "failOnSeverity": {"enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]},
+        "allowUnknown": {"type": "boolean"},
+        "maxUnattributedPercent": {"type": "number"}
+      }
+    },
+    "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}},
+    "workers": {"type": "array", "items": {"$ref": "#/$defs/worker"}},
+    "severityCounts": {
+      "type": "array",
+      "description": "CRITICAL, HIGH, MEDIUM, LOW, INFO in that order, zeros included, after dismissal.",
+      "items": {"$ref": "#/$defs/severityCount"}
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["tests", "queries", "filtered", "unattributed", "unattributedShare", "exceptions"],
+      "properties": {
+        "tests": {"type": "integer"},
+        "queries": {"type": "integer"},
+        "filtered": {"type": "integer"},
+        "unattributed": {"type": "integer"},
+        "unattributedShare": {"type": "number", "description": "Percent, one decimal."},
+        "exceptions": {"type": "integer"}
+      }
+    },
+    "tests": {"type": "array", "items": {"$ref": "#/$defs/test"}},
+    "unattributed": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["queries", "topStatements"],
+      "properties": {
+        "queries": {"type": "integer"},
+        "topStatements": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/statement"}}
+      }
+    },
+    "filtered": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["count", "rules"],
+      "properties": {"count": {"type": "integer"}, "rules": {"type": "array", "items": {"type": "string"}}}
+    },
+    "advisors": {"type": "array", "items": {"$ref": "#/$defs/advisor"}},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "attached", "reason", "limitations"],
+      "properties": {
+        "name": {"type": "string"},
+        "attached": {"type": "boolean"},
+        "reason": {"type": ["string", "null"]},
+        "limitations": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "status"],
+      "properties": {"id": {"type": "string"}, "status": {"enum": ["ok", "missing"]}}
+    },
+    "severityCount": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["severity", "count"],
+      "properties": {
+        "severity": {"enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]},
+        "count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["sql", "count"],
+      "properties": {"sql": {"type": "string", "description": "Normalised and masked; never a parameter."}, "count": {"type": "integer"}}
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["queries", "filtered", "exceptions"],
+      "properties": {
+        "queries": {"type": "integer"},
+        "filtered": {"type": "integer"},
+        "exceptions": {"type": "integer"}
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["nodeId", "worker", "attempt", "outcome", "budget", "phases", "nPlusOne", "findings"],
+      "properties": {
+        "nodeId": {"type": "string"},
+        "worker": {"type": "string"},
+        "attempt": {"type": "integer", "minimum": 1},
+        "outcome": {"enum": ["passed", "failed", "skipped", "error", null]},
+        "budget": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["maxQueries", "allowNPlusOne", "maxExceptions"],
+              "properties": {
+                "maxQueries": {"type": ["integer", "null"]},
+                "allowNPlusOne": {"type": "boolean"},
+                "maxExceptions": {"type": "integer"}
+              }
+            }
+          ]
+        },
+        "phases": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["setup", "call", "teardown"],
+          "properties": {
+            "setup": {"$ref": "#/$defs/phase"},
+            "call": {"$ref": "#/$defs/phase"},
+            "teardown": {"$ref": "#/$defs/phase"}
+          }
+        },
+        "nPlusOne": {"type": "array", "maxItems": 10, "items": {"$ref": "#/$defs/statement"}},
+        "findings": {"type": "array", "items": {"type": "string", "description": "A fingerprint listed in the top-level findings."}}
+      }
+    },
+    "evidence": {"type": "object", "additionalProperties": true},
+    "advisor": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["advisor", "status", "reason", "apps", "findings"],
+      "properties": {
+        "advisor": {"type": "string"},
+        "status": {"enum": ["PASSED", "FAILED", "UNKNOWN"]},
+        "reason": {"type": ["string", "null"]},
+        "apps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["app", "status", "reason", "evidence"],
+            "properties": {
+              "app": {"type": ["string", "null"], "description": "<title>#<8 hex>: the app's content identity."},
+              "status": {"enum": ["PASSED", "FAILED", "UNKNOWN"]},
+              "reason": {"type": ["string", "null"]},
+              "evidence": {"$ref": "#/$defs/evidence"}
+            }
+          }
+        },
+        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ruleId", "advisor", "severity", "target", "message", "fingerprint", "testNodeId", "dismissed"],
+      "properties": {
+        "ruleId": {"type": "string"},
+        "advisor": {"type": "string"},
+        "severity": {"enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]},
+        "target": {"type": "string"},
+        "message": {"type": "string"},
+        "fingerprint": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,200}$"},
+        "testNodeId": {"type": ["string", "null"]},
+        "dismissed": {"type": "boolean"}
+      }
+    }
+  }
+}

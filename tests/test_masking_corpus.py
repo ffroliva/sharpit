@@ -40,6 +40,10 @@ from sharpit.engine.tools import COMMANDS, TOOLS
 
 SENTINEL = "S3NT1NEL9f3c"
 JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjb3JwdXMifQ.c2lnbmF0dXJlLWJ5dGVz"
+# shaped secrets for the report writers (tests/engine/testsession/test_report.py plants them in both report files)
+STRIPE_KEY = "sk_live_Z9y8X7w6V5u4T3s2R1q0"
+AWS_KEY = "AKIAABCDEFGHIJKLMNOP"
+GITHUB_TOKEN = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2"
 PROBES = ("S3NT1NEL", "9f3c")  # fragments: an echoed probe is not a leak, a matched secret would be
 AUTH_TOKEN = "corpus-auth-token"  # distinct from the sentinel: it legitimately appears in Set-Cookie
 LOCAL = ("127.0.0.1", 50000)
