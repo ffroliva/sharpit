@@ -17,7 +17,7 @@ are unchanged.
 **Tech Stack:** Python ≥3.12, Starlette/FastAPI, SQLAlchemy 2 (optional), pytest + xdist, OpenTelemetry SDK (optional,
 test extra), Svelte 5 + TypeScript (`ui/`), uv.
 
-**Spec:** `docs/superpowers/specs/2026-11-01-sharpit-0.4.0-design.md` (r4, commit `91cbb79`, council consensus round 3).
+**Spec:** `docs/superpowers/specs/2026-11-01-sharpit-0.4.0-design.md` (r5: r4 council consensus + §5.5 spike findings).
 Executors read the spec and their lane plan, nothing else is authoritative.
 
 **Predict verdict:** replaced by the three-family spec council (3 rounds, consensus; spec §15). Ruling (coordinator,
@@ -57,36 +57,51 @@ Verbatim from AGENTS.md and the spec; every lane's requirements include these.
 6. **Autodetection picks the wrong app or imports something** — two FastAPI instances in `sys.modules` → none used,
    candidates printed; detection never imports a module (G6: `test_autodetect_ambiguous_uses_none`,
    `test_autodetect_never_imports`).
-7. **The spike's own cases** — each of F1, F2, F3, F5 reproduced in a fixture app, red on 0.3.0 for the named reason
-   (G6, T-* lanes: `test_spike_f<n>_*`).
+7. **The spike's own cases** — each of F1, F2, F3, F5 reproduced in a fixture app; each test asserts the **desired**
+   finding, so it is red on 0.3.0 (G6: `test_spike_f3_clean_suite_reaches_green`; T-swallowed-exceptions:
+   `test_spike_f1_swallowed_attribute_error_fails`; T-unbounded-read: `test_spike_f2_unbounded_read_found`;
+   T-n-plus-one-message: `test_spike_f5_message_names_relationship`).
+8. **A swallow gate breaks green 0.3.0 suites** — a broad handler swallowing a `ValueError` is a note, not a failure
+   (T-swallowed-exceptions: `test_non_programming_error_swallow_is_a_note`).
 
 ## Lanes
 
 | Lane | Plan file | Class | Depends on | Default worker (coordinator decides) |
 |---|---|---|---|---|
 | F | `F-foundation.md` | committed | — | codex (gpt-6-luna, high) |
-| G0 | `G0-goldens-and-tiny-ledger-py.md` | parallel, never blocking | — | codex (goldens), codex (tiny-ledger-py) |
+| G0a | `G0-goldens-and-tiny-ledger-py.md` §G0a | parallel, never blocking | F | codex (medium) |
+| G0b | `G0-goldens-and-tiny-ledger-py.md` §G0b (own repo, not gated by lane_gate) | parallel, never blocking | — | agy (Argon), a different account from G0a |
 | D1 | `D1-drift-envelope.md` | committed | F | claude-flavio (Opus) — guard.py |
-| G1G2 | `G1G2-report-only-baselines.md` | committed | F, D1 | codex (high) |
-| G3 | `G3-action.md` | committed | G1G2 | claude-flavio (Sonnet) |
+| G6 | `G6-gate-defaults.md` (spike F3 + F4; owns advisor `SKIPPED`) | committed | F | codex |
 | G4 | `G4-hygiene.md` | committed | F | agy (Flash) |
 | A-data | `A-data.md` | committed | F | agy (Argon) |
 | A-transactions | `A-transactions.md` | committed | F | codex |
 | A-sqlalchemy-statistics | `A-sqlalchemy-statistics.md` | committed | F | claude-flavio (Sonnet) |
 | A-postgresql | `A-postgresql.md` | committed | F | codex (high) |
-| G6 | `G6-gate-defaults.md` (spike F3 + F4, spec §5.5) | committed | G1G2 | codex |
-| T-n-plus-one-message | `T-n-plus-one-message.md` (spike F5 + F6) | best effort 1 | F, A-sqlalchemy-statistics | codex (high) |
-| T-swallowed-exceptions | `T-swallowed-exceptions.md` (spike F1) | best effort 2 | F, G1G2 | claude-flavio (Opus) |
-| T-unbounded-read | `T-unbounded-read.md` (spike F2) | best effort 3 | F, T-n-plus-one-message | codex |
+| G1G2 | `G1G2-report-only-baselines.md` | committed | F, D1, G6 | codex (high) |
+| G3 | `G3-action.md` | committed | G1G2 | claude-flavio (Sonnet) |
+| T-n-plus-one-message | `T-n-plus-one-message.md` (spike F5 + F6) | best effort 1 | G1G2, A-sqlalchemy-statistics | codex (high) |
+| T-swallowed-exceptions | `T-swallowed-exceptions.md` (spike F1) | best effort 2 | T-n-plus-one-message | claude-flavio (Opus) |
+| T-unbounded-read | `T-unbounded-read.md` (spike F2) | best effort 3 | T-swallowed-exceptions | codex |
 | A-traces | `A-traces.md` | best effort 4 | F | agy (Argon) |
 | A-sqltrace-insights | `A-sqltrace-insights.md` | best effort 5 | F | agy (Flash) |
 | B-fastapi-security | `B-fastapi-security.md` | best effort 6 | F | claude-flavio (Opus) |
 | B-security-logs | `B-security-logs.md` | best effort 7 | F | claude-flavio (Opus) |
-| D2 / D3 / D4 | `D2-…`, `D3-…`, `D4-…` | best effort 8–10 | F, D1 (D2 after A-*) | agy / codex |
+| D2 | `D2-drift-capture.md` | best effort 8 | D1, every A-* merged or parked, B-security-logs if it runs (both edit `fastapi/capture.py`) | agy / codex |
+| D3 | `D3-drift-db-runtime.md` | best effort 9 | D1 | agy |
+| D4 | `D4-drift-vulns-mcp-restapi.md` | best effort 10 | D1, G1G2 | codex |
 | stretch | none yet | stretch | all above merged or parked | plan in-session with `/sharpit:plan` |
 
-Parallelism: at most **four lanes in flight** at once (one per worker account), plus G0. `agent_capacity.py` before
-each start.
+This table is the single source for ids and dependencies; a lane header that disagrees is wrong. The T-* lanes are
+serial because they share `facts.py`, `gates.py` and `marker.py`.
+
+**Critical path:** F → (D1 ∥ G6 ∥ A-* ∥ G4 ∥ G0a) → G1G2 → G3. Parallelism: at most **four sharpit lanes in flight**
+at once (one per worker account), plus G0a/G0b. `agent_capacity.py` before each start.
+
+**Lane evidence (one layout, plan-fixes C2):** the implementer writes `handoff.md`, `findings.md`, `field-map.md`
+(`N/A — not a panel lane` outside panels) and `checklist.md` in the lane worktree under
+`.superpowers/sdd/0.4.0/lanes/<lane id>/`. The coordinator and reviewer write `review.md`, `gate/<name>.log` and
+`live-verify.md` **in the integration worktree only**; a lane diff touching those paths is refused by `lane_gate.py`.
 
 ## Execution protocol (the coordinator's loop)
 
@@ -115,7 +130,8 @@ each start.
 
 - [ ] A **fresh reviewer subagent** (different model family from the implementer where possible) gets the lane plan,
       the spec sections, `git diff release/0.4.0...lane/0.4.0-<lane>`, and the §6.1 checklist; it writes
-      `review.md` ending `VERDICT: APPROVE` or `VERDICT: CHANGES` with the head SHA.
+      `review.md` **in the integration worktree** (`.superpowers/sdd/0.4.0/lanes/<lane id>/review.md`, never in the
+      lane worktree) ending `VERDICT: APPROVE` or `VERDICT: CHANGES` with the reviewer id and the head SHA.
 - [ ] `/code-review high` on the lane diff; `ponytail-review` for F, D1, B-*, and anything touching `sqla.py`,
       activation, guard, masking or introspection.
 - [ ] Each finding → a fix brief to the implementer: one regression test seen red first per finding, the
@@ -124,7 +140,8 @@ each start.
 
 ### Step 3: merge (one lane at a time)
 
-- [ ] `uv run python scripts/dev/lane_gate.py <lane>` **from the `release/0.4.0` copy** → exit 0, else back to Step 2.
+- [ ] `uv run python scripts/dev/lane_gate.py <lane id>` **from the `release/0.4.0` copy** (it re-runs the four gates
+      at the lane head and writes `gate/*.log` into the integration worktree) → exit 0, else back to Step 2.
 - [ ] `git merge --no-ff lane/0.4.0-<lane>` into `release/0.4.0`; the four gates on the integration worktree
       (backgrounded). Red → `git reset --hard <pre-merge sha>` on the local `release/0.4.0`, lane back to Step 2.
 - [ ] Ledger: `merged <lane> <sha> <gate log paths>`; update `docs/reference/PARITY.md`.
