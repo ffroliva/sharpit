@@ -19,8 +19,7 @@ class AdvisorSpec:
     id: str
     panel: str | None
     owns: Callable[[str], bool]
-    offline: bool
-    fingerprint: re.Pattern[str]  # the exact fingerprint shape ``<advisor>:<a rule id it owns>:<16 hex>``
+    fingerprint: re.Pattern[str] | None  # ``<advisor>:<a rule id it owns>:<16 hex>``; None: no finding fingerprints
 
 
 def _fingerprint(advisor: str, rule: str) -> re.Pattern[str]:
@@ -34,21 +33,18 @@ ADVISORS: tuple[AdvisorSpec, ...] = (
         "rest-api",
         "rest-api",
         RULE_IDS.__contains__,
-        offline=True,
         fingerprint=_fingerprint("rest-api", f"(?:{_RAPI_RULES})"),
     ),
     AdvisorSpec(
         "vulnerabilities",
         "vulnerabilities",
         lambda value: _VULNERABILITY.fullmatch(value) is not None,
-        offline=False,
-        fingerprint=_fingerprint("vulnerabilities", _VULNERABILITY_KEY),
+        fingerprint=None,  # nothing builds vulnerability fingerprints; dismissals use the bare rule id
     ),
     AdvisorSpec(
         "test-runtime",
         None,
         lambda value: value.startswith("sharpit."),
-        offline=True,
         fingerprint=_fingerprint("test-runtime", r"sharpit\.[a-z0-9.-]+"),
     ),
 )
@@ -61,5 +57,5 @@ def advisor_for(id: str) -> AdvisorSpec | None:  # noqa: A002 - the spec names t
     a vulnerability id; only a value no advisor prefixes is matched as a bare rule id."""
     for spec in ADVISORS:
         if id.startswith(f"{spec.id}:"):
-            return spec if spec.fingerprint.fullmatch(id) else None
+            return spec if spec.fingerprint and spec.fingerprint.fullmatch(id) else None
     return next((spec for spec in ADVISORS if spec.owns(id)), None)

@@ -517,10 +517,6 @@ class Violation(NamedTuple):
     target: str
     message: str
 
-    @property
-    def text(self) -> str:
-        return self.message
-
 
 Check = Callable[[Sequence[ApiRouteInfo], Sequence[str]], list[Violation]]
 
@@ -750,7 +746,7 @@ def evaluate(
 
 def violations(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> dict[str, list[str]]:
     """Every ported rule's violations, in ``RULES`` order. Pure: reads the given metadata only."""
-    return {rule_id: [v.text for v in items] for rule_id, items in evaluate(routes, exception_handlers)[0].items()}
+    return {rule_id: [v.message for v in items] for rule_id, items in evaluate(routes, exception_handlers)[0].items()}
 
 
 def scan(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> list[RuleResult]:
