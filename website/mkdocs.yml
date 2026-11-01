@@ -66,6 +66,9 @@ nav:
       - Activation: activation.md
   - Using sharpit:
       - Panels: panels.md
+      - SQL sources: sql-sources.md
+      - Pytest plugin: pytest-plugin.md
+      - Test report: report.md
       - MCP for AI agents: mcp.md
       - Settings: settings.md
   - Reference:

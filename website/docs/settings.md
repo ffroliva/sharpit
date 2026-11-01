@@ -50,6 +50,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_EXCEPTIONS_MAX_OCCURRENCES_PER_GROUP` | `exceptions_max_occurrences_per_group` | `25` | occurrences kept per exception group |
 | `SHARPIT_EXCEPTIONS_MAX_STACK_FRAMES` | `exceptions_max_stack_frames` | `50` | stack frames kept per exception |
 | `SHARPIT_SQL_TRACE_ENABLED` | `sql_trace_enabled` | `true` | attach SQLAlchemy event listeners |
+| `SHARPIT_SQL_TRACE_SQLITE3_ENABLED` | `sql_trace_sqlite3_enabled` | `true` | attach sqlite3 trace function in console (off keeps it detached; plugin always attaches with `--sharpit`) |
 | `SHARPIT_SQL_TRACE_RECORDING` | `sql_trace_recording` | `true` | initial SQL trace recording state |
 | `SHARPIT_SQL_TRACE_CAPTURE_PARAMETERS` | `sql_trace_capture_parameters` | `false` | capture SQL bind parameters |
 | `SHARPIT_SQL_TRACE_CAPTURE_CALL_SITE` | `sql_trace_capture_call_site` | `true` | capture call-site stack frame |
