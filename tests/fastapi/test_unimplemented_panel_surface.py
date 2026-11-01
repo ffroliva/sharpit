@@ -29,7 +29,7 @@ ALL_PANEL_IDS = {
     "fastapi",
 }
 EXPECTED_IDS = {panel_id for panel_id, implemented in ALL_IMPLEMENTED.items() if not implemented}
-IMPLEMENTED = {panel_id: False for panel_id in EXPECTED_IDS}
+IMPLEMENTED = dict.fromkeys(EXPECTED_IDS, False)
 PANEL_IDS = set(IMPLEMENTED)
 TOOL_NAMES = {
     tool.name

@@ -18,8 +18,12 @@ from sharpit import install
 from sharpit.engine import sqla
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.panels import panel_is_implemented
+from sharpit.engine.panels04 import IMPLEMENTED
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import LOG_PANELS, WrappingHandlers
+
+DB_PANEL_IDS = ("postgresql", "mysql", "database-advisor", "sqlalchemy-statistics")
+O4_CAPTURE_PANEL_IDS = ("transactions", "security-logs")
 
 
 def _log_handlers() -> list[logging.Handler]:
@@ -84,6 +88,9 @@ def test_disabled_panel_installs_no_hook(
             assert present(handle), (hook, panel)
 
 
+@pytest.mark.skipif(
+    any(IMPLEMENTED[panel_id] for panel_id in O4_CAPTURE_PANEL_IDS), reason="capture panel owners supply behavior tests"
+)
 def test_unimplemented_security_logs_does_not_add_capture_middleware() -> None:
     app = FastAPI()
     disabled = ("http-exchanges", "exceptions", "sql-trace", "activity", "log-tail")
@@ -94,6 +101,9 @@ def test_unimplemented_security_logs_does_not_add_capture_middleware() -> None:
     assert wiring.middleware_added is False
 
 
+@pytest.mark.skipif(
+    any(IMPLEMENTED[panel_id] for panel_id in DB_PANEL_IDS), reason="DB owners supply implementation tests"
+)
 def test_unimplemented_database_panels_do_not_enable_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[bool, bool]] = []
 

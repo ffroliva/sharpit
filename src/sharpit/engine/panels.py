@@ -78,8 +78,8 @@ def read_only_reason(panel_id: str, global_read_only: bool) -> str:
 
 
 def panel_is_implemented(panel_id: str) -> bool:
-    """Temporary O4 registry seam; future panels are wrongly treated as implemented until the green fix."""
-    return True
+    """Existing panels are implemented; O4 panels read their owning per-panel flag."""
+    return IMPLEMENTED.get(panel_id, True)
 
 
 def panel_for_api_path(sub_path: str) -> Panel | None:

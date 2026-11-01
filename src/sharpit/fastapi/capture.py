@@ -25,6 +25,7 @@ from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_request_id
 from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sources import dispatch, sqlite
 
 if TYPE_CHECKING:
@@ -32,6 +33,11 @@ if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
 logger = logging.getLogger("sharpit")
+
+
+def _panel_enabled(ctx: SharpitContext, panel_id: str) -> bool:
+    return panel_is_implemented(panel_id) and ctx.settings.panels[panel_id].enabled
+
 
 CAPTURE_TOO_LATE = "request capture unavailable: install() ran after the app started"
 CAPTURE_TOO_LATE_REASON = "Request capture is unavailable: install() ran after the app started"
@@ -181,14 +187,14 @@ class CaptureWiring:
             return
         self.app = app
         store = ctx.capture.exceptions
-        if any(ctx.settings.panels[p].enabled for p in LOG_PANELS):
+        if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
             self.log_handler = SharpitLogHandler(ctx.masker, ctx.capture.log_tail)
             if store is not None:
                 self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
         self._wrap_handlers(ctx)  # step 2 (spec §6.1), before the middleware: a too-late install still wraps
         self._attach_sql(ctx)  # steps 4a/4b: listeners trace outside requests too, so a too-late install still traces
-        if not any(ctx.settings.panels[p].enabled for p in CAPTURE_PANELS):
+        if not any(_panel_enabled(ctx, p) for p in CAPTURE_PANELS):
             return
         try:
             app.add_middleware(CaptureMiddleware, ctx=ctx)
@@ -232,7 +238,7 @@ class CaptureWiring:
     def _attach_sql(self, ctx: SharpitContext) -> None:
         """Step 4a (engine discovery) when a database panel is enabled, 4b (statements) when tracing is on."""
         try:
-            discovery = any(ctx.settings.panels[p].enabled for p in sqla.DISCOVERY_PANELS)
+            discovery = any(_panel_enabled(ctx, p) for p in sqla.DISCOVERY_PANELS)
             sqla.add(ctx, statements=ctx.capture.sql_trace is not None, discovery=discovery)
             if ctx.capture.sql_trace is not None and ctx.settings.sql_trace_sqlite3_enabled:
                 dispatch.add_context(ctx)  # raw sqlite3 needs no SQLAlchemy: route its statements here too
