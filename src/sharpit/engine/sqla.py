@@ -349,6 +349,10 @@ def routed(ctx: SharpitContext) -> tuple[bool, bool]:
         return ctx.context_id in _statement_contexts, ctx.context_id in _discovery_contexts
 
 
+def add_connection_listener(event: str, fn: Callable[..., None]) -> Callable[[], None]:
+    return lambda: None
+
+
 def attached() -> dict[str, bool]:
     """Event name -> whether sharpit's class-level listener is on ``Engine``."""
     sa = sqlalchemy_module()

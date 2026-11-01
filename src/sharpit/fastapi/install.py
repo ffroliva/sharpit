@@ -108,6 +108,7 @@ def install(
     settings: object = (),
     engines: Sequence[object] = (),
     health_checks: Mapping[str, Callable[[], object]] | None = None,
+    models: Iterable[object] | type | None = None,
     **options: Any,
 ) -> SharpitHandle:
     adapter = cast(Any, import_module("sharpit.fastapi.adapter"))

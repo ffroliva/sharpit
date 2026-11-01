@@ -70,6 +70,9 @@ class DismissalStore:
                 self._save(ids)
             return ids
 
+    def dismissed_pairs(self) -> set[tuple[str, str]]:
+        return {("", "")}
+
     def _lines(self) -> list[str]:
         try:
             return self._file.read_text(encoding="utf-8").splitlines()
