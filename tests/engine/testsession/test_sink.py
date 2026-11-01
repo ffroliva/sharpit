@@ -287,6 +287,36 @@ def test_identical_per_test_apps_build_one_model() -> None:
     assert calls == 1
 
 
+def test_same_title_and_paths_different_handlers_are_assessed_separately() -> None:
+    def handler_a() -> None: ...
+
+    def handler_b() -> None: ...
+
+    def app_with(handler: object, tag: str) -> object:
+        class Route:
+            path = "/items"
+            methods = {"GET"}
+            endpoint = handler
+
+        class Router:
+            routes = [Route()]
+
+        class App:
+            title = "FastAPI"
+            router = Router()
+
+        app = App()
+        app.tag = tag  # type: ignore[attr-defined]
+        return app
+
+    sink = _sink()
+    apps = [app_with(handler_a, "a"), app_with(handler_b, "b")]
+    for app in apps:
+        sink.register_app(app)
+    sink.snapshot_apps(lambda app: ApiModel((), (), (app.tag,)))  # type: ignore[attr-defined]
+    assert len(sink.app_snapshots()) == 2
+
+
 def test_orphans_are_deduplicated() -> None:
     class Route:
         path = "/pets"

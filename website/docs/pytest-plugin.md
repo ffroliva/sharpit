@@ -5,6 +5,9 @@ Running `pytest --sharpit` requires no changes to your application code. It tags
 and observable exception with the running test, checks query budgets and N+1 patterns, runs offline advisors,
 and generates JSON and JUnit reports.
 
+The plugin reads `sharpit.yml` from the state directory given by `SHARPIT_STATE_DIR` (or the default), not from an
+`install(state_dir=...)` keyword.
+
 ## What `pytest --sharpit` does
 
 When invoked with `--sharpit`, the plugin:

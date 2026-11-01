@@ -4,6 +4,9 @@ Only ``sqlite3.connect`` is patched, never ``sqlite3.dbapi2.connect``: SQLAlchem
 stays on its own source and is never counted twice. The tracing runs in the caller's thread and adds a
 ``perf_counter_ns`` pair and one ``SqlEvent`` to each statement; ``set_trace_callback`` is never used (it expands the
 bound values, which the masker cannot see).
+
+Limitation: a connection that app code opens from inside a SQLAlchemy pool or engine callback is left untraced here;
+the SQLAlchemy source owns it.
 """
 
 from __future__ import annotations
