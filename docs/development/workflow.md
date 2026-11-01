@@ -37,6 +37,8 @@ OSV, read **`/sharpit:known-issues`**. Delegated agents get the background-comma
 
 ## 5. Gate: `/sharpit:check`
 
+The CI jobs behind the gate, and how to reproduce each locally: [`ci.md`](ci.md).
+
 Before every commit: ruff fix and format, then the CI gate (ruff check, ruff format --check, pyright strict, pytest)
 and the contract/safety checklist. If an endpoint, the guard, activation or the UI changed, also
 **`/sharpit:live-verify`**: a sample FastAPI app with sharpit installed, hit for real, fail-closed rows included.
