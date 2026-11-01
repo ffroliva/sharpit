@@ -342,14 +342,18 @@ def red_integrity(opts: Options, base: str, reds: Sequence[Red]) -> _Integrity:
 
 
 def _exception_name(failure: ET.Element) -> str:
-    """The failing exception's class name: from the ``--tb=long`` last line ``<file>:<line>: <type>``, else the message.
-
-    A rewritten ``assert`` reports message ``assert 1 == 2`` with no exception name, so the message alone is not enough.
+    """The failing exception's class name: the ``--tb=long`` last line ``<file>:<line>: <type>``, else the ``type``
+    attribute, else the message (a rewritten ``assert`` reports message ``assert 1 == 2`` with no exception name).
     """
     tail = (failure.text or "").strip().splitlines()[-1:]
     found = re.search(r":\d+: ([\w.]+)$", tail[0]) if tail else None
+    message = failure.get("message", "")
+    if found is None and failure.get("type"):
+        return failure.get("type", "").rsplit(".", 1)[-1]
+    if found is None and message.startswith("assert "):
+        return "AssertionError"
     if found is None:
-        found = re.match(r"([\w.]+):", failure.get("message", ""))
+        found = re.match(r"([\w.]+):", message)
     return found.group(1).rsplit(".", 1)[-1] if found else ""
 
 
