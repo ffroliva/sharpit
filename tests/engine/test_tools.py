@@ -162,6 +162,36 @@ def test_catalogue_names_panels_actions_and_schemas():
     ]
 
 
+def test_call_tool_uses_facade_catalogue(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine import tools as facade
+
+    expected = _tool("get_facade_tool", lambda _call, _args: {"facade": True})
+    monkeypatch.setattr(facade, "TOOLS", (expected,))
+
+    result = facade.call_tool(_call(_ctx()), expected.name, {}, via="mcp")
+
+    assert result == {"facade": True}
+
+
+def test_call_tool_uses_facade_tool_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine import tools as facade
+
+    expected = _tool("get_facade_gate", lambda _call, _args: {"gate": True})
+    calls: list[str] = []
+
+    class Gate:
+        def run(self, name: str, operation: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+            calls.append(name)
+            return operation()
+
+    monkeypatch.setattr(facade, "tool_gate", lambda _ctx, _via: Gate())
+
+    result = facade.call_tool(_call(_ctx()), expected.name, {}, via="mcp", tools=(expected,))
+
+    assert result == {"gate": True}
+    assert calls == [expected.name]
+
+
 def test_descriptions_ported_with_names_substituted():
     # ported: McpToolDescriptions.COMMON / springDescription (BootUI -> sharpit; get_beans, get_config adapted)
     by_name = {t.name: t.description for t in TOOLS}
