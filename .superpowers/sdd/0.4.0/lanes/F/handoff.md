@@ -4,10 +4,11 @@ Status: Task 1 implementation complete; fresh review pending before Task 2.
 
 - Base: `7e5fc150946ee4d870433d96a41a6627b343364a` (`release/0.4.0`); worktree branch `lane/0.4.0-F`.
 - Untouched-base suite at `7e5fc15`: 3491 passed, 5 skipped, 34 warnings in 93.95 s (`uv run pytest -q -n 4`).
-- Task 1 red commits: `869db29d181a3ad98df7eb5ba6201b4cbc0e091f`, `45797333bd99647623073cb8b7b0b6755bd6a3f7`, `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9`, and `d0ea233ea90a7e2f5cd800a6df7582a6ae114d1e`; node IDs/assertions are in `findings.md`.
+- Task 1 red commits: `869db29d181a3ad98df7eb5ba6201b4cbc0e091f`, `45797333bd99647623073cb8b7b0b6755bd6a3f7`, `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9`, `d0ea233ea90a7e2f5cd800a6df7582a6ae114d1e`, `3ff293b0f49a325e25d31e743febfe9cea3c91f2`, and `82b9177fc659abc6691712d9e706b8186e34329c`; node IDs/assertions are in `findings.md`.
 - Completed responsibility extraction commit: `45a3e98b53119be0c7427a42122bf8f99a385760`.
 - Final Task 1 responsibility-split commit: `526e53f51e24bfa532a8555c82b939e4d72069eb`.
-- Current focused regression run: 193 passed, 16 warnings in 45.02 s. It covers new structure/capture/compatibility/equivalence tests plus existing tool, pytest, xdist, capture-wiring, install, and code-shape suites.
+- Adapter compatibility fix: `1d5e1f7d9fd1ff66744d3e55693bd0b7691a94e4` (adapter route/helper seams now delegate dynamically).
+- Current focused regression run: 196 passed, 16 warnings in 32.96 s. It covers structure/capture/compatibility/equivalence tests plus existing tool, pytest, xdist, capture-wiring, install, and code-shape suites.
 - Pyright: 0 errors, 0 warnings. Ruff check and format check passed for changed Python files. C901 ratchet test passed after lowering the `engine/tools.py` and `fastapi/adapter.py` entries from 1/3 to 0/0; the new route and dispatch modules add no C901 findings.
 - The first focused rerun logged inside the repo and tripped the no-side-effects fixture's cwd scan; the clean rerun
   placed logs outside the worktree.
@@ -18,7 +19,8 @@ Status: Task 1 implementation complete; fresh review pending before Task 2.
 | Module / symbol | Contract for later lanes |
 |---|---|
 | `sharpit.fastapi.adapter.install` / `sharpit.fastapi.install.install` / `sharpit.install` | `install(app: Any, *, settings: object = (), engines: Sequence[object] = (), health_checks: Mapping[str, Callable[[], object]] | None = None, **options: Any) -> SharpitHandle`; adapter remains a compatibility facade. |
-| `sharpit.fastapi.routes.build_routes` / adapter `_routes` | `build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]`; adapter `_routes` re-exports it. It assembles route groups from the `fastapi.routes` package, and install mounts them behind the existing guard middleware. |
+| `sharpit.fastapi.routes.build_routes` / adapter `_routes` | `build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]`; adapter `_routes(ctx, host_app)` dynamically delegates to it, and install calls the adapter seam. It assembles ordered route groups from the `fastapi.routes` package behind the existing guard middleware. |
+| Adapter helper seams used by routes | `_read_capped(request, cap)`, `_json_or_none(raw)`, `_page(request)`, `_toggle_value(raw)`, `available_reasons(ctx)`, and `log_events(...)` remain on the adapter facade; route handlers delegate through those attributes at call time so monkeypatches remain effective. |
 | `sharpit.fastapi.route_registry.register_routes` | `register_routes(app: Any, routes: Iterable[Any]) -> None`; appends routes in input order. |
 | `sharpit.fastapi.install._configure_capture` | `_configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings) -> CaptureWiring`; constructs the recorder slots and returns the attached wiring. |
 | `sharpit.engine.tools` | Existing tool catalogue, types, MCP/CLI names and dispatch imports remain available as compatibility facade. |
