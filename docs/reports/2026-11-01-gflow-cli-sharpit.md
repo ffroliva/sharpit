@@ -5,7 +5,7 @@ gflow-cli is a public FastAPI daemon that stores everything in raw `sqlite3` (no
 
 ## Setup
 
-- gflow-cli worktree `.worktrees/sharpit-proof`, branch `chore/sharpit-dev-wrapper` from `origin/develop` @592f988d.
+- gflow-cli worktree `.worktrees/sharpit-proof`, branch `chore/sharpit-dev-wrapper` from gflow-cli's default branch at 592f988d.
 - `dev/sharpit_app.py` (outside the wheel; hatch packages only `src/gflow_cli`): `sharpit.attach_sql_sources()`, then
   `from gflow_cli.ui.app import app`, then `sharpit.install(app)`. Shipped code never imports sharpit.
 - `tests/dev/test_sharpit_wrapper_outside_wheel.py` pins hardening row A1: wheel packages, wrapper location, no runtime
