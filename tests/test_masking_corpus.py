@@ -502,6 +502,34 @@ def _sql_integrity_error(sa: Any, conn: Any) -> None:
             conn.execute(sa.text("insert into creds values (1, :s)"), {"s": SENTINEL})
 
 
+def _sql_positional(val: str) -> Callable[[Any, Any], None]:
+    def _run(sa: Any, conn: Any) -> None:
+        conn.exec_driver_sql("create table if not exists creds (secret text)")
+        conn.exec_driver_sql("insert into creds values (?)", (val,))
+
+    return _run
+
+
+VENDOR_PREFIXES = (
+    "sk_live_",
+    "sk_test_",
+    "rk_live_",
+    "pk_live_",
+    "ghp_",
+    "gho_",
+    "ghs_",
+    "ghu_",
+    "github_pat_",
+    "glpat-",
+    "xoxb-",
+    "xoxp-",
+    "xoxa-",
+    "AIza",
+    "sk-ant-",
+    "sk-proj-",
+)
+
+
 SQL_CORPUS = [
     pytest.param("inline_literal", {}, False, _sql_inline_literal, marks=pytest.mark.needs_sqlalchemy),
     pytest.param("bind_values_on", {"sql_trace_capture_parameters": True}, False, _sql_bind_values,
@@ -510,6 +538,16 @@ SQL_CORPUS = [
     pytest.param("echo_bind_values", {}, True, _sql_bind_values, marks=pytest.mark.needs_sqlalchemy),
     pytest.param("metadata_only_error", {"expose_values": "METADATA_ONLY", "sql_trace_capture_parameters": True},
                  False, _sql_integrity_error, marks=pytest.mark.needs_sqlalchemy),
+    *(
+        pytest.param(
+            f"positional_{p}",
+            {"sql_trace_capture_parameters": True},
+            False,
+            _sql_positional(f"{p}{SENTINEL}{SENTINEL}"),
+            marks=pytest.mark.needs_sqlalchemy,
+        )
+        for p in VENDOR_PREFIXES
+    ),
 ]  # fmt: skip
 
 
@@ -541,6 +579,9 @@ def test_sql_trace_masks_statements(
     if "error" in row:
         failed = next(e for e in report["entries"] if not e["success"])
         assert failed["errorMessage"] is None if "metadata" in row else "IntegrityError" in failed["errorMessage"]
+    if "positional" in row:
+        insert_entry = next(e for e in report["entries"] if "insert" in e["sql"])
+        assert insert_entry["parameters"] == [MASK]
     for where, text in {"report": str(report), "stream": stream, "mcp": mcp, "cli": cli, "logs": logs}.items():
         assert SENTINEL not in text, (row, where)
         assert JWT not in text, (row, where)
