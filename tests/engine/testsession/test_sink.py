@@ -212,6 +212,58 @@ def test_latest_snapshot_kept_after_gc() -> None:
     assert snapshots[0][1] == EMPTY
 
 
+def test_snapshot_skipped_when_routes_unchanged() -> None:
+    class Router:
+        routes: list[object] = []
+
+    class App:
+        title = "API"
+        router = Router()
+
+    sink = _sink()
+    app = App()
+    sink.register_app(app)
+    calls = 0
+
+    def model(_app: object) -> ApiModel:
+        nonlocal calls
+        calls += 1
+        return EMPTY
+
+    sink.snapshot_apps(model)
+    sink.snapshot_apps(model)
+    sink.snapshot_apps(model)
+    assert calls == 1
+    app.router.routes.append(object())
+    sink.snapshot_apps(model)
+    assert calls == 2
+
+
+def test_unprintable_exception_still_gates() -> None:
+    class BadError(Exception):
+        def __str__(self) -> str:
+            raise RuntimeError("broken str")
+
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    sink.on_exception(BadError(), "logging", (NODE, attempt, "call"))
+    assert sink.current_test.phases["call"].exceptions == 1
+    assert (
+        sink.current_test.phases["call"].exception_groups[
+            next(iter(sink.current_test.phases["call"].exception_groups))
+        ][1]
+        == "<unprintable BadError>"
+    )
+
+
+def test_unattributed_exception_counted_once_with_console_handler() -> None:
+    sink = _sink()
+    exc = ValueError("same")
+    sink.on_exception(exc, "console", None)
+    sink.on_exception(exc, "log", None)
+    assert sink.facts.unattributed_exceptions == 1
+
+
 def test_same_content_scanned_once() -> None:
     class App:
         title = "Owners API"

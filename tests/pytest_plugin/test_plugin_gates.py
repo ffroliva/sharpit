@@ -51,6 +51,40 @@ def test_fail_on_medium_gates_medium_findings(pytester: pytest.Pytester) -> None
     assert any(finding["severity"] == "MEDIUM" for finding in data["findings"])
 
 
+def test_committed_dismissals_are_honoured(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="from fastapi import FastAPI\napp=FastAPI()\n"
+        "def handler(): return 1\napp.add_api_route('/items', handler, methods=['GET','POST'])"
+    )
+    pytester.makepyfile(
+        "import sqlite3\ndef test_repeated_selects():\n"
+        " c=sqlite3.connect(':memory:')\n"
+        " for _ in range(5): c.execute('SELECT 1').fetchone()"
+    )
+    args = [
+        "--sharpit",
+        "--sharpit-app=appmod:app",
+        "--sharpit-fail-on=MEDIUM",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "-q",
+    ]
+    first = pytester.runpytest_subprocess(*args)
+    assert first.ret == 1
+    before = json.loads((pytester.path / "report.json").read_text())
+    n_plus_one = next(f["fingerprint"] for f in before["findings"] if f["advisor"] == "test-runtime")
+    rest_rule = next(f["ruleId"] for f in before["findings"] if f["advisor"] == "rest-api")
+    state_dir = pytester.path / ".sharpit"
+    state_dir.mkdir(exist_ok=True)
+    (state_dir / "sharpit.yml").write_text(f"dismissedRules:\n  - {n_plus_one}\n  - {rest_rule}\n")
+    second = pytester.runpytest_subprocess(*args)
+    assert second.ret == 0, second.stdout.str() + second.stderr.str()
+    after = json.loads((pytester.path / "report.json").read_text())
+    assert next(f["dismissed"] for f in after["findings"] if f["fingerprint"] == n_plus_one)
+    assert next(f["dismissed"] for f in after["findings"] if f["ruleId"] == rest_rule)
+    assert after["status"] == "pass"
+
+
 def test_marker_budget(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         """
@@ -229,6 +263,23 @@ def test_logging_reconfigured_mid_test_makes_status_unknown(pytester: pytest.Pyt
     assert any("exception capture was lost" in reason for reason in data["statusReasons"])
 
 
+def test_logging_lost_in_setup_stays_lost(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        import logging.config
+        def test_reconfigure():
+            logging.config.dictConfig({'version': 1, 'handlers': {}, 'root': {'handlers': [], 'level': 'WARNING'}})
+        def test_after_reconfigure(): pass
+        """
+    )
+    result = pytester.runpytest(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert any("exception capture was lost" in reason for reason in data["statusReasons"])
+
+
 def test_early_connection_limitation_in_report(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_empty(): pass")
     assert callable(_EARLY_CONNECT)
@@ -238,6 +289,26 @@ def test_early_connection_limitation_in_report(pytester: pytest.Pytester) -> Non
     data = json.loads((pytester.path / "report.json").read_text())
     assert data["status"] == "unknown"
     assert any("_EARLY_CONNECT" in reason for reason in data["statusReasons"])
+
+
+def test_factory_pass_through_limitation_reaches_report(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        import sqlite3
+        def test_factory():
+            try:
+                sqlite3.connect(':memory:', factory=lambda: None)
+            except TypeError:
+                pass
+        """
+    )
+    result = pytester.runpytest(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    data = json.loads((pytester.path / "report.json").read_text())
+    source = next(item for item in data["sources"] if item["name"] == "sqlite3")
+    assert any("factory or cursor class" in limitation for limitation in source["limitations"])
 
 
 def test_pytest_failure_code_never_lowered(pytester: pytest.Pytester) -> None:

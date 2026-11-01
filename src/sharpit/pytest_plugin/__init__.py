@@ -11,6 +11,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from functools import wraps
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -23,6 +24,7 @@ except ImportError:  # pluggy before the public re-export
 from sharpit import __version__
 from sharpit.engine import sqla
 from sharpit.engine.activation import active_profiles
+from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.advisors.findings import AdvisorRun
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.capture.correlation import TEST
@@ -179,14 +181,16 @@ def _validate_activation() -> list[str]:
 
 def _source_state(sink: TestSessionSink, sql_attached: bool) -> None:
     facts = sink.facts
-    facts.sources.append(
-        {
-            "name": "sqlite3",
-            "attached": sql_attached,
-            "reason": None if sql_attached else "sqlite3 source did not attach",
-            "limitations": sqlite.limitations(),
-        }
-    )
+    source = next((s for s in facts.sources if s["name"] == "sqlite3"), None)
+    details = {
+        "attached": sql_attached,
+        "reason": None if sql_attached else "sqlite3 source did not attach",
+        "limitations": sqlite.limitations(),
+    }
+    if source is None:
+        facts.sources.append({"name": "sqlite3", **details})
+    else:
+        source.update(details)
     facts.preexisting = sqlite.preexisting_connections()
     facts.aliases = sqlite.early_aliases()
 
@@ -342,7 +346,8 @@ def _phase(item: Any, name: str) -> Any:
         for logger in state.log_targets:
             logger.addHandler(state.handler)
         exception_source = next(s for s in state.sink.facts.sources if s["name"] == "exceptions")
-        exception_source.update(attached=True, reason=None)
+        if state.sink.facts.exceptions_source_ok:
+            exception_source.update(attached=True, reason=None)
         return state, token
     except Exception as exc:  # noqa: BLE001
         _record_hook_failure(state.sink, exc)
@@ -470,9 +475,10 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
         budget = budget_for(item, state.options.max_queries)
         test.budget = budget
         settings = load_settings({}, os.environ)
-        findings = gates.evaluate_test(test, budget, settings.activity_n_plus_one_threshold, ())
+        dismissed = DismissalStore(Path(settings.state_dir)).list()
+        findings = gates.evaluate_test(test, budget, settings.activity_n_plus_one_threshold, dismissed)
         test.findings = [finding.to_dto() for finding in findings]
-        messages = [f"sharpit: {finding.rule_id}: {finding.message}" for finding in findings]
+        messages = [f"sharpit: {finding.rule_id}: {finding.message}" for finding in findings if not finding.dismissed]
         if messages:
             report_obj.longrepr = f"{report_obj.longrepr}\n" if report_obj.failed else ""
             report_obj.longrepr = f"{report_obj.longrepr}{'\n'.join(messages)}"
@@ -515,12 +521,15 @@ def _run_advisors(state: _State) -> None:
             )
             return
     if not models:
+        if state.sink.facts.worker != "master":
+            return
         state.sink.facts.advisor_runs.append(
             AdvisorRun(
                 "rest-api", "UNKNOWN", (), {}, "no application: pass --sharpit-app or call sharpit.install in the tests"
             )
         )
         return
+    dismissed = DismissalStore(Path(load_settings({}, os.environ).state_dir)).list()
     for name, model in models:
         if not application_routes(model.routes) and not state.options.app:
             state.sink.facts.advisor_runs.append(
@@ -528,7 +537,13 @@ def _run_advisors(state: _State) -> None:
             )
         else:
             state.sink.facts.advisor_runs.append(
-                assess(model, report_masker(), fail_on=cast("Severity", state.options.fail_on), app=name)
+                assess(
+                    model,
+                    report_masker(),
+                    fail_on=cast("Severity", state.options.fail_on),
+                    app=name,
+                    dismissed=dismissed,
+                )
             )
 
 
@@ -567,9 +582,17 @@ def _refresh_report_after_hook_failure(state: _State, config: Any, exc: BaseExce
         _record_hook_failure(state.sink, write_exc)
 
 
+def _snapshot_report_apps(sink: TestSessionSink) -> None:
+    try:
+        sink.snapshot_apps(_model_of, force=True)
+    except Exception as exc:  # noqa: BLE001
+        _record_hook_failure(sink, exc)
+
+
 def _write_report(state: _State, session: Any, exitstatus: int) -> None:
     sink = state.sink
     try:
+        _snapshot_report_apps(sink)
         if not _xdist_controller(session.config, state):
             _advisors(state)
         facts = sink.facts
@@ -580,11 +603,33 @@ def _write_report(state: _State, session: Any, exitstatus: int) -> None:
         )
         facts.engine_drivers.update(dispatch.engine_drivers())
         facts.engine_drivers.update(sqla.live_engine_drivers())
-        if _xdist_controller(session.config, state):
-            parts = [*state.parts, facts] if facts.warnings else state.parts
-        else:
-            parts = [facts]
+        _source_state(sink, state.sqlite_attached)
+        parts = state.parts if _xdist_controller(session.config, state) else [facts]
         merged = outcome.merge(parts, state.missing_workers)
+        controller_plugin_source = next(
+            (source for source in sink.facts.sources if source["name"] == "pytest-plugin"), None
+        )
+        if controller_plugin_source is not None and not any(
+            source["name"] == "pytest-plugin" for source in merged.sources
+        ):
+            merged.sources.append(controller_plugin_source)
+        for warning in sink.facts.warnings:
+            if warning not in merged.warnings:
+                merged.warnings.append(warning)
+        if (
+            state.options.advisors
+            and not state.options.app
+            and not any(r.advisor == "rest-api" for r in merged.advisor_runs)
+        ):
+            merged.advisor_runs.append(
+                AdvisorRun(
+                    "rest-api",
+                    "UNKNOWN",
+                    (),
+                    {},
+                    "no application: pass --sharpit-app or call sharpit.install in the tests",
+                )
+            )
         status, reasons = outcome.session_status(
             merged,
             allow_unknown=state.options.allow_unknown,
@@ -632,6 +677,27 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
     if state is None:
         return
     if hasattr(session.config, "workerinput"):
+        try:
+            state.sink.snapshot_apps(_model_of, force=True)
+            _source_state(state.sink, state.sqlite_attached)
+            state.sink.facts.untraced_drivers.update(
+                module
+                for module in (
+                    "aiosqlite",
+                    "asyncpg",
+                    "psycopg",
+                    "psycopg2",
+                    "pymysql",
+                    "MySQLdb",
+                    "oracledb",
+                    "pyodbc",
+                )
+                if module in sys.modules
+            )
+            state.sink.facts.engine_drivers.update(dispatch.engine_drivers())
+            state.sink.facts.engine_drivers.update(sqla.live_engine_drivers())
+        except Exception as exc:  # noqa: BLE001
+            _record_hook_failure(state.sink, exc)
         _advisors(state)
         try:
             session.config.workeroutput["sharpit"] = state.sink.facts.to_json()
@@ -641,6 +707,7 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
     _write_report(state, session, exitstatus)
 
 
+@pytest.hookimpl(optionalhook=True)
 def pytest_testnodedown(node: Any, error: Any) -> None:
     state = None
     try:

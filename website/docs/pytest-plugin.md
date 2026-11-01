@@ -108,7 +108,7 @@ The test-session sink automatically filters these from gate evaluation:
 
 - `PRAGMA ...`
 - Reads from `sqlite_master`, `sqlite_schema`, or `sqlite_temp_master`
-- Reads and writes to `alembic_version`
+- Reads and writes to migration tables: `alembic_version`, `schema_migrations`, `flyway_schema_history`, `django_migrations`, and `knex_migrations`
 - Transaction statements: `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE`
 
 Filtered statements are counted in `filtered.count` but never count against query budgets or N+1 gates.

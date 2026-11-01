@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import re
 
-FILTER_RULES = ("PRAGMA", "sqlite_schema", "alembic_version", "transaction control")
+FILTER_RULES = ("PRAGMA", "sqlite_schema", "migration tables", "transaction control")
 
 _LEADING_COMMENTS = re.compile(r"\A\s*(?:/\*.*?\*/\s*|--[^\n]*\n\s*)*", re.DOTALL)
 _PRAGMA = re.compile(r"PRAGMA\b", re.IGNORECASE)
 _TRANSACTION = re.compile(r"(?:BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b", re.IGNORECASE)
 _SCHEMA_READ = re.compile(r"\b(?:FROM|JOIN)\s+[\"`\[]?(?:\w+\.)?sqlite_(?:temp_)?(?:master|schema)\b", re.IGNORECASE)
-_ALEMBIC = re.compile(r"\balembic_version\b", re.IGNORECASE)
+_MIGRATIONS = re.compile(
+    r"\b(?:alembic_version|schema_migrations|flyway_schema_history|django_migrations|knex_migrations)\b", re.IGNORECASE
+)
 
 
 def filtered_rule(sql: str) -> str | None:
@@ -22,6 +24,6 @@ def filtered_rule(sql: str) -> str | None:
         return FILTER_RULES[3]
     if _SCHEMA_READ.search(body):
         return FILTER_RULES[1]
-    if _ALEMBIC.search(body):
+    if _MIGRATIONS.search(body):
         return FILTER_RULES[2]
     return None
