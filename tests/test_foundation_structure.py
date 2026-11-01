@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import partial
 
+from starlette.routing import NoMatchFound
 from starlette.testclient import TestClient as _TestClient
 
 import sharpit.fastapi.adapter as adapter
@@ -81,3 +82,15 @@ def test_installed_routes_use_adapter_read_capped_compatibility_target(monkeypat
     response = TestClient(app).post("/sharpit/api/mcp-server/toggle", content=b"{}")
 
     assert response.status_code == 413
+
+
+def test_http_probe_route_name_is_preserved() -> None:
+    app = FastAPI()
+    adapter.install(app, enabled="ON", show_banner=False)
+
+    try:
+        path = app.url_path_for("sharpit:http_probe")
+    except NoMatchFound:
+        path = None
+
+    assert str(path) == "/sharpit/api/http-probe"
