@@ -30,10 +30,9 @@ from sharpit.engine.activation import ActivationStatus, active_profiles, decide
 from sharpit.engine.advisors.retention import MAX_PAGE_LIMIT, AdvisorViolationError, parse_integer
 from sharpit.engine.capture import activity, route_path
 from sharpit.engine.capture.exceptions import ExceptionStore, unknown_group
-from sharpit.engine.capture.exchanges import HttpExchangeBuffer
-from sharpit.engine.capture.logtail import LogTailBuffer, log_events
+from sharpit.engine.capture.logtail import log_events
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
-from sharpit.engine.capture.streams import ChangeStream, StreamSlots, change_events
+from sharpit.engine.capture.streams import change_events
 from sharpit.engine.collectors import alembic, pools
 from sharpit.engine.collectors.beans import beans_report
 from sharpit.engine.collectors.config import config_report
@@ -50,8 +49,9 @@ from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import panels_report
 from sharpit.engine.singleflight import ActionBusy
 from sharpit.engine.sources import dispatch
-from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, CaptureWiring, wiring_of
+from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, wiring_of
 from sharpit.fastapi.http import error, json_response
+from sharpit.fastapi.install import _configure_capture
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.route_registry import register_routes
 from sharpit.fastapi.signals import dev_server_signal
@@ -727,39 +727,7 @@ def install(
         logger.log(level, "sharpit inactive: %s", activation.reason)
         return handle
 
-    capture = ctx.capture
-    capture.stream_slots = StreamSlots()
-    if sharpit_settings.panels["log-tail"].enabled:
-        capture.log_tail = LogTailBuffer(sharpit_settings.log_tail_max_lines, sharpit_settings.log_tail_max_bytes)
-    panels = sharpit_settings.panels
-    if panels["http-exchanges"].enabled or panels["activity"].enabled:  # activity's REQUEST rows (spec §7.4)
-        capture.exchanges = HttpExchangeBuffer(sharpit_settings.http_exchanges_max_exchanges)
-    if sharpit_settings.panels["exceptions"].enabled:
-        capture.exceptions = ExceptionStore(
-            sharpit_settings.exceptions_max_groups,
-            sharpit_settings.exceptions_max_occurrences_per_group,
-            sharpit_settings.exceptions_max_stack_frames,
-            ctx.masker,
-        )
-    capture.engine_registry = sqla.EngineRegistry(ctx.masker)
-    if sharpit_settings.panels["sql-trace"].enabled and sharpit_settings.sql_trace_enabled:
-        capture.sql_trace = SqlTraceRecorder(
-            ctx.masker,
-            max_entries=sharpit_settings.sql_trace_max_entries,
-            slow_query_threshold_millis=sharpit_settings.sql_trace_slow_query_threshold_millis,
-            max_sql_length=sharpit_settings.sql_trace_max_sql_length,
-            max_parameter_length=sharpit_settings.sql_trace_max_parameter_length,
-            n_plus_one_threshold=sharpit_settings.sql_trace_n_plus_one_threshold,
-            capture_call_site=sharpit_settings.sql_trace_capture_call_site,
-            recording=sharpit_settings.sql_trace_recording,
-        )
-    if panels["activity"].enabled:
-        capture.activity_changes = ChangeStream()
-        for source in (capture.exchanges, capture.exceptions, capture.sql_trace):
-            if source is not None:
-                source.changes.forward_to(capture.activity_changes)
-    wiring = capture.wiring = CaptureWiring()
-    wiring.attach_at_install(app, ctx)
+    wiring = _configure_capture(app, ctx, sharpit_settings)
 
     @asynccontextmanager
     async def lifespan(host_app: Any) -> AsyncGenerator[Any]:  # NOSONAR - asynccontextmanager coroutine

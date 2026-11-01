@@ -4,8 +4,8 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
 
+from fastapi import FastAPI
 from sharpit import pytest_plugin
 
 

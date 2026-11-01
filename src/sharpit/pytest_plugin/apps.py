@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable
 from typing import Any, cast
 
 from sharpit.engine.advisors.findings import AdvisorRun
@@ -26,13 +27,13 @@ def _model_of(app: object) -> ApiModel:
     return FastApiIntrospector(app).api_model()
 
 
-def _run_advisors(state: Any) -> None:
+def _run_advisors(state: Any, *, load_app: Callable[[str], tuple[str, object]] | None = None) -> None:
     if not state.options.advisors:
         return
     models = state.sink.app_snapshots()
     if state.options.app:
         try:
-            name, app = _load_app(state.options.app)
+            name, app = (load_app or _load_app)(state.options.app)
             models = [(name, FastApiIntrospector(app).api_model())]
         except Exception as exc:  # noqa: BLE001
             state.sink.facts.advisor_runs.append(

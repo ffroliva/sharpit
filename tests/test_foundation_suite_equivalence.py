@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastapi import FastAPI
 
+from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine.tools import CallContext, call_tool
 from sharpit.engine.tool_registry import catalogue
+from sharpit.engine.tools import CallContext, call_tool
 
 
 def test_foundation_suite_equivalence(pytester: pytest.Pytester) -> None:
@@ -21,9 +21,7 @@ def test_foundation_suite_equivalence(pytester: pytest.Pytester) -> None:
     assert overview["applicationName"] == "foundation"
 
     pytester.makepyfile("def test_report_control(): pass")
-    result = pytester.runpytest_subprocess(
-        "--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
-    )
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
     data = json.loads((pytester.path / "report.json").read_text())
 
     assert result.ret == 0

@@ -6,8 +6,6 @@ import inspect
 import logging
 import os
 import sys
-import time
-from collections import Counter
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -20,7 +18,7 @@ try:
 except ImportError:  # pluggy before the public re-export
     from pluggy._result import Result
 
-from sharpit import __version__
+from sharpit import __version__ as __version__
 from sharpit.engine import sqla
 from sharpit.engine.activation import active_profiles
 from sharpit.engine.advisors.dismissals import DismissalStore
@@ -28,7 +26,6 @@ from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.testsession import gates, outcome, report
 from sharpit.engine.testsession.facts import SessionFacts
-from sharpit.engine.testsession.finish import GateOptions, finish
 from sharpit.engine.testsession.sink import TestSessionSink, report_masker_warnings
 from sharpit.pytest_plugin.apps import (
     _load_app as _load_app,
@@ -37,11 +34,14 @@ from sharpit.pytest_plugin.apps import (
     _model_of as _model_of,
 )
 from sharpit.pytest_plugin.apps import (
-    _run_advisors as _run_advisors,
+    _run_advisors as _run_advisors_impl,
 )
 from sharpit.pytest_plugin.marker import budget_for
 from sharpit.pytest_plugin.options import PluginOptions
+from sharpit.pytest_plugin.report_io import write_report as _write_report  # noqa: F401 - compatibility re-export
+from sharpit.pytest_plugin.session import pytest_sessionfinish as pytest_sessionfinish
 from sharpit.pytest_plugin.session import resolve_options as resolve
+from sharpit.pytest_plugin.terminal import pytest_terminal_summary as pytest_terminal_summary
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
 _STATE_ATTR = "_sharpit_pytest_state"
@@ -96,6 +96,10 @@ class _State:
 
 def _state(config: Any) -> _State | None:
     return getattr(config, _STATE_ATTR, None) or _active_state
+
+
+def _run_advisors(state: _State) -> None:
+    _run_advisors_impl(state, load_app=_load_app)
 
 
 def _add_ini(parser: Any) -> None:
@@ -560,66 +564,6 @@ def _final_facts(state: _State) -> SessionFacts:
     return facts
 
 
-def _write_report(state: _State, session: Any, exitstatus: int) -> None:
-    sink = state.sink
-    try:
-        facts = _final_facts(state)  # takes the forced app snapshot the advisors below assess
-        if not _xdist_controller(session.config, state):
-            _advisors(state)
-        parts = state.parts if _xdist_controller(session.config, state) else [facts]
-        data, status, _reasons = finish(
-            parts,
-            state.missing_workers,
-            options=GateOptions(
-                state.options.max_queries,
-                state.settings.activity_n_plus_one_threshold,
-                state.options.fail_on,
-                state.options.allow_unknown,
-                state.options.max_unattributed,
-                state.options.advisors,
-            ),
-            version=__version__,
-            now_ms=time.time_ns() // 1_000_000,
-            warnings=sink.facts.warnings,
-        )
-        report.write_json(state.options.report, data)
-        if state.options.junit:
-            report.write_junit(state.options.junit, data, allow_unknown=state.options.allow_unknown)
-        if exitstatus == 0 and outcome.exit_fails(status, state.options.allow_unknown):
-            session.exitstatus = 1
-        session._sharpit_report = data
-        session.config._sharpit_report = data
-    except Exception as exc:  # noqa: BLE001
-        _record_hook_failure(sink, exc)
-        if exitstatus == 0:
-            session.exitstatus = 1
-
-
-def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
-    state = None
-    try:
-        state = _state(session.config)
-    except Exception as exc:  # noqa: BLE001
-        fallback = _active_state
-        if fallback is not None:
-            _record_hook_failure(fallback.sink, exc)
-        return
-    if state is None:
-        return
-    if hasattr(session.config, "workerinput"):
-        try:
-            _final_facts(state)
-        except Exception as exc:  # noqa: BLE001
-            _record_hook_failure(state.sink, exc)
-        _advisors(state)
-        try:
-            session.config.workeroutput["sharpit"] = state.sink.facts.to_json()
-        except Exception as exc:  # noqa: BLE001
-            _record_hook_failure(state.sink, exc)
-        return
-    _write_report(state, session, exitstatus)
-
-
 @pytest.hookimpl(optionalhook=True)
 def pytest_testnodedown(node: Any, error: Any) -> None:
     state = None
@@ -645,39 +589,6 @@ def _collect_worker_data(state: _State, node: Any, error: Any) -> None:
         from sharpit.engine.testsession.facts import SessionFacts
 
         state.parts.append(SessionFacts.from_json(data))
-
-
-def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
-    del exitstatus
-    data = getattr(config, "_sharpit_report", None)
-    if data is None:
-        return
-    state = _state(config)
-    if state is None:
-        return
-    try:
-        terminalreporter.write_sep("=", f"sharpit: {data['status']}")
-        terminalreporter.write_line(f"status: {data['status']}")
-        terminalreporter.write_line(f"tests with findings: {sum(1 for test in data['tests'] if test['findings'])}")
-        counts = Counter(finding["ruleId"] for finding in data["findings"])
-        terminalreporter.write_line("gate counts:")
-        for rule, count in sorted(counts.items()):
-            terminalreporter.write_line(f"  {rule}: {count}")
-        terminalreporter.write_line("worst tests:")
-        worst = sorted(
-            (test for test in data["tests"] if test["findings"]),
-            key=lambda test: (-len(test["findings"]), test["nodeId"]),
-        )[:5]
-        for test in worst:
-            terminalreporter.write_line(f"  {test['nodeId']}: {len(test['findings'])} finding(s)")
-        if not worst:
-            terminalreporter.write_line("  (none)")
-        terminalreporter.write_line(f"report: {config.option.sharpit_report or config.getini('sharpit_report')}")
-        for warning in data["warnings"]:
-            terminalreporter.write_line(f"warning: {warning}")
-    except Exception as exc:  # noqa: BLE001
-        _record_hook_failure(state.sink, exc)
-        _refresh_report_after_hook_failure(state, config, exc)
 
 
 def pytest_unconfigure(config: Any) -> None:
