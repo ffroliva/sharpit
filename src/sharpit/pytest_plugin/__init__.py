@@ -6,6 +6,7 @@ import inspect
 import logging
 import os
 import sys
+from collections import Counter as Counter  # compatibility seam: terminal.py resolves it here
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -23,6 +24,7 @@ from sharpit.engine import sqla
 from sharpit.engine.activation import active_profiles
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.correlation import TEST
+from sharpit.engine.collectors.restapi.service import assess as assess  # compatibility seam for apps.py
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.testsession import gates as gates
 from sharpit.engine.testsession import outcome, report
@@ -126,7 +128,7 @@ def _state(config: Any) -> _State | None:
 
 
 def _run_advisors(state: _State) -> None:
-    _run_advisors_impl(state, load_app=_load_app)
+    _run_advisors_impl(state, load_app=_load_app, assess_fn=assess)
 
 
 def pytest_configure(config: Any) -> None:

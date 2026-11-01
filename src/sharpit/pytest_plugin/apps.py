@@ -29,7 +29,12 @@ def model_of(app: object) -> ApiModel:
     return FastApiIntrospector(app).api_model()
 
 
-def run_advisors(state: Any, *, load_app: Callable[[str], tuple[str, object]] | None = None) -> None:
+def run_advisors(
+    state: Any,
+    *,
+    load_app: Callable[[str], tuple[str, object]] | None = None,
+    assess_fn: Callable[..., AdvisorRun] | None = None,
+) -> None:
     if not state.options.advisors:
         return
     models = state.sink.app_snapshots()
@@ -58,7 +63,7 @@ def run_advisors(state: Any, *, load_app: Callable[[str], tuple[str, object]] | 
             )
         else:
             state.sink.facts.advisor_runs.append(
-                assess(
+                (assess_fn or assess)(
                     model,
                     report_masker(),
                     fail_on=cast("Severity", state.options.fail_on),

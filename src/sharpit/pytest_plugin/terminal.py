@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any, cast
 
 
@@ -21,7 +20,7 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
         terminalreporter.write_sep("=", f"sharpit: {data['status']}")
         terminalreporter.write_line(f"status: {data['status']}")
         terminalreporter.write_line(f"tests with findings: {sum(1 for test in data['tests'] if test['findings'])}")
-        counts = Counter(finding["ruleId"] for finding in data["findings"])
+        counts = plugin.Counter(finding["ruleId"] for finding in data["findings"])  # facade seam: monkeypatchable
         terminalreporter.write_line("gate counts:")
         for rule, count in sorted(counts.items()):
             terminalreporter.write_line(f"  {rule}: {count}")
