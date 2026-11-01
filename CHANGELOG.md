@@ -12,10 +12,15 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Per-test budget marker `@pytest.mark.sharpit(max_queries=..., allow_n_plus_one=..., max_exceptions=...)` (#21).
 - REST API advisor on the contract, per-finding dismissal via fingerprint in `sharpit.yml`, and panel detail action (#22).
 - Raw `sqlite3` SQL source, unified source dispatcher, and public `attach_sql_sources()` / `detach_sql_sources()` helpers (#23).
+- `SHARPIT_SQL_TRACE_SQLITE3_ENABLED` (`sql_trace_sqlite3_enabled`, default `true`) controls the raw `sqlite3` source in the console; `pytest --sharpit` always attaches it.
 
 ### Changed
 
 - REST API scanner evidence for an app with no routes reports `usable: false, coverageComplete: true` (confirmed-empty scope), matching BootUI.
+- REST API finding targets now name the handler (`<METHOD> <path> <module:qualname>`), so two handlers on one route stay two findings; fingerprints of 0.3.0 REST API findings depend on it.
+- The test-session SQL filter treats migration tables (`alembic_version`, `schema_migrations`, `flyway_schema_history`, `django_migrations`, `knex_migrations`) as noise, not only `alembic_version`.
+- A rule whose every occurrence is dismissed by fingerprint stays `dismissed: false` with a count of 0.
+- The JUnit report fails only non-dismissed findings at or above `--sharpit-fail-on`.
 - Secret values matching vendor token prefixes (`sk_live_`, `sk_test_`, `ghp_`, `glpat-`, `xoxb-`, `AIza`, `sk-ant-`, `sk-proj-`, and related keys) are masked.
 
 ## [0.2.0] - 2026-10-31

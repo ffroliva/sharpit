@@ -95,7 +95,7 @@ Here is an example `sharpit-report.json` produced by a session:
   },
   "filtered": {
     "count": 96,
-    "rules": ["PRAGMA", "sqlite_schema", "alembic_version", "transaction control"]
+    "rules": ["PRAGMA", "sqlite_schema", "migration tables", "transaction control"]
   },
   "advisors": [
     {
@@ -157,6 +157,6 @@ jq -e '.status == "pass"' sharpit-report.json
 Specify `--sharpit-junit=PATH` to generate a standard JUnit XML file representing findings.
 
 - Contains a single `<testsuite name="sharpit">`.
-- Each non-dismissed finding appears as a `<testcase>` (`classname` is the advisor, `name` is the finding fingerprint) with a `<failure type="<ruleId>" message="...">`.
+- Each finding in the report appears as a `<testcase>` with a `severity` property (`classname` is the advisor, `name` is the finding fingerprint). Only non-dismissed findings at or above `--sharpit-fail-on` carry a `<failure type="<ruleId>" message="...">`; dismissed and lower-severity findings are passing cases.
 - A `<testcase name="sharpit.status">` records overall session state, failing if the run status is `fail` or `unknown` (without `--sharpit-allow-unknown`).
 - The JUnit file contains findings only and does not duplicate the application tests (standard pytest `--junitxml` covers individual test results).

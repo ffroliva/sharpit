@@ -184,8 +184,8 @@ list in `<state_dir>/sharpit.yml` (default `.sharpit/sharpit.yml`):
 
 ```yaml
 dismissedRules:
-  - "RAPI-004"                                            # Dismisses all occurrences of rule RAPI-004
-  - "rest-api:RAPI-004:a1b2c3d4e5f67890"                  # Dismisses this specific REST API finding
+  - "RAPI-MAP-002"                                            # Dismisses all occurrences of rule RAPI-MAP-002
+  - "rest-api:RAPI-MAP-002:a1b2c3d4e5f67890"                  # Dismisses this specific REST API finding
   - "test-runtime:sharpit.n-plus-one:3f9a12c4b5e67890"    # Dismisses this specific N+1 query finding
 ```
 
