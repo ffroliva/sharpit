@@ -40,6 +40,8 @@ def resolve(config: Any) -> PluginOptions:
     if fail_on not in SEVERITIES:
         raise ValueError(f"--sharpit-fail-on must be one of {', '.join(SEVERITIES)}")
     maximum = value("max_queries", None)
+    if maximum == "":  # the ini option unset
+        maximum = None
     if maximum is not None and int(maximum) < 0:
         raise ValueError("--sharpit-max-queries must be non-negative")
     unattributed = float(value("max_unattributed", 10))

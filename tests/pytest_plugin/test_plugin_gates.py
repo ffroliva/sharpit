@@ -249,7 +249,9 @@ def test_logging_reconfigured_mid_test_makes_status_unknown(pytester: pytest.Pyt
         """
         import logging.config
         def test_reconfigure():
-            logging.config.dictConfig({'version': 1, 'handlers': {}, 'root': {'handlers': [], 'level': 'WARNING'}})
+            logging.config.dictConfig(
+                {'version': 1, 'disable_existing_loggers': False, 'root': {'handlers': [], 'level': 'WARNING'}}
+            )
         """
     )
 
@@ -268,7 +270,9 @@ def test_logging_lost_in_setup_stays_lost(pytester: pytest.Pytester) -> None:
         """
         import logging.config
         def test_reconfigure():
-            logging.config.dictConfig({'version': 1, 'handlers': {}, 'root': {'handlers': [], 'level': 'WARNING'}})
+            logging.config.dictConfig(
+                {'version': 1, 'disable_existing_loggers': False, 'root': {'handlers': [], 'level': 'WARNING'}}
+            )
         def test_after_reconfigure(): pass
         """
     )
@@ -437,7 +441,9 @@ def test_dictconfig_in_conftest_keeps_basicconfig_working(pytester: pytest.Pytes
         """
         import logging
         import logging.config
-        logging.config.dictConfig({'version': 1, 'handlers': {}, 'root': {'handlers': [], 'level': 'WARNING'}})
+        logging.config.dictConfig(
+            {'version': 1, 'disable_existing_loggers': False, 'root': {'handlers': [], 'level': 'WARNING'}}
+        )
         logging.basicConfig(level=logging.INFO)
         assert logging.root.level == logging.INFO
         """
