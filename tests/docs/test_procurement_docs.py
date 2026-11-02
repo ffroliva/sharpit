@@ -83,33 +83,17 @@ def test_readme_gate_and_gflow_proof_precede_details() -> None:
     assert "independent" not in proof_section.lower(), (
         "gflow-cli proof must drop 'independent' claim as it was run by sharpit's author"
     )
-    assert "sharpit's author" in proof_section.lower(), (
-        "gflow-cli proof must state run by sharpit's author"
-    )
-    assert "0.3.0 integration branch" in proof_section, (
-        "gflow-cli proof must state run on 0.3.0 integration branch"
-    )
-    assert "sharpit's own report" in proof_section, (
-        "gflow-cli proof link text must state it is sharpit's own report"
-    )
+    assert "sharpit's author" in proof_section.lower(), "gflow-cli proof must state run by sharpit's author"
+    assert "0.3.0 integration branch" in proof_section, "gflow-cli proof must state run on 0.3.0 integration branch"
+    assert "sharpit's own report" in proof_section, "gflow-cli proof link text must state it is sharpit's own report"
     assert "5 failed by sharpit gates" in proof_section, (
         "gflow-cli proof must mention that 5 tests failed by sharpit gates"
     )
-    assert "53k" in proof_section, (
-        "gflow-cli proof must mention ~53k statements executed"
-    )
-    assert "27,997 attributed" in proof_section, (
-        "gflow-cli proof must state 27,997 attributed statements"
-    )
-    assert "25,092 filtered" in proof_section, (
-        "gflow-cli proof must state 25,092 filtered statements"
-    )
-    assert "0 unattributed" in proof_section, (
-        "gflow-cli proof must state 0 unattributed statements"
-    )
-    assert "6 N+1 findings" in proof_section, (
-        "gflow-cli proof must state 6 N+1 findings instead of defects"
-    )
+    assert "53k" in proof_section, "gflow-cli proof must mention ~53k statements executed"
+    assert "27,997 attributed" in proof_section, "gflow-cli proof must state 27,997 attributed statements"
+    assert "25,092 filtered" in proof_section, "gflow-cli proof must state 25,092 filtered statements"
+    assert "0 unattributed" in proof_section, "gflow-cli proof must state 0 unattributed statements"
+    assert "6 N+1 findings" in proof_section, "gflow-cli proof must state 6 N+1 findings instead of defects"
     assert "1 was a real defect" in proof_section or "1 real" in proof_section, (
         "gflow-cli proof must state 1 real defect"
     )
@@ -162,14 +146,14 @@ def test_security_policy_has_private_reporting_route() -> None:
         "SECURITY.md must mention GitHub's 'Report a vulnerability' feature on the Security tab once enabled"
     )
     assert "Security contact request" in reporting_section, (
-        "SECURITY.md must instruct opening an issue titled 'Security contact request' until private reporting is enabled"
+        "SECURITY.md must instruct opening an issue titled 'Security contact request' until private reporting is"
+        " enabled"
     )
     assert "no details" in reporting_section.lower(), (
         "SECURITY.md must instruct that the contact request issue contain no vulnerability details"
     )
-    assert "48 hours" not in reporting_section and "48-hour" not in reporting_section, (
-        "SECURITY.md must remove unsupported 48-hour response promise"
-    )
+    assert "48 hours" not in reporting_section, "SECURITY.md must remove unsupported 48-hour response promise"
+    assert "48-hour" not in reporting_section, "SECURITY.md must remove unsupported 48-hour response promise"
 
 
 def test_security_policy_network_claim_matches_gatekeepers() -> None:
@@ -191,9 +175,7 @@ def test_security_policy_network_claim_matches_gatekeepers() -> None:
     assert "entirely offline" not in section.lower(), (
         "SECURITY.md must not falsely claim components operate 'entirely offline'"
     )
-    assert "open no sockets" in section.lower(), (
-        "SECURITY.md must state that GET routes and MCP tools open no sockets"
-    )
+    assert "open no sockets" in section.lower(), "SECURITY.md must state that GET routes and MCP tools open no sockets"
     assert "health check (post)" in section.lower() or "health check" in section.lower(), (
         "SECURITY.md must specify the health check behavior"
     )
@@ -206,12 +188,8 @@ def test_security_policy_network_claim_matches_gatekeepers() -> None:
     assert "read-only sql" in section.lower(), (
         "SECURITY.md must state database panels run read-only SQL through the app's own engines"
     )
-    assert "vulnerability scan" in section.lower(), (
-        "SECURITY.md must specify vulnerability scan"
-    )
-    assert "500" in section, (
-        "SECURITY.md must mention vulnerability scan package limit (up to 500 packages)"
-    )
+    assert "vulnerability scan" in section.lower(), "SECURITY.md must specify vulnerability scan"
+    assert "500" in section, "SECURITY.md must mention vulnerability scan package limit (up to 500 packages)"
     assert "SHARPIT_VULNERABILITIES_OSV_BASE_URI" in section, (
         "SECURITY.md must document SHARPIT_VULNERABILITIES_OSV_BASE_URI"
     )
@@ -321,21 +299,21 @@ def test_dependabot_covers_uv_pip_actions_and_ui_npm() -> None:
     assert ("npm", "/ui") in entries, "Dependabot must cover npm at /ui"
 
     npm_entry = next(
-        (u for u in updates if isinstance(u, dict) and u.get("package-ecosystem") == "npm" and u.get("directory") == "/ui"),
+        (
+            u
+            for u in updates
+            if isinstance(u, dict) and u.get("package-ecosystem") == "npm" and u.get("directory") == "/ui"
+        ),
         None,
     )
     assert npm_entry is not None, "npm update entry at /ui must exist"
-    assert npm_entry.get("open-pull-requests-limit") == 2, (
-        "npm update entry must specify open-pull-requests-limit: 2"
-    )
+    assert npm_entry.get("open-pull-requests-limit") == 2, "npm update entry must specify open-pull-requests-limit: 2"
     assert "groups" in npm_entry, "npm update entry must group dependencies into one PR"
 
     assert "npm --prefix ui run build" in raw_content, (
         "Dependabot configuration must comment that npm PRs need 'npm --prefix ui run build' committed"
     )
-    assert "drift" in raw_content.lower(), (
-        "Dependabot configuration comment must mention CI drift job"
-    )
+    assert "drift" in raw_content.lower(), "Dependabot configuration comment must mention CI drift job"
 
 
 def test_skills_readme_stale_line_corrected() -> None:
