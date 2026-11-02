@@ -115,3 +115,12 @@ def test_mcp_read_tool_only():
     result = _rpc(client, "tools/call", {"name": "get_sqlalchemy_statistics", "arguments": {}})["result"]
     assert result["isError"] is False
     assert result["structuredContent"]["statistics"]["queryExecutionCount"] == 6
+
+
+def test_n_plus_one_link_finds_the_request_in_http_exchanges():
+    # review A-sqlalchemy-statistics #2: the view links ?q=<routePath>; HTTP Exchanges must match it
+    client = _app()
+    client.get("/pets")
+    entry = _get(client)["statistics"]["nPlusOne"][0]
+    body = client.get("/sharpit/api/http-exchanges", params={"q": str(entry.get("routePath"))}).json()
+    assert body["page"]["matched"] >= 1

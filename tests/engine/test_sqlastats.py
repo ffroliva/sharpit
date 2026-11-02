@@ -5,19 +5,23 @@ Ported from BootUI ``HibernateStatisticsServiceTests``; the Hibernate counters S
 
 from __future__ import annotations
 
+import json
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from sharpit.engine import sqla
+from sharpit.engine import panels, sqla
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer, exchange_row
-from sharpit.engine.capture.sqltrace import SqlTraceRecorder
+from sharpit.engine.capture.sqltrace import SqlTraceRecorder, normalize
+from sharpit.engine.collectors import sqlastats
 from sharpit.engine.collectors.sqlastats import (
     CACHE_COUNT_KEYS,
     NULL_KEYS,
     NULL_REASON,
+    RECORDING_PAUSED,
     REPORT_KEYS,
     STATISTICS_KEYS,
     n_plus_one,
@@ -255,3 +259,94 @@ def test_route_unknown_when_exchanges_disabled():
     entry = _only(ctx)
     assert entry["route"] is None
     assert "HTTP Exchanges" in entry["routeReason"]
+
+
+NULLABLE = Path(__file__).parents[1] / "fixtures/bootui/2.2.0/sqlalchemy-statistics/nullable.json"
+
+
+def test_n_plus_one_carries_the_request_path():
+    # review A-sqlalchemy-statistics #2: HTTP Exchanges filters on the path, never on the endpoint name
+    ctx = _ctx()
+    _request(ctx, "r1")
+    _burst(ctx, "r1", 6)
+    assert _only(ctx).get("routePath") == "/pets"
+
+
+def test_long_statements_with_varying_literals_are_one_shape():
+    # review #3: group by the recorder's fingerprint, never re-normalise truncated raw rows
+    ctx = _ctx(exchanges=False, sql_trace_capture_parameters=True)
+    ctx.capture.sql_trace = SqlTraceRecorder(ctx.masker, max_sql_length=60)
+    for i in range(6):
+        _sql(ctx, f"select * from pets where name = '{'x' * i}' and owner_id = 1 and species = 'cat'", "r1")
+    assert len(_stats(ctx)["nPlusOne"]) == 1
+
+
+def test_get_does_not_normalize(monkeypatch: pytest.MonkeyPatch):
+    ctx = _ctx()
+    _request(ctx, "r1")
+    _burst(ctx, "r1", 6)
+    calls: list[str] = []
+
+    def spy(sql: str) -> Any:
+        calls.append(sql)
+        return normalize(sql)
+
+    monkeypatch.setattr(sqlastats, "normalize", spy, raising=False)
+    statistics_report(ctx)
+    assert calls == []
+
+
+def test_route_lookup_does_not_scan_per_group(monkeypatch: pytest.MonkeyPatch):
+    # review #4: one {id: row} index per report, no HttpExchangeBuffer.get scan per N+1 group
+    ctx = _ctx()
+    _request(ctx, "r1")
+    _burst(ctx, "r1", 6)
+    calls: list[str] = []
+    real_get = HttpExchangeBuffer.get
+
+    def spy(self: HttpExchangeBuffer, rid: str) -> Any:
+        calls.append(rid)
+        return real_get(self, rid)
+
+    monkeypatch.setattr(HttpExchangeBuffer, "get", spy)
+    statistics_report(ctx)
+    assert calls == []
+
+
+def test_unavailable_when_sql_trace_panel_disabled():
+    # review #5: the panel switch, not SHARPIT_SQL_TRACE_ENABLED, is why there is no recorder
+    settings = load_settings({"config_scan": False}, {"SHARPIT_PANELS_SQL_TRACE_ENABLED": "false"})
+    ctx = SharpitContext(settings, ACTIVATION, _Introspector())
+    assert statistics_report(ctx)["unavailableReason"] == panels.disabled_reason("sql-trace")
+
+
+def test_paused_recording_is_a_warning():
+    # review #6: counters freeze while SQL Trace recording is paused
+    ctx = _ctx()
+    assert ctx.capture.sql_trace is not None
+    ctx.capture.sql_trace.set_recording(False)
+    assert _stats(ctx).get("warnings") == [RECORDING_PAUSED]
+
+
+def test_paused_recording_stays_available():
+    ctx = _ctx()
+    assert ctx.capture.sql_trace is not None
+    ctx.capture.sql_trace.set_recording(False)
+    assert statistics_report(ctx)["available"] is True
+
+
+def test_null_reason_matches_nullable_json():
+    # review #8: one reason text for the DTO, nullable.json and the view
+    reasons = set(json.loads(NULLABLE.read_text(encoding="utf-8")).values())
+    assert reasons == {NULL_REASON}
+
+
+def test_n_plus_one_is_capped_from_the_recorder():
+    # supersedes test_n_plus_one_is_capped (fed hand-built rows the recorder never stores)
+    ctx = _ctx()
+    ctx.capture.sql_trace = SqlTraceRecorder(ctx.masker, max_entries=500)
+    _request(ctx, "r1")
+    for i in range(1, 26):
+        for n in range(5):
+            _sql(ctx, f"select {'c' * i} from t where x = {n}", "r1")
+    assert len(_stats(ctx)["nPlusOne"]) == 20

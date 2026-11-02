@@ -39,3 +39,28 @@ it('enableAvailable false shows no enable button', async () => {
   expect(document.querySelector('button[data-enable]')).toBeNull();
   expect(text()).not.toMatch(/enable/i);
 });
+
+const NULL_REASON = 'SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)';
+
+it('the N+1 link filters HTTP Exchanges by the request path, not the endpoint name', async () => {
+  const hit = { method: 'GET', route: 'app:list_pets', routePath: '/pets', routeReason: null, sql: 'select * from pets where owner_id = ?', executionsPerRequest: 6, requests: 1, threshold: 5 };
+  h.route((url) => (url === 'api/sqlalchemy-statistics' ? json(200, report({ statistics: stats({ nPlusOne: [hit] }) })) : undefined));
+  mount();
+  await until(() => expect(document.querySelector('a[href^="#/http-exchanges"]')).not.toBeNull());
+  expect(document.querySelector('a[href^="#/http-exchanges"]')?.getAttribute('href')).toBe('#/http-exchanges?q=%2Fpets');
+});
+
+it('the not-measured tooltip is the nullable.json reason', async () => {
+  h.route((url) => (url === 'api/sqlalchemy-statistics' ? json(200, report()) : undefined));
+  mount();
+  await until(() => expect(text()).toContain('not measured'));
+  expect(document.querySelector('dd.muted')?.getAttribute('title')).toBe(NULL_REASON);
+});
+
+it('a paused-recording warning is shown', async () => {
+  const warning = 'SQL Trace recording is paused: these counters are frozen until it resumes.';
+  h.route((url) => (url === 'api/sqlalchemy-statistics' ? json(200, report({ statistics: stats({ warnings: [warning] }) })) : undefined));
+  mount();
+  await until(() => expect(text()).toContain('SELECT statements'));
+  expect(text()).toContain(warning);
+});

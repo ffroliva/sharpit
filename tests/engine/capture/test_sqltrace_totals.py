@@ -70,3 +70,57 @@ def test_totals_max_sql_never_holds_a_literal_with_parameter_capture():
     recorder = SqlTraceRecorder(Masker(Exposure.MASKED, True, capture_parameters=True))
     _record(recorder, "select * from t where token = 'sk-live-9f3b'", millis=3)
     assert "sk-live-9f3b" not in (recorder.totals().max_sql or "")
+
+
+DOUBLE_QUOTED_SECRET = "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+
+
+def test_max_sql_masks_a_double_quoted_secret_with_parameter_capture():
+    # review A-sqlalchemy-statistics #1: normalize() keeps double-quoted text, so max_sql needs mask_text like the ring
+    recorder = SqlTraceRecorder(Masker(Exposure.MASKED, True, capture_parameters=True))
+    _record(recorder, f'select * from pay where key = "{DOUBLE_QUOTED_SECRET}"', millis=3)
+    assert DOUBLE_QUOTED_SECRET not in (recorder.totals().max_sql or "")
+
+
+def test_max_time_counts_selects_only():
+    # Hibernate's queryExecutionMaxTime covers queries only, not DML
+    recorder = SqlTraceRecorder(MASKED)
+    _record(recorder, "select a from t where id = 1", millis=5)
+    _record(recorder, "update t set a = 2", millis=50)
+    assert recorder.totals().max_millis == 5
+
+
+def test_max_sql_is_a_select():
+    recorder = SqlTraceRecorder(MASKED)
+    _record(recorder, "select a from t where id = 1", millis=5)
+    _record(recorder, "update t set a = 2", millis=50)
+    assert recorder.totals().max_sql == "select a from t where id = ?"
+
+
+def test_clear_resets_max_time():
+    recorder = SqlTraceRecorder(MASKED)
+    _record(recorder, "select 1", millis=9)
+    recorder.clear()
+    assert recorder.totals().max_millis == 0
+
+
+def test_clear_resets_max_sql():
+    recorder = SqlTraceRecorder(MASKED)
+    _record(recorder, "select 1", millis=9)
+    recorder.clear()
+    assert recorder.totals().max_sql is None
+
+
+def test_counts_survive_clear():
+    recorder = SqlTraceRecorder(MASKED)
+    _record(recorder, "select 1", millis=9)
+    recorder.clear()
+    assert recorder.totals().statements == 1
+
+
+def test_max_after_clear_is_the_next_select():
+    recorder = SqlTraceRecorder(MASKED)
+    _record(recorder, "select 1", millis=9)
+    recorder.clear()
+    _record(recorder, "select 2", millis=3)
+    assert recorder.totals().max_millis == 3

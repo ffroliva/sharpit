@@ -54,6 +54,7 @@ REPORT_KEYS = ("available", "enableAvailable", "unavailableReason", "statistics"
 
 
 MAX_N_PLUS_ONE = 20
+RECORDING_PAUSED = ""
 ROUTE_UNKNOWN = "No HTTP Exchanges row for this request (HTTP Exchanges disabled, or the row was evicted)"
 
 
