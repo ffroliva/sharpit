@@ -566,9 +566,18 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
 
 from sharpit.engine.panels04 import tool_definitions as _tool_definitions  # noqa: E402, I001
 
+
+def merge_lane_tools(
+    base_tools: tuple[Tool, ...],
+    base_commands: dict[str, str],
+    lane_tools: tuple[Any, ...],
+    lane_commands: dict[str, str],
+) -> tuple[tuple[Tool, ...], dict[str, str]]:
+    return (*base_tools, *lane_tools), {**base_commands, **lane_commands}
+
+
 _PANEL_04_TOOLS, _PANEL_04_COMMANDS = _tool_definitions()
-TOOLS: tuple[Tool, ...] = (*_BASE_TOOLS, *_PANEL_04_TOOLS)
-COMMANDS = {**_BASE_COMMANDS, **_PANEL_04_COMMANDS}
+TOOLS, COMMANDS = merge_lane_tools(_BASE_TOOLS, _BASE_COMMANDS, _PANEL_04_TOOLS, _PANEL_04_COMMANDS)
 
 from sharpit.engine.tool_dispatch import (  # noqa: E402, I001 - dispatcher imports the catalog built above
     ToolGate as ToolGate,
