@@ -88,6 +88,21 @@ def unavailable_report(reason: str) -> dict[str, Any]:
     }
 
 
+def context_report(ctx: SharpitContext) -> dict[str, Any]:
+    """Read a snapshot, correlating only already-captured SQL Trace rows."""
+    recorder = ctx.capture.transactions
+    if not isinstance(recorder, TransactionRecorder):
+        reason = (
+            "Transactions are disabled via SHARPIT_TRANSACTIONS_ENABLED=false"
+            if not ctx.settings.transactions_enabled
+            else "Transaction capture is not installed"
+        )
+        return unavailable_report(reason)
+    trace = ctx.capture.sql_trace
+    rows = trace.report([])["entries"] if trace is not None and ctx.settings.sql_trace_enabled else None
+    return recorder.report(rows)
+
+
 class TransactionRecorder:
     """A bounded transaction ring. Event callbacks mutate rows; report-time work only reads cached rows."""
 
@@ -286,8 +301,8 @@ def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
     stack = _stack(conn)
     if parent_ids is None:
         for ctx, entry_id in stack:
-            recorder = _enabled(ctx)
-            if recorder is not None:
+            recorder = ctx.capture.transactions
+            if isinstance(recorder, TransactionRecorder):
                 recorder.end(entry_id, "UNKNOWN")
         stack.clear()
     info = REQUEST.get()
@@ -320,11 +335,12 @@ def _end(conn: Any, status: str, *, name: str | None = None) -> None:
         closing, stack[:] = stack[:], []
     else:
         closing = []
+        closed: set[str] = set()
         for index in range(len(stack) - 1, -1, -1):
             ctx, _ = stack[index]
-            if ctx.context_id in targets:
+            if ctx.context_id in targets and ctx.context_id not in closed:
                 closing.append(stack.pop(index))
-                break
+                closed.add(ctx.context_id)
     for ctx, entry_id in closing:
         recorder = ctx.capture.transactions
         if isinstance(recorder, TransactionRecorder):
