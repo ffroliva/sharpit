@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import threading
 import time
+import weakref
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
@@ -331,6 +332,7 @@ def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
 def _end(conn: Any, status: str, *, name: str | None = None) -> None:
     stack = _stack(conn)
     targets = {ctx.context_id: ctx for ctx in _targets(conn)}
+    closing: list[tuple[SharpitContext, int]]
     if name is None:
         closing, stack[:] = stack[:], []
     else:
@@ -394,14 +396,23 @@ def tx_release_savepoint(conn: Any, name: str, context: object) -> None:
         dispatch.routing_failed(exc)
 
 
-_ATTACH_LOCK = threading.Lock()
-_ATTACH_COUNT = 0
-_ATTACH_REMOVERS: list[Callable[[], None]] = []
+_attach_lock = threading.Lock()
+_attach_count = 0
+_attach_removers: list[Callable[[], None]] = []
+
+
+def _release_attachment() -> None:
+    global _attach_count  # noqa: PLW0603
+    with _attach_lock:
+        _attach_count -= 1
+        if _attach_count == 0:
+            while _attach_removers:
+                _attach_removers.pop()()
 
 
 def attach() -> Callable[[], None] | None:
     """Attach the shared class listeners once and return a per-context reference-counted remover."""
-    global _ATTACH_COUNT, _ATTACH_REMOVERS  # noqa: PLW0603
+    global _attach_count, _attach_removers  # noqa: PLW0603
     callbacks = {
         "begin": tx_begin,
         "commit": tx_commit,
@@ -410,8 +421,8 @@ def attach() -> Callable[[], None] | None:
         "rollback_savepoint": tx_rollback_savepoint,
         "release_savepoint": tx_release_savepoint,
     }
-    with _ATTACH_LOCK:
-        if _ATTACH_COUNT == 0:
+    with _attach_lock:
+        if _attach_count == 0:
             removers: list[Callable[[], None]] = []
             for event, callback in callbacks.items():
                 remover = sqla.add_connection_listener(cast(Any, event), callback)
@@ -420,21 +431,13 @@ def attach() -> Callable[[], None] | None:
                         attached()
                     return None
                 removers.append(remover)
-            _ATTACH_REMOVERS = removers
-        _ATTACH_COUNT += 1
+            _attach_removers = removers
+        _attach_count += 1
 
-    removed = False
+    finalizer: Any
 
     def remove() -> None:
-        nonlocal removed
-        global _ATTACH_COUNT, _ATTACH_REMOVERS  # noqa: PLW0603
-        with _ATTACH_LOCK:
-            if removed:
-                return
-            removed = True
-            _ATTACH_COUNT -= 1
-            if _ATTACH_COUNT == 0:
-                while _ATTACH_REMOVERS:
-                    _ATTACH_REMOVERS.pop()()
+        finalizer()
 
+    finalizer = weakref.finalize(remove, _release_attachment)
     return remove

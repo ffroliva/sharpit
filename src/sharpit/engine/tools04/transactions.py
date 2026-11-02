@@ -5,7 +5,7 @@ from typing import Any
 from sharpit.engine.capture.transactions import TransactionRecorder, context_report
 from sharpit.engine.tools import Tool
 
-_NONE = {"type": "object", "properties": {}, "additionalProperties": False}
+_NONE: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
 
 
 def _clear(ctx: Any) -> dict[str, Any]:
