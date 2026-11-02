@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -254,7 +255,9 @@ def test_async_engine_read_only() -> None:
         finally:
             await engine.dispose()
 
-    assert asyncio.run(run()) == "on"
+    # psycopg refuses Windows' default Proactor loop
+    factory = asyncio.SelectorEventLoop if sys.platform == "win32" else None
+    assert asyncio.run(run(), loop_factory=factory) == "on"
 
 
 @dataclass
