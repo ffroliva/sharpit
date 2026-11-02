@@ -980,7 +980,7 @@ def test_lane_gate_accepts_did_not_raise_from_a_helper_under_tests(tmp_path: Pat
 @pytest.mark.parametrize(
     ("source", "counted"),
     [
-        ('BODY = "E\ntests/overhead.py:9: check_budget(name)"\n', False),  # (a) only inside a string literal
+        ('BODY = "tests/overhead.py:9: check_budget(name)"\n', False),  # (a) only inside a string literal
         ("from overhead import check_budget\n\n\ndef test_x():\n    check_budget('x', 1, 2, 'ms', 1)\n", True),  # (b)
         ("import overhead\n\n\ndef test_x():\n    overhead.check_budget('x', 1, 2, 'ms', 1)\n", True),  # (b) attribute
         ("BUDGET_NS = 50\n", True),  # (c)
@@ -1003,3 +1003,13 @@ def test_lane_gate_allows_changes_to_a_module_that_mentions_check_budget_only_in
     fx.commit({path: 'BODY = "tests/overhead.py:10: check_budget("\n\n\ndef test_s():\n    assert BODY\n'}, "test: s2")
     fx.review()
     assert not _refused(fx.evaluate(), "overhead budget module changed"), _refusals(fx.evaluate())
+
+
+def test_check_budget_inside_a_string_is_not_an_overhead_module() -> None:
+    source = "FAKE = '<failure>tests/overhead.py:9: check_budget(name)</failure>'\n"
+    assert lane_gate._is_overhead_module("tests/test_x.py", source) is False, "a string made it an overhead module"
+
+
+def test_function_local_budget_counts_as_an_overhead_module() -> None:
+    source = "def test_x():\n    BUDGET_MS = 0.2\n    assert BUDGET_MS\n"
+    assert lane_gate._is_overhead_module("tests/test_x.py", source) is True, "a function-local BUDGET was not counted"
