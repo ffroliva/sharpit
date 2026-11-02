@@ -62,10 +62,22 @@ def _call_name(func: ast.expr) -> str | None:
     return func.id if isinstance(func, ast.Name) else None
 
 
-_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)  # bodies that do not run when the clause runs
+def _unreferenced(node: ast.AST, used: set[str]) -> bool:
+    """A nested scope whose body cannot run while the clause runs: a def (or a lambda bound only to names) the clause
+    never references. A referenced one may be called, awaited or passed on: it is followed, so a doubt never reports."""
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        return node.name not in used
+    return (
+        isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Lambda)
+        and all(isinstance(target, ast.Name) and target.id not in used for target in node.targets)
+    )
 
 
 def _silent(handler: ast.ExceptHandler) -> bool:
+    nodes = list(ast.walk(handler))
+    used = {n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    used |= {n.attr for n in nodes if isinstance(n, ast.Attribute)}  # a class method called as obj.method()
     pending: list[ast.AST] = list(handler.body)
     while pending:
         node = pending.pop()
@@ -73,7 +85,7 @@ def _silent(handler: ast.ExceptHandler) -> bool:
             return False
         if isinstance(node, ast.Call) and _call_name(node.func) in _LOG_CALLS:
             return False
-        if not isinstance(node, _SCOPES):  # a class body runs; its methods are stopped here
+        if not _unreferenced(node, used):
             pending.extend(ast.iter_child_nodes(node))
     return True
 
