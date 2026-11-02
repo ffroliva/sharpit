@@ -14,8 +14,9 @@ from __future__ import annotations
 import json
 import warnings
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 ROOT = Path(__file__).parent / "fixtures" / "bootui" / "2.2.0"
 
@@ -59,37 +60,57 @@ def _kinds(golden: Any, path: str, out: dict[str, set[str]]) -> dict[str, set[st
     return out
 
 
-def _compare(  # noqa: C901 - one rule per branch, each documented in the module docstring
-    expected: Any, actual: Any, path: str, nullable: Mapping[str, str], kinds: Mapping[str, set[str]], errors: list[str]
-) -> None:
+@dataclass
+class _Check:
+    nullable: Mapping[str, str]
+    kinds: Mapping[str, set[str]]
+    errors: list[str] = field(default_factory=list[str])
+    shapeless: list[str] = field(default_factory=list[str])  # golden lists with no item shape: unchecked, warned
+
+
+def _compare(expected: Any, actual: Any, path: str, check: _Check) -> None:
+    """Null and type rules at one path, then the object or list rules below it."""
     if expected is None:
         return
     label = path or "<root>"
-    seen = kinds.get(path, set())
+    seen = check.kinds.get(path, set())
     if actual is None:
-        if path not in nullable and "null" not in seen:
-            errors.append(f"{label}: null in payload, golden has {_kind(expected)}; not listed in nullable.json")
-        return
-    if _kind(expected) != _kind(actual):
+        if path not in check.nullable and "null" not in seen:
+            check.errors.append(f"{label}: null in payload, golden has {_kind(expected)}; not listed in nullable.json")
+    elif _kind(expected) != _kind(actual):
         if _kind(actual) not in seen:  # another golden item at this path has the payload's type
-            errors.append(f"{label}: payload is {_kind(actual)}, golden is {_kind(expected)}")
+            check.errors.append(f"{label}: payload is {_kind(actual)}, golden is {_kind(expected)}")
+    elif isinstance(expected, Mapping):
+        _compare_object(cast("Mapping[str, Any]", expected), actual, path, check)
+    elif isinstance(expected, list):
+        _compare_list(cast("list[Any]", expected), actual, path, check)
+
+
+def _compare_object(expected: Mapping[str, Any], actual: Mapping[str, Any], path: str, check: _Check) -> None:
+    for key, value in expected.items():
+        child = f"{path}.{key}" if path else key
+        if key not in actual:
+            check.errors.append(f"{child}: missing from payload")
+        else:
+            _compare(value, actual[key], child, check)
+
+
+def _compare_list(expected: list[Any], actual: list[Any], path: str, check: _Check) -> None:
+    """An item passes when it matches any golden shape; else the closest shape's errors are reported."""
+    shapes = [shape for shape in expected if shape is not None]
+    if not shapes:  # an empty or null-only golden list says nothing about item shape
+        if actual and path not in check.shapeless:
+            check.shapeless.append(path)
         return
-    if isinstance(expected, Mapping):
-        for key, value in expected.items():
-            child = f"{path}.{key}" if path else key
-            if key not in actual:
-                errors.append(f"{child}: missing from payload")
-            else:
-                _compare(value, actual[key], child, nullable, kinds, errors)
-    elif isinstance(expected, list) and expected:
-        for item in actual:  # an item passes when it matches any golden shape; else report the closest one
-            tries: list[list[str]] = []
-            for shape in expected:
-                found: list[str] = []
-                _compare(shape, item, f"{path}[]", nullable, kinds, found)
-                tries.append(found)
-            if all(tries):
-                errors.extend(min(tries, key=len))
+    for item in actual:
+        tries: list[list[str]] = []
+        for shape in shapes:
+            attempt = _Check(check.nullable, check.kinds)
+            _compare(shape, item, f"{path}[]", attempt)
+            tries.append(attempt.errors)
+            check.shapeless.extend(p for p in attempt.shapeless if p not in check.shapeless)
+        if all(tries):
+            check.errors.extend(min(tries, key=len))
 
 
 def _fixture(folder: Path, name: str) -> tuple[Path, bool]:
@@ -112,8 +133,14 @@ def assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> Non
         if not (isinstance(why, str) and why.strip())
     ]
     expected = _load(path)
-    _compare(expected, payload, "", nullable, _kinds(expected, "", {}), errors)
+    check = _Check(nullable, _kinds(expected, "", {}), errors)
+    _compare(expected, payload, "", check)
     if errors:
         raise AssertionError(f"{sharpit_id}/{path.name} parity: " + "; ".join(errors))
+    for path_ in check.shapeless:
+        message = (
+            f"{sharpit_id}/{name}: golden list {path_ or '<root>'} has no shape information; its items are unchecked"
+        )
+        warnings.warn(message, UnverifiedParityWarning, stacklevel=2)
     if not captured:
         warnings.warn(f"{sharpit_id}/{name}: provisional fixture, unverified", UnverifiedParityWarning, stacklevel=2)

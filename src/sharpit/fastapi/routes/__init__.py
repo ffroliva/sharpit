@@ -629,7 +629,7 @@ def _cli_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
 def _panel_04_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     routes: list[BaseRoute] = []
     for panel in PANELS:
-        if panel.id not in MODULE_PANEL_IDS or not panel.implemented or panel.id == "sql-trace":
+        if panel.id not in MODULE_PANEL_IDS or not panel.implemented:
             continue
         module = import_module(f"sharpit.fastapi.routes.{panel.id.replace('-', '_')}")
         routes.extend(module.build_routes(ctx, host_app))
