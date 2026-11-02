@@ -522,12 +522,9 @@ class SqlTraceRecorder:
                 self._evicted += 1
             self._entries.append(row)
             self._total += 1
-            if category == "SELECT":
-                self._selects += 1
-                if millis > self._max_millis:  # rare: only a new slowest SELECT pays for mask_text
-                    self._max_millis = millis
-                    shown = masker.mask_text(normalized.sql)
-                    self._max_sql = _truncate(shown, self._max_sql_length) if shown is not None else None
+            self._selects += category == "SELECT"
+            if category == "SELECT" and millis > self._max_millis:  # rare: only a new slowest SELECT pays to mask
+                self._new_max(millis, normalized.sql)
             key = normalized.fingerprint
             aggregate = self._aggregates.get(key)
             if aggregate is None:
@@ -542,6 +539,12 @@ class SqlTraceRecorder:
             if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
                 aggregate.call_sites[site] = None
         self.changes.signal()
+
+    def _new_max(self, millis: int, sql: str) -> None:
+        """Under the lock: the slowest SELECT since the last clear, masked like the ring rows."""
+        self._max_millis = millis
+        shown = self._masker.mask_text(sql)
+        self._max_sql = _truncate(shown, self._max_sql_length) if shown is not None else None
 
     def clear(self) -> None:
         with self._lock:
