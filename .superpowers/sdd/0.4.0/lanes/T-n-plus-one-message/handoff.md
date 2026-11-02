@@ -4,9 +4,10 @@ Implementer: codex-gpt-6-luna (high)
 
 ## Status
 
-DONE_WITH_CONCERNS. The three round-1 findings are fixed and committed. The coordinator can review and merge-gate
-the lane. The final full suite completed with two overhead-budget failures; both overshoots were within the measured
-noise. No functional tests failed.
+BLOCKED. Round-two CI defects and the low-version ORM execution regression are fixed in `d2bf3e3398dea0c7e760ca4e11befb860d2274a1`.
+The coordinator cannot merge-gate this head: the full suite has one failure in the historical `test_sqlalchemy_orm_hook_overhead_budget`,
+whose locked body references the removed `sqla.do_orm_execute` symbol. The new round-two red test asserts that symbol is absent;
+the COMMON rule prohibits changing either red body. See the exact traceback in the full-suite log below.
 
 ## Decisions
 
@@ -18,6 +19,22 @@ noise. No functional tests failed.
 - Eager relationship batches use the same masked fingerprint and are subtracted before lazy counts are derived.
 - The new benchmark uses 1,000 actual lazy relationship loads, `attach_session()` and a TEST call tag; the previous
   `select(1)` budget test remains unchanged and is historical only.
+- SQLAlchemy 2.0.38 raises `InvalidRequestError` for the `selectinload(...).execution_options(yield_per=100)` fixture when
+  any `Session.do_orm_execute` listener is registered, including a no-op listener. The no-listener control succeeds.
+  Relationship details now come from the engine execution context's `_sa_orm_load_options` and compiled `current_path`;
+  the sharpit bridge no longer registers or mutates ORM execution options.
+- The dead relationship-load counter path was removed; `apply_relationship_facts` now tolerates a missing call phase.
+
+## Round-two red commits and unresolved gate
+
+| test id | red SHA | assertion message | fix SHA |
+|---|---|---|---|
+| `tests/engine/test_sqla.py::test_relationship_facts_tolerate_missing_call_phase` | `2ef99d77f94036c162e2256d032d7f8d37fae894` | `AssertionError: missing call phase must not raise KeyError` | `d2bf3e3398dea0c7e760ca4e11befb860d2274a1` |
+| `tests/engine/test_sqla.py::test_session_capture_does_not_register_orm_execute_listener` | `5e9c9c65181486f7e1c40cfa4479b909713780f3` | `AssertionError: the SQLAlchemy bridge must not install an ORM execution hook` | `d2bf3e3398dea0c7e760ca4e11befb860d2274a1` |
+
+The old budget test's red SHA is `78f1bfa29448ccb2feed65d50eac6a7fbb31c4f9`; its locked body calls
+`sqla.do_orm_execute`. Full pytest therefore fails with `AttributeError` after removing the ORM hook. The test and the
+new no-hook red test have incompatible expectations about the same symbol. No red test body was edited.
 
 ## Round-1 review reds
 
@@ -47,17 +64,21 @@ load path.
 
 ## Verification
 
-- Lane tests: `90 passed, 11 warnings` (`test_sqla.py`, `testsession/test_gates.py`, `test_plugin_gates.py`).
+- Functional lane tests after the refactor: `92 passed, 11 warnings` (`test_sqla.py`, `testsession/test_gates.py`, `test_plugin_gates.py`).
+- No-SQLAlchemy reproduction: `27 passed, 5 deselected, 11 warnings`; direct invocation of the four requested tests: `4 skipped`.
+- Lowest-direct reproduction with SQLAlchemy 2.0.38: eager cases `2 passed, 30 deselected`; old `yield_per` case remains enabled and passes.
+- `test_code_shape.py::test_complexity_only_goes_down`: `1 passed` after splitting the observer path; no baseline changed.
 - New paired workload, `scripts.dev.overhead_check ... --runs 10`: median overhead `18.961 µs/lazy load` against
   `35.000 µs`; 2/10 runs failed within noise; the script classified the set as flaky/noise-limited.
-- Final full suite, `uv run pytest -q -n 4`: `4209 passed, 9 skipped, 2 failed` in `980.90s`. The new lazy-load
-  budget failure was `98.738 µs` with `66.697 µs` noise against `35 µs`; SQL Trace was `67.590 µs` with `64.145 µs`
-  noise against `50 µs`. Both overshoots were within noise. Full log:
-  `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/T-n-plus-one-message-full-pytest-final.out`.
+- Final full suite, `uv run --no-sync pytest -q -n 4`: `4212 passed, 9 skipped, 1 failed` in `385.14s`. Failure:
+  `test_sqlalchemy_orm_hook_overhead_budget` — `AttributeError` for removed `sqla.do_orm_execute`. The lazy relationship
+  budget and SQL Trace budget passed in this run. Full log:
+  `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/T-n-plus-one-message-full-final.log`.
 - `ruff check`: passed. `ruff format --check`: `469 files already formatted`. `pyright`: `0 errors, 0 warnings, 0 informations`.
 - Repeated budget diagnostic log:
   `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/T-n-plus-one-message-overhead-check2.out`.
-- No budget or ratchet was raised. No remaining implementation work; review and lane gate remain for the coordinator.
+- No budget or ratchet was raised. Complexity ratchet passes; no baseline changed. Coordinator ruling is required on the
+  historical overhead test/body conflict before this lane can be merge-gated.
 
 ## Current commits
 
@@ -65,4 +86,7 @@ load path.
 - Red: `57a614127aca92789b3219bd846d03c1367b46ad`
 - Red: `2d5ca9e8fe9913aa7df36f47eb58dbe19c2b4b30`
 - Fix: `5c12d61a77609b671bced513590dcad497c0e27c`
-- Next: lane review and coordinator gate.
+- Red: `2ef99d77f94036c162e2256d032d7f8d37fae894`
+- Red: `5e9c9c65181486f7e1c40cfa4479b909713780f3`
+- Fix: `d2bf3e3398dea0c7e760ca4e11befb860d2274a1`
+- Next: coordinator resolves whether to supersede the historical budget test body; then rerun the full lane gate.
