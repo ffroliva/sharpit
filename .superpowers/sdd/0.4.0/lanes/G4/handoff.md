@@ -39,23 +39,23 @@ Branch / worktree: `lane/0.4.0-G4` in `C:\development\github\sharpit-wt\0.4.0-G4
 | Test id | Red SHA | Assertion message |
 |---|---|---|
 | tests/docs/test_procurement_docs.py::test_readme_install_uses_current_pypi_version_and_valid_extra | 0aacb9134c8bf1a91d9e2df66dbee287470c501d | `assert 'not on PyPI yet' not in readme_text` |
-| tests/docs/test_procurement_docs.py::test_readme_gate_and_gflow_proof_precede_details | 3fff0b186f6be5ee812eab218767488c09c2c85c | `assert "independent" not in proof_section.lower()` |
 | tests/docs/test_procurement_docs.py::test_security_policy_names_supported_versions | 15b9c8a4f1701d78ae1b1721387398f6fe9971a9 | `assert "latest release on pypi" in supported_section.lower()` |
-| tests/docs/test_procurement_docs.py::test_security_policy_network_claim_matches_gatekeepers | 6afba7b2d067f808cf3c09bc52c1c38a37aa0530 | `assert "entirely offline" not in section.lower()` |
-| tests/docs/test_procurement_docs.py::test_dependabot_covers_uv_pip_actions_and_ui_npm | 08f931c2b3e725a7fc1fc4fe34aa1fb2551c0dcf | `assert len(updates) >= 4` |
 | tests/docs/test_procurement_docs.py::test_skills_readme_stale_line_corrected | 48b6815d73a705071d5b7c2f2e3760e5729d8cb0 | `assert re.search(...) is not None` |
 
 ## Superseded reds
 
 | Test id | Historical SHA | Reason |
 |---|---|---|
-| tests/docs/test_procurement_docs.py::test_readme_gate_and_gflow_proof_precede_details | 0aacb9134c8bf1a91d9e2df66dbee287470c501d | test function changed after red commit; superseded by a later red |
-| tests/docs/test_procurement_docs.py::test_security_policy_names_supported_versions | 46a3c9a5a78c5c7cc32f4a96c1a754b38e718c40 | test function changed after red commit; superseded by a later red |
-| tests/docs/test_procurement_docs.py::test_security_policy_has_private_reporting_route | 46a3c9a5a78c5c7cc32f4a96c1a754b38e718c40 | test function changed after red commit; superseded by a later red |
-| tests/docs/test_procurement_docs.py::test_security_policy_network_claim_matches_gatekeepers | 46a3c9a5a78c5c7cc32f4a96c1a754b38e718c40 | test function changed after red commit; superseded by a later red |
-| tests/docs/test_procurement_docs.py::test_dependabot_covers_uv_pip_actions_and_ui_npm | d965c101464d448563da5f61d08e789ddb25b871 | test function changed after red commit; superseded by a later red |
-| tests/docs/test_procurement_docs.py::test_skills_readme_stale_line_corrected | d965c101464d448563da5f61d08e789ddb25b871 | test function changed after red commit; superseded by a later red |
-| tests/docs/test_procurement_docs.py::test_security_policy_has_private_reporting_route | 15b9c8a4f1701d78ae1b1721387398f6fe9971a9 | assert split by the formatter after the red commit (ruff PT018); meaning unchanged |
+| `tests/docs/test_procurement_docs.py::test_readme_gate_and_gflow_proof_precede_details` | `0aacb9134c8bf1a91d9e2df66dbee287470c501d` | test changed after red commit (formatter / later fix round) |
+| `tests/docs/test_procurement_docs.py::test_readme_gate_and_gflow_proof_precede_details` | `3fff0b186f6be5ee812eab218767488c09c2c85c` | test changed after red commit (formatter / later fix round) |
+| `tests/docs/test_procurement_docs.py::test_security_policy_names_supported_versions` | `46a3c9a5a78c5c7cc32f4a96c1a754b38e718c40` | test changed after red commit (formatter / later fix round) |
+| `tests/docs/test_procurement_docs.py::test_security_policy_has_private_reporting_route` | `46a3c9a5a78c5c7cc32f4a96c1a754b38e718c40` | test changed after red commit (formatter / later fix round) |
+| `tests/docs/test_procurement_docs.py::test_security_policy_has_private_reporting_route` | `15b9c8a4f1701d78ae1b1721387398f6fe9971a9` | test changed after red commit (formatter / later fix round) |
+| `tests/docs/test_procurement_docs.py::test_security_policy_network_claim_matches_gatekeepers` | `46a3c9a5a78c5c7cc32f4a96c1a754b38e718c40` | test changed after red commit (formatter / later fix round) |
+| `tests/docs/test_procurement_docs.py::test_security_policy_network_claim_matches_gatekeepers` | `6afba7b2d067f808cf3c09bc52c1c38a37aa0530` | test changed after red commit (formatter / later fix round) |
+| `tests/docs/test_procurement_docs.py::test_dependabot_covers_uv_pip_actions_and_ui_npm` | `d965c101464d448563da5f61d08e789ddb25b871` | test changed after red commit (formatter / later fix round) |
+| `tests/docs/test_procurement_docs.py::test_dependabot_covers_uv_pip_actions_and_ui_npm` | `08f931c2b3e725a7fc1fc4fe34aa1fb2551c0dcf` | test changed after red commit (formatter / later fix round) |
+| `tests/docs/test_procurement_docs.py::test_skills_readme_stale_line_corrected` | `d965c101464d448563da5f61d08e789ddb25b871` | test changed after red commit (formatter / later fix round) |
 
 ## Evidence (C2)
 
