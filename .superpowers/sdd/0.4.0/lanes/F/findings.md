@@ -57,6 +57,10 @@
 | `tests/test_foundation_round2.py::test_reserved_options_help_promises_no_behaviour` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `assert f"--sharpit-report-only {reserved}" in out` |
 | `tests/test_foundation_round2.py::test_golden_loader_prefers_named_provisional_over_shared_capture` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `assert error is None` |
 | `tests/test_foundation_round2.py::test_lane_tool_colliding_with_a_base_tool_is_refused` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `assert _merge_error((clash,), {}) == f"lane tool name(s) collide with existing tools: {clash.name}"` |
+| `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert panel_ids == surface.expected_panel_ids()` |
+| `tests/test_golden_shapes.py::test_payload_item_matches_any_golden_shape` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert _error({"items": [{"kind": "b", "y": "t"}, {"kind": "a", "x": 2}]}) is None` |
+| `tests/test_golden_shapes.py::test_null_allowed_where_any_golden_item_is_null` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert _error({"items": [{"v": None, "w": 3}]}) is None` |
+| `tests/test_golden_shapes.py::test_any_golden_type_at_a_path_is_accepted` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert _error({"items": [{"v": "t", "w": 3}]}) is None` |
 
 ## Review round 1: finding → test → red SHA → fix
 
@@ -89,6 +93,13 @@
 | 6 half-applied `max_results` fallback | `tests/engine/test_tools.py::test_call_tool_uses_the_given_tool_gate` (replacement double; no behaviour red) | — | `4650305` |
 | 7 env for an unimplemented id warned | `test_panel_env_for_an_unimplemented_panel_is_ignored` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `4650305` |
 | lean | deleted `engine/tool_registry.py`, `fastapi/route_registry.py`, `session.resolve_options`, their 3 tests; one `panel_is_implemented` (= `panels04.module_implemented`) | — | `4650305` |
+
+## Review round 2 addendum (coordinator items 8-9): finding → test → red SHA → fix
+
+| Finding | Test | Red SHA | Fix |
+|---|---|---|---|
+| 8 count-pinned shared tests break on a flag flip | `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip` (flag `data` on, planted tool/command/route; panels, MCP list, MCP `toolCount`, CLI `toolCount`/commands and routes all follow) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `53b0e86`: `tests/surface.py` (base pinned literally + flag-derived extras) used by `test_mcp.py::test_tools_list_has_no_action_tool`, `test_tools.py::test_catalogue_names_panels_actions_and_schemas`, `test_install.py::test_panels_platform_fastapi_and_ids` / `::test_mvp_panels_stay_available`, `test_mcp_api.py::test_mcp_server_status_shape`, `test_cli_api.py::test_cli_status_shape_matches_contract`, `test_safety_matrix.py::test_get_route_table_is_complete`, `test_foundation_suite_equivalence.py` |
+| 9 golden lists keep one item per distinct shape | `tests/test_golden_shapes.py::test_payload_item_matches_any_golden_shape`, `::test_null_allowed_where_any_golden_item_is_null`, `::test_any_golden_type_at_a_path_is_accepted` (red); `::test_payload_item_matching_no_golden_shape_is_rejected`, `::test_a_type_no_golden_item_has_is_rejected` (controls) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `53b0e86` |
 
 ## Superseded reds (test deleted; its row left the red table)
 

@@ -16,6 +16,7 @@ F-rest (`tests/safety/`, `tests/masking/`, test extras other than `psycopg[binar
 
 ## Done (commits)
 
+- Review round 2 addendum (items 8-9): red `aaa97d8`, fix `53b0e86`.
 - Review round 2 (`ponytail-review.md` + coordinator): red `c2e385d`, fix `4650305`; see §Review round 2 and §Superseded reds below.
 
 - Review round 1 (`review.md`, CHANGES at `d37c6f2`): red `46ee247`, red-body restore `55eac19`, fix `4c3828b`; see `findings.md` §Review round 1. Settings: an unimplemented 0.4 id in `install(panels=...)` now raises the unknown-panel `ValueError` (as at base), and the message lists implemented panels only.
@@ -62,12 +63,16 @@ F-rest (`tests/safety/`, `tests/masking/`, test extras other than `psycopg[binar
   look like that. The gate should accept `message` starting with `AssertionError` **or** `assert `, or read the
   failure text.
 
-## Verification (at `4650305`, review round 2)
+## Verification (at `53b0e86`, review round 2 + addendum)
 
-- Full suite: `uv run pytest -q -n 4` -> **3635 passed, 5 skipped, 1 failed** (base `7e5fc15`: 3491 passed, 5 skipped). The one failure is `tests/fastapi/test_capture_overhead.py::test_request_overhead_budget` (0.221 ms vs 0.200 ms, "within the noise") on a machine running ~65 Python processes; it passes 6/6 in isolation, and the middleware's per-request code is unchanged since round 1 (`git diff 7017970 HEAD -- src/sharpit/fastapi/capture.py` touches only attach/detach/startup). Budget not raised.
-  The +145 are tests F added (Codex Task 1/O4; golden 6, extension slots 19, example 2, settings env-name rows 14;
-  round 1: 7; round 2: +71 new, 9 superseded deleted); skips unchanged. Log:
-  `..\0.4.0-integration\.superpowers\sdd\0.4.0\logs\F-full-pytest4.log`.
+- Full suite: `uv run pytest -q -n 4` -> **3640 passed, 5 skipped, 2 failed** (base `7e5fc15`: 3491 passed, 5
+  skipped). Both failures are overhead budgets (`test_capture_overhead.py::test_request_overhead_budget`,
+  `test_sql_trace_overhead.py::test_statement_overhead_budget`), reported "within the noise" on a machine running ~65
+  Python processes. Both pass in isolation, the middleware's per-request code is unchanged since round 1, and no
+  `src/` file changed between `4650305` and `53b0e86`. Budgets not raised.
+  The +149 are tests F added (Codex Task 1/O4; golden 6, extension slots 19, example 2, settings env-name rows 14;
+  round 1: 7; round 2: +71 new, 9 superseded deleted; addendum: +6); skips unchanged. Log:
+  `..\0.4.0-integration\.superpowers\sdd\0.4.0\logs\F-full-pytest5.log`.
 - `uv run ruff check`: all checks passed; `uv run ruff format --check`: 407 files already formatted; `uv run pyright`:
   0 errors, 0 warnings.
 - UI: `npm --prefix ui run check` clean; vitest 31 files, 258 tests passed (no `npm run build`).
@@ -91,7 +96,8 @@ Every row is checked against the code at the lane head; adapt calls to it, never
 | pytest options (inert) | `--sharpit-report-only` (`store_true`), `--sharpit-baseline PATH`, `--sharpit-write-baseline` (`store_true`), all `default=None`, help `(reserved for 0.4.0; currently has no effect)`, registered in `sharpit.pytest_plugin.options.pytest_addoption`; `resolve()` / `PluginOptions` do not read them. G1G2 adds them to `PluginOptions`/`resolve` and writes the real help. |
 | `sharpit.engine.testsession.outcome.session_status` (R6) | Real today: `session_status(merged: MergedFacts, *, allow_unknown: bool, max_unattributed: float, advisors_enabled: bool, fail_on: str) -> tuple[Status, list[str]]`; callers `testsession/finish.py:42` (`status, reasons = outcome.session_status(...)`), `tests/engine/testsession/test_outcome.py`, `tests/engine/testsession/tsfakes.py`. F does not change it; G1G2 changes it to return `SessionStatus(status, fail_reasons, unknown_reasons)` (NamedTuple) and updates those callers. |
 | `sharpit.engine.testsession.finish.finish` | `finish(parts: Sequence[SessionFacts], missing: Sequence[str], *, options: GateOptions, version: str, now_ms: int, warnings: Sequence[str]) -> tuple[dict[str, Any], str, list[str]]`. |
-| `tests.golden.assert_parity` (R9) | `assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None` (`tests/golden.py`, import as `from golden import assert_parity`). Fixture order under `tests/fixtures/bootui/2.2.0/<sharpit_id>/`: `<name>.captured.json`, `captured.json`, `<name>.provisional.json`, `provisional.json` (provisional emits `golden.UnverifiedParityWarning`: merges, counted unverified); none → `AssertionError`. Every golden key must exist with the same JSON kind (int/float are one "number"); extra payload keys pass; golden `null` accepts anything; payload `null` for a non-null golden passes only if `nullable.json` (`{"<path>": "<non-empty reason>"}`, list items as `items[].key`) lists it. `golden.ROOT` is the fixture root (tests monkeypatch it). `golden.bootui_ids() -> dict[str, str]`. |
+| `tests.golden.assert_parity` (R9, round 2) | `assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None` (`tests/golden.py`, import as `from golden import assert_parity`). Fixture order under `tests/fixtures/bootui/2.2.0/<sharpit_id>/`: `<name>.captured.json`, `<name>.provisional.json`, `captured.json`, `provisional.json` (provisional emits `golden.UnverifiedParityWarning`: merges, counted unverified); none → `AssertionError`. Every golden key must exist with a compatible JSON kind (int/float are one "number"); extra payload keys pass; a golden list keeps **one item per distinct shape** and a payload item passes if it matches **any** of them; at a path (`items[].key`) payload `null` passes when any golden item is `null` there or `nullable.json` (`{"<path>": "<non-empty reason>"}`) lists it, and any type some golden item has there is accepted; golden `null` accepts anything. `golden.ROOT` is the fixture root (tests monkeypatch it). `golden.bootui_ids() -> dict[str, str]`. |
+| `tests/surface.py` (round 2) | Shared expectations for count/list-pinned tests: `BASE_PANEL_IDS` (19), `BASE_MCP_TOOL_NAMES` (18), `BASE_CLI_COMMANDS` (24) pinned literally; `lane_tools()`, `lane_commands()` (from `panels04.tool_definitions()`), `expected_panel_ids()`, `expected_mcp_tool_names()`, `expected_cli_commands()`, `lane_route_paths(ctx, host_app)` add whatever the implemented flags contribute. A lane flipping its flag needs no edit to the shared tests; it adds its own positive tests. |
 | `tests/fixtures/bootui/2.2.0/ids.json` | BootUI id → sharpit id for every sharpit panel (31 entries; `flyway`→`alembic`, `hibernate-statistics`→`sqlalchemy-statistics`, `spring-security`→`fastapi-security`, `spring`→`fastapi`, others identical). |
 | UI placeholders (F1b) | `ui/src/views/{Data,Transactions,PostgreSql,MySql,Traces,Security,SecurityLogs,DatabaseAdvisor,Architecture,SqlalchemyStatistics,FastapiSecurity,Fastapi}.svelte`, props `{ panel: Panel }`; routed in `ui/src/App.svelte` as `current.id === '<id>' && panelImplemented('<id>')`. `ui/src/lib/types.ts` exports `Panel04Id = keyof typeof PANEL_04_IMPLEMENTED`. A lane replaces only its view file and flips its two flag files; `ui/tests/component/panels04.test.ts` keeps the wiring. |
 | `examples/fastapi_sqla` (O3) | `examples.fastapi_sqla.app.Base` (`DeclarativeBase`) with `Owner` (`owners`) and `Pet` (`pets`), passed as `install(models=Base)`; `app.state.otel_provider` is an SDK `TracerProvider` (set as the global provider) only when `opentelemetry-sdk` is importable, else `None`; `otel_provider() -> object \| None`. No lane edits the example (O3). |
@@ -202,6 +208,10 @@ A-sqlalchemy-statistics), `activity_n_plus_one_threshold: int = 5`, `read_only: 
 | `tests/test_foundation_round2.py::test_reserved_options_help_promises_no_behaviour` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `assert f"--sharpit-report-only {reserved}" in out` |
 | `tests/test_foundation_round2.py::test_golden_loader_prefers_named_provisional_over_shared_capture` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `assert error is None` |
 | `tests/test_foundation_round2.py::test_lane_tool_colliding_with_a_base_tool_is_refused` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `assert _merge_error((clash,), {}) == f"lane tool name(s) collide with existing tools: {clash.name}"` |
+| `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert panel_ids == surface.expected_panel_ids()` |
+| `tests/test_golden_shapes.py::test_payload_item_matches_any_golden_shape` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert _error({"items": [{"kind": "b", "y": "t"}, {"kind": "a", "x": 2}]}) is None` |
+| `tests/test_golden_shapes.py::test_null_allowed_where_any_golden_item_is_null` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert _error({"items": [{"v": None, "w": 3}]}) is None` |
+| `tests/test_golden_shapes.py::test_any_golden_type_at_a_path_is_accepted` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert _error({"items": [{"v": "t", "w": 3}]}) is None` |
 
 ## Review round 2 (ponytail-review.md + coordinator): finding → test → red SHA → fix
 
@@ -215,6 +225,13 @@ A-sqlalchemy-statistics), `activity_n_plus_one_threshold: int = 5`, `read_only: 
 | 6 half-applied `max_results` fallback | `tests/engine/test_tools.py::test_call_tool_uses_the_given_tool_gate` (replacement double; no behaviour red) | — | `4650305` |
 | 7 env for an unimplemented id warned | `test_panel_env_for_an_unimplemented_panel_is_ignored` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `4650305` |
 | lean | deleted `engine/tool_registry.py`, `fastapi/route_registry.py`, `session.resolve_options`, their 3 tests; one `panel_is_implemented` (= `panels04.module_implemented`) | — | `4650305` |
+
+## Review round 2 addendum (coordinator items 8-9): finding → test → red SHA → fix
+
+| Finding | Test | Red SHA | Fix |
+|---|---|---|---|
+| 8 count-pinned shared tests break on a flag flip | `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip` (flag `data` on, planted tool/command/route; panels, MCP list, MCP `toolCount`, CLI `toolCount`/commands and routes all follow) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `53b0e86`: `tests/surface.py` (base pinned literally + flag-derived extras) used by `test_mcp.py::test_tools_list_has_no_action_tool`, `test_tools.py::test_catalogue_names_panels_actions_and_schemas`, `test_install.py::test_panels_platform_fastapi_and_ids` / `::test_mvp_panels_stay_available`, `test_mcp_api.py::test_mcp_server_status_shape`, `test_cli_api.py::test_cli_status_shape_matches_contract`, `test_safety_matrix.py::test_get_route_table_is_complete`, `test_foundation_suite_equivalence.py` |
+| 9 golden lists keep one item per distinct shape | `tests/test_golden_shapes.py::test_payload_item_matches_any_golden_shape`, `::test_null_allowed_where_any_golden_item_is_null`, `::test_any_golden_type_at_a_path_is_accepted` (red); `::test_payload_item_matching_no_golden_shape_is_rejected`, `::test_a_type_no_golden_item_has_is_rejected` (controls) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `53b0e86` |
 
 ## Superseded reds (test deleted; its row left the red table)
 
