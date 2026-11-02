@@ -255,3 +255,38 @@ def test_async_engine_read_only() -> None:
             await engine.dispose()
 
     assert asyncio.run(run()) == "on"
+
+
+@dataclass
+class _Dbapi:
+    autocommit: bool = True
+
+
+@dataclass
+class _Pooled:
+    dbapi_connection: _Dbapi = field(default_factory=_Dbapi)
+
+
+@dataclass
+class _AutocommitConn(_FakePgConn):
+    connection: _Pooled = field(default_factory=_Pooled)
+
+
+def test_autocommit_on_a_read_only_server_fails_closed() -> None:
+    # derived: review finding 5: with default_transaction_read_only=on an AUTOCOMMIT connection reports 'on', yet each
+    # SET LOCAL ran in its own one-statement transaction, so the statement and lock timeouts are not in effect
+    conn = _AutocommitConn(in_tx=True, read_only_setting="on")
+    called = False
+
+    def catalog_read(_c: Any) -> int:
+        nonlocal called
+        called = True
+        return 1
+
+    reason: str | None = None
+    try:
+        sqla.bounded_read_only(conn, catalog_read, 5.0)
+    except sqla.ReadOnlyUnavailable as exc:
+        reason = exc.reason
+    assert reason == sqla.READ_ONLY_REFUSED
+    assert called is False
