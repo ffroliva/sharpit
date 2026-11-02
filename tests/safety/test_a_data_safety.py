@@ -1,27 +1,40 @@
-"""Safety rows for the data panel (spec §4, §6.3): the guard chain and the activation gate cover its routes."""
+"""Safety rows for the data panel (spec §4, §6.3): the guard chain and the activation gate cover its routes.
+
+Imports without SQLAlchemy: the models are built inside the tests, after ``importorskip``.
+"""
 
 from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import DeclarativeBase
 
 from fastapi import FastAPI
 from sharpit import install
 
-pytestmark = pytest.mark.needs_sqlalchemy
+PANEL = "data"
+GET_ROWS = ["/data/repositories", "/data/repositories/{name:path}"]
+WRITE_ROWS: list[tuple[str, str]] = []
+PATH_PARAMS = {"name": "Owner"}  # a class the sample app below maps
 
 LOCAL = ("127.0.0.1", 50000)
 PATHS = ("/sharpit/api/data/repositories", "/sharpit/api/data/repositories/Owner")
 
 
 def _client(**options: object) -> TestClient:
-    class Base(DeclarativeBase):
+    sa = pytest.importorskip("sqlalchemy")
+    orm = pytest.importorskip("sqlalchemy.orm")
+
+    class Base(orm.DeclarativeBase):
         pass
+
+    class Owner(Base):
+        __tablename__ = "owners"
+        id = orm.mapped_column(sa.Integer, primary_key=True)
 
     app = FastAPI()
     options.setdefault("models", Base)
     install(app, show_banner=False, config_scan=False, **{"enabled": "ON", **options})
+    app.state.held = Owner  # a registry holds mapped classes weakly
     return TestClient(app, base_url="http://localhost", client=LOCAL)
 
 

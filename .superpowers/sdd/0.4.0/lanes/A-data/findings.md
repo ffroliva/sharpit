@@ -2,14 +2,25 @@
 
 | Finding | Test id | Red SHA | Red output | Disposition |
 |---|---|---|---|---|
-| collector lists mapped classes, degrades, never configures | tests/engine/test_data.py (13 reds, see handoff.md) | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 2 and others | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
-| detail lookup | tests/engine/test_data.py (6 reds, see handoff.md) | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
+| collector/detail red | tests/engine/test_data.py::test_lists_one_row_per_mapped_class | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 2 | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_no_models_is_unavailable | eb6497d0b447b21b64abf030c177773bb278ed41 | assert None == 'pass models= to sharpit.install' | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_empty_registry | eb6497d0b447b21b64abf030c177773bb278ed41 | assert False is True | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_configured_mapper_lists_relationships | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 2 | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_models_forms_dedupe | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 1 | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_a_registry_alone_is_accepted | eb6497d0b447b21b64abf030c177773bb278ed41 | assert [] == [<sqlalchemy.orm.decl_api.registry ...>] | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_only_strangers_is_unavailable | eb6497d0b447b21b64abf030c177773bb278ed41 | assert None == 'models= holds no declarative base or registry' | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_one_bad_mapper_drops_only_its_row | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 1 | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_sqlalchemy_absent | eb6497d0b447b21b64abf030c177773bb278ed41 | assert None == 'SQLAlchemy is not imported by this application' | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_sqlalchemy_older_than_two | eb6497d0b447b21b64abf030c177773bb278ed41 | assert None == 'SQLAlchemy 1.4.50 is imported, but sharpit needs 2.0 or later' | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| collector/detail red | tests/engine/test_data.py::test_detail_by_bean_name | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
+| collector/detail red | tests/engine/test_data.py::test_detail_by_fq_name | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
+| collector/detail red | tests/engine/test_data.py::test_detail_by_simple_name | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
+| collector/detail red | tests/engine/test_data.py::test_detail_unknown_is_none | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
+| collector/detail red | tests/engine/test_data.py::test_detail_simple_name_collision | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
 | list route absent (404) | tests/fastapi/test_data_api.py::test_repositories_lists_the_models | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
 | detail route absent | tests/fastapi/test_data_api.py::test_detail_by_name | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
 | detail 404 body not empty | tests/fastapi/test_data_api.py::test_detail_404_empty_body | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert b'{"error":"Not Found"}' == b'' | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
-| GET must not configure mappers or run SQL | tests/fastapi/test_data_api.py::test_get_never_configures_mappers | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
 | disabled panel answers 403 | tests/fastapi/test_data_api.py::test_panel_disabled_403 | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 403 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
-| panel not listed | tests/fastapi/test_data_api.py::test_panel_listed_when_implemented | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert None is not None | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
 | MCP read tool missing | tests/fastapi/test_data_api.py::test_mcp_lists_read_tool_only | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 'get_data_repositories' in {...} | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
 | view is a placeholder (vitest, not pytest-replayable) | ui/tests/component/data.test.ts (4 tests) | 7b5a0270cfc49c9f58dc3bc39a44a59f15ce5b52 | AssertionError: expected placeholder text to contain 'Owner' | Fixed in ddfaffb204141385fe66f51f9ac33284e40d6e88 |
 
@@ -37,3 +48,14 @@
 | registry subclass bypassed the _new_mappers check | tests/engine/test_data.py::test_registry_subclass_new_mapper_is_not_configured | 3ee9fe924d371ac21a821cc6c7d1fd8ae3228d9d | assert ['_check_configure', '_configure_registries'] == [] | Fixed in 3464bbdeff142dacd9dc5df6fe3626c2fe9d3aae |
 
 Minors: vitest mock now uses the real detail DTO shape (no relationships key); dead lazy alias and list-based walk simplified.
+
+## Historical reds (test or fixture changed after the red commit)
+
+| Finding | Test id | Historical SHA | Red output | Disposition |
+|---|---|---|---|---|
+| superseded red | tests/engine/test_data.py::test_unconfigured_mapper_is_not_configured | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 2 | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| superseded red | tests/engine/test_data.py::test_a_mapper_added_after_configure_is_not_configured | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 3 | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| superseded red | tests/engine/test_data.py::test_broken_registry_degrades | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 2 | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
+| superseded red | tests/engine/test_data.py::test_detail_unconfigured_has_no_methods | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
+| superseded red | tests/fastapi/test_data_api.py::test_get_never_configures_mappers | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
+| superseded red | tests/fastapi/test_data_api.py::test_panel_listed_when_implemented | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert None is not None | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
