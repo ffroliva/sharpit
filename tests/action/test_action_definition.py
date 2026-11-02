@@ -184,6 +184,12 @@ def test_action_quotes_every_expansion() -> None:
                 assert line[: match.start()].count('"') % 2 == 1, line
 
 
+def test_action_preserves_windows_paths_in_pytest_args() -> None:
+    # finding: POSIX shlex.split turned tests\test_file.py into teststest_file.py on Windows runners
+    argv = _run_argv({"RUNNER_OS": "Windows", "PYTEST_ARGS": 'tests\\test_file.py -k "a b"'})
+    assert argv[:3] == ["tests\\test_file.py", "-k", "a b"], argv
+
+
 def test_action_has_no_unquoted_or_expression_run_values() -> None:
     for step in _steps(_text()):
         assert "${{" not in str(step["run"])
