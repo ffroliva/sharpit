@@ -11,7 +11,7 @@ from sharpit.engine.advisors.rules import severity_rank
 TOP = 20
 _MARKDOWN = re.compile(r"([\\`*_\[\]<>|&~])")
 _LINE_BREAKS = re.compile(r"\s*[\r\n]+\s*")
-_AUTOLINK = re.compile(r"(?i)\b(?:https?:(?=//)|www(?=\.))")
+_AUTOLINK = re.compile(r"(?i)\b(?:https:|http:)(?=//)|\bwww(?=\.)")
 
 
 def _esc(value: object) -> str:
