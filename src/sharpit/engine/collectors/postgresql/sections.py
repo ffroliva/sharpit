@@ -92,7 +92,7 @@ class Rows:
     """PostgresRows: a failed read is never an empty successful one."""
 
     available: bool
-    rows: list[Any]
+    records: list[Any]
     truncated: bool = False
     reason: str | None = None
     sqlstate: str | None = None  # the driver's SQLSTATE when the query failed
@@ -265,7 +265,7 @@ def _section(
 
 def _list_section(c: Collector, rows: Rows, restricted_note: str | None = None) -> Dto:
     reason = rows.reason if restricted_note is None else append_sentence(rows.reason, restricted_note)
-    return _section(c, "AVAILABLE", reason, rows=len(rows.rows), cut=rows.truncated)
+    return _section(c, "AVAILABLE", reason, rows=len(rows.records), cut=rows.truncated)
 
 
 def _settings(ctx: ReadContext, data: DatabaseData) -> Dto:
@@ -283,7 +283,7 @@ def _settings(ctx: ReadContext, data: DatabaseData) -> Dto:
     rows = read_list(ctx, "Server settings", queries.SETTINGS_SQL, ctx.limits.max_settings, mapper)
     if not rows.available:
         return _section(SETTINGS, "FAILED", rows.reason)
-    data.settings = rows.rows
+    data.settings = rows.records
     data.setting_values.update(raw)
     return _list_section(SETTINGS, rows)
 
@@ -292,16 +292,18 @@ def _vital_signs(ctx: ReadContext, data: DatabaseData) -> Dto:
     counters = read_one(ctx, "Database statistics", queries.DATABASE_SQL, dict)
     if not counters.available:
         return _section(VITAL_SIGNS, "FAILED", counters.reason)
-    if not counters.rows:
+    if not counters.records:
         return _section(
             VITAL_SIGNS,
             "SKIPPED",
             "pg_stat_database reported no row for the current database.",
             "Grant the sharpit role membership of pg_monitor so it can read the database statistics views.",
         )
-    row: Row = counters.rows[0]
+    row: Row = counters.records[0]
     activity = read_one(ctx, "Session activity", queries.ACTIVITY_SQL, dict)
-    session: Row = activity.rows[0] if activity.available and activity.rows and not data.statistics_restricted else {}
+    session: Row = (
+        activity.records[0] if activity.available and activity.records and not data.statistics_restricted else {}
+    )
     hit, read = _int(row, "blks_hit"), _int(row, "blks_read")
     committed, rolled_back = _int(row, "xact_commit"), _int(row, "xact_rollback")
     backends, max_connections = _int(row, "backends"), _int(row, "max_connections")
@@ -356,7 +358,7 @@ def _sessions(ctx: ReadContext, data: DatabaseData) -> Dto:
     rows = read_list(ctx, "Session activity", queries.SESSIONS_SQL, ctx.limits.max_sessions, mapper)
     if not rows.available:
         return _section(SESSIONS, "FAILED", rows.reason)
-    data.sessions = rows.rows
+    data.sessions = rows.records
     return _list_section(SESSIONS, rows, RESTRICTED_SESSION_LIST_LIMITATION if data.statistics_restricted else None)
 
 
@@ -369,11 +371,11 @@ def _statements(ctx: ReadContext, data: DatabaseData) -> Dto:
     )
     if not extension.available:
         return _section(STATEMENTS, "FAILED", extension.reason)
-    if not extension.rows or extension.rows[0][0] is None:
+    if not extension.records or extension.records[0][0] is None:
         return _section(
             STATEMENTS, "SKIPPED", "The pg_stat_statements extension is not installed on this server.", INSTALL_HINT
         )
-    relation, exec_naming = extension.rows[0]
+    relation, exec_naming = extension.records[0]
 
     def mapper(row: Row) -> Dto:
         hits, reads = _int(row, "shared_blks_hit"), _int(row, "shared_blks_read")
@@ -395,8 +397,8 @@ def _statements(ctx: ReadContext, data: DatabaseData) -> Dto:
         return _section(STATEMENTS, "SKIPPED", NOT_PRELOADED, INSTALL_HINT)
     if not rows.available:
         return _section(STATEMENTS, "FAILED", rows.reason)
-    data.statements = rows.rows
-    placeholders = any(s["query"] == INSUFFICIENT_PRIVILEGE for s in rows.rows)
+    data.statements = rows.records
+    placeholders = any(s["query"] == INSUFFICIENT_PRIVILEGE for s in rows.records)
     restricted = data.statistics_restricted or placeholders
     return _list_section(STATEMENTS, rows, RESTRICTED_STATEMENTS_LIMITATION if restricted else None)
 
@@ -418,7 +420,7 @@ def _indexes(ctx: ReadContext, data: DatabaseData) -> Dto:
     rows = read_list(ctx, "Index usage statistics", queries.INDEXES_SQL, ctx.limits.max_indexes, mapper)
     if not rows.available:
         return _section(INDEXES, "FAILED", rows.reason)
-    data.indexes = rows.rows
+    data.indexes = rows.records
     return _list_section(INDEXES, rows)
 
 
@@ -446,7 +448,7 @@ def _tables(ctx: ReadContext, data: DatabaseData) -> Dto:
     rows = read_list(ctx, "Table statistics", queries.TABLES_SQL, ctx.limits.max_tables, mapper)
     if not rows.available:
         return _section(TABLES, "FAILED", rows.reason)
-    data.tables = rows.rows
+    data.tables = rows.records
     return _list_section(TABLES, rows)
 
 
@@ -517,11 +519,11 @@ def _vacuum(ctx: ReadContext, data: DatabaseData) -> Dto:
     rows = read_list(ctx, "Vacuum statistics", queries.VACUUM_SQL, ctx.limits.max_vacuum_tables, mapper)
     if not rows.available:
         return _section(VACUUM, "FAILED", rows.reason)
-    data.vacuum = rows.rows
+    data.vacuum = rows.records
     if data.setting("autovacuum_vacuum_threshold") is None:
         note = 'The autovacuum settings could not be read, so "due" is computed from PostgreSQL\'s defaults.'
         return _list_section(VACUUM, rows, note)
-    return _section(VACUUM, "AVAILABLE", rows.reason, ESTIMATE_LIMITATION, len(rows.rows), rows.truncated)
+    return _section(VACUUM, "AVAILABLE", rows.reason, ESTIMATE_LIMITATION, len(rows.records), rows.truncated)
 
 
 def _replication(ctx: ReadContext, data: DatabaseData) -> Dto:
@@ -530,7 +532,7 @@ def _replication(ctx: ReadContext, data: DatabaseData) -> Dto:
     )
     if not recovery.available:
         return _section(REPLICATION, "FAILED", recovery.reason)
-    in_recovery, has_checkpointer = recovery.rows[0] if recovery.rows else (False, False)
+    in_recovery, has_checkpointer = recovery.records[0] if recovery.records else (False, False)
     replicas: list[Dto] = []
     replicas_available = truncated = False
     limitations: list[str] = []  # every sub-read's reason is kept, so the standby note never hides a real failure
@@ -551,7 +553,7 @@ def _replication(ctx: ReadContext, data: DatabaseData) -> Dto:
 
         rows = read_list(ctx, "Replication statistics", queries.REPLICAS_SQL, ctx.limits.max_replicas, mapper)
         if rows.available:
-            replicas, replicas_available, truncated = rows.rows, True, rows.truncated
+            replicas, replicas_available, truncated = rows.records, True, rows.truncated
             if rows.reason is not None:
                 limitations.append(rows.reason)
             if replicas and data.statistics_restricted:
@@ -559,11 +561,11 @@ def _replication(ctx: ReadContext, data: DatabaseData) -> Dto:
         else:
             limitations.append(rows.reason or "")
     checkpoints = read_one(ctx, "Checkpoint statistics", checkpoint_sql(has_checkpointer), dict)
-    checkpoint: Row = checkpoints.rows[0] if checkpoints.available and checkpoints.rows else {}
+    checkpoint: Row = checkpoints.records[0] if checkpoints.available and checkpoints.records else {}
     if not checkpoints.available:
         limitations.append(checkpoints.reason or "")
     slots = read_one(ctx, "Replication slots", queries.SLOTS_SQL, dict)
-    slot: Row = slots.rows[0] if slots.available and slots.rows else {}
+    slot: Row = slots.records[0] if slots.available and slots.records else {}
     if not slots.available:
         limitations.append(slots.reason or "")
     write_ms = _float(checkpoint, "write_time")
@@ -606,7 +608,7 @@ def collect(
     role = read_one(
         ctx, "Connected role", queries.ROLE_SQL, lambda r: (_str(r, "role_name"), bool(r.get("monitoring")))
     )
-    data.role, monitoring = role.rows[0] if role.available and role.rows else (None, False)
+    data.role, monitoring = role.records[0] if role.available and role.records else (None, False)
     data.statistics_restricted = not monitoring
     for collector in COLLECTORS:
         if budget.exhausted():
