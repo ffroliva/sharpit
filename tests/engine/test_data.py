@@ -554,3 +554,41 @@ def test_lazy_is_a_strategy_name(lazy: object, name: str) -> None:
     report = data.repositories_report(make_ctx(SimpleNamespace(mappers=[mapper])))
 
     assert report["repositories"][0]["relationships"] == [{"name": "pets", "target": "app.models.Pet", "lazy": name}]
+
+
+def test_registry_subclass_new_mapper_is_not_configured(configure_spy: list[str]) -> None:
+    # derived: spec §4: an app-defined subclass of ``registry`` gets the same ``_new_mappers`` check as the original
+    class AppRegistry(orm.registry):
+        pass
+
+    class BaseB(DeclarativeBase):
+        registry = AppRegistry()
+
+    class Pet(BaseB):
+        __tablename__ = "s_pets"
+        id = mapped_column(sa.Integer, primary_key=True)
+        owner_id = mapped_column(sa.ForeignKey("s_owners.id"))
+
+    class BaseA(DeclarativeBase):
+        metadata = BaseB.metadata
+        registry = AppRegistry()
+
+    class Owner(BaseA):
+        __tablename__ = "s_owners"
+        id = mapped_column(sa.Integer, primary_key=True)
+        pets = relationship(Pet)
+
+    sa.inspect(Owner)._check_configure()  # pyright: ignore[reportPrivateUsage] - configures both registries
+
+    class Toy(BaseB):
+        __tablename__ = "s_toys"
+        id = mapped_column(sa.Integer, primary_key=True)
+        broken = relationship("Missing")
+
+    configure_spy.clear()
+    report = data.repositories_report(make_ctx(BaseA))
+
+    assert Toy is not None
+    assert configure_spy == []
+    assert report["repositories"][0]["relationships"] is None
+    assert not any("Missing" in warning for warning in report["warnings"])
