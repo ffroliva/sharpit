@@ -108,7 +108,7 @@ def _models(models: object) -> tuple[object, ...]:
         raise TypeError(f"models must be a model class or an iterable of models, not {kind}")
     if isinstance(models, type) or not isinstance(models, Iterable):
         return (models,)
-    return tuple(cast("Iterable[object]", models))
+    return tuple(cast("Iterable[object]", models))  # NOSONAR - preserve the supplied model collection size
 
 
 def _requested(settings: SharpitSettings, profiles: tuple[str, ...]) -> bool:
