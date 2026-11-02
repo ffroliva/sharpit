@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from sharpit.engine import otel
+from sharpit.engine.capture import traces
 from sharpit.engine.capture.correlation import INTERNAL
 from sharpit.engine.capture.streams import SSE_TASK
 from sharpit.engine.capture.traces import SpanBuffer
@@ -426,3 +427,45 @@ def test_children_of_a_sharpit_request_take_no_capacity():
     processor.on_end(span(trace_id=OTHER, span_id=2, parent=1, kind="INTERNAL", name="http send"))
     processor.on_end(server)
     assert [t["traceId"] for t in buf.list(100)["traces"]] == [f"{TRACE:032x}"]
+
+
+def plant_provider(monkeypatch: pytest.MonkeyPatch, provider: Any) -> ModuleType:
+    trace = ModuleType("opentelemetry.trace")
+    trace._TRACER_PROVIDER = provider  # type: ignore[attr-defined]
+    trace.get_tracer_provider = lambda: provider  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "opentelemetry.trace", trace)
+    monkeypatch.setitem(sys.modules, "opentelemetry.sdk.trace", ModuleType("opentelemetry.sdk.trace"))
+    monkeypatch.setattr(otel, "PROCESSOR", otel.SharpitSpanProcessor())
+    return trace
+
+
+def sdk_provider() -> Any:
+    provider = SimpleNamespace(processors=[])
+    provider.add_span_processor = provider.processors.append
+    return provider
+
+
+def test_reason_when_the_attacher_never_ran(monkeypatch: pytest.MonkeyPatch):
+    # review r1: no lifespan and no capture middleware means no attach chance; that is not a late provider
+    plant_provider(monkeypatch, sdk_provider())
+    assert buffer().list(100)["unavailableReason"] == traces.NEVER_ATTACHED
+
+
+def test_reason_after_detach(monkeypatch: pytest.MonkeyPatch):
+    plant_provider(monkeypatch, sdk_provider())
+    buf = buffer()
+    remover = buf.arm()
+    assert remover is not None
+    remover()
+    assert buf.list(100)["unavailableReason"] == traces.DETACHED
+
+
+def test_reason_when_the_provider_was_set_late(monkeypatch: pytest.MonkeyPatch):
+    trace = plant_provider(monkeypatch, None)
+    trace.get_tracer_provider = lambda: None  # type: ignore[attr-defined]
+    buf = buffer()
+    assert buf.arm() is None
+    provider = sdk_provider()
+    trace._TRACER_PROVIDER = provider  # type: ignore[attr-defined]
+    trace.get_tracer_provider = lambda: provider  # type: ignore[attr-defined]
+    assert buf.list(100)["unavailableReason"] == traces.NOT_ARMED

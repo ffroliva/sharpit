@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 MIN_LIMIT, MAX_LIMIT = 1, 500  # TracesService clamp
 MAX_SUMMARY_SERVICES = 20
 NOT_ARMED = "The tracer provider was set after sharpit started; restart the application to collect traces"
+NEVER_ATTACHED = ""
+DETACHED = ""
 _PATH_KEYS = ("http.route", "url.path", "http.target", "url.full", "http.url")
 _URL_KEYS = frozenset({"url.full", "http.url"})
 _PLAIN_PATH_KEYS = frozenset({"http.route", "url.path", "http.target"})
