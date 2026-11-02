@@ -49,8 +49,5 @@ def query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUERY_TEXT
     masked = masker.mask_text(sql) or MASK
     # literals are values: masked exactly when the masker masks a secret value (not under FULL or mask-secrets off)
     if masker.mask("password", "x")[1]:
-        # red stub: the WIP f247d7e ordering (dollar quotes first, strings second)
-        two_pass = re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*|)\$.*?(?:\$\$|\Z)", f"$${MASK}$$", sql, flags=re.DOTALL)
-        two_pass = re.sub(r"'(?:[^']|'')*(?:'|\Z)", f"'{MASK}'", two_pass, flags=re.DOTALL)
-        masked = masker.mask_text(two_pass) or MASK
+        masked = masker.mask_text(_LITERAL.sub(_mask_literal, sql)) or MASK
     return truncate(masked, max_length)
