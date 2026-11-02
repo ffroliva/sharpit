@@ -25,7 +25,7 @@ All work is committed. Rerun `UV_LINK_MODE=copy uv run pytest -q -n 4` (log outs
 
 ## Review fixes (review.md, ponytail-review.md, code-review xhigh)
 
-| # | Finding | Test | Red SHA | Disposition |
+| # | Finding | Test | Red commit | Disposition |
 |---|---|---|---|---|
 | 1 | `max_sql` stored unmasked; a double-quoted `sk_live_` leaked with capture_parameters | `test_max_sql_masks_a_double_quoted_secret_with_parameter_capture` | `bf3c9a3e` | Fixed in `44e30a35`: `masker.mask_text(normalized.sql)` on each new max |
 | 2 | N+1 link used the endpoint name; HTTP Exchanges filters on path | `test_n_plus_one_carries_the_request_path`, `test_n_plus_one_link_finds_the_request_in_http_exchanges`, vitest routePath | `bf3c9a3e` | Fixed in `44e30a35`: entry carries `routePath`, the view links with it; `route` stays the endpoint |
@@ -41,7 +41,6 @@ All work is committed. Rerun `UV_LINK_MODE=copy uv run pytest -q -n 4` (log outs
 - Live refresh of the view via the change stream (it loads once).
 - Activity's N+1 threshold (`activity_n_plus_one_threshold`) and this panel's (`sql_trace_n_plus_one_threshold`) are separate settings; unifying them is a later call.
 - In-flight requests: an N+1 for a request whose exchange row is not yet written shows `unknown route`.
-- `WRITE_ROWS` export in `tests/safety/test_a_sqlalchemy_statistics_safety.py`: waits for the coordinator (F-rest owns `tests/test_safety_matrix.py` and `tests/test_surface_follows_flags.py`).
 
 ## Decisions
 
@@ -86,7 +85,6 @@ In-process TestClient on `examples.fastapi_sqla` (tables pre-created, app seeded
 | `tests/fastapi/test_sqlalchemy_statistics_api.py::test_enable_returns_report_unchanged` | `387bf66368802f6a4719d215ae7d60a217bff2c9` | `assert 404 == 200` |
 | `tests/fastapi/test_sqlalchemy_statistics_api.py::test_enable_read_only_403` | `387bf66368802f6a4719d215ae7d60a217bff2c9` | `assert 404 == 403` |
 | `tests/fastapi/test_sqlalchemy_statistics_api.py::test_mcp_read_tool_only` | `387bf66368802f6a4719d215ae7d60a217bff2c9` | `assert 'get_sqlalchemy_statistics' in [...]` |
-| `tests/safety/test_a_sqlalchemy_statistics_safety.py::test_get_no_side_effects` | `387bf66368802f6a4719d215ae7d60a217bff2c9` | `assert 404 == 200` |
 | `tests/masking/test_a_sqlalchemy_statistics_masking.py::test_stripe_key_in_slow_query_never_appears` | `387bf66368802f6a4719d215ae7d60a217bff2c9` | `assert 'executionsPerRequest' in 'Not Found body'` |
 | `tests/engine/capture/test_sqltrace_totals.py::test_max_sql_masks_a_double_quoted_secret_with_parameter_capture` | `bf3c9a3e137fdcd3c8907f0a6ad4836407c8ff77` | `assert 'sk_live_4eC...arjtT1zdp7dc' not in 'select * fr...rjtT1zdp7dc"'` |
 | `tests/engine/capture/test_sqltrace_totals.py::test_max_time_counts_selects_only` | `bf3c9a3e137fdcd3c8907f0a6ad4836407c8ff77` | `assert 50 == 5` |
@@ -109,6 +107,7 @@ In-process TestClient on `examples.fastapi_sqla` (tables pre-created, app seeded
 |---|---|---|
 | `tests/engine/capture/test_sqltrace_totals.py::test_totals_survive_clear` | `eb914c9bc546babaa3df145c3f080ec9c5a195b3` | review #7: `clear()` now resets max time/SQL; replaced by `test_counts_survive_clear`, `test_clear_resets_max_time`, `test_clear_resets_max_sql` (removed in `44e30a35`) |
 | `tests/engine/test_sqlastats.py::test_n_plus_one_is_capped` | `f42ebc4a453d13f0e3aa9c807ea802e831778850` | review #3: fed hand-built rows without the stored fingerprint; replaced by `test_n_plus_one_is_capped_from_the_recorder` (removed in `44e30a35`) |
+| `tests/safety/test_a_sqlalchemy_statistics_safety.py::test_get_no_side_effects` | `387bf66368802f6a4719d215ae7d60a217bff2c9` | superseded: the module-level `sa` skip became a non-skipping binding so the safety matrix can load the rows (red was `assert 404 == 200`) |
 
 ## UI reds (manual replay)
 
