@@ -39,6 +39,11 @@ def test_bounded_entries_report_stats() -> None:
     assert report["entries"][0]["status"] == "ROLLED_BACK", "the ring must retain its newest transaction"
 
 
+def test_buffer_size_reports_capacity_when_empty() -> None:
+    recorder = _recorder(max_entries=7)
+    assert recorder.report([])["bufferSize"] == 7, "bufferSize must report the configured ring capacity"
+
+
 def test_clear_keeps_total_captured() -> None:
     recorder = _recorder()
     entry_id = _begin(recorder)
