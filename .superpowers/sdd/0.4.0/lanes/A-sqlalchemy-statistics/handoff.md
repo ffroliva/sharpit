@@ -25,16 +25,7 @@ All work is committed. Rerun `UV_LINK_MODE=copy uv run pytest -q -n 4` (log outs
 
 ## Review fixes (review.md, ponytail-review.md, code-review xhigh)
 
-| # | Finding | Test | Red commit | Disposition |
-|---|---|---|---|---|
-| 1 | `max_sql` stored unmasked; a double-quoted `sk_live_` leaked with capture_parameters | `test_max_sql_masks_a_double_quoted_secret_with_parameter_capture` | `bf3c9a3e` | Fixed in `44e30a35`: `masker.mask_text(normalized.sql)` on each new max |
-| 2 | N+1 link used the endpoint name; HTTP Exchanges filters on path | `test_n_plus_one_carries_the_request_path`, `test_n_plus_one_link_finds_the_request_in_http_exchanges`, vitest routePath | `bf3c9a3e` | Fixed in `44e30a35`: entry carries `routePath`, the view links with it; `route` stays the endpoint |
-| 3 | GET re-normalised stored (truncated, raw) rows | `test_long_statements_with_varying_literals_are_one_shape`, `test_get_does_not_normalize` | `bf3c9a3e` | Fixed in `44e30a35`: each ring row keeps the recorder's `Normalized` under internal key `shape` (dropped by `entry_dto`); N+1 groups by its fingerprint and masks the output SQL |
-| 4 | `route_of` scanned the exchange buffer per group | `test_route_lookup_does_not_scan_per_group` | `bf3c9a3e` | Fixed in `44e30a35`: one `{id: row}` index per report |
-| 5 | Disabled sql-trace panel reported as SQL tracing disabled | `test_unavailable_when_sql_trace_panel_disabled` | `bf3c9a3e` | Fixed in `44e30a35`: `panels.disabled_reason("sql-trace")` first |
-| 6 | Paused recording not reported | `test_paused_recording_is_a_warning`, `test_paused_recording_stays_available`, vitest warning | `bf3c9a3e` | Fixed in `44e30a35`: `statistics.warnings` = `[RECORDING_PAUSED]`; `available` stays true |
-| 7 | maxTime/maxSql counted DML and survived clear | `test_max_time_counts_selects_only`, `test_max_sql_is_a_select`, `test_clear_resets_max_time`, `test_clear_resets_max_sql`, `test_max_after_clear_is_the_next_select` | `bf3c9a3e` | Fixed in `44e30a35`: SELECT-only, reset by `clear()`; counts still survive clear (`test_counts_survive_clear`) |
-| 8 | duplicate `_statements`; collector imported engine.tools; decoration vitest; NULL_REASON drift | `test_null_reason_matches_nullable_json`, vitest tooltip | `bf3c9a3e` | Fixed in `44e30a35`: `_total` reused; `sql_trace_unavailable_reason`/`sqlite3_traced` moved to `engine/sqla.py` (tools imports it); decoration vitest removed; one reason text in Python, UI and nullable.json |
+Eight review findings, all fixed in `44e30a35`, red at `bf3c9a3e`: max SQL masking (1), N+1 link path (2), stored shape (3), route index (4), panel-disabled reason (5), paused warning (6), SELECT-only max reset by clear (7), reason text and gatekeeper cleanup (8). Each red test id is under Red tests below.
 
 ## Open minors (skipped on purpose)
 
