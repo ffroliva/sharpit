@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import functools
 import gc
 import inspect
 import logging
@@ -20,6 +21,7 @@ import time
 import weakref
 from collections.abc import Callable
 from concurrent.futures import Executor
+from types import CodeType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, internal
@@ -64,12 +66,17 @@ _relationship_sites: dict[tuple[str, int, str], dict[str, str | None]] = {}
 _eager_relationship_batches: dict[tuple[str, int, str], dict[str, int]] = {}
 
 
+@functools.lru_cache(maxsize=4096)
+def _is_application_code(code: CodeType) -> bool:
+    return is_application_frame(code.co_filename)
+
+
 def _first_application_location() -> str | None:
     frame = inspect.currentframe()
     try:
         frame = frame.f_back if frame is not None else None
         while frame is not None:
-            if is_application_frame(frame.f_code.co_filename):
+            if _is_application_code(frame.f_code):
                 return f"{frame.f_code.co_filename}:{frame.f_lineno}"
             frame = frame.f_back
         return None
@@ -77,44 +84,43 @@ def _first_application_location() -> str | None:
         del frame
 
 
+@functools.lru_cache(maxsize=1)
+def _relationship_masker() -> Masker:
+    from sharpit.engine.testsession.sink import report_masker
+
+    return report_masker()
+
+
+@functools.lru_cache(maxsize=1024)
+def _masked_fingerprint(statement: str) -> str:
+    from sharpit.engine.capture.sqltrace import normalize
+
+    return _relationship_masker().mask_text(normalize(statement).fingerprint) or ""
+
+
 def _record_relationship(context: Any) -> None:
     """Keep bounded relationship metadata for the active test; called only by session ORM/SQL listeners."""
+    tag = TEST.get()
+    if tag is None or tag[2] != "call":
+        return
     options = getattr(context, "execution_options", {})
     relation_value = options.get(RELATIONSHIP_KEY) if options is not None else None
-    if not isinstance(relation_value, tuple) or len(cast("tuple[object, ...]", relation_value)) != 2:
-        return
-    identity, collection = cast("tuple[object, object]", relation_value)
-    tag = TEST.get()
-    if tag is None or tag[2] != "call":
-        return
-    if not isinstance(identity, str) or not isinstance(collection, bool):
-        return
-    from sharpit.engine.capture.sqltrace import normalize
-
     statement = getattr(context, "statement", None)
     if not isinstance(statement, str):
         return
-    key = normalize(statement).fingerprint
-    with _lock:
-        loads = _relationship_loads.setdefault(tag, {})
-        loads[identity] = loads.get(identity, 0) + 1
-        _relationship_groups.setdefault(tag, {}).setdefault(key, (identity, collection))
-        _relationship_sites.setdefault(tag, {}).setdefault(identity, _first_application_location())
-
-
-def _record_eager_relationship(context: Any) -> None:
-    options = getattr(context, "execution_options", {})
+    if isinstance(relation_value, tuple) and len(cast("tuple[object, ...]", relation_value)) == 2:
+        identity, collection = cast("tuple[object, object]", relation_value)
+        if not isinstance(identity, str) or not isinstance(collection, bool):
+            return
+        key = _masked_fingerprint(statement)
+        groups = _relationship_groups.get(tag)
+        if groups is None or key not in groups:
+            with _lock:
+                _relationship_groups.setdefault(tag, {}).setdefault(key, (identity, collection))
+        return
     if options is None or not options.get(_EAGER_RELATIONSHIP_KEY):
         return
-    tag = TEST.get()
-    if tag is None or tag[2] != "call":
-        return
-    statement = getattr(context, "statement", None)
-    if not isinstance(statement, str):
-        return
-    from sharpit.engine.capture.sqltrace import normalize
-
-    key = normalize(statement).fingerprint
+    key = _masked_fingerprint(statement)
     with _lock:
         batches = _eager_relationship_batches.setdefault(tag, {})
         batches[key] = batches.get(key, 0) + 1
@@ -138,9 +144,13 @@ def apply_relationship_facts(test: Any) -> None:
         else:
             phase.selects.pop(group, None)
             phase.sql_of.pop(group, None)
-    phase.relationship_loads.update(loads)
     phase.relationship_of.update(groups)
     phase.relationship_sites.update(sites)
+    for group, (identity, _collection) in groups.items():
+        count = phase.selects.get(group, 0)
+        if count:
+            loads[identity] = loads.get(identity, 0) + count
+    phase.relationship_loads.update(loads)
 
 
 def do_orm_execute(state: Any) -> None:
@@ -163,11 +173,15 @@ def do_orm_execute(state: Any) -> None:
             return
         collection = direction in {"ONETOMANY", "MANYTOMANY"}
         tag = TEST.get()
+        identity = f"{model}.{key}"
         if tag is not None and tag[2] == "call":
-            location = _first_application_location()
-            with _lock:
-                _relationship_sites.setdefault(tag, {}).setdefault(f"{model}.{key}", location)
-        state.update_execution_options(**{RELATIONSHIP_KEY: (f"{model}.{key}", collection)})
+            sites = _relationship_sites.get(tag)
+            if sites is None or identity not in sites:
+                with _lock:
+                    sites = _relationship_sites.setdefault(tag, {})
+                    if identity not in sites:
+                        sites[identity] = _first_application_location()
+        state.update_execution_options(**{RELATIONSHIP_KEY: (identity, collection)})
     except Exception as exc:  # noqa: BLE001 - an observer must never change host query behavior
         dispatch.routing_failed(exc)
 
@@ -304,7 +318,6 @@ def before_cursor_execute(
         if INTERNAL.get():
             return
         _record_relationship(context)
-        _record_eager_relationship(context)
         targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets
         if not targets and dispatch.session_sink() is None:
             return
