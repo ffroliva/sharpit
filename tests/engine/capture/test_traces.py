@@ -304,6 +304,14 @@ def test_exception_event_stacktrace_gets_the_sql_handling():
     assert "hunter2" not in shown
 
 
+def test_sql_exception_stacktrace_keeps_python_frames():
+    trace = 'Traceback (most recent call last):\n  File "app.py", line 3, in <module>\n' + SQL_ERROR
+    buf = buffer()
+    buf.add(span(events=[event("exception", 2_000, {"exception.stacktrace": trace})]))
+    shown = first_span(buf)["events"][0]["attributes"][0]["value"]
+    assert 'File "app.py", line 3' in shown
+
+
 def test_non_sql_stacktrace_keeps_its_frames():
     trace = 'Traceback (most recent call last):\n  File "app.py", line 3, in <module>\nValueError: boom'
     buf = buffer()
