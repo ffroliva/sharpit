@@ -54,7 +54,18 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
         from sharpit.engine import sqla
 
         sqla.apply_relationship_facts(test)
-        sqla.apply_unbounded_read_facts(test)
+        if sqla.apply_unbounded_read_facts(test):
+            reason = "unbounded-read needs sharpit.install(app): the capture middleware supplies the route and its page size"
+            source = next(
+                (entry for entry in state.sink.facts.sources if entry["name"] == "unbounded-read"),
+                None,
+            )
+            if source is None:
+                state.sink.facts.sources.append(
+                    {"name": "unbounded-read", "attached": True, "reason": None, "limitations": [reason]}
+                )
+            elif reason not in source["limitations"]:
+                source["limitations"].append(reason)
         findings = plugin.gates.evaluate_test(
             test,
             budget,

@@ -67,6 +67,7 @@ _relationship_groups: dict[tuple[str, int, str], dict[str, tuple[str, bool]]] = 
 _relationship_sites: dict[tuple[str, int, str], dict[str, str | None]] = {}
 _eager_relationship_batches: dict[tuple[str, int, str], dict[str, int]] = {}
 _unbounded_read_facts: dict[tuple[str, int, str], dict[str, UnboundedReadFact]] = {}
+_unbounded_read_missing_capture: set[tuple[str, int]] = set()
 
 
 @functools.lru_cache(maxsize=4096)
@@ -205,7 +206,10 @@ def _mapper_load(target: Any, context: Any) -> None:
     try:
         info = REQUEST.get()
         tag = TEST.get()
-        if info is None or tag is None or tag[2] != "call" or info.scope is None:
+        if tag is None or tag[2] != "call":
+            return
+        if info is None or info.scope is None:
+            _unbounded_read_missing_capture.add(tag[:2])
             return
         paging = info.paging
         if paging is None:
@@ -261,13 +265,16 @@ def _mapper_load(target: Any, context: Any) -> None:
         dispatch.routing_failed(exc)
 
 
-def apply_unbounded_read_facts(test: Any) -> None:
+def apply_unbounded_read_facts(test: Any) -> bool:
     tag = (test.key.node_id, test.key.attempt, "call")
     with _lock:
         facts = _unbounded_read_facts.pop(tag, {})
+        missing_capture = tag[:2] in _unbounded_read_missing_capture
+        _unbounded_read_missing_capture.discard(tag[:2])
     if facts:
         test.phases.setdefault("call", PhaseFacts())
         test.phases["call"].unbounded_reads.extend(facts.values())
+    return missing_capture
 
 
 def sqlalchemy_module() -> Any | None:
@@ -587,6 +594,7 @@ def detach_session() -> None:
         if sa is not None and sa.event.contains(sa.orm.Mapper, "load", _mapper_load):
             sa.event.remove(sa.orm.Mapper, "load", _mapper_load)
         _unbounded_read_facts.clear()
+        _unbounded_read_missing_capture.clear()
         _relationship_groups.clear()
         _relationship_sites.clear()
         _eager_relationship_batches.clear()
