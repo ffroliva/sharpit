@@ -44,7 +44,9 @@ JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjb3JwdXMifQ.c2lnbmF0dXJlLWJ5dGVz"
 STRIPE_KEY = "sk_live_" + "Z9y8X7w6V5u4T3s2R1q0"
 AWS_KEY = "AKIAABCDEFGHIJKLMNOP"
 GITHUB_TOKEN = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2"
-PROBES = ("S3NT1NEL", "9f3c")  # fragments: an echoed probe is not a leak, a matched secret would be
+# fragments: an echoed probe is not a leak, a matched secret would be. The tail probe keeps non-hex letters: plain
+# "9f3c" also matched a CI runner's hex path by chance.
+PROBES = ("S3NT1NEL", "NEL9f3c")
 AUTH_TOKEN = "corpus-auth-token"  # distinct from the sentinel: it legitimately appears in Set-Cookie
 LOCAL = ("127.0.0.1", 50000)
 REMOTE = ("10.0.0.5", 50000)
