@@ -1,6 +1,6 @@
 # Lane A-postgresql handoff
 
-Status: IN_PROGRESS — Tasks 1–5 complete (resumed by a Claude subagent after Antigravity hit its quota); next Task 6.
+Status: IN_PROGRESS — Tasks 1–6 complete (resumed by a Claude subagent after Antigravity hit its quota); next Task 7 (gates and evidence).
 
 ## How to resume
 
@@ -19,10 +19,11 @@ Status: IN_PROGRESS — Tasks 1–5 complete (resumed by a Claude subagent after
 - Task 3 (section collectors): red `e2504c7f15c00305ab54c166ccded0700a2ae900`, fix `feat: postgresql catalog section collectors` (see git log).
 - Task 4 (report service): red `af231859d2e164fe48214be61e67b4fc1635a1bb`, fix `c3ff9e4` (`feat: postgresql read service`). `test_concurrent_read_is_busy` is not in the red table (its red is pytest's `DID NOT RAISE`, not an assertion).
 - Task 5 (routes, MCP, safety, masking): red `6da613bfa2d48b778cf983cabb7a01bf2577a529`, fix `feat: postgresql panel routes and MCP read tool` (see git log). The Python flag `panels04/postgresql.py::IMPLEMENTED` is flipped in Task 5's red (the routes only mount behind it); the UI flag flips in Task 6. `tests/safety/test_a_postgresql_safety.py` and `tests/masking/test_a_postgresql_masking.py` are characterization rows written after the service (green at their first commit, not in the red table).
+- Task 6 (Svelte view): red `57b15943b03201e477732893c231446cabde9c45`, fix `feat: postgresql view` (see git log). View file is F's `ui/src/views/PostgreSql.svelte` (F's casing), test `ui/tests/component/postgresql.test.ts`; the view titles itself from `panel.title` so F's `panels04.test.ts` placeholder check still holds. The read button is hidden (not disabled) when read-only, per the lane plan.
 
 ## Next step
 
-- Task 6: replace `ui/src/views/PostgreSql.svelte`, add `ui/tests/component/postgreSql.test.ts`, flip `ui/src/lib/panels04/postgresql.ts`.
+- Task 7: four gates, checklist, final report.
 
 ## Decisions and deviations
 
@@ -52,6 +53,7 @@ Status: IN_PROGRESS — Tasks 1–5 complete (resumed by a Claude subagent after
   - `tests/test_foundation_suite_equivalence.py::test_foundation_suite_equivalence` (route list now starts with `/api/postgresql`, `/api/postgresql/read`)
   - `tests/test_safety_matrix.py::test_write_route_table_is_complete` (+`POST /sharpit/api/postgresql/read`), `::test_get_route_table_is_complete` (+`GET /sharpit/api/postgresql`) — C5 file, not editable by this lane.
   - F's `tests/fastapi/test_capture_hooks.py` / `tests/test_foundation_review_fixes.py`: no failure observed from the flip.
+- UI: `npm run build` was not run (COMMON forbids it); `src/sharpit/ui/static` must be rebuilt by the coordinator for the CI UI-drift job.
 - G0a: `tests/fixtures/bootui/2.2.0/postgresql/captured.json` (or a `provisional.json`) so `test_golden_parity` runs instead of skipping.
 - Leased-Postgres run (this lane never connected to a database): `SHARPIT_TEST_POSTGRES_URL=postgresql+psycopg://<user>:<pw>@localhost:5432/<db> uv run pytest -v tests/engine/test_sqla_read_only.py tests/engine/postgresql/test_sections.py -k "rejects_write or autocommit_engine or async_engine or real_server"`.
 
@@ -126,4 +128,8 @@ Status: IN_PROGRESS — Tasks 1–5 complete (resumed by a Claude subagent after
 | `tests/fastapi/test_postgresql_api.py::test_concurrent_read_409` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 409` |
 | `tests/fastapi/test_postgresql_api.py::test_mcp_read_tool_only` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `AssertionError: assert [] == ['get_postgre...tgresql_read']` |
 | `tests/fastapi/test_postgresql_api.py::test_cli_read_returns_a_summary_without_rows` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
+| `Vitest: ui/tests/component/postgresql.test.ts::NOT_READ shows the message and the read button, and nothing reads on open` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'The database has not been read yet. R…'` |
+| `Vitest: ui/tests/component/postgresql.test.ts::a read renders each section with its status, reason and hint` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected undefined to be defined` |
+| `Vitest: ui/tests/component/postgresql.test.ts::changes render only when the read carries them (the second read)` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'Statement ranking'` |
+| `Vitest: ui/tests/component/postgresql.test.ts::read-only hides the read button and says why` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'The database has not been read yet. R…'` |
 

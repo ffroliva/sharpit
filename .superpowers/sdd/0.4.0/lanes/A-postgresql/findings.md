@@ -71,6 +71,10 @@
 | `tests/fastapi/test_postgresql_api.py::test_concurrent_read_409` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 409` |
 | `tests/fastapi/test_postgresql_api.py::test_mcp_read_tool_only` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `AssertionError: assert [] == ['get_postgre...tgresql_read']` |
 | `tests/fastapi/test_postgresql_api.py::test_cli_read_returns_a_summary_without_rows` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
+| `Vitest: ui/tests/component/postgresql.test.ts::NOT_READ shows the message and the read button, and nothing reads on open` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'The database has not been read yet. R…'` |
+| `Vitest: ui/tests/component/postgresql.test.ts::a read renders each section with its status, reason and hint` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected undefined to be defined` |
+| `Vitest: ui/tests/component/postgresql.test.ts::changes render only when the read carries them (the second read)` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'Statement ranking'` |
+| `Vitest: ui/tests/component/postgresql.test.ts::read-only hides the read button and says why` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'The database has not been read yet. R…'` |
 
 ## Review / implementation findings
 
