@@ -1,5 +1,7 @@
 # Lane G4 findings
 
+## Round 0 findings (initial plan)
+
 | Finding | Test | Red SHA | Assertion message | Disposition |
 |---|---|---|---|---|
 | README.md install commands must use published PyPI package and valid extras instead of stale git clone | `tests/docs/test_procurement_docs.py::test_readme_install_uses_current_pypi_version_and_valid_extra` | `0aacb9134c8bf1a91d9e2df66dbee287470c501d` | `assert 'not on PyPI yet' not in readme_text` | Fixed in `fb91ef991a5a07509806f7442fccfdcdcc5dbd6f` |
@@ -9,3 +11,13 @@
 | SECURITY.md must restrict external network egress claim to OSV and EPSS gatekeepers only | `tests/docs/test_procurement_docs.py::test_security_policy_network_claim_matches_gatekeepers` | `46a3c9a5a78c5c7cc32f4a96c1a754b38e718c40` | `assert security_path.is_file()` | Fixed in `129304c06212cc384d8de7c2a3ec17070ac2b285` |
 | .github/dependabot.yml must cover pip (/), github-actions (/), and npm (/ui) | `tests/docs/test_procurement_docs.py::test_dependabot_covers_uv_pip_actions_and_ui_npm` | `d965c101464d448563da5f61d08e789ddb25b871` | `assert dependabot_path.is_file()` | Fixed in `141140cf947753abe45fe10a690fbc919fe3deca` |
 | skills/README.md must update stale pre-release index line for sharpit user-facing skill | `tests/docs/test_procurement_docs.py::test_skills_readme_stale_line_corrected` | `d965c101464d448563da5f61d08e789ddb25b871` | `assert 'Labelled pre-release' not in skills_text` | Fixed in `141140cf947753abe45fe10a690fbc919fe3deca` |
+
+## Round 1 review findings
+
+| Finding | Test | Red SHA | Assertion message | Disposition |
+|---|---|---|---|---|
+| Finding 1: README gflow-cli proof accuracy (drop "independent", state run by author on 0.3.0 integration branch, link to own report, ~53k statements, 6 N+1 findings: 1 real, 2 noise, 3 expected polling, 5 failed by gates) | `tests/docs/test_procurement_docs.py::test_readme_gate_and_gflow_proof_precede_details` | `3fff0b186f6be5ee812eab218767488c09c2c85c` | `assert "independent" not in proof_section.lower()` | Fixed in `c2954984cbe7c449ff573b91b0db977ecd2febbf` |
+| Finding 2: SECURITY.md reporting route (disabled private reporting, issue titled 'Security contact request' with no details until enabled, remove 48-hour SLA, verifiable PyPI support boundary without exact __version__ duplication) | `tests/docs/test_procurement_docs.py::test_security_policy_names_supported_versions` & `tests/docs/test_procurement_docs.py::test_security_policy_has_private_reporting_route` | `15b9c8a4f1701d78ae1b1721387398f6fe9971a9` | `assert "latest release on pypi" in supported_section.lower()` & `assert "Report a vulnerability" in reporting_section` | Fixed in `42271a6c2310dd0a3816229b99fadad9a8b0bdd1` |
+| Finding 3: SECURITY.md egress accuracy (drop 'entirely offline', specify GET/MCP open no sockets, health check POST pings DB engines and runs callables, DB panels run read-only SQL, vuln scan POST sends up to 500 packages to OSV/EPSS, configurable/disable env vars) | `tests/docs/test_procurement_docs.py::test_security_policy_network_claim_matches_gatekeepers` | `6afba7b2d067f808cf3c09bc52c1c38a37aa0530` | `assert "entirely offline" not in section.lower()` | Fixed in `37a2a08dc2e2c5ecdb64a6ea5eda0419b5ac0648` |
+| Finding 4: .github/dependabot.yml uv at /, pip at /website, npm at /ui grouped with open-pull-requests-limit: 2 and build drift comment; parse YAML structurally in test | `tests/docs/test_procurement_docs.py::test_dependabot_covers_uv_pip_actions_and_ui_npm` | `08f931c2b3e725a7fc1fc4fe34aa1fb2551c0dcf` | `assert len(updates) >= 4` | Fixed in `cbbb2768d394bcc7c5bf1b72b29dc363ad4f9abe` |
+| Finding 5: skills/README.md restore pre-release label meaning, correct SonarCloud CI description (~line 54), and remove CHANGELOG.md from missing files list (~line 57) | `tests/docs/test_procurement_docs.py::test_skills_readme_stale_line_corrected` | `48b6815d73a705071d5b7c2f2e3760e5729d8cb0` | `assert re.search(r"\|\s*`sharpit`\s*\|\s*\(none:\s*user-facing\)\s*\|.*pre-release", ...) is not None` | Fixed in `7933cc716bb04e10d908035e6a14415e957caa9d` |

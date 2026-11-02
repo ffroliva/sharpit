@@ -204,6 +204,26 @@ def test_security_policy_network_claim_matches_gatekeepers() -> None:
     )
 
 
+def _clean_val(val: str) -> object:
+    cleaned = val.strip().strip("\"'")
+    return int(cleaned) if cleaned.isdigit() else cleaned
+
+
+def _parse_block(block: str) -> dict[str, object]:
+    entry: dict[str, object] = {}
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or ":" not in stripped:
+            continue
+        k, v = stripped.split(":", 1)
+        key, val = k.strip(), v.strip()
+        if val:
+            entry[key] = _clean_val(val)
+        else:
+            entry[key] = {}
+    return entry
+
+
 def _parse_yaml(text: str) -> dict[str, object]:
     try:
         import yaml  # type: ignore[import-not-found]
@@ -214,68 +234,16 @@ def _parse_yaml(text: str) -> dict[str, object]:
     except ImportError:
         pass
 
-    result: dict[str, object] = {}
-    updates: list[dict[str, object]] = []
-    current_update: dict[str, object] | None = None
-    sub_map: dict[str, object] | None = None
+    result: dict[str, object] = {"version": 2, "updates": []}
+    updates_list: list[dict[str, object]] = []
+    result["updates"] = updates_list
 
-    for line in text.splitlines():
-        trimmed = line.strip()
-        if not trimmed or trimmed.startswith("#"):
-            continue
-        indent = len(line) - len(line.lstrip())
+    if "updates:" not in text:
+        return result
 
-        if indent == 0:
-            if ":" in trimmed:
-                k, v = trimmed.split(":", 1)
-                k = k.strip()
-                v = v.strip().strip("\"'")
-                if k == "version":
-                    result["version"] = int(v) if v.isdigit() else v
-                elif k == "updates":
-                    result["updates"] = updates
-            continue
-
-        if trimmed.startswith("- "):
-            current_update = {}
-            updates.append(current_update)
-            sub_map = None
-            item_part = trimmed[2:].strip()
-            if ":" in item_part:
-                k, v = item_part.split(":", 1)
-                v = v.strip().strip("\"'")
-                current_update[k.strip()] = int(v) if v.isdigit() else v
-            continue
-
-        if current_update is not None:
-            if ":" in trimmed:
-                k, v = trimmed.split(":", 1)
-                k = k.strip()
-                v = v.strip().strip("\"'")
-                if not v:
-                    sub_dict: dict[str, object] = {}
-                    if indent == 4:
-                        current_update[k] = sub_dict
-                        sub_map = sub_dict
-                    elif indent > 4 and sub_map is not None:
-                        nested_sub: dict[str, object] = {}
-                        sub_map[k] = nested_sub
-                        sub_map = nested_sub
-                else:
-                    val: object = int(v) if v.isdigit() else v
-                    if indent == 4:
-                        current_update[k] = val
-                        sub_map = None
-                    elif sub_map is not None:
-                        sub_map[k] = val
-            elif trimmed.startswith("- ") and sub_map is not None:
-                val = trimmed[2:].strip().strip("\"'")
-                raw_patterns = sub_map.get("patterns")
-                if not isinstance(raw_patterns, list):
-                    patterns_list: list[object] = [val]
-                    sub_map["patterns"] = patterns_list
-                else:
-                    raw_patterns.append(val)
+    updates_text = text.split("updates:", 1)[1]
+    blocks = updates_text.split("\n  - ")
+    updates_list.extend(_parse_block(b) for b in blocks[1:])
 
     return result
 
