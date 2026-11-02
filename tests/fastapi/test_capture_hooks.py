@@ -50,7 +50,12 @@ def _sql_statements(handle: SharpitHandle) -> bool:
 HOOKS: list[Any] = [
     (("log-tail", "exceptions"), "log handler", _log_handler_present),
     (("exceptions",), "exception handlers", _handlers_wrapped),
-    pytest.param(sqla.DISCOVERY_PANELS, "sql discovery", _sql_discovery, marks=pytest.mark.needs_sqlalchemy),
+    pytest.param(
+        tuple(p for p in sqla.DISCOVERY_PANELS if panel_is_implemented(p)),
+        "sql discovery",
+        _sql_discovery,
+        marks=pytest.mark.needs_sqlalchemy,
+    ),
     pytest.param(("sql-trace",), "sql statements", _sql_statements, marks=pytest.mark.needs_sqlalchemy),
 ]
 

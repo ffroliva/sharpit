@@ -168,7 +168,13 @@ def test_guard_matrix(
 def test_mcp_switch_is_the_only_gate_on_mcp():
     # §7.6: {api}/mcp has no panel gate; MCP off is an in-band JSON-RPC error, not a guard 403
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, read_only=True, panels={p.id: {"enabled": False} for p in PANELS})
+    install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        read_only=True,
+        panels={p.id: {"enabled": False} for p in PANELS if p.implemented},
+    )
     resp = _client(app).post("/sharpit/api/mcp", json=PING)
     assert resp.status_code == 200
     assert resp.json() == {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": DISABLED_MESSAGE}}
@@ -266,7 +272,7 @@ def test_disabled_source_activity_routes(panel: str, source: str | None, row_typ
 def test_ungated_paths_ignore_panel_flags():
     # §7.6: panels, overview and cli carry no panel gate (the overview and cli panels have no API prefix)
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, panels={p.id: {"enabled": False} for p in PANELS})
+    install(app, enabled="ON", show_banner=False, panels={p.id: {"enabled": False} for p in PANELS if p.implemented})
     client = _client(app)
     for path in ("/sharpit/api/panels", "/sharpit/api/overview", "/sharpit/api/cli", "/sharpit/"):
         assert client.get(path).status_code == 200, path

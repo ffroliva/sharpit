@@ -71,3 +71,39 @@ def test_unknown_panel_message_lists_only_implemented_panels() -> None:
     assert _value_error({"postgresql": {"enabled": False}}) == (
         f"Unknown sharpit panel(s): postgresql; known panels: {known}"
     )
+
+
+def test_planted_tool_in_an_unimplemented_panel_stays_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    # review minor 4: a lane that fills TOOLS before flipping its flag still exposes nothing
+    from sharpit.engine.tools04 import data as data_tools
+
+    planted = object()
+    monkeypatch.setattr(data_tools, "TOOLS", (planted,))
+    monkeypatch.setattr(data_tools, "COMMANDS", {"planted": "get_planted"})
+    tools, commands = panels04.tool_definitions()
+    assert planted not in tools
+    assert "planted" not in commands
+
+
+def test_report_only_options_leave_the_sharpit_report_unchanged(pytester: pytest.Pytester) -> None:
+    # review minor 5: under --sharpit too, the inert options change neither the exit status nor the report verdict
+    import json
+
+    pytester.makepyfile("def test_one(): assert True")
+    common = ["-q", "-p", "no:cacheprovider", "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown"]
+    plain = pytester.runpytest(*common, "--sharpit-report=plain.json")
+    with_options = pytester.runpytest(
+        *common,
+        "--sharpit-report=options.json",
+        "--sharpit-report-only",
+        "--sharpit-baseline",
+        "baseline.json",
+        "--sharpit-write-baseline",
+    )
+    before = json.loads((pytester.path / "plain.json").read_text())
+    after = json.loads((pytester.path / "options.json").read_text())
+    assert with_options.ret == plain.ret
+    assert after["status"] == before["status"]
+    assert after["findings"] == before["findings"]
+    assert after["gates"] == before["gates"]
+    assert not (pytester.path / "baseline.json").exists()

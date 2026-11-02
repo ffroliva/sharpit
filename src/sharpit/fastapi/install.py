@@ -104,6 +104,9 @@ def _models(models: object) -> tuple[object, ...]:
     """
     if models is None:
         return ()
+    kind = type(models).__name__
+    if isinstance(models, str | bytes | Mapping):  # iterable, but never a list of models
+        raise TypeError(f"models must be a model class or an iterable of models, not {kind}")
     if isinstance(models, type) or not isinstance(models, Iterable):
         return (models,)
     return tuple(cast("Iterable[object]", models))
