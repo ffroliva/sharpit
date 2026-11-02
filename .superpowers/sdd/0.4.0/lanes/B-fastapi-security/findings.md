@@ -42,3 +42,17 @@
 | `ui/tests/component/fastapiSecurity.test.ts::marks a best-effort endpoint` | eb03313d4ae417e13300e9165ca8495ec46cc091 | `expected +0 to be 3` |
 | `ui/tests/component/fastapiSecurity.test.ts::the explain form sends method and path and shows the rule` | eb03313d4ae417e13300e9165ca8495ec46cc091 | `expected null not to be null` |
 | `ui/tests/component/fastapiSecurity.test.ts::an app without FastAPI security shows the reason` | eb03313d4ae417e13300e9165ca8495ec46cc091 | `expected the placeholder text to contain the reason` |
+
+## Fix round 1 dispositions
+
+| Finding | Red SHA | Disposition |
+|---|---|---|
+| Custom route descriptors or candidate methods can execute user code | 95136a9 | In progress: exact-type handling and no candidate-method calls; targeted tests still fail |
+| Scheme-less dependencies must not prove secured | 95136a9 | In progress: engine rule changed; legacy committed assertion conflicts and remains untouched |
+| Mount capture and skipped unreadable route affect explain | 95136a9 | In progress: engine mount tracking added; targeted verification pending |
+| Every enclosing app and Mount middleware belongs to the chain | 95136a9 | In progress: cumulative app/mount stack collection added; targeted verification pending |
+| Parameter-level scheme-less and nested optional auth are best effort | 95136a9 | In progress: dependency traversal updated; targeted verification pending |
+| UI keys unique and empty explain values use defaults | 95136a9 | In progress: row keys and defaults updated; UI checks pending |
+| include_router limitation text | 95136a9 | In progress: lazy router is not expanded and visible limitation row is emitted |
+
+Final round disposition: **Parked pending green gates.** Fix commits `3120361` and `4bf1302` implement the listed mitigations, but targeted/full Python tests and pyright still fail. No red test body was edited.

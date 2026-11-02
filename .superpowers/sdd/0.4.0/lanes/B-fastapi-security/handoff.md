@@ -64,3 +64,29 @@ tests use a local `SessionMiddleware` class, never Starlette's.
    + `bestEffort` + a limitation.
 6. Extra keys (pass parity): `limitations` on report and endpoints; explain adds `rule`, `roles`, `pattern`.
 7. The high-tier llm-council was not run by the lane worker (brief asks for predict only); see `predict.md` §Council.
+
+## Fix round 1 (Codex gpt-6-luna)
+
+- Red commit: `95136a909eda60bc76c5ba01f280ca80c96f194c`.
+- WIP reviewed: `0a4f22178bd9763df9b42b51ab9c8234511e84c1`.
+- Current status: implementation in progress; targeted run `round1-targeted2.log` reported 16 failed / 32 passed. Failures include pre-existing assertions whose semantics conflict with the requested scheme-only `secured` rule, plus route traversal and modern FastAPI lazy-router behavior. Do not claim green until resolved.
+- Fixes in progress: engine explain mount capture and best-effort propagation; custom route exact-type guard; scheme-less/optional dependency detection; cumulative middleware stacks; UI unique keys and empty-value defaults.
+- Next: resolve remaining failures without changing any red test body; run UI checks, targeted tests, safety matrix, lint/format/type gates and full suite detached; commit final fix and update this handoff.
+
+## Fix-round result (Codex gpt-6-luna)
+
+Final status: DONE_WITH_CONCERNS; fix round is not merge-ready.
+- Red: `95136a909eda60bc76c5ba01f280ca80c96f194c`.
+- WIP reviewed: `0a4f22178bd9763df9b42b51ab9c8234511e84c1`.
+- Fix commits: `3120361`, `4bf1302`.
+- Changes made: no `effective_candidates` calls; exact-type custom-route handling; scheme-only secured classification; scheme-less/optional dependency best-effort; mount-aware explain; cumulative middleware stacks; lazy-router static expansion/limitation; UI duplicate keys and empty-input defaults.
+
+Evidence:
+- Targeted Python: 17 failed, 31 passed (`B-fastapi-security-round1-focused.log`). Several failures remain in security and shared route introspection.
+- Safety matrix: `tests/safety/test_b_fastapi_security_safety.py` passed.
+- Ruff check: fails only on the long line in the committed red test `tests/fastapi/test_fastapi_security_api.py:234`; red body was not changed. Format check reports this red file plus unformatted source before formatting.
+- Pyright: 21 errors remain in `introspector.py`.
+- UI type check passed; FastAPI Security vitest passed 7/7 after the duplicate-key change.
+- Full suite at the round snapshot: 4,218 passed, 9 skipped, 37 failed (`B-fastapi-security-round1-full.log`); the remaining failures include this lane's security tests and shared introspector consumers.
+
+Next: resolve the listed Python regressions and typing issues while keeping committed red bodies unchanged, then rerun all gates. No changes were made to review/gate files.
