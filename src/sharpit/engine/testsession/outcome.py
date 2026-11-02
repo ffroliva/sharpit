@@ -292,7 +292,7 @@ def _unknown_reasons(
         reasons += [
             f"advisor '{s['advisor']}' could not assess: {s['reason'] or FALLBACK_REASON}"
             for s in summaries
-            if s["status"] == "UNKNOWN" or s["reason"] is not None
+            if s["status"] == "UNKNOWN"
         ]
     reasons += [f"worker {w['id']} reported no sharpit facts" for w in merged.workers if w["status"] == "missing"]
     return reasons
@@ -321,5 +321,5 @@ def session_status(
 def exit_fails(status: str, allow_unknown: bool, *, report_only: bool = False, unknown_reasons: Sequence[str] = ()) -> bool:
     """Whether the session exit status turns non-zero (pytest's own non-zero codes are never lowered)."""
     if report_only:
-        return False
+        return bool(unknown_reasons) and not allow_unknown
     return status == "fail" or (status == "unknown" and not allow_unknown)

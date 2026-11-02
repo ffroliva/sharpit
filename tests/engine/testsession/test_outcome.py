@@ -75,6 +75,24 @@ def test_report_only_still_fails_on_unknown_reason_when_status_is_fail() -> None
     ) is True
 
 
+def test_failed_advisor_preserves_unknown_reason_when_status_fails() -> None:
+    finding = Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "problem")
+    failed_incomplete = AdvisorRun.of(
+        "rest-api",
+        [finding],
+        {"usable": True, "coverageComplete": False, "limitations": ["one rule errored"]},
+    )
+    result = session_status(
+        merge([part(tests=[_failing()], sources=[], advisor_runs=[failed_incomplete])], []),
+        allow_unknown=False,
+        max_unattributed=10.0,
+        advisors_enabled=True,
+        fail_on="HIGH",
+    )
+    assert result.status == "fail"
+    assert "advisor 'rest-api' could not assess: one rule errored" in result.unknown_reasons
+
+
 def test_status_fail_counts_tests_in_plural() -> None:
     tests = [_failing(node="a"), _failing(node="b")]
     assert _legacy_status(part(tests=tests)) == ("fail", ["2 tests failed sharpit gates"])
