@@ -13,10 +13,11 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from fastapi.routing import APIRoute
 from starlette.applications import Starlette
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.responses import Response
-from starlette.routing import BaseRoute, Host, Mount, WebSocketRoute, compile_path
+from starlette.routing import BaseRoute, Host, Mount, Route, WebSocketRoute, compile_path
 
 from sharpit.engine.spi import (
     ApiModel,
@@ -234,6 +235,15 @@ def _schemes_in(node: object, scopes: tuple[str, ...], depth: int, out: list[Sec
     return found
 
 
+def _optional_nested(node: object, depth: int, base: type) -> bool:
+    call = getattr(node, "call", None)
+    if issubclass(type(call), base) and inspect.getattr_static(call, "auto_error", True) is False:
+        return True
+    return depth < MAX_DEPTH and any(
+        _optional_nested(sub, depth + 1, base) for sub in list(getattr(node, "dependencies", None) or ())
+    )
+
+
 def _path_regex(path: str, prefix_only: bool) -> str | None:
     """Starlette's compiled pattern for ``path`` (framework convertor regexes; no route or convertor is called)."""
     try:
@@ -250,15 +260,22 @@ def _secured_route(info: RouteInfo, route: object, chain: int, base: type, limit
     try:
         schemes: list[SecurityScheme] = []
         unknown = False
+        unchecked = False
         for sub in list(getattr(getattr(route, "dependant", None), "dependencies", None) or ()):
             # route/router/app ``dependencies=[...]`` have no parameter name: a guard whose meaning is unknown
-            if not _schemes_in(sub, (), 0, schemes, base) and getattr(sub, "name", "") is None:
-                unknown = True
+            found = _schemes_in(sub, (), 0, schemes, base)
+            if not found:
+                if getattr(sub, "name", "") is None:
+                    unknown = True
+                else:
+                    unchecked = True
+            elif _optional_nested(sub, 0, base):
+                unchecked = True
     except Exception as exc:  # noqa: BLE001 - FastAPI internals drifted: list the route as unknown, never crash
         limitations.append(f"Route {info.path} could not be inspected ({type(exc).__name__}).")
         return SecuredRoute(info.methods, info.path, info.handler, opaque=True, path_regex=regex, chain=chain)
     return SecuredRoute(
-        info.methods, info.path, info.handler, tuple(dict.fromkeys(schemes)), unknown, False, regex, chain
+        info.methods, info.path, info.handler, tuple(dict.fromkeys(schemes)), unknown, False, regex, chain, unchecked
     )
 
 
@@ -316,6 +333,7 @@ class FastApiIntrospector:
 
     def _entries(self) -> Iterator[tuple[RouteInfo, object | None]]:
         routes: Any = getattr(self.app, "routes", [])
+        self._mounts_by_route: dict[int, tuple[tuple[int, str | None], ...]] = {}
         return self._walk(routes, "", None, frozenset(), 0, top=True)
 
     def _walk(
@@ -327,51 +345,66 @@ class FastApiIntrospector:
         depth: int,
         *,
         top: bool = False,
+        mounts: tuple[tuple[int, str | None], ...] = (),
     ) -> Iterator[tuple[RouteInfo, object | None]]:
         """Each listed row with its leaf route object (``None`` for opaque mount / unexpanded rows)."""
         for route in list(routes):
-            if callable(getattr(route, "effective_candidates", None)):
-                # FastAPI's lazy include_router entry (private API): expand it to its effective (prefixed) routes.
-                try:
-                    expanded: list[Any] = [*route.effective_candidates(), *route.effective_low_priority_routes()]  # type: ignore[attr-defined]
-                    flat = [getattr(c, "starlette_route", None) or c for c in expanded]
-                except Exception:  # noqa: BLE001 - FastAPI internals drifted: keep the listing, show a visible row
-                    include_prefix = getattr(getattr(route, "include_context", None), "prefix", None)
-                    base = prefix + include_prefix if isinstance(include_prefix, str) and include_prefix else None
-                    path = base + "/{path}" if base else "(include_router)"
-                    yield RouteInfo((), path, "<unexpanded include_router>", host, None, None, None), None
-                    continue
-                yield from self._walk(flat, prefix, host, path_apps, depth)
+            # FastAPI's lazy include_router is intentionally not expanded: doing so calls user-visible
+            # candidate methods. Report its plain prefix as a limitation instead.
+            route_type = type(route)
+            if route_type.__module__ == "fastapi.routing" and route_type.__name__ == "_IncludedRouter":
+                context = vars(route).get("include_context")
+                include_prefix = vars(context).get("prefix") if context is not None else None
+                base = prefix + include_prefix if isinstance(include_prefix, str) and include_prefix else prefix
+                path = base or "/"
+                yield RouteInfo((), path, "<unexpanded include_router>", host, None, None, None), None
                 continue
             # Only a top-level mount can be sharpit's own; a host's nested mount at the same path is its own.
-            if isinstance(route, Mount) and top and route.path == self.exclude_mount:
+            if type(route) is Mount and top and vars(route).get("path") == self.exclude_mount:
                 continue
-            if isinstance(route, Mount | Host):
-                children: Any = getattr(route, "routes", None)
-                inner_host = route.host if isinstance(route, Host) else host
-                base = prefix + (route.path if isinstance(route, Mount) else "")
-                app_id = id(route.app)
+            if type(route) in (Mount, Host):
+                values = vars(route)
+                children: Any = route.routes if type(route) is Mount else values.get("routes")
+                is_mount = type(route) is Mount
+                inner_host = values.get("host", host) if not is_mount else host
+                route_path = values.get("path", "") if is_mount else ""
+                base = prefix + route_path
+                child_app = route.app
+                app_id = id(child_app)
+                pattern = values.get("path_regex")
+                regex = getattr(pattern, "pattern", None) if is_mount else None
+                nested_mounts = (*mounts, (id(route), regex))
                 if children and app_id not in path_apps and depth < MAX_DEPTH:
-                    yield from self._walk(children, base, inner_host, path_apps | {app_id}, depth + 1)
+                    yield from self._walk(
+                        children, base, inner_host, path_apps | {app_id}, depth + 1, mounts=nested_mounts
+                    )
                 else:  # no routes to list, a cycle, or past the depth cap: one opaque row, stop descending
                     yield (
-                        RouteInfo((), base + "/{path}", _qualified(route.app), inner_host, None, None, route.name),
+                        RouteInfo(
+                            (), base + "/{path}", _qualified(child_app), inner_host, None, None, values.get("name")
+                        ),
                         None,
                     )
                 continue
+            if type(route) not in (APIRoute, WebSocketRoute, Route):
+                # Unknown BaseRoute implementations are opaque; do not inspect even their descriptors.
+                yield RouteInfo((), prefix or "(any)", _qualified(type(route)), host, None, None, None), None
+                continue
+            self._mounts_by_route[id(route)] = mounts
             yield self._leaf(route, prefix, host), route
 
     @staticmethod
     def _leaf(route: BaseRoute, prefix: str, host: str | None) -> RouteInfo:
-        path = getattr(route, "path", None)
+        values = vars(route)
+        path = values.get("path")
         full = prefix + path if isinstance(path, str) else prefix or "(any)"  # unknown route types: best effort
-        endpoint = getattr(route, "endpoint", None)
+        endpoint = values.get("endpoint")
         handler = _qualified(endpoint if endpoint is not None else route)
-        name = getattr(route, "name", None)
+        name = values.get("name")
         if isinstance(route, WebSocketRoute):
             methods: tuple[str, ...] = ("WS",)
         else:
-            raw: Any = getattr(route, "methods", None) or ()
+            raw: Any = values.get("methods") or ()
             # Starlette adds HEAD next to GET implicitly; drop it so one GET handler is one row.
             methods = tuple(sorted(m for m in raw if m != "HEAD" or "GET" not in raw))
         return RouteInfo(
@@ -397,8 +430,31 @@ class FastApiIntrospector:
             chain = _chain_of(info.path, chains)
             if route is None:
                 routes.append(self._opaque_route(info, chain, limitations))
-            elif not _framework(info.handler):  # FastAPI's docs routes are not the app's endpoints
+            elif type(route) is APIRoute and not _framework(info.handler):
                 routes.append(_secured_route(info, route, chain, SecurityBase, limitations))
+            elif type(route) is Route:
+                routes.append(
+                    SecuredRoute(
+                        (), info.path, info.handler, opaque=True, path_regex=_path_regex(info.path, False), chain=chain
+                    )
+                )
+            elif type(route) is not APIRoute and not _framework(info.handler):
+                routes.append(SecuredRoute((), info.path, info.handler, opaque=True, path_regex=None, chain=chain))
+            if route is not None and routes:
+                last = routes[-1]
+                if last.path == info.path:
+                    routes[-1] = SecuredRoute(
+                        last.methods,
+                        last.path,
+                        last.handler,
+                        last.schemes,
+                        last.unknown_dependency,
+                        last.opaque,
+                        last.path_regex,
+                        last.chain,
+                        last.unchecked_dependency,
+                        self._mounts_by_route.get(id(route), ()),
+                    )
         return SecurityModel(True, tuple(chains), tuple(backends), tuple(routes), tuple(limitations))
 
     def _chains(
@@ -409,22 +465,40 @@ class FastApiIntrospector:
         backends: list[str],
         seen: frozenset[int],
         depth: int,
+        inherited: tuple[str, ...] = (),
     ) -> None:
         middleware, found = _middleware(app)
-        if prefix is None or middleware:  # the app's own stack always; a mount only when it adds middleware
-            chains.append(SecurityChain(prefix, middleware))
+        stack = (*inherited, *middleware)
+        if prefix is None or stack:
+            chains.append(SecurityChain(prefix, stack))
             backends.extend(found)
         routes: list[object] = list(app.routes) if isinstance(app, Starlette) else []  # user ASGI apps: opaque
         for route in routes:
-            if not isinstance(route, Mount) or (prefix is None and route.path == self.exclude_mount):
+            if type(route) not in (Mount, Host) or (
+                prefix is None and type(route) is Mount and route.path == self.exclude_mount
+            ):
                 continue
-            if id(route.app) not in seen and depth < MAX_DEPTH:
+            child = route.app if type(route) is Mount else route.app
+            if id(child) not in seen and depth < MAX_DEPTH:
+                mount_names: tuple[str, ...] = ()
+                if type(route) is Mount:
+                    mount_names = tuple(
+                        _dotted(entry.cls) for entry in route.middleware if getattr(entry, "cls", None) is not None
+                    )
                 self._chains(
-                    route.app, (prefix or "") + route.path, chains, backends, seen | {id(route.app)}, depth + 1
+                    child,
+                    (prefix or "") + (route.path if type(route) is Mount else ""),
+                    chains,
+                    backends,
+                    seen | {id(child)},
+                    depth + 1,
+                    (*stack, *mount_names),
                 )
 
     @staticmethod
     def _opaque_route(info: RouteInfo, chain: int, limitations: list[str]) -> SecuredRoute:
+        if info.path == "(any)":
+            return SecuredRoute((), info.path, info.handler, opaque=True, chain=chain)
         if _framework(info.handler):  # StaticFiles and other framework apps: served as is, no security of their own
             return SecuredRoute((), info.path, info.handler, path_regex=_path_regex(info.path, True), chain=chain)
         base = info.path.removesuffix("/{path}") or "/"

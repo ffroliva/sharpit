@@ -23,8 +23,8 @@ def build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]:
         return json_response(endpoints_report(model_of(ctx)))
 
     def explain_route(request: Request) -> Response:
-        method = request.query_params.get("method", "GET")
-        path = request.query_params.get("path", "/")
+        method = request.query_params.get("method") or "GET"
+        path = request.query_params.get("path") or "/"
         if not path.startswith("/") or len(path) > MAX_PATH:
             return error(400, "Invalid request")
         return json_response(explain(model_of(ctx), method.upper(), path, settings.path))

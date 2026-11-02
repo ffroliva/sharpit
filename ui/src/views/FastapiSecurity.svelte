@@ -40,7 +40,7 @@
   async function runExplain() {
     explainError = '';
     try {
-      result = await get<Explain>('fastapi-security/explain', { method, path });
+        result = await get<Explain>('fastapi-security/explain', { method: method.trim() || 'GET', path: path.trim() || '/' });
     } catch (e) {
       result = null;
       explainError = errorText(e);
@@ -53,7 +53,7 @@
     {#if !report.data.springSecurityPresent}
       <div class="empty">
         <p class="lead">FastAPI security unavailable</p>
-        {#each report.data.limitations as why (why)}<p>{why}</p>{/each}
+      {#each report.data.limitations as why, i (`${i}:${why}`)}<p>{why}</p>{/each}
       </div>
     {:else}
       {#each report.data.limitations as why (why)}<p class="warn">{why}</p>{/each}
@@ -113,7 +113,7 @@
         <table>
           <thead><tr><th>Method</th><th>Path</th><th>Rule</th><th>Roles</th><th>Handler</th><th>Notes</th></tr></thead>
           <tbody>
-            {#each shown as e (e.method + ' ' + e.pattern)}
+            {#each shown as e, i (`${i}:${e.method} ${e.pattern}`)}
               <tr>
                 <td>{e.method}</td>
                 <td class="mono">{e.pattern}</td>
