@@ -244,3 +244,12 @@ def test_report_says_why_traces_are_unavailable(monkeypatch: pytest.MonkeyPatch)
     report = buffer().list(100)
     assert report["enabled"] is False
     assert report["unavailableReason"] == otel.NO_SDK
+
+
+def test_sql_literals_in_db_statement_are_masked():
+    # live check (real SDK): a literal under a non-secret column name leaked through mask_text alone
+    buf = buffer()
+    buf.add(span(attributes={"db.statement": "select * from owners where pw = 'hunter2'"}))
+    detail = buf.detail(f"{TRACE:032x}")
+    assert detail is not None
+    assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
