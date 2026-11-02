@@ -85,27 +85,28 @@ def _catches(handler: ast.ExceptHandler, exc_type: type[BaseException]) -> bool 
     return None if unknown else False
 
 
-def _decide(entry: _Entry, exc_type: type[BaseException] | None) -> bool:
+def _swallowing(entry: _Entry, exc_type: type[BaseException] | None) -> ast.ExceptHandler | None:
+    """The clause that handled ``exc_type`` (the one at the entry's line without it) when it swallows, else None."""
     handlers, position = entry
     handler = handlers[position]
     if exc_type is not None:  # CPython tries the clauses in order: find the one that handled it
         for candidate in handlers:
             matched = _catches(candidate, exc_type)
             if matched is None:
-                return False
+                return None
             if matched:
                 handler = candidate
                 break
         else:
-            return False
-    return _broad(handler) and _silent(handler)
+            return None
+    return handler if _broad(handler) and _silent(handler) else None
 
 
 def handler_swallows(source: str, handled_line: int, exc: BaseException | None = None) -> bool:
     """Whether the try with a clause header on ``handled_line`` swallows: ``exc`` picks the matching clause, without it
     the clause on that line is judged."""
     entry = _index(ast.parse(source)).get(handled_line)
-    return entry is not None and _decide(entry, None if exc is None else type(exc))
+    return entry is not None and _swallowing(entry, None if exc is None else type(exc)) is not None
 
 
 @functools.lru_cache(maxsize=256)
@@ -129,14 +130,16 @@ def _entry(code: CodeType, offset: int) -> _Entry | None:
 
 
 @functools.lru_cache(maxsize=4096)
-def _code_swallows(code: CodeType, offset: int, exc_type: type[BaseException] | None) -> bool:
+def swallowing_clause_line(code: CodeType, offset: int, exc_type: type[BaseException] | None) -> int | None:
+    """The header line of the clause that swallowed an ``EXCEPTION_HANDLED`` event's exception, None when none did."""
     entry = _entry(code, offset)
-    return entry is not None and _decide(entry, exc_type)
+    handler = None if entry is None else _swallowing(entry, exc_type)
+    return None if handler is None else handler.lineno
 
 
 def handler_swallows_code(code: CodeType, offset: int, exc: BaseException | None = None) -> bool:
     """``handler_swallows`` for an ``EXCEPTION_HANDLED`` event's code object and instruction offset (cached)."""
-    return _code_swallows(code, offset, None if exc is None else type(exc))
+    return swallowing_clause_line(code, offset, None if exc is None else type(exc)) is not None
 
 
 def swallowing_lines(source: str) -> list[int]:
@@ -152,5 +155,5 @@ def swallowing_lines(source: str) -> list[int]:
 
 
 def clear_cache() -> None:
-    for cached in (_file_index, _entry, _code_swallows):
+    for cached in (_file_index, _entry, swallowing_clause_line):
         cached.cache_clear()
