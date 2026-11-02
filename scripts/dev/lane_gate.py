@@ -232,7 +232,13 @@ def _checklist_refusals(opts: Options, text: str) -> list[str]:
         line = next((ln for ln in text.splitlines() if re.match(rf"^\s*\|?\s*{n}\s*(\||\.|\)|\s)", ln)), None)
         if line is None:
             problems.append(f"checklist.md: item {n} missing")
-        elif "N/A" not in line and not any(_evidence_path_exists(opts, t) for t in re.findall(r"`([^`]+)`", line)):
+        elif re.search(r"N/A\s*[—–:-]+\s*\S", line) or any(
+            _evidence_path_exists(opts, t) for t in re.findall(r"`([^`]+)`", line)
+        ):
+            continue
+        elif "N/A" in line:
+            problems.append(f"checklist.md: item {n} has N/A without a reason (write N/A — <reason>)")
+        else:
             problems.append(f"checklist.md: item {n} has no existing evidence path")
     return problems
 
@@ -263,10 +269,12 @@ def _review_refusals(opts: Options, handoff: str) -> list[str]:
     problems: list[str] = []
     if not lines or lines[-1] != "VERDICT: APPROVE":
         problems.append("review.md: last line is not VERDICT: APPROVE")
-    if opts.sha not in text:
-        problems.append(f"review.md: does not name the head SHA {opts.sha}")
+    if not any(opts.sha.startswith(token) for token in re.findall(r"\b[0-9a-f]{7,40}\b", text)):
+        problems.append(f"review.md: does not name the head SHA {opts.sha} (or a prefix of 7+ characters)")
     reviewer = re.search(r"^Reviewer:\s*(\S+)", text, re.MULTILINE)
     implementer = re.search(r"^Implementer:\s*(\S+)", handoff, re.MULTILINE)
+    if implementer is None:
+        problems.append("handoff.md: no 'Implementer: <id>' line (needed to check the reviewer is someone else)")
     if reviewer is None:
         problems.append("review.md: no reviewer id (a 'Reviewer: <id>' line)")
     elif implementer is not None and reviewer.group(1) == implementer.group(1):
@@ -286,9 +294,11 @@ def evidence_refusals(opts: Options, base: str) -> tuple[list[str], dict[str, st
     problems += _review_refusals(opts, found.get("handoff.md", ""))
     for name in SHA_LOGS:
         log = opts.integration / folder / "gate" / f"{name}.log"
-        first = log.read_text(encoding="utf-8").splitlines()[:1] if log.is_file() else []
-        if not first or opts.sha not in first[0]:
+        lines = log.read_text(encoding="utf-8").splitlines() if log.is_file() else []
+        if not lines or opts.sha not in lines[0]:
             problems.append(f"gate/{name}.log does not name head {opts.sha} on line 1 (missing or stale)")
+        elif "exit 0" not in (line.strip() for line in lines[1:]):
+            problems.append(f"gate/{name}.log does not record exit 0 (a failed run)")
     return problems, found
 
 
@@ -300,7 +310,7 @@ def leased_pg_problem(opts: Options) -> str | None:
     if not lines or opts.sha not in lines[0]:
         return "leased-pg: gate/leased-pg.log line 1 does not name the head SHA"
     for name in LEASED_TESTS:
-        if not any(name in ln and "PASSED" in ln for ln in lines[1:]):
+        if not any(re.search(rf"::{name}\s+PASSED\b", ln) for ln in lines[1:]):
             return f"leased-pg: {name} not PASSED (missing or skipped)"
     return None
 
