@@ -14,3 +14,18 @@
 | view is a placeholder (vitest, not pytest-replayable) | ui/tests/component/data.test.ts (4 tests) | 7b5a0270cfc49c9f58dc3bc39a44a59f15ce5b52 | AssertionError: expected placeholder text to contain 'Owner' | fixed ddfaffb204141385fe66f51f9ac33284e40d6e88 |
 
 `test_repositories_golden_parity` skips until G0a's `data/repositories.captured.json` merges; it is not a named red.
+
+## Fix round 1 (review.md, ponytail-review.md)
+
+| Finding | Test id | Red SHA | Red output | Status |
+|---|---|---|---|---|
+| review fix | tests/engine/test_data.py::test_cross_registry_new_mapper_is_not_configured | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | assert ['_check_configure', ...] == [] | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+| review fix | tests/engine/test_data.py::test_join_mapped_class_keeps_its_row | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | assert 0 == 1 | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+| review fix | tests/engine/test_data.py::test_failing_field_drops_only_that_field | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | assert 0 == 1 | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+| review fix | tests/engine/test_data.py::test_warnings_mask_exception_text | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | assert 'hunter2secret' not in 'Skipping a mapper ...' | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+| review fix | tests/engine/test_data.py::test_mapped_class_with_a_mappers_column_is_accepted | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | assert 0 == 2 | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+| review fix | tests/engine/test_data.py::test_registry_lookup_never_runs_class_descriptors | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | assert ['run', 'run', 'run'] == [] | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+| review fix | tests/engine/test_data.py::test_lazy_is_a_strategy_name[None-noload] | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | lazy 'None' != 'noload' | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+| review fix | tests/engine/test_data.py::test_lazy_is_a_strategy_name[True-select] | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | lazy 'True' != 'select' | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+| review fix | tests/engine/test_data.py::test_lazy_is_a_strategy_name[False-joined] | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | lazy 'False' != 'joined' | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+| view keys, stale drawer, duplicates, warnings (vitest) | ui/tests/component/data.test.ts (4 new) | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | expected ... to include 'api/data/repositories/app.b.Owner' and others | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |

@@ -99,3 +99,26 @@ In-process on `examples.fastapi_sqla.app.create_app()` (no port bound): GET `/sh
 - Golden fixtures for `data` (`tests/fixtures/bootui/2.2.0/data/repositories.captured.json` and
   `repository-detail.captured.json`, or `.provisional.json`) do not exist in this tree; neither G0a nor another worker
   has supplied them, and the lane may not write them (O2).
+
+## Fix round 1 (head d97f0160000c90844caf1f2eec9032f502c9b2bd)
+
+| Test id | Red SHA | Assertion message |
+|---|---|---|
+| `tests/engine/test_data.py::test_cross_registry_new_mapper_is_not_configured` | `876bbda60cb23adf4a356b452de7f1423f2ab5cb` | `assert ['_check_configure', ...] == []` |
+| `tests/engine/test_data.py::test_join_mapped_class_keeps_its_row` | `876bbda60cb23adf4a356b452de7f1423f2ab5cb` | `assert 0 == 1` |
+| `tests/engine/test_data.py::test_failing_field_drops_only_that_field` | `876bbda60cb23adf4a356b452de7f1423f2ab5cb` | `assert 0 == 1` |
+| `tests/engine/test_data.py::test_warnings_mask_exception_text` | `876bbda60cb23adf4a356b452de7f1423f2ab5cb` | `assert 'hunter2secret' not in 'Skipping a mapper ...'` |
+| `tests/engine/test_data.py::test_mapped_class_with_a_mappers_column_is_accepted` | `876bbda60cb23adf4a356b452de7f1423f2ab5cb` | `assert 0 == 2` |
+| `tests/engine/test_data.py::test_registry_lookup_never_runs_class_descriptors` | `876bbda60cb23adf4a356b452de7f1423f2ab5cb` | `assert ['run', 'run', 'run'] == []` |
+| `tests/engine/test_data.py::test_lazy_is_a_strategy_name[None-noload]` | `876bbda60cb23adf4a356b452de7f1423f2ab5cb` | `lazy 'None' != 'noload'` |
+| `tests/engine/test_data.py::test_lazy_is_a_strategy_name[True-select]` | `876bbda60cb23adf4a356b452de7f1423f2ab5cb` | `lazy 'True' != 'select'` |
+| `tests/engine/test_data.py::test_lazy_is_a_strategy_name[False-joined]` | `876bbda60cb23adf4a356b452de7f1423f2ab5cb` | `lazy 'False' != 'joined'` |
+
+Also done in this round: test hygiene commit (shared spy helper tests/data_support.py, real ported names, exact golden
+guard, safety rows pass models=, panel assertion). Deviations: (a) a real SQLAlchemy registry missing `_new_mappers` fails
+closed, a foreign duck-typed registry (the SimpleNamespace fakes of test_one_bad_mapper...) falls back to per-mapper flags,
+so the pinned existing test still passes; (b) detail does NOT carry `relationships` because `test_detail_by_bean_name`
+pins the detail key set; the drawer takes lazy from the list row when the detail has none, and I dropped my own
+`test_detail_carries_relationships` (it contradicted that pin; it is not in the table); (c) the first vitest
+test's detail URL changed to the FQ name because the view now requests by repositoryInterface (vitest is not gate-replayed);
+(d) `/panels` has no actionCapable key: the test asserts `readOnly is False` and `Panel.action_capable is False`.
