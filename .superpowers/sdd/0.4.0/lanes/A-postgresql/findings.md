@@ -89,7 +89,7 @@
 
 ## Superseded red tests
 
-| Test id | Historical SHA | Assertion message | Disposition |
+| Test id | Historical SHA | Assertion message | Status |
 |---|---|---|---|
 | tests/engine/postgresql/test_querytext.py::test_query_text_masks_a_backslash_escaped_quote_conservatively | e6696c338ae38669186ff5e8d248f2a54de2509e | assert 'secret' not in "select '***...cret'******'" | Parked: superseded by test_query_text_masks_an_ambiguous_backslash_quote_to_the_end_of_the_text (final round), test removed |
 
@@ -97,7 +97,7 @@ Superseded by `tests/engine/postgresql/test_querytext.py::test_query_text_masks_
 
 ## UI (vitest) red tests
 
-| Test | Commit | Assertion message | Disposition |
+| Test | Red SHA | Assertion message | Disposition |
 |---|---|---|---|
 | Vitest: ui/tests/component/postgresql.test.ts::NOT_READ shows the message and the read button, and nothing reads on open | 57b15943b03201e477732893c231446cabde9c45 | AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'The database has not been read yet. R…' | Fixed in 90ef7be58c18128dcb8c0df7cddd57d7c37fdd8d |
 | Vitest: ui/tests/component/postgresql.test.ts::a read renders each section with its status, reason and hint | 57b15943b03201e477732893c231446cabde9c45 | AssertionError: expected undefined to be defined | Fixed in 90ef7be58c18128dcb8c0df7cddd57d7c37fdd8d |
