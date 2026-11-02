@@ -38,5 +38,5 @@ def test_no_full_secret_shaped_literal_in_the_tree() -> None:
 
 def test_the_scan_catches_a_planted_key(tmp_path: Path) -> None:
     (tmp_path / "tests").mkdir()
-    (tmp_path / "tests" / "test_x.py").write_text('KEY = "sk_' + 'live_' + "a" * 24 + '"\n', encoding="utf-8")
+    (tmp_path / "tests" / "test_x.py").write_text('KEY = "sk_' + "live_" + "a" * 24 + '"\n', encoding="utf-8")
     assert secret_shaped_literals(tmp_path) == ["tests/test_x.py:1"]

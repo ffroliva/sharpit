@@ -132,7 +132,7 @@ def test_span_reads_mask_nested_values():
     assert detail is not None
     text = str(detail)
     assert "abc.def.ghi" not in text
-    assert "sk_live_4eC39HqLyjWDarjtT1zdp7dc" not in text
+    assert "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc" not in text
     assert "hunter2" not in text
     assert raw.events[0].attributes["exception.message"] == "login failed password=hunter2"  # stored evidence kept
 

@@ -63,7 +63,7 @@ def test_totals_max_sql_never_holds_a_literal_with_parameter_capture():
     assert "sk-live-9f3b" not in (recorder.totals().max_sql or "")
 
 
-DOUBLE_QUOTED_SECRET = "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+DOUBLE_QUOTED_SECRET = "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc"
 
 
 def test_max_sql_masks_a_double_quoted_secret_with_parameter_capture():

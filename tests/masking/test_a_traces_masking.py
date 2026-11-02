@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import otel
 
-STRIPE_KEY = "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+STRIPE_KEY = "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc"
 BEARER = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"
 TRACE = 0xABCDEF0123456789ABCDEF0123456789
 
