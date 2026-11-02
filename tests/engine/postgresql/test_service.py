@@ -326,3 +326,16 @@ def test_a_wall_timeout_keeps_the_sections_already_read(monkeypatch: pytest.Monk
     assert _section(database, "tables")["status"] == "SKIPPED"
     assert database["message"] == "The read budget ran out while reading this datasource."
     assert report["status"] == "PARTIAL"
+
+
+def test_without_sqlalchemy_2_the_panel_reports_why(monkeypatch: pytest.MonkeyPatch) -> None:
+    # derived: review finding 8, like database-connection-pools: no SQLAlchemy 2 means nothing can be read
+    reason = "SQLAlchemy 1.4.54 is imported, but sharpit needs 2.0 or later"
+    monkeypatch.setattr(service.sqla, "unavailable_reason", lambda: reason)
+    engine = FakePgEngine()
+    ctx = _ctx(("primary", engine))
+    before = postgresql_report(ctx)
+    after = _read(ctx)
+    assert (before["status"], before["message"]) == ("DISABLED", reason)
+    assert (after["status"], after["message"]) == ("DISABLED", reason)
+    assert engine.connects == 0
