@@ -1,0 +1,40 @@
+# Lane D1 findings
+
+## Finding → test → red
+
+| Finding | Test id | Red SHA | Assertion message |
+|---|---|---|---|
+| No `dismissedFindings` section in the store (rules-only writer) | `tests/engine/advisors/test_dismissals.py::test_preserves_other_top_level_sections_across_writes` | `fbaf74e409e3537f5c5f1fb0b3238fb3235c83bd` | `AssertionError: assert '# My config\...pypi:jinja2\n' == '# sharpit co...ZW50aW9uYWw\n'` |
+| Finding writes not byte-stable / note not replaced | `tests/engine/advisors/test_dismissals.py::test_repeated_writes_are_byte_stable` | `fbaf74e409e3537f5c5f1fb0b3238fb3235c83bd` | `AssertionError: assert [] == [DismissedFinding(rule_id='RAPI-MAP-001', identity='v1:route=GET:/owners/{id}', note='note')]` |
+| Notes not Base64URL round-tripped; no 400/409 validation | `tests/engine/advisors/test_dismissals.py::test_dismissed_findings_note_and_cap_validation` | `fbaf74e409e3537f5c5f1fb0b3238fb3235c83bd` | `assert [] == [DismissedFin...éè 😀 \\ end')]` |
+| Malformed finding lines not ignored/counted/kept | `tests/engine/advisors/test_dismissals.py::test_malformed_finding_lines_are_ignored_counted_and_kept` | `fbaf74e409e3537f5c5f1fb0b3238fb3235c83bd` | `AssertionError: assert [] == [DismissedFin...', note=None)]` |
+| `dismissed_pairs()` inert (R1) | `tests/engine/advisors/test_dismissals.py::test_dismissed_pairs_returns_rule_id_and_identity_tuples` | `fbaf74e409e3537f5c5f1fb0b3238fb3235c83bd` | `AssertionError: assert set() == {('RAPI-DOC-0...owners/{id}')}` |
+| `DismissedFindingsDto` keys not emitted | `tests/engine/advisors/test_dismissals.py::test_findings_dto_emits_every_key` | `fbaf74e409e3537f5c5f1fb0b3238fb3235c83bd` | `AssertionError: assert {} == {'dismissed':... 'ignored': 2}` |
+| Global read-only does not cover `/dismissed-findings` | `tests/engine/test_guard.py::test_dismissed_findings_global_read_only` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `AssertionError: assert None == Denial(status=403, body={'error': 'sharpit panel access denied', 'panel': 'dismissed-findings', 'reason': 'sharpit is read-only via SHARPIT_READ_ONLY=true'}, headers=())` |
+| A header set downstream (no CSP) is duplicated | `tests/engine/test_headers.py::test_security_headers_are_not_duplicated_when_downstream_sets_them` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `AssertionError: assert ['nosniff', 'nosniff'] == ['nosniff']` |
+| Overview panel still titled `Overview` (registry row) | `tests/engine/test_panels.py::test_registry_rows_0_2_0` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `AssertionError: assert [('overview',...lities'), ...] == [('overview',...lities'), ...]` |
+| Overview panel still titled `Overview` (panels report) | `tests/engine/test_panels.py::test_overview_panel_title_is_scorecard` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `AssertionError: assert 'Overview' == 'Scorecard'` |
+| No `/dismissed-findings` routes | `tests/fastapi/test_dismissed_findings_api.py::test_mvc_dismisses_lists_and_restores_a_finding_with_its_note` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `assert 404 == 200` |
+| Bad bodies not refused with the fixed message | `tests/fastapi/test_dismissed_findings_api.py::test_mvc_refuses_bad_bodies_with_a_fixed_message_that_never_quotes_the_note` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `assert 404 == 400` |
+| Mutations not 403 under global read-only | `tests/fastapi/test_dismissed_findings_api.py::test_mvc_global_read_only_blocks_the_mutations_but_not_the_list` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `assert 404 == 403` |
+| Body not read as capped bytes | `tests/fastapi/test_dismissed_findings_api.py::test_mvc_reads_the_body_as_bytes_so_the_framework_never_logs_the_note` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `AssertionError: assert 404 == 200` |
+| No 415/413/409 handling | `tests/fastapi/test_dismissed_findings_api.py::test_dismissed_findings_requires_json_content_type_and_enforces_409_503` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `AssertionError: assert 404 == 415` |
+| GET list missing (no-side-effect read) | `tests/safety/test_d1_safety.py::test_get_dismissed_findings_has_no_side_effects` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `assert 404 == 200` |
+| GET list not reachable with advisor panels off | `tests/safety/test_d1_safety.py::test_get_dismissed_findings_is_allowed_with_every_advisor_panel_off` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `assert 404 == 200` |
+| Secret note: refusal path missing | `tests/masking/test_d1_masking.py::test_a_secret_note_is_never_echoed_by_an_error` | `bb7351f64854466cd1f85ad8badfa1222a2d65d6` | `assert 404 == 400` |
+| Overview has no `run` (ApplicationRunDto) | `tests/engine/test_overview.py::test_overview_emits_run_metadata_and_scorecard_panel_title` | `82b7f1957192b30847b88334244cfa5f70180fd2` | `AssertionError: assert set() == {'instanceId'..., 'startedAt'}` |
+| MCP/CLI `get_config` carries `propertySuggestions` | `tests/engine/test_tools.py::test_mcp_config_drops_only_the_property_suggestions` | `82b7f1957192b30847b88334244cfa5f70180fd2` | `AssertionError: assert [{'name': 'D1...Value': None}] == []` |
+
+Messages without the `AssertionError: ` prefix are pytest's rewritten asserts whose text has no `'` (F's gate note).
+
+## Guard tests (green at red, kept as controls)
+
+- `tests/engine/test_headers.py::test_a_response_that_sets_its_own_policy_keeps_it_whole`: assets never gain `Pragma`
+  (the predict risk); a naive per-header dedup turns it red.
+- `tests/safety/test_d1_safety.py::test_dismissed_findings_keep_the_guard_floor`, `::test_inactive_sharpit_hides_dismissed_findings`.
+- `tests/masking/test_d1_masking.py::test_dismissed_findings_have_no_mcp_tool_or_cli_command`.
+
+## Open findings
+
+None in the lane's files. One need outside the May-touch list (MCP default limit in `tool_dispatch.py`): see
+`handoff.md`, "Needs from coordinator".
