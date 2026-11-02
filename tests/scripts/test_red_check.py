@@ -88,7 +88,7 @@ def test_passing_test_is_not_a_red(tmp_path: Path) -> None:
 
 def test_assert_inside_src_is_refused(tmp_path: Path) -> None:
     verdict = _verdict(tmp_path, "test_assert_in_src")
-    assert verdict.startswith("CRASH (AssertionError raised outside tests/"), verdict
+    assert verdict.startswith("CRASH (AssertionError raised outside the test file, not under tests/"), verdict
 
 
 def test_unknown_node_is_collection_error(tmp_path: Path) -> None:
@@ -104,7 +104,7 @@ def test_exit_code_zero_only_when_every_test_is_red(tmp_path: Path, monkeypatch)
 
 def test_assert_inside_scripts_is_refused(tmp_path: Path) -> None:
     verdict = _verdict(tmp_path, "test_assert_in_scripts")
-    assert verdict.startswith("CRASH (AssertionError raised outside tests/"), verdict
+    assert verdict.startswith("CRASH (AssertionError raised outside the test file, not under tests/"), verdict
 
 
 def test_assert_in_a_helper_under_tests_is_red(tmp_path: Path) -> None:

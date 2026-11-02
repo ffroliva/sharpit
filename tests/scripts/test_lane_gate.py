@@ -937,13 +937,13 @@ def test_lane_gate_refuses_findings_without_a_disposition_table(tmp_path: Path) 
 def test_lane_gate_refuses_assert_raised_in_scripts(tmp_path: Path) -> None:
     fx = _fixture(tmp_path)
     fx.outcomes[fx.red] = "scripts-assert"
-    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside tests/")
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside the test file, not under tests/")
 
 
 def test_lane_gate_refuses_assert_raised_in_src_by_absolute_path(tmp_path: Path) -> None:
     fx = _fixture(tmp_path)
     fx.outcomes[fx.red] = "abs-src-assert"
-    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside tests/")
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside the test file, not under tests/")
 
 
 def test_lane_gate_accepts_helper_under_tests_by_absolute_path(tmp_path: Path) -> None:

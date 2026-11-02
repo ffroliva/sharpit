@@ -16,26 +16,36 @@ merge gate cannot disagree.
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from types import ModuleType
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-# private on purpose: the merge gate's own classification, imported so the two can never drift apart
-from lane_gate import _outcomes  # noqa: E402
+
+def _load_lane_gate() -> ModuleType:
+    """lane_gate.py by file path (scripts/ is not a package), so its accept rule is the one this check applies."""
+    spec = importlib.util.spec_from_file_location("_red_check_lane_gate", Path(__file__).with_name("lane_gate.py"))
+    assert spec
+    assert spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses look their module up here
+    spec.loader.exec_module(module)
+    return module
+
+
+lane_gate = _load_lane_gate()
 
 RED = "RED (assertion in test file)"
 
 
 def _verdict(outcome: str, detail: str) -> str:
+    if lane_gate.is_red((outcome, detail)):
+        return RED
     if outcome == "failure":
-        return (
-            RED
-            if detail == "AssertionError"
-            else f"CRASH ({detail or 'unnamed exception'} — not a red: use a wrong-value stub)"
-        )
+        return f"CRASH ({detail or 'unnamed exception'} — not a red: use a wrong-value stub)"
     if outcome in ("passed", "skipped"):
         return "PASS (not a red)"
     return "ERROR (collection)"
@@ -47,7 +57,7 @@ def check(nodeids: Sequence[str], cwd: Path | None = None) -> dict[str, str]:
         junit = Path(scratch) / "junit.xml"
         command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:randomly", "--tb=long"]
         subprocess.run([*command, f"--junitxml={junit}", *nodeids], cwd=cwd, capture_output=True, check=False)
-        outcomes = _outcomes(junit, nodeids)
+        outcomes = lane_gate.red_verdicts(junit, nodeids, (cwd or Path.cwd()).resolve())
     verdicts: dict[str, str] = {}
     for nodeid, cases in outcomes.items():
         found = [_verdict(o, m) for o, m in cases]
