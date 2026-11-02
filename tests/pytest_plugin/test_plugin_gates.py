@@ -77,6 +77,52 @@ def test_lazy_performances():
     assert "selectinload(Player.performances)" in finding["message"]
 
 
+def test_eager_selectinload_batches_are_not_n_plus_one(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+from sqlalchemy import ForeignKey, create_engine, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, selectinload
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('players.id'))
+
+engine = create_engine('sqlite:///selectin-batches.db')
+Base.metadata.create_all(engine)
+with Session(engine) as session:
+    session.add_all(Player(performances=[Performance()]) for _ in range(1200))
+    session.commit()
+"""
+    )
+    pytester.makepyfile(
+        """
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+from appmod import Player, engine
+
+def test_batched_eager_loads():
+    statement = select(Player).options(selectinload(Player.performances)).execution_options(yield_per=100)
+    with Session(engine) as session:
+        for player in session.scalars(statement):
+            list(player.performances)
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert not any(item["ruleId"] == "sharpit.n-plus-one" for item in data["findings"])
+    assert result.ret == 0
+
+
 def test_fail_on_medium_gates_medium_findings(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         appmod="from fastapi import FastAPI\napp=FastAPI()\n"
