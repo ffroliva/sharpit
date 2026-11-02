@@ -1,0 +1,4 @@
+{
+  "repositories[].queryMethodCount": "SQLAlchemy has no repository methods",
+  "repositories[].fragmentCount": "SQLAlchemy has no repository fragments"
+}
