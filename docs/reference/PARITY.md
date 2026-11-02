@@ -35,7 +35,7 @@ Every panel id in BootUI 2.2.0 (`tests/fixtures/bootui/2.2.0/ids.json`) and wher
 | `transactions` | `transactions` | parked | lane parked 2026-11-02 (review changes, design-level fixes) |
 | `postgresql` | `postgresql` | parity | `postgresql/captured.json`; `tests/fastapi/test_postgresql_api.py::test_golden_parity` passes; field map in the A-postgresql lane |
 | `mysql` | `mysql` | not started | |
-| `traces` | `traces` | not started | |
+| `traces` | `traces` | parity | `traces/captured.json`; `tests/fastapi/test_traces_api.py::test_golden_parity` and `::test_detail_matches_the_bootui_span_records` pass; needs the OpenTelemetry SDK in the host app |
 | `security` | `security` | not started | |
 | `security-logs` | `security-logs` | not started | |
 | `database-advisor` | `database-advisor` | not started | |
@@ -44,7 +44,7 @@ Every panel id in BootUI 2.2.0 (`tests/fixtures/bootui/2.2.0/ids.json`) and wher
 | `spring-security` | `fastapi-security` | not started | |
 | `spring` | `fastapi` | not started | |
 
-Counts (31 panels): existing (0.3.0) 19, parity 1, unverified 2, parked 1, not started 8.
+Counts (31 panels): existing (0.3.0) 19, parity 2, unverified 2, parked 1, not started 7.
 
 Not a panel, shipped in 0.4.0: the GitHub Action and job summary (lane G3).
 

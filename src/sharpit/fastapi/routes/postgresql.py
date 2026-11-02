@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from starlette.routing import BaseRoute, Route
 
@@ -17,8 +17,7 @@ if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
 
-def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
-    del host_app
+def build_routes(ctx: SharpitContext, _host_app: object = None) -> list[BaseRoute]:
     api = ctx.settings.api_path[len(ctx.settings.path) :]
 
     def report(_request: Request) -> Response:

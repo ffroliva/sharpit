@@ -33,7 +33,7 @@ it('opens a trace as a waterfall of its spans', async () => {
   mount();
   await until(() => expect(text()).toContain('GET /owners'));
   (document.querySelector('button.link') as HTMLButtonElement).click();
-  await until(() => expect(document.querySelectorAll('.bar').length).toBe(2));
+  await until(() => expect(document.querySelectorAll('.bar')).toHaveLength(2));
   expect((document.querySelectorAll('.bar')[1] as HTMLElement).style.left).toBe('25%');
   expect(text()).toContain('20.0 ms');
 });
@@ -73,7 +73,7 @@ it('ignores a stale detail response after another trace was opened', async () =>
     return new Promise((resolve) => pending.set(url, resolve));
   });
   mount();
-  await until(() => expect(document.querySelectorAll('button.link').length).toBe(2));
+  await until(() => expect(document.querySelectorAll('button.link')).toHaveLength(2));
   const buttons = document.querySelectorAll('button.link');
   (buttons[0] as HTMLButtonElement).click();
   (buttons[1] as HTMLButtonElement).click();

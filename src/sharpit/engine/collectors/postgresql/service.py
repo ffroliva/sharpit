@@ -134,20 +134,23 @@ async def _read(ctx: SharpitContext, state: PostgresState, flight: Flight) -> Dt
             return _report("ERROR", "The read budget ran out before any datasource was read, so nothing was "
                            "inspected.", now, [], diagnostics, False)  # fmt: skip
         return _report("DISABLED", NO_POSTGRES, now, [], diagnostics, False)
-    statuses = [d["status"] for d in databases]
     truncated = any(d["truncated"] for d in databases)
-    if all(s == "ERROR" for s in statuses):
-        status, message = "ERROR", "No PostgreSQL datasource could be read."
-    elif unread or truncated or any(s in {"ERROR", "PARTIAL"} for s in statuses):
-        status = "PARTIAL"
+    status, message = _overall_status(databases, unread, truncated)
+    return _report(status, message, now, databases, diagnostics, truncated, unread)
+
+
+def _overall_status(databases: list[Dto], unread: list[str], truncated: bool) -> tuple[str, str | None]:
+    statuses = [database["status"] for database in databases]
+    if all(status == "ERROR" for status in statuses):
+        return "ERROR", "No PostgreSQL datasource could be read."
+    if unread or truncated or any(status in {"ERROR", "PARTIAL"} for status in statuses):
         message = (
             "The read budget ran out before every datasource was read; see the diagnostics."
             if unread
             else "Some results are incomplete; see the section details and diagnostics."
         )
-    else:
-        status, message = "READ", None
-    return _report(status, message, now, databases, diagnostics, truncated, unread)
+        return "PARTIAL", message
+    return "READ", None
 
 
 async def _read_engine(
@@ -190,7 +193,7 @@ async def _read_engine(
         sections += [_skipped(c.id, c.title) for c in COLLECTORS if c.id not in done]
         data, version, timed_out = replace(partial, sections=sections), None, True
         diagnostics.append(_diagnostic(name, "WARNING", BUDGET_RAN_OUT))
-    except Exception as exc:  # noqa: BLE001 - a failed engine is reported for that engine, never raised
+    except Exception as exc:  # noqa: BLE001  # a failed engine is reported for that engine, never raised
         return _error_database(name, ctx.masker.mask_text(str(exc).strip()) or type(exc).__name__, diagnostics)
     data.name = name
     for section in data.sections:
@@ -339,29 +342,37 @@ def _report(
     }
 
 
+def _section_limitations(name: str, section: Dto) -> list[str]:
+    limitations: list[str] = []
+    if section["status"] != "AVAILABLE" or section["reason"] is not None:
+        limitations.append(f"{name}/{section['id']}: {section['reason']}")
+    if section["truncated"]:
+        count = section["rowCount"]
+        if section["id"] == "statements":
+            noun = "statement" if count == 1 else "statements"
+            text = f"Showing the top {count} {noun} by total execution time. Additional statements are not shown."
+        else:
+            noun = "row." if count == 1 else "rows."
+            text = (
+                f"Showing {count} {noun} Additional rows are not shown because this section reached sharpit's "
+                "row limit."
+            )
+        limitations.append(f"{name} / {section['title']}: {text}")
+    return limitations
+
+
+def _database_limitations(database: Dto) -> list[str]:
+    name = database["name"]
+    limitations = [item for section in database["sections"] for item in _section_limitations(name, section)]
+    if database["status"] in {"PARTIAL", "ERROR"} and database["message"] is not None:
+        limitations.append(f"{name}: {database['message']}")
+    return limitations
+
+
 def _limitations(databases: list[Dto], truncated: bool, read_limitations: list[str]) -> list[str]:
     limitations = list(read_limitations)
     for database in databases:
-        name = database["name"]
-        for section in database["sections"]:
-            if section["status"] != "AVAILABLE" or section["reason"] is not None:
-                limitations.append(f"{name}/{section['id']}: {section['reason']}")
-            if section["truncated"]:
-                count = section["rowCount"]
-                if section["id"] == "statements":
-                    noun = "statement" if count == 1 else "statements"
-                    text = (
-                        f"Showing the top {count} {noun} by total execution time. Additional statements are not shown."
-                    )
-                else:
-                    noun = "row." if count == 1 else "rows."
-                    text = (
-                        f"Showing {count} {noun} Additional rows are not shown because this section reached sharpit's "
-                        "row limit."
-                    )
-                limitations.append(f"{name} / {section['title']}: {text}")
-        if database["status"] in {"PARTIAL", "ERROR"} and database["message"] is not None:
-            limitations.append(f"{name}: {database['message']}")
+        limitations.extend(_database_limitations(database))
     if truncated and not limitations:
         limitations.append("Some results reached sharpit's row limits. Additional rows are not shown.")
     return limitations

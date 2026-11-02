@@ -99,9 +99,10 @@ def test_summary_includes_baseline_counts_when_present() -> None:
 
 
 def test_summary_without_baseline_is_stable() -> None:
-    report = _golden_report()
-    assert render_summary(report) == render_summary(report)
-    assert "Baseline:**" not in render_summary(report)
+    first = render_summary(_golden_report())
+    second = render_summary(_golden_report())  # an independently built report renders byte for byte the same
+    assert first == second
+    assert "Baseline:**" not in first
 
 
 def test_summary_escapes_markdown_values() -> None:

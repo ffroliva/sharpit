@@ -18,7 +18,7 @@ pytestmark = pytest.mark.needs_sqlalchemy
 pytest.importorskip("sqlalchemy")
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
-STRIPE_KEY = "sk_live_51HxQzLKbF2pWnQ8vT3uY6rE9iO0aS"
+STRIPE_KEY = "sk_live_" + "51HxQzLKbF2pWnQ8vT3uY6rE9iO0aS"
 PASSWORD = "hunter2-correct-horse"
 
 

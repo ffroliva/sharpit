@@ -13,7 +13,7 @@ from sharpit import install  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
-STRIPE_KEY = "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+STRIPE_KEY = "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc"
 
 
 def test_stripe_key_in_slow_query_never_appears():

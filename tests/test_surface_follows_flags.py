@@ -81,7 +81,7 @@ def test_shared_counts_follow_a_flip_of_any_unimplemented_panel(
     assert cli["toolCount"] == len(surface.BASE_CLI_COMMANDS) + len(surface.lane_tools())
     assert {t["name"]: t["command"] for t in cli["tools"]} == surface.expected_cli_commands()
     assert surface.expected_cli_commands()[probe] == f"{plant} probe"
-    lane_paths = surface.lane_route_paths(handle.context, app)
-    assert lane_paths == [p.path for p in _panel_04_routes(handle.context, app)]
+    lane_paths = surface.lane_route_paths(handle.context)
+    assert lane_paths == [p.path for p in _panel_04_routes(handle.context)]
     assert f"/api/{plant}/probe" in lane_paths
     assert client.get(f"/sharpit/api/{plant}/probe").json() == {"probe": True}

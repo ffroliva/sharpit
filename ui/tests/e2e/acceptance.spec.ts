@@ -9,7 +9,7 @@ test('§10.1 the rail comes from the registry; unavailable and read-only panels 
   const rail = page.getByRole('navigation', { name: 'Panels' });
   const links = rail.getByRole('link');
   await expect(links).toHaveText(PANELS.map((p) => p.title));
-  for (const p of PANELS) await expect(rail.getByRole('link', { name: p.title })).toHaveAttribute('href', `#/${p.id}`);
+  for (const p of PANELS) await expect(rail.getByRole('link', { name: p.title, exact: true })).toHaveAttribute('href', `#/${p.id}`);
 
   // The server's own registry: the e2e server disables CLI and makes MCP Server read-only (playwright.config.ts).
   const registry = (await (await page.request.get('api/panels')).json()) as {

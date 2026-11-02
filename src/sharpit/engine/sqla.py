@@ -71,6 +71,9 @@ _unbounded_read_missing_capture: set[tuple[str, int]] = set()
 _unbounded_read_capture_missing = False
 _unbounded_read_request_seen = False
 _unbounded_read_factor = 2
+# lazy loads already recorded per test: (compiled, parent class, statement) decides the whole outcome, so a repeat
+# (the N in N+1) skips the path read and the fingerprint; the lazy-load overhead budget depends on it
+_lazy_seen: dict[tuple[str, int, str], set[tuple[Any, Any, str]]] = {}
 
 
 @functools.lru_cache(maxsize=4096)
@@ -151,6 +154,18 @@ def _relationship_observation(context: Any, tag: tuple[str, int, str]) -> Any:
     return identity, collection
 
 
+def _lazy_key(context: Any, statement: str) -> tuple[Any, Any, str] | None:
+    """What a lazy load's observation depends on, or None for anything else (counted per execution, or not cached)."""
+    options = getattr(context, "execution_options", None)
+    if not options or RELATIONSHIP_KEY in options:
+        return None
+    parent = getattr(options.get("_sa_orm_load_options"), "_lazy_loaded_from", None)
+    compiled = getattr(context, "compiled", None)
+    if parent is None or compiled is None:
+        return None
+    return compiled, getattr(parent, "class_", None), statement
+
+
 def _record_relationship(context: Any) -> None:
     """Record relationship loads using SQLAlchemy's compiled execution context, without an ORM hook."""
     tag = TEST.get()
@@ -159,19 +174,35 @@ def _record_relationship(context: Any) -> None:
     statement = getattr(context, "statement", None)
     if not isinstance(statement, str):
         return
-    relation_value = _relationship_observation(context, tag)
-    if isinstance(relation_value, tuple) and len(cast("tuple[object, ...]", relation_value)) == 2:
-        identity, collection = cast("tuple[object, object]", relation_value)
-        if not isinstance(identity, str) or not isinstance(collection, bool):
+    seen_key = _lazy_key(context, statement)
+    if seen_key is not None:
+        seen = _lazy_seen.get(tag)
+        if seen is not None and seen_key in seen:
             return
-        key = _masked_fingerprint(statement)
-        groups = _relationship_groups.get(tag)
-        if groups is None or key not in groups:
-            with _lock:
-                _relationship_groups.setdefault(tag, {}).setdefault(key, (identity, collection))
+    relation_value = _relationship_observation(context, tag)
+    if seen_key is not None:
+        with _lock:
+            _lazy_seen.setdefault(tag, set()).add(seen_key)
+    if isinstance(relation_value, tuple) and len(cast("tuple[object, ...]", relation_value)) == 2:
+        _store_lazy_group(tag, statement, cast("tuple[object, object]", relation_value))
+    elif relation_value is _EAGER_RELATIONSHIP_KEY:
+        _count_eager_batch(tag, statement)
+
+
+def _store_lazy_group(tag: tuple[str, int, str], statement: str, relation: tuple[object, object]) -> None:
+    """Remember which relationship a lazy-load statement belongs to (first observation wins)."""
+    identity, collection = relation
+    if not isinstance(identity, str) or not isinstance(collection, bool):
         return
-    if relation_value is not _EAGER_RELATIONSHIP_KEY:
-        return
+    key = _masked_fingerprint(statement)
+    groups = _relationship_groups.get(tag)
+    if groups is None or key not in groups:
+        with _lock:
+            _relationship_groups.setdefault(tag, {}).setdefault(key, (identity, collection))
+
+
+def _count_eager_batch(tag: tuple[str, int, str], statement: str) -> None:
+    """Count one eager-load batch statement, so it is not mistaken for an N+1 repeat."""
     key = _masked_fingerprint(statement)
     with _lock:
         batches = _eager_relationship_batches.setdefault(tag, {})
@@ -185,6 +216,7 @@ def apply_relationship_facts(test: Any) -> None:
         groups = _relationship_groups.pop(tag, {})
         sites = _relationship_sites.pop(tag, {})
         eager_batches = _eager_relationship_batches.pop(tag, {})
+        _lazy_seen.pop(tag, None)
     if not groups and not eager_batches:
         return
     phase = test.phases.get("call")
@@ -612,6 +644,7 @@ def detach_all() -> None:
         _relationship_groups.clear()
         _relationship_sites.clear()
         _eager_relationship_batches.clear()
+        _lazy_seen.clear()
         _sync_listeners()
 
 
@@ -647,6 +680,7 @@ def detach_session() -> None:
         _relationship_groups.clear()
         _relationship_sites.clear()
         _eager_relationship_batches.clear()
+        _lazy_seen.clear()
         _sync_listeners()
 
 

@@ -42,6 +42,16 @@ def test_adapter_install_uses_route_builder_module(monkeypatch) -> None:
     assert called == [True]
 
 
+def test_route_builder_accepts_original_two_argument_form() -> None:
+    app = FastAPI()
+    ctx = adapter.install(app, enabled="ON", show_banner=False).context
+    try:
+        result = routes._panel_04_routes(ctx, app)
+    except TypeError:
+        result = None
+    assert isinstance(result, list)
+
+
 def test_unimplemented_route_builder_matches_installed_panel_surface() -> None:
     app = FastAPI()
     adapter.install(app, enabled="ON", show_banner=False)

@@ -93,7 +93,7 @@ def test_sqlalchemy_lazy_relationship_hook_overhead_budget() -> None:
                 sqla.TEST.reset(token)
                 sqla.detach_session()
 
-        result = paired(off, on, rounds=5)
+        result = paired(off, on, rounds=21)  # 5 rounds flaked on CI runners (decisions doc, overhead budgets)
         check_budget("SQLAlchemy lazy relationship hooks", result, ORM_HOOK_BUDGET, "µs/lazy load", 1e-6)
     finally:
         sqla.detach_session()

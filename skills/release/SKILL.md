@@ -47,6 +47,9 @@ stops the release until the owner decides where it goes.
 - `/sharpit:doc-review` clean: version references, links (github.com only) and the changelog footer.
 - `/sharpit:live-verify` for each user-facing change in this release, or a line in the PR saying why not.
 - `[Unreleased]` in `CHANGELOG.md` is non-empty and true.
+- A coordinated (multi-lane) release reached `main` with its decisions harvested into
+  `docs/reports/<date>-<version>-decisions.md` and no tracked `.superpowers/` files
+  (`python scripts/ci/no_superpowers.py` exits 0; `docs/development/workflow.md` step 7).
 
 **3. Announce, then cut the branch in its own worktree.**
 

@@ -64,7 +64,7 @@ class SharpitSpanProcessor:
         self.providers: list[Any] = []  # every provider this processor was added to (identity, never removed)
         self._lock = threading.Lock()
 
-    def on_start(self, span: Any, parent_context: Any = None) -> None:
+    def on_start(self, span: Any, parent_context: Any = None) -> None:  # NOSONAR - OpenTelemetry SpanProcessor contract
         for sink in self.sinks:
             try:
                 on_start = getattr(sink, "on_start", None)
@@ -74,6 +74,7 @@ class SharpitSpanProcessor:
                 continue
 
     def _on_ending(self, span: Any) -> None:  # newer SDKs call it on every processor
+        # This hook needs no action; completed spans are captured by on_end.
         pass
 
     def on_end(self, span: Any) -> None:
@@ -84,9 +85,10 @@ class SharpitSpanProcessor:
                 continue
 
     def shutdown(self) -> None:
+        # nothing to release: spans go to sharpit's in-memory buffer, which install()/uninstall own
         pass
 
-    def force_flush(self, timeout_millis: int = 30000) -> bool:
+    def force_flush(self, timeout_millis: int = 30000) -> bool:  # NOSONAR - OpenTelemetry SpanProcessor contract
         return True
 
 

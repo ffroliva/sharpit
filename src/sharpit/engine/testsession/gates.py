@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from sharpit.engine.advisors.findings import Finding
@@ -120,6 +120,91 @@ def _n_plus_one_message(call: PhaseFacts, group: str, count: int) -> str:
     )
 
 
+def _query_findings(
+    call: PhaseFacts,
+    node: str,
+    budget: Budget,
+    dismissed: Collection[str],
+    dismissed_pairs: Collection[tuple[str, str]],
+) -> list[Finding]:
+    if budget.max_queries is None or call.queries <= budget.max_queries:
+        return []
+    message = f"{call.queries} queries in the call phase (budget {budget.max_queries})"
+    return [
+        _finding(
+            MAX_QUERIES,
+            node,
+            message,
+            node,
+            dismissed,
+            dismissed_pairs=dismissed_pairs,
+            observed=call.queries,
+        )
+    ]
+
+
+def _n_plus_one_findings(
+    call: PhaseFacts,
+    node: str,
+    budget: Budget,
+    threshold: int,
+    dismissed: Collection[str],
+    dismissed_pairs: Collection[tuple[str, str]],
+) -> list[Finding]:
+    if budget.allow_n_plus_one:
+        return []
+    found: list[Finding] = []
+    for group, count in call.selects.items():
+        if count >= max(2, threshold):
+            found.append(
+                _finding(
+                    N_PLUS_ONE,
+                    call.sql_of.get(group, group),
+                    _n_plus_one_message(call, group, count),
+                    node,
+                    dismissed,
+                    group,
+                    dismissed_pairs,
+                    count,
+                )
+            )
+    return found
+
+
+def _exception_findings(
+    call: PhaseFacts,
+    node: str,
+    budget: Budget,
+    dismissed: Collection[str],
+    dismissed_pairs: Collection[tuple[str, str]],
+) -> list[Finding]:
+    if call.exceptions <= budget.max_exceptions:
+        return []
+    return [
+        _finding(
+            EXCEPTION,
+            f"{node}#{group}",
+            f"{type_name}: {text} (swallowed)",
+            node,
+            dismissed,
+            dismissed_pairs=dismissed_pairs,
+            observed=1,
+        )
+        for group, (type_name, text) in call.exception_groups.items()
+    ]
+
+
+def _annotate_baseline(found: list[Finding], baseline: Mapping[str, int | None]) -> list[Finding]:
+    annotated: list[Finding] = []
+    for finding in found:
+        old_count = baseline.get(finding.fingerprint)
+        existing = finding.fingerprint in baseline and (
+            old_count is None or finding.observed is None or finding.observed <= old_count
+        )
+        annotated.append(replace(finding, baseline_state="existing" if existing else "new"))
+    return annotated
+
+
 def evaluate_test(
     facts: TestFacts,
     budget: Budget,
@@ -133,61 +218,9 @@ def evaluate_test(
     if call is None:
         return []
     node = facts.key.node_id
-    found: list[Finding] = []
-    if budget.max_queries is not None and call.queries > budget.max_queries:
-        message = f"{call.queries} queries in the call phase (budget {budget.max_queries})"
-        found.append(
-            _finding(
-                MAX_QUERIES,
-                node,
-                message,
-                node,
-                dismissed,
-                dismissed_pairs=dismissed_pairs,
-                observed=call.queries,
-            )
-        )
-    if not budget.allow_n_plus_one:
-        threshold = max(2, n_plus_one_threshold)
-        for group, count in call.selects.items():
-            if count >= threshold:
-                found.append(
-                    _finding(
-                        N_PLUS_ONE,
-                        call.sql_of.get(group, group),
-                        _n_plus_one_message(call, group, count),
-                        node,
-                        dismissed,
-                        group,
-                        dismissed_pairs,
-                        count,
-                    )
-                )
-    if call.exceptions > budget.max_exceptions:
-        for group, (type_name, text) in call.exception_groups.items():
-            target = f"{node}#{group}"
-            found.append(
-                _finding(
-                    EXCEPTION,
-                    target,
-                    f"{type_name}: {text} (swallowed)",
-                    node,
-                    dismissed,
-                    dismissed_pairs=dismissed_pairs,
-                    observed=1,
-                )
-            )
+    found = _query_findings(call, node, budget, dismissed, dismissed_pairs)
+    found.extend(_n_plus_one_findings(call, node, budget, n_plus_one_threshold, dismissed, dismissed_pairs))
+    found.extend(_exception_findings(call, node, budget, dismissed, dismissed_pairs))
     found.extend(_swallowed_findings(call, budget, node, dismissed, dismissed_pairs))
     found.extend(_unbounded_read_findings(call, budget, node, dismissed, dismissed_pairs))
-    if baseline is None:
-        return found
-    from dataclasses import replace
-
-    annotated: list[Finding] = []
-    for finding in found:
-        old_count = baseline.get(finding.fingerprint)
-        existing = finding.fingerprint in baseline and (
-            old_count is None or finding.observed is None or finding.observed <= old_count
-        )
-        annotated.append(replace(finding, baseline_state="existing" if existing else "new"))
-    return annotated
+    return found if baseline is None else _annotate_baseline(found, baseline)

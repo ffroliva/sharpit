@@ -196,6 +196,59 @@ def test_session_capture_does_not_register_orm_execute_listener():
     sqla.detach_session()
 
 
+def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    # the lazy-load budget (test_n_plus_one_overhead) pins the time; this pins the work behind it as a count
+    orm = pytest.importorskip("sqlalchemy.orm")
+    engine = sa.create_engine("sqlite://")
+    Base = orm.declarative_base()
+
+    class Parent(Base):
+        __tablename__ = "repeat_parent"
+        id = sa.Column(sa.Integer, primary_key=True)
+        children = orm.relationship("Child")
+
+    class Child(Base):
+        __tablename__ = "repeat_child"
+        id = sa.Column(sa.Integer, primary_key=True)
+        parent_id = sa.Column(sa.Integer, sa.ForeignKey("repeat_parent.id"))
+
+    Base.metadata.create_all(engine)
+    with orm.Session(engine) as session:
+        session.add_all(Parent(children=[Child()]) for _ in range(10))
+        session.commit()
+    _install(engines=[engine])
+
+    calls = {"path": 0, "fingerprint": 0}
+    path, fingerprint = sqla._relationship_path, sqla._masked_fingerprint
+
+    def count_path(context: object) -> object:
+        calls["path"] += 1
+        return path(context)
+
+    def count_fingerprint(statement: str) -> str:
+        calls["fingerprint"] += 1
+        return fingerprint(statement)
+
+    monkeypatch.setattr(sqla, "_relationship_path", count_path)
+    monkeypatch.setattr(sqla, "_masked_fingerprint", count_fingerprint)
+    tag = ("test_repeated_lazy_load_inspects_relationship_and_fingerprint_once", 1, "call")
+    token = TEST.set(tag)
+    try:
+        assert sqla.attach_session() is True
+        with orm.Session(engine) as session:
+            parents = list(session.scalars(sa.select(Parent)))
+            calls.update(path=0, fingerprint=0)  # the parent SELECT is not a lazy load
+            for parent in parents:
+                list(parent.children)
+        groups = dict(sqla._relationship_groups[tag])
+        assert calls["path"] == 1, f"relationship path read {calls['path']} times for 10 identical lazy loads"
+        assert calls["fingerprint"] == 1, f"statement fingerprinted {calls['fingerprint']} times for 10 lazy loads"
+        assert list(groups.values()) == [("Parent.children", True)]
+    finally:
+        sqla.detach_session()
+        TEST.reset(token)
+
+
 def test_listener_failure_does_not_change_query_result(
     monkeypatch: pytest.MonkeyPatch,
 ):

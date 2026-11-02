@@ -83,7 +83,9 @@ class AdvisorRun:
             or scan_status in ("PARTIAL", "ERROR")
         )
         if any(fails(f.to_dto()) and severity_rank(f.severity) <= gate for f in found):
-            reason = (limitations[0] if limitations else _FALLBACK_REASON) if incomplete else None
+            reason = None
+            if incomplete:
+                reason = limitations[0] if limitations else _FALLBACK_REASON
             return cls(advisor, "FAILED", found, evidence, reason, app)
         if incomplete:
             return cls(advisor, "UNKNOWN", found, evidence, limitations[0] if limitations else _FALLBACK_REASON, app)

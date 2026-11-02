@@ -10,13 +10,19 @@ from sharpit.engine.advisors.rules import severity_rank
 
 TOP = 20
 _MARKDOWN = re.compile(r"([\\`*_\[\]<>|&~])")
-_LINE_BREAKS = re.compile(r"\s*[\r\n]+\s*")
-_AUTOLINK = re.compile(r"(?i)\b(?:https?:(?=//)|www(?=\.))")
+_WHITESPACE_RUN = re.compile(r"\s+")
+_AUTOLINK = re.compile(r"(?i)\b(?:https:|http:)(?=//)|\bwww(?=\.)")
+
+
+def _one_line(text: str) -> str:
+    """Each whitespace run holding a line break becomes one space; one linear pass (a regex spanning the run's
+    edges re-scans long space runs from every start, quadratic on untrusted text)."""
+    return _WHITESPACE_RUN.sub(lambda m: " " if "\n" in m.group() or "\r" in m.group() else m.group(), text)
 
 
 def _esc(value: object) -> str:
     """One physical line, every Markdown/HTML metacharacter backslash-escaped (finding text is untrusted)."""
-    escaped = _MARKDOWN.sub(lambda m: chr(92) + m.group(1), _LINE_BREAKS.sub(" ", str(value)).strip())
+    escaped = _MARKDOWN.sub(lambda m: chr(92) + m.group(1), _one_line(str(value)).strip())
     return _AUTOLINK.sub(lambda m: m.group(0) + "​", escaped)  # a zero-width space stops GFM autolinking
 
 

@@ -150,6 +150,38 @@ def _partial_facts(state: Any, session: Any) -> dict[str, Any]:
     }
 
 
+def _finish_worker(plugin: Any, state: Any, session: Any, local_partial: dict[str, Any]) -> None:
+    try:
+        plugin._final_facts(state)
+    except Exception as exc:  # noqa: BLE001
+        plugin._record_hook_failure(state.sink, exc)
+    plugin._advisors(state)
+    try:
+        session.config.workeroutput["sharpit"] = state.sink.facts.to_json()
+        session.config.workeroutput["sharpit_partial"] = {
+            key: value for key, value in local_partial.items() if key not in {"collected", "run"}
+        }
+        names = getattr(state, "autodetected", None)
+        snapshot = names is None and state.options.advisors and not state.options.app
+        session.config.workeroutput[APPS_KEY] = {"names": names, "snapshot": snapshot}
+    except Exception as exc:  # noqa: BLE001
+        plugin._record_hook_failure(state.sink, exc)
+
+
+def _finish_controller(plugin: Any, state: Any, session: Any, exitstatus: int, local_partial: dict[str, Any]) -> None:
+    state.partial = partial_run(state.worker_partial_facts or [], local_partial)
+    names = getattr(state, "autodetected", None)
+    if names is not None and state.parts:
+        snapshot = getattr(state, "autodetect_snapshot", False)
+        try:
+            reconcile_workers(state.parts, names, state.options.require_app, snapshot)
+        except Exception as exc:  # noqa: BLE001
+            plugin._record_hook_failure(state.sink, exc)
+        if snapshot:  # an installed app was assessed: autodetect did not decide anything
+            state.autodetected = None
+    plugin._write_report(state, session, exitstatus)
+
+
 def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
     from sharpit import pytest_plugin
 
@@ -169,33 +201,9 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
     state.test_files = _test_files(session.config)
     local_partial = _partial_facts(state, session)
     if hasattr(session.config, "workerinput"):
-        try:
-            plugin._final_facts(state)
-        except Exception as exc:  # noqa: BLE001
-            plugin._record_hook_failure(state.sink, exc)
-        plugin._advisors(state)
-        try:
-            session.config.workeroutput["sharpit"] = state.sink.facts.to_json()
-            session.config.workeroutput["sharpit_partial"] = {
-                key: value for key, value in local_partial.items() if key not in {"collected", "run"}
-            }
-            names = getattr(state, "autodetected", None)
-            snapshot = names is None and state.options.advisors and not state.options.app
-            session.config.workeroutput[APPS_KEY] = {"names": names, "snapshot": snapshot}
-        except Exception as exc:  # noqa: BLE001
-            plugin._record_hook_failure(state.sink, exc)
+        _finish_worker(plugin, state, session, local_partial)
         return
-    state.partial = partial_run(state.worker_partial_facts or [], local_partial)
-    names = getattr(state, "autodetected", None)
-    if names is not None and state.parts:
-        snapshot = getattr(state, "autodetect_snapshot", False)
-        try:
-            reconcile_workers(state.parts, names, state.options.require_app, snapshot)
-        except Exception as exc:  # noqa: BLE001
-            plugin._record_hook_failure(state.sink, exc)
-        if snapshot:  # an installed app was assessed: autodetect did not decide anything
-            state.autodetected = None
-    plugin._write_report(state, session, exitstatus)
+    _finish_controller(plugin, state, session, exitstatus, local_partial)
 
 
 def _test_files(config: Any) -> tuple[str, ...]:
