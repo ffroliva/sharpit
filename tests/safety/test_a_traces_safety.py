@@ -26,7 +26,7 @@ class Provider:
         self.processors.append(processor)
 
 
-def test_get_no_side_effects(no_side_effects: SideEffectGuard, monkeypatch: pytest.MonkeyPatch):
+def test_get_never_attaches_or_writes(no_side_effects: SideEffectGuard, monkeypatch: pytest.MonkeyPatch):
     provider = Provider()
     trace = ModuleType("opentelemetry.trace")
     trace.get_tracer_provider = lambda: provider  # type: ignore[attr-defined]
@@ -40,8 +40,9 @@ def test_get_no_side_effects(no_side_effects: SideEffectGuard, monkeypatch: pyte
         no_side_effects.block_network()
         listed = client.get("/sharpit/api/traces")
         detail = client.get("/sharpit/api/traces/0123456789abcdef")
+        sinks_after = otel.PROCESSOR.sinks  # read before the lifespan shutdown disarms
     assert listed.status_code == 200
     assert detail.status_code == 404
     assert provider.processors == [otel.PROCESSOR]
-    assert otel.PROCESSOR.sinks == sinks
+    assert sinks_after == sinks
     assert no_side_effects.violations == []

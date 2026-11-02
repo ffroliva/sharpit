@@ -10,12 +10,16 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlsplit
+from weakref import WeakKeyDictionary
 
 from sharpit.engine import otel
 from sharpit.engine.capture import under
 from sharpit.engine.masking import MASK, Masker
+
+if TYPE_CHECKING:
+    from sharpit.engine.context import SharpitContext
 
 MIN_LIMIT, MAX_LIMIT = 1, 500  # TracesService clamp
 MAX_SUMMARY_SERVICES = 20
@@ -287,3 +291,14 @@ class SpanBuffer:
             "traceId": trace_id.lower(),
             "spans": [self._span(s) for s in sorted(spans, key=lambda s: s.start_time)],
         }
+
+
+_BUFFERS: WeakKeyDictionary[SharpitContext, SpanBuffer] = WeakKeyDictionary()
+
+
+def span_buffer(ctx: SharpitContext) -> SpanBuffer:
+    """The context's buffer, made on first use (route build); the routes and the MCP tools share it."""
+    buffer = _BUFFERS.get(ctx)
+    if buffer is None:
+        buffer = _BUFFERS[ctx] = SpanBuffer(ctx.masker, self_path=ctx.settings.path)
+    return buffer
