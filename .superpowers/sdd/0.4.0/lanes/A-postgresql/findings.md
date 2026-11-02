@@ -48,6 +48,21 @@
 | `tests/engine/postgresql/test_sections.py::test_rows_distinguish_empty_available_from_failed_and_copy_rows` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert ['one', 'two'] == ['one']` |
 | `tests/engine/postgresql/test_sections.py::test_collect_probes_the_role_then_runs_every_section_in_order` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert None == 'app'` |
 | `tests/engine/postgresql/test_sections.py::test_an_exhausted_budget_skips_the_remaining_sections` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert [] == ['sessions', ...'replication']` |
+| `tests/engine/postgresql/test_service.py::test_initial_report_touches_neither_discovery_nor_database` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'NOT_READ'` |
+| `tests/engine/postgresql/test_service.py::test_report_keys_match_the_bootui_records` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert ['status', 'm...nostics', ...] == ['localOnly',...sesRead', ...]` |
+| `tests/engine/postgresql/test_service.py::test_a_complete_read_is_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'READ'` |
+| `tests/engine/postgresql/test_service.py::test_no_engine_is_disabled` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'DISABLED'` |
+| `tests/engine/postgresql/test_service.py::test_non_postgres_engine_is_skipped` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'DISABLED'` |
+| `tests/engine/postgresql/test_service.py::test_datasource_that_refuses_connections_produces_error_and_diagnostic` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'ERROR'` |
+| `tests/engine/postgresql/test_service.py::test_an_autocommit_connection_is_skipped_before_any_catalog_sql` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'ERROR'` |
+| `tests/engine/postgresql/test_service.py::test_configured_row_limits_reach_every_collector` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [] == [4, 5, 6, 7, 8, 9, ...]` |
+| `tests/engine/postgresql/test_service.py::test_statement_text_goes_through_exposure_policy` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [] == ["select * fr...d = '******'"]` |
+| `tests/engine/postgresql/test_service.py::test_a_role_that_cannot_read_other_backends_degrades_the_session_list_instead_of_looking_quiet` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert True is False` |
+| `tests/engine/postgresql/test_service.py::test_an_absent_statement_extension_is_reported_as_a_skipped_section_rather_than_an_empty_one` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'SKIPPED'` |
+| `tests/engine/postgresql/test_service.py::test_an_exhausted_read_budget_is_reported_instead_of_looking_like_a_clean_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'PARTIAL'` |
+| `tests/engine/postgresql/test_service.py::test_in_memory_previous_read_delta_appears_only_from_second_read_and_is_not_persisted` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [None] == []` |
+| `tests/engine/postgresql/test_service.py::test_a_partial_read_keeps_the_baseline_of_the_sections_it_could_not_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [None] == []` |
+| `tests/engine/postgresql/test_service.py::test_get_returns_the_last_read_report_after_a_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert {'status': ''...ics': [], ...} == {'status': ''...Read': 0, ...}` |
 
 ## Review / implementation findings
 

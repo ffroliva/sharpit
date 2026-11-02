@@ -1,6 +1,6 @@
 # Lane A-postgresql handoff
 
-Status: IN_PROGRESS — Tasks 1–3 complete (resumed by a Claude subagent after Antigravity hit its quota); next Task 4.
+Status: IN_PROGRESS — Tasks 1–4 complete (resumed by a Claude subagent after Antigravity hit its quota); next Task 5.
 
 ## How to resume
 
@@ -17,10 +17,11 @@ Status: IN_PROGRESS — Tasks 1–3 complete (resumed by a Claude subagent after
 - Task 2 (query text, row limits): red `afbecc2a011076b0f8cc81813607069846719e0d`; coordinator WIP `f247d7e` (broken: called a non-existent `Masker.mask_value`, all five querytext tests errored with AttributeError); real fix commit `feat: postgresql query text and row limits` (see git log).
 
 - Task 3 (section collectors): red `e2504c7f15c00305ab54c166ccded0700a2ae900`, fix `feat: postgresql catalog section collectors` (see git log).
+- Task 4 (report service): red `af231859d2e164fe48214be61e67b4fc1635a1bb`, fix `c3ff9e4` (`feat: postgresql read service`). `test_concurrent_read_is_busy` is not in the red table (its red is pytest's `DID NOT RAISE`, not an assertion).
 
 ## Next step
 
-- Task 4: `service.py` (report, refresh, comparison) + `tests/engine/postgresql/test_service.py`.
+- Task 5: routes (`fastapi/routes/postgresql.py`), MCP (`engine/tools04/postgresql.py`), safety/masking tests, `nullable.json`, field map.
 
 ## Decisions and deviations
 
@@ -34,6 +35,7 @@ Status: IN_PROGRESS — Tasks 1–3 complete (resumed by a Claude subagent after
 - Task 3 SQL is BootUI's, with one change: `state like 'idle in transaction%'` becomes `state in ('idle in transaction', 'idle in transaction (aborted)')` because `exec_driver_sql` hands the text to psycopg, which reads `%` as a placeholder (`test_no_query_text_contains_a_percent_sign`). List queries get `limit <max+1>` appended as an integer literal (no bind parameter, no SQLAlchemy import in the collector: `sqla.py` stays the only gatekeeper).
 - Task 3 shortcut: BootUI clamps each statement's `setQueryTimeout` to the remaining budget; sharpit pins `statement_timeout` once (5 s) and checks the budget between queries and rows, so a read can overrun the 15 s budget by at most one statement (≤ 5 s); `run_db_read(wall_timeout=15)` still bounds the caller.
 - Task 3 reasons go through `masker.mask_text` (house pattern `mask_text(msg) or <label>`), BootUI's `CredentialRedaction` analogue; under `METADATA_ONLY` a failed section says only `<label> could not be read: <ExceptionType>`.
+- Task 4: an empty engine registry reports `DISABLED` with BootUI's "No PostgreSQL datasource was found…" (plan Review Focus 5), not BootUI's "No DataSource beans were found to inspect." (no bean concept). BootUI's manual-commit skip maps to `bounded_read_only`'s refusal: the database is `ERROR` with `message = READ_ONLY_REFUSED` and one `ERROR` diagnostic. `serverVersion` comes from the dialect's `server_version_info` read inside the transaction; `message` (BootUI's pin/restore caveat) is always `null` because sharpit never runs a half-pinned read. The NOT_READ text keeps BootUI's CLI hint with `bootui`→`sharpit` (`sharpit db postgres read`).
 
 ## Needs from coordinator
 
@@ -87,4 +89,19 @@ Status: IN_PROGRESS — Tasks 1–3 complete (resumed by a Claude subagent after
 | `tests/engine/postgresql/test_sections.py::test_rows_distinguish_empty_available_from_failed_and_copy_rows` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert ['one', 'two'] == ['one']` |
 | `tests/engine/postgresql/test_sections.py::test_collect_probes_the_role_then_runs_every_section_in_order` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert None == 'app'` |
 | `tests/engine/postgresql/test_sections.py::test_an_exhausted_budget_skips_the_remaining_sections` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert [] == ['sessions', ...'replication']` |
+| `tests/engine/postgresql/test_service.py::test_initial_report_touches_neither_discovery_nor_database` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'NOT_READ'` |
+| `tests/engine/postgresql/test_service.py::test_report_keys_match_the_bootui_records` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert ['status', 'm...nostics', ...] == ['localOnly',...sesRead', ...]` |
+| `tests/engine/postgresql/test_service.py::test_a_complete_read_is_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'READ'` |
+| `tests/engine/postgresql/test_service.py::test_no_engine_is_disabled` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'DISABLED'` |
+| `tests/engine/postgresql/test_service.py::test_non_postgres_engine_is_skipped` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'DISABLED'` |
+| `tests/engine/postgresql/test_service.py::test_datasource_that_refuses_connections_produces_error_and_diagnostic` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'ERROR'` |
+| `tests/engine/postgresql/test_service.py::test_an_autocommit_connection_is_skipped_before_any_catalog_sql` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'ERROR'` |
+| `tests/engine/postgresql/test_service.py::test_configured_row_limits_reach_every_collector` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [] == [4, 5, 6, 7, 8, 9, ...]` |
+| `tests/engine/postgresql/test_service.py::test_statement_text_goes_through_exposure_policy` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [] == ["select * fr...d = '******'"]` |
+| `tests/engine/postgresql/test_service.py::test_a_role_that_cannot_read_other_backends_degrades_the_session_list_instead_of_looking_quiet` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert True is False` |
+| `tests/engine/postgresql/test_service.py::test_an_absent_statement_extension_is_reported_as_a_skipped_section_rather_than_an_empty_one` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'SKIPPED'` |
+| `tests/engine/postgresql/test_service.py::test_an_exhausted_read_budget_is_reported_instead_of_looking_like_a_clean_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert '' == 'PARTIAL'` |
+| `tests/engine/postgresql/test_service.py::test_in_memory_previous_read_delta_appears_only_from_second_read_and_is_not_persisted` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [None] == []` |
+| `tests/engine/postgresql/test_service.py::test_a_partial_read_keeps_the_baseline_of_the_sections_it_could_not_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [None] == []` |
+| `tests/engine/postgresql/test_service.py::test_get_returns_the_last_read_report_after_a_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert {'status': ''...ics': [], ...} == {'status': ''...Read': 0, ...}` |
 
