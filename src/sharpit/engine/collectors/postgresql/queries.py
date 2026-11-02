@@ -84,8 +84,20 @@ _RELATION_NAME = re.compile(r'(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")+")(?:\.(?:[a-z_]
 
 def statement_sql(relation: str | None, exec_naming: bool) -> str:
     """PostgresStatementCollector.sql: pg_stat_statements 1.8 renamed the timing columns to ``*_exec_time``."""
-    del relation, exec_naming
-    return ""
+    view = relation if relation is not None and _RELATION_NAME.fullmatch(relation) else "pg_stat_statements"
+    total, mean, peak = (
+        ("total_exec_time", "mean_exec_time", "max_exec_time")
+        if exec_naming
+        else ("total_time", "mean_time", "max_time")
+    )
+    return (
+        f"select s.queryid::text as query_id, s.query as query, s.calls as calls, s.{total} as total_time,"
+        f" s.{mean} as mean_time, s.{peak} as max_time, s.rows as rows_returned,"
+        " s.shared_blks_hit as shared_blks_hit, s.shared_blks_read as shared_blks_read"
+        f" from {view} s"
+        " join pg_database d on d.oid = s.dbid and d.datname = current_database()"
+        f" order by s.{total} desc nulls last"
+    )
 
 
 # PostgresIndexCollector.SQL
@@ -152,8 +164,15 @@ from pg_replication_slots
 
 def checkpoint_sql(has_checkpointer: bool) -> str:
     """PostgresReplicationCollector.checkpointSql: PostgreSQL 17 moved the counters to ``pg_stat_checkpointer``."""
-    del has_checkpointer
-    return ""
+    if has_checkpointer:
+        return (
+            "select num_timed as checkpoints_timed, num_requested as checkpoints_requested,"
+            " write_time as write_time from pg_stat_checkpointer"
+        )
+    return (
+        "select checkpoints_timed as checkpoints_timed, checkpoints_req as checkpoints_requested,"
+        " checkpoint_write_time as write_time from pg_stat_bgwriter"
+    )
 
 
 # PostgresSettingsCollector.NOTABLE_SETTINGS (the timeouts sharpit pins are deliberately absent)

@@ -53,3 +53,8 @@ def test_query_text_respects_exposure_level() -> None:
     assert query_text(MASKED, sql) == "SELECT * FROM users WHERE email = '******' AND id = $1"
     assert query_text(MASKED, None) is None
     assert query_text(MASKED, "   ") is None
+
+
+def test_query_text_a_dollar_inside_a_string_is_not_a_dollar_quote() -> None:
+    # derived: the WIP masked dollar quotes before strings, so `$a$` inside a literal swallowed the rest of the text
+    assert query_text(MASKED, "SELECT 'cost $a$' , x FROM t") == "SELECT '******' , x FROM t"

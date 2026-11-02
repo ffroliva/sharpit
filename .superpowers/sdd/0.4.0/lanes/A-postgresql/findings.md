@@ -18,10 +18,41 @@
 | `tests/engine/postgresql/test_querytext.py::test_query_text_preserves_parameter_placeholders_and_identifiers` | `afbecc2a011076b0f8cc81813607069846719e0d` | `assert '' == 'SELECT "user...D status = $2'` |
 | `tests/engine/postgresql/test_querytext.py::test_query_text_collapses_whitespace_and_truncates_to_400_chars` | `afbecc2a011076b0f8cc81813607069846719e0d` | `AssertionError: assert '' == 'SELECT 1 FRO...stat_activity'` |
 | `tests/engine/postgresql/test_querytext.py::test_query_text_respects_exposure_level` | `afbecc2a011076b0f8cc81813607069846719e0d` | `AssertionError: assert '' == '******'` |
+| `tests/engine/postgresql/test_sections.py::test_statement_collector_picks_timing_columns_from_the_extension_not_the_server` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 's.total_time as total_time' in ''` |
+| `tests/engine/postgresql/test_sections.py::test_statement_collector_uses_the_catalog_resolved_view_and_refuses_an_unexpected_name` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'from monitoring.pg_stat_statements s' in ''` |
+| `tests/engine/postgresql/test_sections.py::test_replication_collector_picks_the_checkpoint_view_that_exists` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'pg_stat_bgwriter' in ''` |
+| `tests/engine/postgresql/test_sections.py::test_list_queries_read_one_past_the_bound_and_report_truncation` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'AVAILABLE'` |
+| `tests/engine/postgresql/test_sections.py::test_exactly_the_row_limit_is_not_reported_as_truncated` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `assert 0 == 1` |
+| `tests/engine/postgresql/test_sections.py::test_missing_pg_stat_statements_extension_is_skipped_with_actionable_hint` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'SKIPPED'` |
+| `tests/engine/postgresql/test_sections.py::test_failed_collector_queries_keep_credential_redacted_reason` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'Index usage statistics could not be read' in ''` |
+| `tests/engine/postgresql/test_sections.py::test_collectors_populate_data_and_report_partial_subsystems_explicitly` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert ['', '', '', '', '', '', ...] == ['settings', ...'vacuum', ...]` |
+| `tests/engine/postgresql/test_sections.py::test_a_failed_query_does_not_poison_later_sections` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'AVAILABLE'` |
+| `tests/engine/postgresql/test_sections.py::test_vital_signs_report_the_session_breakdown_as_unknown_when_backends_are_hidden` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'pg_stat_activity hides the state' in ''` |
+| `tests/engine/postgresql/test_sections.py::test_session_client_address_follows_the_exposure_policy` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert '<no row>' == '127.0.0.1'` |
+| `tests/engine/postgresql/test_sections.py::test_replica_client_address_follows_the_exposure_policy` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert '<no row>' == '10.0.0.7/32'` |
+| `tests/engine/postgresql/test_sections.py::test_setting_values_are_withheld_under_metadata_only_but_still_drive_the_rules` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert [] != []` |
+| `tests/engine/postgresql/test_sections.py::test_settings_exclude_the_timeouts_overridden_by_sharpit` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `assert 0 == 1` |
+| `tests/engine/postgresql/test_sections.py::test_a_standby_does_not_present_an_unread_replica_list_as_an_empty_observation` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert None is not None` |
+| `tests/engine/postgresql/test_sections.py::test_a_failed_replica_query_is_unavailable_but_an_empty_successful_query_is_available` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert None is not None` |
+| `tests/engine/postgresql/test_sections.py::test_every_list_collector_preserves_rows_and_the_budget_reason[settings]` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'AVAILABLE'` |
+| `tests/engine/postgresql/test_sections.py::test_every_list_collector_preserves_rows_and_the_budget_reason[sessions]` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'AVAILABLE'` |
+| `tests/engine/postgresql/test_sections.py::test_every_list_collector_preserves_rows_and_the_budget_reason[statements]` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'AVAILABLE'` |
+| `tests/engine/postgresql/test_sections.py::test_every_list_collector_preserves_rows_and_the_budget_reason[indexes]` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'AVAILABLE'` |
+| `tests/engine/postgresql/test_sections.py::test_every_list_collector_preserves_rows_and_the_budget_reason[tables]` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'AVAILABLE'` |
+| `tests/engine/postgresql/test_sections.py::test_every_list_collector_preserves_rows_and_the_budget_reason[vacuum]` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'AVAILABLE'` |
+| `tests/engine/postgresql/test_sections.py::test_every_list_collector_preserves_rows_and_the_budget_reason[replication]` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'FAILED' == 'AVAILABLE'` |
+| `tests/engine/postgresql/test_sections.py::test_a_budget_exhausted_before_the_first_row_does_not_produce_an_available_empty_list` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 'read budget ran out while reading Table statistics' in ''` |
+| `tests/engine/postgresql/test_sections.py::test_vacuum_due_honours_per_table_reloptions_overrides` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert 0.0 == 10.0` |
+| `tests/engine/postgresql/test_sections.py::test_vacuum_threshold_floors_so_the_comparison_matches_postgresql` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `assert 0 == 1049` |
+| `tests/engine/postgresql/test_sections.py::test_vacuum_threshold_honours_the_postgresql_18_cap` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `assert 0 == 100000000` |
+| `tests/engine/postgresql/test_sections.py::test_rows_distinguish_empty_available_from_failed_and_copy_rows` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert ['one', 'two'] == ['one']` |
+| `tests/engine/postgresql/test_sections.py::test_collect_probes_the_role_then_runs_every_section_in_order` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert None == 'app'` |
+| `tests/engine/postgresql/test_sections.py::test_an_exhausted_budget_skips_the_remaining_sections` | `e2504c7f15c00305ab54c166ccded0700a2ae900` | `AssertionError: assert [] == ['sessions', ...'replication']` |
 
 ## Review / implementation findings
 
 | Finding | Test | Status |
 |---|---|---|
 | WIP `f247d7e` `query_text` called non-existent `Masker.mask_value` (AttributeError on every call) | `tests/engine/postgresql/test_querytext.py::*` (red at `afbecc2`, errored at `f247d7e`) | fixed in Task 2 fix commit |
-| WIP dollar-quote regex ran before the string regex, so a `$tag$` inside a string literal could swallow text across literal boundaries | `tests/engine/postgresql/test_querytext.py::test_query_text_masks_single_quoted_escape_and_dollar_quoted_literals` | fixed: single-pass alternation |
+| WIP dollar-quote regex ran before the string regex, so a `$tag$` inside a string literal could swallow text across literal boundaries | `tests/engine/postgresql/test_querytext.py::test_query_text_masks_single_quoted_escape_and_dollar_quoted_literals` | fixed: single-pass alternation; regression `tests/engine/postgresql/test_querytext.py::test_query_text_a_dollar_inside_a_string_is_not_a_dollar_quote` added after the fix (not replayed at a red SHA) |
+| `field-map.md` draft (Antigravity) listed DTO keys that do not exist in BootUI 2.2.0 (`readAt`, `durationMillis`, `sourceCount`, `PostgresSectionDto.available`, ...) | rewritten from `core/dto/Postgres*.java` in Task 5; `tests/fastapi/test_postgresql_api.py` key checks | fixed in Task 5 |
