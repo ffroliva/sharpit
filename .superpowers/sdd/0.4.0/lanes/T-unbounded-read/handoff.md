@@ -33,7 +33,10 @@ The F2 spike now passes. The requested full edge-case matrix remains incomplete 
 - Focused plugin, paging, SQLAlchemy, gate, import-boundary and code-shape tests: 79 passed.
 - Collection: 4,386 tests collected, no errors.
 - Release-base regression comparison: 2 passed.
-- Current lint, format, pyright and final full-suite results are pending their background logs.
+- `uv run ruff check`: passed.
+- `uv run ruff format --check`: passed (492 files already formatted).
+- `uv run pyright`: 0 errors, 0 warnings, 0 informations.
+- One final `uv run pytest -q -n 4`: 4,377 passed, 9 skipped; no failures or collection errors (log outside worktree).
 
 ## Resume
 
