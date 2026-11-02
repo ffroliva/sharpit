@@ -305,3 +305,24 @@ def test_a_connection_error_during_setup_reports_the_masked_driver_message() -> 
     assert "server closed the connection unexpectedly" in database["message"]
     assert "secret" not in database["message"]
     assert [sql for sql in engine.conn.sql if "pg_" in sql] == []
+
+
+def test_a_wall_timeout_keeps_the_sections_already_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    # derived: review finding 3: the wall timeout leaves room past the read budget, and when it still fires the
+    # sections read so far are reported (PARTIAL), not thrown away as an ERROR
+    import time  # noqa: PLC0415
+
+    monkeypatch.setattr(service, "_clock", lambda: 0.0)  # the cooperative budget never runs out on its own
+    monkeypatch.setattr(service, "READ_BUDGET", 0.2)
+    monkeypatch.setattr(service, "STATEMENT_TIMEOUT", 0.1)
+    monkeypatch.setattr(service, "WALL_MARGIN", 0.1, raising=False)
+    engine = FakePgEngine()
+    engine.conn.on_row["INDEXES"] = lambda _: time.sleep(2.0)
+    engine.conn.with_rows("INDEXES", {"index_name": "slow"})
+    report = _read(_ctx(("primary", engine)))
+    database = report["databases"][0]
+    assert database["status"] == "PARTIAL"
+    assert _section(database, "settings")["status"] == "AVAILABLE"
+    assert _section(database, "tables")["status"] == "SKIPPED"
+    assert database["message"] == "The read budget ran out while reading this datasource."
+    assert report["status"] == "PARTIAL"
