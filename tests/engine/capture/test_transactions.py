@@ -73,3 +73,33 @@ def test_sql_trace_unavailable_warning() -> None:
     assert warnings == ["SQL Trace is not active, so SQL statement/connection counts are not correlated."], (
         "missing SQL Trace must explain why statement counts are unavailable"
     )
+
+def test_savepoint_is_a_child_entry(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from sharpit.engine.capture.transactions import tx_begin, tx_commit, tx_release_savepoint, tx_savepoint
+    from sharpit.engine.sources import dispatch
+
+    recorder = _recorder()
+    context = SimpleNamespace(
+        context_id="test-context",
+        capture=SimpleNamespace(transactions=recorder, wiring=SimpleNamespace(hook_failed=lambda *_: None)),
+        settings=SimpleNamespace(
+            transactions_enabled=True,
+            panels={"transactions": SimpleNamespace(enabled=True)},
+            sql_trace_capture_call_site=False,
+        ),
+    )
+    connection = SimpleNamespace(info={}, engine=object(), connection=SimpleNamespace(dbapi_connection=object()))
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: [context])
+    tx_begin(connection)
+    outer_id = connection.info["sharpit_tx"][0][1]
+    tx_savepoint(connection, "sa_savepoint_1")
+    tx_release_savepoint(connection, "sa_savepoint_1", None)
+    tx_commit(connection)
+    rows = recorder.report([])["entries"]
+    assert len(rows) == 2, "a savepoint must be represented as a child transaction entry"
+    child = next(row for row in rows if row["parentId"] is not None)
+    assert child["parentId"] == outer_id, "the savepoint entry must point to its outer transaction"
+    outer = next(row for row in rows if row["id"] == outer_id)
+    assert outer["status"] == "COMMITTED", "releasing a savepoint must not close its outer transaction"
