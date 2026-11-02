@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 from sharpit.engine.advisors.findings import AdvisorRun
@@ -14,7 +14,25 @@ from sharpit.engine.spi import ApiModel
 from sharpit.engine.testsession.sink import report_masker
 from sharpit.fastapi.introspector import FastApiIntrospector
 
-__all__ = ["load_app", "model_of", "run_advisors", "_load_app", "_model_of", "_run_advisors"]
+__all__ = [
+    "autodetect_apps",
+    "load_app",
+    "model_of",
+    "run_advisors",
+    "select_app",
+    "_load_app",
+    "_model_of",
+    "_run_advisors",
+]
+
+
+def autodetect_apps() -> tuple[tuple[str, object], ...]:
+    return ()
+
+
+def select_app(explicit: str | None, candidates: Sequence[tuple[str, object]]) -> tuple[str, object] | None:
+    del explicit, candidates
+    return None
 
 
 def load_app(spec: str) -> tuple[str, object]:

@@ -128,3 +128,51 @@ def test_plugin_loader_facade_remains_monkeypatchable(monkeypatch: pytest.Monkey
     pytest_plugin._run_advisors(state)
 
     assert state.sink.facts.advisor_runs[0].status != "UNKNOWN"
+
+
+def test_autodetect_accepts_fastapi_and_starlette_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    from types import ModuleType
+
+    from starlette.applications import Starlette
+
+    from fastapi import APIRouter, FastAPI
+    from sharpit.fastapi.adapter import install
+    from sharpit.pytest_plugin.apps import autodetect_apps
+
+    class SubFastAPI(FastAPI):
+        pass
+
+    class Lookalike:
+        router = object()
+        routes: list[object] = []
+
+    main_app = SubFastAPI()
+    mounted_child = FastAPI()
+    main_app.mount("/child", mounted_child)
+    install(main_app, enabled="ON", show_banner=False)
+    starlette_app = Starlette()
+
+    mod = ModuleType("sample_autodetect_mod")
+    mod.main_app = main_app  # type: ignore[attr-defined]
+    mod.alias_app = main_app  # type: ignore[attr-defined]
+    mod.mounted_child = mounted_child  # type: ignore[attr-defined]
+    mod.starlette_app = starlette_app  # type: ignore[attr-defined]
+    mod.router = APIRouter()  # type: ignore[attr-defined]
+    mod.lookalike = Lookalike()  # type: ignore[attr-defined]
+    mod.FastAPI = FastAPI  # type: ignore[attr-defined]
+    mod.SubFastAPI = SubFastAPI  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sample_autodetect_mod", mod)
+
+    detected = dict(autodetect_apps())
+
+    assert "sample_autodetect_mod:main_app" in detected
+    assert detected["sample_autodetect_mod:main_app"] is main_app
+    assert "sample_autodetect_mod:starlette_app" in detected
+    assert detected["sample_autodetect_mod:starlette_app"] is starlette_app
+    assert "sample_autodetect_mod:alias_app" not in detected
+    assert "sample_autodetect_mod:mounted_child" not in detected
+    assert "sample_autodetect_mod:router" not in detected
+    assert "sample_autodetect_mod:lookalike" not in detected
+    assert "sample_autodetect_mod:FastAPI" not in detected
+    assert "sample_autodetect_mod:SubFastAPI" not in detected
