@@ -16,6 +16,7 @@ F-rest (`tests/safety/`, `tests/masking/`, test extras other than `psycopg[binar
 
 ## Done (commits)
 
+- Review round 3 (R3-1, R3-2, golden minor): red `95e5769`, fix `a1fb3ad`.
 - Review round 2 addendum (items 8-9): red `aaa97d8`, fix `53b0e86`.
 - Review round 2 (`ponytail-review.md` + coordinator): red `c2e385d`, fix `4650305`; see §Review round 2 and §Superseded reds below.
 
@@ -63,16 +64,16 @@ F-rest (`tests/safety/`, `tests/masking/`, test extras other than `psycopg[binar
   look like that. The gate should accept `message` starting with `AssertionError` **or** `assert `, or read the
   failure text.
 
-## Verification (at `53b0e86`, review round 2 + addendum)
+## Verification (at `a1fb3ad`, review round 3)
 
-- Full suite: `uv run pytest -q -n 4` -> **3640 passed, 5 skipped, 2 failed** (base `7e5fc15`: 3491 passed, 5
+- Full suite: `uv run pytest -q -n 4` -> **3645 passed, 5 skipped, 0 failed** (base `7e5fc15`: 3491 passed, 5
   skipped). Both failures are overhead budgets (`test_capture_overhead.py::test_request_overhead_budget`,
   `test_sql_trace_overhead.py::test_statement_overhead_budget`), reported "within the noise" on a machine running ~65
   Python processes. Both pass in isolation, the middleware's per-request code is unchanged since round 1, and no
   `src/` file changed between `4650305` and `53b0e86`. Budgets not raised.
   The +149 are tests F added (Codex Task 1/O4; golden 6, extension slots 19, example 2, settings env-name rows 14;
   round 1: 7; round 2: +71 new, 9 superseded deleted; addendum: +6); skips unchanged. Log:
-  `..\0.4.0-integration\.superpowers\sdd\0.4.0\logs\F-full-pytest5.log`.
+  `..\0.4.0-integration\.superpowers\sdd\0.4.0\logs\F-full-pytest6.log`.
 - `uv run ruff check`: all checks passed; `uv run ruff format --check`: 407 files already formatted; `uv run pyright`:
   0 errors, 0 warnings.
 - UI: `npm --prefix ui run check` clean; vitest 31 files, 258 tests passed (no `npm run build`).
@@ -195,8 +196,6 @@ A-sqlalchemy-statistics), `activity_n_plus_one_threshold: int = 5`, `read_only: 
 | `tests/test_foundation_extension_slots.py::test_report_only_options_are_accepted_and_inert` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert with_options.ret == plain.ret` (usage error 4 before the options exist) |
 | `tests/test_example_app.py::test_sqla_sample_passes_its_models_to_install` | `99c1cf8fa8f28b67a2f806b554c314b88aa23315` | `assert app.state.sharpit.context.models == (Base,)` |
 | `tests/test_example_app.py::test_sqla_sample_otel_provider_only_with_the_sdk` | `99c1cf8fa8f28b67a2f806b554c314b88aa23315` | `assert (provider is not None) == bool(has_sdk)` |
-| `tests/pytest_plugin/test_plugin_gates.py::test_plugin_hook_raises_session_continues[terminal_summary-False-False]` | `ba095efd548889bea12df614b3e2935ddda3eff9` | `assert 'pass' == 'unknown'` |
-| `tests/pytest_plugin/test_plugin_gates.py::test_plugin_hook_raises_session_continues[worker_advisors-True-True]` | `ba095efd548889bea12df614b3e2935ddda3eff9` | `assert 'pass' == 'unknown'` |
 | `tests/test_foundation_review_fixes.py::test_models_hook_rejects_a_string` | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | `assert message == f"models must be a model class or an iterable of models, not {type(models).__name__}"` |
 | `tests/test_foundation_round2.py::test_panel_surface_follows_its_flag[flag-true-postgresql]` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `assert (panel_id in listed) is implemented` |
 | `tests/test_foundation_round2.py::test_panel_surface_follows_its_flag[flag-true-transactions]` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `assert (panel_id in listed) is implemented` |
@@ -212,6 +211,8 @@ A-sqlalchemy-statistics), `activity_n_plus_one_threshold: int = 5`, `read_only: 
 | `tests/test_golden_shapes.py::test_payload_item_matches_any_golden_shape` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert _error({"items": [{"kind": "b", "y": "t"}, {"kind": "a", "x": 2}]}) is None` |
 | `tests/test_golden_shapes.py::test_null_allowed_where_any_golden_item_is_null` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert _error({"items": [{"v": None, "w": 3}]}) is None` |
 | `tests/test_golden_shapes.py::test_any_golden_type_at_a_path_is_accepted` | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `assert _error({"items": [{"v": "t", "w": 3}]}) is None` |
+| `tests/test_foundation_round3.py::test_sql_trace_route_module_is_mounted` | `95e5769a1c469cb92e75c34c38425d81011fd728` | `assert client.get("/sharpit/api/sql-trace/insights-probe").text == "probe"` |
+| `tests/test_foundation_round3.py::test_golden_list_without_shape_information_warns` | `95e5769a1c469cb92e75c34c38425d81011fd728` | `assert messages == ["data/data: golden list items has no shape information; its items are unchecked"]` |
 
 ## Review round 2 (ponytail-review.md + coordinator): finding → test → red SHA → fix
 
@@ -232,6 +233,14 @@ A-sqlalchemy-statistics), `activity_n_plus_one_threshold: int = 5`, `read_only: 
 |---|---|---|---|
 | 8 count-pinned shared tests break on a flag flip | `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip` (flag `data` on, planted tool/command/route; panels, MCP list, MCP `toolCount`, CLI `toolCount`/commands and routes all follow) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `53b0e86`: `tests/surface.py` (base pinned literally + flag-derived extras) used by `test_mcp.py::test_tools_list_has_no_action_tool`, `test_tools.py::test_catalogue_names_panels_actions_and_schemas`, `test_install.py::test_panels_platform_fastapi_and_ids` / `::test_mvp_panels_stay_available`, `test_mcp_api.py::test_mcp_server_status_shape`, `test_cli_api.py::test_cli_status_shape_matches_contract`, `test_safety_matrix.py::test_get_route_table_is_complete`, `test_foundation_suite_equivalence.py` |
 | 9 golden lists keep one item per distinct shape | `tests/test_golden_shapes.py::test_payload_item_matches_any_golden_shape`, `::test_null_allowed_where_any_golden_item_is_null`, `::test_any_golden_type_at_a_path_is_accepted` (red); `::test_payload_item_matching_no_golden_shape_is_rejected`, `::test_a_type_no_golden_item_has_is_rejected` (controls) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `53b0e86` |
+
+## Review round 3: finding → test → red SHA → fix
+
+| Finding | Test | Red SHA | Fix |
+|---|---|---|---|
+| R3-1 sql-trace route module mounting unproven | `tests/test_foundation_round3.py::test_sql_trace_route_module_is_mounted` (red against a stub loop that skips `sql-trace`) | `95e5769a1c469cb92e75c34c38425d81011fd728` | `a1fb3ad` |
+| R3-2 `# noqa: C901` in `tests/golden.py` | none: `_compare` split into `_compare` / `_compare_object` / `_compare_list` with a `_Check` record; ruff C901 passes, `tests/complexity_baseline.json` unchanged | — | `a1fb3ad` |
+| minor: empty or null-only golden list accepted anything silently | `tests/test_foundation_round3.py::test_golden_list_without_shape_information_warns` (both cases) | `95e5769a1c469cb92e75c34c38425d81011fd728` | `a1fb3ad`: compares nothing for that list and emits `UnverifiedParityWarning` naming the path |
 
 ## Superseded reds (test deleted; its row left the red table)
 
@@ -260,6 +269,7 @@ Replay: `git checkout <sha> -- ui && npm --prefix ui run test -- <file>` in a sc
 
 ## Not a red (no replayable red; kept out of the red table)
 
+- `tests/pytest_plugin/test_plugin_gates.py::test_plugin_hook_raises_session_continues[terminal_summary-False-False]` and `[worker_advisors-True-True]`: existing base tests (not lane-added) that caught the Task 1 split dropping the `plugin.Counter` / `plugin.assess` seams; they failed at `ba095ef` and pass since `65c5026`. The gate only accepts lane-added or lane-changed tests as reds, so they are listed here, not in the red table.
 - `tests/engine/test_tools.py::test_call_tool_uses_facade_catalogue` (recorded at `45797333bd99647623073cb8b7b0b6755bd6a3f7`): at that SHA it fails with `RpcError`, not an `AssertionError`, so it is a characterisation test of the tools facade seam, not a red. It passes at head and stays as a characterisation test.
 - `tests/test_safety_matrix.py::test_disabled_panel_denies_its_endpoints` (scoped in `337d690`): a test-scope correction, not a defect red. The 12 unimplemented 0.4 panels answer 404 by design and are covered by `test_unimplemented_panel_has_no_surface`. In `4c3828b`, three safety-matrix/capture inputs that disable "every panel" now pass only implemented ids, because an unimplemented id is now an unknown panel (review finding 3).
 - `tests/fastapi/test_capture_hooks.py::test_unimplemented_security_logs_does_not_add_capture_middleware` and `::test_unimplemented_database_panels_do_not_enable_discovery`: Codex added `skipif` decorators after their red commit `acbccbb`, and the gate requires the red body unchanged. The change only skipped the tests once an owner flips a flag, so `55eac19` restores the red version byte-for-byte (`git checkout acbccbb -- tests/fastapi/test_capture_hooks.py`). An owner lane that flips `security-logs`/`transactions` or a database panel replaces the matching test with its own positive test.
