@@ -1,52 +1,24 @@
 """Per-lane safety rows (council C5): each panel lane documents its routes in tests/safety/test_<lane>_safety.py.
 
-A lane file exports ``PANEL`` (the sharpit panel id), ``GET_ROWS`` (every GET route path format it adds, e.g.
-``"/sharpit/api/data/{name}"``) and ``WRITE_ROWS`` (every POST/DELETE route as ``(method, path format)``). The shared
-``tests/test_safety_matrix.py`` route-table tests add those rows only while the panel is implemented, so no lane edits
-the shared matrix. See README.md.
+A lane file may export ``PANEL`` (a sharpit panel id with a per-panel module: a 0.4 id or ``sql-trace``),
+``GET_ROWS`` (every GET route path format the panel adds), ``WRITE_ROWS`` (every POST/PUT/PATCH/DELETE route as
+``(method, path format)``) and ``PATH_PARAMS`` (sample values for new path parameters). ``tests/test_safety_matrix.py``
+feeds the rows of implemented panels into the same sweeps as its base rows (route-table completeness, disabled-panel
+denial, read-only denial), so no lane edits the shared matrix. See README.md.
 """
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-HERE = Path(__file__).parent
+import pytest
 
-
-def lane_rows(root: Path = HERE) -> tuple[set[str], set[tuple[str, str]]]:
-    """``(GET path formats, (method, path format) writes)`` exported by the lane files of implemented panels."""
-    from sharpit.engine.panels import panel_is_implemented
-
-    gets: set[str] = set()
-    writes: set[tuple[str, str]] = set()
-    for path in sorted(root.glob("test_*_safety.py")):
-        spec = importlib.util.spec_from_file_location(f"_sharpit_lane_rows_{path.stem}", path)
-        assert spec is not None
-        assert spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        if panel_is_implemented(module.PANEL):
-            gets |= set(getattr(module, "GET_ROWS", ()))
-            writes |= {(method, fmt) for method, fmt in getattr(module, "WRITE_ROWS", ())}
-    return gets, writes
-
-
-def route_formats(app: Any, methods: frozenset[str]) -> set[tuple[str, str]]:
-    """``(method, "/sharpit" + path format)`` of every sharpit sub-app route answering one of ``methods``."""
-    from sharpit.fastapi.adapter import SharpitMount
-
-    mount = next(r for r in app.router.routes if isinstance(r, SharpitMount))
-    return {
-        (method, "/sharpit" + route.path_format)
-        for route in mount.routes
-        for method in methods & set(getattr(route, "methods", None) or ())
-    }
-
-
-# --- round 1 API (stubs until the fix) ---------------------------------------------------------------------------
+WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_CONVERTOR = re.compile(r"\{(\w+):[^}]+\}")
 
 
 @dataclass(frozen=True)
@@ -65,22 +37,81 @@ class Lanes:
     params: dict[str, str]  # PATH_PARAMS from every importable lane file
 
 
+def _strip(fmt: str) -> str:
+    return _CONVERTOR.sub(r"{\1}", fmt)
+
+
+def _is_write_row(row: object) -> bool:
+    return (
+        isinstance(row, tuple)
+        and len(row) == 2  # pyright: ignore[reportUnknownArgumentType]
+        and row[0] in WRITE_METHODS
+        and isinstance(row[1], str)
+        and row[1].startswith("/sharpit")
+    )
+
+
+def _problems(module: Any) -> list[str]:
+    problems: list[str] = []
+    gets = getattr(module, "GET_ROWS", [])
+    if not isinstance(gets, list | tuple) or not all(isinstance(g, str) and g.startswith("/sharpit") for g in gets):
+        problems.append("GET_ROWS must be a list of path formats starting with /sharpit")
+    writes = getattr(module, "WRITE_ROWS", [])
+    if not isinstance(writes, list | tuple) or not all(_is_write_row(w) for w in writes):
+        problems.append("WRITE_ROWS must be a list of (method, path format) tuples, method POST/PUT/PATCH/DELETE")
+    params = getattr(module, "PATH_PARAMS", {})
+    if not isinstance(params, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in params.items()):
+        problems.append("PATH_PARAMS must map parameter names to sample strings")
+    return problems
+
+
 def load(package: str = "safety") -> Lanes:
-    return Lanes((), (), (), {})
+    """Import every ``test_*_safety.py`` of ``package`` as ``<package>.<stem>`` (pytest's own import, cached)."""
+    from sharpit.engine import panels04
+
+    root = Path(next(iter(importlib.import_module(package).__path__)))
+    implemented: list[Lane] = []
+    invalid: list[str] = []
+    unimportable: list[str] = []
+    params: dict[str, str] = {}
+    for path in sorted(root.glob("test_*_safety.py")):
+        try:
+            module = importlib.import_module(f"{package}.{path.stem}")
+        except (Exception, pytest.skip.Exception) as exc:  # a module-level skip must not skip the shared tests
+            unimportable.append(f"{path.name}: {type(exc).__name__}: {exc}")
+            continue
+        if problems := _problems(module):
+            invalid += [f"{path.name}: {problem}" for problem in problems]
+            continue
+        params.update(getattr(module, "PATH_PARAMS", {}))
+        panel = getattr(module, "PANEL", None)
+        if panel is None:  # a safety file for base routes (e.g. D1) adds tests, no rows
+            continue
+        if panel not in panels04.MODULE_PANEL_IDS:
+            invalid.append(f"{path.name}: PANEL {panel!r} is not one of {panels04.MODULE_PANEL_IDS}")
+            continue
+        if panels04.module_implemented(panel):
+            gets = tuple(_strip(g) for g in getattr(module, "GET_ROWS", []))
+            writes = tuple((m, _strip(p)) for m, p in getattr(module, "WRITE_ROWS", []))
+            implemented.append(Lane(path.name, panel, gets, writes))
+    return Lanes(tuple(implemented), tuple(invalid), tuple(unimportable), params)
 
 
 def write_cases(
     base: list[tuple[str, str, str, Any]], lanes: Lanes, params: dict[str, str]
 ) -> list[tuple[str, str, str, Any]]:
-    return list(base)
+    """The read-only sweep's ``(panel, method, concrete path, body)`` cases: the base rows plus every lane write."""
+    lane_cases = [(lane.panel, m, p.format(**params), None) for lane in lanes.implemented for m, p in lane.writes]
+    return [*base, *lane_cases]
 
 
 def get_rows(lanes: Lanes, params: dict[str, str]) -> set[str]:
-    return set()
+    """Concrete GET paths of the implemented lanes (``{param}`` filled from ``params``)."""
+    return {g.format(**params) for lane in lanes.implemented for g in lane.gets}
 
 
 def write_rows(lanes: Lanes) -> set[tuple[str, str]]:
-    return set()
+    return {w for lane in lanes.implemented for w in lane.writes}
 
 
 def live_write_routes(app: Any, exempt: tuple[str, ...]) -> set[tuple[str, str]]:
@@ -95,6 +126,3 @@ def live_write_routes(app: Any, exempt: tuple[str, ...]) -> set[tuple[str, str]]
             continue
         found |= {(m, path) for m in WRITE_METHODS & set(getattr(route, "methods", None) or ())}
     return found
-
-
-WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})

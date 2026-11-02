@@ -20,9 +20,9 @@ from examples.fastapi_sample.app import create_app
 from fastapi.testclient import TestClient
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+import safety
 from conftest import _PATH_PARAMS, SideEffectGuard, get_paths
 from fastapi import FastAPI
-from safety import lane_rows
 from sharpit import install
 from sharpit.engine.guard import (
     AUTHENTICATION_REQUIRED_MESSAGE,
@@ -36,7 +36,7 @@ from sharpit.engine.guard import (
 from sharpit.engine.mcp import DISABLED_MESSAGE
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
 from sharpit.engine.tools import TOOLS, rest_api_service
-from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle, SharpitMount
+from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle
 
 LOCAL = ("127.0.0.1", 50000)
 GROUP_ID = "0123456789abcdef"  # conftest._PATH_PARAMS["id"]
@@ -189,9 +189,9 @@ def _panel_denied(panel: str, reason: str) -> dict[str, str]:
 
 
 def _panel_routes(prefix: str) -> list[tuple[str, str]]:
-    """The prefix itself (GET) plus every ROWS and WRITES route under it, stream routes included."""
+    """The prefix itself (GET) plus every ROWS, WRITES and lane route under it, stream routes included."""
     base = f"/sharpit/api{prefix}"
-    known = [(r[1], r[2]) for r in ROWS] + [(w[1], w[2]) for w in WRITES]
+    known = [(r[1], r[2]) for r in ROWS] + [(w[1], w[2]) for w in ALL_WRITES] + [("GET", p) for p in LANE_GETS]
     return sorted({("GET", base), *((m, p) for m, p in known if p == base or p.startswith(base + "/"))})
 
 
@@ -297,10 +297,15 @@ WRITES = [
 # rule's owning panel under its own subject (test_dismissed_rules_obey_global_and_owning_panel_read_only and
 # test_dismissals_per_panel_gate), so it has no row here.
 _NOT_PANEL_WRITES = ("/api/auth/session", "/api/mcp", "/api/cli/", "/api/dismissed-rules/")
+# implemented panels' rows from tests/safety/test_<lane>_safety.py feed the same sweeps as the base rows
+LANES = safety.load()
+PATH_PARAMS = {**_PATH_PARAMS, **LANES.params}
+ALL_WRITES = safety.write_cases(WRITES, LANES, PATH_PARAMS)
+LANE_GETS = safety.get_rows(LANES, PATH_PARAMS)
 
 
 @pytest.mark.parametrize("scope", ["global", "panel"])
-@pytest.mark.parametrize(("panel", "method", "path", "body"), WRITES, ids=[f"{w[0]}-{w[1]}" for w in WRITES])
+@pytest.mark.parametrize(("panel", "method", "path", "body"), ALL_WRITES, ids=[f"{w[0]}-{w[1]}" for w in ALL_WRITES])
 def test_read_only_denies_panel_actions(
     no_side_effects: SideEffectGuard, panel: str, method: str, path: str, body: Any, scope: str
 ):
@@ -343,23 +348,13 @@ def test_probe_tag_is_refused_before_other_guard_rules():
         installed.uninstall_capture()
 
 
-def _write_routes() -> set[tuple[str, str]]:
-    """(method, path format) of every POST/DELETE sub-app route, read from the sample app's own route table."""
-    mount = next(r for r in create_app(show_banner=False).router.routes if isinstance(r, SharpitMount))
-    found: set[tuple[str, str]] = set()
-    for route in mount.routes:
-        path = "/sharpit" + getattr(route, "path_format", "")
-        if any(path == "/sharpit" + s or path.startswith("/sharpit" + s.rstrip("/") + "/") for s in _NOT_PANEL_WRITES):
-            continue
-        found |= {(m, path) for m in {"POST", "DELETE"} & set(getattr(route, "methods", None) or ())}
-    return found
-
-
 def test_write_route_table_is_complete():
     def shape(path: str) -> str:  # a concrete WRITES path back to its route's format
         return path.replace(GROUP_ID, "{id}").replace("sharpit.matrix", "{name}")
 
-    assert _write_routes() == {(w[1], shape(w[2])) for w in WRITES} | lane_rows()[1]  # + tests/safety/ lane rows
+    live = safety.live_write_routes(create_app(show_banner=False), _NOT_PANEL_WRITES)
+    assert LANES.invalid == ()
+    assert live == {(w[1], shape(w[2])) for w in WRITES} | safety.write_rows(LANES), LANES.unimportable
 
 
 def _seed_exceptions(handle: SharpitHandle) -> Callable[[], object]:
@@ -622,8 +617,8 @@ GET_PATHS = get_paths()
 
 
 def test_get_route_table_is_complete():
-    lane_gets = {fmt.format(**_PATH_PARAMS) for fmt in lane_rows()[0]}  # implemented panels' tests/safety/ rows
-    assert set(GET_PATHS) == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"} | lane_gets
+    assert LANES.invalid == ()
+    assert set(GET_PATHS) == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"} | LANE_GETS, LANES.unimportable
 
 
 ALEMBIC_INI = Path(__file__).resolve().parent / "fixtures" / "alembic" / "linear" / "alembic.ini"

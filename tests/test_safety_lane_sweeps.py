@@ -142,3 +142,21 @@ def test_row_shapes_are_validated_and_convertors_stripped(
     assert [lane.gets for lane in lanes.implemented] == [("/sharpit/api/data/{name}",)]
     assert [line.split(":")[0] for line in lanes.invalid] == ["test_b_bad_safety.py", "test_b_bad_safety.py"]
     assert safety.get_rows(lanes, {**lanes.params}) == {"/sharpit/api/data/orders"}
+
+
+def test_matrix_feeds_lane_rows_into_its_sweeps(lane_pkg: tuple[str, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    # the real matrix wiring: dropping the lane rows from its table or its sweeps fails here
+    import test_safety_matrix as matrix
+
+    expected_writes = safety.write_cases(matrix.WRITES, matrix.LANES, matrix.PATH_PARAMS)
+    assert expected_writes == matrix.ALL_WRITES
+    name, package = lane_pkg
+    (package / "test_a_data_safety.py").write_text(DATA_LANE, encoding="utf-8")
+    _plant_data_post(monkeypatch)
+
+    monkeypatch.setattr(matrix, "LANES", safety.load(name))
+    matrix.test_write_route_table_is_complete()  # covered by the lane row
+
+    monkeypatch.setattr(matrix, "LANES", safety.Lanes((), (), (), {}))
+    with pytest.raises(AssertionError, match="data/probe"):
+        matrix.test_write_route_table_is_complete()  # the undocumented route is named

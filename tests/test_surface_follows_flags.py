@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -72,20 +75,31 @@ def test_every_shared_count_follows_a_flag_flip(data_flipped: None) -> None:
     assert client.get("/sharpit/api/data/probe").json() == {"probe": True}
 
 
-def test_catalogue_rebuild_is_idempotent_for_a_panel_implemented_at_import(monkeypatch: pytest.MonkeyPatch) -> None:
-    # F-rest item 1: when the lane's flag is already on at import, its tools are in TOOLS before the rebuild
-    planted = Tool("get_data_probe", "probe", NONE_SCHEMA, "data", False, lambda _call, _args: {"probe": True})
-    monkeypatch.setitem(panels04.IMPLEMENTED, "data", True)
-    monkeypatch.setattr(data_tools, "TOOLS", (planted,))
-    monkeypatch.setattr(data_tools, "COMMANDS", {"get_data_probe": "data probe"})
-    monkeypatch.setattr(tools, "TOOLS", (*tools.TOOLS, planted))
-    monkeypatch.setattr(tools, "COMMANDS", {**tools.COMMANDS, "get_data_probe": "data probe"})
+_IMPORT_WITH_FLAG_ON = """
+import sys, types
+sys.path.insert(0, sys.argv[1])
+from sharpit.engine import panels04
+from sharpit.engine.tools04 import data
+panels04.IMPLEMENTED["data"] = True
+data.TOOLS = (types.SimpleNamespace(name="get_data_probe", panel="data", action=False),)
+data.COMMANDS = {"get_data_probe": "data probe"}
+import importlib
+from sharpit.engine import tools
+tools = importlib.reload(tools)  # sharpit imports tools early: re-run its import with data implemented
+import surface
+rebuilt, commands = surface.catalogue_with_lanes(*panels04.tool_definitions())
+print([t.name for t in rebuilt] == [t.name for t in tools.TOOLS] and commands == tools.COMMANDS)
+"""
 
-    try:
-        merged, _commands = surface.catalogue_with_lanes(*panels04.tool_definitions())
-        error: str | None = None
-    except ValueError as exc:
-        merged, error = (), str(exc)
 
-    assert error is None
-    assert [tool.name for tool in merged].count("get_data_probe") == 1
+def test_catalogue_rebuild_matches_the_import_time_catalogue_with_the_flag_on() -> None:
+    # a fresh interpreter whose tools module is (re-)imported with data implemented: no catalogue patching
+    tests_dir = str(Path(__file__).parent)
+    done = subprocess.run(
+        [sys.executable, "-c", _IMPORT_WITH_FLAG_ON, tests_dir],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert done.stdout.strip() == "True", done.stderr
