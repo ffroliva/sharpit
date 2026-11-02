@@ -11,6 +11,20 @@ Implementer: codex gpt-6-luna
 
 Both current reds were checked with `uv run python scripts/dev/red_check.py <node id>` at their recorded SHAs and replayed in detached worktrees with `PYTHONPATH=<red-tree>/src`. The no-install replay failed at `tests/pytest_plugin/test_plugin_unbounded_read.py:121` with an assertion in the test file. The F2 red was also replayed at `cb7fc450ec3429a27ef4a197bf57cf8864d3c022`; it is retained below as the superseded historical spike red.
 
+## Review round 1 reds
+
+| Finding | Test | Red SHA | Red assertion |
+|---|---|---|---|
+| Core-only SQLAlchemy host must not break `--sharpit` | `tests/pytest_plugin/test_plugin_unbounded_read.py::test_core_only_sqlalchemy_host_does_not_break_sharpit` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | subprocess pytest exit code was 1 |
+| Statement keys must survive forced `id()` reuse | `tests/engine/test_sqla.py::test_load_counts_keep_statement_identity_when_ids_are_reused` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | expected two statement entries, found one |
+| SQL shape work must not scale with row count | `tests/engine/test_sqla.py::test_load_compiles_and_masks_statement_once` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | `normalize` called 50 times instead of once |
+| Eager/lazy child rows must not inflate the parent page count | `tests/engine/test_sqla.py::test_relationship_rows_are_not_counted_as_parent_page_rows` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | initial assertion saw zero facts after the test detached listeners; this was not sufficient proof and is supplemented by the gate-level red below |
+| Installed app request must suppress the missing-capture limitation | `tests/pytest_plugin/test_plugin_unbounded_read.py::test_installed_app_request_suppresses_missing_capture_limitation` | `c8b26a66208ca486f01c5f7ad0f94ed198686689` | limitation was present after a captured request |
+| Finding message includes first application location | `tests/engine/testsession/test_gates.py::test_unbounded_read_exact_threshold_boundary_flags` | `c8b26a66208ca486f01c5f7ad0f94ed198686689` | `app.py:12` absent from message |
+| Relationship loaders do not emit child-row findings | `tests/engine/test_sqla.py::test_relationship_loads_do_not_create_unbounded_findings` | `59cf19c9927cfb9eb17917cfb004785ce8a1d115` | child `Member` facts were present (all three loader cases) |
+
+All review red commits passed `red_check.py` for their listed tests and were replayed in detached worktrees with `PYTHONPATH=<red-tree>/src`; replays used `uv run --extra test` so SQLAlchemy and pytester dependencies were present. Fix commit SHA is recorded in the current branch history.
+
 ## Historical SHA
 
 These tests cover behavior already present in the implementation. Each mutation temporarily broke the named guard in the listed source file at test commit `4541d8e463446148be920cecf831443e651a7e4e`; the test then failed at the shown assertion. Tests with parameters are recorded by their base id.

@@ -339,9 +339,11 @@ def pytest_sessionstart(session: Any) -> None:
         worker_id = getattr(session.config, "workerinput", {}).get("workerid")
         if worker_id:
             state.sink.facts.worker = worker_id
-        if not state.sqlalchemy_attached:
-            state.sqlalchemy_attached = sqla.attach_session()
+        attached = sqla.attach_session()
+        if attached and not state.sqlalchemy_attached:
+            state.sqlalchemy_attached = True
             _record_sqlalchemy_source(state)
+        sqla.set_unbounded_read_factor(state.settings.activity_unbounded_read_factor)
     except Exception as exc:  # noqa: BLE001
         _record_hook_failure(state.sink, exc)
 
@@ -374,8 +376,9 @@ def _phase(item: Any, name: str) -> Any:
         current = state.sink.current_test
         if current is None:
             return None
-        if not state.sqlalchemy_attached:
-            state.sqlalchemy_attached = sqla.attach_session()
+        attached = sqla.attach_session()
+        if attached and not state.sqlalchemy_attached:
+            state.sqlalchemy_attached = True
             _record_sqlalchemy_source(state)
         token = TEST.set((item.nodeid, current.key.attempt, name))
         logger_dict = logging.root.manager.loggerDict

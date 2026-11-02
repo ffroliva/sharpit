@@ -50,6 +50,13 @@ DONE_WITH_CONCERNS. Plan implementation and tests are complete at code head `208
 - **Rulings:** stayed inside the May-touch list; no push, PR, or integration-owned gate files. External memory/vault files were not changed because the lane scope says out-of-list work belongs in this handoff.
 - **Open:** integration reviewer, lowest-direct and no-SQLAlchemy checks remain with the coordinator. Repo OKF, auto-memory, MemPalace and Obsidian retrospective layers were not written because they are outside this lane's allowed touch list; this handoff carries the retrospective and resume point.
 
+## Review round 1 continuation
+
+- Red commits: `5d99628` (Core-only host, statement identity, row-path cost and loader accounting), `c8b26a6` (session capture limitation and finding location), and `59cf19c` (relationship-load findings). Each red was replayed detached with the red tree's `src` on `PYTHONPATH`; the final relationship replay used `uv run --extra test` and reported RED.
+- Fixes: ORM listener attachment now checks `sys.modules` without importing `sqlalchemy.orm`; pytest retries attachment in each phase. Relationship loaders and non-primary joined rows are excluded. Statement contexts stay alive as mapping keys, SQL shape is normalized/masked once at the configured count threshold, and the aggregate fact is updated in place. Capture limitations are decided at session end from whether any request was captured. Gate messages include the first application location.
+- Review disposition: findings 1–7 and 9–10 are fixed. Finding 8 is declined: the duplicate F2 test is retained as historical acceptance evidence, and the fixture-conftest cleanup is unrelated to the correctness fixes.
+- Validation still in progress at this handoff edit: targeted tests and static gates are being rerun; one final full suite remains.
+
 ## Reactivation prompt
 
 Resume sharpit 0.4.0 T-unbounded-read. Read `C:\development\github\sharpit-wt\0.4.0-T-unbounded-read\.superpowers\sdd\0.4.0\lanes\T-unbounded-read\handoff.md`, the lane plan and the spec. Code and full suite are green at `208229e2caf2aef50d1c903111fa239100760f78`; the branch is not pushed. Next: coordinator review, lowest-direct and no-SQLAlchemy gates, then integrate only through `scripts/dev/lane_gate.py`. Do not re-ask decisions already in the lane brief; do not push.

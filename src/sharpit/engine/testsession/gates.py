@@ -84,8 +84,9 @@ def _unbounded_read_findings(
     for fact in call.unbounded_reads:
         if fact.has_limit or fact.loaded < fact.page_size * budget.unbounded_read_factor:
             continue
+        location = f" at {fact.location}" if fact.location else ""
         message = (
-            f"{fact.route} materialized {fact.loaded} {fact.entity} rows for page size {fact.page_size}; "
+            f"{fact.route} materialized {fact.loaded} {fact.entity} rows for page size {fact.page_size}{location}; "
             f"masked statement: {fact.statement}"
         )
         found.append(

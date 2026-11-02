@@ -38,6 +38,13 @@ def _record_unbounded_read_limitation(state: Any) -> None:
         source["limitations"].append(UNBOUNDED_READ_LIMITATION)
 
 
+def _record_missing_unbounded_read_capture(state: Any) -> None:
+    from sharpit.engine import sqla
+
+    if sqla.unbounded_read_capture_limitation_needed():
+        _record_unbounded_read_limitation(state)
+
+
 def register_worker_apps(config: Any) -> None:
     """Hook WorkerApps into this process once (options.resolve runs it from the facade's pytest_configure)."""
     manager = getattr(config, "pluginmanager", None)
@@ -73,8 +80,7 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
         from sharpit.engine import sqla
 
         sqla.apply_relationship_facts(test)
-        if sqla.apply_unbounded_read_facts(test):
-            _record_unbounded_read_limitation(state)
+        sqla.apply_unbounded_read_facts(test)
         findings = plugin.gates.evaluate_test(
             test,
             budget,
@@ -158,6 +164,7 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
         return
     if state is None:
         return
+    _record_missing_unbounded_read_capture(state)
     swallowed.detach_session(state)
     state.test_files = _test_files(session.config)
     local_partial = _partial_facts(state, session)

@@ -68,6 +68,9 @@ _relationship_sites: dict[tuple[str, int, str], dict[str, str | None]] = {}
 _eager_relationship_batches: dict[tuple[str, int, str], dict[str, int]] = {}
 _unbounded_read_facts: dict[tuple[str, int, str], dict[str, UnboundedReadFact]] = {}
 _unbounded_read_missing_capture: set[tuple[str, int]] = set()
+_unbounded_read_capture_missing = False
+_unbounded_read_request_seen = False
+_unbounded_read_factor = 2
 
 
 @functools.lru_cache(maxsize=4096)
@@ -202,65 +205,86 @@ def apply_relationship_facts(test: Any) -> None:
             phase.relationship_loads[identity] = phase.relationship_loads.get(identity, 0) + count
 
 
+def _is_primary_mapper_load(target: Any, context: Any) -> bool:
+    options = getattr(context, "load_options", None)
+    if getattr(options, "_lazy_loaded_from", None) is not None:
+        return False
+    if getattr(options, "_sa_top_level_orm_context", None) is not None:
+        return False
+    primary = getattr(getattr(context, "compile_state", None), "_primary_entity", None)
+    primary_class = getattr(getattr(primary, "mapper", None), "class_", None)
+    return not isinstance(primary_class, type) or isinstance(target, primary_class)
+
+
+def _unbounded_read_statement_shape(context: Any, statement_obj: Any) -> tuple[str, bool]:
+    compiled_statement = getattr(getattr(context, "compiled", None), "statement", statement_obj)
+    try:
+        has_limit = (
+            getattr(compiled_statement, "_limit_clause", None) is not None
+            or getattr(compiled_statement, "_fetch_clause", None) is not None
+        )
+    except Exception:
+        has_limit = True
+    from sharpit.engine.capture.sqltrace import normalize
+
+    statement = _relationship_masker().mask_text(normalize(str(statement_obj)).sql) or ""
+    return statement, has_limit
+
+
+def _record_unbounded_read_load(target: Any, context: Any, info: Any, tag: tuple[str, int, str]) -> None:
+    paging = info.paging
+    if paging is None:
+        paging = paging_of(info.scope)
+        info.paging = paging
+    if paging is None or paging.page_size is None or not _is_primary_mapper_load(target, context):
+        return
+    statement_obj = getattr(context, "query", None)
+    if statement_obj is None:
+        return
+    entity = type(target).__name__
+    with _lock:
+        current = info.loads.setdefault(context, {}).setdefault(entity, {})
+        current["loaded"] = cast(int, current.get("loaded", 0)) + 1
+        fact = current.get("fact")
+        if fact is not None:
+            fact.loaded = cast(int, current["loaded"])
+            return
+        if current.get("shape_attempted"):
+            return
+        if current["loaded"] < paging.page_size * _unbounded_read_factor:
+            return
+        current["shape_attempted"] = True
+        statement, has_limit = _unbounded_read_statement_shape(context, statement_obj)
+        row_key = f"{info.id}:{id(context)}:{entity}"
+        fact = UnboundedReadFact(
+            paging.route,
+            statement,
+            entity,
+            cast(int, current["loaded"]),
+            paging.page_size,
+            has_limit,
+            _first_application_location(),
+        )
+        current["fact"] = fact
+        _unbounded_read_facts.setdefault(tag, {})[row_key] = fact
+
+
 def _mapper_load(target: Any, context: Any) -> None:
+    global _unbounded_read_capture_missing, _unbounded_read_request_seen  # noqa: PLW0603
     try:
         info = REQUEST.get()
         tag = TEST.get()
         if tag is None or tag[2] != "call":
             return
+        if info is not None and info.scope is not None:
+            with _lock:
+                _unbounded_read_request_seen = True
         if info is None or info.scope is None:
-            _unbounded_read_missing_capture.add(tag[:2])
+            with _lock:
+                _unbounded_read_missing_capture.add(tag[:2])
+                _unbounded_read_capture_missing = True
             return
-        paging = info.paging
-        if paging is None:
-            paging = paging_of(info.scope)
-            info.paging = paging
-        if paging is None or paging.page_size is None:
-            return
-        statement_obj = getattr(context, "query", None)
-        if statement_obj is None:
-            return
-        statement = str(statement_obj)
-        from sharpit.engine.capture.sqltrace import normalize
-
-        masked = _relationship_masker().mask_text(normalize(statement).sql) or ""
-        query_id = id(context)
-        entity = type(target).__name__
-        loaded = info.loads.setdefault(query_id, {})
-        row_key = f"{info.id}:{query_id}:{entity}"
-        rows = cast("list[dict[str, Any]]", loaded.setdefault("rows", []))
-        current = next((row for row in rows if row["entity"] == entity), None)
-        compiled_statement = getattr(getattr(context, "compiled", None), "statement", statement_obj)
-        try:
-            has_limit = (
-                getattr(compiled_statement, "_limit_clause", None) is not None
-                or getattr(compiled_statement, "_fetch_clause", None) is not None
-            )
-        except Exception:
-            has_limit = True
-        if current is None:
-            location = _first_application_location()
-            current = {
-                "entity": entity,
-                "loaded": 0,
-                "statement": masked,
-                "has_limit": has_limit,
-                "location": location,
-                "route": paging.route,
-                "page_size": paging.page_size,
-                "row_key": row_key,
-            }
-            rows.append(current)
-        current["loaded"] = cast(int, current["loaded"]) + 1
-        _unbounded_read_facts.setdefault(tag, {})[row_key] = UnboundedReadFact(
-            paging.route,
-            masked,
-            entity,
-            current["loaded"],
-            paging.page_size,
-            has_limit,
-            cast("str | None", current["location"]),
-        )
+        _record_unbounded_read_load(target, context, info, tag)
     except Exception as exc:  # noqa: BLE001 - a diagnostic listener never changes a query result
         dispatch.routing_failed(exc)
 
@@ -275,6 +299,25 @@ def apply_unbounded_read_facts(test: Any) -> bool:
         test.phases.setdefault("call", PhaseFacts())
         test.phases["call"].unbounded_reads.extend(facts.values())
     return missing_capture
+
+
+def unbounded_read_capture_limitation_needed() -> bool:
+    with _lock:
+        return _unbounded_read_capture_missing and not _unbounded_read_request_seen
+
+
+def note_request_captured() -> None:
+    global _unbounded_read_request_seen  # noqa: PLW0603
+    if not _session:
+        return
+    with _lock:
+        _unbounded_read_request_seen = True
+
+
+def set_unbounded_read_factor(factor: int) -> None:
+    global _unbounded_read_factor  # noqa: PLW0603
+    with _lock:
+        _unbounded_read_factor = factor
 
 
 def sqlalchemy_module() -> Any | None:
@@ -578,23 +621,29 @@ def attach_session() -> bool:
     if sqlalchemy_module() is None:
         return False
     with _lock:
+        if not _session:
+            _unbounded_read_facts.clear()
         _session = True
         _sync_listeners()
         sa = sqlalchemy_module()
-        if sa is not None and not sa.event.contains(sa.orm.Mapper, "load", _mapper_load):
-            sa.event.listen(sa.orm.Mapper, "load", _mapper_load)
+        orm = sys.modules.get("sqlalchemy.orm")
+        if sa is not None and orm is not None and not sa.event.contains(orm.Mapper, "load", _mapper_load):
+            sa.event.listen(orm.Mapper, "load", _mapper_load)
     return True
 
 
 def detach_session() -> None:
-    global _session  # noqa: PLW0603
+    global _session, _unbounded_read_capture_missing, _unbounded_read_request_seen, _unbounded_read_factor  # noqa: PLW0603
     with _lock:
         _session = False
         sa = sqlalchemy_module()
-        if sa is not None and sa.event.contains(sa.orm.Mapper, "load", _mapper_load):
-            sa.event.remove(sa.orm.Mapper, "load", _mapper_load)
-        _unbounded_read_facts.clear()
+        orm = sys.modules.get("sqlalchemy.orm")
+        if sa is not None and orm is not None and sa.event.contains(orm.Mapper, "load", _mapper_load):
+            sa.event.remove(orm.Mapper, "load", _mapper_load)
         _unbounded_read_missing_capture.clear()
+        _unbounded_read_capture_missing = False
+        _unbounded_read_request_seen = False
+        _unbounded_read_factor = 2
         _relationship_groups.clear()
         _relationship_sites.clear()
         _eager_relationship_batches.clear()

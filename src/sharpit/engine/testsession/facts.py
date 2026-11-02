@@ -70,7 +70,7 @@ class SwallowedFact:
         return cls(data["location"], data["type"], data["programmingError"])
 
 
-@dataclass(frozen=True)
+@dataclass
 class UnboundedReadFact:
     route: str
     statement: str

@@ -54,7 +54,7 @@ class RequestInfo:
     finished_ns: int | None
     scope: MutableMapping[str, Any] | None = None
     paging: PagingContext | None = None
-    loads: dict[int, dict[str, Any]] = field(default_factory=dict[int, dict[str, Any]])
+    loads: dict[object, dict[str, Any]] = field(default_factory=dict[object, dict[str, Any]])
 
 
 REQUEST: ContextVar[RequestInfo | None] = ContextVar("sharpit_request", default=None)

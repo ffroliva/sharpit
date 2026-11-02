@@ -360,6 +360,7 @@ class CaptureMiddleware:
             wiring.hook_failed("request start", exc)
             await self.app(scope, receive, send)
             return
+        sqla.note_request_captured()
 
         status: int | None = None
         response_headers: list[tuple[bytes, bytes]] = []
