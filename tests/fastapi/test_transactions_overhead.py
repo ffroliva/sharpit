@@ -14,7 +14,7 @@ from tests.overhead import check_budget, paired  # noqa: E402
 
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
-from sharpit.engine.capture.transactions import TransactionRecorder  # noqa: E402
+from sharpit.engine.capture.transactions import TransactionRecorder, attach  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -35,19 +35,28 @@ def handle() -> Iterator[tuple[SharpitHandle, Any, Any]]:
 
 
 def test_transaction_overhead_budget(handle: tuple[SharpitHandle, Any, Any]) -> None:
-    _installed, engine, recorder = handle
+    installed, engine, recorder = handle
     with engine.connect() as connection:
         with connection.begin():  # warm SQLAlchemy's event path
             pass
 
-        def round_transactions(recording: bool) -> int:
-            recorder.recording = recording
+        def round_transactions() -> int:
             started = time.perf_counter_ns()
             for _ in range(PER_ROUND):
                 with connection.begin():
                     pass
             return (time.perf_counter_ns() - started) // PER_ROUND
 
-        result = paired(lambda: round_transactions(False), lambda: round_transactions(True), ROUNDS)
+        def detached_round() -> int:
+            remover = installed.context.capture.teardowns.pop()
+            remover()
+            try:
+                return round_transactions()
+            finally:
+                reattach = attach()
+                assert reattach is not None
+                installed.context.capture.teardowns.append(reattach)
+
+        result = paired(detached_round, round_transactions, ROUNDS)
     assert recorder.report([])["totalCaptured"] == 1 + ROUNDS * PER_ROUND
     check_budget("SQLAlchemy transaction listener pair", result, BUDGET_NS, "µs", 1000)

@@ -73,7 +73,7 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             hold_threshold_ms=settings.transactions_connection_hold_threshold_millis,
             recording=settings.transactions_recording,
         )
-        capture.attachers.append(attach_transactions)
+        capture.attachers.append(lambda: attach_transactions(ctx))
     if panels["activity"].enabled:
         capture.activity_changes = ChangeStream()
         for source in (capture.exchanges, capture.exceptions, capture.sql_trace):

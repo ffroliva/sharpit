@@ -31,7 +31,12 @@
 | `tests/engine/capture/test_transactions.py::test_listener_release_never_runs_under_attach_lock` | `b9bb0a3651df951caecb6da77f2526ee2a77aa29` | `listener release must not block while the attach lock is held` | Fixed in `85fbff9fe8ba8e242b63a2952e6750ecfd7d0083` |
 | `tests/engine/capture/test_transactions.py::test_untracked_savepoint_end_does_not_close_root` | `2bf97fc036ea23f977da8766a24e3da5fdaf702b` | `an untracked savepoint release must not close the root transaction` | Fixed in `df3ae12e86ae16163ed5d557b9b157960eff4fd2` |
 | `tests/engine/capture/test_transactions.py::test_buffer_size_reports_capacity_when_empty` | `2e716bd859752f6cb6b57c764332cc20f43091de` | `bufferSize must report the configured ring capacity` | Fixed in `42604e9ceb04cf4b7aea3ff27057e068e3411315` |
-| `tests/fastapi/test_transactions_api.py::test_transactions_alone_does_not_install_capture_middleware` | `7c52759e30828b9b3f34d2864647ac7c572c03b1` | `transactions alone must not add request capture middleware` | Fixed in pending commit |
+| `tests/fastapi/test_transactions_api.py::test_transactions_alone_does_not_install_capture_middleware` | `7c52759e30828b9b3f34d2864647ac7c572c03b1` | `transactions alone must not add request capture middleware` | Fixed in `3f988275370502a79441e92b0eb59e754c20a615` |
+| `tests/engine/capture/test_transactions.py::test_flags_slow_and_held` | `ea437338f777d67fdbc2066b4fe88244a55b6d6a` | `a zero slow threshold must disable slow transaction flags` | Fixed in `pending transactions safety fix` |
+| `tests/engine/capture/test_transactions.py::test_begin_over_open_entry_closes_it_unknown` | `ea437338f777d67fdbc2066b4fe88244a55b6d6a` | `an in-flight transaction must be reported as open` | Fixed in `pending transactions safety fix` |
+| `tests/engine/capture/test_transactions.py::test_oldest_open_entry_is_not_evicted` | `ea437338f777d67fdbc2066b4fe88244a55b6d6a` | `the oldest open transaction must remain retained` | Fixed in `pending transactions safety fix` |
+| `tests/fastapi/test_transactions_api.py::test_recording_post_recursion_error_returns_400` | `ec8ce4cd7841b9c78293977f957c5b6bf54b24e9` | `a recursively nested toggle body must be rejected with 400` | Fixed in `pending transactions safety fix` |
+| `tests/fastapi/test_transactions_api.py::test_transactions_capture_when_sql_trace_is_disabled` | `fa717b7fc3eb3bdf5da34567832e577084cf33a1` | `transactions must capture connection events while SQL Trace is off` | Fixed in `pending transactions safety fix` |
 
 ## Vitest reds
 

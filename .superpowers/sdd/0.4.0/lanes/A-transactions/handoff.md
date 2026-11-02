@@ -17,7 +17,7 @@ IN PROGRESS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 
 ## Next step
 
-Continue review round 1 fixes. Finalizer deadlock: red `b9bb0a3651df951caecb6da77f2526ee2a77aa29`, fix `85fbff9fe8ba8e242b63a2952e6750ecfd7d0083`. Savepoint identity: red `2bf97fc036ea23f977da8766a24e3da5fdaf702b`, fix `df3ae12e86ae16163ed5d557b9b157960eff4fd2`. Buffer capacity: red `2e716bd859752f6cb6b57c764332cc20f43091de`, fix `42604e9ceb04cf4b7aea3ff27057e068e3411315`. Middleware: red `7c52759e30828b9b3f34d2864647ac7c572c03b1`, fix pending. The middleware fix extends the original lane touch list to `fastapi/capture.py` because this is the only place the panel list triggers request capture. No-SQLAlchemy, lowest-direct, and live checks remain for coordinator follow-up; the live example is outside this lane's touch scope.
+Continue review round 1 fixes. Finalizer red/fix: `b9bb0a3` / `85fbff9`; savepoint identity: `2bf97fc` / `df3ae12`; buffer capacity: `2e716bd` / `42604e9`; middleware: `7c52759` / `3f98827`; open/threshold `ea43733`, recursion `ec8ce4c`, SQL Trace-off `fa717b7` are now implemented in the pending safety fix. Middleware change extends the original lane touch list to `fastapi/capture.py`. Correcting `bufferSize` to ring capacity leaves the original `test_clear_keeps_total_captured` assertion (`bufferSize == 0`) incompatible; its historical red body remains untouched per COMMON. Commit failure handling requires extending F's `sqla.py` event slot, explicitly prohibited by the lane plan's May-touch list. Final gates remain.
 
 ## Decisions
 

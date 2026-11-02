@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import threading
 import time
+import weakref
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
@@ -143,16 +144,14 @@ class TransactionRecorder:
         now = time.time_ns()
         with self._lock:
             entry_id = next(self._ids)
-            if len(self._entries) >= self.max_entries:
-                removed = self._entries.popleft()
-                self._open.pop(removed["id"], None)
-                self._evicted += 1
+            while len(self._entries) >= self.max_entries and self._evict_completed_locked():
+                pass
             row = {
                 "id": entry_id,
                 "methodName": method or "unknown",
                 "propagation": "PARTICIPATING" if parent is not None else "NEW",
                 "isolation": None,
-                "status": "UNKNOWN",
+                "status": "OPEN",
                 "startTimestamp": now // 1_000_000,
                 "endTimestamp": None,
                 "durationMillis": 0,
@@ -186,11 +185,21 @@ class TransactionRecorder:
             row["endTimestamp"] = now // 1_000_000
             row["durationMillis"] = duration
             row["status"] = status if status in {"COMMITTED", "ROLLED_BACK", "UNKNOWN"} else "UNKNOWN"
-            row["slow"] = self.slow_threshold_ms >= 0 and duration >= self.slow_threshold_ms
-            row["connectionHeld"] = self.hold_threshold_ms >= 0 and duration >= self.hold_threshold_ms
+            row["slow"] = self.slow_threshold_ms > 0 and duration >= self.slow_threshold_ms
+            row["connectionHeld"] = self.hold_threshold_ms > 0 and duration >= self.hold_threshold_ms
             if error is not None:
                 row["errorMessage"] = self._masker.mask_text(str(error))
+            while len(self._entries) > self.max_entries and self._evict_completed_locked():
+                pass
         self.changes.signal()
+
+    def _evict_completed_locked(self) -> bool:
+        for row in self._entries:
+            if row["endTimestamp"] is not None:
+                self._entries.remove(row)
+                self._evicted += 1
+                return True
+        return False
 
     def clear(self) -> None:
         with self._lock:
@@ -279,11 +288,25 @@ def _enabled(ctx: SharpitContext) -> TransactionRecorder | None:
 def _targets(conn: Any) -> list[SharpitContext]:
     if INTERNAL.get():
         return []
-    try:
-        return dispatch._targets(conn.engine)  # pyright: ignore[reportPrivateUsage]
-    except Exception as exc:  # noqa: BLE001 - transaction listeners must not affect the host
-        dispatch.routing_failed(exc)
-        return []
+    with _contexts_lock:
+        contexts = list(_contexts.values())
+    info = REQUEST.get()
+    if info is not None:
+        return [ctx for ctx in contexts if ctx.context_id == info.context_id]
+    engine = getattr(conn, "engine", None)
+    held = [
+        ctx for ctx in contexts if ctx.capture.engine_registry is not None and ctx.capture.engine_registry.holds(engine)
+    ]
+    if held:
+        return held
+    if len(contexts) == 1:
+        return contexts
+    if not contexts:
+        try:
+            return dispatch._targets(engine)  # pyright: ignore[reportPrivateUsage]  # direct unit-test compatibility
+        except Exception as exc:  # noqa: BLE001 - transaction listeners must not affect the host
+            dispatch.routing_failed(exc)
+    return []
 
 
 def _connection_id(conn: Any) -> str | None:
@@ -297,8 +320,8 @@ def _stack(conn: Any) -> list[tuple[SharpitContext, int]]:
     return cast("list[tuple[SharpitContext, int]]", conn.info.setdefault("sharpit_tx", []))
 
 
-def _savepoints(conn: Any) -> dict[str, list[tuple[SharpitContext, int]]]:
-    return cast("dict[str, list[tuple[SharpitContext, int]]]", conn.info.setdefault("sharpit_tx_savepoints", {}))
+def _savepoints(conn: Any) -> dict[str | None, list[tuple[SharpitContext, int]]]:
+    return cast("dict[str | None, list[tuple[SharpitContext, int]]]", conn.info.setdefault("sharpit_tx_savepoints", {}))
 
 
 def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
@@ -358,7 +381,11 @@ def _end(conn: Any, status: str, *, name: str | None = None) -> None:
 
 def _end_savepoint(conn: Any, name: str, status: str) -> None:
     stack = _stack(conn)
-    tracked = _savepoints(conn).pop(name, None)
+    savepoints = _savepoints(conn)
+    tracked = savepoints.pop(name, None)
+    if tracked is None:
+        # SQLAlchemy emits savepoint(name=None) before generating its sa_savepoint_N name.
+        tracked = savepoints.pop(None, None)
     if tracked is None:
         return
     tracked_ids = {(ctx.context_id, entry_id) for ctx, entry_id in tracked}
@@ -400,7 +427,7 @@ def tx_savepoint(conn: Any, name: str | None) -> None:
         parents = {ctx.context_id: entry_id for ctx, entry_id in stack}
         before = len(stack)
         _begin(conn, parents)
-        if name is not None:
+        if stack[before:]:
             _savepoints(conn)[name] = stack[before:]
     except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
         dispatch.routing_failed(exc)
@@ -423,6 +450,8 @@ def tx_release_savepoint(conn: Any, name: str, context: object) -> None:
 _attach_lock = threading.Lock()
 _attach_count = 0
 _attach_removers: list[Callable[[], None]] = []
+_contexts_lock = threading.Lock()
+_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
 
 
 def _release_attachment() -> None:
@@ -434,7 +463,7 @@ def _release_attachment() -> None:
                 _attach_removers.pop()()
 
 
-def attach() -> Callable[[], None] | None:
+def attach(ctx: SharpitContext | None = None) -> Callable[[], None] | None:
     """Attach the shared class listeners once and return a per-context reference-counted remover."""
     global _attach_count, _attach_removers  # noqa: PLW0603
     callbacks = {
@@ -457,6 +486,9 @@ def attach() -> Callable[[], None] | None:
                 removers.append(remover)
             _attach_removers = removers
         _attach_count += 1
+    if ctx is not None:
+        with _contexts_lock:
+            _contexts[ctx.context_id] = ctx
 
     released = False
 
@@ -467,5 +499,8 @@ def attach() -> Callable[[], None] | None:
                 return
             released = True
         _release_attachment()
+        if ctx is not None:
+            with _contexts_lock:
+                _contexts.pop(ctx.context_id, None)
 
     return remove

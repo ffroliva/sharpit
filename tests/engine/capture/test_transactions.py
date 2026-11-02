@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from sharpit.engine.capture.transactions import TransactionRecorder
 from sharpit.engine.masking import Masker
 
 
+# ported: TransactionRecorderTests.recordsACommittedRootTransaction
 def test_records_committed_root() -> None:
     recorder = TransactionRecorder(Masker("MASKED", True, None))
     entry_id = recorder.begin(
@@ -13,6 +16,16 @@ def test_records_committed_root() -> None:
     recorder.end(entry_id, "COMMITTED")
     report = recorder.report([])
     assert report["entries"][0]["status"] == "COMMITTED", "committing a root transaction must retain its status"
+
+
+# ported: TransactionRecorderTests.recordsARolledBackTransactionWithErrorMessage
+def test_records_rolled_back() -> None:
+    recorder = _recorder()
+    entry_id = _begin(recorder)
+    recorder.end(entry_id, "ROLLED_BACK", RuntimeError("rolled back"))
+    assert recorder.report([])["entries"][0]["status"] == "ROLLED_BACK", (
+        "rolling back a root transaction must retain its status"
+    )
 
 
 def _recorder(**options: object) -> TransactionRecorder:
@@ -25,6 +38,7 @@ def _begin(recorder: TransactionRecorder, connection_id: str | None = "db-1") ->
     )
 
 
+# ported: TransactionRecorderTests.evictsOldestEntryOnceBufferIsFull
 def test_bounded_entries_report_stats() -> None:
     recorder = _recorder(max_entries=1)
     first = _begin(recorder)
@@ -53,6 +67,7 @@ def test_flags_slow_and_held() -> None:
     assert row["connectionHeld"] is False, "a zero hold threshold must disable held connection flags"
 
 
+# ported: TransactionRecorderTests.clearEmptiesTheBufferWithoutResettingTotalCaptured
 def test_clear_keeps_total_captured() -> None:
     recorder = _recorder()
     entry_id = _begin(recorder)
@@ -63,6 +78,7 @@ def test_clear_keeps_total_captured() -> None:
     assert report["totalCaptured"] == 1, "clear must keep the lifetime captured count"
 
 
+# ported: TransactionRecorderTests.beginTransactionReturnsSentinelWhenPaused
 def test_paused_records_nothing() -> None:
     recorder = _recorder(recording=False)
     entry_id = _begin(recorder)
@@ -70,6 +86,16 @@ def test_paused_records_nothing() -> None:
     assert recorder.report([])["entries"] == [], "a paused recorder must not retain transactions"
 
 
+# ported: TransactionRecorderTests.completeTransactionIgnoresSentinelAndUnknownIds
+def test_unknown_end_ignored() -> None:
+    recorder = _recorder()
+    entry_id = _begin(recorder)
+    recorder.end(-1, "COMMITTED")
+    recorder.end(entry_id + 1, "COMMITTED")
+    assert recorder.report([])["entries"][0]["id"] == entry_id, "an unknown completion must leave entries unchanged"
+
+
+# derived: masked transaction error message
 def test_error_message_is_masked() -> None:
     recorder = _recorder()
     entry_id = _begin(recorder)
@@ -89,6 +115,7 @@ def test_sql_trace_unavailable_warning() -> None:
     )
 
 
+# ported: TransactionRecorderTests.tracksParentChildNestingOnTheSameThread
 def test_savepoint_is_a_child_entry(monkeypatch) -> None:
     from types import SimpleNamespace
 
@@ -267,9 +294,61 @@ def test_internal_transaction_callbacks_are_skipped(monkeypatch) -> None:
     with internal():
         tx_begin(connection)
         tx_commit(connection)
-    assert recorder.report([])["bufferSize"] == 0, (
+    assert recorder.report([])["entries"] == [], (
         "sharpit's internal database reads must stay out of the transaction report"
     )
+
+
+def test_listener_raising_recorder_is_swallowed(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from sharpit.engine.capture.transactions import TransactionRecorder, tx_begin
+    from sharpit.engine.sources import dispatch
+
+    recorder = _recorder()
+    hook_errors: list[BaseException] = []
+    context = SimpleNamespace(
+        context_id="raising-recorder-context",
+        capture=SimpleNamespace(
+            transactions=recorder,
+            wiring=SimpleNamespace(hook_failed=lambda _hook, exc: hook_errors.append(exc)),
+        ),
+        settings=SimpleNamespace(
+            transactions_enabled=True,
+            panels={"transactions": SimpleNamespace(enabled=True)},
+            sql_trace_capture_call_site=False,
+        ),
+    )
+    connection = SimpleNamespace(info={}, engine=object(), connection=SimpleNamespace(dbapi_connection=object()))
+
+    def raising_begin(*_args, **_kwargs):
+        raise RuntimeError("recorder failed")
+
+    monkeypatch.setattr(TransactionRecorder, "begin", raising_begin)
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: [context])
+    tx_begin(connection)
+    assert len(hook_errors) == 1, "a recorder failure must be reported through the capture hook"
+
+
+def test_listener_never_executes_sql() -> None:
+    import pytest
+
+    sa = pytest.importorskip("sqlalchemy")
+    from fastapi import FastAPI
+    from sharpit import install
+
+    engine = sa.create_engine("sqlite://")
+    statements: list[str] = []
+    sa.event.listen(engine, "before_cursor_execute", lambda *_args: statements.append("sql"))
+    handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[engine])
+    try:
+        with engine.connect() as connection:
+            transaction = connection.begin()
+            transaction.commit()
+        assert statements == [], "transaction listeners must not execute SQL themselves"
+    finally:
+        handle.uninstall_capture()
+        engine.dispose()
 
 
 def test_sql_counts_correlate_at_report_time() -> None:
@@ -282,6 +361,18 @@ def test_sql_counts_correlate_at_report_time() -> None:
     recorder.end(entry_id, "COMMITTED")
     report = recorder.report([{"connectionId": "db-1", "timestamp": midpoint}])
     assert report["entries"][0]["sqlStatementCount"] == 1, "matching SQL Trace rows must be correlated when reporting"
+
+
+@pytest.mark.asyncio
+async def test_subscriber_signalled() -> None:
+    import asyncio
+
+    recorder = _recorder()
+    subscription = recorder.changes.subscribe(asyncio.get_running_loop())
+    recorder.set_recording(False)
+    event = await asyncio.wait_for(subscription.__anext__(), timeout=1)
+    assert event is None, "recording changes must notify transaction subscribers"
+    subscription.close()
 
 
 def test_attacher_retries_late_sqlalchemy_and_removes_partial_listeners(monkeypatch) -> None:

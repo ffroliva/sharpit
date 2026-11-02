@@ -44,6 +44,30 @@ def test_transactions_capture_when_sql_trace_is_disabled() -> None:
         engine.dispose()
 
 
+def test_real_sqlite_savepoint_rollback_then_outer_commit() -> None:
+    sa = pytest.importorskip("sqlalchemy")
+    app = FastAPI()
+    engine = sa.create_engine("sqlite://")
+    handle = install(app, enabled="ON", show_banner=False, engines=[engine])
+    try:
+        with engine.connect() as connection:
+            outer = connection.begin()
+            nested = connection.begin_nested()
+            nested.rollback()
+            outer.commit()
+        report = handle.context.capture.transactions.report(None)
+        rows = report["entries"]
+        outer_row = next(row for row in rows if row["parentId"] is None)
+        child_row = next(row for row in rows if row["parentId"] is not None)
+        assert child_row["propagation"] == "PARTICIPATING", "a savepoint must be a participating transaction"
+        assert report["stats"]["nestedCount"] == 1, "a rolled-back savepoint must count as one nested transaction"
+        assert child_row["status"] == "ROLLED_BACK", "rolling back a savepoint must close the child as rolled back"
+        assert outer_row["status"] == "COMMITTED", "the outer transaction must still commit after savepoint rollback"
+    finally:
+        handle.uninstall_capture()
+        engine.dispose()
+
+
 def _app(**options):
     app = FastAPI()
     handle = install(app, enabled="ON", show_banner=False, **options)
@@ -54,6 +78,7 @@ def _client(app):
     return TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False)
 
 
+# ported: TransactionsControllerSupportTests.recordingTogglesWhenNoExplicitValueIsGiven
 def test_transactions_recording_controls_and_clear() -> None:
     app, handle = _app()
     try:
@@ -70,6 +95,7 @@ def test_transactions_recording_controls_and_clear() -> None:
         handle.uninstall_capture()
 
 
+# ported: TransactionsControllerSupportTests.traceReportsUnavailableWhenRecorderIsDisabled
 def test_transactions_unavailable_when_disabled() -> None:
     app, handle = _app(transactions_enabled=False)
     try:
@@ -84,10 +110,7 @@ def test_transactions_alone_does_not_install_capture_middleware() -> None:
     from sharpit.fastapi.capture import CaptureMiddleware
 
     app = FastAPI()
-    disabled = {
-        panel: {"enabled": False}
-        for panel in ("http-exchanges", "exceptions", "sql-trace", "activity")
-    }
+    disabled = {panel: {"enabled": False} for panel in ("http-exchanges", "exceptions", "sql-trace", "activity")}
     handle = install(app, enabled="ON", show_banner=False, panels=disabled)
     try:
         classes = {entry.cls for entry in app.user_middleware}
@@ -101,6 +124,15 @@ def test_transactions_posts_are_blocked_by_global_read_only() -> None:
     try:
         response = _client(app).post("/sharpit/api/transactions/clear")
         assert response.status_code == 403, "read-only mode must reject transaction mutations"
+    finally:
+        handle.uninstall_capture()
+
+
+def test_transactions_posts_are_blocked_by_panel_read_only() -> None:
+    app, handle = _app(panels={"transactions": {"read_only": True}})
+    try:
+        response = _client(app).post("/sharpit/api/transactions/clear")
+        assert response.status_code == 403, "transactions panel read-only must reject its action routes"
     finally:
         handle.uninstall_capture()
 
