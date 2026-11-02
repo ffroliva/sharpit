@@ -165,11 +165,13 @@ def test_records_tools():
 
 
 @pytest.mark.parametrize("hook_error", [False, True])
-def test_monitoring_tool_freed_at_session_end(pytester: pytest.Pytester, hook_error: bool) -> None:
+def test_monitoring_tool_freed_after_the_session(pytester: pytest.Pytester, hook_error: bool) -> None:
+    """Supersedes test_monitoring_tool_freed_at_session_end, whose ``test_tools`` module name collided with
+    tests/engine/test_tools.py in an xdist worker (import file mismatch): the probe module name is unique."""
     before = [sys.monitoring.get_tool(i) for i in TOOL_IDS]
     if None not in before:
         pytest.skip("sys.monitoring tool ids 3 and 4 are both taken by the outer session")
-    pytester.makepyfile(test_tools=TOOLS_DURING)
+    pytester.makepyfile(test_sharpit_swallowed_tool_probe=TOOLS_DURING)
     if hook_error:  # a hook failing after the tests must not leave the tool id claimed
         pytester.makeconftest(
             """
