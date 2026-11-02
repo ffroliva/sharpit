@@ -61,6 +61,14 @@ Run the final full pytest suite detached at `-n 4`, log outside this worktree; t
 - `tests/test_safety_matrix.py::test_write_route_table_is_complete`: include the two transactions POST routes in the write-route contract. This file is protected from lane edits.
 - `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip`: it merges lane tools on top of already-merged `tools.TOOLS`, duplicating the transaction tool names. Use the base-only catalogue for the planted lane merge. This file is outside the lane's May-touch list.
 
-## Preliminary full suite
+- `tests/fastapi/test_capture_overhead.py::test_request_overhead_budget`: the off app disables the old four capture panels but leaves transaction middleware enabled. Coordinator should disable transactions in the off baseline; do not raise its budget.
 
-The first detached `-n 4` run reported 3,777 passed, 5 skipped, 7 failed, 2 errors, but overlapped source edits and is not final verification. Lane failures from listener cleanup and complexity are fixed. The remaining route/surface failures require coordinator-owned test changes; existing overhead budgets were noisy. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-pytest.log`.
+## Final gate results
+
+- `uv run ruff check`: PASS.
+- `uv run ruff format --check`: PASS (420 files).
+- `uv run pyright`: PASS (0 errors).
+- Detached `uv run pytest -q -n 4 --timeout=900`: 3,780 passed, 5 skipped, 5 failed, 1 error in 684.74s. Failures are coordinator-owned stale middleware/route/catalogue tests plus existing timing budgets that overshot within machine noise; the error is in `tests/test_surface_follows_flags.py`. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-pytest-final.log`.
+- Lane-targeted suite: 23 passed. Listener overhead: 11.185 µs, noise 17.993 µs, budget 30 µs. The temporary 100 µs delay control failed at 643.573 µs and was removed.
+- UI: Vitest 2/2 passed; `npm --prefix ui run check` exited 0.
+- Lowest-direct, no-SQLAlchemy, and live check not run. The live example is coordinator-owned.
