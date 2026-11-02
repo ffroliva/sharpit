@@ -26,6 +26,15 @@ def _report(pytester: pytest.Pytester) -> dict[str, Any]:
     return json.loads((pytester.path / "report.json").read_text("utf-8"))
 
 
+def test_core_only_sqlalchemy_host_does_not_break_sharpit(pytester: pytest.Pytester) -> None:
+    pytester.makeconftest("import sqlalchemy")
+    pytester.makepyfile("def test_passes():\n    assert True")
+
+    result = pytester.runpytest_subprocess("--sharpit", "-q")
+
+    assert result.ret == 0
+
+
 # fmt: off
 def test_spike_f2_unbounded_read_found(pytester: pytest.Pytester) -> None:
     # spike: F2

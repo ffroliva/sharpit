@@ -570,6 +570,99 @@ def test_load_counts_are_per_statement():
     sqla._unbounded_read_facts.pop(("test-statement", 1, "call"), None)
 
 
+def test_load_counts_keep_statement_identity_when_ids_are_reused(monkeypatch: pytest.MonkeyPatch):
+    info = _paging_request("request-statement-identity")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-statement-identity", 1, "call"))
+    monkeypatch.setattr(sqla, "id", lambda _context: 1, raising=False)
+    try:
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(2))))
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    assert len(info.loads) == 2
+    sqla._unbounded_read_facts.pop(("test-statement-identity", 1, "call"), None)
+
+
+def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch):
+    from sharpit.engine.capture import sqltrace
+
+    calls = 0
+    normalize = sqltrace.normalize
+
+    def counted_normalize(statement: str) -> Any:
+        nonlocal calls
+        calls += 1
+        return normalize(statement)
+
+    monkeypatch.setattr(sqltrace, "normalize", counted_normalize)
+    info = _paging_request("request-statement-shape")
+    context = _load_context(sa.select(sa.literal(1)))
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-statement-shape", 1, "call"))
+    try:
+        for _ in range(50):
+            sqla._mapper_load(types.SimpleNamespace(), context)
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    assert calls == 1
+    sqla._unbounded_read_facts.pop(("test-statement-shape", 1, "call"), None)
+
+
+@pytest.mark.parametrize("loader", ["selectin", "joined", "lazy"])
+def test_relationship_rows_are_not_counted_as_parent_page_rows(loader: str):
+    from sqlalchemy import ForeignKey
+    from sqlalchemy.orm import Session, joinedload, relationship, selectinload
+
+    class Base(sa.orm.DeclarativeBase):
+        pass
+
+    class Team(Base):
+        __tablename__ = f"teams_{loader}"
+        id = sa.Column(sa.Integer, primary_key=True)
+        members = relationship("Member", back_populates="team")
+
+    class Member(Base):
+        __tablename__ = f"members_{loader}"
+        id = sa.Column(sa.Integer, primary_key=True)
+        team_id = sa.Column(ForeignKey(f"teams_{loader}.id"))
+        team = relationship(Team, back_populates="members")
+
+    engine = sa.create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(Team(members=[Member() for _ in range(4)]) for _ in range(5))
+        session.commit()
+
+    sqla.attach_session()
+    info = _paging_request(f"request-relationship-{loader}")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set((f"test-relationship-{loader}", 1, "call"))
+    try:
+        with Session(engine) as session:
+            statement = sa.select(Team).limit(5)
+            if loader == "selectin":
+                statement = statement.options(selectinload(Team.members))
+            elif loader == "joined":
+                statement = statement.options(joinedload(Team.members))
+            teams = session.scalars(statement).unique().all()
+            if loader == "lazy":
+                _ = [member for team in teams for member in team.members]
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+        sqla.detach_session()
+
+    facts = sqla._unbounded_read_facts.pop((f"test-relationship-{loader}", 1, "call"), {})
+    assert len(teams) == 5
+    assert all(fact.entity == "Team" for fact in facts.values())
+    assert sum(fact.loaded for fact in facts.values()) == 5
+
+
 def test_load_counts_are_scoped_to_request():
     first_request = _paging_request("request-one")
     second_request = _paging_request("request-two")
