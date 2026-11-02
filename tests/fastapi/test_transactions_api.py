@@ -64,6 +64,22 @@ def test_transactions_unavailable_when_disabled() -> None:
         handle.uninstall_capture()
 
 
+def test_transactions_alone_does_not_install_capture_middleware() -> None:
+    from sharpit.fastapi.capture import CaptureMiddleware
+
+    app = FastAPI()
+    disabled = {
+        panel: {"enabled": False}
+        for panel in ("http-exchanges", "exceptions", "sql-trace", "activity")
+    }
+    handle = install(app, enabled="ON", show_banner=False, panels=disabled)
+    try:
+        classes = {entry.cls for entry in app.user_middleware}
+        assert CaptureMiddleware not in classes, "transactions alone must not add request capture middleware"
+    finally:
+        handle.uninstall_capture()
+
+
 def test_transactions_posts_are_blocked_by_global_read_only() -> None:
     app, handle = _app(read_only=True)
     try:
