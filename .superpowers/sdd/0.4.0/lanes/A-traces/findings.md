@@ -62,7 +62,6 @@
 | `tests/engine/capture/test_traces.py::test_exception_event_stacktrace_gets_the_sql_handling` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'hunter2' not in event stacktrace` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/engine/capture/test_traces.py::test_db_statement_parameters_hidden_unless_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert "[('alice@example.com',)]" == '******'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/engine/capture/test_traces.py::test_db_query_parameter_hidden_unless_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert 'alice@example.com' == '******'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
-| `tests/engine/capture/test_traces.py::test_bind_parameter_attributes_shown_with_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert '******' == 'alice@example.com'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/engine/capture/test_traces.py::test_full_exposure_without_capture_parameters_still_hides_sql_literals` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert "... 'hunter2'" == '... ?'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/engine/capture/test_traces.py::test_capture_parameters_shows_sql_literals` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert '... ?' == "... 'alice'"` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/engine/capture/test_traces.py::test_detail_applies_the_live_capture_parameters_policy_on_every_read` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert 'alice' in first` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
@@ -79,15 +78,16 @@
 | `tests/engine/capture/test_traces.py::test_children_of_a_sharpit_request_take_no_capacity` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert [] == [trace A]` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/engine/capture/test_traces.py::test_reason_when_the_attacher_never_ran` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == ''` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/engine/capture/test_traces.py::test_reason_after_detach` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == ''` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
-| `tests/engine/capture/test_traces.py::test_reason_when_the_provider_was_set_late` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == NOT_ARMED` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
-| `tests/fastapi/test_traces_api.py::test_detail_matches_the_bootui_span_records` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert problems == []` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/fastapi/test_traces_api.py::test_server_root_path_hides_sharpit_server_spans` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert body['traces'] == []` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 
 ### Historical SHA
 
-| Test | Historical SHA | Assertion | Reason |
-|---|---|---|---|
-| `tests/engine/capture/test_traces.py::test_detail_applies_the_live_exposure_policy_on_every_read` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | superseded: literals keyed on capture_parameters (fix round 1) |
+| Test | Historical SHA | Reason |
+|---|---|---|
+| `tests/engine/capture/test_traces.py::test_detail_applies_the_live_exposure_policy_on_every_read` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | superseded: literals keyed on capture_parameters (fix round 1); red assertion `assert None is not None` |
+| `tests/engine/capture/test_traces.py::test_bind_parameter_attributes_shown_with_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | passed at red SHA (behaviour already present: before f47d6f2 no attribute was hidden as a bind parameter, so a non-secret `db.query.parameter.*` value was always shown; the red commit's real reds are its sibling hide-unless-capture tests); mutation-proven at `4258944478632e92f50a92d4f041fae2423179dc`: `-return _text(value) if masker.capture_parameters else MASK` / `+return MASK` (`_attribute_value`) -> AssertionError `assert '******' == 'alice@example.com'` |
+| `tests/engine/capture/test_traces.py::test_reason_when_the_provider_was_set_late` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | passed at red SHA (behaviour already present: `unavailable_reason` returned `NOT_ARMED` for every unarmed state; the red commit only stubbed `NEVER_ATTACHED`/`DETACHED`, which reddened the two sibling tests); mutation-proven at `4258944478632e92f50a92d4f041fae2423179dc`: `-return NOT_ARMED if self.arm_attempted else NEVER_ATTACHED` / `+return NEVER_ATTACHED` -> AssertionError `assert 'Trace collec...are is absent' == 'The tracer p...ollect traces'` |
+| `tests/fastapi/test_traces_api.py::test_detail_matches_the_bootui_span_records` | `02073e24a9d701c16710786a918e7d9000da9713` | passed at red SHA (behaviour already present: the detail DTO built in 5a78185 already matched BootUI's TraceDetailDto/SpanDto/SpanEventDto/SpanAttributeDto keys and types; a parity guard, not a fix); mutation-proven at `4258944478632e92f50a92d4f041fae2423179dc`: `-"timeOffsetNanos": e.timestamp - span.start_time,` / `+"offsetNanos": ...` (`SpanBuffer._span`) -> AssertionError `assert ["spans[1].events[0]: keys ['name', 'offsetNanos', 'attributes'] != ['name', 'timeOffsetNanos', 'attributes']"] == []` |
 
 ### UI reds
 
