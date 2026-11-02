@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
+import fastapi.routing
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from fastapi.security.base import SecurityBase
 from starlette.applications import Starlette
 from starlette.authentication import AuthCredentials, AuthenticationBackend, SimpleUser
+from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.routing import BaseRoute, Match, Mount
 
 from fastapi import APIRouter, Depends, FastAPI, Security
 from sharpit import install
@@ -204,3 +207,102 @@ def test_internals_drift_degrades():
     model = FastApiIntrospector(app).security_model()
     assert [(r.path, r.opaque) for r in model.routes] == [("/items", True)]
     assert model.limitations == ("Route /items could not be inspected (RuntimeError).",)
+
+
+CORS = "starlette.middleware.cors.CORSMiddleware"
+GZIP = "starlette.middleware.gzip.GZipMiddleware"
+TRUSTED = "starlette.middleware.trustedhost.TrustedHostMiddleware"
+
+
+class TrapRoute(BaseRoute):
+    """A custom route class: every property read and method call on it is recorded."""
+
+    def __init__(self) -> None:
+        self.touched: list[str] = []
+
+    @property
+    def path(self) -> str:
+        self.touched.append("path")
+        return "/trap"
+
+    @property
+    def endpoint(self) -> object:
+        self.touched.append("endpoint")
+        return None
+
+    @property
+    def methods(self) -> set[str]:
+        self.touched.append("methods")
+        return {"GET"}
+
+    def effective_candidates(self) -> list[object]:
+        self.touched.append("effective_candidates")
+        return []
+
+    def effective_low_priority_routes(self) -> list[object]:
+        self.touched.append("effective_low_priority_routes")
+        return []
+
+    def matches(self, scope: Any) -> tuple[Match, dict[str, Any]]:
+        self.touched.append("matches")
+        return Match.NONE, {}
+
+
+def test_custom_route_class_is_never_read_or_called():
+    trap = TrapRoute()
+    app = FastAPI()
+    app.router.routes.append(trap)
+    FastApiIntrospector(app).security_model()
+    assert trap.touched == []
+
+
+def test_custom_route_class_is_unknown():
+    app = FastAPI()
+    app.router.routes.append(TrapRoute())
+    model = FastApiIntrospector(app).security_model()
+    assert [(r.opaque, r.path_regex) for r in model.routes] == [(True, None)]
+
+
+def test_route_chain_is_every_enclosing_stack():
+    def endpoint() -> str:
+        return "x"
+
+    inner = FastAPI()
+    inner.add_middleware(GZipMiddleware)
+    inner.get("/x")(endpoint)
+    outer = FastAPI()
+    outer.add_middleware(TrustedHostMiddleware, allowed_hosts=["a.example.test"])
+    outer.mount("/inner", inner)
+    outer.get("/y")(endpoint)
+    by_host = FastAPI()
+    by_host.add_middleware(GZipMiddleware)
+    by_host.get("/h")(endpoint)
+    app = FastAPI()
+    app.add_middleware(CORSMiddleware, allow_origins=["https://example.test"])
+    app.mount("/outer", outer)
+    app.router.routes.append(Mount("/m", routes=[APIRoute("/z", endpoint)], middleware=[Middleware(GZipMiddleware)]))
+    app.host("api.example.test", by_host)
+    app.get("/outer/late")(endpoint)  # after the mount, at the top level: only the app's own stack wraps it
+    model = FastApiIntrospector(app).security_model()
+    stacks = {r.path: model.chains[r.chain].middleware for r in model.routes}
+    assert stacks == {
+        "/outer/inner/x": (CORS, TRUSTED, GZIP),
+        "/outer/y": (CORS, TRUSTED),
+        "/m/z": (CORS, GZIP),
+        "/h": (CORS, GZIP),
+        "/outer/late": (CORS,),
+    }
+
+
+def test_unexpandable_include_router_limitation_says_so():
+    lazy = getattr(fastapi.routing, "_IncludedRouter", None)
+    if lazy is None:
+        pytest.skip("this FastAPI includes routers eagerly")
+    router = APIRouter()
+    router.get("/a")(lambda: "a")
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+    included = next(r for r in app.router.routes if type(r) is lazy)
+    included.original_router = object()  # pyright: ignore[reportAttributeAccessIssue]
+    model = FastApiIntrospector(app).security_model()
+    assert model.limitations == ("Included router at /v1 could not be expanded.",)

@@ -6,8 +6,13 @@ from typing import Any
 
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.testclient import TestClient
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.requests import Request
+from starlette.routing import BaseRoute, Match, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from fastapi import Depends, FastAPI, Security
@@ -187,3 +192,123 @@ def test_panel_disabled_403():
         "panel": "fastapi-security",
         "reason": disabled_reason("fastapi-security"),
     }
+
+
+class TrapRoute(BaseRoute):
+    """A custom route class: every property read and method call on it is recorded."""
+
+    def __init__(self) -> None:
+        self.touched: list[str] = []
+
+    @property
+    def path(self) -> str:
+        self.touched.append("path")
+        return "/trap"
+
+    def effective_candidates(self) -> list[object]:
+        self.touched.append("effective_candidates")
+        return []
+
+    def effective_low_priority_routes(self) -> list[object]:
+        self.touched.append("effective_low_priority_routes")
+        return []
+
+    def matches(self, scope: Any) -> tuple[Match, dict[str, Any]]:
+        self.touched.append("matches")
+        return Match.NONE, {}
+
+
+def _endpoint_rows(client: TestClient) -> list[tuple[str, str, bool, bool]]:
+    rows = client.get(f"{API}/endpoints").json()["endpoints"]
+    return [(e["pattern"], e["rule"], e["secured"], e["bestEffort"]) for e in rows]
+
+
+def test_custom_route_never_touched_by_any_get():
+    trap = TrapRoute()
+    app = FastAPI()
+    app.router.routes.append(trap)
+    client = client_for(app, mcp_enabled="ON")
+    client.get(API)
+    client.get(f"{API}/endpoints")
+    _explain(client, "GET", "/trap")
+    client.post(MCP, json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_fastapi_security"}})
+    assert trap.touched == []
+
+
+def test_custom_route_is_unknown_best_effort():
+    app = FastAPI()
+    app.router.routes.append(TrapRoute())
+    assert [(rule, best) for _, rule, _, best in _endpoint_rows(client_for(app))] == [("unknown", True)]
+
+
+def _starlette_sub_app() -> FastAPI:
+    async def secret(request: Request) -> None:
+        raise AssertionError("a mounted endpoint was called")
+
+    sub = Starlette(routes=[Route("/secret", secret)], middleware=[Middleware(GZipMiddleware)])
+    app = FastAPI()
+    app.mount("/sub", sub)
+    return app
+
+
+def test_plain_starlette_subapp_routes_are_unknown_best_effort():
+    assert _endpoint_rows(client_for(_starlette_sub_app())) == [("/sub/secret", "unknown", False, True)]
+
+
+def test_plain_starlette_subapp_route_explained_as_unknown():
+    body = _explain(client_for(_starlette_sub_app()), "GET", "/sub/secret").json()
+    assert (body["rule"], body["bestEffort"]) == ("unknown", True)
+
+
+def test_scheme_less_route_dependency_is_custom_but_not_secured():
+    def verify_header() -> None:
+        raise AssertionError("a dependency was called")
+
+    app = FastAPI()
+    app.get("/guarded", dependencies=[Depends(verify_header)])(lambda: "g")
+    assert _endpoint_rows(client_for(app)) == [("/guarded", "custom", False, True)]
+
+
+def test_explain_mount_captures_its_prefix():
+    sub = FastAPI()
+    sub.get("/a")(lambda: "a")
+    app = FastAPI()
+    app.mount("/api", sub)
+    app.get("/api/b")(lambda: "b")  # Starlette never reaches it: the mount takes every /api/... path first
+    assert _explain(client_for(app), "GET", "/api/b").json()["matched"] is False
+
+
+def test_scheme_less_parameter_dependency_is_best_effort():
+    def session_user(request: Request) -> str:
+        raise AssertionError("a dependency was called")
+
+    app = FastAPI()
+
+    @app.get("/me")
+    def me(user: str = Depends(session_user)) -> str:  # pyright: ignore[reportUnusedFunction]
+        return user
+
+    assert _endpoint_rows(client_for(app)) == [("/me", "unsecured", False, True)]
+
+
+def test_optional_scheme_inside_enforcing_dependency_is_best_effort():
+    optional = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+    def require_user(token: str | None = Depends(optional)) -> str:
+        raise AssertionError("a dependency was called")
+
+    app = FastAPI()
+
+    @app.get("/me")
+    def me(user: str = Depends(require_user)) -> str:  # pyright: ignore[reportUnusedFunction]
+        return user
+
+    assert _endpoint_rows(client_for(app)) == [("/me", "permitAll", False, True)]
+
+
+def test_explain_empty_method_defaults_to_get():
+    assert _explain(client_for(), "", "/health").json()["matched"] is True
+
+
+def test_explain_empty_path_defaults_to_root():
+    assert _explain(client_for(), "GET", "").status_code == 200

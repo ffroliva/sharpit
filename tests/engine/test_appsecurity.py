@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sharpit.engine.collectors.appsecurity import classify, endpoints_report, security_report
+from sharpit.engine.collectors.appsecurity import classify, endpoints_report, explain, security_report
 from sharpit.engine.spi import SecuredRoute, SecurityChain, SecurityModel, SecurityScheme
 
 BEARER = "fastapi.security.oauth2.OAuth2PasswordBearer"
@@ -125,3 +125,14 @@ def test_endpoints_sorted_by_pattern_then_method():
         ("/static/{path}", "ANY", "unknown", True),
     ]
     assert body["total"] == 4
+
+
+def test_custom_guard_is_not_secured():
+    # a scheme-less dependency is not a security scheme: rule custom, but nothing proves the route is secured
+    assert classify(_route(unknown=True))[1] is False
+
+
+def test_explain_after_an_unreadable_route_is_best_effort():
+    unreadable = SecuredRoute((), "(any)", "app.routes:Custom", opaque=True, path_regex=None)
+    items = SecuredRoute(("GET",), "/items", "app.main:items", path_regex="^/items$")
+    assert explain(_model(unreadable, items), "GET", "/items", "/sharpit")["bestEffort"] is True

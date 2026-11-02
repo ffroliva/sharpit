@@ -72,6 +72,21 @@ it('the explain form sends method and path and shows the rule', async () => {
   expect(asked).toContain('api/fastapi-security/explain?method=GET&path=%2Fitems');
 });
 
+it('lists two endpoint rows with the same method and pattern', async () => {
+  const twice = { ...endpoints, total: 2, endpoints: [row('GET', '/dup', 'unknown'), row('GET', '/dup', 'unknown')] };
+  h.route((url) => (url === 'api/fastapi-security/endpoints' ? json(200, twice) : routes(url)));
+  mount();
+  await until(() => expect(document.querySelectorAll('tbody tr').length).toBe(2));
+});
+
+it('shows a repeated limitation once per occurrence', async () => {
+  const why = 'Mounted application at /legacy has no inspectable routes.';
+  const repeated = { ...report, limitations: [why, why] };
+  h.route((url) => (url === 'api/fastapi-security' ? json(200, repeated) : routes(url)));
+  mount();
+  await until(() => expect(document.querySelectorAll('p.warn').length).toBe(2));
+});
+
 it('an app without FastAPI security shows the reason', async () => {
   const reason = 'FastAPI security dependencies are not available: the app is not a FastAPI app';
   h.route((url) => {
