@@ -8,10 +8,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from sharpit.engine import sqla
+
+pytestmark = pytest.mark.needs_sqlalchemy
+sa = pytest.importorskip("sqlalchemy")
+create_async_engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine
 
 pytestmark = pytest.mark.needs_sqlalchemy
 

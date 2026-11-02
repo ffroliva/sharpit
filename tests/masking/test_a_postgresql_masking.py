@@ -13,6 +13,10 @@ from sharpit.engine.collectors.postgresql.service import refresh_postgresql
 from sharpit.engine.context import SharpitContext
 from sharpit.settings import load_settings
 
+# the service reads nothing while sharpit reports SQLAlchemy 2 unavailable (finding 8), so these need it imported
+pytestmark = pytest.mark.needs_sqlalchemy
+pytest.importorskip("sqlalchemy")
+
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
 STRIPE_KEY = "sk_live_51HxQzLKbF2pWnQ8vT3uY6rE9iO0aS"
 PASSWORD = "hunter2-correct-horse"

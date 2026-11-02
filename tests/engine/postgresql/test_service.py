@@ -21,6 +21,10 @@ from sharpit.engine.singleflight import ActionBusy, SingleFlight
 from sharpit.engine.sqla import READ_ONLY_REFUSED
 from sharpit.settings import load_settings
 
+# the service reads nothing while sharpit reports SQLAlchemy 2 unavailable (finding 8), so these need it imported
+pytestmark = pytest.mark.needs_sqlalchemy
+pytest.importorskip("sqlalchemy")
+
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
 NO_PG = (
     "No PostgreSQL datasource was found. This panel reads PostgreSQL's own statistics views, "
