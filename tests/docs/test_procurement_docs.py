@@ -126,10 +126,24 @@ def test_security_policy_names_supported_versions() -> None:
     assert security_path.is_file(), "SECURITY.md must exist"
     security_text = security_path.read_text(encoding="utf-8")
 
-    current_version = sharpit.__version__
-    assert "Supported Versions" in security_text, "SECURITY.md must include a 'Supported Versions' section"
-    assert current_version in security_text, (
-        f"SECURITY.md must name current version '{current_version}' in supported versions"
+    assert "## Supported Versions" in security_text, "SECURITY.md must include a 'Supported Versions' section"
+    start = security_text.find("## Supported Versions")
+    end = security_text.find("## Reporting a Vulnerability", start)
+    assert end != -1, "SECURITY.md must contain '## Reporting a Vulnerability' after supported versions"
+    supported_section = security_text[start:end]
+
+    major_minor = re.match(r"^(\d+\.\d+)", sharpit.__version__)
+    assert major_minor is not None, "sharpit.__version__ must start with major.minor"
+    mm_prefix = f"{major_minor.group(1)}.x"
+
+    assert mm_prefix in supported_section, (
+        f"SECURITY.md supported row must compare major.minor ('{mm_prefix}') without requiring exact __version__"
+    )
+    assert "latest release on pypi" in supported_section.lower(), (
+        "SECURITY.md must state verifiable support boundary (latest release on PyPI)"
+    )
+    assert "only the current release line receives security updates" not in supported_section.lower(), (
+        "SECURITY.md must not state unsupported 'only the current release line receives security updates' policy"
     )
 
 
@@ -138,15 +152,24 @@ def test_security_policy_has_private_reporting_route() -> None:
     assert security_path.is_file(), "SECURITY.md must exist"
     security_text = security_path.read_text(encoding="utf-8")
 
-    assert "private" in security_text.lower(), "SECURITY.md must describe a private reporting route"
-    assert "security/advisories" in security_text or "Security Advisories" in security_text, (
-        "SECURITY.md must route reports to GitHub Security Advisories"
-    )
+    assert "## Reporting a Vulnerability" in security_text, "SECURITY.md must include '## Reporting a Vulnerability'"
+    start = security_text.find("## Reporting a Vulnerability")
+    end = security_text.find("## Network Egress and Trust Boundaries", start)
+    assert end != -1, "SECURITY.md must contain '## Network Egress and Trust Boundaries' after reporting"
+    reporting_section = security_text[start:end]
 
-    assert "open an issue" not in security_text.lower(), (
-        "SECURITY.md must not instruct reporters to open a public issue"
+    assert "Report a vulnerability" in reporting_section, (
+        "SECURITY.md must mention GitHub's 'Report a vulnerability' feature on the Security tab once enabled"
     )
-    assert "public issue" not in security_text.lower(), "SECURITY.md must not instruct reporters to use public issues"
+    assert "Security contact request" in reporting_section, (
+        "SECURITY.md must instruct opening an issue titled 'Security contact request' until private reporting is enabled"
+    )
+    assert "no details" in reporting_section.lower(), (
+        "SECURITY.md must instruct that the contact request issue contain no vulnerability details"
+    )
+    assert "48 hours" not in reporting_section and "48-hour" not in reporting_section, (
+        "SECURITY.md must remove unsupported 48-hour response promise"
+    )
 
 
 def test_security_policy_network_claim_matches_gatekeepers() -> None:
