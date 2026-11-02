@@ -305,7 +305,8 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         _QUERY_LIMIT,
         "config",
         False,
-        lambda c, a: config_report(c.ctx, a["query"], None, False, None, a["limit"]),
+        # BootUI McpAgentViews.config: the browser's completion metadata is dropped, every other key kept
+        lambda c, a: {**config_report(c.ctx, a["query"], None, False, None, a["limit"]), "propertySuggestions": []},
     ),
     Tool(
         "get_mappings",

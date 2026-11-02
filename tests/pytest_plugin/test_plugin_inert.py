@@ -89,7 +89,8 @@ def test_inprocess_session_clears_global_state(pytester: pytest.Pytester) -> Non
 def test_nothing_assessed_unknown_fails_unless_allowed(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_empty(): pass")
 
-    result = pytester.runpytest("--sharpit", "--sharpit-report=report.json", "-q")
+    # 0.4.0: no-app unknown is opt-in; a subprocess keeps the host's loaded apps out of autodetect
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-require-app", "--sharpit-report=report.json", "-q")
 
     assert result.ret == 1
     assert '"status": "unknown"' in (pytester.path / "report.json").read_text()
@@ -97,7 +98,8 @@ def test_nothing_assessed_unknown_fails_unless_allowed(pytester: pytest.Pytester
 
 def test_no_application_unknown_has_no_synthetic_app(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_empty(): pass")
-    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
+    # 0.4.0 (spec §5.5 F3): the 0.3.0 no-app unknown is now opt-in; without the flag rest-api is SKIPPED
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-require-app", "--sharpit-report=report.json", "-q")
     assert result.ret == 1, f"stdout: {result.stdout.str()}\nstderr: {result.stderr.str()}"
     data = json.loads((pytester.path / "report.json").read_text())
     assert (
@@ -130,7 +132,10 @@ def test_dismissal_store_built_once_per_session(pytester: pytest.Pytester, monke
 def test_allow_unknown_exits_zero(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_empty(): pass")
 
-    result = pytester.runpytest("--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
+    # 0.4.0: no-app unknown is opt-in; a subprocess keeps the host's loaded apps out of autodetect
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-require-app", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
 
     assert result.ret == 0
     assert '"status": "unknown"' in (pytester.path / "report.json").read_text()

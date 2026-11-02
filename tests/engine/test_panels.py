@@ -6,7 +6,7 @@ RO = "sharpit is read-only via SHARPIT_READ_ONLY=true"
 def test_registry_rows_0_2_0():
     # spec §13.1: MVP rows first, then the 0.2.0 rows; health is action-capable, threads and activity are not
     assert [(p.id, p.title, p.action_capable, p.api_prefix) for p in PANELS[:19]] == [
-        ("overview", "Overview", None, None),
+        ("overview", "Scorecard", None, None),
         ("config", "Configuration", False, "/config"),
         ("mappings", "Mappings", False, "/mappings"),
         ("loggers", "Loggers", True, "/loggers"),
@@ -82,3 +82,9 @@ def test_dismissed_rules_prefix_unchanged():
     # /dismissed-rules stays a global write subject, owned by no panel prefix (spec §8 changes that in Task 9)
     assert panel_for_api_path("/dismissed-rules") is None
     assert panel_for_api_path("/dismissed-rules/V-1") is None
+
+
+# BootUI 2.2.0 BootUiPanels: the overview panel is titled "Scorecard" (drift contract §1.2)
+def test_overview_panel_title_is_scorecard():
+    titles = {panel["id"]: panel["title"] for panel in panels_report(True, {}, {})["panels"]}
+    assert titles["overview"] == "Scorecard"

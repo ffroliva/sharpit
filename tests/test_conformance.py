@@ -31,6 +31,13 @@ ENDPOINTS = {
 }
 NOT_COMPARED = {"health", "meta", "mappings"}
 
+# fixture -> {recursive key path: reason} for keys BootUI added after the 1.17.0 capture; they must be present in ours
+NEWER_THAN_GOLDEN: dict[str, dict[str, str]] = {
+    "overview": dict.fromkeys(
+        ("run", "run.instanceId", "run.runId", "run.ordinal", "run.startedAt"),
+        "BootUI 2.2.0 OverviewDto.run; the 1.17.0 golden predates it",
+    ),
+}
 # fixture -> {recursive key path: reason}. Paths are excluded from both sides; value-only deviations are listed so
 # the record stays complete, and their keys must exist on both sides.
 DEVIATIONS: dict[str, dict[str, str]] = {
@@ -100,6 +107,9 @@ def test_shape_matches_golden(client: TestClient, name: str):
     resp = client.get(f"/sharpit/api/{ENDPOINTS[name]}", params={"limit": 500})
     assert resp.status_code == 200
     ours, theirs = keys(resp.json()), keys(golden(name))
+    newer = set(NEWER_THAN_GOLDEN.get(name, {}))
+    assert newer <= ours, f"keys newer than the golden missing: {newer - ours}"
+    ours -= newer
     deviations = set(DEVIATIONS.get(name, {}))
     assert deviations <= ours & theirs, f"value-only deviation keys missing: {deviations - (ours & theirs)}"
     assert ours - deviations == theirs - deviations, {
