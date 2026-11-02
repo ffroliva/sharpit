@@ -76,6 +76,24 @@ Notes:
 - Finding 1 changes JUnit in one case: a failed test gate finding under `--sharpit-fail-on=CRITICAL` is now a
   `<failure>` (it silently passed before). Logged in `docs.md` (proposed §11 entry).
 
+## Merge regression after release/0.4.0 (F final) was merged into G6
+
+F removed `session.resolve_options`, the only caller that registered the controller-side `WorkerApps` hook, so the
+xdist candidate union stopped working. The lane's existing xdist tests were the red at the merge commit; the fix
+registers `WorkerApps` from `options.resolve` (run by the facade's `pytest_configure` in every process).
+
+| Test id | Red SHA | Assertion message | Disposition |
+|---|---|---|---|
+| tests/pytest_plugin/test_plugin_gate_defaults.py::test_autodetect_ambiguous_across_workers_uses_none | cdab7ebe77b515ebc6f38d2414c73104c9094c1c | AssertionError: assert 'sharpit: several apps found (first_app:app, second_app:app); pass --sharpit-app module:attr' in '...' | Fixed in 999569b2d526f8ceecb805a9bb79413206115087 |
+| tests/pytest_plugin/test_plugin_xdist.py::test_xdist_snapshot_suppresses_worker_autodetect | cdab7ebe77b515ebc6f38d2414c73104c9094c1c | AssertionError: assert 'otherapp:app' not in ['otherapp:app', 'FastAPI#902cdf40'] | Fixed in 999569b2d526f8ceecb805a9bb79413206115087 |
+
+F's `tests/pytest_plugin/test_plugin_xdist.py::test_xdist_app_seen_by_one_worker_passes` (`assert 'SKIPPED' == 'PASSED'`)
+failed at the merge for the same reason and passes at 999569b; it is not a lane red, so it has no Red SHA row.
+
+Full suite at 999569b (`-n 4`): 3779 passed, 5 skipped, 2 failed: `test_request_overhead_budget` and
+`test_statement_overhead_budget`. Both also fail on the untouched base `4a47fe2` (release/0.4.0, no G6) in two
+isolated runs on this machine, so they are load, not G6 (G6 touches no hot path).
+
 ## Review of the WIP commit 9dfd9e2 (Antigravity, committed by the coordinator)
 
 - Kept: `SKIPPED` in `AdvisorRun.status` and in the advisor and `$defs.advisorApp` status enums of both
