@@ -25,6 +25,7 @@ from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_request_id
 from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sources import dispatch, sqlite
 
 if TYPE_CHECKING:
@@ -33,9 +34,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("sharpit")
 
+
+def _panel_enabled(ctx: SharpitContext, panel_id: str) -> bool:
+    return panel_is_implemented(panel_id) and ctx.settings.panels[panel_id].enabled
+
+
 CAPTURE_TOO_LATE = "request capture unavailable: install() ran after the app started"
 CAPTURE_TOO_LATE_REASON = "Request capture is unavailable: install() ran after the app started"
-CAPTURE_PANELS = ("http-exchanges", "exceptions", "sql-trace", "activity")  # any of them enabled needs the middleware
+CAPTURE_PANELS = (
+    "http-exchanges",
+    "exceptions",
+    "sql-trace",
+    "activity",
+    "transactions",
+    "security-logs",
+)  # any implemented, enabled panel needs the middleware
 LOG_PANELS = ("log-tail", "exceptions")  # either enabled needs the log handler (spec §6.1 step 3)
 LOG_TAIL_DETACHED_REASON = (
     "The sharpit log handler is not on the root logger: the app reconfigured logging (dictConfig or "
@@ -168,20 +181,25 @@ class CaptureWiring:
         self.log_handler: SharpitLogHandler | None = None
         self.log_attached: list[logging.Logger] = []  # every logger the handler was added to, removed on detach
         self._warned: set[str] = set()
+        # 0.4.0 slots (lane F), inert until their lanes fill them
+        self.on_security_event: Callable[[Scope, int], None] | None = None  # B-security-logs: 401/403 exchanges
+        self.span_processor: object | None = None  # A-traces: one lazily re-armed SDK span processor
+        self._armed: set[int] = set()  # id() of each CaptureState.attachers entry whose remover is in teardowns
 
     def attach_at_install(self, app: Any, ctx: SharpitContext) -> None:
         if self.app is not None:
             return
         self.app = app
         store = ctx.capture.exceptions
-        if any(ctx.settings.panels[p].enabled for p in LOG_PANELS):
+        if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
             self.log_handler = SharpitLogHandler(ctx.masker, ctx.capture.log_tail)
             if store is not None:
                 self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
         self._wrap_handlers(ctx)  # step 2 (spec §6.1), before the middleware: a too-late install still wraps
         self._attach_sql(ctx)  # steps 4a/4b: listeners trace outside requests too, so a too-late install still traces
-        if not any(ctx.settings.panels[p].enabled for p in CAPTURE_PANELS):
+        self._run_attachers(ctx)
+        if not any(_panel_enabled(ctx, p) for p in CAPTURE_PANELS):
             return
         try:
             app.add_middleware(CaptureMiddleware, ctx=ctx)
@@ -206,11 +224,13 @@ class CaptureWiring:
         self._first_run(ctx)
         self._attach_logging()  # after the host's startup: its basicConfig()/dictConfig() has run
         self._attach_sql(ctx)  # the lifespan may have imported SQLAlchemy, or a shutdown removed the listeners
+        self._run_attachers(ctx)  # likewise for the lanes' hooks
 
     def on_first_request(self, ctx: SharpitContext) -> None:
         self._first_run(ctx)
         self._attach_logging()
         self._attach_sql(ctx)  # no lifespan: the first request is the last chance to find SQLAlchemy imported
+        self._run_attachers(ctx)
 
     def detach(self, ctx: SharpitContext) -> None:
         sqla.remove(ctx)
@@ -220,12 +240,33 @@ class CaptureWiring:
             for attached in self.log_attached:
                 attached.removeHandler(self.log_handler)
         self.log_attached.clear()
+        teardowns = ctx.capture.teardowns
+        while teardowns:  # lanes' listener/processor removers (R17): newest first, once each, a failure stops none
+            try:
+                teardowns.pop()()
+            except Exception as exc:  # noqa: BLE001
+                self.hook_failed("teardown", exc)
+        self._armed.clear()  # the next startup re-runs every attacher
         self.detached = True
+
+    def _run_attachers(self, ctx: SharpitContext) -> None:
+        """Run each lane attacher not yet armed; a remover arms it, ``None`` leaves it for the next chance."""
+        for attacher in ctx.capture.attachers:
+            if id(attacher) in self._armed:
+                continue
+            try:
+                remover = attacher()
+            except Exception as exc:  # noqa: BLE001 - the host's startup never fails on sharpit
+                self.hook_failed("attacher", exc)
+                continue
+            if remover is not None:
+                self._armed.add(id(attacher))
+                ctx.capture.teardowns.append(remover)
 
     def _attach_sql(self, ctx: SharpitContext) -> None:
         """Step 4a (engine discovery) when a database panel is enabled, 4b (statements) when tracing is on."""
         try:
-            discovery = any(ctx.settings.panels[p].enabled for p in sqla.DISCOVERY_PANELS)
+            discovery = any(_panel_enabled(ctx, p) for p in sqla.DISCOVERY_PANELS)
             sqla.add(ctx, statements=ctx.capture.sql_trace is not None, discovery=discovery)
             if ctx.capture.sql_trace is not None and ctx.settings.sql_trace_sqlite3_enabled:
                 dispatch.add_context(ctx)  # raw sqlite3 needs no SQLAlchemy: route its statements here too
@@ -361,6 +402,12 @@ class CaptureMiddleware:
                 sink.on_escaped(exc)
             raise
         finally:
+            sent = cast("int | None", status)  # set by capture_send; pyright cannot see the closure
+            if sent in (401, 403) and wiring.on_security_event is not None:  # before reset: REQUEST names it (R12)
+                try:
+                    wiring.on_security_event(scope, sent)
+                except Exception as exc:  # noqa: BLE001
+                    wiring.hook_failed("security event", exc)
             REQUEST.reset(token)
             try:
                 finished = end_ns or time.perf_counter_ns()

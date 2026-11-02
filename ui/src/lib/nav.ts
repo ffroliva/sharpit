@@ -1,12 +1,13 @@
 import type { Panel } from './types';
+import { panelImplemented } from './panels04';
 
 /** The rail's groups (spec 13.1); every panel id is in exactly one. `layout.ts` is the graph layout, not this. */
 export const NAV: readonly { title: string; ids: readonly string[] }[] = [
   { title: 'Overview', ids: ['overview', 'activity'] },
-  { title: 'Runtime', ids: ['health', 'threads', 'log-tail', 'exceptions', 'http-exchanges', 'http-probe'] },
-  { title: 'Database', ids: ['sql-trace', 'database-connection-pools', 'alembic'] },
+  { title: 'Runtime', ids: ['health', 'threads', 'log-tail', 'exceptions', 'http-exchanges', 'http-probe', 'traces', 'security-logs'] },
+  { title: 'Database', ids: ['sql-trace', 'database-connection-pools', 'alembic', 'data', 'transactions', 'postgresql', 'mysql', 'database-advisor', 'sqlalchemy-statistics'] },
   { title: 'Configuration', ids: ['config', 'mappings', 'loggers', 'beans', 'mcp-server', 'cli'] },
-  { title: 'Advisors', ids: ['rest-api', 'vulnerabilities'] },
+  { title: 'Advisors', ids: ['rest-api', 'vulnerabilities', 'security', 'architecture', 'fastapi-security', 'fastapi'] },
 ];
 
 /** A panel the server lists but has not built yet is not shown at all. */
@@ -14,7 +15,7 @@ export const notBuilt = (p: Panel) => !p.available && p.unavailableReason === 'N
 
 /** Panels by group, in the spec's order; empty groups drop out, and an id no group knows lands in "Other". */
 export function groupPanels(panels: readonly Panel[]): { title: string; panels: Panel[] }[] {
-  const shown = panels.filter((p) => !notBuilt(p));
+  const shown = panels.filter((p) => panelImplemented(p.id) && !notBuilt(p));
   const known = new Set(NAV.flatMap((g) => g.ids));
   const groups = [
     ...NAV.map((g) => ({ title: g.title, panels: g.ids.flatMap((id) => shown.filter((p) => p.id === id)) })),

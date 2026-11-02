@@ -20,8 +20,9 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
-from sqlalchemy import Engine, create_engine, inspect, text
+from sqlalchemy import Engine, ForeignKey, String, create_engine, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from starlette.requests import Request
 
 from fastapi import BackgroundTasks, FastAPI
@@ -37,6 +38,45 @@ class Settings(BaseSettings):
     app_name: str = "fastapi-sqla"
     api_token: SecretStr = SecretStr("dev-api-token")
     debug: bool = False
+
+
+class Base(DeclarativeBase):
+    """The sample's ORM models (the tables come from the alembic migrations); passed as ``install(models=Base)``."""
+
+
+class Owner(Base):
+    __tablename__ = "owners"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    email: Mapped[str | None] = mapped_column(String(200))
+
+
+class Pet(Base):
+    __tablename__ = "pets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("owners.id"))
+    name: Mapped[str] = mapped_column(String(100))
+    species: Mapped[str] = mapped_column(String(50))
+
+
+def otel_provider() -> object | None:
+    """An OpenTelemetry SDK ``TracerProvider`` for the traces panel's live check, only when the SDK is installed.
+
+    The example installs it as the global provider (sharpit itself never does); without the SDK it returns None.
+    """
+    try:
+        from opentelemetry import trace  # noqa: PLC0415 - optional, not a dependency of the sample
+        from opentelemetry.sdk.trace import TracerProvider  # noqa: PLC0415
+    except ImportError:
+        return None
+    current = trace.get_tracer_provider()
+    if isinstance(current, TracerProvider):  # set once per process: OTel refuses to replace it
+        return current
+    provider = TracerProvider()
+    trace.set_tracer_provider(provider)
+    return provider
 
 
 class HandledSampleError(Exception):
@@ -128,6 +168,7 @@ def create_app(db_dir: Path | None = None, **sharpit_options: Any) -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.sync_engine = sync_engine
     app.state.async_engine = async_engine
+    app.state.otel_provider = otel_provider()
 
     # App middleware
     app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -222,6 +263,7 @@ def create_app(db_dir: Path | None = None, **sharpit_options: Any) -> FastAPI:
         settings=[settings],
         engines=[sync_engine, async_engine],
         health_checks={"user": user_health_check},
+        models=Base,
         alembic_config=str(alembic_ini),
         **{"enabled": "ON", **sharpit_options},
     )

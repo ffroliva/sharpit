@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
+
+from fastapi import FastAPI
+from sharpit import pytest_plugin
 
 
 def _rest_run(pytester: pytest.Pytester) -> dict[str, object]:
@@ -109,3 +113,18 @@ def test_single_process_assesses_routes_added_after_the_last_test(pytester: pyte
 
     data = json.loads((pytester.path / "report.json").read_text())
     assert any(finding["advisor"] == "rest-api" for finding in data["findings"])
+
+
+def test_plugin_loader_facade_remains_monkeypatchable(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = FastAPI()
+    app.get("/ready")(lambda: {"ready": True})
+    state = SimpleNamespace(
+        options=SimpleNamespace(advisors=True, app="fake_app:app", fail_on="HIGH"),
+        sink=SimpleNamespace(app_snapshots=lambda: [], facts=SimpleNamespace(advisor_runs=[])),
+        dismissed=[],
+    )
+    monkeypatch.setattr(pytest_plugin, "_load_app", lambda spec: (spec, app))
+
+    pytest_plugin._run_advisors(state)
+
+    assert state.sink.facts.advisor_runs[0].status != "UNKNOWN"

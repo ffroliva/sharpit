@@ -5,7 +5,7 @@ RO = "sharpit is read-only via SHARPIT_READ_ONLY=true"
 
 def test_registry_rows_0_2_0():
     # spec §13.1: MVP rows first, then the 0.2.0 rows; health is action-capable, threads and activity are not
-    assert [(p.id, p.title, p.action_capable, p.api_prefix) for p in PANELS] == [
+    assert [(p.id, p.title, p.action_capable, p.api_prefix) for p in PANELS[:19]] == [
         ("overview", "Overview", None, None),
         ("config", "Configuration", False, "/config"),
         ("mappings", "Mappings", False, "/mappings"),

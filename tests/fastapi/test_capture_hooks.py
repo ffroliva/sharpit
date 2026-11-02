@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import sqla
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.panels import panel_is_implemented
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import LOG_PANELS, WrappingHandlers
 
@@ -49,7 +50,12 @@ def _sql_statements(handle: SharpitHandle) -> bool:
 HOOKS: list[Any] = [
     (("log-tail", "exceptions"), "log handler", _log_handler_present),
     (("exceptions",), "exception handlers", _handlers_wrapped),
-    pytest.param(sqla.DISCOVERY_PANELS, "sql discovery", _sql_discovery, marks=pytest.mark.needs_sqlalchemy),
+    pytest.param(
+        tuple(p for p in sqla.DISCOVERY_PANELS if panel_is_implemented(p)),
+        "sql discovery",
+        _sql_discovery,
+        marks=pytest.mark.needs_sqlalchemy,
+    ),
     pytest.param(("sql-trace",), "sql statements", _sql_statements, marks=pytest.mark.needs_sqlalchemy),
 ]
 
@@ -75,6 +81,8 @@ def test_disabled_panel_installs_no_hook(
         if set(LOG_PANELS) <= set(disabled):  # no log panel left: no sharpit log handler anywhere
             assert _log_handlers() == before
     for panel in disabled:  # any one of the panels left enabled is enough to install the hook
+        if not panel_is_implemented(panel):
+            continue
         app, handle = _started(tuple(p for p in disabled if p != panel))
         with TestClient(app) as client:
             client.get("/host")

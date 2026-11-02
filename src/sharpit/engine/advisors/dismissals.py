@@ -70,6 +70,10 @@ class DismissalStore:
                 self._save(ids)
             return ids
 
+    def dismissed_pairs(self) -> set[tuple[str, str]]:
+        """Per-finding dismissals as ``(rule_id, identity)`` pairs; inert (empty) until D1 implements it (R1)."""
+        return set()
+
     def _lines(self) -> list[str]:
         try:
             return self._file.read_text(encoding="utf-8").splitlines()

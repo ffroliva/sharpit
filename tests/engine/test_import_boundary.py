@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import functools
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -27,12 +28,13 @@ GATEKEEPERS: dict[str, set[str]] = {
     "sqlite3": {"sharpit/engine/sources/sqlite.py"},
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
+    "opentelemetry": {"sharpit/engine/otel.py"},
     "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},
     "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
     "socket": set(),
     "ssl": set(),
-    "pytest": {"sharpit/pytest_plugin/__init__.py", "sharpit/pytest_plugin/marker.py"},
-    "_pytest": {"sharpit/pytest_plugin/__init__.py", "sharpit/pytest_plugin/marker.py"},
+    "pytest": {"sharpit/pytest_plugin"},
+    "_pytest": {"sharpit/pytest_plugin"},
 }
 
 
@@ -112,13 +114,18 @@ def collector_violations(root: Path = COLLECTORS) -> list[str]:
     return found
 
 
+def _gatekeeper_allows(rel: str, allowed: set[str]) -> bool:
+    """A gatekeeper entry is a file, or a package directory that covers every module below it."""
+    return rel in allowed or any(rel.startswith(f"{entry}/") for entry in allowed)
+
+
 def gatekeeper_violations(root: Path | None = None) -> list[str]:
     return [
         f"{_rel(path)} imports {name}: only {sorted(allowed) or 'no file'} may import {lib}"
         for path in sorted((root or SRC / "sharpit").rglob("*.py"))
         for name in imports(path)
         for lib, allowed in GATEKEEPERS.items()
-        if _within(name, (lib,)) and _rel(path) not in allowed
+        if _within(name, (lib,)) and not _gatekeeper_allows(_rel(path), allowed)
     ]
 
 
@@ -136,6 +143,39 @@ def test_collectors_never_import_each_other():
 
 def test_optional_and_network_libraries_stay_behind_their_gatekeeper():
     assert gatekeeper_violations() == []
+
+
+def test_pytest_gatekeeper_covers_the_plugin_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # replaces test_pytest_gatekeeper_allows_every_plugin_submodule (its helpers changed after its red commit)
+    source = tmp_path / "src"
+    plugin = source / "sharpit" / "pytest_plugin"
+    engine = source / "sharpit" / "engine"
+    plugin.mkdir(parents=True)
+    engine.mkdir(parents=True)
+    (plugin / "session.py").write_text("import pytest\n", encoding="utf-8")
+    (plugin / "apps.py").write_text("import _pytest\n", encoding="utf-8")
+    (engine / "rogue.py").write_text("import pytest\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    violations = gatekeeper_violations()
+
+    assert violations == ["sharpit/engine/rogue.py imports pytest: only ['sharpit/pytest_plugin'] may import pytest"]
+
+
+def test_opentelemetry_import_is_confined_to_engine_otel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # replaces test_opentelemetry_stays_behind_engine_otel_gatekeeper (its helpers changed after its red commit)
+    source = tmp_path / "src"
+    engine = source / "sharpit" / "engine"
+    engine.mkdir(parents=True)
+    (engine / "otel.py").write_text("import opentelemetry.trace\n", encoding="utf-8")
+    (engine / "tools.py").write_text("import opentelemetry.trace\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    violations = gatekeeper_violations()
+
+    assert violations == [
+        "sharpit/engine/tools.py imports opentelemetry.trace: only ['sharpit/engine/otel.py'] may import opentelemetry"
+    ]
 
 
 def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

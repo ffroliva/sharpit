@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from sharpit.engine.collectors.restapi.rules import RULE_IDS
+from sharpit.engine.panels04 import module_implemented
 
 # the vulnerability shape is exactly what dismissals.rule_id() builds from a PEP 503 name
 _VULNERABILITY_KEY = r"[A-Za-z0-9._:-]+::pypi:[a-z0-9._-]+"
@@ -20,6 +21,11 @@ class AdvisorSpec:
     panel: str | None
     owns: Callable[[str], bool]
     fingerprint: re.Pattern[str] | None  # ``<advisor>:<a rule id it owns>:<16 hex>``; None: no finding fingerprints
+
+    @property
+    def implemented(self) -> bool:
+        """A 0.4 advisor reads its panel flag at call time; the others are always implemented."""
+        return module_implemented(self.id)
 
 
 def _fingerprint(advisor: str, rule: str) -> re.Pattern[str]:
@@ -47,6 +53,30 @@ ADVISORS: tuple[AdvisorSpec, ...] = (
         lambda value: value.startswith("sharpit."),
         fingerprint=_fingerprint("test-runtime", r"sharpit\.[a-z0-9.-]+"),
     ),
+    AdvisorSpec(
+        "database-advisor",
+        "database-advisor",
+        lambda _value: False,
+        fingerprint=None,
+    ),
+    AdvisorSpec(
+        "security",
+        "security",
+        lambda _value: False,
+        fingerprint=None,
+    ),
+    AdvisorSpec(
+        "architecture",
+        "architecture",
+        lambda _value: False,
+        fingerprint=None,
+    ),
+    AdvisorSpec(
+        "fastapi",
+        "fastapi",
+        lambda _value: False,
+        fingerprint=None,
+    ),
 )
 
 
@@ -56,6 +86,6 @@ def advisor_for(id: str) -> AdvisorSpec | None:  # noqa: A002 - the spec names t
     A fingerprint prefix decides first and is then validated whole, so ``test-runtime:...::pypi:...`` is never read as
     a vulnerability id; only a value no advisor prefixes is matched as a bare rule id."""
     for spec in ADVISORS:
-        if id.startswith(f"{spec.id}:"):
+        if spec.implemented and id.startswith(f"{spec.id}:"):
             return spec if spec.fingerprint and spec.fingerprint.fullmatch(id) else None
-    return next((spec for spec in ADVISORS if spec.owns(id)), None)
+    return next((spec for spec in ADVISORS if spec.implemented and spec.owns(id)), None)
