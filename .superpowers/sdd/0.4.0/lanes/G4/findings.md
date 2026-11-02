@@ -2,7 +2,7 @@
 
 ## Round 0 findings (initial plan)
 
-| Finding | Test | Red SHA | Assertion message | Disposition |
+| Finding | Test | Reference SHA | Assertion message | Disposition |
 |---|---|---|---|---|
 | README.md install commands must use published PyPI package and valid extras instead of stale git clone | `tests/docs/test_procurement_docs.py::test_readme_install_uses_current_pypi_version_and_valid_extra` | `0aacb9134c8bf1a91d9e2df66dbee287470c501d` | `assert 'not on PyPI yet' not in readme_text` | Fixed in `fb91ef991a5a07509806f7442fccfdcdcc5dbd6f` |
 | README.md must lead with CI gate and gflow-cli proof before 60-seconds path and details | `tests/docs/test_procurement_docs.py::test_readme_gate_and_gflow_proof_precede_details` | `0aacb9134c8bf1a91d9e2df66dbee287470c501d` | `assert proof_match is not None` | Fixed in `fb91ef991a5a07509806f7442fccfdcdcc5dbd6f` |
@@ -14,7 +14,7 @@
 
 ## Round 1 review findings
 
-| Finding | Test | Red SHA | Assertion message | Disposition |
+| Finding | Test | Reference SHA | Assertion message | Disposition |
 |---|---|---|---|---|
 | Finding 1: README gflow-cli proof accuracy (drop "independent", state run by author on 0.3.0 integration branch, link to own report, ~53k statements, 6 N+1 findings: 1 real, 2 noise, 3 expected polling, 5 failed by gates) | `tests/docs/test_procurement_docs.py::test_readme_gate_and_gflow_proof_precede_details` | `3fff0b186f6be5ee812eab218767488c09c2c85c` | `assert "independent" not in proof_section.lower()` | Fixed in `c2954984cbe7c449ff573b91b0db977ecd2febbf` |
 | Finding 2: SECURITY.md reporting route (disabled private reporting, issue titled 'Security contact request' with no details until enabled, remove 48-hour SLA, verifiable PyPI support boundary without exact __version__ duplication) | `tests/docs/test_procurement_docs.py::test_security_policy_names_supported_versions` & `tests/docs/test_procurement_docs.py::test_security_policy_has_private_reporting_route` | `15b9c8a4f1701d78ae1b1721387398f6fe9971a9` | `assert "latest release on pypi" in supported_section.lower()` & `assert "Report a vulnerability" in reporting_section` | Fixed in `42271a6c2310dd0a3816229b99fadad9a8b0bdd1` |
