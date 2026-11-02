@@ -8,30 +8,32 @@ In progress. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 
 ## Done
 
-- Read the canonical agent rules, the full COMMON brief, spec, global plan, lane plan, council amendments, and F handoff.
+- Read the canonical rules, full COMMON brief, spec, global and lane plans, council amendments, and F handoff.
 - Registered with agentctl as `codex-0-4-0-a-transactions`.
-- Task 1 nullable field fixture committed; the captured transaction golden is absent here, so parity remains unverified until coordinator supplies it.
+- Task 1 nullable field fixture committed (`d50d6b6`). The captured transaction golden is absent in this worktree, so parity remains unverified.
+- Task 2 assertion reds committed; implementing the framework-free recorder next.
 
 ## Next step
 
-Task 2: add assertion reds and the transaction recorder in `engine/capture/transactions.py`, then wire tests against real SQLite connection events. Do not edit `engine/sqla.py`.
+Implement Task 2 in `engine/capture/transactions.py`, verify each red test turns green, then add event listener, wiring, routes and UI within the plan's May-touch list. Full suite log must stay outside this worktree and xdist is capped at 4.
 
 ## Decisions
 
-- Follow F handoff: `_configure_capture(app, ctx, settings) -> CaptureWiring`; transaction listener arm/removal belongs in `CaptureState.attachers` so late SQLAlchemy imports and lifespan restarts are handled.
-- If connection-event slot lacks a commit-failure event, park `test_failed_commit_is_unknown`; never modify `sqla.py`.
-- Golden parity is unverified because `tests/fixtures/bootui/2.2.0/transactions/captured.json` is absent.
+- Follow F handoff: `_configure_capture(app, ctx, settings) -> CaptureWiring`; listener arm/removal belongs in `CaptureState.attachers` so late SQLAlchemy imports and lifespan restarts are handled.
+- F exposes only begin/commit/rollback/savepoint event hooks. SQLAlchemy commit failure is surfaced after the `commit` event via `handle_error`, so `test_failed_commit_is_unknown` is parked under O1 unless a later slot interface supports it.
+- Never modify `engine/sqla.py`.
 
 ## Red tests
 
 | Test id | Red SHA | Assertion message |
 |---|---|---|
-| None yet | — | — |
+| `tests/engine/capture/test_transactions.py::test_records_committed_root` | `79a37b42dd5a345c86a08766791adef111c3121d` | `a captured transaction must receive a positive id` |
+| `tests/engine/capture/test_transactions.py::test_bounded_entries_report_stats` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `the transaction ring must respect max_entries` |
+| `tests/engine/capture/test_transactions.py::test_clear_keeps_total_captured` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `clear must empty the retained transactions` |
+| `tests/engine/capture/test_transactions.py::test_paused_records_nothing` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `a paused recorder must return the sentinel id` |
+| `tests/engine/capture/test_transactions.py::test_error_message_is_masked` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `transaction errors must not expose connection passwords` |
+| `tests/engine/capture/test_transactions.py::test_sql_trace_unavailable_warning` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `missing SQL Trace must explain why statement counts are unavailable` |
 
-## Commands / gates
+## Gates / live check
 
-Not run yet. Full suite log must be outside this worktree; max xdist workers: 4.
-
-## Live check
-
-Not run. Shared example and ports are out of lane scope.
+Not run yet. Live check not run; example app wiring is out of lane touch scope.
