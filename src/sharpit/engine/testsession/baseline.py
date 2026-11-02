@@ -41,7 +41,7 @@ def read(path: Path) -> Baseline:
     raw = path.read_bytes()
     try:
         payload: Any = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (ValueError, RecursionError) as exc:  # JSONDecodeError and UnicodeDecodeError are ValueErrors
         raise ValueError("baseline is not valid JSON") from exc
     if not isinstance(payload, dict):
         raise ValueError("baseline must be an object")

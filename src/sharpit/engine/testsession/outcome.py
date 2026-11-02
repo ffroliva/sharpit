@@ -173,7 +173,10 @@ def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str]) -> Merg
     sources = _combine_sources(parts, untraced, engines)
     runs = _merge_runs(parts)
     unattached = [
-        (s["name"], p.worker) for p in parts for s in p.sources if not s["attached"] and s["name"] != "exceptions"
+        (s["name"], p.worker)
+        for p in parts
+        for s in p.sources
+        if not s["attached"] and s["name"] not in {"exceptions", "baseline"}
     ]
     findings = _flat_findings(tests, runs)
     attributed = attributed_queries(tests)
@@ -289,6 +292,7 @@ def _unknown_reasons(
     if merged.exceptions_lost:
         reasons.append(f"exception capture was lost: {'; '.join(dict.fromkeys(merged.exceptions_lost))}")
     reasons += [f"source '{name}' not attached in worker {worker}" for name, worker in merged.unattached]
+    reasons += [s["reason"] for s in merged.sources if s["name"] == "baseline" and not s["attached"]]
     if advisors_enabled:
         reasons += [
             f"advisor '{s['advisor']}' could not assess: {s['reason'] or FALLBACK_REASON}"
