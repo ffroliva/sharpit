@@ -213,9 +213,24 @@ def diff_refusals(opts: Options, base: str) -> list[str]:
             problems += _baseline_refusals(opts.lane, before, after)
         elif path == "pyproject.toml" and not is_f and _dependency_lists(before) != _dependency_lists(after):
             problems.append("dependency list changed: pyproject.toml")
-        elif path.endswith(".py") and BUDGET_LINE.findall(before or "") != BUDGET_LINE.findall(after or ""):
-            problems.append(f"overhead budget constant changed: {path}")
+        elif _is_overhead_module(path, before):
+            problems += _overhead_problems(path, before or "", after or "")
     return problems
+
+
+def _is_overhead_module(path: str, before: str | None) -> bool:
+    """An overhead test module: under tests/, defines a top-level ``BUDGET*`` or calls ``check_budget``. Only these
+    files are scanned, so a script that merely mentions a budget name (this gate) is not one."""
+    is_test_py = path.startswith("tests/") and path.endswith(".py")
+    return is_test_py and bool(before) and bool(BUDGET_LINE.search(before or "") or "check_budget(" in (before or ""))
+
+
+def _overhead_problems(path: str, before: str, after: str) -> list[str]:
+    """In an overhead module only new test functions may be added: no existing top-level name may change."""
+    old, new = _definitions(before), _definitions(after)
+    names = sorted(n for n in old if new.get(n) != old[n])
+    names += sorted(n for n in new if n not in old and not n.startswith("test"))
+    return [f"overhead budget module changed: {path} ({', '.join(names)})"] if names else []
 
 
 def _evidence_path_exists(opts: Options, token: str) -> bool:
@@ -391,7 +406,7 @@ def _red_file_problems(opts: Options, sha: str, path: str, nodeid: str) -> list[
     problems = [
         f"referenced name {name} changed after the red commit"
         for name in sorted(referenced)
-        if name in before and after.get(name) != before[name]
+        if after.get(name) != before.get(name)  # absent at the red SHA and defined later = a shadow
     ]
     parts = path.split("/")[:-1]
     for conftest in ("/".join([*parts[:i], "conftest.py"]) for i in range(len(parts) + 1)):
