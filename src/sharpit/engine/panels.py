@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from sharpit.engine.panels04 import IMPLEMENTED
+from sharpit.engine.panels04 import module_implemented as panel_is_implemented
 
 
 @dataclass(frozen=True)
@@ -15,7 +15,11 @@ class Panel:
     title: str
     action_capable: bool | None
     api_prefix: str | None
-    implemented: bool = True
+
+    @property
+    def implemented(self) -> bool:
+        """Read from the panel flag at call time (``panels04``): a flip or a monkeypatch is seen everywhere."""
+        return panel_is_implemented(self.id)
 
 
 # overview and cli register no API prefix, as in BootUI: GET {api}/overview is the shell's chrome data source and the
@@ -42,24 +46,18 @@ PANELS: tuple[Panel, ...] = (
     Panel("rest-api", "REST API", True, "/rest-api"),
     Panel("http-probe", "HTTP Probe", True, "/http-probe"),
     # 0.4.0 panels are registered now but remain absent until their owner flips its local flag.
-    Panel("data", "Data", False, "/data", IMPLEMENTED["data"]),
-    Panel("transactions", "Transactions", True, "/transactions", IMPLEMENTED["transactions"]),
-    Panel("postgresql", "PostgreSQL", True, "/postgresql", IMPLEMENTED["postgresql"]),
-    Panel("mysql", "MySQL", True, "/mysql", IMPLEMENTED["mysql"]),
-    Panel("traces", "Traces", True, "/traces", IMPLEMENTED["traces"]),
-    Panel("security", "Security", True, "/security", IMPLEMENTED["security"]),
-    Panel("security-logs", "Security Logs", False, "/security-logs", IMPLEMENTED["security-logs"]),
-    Panel("database-advisor", "Database Advisor", True, "/database-advisor", IMPLEMENTED["database-advisor"]),
-    Panel("architecture", "Architecture", True, "/architecture", IMPLEMENTED["architecture"]),
-    Panel(
-        "sqlalchemy-statistics",
-        "SQLAlchemy Statistics",
-        True,
-        "/sqlalchemy-statistics",
-        IMPLEMENTED["sqlalchemy-statistics"],
-    ),
-    Panel("fastapi-security", "FastAPI Security", False, "/fastapi-security", IMPLEMENTED["fastapi-security"]),
-    Panel("fastapi", "FastAPI", True, "/fastapi", IMPLEMENTED["fastapi"]),
+    Panel("data", "Data", False, "/data"),
+    Panel("transactions", "Transactions", True, "/transactions"),
+    Panel("postgresql", "PostgreSQL", True, "/postgresql"),
+    Panel("mysql", "MySQL", True, "/mysql"),
+    Panel("traces", "Traces", True, "/traces"),
+    Panel("security", "Security", True, "/security"),
+    Panel("security-logs", "Security Logs", False, "/security-logs"),
+    Panel("database-advisor", "Database Advisor", True, "/database-advisor"),
+    Panel("architecture", "Architecture", True, "/architecture"),
+    Panel("sqlalchemy-statistics", "SQLAlchemy Statistics", True, "/sqlalchemy-statistics"),
+    Panel("fastapi-security", "FastAPI Security", False, "/fastapi-security"),
+    Panel("fastapi", "FastAPI", True, "/fastapi"),
 )
 
 
@@ -75,11 +73,6 @@ def read_only_reason(panel_id: str, global_read_only: bool) -> str:
     if global_read_only:
         return "sharpit is read-only via SHARPIT_READ_ONLY=true"
     return f"Panel is read-only via SHARPIT_PANELS_{_env_id(panel_id)}_READ_ONLY=true"
-
-
-def panel_is_implemented(panel_id: str) -> bool:
-    """Existing panels are implemented; O4 panels read their owning per-panel flag."""
-    return IMPLEMENTED.get(panel_id, True)
 
 
 def panel_for_api_path(sub_path: str) -> Panel | None:

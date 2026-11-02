@@ -26,6 +26,7 @@ from sharpit.engine import sqla
 from sharpit.engine.capture.correlation import REQUEST
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.panels import panel_is_implemented
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import CAPTURE_TOO_LATE, CAPTURE_TOO_LATE_REASON, CaptureMiddleware
 
@@ -373,7 +374,8 @@ def test_inactive_adds_nothing(with_sqlalchemy: bool):
 @pytest.mark.parametrize("with_sqlalchemy", WITH_SQLALCHEMY)
 def test_all_capture_panels_disabled_adds_nothing(with_sqlalchemy: bool):
     # the database panels read the engine registry, so they are off too for "nothing" (step 4a, spec §6.1)
-    disabled = (*CAPTURE_PANELS, *sqla.DISCOVERY_PANELS) if with_sqlalchemy else CAPTURE_PANELS
+    discovery = tuple(p for p in sqla.DISCOVERY_PANELS if panel_is_implemented(p))  # unimplemented ids are unknown
+    disabled = (*CAPTURE_PANELS, *discovery) if with_sqlalchemy else CAPTURE_PANELS
     _assert_adds_nothing(with_sqlalchemy, enabled="ON", panels={p: {"enabled": False} for p in disabled})
 
 

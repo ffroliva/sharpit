@@ -42,10 +42,10 @@ from sharpit.pytest_plugin.apps import (
 from sharpit.pytest_plugin.marker import budget_for
 from sharpit.pytest_plugin.options import PluginOptions
 from sharpit.pytest_plugin.options import pytest_addoption as pytest_addoption
+from sharpit.pytest_plugin.options import resolve as resolve
 from sharpit.pytest_plugin.report_io import write_report as _write_report  # noqa: F401 - compatibility re-export
 from sharpit.pytest_plugin.session import pytest_runtest_makereport as pytest_runtest_makereport
 from sharpit.pytest_plugin.session import pytest_sessionfinish as pytest_sessionfinish
-from sharpit.pytest_plugin.session import resolve_options as resolve
 from sharpit.pytest_plugin.terminal import pytest_terminal_summary as pytest_terminal_summary
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
