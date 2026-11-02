@@ -5,11 +5,11 @@
 - **Branch:** `lane/0.4.0-G6`
 - **Worktree:** `C:\development\github\sharpit-wt\0.4.0-G6`
 - **Base commit:** `d37c6f296da4263237b52b44ca593152a54b27d3` (`lane/0.4.0-F`)
-- **Head commit:** see `git log` (evidence commit on top of 6732d25b637ea30926e2e30dfde60c20b17449f4)
+- **Head commit:** see `git log` (evidence commit on top of c1092bc8420a00a723fa1443d9f46ccc789c900f)
 
 ## Status
 
-DONE — all three tasks red → green; four gates below. Resumed by a Claude subagent after Antigravity hit its quota
+DONE — all three tasks and fix round 1 (findings 1–8) red → green; four gates below. Resumed by a Claude subagent after Antigravity hit its quota
 (red 1955ea3) and the coordinator WIP-committed its edits (9dfd9e2); the WIP review is in `findings.md`.
 
 ## Commits
@@ -19,16 +19,18 @@ DONE — all three tasks red → green; four gates below. Resumed by a Claude su
 | 1 autodetect + no-app SKIPPED (F3) | 1955ea34148c685581ca5f5cf088862b79e55e05 | 9dfd9e246a80ca467c190b84807731800eaaf034 (WIP, reviewed) + b50fec7d8c53bea361a8201f20b0286e7f28b16d |
 | 2 require-app + `_worst` (R14) | fe18128a907a98b04bed9192bcbe86ac8d397c5e | f0dd3519c07646ecbec722c860a715c1d6e3b8e4 |
 | 3 quiet advisor notes (F4) | 04f05629ea658829f509a21991101249c7c8d2c7 | 97ccbe083e12da8d36a2539efea3a11ee240fbfa |
+| Fix round 1 (findings 1–8) | aac033a, 379ca9c, 0aa0a61, dd3ce5f, 9a1ddb2 (regression), 6a2fea1, e417555, b43e31b, cb6cc49 | c1092bc8420a00a723fa1443d9f46ccc789c900f (+ b02b0c8 foundation test flag) |
 
 ## Interface Table
 
 | Symbol | Module | Signature / Type | Consumers |
 |---|---|---|---|
 | `autodetect_apps` | `sharpit.pytest_plugin.apps` | `() -> tuple[tuple[str, object], ...]` (sorted `module:attr`) | `run_advisors`, tests |
-| `select_app` | `sharpit.pytest_plugin.apps` | `(explicit: str \| None, candidates: Sequence[tuple[str, object]]) -> tuple[str, object] \| None` | `run_advisors`, tests |
+| `select_app` | `sharpit.pytest_plugin.apps` | `(candidates: Sequence[tuple[str, object]]) -> tuple[str, object] \| None` (fix round 1: explicit branch removed) | `run_advisors` |
+| `skip_reason` / `AUTODETECT` / `bare_app_run` | `sharpit.pytest_plugin.apps` | one skip formatter; evidence key `"autodetect"` marks autodetect runs | apps, terminal |
+| `finding_fails` | `sharpit.engine.testsession.report` | `(finding: dict[str, Any], fail_on: str) -> bool` — the one gate-failure predicate | `write_junit`, terminal; G1G2's `fails()` should merge with it |
 | `no_app_run` | `sharpit.pytest_plugin.apps` | `(names: Sequence[str], require_app: bool) -> AdvisorRun \| None` | `run_advisors`, `reconcile_workers` |
-| `reconcile_workers` | `sharpit.pytest_plugin.apps` | `(parts: Sequence[SessionFacts], names: Sequence[str], require_app: bool) -> None` | `session.pytest_sessionfinish` (controller) |
-| `NO_APP_REASON` | `sharpit.pytest_plugin.apps` | `str` | `terminal.app_notice` |
+| `reconcile_workers` | `sharpit.pytest_plugin.apps` | `(parts, names, require_app, snapshot=False) -> None` | `session.pytest_sessionfinish` (controller) |
 | `APPS_KEY` / `WorkerApps` | `sharpit.pytest_plugin.session` | `"sharpit_apps"` workeroutput key / controller plugin with optional `pytest_testnodedown` | registered by `session.resolve_options` |
 | `app_notice` | `sharpit.pytest_plugin.terminal` | `(names: list[str] \| None, require_app: bool) -> str \| None` | `pytest_terminal_summary` |
 | `PluginOptions.require_app` | `sharpit.pytest_plugin.options` | `bool = False`; `--sharpit-require-app`, ini `sharpit_require_app` | apps, session, terminal |
@@ -50,7 +52,6 @@ DONE — all three tasks red → green; four gates below. Resumed by a Claude su
 | tests/pytest_plugin/test_plugin_gate_defaults.py::test_require_app_no_app_is_unknown | fe18128a907a98b04bed9192bcbe86ac8d397c5e | assert <ExitCode.OK: 0> == 1 |
 | tests/pytest_plugin/test_plugin_gate_defaults.py::test_require_app_ini_true_is_unknown | fe18128a907a98b04bed9192bcbe86ac8d397c5e | assert <ExitCode.OK: 0> == 1 |
 | tests/pytest_plugin/test_plugin_gate_defaults.py::test_worst_status_order | fe18128a907a98b04bed9192bcbe86ac8d397c5e | AssertionError: assert 'PASSED' == 'SKIPPED' |
-| tests/pytest_plugin/test_plugin_gate_defaults.py::test_explicit_app_ignores_autodetect_candidates | fe18128a907a98b04bed9192bcbe86ac8d397c5e | AssertionError: assert 'other_mod:app' == 'explicit_choice_mod:app' |
 | tests/pytest_plugin/test_plugin_options.py::test_require_app_cli_and_ini | fe18128a907a98b04bed9192bcbe86ac8d397c5e | AssertionError: assert False is True (PluginOptions.require_app) |
 | tests/pytest_plugin/test_plugin_terminal.py::test_verbose_keeps_advisor_notes | 04f05629ea658829f509a21991101249c7c8d2c7 | AssertionError: assert False is True (PluginOptions.verbose) |
 | tests/pytest_plugin/test_plugin_terminal.py::test_gate_failure_still_printed | 04f05629ea658829f509a21991101249c7c8d2c7 | AssertionError: assert '  RAPI-DOC-001' not in '...' |
@@ -76,25 +77,26 @@ DONE — all three tasks red → green; four gates below. Resumed by a Claude su
 - `uv run ruff check`: All checks passed.
 - `uv run ruff format --check`: 409 files already formatted.
 - `uv run pyright`: 0 errors, 0 warnings.
-- `uv run pytest -q -n 4` (head 6732d25): 3579 passed, 5 skipped, 2 failed (log
-  `0.4.0-integration/.superpowers/sdd/0.4.0/logs/G6-pytest.log`):
-  - `tests/test_foundation_suite_equivalence.py::test_foundation_suite_equivalence` asserts the 0.3.0 no-app
-    `status == "unknown"`; intended F3 change, file outside May-touch (see Needs from coordinator).
-  - `tests/fastapi/test_sql_trace_overhead.py::test_statement_overhead_budget`: load noise under `-n 4` ("within the
-    noise: suspect a busy machine"); passes alone (`2 passed` with the capture budget); G6 touches no hot path.
+- `uv run pytest -q -n 4` (head c1092bc): 3592 passed, 5 skipped, 0 failed
+  (log `0.4.0-integration/.superpowers/sdd/0.4.0/logs/G6-pytest.log`).
 
 ## Needs from Coordinator
 
-- `tests/test_foundation_suite_equivalence.py` (outside G6's May-touch) pins the 0.3.0 no-app unknown: add
-  `"--sharpit-require-app"` to its `runpytest_subprocess(...)` call (keeps the assertion and the 0.3.0 contract,
-  as done for `tests/pytest_plugin/test_plugin_inert.py` in 6732d25b637ea30926e2e30dfde60c20b17449f4).
+- Spec §11 entry: proposed text in `docs.md` (spec is outside G6's May-touch); the user-facing text is there too (O3).
+- `lane_gate` red list: drop `test_explicit_app_ignores_autodetect_candidates` (deleted by ruling); three rows have
+  junit messages starting `assert ...` (pytest's short form for `assert result.ret == N`), still `<failure>`
+  AssertionErrors.
+- Fix round 1 touched `src/sharpit/engine/testsession/report.py` (shared `finding_fails`, as the ruling asked) and
+  `tests/test_foundation_suite_equivalence.py` (one flag, by ruling). G1G2 may also edit `report.py`.
 
-- Spec §11 deviation record (plan Task 2 Step 4): add "`advisors[].status` and `$defs.advisorApp.status` enums
-  gain `SKIPPED` (additive); no app found now skips rest-api instead of UNKNOWN unless
-  `--sharpit-require-app`". The spec file is outside G6's May-touch list.
-- lane_gate: three red rows (`test_spike_f3_clean_suite_reaches_green`, both require-app tests) have junit
-  messages starting `assert ...` rather than `AssertionError: ...` (pytest's short form for `assert result.ret == N`);
-  they are `<failure>` AssertionErrors. If the gate requires the literal prefix, accept these or match `assert`.
+## Open minors
+
+- Worker candidates travel in `workeroutput["sharpit_apps"]` plus a controller plugin registered from
+  `session.resolve_options`, and live on dynamic `state.autodetected` / `state.autodetect_snapshot` attributes;
+  moving them into `SessionFacts` (and a real `_State` field) is the altitude rework the review deferred.
+- Mounted-child exclusion follows one route level (wrappers unwrapped); a mount nested inside a mounted app is not
+  followed.
+- Dismissed test-runtime findings are neither counted in `gate counts:` nor called notes.
 
 ## How to resume
 
