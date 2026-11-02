@@ -4,7 +4,7 @@ Implementer: Codex (GPT-6)
 
 ## Status
 
-IN PROGRESS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.0-A-transactions`; merged coordinator-authorized `release/0.4.0` as `a5035ed953ff7f0525864122c7cd40dfa1c5f323`.
+DONE_WITH_CONCERNS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.0-A-transactions`; merged coordinator-authorized `release/0.4.0` as `a5035ed953ff7f0525864122c7cd40dfa1c5f323`.
 
 ## Done
 
@@ -68,17 +68,16 @@ Continue review round 1 fixes. Finalizer red/fix `b9bb0a3` / `85fbff9`; savepoin
 
 - Commit failure finalization is parked: SQLAlchemy's `commit` callback is pre-DBAPI, and F's `sqla.add_connection_listener` slot exposes no `handle_error` or post-commit event. Adding the needed event changes `engine/sqla.py`, which O1 explicitly forbids this lane from touching. Coordinator decision/interface extension is required.
 - Contract `bufferSize` now reports ring capacity; the older red `test_clear_keeps_total_captured` still asserts zero after clear. Its body is unchanged as required, so the lane-targeted suite has this known failing assertion.
+- G0a's captured transaction fixture is present, but the lane has no report-golden parity assertion; coordinator should verify parity before integration.
 - `CAPTURE_PANELS` no longer includes `transactions`; `tests/test_foundation_round2.py` now covers only request-capture panels, while the lane API test pins transaction-only installs to no middleware.
 - The overhead test removes its own attacher and ensures the class event callbacks are detached for the off side even when a different test left an attachment reference active in the worker.
 - The coordinator owns live verification and the lowest-direct/no-SQLAlchemy gate logs.
 
 ## Final gate results
 
-- `uv run ruff check`: PASS.
-- `uv run ruff format --check`: PASS (420 files).
-- `uv run pyright`: PASS (0 errors).
-- Detached `uv run pytest -q -n 4 --timeout=900`: 3,780 passed, 5 skipped, 5 failed, 1 error in 684.74s. Failures are coordinator-owned stale middleware/route/catalogue tests plus existing timing budgets that overshot within machine noise; the error is in `tests/test_surface_follows_flags.py`. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-pytest-final.log`.
-- Lane-targeted suite: 23 passed. Listener overhead: 11.185 µs, noise 17.993 µs, budget 30 µs. The temporary 100 µs delay control failed at 643.573 µs and was removed.
-- UI: Vitest 2/2 passed; `npm --prefix ui run check` exited 0.
-- Lowest-direct, no-SQLAlchemy, and live check not run. The live example is coordinator-owned.
+- `uv run ruff check`: PASS. `uv run ruff format --check`: PASS (468 files). `uv run pyright`: PASS (0 errors, 0 warnings).
+- Targeted lane run (`-n 4`): 38 passed, 1 failed. The sole failure is the historical `test_clear_keeps_total_captured` assertion expecting `bufferSize == 0` after clear; the contract requires configured ring capacity (200). Its red test body is unchanged per COMMON.
+- Shared safety matrix, safety lane sweep, surface flag tests (`-n 4`): 1,045 passed.
+- Full detached suite (`-n 4`): 4,186 passed, 9 skipped, 2 failed. The second failure is the listener budget at 33.252 µs over 30 µs with 13.273 µs noise (overshoot is inside noise). The isolated attached-vs-detached measurement passed at 11.820 µs overhead, 8.780 µs noise. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-full-pytest-final.log`; budget record: `A-transactions-round1-overhead-measure.jsonl` in the same logs directory.
+- Golden fixture exists after the merge, but the lane does not run its parity assertion. Lowest-direct, no-SQLAlchemy, and live checks remain coordinator-owned.
 

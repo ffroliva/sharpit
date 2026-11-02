@@ -2,7 +2,7 @@
 
 | # | Requirement | Evidence |
 |---|---|---|
-| 1 | Golden parity, nullable keys, field map | `tests/fixtures/bootui/2.2.0/transactions/captured.json`; `tests/fixtures/bootui/2.2.0/transactions/nullable.json`; `.superpowers/sdd/0.4.0/lanes/A-transactions/field-map.md` |
+| 1 | Golden parity, nullable keys, field map | `tests/fixtures/bootui/2.2.0/transactions/captured.json`; `tests/fixtures/bootui/2.2.0/transactions/nullable.json`; `.superpowers/sdd/0.4.0/lanes/A-transactions/field-map.md`; `N/A — no lane report-parity assertion; coordinator must verify the merged golden` |
 | 2 | BootUI port citations | `tests/engine/capture/test_transactions.py`; `tests/fastapi/test_transactions_api.py` |
 | 3 | Safety, panel flag, read-only, masking | `tests/safety/test_a_transactions_safety.py`; `tests/masking/test_a_transactions_masking.py`; `tests/fastapi/test_transactions_api.py` |
 | 4 | Gatekeeper / no SQLAlchemy import in listener | `src/sharpit/engine/capture/transactions.py`; `tests/engine/capture/test_transactions.py` |
