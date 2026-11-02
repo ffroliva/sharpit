@@ -1,6 +1,7 @@
 """The catalog SQL the ``postgresql`` panel runs, ported from BootUI ``engine/postgres/*Collector.java`` (2.2.0).
 
-List queries have no ``limit`` here: ``sections.read_list`` appends ``limit <max + 1>`` itself. No text may contain
+List queries have no trailing ``limit``: ``sections.read_list`` appends ``limit <max + 1>`` itself and fills a
+``{limit}`` placeholder (the sized queries limit an inner query). No text may contain
 ``%``: ``exec_driver_sql`` hands it to psycopg, which reads ``%`` as a placeholder (BootUI's
 ``state like 'idle in transaction%'`` is spelled as an ``in`` list for that reason).
 """
@@ -100,28 +101,40 @@ def statement_sql(relation: str | None, exec_naming: bool) -> str:
     )
 
 
-# PostgresIndexCollector.SQL
+# PostgresIndexCollector.SQL, the size read in an outer query: pg_relation_size locks the relation it sizes, so only
+# the LIMITed rows are sized; the inner order uses the catalog's page estimate (relpages), which takes no lock
 INDEXES_SQL = """
-select s.schemaname as schema_name, s.relname as table_name, s.indexrelname as index_name,
-       s.idx_scan as scans, s.idx_tup_read as tuples_read,
-       pg_relation_size(s.indexrelid) as size_bytes,
-       i.indisunique as is_unique, i.indisprimary as is_primary,
-       exists (select 1 from pg_constraint c where c.conindid = s.indexrelid) as constraint_backed
-from pg_stat_user_indexes s
-join pg_index i on i.indexrelid = s.indexrelid
-order by s.idx_scan asc nulls first, size_bytes desc
+select t.schema_name, t.table_name, t.index_name, t.scans, t.tuples_read,
+       pg_relation_size(t.indexrelid) as size_bytes,
+       t.is_unique, t.is_primary, t.constraint_backed
+from (select s.schemaname as schema_name, s.relname as table_name, s.indexrelname as index_name,
+             s.idx_scan as scans, s.idx_tup_read as tuples_read, s.indexrelid,
+             i.indisunique as is_unique, i.indisprimary as is_primary,
+             exists (select 1 from pg_constraint c where c.conindid = s.indexrelid) as constraint_backed
+      from pg_stat_user_indexes s
+      join pg_index i on i.indexrelid = s.indexrelid
+      join pg_class ic on ic.oid = s.indexrelid
+      order by s.idx_scan asc nulls first, ic.relpages desc
+      limit {limit}) t
+order by t.scans asc nulls first, size_bytes desc
 """
 
-# PostgresTableCollector.SQL
+# PostgresTableCollector.SQL, sized in an outer query over the LIMITed set (see INDEXES_SQL); the inner order is the
+# relpages estimate, so the "largest relations" are the largest by heap pages, re-sorted by their exact total size
 TABLES_SQL = """
-select schemaname as schema_name, relname as table_name,
-       pg_total_relation_size(relid) as total_size,
-       pg_table_size(relid) as table_size,
-       pg_indexes_size(relid) as index_size,
-       n_live_tup as live_tuples, n_dead_tup as dead_tuples,
-       seq_scan as sequential_scans, seq_tup_read as sequential_tuples,
-       idx_scan as index_scans
-from pg_stat_user_tables
+select t.schema_name, t.table_name,
+       pg_total_relation_size(t.relid) as total_size,
+       pg_table_size(t.relid) as table_size,
+       pg_indexes_size(t.relid) as index_size,
+       t.live_tuples, t.dead_tuples, t.sequential_scans, t.sequential_tuples, t.index_scans
+from (select s.relid, s.schemaname as schema_name, s.relname as table_name,
+             s.n_live_tup as live_tuples, s.n_dead_tup as dead_tuples,
+             s.seq_scan as sequential_scans, s.seq_tup_read as sequential_tuples,
+             s.idx_scan as index_scans
+      from pg_stat_user_tables s
+      join pg_class c on c.oid = s.relid
+      order by c.relpages desc
+      limit {limit}) t
 order by total_size desc
 """
 

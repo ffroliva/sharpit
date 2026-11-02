@@ -171,7 +171,7 @@ def read_list(ctx: ReadContext, label: str, sql: str, max_rows: int, mapper: Cal
     reason: str | None = None
     try:
         with ctx.conn.begin_nested():
-            for read, row in enumerate(ctx.conn.exec_driver_sql(f"{sql.rstrip()}\nlimit {max_rows + 1}").mappings()):
+            for read, row in enumerate(ctx.conn.exec_driver_sql(_limited(sql, max_rows + 1)).mappings()):
                 if read >= max_rows:
                     truncated = True
                     break
@@ -184,6 +184,10 @@ def read_list(ctx: ReadContext, label: str, sql: str, max_rows: int, mapper: Cal
     except Exception as exc:  # noqa: BLE001 - every driver error becomes the section's reason
         return Rows.failed(_describe(ctx, label, exc))
     return Rows.of(rows, truncated) if reason is None else Rows.partial(rows, reason)
+
+
+def _limited(sql: str, limit: int) -> str:
+    return f"{sql.replace('{limit}', str(limit)).rstrip()}\nlimit {limit}"
 
 
 def read_one(ctx: ReadContext, label: str, sql: str, mapper: Callable[[Row], Any]) -> Rows:
