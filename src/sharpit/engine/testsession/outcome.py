@@ -8,13 +8,19 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.advisors.rules import severity_rank
 from sharpit.engine.testsession.facts import SessionFacts, TestFacts
 
 type Status = Literal["pass", "fail", "unknown"]
+
+
+class SessionStatus(NamedTuple):
+    status: Status
+    fail_reasons: list[str]
+    unknown_reasons: list[str]
 
 SQL_SOURCES = ("sqlalchemy", "sqlite3")
 APP_ADVISORS = ("rest-api",)  # advisors that read an application: with no app seen they are UNKNOWN
@@ -123,7 +129,7 @@ def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> Advis
         findings.setdefault(finding.fingerprint, finding)
     status = _worst(r.status for r in runs)
     chosen = next((r for r in runs if r.status == status), runs[0])
-    reason = chosen.reason if status in ("UNKNOWN", "SKIPPED") else None
+    reason = chosen.reason
     return AdvisorRun(advisor, status, tuple(findings.values()), chosen.evidence, reason, app)
 
 
@@ -206,7 +212,7 @@ def _advisor_summary(advisor: str, runs: list[AdvisorRun], *, advisors_enabled: 
         reason = NO_APPLICATION if advisors_enabled else ADVISORS_DISABLED
         return {"advisor": advisor, "status": "UNKNOWN", "reason": reason, "apps": [], "findings": []}
     status = _worst(r.status for r in runs)
-    reason = next((r.reason for r in runs if r.status == status), None) if status in ("UNKNOWN", "SKIPPED") else None
+    reason = next((r.reason for r in runs if r.status == status and r.reason is not None), None)
     found: dict[str, dict[str, Any]] = {}
     for finding in (f for run in runs for f in run.findings):
         found.setdefault(finding.fingerprint, finding.to_dto())
@@ -236,7 +242,9 @@ def _plural(count: int, noun: str) -> str:
 
 
 def _failing_tests(merged: MergedFacts) -> int:
-    return sum(1 for t in deciding(merged.tests) if any(not f["dismissed"] for f in t.findings))
+    from sharpit.engine.testsession.gates import fails
+
+    return sum(1 for t in deciding(merged.tests) if any(fails(f) for f in t.findings))
 
 
 def _fail_reasons(merged: MergedFacts, summaries: list[dict[str, Any]], fail_on: str) -> list[str]:
@@ -246,7 +254,9 @@ def _fail_reasons(merged: MergedFacts, summaries: list[dict[str, Any]], fail_on:
     gate = severity_rank(fail_on)
     for summary in summaries:
         if summary["status"] == "FAILED":
-            count = sum(1 for f in summary["findings"] if not f["dismissed"] and severity_rank(f["severity"]) <= gate)
+            from sharpit.engine.testsession.gates import fails
+
+            count = sum(1 for f in summary["findings"] if fails(f) and severity_rank(f["severity"]) <= gate)
             reasons.append(f"advisor '{summary['advisor']}' found {_plural(count, 'finding')} at or above {fail_on}")
     return reasons
 
@@ -282,7 +292,7 @@ def _unknown_reasons(
         reasons += [
             f"advisor '{s['advisor']}' could not assess: {s['reason'] or FALLBACK_REASON}"
             for s in summaries
-            if s["status"] == "UNKNOWN"
+            if s["status"] == "UNKNOWN" or s["reason"] is not None
         ]
     reasons += [f"worker {w['id']} reported no sharpit facts" for w in merged.workers if w["status"] == "missing"]
     return reasons
@@ -295,17 +305,21 @@ def session_status(
     max_unattributed: float,
     advisors_enabled: bool,
     fail_on: str,
-) -> tuple[Status, list[str]]:
+) -> SessionStatus:
     """Spec §6.6: ``fail`` lists every fail reason, else ``unknown`` lists every unknown reason, else ``pass``."""
     del allow_unknown  # the status never depends on it; ``exit_fails`` does
     summaries = advisor_summaries(merged, advisors_enabled=advisors_enabled)
-    if failed := _fail_reasons(merged, summaries, fail_on):
-        return "fail", failed
-    if unknown := _unknown_reasons(merged, summaries, max_unattributed, advisors_enabled):
-        return "unknown", unknown
-    return "pass", []
+    unknown = _unknown_reasons(merged, summaries, max_unattributed, advisors_enabled)
+    failed = _fail_reasons(merged, summaries, fail_on)
+    if failed:
+        return SessionStatus("fail", failed, unknown)
+    if unknown:
+        return SessionStatus("unknown", [], unknown)
+    return SessionStatus("pass", [], [])
 
 
-def exit_fails(status: str, allow_unknown: bool) -> bool:
+def exit_fails(status: str, allow_unknown: bool, *, report_only: bool = False, unknown_reasons: Sequence[str] = ()) -> bool:
     """Whether the session exit status turns non-zero (pytest's own non-zero codes are never lowered)."""
+    if report_only:
+        return False
     return status == "fail" or (status == "unknown" and not allow_unknown)
