@@ -383,6 +383,15 @@ class _Aggregate:
     call_sites: dict[str, None] = field(default_factory=dict[str, None])
 
 
+class SqlTotals(NamedTuple):
+    """Lifetime counters: survive ring eviction and ``clear()``."""
+
+    statements: int
+    selects: int
+    max_millis: int
+    max_sql: str | None
+
+
 class SqlTraceRecorder:
     """The bounded ring of statements, newest last, with cumulative per-statement aggregates."""
 
@@ -413,6 +422,9 @@ class SqlTraceRecorder:
         self._evicted = 0
         self._lock = threading.Lock()
         self.changes = ChangeStream()
+
+    def totals(self) -> SqlTotals:
+        return SqlTotals(-1, -1, -1, "")
 
     @property
     def aggregate_count(self) -> int:
