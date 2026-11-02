@@ -27,6 +27,11 @@ def _mask_literal(m: re.Match[str]) -> str:
     return f"$${MASK}$$" if m.group("dollar") else f"'{MASK}'"
 
 
+def is_metadata_only(masker: Masker) -> bool:
+    """``METADATA_ONLY``: no value of any kind is shown (``mask_text`` returns ``None`` only then)."""
+    return masker.mask_text("") is None
+
+
 def truncate(value: str | None, max_length: int = MAX_QUERY_TEXT_LENGTH) -> str | None:
     if value is None or not value.strip():
         return None
@@ -39,9 +44,9 @@ def truncate(value: str | None, max_length: int = MAX_QUERY_TEXT_LENGTH) -> str 
 def query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUERY_TEXT_LENGTH) -> str | None:
     if sql is None or not sql.strip():
         return None
-    masked = masker.mask_text(sql)
-    if masked is None:  # METADATA_ONLY: the text exists but is withheld
+    if is_metadata_only(masker):  # the text exists but is withheld
         return MASK
+    masked = masker.mask_text(sql) or MASK
     # literals are values: masked exactly when the masker masks a secret value (not under FULL or mask-secrets off)
     if masker.mask("password", "x")[1]:
         masked = masker.mask_text(_LITERAL.sub(_mask_literal, sql)) or MASK
