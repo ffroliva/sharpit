@@ -23,7 +23,7 @@ Both current reds were checked with `uv run python scripts/dev/red_check.py <nod
 | Finding message includes first application location | `tests/engine/testsession/test_gates.py::test_unbounded_read_exact_threshold_boundary_flags` | `c8b26a66208ca486f01c5f7ad0f94ed198686689` | `app.py:12` absent from message |
 | Relationship loaders do not emit child-row findings | `tests/engine/test_sqla.py::test_relationship_loads_do_not_create_unbounded_findings` | `59cf19c9927cfb9eb17917cfb004785ce8a1d115` | child `Member` facts were present (all three loader cases) |
 
-All review red commits passed `red_check.py` for their listed tests and were replayed in detached worktrees with `PYTHONPATH=<red-tree>/src`; replays used `uv run --extra test` so SQLAlchemy and pytester dependencies were present. Fix commit SHA is recorded in the current branch history.
+All review red commits passed `red_check.py` for their listed tests and were replayed in detached worktrees with `PYTHONPATH=<red-tree>/src`; replays used `uv run --extra test` so SQLAlchemy and pytester dependencies were present. Review fixes landed in `65cc610`; the overhead-budget follow-up landed in `a2c9cc3`.
 
 ## Historical SHA
 
