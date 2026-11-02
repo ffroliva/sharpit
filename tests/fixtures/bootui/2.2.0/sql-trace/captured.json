@@ -1,0 +1,77 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "capturing": true,
+  "captureParameters": false,
+  "bufferSize": 200,
+  "totalCaptured": 78,
+  "slowQueryThresholdMillis": 100,
+  "dataSources": [
+    "dataSource"
+  ],
+  "stats": {
+    "totalQueries": 78,
+    "totalDurationMillis": 325.088,
+    "maxDurationMillis": 23.182,
+    "avgDurationMillis": 4.167794871794872,
+    "slowQueries": 0,
+    "failedQueries": 0,
+    "batchExecutions": 0,
+    "selectCount": 46,
+    "insertCount": 15,
+    "updateCount": 7,
+    "deleteCount": 4,
+    "otherCount": 6,
+    "evicted": 0
+  },
+  "entries": [
+    {
+      "id": 78,
+      "timestamp": 1793578858005,
+      "sql": "select (count(*))::int as slots,\n       (count(*) filter (where not active))::int as inactive_slots\nfrom pg_replication_slots",
+      "statementType": "PREPARED",
+      "category": "SELECT",
+      "durationMicros": 3314,
+      "durationMillis": 3,
+      "success": true,
+      "errorMessage": null,
+      "affectedRows": 1,
+      "batchSize": 0,
+      "connectionId": "conn-25",
+      "thread": "http-nio-8080-exec-1",
+      "slow": false,
+      "parameters": [],
+      "traceId": "c80ca2c830d8bd70eff3d99d08826d07",
+      "callSite": "com.ffroliva.tinyledger.balance.adapter.out.postgres.PostgresBalanceProjection.balance(PostgresBalanceProjection.java:190)",
+      "requestId": "b16d0ba733ad326a",
+      "executionId": "764919fcbc0483ee",
+      "threadKind": "WORKER",
+      "requestPhase": "HANDLER"
+    }
+  ],
+  "topStatements": [
+    {
+      "sql": "DELETE FROM EVENT_PUBLICATION WHERE ID = ?",
+      "category": "DELETE",
+      "executions": 4,
+      "totalDurationMillis": 9.27,
+      "maxDurationMillis": 2.644,
+      "potentialNPlusOne": false,
+      "callSites": [
+        "com.ffroliva.tinyledger.ledger.adapter.out.spring.SpringEventPublisher.publish(SpringEventPublisher.java:17)",
+        "com.ffroliva.tinyledger.audit.adapter.out.postgres.PostgresAuditTrail.recordEntry(PostgresAuditTrail.java:28)",
+        "com.ffroliva.tinyledger.ledger.adapter.out.postgres.PostgresEventStore.append(PostgresEventStore.java:84)"
+      ]
+    }
+  ],
+  "warnings": [],
+  "retention": {
+    "applicationManaged": false,
+    "capacity": 200,
+    "reservedCapacity": 50,
+    "retained": 78,
+    "reserved": 0,
+    "evicted": 0,
+    "slowThresholdMillis": 100
+  }
+}

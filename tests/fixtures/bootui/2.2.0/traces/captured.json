@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "retained": 20,
+  "capacity": 500,
+  "traces": [
+    {
+      "traceId": "2ebe213f5ee32d51495b4077f5f4dc74",
+      "rootSpanName": "security filterchain before",
+      "httpPath": "/api/v1/accounts/{accountUid}/balance",
+      "services": [
+        "tiny-ledger",
+        "tiny-ledger",
+        "tiny-ledger"
+      ],
+      "startEpochNanos": 1793578868748204800,
+      "endEpochNanos": 1793578868772861700,
+      "durationNanos": 24656900,
+      "spanCount": 2,
+      "hasError": false,
+      "hasAi": false
+    }
+  ]
+}

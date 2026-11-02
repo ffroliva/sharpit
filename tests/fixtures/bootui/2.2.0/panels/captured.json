@@ -1,0 +1,14 @@
+{
+  "platform": "spring-boot",
+  "panels": [
+    {
+      "id": "overview",
+      "title": "Scorecard",
+      "available": true,
+      "unavailableReason": "No MySQL JDBC datasource is configured. MariaDB requires a separate integration.",
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    }
+  ]
+}

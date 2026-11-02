@@ -1,0 +1,79 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "generatedAt": 1793578872437,
+  "application": {
+    "id": "app",
+    "kind": "APPLICATION",
+    "protocol": "APPLICATION",
+    "label": "This application",
+    "detail": null,
+    "configured": true,
+    "observed": true,
+    "interactions": 0,
+    "failures": 0,
+    "distinctOperations": null,
+    "lastSeen": null,
+    "outcome": "OBSERVED_OK",
+    "sourcePanelId": null,
+    "sourceRoute": null,
+    "sourceLabel": null,
+    "note": null
+  },
+  "nodes": [
+    {
+      "id": "inbound:http",
+      "kind": "INBOUND",
+      "protocol": "HTTP_INBOUND",
+      "label": "Local HTTP clients",
+      "detail": "Completed incoming requests",
+      "configured": false,
+      "observed": true,
+      "interactions": 7,
+      "failures": 0,
+      "distinctOperations": 3,
+      "lastSeen": 1793578857037,
+      "outcome": "OBSERVED_OK",
+      "sourcePanelId": "http-exchanges",
+      "sourceRoute": "/http-exchanges",
+      "sourceLabel": "HTTP Exchanges",
+      "note": "Incoming traffic BootUI already recorded. Callers are not identified."
+    }
+  ],
+  "edges": [
+    {
+      "id": "inbound:http->app",
+      "fromId": "inbound:http",
+      "toId": "app",
+      "protocol": "HTTP_INBOUND",
+      "direction": "INBOUND",
+      "interactions": 7,
+      "failures": 0,
+      "lastSeen": 1793578857037,
+      "outcome": "OBSERVED_OK",
+      "recentInteractions": [
+        {
+          "id": "inbound:b16d0ba733ad326a",
+          "timestamp": 1793578857037,
+          "operation": "GET",
+          "outcome": "OK",
+          "durationMs": 48,
+          "flowId": "5a9068461fe3ac10"
+        }
+      ]
+    }
+  ],
+  "truncation": {
+    "truncated": false,
+    "dependencyLimit": 28,
+    "dependenciesShown": 2,
+    "dependenciesOmitted": 0,
+    "interactionLimit": 6
+  },
+  "sources": [
+    "HTTP Exchanges",
+    "Connection Pools",
+    "SQL Trace"
+  ],
+  "warnings": []
+}

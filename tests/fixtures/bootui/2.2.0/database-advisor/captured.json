@@ -1,0 +1,51 @@
+{
+  "localOnly": true,
+  "disclaimer": "Read-only JDBC schema introspection (tables, columns, primary/foreign keys, indexes) via DatabaseMetaData, with PostgreSQL, MySQL/MariaDB, and Oracle catalog augmentation, plus cross-reference checks against the Hibernate metamodel when both are available. These checks are review prompts, not verdicts.",
+  "dataSourceNames": [],
+  "dataSources": [],
+  "tablesAnalyzed": 0,
+  "rulesEvaluated": 0,
+  "violationsFound": 0,
+  "rulesSkipped": 0,
+  "rulesErrored": 0,
+  "truncated": false,
+  "severityCounts": [
+    {
+      "severity": "CRITICAL",
+      "count": 0
+    }
+  ],
+  "scan": {
+    "analyzer": "BootUI Database Advisor",
+    "status": "NOT_SCANNED",
+    "message": "Database Advisor has not run yet. Run Database checks in the panel, or call database_advisor_scan (bootui db scan), to inspect the physical schema.",
+    "scannedAt": 0,
+    "rulesEvaluated": 0,
+    "tablesAnalyzed": 0,
+    "violationsFound": 0
+  },
+  "results": [],
+  "diagnostics": [],
+  "evidence": {
+    "usable": false,
+    "coverageComplete": false,
+    "limitations": [
+      "Assessment evidence is unavailable."
+    ]
+  },
+  "violationDetails": {
+    "scanId": null,
+    "total": 0,
+    "retained": 0,
+    "retentionLimit": 0,
+    "truncated": false,
+    "locationNotes": [],
+    "changes": null
+  },
+  "suppression": {
+    "suppressedFindings": 0,
+    "incompleteRules": [],
+    "findings": [],
+    "omitted": 0
+  }
+}

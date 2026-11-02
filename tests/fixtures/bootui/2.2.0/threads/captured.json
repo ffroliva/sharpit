@@ -1,0 +1,52 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "capturedAt": 1793578872990,
+  "totalThreads": 71,
+  "daemonThreads": 57,
+  "peakThreads": 71,
+  "startedThreadCount": 78,
+  "virtualThreadsSupported": true,
+  "cpuTimeSupported": true,
+  "deadlockDetected": false,
+  "deadlockedThreadIds": [],
+  "stateCounts": [
+    {
+      "state": "RUNNABLE",
+      "count": 21
+    }
+  ],
+  "threads": [
+    {
+      "id": 15,
+      "name": "Reference Handler",
+      "state": "RUNNABLE",
+      "priority": 10,
+      "daemon": true,
+      "virtual": false,
+      "cpuTimeMillis": 15,
+      "userTimeMillis": 15,
+      "blockedCount": 0,
+      "waitedCount": 0,
+      "inNative": false,
+      "suspended": false,
+      "deadlocked": false,
+      "lockName": "java.lang.ref.ReferenceQueue$Lock@58ddbfa3",
+      "lockOwnerId": 101,
+      "lockOwnerName": "org.springframework.kafka.KafkaListenerEndpointContainer#0-0-C-1",
+      "stackTrace": [
+        "java.base@25.0.3/java.lang.ref.Reference.waitForReferencePendingList(Native Method)",
+        "java.base@25.0.3/java.lang.ref.Reference.processPendingReferences(Reference.java:246)",
+        "java.base@25.0.3/java.lang.ref.Reference$ReferenceHandler.run(Reference.java:208)"
+      ]
+    }
+  ],
+  "page": {
+    "total": 71,
+    "matched": 71,
+    "offset": 0,
+    "limit": 71,
+    "returned": 71,
+    "hasMore": false
+  }
+}

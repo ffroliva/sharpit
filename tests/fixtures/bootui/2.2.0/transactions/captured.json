@@ -1,0 +1,44 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "capturing": true,
+  "bufferSize": 200,
+  "totalCaptured": 17,
+  "slowTransactionThresholdMillis": 200,
+  "connectionHoldThresholdMillis": 500,
+  "stats": {
+    "totalTransactions": 17,
+    "totalDurationMillis": 788,
+    "maxDurationMillis": 284,
+    "avgDurationMillis": 46.35294117647059,
+    "slowTransactions": 1,
+    "connectionHeldTransactions": 0,
+    "committedCount": 17,
+    "rolledBackCount": 0,
+    "unknownCount": 0,
+    "nestedCount": 4,
+    "evicted": 0
+  },
+  "entries": [
+    {
+      "id": 17,
+      "methodName": "org.springframework.modulith.events.core.DefaultEventPublicationRegistry.markCompleted",
+      "propagation": "NEW",
+      "isolation": "UNKNOWN",
+      "status": "COMMITTED",
+      "startTimestamp": 1793578857022,
+      "endTimestamp": 1793578857028,
+      "durationMillis": 6,
+      "parentId": 14,
+      "thread": "kafka-producer-network-thread | tiny-ledger-producer-1",
+      "traceId": "c6ea6cb8c4f4124614295b9c5c179113",
+      "sqlStatementCount": 1,
+      "connectionCount": 1,
+      "readOnly": false,
+      "slow": false,
+      "connectionHeld": false,
+      "errorMessage": null
+    }
+  ],
+  "warnings": []
+}

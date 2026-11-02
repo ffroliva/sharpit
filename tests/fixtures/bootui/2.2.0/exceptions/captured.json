@@ -1,0 +1,30 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "maxGroups": 100,
+  "totalExceptions": 2,
+  "groups": [
+    {
+      "id": "95e08db9c7e9a396",
+      "exceptionClassName": "org.springframework.web.ErrorResponseException",
+      "message": "404 NOT_FOUND, ProblemDetail[type='/errors/account-not-found', title='Account not found', status=404, detail='null', instance='null', properties='null']",
+      "count": 1,
+      "firstSeen": 1793578857075,
+      "lastSeen": 1793578857075,
+      "location": "com.ffroliva.tinyledger.balance.adapter.in.web.BalanceController.accountNotFound(BalanceController.java:200)",
+      "applicationException": true,
+      "lastThread": "http-nio-8080-exec-8",
+      "lastRequestMethod": "GET",
+      "lastRequestPath": "/api/v1/accounts/9e4944cd-2d6e-4699-9846-1a359b237121/balance",
+      "lastHandler": "BalanceController#getBalance",
+      "lastSource": "web",
+      "lastTraceId": null,
+      "status": "OPEN",
+      "regressionCount": 0,
+      "errorContract": null,
+      "lastRequestId": "b16d0ba733ad326a",
+      "lastExecutionId": null
+    }
+  ],
+  "caughtInCode": null
+}

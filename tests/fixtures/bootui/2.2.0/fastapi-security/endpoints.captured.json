@@ -1,0 +1,19 @@
+{
+  "springSecurityPresent": true,
+  "handlerMappingAvailable": true,
+  "total": 11,
+  "endpoints": [
+    {
+      "method": "GET",
+      "pattern": "/api/v1/accounts",
+      "handler": "BalanceController#listAccounts",
+      "secured": true,
+      "rule": "unknown",
+      "roles": [],
+      "chainIndex": 1,
+      "matcherDescription": "EndpointRequestMatcher includes=[*], excludes=[], includeLinks=true",
+      "description": "Chain matcher threw IllegalArgumentException",
+      "bestEffort": true
+    }
+  ]
+}

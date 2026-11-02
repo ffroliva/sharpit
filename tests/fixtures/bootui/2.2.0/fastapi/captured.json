@@ -1,0 +1,41 @@
+{
+  "localOnly": true,
+  "disclaimer": "Bounded Spring metadata and configuration checks are review prompts, not runtime or deployment verdicts. Unknown observations are unevaluated; validate advice against the application's requirements.",
+  "inspected": [],
+  "componentsAnalyzed": 0,
+  "rulesEvaluated": 0,
+  "violationsFound": 0,
+  "severityCounts": [
+    {
+      "severity": "CRITICAL",
+      "count": 0
+    }
+  ],
+  "scan": {
+    "analyzer": "BootUI Spring Advisor",
+    "status": "NOT_SCANNED",
+    "message": "Spring Advisor has not run yet. Run Spring checks in the panel, or call spring_scan (bootui spring scan), to inspect the application context.",
+    "scannedAt": 0,
+    "rulesEvaluated": 0,
+    "componentsAnalyzed": 0,
+    "violationsFound": 0
+  },
+  "results": [],
+  "analysisErrors": [],
+  "evidence": {
+    "usable": false,
+    "coverageComplete": false,
+    "limitations": [
+      "Assessment evidence is unavailable."
+    ]
+  },
+  "violationDetails": {
+    "scanId": null,
+    "total": 0,
+    "retained": 0,
+    "retentionLimit": 0,
+    "truncated": false,
+    "locationNotes": [],
+    "changes": null
+  }
+}

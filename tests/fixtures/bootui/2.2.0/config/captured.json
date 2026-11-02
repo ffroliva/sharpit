@@ -1,0 +1,39 @@
+{
+  "activeProfiles": [
+    "full"
+  ],
+  "sources": [
+    "server.ports",
+    "bootUiNormalizedPaths",
+    "configurationProperties"
+  ],
+  "properties": [
+    {
+      "name": "AHREFS_MCP_TOKEN",
+      "value": "******",
+      "source": "systemEnvironment",
+      "origin": null,
+      "masked": true,
+      "override": false,
+      "description": "Internal API base path. Defaults to {@code bootui.path + \"/api\"}. Override only when the API must be served at a different sub-path from the UI (rare).",
+      "defaultValue": "auto"
+    }
+  ],
+  "propertySuggestions": [
+    {
+      "name": "bootui.activity.feed-source",
+      "type": "java.lang.String",
+      "description": "Where the activity stream comes from: {@code journal}, rendering the runtime journal's retained events with every child nested by request or execution id. {@code buffers}, 1.x's feed, was removed in 2.0.0 and fails the start; with the journal disabled, the panel buffers serve the feed on their own. A request may override it with {@code ?source=}.",
+      "defaultValue": "journal"
+    }
+  ],
+  "page": {
+    "total": 227,
+    "matched": 227,
+    "offset": 0,
+    "limit": 227,
+    "returned": 227,
+    "hasMore": false
+  },
+  "overrideCount": 0
+}

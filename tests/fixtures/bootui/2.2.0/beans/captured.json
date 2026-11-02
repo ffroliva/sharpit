@@ -1,0 +1,28 @@
+{
+  "total": 539,
+  "beans": [
+    {
+      "name": "applicationAvailability",
+      "type": "org.springframework.boot.availability.ApplicationAvailabilityBean",
+      "scope": "singleton",
+      "resource": "class path resource [org/springframework/boot/autoconfigure/availability/ApplicationAvailabilityAutoConfiguration.class]",
+      "dependencies": [
+        "org.springframework.boot.autoconfigure.availability.ApplicationAvailabilityAutoConfiguration",
+        "fullAdapterConfig",
+        "auditTrail"
+      ],
+      "aliases": [
+        "bootstrapExecutor"
+      ],
+      "classification": "FRAMEWORK"
+    }
+  ],
+  "page": {
+    "total": 539,
+    "matched": 539,
+    "offset": 0,
+    "limit": 539,
+    "returned": 539,
+    "hasMore": false
+  }
+}

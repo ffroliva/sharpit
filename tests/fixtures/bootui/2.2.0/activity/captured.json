@@ -1,0 +1,66 @@
+{
+  "available": true,
+  "entries": [
+    {
+      "id": "d292c3e4-176",
+      "type": "MARKER",
+      "timestamp": 1793578867841,
+      "severity": "OK",
+      "summary": "BootUI action",
+      "detail": "http-probe: POST /http-probe",
+      "durationMs": 1,
+      "correlationId": "c9bdc3cbe2a6ed25ef75355d78db82b4",
+      "method": "GET",
+      "path": "/path",
+      "status": 404,
+      "thread": "http-nio-8080-exec-8",
+      "profileable": false,
+      "parentId": "b16d0ba733ad326a",
+      "securedPrincipal": "00000000-0000-4000-8000-000000000001",
+      "sqlNPlusOneSuspected": false,
+      "badges": [],
+      "exceptionGroupId": "95e08db9c7e9a396"
+    }
+  ],
+  "typeCounts": {
+    "SQL": 61,
+    "TRANSACTION": 17,
+    "EXCEPTION": 2,
+    "SECURITY": 7,
+    "MESSAGING": 8,
+    "REQUEST": 7,
+    "MARKER": 4
+  },
+  "kpis": {
+    "requestsPerMinute": 181.43,
+    "errorRatePercent": 28.57,
+    "p50LatencyMs": 114,
+    "p95LatencyMs": 1499,
+    "slowestEndpoint": "/api/v1/accounts",
+    "slowestEndpointMs": 1499,
+    "activeExceptionCount": 2,
+    "sqlPerMinute": 44.88,
+    "slowestQueryMs": 10,
+    "healthStatus": "UP",
+    "heapUsedBytes": 179113920,
+    "heapMaxBytes": 8447328256,
+    "cacheHitRatioPercent": null,
+    "scheduledTaskFailureCount": 0,
+    "restCallErrorRatePercent": null,
+    "restCallP95LatencyMs": null,
+    "latencySampleCount": 7,
+    "slowestEndpointRoute": "/api/v1/accounts",
+    "slowestEndpointRouteId": "POST /api/v1/accounts",
+    "slowestEndpointRouteSource": "FRAMEWORK_TEMPLATE"
+  },
+  "sources": [
+    "Runtime journal"
+  ],
+  "warnings": [],
+  "pageInfo": null,
+  "persistenceOption": {
+    "active": false,
+    "dataSourceAvailable": true,
+    "tableName": "bootui_activity"
+  }
+}

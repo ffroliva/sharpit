@@ -1,0 +1,33 @@
+{
+  "name": "application",
+  "status": "UP",
+  "details": null,
+  "components": [
+    {
+      "name": "db",
+      "status": "UP",
+      "details": {
+        "database": "PostgreSQL",
+        "validationQuery": "isValid()",
+        "total": 988310138880,
+        "free": 26894229504,
+        "threshold": 10485760,
+        "path": "/path",
+        "exists": true,
+        "version": "7.4.12",
+        "expiringChains": [],
+        "invalidChains": [],
+        "validChains": []
+      },
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    }
+  ],
+  "available": true,
+  "unavailableReason": null,
+  "guidanceReason": null,
+  "setup": []
+}

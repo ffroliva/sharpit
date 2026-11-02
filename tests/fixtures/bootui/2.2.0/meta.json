@@ -1,0 +1,11 @@
+{
+  "bootuiVersion": "2.2.0",
+  "app": "tiny-ledger",
+  "profile": "full",
+  "captured": "2026-11-02",
+  "uncaptured": {
+    "alembic": "BootUI GET /flyway answers 404 (no Flyway on tiny-ledger, which runs Liquibase); no live Flyway golden exists",
+    "sqlalchemy-statistics": "BootUI GET /hibernate-statistics answers 404 (no Hibernate statistics bean on tiny-ledger)"
+  },
+  "provisional": []
+}

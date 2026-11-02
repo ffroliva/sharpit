@@ -1,0 +1,22 @@
+{
+  "availableLevels": [
+    "OFF",
+    "ERROR",
+    "WARN"
+  ],
+  "loggers": [
+    {
+      "name": "ROOT",
+      "configuredLevel": "INFO",
+      "effectiveLevel": "INFO"
+    }
+  ],
+  "page": {
+    "total": 1077,
+    "matched": 1077,
+    "offset": 0,
+    "limit": 1077,
+    "returned": 1077,
+    "hasMore": false
+  }
+}
