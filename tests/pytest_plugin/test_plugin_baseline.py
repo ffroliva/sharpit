@@ -170,3 +170,18 @@ def test_single_process_keyword_addopts_keeps_fixed_null(pytester: pytest.Pytest
     data = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
     assert data["baseline"]["fixed"] is None
     assert data["baseline"]["fixedReason"] == "partial run"
+
+
+def test_write_baseline_requires_path(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("def test_a(): pass")
+    result = pytester.runpytest_subprocess(*_SINGLE, "--sharpit-write-baseline")
+    assert result.ret == 4
+    assert list(pytester.path.glob("*baseline*.json")) == []
+
+
+def test_write_baseline_ini_option_writes_nothing(pytester: pytest.Pytester) -> None:
+    # spec: the flag is the only way to write a baseline
+    pytester.makepyfile("def test_a(): pass")
+    pytester.makeini("[pytest]\nsharpit_write_baseline = b.json")
+    pytester.runpytest_subprocess(*_SINGLE)
+    assert not (pytester.path / "b.json").exists()
