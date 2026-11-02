@@ -33,6 +33,10 @@ class SharpitContext:
     health_checks: Mapping[str, Callable[[], object]] = field(default_factory=dict[str, Callable[[], object]])
     models: tuple[object, ...] = ()  # install(models=...): never inspected here; A-data reads it
     context_id: str = field(default_factory=lambda: secrets.token_hex(8))
+    instance_id: str = ""
+    run_id: str = ""
+    run_ordinal: int = 0
+    started_at_ms: int = 0
     capture: CaptureState = field(default_factory=CaptureState)
     masker: Masker = field(init=False)
     _cache: dict[str, Any] = field(default_factory=dict[str, Any], init=False, repr=False)

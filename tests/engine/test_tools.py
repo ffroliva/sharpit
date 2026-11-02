@@ -25,6 +25,7 @@ from conftest import SideEffectGuard
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.exceptions import ExceptionStore
+from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.restapi.service import RestApiService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
@@ -518,3 +519,25 @@ def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, 
 def test_settings_default_mcp_off():
     # new: brief ruling (MCP is OFF by default)
     assert SharpitSettings().mcp_enabled == "OFF"
+
+
+# ported: McpAgentViewsTests.configDropsOnlyThePropertySuggestions (BootUI 2.2.0 McpAgentViews.config)
+def test_mcp_config_drops_only_the_property_suggestions():
+    from pydantic import Field
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+
+    class App(BaseSettings):
+        model_config = SettingsConfigDict(env_prefix="D1_APP_")
+        api_url: str | None = Field(None, description="Upstream API")  # unset: a suggestion, not a property
+
+    settings = load_settings({"config_scan": False}, {})
+    ctx = SharpitContext(settings, ACTIVATION, FakeIntrospector(), app_settings=(App(),))
+    http = config_report(ctx, None, None, False, None, None)
+    assert http["propertySuggestions"]  # the browser's search box still completes from them
+    view = call_tool(_call(ctx), "get_config", {}, via="mcp")
+    assert view["propertySuggestions"] == []
+    assert view["activeProfiles"] == http["activeProfiles"]
+    assert view["sources"] == http["sources"]
+    assert view["page"]["total"] == http["page"]["total"]
+    cli = call_tool(_call(ctx), "get_config", {}, via="cli")
+    assert cli["propertySuggestions"] == []  # BootUI's CLI shares the MCP dispatcher and tool handlers
