@@ -1,13 +1,70 @@
 name: sharpit
-description: stub
+description: Run pytest with sharpit (SQL and exception advisors) and publish a findings summary to the job summary.
 inputs:
+  pytest-args:
+    description: Extra pytest arguments, split with Python shlex (quote values with spaces).
+    default: ""
+  report-only:
+    description: Report findings without failing the build ("true" or "false").
+    default: "true"
+  baseline:
+    description: Path of a sharpit-baseline/1 file; existing findings never fail the build.
+    default: ""
+  fail-on:
+    description: Lowest advisor severity that fails the build (CRITICAL, HIGH, MEDIUM, LOW, INFO).
+    default: ""
+  report-path:
+    description: Where the sharpit-report/1 JSON is written.
+    default: "sharpit-report.json"
+  install:
+    description: '"pip" installs the pinned sharpit; "none" when the project already depends on it.'
+    default: "pip"
   runner:
-    description: stub
-    default: pytest
+    description: Command that starts pytest, split with Python shlex (for example "uv run pytest").
+    default: "python -m pytest"
 runs:
   using: composite
   steps:
-    - name: Run pytest
+    - name: Install sharpit
       shell: bash
+      env:
+        INSTALL: ${{ inputs.install }}
       run: |
-        ${{ inputs.runner }} $PYTEST_ARGS
+        if [ "$INSTALL" = "pip" ]; then
+          python -m pip install "sharpit==0.4.0"
+        elif [ "$INSTALL" != "none" ]; then
+          echo "::error::install must be pip or none"
+          exit 1
+        fi
+    - name: Run pytest with sharpit
+      shell: bash
+      env:
+        RUNNER: ${{ inputs.runner }}
+        PYTEST_ARGS: ${{ inputs.pytest-args }}
+        REPORT_ONLY: ${{ inputs.report-only }}
+        BASELINE: ${{ inputs.baseline }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        REPORT_PATH: ${{ inputs.report-path }}
+      run: |
+        python - <<'PY'
+        import os, shlex, subprocess, sys
+        argv = shlex.split(os.environ["RUNNER"]) + shlex.split(os.environ["PYTEST_ARGS"])
+        argv += ["--sharpit", "--sharpit-report", os.environ["REPORT_PATH"]]
+        if os.environ["REPORT_ONLY"] == "true":
+            argv.append("--sharpit-report-only")
+        for flag, name in (("--sharpit-baseline", "BASELINE"), ("--sharpit-fail-on", "FAIL_ON")):
+            if os.environ[name]:
+                argv += [flag, os.environ[name]]
+        sys.exit(subprocess.call(argv))
+        PY
+    - name: Render job summary
+      if: always()
+      shell: bash
+      env:
+        REPORT_PATH: ${{ inputs.report-path }}
+      run: |
+        if [ -f "$REPORT_PATH" ]; then
+          python -m sharpit.report summary "$REPORT_PATH" >> "$GITHUB_STEP_SUMMARY" || echo "::warning::sharpit summary failed"
+        else
+          echo "::warning::sharpit wrote no report"
+        fi
