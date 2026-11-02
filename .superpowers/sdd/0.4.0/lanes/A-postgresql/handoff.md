@@ -1,6 +1,6 @@
 # Lane A-postgresql handoff
 
-Status: IN_PROGRESS — Tasks 1–6 complete (resumed by a Claude subagent after Antigravity hit its quota); next Task 7 (gates and evidence).
+Status: DONE_WITH_CONCERNS — Tasks 1–7 complete (resumed by a Claude subagent after Antigravity hit its quota). Concerns: flag-flip fallout in shared catalogue tests and the unverified leased-Postgres run (see Needs from coordinator).
 
 ## How to resume
 
@@ -23,7 +23,7 @@ Status: IN_PROGRESS — Tasks 1–6 complete (resumed by a Claude subagent after
 
 ## Next step
 
-- Task 7: four gates, checklist, final report.
+- Coordinator: leased-Postgres run, catalogue-test updates, UI static rebuild, G0a golden fixture.
 
 ## Decisions and deviations
 
@@ -41,6 +41,16 @@ Status: IN_PROGRESS — Tasks 1–6 complete (resumed by a Claude subagent after
 - Task 5: `engine/tools04/postgresql.py` is F's per-panel stub, filled here (F's table: "for its owning lane to fill"). `postgresql_read` is an action (CLI-only, refused read-only) and answers BootUI's `McpScanSummaries.postgresql` summary; `get_postgresql_report` is the MCP read. CLI paths from BootUI `CliCommandPaths`: `db postgres read`, `db postgres report`. A disabled panel answers the shared 403 (contract §5), so the test is `test_disabled_panel_is_403`.
 - Task 5: `test_golden_parity` skips until G0a's `captured.json` (or a coordinator-requested `provisional.json`) exists under `tests/fixtures/bootui/2.2.0/postgresql/`; this lane wrote only `nullable.json`.
 - `tests/engine/postgresql/__init__.py` added: without it `tests/engine/postgresql/test_service.py` collides with `tests/engine/vulns/test_service.py` ("import file mismatch" in rootdir import mode); node ids are unchanged.
+
+## Gates (lane head `90ef7be58c18128dcb8c0df7cddd57d7c37fdd8d` + evidence commit)
+
+- `uv run ruff check`: All checks passed. `uv run ruff format --check`: 423 files already formatted. `uv run pyright`: 0 errors.
+- `uv run pytest -q -n 4` (log `0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-postgresql-pytest.log`): 3648 passed, 11 skipped, 11 failed.
+  - 9 failures are the flag-flip catalogue pins listed under "Needs from coordinator".
+  - `tests/fastapi/test_capture_overhead.py::test_request_overhead_budget` also fails on the untouched base `d37c6f2` on this machine (0.253 / 0.270 / 0.237 ms vs 0.200 ms budget, three runs in a temporary worktree): not this lane.
+  - `tests/fastapi/test_sql_trace_overhead.py::test_statement_overhead_budget` fails only under `-n 4` load; passes in isolation three times out of three.
+- Vitest `npx vitest run` (ui): 32 files, 262 tests passed; `npm run check` (tsc) clean.
+- Leased Postgres: not run in the lane (no lease); leased tests skip without `SHARPIT_TEST_POSTGRES_URL`.
 
 ## Needs from coordinator
 
