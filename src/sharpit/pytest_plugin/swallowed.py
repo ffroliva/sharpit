@@ -6,6 +6,7 @@ once outside a test phase and for handlers outside application code; the raise l
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 from collections.abc import Callable
@@ -17,7 +18,7 @@ from typing import Any, cast
 from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, SwallowedFact
-from sharpit.engine.testsession.swallowed import is_programming_error, swallowing_clause_line
+from sharpit.engine.testsession.swallowed import PROGRAMMING_ERRORS, swallowing_clause_line
 
 TOOL_IDS = (3, 4)  # never 0 debugger, 1 coverage, 2 profiler, 5 optimizer
 SOURCE = "swallowed-exceptions"
@@ -40,6 +41,14 @@ def _location(filename: str, line: int) -> str:
     if path.startswith(".."):  # outside the working directory: keep it absolute
         path = filename
     return f"{Path(path).as_posix()}:{line}"
+
+
+@functools.lru_cache(maxsize=4096)
+def _fact(code: CodeType, offset: int, exc_type: type[BaseException]) -> SwallowedFact | None:
+    line = swallowing_clause_line(code, offset, exc_type)
+    if line is None:
+        return None
+    return SwallowedFact(_location(code.co_filename, line), exc_type.__name__, issubclass(exc_type, PROGRAMMING_ERRORS))
 
 
 class MonitoringCapture:
@@ -76,9 +85,8 @@ class MonitoringCapture:
         if test is None or not is_application_frame(code.co_filename):
             return
         try:
-            line = swallowing_clause_line(code, offset, type(exc))
-            if line is not None and self._sink is not None:
-                fact = SwallowedFact(_location(code.co_filename, line), type(exc).__name__, is_programming_error(exc))
+            fact = _fact(code, offset, type(exc))
+            if fact is not None and self._sink is not None:
                 self._sink(test, fact)
         except Exception as error:  # noqa: BLE001 - a raising callback would surface in the host's code
             if not self._failed and self._on_error is not None:
