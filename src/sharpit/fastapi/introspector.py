@@ -13,10 +13,22 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from starlette.applications import Starlette
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.responses import Response
-from starlette.routing import BaseRoute, Host, Mount, WebSocketRoute
+from starlette.routing import BaseRoute, Host, Mount, WebSocketRoute, compile_path
 
-from sharpit.engine.spi import ApiModel, ApiRouteInfo, AppInfo, ProviderInfo, RouteInfo, SecurityModel
+from sharpit.engine.spi import (
+    ApiModel,
+    ApiRouteInfo,
+    AppInfo,
+    ProviderInfo,
+    RouteInfo,
+    SecuredRoute,
+    SecurityChain,
+    SecurityModel,
+    SecurityScheme,
+)
 
 
 def _version(dist: str) -> str | None:
@@ -167,6 +179,97 @@ def _framework(handler: str) -> bool:
     return handler.partition(":")[0].partition(".")[0] in ("fastapi", "starlette", "sharpit")
 
 
+NOT_FASTAPI = "FastAPI security dependencies are not available: the app is not a FastAPI app"
+
+
+def _dotted(cls: object) -> str:
+    return f"{getattr(cls, '__module__', None) or '?'}.{getattr(cls, '__qualname__', '?')}"
+
+
+def _backend(entry: object) -> object | None:
+    """``AuthenticationMiddleware``'s backend: the only option read, and only its type leaves."""
+    kwargs: Any = getattr(entry, "kwargs", None)
+    if isinstance(kwargs, dict) and "backend" in kwargs:
+        return cast(object, kwargs["backend"])
+    args: Any = getattr(entry, "args", None)
+    return cast(object, args[0]) if isinstance(args, tuple | list) and args else None
+
+
+def _middleware(app: object) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(middleware, auth backends) as dotted class names, outermost first; option values are never read."""
+    entries: Any = inspect.getattr_static(app, "user_middleware", None)
+    names: list[str] = []
+    backends: list[str] = []
+    for entry in list(entries) if isinstance(entries, list | tuple) else ():
+        cls: Any = getattr(entry, "cls", None)
+        if cls is None or str(getattr(cls, "__module__", "")).startswith("sharpit."):  # sharpit's own: hidden
+            continue
+        names.append(_dotted(cls))
+        if isinstance(cls, type) and issubclass(cls, AuthenticationMiddleware):
+            backend = _backend(entry)
+            if backend is not None:
+                backends.append(_dotted(type(backend)))
+    return tuple(names), tuple(backends)
+
+
+def _scopes(node: object) -> tuple[str, ...]:
+    # FastAPI >= 0.120 keeps a node's own scopes in ``own_oauth_scopes``; 0.115 in ``security_scopes``.
+    raw: Any = getattr(node, "own_oauth_scopes", None) or getattr(node, "security_scopes", None) or ()
+    return tuple(str(s) for s in raw)
+
+
+def _schemes_in(node: object, scopes: tuple[str, ...], depth: int, out: list[SecurityScheme], base: type) -> bool:
+    """Append every scheme in ``node``'s tree to ``out``; True when one was found. Nothing is called."""
+    scopes = (*scopes, *_scopes(node))
+    call = getattr(node, "call", None)
+    if issubclass(type(call), base):  # type(), not isinstance(): a user ``__class__`` property is never run
+        auto: object = inspect.getattr_static(call, "auto_error", True)  # a user property is not run either
+        out.append(SecurityScheme(_dotted(type(call)), auto if isinstance(auto, bool) else True, tuple(sorted(scopes))))
+        return True
+    found = False
+    if depth < MAX_DEPTH:
+        for sub in list(getattr(node, "dependencies", None) or ()):
+            found = _schemes_in(sub, scopes, depth + 1, out, base) or found
+    return found
+
+
+def _path_regex(path: str, prefix_only: bool) -> str | None:
+    """Starlette's compiled pattern for ``path`` (framework convertor regexes; no route or convertor is called)."""
+    try:
+        if not prefix_only:
+            return compile_path(path)[0].pattern
+        pattern = compile_path(path.removesuffix("/{path}") or "/")[0].pattern
+        return pattern.removesuffix("$").removesuffix("/") + "(?:/.*)?$"
+    except Exception:  # noqa: BLE001 - an unknown convertor: the route cannot be matched statically
+        return None
+
+
+def _secured_route(info: RouteInfo, route: object, chain: int, base: type, limitations: list[str]) -> SecuredRoute:
+    regex = _path_regex(info.path, False)
+    try:
+        schemes: list[SecurityScheme] = []
+        unknown = False
+        for sub in list(getattr(getattr(route, "dependant", None), "dependencies", None) or ()):
+            # route/router/app ``dependencies=[...]`` have no parameter name: a guard whose meaning is unknown
+            if not _schemes_in(sub, (), 0, schemes, base) and getattr(sub, "name", "") is None:
+                unknown = True
+    except Exception as exc:  # noqa: BLE001 - FastAPI internals drifted: list the route as unknown, never crash
+        limitations.append(f"Route {info.path} could not be inspected ({type(exc).__name__}).")
+        return SecuredRoute(info.methods, info.path, info.handler, opaque=True, path_regex=regex, chain=chain)
+    return SecuredRoute(
+        info.methods, info.path, info.handler, tuple(dict.fromkeys(schemes)), unknown, False, regex, chain
+    )
+
+
+def _chain_of(path: str, chains: list[SecurityChain]) -> int:
+    best, length = 0, -1
+    for index, chain in enumerate(chains):
+        prefix = chain.prefix
+        if prefix is not None and len(prefix) > length and (path == prefix or path.startswith(prefix + "/")):
+            best, length = index, len(prefix)
+    return best
+
+
 class FastApiIntrospector:
     def __init__(self, app: object, exclude_mount: str | None = None, lifespan: object | None = None) -> None:
         self.app = app
@@ -275,7 +378,59 @@ class FastApiIntrospector:
         )
 
     def security_model(self) -> SecurityModel:
-        return SecurityModel(False, (), (), (), ())
+        """Middleware stacks and each route's security schemes, read from objects FastAPI built; nothing is called."""
+        try:
+            from fastapi.security.base import SecurityBase  # noqa: PLC0415
+
+            from fastapi import FastAPI  # noqa: PLC0415 - FastAPI is optional for sharpit
+        except ImportError:
+            return SecurityModel(False, (), (), (), (NOT_FASTAPI,))
+        if not isinstance(self.app, FastAPI):
+            return SecurityModel(False, (), (), (), (NOT_FASTAPI,))
+        chains: list[SecurityChain] = []
+        backends: list[str] = []
+        self._chains(self.app, None, chains, backends, frozenset(), 0)
+        routes: list[SecuredRoute] = []
+        limitations: list[str] = []
+        for info, route in self._entries():
+            chain = _chain_of(info.path, chains)
+            if route is None:
+                routes.append(self._opaque_route(info, chain, limitations))
+            elif not _framework(info.handler):  # FastAPI's docs routes are not the app's endpoints
+                routes.append(_secured_route(info, route, chain, SecurityBase, limitations))
+        return SecurityModel(True, tuple(chains), tuple(backends), tuple(routes), tuple(limitations))
+
+    def _chains(
+        self,
+        app: object,
+        prefix: str | None,
+        chains: list[SecurityChain],
+        backends: list[str],
+        seen: frozenset[int],
+        depth: int,
+    ) -> None:
+        middleware, found = _middleware(app)
+        if prefix is None or middleware:  # the app's own stack always; a mount only when it adds middleware
+            chains.append(SecurityChain(prefix, middleware))
+            backends.extend(found)
+        routes: Any = app.routes if isinstance(app, Starlette) else ()  # a framework property; user ASGI apps: opaque
+        for route in list(routes or ()):
+            if not isinstance(route, Mount) or (prefix is None and route.path == self.exclude_mount):
+                continue
+            if id(route.app) not in seen and depth < MAX_DEPTH:
+                self._chains(
+                    route.app, (prefix or "") + route.path, chains, backends, seen | {id(route.app)}, depth + 1
+                )
+
+    @staticmethod
+    def _opaque_route(info: RouteInfo, chain: int, limitations: list[str]) -> SecuredRoute:
+        if _framework(info.handler):  # StaticFiles and other framework apps: served as is, no security of their own
+            return SecuredRoute((), info.path, info.handler, path_regex=_path_regex(info.path, True), chain=chain)
+        base = info.path.removesuffix("/{path}") or "/"
+        limitations.append(f"Mounted application at {base} has no inspectable routes.")
+        return SecuredRoute(
+            (), info.path, info.handler, opaque=True, path_regex=_path_regex(info.path, True), chain=chain
+        )
 
     def providers(self) -> list[ProviderInfo]:
         # Read attributes only: no dependency is called, the middleware stack is never built, no OpenAPI schema.
