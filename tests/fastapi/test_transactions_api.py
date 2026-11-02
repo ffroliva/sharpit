@@ -89,6 +89,16 @@ def test_transactions_posts_are_blocked_by_global_read_only() -> None:
         handle.uninstall_capture()
 
 
+def test_recording_post_recursion_error_returns_400() -> None:
+    app, handle = _app()
+    deep_json = b'{"enabled":' + b"[" * 5000 + b"true" + b"]" * 5000 + b"}"
+    try:
+        response = _client(app).post("/sharpit/api/transactions/recording", content=deep_json)
+        assert response.status_code == 400, "a recursively nested toggle body must be rejected with 400"
+    finally:
+        handle.uninstall_capture()
+
+
 def test_transactions_mcp_exposes_only_the_read_tool() -> None:
     app, handle = _app(mcp_enabled="ON")
     try:
