@@ -301,6 +301,24 @@ def test_relationship_facts_use_masked_statement_fingerprint() -> None:
         TEST.reset(token)
 
 
+def test_relationship_facts_tolerate_missing_call_phase() -> None:
+    tag = ("test_relationship_facts_tolerate_missing_call_phase", 1, "call")
+    sqla._relationship_groups[tag] = {"statement-fingerprint": ("Player.performances", True)}
+    test = types.SimpleNamespace(
+        key=types.SimpleNamespace(node_id=tag[0], attempt=tag[1]),
+        phases={},
+    )
+    try:
+        missing_phase_guarded = True
+        try:
+            sqla.apply_relationship_facts(test)
+        except KeyError:
+            missing_phase_guarded = False
+        assert missing_phase_guarded, "missing call phase must not raise KeyError"
+    finally:
+        sqla._relationship_groups.pop(tag, None)
+
+
 def test_pause_returns_early_listeners_kept():
     engine = sa.create_engine("sqlite://")
     handle = _install(engines=[engine])
