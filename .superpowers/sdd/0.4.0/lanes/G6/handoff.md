@@ -1,6 +1,7 @@
 # Lane G6 Handoff
 
 - **Lane:** `G6`
+Implementer: agy gemini-4-argon-high + claude-subagent opus (resume)
 - **Plan:** `docs/superpowers/plans/2026-11-01-sharpit-0.4.0/G6-gate-defaults.md`
 - **Branch:** `lane/0.4.0-G6`
 - **Worktree:** `C:\development\github\sharpit-wt\0.4.0-G6`
@@ -14,12 +15,12 @@ DONE — all three tasks and fix round 1 (findings 1–8) red → green; four ga
 
 ## Commits
 
-| Task | Red | Fix |
+| Task | Red commit | Fix |
 |---|---|---|
 | 1 autodetect + no-app SKIPPED (F3) | 1955ea34148c685581ca5f5cf088862b79e55e05 | 9dfd9e246a80ca467c190b84807731800eaaf034 (WIP, reviewed) + b50fec7d8c53bea361a8201f20b0286e7f28b16d |
 | 2 require-app + `_worst` (R14) | fe18128a907a98b04bed9192bcbe86ac8d397c5e | f0dd3519c07646ecbec722c860a715c1d6e3b8e4 |
 | 3 quiet advisor notes (F4) | 04f05629ea658829f509a21991101249c7c8d2c7 | 97ccbe083e12da8d36a2539efea3a11ee240fbfa |
-| Fix round 1 (findings 1–8) | aac033a, 379ca9c, 0aa0a61, dd3ce5f, 9a1ddb2 (regression), 6a2fea1, e417555, b43e31b, cb6cc49 | c1092bc8420a00a723fa1443d9f46ccc789c900f (+ b02b0c8 foundation test flag) |
+| Fix round 1 (findings 1–8) | see `findings.md` → Fix round 1 | c1092bc8420a00a723fa1443d9f46ccc789c900f (+ b02b0c8 foundation test flag) |
 
 ## Interface Table
 
@@ -41,21 +42,7 @@ DONE — all three tasks and fix round 1 (findings 1–8) red → green; four ga
 
 ## Red-to-Green Evidence Summary
 
-| Test id | Red SHA | Assertion message |
-|---|---|---|
-| tests/pytest_plugin/test_plugin_gate_defaults.py::test_spike_f3_clean_suite_reaches_green | 1955ea34148c685581ca5f5cf088862b79e55e05 | assert <ExitCode.TESTS_FAILED: 1> == 0 (0.3.0 no-app unknown, exit 1) |
-| tests/pytest_plugin/test_plugin_gate_defaults.py::test_autodetect_single_prints_choice | 1955ea34148c685581ca5f5cf088862b79e55e05 | AssertionError: assert 'sharpit: using app appmod:app (pass --sharpit-app to choose)' in '...' |
-| tests/pytest_plugin/test_plugin_gate_defaults.py::test_autodetect_ambiguous_uses_none | 1955ea34148c685581ca5f5cf088862b79e55e05 | AssertionError: assert 'sharpit: several apps found (first_app:app, second_app:app); pass --sharpit-app module:attr' in '...' |
-| tests/pytest_plugin/test_plugin_gate_defaults.py::test_autodetect_ambiguous_across_workers_uses_none | 1955ea34148c685581ca5f5cf088862b79e55e05 | AssertionError: assert 'sharpit: several apps found (first_app:app, second_app:app); pass --sharpit-app module:attr' in 'bringing up nodes...' |
-| tests/pytest_plugin/test_plugin_gate_defaults.py::test_autodetect_never_imports | 1955ea34148c685581ca5f5cf088862b79e55e05 | AssertionError: assert 'sharpit: using app loaded_app:app (pass --sharpit-app to choose)' in '...' |
-| tests/pytest_plugin/test_plugin_apps.py::test_autodetect_accepts_fastapi_and_starlette_only | 1955ea34148c685581ca5f5cf088862b79e55e05 | AssertionError: assert 'sample_autodetect_mod:main_app' in {} |
-| tests/pytest_plugin/test_plugin_gate_defaults.py::test_require_app_no_app_is_unknown | fe18128a907a98b04bed9192bcbe86ac8d397c5e | assert <ExitCode.OK: 0> == 1 |
-| tests/pytest_plugin/test_plugin_gate_defaults.py::test_require_app_ini_true_is_unknown | fe18128a907a98b04bed9192bcbe86ac8d397c5e | assert <ExitCode.OK: 0> == 1 |
-| tests/pytest_plugin/test_plugin_gate_defaults.py::test_worst_status_order | fe18128a907a98b04bed9192bcbe86ac8d397c5e | AssertionError: assert 'PASSED' == 'SKIPPED' |
-| tests/pytest_plugin/test_plugin_options.py::test_require_app_cli_and_ini | fe18128a907a98b04bed9192bcbe86ac8d397c5e | AssertionError: assert False is True (PluginOptions.require_app) |
-| tests/pytest_plugin/test_plugin_terminal.py::test_verbose_keeps_advisor_notes | 04f05629ea658829f509a21991101249c7c8d2c7 | AssertionError: assert False is True (PluginOptions.verbose) |
-| tests/pytest_plugin/test_plugin_terminal.py::test_gate_failure_still_printed | 04f05629ea658829f509a21991101249c7c8d2c7 | AssertionError: assert '  RAPI-DOC-001' not in '...' |
-| tests/pytest_plugin/test_plugin_reports.py::test_default_terminal_counts_notes_but_reports_keep_findings | 04f05629ea658829f509a21991101249c7c8d2c7 | AssertionError: assert 'sharpit: 10 advisor notes in report.json' in '...' |
+All real reds (tasks 1–3 and fix round 1) and the superseded ones are listed in `findings.md`.
 
 ## Decisions
 
