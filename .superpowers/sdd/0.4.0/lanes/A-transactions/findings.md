@@ -4,25 +4,26 @@
 
 | Finding | Test | Red commit | Red output | Status |
 |---|---|---|---|---|
-| No BootUI captured golden is available in the lane worktree | `test_report_golden_parity` (Task 3) | — | — | parked until coordinator supplies fixture; nullable reason is recorded |
-| Commit failure is surfaced after SQLAlchemy's pre-commit callback, but F's slot has no failure event | `test_failed_commit_is_unknown` (Task 2) | — | — | parked under O1; do not modify `engine/sqla.py` |
+| Lane has no report-golden parity assertion | `test_report_golden_parity` (Task 3) | — | — | parked for coordinator verification of the merged captured fixture; nullable reason is recorded |
 
 ## Fixed findings
 
 | Finding | Test | Red commit | Fix commit |
 |---|---|---|---|
 | Recorder did not assign ids or retain committed root transactions | `tests/engine/capture/test_transactions.py::test_records_committed_root` | `79a37b42dd5a345c86a08766791adef111c3121d` | `88609ea6cfec6d00fcb8be5c4e56674fc78e01bc` |
-| Recorder did not bound entries, maintain totals, honor pause/clear, or mask errors | `tests/engine/capture/test_transactions.py::{test_bounded_entries_report_stats,test_clear_keeps_total_captured,test_paused_records_nothing,test_error_message_is_masked,test_sql_trace_unavailable_warning}` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `88609ea6cfec6d00fcb8be5c4e56674fc78e01bc` |
+| Failed DBAPI commit was reported as committed and excluded from transaction duration | `tests/engine/capture/test_transactions.py::test_failed_commit_is_unknown_with_masked_error_and_commit_duration` | `80e02d54634909939028cde4a51bf4f4ef044273` | `cbf5ca11364afdb007f1bd651fbf84fa50ffca530` |
+| Recorder did not bound entries, maintain totals, honor pause/clear, or mask errors | `tests/engine/capture/test_transactions.py::{test_bounded_entries_report_stats,test_paused_records_nothing,test_error_message_is_masked,test_sql_trace_unavailable_warning}` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `88609ea6cfec6d00fcb8be5c4e56674fc78e01bc` |
 | Savepoint begin marked the outer transaction unknown | `tests/engine/capture/test_transactions.py::test_savepoint_is_a_child_entry` | `12bf8d03b4dd14c916d74e77b6d4b1bf287a198d` | `88609ea6cfec6d00fcb8be5c4e56674fc78e01bc` |
 | Savepoint release closed only one of several target contexts | `tests/engine/capture/test_transactions.py::test_savepoint_closes_one_child_per_context` | `41964581198fd775bd63e5b3d9559c87d28eeaf0` | `7d3a67252dd03cd8a135cfc3b4ba177fb056c176` |
 | The implemented panel had no transaction report route | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_committed_sqlite_with_loopback_client` | `5212a0865ee4ca430b56b4ef5eaf344ccf18f3f5` | `7d3a67252dd03cd8a135cfc3b4ba177fb056c176` |
 
-## Superseded reds
+## Historical SHA
 
 | Test id | Historical SHA | Why |
 |---|---|---|
 | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_a_committed_sqlite_transaction` | `4723cd4f6e5ccde839dbaa3f4eee8af47f11e96b` | The TestClient source was not loopback-trusted; replacement explicitly uses a loopback client. |
 | `tests/engine/capture/test_transactions.py::test_listener_remover_releases_attachments_when_discarded` | `6faa15c5a22c5773f87590ddb403e0c89ee2f587` | Replaced GC-owned listener lifetime with explicit CaptureState teardown per R17; test now verifies explicit remover behavior. |
+| `tests/engine/capture/test_transactions.py::test_clear_keeps_total_captured` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | Deleted because the historical `bufferSize == 0` assertion conflicts with the configured-capacity contract; capacity coverage remains in `test_buffer_size_reports_capacity_when_empty`. |
 
 ## Round 1 review reds
 
@@ -37,6 +38,12 @@
 | `tests/engine/capture/test_transactions.py::test_oldest_open_entry_is_not_evicted` | `ea437338f777d67fdbc2066b4fe88244a55b6d6a` | `the oldest open transaction must remain retained` | Fixed in `92b99953d514570eb36bf7d44729c5cf0c716bbc` |
 | `tests/fastapi/test_transactions_api.py::test_recording_post_recursion_error_returns_400` | `ec8ce4cd7841b9c78293977f957c5b6bf54b24e9` | `a recursively nested toggle body must be rejected with 400` | Fixed in `92b99953d514570eb36bf7d44729c5cf0c716bbc` |
 | `tests/fastapi/test_transactions_api.py::test_transactions_capture_when_sql_trace_is_disabled` | `fa717b7fc3eb3bdf5da34567832e577084cf33a1` | `transactions must capture connection events while SQL Trace is off` | Fixed in `92b99953d514570eb36bf7d44729c5cf0c716bbc` |
+
+## Round 2 review reds
+
+| Test | Red SHA | Assertion | Disposition |
+|---|---|---|---|
+| `tests/engine/capture/test_transactions.py::test_failed_commit_is_unknown_with_masked_error_and_commit_duration` | `80e02d54634909939028cde4a51bf4f4ef044273` | `a failed DBAPI commit must never be reported as committed` | Fixed in `cbf5ca11364afdb007f1bd651fbf84fa50ffca530` |
 
 ## Vitest reds
 

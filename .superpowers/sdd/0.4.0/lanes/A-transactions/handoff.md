@@ -1,10 +1,10 @@
 # Handoff: A-transactions
 
-Implementer: Codex (GPT-6)
+Implementer: codex gpt-6-luna
 
 ## Status
 
-DONE_WITH_CONCERNS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.0-A-transactions`; merged coordinator-authorized `release/0.4.0` as `a5035ed953ff7f0525864122c7cd40dfa1c5f323`.
+DONE_WITH_CONCERNS. Round 2 started at `b0206c85099a408ae8063e2649d94c4e94240cef` on `lane/0.4.0-A-transactions`.
 
 ## Done
 
@@ -17,13 +17,13 @@ DONE_WITH_CONCERNS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `la
 
 ## Next step
 
-Continue review round 1 fixes. Finalizer red/fix `b9bb0a3` / `85fbff9`; savepoint identity `2bf97fc` / `df3ae12`; buffer capacity `2e716bd` / `42604e9`; middleware `7c52759` / `3f98827`; open/threshold `ea43733`, recursion `ec8ce4c`, and SQL Trace-off `fa717b7` fixed in `92b9995`. Middleware change extends the original lane touch list to `fastapi/capture.py`. Correcting `bufferSize` to ring capacity leaves the historical `test_clear_keeps_total_captured` assertion (`bufferSize == 0`) incompatible; its red test body remains untouched per COMMON. Commit failure handling requires extending F's `sqla.py` event slot, explicitly prohibited by the lane plan's May-touch list. Final gates remain.
+Round 2 complete. Failed-commit red `80e02d54634909939028cde4a51bf4f4ef044273`, fix `cbf5ca11364afdb007f1bd651fbf84fa50ffca530`. The `test_clear_keeps_total_captured` test was deleted because its `bufferSize == 0` assertion pins the superseded meaning; the configured-capacity test remains. Coordinator ruling O1 permits only an additive `handle_error` event slot change in `engine/sqla.py`.
 
 ## Decisions
 
 - F handoff API is `_configure_capture(app, ctx, settings) -> CaptureWiring`; the listener attacher returns `None` before SQLAlchemy is imported, and `CaptureState.attachers` retries it on startup/first request.
 - Connection listeners are class-level and reference-counted. Dropping the owning teardown releases them; explicit uninstall releases immediately.
-- F exposes begin/commit/rollback/savepoint events only. SQLAlchemy commit failure is surfaced after pre-commit; `test_failed_commit_is_unknown` remains parked under O1. `engine/sqla.py` is untouched.
+- SQLAlchemy's commit event is pre-DBAPI. The additive `handle_error` event revises the just-finalized transaction to `UNKNOWN` and extends its duration through a failed DBAPI commit.
 - Savepoint callbacks close one nested entry per target context. SQL counts are correlated from SQL Trace at report time.
 
 ## Real pytest red tests
@@ -39,10 +39,10 @@ Continue review round 1 fixes. Finalizer red/fix `b9bb0a3` / `85fbff9`; savepoin
 | `tests/engine/capture/test_transactions.py::test_oldest_open_entry_is_not_evicted` | `ea437338f777d67fdbc2066b4fe88244a55b6d6a` | `the oldest open transaction must remain retained` |
 | `tests/fastapi/test_transactions_api.py::test_recording_post_recursion_error_returns_400` | `ec8ce4cd7841b9c78293977f957c5b6bf54b24e9` | `a recursively nested toggle body must be rejected with 400` |
 | `tests/fastapi/test_transactions_api.py::test_transactions_capture_when_sql_trace_is_disabled` | `fa717b7fc3eb3bdf5da34567832e577084cf33a1` | `transactions must capture connection events while SQL Trace is off` |
+| `tests/engine/capture/test_transactions.py::test_failed_commit_is_unknown_with_masked_error_and_commit_duration` | `80e02d54634909939028cde4a51bf4f4ef044273` | `a failed DBAPI commit must never be reported as committed` |
 | `tests/engine/capture/test_transactions.py::test_listener_release_never_runs_under_attach_lock` | `b9bb0a3651df951caecb6da77f2526ee2a77aa29` | `listener release must not block while the attach lock is held` |
 | `tests/engine/capture/test_transactions.py::test_records_committed_root` | `79a37b42dd5a345c86a08766791adef111c3121d` | `a captured transaction must receive a positive id` |
 | `tests/engine/capture/test_transactions.py::test_bounded_entries_report_stats` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `the transaction ring must respect max_entries` |
-| `tests/engine/capture/test_transactions.py::test_clear_keeps_total_captured` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `clear must empty the retained transactions` |
 | `tests/engine/capture/test_transactions.py::test_paused_records_nothing` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `a paused recorder must return the sentinel id` |
 | `tests/engine/capture/test_transactions.py::test_error_message_is_masked` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `transaction error messages must not expose connection passwords` |
 | `tests/engine/capture/test_transactions.py::test_sql_trace_unavailable_warning` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `missing SQL Trace must explain why statement counts are not correlated` |
@@ -57,17 +57,18 @@ Continue review round 1 fixes. Finalizer red/fix `b9bb0a3` / `85fbff9`; savepoin
 | `ui/tests/component/Transactions.test.ts::renders transactions, indents savepoints, and refreshes on a stream update` | `46af71a7bfd9cffe2df3cabd8d8564aa7e051035` | `Expected: orders:create; Received: transactionsThis panel's view is not built yet.` |
 | `ui/tests/component/Transactions.test.ts::hides transaction controls for a read-only panel` | `46af71a7bfd9cffe2df3cabd8d8564aa7e051035` | `Expected: orders:create; Received: transactionsThis panel's view is not built yet.` |
 
-## Historical red
+## Historical SHA
 
 | Test id | Historical SHA | Why superseded |
 |---|---|---|
 | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_a_committed_sqlite_transaction` | `4723cd4f6e5ccde839dbaa3f4eee8af47f11e96b` | The TestClient source was not loopback-trusted; replacement explicitly uses a loopback client. |
 | `tests/engine/capture/test_transactions.py::test_listener_remover_releases_attachments_when_discarded` | `6faa15c5a22c5773f87590ddb403e0c89ee2f587` | Replaced GC-owned cleanup with explicit capture teardown to avoid finalizers acquiring host locks. |
+| `tests/engine/capture/test_transactions.py::test_clear_keeps_total_captured` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | Deleted because its `bufferSize == 0` assertion contradicts the configured ring-capacity contract; capacity coverage remains. |
 
 ## Remaining constraints
 
-- Commit failure finalization is parked: SQLAlchemy's `commit` callback is pre-DBAPI, and F's `sqla.add_connection_listener` slot exposes no `handle_error` or post-commit event. Adding the needed event changes `engine/sqla.py`, which O1 explicitly forbids this lane from touching. Coordinator decision/interface extension is required.
-- Contract `bufferSize` now reports ring capacity; the older red `test_clear_keeps_total_captured` still asserts zero after clear. Its body is unchanged as required, so the lane-targeted suite has this known failing assertion.
+- Commit failure finalization is covered by the new red/fix test and additive `handle_error` slot event.
+- The historical clear test was removed; the capacity test continues to pin configured ring capacity.
 - G0a's captured transaction fixture is present, but the lane has no report-golden parity assertion; coordinator should verify parity before integration.
 - `CAPTURE_PANELS` no longer includes `transactions`; `tests/test_foundation_round2.py` now covers only request-capture panels, while the lane API test pins transaction-only installs to no middleware.
 - The overhead test removes its own attacher and ensures the class event callbacks are detached for the off side even when a different test left an attachment reference active in the worker.
@@ -75,9 +76,10 @@ Continue review round 1 fixes. Finalizer red/fix `b9bb0a3` / `85fbff9`; savepoin
 
 ## Final gate results
 
-- `uv run ruff check`: PASS. `uv run ruff format --check`: PASS (468 files). `uv run pyright`: PASS (0 errors, 0 warnings).
-- Targeted lane run (`-n 4`): 38 passed, 1 failed. The sole failure is the historical `test_clear_keeps_total_captured` assertion expecting `bufferSize == 0` after clear; the contract requires configured ring capacity (200). Its red test body is unchanged per COMMON.
-- Shared safety matrix, safety lane sweep, surface flag tests (`-n 4`): 1,045 passed.
-- Full detached suite (`-n 4`): 4,186 passed, 9 skipped, 2 failed. The second failure is the listener budget at 33.252 µs over 30 µs with 13.273 µs noise (overshoot is inside noise). The isolated attached-vs-detached measurement passed at 11.820 µs overhead, 8.780 µs noise. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-full-pytest-final.log`; budget record: `A-transactions-round1-overhead-measure.jsonl` in the same logs directory.
-- Golden fixture exists after the merge, but the lane does not run its parity assertion. Lowest-direct, no-SQLAlchemy, and live checks remain coordinator-owned.
+- Failed-commit red `80e02d54634909939028cde4a51bf4f4ef044273` failed with the intended `AssertionError`; fix `cbf5ca11364afdb007f1bd651fbf84fa50ffca530` makes it pass. The test covers `UNKNOWN`, masked error text, and duration through the DBAPI commit.
+- Targeted lane tests: 36 passed. Safety matrix, lane sweeps, surface flags, and SQLAlchemy tests: 1,077 passed, 3 skipped. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-round2-safety-final.log`.
+- `uv run ruff check`: passed. `uv run ruff format --check`: passed (468 files). `uv run pyright`: 0 errors, 0 warnings.
+- Full detached suite (`-n 4`): 4,188 passed, 9 skipped, 43 warnings. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-round2-full.log`.
+- The safety exports are present in `tests/safety/test_a_transactions_safety.py`; GET rows cover report and stream, WRITE rows cover clear and recording.
+- The coordinator still owns merged-golden parity, lowest-direct/no-SQLAlchemy checks, and live verification.
 
