@@ -227,3 +227,18 @@ def test_autodetect_drops_wrapped_host_and_subclassed_mounts(monkeypatch: pytest
     assert "mounted_children_mod:gz_child" not in detected
     assert "mounted_children_mod:host_child" not in detected
     assert "mounted_children_mod:sub_child" not in detected
+
+
+def test_reconcile_keeps_a_skipped_run_that_is_not_a_placeholder() -> None:
+    from types import SimpleNamespace
+
+    from sharpit.engine.advisors.findings import AdvisorRun
+    from sharpit.pytest_plugin.apps import reconcile_workers
+
+    # another lane's SKIPPED run whose reason happens to read like an autodetect message
+    run = AdvisorRun("rest-api", "SKIPPED", (), {}, "several apps found (x); rule errored", None)
+    part = SimpleNamespace(advisor_runs=[run])
+
+    reconcile_workers([part], ["pkg:app"], False)
+
+    assert run in part.advisor_runs
