@@ -27,6 +27,21 @@
 
 Messages without the `AssertionError: ` prefix are pytest's rewritten asserts whose text has no `'` (F's gate note).
 
+## Review round 1: finding → test → red (fix `96ca0d59546beab020685032ebd4cdf40d140141`)
+
+| Finding | Test id | Red SHA | Assertion message |
+|---|---|---|---|
+| R-D1a: REST API target with inner spaces not storable | `tests/engine/advisors/test_dismissals.py::test_dismissed_pairs_accepts_a_real_rest_api_target` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert set() == {('RAPI-DOC-0...:list_items')}` |
+| R-D1b: no owning-panel gate on finding mutations | `tests/fastapi/test_dismissed_findings_api.py::test_finding_mutations_need_the_owning_panel_enabled_and_writable` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert (200, {'dismi...'ignored': 0}) == (403, {'error...ABLED=false'})` |
+| R-D1b: test-runtime rule id accepted | `tests/fastapi/test_dismissed_findings_api.py::test_test_runtime_findings_are_refused_with_the_no_panel_message` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert (200, {'dismi...'ignored': 0}) == (400, {'error...sharpit.yml'})` |
+| Non-encodable / control identity answered 500 | `tests/fastapi/test_dismissed_findings_api.py::test_non_encodable_and_control_identities_are_refused_with_400_never_500` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `assert 500 == 400` |
+| Cache stamp taken after os.replace | `tests/engine/advisors/test_dismissals.py::test_two_stores_sharing_a_state_dir_keep_each_others_dismissals` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert ['GHSA-aaaa-b...:pypi:jinja2'] == ['GHSA-aaaa-b...:pypi:jinja2']` |
+| Finding rule id capped at 64 | `tests/engine/advisors/test_dismissals.py::test_a_finding_rule_id_may_be_as_long_as_a_rule_id` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert [] == [DismissedFin...', note=None)]` |
+| Comments in managed sections dropped / counted | `tests/engine/advisors/test_dismissals.py::test_comments_inside_the_managed_sections_are_kept_and_not_counted` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert 1 == 0` |
+| Full fingerprint accepted as ruleId | `tests/fastapi/test_dismissed_findings_api.py::test_a_full_fingerprint_is_not_a_finding_rule_id` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert (200, {'dismi...'ignored': 0}) == (400, {'error...or rule id.'})` |
+| Unowned rule's finding cannot be restored | `tests/fastapi/test_dismissed_findings_api.py::test_restoring_a_finding_whose_rule_no_advisor_owns_still_removes_its_line` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert (400, {'error...or rule id.'}) == (200, {'dismi...'ignored': 0})` |
+| Route splice crashes install without the anchor | `tests/fastapi/test_dismissed_findings_api.py::test_finding_routes_are_appended_when_the_dismissed_rules_anchor_is_absent` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `assert 404 == 200` |
+
 ## Guard tests (green at red, kept as controls)
 
 - `tests/engine/test_headers.py::test_a_response_that_sets_its_own_policy_keeps_it_whole`: assets never gain `Pragma`
@@ -36,5 +51,5 @@ Messages without the `AssertionError: ` prefix are pytest's rewritten asserts wh
 
 ## Open findings
 
-None in the lane's files. One need outside the May-touch list (MCP default limit in `tool_dispatch.py`): see
+Open minors skipped by coordinator ruling: handoff.md "Review round 1". None else in the lane's files. One need outside the May-touch list (MCP default limit in `tool_dispatch.py`): see
 `handoff.md`, "Needs from coordinator".
