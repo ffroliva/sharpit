@@ -54,7 +54,7 @@ SENSITIVE_NAME = re.compile(r"(?:passw(?:or)?d|secret|token|api[-_.]?key|credent
 MASK = "******"
 
 
-def sanitise(node: Any) -> Any:
+def sanitise(node: Any, nested: bool = False) -> Any:  # noqa: ARG001
     if isinstance(node, str):
         return EMBEDDED_PATH.sub("/path", node)
     if isinstance(node, list):
@@ -132,7 +132,7 @@ def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
     return found
 
 
-def main(src: Path, dst: Path) -> None:
+def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None) -> None:  # noqa: ARG001
     repo = Path(__file__).resolve().parents[1]
     src = src.resolve()
     dst = dst.resolve()
