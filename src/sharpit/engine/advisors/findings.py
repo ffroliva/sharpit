@@ -47,7 +47,7 @@ class Finding:
 @dataclass(frozen=True)
 class AdvisorRun:
     advisor: str
-    status: Literal["PASSED", "FAILED", "UNKNOWN"]
+    status: Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
     reason: str | None
