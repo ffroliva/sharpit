@@ -122,3 +122,11 @@ pins the detail key set; the drawer takes lazy from the list row when the detail
 `test_detail_carries_relationships` (it contradicted that pin; it is not in the table); (c) the first vitest
 test's detail URL changed to the FQ name because the view now requests by repositoryInterface (vitest is not gate-replayed);
 (d) `/panels` has no actionCapable key: the test asserts `readOnly is False` and `Panel.action_capable is False`.
+
+## Fix round 2 (head 3464bbdeff142dacd9dc5df6fe3626c2fe9d3aae)
+
+| Test id | Red SHA | Assertion message |
+|---|---|---|
+| `tests/engine/test_data.py::test_registry_subclass_new_mapper_is_not_configured` | `3ee9fe924d371ac21a821cc6c7d1fd8ae3228d9d` | `assert [_check_configure, ...] == []` |
+
+Deviation (a) corrected: registries are recognised by MRO.

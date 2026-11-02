@@ -29,3 +29,11 @@
 | review fix | tests/engine/test_data.py::test_lazy_is_a_strategy_name[True-select] | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | lazy 'True' != 'select' | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
 | review fix | tests/engine/test_data.py::test_lazy_is_a_strategy_name[False-joined] | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | lazy 'False' != 'joined' | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
 | view keys, stale drawer, duplicates, warnings (vitest) | ui/tests/component/data.test.ts (4 new) | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | expected ... to include 'api/data/repositories/app.b.Owner' and others | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
+
+## Fix round 2
+
+| Finding | Test id | Red SHA | Red output | Status |
+|---|---|---|---|---|
+| registry subclass bypassed the _new_mappers check | tests/engine/test_data.py::test_registry_subclass_new_mapper_is_not_configured | 3ee9fe924d371ac21a821cc6c7d1fd8ae3228d9d | assert ['_check_configure', '_configure_registries'] == [] | fixed 3464bbdeff142dacd9dc5df6fe3626c2fe9d3aae |
+
+Minors: vitest mock now uses the real detail DTO shape (no relationships key); dead lazy alias and list-based walk simplified.
