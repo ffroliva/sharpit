@@ -12,6 +12,8 @@ from typing import Any
 import pytest
 
 from sharpit.engine import otel
+from sharpit.engine.capture.correlation import INTERNAL
+from sharpit.engine.capture.streams import SSE_TASK
 from sharpit.engine.capture.traces import SpanBuffer
 from sharpit.engine.masking import MASK, Exposure, Masker
 
@@ -376,3 +378,51 @@ def test_event_name_goes_through_text_masking():
     buf = buffer()
     buf.add(span(events=[event("retry token=s3cr3tvalue1", 1_500, {})]))
     assert "s3cr3tvalue1" not in first_span(buf)["events"][0]["name"]
+
+
+SELF_SERVER = {"url.path": "/sharpit/api/traces"}
+
+
+def test_spans_of_sharpit_internal_work_never_reach_the_buffer():
+    buf = buffer()
+    token = INTERNAL.set(True)
+    try:
+        buf.add(span(kind="CLIENT", name="SELECT"))
+    finally:
+        INTERNAL.reset(token)
+    assert buf.list(100)["retained"] == 0
+
+
+def test_spans_of_sharpit_event_streams_never_reach_the_buffer():
+    buf = buffer()
+    token = SSE_TASK.set(True)
+    try:
+        buf.add(span(kind="INTERNAL", name="stream"))
+    finally:
+        SSE_TASK.reset(token)
+    assert buf.list(100)["retained"] == 0
+
+
+def test_a_sharpit_server_span_takes_no_capacity():
+    buf = SpanBuffer(MASKED, capacity=1, self_path="/sharpit")
+    buf.add(span(attributes={"url.path": "/owners"}))
+    buf.add(span(trace_id=OTHER, attributes=SELF_SERVER))
+    assert [t["traceId"] for t in buf.list(100)["traces"]] == [f"{TRACE:032x}"]
+
+
+def test_the_self_path_check_strips_the_root_path():
+    buf = SpanBuffer(MASKED, capacity=10, self_path="/sharpit", root_path="/proxy")
+    buf.add(span(attributes={"url.path": "/proxy/sharpit/api/traces"}))
+    assert buf.list(100)["traces"] == []
+
+
+def test_children_of_a_sharpit_request_take_no_capacity():
+    buf = SpanBuffer(MASKED, capacity=1, self_path="/sharpit")
+    processor = otel.SharpitSpanProcessor()
+    processor.sinks = (buf,)
+    processor.on_end(span(attributes={"url.path": "/owners"}))
+    server = span(trace_id=OTHER, span_id=1, attributes=SELF_SERVER)
+    processor.on_start(server)
+    processor.on_end(span(trace_id=OTHER, span_id=2, parent=1, kind="INTERNAL", name="http send"))
+    processor.on_end(server)
+    assert [t["traceId"] for t in buf.list(100)["traces"]] == [f"{TRACE:032x}"]

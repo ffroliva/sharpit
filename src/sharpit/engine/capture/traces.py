@@ -168,8 +168,11 @@ def _plain_path(key: str, value: str) -> str:
 
 
 class SpanBuffer:
-    def __init__(self, masker: Masker, *, capacity: int = 1000, self_path: str = "/sharpit") -> None:
+    def __init__(
+        self, masker: Masker, *, capacity: int = 1000, self_path: str = "/sharpit", root_path: str = ""
+    ) -> None:
         self.masker = masker
+        self.root_path = root_path
         self.capacity = capacity
         self.self_path = self_path
         self.armed = False
