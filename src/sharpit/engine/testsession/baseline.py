@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from sharpit.engine.advisors.findings import Finding
+from sharpit.engine.testsession.report import clean_text
 
 SCHEMA = "sharpit-baseline/1"
 
@@ -126,11 +127,11 @@ def write(path: Path, findings: Sequence[Finding], keep: Sequence[Entry] = ()) -
             "observed": finding.observed,
         }
     payload = {"schema": SCHEMA, "findings": [rows[key] for key in sorted(rows)]}
-    text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    text = clean_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")  # same cleaning as the report
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.tmp")
     try:
-        temporary.write_text(text, encoding="utf-8")
+        temporary.write_text(text, encoding="utf-8", newline="\n")  # stable bytes on every OS
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
