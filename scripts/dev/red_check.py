@@ -117,7 +117,8 @@ def _run_one(root: Path, nodeid: str) -> tuple[str, str]:
             return f"ERROR (timed out after {TIMEOUT}s)", ""
         outcomes = lane_gate.red_verdicts(junit, [nodeid], root)[nodeid]
     verdict = next((v for v in map(_label, outcomes) if v != RED), RED)
-    return verdict, "" if verdict == RED else _tail(done.stdout + done.stderr)
+    output = done.stdout if done.stdout.strip() else done.stderr  # stderr is mostly plugin warnings
+    return verdict, "" if verdict == RED else _tail(output)
 
 
 def run(args: Sequence[str], cwd: Path | None = None) -> dict[str, tuple[str, str]]:
