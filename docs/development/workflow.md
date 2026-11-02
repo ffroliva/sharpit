@@ -38,20 +38,33 @@ OSV, read **`/sharpit:known-issues`**. Delegated agents get the background-comma
 ### Before every `test:` commit: `red_check`
 
 ```bash
-uv run python scripts/dev/red_check.py tests/engine/test_x.py::test_y [<node id> ...]
+uv run python scripts/dev/red_check.py tests/engine/test_x.py::test_y [<node id> | <test file> ...]
 ```
 
-Exit 0 only when every test is `RED (assertion in test file)`. A `CRASH` (a `TypeError`, `AttributeError`,
-`NotImplementedError` stub, or an `assert` inside `src/`) or a `PASS` is not a red: nobody has seen the test catch the
-defect. Use a wrong-value stub instead, so the test's own assertion fails:
+Exit 0 only when every test is `RED (assertion under tests/)`. Not a red: a `CRASH` (a `TypeError`, `AttributeError`
+or `pytest.fail` stub, or an `assert` outside `tests/`, in `src/` or `scripts/`), a `PASS`, an
+`ERROR (fixture setup/teardown)` or an `ERROR (collection)`. Nobody has seen such a test catch the defect. Use a
+wrong-value stub instead, so the test's own assertion fails:
 
 ```python
-def compare(findings, baseline, *, partial):  # stub: every finding "new", so the "existing" assertion fails
+def compare(
+    findings: Sequence[Finding], baseline: Baseline | None, *, partial: bool, ran: Collection[str] | None = None
+) -> Comparison:
+    # stub: every finding is "new", so a test expecting "existing" fails on its own assertion
+    from dataclasses import replace
+
     return Comparison(tuple(replace(f, baseline_state="new") for f in findings), None, None)
 ```
 
-It uses `scripts/dev/lane_gate.py`'s classification, so a red it accepts is a red the merge gate accepts. Why:
-[the G1G2 red audit](../reports/2026-11-02-g1g2-red-audit.md).
+(This is `compare` in `src/sharpit/engine/testsession/baseline.py`, whose module already imports every name used.)
+
+What `red_check` checks: each id, run in its own pytest call in the working tree (its `src` first on `PYTHONPATH`),
+fails with an `AssertionError` whose last frame is under `tests/`, by the same `is_red`/`red_verdicts` rule as
+`scripts/dev/lane_gate.py`. It warns when uncommitted files under `src/` or `tests/` could change the verdict.
+
+What only the merge gate checks: the red SHA is committed and an ancestor of the head, the replay at that SHA in a
+fresh tree, the test unchanged from the red SHA to the head, the test inside the lane diff, the names it references
+frozen, and the test passing at the head. Why: [the G1G2 red audit](../reports/2026-11-02-g1g2-red-audit.md).
 
 ## 5. Gate: `/sharpit:check`
 
