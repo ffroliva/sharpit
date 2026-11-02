@@ -18,6 +18,7 @@ MAX_QUERIES = "sharpit.max-queries"
 N_PLUS_ONE = "sharpit.n-plus-one"
 EXCEPTION = "sharpit.exception"
 SWALLOWED = "sharpit.swallowed-exception"
+UNBOUNDED_READ = "sharpit.unbounded-read"
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,8 @@ class Budget:
     allow_n_plus_one: bool
     max_exceptions: int
     allow_swallowed: bool = False
+    allow_unbounded_read: bool = False
+    unbounded_read_factor: int = 2
 
 
 def _finding(
@@ -63,6 +66,38 @@ def _swallowed_findings(
         found.append(
             _finding(
                 SWALLOWED, fact.location, message, node, dismissed, identity, dismissed_pairs, 1, severity=severity
+            )
+        )
+    return found
+
+
+def _unbounded_read_findings(
+    call: PhaseFacts,
+    budget: Budget,
+    node: str,
+    dismissed: Collection[str],
+    dismissed_pairs: Collection[tuple[str, str]],
+) -> list[Finding]:
+    if budget.allow_unbounded_read:
+        return []
+    found: list[Finding] = []
+    for fact in call.unbounded_reads:
+        if fact.has_limit or fact.loaded < fact.page_size * budget.unbounded_read_factor:
+            continue
+        message = (
+            f"{fact.route} materialized {fact.loaded} {fact.entity} rows for page size {fact.page_size}; "
+            f"masked statement: {fact.statement}"
+        )
+        found.append(
+            _finding(
+                UNBOUNDED_READ,
+                fact.statement,
+                message,
+                node,
+                dismissed,
+                identity=f"{fact.route}:{fact.statement}",
+                dismissed_pairs=dismissed_pairs,
+                observed=fact.loaded,
             )
         )
     return found
@@ -142,6 +177,7 @@ def evaluate_test(
                 )
             )
     found.extend(_swallowed_findings(call, budget, node, dismissed, dismissed_pairs))
+    found.extend(_unbounded_read_findings(call, budget, node, dismissed, dismissed_pairs))
     if baseline is None:
         return found
     from dataclasses import replace
