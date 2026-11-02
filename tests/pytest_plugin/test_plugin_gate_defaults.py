@@ -191,3 +191,63 @@ def test_autodetect_never_imports(pytester: pytest.Pytester) -> None:
     assert "sharpit: using app loaded_app:app (pass --sharpit-app to choose)" in stdout
     assert result.ret == 0
     assert not (pytester.path / "imported_boom.txt").exists()
+
+
+_CLEAN_SUITE = """
+import sqlite3
+
+def test_clean_query():
+    sqlite3.connect(':memory:').execute('SELECT 1').fetchone()
+"""
+
+
+def test_require_app_no_app_is_unknown(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(_CLEAN_SUITE)
+
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-require-app", "--sharpit-report=report.json", "-q")
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["status"] == "unknown"
+    assert _rest_run(pytester)["status"] == "UNKNOWN"
+    assert "rest-api skipped" not in result.stdout.str()
+
+
+def test_require_app_ini_true_is_unknown(pytester: pytest.Pytester) -> None:
+    pytester.makeini("""
+        [pytest]
+        sharpit_require_app = true
+    """)
+    pytester.makepyfile(_CLEAN_SUITE)
+
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
+
+    assert result.ret == 1
+    assert _rest_run(pytester)["status"] == "UNKNOWN"
+
+
+def test_worst_status_order() -> None:
+    from sharpit.engine.testsession.outcome import _worst
+
+    assert _worst(["PASSED", "SKIPPED"]) == "SKIPPED"
+    assert _worst(["SKIPPED", "UNKNOWN"]) == "UNKNOWN"
+    assert _worst(["UNKNOWN", "FAILED", "SKIPPED", "PASSED"]) == "FAILED"
+    assert _worst(["PASSED"]) == "PASSED"
+
+
+def test_explicit_app_ignores_autodetect_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    from types import ModuleType
+
+    from sharpit.pytest_plugin.apps import select_app
+
+    chosen_app, other_app = object(), object()
+    mod = ModuleType("explicit_choice_mod")
+    mod.app = chosen_app  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "explicit_choice_mod", mod)
+
+    selected = select_app("explicit_choice_mod:app", [("other_mod:app", other_app)])
+
+    assert selected is not None
+    assert selected[0] == "explicit_choice_mod:app"
+    assert selected[1] is chosen_app

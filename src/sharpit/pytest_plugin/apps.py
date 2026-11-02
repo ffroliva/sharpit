@@ -64,8 +64,6 @@ def autodetect_apps() -> tuple[tuple[str, object], ...]:
 
 def select_app(explicit: str | None, candidates: Sequence[tuple[str, object]]) -> tuple[str, object] | None:
     """An explicit app wins over candidates; otherwise only a unique candidate is used."""
-    if explicit:
-        return load_app(explicit)
     return candidates[0] if len(candidates) == 1 else None
 
 
