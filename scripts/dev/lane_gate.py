@@ -342,6 +342,9 @@ def red_integrity(opts: Options, base: str, reds: Sequence[Red]) -> _Integrity:
             out.problems.append(f"{tag}: test missing at head")
         elif at_red != at_head:
             out.problems.append(f"{tag}: test body changed after red commit {red.sha}")
+        elif _function_source(_show(opts.worktree, base, path) or "", red.test) == at_red:
+            # council r2: the red test must be in the lane diff; an old test plus a broken src is a fake red
+            out.problems.append(f"{tag}: test unchanged from the integration branch (a red must add or change it)")
         else:
             out.replayable.append(Red(red.test, sha))
     return out
