@@ -566,9 +566,24 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
 
 from sharpit.engine.panels04 import tool_definitions as _tool_definitions  # noqa: E402, I001
 
+
+def merge_lane_tools(
+    base_tools: tuple[Tool, ...],
+    base_commands: dict[str, str],
+    lane_tools: tuple[Any, ...],
+    lane_commands: dict[str, str],
+) -> tuple[tuple[Tool, ...], dict[str, str]]:
+    """Append the lanes' tools; a lane never shadows a tool name or CLI command key (raises at import)."""
+    names = [t.name for t in (*base_tools, *lane_tools)]
+    if clashes := sorted({n for n in names if names.count(n) > 1}):
+        raise ValueError(f"lane tool name(s) collide with existing tools: {', '.join(clashes)}")
+    if shadowed := sorted(set(lane_commands) & set(base_commands)):
+        raise ValueError(f"lane CLI command(s) collide with existing ones: {', '.join(shadowed)}")
+    return (*base_tools, *lane_tools), {**base_commands, **lane_commands}
+
+
 _PANEL_04_TOOLS, _PANEL_04_COMMANDS = _tool_definitions()
-TOOLS: tuple[Tool, ...] = (*_BASE_TOOLS, *_PANEL_04_TOOLS)
-COMMANDS = {**_BASE_COMMANDS, **_PANEL_04_COMMANDS}
+TOOLS, COMMANDS = merge_lane_tools(_BASE_TOOLS, _BASE_COMMANDS, _PANEL_04_TOOLS, _PANEL_04_COMMANDS)
 
 from sharpit.engine.tool_dispatch import (  # noqa: E402, I001 - dispatcher imports the catalog built above
     ToolGate as ToolGate,

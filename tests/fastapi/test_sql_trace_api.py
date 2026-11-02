@@ -27,6 +27,7 @@ from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.capture.sqltrace import ENTRY_KEYS, GROUP_KEYS, REPORT_KEYS, STATS_KEYS  # noqa: E402
 from sharpit.engine.masking import MASK  # noqa: E402
+from sharpit.engine.panels import panel_is_implemented  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -281,7 +282,7 @@ def test_lifespan_shutdown_removes_sql_listeners():
 def test_discovery_listener_skipped_when_db_panels_disabled():
     sqla.detach_all()  # earlier tests in this worker may have left contexts behind
     app = FastAPI()
-    _install(app, panels={p: {"enabled": False} for p in sqla.DISCOVERY_PANELS})
+    _install(app, panels={p: {"enabled": False} for p in sqla.DISCOVERY_PANELS if panel_is_implemented(p)})
     attached = sqla.attached()
     assert attached["engine_connect"] is False
     assert all(attached[e] for e in sqla.STATEMENT_EVENTS)
