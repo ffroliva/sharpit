@@ -84,10 +84,13 @@ def get_paths() -> list[str]:
 
     mount = next(r for r in create_app(show_banner=False).router.routes if isinstance(r, SharpitMount))
     assert all(isinstance(r, Route) for r in mount.routes)  # a Mount or WebSocketRoute would escape the sweep
+    from safety import load
+
+    samples = {**_PATH_PARAMS, **load().params}  # lane files add their own samples (PATH_PARAMS)
     paths = ["/sharpit"]  # the bare mount path is the SharpitMount itself, not a sub-app route
     for route in mount.routes:
         if "GET" in (route.methods or ()):
-            params = {name: _PATH_PARAMS[name] for name in route.param_convertors}
+            params = {name: samples[name] for name in route.param_convertors}
             paths.append("/sharpit" + route.path_format.format(**params))
     return paths
 
