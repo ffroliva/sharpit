@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from sharpit.engine import panels04
+from sharpit.engine.panels import PANELS
+from sharpit.fastapi.routes import _panel_04_routes  # pyright: ignore[reportPrivateUsage]
+
 BASE_PANEL_IDS = [
     "overview",
     "config",
@@ -78,24 +82,26 @@ BASE_CLI_COMMANDS = {
 
 
 def lane_tools() -> tuple[Any, ...]:
-    return ()
+    """The tools the implemented lane modules add (``engine/tools04/<id>.py``), in catalogue order."""
+    return panels04.tool_definitions()[0]
 
 
 def lane_commands() -> dict[str, str]:
-    return {}
+    return panels04.tool_definitions()[1]
 
 
 def expected_panel_ids() -> list[str]:
-    return list(BASE_PANEL_IDS)
+    return [*BASE_PANEL_IDS, *(p.id for p in PANELS if p.id in panels04.PANEL_04_IDS and p.implemented)]
 
 
 def expected_mcp_tool_names() -> list[str]:
-    return list(BASE_MCP_TOOL_NAMES)
+    return [*BASE_MCP_TOOL_NAMES, *(t.name for t in lane_tools() if not t.action)]
 
 
 def expected_cli_commands() -> dict[str, str]:
-    return dict(BASE_CLI_COMMANDS)
+    return {**BASE_CLI_COMMANDS, **lane_commands()}
 
 
 def lane_route_paths(ctx: Any, host_app: Any) -> list[str]:
-    return []
+    """Sub-app paths the implemented per-panel route modules mount (appended after the base routes)."""
+    return [route.path for route in _panel_04_routes(ctx, host_app)]  # pyright: ignore[reportAttributeAccessIssue]

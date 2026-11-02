@@ -15,13 +15,12 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import mcp, panels04, tools
 from sharpit.engine.tools import Tool
-
-NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
 from sharpit.engine.tools04 import data as data_tools
 from sharpit.fastapi.routes import _panel_04_routes
 from sharpit.fastapi.routes import data as data_routes
 
 LOCAL = ("127.0.0.1", 50000)
+NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
 
 
 @pytest.fixture

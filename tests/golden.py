@@ -3,9 +3,10 @@
 ``assert_parity(sharpit_id, name, payload)`` checks ``payload`` against the first of, under
 ``fixtures/bootui/2.2.0/<sharpit_id>/``: ``<name>.captured.json``, ``<name>.provisional.json``, ``captured.json``,
 ``provisional.json`` (a provisional one emits :class:`UnverifiedParityWarning`: merges, counted unverified).
-Every golden key must be present with a compatible JSON type; extra payload keys are allowed. A payload ``null`` where
-the golden has a value passes only when ``nullable.json`` (``{"<path>": "<reason>"}``, list items as ``items[].key``)
-lists the path with a non-empty reason. A golden ``null`` accepts any payload type.
+Every golden key must be present with a compatible JSON type; extra payload keys are allowed. A golden list keeps one
+item per distinct shape: a payload item passes when it matches any of them. At a path (list items as ``items[].key``)
+a payload ``null`` passes when any golden item is ``null`` there or ``nullable.json`` (``{"<path>": "<reason>"}``)
+lists it with a non-empty reason, and any type a golden item has there is accepted. A golden ``null`` accepts any type.
 """
 
 from __future__ import annotations
@@ -46,16 +47,32 @@ def _kind(value: object) -> str:
     return "null" if value is None else type(value).__name__
 
 
-def _compare(expected: Any, actual: Any, path: str, nullable: Mapping[str, str], errors: list[str]) -> None:
+def _kinds(golden: Any, path: str, out: dict[str, set[str]]) -> dict[str, set[str]]:
+    """Every JSON kind the golden holds at each path, across all items of every list (``items[].key``)."""
+    out.setdefault(path, set()).add(_kind(golden))
+    if isinstance(golden, Mapping):
+        for key, value in golden.items():
+            _kinds(value, f"{path}.{key}" if path else key, out)
+    elif isinstance(golden, list):
+        for item in golden:
+            _kinds(item, f"{path}[]", out)
+    return out
+
+
+def _compare(  # noqa: C901 - one rule per branch, each documented in the module docstring
+    expected: Any, actual: Any, path: str, nullable: Mapping[str, str], kinds: Mapping[str, set[str]], errors: list[str]
+) -> None:
     if expected is None:
         return
     label = path or "<root>"
+    seen = kinds.get(path, set())
     if actual is None:
-        if path not in nullable:
+        if path not in nullable and "null" not in seen:
             errors.append(f"{label}: null in payload, golden has {_kind(expected)}; not listed in nullable.json")
         return
     if _kind(expected) != _kind(actual):
-        errors.append(f"{label}: payload is {_kind(actual)}, golden is {_kind(expected)}")
+        if _kind(actual) not in seen:  # another golden item at this path has the payload's type
+            errors.append(f"{label}: payload is {_kind(actual)}, golden is {_kind(expected)}")
         return
     if isinstance(expected, Mapping):
         for key, value in expected.items():
@@ -63,10 +80,16 @@ def _compare(expected: Any, actual: Any, path: str, nullable: Mapping[str, str],
             if key not in actual:
                 errors.append(f"{child}: missing from payload")
             else:
-                _compare(value, actual[key], child, nullable, errors)
+                _compare(value, actual[key], child, nullable, kinds, errors)
     elif isinstance(expected, list) and expected:
-        for item in actual:
-            _compare(expected[0], item, f"{path}[]", nullable, errors)
+        for item in actual:  # an item passes when it matches any golden shape; else report the closest one
+            tries: list[list[str]] = []
+            for shape in expected:
+                found: list[str] = []
+                _compare(shape, item, f"{path}[]", nullable, kinds, found)
+                tries.append(found)
+            if all(tries):
+                errors.extend(min(tries, key=len))
 
 
 def _fixture(folder: Path, name: str) -> tuple[Path, bool]:
@@ -88,7 +111,8 @@ def assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> Non
         for key, why in nullable.items()
         if not (isinstance(why, str) and why.strip())
     ]
-    _compare(_load(path), payload, "", nullable, errors)
+    expected = _load(path)
+    _compare(expected, payload, "", nullable, _kinds(expected, "", {}), errors)
     if errors:
         raise AssertionError(f"{sharpit_id}/{path.name} parity: " + "; ".join(errors))
     if not captured:
