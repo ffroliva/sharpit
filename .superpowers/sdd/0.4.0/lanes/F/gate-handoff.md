@@ -210,6 +210,51 @@ The two decisions as raised, before the ruling:
   head), but the rule refuses them. If review-finding regressions caught by an existing test should pass, the rule
   needs an exception, for example for rows marked as review findings.
 
+## Round 3 (gate run on F, review-gate round 2 minors, /code-review xhigh)
+
+| Finding | Test | Red SHA | Fix |
+|---|---|---|---|
+| Gate run on F: `overhead budget constant changed: scripts/dev/lane_gate.py` (self false positive) | `tests/scripts/test_lane_gate.py::test_lane_gate_ignores_budget_names_outside_overhead_modules` | `66566f234b8ebe18d859d586d5dac351e18226a8` | `288fb46` |
+| review-gate r2 minor 1: a new same-file def shadows a requested conftest fixture | `tests/scripts/test_lane_gate.py::test_lane_gate_refuses_new_definition_shadowing_a_requested_fixture` | `66566f234b8ebe18d859d586d5dac351e18226a8` | `288fb46` |
+| xhigh 10: an assert in a shared test helper refused | `tests/scripts/test_lane_gate.py::test_lane_gate_accepts_assertion_from_a_shared_test_helper` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 12: `Failed: DID NOT RAISE` refused | `tests/scripts/test_lane_gate.py::test_lane_gate_accepts_did_not_raise_from_the_test_file` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 13: `Parked: needs `F-rest`` read through its code span | `tests/scripts/test_lane_gate.py::test_lane_gate_reads_parked_disposition_with_code_span` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 14: a new method in the red test's class refused | `tests/scripts/test_lane_gate.py::test_lane_gate_allows_new_methods_in_the_red_test_class` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 14: a class attribute the red method uses not frozen | `tests/scripts/test_lane_gate.py::test_lane_gate_refuses_class_attribute_the_red_method_uses` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 15: the gates ran (and overwrote logs) after a replay refusal | `tests/scripts/test_lane_gate.py::test_lane_gate_skips_gates_after_a_replay_refusal` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 11: `--integration` not resolved | `tests/scripts/test_lane_gate.py::test_lane_gate_main_resolves_the_integration_path` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 6: a SHA log whose last line is not `exit 0` accepted | `tests/scripts/test_lane_gate.py::test_lane_gate_refuses_sha_log_whose_last_line_is_not_exit_0` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 7: `N/A — |` (empty reason) accepted | `tests/scripts/test_lane_gate.py::test_lane_gate_refuses_na_with_an_empty_reason` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 5: a non-pytest id outside a UI/manual table was only `unverified` | `tests/scripts/test_lane_gate.py::test_lane_gate_refuses_non_pytest_red_outside_a_manual_table` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 5: Vitest rows accepted only under a UI/manual heading | `tests/scripts/test_lane_gate.py::test_lane_gate_needs_accept_unverified_for_non_pytest_red` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 3: gate config (`tests/test_code_shape.py`, `tests/conftest.py`, `[tool.*]`) unprotected; `--allow-path` | `tests/scripts/test_lane_gate.py::test_lane_gate_refuses_gate_config_changes_unless_allowed` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+| xhigh 4: findings without a Disposition table accepted | `tests/scripts/test_lane_gate.py::test_lane_gate_refuses_findings_without_a_disposition_table` | `b523853549177407e81ddce8c53331f796f50d56` | `f9dae0e` |
+
+Controls added with `b523853` that already passed (the check existed): `test_lane_gate_refuses_overhead_module_changes`
+(2 cases: any diff to `tests/overhead.py`; an edited line in an overhead module) and
+`test_lane_gate_allows_new_tests_in_an_overhead_module`. Two earlier tests changed with this round's rules:
+`test_lane_gate_needs_accept_unverified_for_non_pytest_red` now puts its Vitest row under a `## UI reds` heading, and
+`test_lane_gate_allows_conftest_edits_the_red_test_does_not_request` passes `--allow-path tests/conftest.py`, because
+that file is now protected. The handoff template now states the current rules (review-gate r2 minor 4).
+
+Changes in behaviour, for the coordinator:
+
+- Budget protection: only overhead test modules are scanned (under `tests/`, defining a top-level `BUDGET*` or calling
+  `check_budget`). There, only new top-level test functions may be added. `tests/overhead.py` is protected outright.
+- Newly protected (each refusal turns into a printed `note:` with `--allow-path <path>`, repeatable):
+  `tests/test_code_shape.py`, `tests/conftest.py`, `conftest.py`, `tests/overhead.py`, and the `[tool.ruff]`,
+  `[tool.pyright]`, `[tool.pytest]`, `[tool.uv]` sections of `pyproject.toml` (all lanes, F included). F's diff at
+  `c1131e9` touches only its allowed paths (`pyproject.toml` dependencies, `uv.lock`, import-boundary).
+- A replay refusal now stops before the four gates, so the previous gate logs are kept.
+- Red frame rule: an `AssertionError` is refused only when its last frame is under `src/` or `site-packages`.
+
+Accepted residual risk (no code, per the coordinator): fixture-shadowing variants beyond a same-file def (autouse,
+hooks, `usefixtures` strings, `fixture(name=)`, `pytestmark`, transitive helpers, other modules, pytest config;
+review-gate r2 finding 2); checklist evidence-path quality (any existing path passes); names rebound inside
+compound top-level statements (`if`/`try`) are not seen. Review-gate r2 findings 3 (the fallback with no traceback
+tail), 5 (import alias keys, relative-import level) and 6 (Windows grandchild processes on a timeout) fail closed or
+need deliberate code. They are left as they are.
+
 ## What the gate says about lane F (ruled rules, replay only, at `c1131e9`)
 
 Log: `C:\development\github\sharpit-wt\0.4.0-integration\.superpowers\sdd\0.4.0\logs\F-gate-replay-F-c1131e9.log`

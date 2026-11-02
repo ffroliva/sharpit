@@ -24,14 +24,25 @@ Branch / worktree: `lane/0.4.0-<lane-id>` in `C:\development\github\sharpit-wt\0
 
 ## Red tests
 
-One row per red test. `Red SHA` is the `test:` commit where the test fails with an `AssertionError` against a
-wrong-value stub. The gate replays each row at that SHA and at the head, and refuses if the red SHA is not a lane commit
-that is an ancestor of the head, or if the test's function body changed after the red commit. Non-pytest rows (for
-example Vitest) are reported `unverified` and need `--accept-unverified`. The red must add or change the test (a test
-already on the integration branch is refused). After the red commit, its file may only gain new test functions, and no
-`conftest.py` on its path may change. The `AssertionError` must come from the test's own file. The reviewer, not the
-gate, checks that the red commit subject starts with `test:`, and that a review-finding red records the parent of its
-fix commit. Every row that names a test needs a Red SHA, unless the finding is `Parked: <reason>`.
+One row per red test, with the full pytest node id (`tests/...py::name`, or `::Class::name`). `Red SHA` is the `test:`
+commit where the test fails against a wrong-value stub. What `scripts/dev/lane_gate.py` checks for each row:
+
+- The red SHA is a lane commit (not on the integration branch) and an ancestor of the head. The test is added or
+  changed by the lane: a test that already exists on the integration branch is not a red. List it under "Not a red".
+- At the red SHA the test fails with an `AssertionError` (or pytest's `Failed: DID NOT RAISE` from the test file).
+  The failing frame may be the test or a shared test helper, never `src/` or an installed package. It must pass at
+  the head. An `<error>`, a skip, another exception or a pass refuses.
+- After the red commit, the test function itself (body, signature, decorators and marks) must not change. Neither may
+  any top-level name it uses in its file (constants, helpers, fixtures, imports, and class attributes for a method).
+  A new definition that shadows one of them counts as a change. A fixture it requests in a `conftest.py` on its path
+  must not change either. Added imports, new functions, classes, constants and new test methods are fine, and so are
+  edits to code the test does not use.
+- Every row that names a test needs a Red SHA, unless its Disposition is `Parked: <reason>`. Tables that are not red
+  tables (history, superseded, not-a-red) must not have a column header containing `Red SHA`.
+- Non-pytest reds (Vitest) go in a separate table under a heading containing `UI` or `manual`. They are reported
+  `unverified` and need `--accept-unverified`. A non-pytest id anywhere else refuses.
+- The reviewer, not the gate, checks that the red commit subject starts with `test:`, and that a review-finding red
+  records the parent of its fix commit.
 
 | Test id | Red SHA | Assertion message |
 |---|---|---|
@@ -40,9 +51,14 @@ fix commit. Every row that names a test needs a Red SHA, unless the finding is `
 ## Evidence (C2)
 
 - `findings.md`: table with `Finding | Test | Red SHA | Assertion message | Disposition`; every `Disposition` starts
-  with `Fixed` (and the row names its test) or `Parked: <reason>`.
+  with `Fixed` (and the row names its test) or `Parked: <reason>`. A findings file with rows but no table with a
+  `Disposition` column refuses.
 - `field-map.md`: the panel field map, or `N/A — not a panel lane`.
 - `checklist.md`: spec §6.1 items 1–10 in order, one table row each (`| 1 | ... | <evidence> |`), each with a
   backticked evidence path that exists, or `N/A — <reason>`.
 - Never in the lane diff: `review.md`, `gate/`, `live-verify.md` (the coordinator writes them in the integration
-  worktree).
+  worktree). Also refused unless the coordinator passes `--allow-path <path>`: `scripts/dev/lane_gate.py`,
+  `sonar-baseline.txt`, `tests/engine/test_import_boundary.py`, `uv.lock`, `tests/overhead.py`,
+  `tests/test_code_shape.py`, `tests/conftest.py`, `conftest.py`, dependency lists and the `[tool.ruff]`,
+  `[tool.pyright]`, `[tool.pytest]`, `[tool.uv]` sections of `pyproject.toml`, a raised or added complexity-baseline
+  entry, and any edit to an overhead test module other than added test functions.
