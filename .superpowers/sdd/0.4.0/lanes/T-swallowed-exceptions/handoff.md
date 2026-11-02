@@ -103,6 +103,16 @@ busy-wait in the callback → `overhead 5.998 us/exception ... budget 1.500` (As
   (47.085 µs, noise 55.236) and `test_request_overhead_budget` (0.200 ms, noise 0.044, budget 0.2). Re-run on their
   own together with this lane's budget: `3 passed`. Not raised; reported.
 
+- **Fix round 2** (red `15e30a3`, replayed at its SHA in detached `C:/t/sw-red2` with `PYTHONPATH=C:/t/sw-red2/src`:
+  `AssertionError: called helper raises`; fix `97509bf`): a nested def is followed when the handler references its name
+  (call, await, passed on); a lambda unless it is bound only to unreferenced names; an uncalled helper stays skipped.
+  `ruff check` clean, `ruff format --check` 485 files formatted, `pyright` 0 errors. Full suite (`uv run pytest -q -n auto`):
+  `3 failed, 4322 passed, 9 skipped, 6 errors`. Seven of the nine come from `no_side_effects` seeing
+  `findings.md` change: this round's evidence row was written while the suite ran. The other two are the load-sensitive
+  budgets, both reported within the noise (`test_statement_overhead_budget` 87.0 µs, noise 136.8;
+  `test_request_overhead_budget` 0.277 ms, noise 0.323). The nine re-run on their own with the lane tests,
+  import boundary and code shape: `266 passed`. Not raised; reported.
+
 ## How to resume
 
 Branch head is the evidence commit after `2e40aef`. Targeted loop:
