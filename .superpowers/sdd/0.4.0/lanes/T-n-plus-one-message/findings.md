@@ -21,7 +21,7 @@ Implementer: codex-gpt-6
 
 ## Historical Red Tests
 
-| Test | Historical SHA | Assertion | Disposition |
+| Test | Historical SHA | Assertion | Reason |
 |---|---|---|---|
 
 ## Superseded reds (coordinator, round 2)
