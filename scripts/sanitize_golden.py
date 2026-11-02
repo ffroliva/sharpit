@@ -174,9 +174,9 @@ def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
 
 
 def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None) -> None:
-    """``layout`` is ``"nested"`` (2.2.0: ``<id>/captured.json`` folders) or ``"flat"`` (1.17.0). Default: nested when the
-    source folder is named ``2.2.0``, else flat. ``repo`` is the root holding ``replica/evidence`` and
-    ``tests/fixtures/bootui`` (default: this repository; tests pass a temporary one)."""
+    """``layout`` is ``"nested"`` (2.2.0: ``<id>/captured.json`` folders) or ``"flat"`` (1.17.0).
+    Default: nested when the source folder is named ``2.2.0``, else flat.
+    ``repo`` is the root holding ``replica/evidence`` and ``tests/fixtures/bootui`` (default: this repository; tests pass a temporary one)."""
     repo = repo or Path(__file__).resolve().parents[1]
     src = src.resolve()
     dst = dst.resolve()
