@@ -106,3 +106,33 @@ def test_processor_meets_the_sdk_span_processor_contract():
     processor._on_ending("span")  # pyright: ignore[reportPrivateUsage] - newer SDKs call it on every processor
     processor.shutdown()
     assert processor.force_flush(1000) is True
+
+
+def plant_api(monkeypatch: pytest.MonkeyPatch, provider: Any, calls: list[str]) -> None:
+    """The real API's shape: a ``_TRACER_PROVIDER`` global (None until set) and a getter that may load an entry point."""
+    trace = ModuleType("opentelemetry.trace")
+    trace._TRACER_PROVIDER = provider  # type: ignore[attr-defined]
+    trace.get_tracer_provider = lambda: calls.append("get_tracer_provider") or FakeSdkProvider()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "opentelemetry.trace", trace)
+    monkeypatch.setitem(sys.modules, "opentelemetry.sdk.trace", ModuleType("opentelemetry.sdk.trace"))
+
+
+def test_unset_provider_is_never_resolved_through_the_getter(monkeypatch: pytest.MonkeyPatch):
+    # review r1: get_tracer_provider() loads OTEL_PYTHON_TRACER_PROVIDER's entry point and installs it: a GET must not
+    calls: list[str] = []
+    plant_api(monkeypatch, None, calls)
+    otel.unavailable_reason()
+    assert calls == []
+
+
+def test_unset_provider_is_unavailable(monkeypatch: pytest.MonkeyPatch):
+    plant_api(monkeypatch, None, [])
+    assert otel.unavailable_reason() == otel.NOT_SDK_PROVIDER
+
+
+def test_set_provider_is_read_from_the_global(monkeypatch: pytest.MonkeyPatch):
+    calls: list[str] = []
+    provider = FakeSdkProvider()
+    plant_api(monkeypatch, provider, calls)
+    otel.attach(Sink())
+    assert calls == []
