@@ -1,9 +1,9 @@
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from sharpit import install
-from sharpit.engine.capture.correlation import PagingContext, REQUEST, paging_of
+from sharpit.engine.capture.correlation import REQUEST, PagingContext, paging_of
 
 
 def _route() -> APIRoute:
