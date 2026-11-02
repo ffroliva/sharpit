@@ -7,7 +7,7 @@ from typing import Any
 
 from sharpit.engine.spi import SecuredRoute, SecurityChain, SecurityModel
 
-_SECURED = frozenset({"authenticated", "hasAuthority"})  # only a security scheme proves a route secured
+_SECURED = frozenset({"authenticated", "hasAuthority"})
 HIDDEN = "sharpit endpoints are hidden from this report"
 _Mounts = tuple[tuple[int, str | None], ...]
 

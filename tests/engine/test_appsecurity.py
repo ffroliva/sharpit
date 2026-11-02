@@ -36,10 +36,6 @@ def test_rule_classification_table(schemes: tuple[SecurityScheme, ...], expected
     assert classify(_route(*schemes)) == expected
 
 
-def test_route_level_unknown_dependency_is_custom():
-    assert classify(_route(unknown=True)) == ("custom", True, [], True)
-
-
 def test_single_chain_lists_middleware_outermost_first():
     # ported: SpringSecurityControllerTests.singleChainFiltersListedBySimpleClassName
     chain = SecurityChain(
@@ -130,6 +126,10 @@ def test_endpoints_sorted_by_pattern_then_method():
 def test_custom_guard_is_not_secured():
     # a scheme-less dependency is not a security scheme: rule custom, but nothing proves the route is secured
     assert classify(_route(unknown=True))[1] is False
+
+
+def test_route_level_unknown_dependency_is_custom_but_unsecured():
+    assert classify(_route(unknown=True)) == ("custom", False, [], True)
 
 
 def test_explain_after_an_unreadable_route_is_best_effort():

@@ -223,7 +223,7 @@ def _endpoint_rows(client: TestClient) -> list[tuple[str, str, bool, bool]]:
     return [(e["pattern"], e["rule"], e["secured"], e["bestEffort"]) for e in rows]
 
 
-def test_custom_route_never_touched_by_any_get():
+def test_custom_route_never_touched_by_any_get_lint_clean():
     trap = TrapRoute()
     app = FastAPI()
     app.router.routes.append(trap)
@@ -231,7 +231,13 @@ def test_custom_route_never_touched_by_any_get():
     client.get(API)
     client.get(f"{API}/endpoints")
     _explain(client, "GET", "/trap")
-    client.post(MCP, json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_fastapi_security"}})
+    call = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "get_fastapi_security"},
+    }
+    client.post(MCP, json=call)
     assert trap.touched == []
 
 
