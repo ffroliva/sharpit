@@ -75,7 +75,8 @@ class Fixture:
     def review(self, body: str | None = None) -> None:
         text = body if body is not None else f"Reviewer: claude-reviewer\nHead: {self.head}\n\nVERDICT: APPROVE\n"
         _write(self.integration, {f"{self.folder}/review.md": text})
-        logs = {f"{self.folder}/gate/{name}.log": f"{self.head}\nok\n" for name in ("lowest-direct", "no-sqlalchemy")}
+        names = ("lowest-direct", "no-sqlalchemy")
+        logs = {f"{self.folder}/gate/{name}.log": f"{self.head}\n$ cmd\nexit 0\nok\n" for name in names}
         _write(self.integration, logs)
 
     def options(self, **overrides: object) -> object:
@@ -113,7 +114,10 @@ class Fixture:
                 "error": '<error message="failed on setup">trace</error>',
                 "skip": '<skipped message="skip" />',
             }
-            if outcome != "absent":
+            if outcome == "mixed-params":  # one parametrisation fails as a red should, the other passes
+                cases.append(f'<testcase classname="{classname}" name="{name}[a]">{body["rewritten"]}</testcase>')
+                cases.append(f'<testcase classname="{classname}" name="{name}[b]"></testcase>')
+            elif outcome != "absent":
                 cases.append(f'<testcase classname="{classname}" name="{name}">{body[outcome]}</testcase>')
         junit.write_text(f"<testsuites><testsuite>{''.join(cases)}</testsuite></testsuites>", encoding="utf-8")
 
@@ -585,3 +589,107 @@ def test_lane_gate_refuses_when_the_fresh_environment_fails_to_sync(tmp_path: Pa
     result = lane_gate.evaluate(opts, run_gate=fx.run_gate, run_pytest=fx.run_pytest, prepare_env=lambda t: (1, "no"))
     assert _refused(result, "environment sync failed")
     assert fx.gate_calls == []
+
+
+# --- review round 1 minors --------------------------------------------------------------------------------------------
+
+
+def test_lane_gate_accepts_review_with_short_head_sha(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.review(f"# Review: lane x @ {fx.head[:7]}\nReviewer: claude-reviewer\n\nVERDICT: APPROVE\n")
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_refuses_review_with_too_short_or_wrong_prefix(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.review(f"# Review @ {fx.head[:6]} and {fx.red[:9]}\nReviewer: claude-reviewer\n\nVERDICT: APPROVE\n")
+    assert _refused(fx.evaluate(), "review.md: does not name the head SHA")
+
+
+def test_lane_gate_refuses_failed_sha_log(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    _write(fx.integration, {f"{fx.folder}/gate/no-sqlalchemy.log": f"{fx.head}\n$ cmd\nexit 1\nboom\n"})
+    assert _refused(fx.evaluate(), "gate/no-sqlalchemy.log does not record exit 0")
+
+
+def test_lane_gate_refuses_handoff_without_implementer(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    handoff = (fx.worktree / fx.folder / "handoff.md").read_text(encoding="utf-8").replace("Implementer: codex-x\n", "")
+    fx.commit({f"{fx.folder}/handoff.md": handoff}, "docs: drop implementer")
+    fx.review()
+    assert _refused(fx.evaluate(), "handoff.md: no 'Implementer: <id>' line")
+
+
+def test_lane_gate_refuses_bare_na_checklist_item(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    rows = "".join(f"| {n} | item {n} | {'N/A' if n == 2 else 'N/A — r'} |\n" for n in range(1, 11))
+    fx.commit({f"{fx.folder}/checklist.md": "| # | Item | Evidence |\n|---|---|---|\n" + rows}, "docs: checklist")
+    fx.review()
+    assert _refused(fx.evaluate(), "checklist.md: item 2 has N/A without a reason")
+
+
+def test_lane_gate_refuses_leased_log_with_prefix_match_only(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, lane="A-postgresql")
+    lines = [fx.head, *(f"tests/engine/test_pg.py::{name}_other PASSED" for name in LEASED_TESTS)]
+    _write(fx.integration, {f"{fx.folder}/gate/leased-pg.log": "\n".join(lines) + "\n"})
+    assert _refused(fx.evaluate(), "leased-pg")
+
+
+# --- coverage for checks that had no test (review finding 6) ---------------------------------------------------------
+
+
+def test_lane_gate_refuses_red_sha_that_is_not_an_ancestor_of_head(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    _write(fx.integration, {"other.txt": "x\n"})
+    _git(fx.integration, "add", "other.txt")
+    _git(fx.integration, "commit", "-q", "-m", "side commit")
+    side = _git(fx.integration, "rev-parse", "HEAD")
+    fx.evidence(handoff_extra=f"| `{TEST_ID}` | `{side}` | `x` |\n")
+    fx.review()
+    assert _refused(fx.evaluate(), f"red SHA {side} is not an ancestor of head")
+
+
+def test_lane_gate_refuses_red_test_missing_at_head(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.commit({"tests/test_widget.py": "from src.widget import widget\n"}, "test: drop the red")
+    fx.review()
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: test missing at head")
+
+
+def test_lane_gate_refuses_dirty_worktree(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    (fx.worktree / "src" / "widget.py").write_text("def widget():\n    return 9\n", encoding="utf-8")
+    assert _refused(fx.evaluate(), "lane worktree has uncommitted changes")
+
+
+def test_lane_gate_refuses_handoff_not_updated_by_the_lane(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    handoff = f"{fx.folder}/handoff.md"
+    _merge_release(fx, {handoff: (fx.worktree / handoff).read_text(encoding="utf-8")})
+    fx.head = _git(fx.worktree, "rev-parse", "HEAD")
+    fx.review()
+    assert _refused(fx.evaluate(), "handoff.md is not current")
+
+
+def test_lane_gate_refuses_lane_f_rekey_that_raises_the_total(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, lane="F", review=False)
+    fx.commit({"tests/complexity_baseline.json": json.dumps({"src/a2.py": 4, "src/b.py": 2}) + "\n"}, "refactor")
+    fx.review()
+    assert _refused(fx.evaluate(), "complexity baseline total rose")
+
+
+def test_lane_gate_refuses_bare_id_when_one_parametrisation_passes_at_red(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "mixed-params"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: passed at red SHA")
+
+
+def test_lane_gate_removes_the_replay_tree_when_pytest_raises(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+
+    def boom(tree: Path, nodeids: Sequence[str], junit: Path) -> None:
+        raise RuntimeError("replay crashed")
+
+    with pytest.raises(RuntimeError, match="replay crashed"):
+        lane_gate.evaluate(fx.options(), run_gate=fx.run_gate, run_pytest=boom)
+    assert len(_git(fx.integration, "worktree", "list").splitlines()) == 2
