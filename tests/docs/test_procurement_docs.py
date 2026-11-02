@@ -343,9 +343,25 @@ def test_skills_readme_stale_line_corrected() -> None:
     assert skills_path.is_file(), "skills/README.md must exist"
     skills_text = skills_path.read_text(encoding="utf-8")
 
-    assert "Labelled pre-release" not in skills_text, (
-        "skills/README.md must not contain stale 'Labelled pre-release' in skill index"
+    assert (
+        re.search(
+            r"\|\s*`sharpit`\s*\|\s*\(none:\s*user-facing\)\s*\|.*pre-release",
+            skills_text,
+            re.IGNORECASE,
+        )
+        is not None
+    ), "skills/README.md must retain user-facing sharpit skill entry labelled pre-release"
+
+    assert "sharpit has no SonarQube project" not in skills_text, (
+        "skills/README.md must not claim sharpit has no SonarQube project (it uses SonarCloud)"
     )
-    assert re.search(r"\|\s*`sharpit`\s*\|\s*\(none:\s*user-facing\)\s*\|", skills_text) is not None, (
-        "skills/README.md must retain user-facing sharpit skill entry"
+    assert "SonarCloud" in skills_text or "sonar" in skills_text.lower(), (
+        "skills/README.md provenance table must accurately cite SonarCloud"
+    )
+
+    assert "CHANGELOG.md" not in skills_text, (
+        "skills/README.md must not list CHANGELOG.md as a file sharpit does not have yet"
+    )
+    assert "KNOWN_ISSUES.md" in skills_text, (
+        "skills/README.md must cite KNOWN_ISSUES.md as a file sharpit does not have yet"
     )
