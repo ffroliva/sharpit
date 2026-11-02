@@ -11,6 +11,9 @@
     "generatedAt",
     "status",
     "statusReasons",
+    "mode",
+    "unknownReasons",
+    "baseline",
     "warnings",
     "gates",
     "sources",
@@ -215,7 +218,7 @@
     "finding": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["ruleId", "advisor", "severity", "target", "message", "fingerprint", "testNodeId", "dismissed"],
+      "required": ["ruleId", "advisor", "severity", "target", "message", "fingerprint", "testNodeId", "dismissed", "observed", "baselineState"],
       "properties": {
         "ruleId": {"type": "string"},
         "advisor": {"type": "string"},
