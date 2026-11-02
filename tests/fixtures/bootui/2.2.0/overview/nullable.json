@@ -1,0 +1,4 @@
+{
+  "managementPort": "null: a Python/ASGI app has no separate Spring management port",
+  "contextPath": "null: there is no servlet context path; FastAPI's root_path is not a context path"
+}

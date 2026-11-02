@@ -1,0 +1,120 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "capturing": true,
+  "window": {
+    "retainedStatements": 78,
+    "bufferSize": 200,
+    "evicted": 0,
+    "totalCaptured": 78,
+    "oldestTimestamp": 1700000000000,
+    "newestTimestamp": 1700000000000,
+    "totalDurationMillis": 325.088
+  },
+  "statements": [
+    {
+      "id": "insert into audit_entries (account_id, event_type, stream_version, payload, occurred_at, recorded_at, actor) values (?, ?, ?, ?::jsonb, ?, ?, ?) on conflict (account_id, stream_version) do nothing",
+      "sql": "INSERT INTO audit_entries (account_id, event_type, stream_version, payload, occurred_at, recorded_at, actor) VALUES (?, ?, ?, ?::jsonb, ?, ?, ?) ON CONFLICT (account_id, stream_version) DO NOTHING",
+      "category": "INSERT",
+      "executions": 4,
+      "totalDurationMillis": 29.173,
+      "maxDurationMillis": 9.469,
+      "avgDurationMillis": 7.29325,
+      "errorCount": 0,
+      "p50DurationMillis": 6.71,
+      "p95DurationMillis": 9.469,
+      "p99DurationMillis": 9.469,
+      "shareOfRetainedTimePercent": 8.97,
+      "topFor": [
+        "TOTAL_DURATION",
+        "MAX_DURATION",
+        "EXECUTIONS"
+      ],
+      "potentialNPlusOne": false,
+      "callSites": [
+        "com.ffroliva.tinyledger.audit.adapter.out.postgres.PostgresAuditTrail.recordEntry(PostgresAuditTrail.java:28)"
+      ],
+      "entryIds": [
+        59,
+        46,
+        37
+      ],
+      "entryIdsTruncated": false
+    }
+  ],
+  "topPerCriterion": 10,
+  "statementsTruncated": true,
+  "distinctStatements": 44,
+  "attribution": {
+    "available": true,
+    "unavailableReason": null,
+    "supportedCorrelations": [
+      "SERVING_THREAD",
+      "TIME_WINDOW",
+      "TRACE_ID"
+    ],
+    "requestsConsidered": 7,
+    "routes": [
+      {
+        "id": "PUT /api/v1/accounts/{accountUid}/withdrawals/{withdrawalUid}",
+        "method": "PUT",
+        "route": "/api/v1/accounts/{accountUid}/withdrawals/{withdrawalUid}",
+        "routeSource": "ROUTE_TEMPLATE",
+        "requests": 2,
+        "executions": 15,
+        "totalDurationMillis": 34.683,
+        "maxDurationMillis": 2.997,
+        "avgDurationMillis": 2.3122,
+        "errorCount": 0,
+        "distinctStatements": 9,
+        "shareOfRetainedTimePercent": 10.67,
+        "traceCorrelated": 15,
+        "threadCorrelated": 0,
+        "timeWindowCorrelated": 0,
+        "topStatements": [
+          {
+            "statementId": "insert into events (aggregate_id, aggregate_type, event_type, sequence_number, payload, created_at, client_movement_uid) values (?, ?, ?, ?, ?::jsonb, ?, ?)",
+            "sql": "INSERT INTO events (aggregate_id, aggregate_type, event_type, sequence_number, payload, created_at, client_movement_uid) VALUES (?, ?, ?, ?, ?::jsonb, ?, ?)",
+            "category": "INSERT",
+            "executions": 2,
+            "totalDurationMillis": 5.829,
+            "maxDurationMillis": 2.997,
+            "errorCount": 0
+          }
+        ],
+        "topStatementsTruncated": true,
+        "entryIds": [
+          56,
+          55,
+          54
+        ]
+      }
+    ],
+    "routesTruncated": false,
+    "distinctRoutes": 5,
+    "attributedExecutions": 33,
+    "unattributed": {
+      "executions": 41,
+      "totalDurationMillis": 205.726,
+      "errorCount": 0,
+      "shareOfRetainedTimePercent": 63.28,
+      "reason": "No captured request could have issued these statements: none was in flight for the whole execution, or the request whose trace id the statement carries is no longer retained. Background jobs, scheduled work, startup and schema migrations belong here."
+    },
+    "ambiguous": {
+      "executions": 4,
+      "totalDurationMillis": 17.521,
+      "errorCount": 0,
+      "shareOfRetainedTimePercent": 5.39,
+      "reason": "More than one captured request was an equally plausible source, so BootUI refused to pick one. Concurrent identical requests and a reused inbound trace id both produce this."
+    },
+    "notes": [
+      "Time-window correlation is used only when exactly one captured request was in flight; overlapping candidates are reported as ambiguous instead.",
+      "Routes are grouped by the route template the runtime reports or the application declares. A path no declared route matches is grouped by a masked path instead, where every segment that does not read like a fixed route word is replaced. Query strings are never used."
+    ]
+  },
+  "notes": [
+    "Rankings cover the 78 statement executions currently retained in the SQL Trace buffer of 200. They are diagnostic evidence for this window, not lifetime metrics.",
+    "Only the top 10 statements per ranking criterion are listed; 44 distinct normalized statements were observed.",
+    "Statements are grouped after normalization: literal values are replaced with placeholders, so equivalent executions aggregate and no bound value is shown."
+  ]
+}

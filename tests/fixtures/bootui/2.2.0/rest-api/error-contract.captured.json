@@ -1,0 +1,38 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "total": 7,
+  "handlerCount": 3,
+  "componentCount": 1,
+  "exceptionTypeCount": 7,
+  "truncated": false,
+  "maxEntries": 500,
+  "entries": [
+    {
+      "id": "com.ffroliva.tinyledger.platform.ErrorHandlingAdvice#malformed(jakarta.validation.ConstraintViolationException)",
+      "exceptionType": "jakarta.validation.ConstraintViolationException",
+      "exceptionSimpleName": "ConstraintViolationException",
+      "component": "com.ffroliva.tinyledger.platform.ErrorHandlingAdvice",
+      "componentSimpleName": "ErrorHandlingAdvice",
+      "method": "malformed",
+      "source": "SPRING_CONTROLLER_ADVICE",
+      "scope": "GLOBAL",
+      "scopeTarget": null,
+      "precedence": 1,
+      "precedenceSource": "DECLARED",
+      "status": null,
+      "statusSource": "DYNAMIC",
+      "bodyCategory": "PROBLEM_DETAIL",
+      "bodyType": "org.springframework.http.ProblemDetail",
+      "produces": []
+    }
+  ],
+  "page": {
+    "total": 7,
+    "matched": 7,
+    "offset": 0,
+    "limit": 7,
+    "returned": 7,
+    "hasMore": false
+  }
+}

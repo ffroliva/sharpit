@@ -1,0 +1,9 @@
+{
+  "available": false,
+  "unavailableReason": "The BootUI agent's caught-exceptions sensor does not record in this run: attach the agent and claim the caught-exceptions sensor (bootui.agent.sensors) to see what application code caught.",
+  "limitations": [],
+  "settling": 0,
+  "occurrences": 0,
+  "findings": 0,
+  "rows": []
+}

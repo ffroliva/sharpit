@@ -38,11 +38,16 @@ def pytest_addoption(parser: Any) -> None:
     group.addoption(
         "--sharpit-max-unattributed", type=float, default=None, metavar="PCT", help="unattributed SQL limit"
     )
-    # 0.4.0 (spec §5.1-5.2): accepted and inert until G1G2 reads them in resolve()
-    reserved = "(reserved for 0.4.0; currently has no effect)"  # G1G2 writes the real help
-    group.addoption("--sharpit-report-only", action="store_true", default=None, help=reserved)
-    group.addoption("--sharpit-baseline", default=None, metavar="PATH", help=reserved)
-    group.addoption("--sharpit-write-baseline", action="store_true", default=None, help=reserved)
+    group.addoption(
+        "--sharpit-report-only", action="store_true", default=None, help="report findings without gating pytest"
+    )
+    group.addoption("--sharpit-baseline", default=None, metavar="PATH", help="compare findings with a baseline file")
+    group.addoption(
+        "--sharpit-write-baseline",
+        default=None,
+        metavar="PATH",
+        help="write a baseline after a complete run (the only way to write one)",
+    )
     _add_ini(parser)
 
 
@@ -59,6 +64,8 @@ def _add_ini(parser: Any) -> None:
     parser.addini("sharpit_require_app", "Treat a run with no application as unknown", type="bool", default=False)
     parser.addini("sharpit_advisors", "Run application advisors", type="bool", default=True)
     parser.addini("sharpit_max_unattributed", "Maximum unattributed SQL percentage", default="10")
+    parser.addini("sharpit_report_only", "Report findings without gating pytest", type="bool", default=False)
+    parser.addini("sharpit_baseline", "Baseline file to compare", default="")
 
 
 @dataclass(frozen=True)
@@ -74,6 +81,9 @@ class PluginOptions:
     max_unattributed: float
     require_app: bool = False
     verbose: bool = False
+    report_only: bool = False
+    baseline: Path | None = None
+    write_baseline: Path | None = None
 
 
 def resolve(config: Any) -> PluginOptions:
@@ -118,4 +128,7 @@ def resolve(config: Any) -> PluginOptions:
         unattributed,
         bool(value("require_app", False)),
         bool(value("verbose", False)) or (getattr(option, "verbose", 0) or 0) >= 2,  # -vv lists notes too
+        bool(value("report_only", False)),
+        Path(value("baseline", "")) if value("baseline", "") else None,
+        Path(option.sharpit_write_baseline) if getattr(option, "sharpit_write_baseline", None) else None,
     )

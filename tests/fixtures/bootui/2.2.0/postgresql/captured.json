@@ -1,0 +1,198 @@
+{
+  "localOnly": true,
+  "disclaimer": "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a wall-clock budget. The session list is a live snapshot; every other number is cumulative since the last statistics reset and covers every client of the database, not only this application.",
+  "status": "PARTIAL",
+  "message": "Some results are incomplete; see the section details and diagnostics.",
+  "readAt": 1700000000000,
+  "databasesRead": 1,
+  "truncated": false,
+  "databases": [
+    {
+      "name": "dataSource",
+      "databaseName": "tiny_ledger",
+      "serverVersion": "16.15",
+      "serverMajorVersion": 16,
+      "role": "ledger",
+      "monitoringRole": true,
+      "status": "PARTIAL",
+      "message": null,
+      "vitalSigns": {
+        "databaseName": "tiny_ledger",
+        "cacheHitRatio": 0.9975907400618027,
+        "rollbackRatio": 0.002476361999099505,
+        "transactionsCommitted": 4431,
+        "transactionsRolledBack": 11,
+        "connections": 10,
+        "maxConnections": 100,
+        "connectionUsageRatio": 0.1,
+        "activeSessions": 1,
+        "idleInTransactionSessions": 0,
+        "longestTransactionSeconds": 0.092471,
+        "blockedSessions": 0,
+        "transactionIdAge": 79,
+        "wraparoundLimit": 200000000,
+        "wraparoundUsageRatio": 3.95e-07,
+        "databaseSizeBytes": 8207383,
+        "deadlocks": 0,
+        "temporaryFiles": 0,
+        "temporaryBytes": 0
+      },
+      "sections": [
+        {
+          "id": "settings",
+          "title": "Notable settings",
+          "status": "AVAILABLE",
+          "reason": null,
+          "hint": null,
+          "rowCount": 21,
+          "truncated": false
+        },
+        {
+          "id": "statements",
+          "title": "Statement ranking",
+          "status": "SKIPPED",
+          "reason": "The pg_stat_statements extension is not installed on this server.",
+          "hint": "Install the extension (shared_preload_libraries = 'pg_stat_statements', then CREATE EXTENSION pg_stat_statements;) to rank statements by execution time.",
+          "rowCount": 0,
+          "truncated": false
+        },
+        {
+          "id": "vacuum",
+          "title": "Autovacuum health",
+          "status": "AVAILABLE",
+          "reason": null,
+          "hint": "Autovacuum \"due\" is computed against the live-tuple estimate in pg_stat_user_tables, whereas autovacuum itself uses pg_class.reltuples, and only the dead-tuple trigger is modelled: an insert-only table can also be vacuumed by autovacuum_vacuum_insert_threshold.",
+          "rowCount": 7,
+          "truncated": false
+        }
+      ],
+      "sessions": [
+        {
+          "pid": 26873,
+          "user": "ledger",
+          "applicationName": "PostgreSQL JDBC Driver",
+          "clientAddress": "127.0.0.1",
+          "state": "active",
+          "waitEventType": null,
+          "waitEvent": null,
+          "blockedBy": null,
+          "stateSeconds": 0.049384,
+          "transactionSeconds": 0.111254,
+          "querySeconds": 0.049396,
+          "query": "select current_database() as database_name, pg_database_size(current_database()) as database_size, d.xact_commit as xact_commit, d.xact_rollback as xact_rollback, d.blks_read as blks_read, d.blks_hit as blks_hit, (select sum(numbackends)::int from pg_stat_database) as backends, d.deadlocks as deadlocks, d.temp_files as temp_files, d.temp_bytes as temp_bytes, age(p.datfrozenxid) as xid_age, (selec…"
+        },
+        {
+          "pid": 26875,
+          "user": "ledger",
+          "applicationName": "PostgreSQL JDBC Driver",
+          "clientAddress": "127.0.0.1",
+          "state": "idle",
+          "waitEventType": "Client",
+          "waitEvent": "ClientRead",
+          "blockedBy": null,
+          "stateSeconds": 82.243581,
+          "transactionSeconds": null,
+          "querySeconds": 82.243754,
+          "query": "SET application_name = '******'"
+        }
+      ],
+      "statements": [],
+      "indexes": [
+        {
+          "schema": "public",
+          "table": "event_publication",
+          "index": "event_publication_serialized_event_hash_idx",
+          "scans": 0,
+          "tuplesRead": 0,
+          "sizeBytes": 32768,
+          "unique": false,
+          "primaryKey": false,
+          "constraintBacked": false
+        }
+      ],
+      "tables": [
+        {
+          "schema": "public",
+          "table": "events",
+          "totalSizeBytes": 81920,
+          "tableSizeBytes": 16384,
+          "indexSizeBytes": 65536,
+          "liveTuples": 8,
+          "deadTuples": 0,
+          "sequentialScans": 4,
+          "sequentialTuplesRead": 0,
+          "indexScans": 22,
+          "sequentialScanRatio": 0.15384615384615385
+        },
+        {
+          "schema": "public",
+          "table": "databasechangelog",
+          "totalSizeBytes": 16384,
+          "tableSizeBytes": 16384,
+          "indexSizeBytes": 0,
+          "liveTuples": 6,
+          "deadTuples": 0,
+          "sequentialScans": 20,
+          "sequentialTuplesRead": 90,
+          "indexScans": null,
+          "sequentialScanRatio": 1.0
+        }
+      ],
+      "vacuum": [
+        {
+          "schema": "public",
+          "table": "event_publication",
+          "liveTuples": 3,
+          "deadTuples": 7,
+          "deadTupleRatio": 0.7,
+          "vacuumThreshold": 50,
+          "vacuumDue": false,
+          "autovacuumEnabled": true,
+          "lastVacuum": null,
+          "lastAutoVacuum": null,
+          "lastAnalyze": null,
+          "lastAutoAnalyze": null
+        }
+      ],
+      "replication": {
+        "inRecovery": false,
+        "replicas": [],
+        "checkpointsTimed": 61,
+        "checkpointsRequested": 1,
+        "checkpointWriteSeconds": 115.936,
+        "replicationSlots": 0,
+        "inactiveReplicationSlots": 0,
+        "walLevel": "replica",
+        "replicasAvailable": true
+      },
+      "settings": [
+        {
+          "name": "autovacuum",
+          "value": "on",
+          "unit": null,
+          "source": "default",
+          "note": "Off means routine vacuum and analyze never run; anti-wraparound vacuum still does."
+        },
+        {
+          "name": "checkpoint_timeout",
+          "value": "300",
+          "unit": "s",
+          "source": "default",
+          "note": "How often a time-triggered checkpoint runs."
+        }
+      ],
+      "changes": [],
+      "truncated": false
+    }
+  ],
+  "diagnostics": [
+    {
+      "source": "dataSource/statements",
+      "level": "WARNING",
+      "message": "The pg_stat_statements extension is not installed on this server."
+    }
+  ],
+  "limitations": [
+    "dataSource/statements: The pg_stat_statements extension is not installed on this server."
+  ]
+}

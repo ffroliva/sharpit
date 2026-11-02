@@ -59,3 +59,17 @@ def test_schema_lets_consumers_ignore_new_keys() -> None:
 def test_schema_copies_identical() -> None:
     """The wheel's copy and the documented copy are the same bytes."""
     assert PACKAGED.read_bytes() == PUBLISHED.read_bytes()
+
+
+@pytest.mark.parametrize("key", ["mode", "unknownReasons", "baseline"])
+def test_schema_requires_the_040_report_keys(key: str) -> None:
+    data = render_parts(part())
+    del data[key]
+    assert _errors(data) != [], f"{key} is emitted on every report, so the schema must require it"
+
+
+@pytest.mark.parametrize("key", ["observed", "baselineState"])
+def test_schema_requires_the_040_finding_keys(key: str) -> None:
+    data = render_parts(busy_part())
+    del data["findings"][0][key]
+    assert _errors(data) != [], f"finding {key} is always emitted, so the schema must require it"

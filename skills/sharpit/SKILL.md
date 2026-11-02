@@ -22,8 +22,7 @@ development only**: it switches itself off unless it has a reason to be on, and 
 Python 3.12+. Runtime dependencies are only `starlette` and `packaging`; FastAPI 0.115+ is the supported host.
 
 ```bash
-# from a local checkout (no PyPI release yet)
-uv add --editable ../sharpit        # or: pip install -e ../sharpit
+uv add "sharpit[fastapi]"           # or: pip install "sharpit[fastapi]"
 ```
 
 ## Add it to an app
@@ -42,6 +41,8 @@ sharpit.install(app)  # mounts /sharpit and /sharpit/api
   `TypeError`.
 - `settings=` takes your app's own settings objects (for example a pydantic-settings instance) so the Config panel can
   show where each value came from. pydantic-settings is read only if it is installed.
+- `models=` takes SQLAlchemy 2.0 mapped classes for the Data panel: a declarative base, a registry, or a list of them
+  or of mapped classes (`sharpit.install(app, models=Base)`). sharpit never configures mappers or runs SQL for it.
 - `install()` reads settings once, decides activation once, and inserts its mount first in `app.router.routes`, so a
   catch-all route of yours cannot shadow it. It does no I/O at install time; expensive work runs on the first GET that
   needs it.
@@ -131,6 +132,14 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Vulnerabilities | `GET {api}/vulnerabilities`, `POST {api}/vulnerabilities/scan` | installed distributions against OSV, scored with EPSS |
 | MCP server | `GET {api}/mcp-server`, `POST {api}/mcp` | read-only MCP for agents |
 | CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the scan, over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
+| Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
+| PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
+
+Data rows are listed with `relationships: null` and the reason "Mappers are not configured yet: the app has not run a
+query" until the app's first query has configured the mappers. PostgreSQL query text is masked (string, dollar-quoted
+and numeric literals; comments dropped) unless `SHARPIT_EXPOSE_VALUES=FULL`. If `pg_stat_statements` is not preloaded,
+the statements section is `SKIPPED`. sharpit's own PostgreSQL tests run only against a leased database
+(`SHARPIT_TEST_POSTGRES_URL`) and skip without one.
 
 JSON follows BootUI's contract: camelCase keys, every key present (nulls included), epoch milliseconds, no envelope.
 Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": "..."}`.
@@ -160,6 +169,42 @@ Key CLI flags:
 - `--sharpit-fail-on=SEV`: Minimum advisor severity that fails the run (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`; default `HIGH`).
 - `--sharpit-allow-unknown`: Prevent `unknown` status from failing the session.
 - `--sharpit-no-advisors`: Run count gates only and skip advisor scans.
+- `--sharpit-require-app`: No application found (or several, or one without routes) makes the run `unknown`, as in
+  0.3.0. Without it, the `rest-api` advisor is `SKIPPED` and a clean suite passes.
+- `--sharpit-verbose` (or `-vv`): List every finding in the terminal `gate counts:`; by default only failing ones are
+  listed and advisor notes below the gate are summarised in one line.
+- `--sharpit-report-only`: Run every gate and write the report, but findings fail nothing. Unknown reasons still exit 1.
+- `--sharpit-baseline=PATH` / `--sharpit-write-baseline=PATH`: Compare findings with a baseline, or write one.
+
+Every flag except `--sharpit-write-baseline` also has an ini option (`sharpit_require_app`, `sharpit_verbose`,
+`sharpit_report_only`, `sharpit_baseline`, ...).
+
+### Finding the application
+
+When no app was installed with `sharpit.install(...)` and no `--sharpit-app` is given, sharpit picks the FastAPI or
+Starlette app defined in the project modules the tests already imported. It never imports a module or runs module code
+to do this, and ignores installed packages, the standard library, `conftest` and test modules. The summary says which:
+
+```
+sharpit: using app myproject.main:app (pass --sharpit-app to choose)
+sharpit: several apps found (myproject.admin:app, myproject.main:app); pass --sharpit-app module:attr
+sharpit: no application found; rest-api skipped (pass --sharpit-app module:attr)
+```
+
+A skipped advisor does not make the session `unknown`; a database driver sharpit cannot trace still does.
+
+### Report-only mode and baselines
+
+- `--sharpit-report-only`: findings do not fail tests, JUnit cases or the session. The terminal ends with
+  `sharpit report-only: N tests would fail, status <status>`. Report-only relaxes findings, never blindness: any unknown
+  reason (including a broken baseline) still exits 1 unless `--sharpit-allow-unknown`.
+- With `--sharpit-baseline=PATH` each finding gets `baselineState`: `existing` (listed; never fails), `new` (unlisted;
+  gates as usual) or `fixed` (listed, not seen). A count gate above its baselined `observed` count is `new`. On a
+  partial run `fixed` is `null` with `fixedReason: "partial run"`. Vulnerability findings are not baselined in 0.4.0.
+- `--sharpit-write-baseline=PATH` refuses (file not written) a partial run (`-k`, `-m`, node ids, `--lf`, `--deselect`,
+  `-x` stopping early, an interrupt, under xdist too) and a run with any unknown reason.
+- A missing or malformed baseline is an unknown reason, never sharpit off. Renaming a test makes its findings `new`.
+- An explicit dismissal wins over a baseline. INFO findings never fail.
 
 ### Reading the report and statuses
 
@@ -193,6 +238,13 @@ dismissedRules:
 - A fingerprint dismisses only that exact occurrence.
 - The web console UI also provides a "dismiss this finding" action in the REST API details drawer.
 - Committing `sharpit.yml` to version control establishes the accepted baseline for CI gates.
+
+`GET/POST/DELETE {api}/dismissed-findings` keep per-finding dismissals in the same file under `dismissedFindings:`,
+next to `dismissedRules:`. POST and DELETE take `{"ruleId": "...", "identity": "...", "note": "optional, at most 200
+characters"}` as `application/json`; the identity may contain spaces, and the rule's owning panel must be enabled and
+writable. Notes are stored Base64URL-encoded and returned only by `GET` (no MCP tool or CLI command).
+`SHARPIT_READ_ONLY=true` refuses the mutations with 403; listing still works. At most 1000 dismissed findings (409
+beyond).
 
 ## Common mistakes
 
