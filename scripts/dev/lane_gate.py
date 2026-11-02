@@ -41,7 +41,7 @@ WORKTREE_ROOT = Path(r"C:\development\github\sharpit-wt")
 LANES = ".superpowers/sdd/0.4.0/lanes"
 EVIDENCE = ("handoff.md", "findings.md", "field-map.md", "checklist.md")
 SHA_LOGS = ("lowest-direct", "no-sqlalchemy")  # run by the coordinator in a throwaway copy, pinned to the head SHA
-GATES: tuple[tuple[str, tuple[str, ...], int], ...] = (  # run in a fresh tree whose env sync_env just built
+GATES: tuple[tuple[str, tuple[str, ...], int], ...] = (  # run in a fresh tree after SYNC built its env
     ("ruff-check", ("uv", "run", "--no-sync", "ruff", "check"), 300),
     ("ruff-format", ("uv", "run", "--no-sync", "ruff", "format", "--check"), 300),
     ("pyright", ("uv", "run", "--no-sync", "pyright"), 900),
@@ -533,19 +533,8 @@ def _env(**extra: str) -> dict[str, str]:
     return {"UV_LINK_MODE": "copy", **env, **extra}
 
 
-def sync_env(tree: Path) -> tuple[int, str]:
-    """Build the fresh tree's own .venv from the lane's lock (``uv sync --frozen --extra test``)."""
-    try:
-        done = subprocess.run(
-            list(SYNC), cwd=tree, env=_env(), capture_output=True, text=True, encoding="utf-8", timeout=900
-        )
-    except subprocess.TimeoutExpired:
-        return 124, "uv sync timed out after 900s"
-    return done.returncode, done.stdout + done.stderr
-
-
 def run_gate_command(name: str, command: Sequence[str], cwd: Path) -> tuple[int, str]:
-    timeout = next(t for n, _c, t in GATES if n == name)
+    timeout = next((t for n, _c, t in GATES if n == name), 900)  # uv-sync: 900 s
     try:
         done = subprocess.run(
             list(command), cwd=cwd, env=_env(), capture_output=True, text=True, encoding="utf-8", timeout=timeout
@@ -622,7 +611,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     worktree: Path = args.worktree or WORKTREE_ROOT / f"0.4.0-{args.lane}"
     sha: str = args.sha or _git(worktree, "rev-parse", "HEAD").stdout.strip()
     opts = Options(args.lane, worktree, sha, args.integration, args.accept_unverified, args.no_rerun)
-    result = evaluate(opts, run_gate=run_gate_command, run_pytest=run_pytest_in(opts.integration), prepare_env=sync_env)
+    result = evaluate(
+        opts,
+        run_gate=run_gate_command,
+        run_pytest=run_pytest_in(opts.integration),
+        prepare_env=lambda tree: run_gate_command("uv-sync", SYNC, tree),  # the fresh tree's own .venv, lane's lock
+    )
     for line in result.unverified:
         print(f"unverified: {line}")
     for line in result.refusals:
