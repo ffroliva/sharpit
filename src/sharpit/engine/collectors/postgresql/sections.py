@@ -580,10 +580,15 @@ REPLICATION = Collector("replication", "Replication, checkpoints and WAL", _repl
 COLLECTORS = (SETTINGS, VITAL_SIGNS, SESSIONS, STATEMENTS, INDEXES, TABLES, VACUUM, REPLICATION)
 
 
-def collect(conn: Any, masker: Masker, limits: RowLimits, budget: ReadBudget) -> DatabaseData:
-    """Every section of one engine, on a connection ``sqla.bounded_read_only`` already pinned read-only."""
+def collect(
+    conn: Any, masker: Masker, limits: RowLimits, budget: ReadBudget, data: DatabaseData | None = None
+) -> DatabaseData:
+    """Every section of one engine, on a connection ``sqla.bounded_read_only`` already pinned read-only.
+
+    ``data`` is filled in place, so a caller whose wall timeout fired still holds the sections read so far.
+    """
     ctx = ReadContext(conn, masker, limits, budget)
-    data = DatabaseData("")
+    data = data if data is not None else DatabaseData("")
     role = read_one(
         ctx, "Connected role", queries.ROLE_SQL, lambda r: (_str(r, "role_name"), bool(r.get("monitoring")))
     )

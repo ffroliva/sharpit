@@ -9,12 +9,18 @@ only (``ctx.lazy``), so ``changes`` appear from the second read on and nothing i
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.collectors.postgresql.limits import READ_BUDGET, STATEMENT_TIMEOUT, RowLimits
-from sharpit.engine.collectors.postgresql.sections import DatabaseData, ReadBudget, collect
+from sharpit.engine.collectors.postgresql.sections import (
+    BUDGET_SKIPPED,
+    COLLECTORS,
+    DatabaseData,
+    ReadBudget,
+    collect,
+)
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
 
@@ -40,6 +46,10 @@ UNREAD = "The read budget ran out before this datasource was read."
 _LABELS = {"sqlite": "SQLite", "mysql": "MySQL", "mariadb": "MariaDB", "mssql": "SQL Server", "oracle": "Oracle"}
 
 _clock = time.monotonic  # test seam: the read budget's clock
+# the wall timeout outlasts the cooperative budget by one statement plus this margin, so the budget's own SKIPPED path
+# is what normally stops a slow read; the wall timeout is only the backstop
+WALL_MARGIN = 1.0
+BUDGET_RAN_OUT = "The read budget ran out while reading this datasource."
 
 Dto = dict[str, Any]
 
@@ -133,8 +143,11 @@ async def _read_engine(
     limits = RowLimits.from_settings(ctx.settings)
     executor = ctx.lazy("postgresql.executor", lambda: DaemonExecutor(2, thread_name_prefix="sharpit-postgresql"))
 
+    partial = DatabaseData(name)
+    timed_out = False
+
     def read(conn: Any) -> tuple[DatabaseData, Any]:
-        return collect(conn, ctx.masker, limits, budget), getattr(conn.dialect, "server_version_info", None)
+        return collect(conn, ctx.masker, limits, budget, partial), getattr(conn.dialect, "server_version_info", None)
 
     try:
         data, version = await sqla.run_db_read(
@@ -143,14 +156,21 @@ async def _read_engine(
             STATEMENT_TIMEOUT,
             executor=executor,
             done=flight.worker(),
-            wall_timeout=max(budget.remaining(), 1.0),
+            wall_timeout=budget.remaining() + STATEMENT_TIMEOUT + WALL_MARGIN,
             statement_timeout=STATEMENT_TIMEOUT,
             read_only=True,
         )
     except sqla.ReadOnlyUnavailable as exc:
         return _error_database(name, exc.reason, diagnostics)
     except TimeoutError:
-        return _error_database(name, "The read budget ran out while reading this datasource.", diagnostics)
+        if not partial.sections:
+            return _error_database(name, BUDGET_RAN_OUT, diagnostics)
+        # the worker may still be adding sections: report a copy, every section it had not reached as SKIPPED
+        sections = list(partial.sections)
+        done = {s["id"] for s in sections}
+        sections += [_skipped(c.id, c.title) for c in COLLECTORS if c.id not in done]
+        data, version, timed_out = replace(partial, sections=sections), None, True
+        diagnostics.append(_diagnostic(name, "WARNING", BUDGET_RAN_OUT))
     except Exception as exc:  # noqa: BLE001 - a failed engine is reported for that engine, never raised
         return _error_database(name, ctx.masker.mask_text(str(exc).strip()) or type(exc).__name__, diagnostics)
     data.name = name
@@ -161,7 +181,15 @@ async def _read_engine(
             diagnostics.append(_diagnostic(source, level, section["reason"]))
         elif section["reason"] is not None:
             diagnostics.append(_diagnostic(source, "INFO", section["reason"]))
-    return _database(name, data, version, _changes(state, name, data))
+    database = _database(name, data, version, _changes(state, name, data))
+    if timed_out:
+        database["message"] = BUDGET_RAN_OUT
+    return database
+
+
+def _skipped(section_id: str, title: str) -> Dto:
+    return {"id": section_id, "title": title, "status": "SKIPPED", "reason": BUDGET_SKIPPED, "hint": None,
+            "rowCount": 0, "truncated": False}  # fmt: skip
 
 
 def _diagnostic(source: str, level: str, message: str | None) -> Dto:
