@@ -37,3 +37,10 @@
 | Test | Historical SHA | Why |
 |---|---|---|
 | tests/engine/testsession/test_outcome.py::test_session_status_reports_unknown_reasons_when_fail | 2cbbcad9eef91c2e7a2c27230b09014864284095 | Its `_status` helper changed with the SessionStatus return API; direct coverage is in `test_failed_advisor_preserves_unknown_reason_when_status_fails`. |
+
+## Characterisation updates
+
+| Test id | Historical SHA | Reason |
+|---|---|---|
+| tests/test_foundation_round2.py::test_reserved_options_help_promises_no_behaviour | c2e385d | superseded: options became real in G1G2 |
+| tests/test_foundation_review_fixes.py::test_report_only_options_leave_the_sharpit_report_unchanged | 4c3828b | superseded: options became real in G1G2 |
