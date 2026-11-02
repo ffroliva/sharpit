@@ -237,6 +237,48 @@ def test_listener_failure_does_not_change_query_result(
         TEST.reset(token)
 
 
+def test_first_application_location_is_cached_per_relationship(monkeypatch: pytest.MonkeyPatch) -> None:
+    orm = pytest.importorskip("sqlalchemy.orm")
+    engine = sa.create_engine("sqlite://")
+    Base = orm.declarative_base()
+
+    class Parent(Base):
+        __tablename__ = "location_parent"
+        id = sa.Column(sa.Integer, primary_key=True)
+        children = orm.relationship("Child")
+
+    class Child(Base):
+        __tablename__ = "location_child"
+        id = sa.Column(sa.Integer, primary_key=True)
+        parent_id = sa.Column(sa.Integer, sa.ForeignKey("location_parent.id"))
+
+    Base.metadata.create_all(engine)
+    with orm.Session(engine) as session:
+        session.add_all(Parent(children=[Child()]) for _ in range(10))
+        session.commit()
+    _install(engines=[engine])
+
+    original = sqla._first_application_location
+    calls = 0
+
+    def count_location() -> str | None:
+        nonlocal calls
+        calls += 1
+        return original()
+
+    monkeypatch.setattr(sqla, "_first_application_location", count_location)
+    token = TEST.set(("test_first_application_location_is_cached_per_relationship", 1, "call"))
+    try:
+        assert sqla.attach_session() is True
+        with orm.Session(engine) as session:
+            for parent in session.scalars(sa.select(Parent)):
+                list(parent.children)
+        assert calls == 1, f"expected one source stack walk for one relationship, got {calls}"
+    finally:
+        sqla.detach_session()
+        TEST.reset(token)
+
+
 def test_pause_returns_early_listeners_kept():
     engine = sa.create_engine("sqlite://")
     handle = _install(engines=[engine])
