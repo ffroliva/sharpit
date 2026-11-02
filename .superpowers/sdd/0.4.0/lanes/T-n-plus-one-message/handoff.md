@@ -1,65 +1,68 @@
 # T-n-plus-one-message handoff
 
-Implementer: codex-gpt-6
+Implementer: codex-gpt-6-luna (high)
 
 ## Status
 
-DONE. Implementation and the final four local gates are complete. Task reds and fixes are committed and recorded. The coordinator can resume with lane review and merge gating.
+DONE_WITH_CONCERNS. The three round-1 findings are fixed and committed. The coordinator can review and merge-gate
+the lane. The final full suite completed with two overhead-budget failures; both overshoots were within the measured
+noise. No functional tests failed.
 
 ## Decisions
 
-- Keep `sharpit.n-plus-one` identity based on the existing normalized statement fingerprint.
-- Relationship facts are collected only while the pytest session listener is attached; test SQL remains the source of the N+1 count.
-- Eager relationship loads tagged by `do_orm_execute` with no `lazy_loaded_from` are removed from N+1 statement counts after call phase collection. This keeps repeated `selectinload` IN batches out of the N+1 gate (U8).
-- Reported SQL is the sink's normalized, masked statement. No parameter values are kept. The relationship identity remains supplemental to the stable statement fingerprint.
+- Keep `sharpit.n-plus-one` identity based on the existing masked statement fingerprint.
+- The SQL sink's per-statement counts provide lazy relationship counts when facts are applied. Relationship metadata
+  is stored once per masked fingerprint, avoiding a per-load counter lock.
+- Cache statement masking and code-object application-frame classification. Store the first application location once
+  per relationship and test.
+- Eager relationship batches use the same masked fingerprint and are subtracted before lazy counts are derived.
+- The new benchmark uses 1,000 actual lazy relationship loads, `attach_session()` and a TEST call tag; the previous
+  `select(1)` budget test remains unchanged and is historical only.
 
-## Red evidence
+## Round-1 review reds
 
-| Test | Red SHA | Assertion |
+| test id | red SHA | assertion message |
 |---|---|---|
-| `tests/pytest_plugin/test_plugin_gates.py::test_spike_f5_message_names_relationship` | `d6edaec05a2bedf9014e170512f845089de4b2ba` | `AssertionError: assert 'Player.performances lazy-loaded 6 times' in '6 executions of one SELECT in the call phase'` |
-| `tests/pytest_plugin/test_plugin_gates.py::test_spike_f5_full_count_1018` | `f274907528094c3d8b3176ff814156a521cba6c9` | `AssertionError: assert 'Player.performances lazy-loaded 1018 times' in '1018 executions of one SELECT in the call phase'` |
-| `tests/pytest_plugin/test_plugin_gates.py::test_async_lazy_load_is_attributed` | `62c4c5f5ed202c23a278541419a00dc199b4cb3e` | `AssertionError: assert 'Player.performances lazy-loaded 6 times' in '6 executions of one SELECT in the call phase'` |
-| `tests/engine/testsession/test_gates.py::test_n_plus_one_names_lazy_relationship_and_loader` | `618ff47af164e43c9b25ff8a9748d71c8970e01d` | relationship message absent |
-| `tests/engine/testsession/test_gates.py::test_n_plus_one_suggests_joinedload_for_many_to_one` | `618ff47af164e43c9b25ff8a9748d71c8970e01d` | many-to-one loader hint absent |
-| `tests/engine/testsession/test_gates.py::test_n_plus_one_message_includes_masked_statement_and_source` | `985ea7328033bf0a7d8ee0a08719e6ecd4d6b73d` | masked statement absent |
-| `tests/pytest_plugin/test_plugin_gates.py::test_eager_selectinload_batches_are_not_n_plus_one` | `e03d91e19b80d26a228dc0acb772c3008e76c1fa` | repeated eager batches incorrectly failed as N+1 |
-| `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_orm_hook_overhead_budget` | `78f1bfa29448ccb2feed65d50eac6a7fbb31c4f9` | zero-budget control failed with `AssertionError` |
+| `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_lazy_relationship_hook_overhead_budget` | `2d5ca9e8fe9913aa7df36f47eb58dbe19c2b4b30` | `AssertionError: SQLAlchemy lazy relationship hooks: overhead 47.497 µs/lazy load; budget 35.000 µs/lazy load` |
+| `tests/engine/test_sqla.py::test_first_application_location_is_cached_per_relationship` | `e1fcc6840bd0ceb65e6490cabf7c904ac9aaaff2` | `AssertionError: expected one source stack walk for one relationship, got 20` |
+| `tests/engine/test_sqla.py::test_relationship_facts_use_masked_statement_fingerprint` | `57a614127aca92789b3219bd846d03c1367b46ad` | `AssertionError: assert None == ('Payment.refunds', True)` |
 
-## Commits
+Fix commit for all three: `5c12d61a77609b671bced513590dcad497c0e27c` (`fix: reduce SQLAlchemy relationship hook overhead`).
 
-- Task 1 fix: `79f4d866dfc1fe908d74f4d2aa49d14e6b9d8443` (`feat: capture SQLAlchemy lazy relationship loads`).
-- Task 2 fix: `9e178696857743715ba737c31fe17e29db7cfea4` (`fix: explain SQLAlchemy N+1 relationship loads`).
-- Task 3 fix: `dc4f379c8279dbafb0e31a612d6f87245df0630d` (`test: pin SQLAlchemy ORM hook budget`).
-- Async follow-up fix: `81f36ea4184587f1e4c86ddc26001a96228278a1` (`fix: attach ORM hooks for async lazy loads`).
-- Full-count F5 fix: `d3741077769a1191b6df077808558e3c39ae8ef9` (`fix: capture the full 1018-load spike`).
-- Complexity follow-up fix: `1cee798fa176166d8417a2c48826686c21f21f53` (`fix: keep relationship gate within complexity ratchet`).
+## Earlier lane reds and fixes
 
-## Last verification
+| test id | red SHA | assertion message | fix SHA |
+|---|---|---|---|
+| `tests/pytest_plugin/test_plugin_gates.py::test_spike_f5_message_names_relationship` | `d6edaec05a2bedf9014e170512f845089de4b2ba` | relationship absent from N+1 message | `79f4d866dfc1fe908d74f4d2aa49d14e6b9d8443` |
+| `tests/pytest_plugin/test_plugin_gates.py::test_spike_f5_full_count_1018` | `f274907528094c3d8b3176ff814156a521cba6c9` | expected relationship message with 1,018 loads | `d3741077769a1191b6df077808558e3c39ae8ef9` |
+| `tests/pytest_plugin/test_plugin_gates.py::test_async_lazy_load_is_attributed` | `62c4c5f5ed202c23a278541419a00dc199b4cb3e` | async relationship absent from N+1 message | `81f36ea4184587f1e4c86ddc26001a96228278a1` |
+| `tests/engine/testsession/test_gates.py::test_n_plus_one_names_lazy_relationship_and_loader` | `618ff47af164e43c9b25ff8a9748d71c8970e01d` | relationship message absent | `9e178696857743715ba737c31fe17e29db7cfea4` |
+| `tests/engine/testsession/test_gates.py::test_n_plus_one_suggests_joinedload_for_many_to_one` | `618ff47af164e43c9b25ff8a9748d71c8970e01d` | many-to-one loader hint absent | `9e178696857743715ba737c31fe17e29db7cfea4` |
+| `tests/engine/testsession/test_gates.py::test_n_plus_one_message_includes_masked_statement_and_source` | `985ea7328033bf0a7d8ee0a08719e6ecd4d6b73d` | masked statement absent | `9e178696857743715ba737c31fe17e29db7cfea4` |
+| `tests/pytest_plugin/test_plugin_gates.py::test_eager_selectinload_batches_are_not_n_plus_one` | `e03d91e19b80d26a228dc0acb772c3008e76c1fa` | eager batches incorrectly failed as N+1 | `9e178696857743715ba737c31fe17e29db7cfea4` |
 
-- Focused tests after Tasks 1–2: `58 passed` (SQLAlchemy bridge, relationship gates, F5 message, eager selectinload batches).
-- Focused regression set after the review fixes: `61 passed`; exact 1,018-load spike: `1 passed`.
-- F6 budget: `1 passed`; workload `1,000 SELECTs × 5 paired rounds`, on/off via the production ORM callback. Most recent measured overhead `7.696 µs/statement`, noise `22.747 µs`, budget `35 µs`; the spread was noise-limited on this shared machine. The budget was confirmed to fail after a temporary 100 µs sleep was injected into the listener, then the injection was removed.
-- Prior full suite after the listener-test and complexity corrections: `4,207 passed, 9 skipped`.
-- Final full suite including the exact 1,018-load test: `4,208 passed, 9 skipped, 0 failed` in `280.58s`.
-- Final static gates: ruff check clean; ruff format `469 files already formatted`; pyright `0 errors, 0 warnings, 0 informations`.
-- Final pytest log (outside this worktree): `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/T-n-plus-one-message-pytest-final3.log`. Ruff, format and pyright logs are in that directory as `T-n-plus-one-message-{ruff,format,pyright}-final3.log`.
-- An earlier suite attempt caught a concurrent handoff edit via `no_side_effects`; the final rerun after the evidence commit passed.
-- Final static gates: ruff check clean; ruff format `469 files already formatted`; pyright `0 errors, 0 warnings, 0 informations`.
+The previous budget red, `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_orm_hook_overhead_budget` at
+`78f1bfa29448ccb2feed65d50eac6a7fbb31c4f9`, is historical and superseded: `select(1)` did not invoke the relationship
+load path.
 
-## Fix SHAs per red
+## Verification
 
-| Test | Fix SHA |
-|---|---|
-| `tests/pytest_plugin/test_plugin_gates.py::test_spike_f5_message_names_relationship` | `79f4d866dfc1fe908d74f4d2aa49d14e6b9d8443` |
-| `tests/pytest_plugin/test_plugin_gates.py::test_spike_f5_full_count_1018` | `d3741077769a1191b6df077808558e3c39ae8ef9` |
-| `tests/pytest_plugin/test_plugin_gates.py::test_async_lazy_load_is_attributed` | `81f36ea4184587f1e4c86ddc26001a96228278a1` |
-| `tests/engine/testsession/test_gates.py::test_n_plus_one_names_lazy_relationship_and_loader` | `9e178696857743715ba737c31fe17e29db7cfea4` |
-| `tests/engine/testsession/test_gates.py::test_n_plus_one_suggests_joinedload_for_many_to_one` | `9e178696857743715ba737c31fe17e29db7cfea4` |
-| `tests/engine/testsession/test_gates.py::test_n_plus_one_message_includes_masked_statement_and_source` | `9e178696857743715ba737c31fe17e29db7cfea4` |
-| `tests/pytest_plugin/test_plugin_gates.py::test_eager_selectinload_batches_are_not_n_plus_one` | `9e178696857743715ba737c31fe17e29db7cfea4` |
-| `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_orm_hook_overhead_budget` | `dc4f379c8279dbafb0e31a612d6f87245df0630d` |
+- Lane tests: `90 passed, 11 warnings` (`test_sqla.py`, `testsession/test_gates.py`, `test_plugin_gates.py`).
+- New paired workload, `scripts.dev.overhead_check ... --runs 10`: median overhead `18.961 µs/lazy load` against
+  `35.000 µs`; 2/10 runs failed within noise; the script classified the set as flaky/noise-limited.
+- Final full suite, `uv run pytest -q -n 4`: `4209 passed, 9 skipped, 2 failed` in `980.90s`. The new lazy-load
+  budget failure was `98.738 µs` with `66.697 µs` noise against `35 µs`; SQL Trace was `67.590 µs` with `64.145 µs`
+  noise against `50 µs`. Both overshoots were within noise. Full log:
+  `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/T-n-plus-one-message-full-pytest-final.out`.
+- `ruff check`: passed. `ruff format --check`: `469 files already formatted`. `pyright`: `0 errors, 0 warnings, 0 informations`.
+- Repeated budget diagnostic log:
+  `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/T-n-plus-one-message-overhead-check2.out`.
+- No budget or ratchet was raised. No remaining implementation work; review and lane gate remain for the coordinator.
 
-## Needs from coordinator
+## Current commits
 
-- None currently.
+- Red: `e1fcc6840bd0ceb65e6490cabf7c904ac9aaaff2`
+- Red: `57a614127aca92789b3219bd846d03c1367b46ad`
+- Red: `2d5ca9e8fe9913aa7df36f47eb58dbe19c2b4b30`
+- Fix: `5c12d61a77609b671bced513590dcad497c0e27c`
+- Next: lane review and coordinator gate.
