@@ -10,7 +10,8 @@ from sharpit.engine.advisors.rules import severity_rank
 
 TOP = 20
 _MARKDOWN = re.compile(r"([\\`*_\[\]<>|&~])")
-_LINE_BREAKS = re.compile(r"[^\S\r\n]*+[\r\n]\s*+")  # possessive: same matches as \s*[\r\n]+\s*, no backtracking
+# same matches as \s*[\r\n]+\s*; the leading class excludes line breaks, so no two quantifiers overlap
+_LINE_BREAKS = re.compile(r"[^\S\r\n]*[\r\n]\s*")
 _AUTOLINK = re.compile(r"(?i)\b(?:https:|http:)(?=//)|\bwww(?=\.)")
 
 
