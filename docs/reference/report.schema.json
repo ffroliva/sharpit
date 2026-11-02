@@ -11,6 +11,9 @@
     "generatedAt",
     "status",
     "statusReasons",
+    "mode",
+    "unknownReasons",
+    "baseline",
     "warnings",
     "gates",
     "sources",
@@ -34,6 +37,25 @@
     "generatedAt": {"type": "integer", "description": "Epoch milliseconds."},
     "status": {"enum": ["pass", "fail", "unknown"]},
     "statusReasons": {"type": "array", "items": {"type": "string"}},
+    "mode": {"enum": ["gate", "report-only"]},
+    "unknownReasons": {"type": "array", "items": {"type": "string"}},
+    "baseline": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["path", "sha256", "existing", "new", "fixed", "fixedReason"],
+          "properties": {
+            "path": {"type": "string"},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "existing": {"type": "integer", "minimum": 0},
+            "new": {"type": "integer", "minimum": 0},
+            "fixed": {"type": ["integer", "null"], "minimum": 0},
+            "fixedReason": {"type": ["string", "null"]}
+          }
+        }
+      ]
+    },
     "warnings": {"type": "array", "items": {"type": "string"}},
     "gates": {
       "type": "object",
@@ -196,7 +218,7 @@
     "finding": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["ruleId", "advisor", "severity", "target", "message", "fingerprint", "testNodeId", "dismissed"],
+      "required": ["ruleId", "advisor", "severity", "target", "message", "fingerprint", "testNodeId", "dismissed", "observed", "baselineState"],
       "properties": {
         "ruleId": {"type": "string"},
         "advisor": {"type": "string"},
@@ -205,7 +227,9 @@
         "message": {"type": "string"},
         "fingerprint": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,200}$"},
         "testNodeId": {"type": ["string", "null"]},
-        "dismissed": {"type": "boolean"}
+        "dismissed": {"type": "boolean"},
+        "observed": {"type": ["integer", "null"]},
+        "baselineState": {"enum": ["existing", "new", null]}
       }
     }
   }

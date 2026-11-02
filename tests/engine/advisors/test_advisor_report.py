@@ -22,6 +22,21 @@ def test_severity_counts_every_severity_zero_included():
     assert [c["severity"] for c in severity_counts([], six)] == list(six)
 
 
+def test_dismissed_pair_matches_identity_with_spaces() -> None:
+    occurrences = {
+        "RAPI-A": [
+            ("fp1", "one", "identity with spaces"),
+            ("fp2", "two", "another identity"),
+            ("fp3", "three", "third identity"),
+            ("fp4", "four", "fourth identity"),
+        ]
+    }
+    result = apply_dismissals(_report(), set(), occurrences, {("RAPI-A", "identity with spaces")})
+    row = next(item for item in result["results"] if item["id"] == "RAPI-A")
+    assert row["violationCount"] == 3
+    assert row["sampleViolations"] == ["two", "three", "four"]
+
+
 def _result(rule_id: str, severity: str, count: int, status: str = "FAILED") -> dict[str, Any]:
     return {"id": rule_id, "severity": severity, "status": status, "violationCount": count, "dismissed": False}
 

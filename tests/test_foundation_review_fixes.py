@@ -22,25 +22,17 @@ def test_models_hook_rejects_a_string(models: object) -> None:
     assert message == f"models must be a model class or an iterable of models, not {type(models).__name__}"
 
 
-def test_report_only_options_leave_the_sharpit_report_unchanged(pytester: pytest.Pytester) -> None:
-    # review minor 5: under --sharpit too, the inert options change neither the exit status nor the report verdict
+def test_report_only_with_baseline_exits_zero_and_writes_the_report(pytester: pytest.Pytester) -> None:
     import json
 
     pytester.makepyfile("def test_one(): assert True")
     common = ["-q", "-p", "no:cacheprovider", "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown"]
-    plain = pytester.runpytest(*common, "--sharpit-report=plain.json")
-    with_options = pytester.runpytest(
-        *common,
-        "--sharpit-report=options.json",
-        "--sharpit-report-only",
-        "--sharpit-baseline",
-        "baseline.json",
-        "--sharpit-write-baseline",
+    pytester.runpytest_subprocess(*common, "--sharpit-write-baseline=baseline.json")
+    assert (pytester.path / "baseline.json").exists()
+    result = pytester.runpytest_subprocess(
+        *common, "--sharpit-report=options.json", "--sharpit-report-only", "--sharpit-baseline=baseline.json"
     )
-    before = json.loads((pytester.path / "plain.json").read_text())
-    after = json.loads((pytester.path / "options.json").read_text())
-    assert with_options.ret == plain.ret
-    assert after["status"] == before["status"]
-    assert after["findings"] == before["findings"]
-    assert after["gates"] == before["gates"]
-    assert not (pytester.path / "baseline.json").exists()
+    report = json.loads((pytester.path / "options.json").read_text())
+    assert result.ret == 0
+    assert report["mode"] == "report-only"
+    assert report["baseline"]["new"] == 0

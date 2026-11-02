@@ -218,8 +218,20 @@ def run_advisors(
                     fail_on=cast("Severity", state.options.fail_on),
                     app=name,
                     dismissed=state.dismissed,
+                    **_assessment_options(state),
                 )
             )
+
+
+def _assessment_options(state: Any) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    pairs: set[tuple[str, str]] = getattr(state, "dismissed_pairs", set())
+    if pairs:
+        options["dismissed_pairs"] = pairs
+    baseline: dict[str, int | None] | None = getattr(state, "baseline_observed", None)
+    if baseline is not None:
+        options["baseline"] = baseline
+    return options
 
 
 _load_app = load_app

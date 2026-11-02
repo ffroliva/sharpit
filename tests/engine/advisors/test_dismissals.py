@@ -254,7 +254,11 @@ def _occurrence_report() -> dict[str, Any]:
 
 
 _OCCURRENCES = {
-    "RAPI-004": [("rest-api:RAPI-004:a", "one"), ("rest-api:RAPI-004:b", "two"), ("rest-api:RAPI-004:c", "three")]
+    "RAPI-004": [
+        ("rest-api:RAPI-004:a", "one", "target one"),
+        ("rest-api:RAPI-004:b", "two", "target two"),
+        ("rest-api:RAPI-004:c", "three", "target three"),
+    ]
 }
 
 
@@ -270,7 +274,7 @@ def test_apply_dismissals_per_occurrence():
 
 def test_all_occurrences_dismissed_keeps_rule_restorable():
     # a rule is `dismissed` only when its own id is dismissed: Restore DELETEs that id, which fingerprints never stored
-    out = apply_dismissals(_occurrence_report(), {fp for fp, _ in _OCCURRENCES["RAPI-004"]}, _OCCURRENCES)
+    out = apply_dismissals(_occurrence_report(), {fp for fp, _, _ in _OCCURRENCES["RAPI-004"]}, _OCCURRENCES)
     result = out["results"][0]
     assert result["dismissed"] is False
     assert result["violationCount"] == 0
@@ -290,7 +294,8 @@ def test_partial_dismissal_refills_samples_beyond_the_first_ten():
     fingerprints = [f"rest-api:RAPI-004:{i:016x}" for i in range(12)]
     report = _occurrence_report()
     report["results"][0].update(violationCount=12, sampleViolations=texts[:10])
-    out = apply_dismissals(report, set(fingerprints[:10]), {"RAPI-004": list(zip(fingerprints, texts, strict=True))})
+    triples = [(fingerprint, text, text) for fingerprint, text in zip(fingerprints, texts, strict=True)]
+    out = apply_dismissals(report, set(fingerprints[:10]), {"RAPI-004": triples})
     result = out["results"][0]
     assert result["violationCount"] == 2
     assert result["sampleViolations"] == texts[10:]

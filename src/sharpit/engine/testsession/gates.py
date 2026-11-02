@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sharpit.engine.advisors.findings import Finding
+from sharpit.engine.advisors.findings import fails as fails  # the one predicate, re-exported
 
 if TYPE_CHECKING:
     from sharpit.engine.testsession.facts import TestFacts
@@ -25,14 +26,27 @@ class Budget:
 
 
 def _finding(
-    rule_id: str, target: str, message: str, node_id: str, dismissed: Collection[str], identity: str | None = None
+    rule_id: str,
+    target: str,
+    message: str,
+    node_id: str,
+    dismissed: Collection[str],
+    identity: str | None = None,
+    dismissed_pairs: Collection[tuple[str, str]] = (),
+    observed: int | None = None,
 ) -> Finding:
     fingerprint = Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, identity=identity).fingerprint
-    return Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, fingerprint in dismissed, identity)
+    is_dismissed = fingerprint in dismissed or (rule_id, identity or target) in dismissed_pairs
+    return Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, is_dismissed, identity, observed)
 
 
 def evaluate_test(
-    facts: TestFacts, budget: Budget, n_plus_one_threshold: int, dismissed: Collection[str]
+    facts: TestFacts,
+    budget: Budget,
+    n_plus_one_threshold: int,
+    dismissed: Collection[str],
+    dismissed_pairs: Collection[tuple[str, str]] = (),
+    baseline: Mapping[str, int | None] | None = None,
 ) -> list[Finding]:
     """The gate findings of one test attempt (call phase only); a dismissed fingerprint stays listed, not failing."""
     call = facts.phases.get("call")
@@ -42,15 +56,57 @@ def evaluate_test(
     found: list[Finding] = []
     if budget.max_queries is not None and call.queries > budget.max_queries:
         message = f"{call.queries} queries in the call phase (budget {budget.max_queries})"
-        found.append(_finding(MAX_QUERIES, node, message, node, dismissed))
+        found.append(
+            _finding(
+                MAX_QUERIES,
+                node,
+                message,
+                node,
+                dismissed,
+                dismissed_pairs=dismissed_pairs,
+                observed=call.queries,
+            )
+        )
     if not budget.allow_n_plus_one:
         threshold = max(2, n_plus_one_threshold)
         for group, count in call.selects.items():
             if count >= threshold:
                 message = f"{count} executions of one SELECT in the call phase"
-                found.append(_finding(N_PLUS_ONE, call.sql_of.get(group, group), message, node, dismissed, group))
+                found.append(
+                    _finding(
+                        N_PLUS_ONE,
+                        call.sql_of.get(group, group),
+                        message,
+                        node,
+                        dismissed,
+                        group,
+                        dismissed_pairs,
+                        count,
+                    )
+                )
     if call.exceptions > budget.max_exceptions:
         for group, (type_name, text) in call.exception_groups.items():
             target = f"{node}#{group}"
-            found.append(_finding(EXCEPTION, target, f"{type_name}: {text} (swallowed)", node, dismissed))
-    return found
+            found.append(
+                _finding(
+                    EXCEPTION,
+                    target,
+                    f"{type_name}: {text} (swallowed)",
+                    node,
+                    dismissed,
+                    dismissed_pairs=dismissed_pairs,
+                    observed=1,
+                )
+            )
+    if baseline is None:
+        return found
+    from dataclasses import replace
+
+    annotated: list[Finding] = []
+    for finding in found:
+        old_count = baseline.get(finding.fingerprint)
+        existing = finding.fingerprint in baseline and (
+            old_count is None or finding.observed is None or finding.observed <= old_count
+        )
+        annotated.append(replace(finding, baseline_state="existing" if existing else "new"))
+    return annotated

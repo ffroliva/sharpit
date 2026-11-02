@@ -205,15 +205,16 @@ def test_lane_attacher_retries_after_a_late_sqlalchemy_import(monkeypatch: pytes
     assert sa.event.contains(sa.engine.Engine, "begin", on_begin) is False
 
 
-# --- finding 3: the reserved options promise nothing ------------------------------------------------------------
+# --- the report-only and baseline options are real ----------------------------------------------------------------
 
 
-def test_reserved_options_help_promises_no_behaviour(pytester: pytest.Pytester) -> None:
+def test_report_only_and_baseline_options_have_real_help(pytester: pytest.Pytester) -> None:
     out = " ".join(pytester.runpytest("--help").stdout.str().split())
-    reserved = "(reserved for 0.4.0; currently has no effect)"
-    assert f"--sharpit-report-only {reserved}" in out
-    assert f"--sharpit-baseline=PATH {reserved}" in out
-    assert f"--sharpit-write-baseline {reserved}" in out
+    assert "--sharpit-report-only report findings without gating pytest" in out
+    assert "--sharpit-baseline=PATH compare findings with a baseline file" in out
+    assert "--sharpit-write-baseline" in out
+    assert "write a baseline after a complete run" in out
+    assert "reserved for 0.4.0" not in out
 
 
 # --- finding 4: name-specific fixtures win over the shared ones --------------------------------------------------

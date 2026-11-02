@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -80,10 +80,37 @@ def _evaluate(model: ApiModel, masker: Masker) -> _Evaluation:
     )
 
 
-def _run(done: _Evaluation, dismissed: Collection[str], fail_on: Severity, app: str | None) -> AdvisorRun:
+def _run(
+    done: _Evaluation,
+    dismissed: Collection[str],
+    fail_on: Severity,
+    app: str | None,
+    dismissed_pairs: Collection[tuple[str, str]] = (),
+    baseline: Mapping[str, int | None] | None = None,
+) -> AdvisorRun:
     findings = tuple(
-        replace(f, dismissed=True) if f.rule_id in dismissed or f.fingerprint in dismissed else f for f in done.findings
+        replace(f, dismissed=True)
+        if f.rule_id in dismissed
+        or f.fingerprint in dismissed
+        or (f.rule_id, f.identity or f.target) in dismissed_pairs
+        else f
+        for f in done.findings
     )
+    if baseline is not None:
+        findings = tuple(
+            replace(
+                finding,
+                baseline_state=(
+                    "existing"
+                    if finding.fingerprint in baseline
+                    and (baseline[finding.fingerprint] is None or finding.observed is None)
+                    else "existing"
+                    if finding.fingerprint in baseline
+                    else "new"
+                ),
+            )
+            for finding in findings
+        )
     return AdvisorRun.of(ADVISOR, findings, done.evidence, scan_status=done.status, fail_on=fail_on, app=app)
 
 
@@ -94,16 +121,18 @@ def assess(
     fail_on: Severity = DEFAULT_FAIL_ON,
     app: str | None = None,
     dismissed: Collection[str] = (),
+    dismissed_pairs: Collection[tuple[str, str]] = (),
+    baseline: Mapping[str, int | None] | None = None,
 ) -> AdvisorRun:
     """Pure: the REST API rules over ``model`` as an ``AdvisorRun`` (no lock, no cache; used by the pytest plugin)."""
-    return _run(_evaluate(model, masker), dismissed, fail_on, app)
+    return _run(_evaluate(model, masker), dismissed, fail_on, app, dismissed_pairs, baseline)
 
 
 @dataclass(frozen=True)
 class _Scan:
     report: dict[str, Any]  # as built, before dismissals
     done: _Evaluation
-    occurrences: dict[str, list[tuple[str, str]]]  # rule id -> its occurrences' (fingerprint, text), in violation order
+    occurrences: dict[str, list[tuple[str, str, str]]]  # (fingerprint, text, identity or target)
 
 
 class RestApiService:
@@ -129,12 +158,19 @@ class RestApiService:
         with self._swap:
             cached = self._cached
             base = cached.report if cached else report.not_scanned(self._retention.details())
-        return apply_dismissals(base, set(self.dismissals.list()), cached.occurrences if cached else None)
+        return apply_dismissals(
+            base,
+            set(self.dismissals.list()),
+            cached.occurrences if cached else None,
+            self.dismissals.dismissed_pairs(),
+        )
 
     def scan(self) -> dict[str, Any]:
         """Run the rules (single-flight ``ActionBusy``) and cache the result."""
         scanned = self.single_flight.run(OPERATION, self._scan)
-        return apply_dismissals(scanned.report, set(self.dismissals.list()), scanned.occurrences)
+        return apply_dismissals(
+            scanned.report, set(self.dismissals.list()), scanned.occurrences, self.dismissals.dismissed_pairs()
+        )
 
     def violations(
         self, rule_id: str | None, scan_id: str | None, offset: int | None, limit: int | None, max_results: int
@@ -146,10 +182,12 @@ class RestApiService:
         scanned_at = int(time.time() * 1000)
         done = _evaluate(self._model(), self._masker)
         found: dict[str, list[str]] = {rule_id: [] for rule_id in done.evaluated}
-        occurrences: dict[str, list[tuple[str, str]]] = {}
+        occurrences: dict[str, list[tuple[str, str, str]]] = {}
         for finding in done.findings:
             found[finding.rule_id].append(finding.message)
-            occurrences.setdefault(finding.rule_id, []).append((finding.fingerprint, finding.message))
+            occurrences.setdefault(finding.rule_id, []).append(
+                (finding.fingerprint, finding.message, finding.identity or finding.target)
+            )
         results = [RuleResult.evaluate(rule, found[rule.id]) for rule in RULES if rule.id in found]
         if done.limitations:
             status, message = "PARTIAL", report.incomplete_message(done.limitations)
@@ -171,7 +209,7 @@ class RestApiService:
         )
         scan = _Scan(result, done, occurrences)
         with self._swap:  # build first: a failed build must leave retention and cache as they were
-            self._retention.store(found, {rule: [fp for fp, _ in pairs] for rule, pairs in occurrences.items()})
+            self._retention.store(found, {rule: [fp for fp, _, _ in pairs] for rule, pairs in occurrences.items()})
             result["violationDetails"] = self._retention.details()
             self._cached = scan
         return scan
