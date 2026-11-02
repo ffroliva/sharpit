@@ -294,3 +294,14 @@ def test_concurrent_read_is_busy() -> None:
         _read(ctx)
     release()
     assert _read(ctx)["status"] == "READ"
+
+
+def test_a_connection_error_during_setup_reports_the_masked_driver_message() -> None:
+    # derived: review finding 6: READ_ONLY_REFUSED is only for a read-only check that failed
+    engine = FakePgEngine()
+    engine.conn.setup_error = "server closed the connection unexpectedly (postgresql://app:secret@db/app)"
+    database = _read(_ctx(("primary", engine)))["databases"][0]
+    assert database["status"] == "ERROR"
+    assert "server closed the connection unexpectedly" in database["message"]
+    assert "secret" not in database["message"]
+    assert [sql for sql in engine.conn.sql if "pg_" in sql] == []

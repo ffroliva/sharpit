@@ -123,6 +123,7 @@ class _Dialect:
 class FakePgConnection:
     def __init__(self, dialect: str = "postgresql") -> None:
         self.dialect = _Dialect(dialect)
+        self.setup_error: str | None = None  # raised by the SET statements, like a connection dropped mid-setup
         self.read_only_setting = "on"  # 'off' is what an AUTOCOMMIT connection reports after SET TRANSACTION READ ONLY
         self.rolled_back = 0
         self.rows: dict[str, list[Row]] = {}
@@ -145,6 +146,8 @@ class FakePgConnection:
             raise RuntimeError("current transaction is aborted, commands ignored until end of transaction block")
         self.sql.append(sql)
         if sql.startswith("SET "):
+            if self.setup_error is not None:
+                raise RuntimeError(self.setup_error)
             return _Result([])
         if sql == "SELECT current_setting('transaction_read_only')":
             return _Result([{"transaction_read_only": self.read_only_setting}])
