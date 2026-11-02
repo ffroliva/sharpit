@@ -8,20 +8,20 @@ In progress. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 
 ## Done
 
-- Read the canonical rules, full COMMON brief, spec, global and lane plans, council amendments, and F handoff.
-- Registered with agentctl as `codex-0-4-0-a-transactions`.
-- Task 1 nullable field fixture committed (`d50d6b6`). The captured transaction golden is absent in this worktree, so parity remains unverified.
-- Task 2 assertion reds committed; implementing the framework-free recorder next.
+- Read the canonical rules, full COMMON brief, spec, global and lane plans, council amendments, and F handoff; registered as `codex-0-4-0-a-transactions`.
+- Task 1 committed nullable `readOnly` reason (`d50d6b6`). Captured transaction golden absent; parity is unverified.
+- Task 2 recorder committed at the next feature commit: bounded ring, DTO/stat report, masking, clear/pause, SQL Trace report-time correlation, savepoint callbacks, real SQLite listener attachment with reference-counted teardown. Targeted tests: 8 passed; targeted Ruff check and format check passed.
 
 ## Next step
 
-Implement Task 2 in `engine/capture/transactions.py`, verify each red test turns green, then add event listener, wiring, routes and UI within the plan's May-touch list. Full suite log must stay outside this worktree and xdist is capped at 4.
+Task 3: construct the recorder and register its attacher in `fastapi/install.py`, implement API/SSE and MCP/CLI tools, flip the panel flag, add route/safety/masking tests. Continue to honor the narrow May-touch list.
 
 ## Decisions
 
-- Follow F handoff: `_configure_capture(app, ctx, settings) -> CaptureWiring`; listener arm/removal belongs in `CaptureState.attachers` so late SQLAlchemy imports and lifespan restarts are handled.
-- F exposes only begin/commit/rollback/savepoint event hooks. SQLAlchemy commit failure is surfaced after the `commit` event via `handle_error`, so `test_failed_commit_is_unknown` is parked under O1 unless a later slot interface supports it.
-- Never modify `engine/sqla.py`.
+- Follow F handoff: `_configure_capture(app, ctx, settings) -> CaptureWiring`; listener arm/removal uses `CaptureState.attachers` so late SQLAlchemy imports and lifespan restarts work.
+- F exposes begin/commit/rollback/savepoint events only. SQLAlchemy commit failure is surfaced after the pre-commit callback, so `test_failed_commit_is_unknown` is parked under O1. No `engine/sqla.py` edits.
+- Class listeners are reference-counted across Sharpit contexts to avoid duplicate capture and premature removal.
+- Live check remains out of scope because the plan forbids editing the shared example; coordinator must run it.
 
 ## Red tests
 
@@ -33,7 +33,8 @@ Implement Task 2 in `engine/capture/transactions.py`, verify each red test turns
 | `tests/engine/capture/test_transactions.py::test_paused_records_nothing` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `a paused recorder must return the sentinel id` |
 | `tests/engine/capture/test_transactions.py::test_error_message_is_masked` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `transaction errors must not expose connection passwords` |
 | `tests/engine/capture/test_transactions.py::test_sql_trace_unavailable_warning` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `missing SQL Trace must explain why statement counts are unavailable` |
+| `tests/engine/capture/test_transactions.py::test_savepoint_is_a_child_entry` | `12bf8d03b4dd14c916d74e77b6d4b1bf287a198d` | `releasing a savepoint must not close its outer transaction` |
 
 ## Gates / live check
 
-Not run yet. Live check not run; example app wiring is out of lane touch scope.
+Targeted Task 2 commands passed. Full gates and live check not run yet.

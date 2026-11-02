@@ -74,6 +74,7 @@ def test_sql_trace_unavailable_warning() -> None:
         "missing SQL Trace must explain why statement counts are unavailable"
     )
 
+
 def test_savepoint_is_a_child_entry(monkeypatch) -> None:
     from types import SimpleNamespace
 
@@ -103,3 +104,38 @@ def test_savepoint_is_a_child_entry(monkeypatch) -> None:
     assert child["parentId"] == outer_id, "the savepoint entry must point to its outer transaction"
     outer = next(row for row in rows if row["id"] == outer_id)
     assert outer["status"] == "COMMITTED", "releasing a savepoint must not close its outer transaction"
+
+
+def test_connection_event_slot_records_real_sqlite_transaction(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import pytest
+
+    from sharpit.engine.capture.transactions import attach
+    from sharpit.engine.sources import dispatch
+
+    sa = pytest.importorskip("sqlalchemy")
+    recorder = _recorder()
+    context = SimpleNamespace(
+        context_id="sqlite-context",
+        capture=SimpleNamespace(transactions=recorder, wiring=SimpleNamespace(hook_failed=lambda *_: None)),
+        settings=SimpleNamespace(
+            transactions_enabled=True,
+            panels={"transactions": SimpleNamespace(enabled=True)},
+            sql_trace_capture_call_site=False,
+        ),
+    )
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: [context])
+    engine = sa.create_engine("sqlite://")
+    remove = attach()
+    assert remove is not None, "the connection event slot should attach when SQLAlchemy is loaded"
+    try:
+        with engine.connect() as connection:
+            transaction = connection.begin()
+            transaction.commit()
+    finally:
+        remove()
+        engine.dispose()
+    report = recorder.report([])
+    assert report["totalCaptured"] == 1, "the real SQLite begin event must be captured once"
+    assert report["entries"][0]["status"] == "COMMITTED", "the real SQLite commit event must close the entry"
