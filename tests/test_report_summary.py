@@ -169,3 +169,28 @@ def test_backslash_in_finding_text_is_escaped_too() -> None:
     from sharpit.report.summary import _esc  # pyright: ignore[reportPrivateUsage]
 
     assert _esc(r"\[x\](https://evil)") == r"\\\[x\\\](https://evil)"
+
+
+def _run_module(path: Path) -> subprocess.CompletedProcess[bytes]:
+    import os
+
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
+    return subprocess.run(
+        [sys.executable, "-m", "sharpit.report", "summary", str(path)], capture_output=True, env=env, check=False
+    )
+
+
+def test_summary_cli_writes_utf8_regardless_of_console_code_page(tmp_path: Path) -> None:
+    # finding: a non-cp1252 message crashed the CLI with UnicodeEncodeError on a Windows runner
+    path = tmp_path / "r.json"
+    path.write_text(json.dumps(_report(findings=[_finding(1, message="日本語 ✓ Ω")])), encoding="utf-8")
+    done = _run_module(path)
+    assert "日本語 ✓ Ω" in done.stdout.decode("utf-8", errors="replace"), done.stderr.decode(errors="replace")
+
+
+def test_summary_cli_deeply_nested_json_fails_cleanly(tmp_path: Path) -> None:
+    # finding: deeply nested JSON escaped as a RecursionError traceback instead of the sharpit.report error
+    path = tmp_path / "r.json"
+    path.write_text("[" * 200_000, encoding="utf-8")
+    done = _run_module(path)
+    assert done.stderr.decode(errors="replace").startswith("sharpit.report: "), done.stderr[-300:]
