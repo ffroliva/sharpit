@@ -538,7 +538,13 @@ def run_pytest_in(integration: Path) -> PytestRunner:
 # --- entry points -----------------------------------------------------------------------------------------------------
 
 
-def evaluate(opts: Options, *, run_gate: GateRunner, run_pytest: PytestRunner) -> Result:
+def evaluate(
+    opts: Options,
+    *,
+    run_gate: GateRunner,
+    run_pytest: PytestRunner,
+    prepare_env: Callable[[Path], tuple[int, str]] = lambda tree: (0, ""),
+) -> Result:
     result = Result()
     if opts.no_rerun and not opts.lane.startswith(FIXTURE_PREFIX):
         result.refusals.append(f"--no-rerun is only for test fixture lanes ({FIXTURE_PREFIX}-*), not {opts.lane}")

@@ -553,3 +553,35 @@ def test_lane_gate_refuses_conftest_changed_after_red_commit(tmp_path: Path) -> 
     fx.commit({"tests/conftest.py": "import pytest\n"}, "test: conftest")
     fx.review()
     assert _refused(fx.evaluate(), f"red {TEST_ID}: tests/conftest.py changed after red commit")
+
+
+def test_lane_gate_runs_gates_in_a_fresh_tree_at_head(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    (fx.worktree / "tests" / "conftest_untracked.py").write_text("x = 1\n", encoding="utf-8")
+    seen: list[tuple[Path, str, bool]] = []
+    synced: list[Path] = []
+
+    def gate(name: str, command: Sequence[str], cwd: Path) -> tuple[int, str]:
+        seen.append((cwd, _git(cwd, "rev-parse", "HEAD"), (cwd / "tests" / "conftest_untracked.py").exists()))
+        return 0, "ok"
+
+    def prepare(tree: Path) -> tuple[int, str]:
+        synced.append(tree)
+        return 0, "synced"
+
+    opts = fx.options()
+    result = lane_gate.evaluate(opts, run_gate=gate, run_pytest=fx.run_pytest, prepare_env=prepare)
+    assert _refusals(result) == []
+    assert {cwd for cwd, _head, _untracked in seen} == set(synced)
+    assert synced[0] != fx.worktree
+    assert {head for _cwd, head, _untracked in seen} == {fx.head}
+    assert not any(untracked for _cwd, _head, untracked in seen)
+    assert not synced[0].exists()
+
+
+def test_lane_gate_refuses_when_the_fresh_environment_fails_to_sync(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    opts = fx.options()
+    result = lane_gate.evaluate(opts, run_gate=fx.run_gate, run_pytest=fx.run_pytest, prepare_env=lambda t: (1, "no"))
+    assert _refused(result, "environment sync failed")
+    assert fx.gate_calls == []
