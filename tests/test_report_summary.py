@@ -168,7 +168,7 @@ def test_backslash_in_finding_text_is_escaped_too() -> None:
     # finding: a pre-escaped value (`\[x\](https://evil)`) must not turn back into a live link or raw HTML
     from sharpit.report.summary import _esc  # pyright: ignore[reportPrivateUsage]
 
-    assert _esc(r"\[x\](https://evil)") == r"\\\[x\\\](https://evil)"
+    assert _esc(r"\[x\](https://evil)") == r"\\\[x\\\](https:" + "​" + "//evil)"
 
 
 def _run_module(path: Path) -> subprocess.CompletedProcess[bytes]:

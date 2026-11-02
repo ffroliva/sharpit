@@ -7,6 +7,7 @@ import json
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import TextIO
 
 from sharpit.report.summary import render_summary
 
@@ -26,9 +27,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _fail(f"cannot read report: {exc}")
     if not isinstance(report, Mapping):
         return _fail("report is not a JSON object")
-    if isinstance(sys.stdout, io.TextIOWrapper):
-        sys.stdout.reconfigure(encoding="utf-8")  # the job summary is UTF-8 whatever the console code page
-    sys.stdout.write(render_summary(report))  # pyright: ignore[reportUnknownArgumentType]
+    out: TextIO = sys.stdout
+    if isinstance(out, io.TextIOWrapper):
+        out.reconfigure(encoding="utf-8")  # the job summary is UTF-8 whatever the console code page
+    out.write(render_summary(report))  # pyright: ignore[reportUnknownArgumentType]
     return 0
 
 
