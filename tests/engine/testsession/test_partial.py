@@ -33,3 +33,7 @@ def test_full_run_is_not_partial() -> None:
 def test_partial_selection_detects_last_failed_and_deselect_args() -> None:
     assert selection_requested(["--lf"]) is True
     assert selection_requested(["--deselect=tests/test_app.py::test_x"]) is True
+
+
+def test_partial_when_controller_deselected_without_workers() -> None:
+    assert partial_run([], {"deselected": 1}) is True

@@ -159,3 +159,27 @@ def test_single_process_deselection_keeps_fixed_null(pytester: pytest.Pytester) 
     data = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
     assert data["baseline"]["fixed"] is None
     assert data["baseline"]["fixedReason"] == "partial run"
+
+
+@pytest.mark.parametrize("selection", [["-k", "x"], ["-m", "not slow"]])
+def test_write_baseline_refused_on_single_process_command_line_selection(
+    pytester: pytest.Pytester, selection: list[str]
+) -> None:
+    # characterisation: command-line -k/-m were already caught by the argument scan
+    _two_tests(pytester)
+    _refused(pytester, pytester.runpytest_subprocess(*_SINGLE, *selection, "--sharpit-write-baseline=b.json"))
+
+
+def test_single_process_keyword_addopts_keeps_fixed_null(pytester: pytest.Pytester) -> None:
+    # supersedes test_single_process_deselection_keeps_fixed_null, whose `-k x` also matched its own module name
+    pytester.makepyfile("def test_a(): pass\ndef test_b(): pass")
+    pytester.makeini("[pytest]\naddopts = -k test_a")
+    (pytester.path / "previous.json").write_text(
+        '{"schema":"sharpit-baseline/1","findings":[{"fingerprint":"old",'
+        '"ruleId":"R","target":"t","message":"m","observed":null}]}',
+        encoding="utf-8",
+    )
+    pytester.runpytest_subprocess(*_SINGLE, "--sharpit-baseline=previous.json", "--sharpit-report=report.json")
+    data = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
+    assert data["baseline"]["fixed"] is None
+    assert data["baseline"]["fixedReason"] == "partial run"
