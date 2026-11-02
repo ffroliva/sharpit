@@ -64,14 +64,14 @@
 
 ## Review round 1: finding → test → red SHA → fix
 
-| Finding (review.md) | Test | Red commit | Fix |
+| Finding (review.md) | Test | Red commit | Disposition |
 |---|---|---|---|
-| 1 major: no `routes/sql_trace.py` / `tools04/sql_trace.py`, and discovery skipped `sql-trace` | `test_sql_trace_route_and_tool_modules_are_discovered` | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | `4c3828b` |
-| 2 minor: `install(models="Base")` stored characters | `test_models_hook_rejects_a_string` (str, bytes, mapping) | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | `4c3828b` |
-| 3 minor: unimplemented 0.4 ids accepted and listed as known panels | `test_unknown_panel_message_lists_only_implemented_panels` | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | `4c3828b` |
-| 4 minor: vacuous MCP/CLI disjointness | control `test_planted_tool_in_an_unimplemented_panel_stays_absent` | none (control) | `4c3828b` |
-| 5 minor: report-only inertness unproven under `--sharpit` | control `test_report_only_options_leave_the_sharpit_report_unchanged` | none (control) | `4c3828b` |
-| 6, 7 minor | open, see handoff "Open minors" | — | — |
+| 1 major: no `routes/sql_trace.py` / `tools04/sql_trace.py`, and discovery skipped `sql-trace` | `test_sql_trace_route_and_tool_modules_are_discovered` | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | Fixed in `4c3828b` |
+| 2 minor: `install(models="Base")` stored characters | `test_models_hook_rejects_a_string` (str, bytes, mapping) | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | Fixed in `4c3828b` |
+| 3 minor: unimplemented 0.4 ids accepted and listed as known panels | `test_unknown_panel_message_lists_only_implemented_panels` | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | Fixed in `4c3828b` |
+| 4 minor: vacuous MCP/CLI disjointness | control `test_planted_tool_in_an_unimplemented_panel_stays_absent` | none (control) | Fixed in `4c3828b` |
+| 5 minor: report-only inertness unproven under `--sharpit` | control `test_report_only_options_leave_the_sharpit_report_unchanged` | none (control) | Fixed in `4c3828b` |
+| 6, 7 minor | open, see handoff "Open minors" | — | Parked: open minors 6 (UI bundle rebuilt by the coordinator at integration) and 7 (junit message shapes, handled in lane_gate); see handoff Open minors |
 
 ## Not a red (no replayable red; kept out of the red table)
 
@@ -84,39 +84,39 @@
 
 ## Review round 2 (ponytail-review.md + coordinator): finding → test → red SHA → fix
 
-| Finding | Test | Red commit | Fix |
+| Finding | Test | Red commit | Disposition |
 |---|---|---|---|
-| 1 flag-flip-fragile tests | `test_panel_surface_follows_its_flag`, `test_panel_settings_follow_the_flag` (red); `test_panel_tools_follow_its_flag`, `test_capture_middleware_follows_the_panel_flag`, `test_engine_discovery_follows_the_panel_flag` (pass on arrival) | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `4650305`: `Panel.implemented` and `AdvisorSpec.implemented` are properties reading `panels04.IMPLEMENTED` at call time |
-| 2 one-shot teardowns / silent no-op listener | `test_lane_attacher_survives_lifespan_restart`, `test_lane_attacher_retries_after_a_late_sqlalchemy_import`, `test_connection_listener_says_when_sqlalchemy_is_not_imported` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `4650305`: `CaptureState.attachers`, re-run at install/startup/first request; `add_connection_listener` returns `None` without SQLAlchemy |
-| 3 inert options' help promised behaviour | `test_reserved_options_help_promises_no_behaviour` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `4650305` |
-| 4 golden order | `test_golden_loader_prefers_named_provisional_over_shared_capture` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `4650305` |
-| 5 lane tool collisions; reversed COMMANDS example | `test_lane_tool_colliding_with_a_base_tool_is_refused` (red); `test_sql_trace_modules_are_discovered` (replacement) | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `4650305`: `tools.merge_lane_tools` raises at import |
-| 6 half-applied `max_results` fallback | `tests/engine/test_tools.py::test_call_tool_uses_the_given_tool_gate` (replacement double; no behaviour red) | — | `4650305` |
-| 7 env for an unimplemented id warned | `test_panel_env_for_an_unimplemented_panel_is_ignored` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | `4650305` |
-| lean | deleted `engine/tool_registry.py`, `fastapi/route_registry.py`, `session.resolve_options`, their 3 tests; one `panel_is_implemented` (= `panels04.module_implemented`) | — | `4650305` |
+| 1 flag-flip-fragile tests | `test_panel_surface_follows_its_flag`, `test_panel_settings_follow_the_flag` (red); `test_panel_tools_follow_its_flag`, `test_capture_middleware_follows_the_panel_flag`, `test_engine_discovery_follows_the_panel_flag` (pass on arrival) | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | Fixed in `4650305`: `Panel.implemented` and `AdvisorSpec.implemented` are properties reading `panels04.IMPLEMENTED` at call time |
+| 2 one-shot teardowns / silent no-op listener | `test_lane_attacher_survives_lifespan_restart`, `test_lane_attacher_retries_after_a_late_sqlalchemy_import`, `test_connection_listener_says_when_sqlalchemy_is_not_imported` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | Fixed in `4650305`: `CaptureState.attachers`, re-run at install/startup/first request; `add_connection_listener` returns `None` without SQLAlchemy |
+| 3 inert options' help promised behaviour | `test_reserved_options_help_promises_no_behaviour` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | Fixed in `4650305` |
+| 4 golden order | `test_golden_loader_prefers_named_provisional_over_shared_capture` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | Fixed in `4650305` |
+| 5 lane tool collisions; reversed COMMANDS example | `test_lane_tool_colliding_with_a_base_tool_is_refused` (red); `test_sql_trace_modules_are_discovered` (replacement) | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | Fixed in `4650305`: `tools.merge_lane_tools` raises at import |
+| 6 half-applied `max_results` fallback | `tests/engine/test_tools.py::test_call_tool_uses_the_given_tool_gate` (replacement double; no behaviour red) | — | Fixed in `4650305` |
+| 7 env for an unimplemented id warned | `test_panel_env_for_an_unimplemented_panel_is_ignored` | `c2e385d740fb70e209d3fc89e0d2840163f45c30` | Fixed in `4650305` |
+| lean | deleted `engine/tool_registry.py`, `fastapi/route_registry.py`, `session.resolve_options`, their 3 tests; one `panel_is_implemented` (= `panels04.module_implemented`) | — | Fixed in `4650305` |
 
 ## Review round 2 addendum (coordinator items 8-9): finding → test → red SHA → fix
 
-| Finding | Test | Red commit | Fix |
+| Finding | Test | Red commit | Disposition |
 |---|---|---|---|
-| 8 count-pinned shared tests break on a flag flip | `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip` (flag `data` on, planted tool/command/route; panels, MCP list, MCP `toolCount`, CLI `toolCount`/commands and routes all follow) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `53b0e86`: `tests/surface.py` (base pinned literally + flag-derived extras) used by `test_mcp.py::test_tools_list_has_no_action_tool`, `test_tools.py::test_catalogue_names_panels_actions_and_schemas`, `test_install.py::test_panels_platform_fastapi_and_ids` / `::test_mvp_panels_stay_available`, `test_mcp_api.py::test_mcp_server_status_shape`, `test_cli_api.py::test_cli_status_shape_matches_contract`, `test_safety_matrix.py::test_get_route_table_is_complete`, `test_foundation_suite_equivalence.py` |
-| 9 golden lists keep one item per distinct shape | `tests/test_golden_shapes.py::test_payload_item_matches_any_golden_shape`, `::test_null_allowed_where_any_golden_item_is_null`, `::test_any_golden_type_at_a_path_is_accepted` (red); `::test_payload_item_matching_no_golden_shape_is_rejected`, `::test_a_type_no_golden_item_has_is_rejected` (controls) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | `53b0e86` |
+| 8 count-pinned shared tests break on a flag flip | `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip` (flag `data` on, planted tool/command/route; panels, MCP list, MCP `toolCount`, CLI `toolCount`/commands and routes all follow) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | Fixed in `53b0e86`: `tests/surface.py` (base pinned literally + flag-derived extras) used by `test_mcp.py::test_tools_list_has_no_action_tool`, `test_tools.py::test_catalogue_names_panels_actions_and_schemas`, `test_install.py::test_panels_platform_fastapi_and_ids` / `::test_mvp_panels_stay_available`, `test_mcp_api.py::test_mcp_server_status_shape`, `test_cli_api.py::test_cli_status_shape_matches_contract`, `test_safety_matrix.py::test_get_route_table_is_complete`, `test_foundation_suite_equivalence.py` |
+| 9 golden lists keep one item per distinct shape | `tests/test_golden_shapes.py::test_payload_item_matches_any_golden_shape`, `::test_null_allowed_where_any_golden_item_is_null`, `::test_any_golden_type_at_a_path_is_accepted` (red); `::test_payload_item_matching_no_golden_shape_is_rejected`, `::test_a_type_no_golden_item_has_is_rejected` (controls) | `aaa97d8e2d4af2d5394097c1967a1bfa6ea1ba0b` | Fixed in `53b0e86` |
 
 ## Review round 3: finding → test → red SHA → fix
 
-| Finding | Test | Red commit | Fix |
+| Finding | Test | Red commit | Disposition |
 |---|---|---|---|
-| R3-1 sql-trace route module mounting unproven | `tests/test_foundation_round3.py::test_sql_trace_route_module_is_mounted` (red against a stub loop that skips `sql-trace`) | `95e5769a1c469cb92e75c34c38425d81011fd728` | `a1fb3ad` |
-| R3-2 `# noqa: C901` in `tests/golden.py` | none: `_compare` split into `_compare` / `_compare_object` / `_compare_list` with a `_Check` record; ruff C901 passes, `tests/complexity_baseline.json` unchanged | — | `a1fb3ad` |
-| minor: empty or null-only golden list accepted anything silently | `tests/test_foundation_round3.py::test_golden_list_without_shape_information_warns` (both cases) | `95e5769a1c469cb92e75c34c38425d81011fd728` | `a1fb3ad`: compares nothing for that list and emits `UnverifiedParityWarning` naming the path |
+| R3-1 sql-trace route module mounting unproven | `tests/test_foundation_round3.py::test_sql_trace_route_module_is_mounted` (red against a stub loop that skips `sql-trace`) | `95e5769a1c469cb92e75c34c38425d81011fd728` | Fixed in `a1fb3ad` |
+| R3-2 `# noqa: C901` in `tests/golden.py` | none: `_compare` split into `_compare` / `_compare_object` / `_compare_list` with a `_Check` record; ruff C901 passes, `tests/complexity_baseline.json` unchanged | — | Fixed in `a1fb3ad` |
+| minor: empty or null-only golden list accepted anything silently | `tests/test_foundation_round3.py::test_golden_list_without_shape_information_warns` (both cases) | `95e5769a1c469cb92e75c34c38425d81011fd728` | Fixed in `a1fb3ad`: compares nothing for that list and emits `UnverifiedParityWarning` naming the path |
 
 ## Review round 3 addendum (gate evidence rules)
 
-| Finding | Test | Red commit | Fix |
+| Finding | Test | Red commit | Disposition |
 |---|---|---|---|
-| b: red `359fbe9` / `7df2749` reference `gatekeeper_violations`, changed after their red commits | `test_pytest_gatekeeper_covers_the_plugin_package`, `test_opentelemetry_import_is_confined_to_engine_otel` (red against a stub allow rule that accepts everything; the rule now lives in `_gatekeeper_allows`, which the tests do not reference) | `b9b880f31d1a40825a48ed8b78463ae5e1c08ced` | `9d343bc` |
-| b: red `fbcd986` references `PANEL_IDS`, changed after its red commit | `test_every_0_4_panel_is_registered_behind_its_flag` (red against a `PANELS` stub missing the `fastapi` row) | `b9b880f31d1a40825a48ed8b78463ae5e1c08ced` | `9d343bc` |
-| a, c: only real red tables carry the red-SHA column | review/finding tables use `Red commit`, superseded uses `Historical SHA`, the Vitest list uses `Commit` | — | docs |
+| b: red `359fbe9` / `7df2749` reference `gatekeeper_violations`, changed after their red commits | `test_pytest_gatekeeper_covers_the_plugin_package`, `test_opentelemetry_import_is_confined_to_engine_otel` (red against a stub allow rule that accepts everything; the rule now lives in `_gatekeeper_allows`, which the tests do not reference) | `b9b880f31d1a40825a48ed8b78463ae5e1c08ced` | Fixed in `9d343bc` |
+| b: red `fbcd986` references `PANEL_IDS`, changed after its red commit | `test_every_0_4_panel_is_registered_behind_its_flag` (red against a `PANELS` stub missing the `fastapi` row) | `b9b880f31d1a40825a48ed8b78463ae5e1c08ced` | Fixed in `9d343bc` |
+| a, c: only real red tables carry the red-SHA column | review/finding tables use `Red commit`, superseded uses `Historical SHA`, the Vitest list uses `Commit` | — | Fixed in `049309b` (evidence tables) |
 
 ## Superseded reds (test deleted; its row left the red table)
 
