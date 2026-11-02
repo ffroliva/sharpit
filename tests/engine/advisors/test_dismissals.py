@@ -6,6 +6,7 @@ Ported ids are rewritten into sharpit's vulnerability rule-id form (``<vulnId>::
 ``test_rapi_id_accepted_quote_space_slash_refused``).
 """
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -440,3 +441,62 @@ def test_findings_dto_emits_every_key():
         ],
         "ignored": 2,
     }
+
+
+TARGET = "GET /items app.main:list_items"  # a REST API finding has no identity and matches on this target
+
+
+def test_dismissed_pairs_accepts_a_real_rest_api_target(tmp_path: Path):
+    file = tmp_path / FILE_NAME
+    file.write_text(f"dismissedFindings:\n  - RAPI-DOC-001 {TARGET} n=b2s\n", encoding="utf-8")
+    store = DismissalStore(tmp_path)
+    assert store.dismissed_pairs() == {("RAPI-DOC-001", TARGET)}
+    store.restore_finding("RAPI-DOC-001", TARGET)
+    store.dismiss_finding("RAPI-DOC-001", TARGET, None)
+    assert ("RAPI-DOC-001", TARGET) in store.dismissed_pairs()
+    store.dismiss_finding("RAPI-DOC-001", TARGET, "why")
+    written = file.read_bytes()
+    store.dismiss_finding("RAPI-DOC-001", TARGET, "why")
+    assert file.read_bytes() == written
+    assert DismissalStore(tmp_path).list_findings().dismissed == [DismissedFinding("RAPI-DOC-001", TARGET, "why")]
+
+
+def test_two_stores_sharing_a_state_dir_keep_each_others_dismissals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    first, second = DismissalStore(tmp_path), DismissalStore(tmp_path)
+    real = os.replace
+    interleaved: list[bool] = []
+
+    def replace_then_another_store_writes(src: str, dst: Path) -> None:
+        real(src, dst)
+        if not interleaved:  # the other store writes between our replace and our cache stamp
+            interleaved.append(True)
+            second.add(B)
+
+    monkeypatch.setattr(os, "replace", replace_then_another_store_writes)
+    first.add(A)
+    assert first.list() == [A, B]
+
+
+LONG_VULN_RULE = "GHSA-aaaa-bbbb-cccc::pypi:" + "x" * 40  # 66 characters: owned by the vulnerabilities advisor
+
+
+def test_a_finding_rule_id_may_be_as_long_as_a_rule_id(tmp_path: Path):
+    (tmp_path / FILE_NAME).write_text(f"dismissedFindings:\n  - {LONG_VULN_RULE} {IDENTITY}\n", encoding="utf-8")
+    assert DismissalStore(tmp_path).list_findings().dismissed == [DismissedFinding(LONG_VULN_RULE, IDENTITY)]
+
+
+def test_comments_inside_the_managed_sections_are_kept_and_not_counted(tmp_path: Path):
+    file = tmp_path / FILE_NAME
+    file.write_text(
+        f"dismissedRules:\n# why A\n  - {A}\ndismissedFindings:\n  # indented\n# column zero\n  - {RULE} {IDENTITY}\n",
+        encoding="utf-8",
+    )
+    store = DismissalStore(tmp_path)
+    assert store.list_findings().ignored == 0
+    store.add(B)
+    store.dismiss_finding(RULE, OTHER, None)
+    written = file.read_text(encoding="utf-8")
+    assert "# why A\n" in written
+    assert "  # indented\n" in written
+    assert "# column zero\n" in written
+    assert DismissalStore(tmp_path).list_findings().ignored == 0
