@@ -18,6 +18,12 @@ GET_ROWS = [
 WRITE_ROWS: list[tuple[str, str]] = []
 
 
+def test_d3_legacy_panel_is_not_added_as_a_panels04_lane():
+    from safety import load
+
+    assert load().invalid == ()
+
+
 def test_pools_report_read_has_no_side_effects(no_side_effects: SideEffectGuard):
     handle = install(
         FastAPI(), enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir), engines=[]
