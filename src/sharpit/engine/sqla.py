@@ -33,7 +33,9 @@ logger = logging.getLogger("sharpit")
 
 STATEMENT_EVENTS = ("before_cursor_execute", "after_cursor_execute", "handle_error")
 DISCOVERY_EVENT = "engine_connect"
-ConnectionEvent = Literal["begin", "commit", "rollback", "savepoint", "rollback_savepoint", "release_savepoint"]
+ConnectionEvent = Literal[
+    "begin", "commit", "rollback", "savepoint", "rollback_savepoint", "release_savepoint", "handle_error"
+]
 CONNECTION_EVENTS: tuple[ConnectionEvent, ...] = (
     "begin",
     "commit",
@@ -41,6 +43,7 @@ CONNECTION_EVENTS: tuple[ConnectionEvent, ...] = (
     "savepoint",
     "rollback_savepoint",
     "release_savepoint",
+    "handle_error",
 )  # add_connection_listener's events (O1)
 DISCOVERY_PANELS = (
     "alembic",

@@ -444,7 +444,7 @@ def test_attacher_retries_late_sqlalchemy_and_removes_partial_listeners(monkeypa
     assert remove is not None, "the attacher must succeed when SQLAlchemy becomes available"
     assert len(removed) == 0, "successful attach must keep listeners until the remover runs"
     remove()
-    assert len(removed) == 6, "one remover must detach all six transaction events"
+    assert len(removed) == 7, "one remover must detach all seven transaction events"
 
 
 def test_listener_remover_releases_attachments_when_called(monkeypatch) -> None:
@@ -459,7 +459,7 @@ def test_listener_remover_releases_attachments_when_called(monkeypatch) -> None:
     remove = attach()
     assert remove is not None, "the transaction listener must attach for this context"
     remove()
-    assert len(removed) == 6, "calling the owning teardown must release all class-level listeners"
+    assert len(removed) == 7, "calling the owning teardown must release all class-level listeners"
 
 
 def test_listener_release_never_runs_under_attach_lock(monkeypatch) -> None:

@@ -193,6 +193,21 @@ class TransactionRecorder:
                 pass
         self.changes.signal()
 
+    def fail_commit(self, entry_id: int, error: BaseException) -> None:
+        with self._lock:
+            row = next((item for item in self._entries if item["id"] == entry_id), None)
+            if row is None:
+                return
+            now = time.time_ns()
+            duration = max(0, (now - row["_startedNs"]) // 1_000_000)
+            row["endTimestamp"] = now // 1_000_000
+            row["durationMillis"] = duration
+            row["status"] = "UNKNOWN"
+            row["slow"] = self.slow_threshold_ms > 0 and duration >= self.slow_threshold_ms
+            row["connectionHeld"] = self.hold_threshold_ms > 0 and duration >= self.hold_threshold_ms
+            row["errorMessage"] = self._masker.mask_text(str(error))
+        self.changes.signal()
+
     def _evict_completed_locked(self) -> bool:
         for row in self._entries:
             if row["endTimestamp"] is not None:
@@ -399,6 +414,7 @@ def _end_savepoint(conn: Any, name: str, status: str) -> None:
 
 def tx_begin(conn: Any) -> None:
     try:
+        conn.info.pop("sharpit_tx_pending_commit", None)
         _begin(conn)
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
@@ -406,6 +422,7 @@ def tx_begin(conn: Any) -> None:
 
 def tx_commit(conn: Any) -> None:
     try:
+        conn.info["sharpit_tx_pending_commit"] = [(ctx.context_id, entry_id) for ctx, entry_id in _stack(conn)]
         _end(conn, "COMMITTED")
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
@@ -413,8 +430,28 @@ def tx_commit(conn: Any) -> None:
 
 def tx_rollback(conn: Any) -> None:
     try:
+        conn.info.pop("sharpit_tx_pending_commit", None)
         _end(conn, "ROLLED_BACK")
     except Exception as exc:  # noqa: BLE001
+        dispatch.routing_failed(exc)
+
+
+def tx_handle_error(exception_context: Any) -> None:
+    try:
+        if exception_context.statement is not None or exception_context.connection is None:
+            return
+        conn = exception_context.connection
+        pending = conn.info.pop("sharpit_tx_pending_commit", [])
+        error = exception_context.sqlalchemy_exception or exception_context.original_exception
+        targets = {ctx.context_id: ctx for ctx in _targets(conn)}
+        for context_id, entry_id in pending:
+            ctx = targets.get(context_id)
+            if ctx is None:
+                continue
+            recorder = ctx.capture.transactions
+            if isinstance(recorder, TransactionRecorder):
+                recorder.fail_commit(entry_id, error)
+    except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
         dispatch.routing_failed(exc)
 
 
@@ -470,6 +507,7 @@ def attach(ctx: SharpitContext | None = None) -> Callable[[], None] | None:
         "savepoint": tx_savepoint,
         "rollback_savepoint": tx_rollback_savepoint,
         "release_savepoint": tx_release_savepoint,
+        "handle_error": tx_handle_error,
     }
     with _attach_lock:
         if _attach_count == 0:
