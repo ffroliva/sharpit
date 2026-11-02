@@ -126,3 +126,8 @@ def live_write_routes(app: Any, exempt: tuple[str, ...]) -> set[tuple[str, str]]
             continue
         found |= {(m, path) for m in WRITE_METHODS & set(getattr(route, "methods", None) or ())}
     return found
+
+
+def sample_params(path_format: str, lanes: Lanes, base: dict[str, str]) -> dict[str, str]:
+    """Path-parameter samples for one route format (wrong-value stub until the fix)."""
+    return {**base, **lanes.params}
