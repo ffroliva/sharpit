@@ -1,6 +1,6 @@
 # Lane A-postgresql handoff
 
-Status: DONE_WITH_CONCERNS — Tasks 1–7 complete (resumed by a Claude subagent after Antigravity hit its quota). Concerns: flag-flip fallout in shared catalogue tests and the unverified leased-Postgres run (see Needs from coordinator).
+Status: DONE_WITH_CONCERNS — Tasks 1–7 and fix round 1 complete (resumed by a Claude subagent after Antigravity hit its quota). Concerns: flag-flip fallout in shared catalogue tests and the unverified leased-Postgres run (see Needs from coordinator).
 
 ## How to resume
 
@@ -52,6 +52,23 @@ Status: DONE_WITH_CONCERNS — Tasks 1–7 complete (resumed by a Claude subagen
 - Vitest `npx vitest run` (ui): 32 files, 262 tests passed; `npm run check` (tsc) clean.
 - Leased Postgres: not run in the lane (no lease); leased tests skip without `SHARPIT_TEST_POSTGRES_URL`.
 
+## Fix round 1 (coordinator, review.md + ponytail-review.md @ ce3a98e)
+
+Finding → test → red SHA: `findings.md` §Fix round 1. Decisions:
+- 1: query text now also masks numeric literals (`******`) and drops comment bodies; E-strings honour backslashes; a plain literal holding an ambiguous `'` (standard_conforming_strings off) is masked to the end of the line. Ruling logged: stricter than BootUI. A lone digit right after a keyword (`SELECT 1`, `LIMIT 5`) is kept: the frozen red `test_query_text_collapses_whitespace_and_truncates_to_400_chars` expects `SELECT 1 FROM pg_stat_activity` verbatim.
+- 2: `postgresql_read` (CLI) runs on the app's loop (`run_coroutine_threadsafe`) when it is running; otherwise an async PostgreSQL engine gets a `DISABLED` summary ("Reads of async engines run from the panel only…"); sync engines keep a fresh loop.
+- 3: wall timeout = remaining budget + statement timeout + 1 s; a wall timeout keeps the sections already read (database `PARTIAL`, `message` = budget ran out, unread sections `SKIPPED`).
+- 4: index/table sizes are computed in an outer query over the LIMITed inner query; the inner order uses `pg_class.relpages` (no lock), so "largest relations" are the largest by heap pages, re-sorted by exact total size.
+- 5: deviation from the brief's wording: the timeouts are not re-read with `current_setting('statement_timeout')`, because the frozen red `test_read_only_order` pins the exact statement list (no extra statement before the catalog read). The refused case is the same condition detected without SQL: a DBAPI connection in autocommit (`conn.connection.dbapi_connection.autocommit`) is refused with READ_ONLY_REFUSED, since every `SET LOCAL` then ran in its own transaction.
+- 6: setup driver errors propagate as themselves (masked by the service like any engine error); READ_ONLY_REFUSED only for the failed read-only check.
+- 7: `LOCK_TIMEOUT` reaches `bounded_read_only` through a new `run_db_read(lock_timeout=)` keyword; `read_list` uses `read_one_past`. Kept on purpose: `sqla.is_internal` and `RowLimits.to_dto`, because the frozen red tests `test_internal_marker_kept` and `test_default_limits_match_properties_contract` call them (editing those bodies would break the gate's red replay).
+- 8: without SQLAlchemy 2 the report (GET and POST) is `DISABLED` with `message = sqla.unavailable_reason()`. No `unavailableReason` key was added: the frozen red `test_report_keys_match_the_bootui_records` pins the report's keys. Coordinator: add `reasons["postgresql"] = sqla.unavailable_reason()` in `fastapi/adapter.py::available_reasons` (outside this lane's list).
+- 9: `test_async_engine_read_only` uses `asyncio.SelectorEventLoop` on win32; the leased command uses 127.0.0.1.
+- 10: new red `test_query_text_masks_strings_and_dollar_quotes_in_one_pass` at `0fb2462` with the WIP two-pass ordering as the stub.
+- Fix-round gates at `1f7b101`: ruff check/format clean, pyright 0, pytest -n 4 3661 passed / 11 skipped / 10 failed (the 9 flag-flip catalogue pins + `test_request_overhead_budget`, which fails on base `d37c6f2` too); vitest 263/263, tsc clean.
+- UI: rows of every section, the limitations, and the POST's own answer (no second GET).
+- Two red commits were redone before anything recorded them (`de7e624` lost the backslashes of its test string; the first `856d23d` sliced the wrong part of the SQL); only the recorded SHAs above count.
+
 ## Needs from coordinator
 
 - **Flag flip fallout (outside this lane's May-touch; each fails only because it pins the pre-postgresql catalogue/route list — add the postgresql row):**
@@ -65,7 +82,7 @@ Status: DONE_WITH_CONCERNS — Tasks 1–7 complete (resumed by a Claude subagen
   - F's `tests/fastapi/test_capture_hooks.py` / `tests/test_foundation_review_fixes.py`: no failure observed from the flip.
 - UI: `npm run build` was not run (COMMON forbids it); `src/sharpit/ui/static` must be rebuilt by the coordinator for the CI UI-drift job.
 - G0a: `tests/fixtures/bootui/2.2.0/postgresql/captured.json` (or a `provisional.json`) so `test_golden_parity` runs instead of skipping.
-- Leased-Postgres run (this lane never connected to a database): `SHARPIT_TEST_POSTGRES_URL=postgresql+psycopg://<user>:<pw>@localhost:5432/<db> uv run pytest -v tests/engine/test_sqla_read_only.py tests/engine/postgresql/test_sections.py -k "rejects_write or autocommit_engine or async_engine or real_server"`.
+- Leased-Postgres run (this lane never connected to a database): `SHARPIT_TEST_POSTGRES_URL=postgresql+psycopg://<user>:<pw>@127.0.0.1:5432/<db> uv run pytest -v tests/engine/test_sqla_read_only.py tests/engine/postgresql/test_sections.py -k "rejects_write or autocommit_engine or async_engine or real_server"`.
 
 ## Red-test replay table
 
@@ -142,4 +159,17 @@ Status: DONE_WITH_CONCERNS — Tasks 1–7 complete (resumed by a Claude subagen
 | `Vitest: ui/tests/component/postgresql.test.ts::a read renders each section with its status, reason and hint` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected undefined to be defined` |
 | `Vitest: ui/tests/component/postgresql.test.ts::changes render only when the read carries them (the second read)` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'Statement ranking'` |
 | `Vitest: ui/tests/component/postgresql.test.ts::read-only hides the read button and says why` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'The database has not been read yet. R…'` |
+| `tests/engine/postgresql/test_querytext.py::test_query_text_masks_strings_and_dollar_quotes_in_one_pass` | `0fb2462ad60323b6aaa13c1b2f964d1b7e9a129f` | `assert "SELECT '******'" == "SELECT '****... = $$******$$"` |
+| `tests/engine/postgresql/test_querytext.py::test_query_text_masks_numeric_literals` | `e6696c338ae38669186ff5e8d248f2a54de2509e` | `AssertionError: assert 'select * fro...1111111111111' == 'select * fro... pan = ******'` |
+| `tests/engine/postgresql/test_querytext.py::test_query_text_drops_comment_bodies` | `e6696c338ae38669186ff5e8d248f2a54de2509e` | `AssertionError: assert 'select 1 /* ... note where x' == 'select 1 from t where x'` |
+| `tests/engine/postgresql/test_querytext.py::test_query_text_masks_a_backslash_escaped_quote_conservatively` | `e6696c338ae38669186ff5e8d248f2a54de2509e` | `assert 'secret' not in "select '***...cret'******'"` |
+| `tests/engine/postgresql/test_sections.py::test_relation_sizes_are_read_only_for_the_limited_rows[INDEXES_SQL]` | `aca4ddf5a5ee67df499b8c2ae64e2fb3894dd81b` | `AssertionError: assert -1 > -1` |
+| `tests/engine/postgresql/test_sections.py::test_relation_sizes_are_read_only_for_the_limited_rows[TABLES_SQL]` | `aca4ddf5a5ee67df499b8c2ae64e2fb3894dd81b` | `AssertionError: assert -1 > -1` |
+| `tests/engine/postgresql/test_sections.py::test_list_query_limit_is_applied_inside_the_sized_subquery` | `aca4ddf5a5ee67df499b8c2ae64e2fb3894dd81b` | `AssertionError: assert 1 == 2` |
+| `tests/engine/test_sqla_read_only.py::test_autocommit_on_a_read_only_server_fails_closed` | `db41c75b581e00056d9cd31ec0d9720b8fb0afd1` | `AssertionError: assert None == 'The read-only transaction could not be established, so sharpit skipped this read'` |
+| `tests/engine/postgresql/test_service.py::test_a_connection_error_during_setup_reports_the_masked_driver_message` | `d08944eb4139b1e8b0915fb10c8cd7257cd9cd98` | `AssertionError: assert 'server closed the connection unexpectedly' in 'The read-only transaction could not be established, so sharpit skipped this rea` |
+| `tests/engine/postgresql/test_service.py::test_a_wall_timeout_keeps_the_sections_already_read` | `d64b4b45b5f96907014185f9b57b01ae2850b217` | `AssertionError: assert 'ERROR' == 'PARTIAL'` |
+| `tests/fastapi/test_postgresql_api.py::test_cli_read_refuses_an_async_engine_outside_the_app_loop` | `98130999f26d8edb2b6f84731e6e6b8565184633` | `AssertionError: assert 'ERROR' == 'DISABLED'` |
+| `tests/engine/postgresql/test_service.py::test_without_sqlalchemy_2_the_panel_reports_why` | `342f13eb366fa0b56e427a3d15416ede66caede7` | `AssertionError: assert ('NOT_READ', ...stics views.') == ('DISABLED', ...2.0 or later')` |
+| `Vitest: ui/tests/component/postgresql.test.ts::renders the section rows and limitations from the POST answer without a second GET` | `d786b517ca6f94176c2f268860c9e40b8fa547a1` | `AssertionError: expected 'postgresql Read PostgreSQL NOT_READ ·…' to contain 'orders_archive'` |
 

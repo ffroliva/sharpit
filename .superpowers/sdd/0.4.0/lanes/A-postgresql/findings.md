@@ -75,6 +75,19 @@
 | `Vitest: ui/tests/component/postgresql.test.ts::a read renders each section with its status, reason and hint` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected undefined to be defined` |
 | `Vitest: ui/tests/component/postgresql.test.ts::changes render only when the read carries them (the second read)` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'Statement ranking'` |
 | `Vitest: ui/tests/component/postgresql.test.ts::read-only hides the read button and says why` | `57b15943b03201e477732893c231446cabde9c45` | `AssertionError: expected 'postgresqlThis panel's view is not b…' to contain 'The database has not been read yet. R…'` |
+| `tests/engine/postgresql/test_querytext.py::test_query_text_masks_strings_and_dollar_quotes_in_one_pass` | `0fb2462ad60323b6aaa13c1b2f964d1b7e9a129f` | `assert "SELECT '******'" == "SELECT '****... = $$******$$"` |
+| `tests/engine/postgresql/test_querytext.py::test_query_text_masks_numeric_literals` | `e6696c338ae38669186ff5e8d248f2a54de2509e` | `AssertionError: assert 'select * fro...1111111111111' == 'select * fro... pan = ******'` |
+| `tests/engine/postgresql/test_querytext.py::test_query_text_drops_comment_bodies` | `e6696c338ae38669186ff5e8d248f2a54de2509e` | `AssertionError: assert 'select 1 /* ... note where x' == 'select 1 from t where x'` |
+| `tests/engine/postgresql/test_querytext.py::test_query_text_masks_a_backslash_escaped_quote_conservatively` | `e6696c338ae38669186ff5e8d248f2a54de2509e` | `assert 'secret' not in "select '***...cret'******'"` |
+| `tests/engine/postgresql/test_sections.py::test_relation_sizes_are_read_only_for_the_limited_rows[INDEXES_SQL]` | `aca4ddf5a5ee67df499b8c2ae64e2fb3894dd81b` | `AssertionError: assert -1 > -1` |
+| `tests/engine/postgresql/test_sections.py::test_relation_sizes_are_read_only_for_the_limited_rows[TABLES_SQL]` | `aca4ddf5a5ee67df499b8c2ae64e2fb3894dd81b` | `AssertionError: assert -1 > -1` |
+| `tests/engine/postgresql/test_sections.py::test_list_query_limit_is_applied_inside_the_sized_subquery` | `aca4ddf5a5ee67df499b8c2ae64e2fb3894dd81b` | `AssertionError: assert 1 == 2` |
+| `tests/engine/test_sqla_read_only.py::test_autocommit_on_a_read_only_server_fails_closed` | `db41c75b581e00056d9cd31ec0d9720b8fb0afd1` | `AssertionError: assert None == 'The read-only transaction could not be established, so sharpit skipped this read'` |
+| `tests/engine/postgresql/test_service.py::test_a_connection_error_during_setup_reports_the_masked_driver_message` | `d08944eb4139b1e8b0915fb10c8cd7257cd9cd98` | `AssertionError: assert 'server closed the connection unexpectedly' in 'The read-only transaction could not be established, so sharpit skipped this rea` |
+| `tests/engine/postgresql/test_service.py::test_a_wall_timeout_keeps_the_sections_already_read` | `d64b4b45b5f96907014185f9b57b01ae2850b217` | `AssertionError: assert 'ERROR' == 'PARTIAL'` |
+| `tests/fastapi/test_postgresql_api.py::test_cli_read_refuses_an_async_engine_outside_the_app_loop` | `98130999f26d8edb2b6f84731e6e6b8565184633` | `AssertionError: assert 'ERROR' == 'DISABLED'` |
+| `tests/engine/postgresql/test_service.py::test_without_sqlalchemy_2_the_panel_reports_why` | `342f13eb366fa0b56e427a3d15416ede66caede7` | `AssertionError: assert ('NOT_READ', ...stics views.') == ('DISABLED', ...2.0 or later')` |
+| `Vitest: ui/tests/component/postgresql.test.ts::renders the section rows and limitations from the POST answer without a second GET` | `d786b517ca6f94176c2f268860c9e40b8fa547a1` | `AssertionError: expected 'postgresql Read PostgreSQL NOT_READ ·…' to contain 'orders_archive'` |
 
 ## Review / implementation findings
 
@@ -83,3 +96,21 @@
 | WIP `f247d7e` `query_text` called non-existent `Masker.mask_value` (AttributeError on every call) | `tests/engine/postgresql/test_querytext.py::*` (red at `afbecc2`, errored at `f247d7e`) | fixed in Task 2 fix commit |
 | WIP dollar-quote regex ran before the string regex, so a `$tag$` inside a string literal could swallow text across literal boundaries | `tests/engine/postgresql/test_querytext.py::test_query_text_masks_single_quoted_escape_and_dollar_quoted_literals` | fixed: single-pass alternation; regression `tests/engine/postgresql/test_querytext.py::test_query_text_a_dollar_inside_a_string_is_not_a_dollar_quote` added after the fix (not replayed at a red SHA) |
 | `field-map.md` draft (Antigravity) listed DTO keys that do not exist in BootUI 2.2.0 (`readAt`, `durationMillis`, `sourceCount`, `PostgresSectionDto.available`, ...) | rewritten from `core/dto/Postgres*.java` in Task 5; `tests/fastapi/test_postgresql_api.py` key checks | fixed in Task 5 |
+
+## Fix round 1 (review.md / ponytail-review.md @ ce3a98e)
+
+| Finding | Test | Red SHA | Red assertion |
+|---|---|---|---|
+| 10 dollar-quote ordering never seen red | `tests/engine/postgresql/test_querytext.py::test_query_text_masks_strings_and_dollar_quotes_in_one_pass` | `0fb2462ad60323b6aaa13c1b2f964d1b7e9a129f` | `assert "SELECT '******'" == "SELECT '****... = $$******$$"` |
+| 1 numbers/comments/backslash unmasked | `tests/engine/postgresql/test_querytext.py::test_query_text_masks_numeric_literals` | `e6696c338ae38669186ff5e8d248f2a54de2509e` | `AssertionError: assert 'select * fro...1111111111111' == 'select * fro... pan = ******'` |
+| 1 numbers/comments/backslash unmasked | `tests/engine/postgresql/test_querytext.py::test_query_text_drops_comment_bodies` | `e6696c338ae38669186ff5e8d248f2a54de2509e` | `AssertionError: assert 'select 1 /* ... note where x' == 'select 1 from t where x'` |
+| 1 numbers/comments/backslash unmasked | `tests/engine/postgresql/test_querytext.py::test_query_text_masks_a_backslash_escaped_quote_conservatively` | `e6696c338ae38669186ff5e8d248f2a54de2509e` | `assert 'secret' not in "select '***...cret'******'"` |
+| 4 relation sizes on every relation | `tests/engine/postgresql/test_sections.py::test_relation_sizes_are_read_only_for_the_limited_rows[INDEXES_SQL]` | `aca4ddf5a5ee67df499b8c2ae64e2fb3894dd81b` | `AssertionError: assert -1 > -1` |
+| 4 relation sizes on every relation | `tests/engine/postgresql/test_sections.py::test_relation_sizes_are_read_only_for_the_limited_rows[TABLES_SQL]` | `aca4ddf5a5ee67df499b8c2ae64e2fb3894dd81b` | `AssertionError: assert -1 > -1` |
+| 4 relation sizes on every relation | `tests/engine/postgresql/test_sections.py::test_list_query_limit_is_applied_inside_the_sized_subquery` | `aca4ddf5a5ee67df499b8c2ae64e2fb3894dd81b` | `AssertionError: assert 1 == 2` |
+| 5 timeouts not in effect under AUTOCOMMIT | `tests/engine/test_sqla_read_only.py::test_autocommit_on_a_read_only_server_fails_closed` | `db41c75b581e00056d9cd31ec0d9720b8fb0afd1` | `AssertionError: assert None == 'The read-only transaction could not be established, so sharpit skipped this read'` |
+| 6 setup errors reported as READ_ONLY_REFUSED | `tests/engine/postgresql/test_service.py::test_a_connection_error_during_setup_reports_the_masked_driver_message` | `d08944eb4139b1e8b0915fb10c8cd7257cd9cd98` | `AssertionError: assert 'server closed the connection unexpectedly' in 'The read-only transaction could not be established, so sharpit skipped this rea` |
+| 3 wall timeout equals budget, partial read lost | `tests/engine/postgresql/test_service.py::test_a_wall_timeout_keeps_the_sections_already_read` | `d64b4b45b5f96907014185f9b57b01ae2850b217` | `AssertionError: assert 'ERROR' == 'PARTIAL'` |
+| 2 CLI drives an async pool on a second loop | `tests/fastapi/test_postgresql_api.py::test_cli_read_refuses_an_async_engine_outside_the_app_loop` | `98130999f26d8edb2b6f84731e6e6b8565184633` | `AssertionError: assert 'ERROR' == 'DISABLED'` |
+| 8 no unavailable reason without SQLAlchemy 2 | `tests/engine/postgresql/test_service.py::test_without_sqlalchemy_2_the_panel_reports_why` | `342f13eb366fa0b56e427a3d15416ede66caede7` | `AssertionError: assert ('NOT_READ', ...stics views.') == ('DISABLED', ...2.0 or later')` |
+| UI rows/limitations/POST answer | `Vitest: ui/tests/component/postgresql.test.ts::renders the section rows and limitations from the POST answer without a second GET` | `d786b517ca6f94176c2f268860c9e40b8fa547a1` | `AssertionError: expected 'postgresql Read PostgreSQL NOT_READ ·…' to contain 'orders_archive'` |
