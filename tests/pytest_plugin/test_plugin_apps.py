@@ -242,3 +242,34 @@ def test_reconcile_keeps_a_skipped_run_that_is_not_a_placeholder() -> None:
     reconcile_workers([part], ["pkg:app"], False)
 
     assert run in part.advisor_runs
+
+
+def test_autodetect_matches_framework_classes_by_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    from types import ModuleType
+
+    from sharpit.pytest_plugin.apps import autodetect_apps
+
+    Fake = type("Starlette", (), {"__module__": "starlette.applications"})
+    Fake.__qualname__ = "Starlette"
+    mod = ModuleType("named_like_starlette_mod")
+    mod.app = Fake()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "named_like_starlette_mod", mod)
+
+    assert "named_like_starlette_mod:app" not in dict(autodetect_apps())
+
+
+def test_autodetect_is_empty_without_starlette_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    from types import ModuleType
+
+    from fastapi import FastAPI
+    from sharpit.pytest_plugin.apps import autodetect_apps
+
+    mod = ModuleType("no_framework_loaded_mod")
+    mod.app = FastAPI()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "no_framework_loaded_mod", mod)
+    monkeypatch.delitem(sys.modules, "starlette.applications")
+    monkeypatch.delitem(sys.modules, "fastapi.applications")
+
+    assert autodetect_apps() == ()
