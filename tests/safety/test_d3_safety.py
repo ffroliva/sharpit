@@ -10,12 +10,7 @@ from conftest import SideEffectGuard
 from sharpit import install
 from sharpit.engine.collectors.pools import pools_report
 
-PANEL = "database-connection-pools"
-GET_ROWS = [
-    "/sharpit/api/database-connection-pools/pools",
-    "/sharpit/api/database-connection-pools/pools/{name:path}/snapshot",
-]
-WRITE_ROWS: list[tuple[str, str]] = []
+# Legacy panel routes are already listed in tests/test_safety_matrix.py::ROWS.
 
 
 def test_d3_legacy_panel_is_not_added_as_a_panels04_lane():
