@@ -46,12 +46,17 @@ runs:
         FAIL_ON: ${{ inputs.fail-on }}
         REPORT_PATH: ${{ inputs.report-path }}
       run: |
+        rm -f "$REPORT_PATH"
         python - <<'PY'
         import os, shlex, subprocess, sys
+        report_only = os.environ["REPORT_ONLY"]
+        if report_only not in ("true", "false"):
+            print("::error::report-only must be true or false")
+            sys.exit(1)
         argv = shlex.split(os.environ["RUNNER"]) + shlex.split(os.environ["PYTEST_ARGS"])
         argv += ["--sharpit", "--sharpit-report", os.environ["REPORT_PATH"]]
-        if os.environ["REPORT_ONLY"] == "true":
-            argv.append("--sharpit-report-only")
+        # false overrides a sharpit_report_only ini setting
+        argv += ["--sharpit-report-only"] if report_only == "true" else ["-o", "sharpit_report_only=false"]
         for flag, name in (("--sharpit-baseline", "BASELINE"), ("--sharpit-fail-on", "FAIL_ON")):
             if os.environ[name]:
                 argv += [flag, os.environ[name]]
