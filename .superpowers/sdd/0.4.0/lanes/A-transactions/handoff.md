@@ -4,20 +4,20 @@ Implementer: Codex (GPT-6)
 
 ## Status
 
-DONE_WITH_CONCERNS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.0-A-transactions`; no upstream changes merged or rebased.
+IN PROGRESS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.0-A-transactions`; merged coordinator-authorized `release/0.4.0` as `a5035ed953ff7f0525864122c7cd40dfa1c5f323`.
 
 ## Done
 
 - Read the required rules/spec/plans/F handoff and registered with agentctl (`codex-0-4-0-a-transactions`).
 - Task 1 nullable `readOnly` reason fixture committed (`d50d6b6`). The captured BootUI golden is absent; parity remains unverified.
 - Task 2 recorder, event callbacks, REST/SSE routes, recorder wiring, MCP/CLI tools, flag, UI view, and overhead budget are committed.
-- Listener teardown now uses a finalizer on its owning remover; the red test is green in the latest 19-test engine/API run. The request body handler is split below the complexity ratchet.
+- Listener teardown now uses explicit `CaptureState.teardowns`; this review round removes GC-driven finalizer behavior.
 - Repo Ruff check and format passed. Pyright returned 0 errors. Latest lane-targeted run: 23 passed, including the 30 µs listener budget. Latest measured overhead was 11.185 µs with 17.993 µs noise. The 100 µs delay control failed at 643.573 µs and was removed.
 - UI Vitest passed 2/2; `npm --prefix ui run check` exited 0.
 
 ## Next step
 
-Coordinator to update the shared-test items below and rerun lane_gate before merge. No-SQLAlchemy, lowest-direct, and live checks remain for coordinator follow-up; the live example is outside this lane's touch scope.
+Continue review round 1 fixes. Commit `b9bb0a3651df951caecb6da77f2526ee2a77aa29` adds a red finalizer deadlock regression. No-SQLAlchemy, lowest-direct, and live checks remain for coordinator follow-up; the live example is outside this lane's touch scope.
 
 ## Decisions
 
@@ -30,6 +30,7 @@ Coordinator to update the shared-test items below and rerun lane_gate before mer
 
 | Test id | Red SHA | Assertion message |
 |---|---|---|
+| `tests/engine/capture/test_transactions.py::test_listener_release_never_runs_under_attach_lock` | `b9bb0a3651df951caecb6da77f2526ee2a77aa29` | `listener release must not block while the attach lock is held` |
 | `tests/engine/capture/test_transactions.py::test_records_committed_root` | `79a37b42dd5a345c86a08766791adef111c3121d` | `a captured transaction must receive a positive id` |
 | `tests/engine/capture/test_transactions.py::test_bounded_entries_report_stats` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `the transaction ring must respect max_entries` |
 | `tests/engine/capture/test_transactions.py::test_clear_keeps_total_captured` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `clear must empty the retained transactions` |

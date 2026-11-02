@@ -16,13 +16,19 @@
 | Savepoint begin marked the outer transaction unknown | `tests/engine/capture/test_transactions.py::test_savepoint_is_a_child_entry` | `12bf8d03b4dd14c916d74e77b6d4b1bf287a198d` | `88609ea6cfec6d00fcb8be5c4e56674fc78e01bc` |
 | Savepoint release closed only one of several target contexts | `tests/engine/capture/test_transactions.py::test_savepoint_closes_one_child_per_context` | `41964581198fd775bd63e5b3d9559c87d28eeaf0` | `7d3a67252dd03cd8a135cfc3b4ba177fb056c176` |
 | The implemented panel had no transaction report route | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_committed_sqlite_with_loopback_client` | `5212a0865ee4ca430b56b4ef5eaf344ccf18f3f5` | `7d3a67252dd03cd8a135cfc3b4ba177fb056c176` |
-| Listener teardown leaked after the owning context was collected | `tests/engine/capture/test_transactions.py::test_listener_remover_releases_attachments_when_discarded` | `6faa15c5a22c5773f87590ddb403e0c89ee2f587` | `f259362b381965e4572271b6ab54bf205672fdbf` |
 
 ## Superseded reds
 
 | Test id | Historical SHA | Why |
 |---|---|---|
 | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_a_committed_sqlite_transaction` | `4723cd4f6e5ccde839dbaa3f4eee8af47f11e96b` | The TestClient source was not loopback-trusted; replacement explicitly uses a loopback client. |
+| `tests/engine/capture/test_transactions.py::test_listener_remover_releases_attachments_when_discarded` | `6faa15c5a22c5773f87590ddb403e0c89ee2f587` | Replaced GC-owned listener lifetime with explicit CaptureState teardown per R17; test now verifies explicit remover behavior. |
+
+## Round 1 review reds
+
+| Test | Red SHA | Assertion | Disposition |
+|---|---|---|---|
+| `tests/engine/capture/test_transactions.py::test_listener_release_never_runs_under_attach_lock` | `b9bb0a3651df951caecb6da77f2526ee2a77aa29` | `listener release must not block while the attach lock is held` | Fixed in pending commit |
 
 ## Vitest reds
 

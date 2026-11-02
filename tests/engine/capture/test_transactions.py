@@ -237,9 +237,7 @@ def test_attacher_retries_late_sqlalchemy_and_removes_partial_listeners(monkeypa
     assert len(removed) == 6, "one remover must detach all six transaction events"
 
 
-def test_listener_remover_releases_attachments_when_discarded(monkeypatch) -> None:
-    import gc
-
+def test_listener_remover_releases_attachments_when_called(monkeypatch) -> None:
     from sharpit.engine import sqla
     from sharpit.engine.capture import transactions
     from sharpit.engine.capture.transactions import attach
@@ -250,9 +248,8 @@ def test_listener_remover_releases_attachments_when_discarded(monkeypatch) -> No
     monkeypatch.setattr(sqla, "add_connection_listener", lambda event, _callback: lambda: removed.append(event))
     remove = attach()
     assert remove is not None, "the transaction listener must attach for this context"
-    del remove
-    gc.collect()
-    assert len(removed) == 6, "discarding the owning teardown must release all class-level listeners"
+    remove()
+    assert len(removed) == 6, "calling the owning teardown must release all class-level listeners"
 
 
 def test_listener_release_never_runs_under_attach_lock(monkeypatch) -> None:

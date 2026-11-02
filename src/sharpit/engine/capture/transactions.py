@@ -5,7 +5,6 @@ from __future__ import annotations
 import itertools
 import threading
 import time
-import weakref
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
@@ -434,10 +433,14 @@ def attach() -> Callable[[], None] | None:
             _attach_removers = removers
         _attach_count += 1
 
-    finalizer: Any
+    released = False
 
     def remove() -> None:
-        finalizer()
+        nonlocal released
+        with _attach_lock:
+            if released:
+                return
+            released = True
+        _release_attachment()
 
-    finalizer = weakref.finalize(remove, _release_attachment)
     return remove
