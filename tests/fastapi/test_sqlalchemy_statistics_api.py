@@ -13,9 +13,9 @@ import pytest
 
 sa = pytest.importorskip("sqlalchemy")
 
-from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.collectors.sqlastats import REPORT_KEYS, STATISTICS_KEYS  # noqa: E402
@@ -79,7 +79,7 @@ def test_n_plus_one_route_from_a_real_request():
     assert len(entries) == 1
     entry = entries[0]
     assert entry["method"] == "GET"
-    assert entry["route"].endswith(":pets")
+    assert entry["route"].endswith(".pets")
     assert entry["executionsPerRequest"] == 6
 
 

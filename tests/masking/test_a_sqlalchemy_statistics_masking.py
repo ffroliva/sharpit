@@ -6,9 +6,9 @@ import pytest
 
 sa = pytest.importorskip("sqlalchemy")
 
-from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
