@@ -1,0 +1,32 @@
+{
+  "bootUiVersion": "x",
+  "applicationName": "tiny-ledger",
+  "frameworkName": "Spring Boot",
+  "frameworkVersion": "x",
+  "javaVersion": "x",
+  "javaVendor": "Amazon.com Inc.",
+  "activeProfiles": [
+    "full"
+  ],
+  "defaultProfiles": [
+    "standalone"
+  ],
+  "webApplicationType": "SERVLET",
+  "serverPort": 8080,
+  "managementPort": 9090,
+  "contextPath": "",
+  "startupTimeMillis": null,
+  "activation": {
+    "enabled": true,
+    "localhostOnly": true,
+    "reason": "Enabled by bootui.enabled=ON",
+    "warnings": []
+  },
+  "openApiUrl": null,
+  "run": {
+    "instanceId": "00000000",
+    "runId": "00000000",
+    "ordinal": 1,
+    "startedAt": 1700000000000
+  }
+}

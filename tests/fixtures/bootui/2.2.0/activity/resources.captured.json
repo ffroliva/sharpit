@@ -1,0 +1,54 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "families": [
+    "main",
+    "Reference Handler",
+    "Finalizer"
+  ],
+  "points": [
+    {
+      "epochMillis": 1700000000000,
+      "sequence": 27,
+      "intervalNanos": 1007228000,
+      "processCpuNanos": 1296875000,
+      "requestCpuNanos": 0,
+      "internalCpuNanos": 359375000,
+      "familyCpuNanos": [
+        921875000,
+        0,
+        0
+      ],
+      "unreadThreads": 0,
+      "heapUsedBytes": 54509600,
+      "heapCommittedBytes": 104857600,
+      "heapAfterGcBytes": 50315296,
+      "allocatedBytes": 35686744,
+      "liveThreads": 21,
+      "daemonThreads": 17
+    }
+  ],
+  "totals": {
+    "sweeps": 88,
+    "processCpuNanos": 25890625000,
+    "requestCpuNanos": 1703125000,
+    "internalCpuNanos": 10421875000,
+    "familyCpuNanos": {
+      "main": 2812500000,
+      "Reference Handler": 15625000,
+      "Notification Thread": 109375000,
+      "BootUI": 187500000,
+      "BatchSpanProcessor_WorkerThread-N": 31250000,
+      "BatchLogRecordProcessor_WorkerThread-N": 31250000,
+      "Catalina-utility-N": 15625000,
+      "lettuce-timer-N-N": 359375000,
+      "lettuce-nioEventLoop-N-N": 46875000,
+      "http-nio-N-exec-N": 9359375000,
+      "http-nio-N-Poller": 46875000,
+      "http-nio-N-Acceptor": 15625000,
+      "micrometer-kafka-metrics": 15625000,
+      "org.springframework.kafka.KafkaListenerEndpointContainer#N-N-C-N": 656250000,
+      "kafka-coordinator-heartbeat-thread | tiny-ledger-audit": 62500000
+    }
+  }
+}
