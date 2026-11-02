@@ -24,7 +24,7 @@ def test_sql_trace_route_module_is_mounted(monkeypatch: pytest.MonkeyPatch) -> N
     def probe(request: Request) -> PlainTextResponse:
         return PlainTextResponse("probe")
 
-    def build_routes(ctx: Any) -> list[BaseRoute]:
+    def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
         api = ctx.settings.api_path[len(ctx.settings.path) :]
         return [Route(f"{api}/sql-trace/insights-probe", probe, methods=["GET"])]
 

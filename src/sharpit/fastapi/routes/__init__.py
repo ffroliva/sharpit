@@ -627,7 +627,7 @@ def _cli_routes(ctx: SharpitContext) -> list[BaseRoute]:
     ]
 
 
-def _panel_04_routes(ctx: SharpitContext) -> list[BaseRoute]:
+def _panel_04_routes(ctx: SharpitContext, host_app: Any = None) -> list[BaseRoute]:
     routes: list[BaseRoute] = []
     for panel in PANELS:
         if panel.id not in MODULE_PANEL_IDS or not panel.implemented:
@@ -635,7 +635,7 @@ def _panel_04_routes(ctx: SharpitContext) -> list[BaseRoute]:
         module = import_module(f"sharpit.fastapi.routes.{panel.id.replace('-', '_')}")
         build_routes = getattr(module, "build_routes", None)
         if build_routes is not None:
-            routes.extend(build_routes(ctx))
+            routes.extend(build_routes(ctx, host_app))
     return routes
 
 
@@ -658,5 +658,5 @@ def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         *_dismissed_routes(ctx),
         *_mcp_routes(ctx),
         *_cli_routes(ctx),
-        *_panel_04_routes(ctx),
+        *_panel_04_routes(ctx, host_app),
     ]

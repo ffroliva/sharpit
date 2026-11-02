@@ -15,7 +15,7 @@ from sharpit.fastapi.http import error, json_response
 DEFAULT_LIMIT = 100
 
 
-def build_routes(ctx: Any) -> list[BaseRoute]:
+def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
     buffer = span_buffer(ctx)

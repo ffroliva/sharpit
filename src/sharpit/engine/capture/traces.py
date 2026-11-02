@@ -154,7 +154,7 @@ def _attribute_value(masker: Masker, key: str, value: object) -> str | None:
 def _traceback_prefix(text: str) -> tuple[str, str]:
     lines = text.splitlines()
     if not lines or not lines[0].startswith("Traceback (most recent call last):"):
-        return "", text
+        return "", "\n".join(lines)
     frame_count = 1
     for line in lines[1:]:
         if line.startswith("  File ") or (line.startswith("    ") and line.strip()):

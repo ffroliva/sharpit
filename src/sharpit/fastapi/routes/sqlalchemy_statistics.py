@@ -10,7 +10,7 @@ from sharpit.engine.collectors.sqlastats import statistics_report
 from sharpit.fastapi.http import json_response
 
 
-def build_routes(ctx: Any) -> list[BaseRoute]:
+def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 

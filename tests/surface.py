@@ -157,7 +157,7 @@ def _plant_route(monkeypatch: Any, plant: str) -> None:
     module = import_module(f"sharpit.fastapi.routes.{plant.replace('-', '_')}")
     original = getattr(module, "build_routes", None)
 
-    def build_routes(ctx: Any) -> list[Any]:
+    def build_routes(ctx: Any, _host_app: Any = None) -> list[Any]:
         api = ctx.settings.api_path[len(ctx.settings.path) :]
         probe = Route(f"{api}/{plant}/probe", lambda _request: JSONResponse({"probe": True}), methods=["GET"])
         return [*(original(ctx) if original is not None else ()), probe]

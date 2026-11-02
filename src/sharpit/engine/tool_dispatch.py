@@ -78,7 +78,7 @@ class ToolGate:
         def worker() -> None:
             try:
                 outcome["value"] = fn()
-            except Exception as exc:
+            except BaseException as exc:  # noqa: BLE001 - re-raised or mapped by _raise_tool_error
                 outcome["error"] = exc
             finally:
                 with self._lock:

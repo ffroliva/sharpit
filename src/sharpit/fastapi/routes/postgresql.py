@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
 
-def build_routes(ctx: SharpitContext) -> list[BaseRoute]:
+def build_routes(ctx: SharpitContext, _host_app: object = None) -> list[BaseRoute]:
     api = ctx.settings.api_path[len(ctx.settings.path) :]
 
     def report(_request: Request) -> Response:
