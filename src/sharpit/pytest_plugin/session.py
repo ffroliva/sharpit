@@ -11,10 +11,17 @@ try:
 except ImportError:  # pluggy before the public re-export
     from pluggy._result import Result
 
+from sharpit.pytest_plugin.apps import reconcile_workers
 from sharpit.pytest_plugin.options import PluginOptions, resolve
+
+_WORKER_APPS = "sharpit-worker-apps"
+APPS_KEY = "sharpit_apps"  # workeroutput: the worker's autodetect candidates, or None when it did not autodetect
 
 
 def resolve_options(config: Any) -> PluginOptions:
+    manager = getattr(config, "pluginmanager", None)  # the facade's pytest_configure resolves first: hook up here
+    if manager is not None and not manager.has_plugin(_WORKER_APPS):
+        manager.register(WorkerApps(), _WORKER_APPS)
     return resolve(config)
 
 
@@ -77,7 +84,28 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
         plugin._advisors(state)
         try:
             session.config.workeroutput["sharpit"] = state.sink.facts.to_json()
+            session.config.workeroutput[APPS_KEY] = getattr(state, "autodetected", None)
         except Exception as exc:  # noqa: BLE001
             plugin._record_hook_failure(state.sink, exc)
         return
+    names = getattr(state, "autodetected", None)
+    if names is not None and state.parts:
+        try:
+            reconcile_workers(state.parts, names, False)
+        except Exception as exc:  # noqa: BLE001
+            plugin._record_hook_failure(state.sink, exc)
     plugin._write_report(state, session, exitstatus)
+
+
+class WorkerApps:
+    """Controller-side xdist hook: unions the workers' autodetect candidates (registered by resolve_options)."""
+
+    @pytest.hookimpl(optionalhook=True)
+    def pytest_testnodedown(self, node: Any, error: Any) -> None:
+        from sharpit import pytest_plugin
+
+        state = cast(Any, pytest_plugin)._state(node.config)
+        names = getattr(node, "workeroutput", {}).get(APPS_KEY)
+        if state is None or error is not None or names is None:
+            return
+        state.autodetected = sorted({*(getattr(state, "autodetected", None) or []), *names})

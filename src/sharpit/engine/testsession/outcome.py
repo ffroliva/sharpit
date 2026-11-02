@@ -215,7 +215,7 @@ def _advisor_summary(advisor: str, runs: list[AdvisorRun], *, advisors_enabled: 
     apps = [
         {"app": r.app, "status": r.status, "reason": r.reason, "evidence": r.evidence}
         for r in runs
-        if r.app is not None
+        if r.app is not None or r.status != "SKIPPED"  # a skipped advisor assessed no app
     ]
     return {"advisor": advisor, "status": status, "reason": reason, "apps": apps, "findings": list(found.values())}
 
