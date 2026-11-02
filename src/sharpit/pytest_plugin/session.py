@@ -11,6 +11,7 @@ try:
 except ImportError:  # pluggy before the public re-export
     from pluggy._result import Result
 
+from sharpit.engine.testsession.partial import partial_run, selection_requested
 from sharpit.pytest_plugin.apps import TEST_FILES, reconcile_workers
 
 WORKER_APPS = "sharpit-worker-apps"
@@ -48,10 +49,19 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
         budget = plugin.budget_for(item, state.options.max_queries)
         test.budget = budget
         findings = plugin.gates.evaluate_test(
-            test, budget, state.settings.activity_n_plus_one_threshold, state.dismissed
+            test,
+            budget,
+            state.settings.activity_n_plus_one_threshold,
+            state.dismissed,
+            state.dismissed_pairs,
+            state.baseline_observed,
         )
         test.findings = [finding.to_dto() for finding in findings]
-        messages = [f"sharpit: {finding.rule_id}: {finding.message}" for finding in findings if not finding.dismissed]
+        messages = [
+            f"sharpit: {finding.rule_id}: {finding.message}"
+            for finding in findings
+            if plugin.gates.fails(finding.to_dto()) and not state.options.report_only
+        ]
         if messages:
             report_obj.longrepr = f"{report_obj.longrepr}\n" if report_obj.failed else ""
             report_obj.longrepr = f"{report_obj.longrepr}{'\n'.join(messages)}"
@@ -59,6 +69,42 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
             test.outcome = "failed"
     except Exception as exc:  # noqa: BLE001
         plugin._record_hook_failure(state.sink, exc)
+
+
+def pytest_collection_finish(session: Any) -> None:
+    from sharpit import pytest_plugin
+
+    state = cast(Any, pytest_plugin)._state(session.config)
+    if state is None:
+        return
+    args = list(getattr(session.config.invocation_params, "args", ()))
+    state.partial_selection = selection_requested(args)
+    state.partial_collected = len(getattr(session, "items", ()))
+
+
+def pytest_deselected(items: list[Any]) -> None:
+    if not items:
+        return
+    from sharpit import pytest_plugin
+
+    state = cast(Any, pytest_plugin)._active_state
+    if state is not None:
+        state.partial_deselected += len(items)
+
+
+def _partial_facts(state: Any, session: Any) -> dict[str, Any]:
+    config = session.config
+    args = list(getattr(config.invocation_params, "args", ()))
+    option = getattr(config, "option", None)
+    return {
+        "deselected": state.partial_deselected,
+        "selection": state.partial_selection or selection_requested(args),
+        "collected": state.partial_collected,
+        "run": state.partial_run_count,
+        "interrupted": getattr(session, "exitstatus", 0) == int(pytest.ExitCode.INTERRUPTED),
+        "maxfail": bool(getattr(option, "maxfail", 0)),
+        "stopped": bool(getattr(session, "shouldstop", False) or getattr(session, "shouldfail", False)),
+    }
 
 
 def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
@@ -76,6 +122,7 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
     if state is None:
         return
     state.test_files = _test_files(session.config)
+    local_partial = _partial_facts(state, session)
     if hasattr(session.config, "workerinput"):
         try:
             plugin._final_facts(state)
@@ -84,12 +131,16 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
         plugin._advisors(state)
         try:
             session.config.workeroutput["sharpit"] = state.sink.facts.to_json()
+            session.config.workeroutput["sharpit_partial"] = {
+                key: value for key, value in local_partial.items() if key not in {"collected", "run"}
+            }
             names = getattr(state, "autodetected", None)
             snapshot = names is None and state.options.advisors and not state.options.app
             session.config.workeroutput[APPS_KEY] = {"names": names, "snapshot": snapshot}
         except Exception as exc:  # noqa: BLE001
             plugin._record_hook_failure(state.sink, exc)
         return
+    state.partial = partial_run(state.worker_partial_facts or [], local_partial)
     names = getattr(state, "autodetected", None)
     if names is not None and state.parts:
         snapshot = getattr(state, "autodetect_snapshot", False)
@@ -118,6 +169,9 @@ class WorkerApps:
 
         state = cast(Any, pytest_plugin)._state(node.config)
         shipped = getattr(node, "workeroutput", {}).get(APPS_KEY)
+        partial = getattr(node, "workeroutput", {}).get("sharpit_partial")
+        if state is not None and isinstance(partial, dict) and state.worker_partial_facts is not None:
+            state.worker_partial_facts.append(partial)
         if state is None or error is not None or not isinstance(shipped, dict):
             return
         if cast("dict[str, Any]", shipped).get("snapshot"):

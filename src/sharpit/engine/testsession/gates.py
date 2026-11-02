@@ -106,10 +106,11 @@ def evaluate_test(
         return found
     from dataclasses import replace
 
-    return [
-        replace(
-            finding,
-            baseline_state="existing",
+    annotated: list[Finding] = []
+    for finding in found:
+        old_count = baseline.get(finding.fingerprint)
+        existing = finding.fingerprint in baseline and (
+            old_count is None or finding.observed is None or finding.observed <= old_count
         )
-        for finding in found
-    ]
+        annotated.append(replace(finding, baseline_state="existing" if existing else "new"))
+    return annotated

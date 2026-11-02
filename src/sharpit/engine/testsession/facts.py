@@ -24,22 +24,24 @@ class RestoredFinding(Finding):
         return self.shipped_fingerprint
 
 
-def _finding_from(dto: dict[str, Any]) -> Finding:
+def finding_from(dto: dict[str, Any]) -> Finding:
     return RestoredFinding(
-        dto["ruleId"],
-        dto["advisor"],
-        cast("Severity", dto["severity"]),
-        dto["target"],
-        dto["message"],
-        dto["testNodeId"],
-        dto["dismissed"],
-        None,
-        dto["fingerprint"],
+        rule_id=dto["ruleId"],
+        advisor=dto["advisor"],
+        severity=cast("Severity", dto["severity"]),
+        target=dto["target"],
+        message=dto["message"],
+        test_node_id=dto["testNodeId"],
+        dismissed=dto["dismissed"],
+        identity=None,
+        observed=dto.get("observed"),
+        baseline_state=dto.get("baselineState"),
+        shipped_fingerprint=dto["fingerprint"],
     )
 
 
 def _run_from(dto: dict[str, Any]) -> AdvisorRun:
-    findings = tuple(_finding_from(f) for f in dto["findings"])
+    findings = tuple(finding_from(f) for f in dto["findings"])
     return AdvisorRun(dto["advisor"], dto["status"], findings, dto["evidence"], dto["reason"], dto["app"])
 
 

@@ -22,6 +22,7 @@ class SessionStatus(NamedTuple):
     fail_reasons: list[str]
     unknown_reasons: list[str]
 
+
 SQL_SOURCES = ("sqlalchemy", "sqlite3")
 APP_ADVISORS = ("rest-api",)  # advisors that read an application: with no app seen they are UNKNOWN
 NO_APPLICATION = "no application: pass --sharpit-app or call sharpit.install in the tests"
@@ -129,7 +130,7 @@ def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> Advis
         findings.setdefault(finding.fingerprint, finding)
     status = _worst(r.status for r in runs)
     chosen = next((r for r in runs if r.status == status), runs[0])
-    reason = chosen.reason
+    reason = next((run.reason for run in runs if run.status == status and run.reason is not None), chosen.reason)
     return AdvisorRun(advisor, status, tuple(findings.values()), chosen.evidence, reason, app)
 
 
@@ -292,7 +293,7 @@ def _unknown_reasons(
         reasons += [
             f"advisor '{s['advisor']}' could not assess: {s['reason'] or FALLBACK_REASON}"
             for s in summaries
-            if s["status"] == "UNKNOWN"
+            if s["status"] == "UNKNOWN" or (s["status"] == "FAILED" and s["reason"] is not None)
         ]
     reasons += [f"worker {w['id']} reported no sharpit facts" for w in merged.workers if w["status"] == "missing"]
     return reasons
@@ -318,7 +319,13 @@ def session_status(
     return SessionStatus("pass", [], [])
 
 
-def exit_fails(status: str, allow_unknown: bool, *, report_only: bool = False, unknown_reasons: Sequence[str] = ()) -> bool:
+def exit_fails(
+    status: str,
+    allow_unknown: bool,
+    *,
+    report_only: bool = False,
+    unknown_reasons: Sequence[str] = (),
+) -> bool:
     """Whether the session exit status turns non-zero (pytest's own non-zero codes are never lowered)."""
     if report_only:
         return bool(unknown_reasons) and not allow_unknown

@@ -18,6 +18,7 @@ class GateOptions:
     allow_unknown: bool
     max_unattributed: float
     advisors_enabled: bool
+    report_only: bool = False
 
 
 def finish(
@@ -39,13 +40,15 @@ def finish(
     ):
         warning = next(w for w in warnings if w.startswith("a sharpit session hook failed ("))
         merged.sources.append({"name": "pytest-plugin", "attached": False, "reason": warning, "limitations": []})
-    status, reasons = outcome.session_status(
+    session = outcome.session_status(
         merged,
         allow_unknown=options.allow_unknown,
         max_unattributed=options.max_unattributed,
         advisors_enabled=options.advisors_enabled,
         fail_on=options.fail_on,
     )
+    status = session.status
+    reasons = session.fail_reasons or session.unknown_reasons
     data = report.render(
         merged,
         status,
@@ -60,5 +63,7 @@ def finish(
         version=version,
         now_ms=now_ms,
         advisors_enabled=options.advisors_enabled,
+        mode="report-only" if options.report_only else "gate",
+        unknown_reasons=session.unknown_reasons,
     )
     return data, status, reasons

@@ -7,7 +7,7 @@ import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from sharpit.engine.advisors.findings import Finding
 
@@ -40,19 +40,24 @@ def read(path: Path) -> Baseline:
     """Read and validate one stable baseline document."""
     raw = path.read_bytes()
     try:
-        payload = json.loads(raw)
+        payload: Any = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ValueError("baseline is not valid JSON") from exc
-    if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
+    if not isinstance(payload, dict):
+        raise ValueError("baseline must be an object")
+    document = cast(dict[str, Any], payload)
+    if document.get("schema") != SCHEMA:
         raise ValueError(f"baseline schema must be {SCHEMA}")
-    rows = payload.get("findings")
-    if not isinstance(rows, list):
+    raw_rows = document.get("findings")
+    if not isinstance(raw_rows, list):
         raise ValueError("baseline findings must be a list")
+    rows = cast(list[Any], raw_rows)
     entries: dict[str, Entry] = {}
-    for row in rows:
-        if not isinstance(row, dict) or not all(
-            isinstance(row.get(key), str) for key in ("fingerprint", "ruleId", "target", "message")
-        ):
+    for raw_row in rows:
+        if not isinstance(raw_row, dict):
+            raise ValueError("baseline finding has invalid fields")
+        row = cast(dict[str, Any], raw_row)
+        if not all(isinstance(row.get(key), str) for key in ("fingerprint", "ruleId", "target", "message")):
             raise ValueError("baseline finding has invalid fields")
         observed = row.get("observed")
         if observed is not None and (not isinstance(observed, int) or isinstance(observed, bool)):
@@ -97,6 +102,8 @@ def write(path: Path, findings: Sequence[Finding]) -> None:
     """Write stable, sorted baseline bytes. Findings arrive masked from the capture sink."""
     rows: dict[str, dict[str, Any]] = {}
     for finding in findings:
+        if finding.advisor.lower() in {"vulnerability", "vulns"} or finding.rule_id.startswith("VULN-"):
+            continue
         rows[finding.fingerprint] = {
             "fingerprint": finding.fingerprint,
             "target": finding.target,

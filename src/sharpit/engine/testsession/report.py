@@ -176,7 +176,9 @@ def write_junit(path: Path, data: dict[str, Any], *, allow_unknown: bool) -> Non
     cases += 1
     unknown = data.get("unknownReasons", data["statusReasons"] if status == "unknown" else [])
     report_only = data.get("mode") == "report-only"
-    if status == "fail" or (status == "unknown" and not allow_unknown):
+    if (report_only and unknown and not allow_unknown) or (
+        not report_only and (status == "fail" or (status == "unknown" and not allow_unknown))
+    ):
         status_reasons = unknown if report_only else data["statusReasons"]
         failure = ET.SubElement(case, "failure", type=status, message=_clean("; ".join(status_reasons)))
         failure.text = _clean("\n".join(status_reasons))

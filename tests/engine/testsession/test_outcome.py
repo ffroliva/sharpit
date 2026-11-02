@@ -118,6 +118,7 @@ def test_merge_keeps_incomplete_reason_when_another_failed_run_is_complete() -> 
     assert "advisor 'rest-api' could not assess: one rule errored" in result.unknown_reasons
 
 
+# fmt: off
 def test_skipped_advisor_reason_does_not_make_capture_unknown() -> None:
     skipped = AdvisorRun("rest-api", "SKIPPED", (), {}, "no application required", "App#1")
     result = session_status(
@@ -130,6 +131,7 @@ def test_skipped_advisor_reason_does_not_make_capture_unknown() -> None:
         fail_on="HIGH",
     )
     assert "advisor 'rest-api' could not assess: no application required" not in result.unknown_reasons
+# fmt: on
 
 
 def test_status_fail_counts_tests_in_plural() -> None:

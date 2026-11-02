@@ -44,6 +44,8 @@ from sharpit.pytest_plugin.options import PluginOptions
 from sharpit.pytest_plugin.options import pytest_addoption as pytest_addoption
 from sharpit.pytest_plugin.options import resolve as resolve
 from sharpit.pytest_plugin.report_io import write_report as _write_report  # noqa: F401 - compatibility re-export
+from sharpit.pytest_plugin.session import pytest_collection_finish as pytest_collection_finish
+from sharpit.pytest_plugin.session import pytest_deselected as pytest_deselected
 from sharpit.pytest_plugin.session import pytest_runtest_makereport as pytest_runtest_makereport
 from sharpit.pytest_plugin.session import pytest_sessionfinish as pytest_sessionfinish
 from sharpit.pytest_plugin.terminal import pytest_terminal_summary as pytest_terminal_summary
@@ -57,6 +59,8 @@ __all__ = [
     "pytest_addoption",
     "pytest_configure",
     "pytest_collection_modifyitems",
+    "pytest_collection_finish",
+    "pytest_deselected",
     "pytest_sessionstart",
     "pytest_runtest_protocol",
     "pytest_runtest_setup",
@@ -113,6 +117,9 @@ class _State:
     sink: TestSessionSink
     settings: SharpitSettings
     dismissed: list[str]
+    dismissed_pairs: set[tuple[str, str]]
+    baseline_observed: dict[str, int | None] | None
+    baseline_data: Any | None
     sqlite_attached: bool
     sqlalchemy_attached: bool
     handler: _ExceptionHandler
@@ -121,6 +128,12 @@ class _State:
     log_targets: list[logging.Logger]
     logger_cache: tuple[logging.Logger, ...]
     logger_cache_size: int
+    partial_deselected: int = 0
+    partial_collected: int | None = None
+    partial_run_count: int = 0
+    partial_selection: bool = False
+    worker_partial_facts: list[dict[str, Any]] | None = None
+    partial: bool = False
 
 
 def _state(config: Any) -> _State | None:
@@ -227,15 +240,25 @@ def _attach(config: Any) -> None:
     worker = getattr(config, "workerinput", {}).get("workerid", "master")
     sink = TestSessionSink(worker)
     settings = load_settings({}, os.environ)
+    try:
+        from sharpit.engine.testsession import baseline as baseline_io
+
+        loaded_baseline = baseline_io.read(options.baseline) if options.baseline else None
+    except (OSError, ValueError) as exc:
+        raise pytest.UsageError(f"sharpit: cannot read baseline: {exc}") from exc
     sink.facts.warnings.extend(warnings)
     sink.facts.warnings.extend(report_masker_warnings(os.environ))
     sink.facts.warnings.extend(settings.warnings)
     handler = _ExceptionHandler(sink)
+    dismissals = DismissalStore(Path(settings.state_dir))
     state = _State(
         options,
         sink,
         settings,
-        DismissalStore(Path(settings.state_dir)).list(),
+        dismissals.list(),
+        dismissals.dismissed_pairs(),
+        {key: entry.observed for key, entry in loaded_baseline.entries.items()} if loaded_baseline else None,
+        loaded_baseline,
         False,
         False,
         handler,
@@ -244,6 +267,7 @@ def _attach(config: Any) -> None:
         [],
         (),
         -1,
+        worker_partial_facts=[],
     )
     _active_state = state
     setattr(config, _STATE_ATTR, state)
@@ -324,6 +348,7 @@ def pytest_runtest_protocol(item: Any, nextitem: Any) -> Any:
     state = _state(item.config)
     if state:
         try:
+            state.partial_run_count += 1
             state.sink.begin_test(item.nodeid)
         except Exception as exc:  # noqa: BLE001
             _record_hook_failure(state.sink, exc)

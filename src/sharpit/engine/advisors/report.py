@@ -28,7 +28,7 @@ def severity_counts(results: Iterable[tuple[str, int]], severities: Sequence[str
 def apply_dismissals(
     report: Mapping[str, Any],
     dismissed: Collection[str],
-    occurrences: Mapping[str, Sequence[tuple[str, str] | tuple[str, str, str]]] | None = None,
+    occurrences: Mapping[str, Sequence[tuple[str, str, str]]] | None = None,
     dismissed_pairs: Collection[tuple[str, str]] = (),
 ) -> dict[str, Any]:
     """A copy of ``report`` with each result's ``dismissed`` set and ``violationsFound``, ``severityCounts`` and
@@ -52,16 +52,14 @@ def apply_dismissals(
 def _mark(
     result: dict[str, Any],
     dismissed: Collection[str],
-    occurrences: Sequence[tuple[str, str] | tuple[str, str, str]] | None,
+    occurrences: Sequence[tuple[str, str, str]] | None,
     dismissed_pairs: Collection[tuple[str, str]],
 ) -> dict[str, Any]:
     if result["id"] in dismissed:
         return {**result, "dismissed": True}
     remaining: list[str] = []
-    for occurrence in occurrences or ():
-        fingerprint, text = occurrence[:2]
-        identity_or_target = occurrence[2] if len(occurrence) == 3 else ""
-        if fingerprint not in dismissed:
+    for fingerprint, text, identity_or_target in occurrences or ():
+        if fingerprint not in dismissed and (result["id"], identity_or_target) not in dismissed_pairs:
             remaining.append(text)
     if len(remaining) == len(occurrences or ()):
         return {**result, "dismissed": False}

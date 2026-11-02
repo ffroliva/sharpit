@@ -7,7 +7,7 @@ from typing import Any
 
 
 def selection_requested(args: Sequence[str]) -> bool:
-    flags = {"-k", "-m", "--last-failed", "--sw", "--stepwise", "--deselect"}
+    flags = {"-k", "-m", "--lf", "--last-failed", "--sw", "--stepwise", "--deselect"}
     return any(
         arg in flags
         or arg.startswith(("-k", "-m", "--deselect="))
