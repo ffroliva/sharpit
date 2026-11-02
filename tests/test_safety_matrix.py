@@ -300,7 +300,7 @@ WRITES = [
 _NOT_PANEL_WRITES = ("/api/auth/session", "/api/mcp", "/api/cli/", "/api/dismissed-rules/", "/api/dismissed-findings")
 # implemented panels' rows from tests/safety/test_<lane>_safety.py feed the same sweeps as the base rows
 LANES = safety.load()
-PATH_PARAMS = {**_PATH_PARAMS, **LANES.params}
+PATH_PARAMS = dict(_PATH_PARAMS)  # base samples; each lane's PATH_PARAMS stay on its own rows
 ALL_WRITES = safety.write_cases(WRITES, LANES, PATH_PARAMS)
 LANE_GETS = safety.get_rows(LANES, PATH_PARAMS)
 

@@ -160,3 +160,24 @@ def test_matrix_feeds_lane_rows_into_its_sweeps(lane_pkg: tuple[str, Path], monk
     monkeypatch.setattr(matrix, "LANES", safety.Lanes((), (), (), {}))
     with pytest.raises(AssertionError, match="data/probe"):
         matrix.test_write_route_table_is_complete()  # the undocumented route is named
+
+
+def test_lane_path_params_apply_only_to_that_lanes_rows(
+    lane_pkg: tuple[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    name, package = lane_pkg
+    (package / "test_a_data_safety.py").write_text(
+        'PANEL = "data"\nGET_ROWS = ["/sharpit/api/data/{name}"]\nPATH_PARAMS = {"name": "x"}\n', encoding="utf-8"
+    )
+    monkeypatch.setitem(panels04.IMPLEMENTED, "data", True)
+    lanes = safety.load(name)
+    base_format = "/sharpit/api/database-connection-pools/pools/{name}/snapshot"
+    base_samples = {"name": "nope"}
+
+    base_path = base_format.format(**safety.sample_params(base_format, lanes, base_samples))
+    lane_path = "/sharpit/api/data/{name}".format(
+        **safety.sample_params("/sharpit/api/data/{name}", lanes, base_samples)
+    )
+
+    assert base_path == "/sharpit/api/database-connection-pools/pools/nope/snapshot"
+    assert lane_path == "/sharpit/api/data/x"
