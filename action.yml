@@ -1,0 +1,13 @@
+name: sharpit
+description: stub
+inputs:
+  runner:
+    description: stub
+    default: pytest
+runs:
+  using: composite
+  steps:
+    - name: Run pytest
+      shell: bash
+      run: |
+        ${{ inputs.runner }} $PYTEST_ARGS
