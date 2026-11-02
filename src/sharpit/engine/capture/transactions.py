@@ -243,7 +243,7 @@ class TransactionRecorder:
             "available": True,
             "unavailableReason": None,
             "capturing": self.recording,
-            "bufferSize": len(rows),
+            "bufferSize": self.max_entries,
             "totalCaptured": total,
             "slowTransactionThresholdMillis": self.slow_threshold_ms,
             "connectionHoldThresholdMillis": self.hold_threshold_ms,
