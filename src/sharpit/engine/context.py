@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import itertools
 import secrets
 import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, Final, cast
 
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.capture import CaptureState
@@ -15,6 +16,9 @@ from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.spi import AppIntrospector
 from sharpit.settings import SharpitSettings
+
+_INSTANCE_ID: Final[str] = secrets.token_hex(4)
+_RUN_ORDINAL = itertools.count(1)  # next() is atomic under the GIL and in free-threaded CPython
 
 
 @dataclass(eq=False)
@@ -33,10 +37,11 @@ class SharpitContext:
     health_checks: Mapping[str, Callable[[], object]] = field(default_factory=dict[str, Callable[[], object]])
     models: tuple[object, ...] = ()  # install(models=...): never inspected here; A-data reads it
     context_id: str = field(default_factory=lambda: secrets.token_hex(8))
-    instance_id: str = ""
-    run_id: str = ""
-    run_ordinal: int = 0
-    started_at_ms: int = 0
+    # BootUI 2.2.0 ApplicationRunDto: the process is the instance, each install() a run within it
+    instance_id: str = field(default_factory=lambda: _INSTANCE_ID)
+    run_id: str = field(default_factory=lambda: secrets.token_hex(4))
+    run_ordinal: int = field(default_factory=lambda: next(_RUN_ORDINAL))
+    started_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
     capture: CaptureState = field(default_factory=CaptureState)
     masker: Masker = field(init=False)
     _cache: dict[str, Any] = field(default_factory=dict[str, Any], init=False, repr=False)

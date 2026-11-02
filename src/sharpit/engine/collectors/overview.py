@@ -37,5 +37,10 @@ def overview_dto(ctx: SharpitContext, scope: Mapping[str, Any]) -> dict[str, Any
         "startupTimeMillis": ctx.startup_time_ms,
         "activation": ctx.activation.to_dto(),
         "openApiUrl": info.docs_url,
-        "run": {},
+        "run": {
+            "instanceId": ctx.instance_id,
+            "runId": ctx.run_id,
+            "ordinal": ctx.run_ordinal,
+            "startedAt": ctx.started_at_ms,
+        },
     }
