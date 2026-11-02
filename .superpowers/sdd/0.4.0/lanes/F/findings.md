@@ -116,7 +116,7 @@
 |---|---|---|---|
 | b: red `359fbe9` / `7df2749` reference `gatekeeper_violations`, changed after their red commits | `test_pytest_gatekeeper_covers_the_plugin_package`, `test_opentelemetry_import_is_confined_to_engine_otel` (red against a stub allow rule that accepts everything; the rule now lives in `_gatekeeper_allows`, which the tests do not reference) | `b9b880f31d1a40825a48ed8b78463ae5e1c08ced` | `9d343bc` |
 | b: red `fbcd986` references `PANEL_IDS`, changed after its red commit | `test_every_0_4_panel_is_registered_behind_its_flag` (red against a `PANELS` stub missing the `fastapi` row) | `b9b880f31d1a40825a48ed8b78463ae5e1c08ced` | `9d343bc` |
-| a, c: only real red tables carry a `Red SHA` column | review/finding tables use `Red commit`, superseded uses `Historical SHA`, the Vitest list uses `Commit` | — | docs |
+| a, c: only real red tables carry the red-SHA column | review/finding tables use `Red commit`, superseded uses `Historical SHA`, the Vitest list uses `Commit` | — | docs |
 
 ## Superseded reds (test deleted; its row left the red table)
 
