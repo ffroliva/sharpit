@@ -105,7 +105,8 @@ class Fixture:
             name = rest[-1]
             body = {
                 "pass": "",
-                "failure": '<failure message="AssertionError: assert 1 == 2">trace</failure>',
+                "failure": f'<failure message="AssertionError: assert 1 == 2">E\n{module}:2: AssertionError</failure>',
+                "helper-did-not-raise": '<failure message="Failed: DID NOT RAISE">E\ntests/h.py:4: Failed</failure>',
                 "typeerror": '<failure message="TypeError: bad">trace</failure>',
                 # real pytest: a rewritten assert's message names no exception; --tb=long ends "<file>:<line>: <type>"
                 "rewritten": f'<failure message="assert 1 == 2">E   assert 1\n{module}:2: AssertionError</failure>',
@@ -491,10 +492,11 @@ def test_lane_gate_replay_syncs_the_test_extra(tmp_path: Path, monkeypatch: pyte
 
 
 @pytest.mark.parametrize("outcome", ["bare-assert", "typed"])
-def test_lane_gate_accepts_assert_message_or_type_without_traceback(tmp_path: Path, outcome: str) -> None:
+def test_lane_gate_refuses_assertion_without_a_traceback_frame(tmp_path: Path, outcome: str) -> None:
+    # fail closed (round 2): with no last frame nobody can tell the assert was not in src/
     fx = _fixture(tmp_path)
     fx.outcomes[fx.red] = outcome
-    assert _refusals(fx.evaluate()) == []
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError with no traceback frame")
 
 
 def test_lane_gate_reads_first_code_span_and_parametrized_ids(tmp_path: Path) -> None:
@@ -964,3 +966,9 @@ def test_lane_gate_exposes_the_one_accept_rule() -> None:
     assert is_red(("failure", "AssertionError")) is True
     assert is_red(("failure", "TypeError")) is False
     assert callable(getattr(lane_gate, "red_verdicts", None)), "lane_gate exposes no public red_verdicts"
+
+
+def test_lane_gate_accepts_did_not_raise_from_a_helper_under_tests(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "helper-did-not-raise"
+    assert _refusals(fx.evaluate()) == []

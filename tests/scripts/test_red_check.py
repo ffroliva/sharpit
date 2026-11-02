@@ -28,11 +28,19 @@ def guarded():
 """
 
 HELPER = "def check(x):\n    assert x == 2, '{} assert'\n"
+RAISES_HELPER = """
+
+def check_raises(fn):
+    import pytest
+
+    with pytest.raises(ValueError):
+        fn()
+"""
 
 TESTS = """\
 import pytest
 from red_scripts_helper import check as scripts_check
-from red_test_helper import check as helper_check
+from red_test_helper import check as helper_check, check_raises
 
 from mod import broken, guarded, widget
 
@@ -88,6 +96,10 @@ def test_mixed_params(expected):
 def test_did_not_raise():
     with pytest.raises(ValueError):
         widget()
+
+
+def test_did_not_raise_in_helper():
+    check_raises(widget)
 """
 
 IDS = (
@@ -101,6 +113,7 @@ IDS = (
     "test_red_with_teardown_error",
     "test_mixed_params",
     "test_did_not_raise",
+    "test_did_not_raise_in_helper",
     "test_missing",
 )
 
@@ -110,7 +123,7 @@ def _project(root: Path) -> Path:
         (root / folder).mkdir()
     (root / "src" / "mod.py").write_text(SRC, encoding="utf-8")
     (root / "tests" / "test_mod.py").write_text(TESTS, encoding="utf-8")
-    (root / "tests" / "red_test_helper.py").write_text(HELPER.format("helper"), encoding="utf-8")
+    (root / "tests" / "red_test_helper.py").write_text(HELPER.format("helper") + RAISES_HELPER, encoding="utf-8")
     (root / "scripts" / "red_scripts_helper.py").write_text(HELPER.format("scripts"), encoding="utf-8")
     (root / "pytest.ini").write_text("[pytest]\npythonpath = scripts tests\n", encoding="utf-8")
     return root
@@ -221,3 +234,36 @@ def test_warns_about_uncommitted_files_the_tests_import(
     err = capsys.readouterr().err
     assert "uncommitted" in err, err
     assert "src/mod.py" in err, err
+
+
+def test_did_not_raise_from_a_helper_under_tests_is_red(verdicts: dict[str, str]) -> None:
+    assert _of(verdicts, "test_did_not_raise_in_helper") == RED
+
+
+def _fake_pytest(junit_body: str):
+    def fake(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+        for arg in args:
+            if arg.startswith("--junitxml="):
+                Path(arg.removeprefix("--junitxml=")).write_text(junit_body, encoding="utf-8")
+        return subprocess.CompletedProcess(args, 1, "", "")
+
+    return fake
+
+
+def test_assertion_without_a_traceback_frame_is_not_red(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    case = '<testcase classname="tests.test_x" name="test_y"><failure message="assert 0">no tail</failure></testcase>'
+    monkeypatch.setattr(red_check, "_pytest", _fake_pytest(f"<testsuites><testsuite>{case}</testsuite></testsuites>"))
+    verdict = red_check.check(["tests/test_x.py::test_y"], cwd=tmp_path)["tests/test_x.py::test_y"]
+    assert verdict.startswith("CRASH (AssertionError with no traceback frame"), verdict
+
+
+def test_collection_timeout_is_reported_not_raised(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def slow(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(args, red_check.TIMEOUT)
+
+    monkeypatch.setattr(red_check, "_pytest", slow)
+    try:
+        found = red_check.check(["tests/test_x.py"], cwd=tmp_path)
+    except subprocess.TimeoutExpired:
+        found = {"tests/test_x.py": "<raised TimeoutExpired>"}
+    assert found == {"tests/test_x.py": "ERROR (collection timeout)"}
