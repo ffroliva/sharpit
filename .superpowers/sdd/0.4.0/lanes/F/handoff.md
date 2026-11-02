@@ -1,5 +1,7 @@
 # Lane F handoff
 
+Implementer: codex-gpt-6-luna + claude-subagent-opus (lane F)
+
 Status: the F minimum cut is complete except `scripts/dev/lane_gate.py`, which another agent is writing in a separate
 worktree (with its tests and `.superpowers/sdd/0.4.0/handoff-template.md`); F's diff does not touch those three paths.
 F-rest (`tests/safety/`, `tests/masking/`, test extras other than `psycopg[binary]`) is deferred, as R3 allows.
