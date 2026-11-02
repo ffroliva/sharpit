@@ -119,3 +119,19 @@ def test_nothing_is_written_when_neither_variable_is_set(monkeypatch: pytest.Mon
     with pytest.raises(AssertionError):
         check_budget("hook", measured, BUDGET, "us", 1.0)
     assert list(tmp_path.iterdir()) == []
+
+
+class _ActiveCoverage:
+    """Stands in for the ``coverage`` module while a tracer is running."""
+
+    class Coverage:
+        @staticmethod
+        def current() -> object:
+            return object()
+
+
+def test_timing_is_skipped_while_a_coverage_tracer_runs(monkeypatch: pytest.MonkeyPatch):
+    # the coverage job traces every line, which distorts on-vs-off timing; the plain test jobs enforce the budget
+    monkeypatch.setitem(__import__("sys").modules, "coverage", _ActiveCoverage)
+    with pytest.raises(pytest.skip.Exception, match="coverage"):
+        paired(lambda: 1.0, lambda: 1.0, rounds=1)
