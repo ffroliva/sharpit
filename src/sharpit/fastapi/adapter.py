@@ -256,6 +256,6 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     # shortcut: spliced after the dismissed-rules routes because routes/__init__.py is not D1's file; move the call
     # into build_routes() when the lanes are merged
     rules = f"{ctx.settings.api_path[len(ctx.settings.path) :]}/dismissed-rules"
-    at = 1 + max(i for i, r in enumerate(routes) if getattr(r, "path", "").startswith(rules))
+    at = 1 + max((i for i, r in enumerate(routes) if getattr(r, "path", "").startswith(rules)), default=len(routes) - 1)
     routes[at:at] = finding_routes(ctx, host_app)
     return routes

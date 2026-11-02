@@ -49,7 +49,7 @@ def test_mvc_refuses_bad_bodies_with_a_fixed_message_that_never_quotes_the_note(
     client = _client(tmp_state_dir)
     for body in (
         f'{{"note":"{CANARY}"}}',
-        f'{{"ruleId":"{RULE}","identity":"bad identity","note":"{CANARY}"}}',
+        f'{{"ruleId":"{RULE}","identity":"bad\\tidentity","note":"{CANARY}"}}',
         f'{{"ruleId":"{RULE}","identity":"v1:a=b","note":7}}',
         f'["{CANARY}"]',
         f'{{"ruleId":"{RULE}","identity":["{CANARY}"]}}',

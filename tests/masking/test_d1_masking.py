@@ -26,7 +26,7 @@ def test_a_secret_note_is_never_echoed_by_an_error(tmp_state_dir: Path):
     client = _client(tmp_state_dir)
     bodies: list[dict[str, Any]] = [
         {"ruleId": "RAPI-MAP-001", "identity": "v1:x", "note": SECRET * 20},  # too long
-        {"ruleId": "RAPI-MAP-001", "identity": f"{SECRET} x", "note": SECRET},  # bad identity
+        {"ruleId": "RAPI-MAP-001", "identity": f"{SECRET}\tx", "note": SECRET},  # bad identity (a space is valid)
         {"ruleId": SECRET, "identity": "v1:x", "note": SECRET},  # bad rule id
         {"ruleId": "RAPI-MAP-001", "identity": "v1:x", "note": [SECRET]},  # wrong type
     ]

@@ -372,7 +372,7 @@ def test_dismissed_findings_note_and_cap_validation(tmp_path: Path):
         ("rapi-map-001", IDENTITY),  # no advisor owns it
         (f"{RULE}\n  - X-001", IDENTITY),
         ("RAPI-" + "1" * 60, IDENTITY),  # longer than 64
-        (RULE, f"{secret} with space"),
+        (RULE, f"{secret}\twith tab"),  # R-D1a: inner spaces are valid, control characters are not
         (RULE, f"{secret}\n  - {RULE} forged"),
         (RULE, f"{secret}\x00"),
         (RULE, "v1:" + "a" * 510),  # longer than 512
@@ -403,8 +403,8 @@ def test_malformed_finding_lines_are_ignored_counted_and_kept(tmp_path: Path):
         f"  - {RULE} {OTHER} n=b2s_Pz8=\n"
         f"  - {RULE}  {OTHER}\n"
         f"  - rapi-map-001 {OTHER}\n"
-        f"  - {RULE} {OTHER} extra=1\n"
-        f"  - {RULE} {OTHER} n={good} trailing\n"
+        f"  - {RULE} {OTHER}\textra=1\n"  # R-D1a: a space-separated tail is part of the identity; a tab is not
+        f"  - {RULE} {OTHER} n={good}\ttrailing\n"
         "  nested: future\n"
         f"  - {RULE} {OTHER}\n",
         encoding="utf-8",

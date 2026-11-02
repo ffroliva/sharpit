@@ -10,9 +10,11 @@ kept verbatim, so a newer format is never destroyed.
 
 Shared by every advisor (spec §8). sharpit deviation: a rule id must match ``[A-Za-z0-9._:-]{1,200}`` and have an
 owning panel (``owning_panel``); anything else (quotes, spaces, slashes, newlines...) is a ``BadRequest`` raised before
-the file is touched, so an id can never inject lines into the file. A finding's rule id is that charset, at most 64
-characters and owned by an advisor; its identity is at most 512 characters with no whitespace or control character
-(sharpit deviation: BootUI's ``[A-Z]...`` rule ids and ``v<n>:`` identities do not fit sharpit's ids).
+the file is touched, so an id can never inject lines into the file. A finding's rule id is that charset
+and owned by an advisor (never a full fingerprint); its identity is the rest of the line, at most 512 characters with
+inner spaces allowed (a REST API finding matches on its target, ``GET /items app.main:list_items``) but no leading or
+trailing whitespace, line break, C0/C1 control character or lone surrogate (sharpit deviation: BootUI's ``[A-Z]...``
+rule ids and ``v<n>:`` identities do not fit sharpit's ids). Comment lines inside a managed section are kept.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
-from sharpit.engine.advisors.registry import advisor_for
+from sharpit.engine.advisors.registry import ADVISORS, advisor_for
 from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.paging import BadRequest
 
@@ -39,8 +41,9 @@ _ITEM = "  - "
 _NOTE_PREFIX = "n="
 NO_PANEL_MESSAGE = "Findings of advisor '{advisor}' are dismissed in sharpit.yml"
 _RULE_ID = re.compile(r"[A-Za-z0-9._:-]{1,200}")
-_IDENTITY = re.compile(r"[^\s\x00-\x1f\x7f]{1,512}")
-_MAX_FINDING_RULE_ID = 64
+# no edge whitespace; inside, no C0/C1 control, line separator or lone surrogate (UTF-8 could not write it)
+_IDENTITY = re.compile(r"(?!\s)[^\x00-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff]{1,512}(?<!\s)")
+_INVALID_RULE = "Dismissed finding rule id is not a valid advisor rule id."
 
 MAX_FINDINGS: Final[int] = 1000
 MAX_NOTE_LENGTH: Final[int] = 200
@@ -72,6 +75,7 @@ class _Contents:
     rules: list[str] = field(default_factory=list[str])
     findings: dict[tuple[str, str], DismissedFinding] = field(default_factory=dict[tuple[str, str], DismissedFinding])
     ignored: list[str] = field(default_factory=list[str])
+    comments: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
     had_rules_key: bool = False
 
     def view(self) -> Findings:
@@ -126,7 +130,7 @@ class DismissalStore:
 
     def dismiss_finding(self, rule_id: str, identity: str, note: str | None = None) -> Findings:
         """Dismisses one finding or replaces its note; a blank note means none. 400 when invalid, 409 at the cap."""
-        _validate_finding(rule_id, identity)
+        _validate_finding(rule_id, identity, owned=True)
         normalized = None if note is None or not note.strip() else note
         if normalized is not None:
             _encode_note(normalized)
@@ -143,10 +147,13 @@ class DismissalStore:
             return contents.view()
 
     def restore_finding(self, rule_id: str, identity: str) -> Findings:
-        _validate_finding(rule_id, identity)
+        _validate_finding(rule_id, identity, owned=False)  # a rule no advisor owns any more can still be restored
+        key = (rule_id, identity)
         with self._lock:
             contents = self._load()
-            if contents.findings.pop((rule_id, identity), None) is not None:
+            kept = [line for line in contents.ignored if _line_key(line) != key]
+            if contents.findings.pop(key, None) is not None or len(kept) != len(contents.ignored):
+                contents.ignored = kept
                 self._save(contents)
             return contents.view()
 
@@ -173,7 +180,9 @@ class DismissalStore:
         if stamp is None or stamp != self._stamp:
             self._stamp, self._contents = stamp, self._parse()
         cached = self._contents
-        return _Contents(list(cached.rules), dict(cached.findings), list(cached.ignored), cached.had_rules_key)
+        comments = {key: list(lines) for key, lines in cached.comments.items()}
+        rules, findings, ignored = list(cached.rules), dict(cached.findings), list(cached.ignored)
+        return _Contents(rules, findings, ignored, comments, cached.had_rules_key)
 
     def _parse(self) -> _Contents:
         contents = _Contents()
@@ -183,11 +192,13 @@ class DismissalStore:
                 key = _key_of(line)
                 section = key if key in (_KEY, _FINDINGS_KEY) else None
                 contents.had_rules_key |= key == _KEY
+            elif section is not None and line.lstrip().startswith("#"):
+                contents.comments.setdefault(section, []).append(line)
             elif section == _KEY and line.startswith(_ITEM):
                 value = line[len(_ITEM) :].strip()
                 if value and value not in contents.rules:
                     contents.rules.append(value)
-            elif section == _FINDINGS_KEY and line.strip() and not line.startswith("#"):
+            elif section == _FINDINGS_KEY and line.strip():
                 finding = _parse_finding(line)
                 if finding is None:  # not a line this version writes: kept as it is, so a newer format is not lost
                     contents.ignored.append(line)
@@ -210,22 +221,25 @@ class DismissalStore:
         while preserved and not preserved[-1].strip():
             preserved.pop()
         managed: list[str] = []
+        rule_comments, finding_comments = contents.comments.get(_KEY, []), contents.comments.get(_FINDINGS_KEY, [])
         if contents.rules or contents.had_rules_key:
-            managed += [f"{_KEY}:", *(f"{_ITEM}{i}" for i in contents.rules)]
-        if contents.findings or contents.ignored:
-            managed += [f"{_FINDINGS_KEY}:", *map(_finding_line, contents.findings.values()), *contents.ignored]
+            managed += [f"{_KEY}:", *rule_comments, *(f"{_ITEM}{i}" for i in contents.rules)]
+        if contents.findings or contents.ignored or finding_comments:
+            findings = map(_finding_line, contents.findings.values())
+            managed += [f"{_FINDINGS_KEY}:", *finding_comments, *findings, *contents.ignored]
         content = "".join(f"{line}\n" for line in [_HEADER, *preserved, "", *managed])
         self._file.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix="sharpit", suffix=".tmp", dir=self._file.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(content)
+            # stamp what this store wrote, before the replace: a stat after it could see another store's write
+            written = os.stat(tmp)
             os.replace(tmp, self._file)
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
-        # cache what was written: a same-size rewrite within one mtime tick would otherwise read as unchanged
-        self._stamp, self._contents = self._file_stamp(), contents
+        self._stamp, self._contents = (written.st_mtime_ns, written.st_size), contents
 
 
 def _validate(rule_id: str) -> None:
@@ -237,19 +251,29 @@ def _validate(rule_id: str) -> None:
     raise BadRequest(f"Invalid rule id '{rule_id}'")
 
 
-def _valid_finding(rule_id: str, identity: str) -> str | None:
-    """The refusal message for a finding key, or None; never quotes the input."""
-    if len(rule_id) > _MAX_FINDING_RULE_ID or not _RULE_ID.fullmatch(rule_id) or advisor_for(rule_id) is None:
-        return "Dismissed finding rule id is not a valid advisor rule id."
-    if not _IDENTITY.fullmatch(identity):
+def _valid_finding(rule_id: str, identity: str, *, owned: bool = True) -> str | None:
+    """The refusal message for a finding key, or None; never quotes the input. ``owned``: an advisor owns the rule."""
+    fingerprint = any(rule_id.startswith(f"{spec.id}:") for spec in ADVISORS)
+    if fingerprint or not _RULE_ID.fullmatch(rule_id) or (owned and advisor_for(rule_id) is None):
+        return _INVALID_RULE
+    if not _IDENTITY.fullmatch(identity) or _looks_like_a_note(identity):
         return "Dismissed finding identity is not a valid finding identity."
     return None
 
 
-def _validate_finding(rule_id: str, identity: str) -> None:
-    message = _valid_finding(rule_id, identity)
+def _looks_like_a_note(identity: str) -> bool:
+    """An identity whose last word is ``n=...`` would read back as a note."""
+    head, space, last = identity.rpartition(" ")
+    return bool(space) and bool(head) and last.startswith(_NOTE_PREFIX)
+
+
+def _validate_finding(rule_id: str, identity: str, *, owned: bool) -> None:
+    message = _valid_finding(rule_id, identity, owned=owned)
     if message is not None:
         raise AdvisorViolationError(400, message)
+    spec = advisor_for(rule_id)
+    if spec is not None and spec.panel is None:  # no panel gate can cover the HTTP route, as for rules
+        raise AdvisorViolationError(400, NO_PANEL_MESSAGE.format(advisor=spec.id))
 
 
 def _encode_note(note: str) -> str:
@@ -273,17 +297,25 @@ def _decode_note(encoded: str) -> str | None:
     return note if canonical and note.strip() else None
 
 
-def _parse_finding(line: str) -> DismissedFinding | None:
-    """The finding a stored line is, or None unless the line is exactly the format this store writes."""
+def _parse_finding(line: str, *, owned: bool = True) -> DismissedFinding | None:
+    """The finding a stored line is, or None unless the line is exactly the format this store writes:
+    ``<ruleId> <identity, may hold spaces>[ n=<note>]``."""
     if not line.startswith(_ITEM):
         return None
-    parts = line[len(_ITEM) :].split(" ")
-    if not 2 <= len(parts) <= 3 or "" in parts or _valid_finding(parts[0], parts[1]) is not None:
-        return None
-    if len(parts) == 2:
-        return DismissedFinding(parts[0], parts[1])
-    note = _decode_note(parts[2][len(_NOTE_PREFIX) :]) if parts[2].startswith(_NOTE_PREFIX) else None
-    return None if note is None else DismissedFinding(parts[0], parts[1], note)
+    rule, _, identity = line[len(_ITEM) :].partition(" ")
+    note: str | None = None
+    head, space, last = identity.rpartition(" ")
+    if space and head and last.startswith(_NOTE_PREFIX):
+        identity, note = head, _decode_note(last[len(_NOTE_PREFIX) :])
+        if note is None:
+            return None
+    return None if _valid_finding(rule, identity, owned=owned) else DismissedFinding(rule, identity, note)
+
+
+def _line_key(line: str) -> tuple[str, str] | None:
+    """The ``(rule_id, identity)`` an ignored line stores when its only fault is a rule no advisor owns any more."""
+    finding = _parse_finding(line, owned=False)
+    return None if finding is None else (finding.rule_id, finding.identity)
 
 
 def _finding_line(finding: DismissedFinding) -> str:

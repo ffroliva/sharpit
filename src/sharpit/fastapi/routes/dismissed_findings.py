@@ -1,8 +1,9 @@
 """``{api}/dismissed-findings`` (port of BootUI 2.2.0 ``DismissedFindingsController``).
 
-The guard covers the mutations with the global read-only policy only (``_GLOBAL_WRITE_SUBJECTS``). The body is read
-as capped bytes and parsed here, so a malformed body is answered with one fixed message that never quotes it (the
-note is user text). Deliberately no MCP tool or CLI command.
+The guard covers the mutations with the global read-only policy (``_GLOBAL_WRITE_SUBJECTS``); once the body's
+``ruleId`` is parsed, the owning advisor panel's gate applies too (sharpit deviation, as ``/dismissed-rules``). The
+body is read as capped bytes and parsed here, so a malformed body is answered with one fixed message that never quotes
+it (the note is user text). Deliberately no MCP tool or CLI command.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from sharpit.engine import tools
+from sharpit.engine import guard, tools
 from sharpit.engine.advisors.dismissals import Findings
 from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.context import SharpitContext
@@ -61,6 +62,9 @@ def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         if fields is None:
             return error(400, INVALID_BODY)
         rule_id, identity, note = fields
+        denial = guard.owning_panel_access(rule_id, settings, "dismissed-findings")
+        if denial is not None:
+            return json_response(denial.body, denial.status)
         store = tools.dismissal_store(ctx)
 
         def apply() -> Findings:
