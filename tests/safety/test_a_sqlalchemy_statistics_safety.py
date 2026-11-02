@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-sa = pytest.importorskip("sqlalchemy")
+try:  # no module-level skip: the shared safety matrix imports this file for its rows
+    import sqlalchemy as sa
+except ImportError:
+    sa = None
 
 from examples.fastapi_sample.app import create_app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -12,6 +15,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 from conftest import SideEffectGuard  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
+
+PANEL = "sqlalchemy-statistics"
+GET_ROWS = ["/sharpit/api/sqlalchemy-statistics"]
+WRITE_ROWS = [("POST", "/sharpit/api/sqlalchemy-statistics/enable")]
 
 
 def test_get_no_side_effects(no_side_effects: SideEffectGuard):

@@ -1,6 +1,6 @@
 # Lane A-sqlalchemy-statistics handoff
 
-Implementer: claude-sonnet-5-5 (lane A-sqlalchemy-statistics); review fixes: claude-opus-5-5 (subagent)
+Implementer: claude-flavio sonnet + claude-subagent opus (fix round)
 Lane plan: `docs/superpowers/plans/2026-11-01-sharpit-0.4.0/A-sqlalchemy-statistics.md`
 Branch / worktree: `lane/0.4.0-A-sqlalchemy-statistics` in `C:\development\github\sharpit-wt\0.4.0-A-sqlalchemy-statistics`
 
