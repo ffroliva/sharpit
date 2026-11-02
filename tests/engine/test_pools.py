@@ -158,6 +158,21 @@ def test_pools_report_matches_bootui_2_2_0_golden_and_nullable_fixture(tmp_path:
     assert_parity("database-connection-pools", "pools", report)
 
 
+@pytest.mark.parametrize(
+    ("poolclass", "pool_options"),
+    [
+        pytest.param(sa.pool.NullPool, {}, id="nullpool"),
+        pytest.param(sa.QueuePool, {"max_overflow": -1}, id="unlimited-overflow"),
+    ],
+)
+def test_pools_report_parity_for_nullpool_and_unlimited_overflow(
+    tmp_path: Path, poolclass: type[Any], pool_options: dict[str, Any]
+):
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'edge.db'}", poolclass=poolclass, **pool_options)
+    report = pools_report(_ctx(engine))
+    assert_parity("database-connection-pools", "pools", report)
+
+
 def test_shape_keys_match_bootui(tmp_path: Path):
     # ported: HikariPoolsReport, HikariPoolDto, HikariPoolSnapshotDto
     report = pools_report(_ctx(_queue_engine(tmp_path)))
