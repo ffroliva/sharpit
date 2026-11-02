@@ -279,8 +279,10 @@ def test_autodetected_app_without_routes_is_skipped(pytester: pytest.Pytester) -
 
 
 def test_autodetect_ignores_test_module_apps(pytester: pytest.Pytester) -> None:
-    pytester.mkpydir("src/realpkg")
-    (pytester.path / "src" / "realpkg" / "main.py").write_text(
+    package = pytester.path / "src" / "realpkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "main.py").write_text(
         "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/items')\ndef items():\n    return []\n"
     )
     pytester.makepyfile(

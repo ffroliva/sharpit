@@ -273,3 +273,22 @@ def test_autodetect_is_empty_without_starlette_loaded(monkeypatch: pytest.Monkey
     monkeypatch.delitem(sys.modules, "fastapi.applications")
 
     assert autodetect_apps() == ()
+
+
+def test_autodetect_names_app_by_shortest_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    from types import ModuleType
+
+    from fastapi import FastAPI
+    from sharpit.pytest_plugin.apps import autodetect_apps
+
+    app = FastAPI()
+    for name in ("a_longer_reexport_mod", "short_mod"):  # the re-exporting module is loaded first
+        mod = ModuleType(name)
+        mod.app = app  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, name, mod)
+
+    detected = dict(autodetect_apps())
+
+    assert "short_mod:app" in detected
+    assert "a_longer_reexport_mod:app" not in detected
