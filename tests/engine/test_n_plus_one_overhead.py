@@ -1,3 +1,5 @@
+"""F6 ORM observer budget: paired 1,000-SELECT SQLAlchemy sessions; see overhead-budgets.md."""
+
 from __future__ import annotations
 
 import time
@@ -13,7 +15,7 @@ from sharpit.engine import sqla  # noqa: E402
 pytestmark = pytest.mark.needs_sqlalchemy
 
 STATEMENTS = 1_000
-ORM_HOOK_BUDGET = 0.0
+ORM_HOOK_BUDGET = 35e-6
 
 
 def _workload(engine: object) -> float:
