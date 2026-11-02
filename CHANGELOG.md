@@ -5,6 +5,38 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-02
+
+### Added
+
+- `traces` panel: OpenTelemetry spans from the application's own SDK `TracerProvider`, with SQL literals in `db.statement` normalised and masked; MCP `get_traces`. sharpit never imports OpenTelemetry or installs a provider, it attaches one span processor to the provider the app already set up.
+- `data` panel: SQLAlchemy 2.0 mapped classes (table, primary-key type, relationships) from the new `install(models=...)` keyword (a declarative base, registry, or a list of them or of mapped classes); MCP `get_data_repositories`. sharpit never configures mappers or runs SQL to read them.
+- `postgresql` panel: vital signs, sessions, statements, indexes, tables, vacuum, replication and settings, read on an explicit `POST {api}/postgresql/read` in one read-only transaction with statement and lock timeouts, a read budget and row limits; query text masked (numbers and comments too). `GET` returns the last read; MCP `get_postgresql_report`. `pg_stat_statements` created but not preloaded makes that section `SKIPPED`.
+- `sqlalchemy-statistics` panel (BootUI's `hibernate-statistics`): statement counts from SQL Trace's lifetime totals, the slowest statement and N+1 candidates per route; Hibernate-only counters are `null` with a reason; MCP `get_sqlalchemy_statistics`.
+- Per-finding dismissal: `GET`, `POST` and `DELETE {api}/dismissed-findings` (BootUI 2.2.0), stored under `dismissedFindings` in `sharpit.yml`; mutations check the owning panel is enabled and writable.
+- Report-only mode (`--sharpit-report-only`, ini `sharpit_report_only`): findings never fail the build, any unknown reason still does. The report gains `mode` and `unknownReasons`.
+- Baselines: `--sharpit-baseline=PATH` (ini `sharpit_baseline`) and `--sharpit-write-baseline=PATH`. A baselined finding is `existing` and does not fail, an unlisted one is `new`, a missing one `fixed`; a count gate above its baselined count is `new`. Writing refuses a partial run or one with unknown reasons. Vulnerability findings are not baselined.
+- GitHub Action (`action.yml` at the repository root) that runs pytest with sharpit, report-only by default, and writes a findings summary to the job summary; `python -m sharpit.report summary <report.json>` renders that Markdown.
+- `sharpit.swallowed-exception` gate: during a test, an exception handled by a broad `except` in application code that neither re-raises nor logs is a finding. It fails the test for programming errors (`AttributeError`, `TypeError`, `NameError`, `ImportError`, `UnboundLocalError`) and is an INFO note otherwise; marker `@pytest.mark.sharpit(allow_swallowed=True)` relaxes it.
+- N+1 findings caused by a SQLAlchemy lazy load name the relationship (`Player.performances lazy-loaded 1018 times`), suggest `selectinload` or `joinedload`, and give the application line of the first lazy load and the masked statement. Fingerprints are unchanged.
+- App autodetection for `pytest --sharpit`: the one FastAPI or Starlette app already imported by the suite is used without `--sharpit-app`; `--sharpit-require-app` (ini `sharpit_require_app`) restores the 0.3.0 fail-closed behaviour.
+- `--sharpit-verbose` (or `-vv`) lists every advisor note in the terminal.
+- Overview run metadata from BootUI 2.2.0.
+- `SECURITY.md`: supported versions, private reporting, and the network-egress statement (only the OSV and EPSS clients use the network).
+
+### Changed
+
+- With no single app (none, several, or one without routes), the `rest-api` advisor is `SKIPPED` rather than `unknown`, so a clean suite passes; the advisor run status gains `SKIPPED` (additive in `sharpit-report/1`).
+- The terminal gate counts list only findings that fail the gate; other advisor notes become one count line pointing at the report. The JSON and JUnit reports are unchanged.
+- A test-runtime gate finding that failed its test is a JUnit `<failure>` under any `--sharpit-fail-on`.
+- INFO findings never fail a gate, at any `--sharpit-fail-on`.
+- Finding identities in `sharpit.yml` may contain inner spaces; existing entries still parse.
+- The overview view is titled Scorecard, as in BootUI 2.2.0. MCP no longer suggests config property names.
+
+### Fixed
+
+- With parameter capture off, SQL Trace, traces and the test report no longer show a double-quoted SQL value or secret (shipped in 0.3.0) (#41).
+
 ## [0.3.0] - 2026-11-01
 
 ### Added
@@ -109,7 +141,8 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.1.0
