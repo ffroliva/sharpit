@@ -1,8 +1,84 @@
 <script lang="ts">
-  // 0.4 placeholder (lane F): the owning lane replaces this file when it flips its panels04 flags.
+  import PanelShell from '../components/PanelShell.svelte';
+  import { get } from '../lib/api';
+  import { loader } from '../lib/load.svelte';
+  import { href } from '../lib/route';
   import type { Panel } from '../lib/types';
 
   let { panel }: { panel: Panel } = $props();
+
+  type NPlusOne = {
+    method: string | null; route: string | null; routePath: string | null; routeReason: string | null;
+    sql: string; executionsPerRequest: number; requests: number; threshold: number;
+  };
+  type Report = {
+    available: boolean; enableAvailable: boolean; unavailableReason: string | null;
+    statistics: Record<string, number | boolean | string | null | unknown[]> & { nPlusOne: NPlusOne[]; nPlusOneWindow: string; warnings?: string[] };
+  };
+
+  // same text as NULL_REASON in engine/collectors/sqlastats.py and nullable.json
+  const NOT_MEASURED = 'SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)';
+  const report = loader(() => get<Report>('sqlalchemy-statistics'));
+  $effect(() => void report.reload());
+
+  const MEASURED = [
+    ['statementCount', 'Statements'], ['queryExecutionCount', 'SELECT statements'], ['queryExecutionMaxTime', 'Slowest (ms)'],
+  ] as const;
+  const UNMEASURED = [
+    ['sessionOpenCount', 'Sessions opened'], ['sessionCloseCount', 'Sessions closed'], ['flushCount', 'Flushes'],
+    ['connectCount', 'Connections'], ['transactionCount', 'Transactions'], ['entityLoadCount', 'Entities loaded'],
+    ['entityInsertCount', 'Entities inserted'], ['entityUpdateCount', 'Entities updated'],
+    ['entityDeleteCount', 'Entities deleted'], ['collectionLoadCount', 'Collections loaded'],
+  ] as const;
 </script>
 
-<div class="empty"><p class="lead">{panel.title}</p><p>This panel's view is not built yet.</p></div>
+<PanelShell title={panel.title} loading={report.loading} error={report.error} onretry={report.reload}>
+  {#if report.data}
+    {#if !report.data.available}
+      <div class="empty"><p class="lead">Statistics unavailable</p><p>{report.data.unavailableReason}</p></div>
+    {:else}
+      {@const s = report.data.statistics}
+      {#each s.warnings ?? [] as warning (warning)}<p class="warn">{warning}</p>{/each}
+      <dl class="cards">
+        {#each MEASURED as [key, label] (key)}
+          <div class="card"><dt>{label}</dt><dd><strong>{s[key]}</strong></dd></div>
+        {/each}
+        {#each UNMEASURED as [key, label] (key)}
+          <div class="card">
+            <dt>{label}</dt>
+            <dd class="muted" title={NOT_MEASURED}>{s[key] === null ? 'not measured' : s[key]}</dd>
+          </div>
+        {/each}
+      </dl>
+      {#if s.queryExecutionMaxTimeQueryString}
+        <p class="sm muted">Slowest statement</p>
+        <pre class="mono">{s.queryExecutionMaxTimeQueryString}</pre>
+      {/if}
+      <h2>N+1 candidates</h2>
+      <p class="sm muted">{s.nPlusOneWindow}</p>
+      {#if s.nPlusOne.length === 0}
+        <p class="muted">None: no request ran one SELECT shape repeatedly.</p>
+      {:else}
+        <table>
+          <thead><tr><th>Route</th><th>Executions per request</th><th>Requests</th><th>Statement</th></tr></thead>
+          <tbody>
+            {#each s.nPlusOne as n (n.method + ':' + n.route + ':' + n.sql)}
+              <tr>
+                <td>
+                  {#if n.route}
+                    <a href={href('http-exchanges', n.routePath ?? '')}>{n.method} {n.route}</a>
+                  {:else}
+                    <span class="muted" title={n.routeReason}>unknown route</span>
+                  {/if}
+                </td>
+                <td>{n.executionsPerRequest}</td>
+                <td>{n.requests}</td>
+                <td class="mono">{n.sql}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+    {/if}
+  {/if}
+</PanelShell>
