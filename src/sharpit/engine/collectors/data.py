@@ -131,6 +131,37 @@ def repositories_report(ctx: SharpitContext) -> dict[str, Any]:
     }
 
 
+def _simple_name(row: dict[str, Any]) -> str:
+    return str(row["repositoryInterface"]).rsplit(".", 1)[-1]
+
+
 def repository_detail(ctx: SharpitContext, name: str) -> dict[str, Any] | None:
-    del ctx, name
-    return None
+    """``RepositoryDetailDto`` for the class whose bean name, qualified name or simple name is ``name``; else ``None``.
+
+    Rows are sorted by qualified name, so a simple name shared by two modules answers the first, as BootUI does.
+    """
+    row = next(
+        (r for r in _scan(ctx).rows if name in (r["beanName"], r["repositoryInterface"], _simple_name(r))),
+        None,
+    )
+    if row is None:
+        return None
+    relationships = row["relationships"]
+    methods = [
+        {
+            "name": rel["name"],
+            "signature": f"{rel['name']} -> {str(rel['target']).rsplit('.', 1)[-1]}",
+            "origin": "APPLICATION",
+            "query": None,
+            "nativeQuery": False,
+            "namedQuery": None,
+        }
+        for rel in relationships or ()
+    ]
+    return {
+        **{key: row[key] for key in _SUMMARY_KEYS},
+        "methods": methods,
+        "fragments": [],
+        "table": row["table"],
+        "unavailableReason": UNCONFIGURED if relationships is None else None,
+    }
