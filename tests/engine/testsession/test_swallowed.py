@@ -178,6 +178,69 @@ def test_ignores_unexecuted_nested_raise_and_logger() -> None:
     assert handler_swallows(source, _line_of(source, "except (KeyError, Exception):")) is False, "direct raise"
 
 
+def test_called_nested_scopes_are_followed() -> None:
+    source = _src(
+        """
+        def a():
+            try:
+                pass
+            except Exception:
+                def helper():
+                    raise
+                helper()
+
+        def b():
+            try:
+                pass
+            except BaseException:
+                def helper():
+                    logger.exception("failed")
+                helper()
+                return 0
+
+        async def c():
+            try:
+                pass
+            except:
+                async def helper():
+                    raise
+                await helper()
+
+        def d():
+            try:
+                pass
+            except (Exception, KeyError):
+                report = lambda: logger.exception("failed")
+                report()
+                return 0
+
+        def e():
+            try:
+                pass
+            except (KeyError, Exception):
+                (lambda: logger.exception("failed"))()
+                return 0
+
+        def f():
+            try:
+                pass
+            except (Exception, ValueError):
+                def helper():
+                    raise
+                def other():
+                    return 0
+                other()
+                return 0
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except Exception:")) is False, "called helper raises"
+    assert handler_swallows(source, _line_of(source, "except BaseException:")) is False, "called helper logs"
+    assert handler_swallows(source, _line_of(source, "except:")) is False, "awaited async helper raises"
+    assert handler_swallows(source, _line_of(source, "except (Exception, KeyError):")) is False, "called lambda"
+    assert handler_swallows(source, _line_of(source, "except (KeyError, Exception):")) is False, "inline lambda"
+    assert handler_swallows(source, _line_of(source, "except (Exception, ValueError):")) is True, "uncalled raise"
+
+
 def _nested() -> int:
     try:
         try:
