@@ -253,3 +253,37 @@ def test_listener_remover_releases_attachments_when_discarded(monkeypatch) -> No
     del remove
     gc.collect()
     assert len(removed) == 6, "discarding the owning teardown must release all class-level listeners"
+
+
+def test_listener_release_never_runs_under_attach_lock(monkeypatch) -> None:
+    import gc
+    import threading
+
+    from sharpit.engine import sqla
+    from sharpit.engine.capture import transactions
+    from sharpit.engine.capture.transactions import attach
+
+    monkeypatch.setattr(transactions, "_attach_count", 0)
+    monkeypatch.setattr(transactions, "_attach_removers", [])
+    monkeypatch.setattr(sqla, "add_connection_listener", lambda _event, _callback: lambda: None)
+    remover = attach()
+    assert remover is not None, "the transaction listener must attach for this context"
+    lock_held = threading.Event()
+    completed = threading.Event()
+
+    def collect() -> None:
+        nonlocal remover
+        transactions._attach_lock.acquire()
+        lock_held.set()
+        remover = None
+        gc.collect()
+        completed.set()
+
+    thread = threading.Thread(target=collect, daemon=True)
+    thread.start()
+    assert lock_held.wait(timeout=0.2), "the collector thread must acquire the attach lock"
+    thread.join(timeout=0.2)
+    blocked = not completed.is_set()
+    transactions._attach_lock.release()
+    thread.join(timeout=0.2)
+    assert not blocked, "listener release must not block while the attach lock is held"
