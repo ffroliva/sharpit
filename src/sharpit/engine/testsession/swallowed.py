@@ -62,12 +62,19 @@ def _call_name(func: ast.expr) -> str | None:
     return func.id if isinstance(func, ast.Name) else None
 
 
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)  # bodies that do not run when the clause runs
+
+
 def _silent(handler: ast.ExceptHandler) -> bool:
-    for node in ast.walk(handler):
+    pending: list[ast.AST] = list(handler.body)
+    while pending:
+        node = pending.pop()
         if isinstance(node, ast.Raise):
             return False
         if isinstance(node, ast.Call) and _call_name(node.func) in _LOG_CALLS:
             return False
+        if not isinstance(node, _SCOPES):  # a class body runs; its methods are stopped here
+            pending.extend(ast.iter_child_nodes(node))
     return True
 
 

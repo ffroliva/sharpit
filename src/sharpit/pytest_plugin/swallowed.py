@@ -6,6 +6,7 @@ once outside a test phase and for handlers outside application code; the raise l
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import os
 import sys
@@ -65,8 +66,13 @@ class MonitoringCapture:
             return CaptureStatus(False, "sys.monitoring tool ids 3 and 4 are in use")
         monitoring.use_tool_id(free, "sharpit")
         self.tool_id, self._sink = free, sink
-        monitoring.register_callback(free, monitoring.events.EXCEPTION_HANDLED, self._handled)
-        monitoring.set_events(free, monitoring.events.EXCEPTION_HANDLED)
+        try:
+            monitoring.register_callback(free, monitoring.events.EXCEPTION_HANDLED, self._handled)
+            monitoring.set_events(free, monitoring.events.EXCEPTION_HANDLED)
+        except BaseException:
+            with contextlib.suppress(Exception):  # the setup error is the one to report
+                self.detach()
+            raise
         return CaptureStatus(True)
 
     def detach(self) -> None:
@@ -76,9 +82,11 @@ class MonitoringCapture:
         monitoring = sys.monitoring
         try:
             monitoring.set_events(tool, 0)
-            monitoring.register_callback(tool, monitoring.events.EXCEPTION_HANDLED, None)
         finally:
-            monitoring.free_tool_id(tool)
+            try:
+                monitoring.register_callback(tool, monitoring.events.EXCEPTION_HANDLED, None)
+            finally:
+                monitoring.free_tool_id(tool)
 
     def _handled(self, code: CodeType, offset: int, exc: BaseException) -> None:
         test = TEST.get()
