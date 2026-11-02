@@ -12,6 +12,7 @@ except ImportError:  # pluggy before the public re-export
     from pluggy._result import Result
 
 from sharpit.engine.testsession.partial import partial_run
+from sharpit.pytest_plugin import swallowed
 from sharpit.pytest_plugin.apps import TEST_FILES, reconcile_workers
 
 WORKER_APPS = "sharpit-worker-apps"
@@ -82,6 +83,7 @@ def pytest_collection_finish(session: Any) -> None:
         return
     state.partial_selection = _selected(session.config)
     state.partial_collected = len(getattr(session, "items", ()))
+    swallowed.attach_session(session.config, state)
 
 
 def pytest_deselected(items: list[Any]) -> None:
@@ -133,6 +135,7 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
         return
     if state is None:
         return
+    swallowed.detach_session(state)
     state.test_files = _test_files(session.config)
     local_partial = _partial_facts(state, session)
     if hasattr(session.config, "workerinput"):
