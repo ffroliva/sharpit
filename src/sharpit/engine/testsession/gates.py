@@ -16,6 +16,7 @@ ADVISOR = "test-runtime"
 MAX_QUERIES = "sharpit.max-queries"
 N_PLUS_ONE = "sharpit.n-plus-one"
 EXCEPTION = "sharpit.exception"
+SWALLOWED = "sharpit.swallowed-exception"
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class Budget:
     max_queries: int | None
     allow_n_plus_one: bool
     max_exceptions: int
+    allow_swallowed: bool = False
 
 
 def _finding(

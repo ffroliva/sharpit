@@ -185,3 +185,65 @@ def pytest_sessionfinish(session):
 
     assert "'sharpit'" in (pytester.path / "tools.txt").read_text("utf-8")  # it was attached while the test ran
     assert [sys.monitoring.get_tool(i) for i in TOOL_IDS] == before
+
+
+# --- Task 4: gate, marker, report-only and baseline ------------------------------------------------------------------
+
+
+def _bare_project(pytester: pytest.Pytester, marker: str = "") -> None:
+    pytester.makepyfile(
+        appcode="""
+def lookup():
+    try:
+        return undefined_name  # a NameError
+    except:
+        return None
+""",
+        test_bare=f"""
+import pytest
+from appcode import lookup
+
+{marker}
+def test_lookup():
+    assert lookup() is None
+""",
+    )
+
+
+def test_bare_exception_handler_gates(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester)
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert _test_entry(_report(pytester), "test_lookup")["outcome"] == "failed"
+    result.stdout.fnmatch_lines(["*sharpit.swallowed-exception: NameError swallowed*appcode.py:4*"])
+
+
+def test_allow_swallowed_marker_keeps_the_test_passing(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester, "@pytest.mark.sharpit(allow_swallowed=True)")
+
+    pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    data = _report(pytester)
+    notes = [f for f in data["findings"] if f["ruleId"] == RULE]
+    assert _test_entry(data, "test_lookup")["outcome"] == "passed"
+    assert [f["severity"] for f in notes] == ["INFO"]
+
+
+def test_swallowed_respects_report_only_and_baseline(pytester: pytest.Pytester) -> None:
+    _bare_project(pytester)
+    common = ("--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
+
+    pytester.runpytest_subprocess(*common, "--sharpit-report-only", "--sharpit-write-baseline=baseline.json")
+    reported = _report(pytester)
+    pytester.runpytest_subprocess(*common, "--sharpit-baseline=baseline.json")
+    baselined = _report(pytester)
+
+    assert _test_entry(reported, "test_lookup")["outcome"] == "passed"
+    assert [f["ruleId"] for f in reported["findings"] if f["ruleId"] == RULE] == [RULE]
+    assert _test_entry(baselined, "test_lookup")["outcome"] == "passed"
+    assert [f["baselineState"] for f in baselined["findings"] if f["ruleId"] == RULE] == ["existing"]
