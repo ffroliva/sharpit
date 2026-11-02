@@ -132,3 +132,41 @@ def test_baseline_write_cleans_lone_surrogates_and_uses_lf(tmp_path) -> None:
         baseline.write(path, [Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "bad \ud800 text")])
     assert path.exists(), "a lone surrogate in a message broke the baseline write"
     assert b"\r\n" not in path.read_bytes()
+
+
+# --- compare() repeats the vulnerability exclusions (G1G2 audit review): one test per clause -------------------------
+
+EMPTY = baseline.Baseline({}, b"")
+
+
+@pytest.mark.parametrize("advisor", ["vulnerability", "vulns", "Vulnerability"])
+def test_compare_leaves_vulnerability_advisor_findings_unannotated(advisor: str) -> None:
+    [compared] = baseline.compare([Finding("OSV-1", advisor, "HIGH", "pkg 1", "m")], EMPTY, partial=False).findings
+    assert compared.baseline_state is None, f"a {advisor!r} finding was compared against the baseline"
+
+
+def test_compare_leaves_vuln_rule_findings_unannotated() -> None:
+    [compared] = baseline.compare(
+        [Finding("VULN-2", "dependencies", "HIGH", "pkg", "m")], EMPTY, partial=False
+    ).findings
+    assert compared.baseline_state is None, "a VULN- rule finding was compared against the baseline"
+
+
+def test_compare_never_reports_a_vuln_entry_as_fixed(tmp_path) -> None:
+    entry = {
+        "fingerprint": "dependencies:VULN-3:x",
+        "ruleId": "VULN-3",
+        "target": "t",
+        "message": "m",
+        "observed": None,
+    }
+    path = tmp_path / "baseline.json"
+    path.write_text(json.dumps({"schema": "sharpit-baseline/1", "findings": [entry]}), encoding="utf-8")
+    result = baseline.compare([], baseline.read(path), partial=False)
+    assert result.fixed == (), "a hand-written VULN- baseline entry was reported as fixed"
+
+
+def test_write_excludes_vulnerability_advisor_whatever_its_case(tmp_path) -> None:
+    path = tmp_path / "baseline.json"
+    baseline.write(path, (Finding("OSV-1", "Vulnerability", "HIGH", "pkg 1", "m"),))
+    assert baseline.read(path).entries == {}, "a 'Vulnerability' finding was written to the baseline"
