@@ -115,3 +115,46 @@ def catalogue_with_lanes(
 
     # from the base, not the current TOOLS: a lane implemented at import already has its tools there
     return tools.merge_lane_tools(tools._BASE_TOOLS, tools._BASE_COMMANDS, lane_tools, lane_commands)  # noqa: SLF001
+
+
+def plant_unimplemented_panel(monkeypatch: Any) -> str:
+    """Flip one unimplemented 0.4 panel on with a read tool, a CLI command and a GET route; return its id."""
+    import pytest
+
+    from sharpit.engine import mcp, tools
+    from sharpit.engine.tools04 import data as data_tools
+
+    plant = "data"
+    planted = tools.Tool(
+        f"get_{plant}_probe", "probe", _NONE_SCHEMA, plant, False, lambda _call, _args: {"probe": True}
+    )
+    monkeypatch.setitem(panels04.IMPLEMENTED, plant, True)
+    monkeypatch.setattr(data_tools, "TOOLS", (planted,))
+    monkeypatch.setattr(data_tools, "COMMANDS", {planted.name: f"{plant} probe"})
+    _plant_route(monkeypatch, plant)
+    merged_tools, merged_commands = catalogue_with_lanes(*panels04.tool_definitions())
+    monkeypatch.setattr(tools, "TOOLS", merged_tools)
+    monkeypatch.setattr(tools, "COMMANDS", merged_commands)
+    monkeypatch.setattr(mcp, "TOOLS", merged_tools)
+    del pytest
+    return plant
+
+
+_NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
+
+
+def _plant_route(monkeypatch: Any, plant: str) -> None:
+    from importlib import import_module
+
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    module = import_module(f"sharpit.fastapi.routes.{plant.replace('-', '_')}")
+    original = module.build_routes
+
+    def build_routes(ctx: Any, host_app: Any) -> list[Any]:
+        api = ctx.settings.api_path[len(ctx.settings.path) :]
+        probe = Route(f"{api}/{plant}/probe", lambda _request: JSONResponse({"probe": True}), methods=["GET"])
+        return [*original(ctx, host_app), probe]
+
+    monkeypatch.setattr(module, "build_routes", build_routes)
