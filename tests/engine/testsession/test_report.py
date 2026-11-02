@@ -21,10 +21,12 @@ from test_masking_corpus import AWS_KEY, GITHUB_TOKEN, JWT, SENTINEL, STRIPE_KEY
 KEYS = {
     "": [
         "advisors",
+        "baseline",
         "filtered",
         "findings",
         "gates",
         "generatedAt",
+        "mode",
         "schema",
         "severityCounts",
         "sources",
@@ -34,6 +36,7 @@ KEYS = {
         "tool",
         "totals",
         "unattributed",
+        "unknownReasons",
         "warnings",
         "workers",
     ],
@@ -54,9 +57,11 @@ KEYS = {
     "unattributed.topStatements[]": ["count", "sql"],
     "advisors[].findings[]": [
         "advisor",
+        "baselineState",
         "dismissed",
         "fingerprint",
         "message",
+        "observed",
         "ruleId",
         "severity",
         "target",
@@ -65,9 +70,11 @@ KEYS = {
     "advisors[].apps[].evidence": ["coverageComplete", "limitations", "usable"],
     "findings[]": [
         "advisor",
+        "baselineState",
         "dismissed",
         "fingerprint",
         "message",
+        "observed",
         "ruleId",
         "severity",
         "target",
@@ -248,6 +255,22 @@ def test_junit_status_case_unknown_allowed(tmp_path: Path) -> None:
     allowed = _junit(tmp_path, data, allow_unknown=True).findall("testcase")[-1]
     assert refused.find("failure") is not None
     assert allowed.find("failure") is None
+
+
+def test_report_only_junit_fails_status_only_for_unknown_reason(tmp_path: Path) -> None:
+    data = render_parts(busy_part())
+    data["mode"] = "report-only"
+    data["unknownReasons"] = []
+    clean_status = next(
+        case for case in _junit(tmp_path, data).findall("testcase") if case.get("name") == "sharpit.status"
+    )
+    assert clean_status.find("failure") is None
+    data["unknownReasons"] = ["capture was blind"]
+    cases = _junit(tmp_path, data).findall("testcase")
+    finding_cases = [case for case in cases if case.get("classname") != "sharpit"]
+    status = next(case for case in cases if case.get("name") == "sharpit.status")
+    assert all(case.find("failure") is None for case in finding_cases)
+    assert status.find("failure").get("message") == "capture was blind"
 
 
 def test_junit_pass_has_only_a_clean_status_case(tmp_path: Path) -> None:

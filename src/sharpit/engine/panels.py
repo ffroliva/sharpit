@@ -25,7 +25,7 @@ class Panel:
 # overview and cli register no API prefix, as in BootUI: GET {api}/overview is the shell's chrome data source and the
 # CLI endpoints are gated by SHARPIT_CLI_ENABLED, so their panel flags drive only the sidebar entry
 PANELS: tuple[Panel, ...] = (
-    Panel("overview", "Overview", None, None),
+    Panel("overview", "Scorecard", None, None),
     Panel("config", "Configuration", False, "/config"),
     Panel("mappings", "Mappings", False, "/mappings"),
     Panel("loggers", "Loggers", True, "/loggers"),

@@ -23,6 +23,12 @@ def pytest_addoption(parser: Any) -> None:
     group.addoption("--sharpit-allow-unknown", action="store_true", default=None, help="allow unknown capture status")
     group.addoption("--sharpit-app", default=None, metavar="MOD:ATTR", help="application to assess")
     group.addoption(
+        "--sharpit-verbose", action="store_true", default=None, help="list advisor notes in the gate counts"
+    )
+    group.addoption(
+        "--sharpit-require-app", action="store_true", default=None, help="no application found is unknown, not skipped"
+    )
+    group.addoption(
         "--sharpit-no-advisors",
         action="store_false",
         default=None,
@@ -32,11 +38,16 @@ def pytest_addoption(parser: Any) -> None:
     group.addoption(
         "--sharpit-max-unattributed", type=float, default=None, metavar="PCT", help="unattributed SQL limit"
     )
-    # 0.4.0 (spec §5.1-5.2): accepted and inert until G1G2 reads them in resolve()
-    reserved = "(reserved for 0.4.0; currently has no effect)"  # G1G2 writes the real help
-    group.addoption("--sharpit-report-only", action="store_true", default=None, help=reserved)
-    group.addoption("--sharpit-baseline", default=None, metavar="PATH", help=reserved)
-    group.addoption("--sharpit-write-baseline", action="store_true", default=None, help=reserved)
+    group.addoption(
+        "--sharpit-report-only", action="store_true", default=None, help="report findings without gating pytest"
+    )
+    group.addoption("--sharpit-baseline", default=None, metavar="PATH", help="compare findings with a baseline file")
+    group.addoption(
+        "--sharpit-write-baseline",
+        default=None,
+        metavar="PATH",
+        help="write a baseline after a complete run (the only way to write one)",
+    )
     _add_ini(parser)
 
 
@@ -49,8 +60,12 @@ def _add_ini(parser: Any) -> None:
     parser.addini("sharpit_fail_on", "Minimum advisor severity that fails", default="HIGH")
     parser.addini("sharpit_allow_unknown", "Allow an unknown capture result", type="bool", default=False)
     parser.addini("sharpit_app", "Application module and attribute", default="")
+    parser.addini("sharpit_verbose", "List advisor notes in the terminal gate counts", type="bool", default=False)
+    parser.addini("sharpit_require_app", "Treat a run with no application as unknown", type="bool", default=False)
     parser.addini("sharpit_advisors", "Run application advisors", type="bool", default=True)
     parser.addini("sharpit_max_unattributed", "Maximum unattributed SQL percentage", default="10")
+    parser.addini("sharpit_report_only", "Report findings without gating pytest", type="bool", default=False)
+    parser.addini("sharpit_baseline", "Baseline file to compare", default="")
 
 
 @dataclass(frozen=True)
@@ -64,9 +79,18 @@ class PluginOptions:
     app: str | None
     advisors: bool
     max_unattributed: float
+    require_app: bool = False
+    verbose: bool = False
+    report_only: bool = False
+    baseline: Path | None = None
+    write_baseline: Path | None = None
 
 
 def resolve(config: Any) -> PluginOptions:
+    from sharpit.pytest_plugin.session import register_worker_apps  # lazy: keeps options import-light
+
+    # the facade's pytest_configure resolves first on every process, the xdist controller included
+    register_worker_apps(config)
     option = getattr(config, "known_args_namespace", config.option)
 
     def value(name: str, default: Any) -> Any:
@@ -102,4 +126,9 @@ def resolve(config: Any) -> PluginOptions:
         value("app", None),
         bool(value("advisors", True)),
         unattributed,
+        bool(value("require_app", False)),
+        bool(value("verbose", False)) or (getattr(option, "verbose", 0) or 0) >= 2,  # -vv lists notes too
+        bool(value("report_only", False)),
+        Path(value("baseline", "")) if value("baseline", "") else None,
+        Path(option.sharpit_write_baseline) if getattr(option, "sharpit_write_baseline", None) else None,
     )

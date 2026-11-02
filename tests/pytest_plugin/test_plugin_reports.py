@@ -117,3 +117,36 @@ def test_plugin_report_corpus_masking_off(pytester: pytest.Pytester, monkeypatch
     _run_report_corpus(
         pytester, monkeypatch, "SHARPIT_MASK_SECRETS", "false", "report ignores SHARPIT_MASK_SECRETS=false"
     )
+
+
+def test_default_terminal_counts_notes_but_reports_keep_findings(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+        from fastapi import FastAPI
+        app = FastAPI()
+        @app.get('/items')
+        def items(): return []
+        @app.post('/getUsers')
+        def get_users(): return []
+        """,
+        test_notes="def test_ok(): pass",
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit",
+        "--sharpit-app=appmod:app",
+        "--sharpit-allow-unknown",
+        "--sharpit-report=report.json",
+        "--sharpit-junit=report.xml",
+        "-q",
+    )
+
+    stdout = result.stdout.str()
+    data = json.loads((pytester.path / "report.json").read_text())
+    rules = [f["ruleId"] for f in data["findings"]]
+    cases = ET.parse(pytester.path / "report.xml").getroot().findall("testcase")
+    assert f"sharpit: {len(rules)} advisor notes in report.json" in stdout
+    assert "  RAPI-DOC-001" not in stdout
+    assert "RAPI-DOC-001" in rules
+    assert "RAPI-DTO-002" in rules
+    assert len(cases) == len(rules) + 1

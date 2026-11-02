@@ -1,0 +1,24 @@
+{
+  "name": "application",
+  "status": "UP",
+  "details": null,
+  "components": [
+    {
+      "name": "db",
+      "status": "UP",
+      "details": {
+        "database": "PostgreSQL",
+        "validationQuery": "isValid()"
+      },
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    }
+  ],
+  "available": true,
+  "unavailableReason": null,
+  "guidanceReason": null,
+  "setup": []
+}
