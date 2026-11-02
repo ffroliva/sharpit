@@ -538,3 +538,18 @@ def test_lane_gate_allows_parked_finding_without_red_sha(tmp_path: Path) -> None
     fx.commit({f"{fx.folder}/findings.md": FINDINGS_HEAD + rows}, "docs: findings")
     fx.review()
     assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_refuses_red_module_constant_changed_after_red_commit(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    loosened = "from src.widget import widget\n\nEXPECTED = 2\n\n\n" + RED_TEST
+    fx.commit({"tests/test_widget.py": loosened}, "test: add a constant")
+    fx.review()
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: test file changed outside added test functions")
+
+
+def test_lane_gate_refuses_conftest_changed_after_red_commit(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.commit({"tests/conftest.py": "import pytest\n"}, "test: conftest")
+    fx.review()
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: tests/conftest.py changed after red commit")
