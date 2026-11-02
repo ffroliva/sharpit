@@ -64,3 +64,30 @@ def test_query_text_masks_strings_and_dollar_quotes_in_one_pass() -> None:
     # derived: review finding 10, the WIP (f247d7e) masked dollar quotes before strings in two passes
     sql = "SELECT 'price $usd$', name FROM t WHERE body = $usd$x$usd$"
     assert query_text(MASKED, sql) == "SELECT '******', name FROM t WHERE body = $$******$$"
+
+
+def test_query_text_masks_numeric_literals() -> None:
+    # derived: review finding 1 (stricter than BootUI): psycopg2 inlines real parameter values into the query text
+    assert (
+        query_text(MASKED, "select * from cards where pan = 4111111111111111")
+        == "select * from cards where pan = ******"
+    )
+    assert (
+        query_text(MASKED, "update t2 set amount = 12.50 where id = $1")
+        == "update t2 set amount = ****** where id = $1"
+    )
+
+
+def test_query_text_drops_comment_bodies() -> None:
+    # derived: review finding 1: a comment can carry a value (an ORM tag, a pasted customer id)
+    assert query_text(MASKED, "select 1 /* customer 5555 secret */ from t -- secret note\nwhere x") == (
+        "select 1 from t where x"
+    )
+
+
+def test_query_text_masks_a_backslash_escaped_quote_conservatively() -> None:
+    # derived: review finding 1: with standard_conforming_strings=off, 'x\' secret' is one literal
+    shown = query_text(MASKED, r"select 'x\' secret' from t" + "\nwhere a = b")
+    assert shown is not None
+    assert "secret" not in shown
+    assert shown.endswith("where a = b")
