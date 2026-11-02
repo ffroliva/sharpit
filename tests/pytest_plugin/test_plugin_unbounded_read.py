@@ -35,6 +35,52 @@ def test_core_only_sqlalchemy_host_does_not_break_sharpit(pytester: pytest.Pytes
     assert result.ret == 0
 
 
+def test_installed_app_request_suppresses_missing_capture_limitation(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        fixture="""
+from fastapi import FastAPI
+from sqlalchemy import create_engine, Integer
+from sqlalchemy.orm import DeclarativeBase, Session, mapped_column
+
+class Base(DeclarativeBase):
+    pass
+
+class Record(Base):
+    __tablename__ = "records"
+    id = mapped_column(Integer, primary_key=True)
+
+engine = create_engine("sqlite://")
+Base.metadata.create_all(engine)
+with Session(engine) as session:
+    session.add(Record())
+    session.commit()
+app = FastAPI()
+@app.get("/touch")
+def touch():
+    return {"ok": True}
+""",
+        test_read="""
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+from fixture import app, engine, Record
+
+def test_read_outside_request():
+    assert TestClient(app).get('/touch').status_code == 200
+    with Session(engine) as session:
+        session.query(Record).all()
+""",
+    )
+    pytester.makeconftest("from fixture import app\nimport sharpit\nsharpit.install(app, enabled='ON')")
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-app=fixture:app", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 0
+    data = _report(pytester)
+    limitations = [text for source in data["sources"] for text in source["limitations"]]
+    assert not any("unbounded-read needs sharpit.install(app)" in item for item in limitations)
+
+
 # fmt: off
 def test_spike_f2_unbounded_read_found(pytester: pytest.Pytester) -> None:
     # spike: F2

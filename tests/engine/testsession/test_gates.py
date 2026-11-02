@@ -317,6 +317,7 @@ def test_unbounded_read_exact_threshold_boundary_flags() -> None:
 
     assert len(found) == 1
     assert found[0].rule_id == "sharpit.unbounded-read"
+    assert "app.py:12" in found[0].message
 
 
 @pytest.mark.parametrize(
