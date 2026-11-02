@@ -44,11 +44,9 @@ def pytest_addoption(parser: Any) -> None:
     group.addoption("--sharpit-baseline", default=None, metavar="PATH", help="compare findings with a baseline file")
     group.addoption(
         "--sharpit-write-baseline",
-        nargs="?",
-        const="sharpit-baseline.json",
         default=None,
         metavar="PATH",
-        help="write a baseline after a complete run",
+        help="write a baseline after a complete run (the only way to write one)",
     )
     _add_ini(parser)
 
@@ -68,7 +66,6 @@ def _add_ini(parser: Any) -> None:
     parser.addini("sharpit_max_unattributed", "Maximum unattributed SQL percentage", default="10")
     parser.addini("sharpit_report_only", "Report findings without gating pytest", type="bool", default=False)
     parser.addini("sharpit_baseline", "Baseline file to compare", default="")
-    parser.addini("sharpit_write_baseline", "Write baseline to this file", default="")
 
 
 @dataclass(frozen=True)
@@ -133,5 +130,5 @@ def resolve(config: Any) -> PluginOptions:
         bool(value("verbose", False)) or (getattr(option, "verbose", 0) or 0) >= 2,  # -vv lists notes too
         bool(value("report_only", False)),
         Path(value("baseline", "")) if value("baseline", "") else None,
-        Path(value("write_baseline", "")) if value("write_baseline", "") else None,
+        Path(option.sharpit_write_baseline) if getattr(option, "sharpit_write_baseline", None) else None,
     )
