@@ -358,3 +358,21 @@ def test_detail_applies_the_live_capture_parameters_policy_on_every_read():
     second = attribute(first_span(buf), "db.statement")
     assert "alice" in first
     assert "alice" not in second
+
+
+def test_span_name_goes_through_text_masking():
+    buf = buffer()
+    buf.add(span(name="login user=alice password=hunter2"))
+    assert "hunter2" not in first_span(buf)["name"]
+
+
+def test_root_span_name_goes_through_text_masking():
+    buf = buffer()
+    buf.add(span(name="login user=alice password=hunter2"))
+    assert "hunter2" not in summary(buf)["rootSpanName"]
+
+
+def test_event_name_goes_through_text_masking():
+    buf = buffer()
+    buf.add(span(events=[event("retry token=s3cr3tvalue1", 1_500, {})]))
+    assert "s3cr3tvalue1" not in first_span(buf)["events"][0]["name"]
