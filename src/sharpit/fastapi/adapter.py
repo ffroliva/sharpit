@@ -249,6 +249,13 @@ from sharpit.fastapi.install import install as install  # noqa: E402 - public ad
 
 
 def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
-    from sharpit.fastapi.routes import build_routes, dismissed_findings
+    from sharpit.fastapi.routes import build_routes
+    from sharpit.fastapi.routes.dismissed_findings import build_routes as finding_routes
 
-    return [*build_routes(ctx, host_app), *dismissed_findings.build_routes(ctx, host_app)]
+    routes = build_routes(ctx, host_app)
+    # shortcut: spliced after the dismissed-rules routes because routes/__init__.py is not D1's file; move the call
+    # into build_routes() when the lanes are merged
+    rules = f"{ctx.settings.api_path[len(ctx.settings.path) :]}/dismissed-rules"
+    at = 1 + max(i for i, r in enumerate(routes) if getattr(r, "path", "").startswith(rules))
+    routes[at:at] = finding_routes(ctx, host_app)
+    return routes
