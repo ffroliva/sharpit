@@ -21,3 +21,9 @@
 | `tests/action/test_action_definition.py::test_action_has_no_expressions_inside_run_and_all_inputs_use_env` | `c3ba9201e065905f613b80608dae5965af0c756f` | expression inside run | Fixed in 912b1fc |
 | `tests/action/test_action_definition.py::test_action_quotes_every_expansion` | `c3ba9201e065905f613b80608dae5965af0c756f` | unquoted expansion | Fixed in 912b1fc |
 | `tests/action/test_action_definition.py::test_action_has_no_unquoted_or_expression_run_values` | `c3ba9201e065905f613b80608dae5965af0c756f` | expression inside run | Fixed in 912b1fc |
+
+## Review round 1 (coordinator fix, 06:05)
+
+| Test id | Red SHA | Assertion message | Disposition |
+|---|---|---|---|
+| tests/test_report_summary.py::test_backslash_in_finding_text_is_escaped_too | 32aaa692c95444caab40e70cf7c7c067d7551ac7 | assert _esc(r"\[x\](https://evil)") == r"\\[x\\](https://evil)" | Fixed in 566cd8f82ea5ee04704f378df22b9a948c1922de |
