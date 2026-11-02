@@ -16,6 +16,7 @@ from weakref import WeakKeyDictionary
 
 from sharpit.engine import otel
 from sharpit.engine.capture import under
+from sharpit.engine.capture.sqltrace import normalize_sql
 from sharpit.engine.masking import MASK, Masker
 
 if TYPE_CHECKING:
@@ -100,8 +101,9 @@ def _attribute_value(masker: Masker, key: str, value: object) -> str | None:
         values = [str(v) for v in _items(value) or [value]]
         shown, _ = masker.mask_header(key.rsplit(".", 1)[-1], values)
         return _text(shown) if shown else None
-    if key in _SQL_KEYS:
-        return masker.mask_text(_text(value))
+    if key in _SQL_KEYS:  # literals become ``?`` as in SQL Trace; FULL exposure shows the statement as recorded
+        text = _text(value)
+        return masker.mask_text(text if _reveals(masker) else normalize_sql(text))
     if key in _URL_KEYS or key in _PLAIN_PATH_KEYS:
         return _url(masker, key, str(value)) if masker.mask(key, "")[0] is not None else None
     if key == "url.query":
