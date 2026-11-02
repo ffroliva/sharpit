@@ -196,3 +196,34 @@ def test_gates_module_never_reads_duration() -> None:
 
 def test_selects_counter_is_a_counter() -> None:
     assert isinstance(selects("fp", 2).selects, Counter)
+
+
+def test_fingerprint_stable_across_runtime_values() -> None:
+    # spec §5.2: worker, attempt, counts and SQL literals vary between runs; fingerprints must not
+    first = evaluate_test(
+        TestFacts(TestKey(NODE, "gw0", 1), phases={"call": PhaseFacts(queries=7)}), Budget(5, False, 0), 5, ()
+    )
+    second = evaluate_test(
+        TestFacts(TestKey(NODE, "gw3", 2), phases={"call": PhaseFacts(queries=40)}), Budget(5, False, 0), 5, ()
+    )
+    assert [f.fingerprint for f in first] == [f.fingerprint for f in second]
+    one = evaluate_test(_facts(call=selects("fp", 6, "SELECT * FROM pets WHERE owner_id = 1")), NONE, 5, ())
+    two = evaluate_test(
+        TestFacts(
+            TestKey(NODE, "gw1", 3), phases={"call": selects("fp", 60, "SELECT * FROM pets WHERE owner_id = 99")}
+        ),
+        NONE,
+        5,
+        (),
+    )
+    assert [f.fingerprint for f in one] == [f.fingerprint for f in two]
+
+
+def test_explicit_dismissal_wins_over_baseline() -> None:
+    facts = _facts(call=PhaseFacts(queries=6))
+    current = evaluate_test(facts, Budget(5, False, 0), 5, ())[0]
+    [finding] = evaluate_test(
+        facts, Budget(5, False, 0), 5, (current.fingerprint,), baseline={current.fingerprint: None}
+    )
+    assert finding.dismissed is True
+    assert fails(finding.to_dto()) is False
