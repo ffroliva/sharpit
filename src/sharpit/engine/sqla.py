@@ -55,11 +55,13 @@ DISCOVERY_PANELS = (
 )  # panels that read the registered engines
 START_KEY = "sharpit_sql_start"
 RELATIONSHIP_KEY = "sharpit_relationship"
+_EAGER_RELATIONSHIP_KEY = "sharpit_eager_relationship"
 UNAVAILABLE = "SQLAlchemy is not imported by this application"
 TRACING_DISABLED = "SQL tracing is disabled via SHARPIT_SQL_TRACE_ENABLED=false"
 _relationship_loads: dict[tuple[str, int, str], dict[str, int]] = {}
 _relationship_groups: dict[tuple[str, int, str], dict[str, tuple[str, bool]]] = {}
 _relationship_sites: dict[tuple[str, int, str], dict[str, str | None]] = {}
+_eager_relationship_batches: dict[tuple[str, int, str], dict[str, int]] = {}
 
 
 def _first_application_location() -> str | None:
@@ -100,6 +102,24 @@ def _record_relationship(context: Any) -> None:
         _relationship_sites.setdefault(tag, {}).setdefault(identity, _first_application_location())
 
 
+def _record_eager_relationship(context: Any) -> None:
+    options = getattr(context, "execution_options", {})
+    if options is None or not options.get(_EAGER_RELATIONSHIP_KEY):
+        return
+    tag = TEST.get()
+    if tag is None or tag[2] != "call":
+        return
+    statement = getattr(context, "statement", None)
+    if not isinstance(statement, str):
+        return
+    from sharpit.engine.capture.sqltrace import normalize
+
+    key = normalize(statement).fingerprint
+    with _lock:
+        batches = _eager_relationship_batches.setdefault(tag, {})
+        batches[key] = batches.get(key, 0) + 1
+
+
 def apply_relationship_facts(test: Any) -> None:
     """Move one test attempt's relationship observations into its serializable phase facts."""
     tag = (test.key.node_id, test.key.attempt, "call")
@@ -107,9 +127,17 @@ def apply_relationship_facts(test: Any) -> None:
         loads = _relationship_loads.pop(tag, {})
         groups = _relationship_groups.pop(tag, {})
         sites = _relationship_sites.pop(tag, {})
-    if not loads and not groups:
+        eager_batches = _eager_relationship_batches.pop(tag, {})
+    if not loads and not groups and not eager_batches:
         return
     phase = test.phases["call"]
+    for group, count in eager_batches.items():
+        remaining = phase.selects.get(group, 0) - count
+        if remaining > 0:
+            phase.selects[group] = remaining
+        else:
+            phase.selects.pop(group, None)
+            phase.sql_of.pop(group, None)
     phase.relationship_loads.update(loads)
     phase.relationship_of.update(groups)
     phase.relationship_sites.update(sites)
@@ -121,8 +149,11 @@ def do_orm_execute(state: Any) -> None:
         if not getattr(state, "is_relationship_load", False):
             return
         parent = getattr(state, "lazy_loaded_from", None)
+        if parent is None:
+            state.update_execution_options(**{_EAGER_RELATIONSHIP_KEY: True})
+            return
         path = getattr(getattr(state, "loader_strategy_path", None), "path", ())
-        if parent is None or not path:
+        if not path:
             return
         prop = path[-1]
         key = getattr(prop, "key", None)
@@ -273,6 +304,7 @@ def before_cursor_execute(
         if INTERNAL.get():
             return
         _record_relationship(context)
+        _record_eager_relationship(context)
         targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets
         if not targets and dispatch.session_sink() is None:
             return
@@ -441,6 +473,7 @@ def detach_all() -> None:
         _relationship_loads.clear()
         _relationship_groups.clear()
         _relationship_sites.clear()
+        _eager_relationship_batches.clear()
         _sync_listeners()
 
 
@@ -462,6 +495,7 @@ def detach_session() -> None:
         _relationship_loads.clear()
         _relationship_groups.clear()
         _relationship_sites.clear()
+        _eager_relationship_batches.clear()
         _sync_listeners()
 
 

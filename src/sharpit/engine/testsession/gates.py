@@ -72,6 +72,17 @@ def evaluate_test(
         for group, count in call.selects.items():
             if count >= threshold:
                 message = f"{count} executions of one SELECT in the call phase"
+                relation = call.relationship_of.get(group)
+                if relation is not None:
+                    identity, collection = relation
+                    relation_count = call.relationship_loads.get(identity, count)
+                    loader = "selectinload" if collection else "joinedload"
+                    statement = call.sql_of.get(group, call.sql_of.get(identity, "the masked SELECT"))
+                    message = (
+                        f"{identity} lazy-loaded {relation_count} times; {loader}({identity}); "
+                        f"first lazy load at {call.relationship_sites.get(identity) or 'unknown'}; "
+                        f"masked statement: {statement}; {message}"
+                    )
                 found.append(
                     _finding(
                         N_PLUS_ONE,
