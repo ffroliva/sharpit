@@ -118,3 +118,37 @@ def test_security_policy_network_claim_matches_gatekeepers() -> None:
 
     assert "GET" in security_text, "SECURITY.md must clarify that ordinary GET routes make no network requests"
     assert "MCP" in security_text, "SECURITY.md must clarify that MCP tools make no network requests"
+
+
+def test_dependabot_covers_uv_pip_actions_and_ui_npm() -> None:
+    dependabot_path = ROOT / ".github" / "dependabot.yml"
+    assert dependabot_path.is_file(), ".github/dependabot.yml must exist"
+    content = dependabot_path.read_text(encoding="utf-8")
+
+    assert "version: 2" in content, ".github/dependabot.yml must declare version: 2"
+    assert "updates:" in content, ".github/dependabot.yml must declare updates list"
+
+    ecosystems = re.findall(r"package-ecosystem:\s*[\"']?([a-zA-Z0-9_\-]+)[\"']?", content)
+    directories = re.findall(r"directory:\s*[\"']?([^\"'\n]+)[\"']?", content)
+    assert len(ecosystems) >= 3, "Dependabot must cover at least 3 ecosystems"
+    assert len(directories) == len(ecosystems), "Each ecosystem must have a matching directory"
+
+    entries = list(zip(ecosystems, [d.strip() for d in directories], strict=True))
+    assert ("pip", "/") in entries, "Dependabot must cover pip at /"
+    assert ("github-actions", "/") in entries, "Dependabot must cover github-actions at /"
+    assert ("npm", "/ui") in entries, "Dependabot must cover npm at /ui"
+
+    assert "interval:" in content, "Dependabot configuration must declare schedule interval"
+
+
+def test_skills_readme_stale_line_corrected() -> None:
+    skills_path = ROOT / "skills" / "README.md"
+    assert skills_path.is_file(), "skills/README.md must exist"
+    skills_text = skills_path.read_text(encoding="utf-8")
+
+    assert "Labelled pre-release" not in skills_text, (
+        "skills/README.md must not contain stale 'Labelled pre-release' in skill index"
+    )
+    assert re.search(r"\|\s*`sharpit`\s*\|\s*\(none:\s*user-facing\)\s*\|", skills_text) is not None, (
+        "skills/README.md must retain user-facing sharpit skill entry"
+    )
