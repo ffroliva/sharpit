@@ -5,6 +5,7 @@ from collections import Counter
 from pathlib import Path
 
 import sharpit.engine.testsession as testsession_pkg
+from sharpit.engine.advisors.dismissals import DismissalStore
 from engine.testsession.tsfakes import NODE, event, run_phase, selects
 from sharpit.engine.capture.sqltrace import normalize
 from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey
@@ -18,6 +19,14 @@ def test_fails_excludes_existing_and_info() -> None:
     assert fails({"dismissed": False, "baselineState": "existing", "severity": "HIGH"}) is False
     assert fails({"dismissed": False, "baselineState": "new", "severity": "INFO"}) is False
     assert fails({"dismissed": False, "baselineState": "new", "severity": "HIGH"}) is True
+
+
+def test_per_finding_dismissal_reaches_gate(tmp_path, monkeypatch) -> None:
+    pair = ("sharpit.max-queries", NODE)
+    monkeypatch.setattr(DismissalStore, "dismissed_pairs", lambda _self: {pair})
+    store = DismissalStore(tmp_path)
+    [finding] = evaluate_test(_facts(call=PhaseFacts(queries=7)), Budget(5, False, 0), 5, (), store.dismissed_pairs())
+    assert fails(finding.to_dto()) is False
 
 
 def _facts(**phases: PhaseFacts) -> TestFacts:
