@@ -19,7 +19,7 @@ The full guide, with when to use each step, is [docs/development/workflow.md](..
 
 | Skill | Command | What it does |
 |---|---|---|
-| `sharpit` | (none: user-facing) | How to install, configure and use sharpit. Labelled pre-release. |
+| `sharpit` | (none: user-facing) | How to install, configure and use sharpit in a FastAPI app. |
 | `predict` | `/sharpit:predict` | Five-persona go/no-go on a proposed change |
 | `scenario` | `/sharpit:scenario` | Edge cases across sharpit's ten risk dimensions, before planning |
 | `plan` | `/sharpit:plan` | Task-by-task TDD plan in `docs/superpowers/plans/` |
