@@ -84,6 +84,27 @@ MASK = "******"
 NL = chr(10)
 
 
+_KEEP: Any = object()
+
+
+def _replacement(key: str, value: Any, nested: bool, machine: bool) -> Any:
+    """The fixed stand-in for a volatile ``key``/``value``, or ``_KEEP`` when the value is recursed into unchanged."""
+    is_number = isinstance(value, int | float) and not isinstance(value, bool)
+    if key in VOLATILE_KEYS and not isinstance(value, (dict, list)) and value is not None:
+        return VOLATILE_KEYS[key]
+    if key in VOLATILE_TIMES and isinstance(value, int) and not isinstance(value, bool):
+        return FIXED_TIME
+    if key in VOLATILE_NUMBERS and is_number:
+        return VOLATILE_NUMBERS[key]
+    if key in ("startupTimeMillis", "scannedAt") and not nested:
+        return 0
+    if key == "value" and machine:
+        return "x"
+    if isinstance(value, str) and ABS_PATH.match(value):
+        return "/path"
+    return _KEEP
+
+
 def sanitise(node: Any, nested: bool = False) -> Any:
     """``nested`` is the 2.2.0 layout: epoch/duration fields are normalised only when set, real nulls stay null."""
     if isinstance(node, str):
@@ -97,20 +118,8 @@ def sanitise(node: Any, nested: bool = False) -> Any:
     out: dict[str, Any] = {}
     machine = node.get("source") in MACHINE_SOURCES and node.get("masked") is False  # pyright: ignore[reportUnknownMemberType]
     for key, value in node.items():  # pyright: ignore[reportUnknownVariableType]
-        if key in VOLATILE_KEYS and not isinstance(value, (dict, list)) and value is not None:
-            out[key] = VOLATILE_KEYS[key]
-        elif key in VOLATILE_TIMES and isinstance(value, int) and not isinstance(value, bool):
-            out[key] = FIXED_TIME
-        elif key in VOLATILE_NUMBERS and isinstance(value, int | float) and not isinstance(value, bool):
-            out[key] = VOLATILE_NUMBERS[key]
-        elif key in ("startupTimeMillis", "scannedAt") and not nested:
-            out[key] = 0
-        elif key == "value" and machine:
-            out[key] = "x"
-        elif isinstance(value, str) and ABS_PATH.match(value):
-            out[key] = "/path"
-        else:
-            out[key] = sanitise(value, nested)
+        replacement = _replacement(key, value, nested, machine)
+        out[key] = sanitise(value, nested) if replacement is _KEEP else replacement
     return out
 
 
@@ -173,12 +182,15 @@ def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
     return found
 
 
-def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None) -> None:
-    """``layout`` is ``"nested"`` (2.2.0: ``<id>/captured.json`` folders) or ``"flat"`` (1.17.0).
-    Default: nested when the source folder is named ``2.2.0``, else flat.
-    ``repo`` is the root holding ``replica/evidence`` and ``tests/fixtures/bootui``
-    (default: this repository; tests pass a temporary one)."""
-    repo = repo or Path(__file__).resolve().parents[1]
+def _nested_meta(src: Path, dst: Path) -> dict[str, Any]:
+    uncaptured_path = src / "uncaptured.json"
+    uncaptured = json.loads(uncaptured_path.read_text(encoding="utf-8")) if uncaptured_path.is_file() else {}
+    old_meta = dst / "meta.json"
+    provisional = json.loads(old_meta.read_text(encoding="utf-8")).get("provisional", []) if old_meta.is_file() else []
+    return {**META_2_2_0, "uncaptured": uncaptured, "provisional": provisional}
+
+
+def _resolve(src: Path, dst: Path, repo: Path, layout: str | None) -> tuple[Path, Path, bool]:
     src = src.resolve()
     dst = dst.resolve()
     allowed_src = (repo / "replica" / "evidence").resolve()
@@ -188,7 +200,15 @@ def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = No
     layout = layout or ("nested" if src.name == "2.2.0" else "flat")
     if layout not in ("nested", "flat"):
         raise ValueError(f"layout must be 'nested' or 'flat', got {layout!r}")
-    nested = layout == "nested"
+    return src, dst, layout == "nested"
+
+
+def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None) -> None:
+    """``layout`` is ``"nested"`` (2.2.0: ``<id>/captured.json`` folders) or ``"flat"`` (1.17.0).
+    Default: nested when the source folder is named ``2.2.0``, else flat.
+    ``repo`` is the root holding ``replica/evidence`` and ``tests/fixtures/bootui``
+    (default: this repository; tests pass a temporary one)."""
+    src, dst, nested = _resolve(src, dst, repo or Path(__file__).resolve().parents[1], layout)
     dst.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
 
@@ -211,13 +231,7 @@ def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = No
         for folder in sorted(p for p in src.iterdir() if p.is_dir()):
             for path in sorted(folder.glob("*captured.json")):
                 emit(path, dst / folder.name / path.name)
-        uncaptured_path = src / "uncaptured.json"
-        uncaptured = json.loads(uncaptured_path.read_text(encoding="utf-8")) if uncaptured_path.is_file() else {}
-        old_meta = dst / "meta.json"
-        provisional = (
-            json.loads(old_meta.read_text(encoding="utf-8")).get("provisional", []) if old_meta.is_file() else []
-        )
-        meta: dict[str, Any] = {**META_2_2_0, "uncaptured": uncaptured, "provisional": provisional}
+        meta = _nested_meta(src, dst)
     else:
         for path in sorted(src.glob("*.json")):
             if path.name not in SKIP:
