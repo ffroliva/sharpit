@@ -8,15 +8,16 @@ In progress. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 
 ## Done
 
-- Read required rules/spec/plans/F handoff and registered as `codex-0-4-0-a-transactions`.
+- Read required rules/spec/plans/F handoff and registered with agentctl (`codex-0-4-0-a-transactions`).
 - Task 1 nullable `readOnly` reason fixture committed (`d50d6b6`). The captured transaction golden is absent; parity remains unverified.
-- Task 2 recorder and connection callbacks committed (`88609ea`). Task 3 REST/SSE, recorder wiring, MCP/CLI tools and flag committed (`7d3a672`).
-- Focused backend suite passed: 16 tests; targeted Ruff passed. Includes true SQLite transaction events, savepoints, API actions, MCP read-only tool list, safety, and masking.
-- Task 5 assertion reds committed (`46af71a`); current Svelte view implementation is local and ready for Vitest and TypeScript verification.
+- Task 2 recorder and callbacks committed (`88609ea`); REST/SSE, wiring, MCP/CLI tools and flag committed (`7d3a672`); UI view committed (`b422cd1`); overhead budget committed (`895a4d7`).
+- Focused backend tests passed (16 before added async/internal/correlation/retry checks; those four targeted checks also passed). UI Vitest passed 2/2 and `npm --prefix ui run check` exited 0.
+- Overhead: 14.507 µs over a 30 µs budget, 13.519 µs noise. Temporary `time.sleep(0.0001)` control failed at 643.573 µs and was removed.
+- Lane docs and §6.1 checklist updated.
 
 ## Next step
 
-Finish UI view and tests. Then implement Task 4 overhead budget (30,000 ns per begin/commit pair; never raise it), update docs/checklist, and run the four gates with pytest detached at `-n 4` and its log outside the worktree. Run lowest-direct/no-SQLAlchemy if time permits. Finalize handoff and leave agentctl.
+Run the four gates: `ruff check`, `ruff format --check`, `pyright`, and full `pytest -q -n 4` detached with its log outside this worktree. Then run lowest-direct and no-SQLAlchemy checks if time permits; update gate status, commit evidence, and report. Live check is coordinator-owned because the shared sample is outside lane scope.
 
 ## Decisions
 
@@ -33,7 +34,7 @@ Finish UI view and tests. Then implement Task 4 overhead budget (30,000 ns per b
 | `tests/engine/capture/test_transactions.py::test_bounded_entries_report_stats` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `the transaction ring must respect max_entries` |
 | `tests/engine/capture/test_transactions.py::test_clear_keeps_total_captured` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `clear must empty the retained transactions` |
 | `tests/engine/capture/test_transactions.py::test_paused_records_nothing` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `a paused recorder must return the sentinel id` |
-| `tests/engine/capture/test_transactions.py::test_error_message_is_masked` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `transaction errors must not expose connection passwords` |
+| `tests/engine/capture/test_transactions.py::test_error_message_is_masked` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `transaction error messages must not expose connection passwords` |
 | `tests/engine/capture/test_transactions.py::test_sql_trace_unavailable_warning` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `missing SQL Trace must explain why statement counts are not correlated` |
 | `tests/engine/capture/test_transactions.py::test_savepoint_is_a_child_entry` | `12bf8d03b4dd14c916d74e77b6d4b1bf287a198d` | `releasing a savepoint must not close its outer transaction` |
 | `tests/engine/capture/test_transactions.py::test_savepoint_closes_one_child_per_context` | `41964581198fd775bd63e5b3d9559c87d28eeaf0` | `a savepoint event must close its child entry in each context` |
@@ -54,4 +55,4 @@ Finish UI view and tests. Then implement Task 4 overhead budget (30,000 ns per b
 
 ## Gates / live check
 
-Focused backend log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-focused.log` (16 passed). Full gates and live check not run.
+Targeted results recorded above; full four gates are next. Live check not run; coordinator-owned example is outside lane touch scope.
