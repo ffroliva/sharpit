@@ -1013,3 +1013,8 @@ def test_check_budget_inside_a_string_is_not_an_overhead_module() -> None:
 def test_function_local_budget_counts_as_an_overhead_module() -> None:
     source = "def test_x():\n    BUDGET_MS = 0.2\n    assert BUDGET_MS\n"
     assert lane_gate._is_overhead_module("tests/test_x.py", source) is True, "a function-local BUDGET was not counted"
+
+
+def test_async_check_budget_definition_counts_as_an_overhead_module() -> None:
+    source = "async def check_budget(name):\n    return None\n"
+    assert lane_gate._is_overhead_module("tests/test_x.py", source) is True, "async def check_budget was not counted"
