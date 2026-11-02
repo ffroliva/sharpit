@@ -99,9 +99,12 @@ def default_rows(kind: str) -> list[Row]:
 
 
 class _Result:
-    def __init__(self, rows: list[Row], on_row: Callable[[int], None] | None) -> None:
+    def __init__(self, rows: list[Row], on_row: Callable[[int], None] | None = None) -> None:
         self._rows = rows
         self._on_row = on_row
+
+    def scalar(self) -> Any:
+        return next(iter(self._rows[0].values())) if self._rows else None
 
     def mappings(self) -> Iterator[Mapping[str, Any]]:
         for index, row in enumerate(self._rows):
@@ -110,8 +113,18 @@ class _Result:
             yield row
 
 
+class _Dialect:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.is_async = False
+        self.server_version_info = (16, 4)
+
+
 class FakePgConnection:
-    def __init__(self) -> None:
+    def __init__(self, dialect: str = "postgresql") -> None:
+        self.dialect = _Dialect(dialect)
+        self.read_only_setting = "on"  # 'off' is what an AUTOCOMMIT connection reports after SET TRANSACTION READ ONLY
+        self.rolled_back = 0
         self.rows: dict[str, list[Row]] = {}
         self.failures: dict[str, str] = {}
         self.on_row: dict[str, Callable[[int], None]] = {}
@@ -131,6 +144,10 @@ class FakePgConnection:
         if self.aborted:
             raise RuntimeError("current transaction is aborted, commands ignored until end of transaction block")
         self.sql.append(sql)
+        if sql.startswith("SET "):
+            return _Result([])
+        if sql == "SELECT current_setting('transaction_read_only')":
+            return _Result([{"transaction_read_only": self.read_only_setting}])
         kind = kind_of(sql)
         if kind in self.failures:
             self.aborted = True
@@ -138,6 +155,13 @@ class FakePgConnection:
         rows = self.rows.get(kind, default_rows(kind))
         limit = _limit_of(sql)
         return _Result(rows if limit is None else rows[:limit], self.on_row.get(kind))
+
+    def in_transaction(self) -> bool:
+        return True
+
+    def rollback(self) -> None:
+        self.rolled_back += 1
+        self.aborted = False
 
     @contextmanager
     def begin_nested(self) -> Generator[None]:
@@ -149,6 +173,33 @@ class FakePgConnection:
         except BaseException:
             self.aborted = False  # ROLLBACK TO SAVEPOINT
             raise
+
+
+class FakePgEngine:
+    """Enough of a sync ``Engine`` for ``sqla.run_db_read``: ``dialect`` and ``connect()``."""
+
+    def __init__(self, conn: FakePgConnection | None = None, refuse: str | None = None) -> None:
+        self.conn = conn or FakePgConnection()
+        self.dialect = self.conn.dialect
+        self.refuse = refuse
+        self.connects = 0
+
+    @contextmanager
+    def connect(self) -> Generator[FakePgConnection]:
+        self.connects += 1
+        if self.refuse is not None:
+            raise RuntimeError(self.refuse)
+        yield self.conn
+
+
+class FakeRegistry:
+    def __init__(self, *engines: tuple[str, Any]) -> None:
+        self._engines = list(engines)
+        self.calls = 0
+
+    def engines(self) -> list[tuple[str, Any]]:
+        self.calls += 1
+        return list(self._engines)
 
 
 def _limit_of(sql: str) -> int | None:
