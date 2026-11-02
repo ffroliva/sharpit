@@ -37,6 +37,7 @@ Messages without the `AssertionError: ` prefix are pytest's rewritten asserts wh
 | Full fingerprint accepted as ruleId | `tests/fastapi/test_dismissed_findings_api.py::test_a_full_fingerprint_is_not_a_finding_rule_id` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert (200, {'dismi...'ignored': 0}) == (400, {'error...or rule id.'})` |
 | Unowned rule's finding cannot be restored | `tests/fastapi/test_dismissed_findings_api.py::test_restoring_a_finding_whose_rule_no_advisor_owns_still_removes_its_line` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `AssertionError: assert (400, {'error...or rule id.'}) == (200, {'dismi...'ignored': 0})` |
 | Route splice crashes install without the anchor | `tests/fastapi/test_dismissed_findings_api.py::test_finding_routes_are_appended_when_the_dismissed_rules_anchor_is_absent` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `assert 404 == 200` |
+| Round 2: `_looks_like_a_note` untested (stub always False splits the identity) | `tests/engine/advisors/test_dismissals.py::test_an_identity_ending_in_a_note_token_is_refused_not_split` | `d31f06b8d5e4d756329ce69b041c5e3588180099` | `AssertionError: assert [DismissedFin..., note='Int')] == []` |
 
 ## Superseded reds
 

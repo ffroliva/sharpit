@@ -115,6 +115,7 @@ Red table (test id | red SHA | assertion message): `findings.md`.
 | 7 | a full fingerprint accepted as ruleId | `tests/fastapi/test_dismissed_findings_api.py::test_a_full_fingerprint_is_not_a_finding_rule_id` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
 | 8 | restoring an unowned rule's finding → 400, line stays | `tests/fastapi/test_dismissed_findings_api.py::test_restoring_a_finding_whose_rule_no_advisor_owns_still_removes_its_line` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
 | 9 | route splice `max()` crashes install without the anchor | `tests/fastapi/test_dismissed_findings_api.py::test_finding_routes_are_appended_when_the_dismissed_rules_anchor_is_absent` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
+| 10 | round 2: an identity ending in `n=...` (wrong-value stub: `_looks_like_a_note` returns False) | `tests/engine/advisors/test_dismissals.py::test_an_identity_ending_in_a_note_token_is_refused_not_split` | `d31f06b8d5e4d756329ce69b041c5e3588180099` | `5bd0e50c784d1fcdebb8158722837d662f54ae07` |
 
 Assertion messages: `findings.md`.
 
