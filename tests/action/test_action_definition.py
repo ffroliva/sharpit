@@ -128,7 +128,13 @@ def test_action_forwards_report_only_baseline_fail_on_and_report_path() -> None:
 
 def test_action_rejects_invalid_report_only() -> None:
     # finding: report-only "yes" silently gated the build instead of failing the step
-    assert _run_argv({"REPORT_ONLY": "yes"}) == []
+    runner = f'"{Path(sys.executable).as_posix()}" -c "print(42)"'
+    env = {"RUNNER": runner, "PYTEST_ARGS": "", "REPORT_ONLY": "yes", "BASELINE": "", "FAIL_ON": "", "REPORT_PATH": "r"}
+    done = subprocess.run(
+        [sys.executable, "-c", _script(str(_step("Run")["run"]))], env=env, capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 1
+    assert "42" not in done.stdout
 
 
 def test_action_removes_stale_report_before_pytest() -> None:
