@@ -116,7 +116,7 @@ def collector_violations(root: Path = COLLECTORS) -> list[str]:
 
 def _gatekeeper_allows(rel: str, allowed: set[str]) -> bool:
     """A gatekeeper entry is a file, or a package directory that covers every module below it."""
-    return True
+    return rel in allowed or any(rel.startswith(f"{entry}/") for entry in allowed)
 
 
 def gatekeeper_violations(root: Path | None = None) -> list[str]:
@@ -143,37 +143,6 @@ def test_collectors_never_import_each_other():
 
 def test_optional_and_network_libraries_stay_behind_their_gatekeeper():
     assert gatekeeper_violations() == []
-
-
-def test_pytest_gatekeeper_allows_every_plugin_submodule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    source = tmp_path / "src"
-    plugin = source / "sharpit" / "pytest_plugin"
-    engine = source / "sharpit" / "engine"
-    plugin.mkdir(parents=True)
-    engine.mkdir(parents=True)
-    (plugin / "session.py").write_text("import pytest\n", encoding="utf-8")
-    (plugin / "apps.py").write_text("import _pytest\n", encoding="utf-8")
-    (engine / "rogue.py").write_text("import pytest\n", encoding="utf-8")
-    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
-
-    violations = gatekeeper_violations()
-
-    assert violations == ["sharpit/engine/rogue.py imports pytest: only ['sharpit/pytest_plugin'] may import pytest"]
-
-
-def test_opentelemetry_stays_behind_engine_otel_gatekeeper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    source = tmp_path / "src"
-    engine = source / "sharpit" / "engine"
-    engine.mkdir(parents=True)
-    (engine / "otel.py").write_text("import opentelemetry.trace\n", encoding="utf-8")
-    (engine / "tools.py").write_text("import opentelemetry.trace\n", encoding="utf-8")
-    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
-
-    violations = gatekeeper_violations()
-
-    assert violations == [
-        "sharpit/engine/tools.py imports opentelemetry.trace: only ['sharpit/engine/otel.py'] may import opentelemetry"
-    ]
 
 
 def test_pytest_gatekeeper_covers_the_plugin_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

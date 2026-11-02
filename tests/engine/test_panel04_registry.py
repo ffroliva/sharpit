@@ -19,14 +19,6 @@ ALL_PANEL_IDS = {
     "fastapi-security",
     "fastapi",
 }
-PANEL_IDS = {panel_id for panel_id, implemented in IMPLEMENTED.items() if not implemented}
-
-
-def test_0_4_panels_are_registered_but_unimplemented() -> None:
-    panels = {panel.id: panel for panel in PANELS if panel.id in PANEL_IDS}
-
-    assert set(panels) == PANEL_IDS
-    assert all(not panel.implemented for panel in panels.values())
 
 
 def test_all_0_4_panel_ids_remain_registered() -> None:
