@@ -97,3 +97,5 @@
   (needs conftest-only deselection under -n 2); #6 masking test decoration; remaining plan-named tests from review #4.
 - Decision recorded: INFO findings never fail (coordinator ruling); `fails` lives in `advisors/findings.py`, re-exported by `gates`.
 - Decision recorded: a malformed/unreadable baseline is no longer a usage error; it is an unknown reason `baseline unusable: <why>` (source `baseline`, not attached), `report.baseline` null, write-baseline refused by the unknown rule.
+
+| tests/test_foundation_extension_slots.py::test_report_only_options_are_accepted_and_inert | (lane F) | superseded: the reserved options became real in G1G2 (coordinator, 05:36); replaced by test_report_only_option_is_accepted_without_sharpit |

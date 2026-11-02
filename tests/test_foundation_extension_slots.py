@@ -204,13 +204,11 @@ def test_connection_listener_slot_rejects_unknown_event() -> None:
     assert message == "unknown connection event 'execute'"
 
 
-REPORT_ONLY_ARGS = ["--sharpit-report-only", "--sharpit-baseline", "baseline.json", "--sharpit-write-baseline"]
-
-
 @pytest.mark.parametrize("failing", [False, True], ids=["passing", "failing"])
-def test_report_only_options_are_accepted_and_inert(pytester: pytest.Pytester, failing: bool) -> None:
+def test_report_only_option_is_accepted_without_sharpit(pytester: pytest.Pytester, failing: bool) -> None:
+    # replaces test_report_only_options_are_accepted_and_inert: G1G2 made the reserved options real (see G1G2 tests);
+    # without --sharpit the option is still accepted and changes nothing about the plain pytest outcome
     pytester.makepyfile(f"def test_one(): assert {not failing}")
     plain = pytester.runpytest("-q", "-p", "no:cacheprovider")
-    with_options = pytester.runpytest("-q", "-p", "no:cacheprovider", *REPORT_ONLY_ARGS)
-    assert with_options.ret == plain.ret
-    assert not (pytester.path / "baseline.json").exists()
+    with_option = pytester.runpytest("-q", "-p", "no:cacheprovider", "--sharpit-report-only")
+    assert with_option.ret == plain.ret
