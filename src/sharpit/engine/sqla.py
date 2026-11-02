@@ -270,19 +270,19 @@ def _record_unbounded_read_load(target: Any, context: Any, info: Any, tag: tuple
 
 
 def _mapper_load(target: Any, context: Any) -> None:
-    global _unbounded_read_capture_missing, _unbounded_read_request_seen  # noqa: PLW0603
+    global _unbounded_read_capture_missing  # noqa: PLW0603
     try:
         info = REQUEST.get()
         tag = TEST.get()
         if tag is None or tag[2] != "call":
             return
-        if info is not None and info.scope is not None:
-            with _lock:
-                _unbounded_read_request_seen = True
         if info is None or info.scope is None:
-            with _lock:
-                _unbounded_read_missing_capture.add(tag[:2])
-                _unbounded_read_capture_missing = True
+            missing_capture_key = tag[:2]
+            if missing_capture_key not in _unbounded_read_missing_capture:
+                with _lock:
+                    if missing_capture_key not in _unbounded_read_missing_capture:
+                        _unbounded_read_missing_capture.add(missing_capture_key)
+                        _unbounded_read_capture_missing = True
             return
         _record_unbounded_read_load(target, context, info, tag)
     except Exception as exc:  # noqa: BLE001 - a diagnostic listener never changes a query result
