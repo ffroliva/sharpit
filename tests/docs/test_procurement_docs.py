@@ -72,3 +72,49 @@ def test_readme_gate_and_gflow_proof_precede_details() -> None:
 
     assert "5,662" in readme_text or "5662" in readme_text, "gflow-cli proof must mention test count (5,662)"
     assert "N+1" in readme_text, "gflow-cli proof must mention findings (N+1 queries caught)"
+
+
+def test_security_policy_names_supported_versions() -> None:
+    security_path = ROOT / "SECURITY.md"
+    assert security_path.is_file(), "SECURITY.md must exist"
+    security_text = security_path.read_text(encoding="utf-8")
+
+    current_version = sharpit.__version__
+    assert "Supported Versions" in security_text, "SECURITY.md must include a 'Supported Versions' section"
+    assert current_version in security_text, (
+        f"SECURITY.md must name current version '{current_version}' in supported versions"
+    )
+
+
+def test_security_policy_has_private_reporting_route() -> None:
+    security_path = ROOT / "SECURITY.md"
+    assert security_path.is_file(), "SECURITY.md must exist"
+    security_text = security_path.read_text(encoding="utf-8")
+
+    assert "private" in security_text.lower(), "SECURITY.md must describe a private reporting route"
+    assert "security/advisories" in security_text or "Security Advisories" in security_text, (
+        "SECURITY.md must route reports to GitHub Security Advisories"
+    )
+
+    assert "open an issue" not in security_text.lower(), (
+        "SECURITY.md must not instruct reporters to open a public issue"
+    )
+    assert "public issue" not in security_text.lower(), "SECURITY.md must not instruct reporters to use public issues"
+
+
+def test_security_policy_network_claim_matches_gatekeepers() -> None:
+    security_path = ROOT / "SECURITY.md"
+    assert security_path.is_file(), "SECURITY.md must exist"
+    security_text = security_path.read_text(encoding="utf-8")
+
+    assert "OSV" in security_text, "SECURITY.md must explicitly name OSV client"
+    assert "EPSS" in security_text, "SECURITY.md must explicitly name EPSS client"
+    assert "network" in security_text.lower(), "SECURITY.md must define the network egress boundary"
+
+    osv_gatekeeper = ROOT / "src" / "sharpit" / "engine" / "collectors" / "vulns" / "osv.py"
+    epss_gatekeeper = ROOT / "src" / "sharpit" / "engine" / "collectors" / "vulns" / "epss.py"
+    assert osv_gatekeeper.is_file(), "OSV gatekeeper src/sharpit/engine/collectors/vulns/osv.py must exist"
+    assert epss_gatekeeper.is_file(), "EPSS gatekeeper src/sharpit/engine/collectors/vulns/epss.py must exist"
+
+    assert "GET" in security_text, "SECURITY.md must clarify that ordinary GET routes make no network requests"
+    assert "MCP" in security_text, "SECURITY.md must clarify that MCP tools make no network requests"
