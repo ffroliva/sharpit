@@ -72,3 +72,4 @@ Run the final full pytest suite detached at `-n 4`, log outside this worktree; t
 - Lane-targeted suite: 23 passed. Listener overhead: 11.185 µs, noise 17.993 µs, budget 30 µs. The temporary 100 µs delay control failed at 643.573 µs and was removed.
 - UI: Vitest 2/2 passed; `npm --prefix ui run check` exited 0.
 - Lowest-direct, no-SQLAlchemy, and live check not run. The live example is coordinator-owned.
+
