@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sharpit.engine.spi import SecuredRoute, SecurityChain, SecurityModel
 
 _SECURED = frozenset({"authenticated", "hasAuthority", "custom"})
+HIDDEN = "sharpit endpoints are hidden from this report"
+
+
+def model_of(ctx: Any) -> SecurityModel | None:
+    """The adapter's security model (``security_model()`` is not on the ``AppIntrospector`` port); None if absent."""
+    read = getattr(ctx.introspector, "security_model", None)
+    if read is None:
+        return None
+    try:
+        return read()
+    except Exception as exc:  # noqa: BLE001 - introspection degrades, never crashes the host (safety 5)
+        return SecurityModel(False, (), (), (), (f"FastAPI security could not be read ({type(exc).__name__}).",))
 
 
 def _simple(name: str) -> str:
@@ -78,7 +91,6 @@ def _description(route: SecuredRoute) -> str | None:
 
 def _endpoint(model: SecurityModel, route: SecuredRoute, method: str) -> dict[str, Any]:
     rule, secured, roles, best_effort = classify(route)
-    chain = model.chains[route.chain] if route.chain < len(model.chains) else None
     return {
         "method": method,
         "pattern": route.path or "/**",
@@ -86,8 +98,8 @@ def _endpoint(model: SecurityModel, route: SecuredRoute, method: str) -> dict[st
         "secured": secured,
         "rule": rule,
         "roles": roles,
-        "chainIndex": route.chain if chain else None,
-        "matcherDescription": _matcher(chain) if chain else None,
+        "chainIndex": route.chain,
+        "matcherDescription": _matcher(model.chains[route.chain]),
         "description": _description(route),
         "bestEffort": best_effort,
     }
@@ -114,5 +126,44 @@ def endpoints_report(model: SecurityModel | None) -> dict[str, Any]:
     }
 
 
+def _unmatched(description: str | None = None, best_effort: bool = False) -> dict[str, Any]:
+    return {
+        "matched": False,
+        "bestEffort": best_effort,
+        "chainIndex": None,
+        "matcherDescription": description,
+        "filters": [],
+        "rule": None,
+        "roles": [],
+        "pattern": None,
+    }
+
+
+def _accepts(route: SecuredRoute, method: str) -> bool:
+    return not route.methods or method in route.methods or (method == "HEAD" and "GET" in route.methods)
+
+
 def explain(model: SecurityModel | None, method: str, path: str, hidden: str) -> dict[str, Any]:
-    return {"matched": False, "bestEffort": False, "chainIndex": None, "matcherDescription": None, "filters": []}
+    """The first route (Starlette's order) whose compiled pattern and methods accept the request; nothing is called."""
+    if path == hidden or path.startswith(hidden + "/"):
+        return _unmatched(HIDDEN)
+    if model is None or not model.present:
+        return _unmatched()
+    unreadable = False
+    for route in model.routes:
+        if route.path_regex is None:
+            unreadable = True
+        elif re.match(route.path_regex, path) and _accepts(route, method):
+            rule, _, roles, best_effort = classify(route)
+            chain = model.chains[route.chain]
+            return {
+                "matched": True,
+                "bestEffort": best_effort,
+                "chainIndex": route.chain,
+                "matcherDescription": _matcher(chain),
+                "filters": [_simple(m) for m in chain.middleware],
+                "rule": rule,
+                "roles": roles,
+                "pattern": route.path,
+            }
+    return _unmatched(best_effort=unreadable)
