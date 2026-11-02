@@ -82,6 +82,7 @@ ROWS = [
     ("rest-api-violations", "GET", "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations", 400, True),  # no scanId
     ("mcp-server", "GET", "/sharpit/api/mcp-server", 200, True),
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),
+    ("dismissed-findings", "GET", "/sharpit/api/dismissed-findings", 200, True),
     ("mcp", "POST", "/sharpit/api/mcp", 200, True),
 ]
 
@@ -296,7 +297,7 @@ WRITES = [
 # Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules is gated by the global flag and the
 # rule's owning panel under its own subject (test_dismissed_rules_obey_global_and_owning_panel_read_only and
 # test_dismissals_per_panel_gate), so it has no row here.
-_NOT_PANEL_WRITES = ("/api/auth/session", "/api/mcp", "/api/cli/", "/api/dismissed-rules/")
+_NOT_PANEL_WRITES = ("/api/auth/session", "/api/mcp", "/api/cli/", "/api/dismissed-rules/", "/api/dismissed-findings")
 # implemented panels' rows from tests/safety/test_<lane>_safety.py feed the same sweeps as the base rows
 LANES = safety.load()
 PATH_PARAMS = {**_PATH_PARAMS, **LANES.params}

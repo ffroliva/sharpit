@@ -107,12 +107,14 @@ def _combine_sources(parts: Sequence[SessionFacts], untraced: set[str], engines:
     return list(by_name.values())
 
 
-def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN"]:
-    """FAILED over UNKNOWN over PASSED."""
+def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]:
+    """FAILED over UNKNOWN over SKIPPED over PASSED (R14); no status at all is PASSED."""
     present = set(statuses)
     if "FAILED" in present:
         return "FAILED"
-    return "UNKNOWN" if "UNKNOWN" in present else "PASSED"
+    if "UNKNOWN" in present:
+        return "UNKNOWN"
+    return "SKIPPED" if "SKIPPED" in present else "PASSED"
 
 
 def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> AdvisorRun:
@@ -121,7 +123,7 @@ def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> Advis
         findings.setdefault(finding.fingerprint, finding)
     status = _worst(r.status for r in runs)
     chosen = next((r for r in runs if r.status == status), runs[0])
-    reason = chosen.reason if status == "UNKNOWN" else None
+    reason = chosen.reason if status in ("UNKNOWN", "SKIPPED") else None
     return AdvisorRun(advisor, status, tuple(findings.values()), chosen.evidence, reason, app)
 
 
@@ -204,11 +206,15 @@ def _advisor_summary(advisor: str, runs: list[AdvisorRun], *, advisors_enabled: 
         reason = NO_APPLICATION if advisors_enabled else ADVISORS_DISABLED
         return {"advisor": advisor, "status": "UNKNOWN", "reason": reason, "apps": [], "findings": []}
     status = _worst(r.status for r in runs)
-    reason = next((r.reason for r in runs if r.status == "UNKNOWN"), None) if status == "UNKNOWN" else None
+    reason = next((r.reason for r in runs if r.status == status), None) if status in ("UNKNOWN", "SKIPPED") else None
     found: dict[str, dict[str, Any]] = {}
     for finding in (f for run in runs for f in run.findings):
         found.setdefault(finding.fingerprint, finding.to_dto())
-    apps = [{"app": r.app, "status": r.status, "reason": r.reason, "evidence": r.evidence} for r in runs]
+    apps = [
+        {"app": r.app, "status": r.status, "reason": r.reason, "evidence": r.evidence}
+        for r in runs
+        if r.app is not None or r.status != "SKIPPED"  # a skipped advisor assessed no app
+    ]
     return {"advisor": advisor, "status": status, "reason": reason, "apps": apps, "findings": list(found.values())}
 
 
