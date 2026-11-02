@@ -40,6 +40,10 @@ INSTALL_HINT = (
     "Install the extension (shared_preload_libraries = 'pg_stat_statements', then "
     "CREATE EXTENSION pg_stat_statements;) to rank statements by execution time."
 )
+# sharpit addition (BootUI 2.2.0 reports this case FAILED): the extension is created but the library is not preloaded,
+# so every read of the view raises SQLSTATE 55000 (object_not_in_prerequisite_state)
+NOT_PRELOADED_SQLSTATE = "55000"
+NOT_PRELOADED = "pg_stat_statements is installed but not loaded: add it to shared_preload_libraries."
 INSUFFICIENT_PRIVILEGE = "<insufficient privilege>"
 RESTRICTED_STATEMENTS_LIMITATION = (
     'pg_stat_statements shows the text of statements run by other roles as "<insufficient '
@@ -91,14 +95,15 @@ class Rows:
     rows: list[Any]
     truncated: bool = False
     reason: str | None = None
+    sqlstate: str | None = None  # the driver's SQLSTATE when the query failed
 
     @classmethod
     def of(cls, rows: list[Any], truncated: bool = False) -> Rows:
         return cls(True, list(rows), truncated)
 
     @classmethod
-    def failed(cls, reason: str) -> Rows:
-        return cls(False, [], False, reason)
+    def failed(cls, reason: str, sqlstate: str | None = None) -> Rows:
+        return cls(False, [], False, reason, sqlstate)
 
     @classmethod
     def partial(cls, rows: list[Any], reason: str) -> Rows:
@@ -162,6 +167,15 @@ def _describe(ctx: ReadContext, label: str, exc: Exception) -> str:
     return f"{label} could not be read: {ctx.masker.mask_text(message) or type(exc).__name__}"
 
 
+def _sqlstate(exc: Exception) -> str | None:
+    """psycopg 3 ``sqlstate``, psycopg2 ``pgcode``, asyncpg ``sqlstate``; SQLAlchemy wraps the driver's in ``orig``."""
+    for error in (exc, getattr(exc, "orig", None)):
+        code = getattr(error, "sqlstate", None) or getattr(error, "pgcode", None)
+        if isinstance(code, str):
+            return code
+    return None
+
+
 def read_list(ctx: ReadContext, label: str, sql: str, max_rows: int, mapper: Callable[[Row], Dto | None]) -> Rows:
     """A bounded list: ``limit max + 1`` so exceeding the bound is observed, never a full-looking page."""
     if ctx.budget.exhausted():
@@ -180,7 +194,7 @@ def read_list(ctx: ReadContext, label: str, sql: str, max_rows: int, mapper: Cal
             kept, truncated = read_one_past(read, max_rows)
             rows = [mapped for row in kept if (mapped := mapper(row)) is not None]
     except Exception as exc:  # noqa: BLE001 - every driver error becomes the section's reason
-        return Rows.failed(_describe(ctx, label, exc))
+        return Rows.failed(_describe(ctx, label, exc), _sqlstate(exc))
     return Rows.of(rows, truncated) if reason is None else Rows.partial(rows, reason)
 
 
@@ -197,7 +211,7 @@ def read_one(ctx: ReadContext, label: str, sql: str, mapper: Callable[[Row], Any
             row = next(iter(ctx.conn.exec_driver_sql(sql).mappings()), None)
             mapped = None if row is None else mapper(row)
     except Exception as exc:  # noqa: BLE001 - every driver error becomes the section's reason
-        return Rows.failed(_describe(ctx, label, exc))
+        return Rows.failed(_describe(ctx, label, exc), _sqlstate(exc))
     return Rows.of([] if mapped is None else [mapped])
 
 
@@ -377,6 +391,8 @@ def _statements(ctx: ReadContext, data: DatabaseData) -> Dto:
     rows = read_list(
         ctx, "Statement statistics", statement_sql(relation, exec_naming), ctx.limits.max_statements, mapper
     )
+    if not rows.available and rows.sqlstate == NOT_PRELOADED_SQLSTATE:
+        return _section(STATEMENTS, "SKIPPED", NOT_PRELOADED, INSTALL_HINT)
     if not rows.available:
         return _section(STATEMENTS, "FAILED", rows.reason)
     data.statements = rows.rows
