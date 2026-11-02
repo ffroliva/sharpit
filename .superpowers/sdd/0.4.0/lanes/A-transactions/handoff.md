@@ -17,7 +17,7 @@ IN PROGRESS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 
 ## Next step
 
-Continue review round 1 fixes. Finalizer red/fix: `b9bb0a3` / `85fbff9`; savepoint identity: `2bf97fc` / `df3ae12`; buffer capacity: `2e716bd` / `42604e9`; middleware: `7c52759` / `3f98827`; open/threshold `ea43733`, recursion `ec8ce4c`, SQL Trace-off `fa717b7` are now implemented in the pending safety fix. Middleware change extends the original lane touch list to `fastapi/capture.py`. Correcting `bufferSize` to ring capacity leaves the original `test_clear_keeps_total_captured` assertion (`bufferSize == 0`) incompatible; its historical red body remains untouched per COMMON. Commit failure handling requires extending F's `sqla.py` event slot, explicitly prohibited by the lane plan's May-touch list. Final gates remain.
+Continue review round 1 fixes. Finalizer red/fix `b9bb0a3` / `85fbff9`; savepoint identity `2bf97fc` / `df3ae12`; buffer capacity `2e716bd` / `42604e9`; middleware `7c52759` / `3f98827`; open/threshold `ea43733`, recursion `ec8ce4c`, and SQL Trace-off `fa717b7` fixed in `92b9995`. Middleware change extends the original lane touch list to `fastapi/capture.py`. Correcting `bufferSize` to ring capacity leaves the historical `test_clear_keeps_total_captured` assertion (`bufferSize == 0`) incompatible; its red test body remains untouched per COMMON. Commit failure handling requires extending F's `sqla.py` event slot, explicitly prohibited by the lane plan's May-touch list. Final gates remain.
 
 ## Decisions
 
