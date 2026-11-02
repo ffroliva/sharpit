@@ -95,3 +95,23 @@ def test_transactions_mcp_exposes_only_the_read_tool() -> None:
         assert result["structuredContent"]["available"] is True, "the MCP read tool must return the cached report"
     finally:
         handle.uninstall_capture()
+
+
+@pytest.mark.asyncio
+async def test_async_engine_transaction_recorded() -> None:
+    pytest.importorskip("aiosqlite")
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    app = FastAPI()
+    engine = create_async_engine("sqlite+aiosqlite://")
+    handle = install(app, enabled="ON", show_banner=False, engines=[engine])
+    try:
+        async with engine.begin():
+            pass
+        with _client(app) as client:
+            report = client.get("/sharpit/api/transactions").json()
+        assert report["totalCaptured"] == 1, "AsyncEngine connection events must be captured through its sync engine"
+        assert report["entries"][0]["status"] == "COMMITTED", "an async commit must close the transaction entry"
+    finally:
+        handle.uninstall_capture()
+        await engine.dispose()

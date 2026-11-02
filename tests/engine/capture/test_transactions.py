@@ -167,3 +167,68 @@ def test_savepoint_closes_one_child_per_context(monkeypatch) -> None:
     tx_savepoint(connection, "sa_savepoint_1")
     tx_release_savepoint(connection, "sa_savepoint_1", None)
     assert len(connection.info["sharpit_tx"]) == 2, "a savepoint event must close its child entry in each context"
+
+
+def test_internal_transaction_callbacks_are_skipped(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from sharpit.engine.capture.correlation import internal
+    from sharpit.engine.capture.transactions import tx_begin, tx_commit
+    from sharpit.engine.sources import dispatch
+
+    recorder = _recorder()
+    context = SimpleNamespace(
+        context_id="internal-context",
+        capture=SimpleNamespace(transactions=recorder, wiring=SimpleNamespace(hook_failed=lambda *_: None)),
+        settings=SimpleNamespace(
+            transactions_enabled=True,
+            panels={"transactions": SimpleNamespace(enabled=True)},
+            sql_trace_capture_call_site=False,
+        ),
+    )
+    connection = SimpleNamespace(info={}, engine=object(), connection=SimpleNamespace(dbapi_connection=object()))
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: [context])
+    with internal():
+        tx_begin(connection)
+        tx_commit(connection)
+    assert recorder.report([])["bufferSize"] == 0, (
+        "sharpit's internal database reads must stay out of the transaction report"
+    )
+
+
+def test_sql_counts_correlate_at_report_time() -> None:
+    import time
+    from datetime import UTC, datetime
+
+    recorder = _recorder()
+    entry_id = _begin(recorder, "db-1")
+    midpoint = datetime.fromtimestamp(time.time_ns() / 1_000_000_000, UTC).isoformat().replace("+00:00", "Z")
+    recorder.end(entry_id, "COMMITTED")
+    report = recorder.report([{"connectionId": "db-1", "timestamp": midpoint}])
+    assert report["entries"][0]["sqlStatementCount"] == 1, "matching SQL Trace rows must be correlated when reporting"
+
+
+def test_attacher_retries_late_sqlalchemy_and_removes_partial_listeners(monkeypatch) -> None:
+    from sharpit.engine import sqla
+    from sharpit.engine.capture.transactions import attach
+
+    removed: list[str] = []
+    installed: list[str] = []
+
+    def late(event, _callback):
+        installed.append(event)
+        if event == "rollback":
+            return None
+        return lambda: removed.append(event)
+
+    monkeypatch.setattr(sqla, "add_connection_listener", late)
+    assert attach() is None, "late SQLAlchemy import must leave the lane attacher retryable"
+    assert removed == ["commit", "begin"], "a partial attachment must remove every listener it armed"
+    installed.clear()
+    removed.clear()
+    monkeypatch.setattr(sqla, "add_connection_listener", lambda event, _callback: lambda: removed.append(event))
+    remove = attach()
+    assert remove is not None, "the attacher must succeed when SQLAlchemy becomes available"
+    assert len(removed) == 0, "successful attach must keep listeners until the remover runs"
+    remove()
+    assert len(removed) == 6, "one remover must detach all six transaction events"
