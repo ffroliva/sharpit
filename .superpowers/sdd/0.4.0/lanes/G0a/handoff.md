@@ -1,6 +1,8 @@
 # Lane G0a handoff
 
-Status: DONE (live capture, not provisional). Branch `lane/0.4.0-G0a`, base `d37c6f2`.
+Implementer: claude-subagent sonnet
+
+Status: DONE (fix round 1 applied; see findings.md) (live capture, not provisional). Branch `lane/0.4.0-G0a`, base `d37c6f2`.
 
 ## Commits
 
