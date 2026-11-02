@@ -23,6 +23,9 @@ def pytest_addoption(parser: Any) -> None:
     group.addoption("--sharpit-allow-unknown", action="store_true", default=None, help="allow unknown capture status")
     group.addoption("--sharpit-app", default=None, metavar="MOD:ATTR", help="application to assess")
     group.addoption(
+        "--sharpit-verbose", action="store_true", default=None, help="list advisor notes in the gate counts"
+    )
+    group.addoption(
         "--sharpit-require-app", action="store_true", default=None, help="no application found is unknown, not skipped"
     )
     group.addoption(
@@ -51,6 +54,7 @@ def _add_ini(parser: Any) -> None:
     parser.addini("sharpit_fail_on", "Minimum advisor severity that fails", default="HIGH")
     parser.addini("sharpit_allow_unknown", "Allow an unknown capture result", type="bool", default=False)
     parser.addini("sharpit_app", "Application module and attribute", default="")
+    parser.addini("sharpit_verbose", "List advisor notes in the terminal gate counts", type="bool", default=False)
     parser.addini("sharpit_require_app", "Treat a run with no application as unknown", type="bool", default=False)
     parser.addini("sharpit_advisors", "Run application advisors", type="bool", default=True)
     parser.addini("sharpit_max_unattributed", "Maximum unattributed SQL percentage", default="10")
@@ -68,6 +72,7 @@ class PluginOptions:
     advisors: bool
     max_unattributed: float
     require_app: bool = False
+    verbose: bool = False
 
 
 def resolve(config: Any) -> PluginOptions:
