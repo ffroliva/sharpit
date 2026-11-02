@@ -381,9 +381,6 @@ Internal module structure, caching details, UI component structure and visuals w
 | `activation.localhostOnly` = `!allow-non-localhost` | `localhostOnly` is false whenever remote access is configured: `allow_non_localhost`, `trusted_proxies` or container gateway trust | the Overview's "This machine only" must not show while proxies or the gateway are admitted; the key is unchanged |
 | `bootui.path` taken as configured | `path="/"` and a trailing slash are refused with `ValueError` at install | `/` would mount over every host route even while inactive; a trailing slash produced `/sharpit//api` |
 | sharpit's own token follows the exposure policy | sharpit's own token value is masked under every exposure except `METADATA_ONLY` (which shows no values), even with `mask_secrets=false` or `FULL` | the token grants the whole console; an MCP client would pass it to an LLM provider |
-| (no BootUI equivalent: job summary) | the summary CLI neutralises bare URLs with a zero-width space (U+200B) | a finding message cannot render a live link or auto-link in the job summary |
-| (no BootUI equivalent: Action) | on Windows runners the Action splits `runner` and `pytest-args` with non-POSIX shlex, then strips quotes | POSIX shlex eats backslashes in Windows paths |
-| Hibernate statistics always available | `sqlalchemy-statistics` reports `statistics.warnings` when SQL Trace recording is paused | the lifetime counters are frozen while paused; the reader is told |
 
 ## 15. Coordinator's calls (owner to check)
 
