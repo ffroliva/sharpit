@@ -11,8 +11,17 @@ from typing import Any
 
 import pytest
 
-from sharpit.engine.advisors.dismissals import FILE_NAME, NO_PANEL_MESSAGE, DismissalStore, owning_panel
+from sharpit.engine.advisors.dismissals import (
+    FILE_NAME,
+    MAX_FINDINGS,
+    NO_PANEL_MESSAGE,
+    DismissalStore,
+    DismissedFinding,
+    Findings,
+    owning_panel,
+)
 from sharpit.engine.advisors.report import apply_dismissals, severity_counts
+from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.advisors.rules import SEVERITIES
 from sharpit.engine.paging import BadRequest
 
@@ -284,3 +293,150 @@ def test_partial_dismissal_refills_samples_beyond_the_first_ten():
     result = out["results"][0]
     assert result["violationCount"] == 2
     assert result["sampleViolations"] == texts[10:]
+
+
+# --- dismissedFindings (BootUI 2.2.0 DismissedFindingsStoreTests) ----------------------------------------------------
+
+RULE = "RAPI-MAP-001"
+OTHER_RULE = "RAPI-DOC-002"
+IDENTITY = "v1:route=GET:/owners/{id}"
+OTHER = "v1:route=POST:/pets"
+HEADER = "# sharpit configuration (developer-local; safe to delete).\n"
+
+
+# ported: DismissedFindingsStoreTests.dismissingAFindingKeepsTheRuleListByteForByteAndRoundTrips
+def test_preserves_other_top_level_sections_across_writes(tmp_path: Path):
+    file = tmp_path / FILE_NAME
+    file.write_text(f"# My config\nsomeSetting: value\ndismissedRules:\n  - {A}\n", encoding="utf-8")
+    store = DismissalStore(tmp_path)
+    store.dismiss_finding(RULE, IDENTITY, None)
+    store.dismiss_finding(OTHER_RULE, OTHER, "Intentional")
+    assert file.read_text(encoding="utf-8") == (
+        f"{HEADER}# My config\nsomeSetting: value\n\ndismissedRules:\n  - {A}\n"
+        f"dismissedFindings:\n  - {RULE} {IDENTITY}\n  - {OTHER_RULE} {OTHER} n=SW50ZW50aW9uYWw\n"
+    )
+    both = [DismissedFinding(RULE, IDENTITY), DismissedFinding(OTHER_RULE, OTHER, "Intentional")]
+    assert DismissalStore(tmp_path).list() == [A]
+    assert DismissalStore(tmp_path).list_findings() == Findings(both, 0)
+    store.add(B)  # ported: aRuleWriteKeepsTheFindingsSectionAndAFindingWriteKeepsTheRules
+    store.remove(B)
+    assert DismissalStore(tmp_path).list_findings() == Findings(both, 0)
+
+
+# ported: DismissedFindingsStoreTests.repeatedWritesAreByteStableAndLeaveNoEmptyRulesNode
+def test_repeated_writes_are_byte_stable(tmp_path: Path):
+    file = tmp_path / FILE_NAME
+    store = DismissalStore(tmp_path)
+    store.dismiss_finding(RULE, IDENTITY, "note")
+    assert store.list_findings().dismissed == [DismissedFinding(RULE, IDENTITY, "note")]
+    first = file.read_bytes()
+    store.dismiss_finding(OTHER_RULE, OTHER, None)
+    store.restore_finding(OTHER_RULE, OTHER)
+    store.dismiss_finding(RULE, IDENTITY, "note")
+    assert file.read_bytes() == first
+    assert b"dismissedRules" not in first
+    # ported: DismissedFindingsStoreTests.aNoteIsReplacedAndABlankNoteMeansNone
+    store.dismiss_finding(RULE, IDENTITY, "replaced")
+    assert DismissalStore(tmp_path).list_findings().dismissed == [DismissedFinding(RULE, IDENTITY, "replaced")]
+    store.dismiss_finding(RULE, IDENTITY, "   ")
+    assert store.list_findings().dismissed == [DismissedFinding(RULE, IDENTITY, None)]
+    store.restore_finding(RULE, IDENTITY)
+    assert b"dismissedFindings" not in file.read_bytes()
+
+
+def _refused(call: Any) -> AdvisorViolationError:
+    with pytest.raises(AdvisorViolationError) as raised:
+        call()
+    return raised.value
+
+
+# ported: DismissedFindingsStoreTests.notesWithQuotesColonsHashesNewlinesAndNonAsciiRoundTrip
+# ported: DismissedFindingsStoreTests.aTooLongNoteAnUnpairedSurrogateAndALineBreakInARuleIdAreRefused
+# ported: DismissedFindingsStoreTests.invalidInputIsRefusedWithoutEchoingIt
+# ported: DismissedFindingsStoreTests.theStoreKeepsAtMostAThousandFindingsButStillReplacesANote
+def test_dismissed_findings_note_and_cap_validation(tmp_path: Path):
+    file = tmp_path / FILE_NAME
+    store = DismissalStore(tmp_path)
+    note = 'it\'s "fine": # really\nsecond line éè \U0001f600 \ end'
+    store.dismiss_finding(RULE, IDENTITY, note)
+    assert DismissalStore(tmp_path).list_findings().dismissed == [DismissedFinding(RULE, IDENTITY, note)]
+    assert "really" not in file.read_text(encoding="utf-8")
+    too_long = _refused(lambda: store.dismiss_finding(RULE, IDENTITY, "x" * 201))
+    assert too_long.status == 400
+    assert too_long.message == "Dismissed finding note must be at most 200 characters."
+    surrogate = _refused(lambda: store.dismiss_finding(RULE, IDENTITY, "bad \ud800 text"))
+    assert surrogate.message == "Dismissed finding note is not valid text."
+    secret = "secret-xxx"
+    for bad_rule, bad_identity in [
+        ("rapi-map-001", IDENTITY),  # no advisor owns it
+        (f"{RULE}\n  - X-001", IDENTITY),
+        ("RAPI-" + "1" * 60, IDENTITY),  # longer than 64
+        (RULE, f"{secret} with space"),
+        (RULE, f"{secret}\n  - {RULE} forged"),
+        (RULE, f"{secret}\x00"),
+        (RULE, "v1:" + "a" * 510),  # longer than 512
+        (RULE, ""),
+    ]:
+        refused = _refused(lambda r=bad_rule, i=bad_identity: store.dismiss_finding(r, i, None))
+        assert refused.status == 400
+        assert secret not in refused.message
+    assert store.list_findings().dismissed == [DismissedFinding(RULE, IDENTITY, note)]
+    store.dismiss_finding(RULE, IDENTITY, "x" * 200)
+    lines = "".join(f"  - {RULE} v1:m{i}\n" for i in range(MAX_FINDINGS))
+    file.write_text(f"dismissedFindings:\n{lines}", encoding="utf-8")
+    overflow = _refused(lambda: store.dismiss_finding(RULE, "v1:overflow", None))
+    assert overflow.status == 409
+    assert overflow.message == "Too many dismissed findings: restore some before dismissing more."
+    store.dismiss_finding(RULE, "v1:m7", "still editable")
+    assert len(store.list_findings().dismissed) == MAX_FINDINGS
+
+
+# ported: DismissedFindingsStoreTests.malformedEntriesAreIgnoredCountedAndKeptVerbatimOnRewrite
+def test_malformed_finding_lines_are_ignored_counted_and_kept(tmp_path: Path):
+    file = tmp_path / FILE_NAME
+    good = "b2s"  # Base64URL of "ok", no padding
+    file.write_text(
+        "dismissedFindings:\n"
+        f"  - {RULE} {IDENTITY} n={good}\n"
+        f"  - {RULE} {OTHER} n=!!!\n"
+        f"  - {RULE} {OTHER} n=b2s_Pz8=\n"
+        f"  - {RULE}  {OTHER}\n"
+        f"  - rapi-map-001 {OTHER}\n"
+        f"  - {RULE} {OTHER} extra=1\n"
+        f"  - {RULE} {OTHER} n={good} trailing\n"
+        "  nested: future\n"
+        f"  - {RULE} {OTHER}\n",
+        encoding="utf-8",
+    )
+    store = DismissalStore(tmp_path)
+    loaded = store.list_findings()
+    assert loaded.dismissed == [DismissedFinding(RULE, IDENTITY, "ok"), DismissedFinding(RULE, OTHER)]
+    assert loaded.ignored == 7
+    store.add(A)
+    written = file.read_text(encoding="utf-8")
+    assert "n=!!!" in written
+    assert "extra=1" in written
+    assert "  nested: future" in written
+    assert DismissalStore(tmp_path).list_findings().ignored == 7
+
+
+def test_dismissed_pairs_returns_rule_id_and_identity_tuples(tmp_path: Path):
+    store = DismissalStore(tmp_path)
+    store.add(A)
+    store.dismiss_finding(RULE, IDENTITY, "n")
+    store.dismiss_finding(OTHER_RULE, OTHER, None)
+    assert store.dismissed_pairs() == {(RULE, IDENTITY), (OTHER_RULE, OTHER)}
+    store.restore_finding(RULE, IDENTITY)
+    assert store.dismissed_pairs() == {(OTHER_RULE, OTHER)}
+    assert store.list() == [A]
+
+
+def test_findings_dto_emits_every_key():
+    findings = Findings([DismissedFinding(RULE, IDENTITY), DismissedFinding(OTHER_RULE, OTHER, "why")], 2)
+    assert findings.to_dto() == {
+        "dismissed": [
+            {"ruleId": RULE, "identity": IDENTITY, "note": None},
+            {"ruleId": OTHER_RULE, "identity": OTHER, "note": "why"},
+        ],
+        "ignored": 2,
+    }

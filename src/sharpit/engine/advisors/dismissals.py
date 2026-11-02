@@ -16,7 +16,9 @@ import os
 import re
 import tempfile
 import threading
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Final
 
 from sharpit.engine.advisors.registry import advisor_for
 from sharpit.engine.paging import BadRequest
@@ -26,6 +28,29 @@ _KEY = "dismissedRules"
 _HEADER = "# sharpit configuration (developer-local; safe to delete)."
 NO_PANEL_MESSAGE = "Findings of advisor '{advisor}' are dismissed in sharpit.yml"
 _RULE_ID = re.compile(r"[A-Za-z0-9._:-]{1,200}")
+
+
+MAX_FINDINGS: Final[int] = 1000
+MAX_NOTE_LENGTH: Final[int] = 200
+
+
+@dataclass(frozen=True, slots=True)
+class DismissedFinding:
+    rule_id: str
+    identity: str
+    note: str | None = None
+
+    def to_dto(self) -> dict[str, str | None]:
+        return {}
+
+
+@dataclass(frozen=True, slots=True)
+class Findings:
+    dismissed: list[DismissedFinding]
+    ignored: int
+
+    def to_dto(self) -> dict[str, Any]:
+        return {}
 
 
 def rule_id(vuln_id: str, package_name: str) -> str:
@@ -69,6 +94,15 @@ class DismissalStore:
                 ids.remove(rule_id)
                 self._save(ids)
             return ids
+
+    def list_findings(self) -> Findings:
+        return Findings([], 0)
+
+    def dismiss_finding(self, rule_id: str, identity: str, note: str | None = None) -> Findings:
+        return Findings([], 0)
+
+    def restore_finding(self, rule_id: str, identity: str) -> Findings:
+        return Findings([], 0)
 
     def dismissed_pairs(self) -> set[tuple[str, str]]:
         """Per-finding dismissals as ``(rule_id, identity)`` pairs; inert (empty) until D1 implements it (R1)."""
