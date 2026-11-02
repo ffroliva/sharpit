@@ -7,7 +7,7 @@ Each 0.4 panel lane adds `tests/safety/test_<lane_id>_safety.py` (lane id in low
 PANEL = "data"  # the panel id (a 0.4 id or sql-trace) whose flag gates these rows; omit it for base-route tests
 GET_ROWS = ["/sharpit/api/data", "/sharpit/api/data/{table}"]  # every GET route path format the panel adds
 WRITE_ROWS = [("POST", "/sharpit/api/data/query")]  # every POST/PUT/PATCH/DELETE route as (method, path format)
-PATH_PARAMS = {"table": "orders"}  # a sample value for each new path parameter
+PATH_PARAMS = {"table": "orders"}  # samples for this file's own rows only (base routes keep conftest's)
 ```
 
 While `PANEL` is implemented, `tests/test_safety_matrix.py` feeds these rows into the same sweeps as its base rows: the
