@@ -362,3 +362,32 @@ def test_fail_on_info_advisor_finding_counts_consistently() -> None:
     )
     assert result.status == "pass", result.fail_reasons
     assert not any("0 findings" in reason for reason in result.fail_reasons)
+
+
+def _incomplete_pair(app_b: str, worker_b: str) -> Any:
+    failed = AdvisorRun.of(
+        "rest-api",
+        [Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "problem")],
+        {"usable": True, "coverageComplete": True, "limitations": []},
+        app="App#A",
+    )
+    unknown = AdvisorRun.of(
+        "rest-api", [], {"usable": True, "coverageComplete": False, "limitations": ["app b errored"]}, app=app_b
+    )
+    return session_status(
+        merge([part(advisor_runs=[failed]), part(worker_b, advisor_runs=[unknown])], []),
+        allow_unknown=False,
+        max_unattributed=10.0,
+        advisors_enabled=True,
+        fail_on="HIGH",
+    )
+
+
+def test_unknown_app_beside_failed_app_keeps_unknown_reason() -> None:
+    result = _incomplete_pair("App#B", "gw1")
+    assert "advisor 'rest-api' could not assess: app b errored" in result.unknown_reasons
+
+
+def test_unknown_worker_beside_failed_worker_keeps_unknown_reason() -> None:
+    result = _incomplete_pair("App#A", "gw1")
+    assert "advisor 'rest-api' could not assess: app b errored" in result.unknown_reasons
