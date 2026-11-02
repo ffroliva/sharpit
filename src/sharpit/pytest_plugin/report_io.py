@@ -23,7 +23,7 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
     try:
         facts = plugin._final_facts(state)  # forced app snapshot precedes advisor assessment
         parts = _report_parts(plugin, session, state, facts)
-        data, status, _reasons = finish(
+        data, _status, _reasons = finish(
             parts,
             state.missing_workers,
             options=GateOptions(
@@ -41,14 +41,15 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
         )
         _apply_baseline(state, data)
         refusal = _baseline_refusal(state, data)
+        if not refusal:
+            _write_baseline(state, data)  # before the report, so a write failure is in it
         report.write_json(state.options.report, data)
         if state.options.junit:
             report.write_junit(state.options.junit, data, allow_unknown=state.options.allow_unknown)
         if refusal:
             raise pytest.UsageError(refusal)
-        _write_baseline(state, data)
         if exitstatus == 0 and outcome.exit_fails(
-            status,
+            data["status"],
             state.options.allow_unknown,
             report_only=state.options.report_only,
             unknown_reasons=data["unknownReasons"],
@@ -74,9 +75,13 @@ def _report_parts(plugin: Any, session: Any, state: Any, facts: Any) -> list[Any
 def _apply_baseline(state: Any, data: dict[str, Any]) -> None:
     if state.baseline_data is None:
         return
+    ran = {"test-runtime"} | {
+        a["advisor"] for a in data["advisors"] if a["status"] in {"PASSED", "FAILED"} and a["reason"] is None
+    }
     comparison = baseline_io.compare(
-        [finding_from(finding) for finding in data["findings"]], state.baseline_data, partial=state.partial
+        [finding_from(finding) for finding in data["findings"]], state.baseline_data, partial=state.partial, ran=ran
     )
+    state.baseline_carried = comparison.carried
     by_fingerprint = {finding.fingerprint: finding for finding in comparison.findings}
     data["findings"] = [
         {**finding, "baselineState": by_fingerprint[finding["fingerprint"]].baseline_state}
@@ -108,5 +113,18 @@ def _baseline_refusal(state: Any, data: dict[str, Any]) -> str | None:
 
 
 def _write_baseline(state: Any, data: dict[str, Any]) -> None:
-    if state.options.write_baseline:
-        baseline_io.write(state.options.write_baseline, [finding_from(finding) for finding in data["findings"]])
+    if not state.options.write_baseline:
+        return
+    try:
+        baseline_io.write(
+            state.options.write_baseline,
+            [finding_from(finding) for finding in data["findings"]],
+            state.baseline_carried,
+        )
+    except (OSError, ValueError) as exc:
+        reason = f"baseline write failed: {exc}"
+        data["unknownReasons"].append(reason)
+        data["warnings"].append(reason)  # the terminal summary prints warnings
+        if data["status"] == "pass":
+            data["status"] = "unknown"
+            data["statusReasons"] = list(data["unknownReasons"])

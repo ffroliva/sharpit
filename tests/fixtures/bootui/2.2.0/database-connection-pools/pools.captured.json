@@ -1,0 +1,32 @@
+{
+  "poolLibraryPresent": true,
+  "total": 1,
+  "pools": [
+    {
+      "beanName": "dataSource",
+      "poolName": "HikariPool-1",
+      "implementation": "HikariCP",
+      "jdbcUrl": "jdbc:postgresql://localhost:5432/tiny_ledger",
+      "username": "******",
+      "driverClassName": "org.postgresql.Driver",
+      "minimumIdle": 10,
+      "maximumPoolSize": 10,
+      "connectionTimeoutMs": 30000,
+      "idleTimeoutMs": 600000,
+      "maxLifetimeMs": 1800000,
+      "validationTimeoutMs": 5000,
+      "keepaliveTimeMs": 120000,
+      "readOnly": false,
+      "autoCommit": true,
+      "available": true,
+      "unavailableReason": null,
+      "snapshot": {
+        "timestamp": 1700000000000,
+        "active": 0,
+        "idle": 10,
+        "total": 10,
+        "pending": 0
+      }
+    }
+  ]
+}

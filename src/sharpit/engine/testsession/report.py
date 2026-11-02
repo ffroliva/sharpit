@@ -130,7 +130,7 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 
     def clean(value: Any) -> Any:
         if isinstance(value, str):
-            return _clean(value)
+            return clean_text(value)
         if isinstance(value, list):
             items = cast(list[Any], value)
             return [clean(item) for item in items]
@@ -142,7 +142,7 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     _write_atomic(path, json.dumps(clean(data), indent=2, ensure_ascii=False) + "\n")
 
 
-def _clean(text: str) -> str:
+def clean_text(text: str) -> str:
     return "".join(char if _xml_char(char) else _REPLACEMENT for char in text)
 
 
@@ -168,8 +168,8 @@ def write_junit(path: Path, data: dict[str, Any], *, allow_unknown: bool) -> Non
         if finding_fails(finding, data["gates"]["failOnSeverity"]):
             if data.get("mode") == "report-only":
                 continue
-            failure = ET.SubElement(case, "failure", type=finding["ruleId"], message=_clean(finding["message"]))
-            failure.text = _clean(finding["target"])
+            failure = ET.SubElement(case, "failure", type=finding["ruleId"], message=clean_text(finding["message"]))
+            failure.text = clean_text(finding["target"])
             failures += 1
     status = data["status"]
     case = ET.SubElement(suite, "testcase", classname="sharpit", name="sharpit.status")
@@ -180,8 +180,8 @@ def write_junit(path: Path, data: dict[str, Any], *, allow_unknown: bool) -> Non
         not report_only and (status == "fail" or (status == "unknown" and not allow_unknown))
     ):
         status_reasons = unknown if report_only else data["statusReasons"]
-        failure = ET.SubElement(case, "failure", type=status, message=_clean("; ".join(status_reasons)))
-        failure.text = _clean("\n".join(status_reasons))
+        failure = ET.SubElement(case, "failure", type=status, message=clean_text("; ".join(status_reasons)))
+        failure.text = clean_text("\n".join(status_reasons))
         failures += 1
     suite.set("tests", str(cases))
     suite.set("failures", str(failures))

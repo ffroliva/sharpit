@@ -477,6 +477,14 @@ def test_lane_gate_replays_with_long_tracebacks(tmp_path: Path, monkeypatch: pyt
     assert "--tb=long" in calls[0]
 
 
+def test_lane_gate_replay_syncs_the_test_extra(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # F-rest item 3: `uv run --frozen` alone syncs the integration venv without pytest
+    calls: list[list[str]] = []
+    monkeypatch.setattr(lane_gate.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    lane_gate.run_pytest_in(tmp_path)(tmp_path, [TEST_ID], tmp_path / "junit.xml")
+    assert calls[0][:7] == ["uv", "run", "--project", str(tmp_path), "--frozen", "--extra", "test"]
+
+
 @pytest.mark.parametrize("outcome", ["bare-assert", "typed"])
 def test_lane_gate_accepts_assert_message_or_type_without_traceback(tmp_path: Path, outcome: str) -> None:
     fx = _fixture(tmp_path)

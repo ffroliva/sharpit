@@ -1,0 +1,70 @@
+{
+  "localOnly": true,
+  "disclaimer": "Heuristic, project-agnostic REST API design rules run against the host application's own controllers only. These checks complement, but do not replace, an API design review or contract testing. Security concerns (CORS, authentication, authorization) are covered by the Security Advisor.",
+  "basePackages": [
+    "com.ffroliva.tinyledger"
+  ],
+  "controllersAnalyzed": 3,
+  "handlersAnalyzed": 5,
+  "rulesEvaluated": 60,
+  "violationsFound": 1,
+  "severityCounts": [
+    {
+      "severity": "CRITICAL",
+      "count": 0
+    }
+  ],
+  "scan": {
+    "analyzer": "BootUI REST API Advisor",
+    "status": "SCANNED",
+    "message": "REST API rules completed against 3 controller(s) and 5 handler method(s) under the detected base package(s).",
+    "scannedAt": 0,
+    "rulesEvaluated": 60,
+    "controllersAnalyzed": 3,
+    "handlersAnalyzed": 5,
+    "violationsFound": 1
+  },
+  "results": [
+    {
+      "id": "RAPI-MAP-004",
+      "name": "Prefer a class-level base path",
+      "category": "Routing & HTTP method mapping",
+      "severity": "LOW",
+      "description": "Controllers that repeat the same leading path segment on every method but declare no type-level @RequestMapping duplicate routing information. Mappings declared on a controller interface are not evaluated: they are inherited by every implementation, so the implementing author cannot restructure them, and spec-first code generators (for example openapi-generator's kotlin-spring interfaceOnly output) emit exactly that layout.",
+      "status": "VIOLATION",
+      "violationCount": 2,
+      "sampleViolations": [
+        "LedgerController repeats leading path segment '/api' on every method but has no class-level @RequestMapping",
+        "BalanceController repeats leading path segment '/api' on every method but has no class-level @RequestMapping"
+      ],
+      "recommendation": "Hoist the shared prefix into a class-level @RequestMapping and keep method paths relative.",
+      "learnMoreUrl": "https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-requestmapping.html",
+      "dismissed": false,
+      "sampleLocations": [
+        {
+          "className": "com.ffroliva.tinyledger.ledger.adapter.in.web.LedgerController",
+          "memberName": null,
+          "kind": "CLASS",
+          "sourceFile": "LedgerController.java",
+          "line": null,
+          "sourcePath": "/path",
+          "precision": "CLASS"
+        }
+      ]
+    }
+  ],
+  "evidence": {
+    "usable": true,
+    "coverageComplete": true,
+    "limitations": []
+  },
+  "violationDetails": {
+    "scanId": "e37c840c-3bca-4946-ac73-c59cbafe17c7",
+    "total": 2,
+    "retained": 2,
+    "retentionLimit": 10000,
+    "truncated": false,
+    "locationNotes": [],
+    "changes": null
+  }
+}

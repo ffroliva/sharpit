@@ -1,0 +1,36 @@
+{
+  "auditEventsPresent": true,
+  "unavailableReason": null,
+  "maxLogs": 500,
+  "typeSummaries": [
+    {
+      "type": "AUTHENTICATION_SUCCESS",
+      "count": 7
+    }
+  ],
+  "events": [
+    {
+      "timestamp": "2026-11-02T00:20:57.047998200Z",
+      "principal": "00000000-0000-4000-8000-000000000001",
+      "type": "AUTHENTICATION_SUCCESS",
+      "data": [
+        {
+          "name": "details",
+          "value": "WebAuthenticationDetails [RemoteIpAddress=127.0.0.1, SessionId=null]",
+          "masked": false,
+          "truncated": false
+        }
+      ],
+      "traceId": null,
+      "requestId": "b16d0ba733ad326a"
+    }
+  ],
+  "page": {
+    "total": 7,
+    "matched": 7,
+    "offset": 0,
+    "limit": 7,
+    "returned": 7,
+    "hasMore": false
+  }
+}

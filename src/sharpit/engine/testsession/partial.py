@@ -28,7 +28,8 @@ def partial_run(worker_facts: Sequence[Mapping[str, Any]], controller_facts: Map
     ):
         return True
     return bool(
-        controller_facts.get("selection")
+        controller_facts.get("deselected", 0)
+        or controller_facts.get("selection")
         or controller_facts.get("maxfail")
         or controller_facts.get("stopped")
         or controller_facts.get("interrupted")

@@ -1,0 +1,34 @@
+{
+  "total": 13,
+  "mappings": [
+    {
+      "method": "ANY",
+      "pattern": "/**",
+      "handler": "ResourceHttpRequestHandler [classpath [META-INF/resources/], classpath [resources/], classpath [static/], classpath [public/], ServletContext [/]]",
+      "produces": null,
+      "consumes": null
+    },
+    {
+      "method": "GET",
+      "pattern": "/api/v1/accounts",
+      "handler": "com.ffroliva.tinyledger.balance.adapter.in.web.BalanceController#listAccounts()",
+      "produces": "application/json, application/problem+json",
+      "consumes": null
+    },
+    {
+      "method": "POST",
+      "pattern": "/api/v1/accounts",
+      "handler": "com.ffroliva.tinyledger.ledger.adapter.in.web.LedgerController#openAccount(OpenAccountRequest)",
+      "produces": "application/json, application/problem+json",
+      "consumes": "application/json"
+    }
+  ],
+  "page": {
+    "total": 13,
+    "matched": 13,
+    "offset": 0,
+    "limit": 13,
+    "returned": 13,
+    "hasMore": false
+  }
+}

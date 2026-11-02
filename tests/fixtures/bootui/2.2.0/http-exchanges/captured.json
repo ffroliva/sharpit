@@ -1,0 +1,99 @@
+{
+  "total": 7,
+  "recorded": 7,
+  "hiddenSelf": 0,
+  "exchanges": [
+    {
+      "id": "b16d0ba733ad326a",
+      "timestamp": "2026-11-02T00:20:57.037232900Z",
+      "method": "GET",
+      "path": "/path",
+      "query": null,
+      "uri": "http://127.0.0.1:8080/api/v1/accounts/9e4944cd-2d6e-4699-9846-1a359b237121/balance",
+      "status": 404,
+      "statusFamily": "4xx",
+      "durationMs": 48,
+      "responseSizeBytes": null,
+      "remoteAddress": null,
+      "principal": null,
+      "sessionId": null,
+      "traceId": "c9bdc3cbe2a6ed25ef75355d78db82b4",
+      "requestHeaders": [
+        {
+          "name": "Accept",
+          "values": [
+            "*/*"
+          ],
+          "masked": false
+        }
+      ],
+      "responseHeaders": [
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-cache, no-store, max-age=0, must-revalidate"
+          ],
+          "masked": false
+        }
+      ],
+      "route": "/api/v1/accounts/{accountUid}/balance",
+      "routeSource": "FRAMEWORK_TEMPLATE",
+      "requestId": "b16d0ba733ad326a"
+    },
+    {
+      "id": "49183f8d14518fcf",
+      "timestamp": "2026-11-02T00:20:56.765321Z",
+      "method": "GET",
+      "path": "/path",
+      "query": "consistency=strong",
+      "uri": "http://127.0.0.1:8080/api/v1/accounts/6b91f215-895a-4cbf-bd87-536ac425a155/balance?consistency=strong",
+      "status": 200,
+      "statusFamily": "2xx",
+      "durationMs": 53,
+      "responseSizeBytes": null,
+      "remoteAddress": null,
+      "principal": null,
+      "sessionId": null,
+      "traceId": "e9abcdf3d5ea952554901ba9161df950",
+      "requestHeaders": [
+        {
+          "name": "Accept",
+          "values": [
+            "*/*"
+          ],
+          "masked": false
+        }
+      ],
+      "responseHeaders": [
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-cache, no-store, max-age=0, must-revalidate"
+          ],
+          "masked": false
+        }
+      ],
+      "route": "/api/v1/accounts/{accountUid}/balance",
+      "routeSource": "FRAMEWORK_TEMPLATE",
+      "requestId": "49183f8d14518fcf"
+    }
+  ],
+  "page": {
+    "total": 7,
+    "matched": 7,
+    "offset": 0,
+    "limit": 7,
+    "returned": 7,
+    "hasMore": false
+  },
+  "unavailableReason": null,
+  "retention": {
+    "applicationManaged": false,
+    "capacity": 200,
+    "reservedCapacity": 50,
+    "retained": 7,
+    "reserved": 1,
+    "evicted": 0,
+    "slowThresholdMillis": 1000
+  }
+}

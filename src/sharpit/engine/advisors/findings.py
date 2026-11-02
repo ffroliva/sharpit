@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -48,6 +48,11 @@ class Finding:
         }
 
 
+def fails(dto: Mapping[str, object]) -> bool:
+    """The one failing predicate: an active, non-baselined finding; INFO findings are notes and never fail."""
+    return not dto["dismissed"] and dto.get("baselineState") != "existing" and dto["severity"] != "INFO"
+
+
 @dataclass(frozen=True)
 class AdvisorRun:
     advisor: str
@@ -77,7 +82,7 @@ class AdvisorRun:
             or (not evidence.get("usable") and bool(limitations))
             or scan_status in ("PARTIAL", "ERROR")
         )
-        if any(not f.dismissed and f.baseline_state != "existing" and severity_rank(f.severity) <= gate for f in found):
+        if any(fails(f.to_dto()) and severity_rank(f.severity) <= gate for f in found):
             reason = (limitations[0] if limitations else _FALLBACK_REASON) if incomplete else None
             return cls(advisor, "FAILED", found, evidence, reason, app)
         if incomplete:

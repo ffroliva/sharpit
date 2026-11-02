@@ -134,6 +134,7 @@ class _State:
     partial_selection: bool = False
     worker_partial_facts: list[dict[str, Any]] | None = None
     partial: bool = False
+    baseline_carried: tuple[Any, ...] = ()
 
 
 def _state(config: Any) -> _State | None:
@@ -240,12 +241,15 @@ def _attach(config: Any) -> None:
     worker = getattr(config, "workerinput", {}).get("workerid", "master")
     sink = TestSessionSink(worker)
     settings = load_settings({}, os.environ)
+    loaded_baseline = None
     try:
         from sharpit.engine.testsession import baseline as baseline_io
 
         loaded_baseline = baseline_io.read(options.baseline) if options.baseline else None
-    except (OSError, ValueError) as exc:
-        raise pytest.UsageError(f"sharpit: cannot read baseline: {exc}") from exc
+    except (OSError, ValueError, RecursionError) as exc:
+        # fails closed: the session runs and the unusable baseline is an unknown reason (never sharpit off)
+        reason = f"baseline unusable: {exc}"
+        sink.facts.sources.append({"name": "baseline", "attached": False, "reason": reason, "limitations": []})
     sink.facts.warnings.extend(warnings)
     sink.facts.warnings.extend(report_masker_warnings(os.environ))
     sink.facts.warnings.extend(settings.warnings)

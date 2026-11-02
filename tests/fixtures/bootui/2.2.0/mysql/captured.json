@@ -1,0 +1,13 @@
+{
+  "localOnly": true,
+  "disclaimer": "Explicit, bounded READ ONLY observations of MySQL's own metadata and statistics, not application rows. Collection is not an atomic snapshot. Server counters include other clients; default-schema association is not exhaustive schema access. Pool acquisition and network timeouts are separate from the cooperative 15-second read budget. No health score or complete-history claim.",
+  "status": "NOT_READ",
+  "message": "No MySQL read has run. Run MySQL read explicitly to contact existing JDBC datasources.",
+  "readStartedAt": null,
+  "readAt": null,
+  "dataSourcesRead": 0,
+  "dataSources": [],
+  "diagnostics": [],
+  "limitations": [],
+  "truncated": false
+}

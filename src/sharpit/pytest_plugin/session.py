@@ -11,7 +11,7 @@ try:
 except ImportError:  # pluggy before the public re-export
     from pluggy._result import Result
 
-from sharpit.engine.testsession.partial import partial_run, selection_requested
+from sharpit.engine.testsession.partial import partial_run
 from sharpit.pytest_plugin.apps import TEST_FILES, reconcile_workers
 
 WORKER_APPS = "sharpit-worker-apps"
@@ -77,8 +77,7 @@ def pytest_collection_finish(session: Any) -> None:
     state = cast(Any, pytest_plugin)._state(session.config)
     if state is None:
         return
-    args = list(getattr(session.config.invocation_params, "args", ()))
-    state.partial_selection = selection_requested(args)
+    state.partial_selection = _selected(session.config)
     state.partial_collected = len(getattr(session, "items", ()))
 
 
@@ -92,17 +91,27 @@ def pytest_deselected(items: list[Any]) -> None:
         state.partial_deselected += len(items)
 
 
-def _partial_facts(state: Any, session: Any) -> dict[str, Any]:
-    config = session.config
-    args = list(getattr(config.invocation_params, "args", ()))
+_SELECTING = ("keyword", "markexpr", "lf", "stepwise", "deselect", "ignore", "ignore_glob")
+
+
+def _selected(config: Any) -> bool:
+    """Selection from the parsed options (addopts included), never raw argument text (`-W a::b` is not a node id)."""
     option = getattr(config, "option", None)
+    # explicit positional args (files, dirs, node ids) narrow the run; xdist workers always get them from the controller
+    explicit = (
+        not hasattr(config, "workerinput") and getattr(config, "args_source", None) == pytest.Config.ArgsSource.ARGS
+    )
+    return explicit or any(getattr(option, name, None) for name in _SELECTING)
+
+
+def _partial_facts(state: Any, session: Any) -> dict[str, Any]:
     return {
         "deselected": state.partial_deselected,
-        "selection": state.partial_selection or selection_requested(args),
+        "selection": state.partial_selection or _selected(session.config),
         "collected": state.partial_collected,
         "run": state.partial_run_count,
         "interrupted": getattr(session, "exitstatus", 0) == int(pytest.ExitCode.INTERRUPTED),
-        "maxfail": bool(getattr(option, "maxfail", 0)),
+        # -x/--maxfail alone is not partial: `stopped` (shouldfail) records an actual early stop
         "stopped": bool(getattr(session, "shouldstop", False) or getattr(session, "shouldfail", False)),
     }
 

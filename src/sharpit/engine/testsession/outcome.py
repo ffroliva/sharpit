@@ -131,6 +131,8 @@ def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> Advis
     status = _worst(r.status for r in runs)
     chosen = next((r for r in runs if r.status == status), runs[0])
     reason = next((run.reason for run in runs if run.status == status and run.reason is not None), chosen.reason)
+    if status == "FAILED" and reason is None:  # an UNKNOWN worker beside a complete FAILED one stays visible
+        reason = next((run.reason for run in runs if run.status == "UNKNOWN" and run.reason is not None), None)
     return AdvisorRun(advisor, status, tuple(findings.values()), chosen.evidence, reason, app)
 
 
@@ -173,7 +175,10 @@ def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str]) -> Merg
     sources = _combine_sources(parts, untraced, engines)
     runs = _merge_runs(parts)
     unattached = [
-        (s["name"], p.worker) for p in parts for s in p.sources if not s["attached"] and s["name"] != "exceptions"
+        (s["name"], p.worker)
+        for p in parts
+        for s in p.sources
+        if not s["attached"] and s["name"] not in {"exceptions", "baseline"}
     ]
     findings = _flat_findings(tests, runs)
     attributed = attributed_queries(tests)
@@ -289,12 +294,14 @@ def _unknown_reasons(
     if merged.exceptions_lost:
         reasons.append(f"exception capture was lost: {'; '.join(dict.fromkeys(merged.exceptions_lost))}")
     reasons += [f"source '{name}' not attached in worker {worker}" for name, worker in merged.unattached]
+    reasons += [s["reason"] for s in merged.sources if s["name"] == "baseline" and not s["attached"]]
     if advisors_enabled:
-        reasons += [
-            f"advisor '{s['advisor']}' could not assess: {s['reason'] or FALLBACK_REASON}"
+        reasons += dict.fromkeys(  # every app, not only the merged status: a FAILED app must not hide an UNKNOWN one
+            f"advisor '{s['advisor']}' could not assess: {e['reason'] or FALLBACK_REASON}"
             for s in summaries
-            if s["status"] == "UNKNOWN" or (s["status"] == "FAILED" and s["reason"] is not None)
-        ]
+            for e in (s["apps"] or [s])
+            if e["status"] == "UNKNOWN" or (e["status"] == "FAILED" and e["reason"] is not None)
+        )
     reasons += [f"worker {w['id']} reported no sharpit facts" for w in merged.workers if w["status"] == "missing"]
     return reasons
 

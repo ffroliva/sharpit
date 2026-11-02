@@ -1,0 +1,50 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "window": {
+    "retainedExchanges": 7,
+    "bufferSize": 200,
+    "evicted": 0,
+    "hiddenSelfExchanges": 0,
+    "summarizedExchanges": 7,
+    "timedExchanges": 7,
+    "oldestTimestamp": 1700000000000,
+    "newestTimestamp": 1700000000000,
+    "totalDurationMs": 2306
+  },
+  "routes": [
+    {
+      "id": "GET /api/v1/accounts/{accountUid}/balance",
+      "method": "GET",
+      "route": "/api/v1/accounts/{accountUid}/balance",
+      "routeSource": "FRAMEWORK_TEMPLATE",
+      "requests": 2,
+      "status2xx": 1,
+      "status3xx": 0,
+      "status4xx": 1,
+      "status5xx": 0,
+      "statusOther": 0,
+      "errorCount": 1,
+      "timedRequests": 2,
+      "totalDurationMs": 101,
+      "avgDurationMs": 50.5,
+      "p50DurationMs": 48,
+      "p95DurationMs": 53,
+      "p99DurationMs": 53,
+      "maxDurationMs": 53,
+      "shareOfRetainedTimePercent": 4.38,
+      "topFor": [
+        "REQUESTS",
+        "TOTAL_DURATION",
+        "P95_DURATION"
+      ]
+    }
+  ],
+  "topPerCriterion": 25,
+  "routesTruncated": false,
+  "distinctRoutes": 5,
+  "notes": [
+    "Every figure covers only the 7 retained, visible exchanges. These are diagnostic evidence for this window, not lifetime or service-level metrics, and a route with few requests has few samples behind its percentiles.",
+    "Routes use the template the framework matched, then the single best route the application declares, then the path with every value-like segment masked. Query strings are never used, and every segment a declared route marks as a parameter is masked."
+  ]
+}
