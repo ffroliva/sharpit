@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, internal
 from sharpit.engine.masking import Masker
-from sharpit.engine.sources import dispatch
+from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.sources.dispatch import SqlEvent
 
 if TYPE_CHECKING:
@@ -74,6 +74,18 @@ def unavailable_reason() -> str | None:
     if sqlalchemy_module() is None:
         return f"SQLAlchemy {getattr(module, '__version__', '?')} is imported, but sharpit needs 2.0 or later"
     return None
+
+
+def sqlite3_traced(ctx: SharpitContext) -> bool:
+    """The raw sqlite3 source feeds this context: its own switch is on and the patch is in (any holder's)."""
+    return ctx.settings.sql_trace_sqlite3_enabled and sqlite.is_attached()
+
+
+def sql_trace_unavailable_reason(ctx: SharpitContext) -> str | None:
+    """Why SQL Trace shows nothing: tracing switched off, or SQLAlchemy 2.0+ not imported by the app."""
+    if not ctx.settings.sql_trace_enabled:
+        return TRACING_DISABLED
+    return None if sqlite3_traced(ctx) else unavailable_reason()
 
 
 def _engine_class() -> type | None:

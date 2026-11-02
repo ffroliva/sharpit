@@ -365,7 +365,9 @@ def unavailable_report(reason: str) -> dict[str, Any]:
 
 def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
     """``SqlTraceEntryDto`` from a stored row."""
-    return {**row, "timestamp": _iso(row["timestamp"])}
+    dto = {**row, "timestamp": _iso(row["timestamp"])}
+    dto.pop("shape", None)  # internal: the recorder's Normalized, kept for grouping without re-normalising
+    return dto
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -384,7 +386,7 @@ class _Aggregate:
 
 
 class SqlTotals(NamedTuple):
-    """Lifetime counters: survive ring eviction and ``clear()``."""
+    """Statement counts survive ring eviction and ``clear()``; the slowest SELECT is reset by ``clear()``."""
 
     statements: int
     selects: int
@@ -420,14 +422,15 @@ class SqlTraceRecorder:
         self._ids = itertools.count(1)
         self._total = 0
         self._evicted = 0
-        self._statements = self._selects = self._max_millis = 0
+        self._selects = 0
+        self._max_millis = -1  # -1: no SELECT since the last clear
         self._max_sql: str | None = None
         self._lock = threading.Lock()
         self.changes = ChangeStream()
 
     def totals(self) -> SqlTotals:
         with self._lock:
-            return SqlTotals(self._statements, self._selects, self._max_millis, self._max_sql)
+            return SqlTotals(self._total, self._selects, max(self._max_millis, 0), self._max_sql)
 
     @property
     def aggregate_count(self) -> int:
@@ -511,6 +514,7 @@ class SqlTraceRecorder:
             else [],
             "traceId": request_id,
             "callSite": site,
+            "shape": normalized,
         }
         with self._lock:
             row["id"] = next(self._ids)
@@ -518,11 +522,12 @@ class SqlTraceRecorder:
                 self._evicted += 1
             self._entries.append(row)
             self._total += 1
-            self._statements += 1
-            self._selects += category == "SELECT"
-            if self._max_sql is None or millis > self._max_millis:
-                self._max_millis = millis
-                self._max_sql = _truncate(normalized.sql, self._max_sql_length)
+            if category == "SELECT":
+                self._selects += 1
+                if millis > self._max_millis:  # rare: only a new slowest SELECT pays for mask_text
+                    self._max_millis = millis
+                    shown = masker.mask_text(normalized.sql)
+                    self._max_sql = _truncate(shown, self._max_sql_length) if shown is not None else None
             key = normalized.fingerprint
             aggregate = self._aggregates.get(key)
             if aggregate is None:
@@ -542,6 +547,7 @@ class SqlTraceRecorder:
         with self._lock:
             self._entries.clear()
             self._aggregates.clear()
+            self._max_millis, self._max_sql = -1, None
         self.changes.signal()
 
     def set_recording(self, enabled: bool) -> None:

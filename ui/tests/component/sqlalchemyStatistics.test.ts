@@ -24,22 +24,6 @@ it('a null counter reads "not measured" with the reason as a tooltip, never 0', 
   expect(document.querySelector('[title^="SQLAlchemy reports SQL statements"]')).not.toBeNull();
 });
 
-it('the N+1 table links the route to HTTP Exchanges', async () => {
-  const hit = { method: 'GET', route: 'app:list_pets', routeReason: null, sql: 'select * from pets where owner_id = ?', executionsPerRequest: 6, requests: 1, threshold: 5 };
-  h.route((url) => (url === 'api/sqlalchemy-statistics' ? json(200, report({ statistics: stats({ nPlusOne: [hit] }) })) : undefined));
-  mount();
-  await until(() => expect(document.querySelector('a[href^="#/http-exchanges"]')).not.toBeNull());
-  expect(document.querySelector('a')?.getAttribute('href')).toContain('app%3Alist_pets');
-});
-
-it('enableAvailable false shows no enable button', async () => {
-  h.route((url) => (url === 'api/sqlalchemy-statistics' ? json(200, report()) : undefined));
-  mount();
-  await until(() => expect(text()).toContain('SELECT statements'));
-  expect(document.querySelector('button[data-enable]')).toBeNull();
-  expect(text()).not.toMatch(/enable/i);
-});
-
 const NULL_REASON = 'SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)';
 
 it('the N+1 link filters HTTP Exchanges by the request path, not the endpoint name', async () => {

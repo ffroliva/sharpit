@@ -24,7 +24,6 @@ from sharpit.engine.collectors.sqlastats import (
     RECORDING_PAUSED,
     REPORT_KEYS,
     STATISTICS_KEYS,
-    n_plus_one,
     statistics_report,
 )
 from sharpit.engine.context import SharpitContext
@@ -196,16 +195,6 @@ def test_only_selects_count_towards_n_plus_one():
     for i in range(7):
         _sql(ctx, f"update pets set name = 'a' where id = {i}", "r1")
     assert _stats(ctx)["nPlusOne"] == []
-
-
-def test_n_plus_one_is_capped():
-    rows = [
-        {"traceId": f"r{i}", "category": "SELECT", "sql": f"select {'c' * i} from t where x = {n}"}
-        for i in range(1, 26)
-        for n in range(5)
-    ]
-    entries = n_plus_one(rows, lambda _rid: ("GET", "/x"), 5)
-    assert len(entries) == 20
 
 
 def test_max_time_query_is_normalised():

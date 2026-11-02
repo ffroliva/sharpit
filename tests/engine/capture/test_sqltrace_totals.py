@@ -43,15 +43,6 @@ def test_totals_max_sql_is_none_before_any_statement():
     assert SqlTraceRecorder(MASKED).totals().max_sql is None
 
 
-def test_totals_survive_clear():
-    recorder = SqlTraceRecorder(MASKED)
-    _record(recorder, "select 1", millis=9)
-    recorder.clear()
-    totals = recorder.totals()
-    assert totals.statements == 1
-    assert totals.max_millis == 9
-
-
 def test_totals_survive_eviction():
     recorder = SqlTraceRecorder(MASKED, max_entries=5)
     for _ in range(12):

@@ -8,15 +8,16 @@
   let { panel }: { panel: Panel } = $props();
 
   type NPlusOne = {
-    method: string | null; route: string | null; routeReason: string | null;
+    method: string | null; route: string | null; routePath: string | null; routeReason: string | null;
     sql: string; executionsPerRequest: number; requests: number; threshold: number;
   };
   type Report = {
     available: boolean; enableAvailable: boolean; unavailableReason: string | null;
-    statistics: Record<string, number | boolean | string | null | unknown[]> & { nPlusOne: NPlusOne[]; nPlusOneWindow: string };
+    statistics: Record<string, number | boolean | string | null | unknown[]> & { nPlusOne: NPlusOne[]; nPlusOneWindow: string; warnings?: string[] };
   };
 
-  const NOT_MEASURED = 'SQLAlchemy reports SQL statements, not ORM session or entity operations';
+  // same text as NULL_REASON in engine/collectors/sqlastats.py and nullable.json
+  const NOT_MEASURED = 'SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)';
   const report = loader(() => get<Report>('sqlalchemy-statistics'));
   $effect(() => void report.reload());
 
@@ -37,6 +38,7 @@
       <div class="empty"><p class="lead">Statistics unavailable</p><p>{report.data.unavailableReason}</p></div>
     {:else}
       {@const s = report.data.statistics}
+      {#each s.warnings ?? [] as warning (warning)}<p class="warn">{warning}</p>{/each}
       <dl class="cards">
         {#each MEASURED as [key, label] (key)}
           <div class="card"><dt>{label}</dt><dd><strong>{s[key]}</strong></dd></div>
@@ -64,7 +66,7 @@
               <tr>
                 <td>
                   {#if n.route}
-                    <a href={href('http-exchanges', n.route)}>{n.method} {n.route}</a>
+                    <a href={href('http-exchanges', n.routePath ?? '')}>{n.method} {n.route}</a>
                   {:else}
                     <span class="muted" title={n.routeReason}>unknown route</span>
                   {/if}
