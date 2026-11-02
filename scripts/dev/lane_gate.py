@@ -274,7 +274,7 @@ def _is_overhead_module(path: str, before: str | None) -> bool:
                 return True
         func = node.func if isinstance(node, ast.Call) else None
         called = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
-        defined = node.name if isinstance(node, ast.FunctionDef) else ""
+        defined = node.name if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) else ""
         if "check_budget" in (called, defined):
             return True
     return False
