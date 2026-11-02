@@ -1,6 +1,6 @@
 # Lane A-postgresql handoff
 
-Status: IN_PROGRESS — Tasks 1–4 complete (resumed by a Claude subagent after Antigravity hit its quota); next Task 5.
+Status: IN_PROGRESS — Tasks 1–5 complete (resumed by a Claude subagent after Antigravity hit its quota); next Task 6.
 
 ## How to resume
 
@@ -18,10 +18,11 @@ Status: IN_PROGRESS — Tasks 1–4 complete (resumed by a Claude subagent after
 
 - Task 3 (section collectors): red `e2504c7f15c00305ab54c166ccded0700a2ae900`, fix `feat: postgresql catalog section collectors` (see git log).
 - Task 4 (report service): red `af231859d2e164fe48214be61e67b4fc1635a1bb`, fix `c3ff9e4` (`feat: postgresql read service`). `test_concurrent_read_is_busy` is not in the red table (its red is pytest's `DID NOT RAISE`, not an assertion).
+- Task 5 (routes, MCP, safety, masking): red `6da613bfa2d48b778cf983cabb7a01bf2577a529`, fix `feat: postgresql panel routes and MCP read tool` (see git log). The Python flag `panels04/postgresql.py::IMPLEMENTED` is flipped in Task 5's red (the routes only mount behind it); the UI flag flips in Task 6. `tests/safety/test_a_postgresql_safety.py` and `tests/masking/test_a_postgresql_masking.py` are characterization rows written after the service (green at their first commit, not in the red table).
 
 ## Next step
 
-- Task 5: routes (`fastapi/routes/postgresql.py`), MCP (`engine/tools04/postgresql.py`), safety/masking tests, `nullable.json`, field map.
+- Task 6: replace `ui/src/views/PostgreSql.svelte`, add `ui/tests/component/postgreSql.test.ts`, flip `ui/src/lib/panels04/postgresql.ts`.
 
 ## Decisions and deviations
 
@@ -36,10 +37,23 @@ Status: IN_PROGRESS — Tasks 1–4 complete (resumed by a Claude subagent after
 - Task 3 shortcut: BootUI clamps each statement's `setQueryTimeout` to the remaining budget; sharpit pins `statement_timeout` once (5 s) and checks the budget between queries and rows, so a read can overrun the 15 s budget by at most one statement (≤ 5 s); `run_db_read(wall_timeout=15)` still bounds the caller.
 - Task 3 reasons go through `masker.mask_text` (house pattern `mask_text(msg) or <label>`), BootUI's `CredentialRedaction` analogue; under `METADATA_ONLY` a failed section says only `<label> could not be read: <ExceptionType>`.
 - Task 4: an empty engine registry reports `DISABLED` with BootUI's "No PostgreSQL datasource was found…" (plan Review Focus 5), not BootUI's "No DataSource beans were found to inspect." (no bean concept). BootUI's manual-commit skip maps to `bounded_read_only`'s refusal: the database is `ERROR` with `message = READ_ONLY_REFUSED` and one `ERROR` diagnostic. `serverVersion` comes from the dialect's `server_version_info` read inside the transaction; `message` (BootUI's pin/restore caveat) is always `null` because sharpit never runs a half-pinned read. The NOT_READ text keeps BootUI's CLI hint with `bootui`→`sharpit` (`sharpit db postgres read`).
+- Task 5: `engine/tools04/postgresql.py` is F's per-panel stub, filled here (F's table: "for its owning lane to fill"). `postgresql_read` is an action (CLI-only, refused read-only) and answers BootUI's `McpScanSummaries.postgresql` summary; `get_postgresql_report` is the MCP read. CLI paths from BootUI `CliCommandPaths`: `db postgres read`, `db postgres report`. A disabled panel answers the shared 403 (contract §5), so the test is `test_disabled_panel_is_403`.
+- Task 5: `test_golden_parity` skips until G0a's `captured.json` (or a coordinator-requested `provisional.json`) exists under `tests/fixtures/bootui/2.2.0/postgresql/`; this lane wrote only `nullable.json`.
+- `tests/engine/postgresql/__init__.py` added: without it `tests/engine/postgresql/test_service.py` collides with `tests/engine/vulns/test_service.py` ("import file mismatch" in rootdir import mode); node ids are unchanged.
 
 ## Needs from coordinator
 
-- None yet.
+- **Flag flip fallout (outside this lane's May-touch; each fails only because it pins the pre-postgresql catalogue/route list — add the postgresql row):**
+  - `tests/engine/test_mcp.py::test_tools_list_has_no_action_tool` (MCP list gains `get_postgresql_report`)
+  - `tests/engine/test_tools.py::test_catalogue_names_panels_actions_and_schemas` (+`postgresql_read`, `get_postgresql_report`)
+  - `tests/fastapi/test_install.py::test_panels_platform_fastapi_and_ids`, `::test_mvp_panels_stay_available` (+`postgresql` panel: 17 vs 16)
+  - `tests/fastapi/test_mcp_api.py::test_mcp_server_status_shape` (19 vs 18 tools)
+  - `tests/fastapi/test_cli_api.py::test_cli_status_shape_matches_contract` (26 vs 24 tools)
+  - `tests/test_foundation_suite_equivalence.py::test_foundation_suite_equivalence` (route list now starts with `/api/postgresql`, `/api/postgresql/read`)
+  - `tests/test_safety_matrix.py::test_write_route_table_is_complete` (+`POST /sharpit/api/postgresql/read`), `::test_get_route_table_is_complete` (+`GET /sharpit/api/postgresql`) — C5 file, not editable by this lane.
+  - F's `tests/fastapi/test_capture_hooks.py` / `tests/test_foundation_review_fixes.py`: no failure observed from the flip.
+- G0a: `tests/fixtures/bootui/2.2.0/postgresql/captured.json` (or a `provisional.json`) so `test_golden_parity` runs instead of skipping.
+- Leased-Postgres run (this lane never connected to a database): `SHARPIT_TEST_POSTGRES_URL=postgresql+psycopg://<user>:<pw>@localhost:5432/<db> uv run pytest -v tests/engine/test_sqla_read_only.py tests/engine/postgresql/test_sections.py -k "rejects_write or autocommit_engine or async_engine or real_server"`.
 
 ## Red-test replay table
 
@@ -104,4 +118,12 @@ Status: IN_PROGRESS — Tasks 1–4 complete (resumed by a Claude subagent after
 | `tests/engine/postgresql/test_service.py::test_in_memory_previous_read_delta_appears_only_from_second_read_and_is_not_persisted` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [None] == []` |
 | `tests/engine/postgresql/test_service.py::test_a_partial_read_keeps_the_baseline_of_the_sections_it_could_not_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [None] == []` |
 | `tests/engine/postgresql/test_service.py::test_get_returns_the_last_read_report_after_a_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert {'status': ''...ics': [], ...} == {'status': ''...Read': 0, ...}` |
+| `tests/fastapi/test_postgresql_api.py::test_get_returns_the_not_read_report_before_any_read` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_read_performs_the_read_and_returns_a_report` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_get_no_side_effects` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_read_only_403[options0]` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `AssertionError: assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_read_only_403[options1]` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `AssertionError: assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_concurrent_read_409` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 409` |
+| `tests/fastapi/test_postgresql_api.py::test_mcp_read_tool_only` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `AssertionError: assert [] == ['get_postgre...tgresql_read']` |
+| `tests/fastapi/test_postgresql_api.py::test_cli_read_returns_a_summary_without_rows` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
 

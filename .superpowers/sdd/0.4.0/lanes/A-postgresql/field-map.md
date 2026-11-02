@@ -1,61 +1,56 @@
-# Lane A-postgresql BootUI 2.2.0 → sharpit 0.4.0 field map
+# Lane A-postgresql field map: BootUI 2.2.0 DTO → sharpit source
 
-Source: `C:\development\github\boot-ui-ref\bootui-engine\src\main\java\io\github\jdubois\bootui\core\dto\Postgres*.java` (commit `ddfcb2436`).
+Source: `C:\development\github\boot-ui-ref\bootui-engine\src\main\java\io\github\jdubois\bootui\core\dto\Postgres*.java`
+(commit `ddfcb2436`). Keys are emitted exactly as the record components, in record order, nulls included. The sharpit
+producer is `src/sharpit/engine/collectors/postgresql/` (`sections.py` for rows, `service.py` for the report); SQL is
+`queries.py`. "as BootUI" = same catalog column and same null rule; a deviation is spelled out.
 
-## `PostgresInsightReport` (`GET /sharpit/api/postgresql`, `POST /sharpit/api/postgresql/read`)
+## `PostgresInsightReport` (`GET /sharpit/api/postgresql`, `POST /sharpit/api/postgresql/read`) — `service._report`
 
-| BootUI DTO / field | JSON key | Type | Nullability / notes |
-|---|---|---|---|
-| `PostgresInsightReport.status` | `status` | `str` | `"NOT_READ" \| "AVAILABLE" \| "PARTIAL" \| "UNAVAILABLE" \| "DISABLED"` |
-| `PostgresInsightReport.message` | `message` | `str \| None` | Status message or `None` |
-| `PostgresInsightReport.readAt` | `readAt` | `int \| None` | Epoch ms; `None` before first read (documented in `nullable.json`) |
-| `PostgresInsightReport.durationMillis` | `durationMillis` | `int \| None` | Collection duration ms; `None` before first read |
-| `PostgresInsightReport.sourceCount` | `sourceCount` | `int` | Registered PostgreSQL engine count |
-| `PostgresInsightReport.availableSources` | `availableSources` | `int` | Count of `AVAILABLE` or `PARTIAL` database entries |
-| `PostgresInsightReport.limits` | `limits` | `dict` | `PostgresRowLimits`: `maxSessions`, `maxStatements`, `maxIndexes`, `maxTables`, `maxVacuumTables`, `maxReplicas`, `maxSettings` |
-| `PostgresInsightReport.databases` | `databases` | `list[dict]` | `PostgresDatabaseDto[]` |
-| `PostgresInsightReport.changes` | `changes` | `list[dict]` | `PostgresChangeDto[]`: `source`, `metric`, `label`, `previousValue`, `currentValue`, `delta` |
-| `PostgresInsightReport.diagnostics` | `diagnostics` | `list[dict]` | `PostgresDiagnosticDto[]`: `source`, `level`, `message` |
-| `PostgresInsightReport.disclaimer` | `disclaimer` | `str` | Verbatim disclaimer with `BootUI` → `sharpit` |
+| Key | Source |
+|---|---|
+| `localOnly` | constant `true` |
+| `disclaimer` | `DISCLAIMER`, verbatim |
+| `status` | `NOT_READ` / `DISABLED` / `ERROR` / `PARTIAL` / `READ`, `PostgresInsightService.doRead` rules |
+| `message` | BootUI messages (`BootUI`→`sharpit`); `null` on `READ` |
+| `readAt` | epoch ms at the end of the read; `null` before the first read |
+| `databasesRead` | number of PostgreSQL engines read (error databases included) |
+| `truncated` | any database `truncated` |
+| `databases` | `PostgresDatabaseDto[]` |
+| `diagnostics` | `PostgresDiagnosticDto[]` (`source`, `level`, `message`): skipped non-PostgreSQL engines (INFO), unread engines (WARNING), failed engines (ERROR), every non-clean section (`<name>/<section>`) |
+| `limitations` | `limitationsOf` text, `BootUI's row limit`→`sharpit's row limit` |
 
-## `PostgresDatabaseDto`
+## `PostgresDatabaseDto` — `service._database`
 
-| BootUI field | JSON key | Type | Nullability / notes |
-|---|---|---|---|
-| `name` | `name` | `str` | Engine registry name |
-| `status` | `status` | `str` | `"AVAILABLE" \| "PARTIAL" \| "UNAVAILABLE"` |
-| `unavailableReason` | `unavailableReason` | `str \| None` | `None` when available/partial |
-| `databaseName` | `databaseName` | `str \| None` | `current_database()` |
-| `serverVersion` | `serverVersion` | `str \| None` | Formatted server version |
-| `serverVersionNum` | `serverVersionNum` | `int \| None` | `server_version_num` integer |
-| `currentUser` | `currentUser` | `str \| None` | Masked under `METADATA_ONLY` |
-| `inRecovery` | `inRecovery` | `bool` | `pg_is_in_recovery()` |
-| `uptimeSeconds` | `uptimeSeconds` | `int \| None` | Seconds since `pg_postmaster_start_time()` |
-| `statsReset` | `statsReset` | `str \| None` | ISO-8601 timestamp from `pg_stat_database.stats_reset` |
-| `readAt` | `readAt` | `int \| None` | Epoch ms |
-| `durationMillis` | `durationMillis` | `int \| None` | Elapsed ms for this engine |
-| `sections` | `sections` | `dict[str, dict]` | Keys in `SECTION_IDS` order: `vital-signs`, `sessions`, `statements`, `indexes`, `tables`, `vacuum`, `replication`, `settings` |
-| `vitalSigns` | `vitalSigns` | `dict \| None` | `PostgresVitalSignsDto` |
-| `sessions` | `sessions` | `list[dict]` | `PostgresSessionDto[]` |
-| `statements` | `statements` | `list[dict]` | `PostgresStatementDto[]` |
-| `indexes` | `indexes` | `list[dict]` | `PostgresIndexDto[]` |
-| `tables` | `tables` | `list[dict]` | `PostgresTableDto[]` |
-| `vacuum` | `vacuum` | `list[dict]` | `PostgresVacuumDto[]` |
-| `replication` | `replication` | `dict \| None` | `PostgresReplicationDto` |
-| `settings` | `settings` | `list[dict]` | `PostgresSettingDto[]` |
-| `diagnostics` | `diagnostics` | `list[dict]` | `PostgresDiagnosticDto[]` |
+| Key | Source |
+|---|---|
+| `name` | engine registry display name (credentials masked by `EngineRegistry`) |
+| `databaseName` | `vitalSigns.databaseName` (`current_database()`), else `null` |
+| `serverVersion` | `".".join(conn.dialect.server_version_info)` read inside the pinned transaction (BootUI: JDBC metadata); `null` if absent |
+| `serverMajorVersion` | first element of `server_version_info`, else `-1` (as BootUI) |
+| `role` | `current_user` (role probe) |
+| `monitoringRole` | `pg_has_role(current_user, 'pg_read_all_stats', 'usage')` |
+| `status` | `statusOf`: `ERROR` if no section `AVAILABLE`, `READ` if every section is clean and nothing truncated, else `PARTIAL`; `ERROR` for a refused/failed engine |
+| `message` | `null` on a read (sharpit never runs a half-pinned read); the failure reason on an `ERROR` database (`READ_ONLY_REFUSED`, masked driver error, budget) |
+| `vitalSigns`, `sections`, `sessions`, `statements`, `indexes`, `tables`, `vacuum`, `replication`, `settings` | the eight sections below |
+| `changes` | `PostgresChangeDto[]` vs the previous in-memory read |
+| `truncated` | any section `truncated` |
 
-## Section & Row DTOs
+## Section and row DTOs — `sections.py`
 
-- `PostgresSectionDto`: `id`, `title`, `status`, `available`, `unavailableReason`, `rowCount`, `limit`, `truncated`, `durationMillis`, `note`.
-- `PostgresVitalSignsDto`: `databaseSizeBytes`, `databaseSizePretty`, `activeConnections`, `idleConnections`, `idleInTransactionConnections`, `waitingConnections`, `totalConnections`, `maxConnections`, `connectionUtilizationRatio`, `transactionsCommitted`, `transactionsRolledBack`, `rollbackRatio`, `blocksRead`, `blocksHit`, `cacheHitRatio`, `tuplesReturned`, `tuplesFetched`, `tuplesInserted`, `tuplesUpdated`, `tuplesDeleted`, `tempFiles`, `tempBytes`, `deadlocks`, `conflicts`, `blkReadTimeMillis`, `blkWriteTimeMillis`, `checksumFailures`, `longestTransactionSeconds`, `longestQuerySeconds`, `longestIdleInTransactionSeconds`.
-- `PostgresSessionDto`: `pid`, `userName`, `applicationName`, `clientAddress`, `state`, `waitEventType`, `waitEvent`, `backendType`, `transactionAgeSeconds`, `queryAgeSeconds`, `stateAgeSeconds`, `blockingPids`, `blockedByCount`, `blockingCount`, `query`.
-- `PostgresStatementDto`: `queryId`, `query`, `calls`, `totalExecTimeMillis`, `meanExecTimeMillis`, `maxExecTimeMillis`, `rows`, `sharedBlksHit`, `sharedBlksRead`, `sharedHitRatio`, `tempBlksRead`, `tempBlksWritten`, `walBytes`.
-- `PostgresIndexDto`: `schema`, `tableName`, `indexName`, `indexSizeBytes`, `indexSizePretty`, `tableSizeBytes`, `indexScans`, `tuplesRead`, `tuplesFetched`, `valid`, `ready`, `primary`, `unique`, `definition`, `usageStatus`, `recommendation`.
-- `PostgresTableDto`: `schema`, `tableName`, `totalSizeBytes`, `totalSizePretty`, `tableSizeBytes`, `indexesSizeBytes`, `toastSizeBytes`, `estimatedLiveRows`, `deadRows`, `deadRowRatio`, `sequentialScans`, `sequentialTuplesRead`, `indexScans`, `indexTuplesFetched`, `indexScanRatio`, `tuplesInserted`, `tuplesUpdated`, `tuplesDeleted`, `hotUpdates`, `hotUpdateRatio`.
-- `PostgresVacuumDto`: `schema`, `tableName`, `liveRows`, `deadRows`, `deadRowRatio`, `estimatedThreshold`, `needsVacuum`, `lastVacuum`, `lastAutovacuum`, `lastAnalyze`, `lastAutoanalyze`, `vacuumCount`, `autovacuumCount`, `analyzeCount`, `autoanalyzeCount`, `transactionIdAge`, `freezeMaxAge`, `wraparoundRatio`, `status`, `note`.
-- `PostgresReplicationDto`: `role`, `walLevel`, `replicas`, `activeSlotCount`, `inactiveSlotCount`, `maxSlotRetainedWalBytes`, `maxReplicationLagSeconds`, `lastWalReplayPaused`, `replayLagSeconds`, `note`.
-- `PostgresReplicaDto`: `applicationName`, `clientAddress`, `state`, `syncState`, `writeLagSeconds`, `flushLagSeconds`, `replayLagSeconds`, `sentLagBytes`, `replayLagBytes`.
-- `PostgresSettingDto`: `name`, `setting`, `unit`, `DisplayValue` (`displayValue`), `category`, `source`, `pendingRestart`, `description`.
-- `PostgresChangeDto`: `source`, `metric`, `label`, `previousValue`, `currentValue`, `delta`.
-- `PostgresDiagnosticDto`: `source`, `level`, `message`.
+| DTO | Keys → catalog source |
+|---|---|
+| `PostgresSectionDto` | `id`, `title` (BootUI titles), `status` (`AVAILABLE`/`SKIPPED`/`FAILED`), `reason` (masked), `hint`, `rowCount`, `truncated` (read one past the limit) |
+| `PostgresVitalSignsDto` | `databaseName` current_database(); `cacheHitRatio` blks_hit/(hit+read); `rollbackRatio` xact_rollback/(commit+rollback); `transactionsCommitted` xact_commit; `transactionsRolledBack` xact_rollback; `connections` sum(pg_stat_database.numbackends); `maxConnections` pg_settings max_connections; `connectionUsageRatio`; `activeSessions`, `idleInTransactionSessions`, `blockedSessions`, `longestTransactionSeconds` from pg_stat_activity (null when the role is restricted); `transactionIdAge` age(datfrozenxid); `wraparoundLimit` autovacuum_freeze_max_age; `wraparoundUsageRatio`; `databaseSizeBytes` pg_database_size; `deadlocks`; `temporaryFiles` temp_files; `temporaryBytes` temp_bytes |
+| `PostgresSessionDto` | `pid`, `user` usename, `applicationName` (query-text sanitised), `clientAddress` host(client_addr) (`******` under METADATA_ONLY), `state`, `waitEventType`, `waitEvent`, `blockedBy` pg_blocking_pids, `stateSeconds`/`transactionSeconds`/`querySeconds` vs clock_timestamp(), `query` (sanitised) |
+| `PostgresStatementDto` | `queryId` queryid::text, `query` (sanitised), `calls`, `totalTimeMs`/`meanTimeMs`/`maxTimeMs` (`*_exec_time` or `*_time` by extension version), `rows`, `cacheHitRatio` shared_blks_hit/(hit+read) |
+| `PostgresIndexDto` | `schema`, `table`, `index`, `scans` idx_scan, `tuplesRead` idx_tup_read, `sizeBytes` pg_relation_size, `unique`, `primaryKey`, `constraintBacked` |
+| `PostgresTableDto` | `schema`, `table`, `totalSizeBytes`, `tableSizeBytes`, `indexSizeBytes`, `liveTuples` n_live_tup, `deadTuples` n_dead_tup, `sequentialScans`, `sequentialTuplesRead`, `indexScans`, `sequentialScanRatio` |
+| `PostgresVacuumDto` | `schema`, `table`, `liveTuples`, `deadTuples`, `deadTupleRatio`, `vacuumThreshold` (floored, reloptions overrides, PG18 cap), `vacuumDue`, `autovacuumEnabled`, `lastVacuum`/`lastAutoVacuum`/`lastAnalyze`/`lastAutoAnalyze` epoch ms |
+| `PostgresReplicationDto` | `inRecovery` pg_is_in_recovery(), `replicas`, `checkpointsTimed`/`checkpointsRequested`/`checkpointWriteSeconds` (pg_stat_checkpointer or pg_stat_bgwriter), `replicationSlots`, `inactiveReplicationSlots`, `walLevel` (settings), `replicasAvailable` |
+| `PostgresReplicaDto` | `applicationName`, `clientAddress` (`******` under METADATA_ONLY), `state`, `syncState`, `sentLagBytes`/`flushLagBytes`/`replayLagBytes` pg_wal_lsn_diff |
+| `PostgresSettingDto` | `name`, `value` (`******` under METADATA_ONLY, else cut to 120), `unit`, `source`, `note` (BootUI's curated allow-list text) |
+| `PostgresChangeDto` | `metric`, `previous`, `current` (rendered), `direction` `UP`/`DOWN` |
+| `PostgresDiagnosticDto` | `source`, `level`, `message` |
+
+Nullable paths the golden check may meet as `null`: `tests/fixtures/bootui/2.2.0/postgresql/nullable.json`.

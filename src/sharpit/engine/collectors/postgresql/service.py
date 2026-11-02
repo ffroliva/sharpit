@@ -318,3 +318,28 @@ def _limitations(databases: list[Dto], truncated: bool, read_limitations: list[s
     if truncated and not limitations:
         limitations.append("Some results reached sharpit's row limits. Additional rows are not shown.")
     return limitations
+
+
+def summary(report: Dto) -> Dto:
+    """McpScanSummaries.postgresql: the read's status and each database's and section's coverage, without rows."""
+    databases = [
+        {
+            "name": d["name"],
+            "status": d["status"],
+            "message": d["message"],
+            "truncated": d["truncated"],
+            "sections": [{k: s[k] for k in ("id", "status", "reason", "rowCount", "truncated")} for s in d["sections"]],
+        }
+        for d in report["databases"]
+    ]
+    return {
+        "reportTool": "get_postgresql_report",
+        "status": report["status"],
+        "message": report["message"],
+        "readAt": report["readAt"],
+        "databasesRead": report["databasesRead"],
+        "truncated": report["truncated"],
+        "databases": databases,
+        "diagnostics": len(report["diagnostics"]),
+        "limitations": report["limitations"],
+    }

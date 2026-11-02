@@ -63,6 +63,14 @@
 | `tests/engine/postgresql/test_service.py::test_in_memory_previous_read_delta_appears_only_from_second_read_and_is_not_persisted` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [None] == []` |
 | `tests/engine/postgresql/test_service.py::test_a_partial_read_keeps_the_baseline_of_the_sections_it_could_not_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `assert [None] == []` |
 | `tests/engine/postgresql/test_service.py::test_get_returns_the_last_read_report_after_a_read` | `af231859d2e164fe48214be61e67b4fc1635a1bb` | `AssertionError: assert {'status': ''...ics': [], ...} == {'status': ''...Read': 0, ...}` |
+| `tests/fastapi/test_postgresql_api.py::test_get_returns_the_not_read_report_before_any_read` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_read_performs_the_read_and_returns_a_report` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_get_no_side_effects` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_read_only_403[options0]` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `AssertionError: assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_read_only_403[options1]` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `AssertionError: assert 404 == 200` |
+| `tests/fastapi/test_postgresql_api.py::test_concurrent_read_409` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 409` |
+| `tests/fastapi/test_postgresql_api.py::test_mcp_read_tool_only` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `AssertionError: assert [] == ['get_postgre...tgresql_read']` |
+| `tests/fastapi/test_postgresql_api.py::test_cli_read_returns_a_summary_without_rows` | `6da613bfa2d48b778cf983cabb7a01bf2577a529` | `assert 404 == 200` |
 
 ## Review / implementation findings
 
