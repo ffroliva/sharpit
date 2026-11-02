@@ -194,3 +194,37 @@ def test_summary_cli_deeply_nested_json_fails_cleanly(tmp_path: Path) -> None:
     path.write_text("[" * 200_000, encoding="utf-8")
     done = _run_module(path)
     assert done.stderr.decode(errors="replace").startswith("sharpit.report: "), done.stderr[-300:]
+
+
+def test_summary_unknown_status_prints_each_reason_once() -> None:
+    # finding: for an unknown run statusReasons == unknownReasons, so every reason printed twice
+    out = render_summary(_report(status="unknown", statusReasons=["coverage gap"], unknownReasons=["coverage gap"]))
+    assert out.count("coverage gap") == 1, out
+
+
+def test_summary_excludes_dismissed_findings_from_count_and_table() -> None:
+    # finding: dismissed findings were counted and listed, unlike severityCounts
+    out = render_summary(_report(findings=[_finding(1, target="gone", dismissed=True), _finding(2)]))
+    assert "- **Findings:** 1" in out, out
+    assert "gone" not in out, out
+
+
+def test_summary_orders_failing_findings_before_severity() -> None:
+    # finding: a baselined HIGH outranked a failing LOW in the top 20
+    findings = [_finding(1, "HIGH", target="old", baselineState="existing"), _finding(2, "LOW", target="new")]
+    out = render_summary(_report(findings=findings))
+    assert out.index("| new |") < out.index("| old |"), out
+
+
+def test_summary_escapes_baseline_fixed() -> None:
+    # finding: baseline.fixed was interpolated without _esc
+    baseline = {"existing": 1, "new": 0, "fixed": "<b>x</b>"}
+    out = render_summary(_report(baseline=baseline))
+    assert "fixed \\<b\\>x\\</b\\>" in out, out
+
+
+def test_summary_neutralises_bare_urls() -> None:
+    # finding: GFM autolinked bare URLs in untrusted finding text
+    from sharpit.report.summary import _esc  # pyright: ignore[reportPrivateUsage]
+
+    assert _esc("go HTTPS://a.b/c, http://d and www.e.f") == "go HTTPS:​//a.b/c, http:​//d and www​.e.f"
