@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -69,7 +69,9 @@ def read(path: Path) -> Baseline:
     return Baseline(entries, raw)
 
 
-def compare(findings: Sequence[Finding], baseline: Baseline | None, *, partial: bool) -> Comparison:
+def compare(
+    findings: Sequence[Finding], baseline: Baseline | None, *, partial: bool, ran: Collection[str] | None = None
+) -> Comparison:
     """Annotate current findings and report baseline entries no longer seen."""
     from dataclasses import replace
 
@@ -98,7 +100,7 @@ def compare(findings: Sequence[Finding], baseline: Baseline | None, *, partial: 
     return Comparison(tuple(compared), fixed, None)
 
 
-def write(path: Path, findings: Sequence[Finding]) -> None:
+def write(path: Path, findings: Sequence[Finding], keep: Sequence[Entry] = ()) -> None:
     """Write stable, sorted baseline bytes. Findings arrive masked from the capture sink."""
     rows: dict[str, dict[str, Any]] = {}
     for finding in findings:

@@ -76,3 +76,32 @@ def test_vulnerability_findings_excluded_from_baseline(tmp_path) -> None:
     path = tmp_path / "baseline.json"
     baseline.write(path, (finding,))
     assert baseline.read(path).entries == {}
+
+
+def _baseline_of(tmp_path, *findings: Finding) -> baseline.Baseline:
+    path = tmp_path / "old.json"
+    baseline.write(path, findings)
+    return baseline.read(path)
+
+
+def test_fixed_only_for_advisors_that_ran(tmp_path) -> None:
+    rest = Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m")
+    old = _baseline_of(tmp_path, rest, _finding())
+    result = baseline.compare([], old, partial=False, ran={"test-runtime"})
+    assert result.fixed is None
+    assert result.fixed_reason == "advisor did not run: rest-api"
+    assert [entry.fingerprint for entry in result.carried] == [rest.fingerprint]
+
+
+def test_write_keeps_carried_entries(tmp_path) -> None:
+    rest = Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m")
+    [carried] = _baseline_of(tmp_path, rest).entries.values()
+    path = tmp_path / "new.json"
+    baseline.write(path, [_finding()], keep=[carried])
+    assert rest.fingerprint in baseline.read(path).entries
+
+
+def test_dismissed_findings_not_written(tmp_path) -> None:
+    path = tmp_path / "new.json"
+    baseline.write(path, [Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m", dismissed=True)])
+    assert baseline.read(path).entries == {}
