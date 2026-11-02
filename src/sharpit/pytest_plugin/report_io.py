@@ -41,14 +41,15 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
         )
         _apply_baseline(state, data)
         refusal = _baseline_refusal(state, data)
+        if not refusal:
+            _write_baseline(state, data)  # before the report, so a write failure is in it
         report.write_json(state.options.report, data)
         if state.options.junit:
             report.write_junit(state.options.junit, data, allow_unknown=state.options.allow_unknown)
         if refusal:
             raise pytest.UsageError(refusal)
-        _write_baseline(state, data)
         if exitstatus == 0 and outcome.exit_fails(
-            status,
+            data["status"],
             state.options.allow_unknown,
             report_only=state.options.report_only,
             unknown_reasons=data["unknownReasons"],
@@ -112,9 +113,18 @@ def _baseline_refusal(state: Any, data: dict[str, Any]) -> str | None:
 
 
 def _write_baseline(state: Any, data: dict[str, Any]) -> None:
-    if state.options.write_baseline:
+    if not state.options.write_baseline:
+        return
+    try:
         baseline_io.write(
             state.options.write_baseline,
             [finding_from(finding) for finding in data["findings"]],
             state.baseline_carried,
         )
+    except (OSError, ValueError) as exc:
+        reason = f"baseline write failed: {exc}"
+        data["unknownReasons"].append(reason)
+        data["warnings"].append(reason)  # the terminal summary prints warnings
+        if data["status"] == "pass":
+            data["status"] = "unknown"
+            data["statusReasons"] = list(data["unknownReasons"])
