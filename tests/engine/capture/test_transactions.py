@@ -169,6 +169,33 @@ def test_savepoint_closes_one_child_per_context(monkeypatch) -> None:
     assert len(connection.info["sharpit_tx"]) == 2, "a savepoint event must close its child entry in each context"
 
 
+def test_untracked_savepoint_end_does_not_close_root(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from sharpit.engine.capture.transactions import tx_begin, tx_commit, tx_rollback_savepoint
+    from sharpit.engine.sources import dispatch
+
+    recorder = _recorder()
+    context = SimpleNamespace(
+        context_id="untracked-savepoint-context",
+        capture=SimpleNamespace(transactions=recorder, wiring=SimpleNamespace(hook_failed=lambda *_: None)),
+        settings=SimpleNamespace(
+            transactions_enabled=True,
+            panels={"transactions": SimpleNamespace(enabled=True)},
+            sql_trace_capture_call_site=False,
+        ),
+    )
+    connection = SimpleNamespace(info={}, engine=object(), connection=SimpleNamespace(dbapi_connection=object()))
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: [context])
+    tx_begin(connection)
+    root_id = connection.info["sharpit_tx"][0][1]
+    tx_rollback_savepoint(connection, "not-tracked", None)
+    tx_commit(connection)
+    row = recorder.report([])["entries"][0]
+    assert row["id"] == root_id, "an untracked savepoint event must leave the root transaction on the stack"
+    assert row["status"] == "COMMITTED", "an untracked savepoint release must not close the root transaction"
+
+
 def test_internal_transaction_callbacks_are_skipped(monkeypatch) -> None:
     from types import SimpleNamespace
 
