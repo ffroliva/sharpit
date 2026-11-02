@@ -185,3 +185,66 @@ def test_mcp_read_tool_only(client: TestClient):
     result = _rpc(client, "tools/call", {"name": "get_traces", "arguments": {"limit": 1}})["result"]
     assert result["isError"] is False
     assert len(result["structuredContent"]["traces"]) == 1
+
+
+# BootUI 2.2.0 records, field order as declared (boot-ui-ref bootui-engine core/dto/*.java). O2 forbids this lane writing
+# a provisional.json, so the detail DTO is checked against the record field lists instead.
+BOOTUI_TRACE_DETAIL = {"traceId": str, "spans": list}  # TraceDetailDto
+BOOTUI_SPAN = {  # SpanDto
+    "traceId": str,
+    "spanId": str,
+    "parentSpanId": (str, type(None)),
+    "name": str,
+    "kind": str,
+    "serviceName": (str, type(None)),
+    "scope": (str, type(None)),
+    "startEpochNanos": int,
+    "endEpochNanos": int,
+    "durationNanos": int,
+    "statusCode": str,
+    "statusMessage": (str, type(None)),
+    "attributes": list,
+    "events": list,
+}
+BOOTUI_SPAN_EVENT = {"name": str, "timeOffsetNanos": int, "attributes": list}  # SpanEventDto
+BOOTUI_SPAN_ATTRIBUTE = {"key": str, "type": str, "value": (str, type(None))}  # SpanAttributeDto (Object value)
+
+
+def _record_problems(record: dict[str, Any], fields: dict[str, Any], where: str) -> list[str]:
+    problems = [f"{where}: keys {list(record)} != {list(fields)}"] if list(record) != list(fields) else []
+    return problems + [
+        f"{where}.{key}: {type(record[key]).__name__}"
+        for key, kind in fields.items()
+        if key in record and not isinstance(record[key], kind)
+    ]
+
+
+def test_detail_matches_the_bootui_span_records(client: TestClient):
+    child = span(TRACE_A, 2_000)
+    child.context.span_id, child.parent = 8, SimpleNamespace(trace_id=TRACE_A, span_id=7)
+    child.status = SimpleNamespace(status_code=SimpleNamespace(name="ERROR"), description="boom")
+    child.events = [SimpleNamespace(name="exception", timestamp=2_500, attributes={"exception.type": "ValueError"})]
+    otel.PROCESSOR.on_end(span(TRACE_A, 1_000))
+    otel.PROCESSOR.on_end(child)
+    detail = client.get(f"{API}/{TRACE_A:032x}").json()
+    problems = _record_problems(detail, BOOTUI_TRACE_DETAIL, "detail")
+    for i, s in enumerate(detail["spans"]):
+        problems += _record_problems(s, BOOTUI_SPAN, f"spans[{i}]")
+        for j, e in enumerate(s["events"]):
+            problems += _record_problems(e, BOOTUI_SPAN_EVENT, f"spans[{i}].events[{j}]")
+            problems += [p for a in e["attributes"] for p in _record_problems(a, BOOTUI_SPAN_ATTRIBUTE, "event attr")]
+        problems += [p for a in s["attributes"] for p in _record_problems(a, BOOTUI_SPAN_ATTRIBUTE, "attribute")]
+    assert len(detail["spans"]) == 2
+    assert problems == []
+
+
+def test_server_root_path_hides_sharpit_server_spans(provider: Provider):
+    # review r1: behind ``--root-path /proxy`` the server span's path carries the prefix; sharpit learns it per request
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False)
+    url = "/proxy/sharpit/api/traces"
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000), root_path="/proxy") as started:
+        assert started.get(url).status_code == 200
+        otel.PROCESSOR.on_end(span(TRACE_A, 1_000, path=url))
+        body = started.get(url).json()
+    assert body["traces"] == []
