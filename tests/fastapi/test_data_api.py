@@ -8,16 +8,18 @@ from typing import Any
 
 import httpx
 import pytest
-import sqlalchemy as sa
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship
 
-from conftest import SideEffectGuard
-from data_support import spy_on_configure
-from fastapi import FastAPI
-from golden import ROOT, assert_parity
-from sharpit import install
-from sharpit.engine.panels import PANELS, disabled_reason
+pytest.importorskip("sqlalchemy")
+import sqlalchemy as sa  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship  # noqa: E402
+
+from conftest import SideEffectGuard  # noqa: E402
+from data_support import spy_on_configure  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from golden import ROOT, assert_parity  # noqa: E402
+from sharpit import install  # noqa: E402
+from sharpit.engine.panels import PANELS, disabled_reason  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 

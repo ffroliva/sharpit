@@ -6,16 +6,18 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-import sqlalchemy as sa
-from sqlalchemy import exc, orm
-from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship
 
-from data_support import spy_on_configure
-from sharpit.engine import sqla
-from sharpit.engine.activation import ActivationStatus
-from sharpit.engine.collectors import data
-from sharpit.engine.context import SharpitContext
-from sharpit.settings import SharpitSettings
+pytest.importorskip("sqlalchemy")
+import sqlalchemy as sa  # noqa: E402
+from sqlalchemy import exc, orm  # noqa: E402
+from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship  # noqa: E402
+
+from data_support import spy_on_configure  # noqa: E402
+from sharpit.engine import sqla  # noqa: E402
+from sharpit.engine.activation import ActivationStatus  # noqa: E402
+from sharpit.engine.collectors import data  # noqa: E402
+from sharpit.engine.context import SharpitContext  # noqa: E402
+from sharpit.settings import SharpitSettings  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
