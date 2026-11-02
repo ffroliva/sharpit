@@ -132,13 +132,30 @@ def test_report_borrows_no_connection(tmp_path: Path):
 
 def test_autocommit_from_isolation_level(tmp_path: Path):
     plain, auto = _queue_engine(tmp_path, "p.db"), _queue_engine(tmp_path, "a.db", isolation_level="AUTOCOMMIT")
-    assert [p["autoCommit"] for p in pools_report(_ctx(plain, auto))["pools"]] == [False, True]
+    assert [p["autoCommit"] for p in pools_report(_ctx(plain, auto))["pools"]] == [None, True]
+
+
+def test_pool_dto_emits_null_read_only_and_honest_auto_commit(tmp_path: Path):
+    plain = _queue_engine(tmp_path, "plain.db")
+    auto = _queue_engine(tmp_path, "auto.db", isolation_level="AUTOCOMMIT")
+    pools = pools_report(_ctx(plain, auto))["pools"]
+    assert pools[0]["readOnly"] is None
+    assert pools[0]["autoCommit"] is None
+    assert pools[1]["autoCommit"] is True
+
+
+def test_pools_report_emits_pool_library_present_and_implementation(tmp_path: Path):
+    # ported: DatabaseConnectionPoolsServiceTests.reportsPoolLibraryPresentAndImplementation
+    report = pools_report(_ctx(_queue_engine(tmp_path)))
+    assert "poolLibraryPresent" in report
+    assert "hikariPresent" not in report
+    assert report["pools"][0]["implementation"] == "SQLAlchemy"
 
 
 def test_shape_keys_match_bootui(tmp_path: Path):
     # ported: HikariPoolsReport, HikariPoolDto, HikariPoolSnapshotDto
     report = pools_report(_ctx(_queue_engine(tmp_path)))
-    assert tuple(report) == ("hikariPresent", "total", "pools")
-    assert (report["hikariPresent"], report["total"]) == (True, 1)
-    assert tuple(report["pools"][0]) == POOL_KEYS
+    assert tuple(report) == ("poolLibraryPresent", "total", "pools")
+    assert (report["poolLibraryPresent"], report["total"]) == (True, 1)
+    assert tuple(report["pools"][0]) == ("beanName", "poolName", "implementation", *POOL_KEYS[2:])
     assert tuple(report["pools"][0]["snapshot"]) == ("timestamp", "active", "idle", "total", "pending")

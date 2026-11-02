@@ -46,4 +46,6 @@ def test_get_database_connection_pools_mcp(tmp_path: Path):
     call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_database_connection_pools"}}
     result = client.post("/sharpit/api/mcp", json={**call, "params": {**call["params"], "arguments": {}}}).json()
     content = result["result"]["structuredContent"]
-    assert (content["hikariPresent"], content["total"]) == (True, 1)
+    assert "poolLibraryPresent" in content
+    assert content["poolLibraryPresent"] is True
+    assert content["total"] == 1
