@@ -58,3 +58,9 @@ def test_query_text_respects_exposure_level() -> None:
 def test_query_text_a_dollar_inside_a_string_is_not_a_dollar_quote() -> None:
     # derived: the WIP masked dollar quotes before strings, so `$a$` inside a literal swallowed the rest of the text
     assert query_text(MASKED, "SELECT 'cost $a$' , x FROM t") == "SELECT '******' , x FROM t"
+
+
+def test_query_text_masks_strings_and_dollar_quotes_in_one_pass() -> None:
+    # derived: review finding 10, the WIP (f247d7e) masked dollar quotes before strings in two passes
+    sql = "SELECT 'price $usd$', name FROM t WHERE body = $usd$x$usd$"
+    assert query_text(MASKED, sql) == "SELECT '******', name FROM t WHERE body = $$******$$"
