@@ -148,9 +148,9 @@ def shape_golden(node: Any) -> Any:
 
 
 def is_error_envelope(body: Any) -> bool:
-    """A guard or framework error, not a panel payload: any root object with an ``error`` key (covers Spring's
-    ``{timestamp,status,error,path}``)."""
-    return isinstance(body, dict) and "error" in body
+    """A guard or framework error, not a panel payload: a root object whose ``error`` is set (covers Spring's
+    ``{timestamp,status,error,path}``). A null ``error`` is a DTO field (the http-probe response carries one)."""
+    return isinstance(body, dict) and body.get("error") is not None
 
 
 def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
@@ -176,7 +176,8 @@ def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
 def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None) -> None:
     """``layout`` is ``"nested"`` (2.2.0: ``<id>/captured.json`` folders) or ``"flat"`` (1.17.0).
     Default: nested when the source folder is named ``2.2.0``, else flat.
-    ``repo`` is the root holding ``replica/evidence`` and ``tests/fixtures/bootui`` (default: this repository; tests pass a temporary one)."""
+    ``repo`` is the root holding ``replica/evidence`` and ``tests/fixtures/bootui``
+    (default: this repository; tests pass a temporary one)."""
     repo = repo or Path(__file__).resolve().parents[1]
     src = src.resolve()
     dst = dst.resolve()
