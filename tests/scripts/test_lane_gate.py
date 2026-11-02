@@ -118,6 +118,11 @@ class Fixture:
                 "rpcerror": '<failure message="pkg.RpcError: x">E   pkg.RpcError: x\nt.py:2: RpcError</failure>',
                 "error": '<error message="failed on setup">trace</error>',
                 "skip": '<skipped message="skip" />',
+                "scripts-assert": '<failure message="assert 0">E   x\nscripts/helper.py:2: AssertionError</failure>',
+                "abs-helper": f'<failure message="assert 0">E\n{tree}\\tests\\helpers.py:3: AssertionError</failure>',
+                "abs-src-assert": f'<failure message="assert 0">E\n{tree}\\src\\widget.py:2: AssertionError</failure>',
+                "teardown": f'<failure message="assert 0">E   x\n{module}:2: AssertionError</failure>'
+                '<error message="failed on teardown with &quot;RuntimeError&quot;">trace</error>',
             }
             if outcome == "mixed-params":  # one parametrisation fails as a red should, the other passes
                 cases.append(f'<testcase classname="{classname}" name="{name}[a]">{body["rewritten"]}</testcase>')
@@ -924,3 +929,38 @@ def test_lane_gate_refuses_findings_without_a_disposition_table(tmp_path: Path) 
     fx.commit({f"{fx.folder}/findings.md": table}, "docs: findings")
     fx.review()
     assert _refused(fx.evaluate(), "findings.md: no table with a Disposition column")
+
+
+# --- red rule: an assertion counts only when its last frame is under tests/ (G1G2 audit review) -----------------------
+
+
+def test_lane_gate_refuses_assert_raised_in_scripts(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "scripts-assert"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside tests/")
+
+
+def test_lane_gate_refuses_assert_raised_in_src_by_absolute_path(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "abs-src-assert"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside tests/")
+
+
+def test_lane_gate_accepts_helper_under_tests_by_absolute_path(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "abs-helper"
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_refuses_failure_with_teardown_error(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "teardown"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: error at red SHA")
+
+
+def test_lane_gate_exposes_the_one_accept_rule() -> None:
+    is_red = getattr(lane_gate, "is_red", None)
+    assert callable(is_red), "lane_gate exposes no public is_red for red_check to share"
+    assert is_red(("failure", "AssertionError")) is True
+    assert is_red(("failure", "TypeError")) is False
+    assert callable(getattr(lane_gate, "red_verdicts", None)), "lane_gate exposes no public red_verdicts"
