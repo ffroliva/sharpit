@@ -91,7 +91,7 @@ def test_overview_shape_matches_golden_keys():
     assert resp.headers["cache-control"] == "no-store, must-revalidate"
     assert resp.headers["pragma"] == "no-cache"
     body = resp.json()
-    assert set(body) == set(golden("overview"))
+    assert set(body) == set(golden("overview")) | {"run"}  # BootUI 2.2.0 OverviewDto.run
     assert body["frameworkName"] == "FastAPI"
     assert body["webApplicationType"] == "ASGI"
     assert body["managementPort"] is None
