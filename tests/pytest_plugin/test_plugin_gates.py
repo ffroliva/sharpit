@@ -77,6 +77,60 @@ def test_lazy_performances():
     assert "selectinload(Player.performances)" in finding["message"]
 
 
+def test_async_lazy_load_is_attributed(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+import asyncio
+from sqlalchemy import ForeignKey, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'async_players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'async_performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('async_players.id'))
+
+engine = create_async_engine('sqlite+aiosqlite:///async-n-plus-one.db')
+async def seed():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with AsyncSession(engine) as session:
+        session.add_all(Player(performances=[Performance()]) for _ in range(6))
+        await session.commit()
+asyncio.run(seed())
+"""
+    )
+    pytester.makepyfile(
+        """
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from appmod import Player, engine
+
+@pytest.mark.asyncio
+async def test_async_performances():
+    async with AsyncSession(engine) as session:
+        players = (await session.scalars(select(Player))).all()
+        for player in players:
+            await session.run_sync(lambda sync_session: list(player.performances))
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    finding = next(item for item in data["findings"] if item["ruleId"] == "sharpit.n-plus-one")
+    assert "Player.performances lazy-loaded 6 times" in finding["message"]
+
+
 def test_eager_selectinload_batches_are_not_n_plus_one(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         appmod="""

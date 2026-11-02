@@ -430,9 +430,7 @@ def _sync_listeners() -> None:
     session_class = getattr(orm, "Session", None)
     if session_class is not None:
         present = sa.event.contains(session_class, "do_orm_execute", do_orm_execute)
-        if _session and not present:
-            sa.event.listen(session_class, "do_orm_execute", do_orm_execute)
-        elif present and not _session:
+        if present and not _session:
             sa.event.remove(session_class, "do_orm_execute", do_orm_execute)
 
 
