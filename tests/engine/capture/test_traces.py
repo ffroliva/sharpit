@@ -313,3 +313,48 @@ def test_exception_event_stacktrace_gets_the_sql_handling():
     buf.add(span(events=[event("exception", 2_000, {"exception.stacktrace": trace})]))
     shown = first_span(buf)["events"][0]["attributes"][0]["value"]
     assert "hunter2" not in shown
+
+
+CAPTURING = Masker(Exposure.MASKED, True, capture_parameters=True)
+
+
+def test_db_statement_parameters_hidden_unless_capture_parameters():
+    buf = buffer()
+    buf.add(span(attributes={"db.statement.parameters": "('alice@example.com',)"}))
+    assert attribute(first_span(buf), "db.statement.parameters") == MASK
+
+
+def test_db_query_parameter_hidden_unless_capture_parameters():
+    buf = buffer()
+    buf.add(span(attributes={"db.query.parameter.email": "alice@example.com"}))
+    assert attribute(first_span(buf), "db.query.parameter.email") == MASK
+
+
+def test_bind_parameter_attributes_shown_with_capture_parameters():
+    buf = buffer(CAPTURING)
+    buf.add(span(attributes={"db.query.parameter.email": "alice@example.com"}))
+    assert attribute(first_span(buf), "db.query.parameter.email") == "alice@example.com"
+
+
+def test_full_exposure_without_capture_parameters_still_hides_sql_literals():
+    # SQL Trace keys literals on capture_parameters, not on the exposure (review r1)
+    buf = buffer(FULL)
+    buf.add(span(attributes={"db.statement": "select * from owners where pw = 'hunter2'"}))
+    assert attribute(first_span(buf), "db.statement") == "select * from owners where pw = ?"
+
+
+def test_capture_parameters_shows_sql_literals():
+    buf = buffer(CAPTURING)
+    buf.add(span(attributes={"db.statement": "select * from owners where name = 'alice'"}))
+    assert attribute(first_span(buf), "db.statement") == "select * from owners where name = 'alice'"
+
+
+def test_detail_applies_the_live_capture_parameters_policy_on_every_read():
+    # ported: TracesServiceTests.detailAppliesTheLiveExposurePolicyOnEveryRead (supersedes the FULL-exposure version)
+    buf = buffer(CAPTURING)
+    buf.add(span(attributes={"db.statement": "select * from owners where name = 'alice'"}))
+    first = attribute(first_span(buf), "db.statement")
+    buf.masker = MASKED
+    second = attribute(first_span(buf), "db.statement")
+    assert "alice" in first
+    assert "alice" not in second
