@@ -44,7 +44,8 @@ PANEL_ACCESS_DENIED = "sharpit panel access denied"
 _BUILT_IN_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"})
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _FORWARDED_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip")
-_GLOBAL_WRITE_SUBJECTS = {"/dismissed-rules": "dismissed-rules"}  # port of BootUiGlobalWritePolicy
+# port of BootUiGlobalWritePolicy
+_GLOBAL_WRITE_SUBJECTS = {"/dismissed-rules": "dismissed-rules", "/dismissed-findings": "dismissed-findings"}
 _DISMISSALS = "/dismissed-rules/"
 _BEARER = "bearer "
 _JAVA_TRIM = "".join(chr(c) for c in range(0x21))  # Java String.trim() strips every char <= U+0020

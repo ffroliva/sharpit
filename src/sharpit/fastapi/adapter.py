@@ -127,9 +127,12 @@ class GuardMiddleware:
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
+                # a response with its own CSP owns its whole policy (assets keep no Pragma); else fill in what is
+                # missing, one header at a time, so a header set downstream is never duplicated
                 if "content-security-policy" not in headers:
                     for name, value in security_headers("api"):
-                        headers.append(name, value)
+                        if name not in headers:
+                            headers.append(name, value)
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
@@ -246,6 +249,6 @@ from sharpit.fastapi.install import install as install  # noqa: E402 - public ad
 
 
 def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
-    from sharpit.fastapi.routes import build_routes
+    from sharpit.fastapi.routes import build_routes, dismissed_findings
 
-    return build_routes(ctx, host_app)
+    return [*build_routes(ctx, host_app), *dismissed_findings.build_routes(ctx, host_app)]
