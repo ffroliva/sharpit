@@ -15,6 +15,7 @@ from _load import load_script
 
 lane_gate = load_script("scripts/dev/lane_gate.py")
 
+OVERHEAD_MODULE = "BUDGET_MS = 0.2\n\n\ndef test_request_overhead_budget():\n    assert 0.1 < BUDGET_MS\n"
 RED_TEST = "def test_widget():\n    assert widget() == 2\n"
 TEST_ID = "tests/test_widget.py::test_widget"
 BASELINE = {"src/a.py": 3, "src/b.py": 2}
@@ -76,7 +77,7 @@ class Fixture:
         text = body if body is not None else f"Reviewer: claude-reviewer\nHead: {self.head}\n\nVERDICT: APPROVE\n"
         _write(self.integration, {f"{self.folder}/review.md": text})
         names = ("lowest-direct", "no-sqlalchemy")
-        logs = {f"{self.folder}/gate/{name}.log": f"{self.head}\n$ cmd\nexit 0\nok\n" for name in names}
+        logs = {f"{self.folder}/gate/{name}.log": f"{self.head}\n$ cmd\nok\nexit 0\n" for name in names}
         _write(self.integration, logs)
 
     def options(self, **overrides: object) -> object:
@@ -99,14 +100,18 @@ class Fixture:
         outcome = self.outcomes.get(sha, "failure" if sha == self.red else "pass")
         cases = []
         for nodeid in nodeids:
-            module, name = nodeid.split("::")
-            classname = module.removesuffix(".py").replace("/", ".")
+            module, *rest = nodeid.split("::")
+            classname = ".".join([module.removesuffix(".py").replace("/", "."), *rest[:-1]])
+            name = rest[-1]
             body = {
                 "pass": "",
                 "failure": '<failure message="AssertionError: assert 1 == 2">trace</failure>',
                 "typeerror": '<failure message="TypeError: bad">trace</failure>',
                 # real pytest: a rewritten assert's message names no exception; --tb=long ends "<file>:<line>: <type>"
                 "rewritten": f'<failure message="assert 1 == 2">E   assert 1\n{module}:2: AssertionError</failure>',
+                "helper-assert": '<failure message="assert 0">E   x\ntests/overhead.py:9: AssertionError</failure>',
+                "did-not-raise": f'<failure message="Failed: DID NOT RAISE">E   Failed\n{module}:2: Failed</failure>',
+                "pytest-fail": f'<failure message="Failed: nope">E   Failed: nope\n{module}:2: Failed</failure>',
                 "src-assert": '<failure message="assert 0">E   assert 0\nsrc/widget.py:2: AssertionError</failure>',
                 "bare-assert": '<failure message="assert 0 == 2">no traceback tail</failure>',
                 "typed": '<failure type="AssertionError" message="custom text">no traceback tail</failure>',
@@ -132,7 +137,8 @@ def _base_files() -> dict[str, str]:
         "sonar-baseline.txt": "7\n",
         "scripts/dev/lane_gate.py": "# gate\n",
         "tests/engine/test_import_boundary.py": "RULES = {}\n",
-        "tests/fastapi/test_capture_overhead.py": "BUDGET_MS = 0.2\n",
+        "tests/fastapi/test_capture_overhead.py": OVERHEAD_MODULE,
+        "tests/overhead.py": "def check_budget():\n    pass\n",
         "pyproject.toml": '[project]\nname = "x"\ndependencies = ["starlette"]\n',
         "uv.lock": "lock\n",
     }
@@ -410,7 +416,9 @@ def test_lane_gate_ignores_changes_outside_the_red_test_body(tmp_path: Path) -> 
 def test_lane_gate_needs_accept_unverified_for_non_pytest_red(tmp_path: Path) -> None:
     fx = _fixture(tmp_path, review=False)
     vitest = "ui/tests/unit/nav.test.ts::keeps panels out"
-    fx.evidence(handoff_extra=f"| `{vitest}` | `{fx.red}` | `expect(x)` |\n")
+    ui_table = "\n## UI reds (manual replay)\n\n| Vitest test | Red SHA | Observed |\n|---|---|---|\n"
+    ui_table += f"| `{vitest}` | `{fx.red}` | x |\n"
+    fx.evidence(handoff_extra=ui_table)
     fx.review()
     assert _refused(fx.evaluate(), f"red {vitest}: not a pytest test")
     accepted = fx.evaluate(accept_unverified=True)
@@ -544,12 +552,13 @@ def test_lane_gate_allows_parked_finding_without_red_sha(tmp_path: Path) -> None
     assert _refusals(fx.evaluate()) == []
 
 
-def _own_red(fx: Fixture, files: dict[str, str], later: dict[str, str], test_id: str) -> None:
+def _own_red(fx: Fixture, files: dict[str, str], later: dict[str, str], test_id: str) -> str:
     """A second red in the fixture lane: ``files`` at its red commit, ``later`` committed after it."""
     red = fx.commit(files, "test: another red")
     fx.commit(later, "fix: after the red")
     fx.evidence(handoff_extra=f"| `{test_id}` | `{red}` | `x` |\n")
     fx.review()
+    return red
 
 
 CONST_RED = "EXPECTED = 2\n\n\ndef test_c():\n    assert 2 == EXPECTED\n"
@@ -596,7 +605,7 @@ def test_lane_gate_allows_conftest_edits_the_red_test_does_not_request(tmp_path:
     fx = _fixture(tmp_path, review=False)
     fx.commit({"tests/conftest.py": FIXTURE_DEF.format(1)}, "test: an unrelated fixture")
     fx.review()
-    assert _refusals(fx.evaluate()) == []
+    assert _refusals(fx.evaluate(allow_paths=("tests/conftest.py",))) == []  # tests/conftest.py is protected
 
 
 def test_lane_gate_refuses_red_decorator_changed_after_red_commit(tmp_path: Path) -> None:
@@ -762,3 +771,148 @@ def test_lane_gate_refuses_new_definition_shadowing_a_requested_fixture(tmp_path
     later = {"tests/test_fix.py": FIXTURE_DEF.format(3) + "\n\n" + FIXTURE_TEST}
     _own_red(fx, files, later, "tests/test_fix.py::test_f")
     assert _refused(fx.evaluate(), "red tests/test_fix.py::test_f: referenced name value changed")
+
+
+# --- code-review xhigh round (priority A: valid lanes refused) --------------------------------------------------------
+
+
+def test_lane_gate_accepts_assertion_from_a_shared_test_helper(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "helper-assert"
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_accepts_did_not_raise_from_the_test_file(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "did-not-raise"
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_still_refuses_pytest_fail_as_red(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "pytest-fail"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: Failed failure")
+
+
+def test_lane_gate_reads_parked_disposition_with_code_span(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    rows = f"| ok | `{TEST_ID}` | `{fx.red}` | x | Fixed |\n"
+    rows += "| later | `tests/test_widget.py::test_x` | | x | Parked: needs `F-rest` |\n"
+    fx.commit({f"{fx.folder}/findings.md": FINDINGS_HEAD + rows}, "docs: findings")
+    fx.review()
+    assert _refusals(fx.evaluate()) == []
+
+
+CLASS_RED = "class TestK:\n    LIMIT = 2\n\n    def test_k(self):\n        assert self.LIMIT == 2\n"
+
+
+def test_lane_gate_allows_new_methods_in_the_red_test_class(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    grown = CLASS_RED + "\n    def test_more(self):\n        assert True\n"
+    red = _own_red(fx, {"tests/test_k.py": CLASS_RED}, {"tests/test_k.py": grown}, "tests/test_k.py::TestK::test_k")
+    fx.outcomes[red] = "rewritten"
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_refuses_class_attribute_the_red_method_uses(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    later = {"tests/test_k.py": CLASS_RED.replace("LIMIT = 2", "LIMIT = 3")}
+    _own_red(fx, {"tests/test_k.py": CLASS_RED}, later, "tests/test_k.py::TestK::test_k")
+    assert _refused(fx.evaluate(), "red tests/test_k.py::TestK::test_k: referenced name LIMIT changed")
+
+
+def test_lane_gate_skips_gates_after_a_replay_refusal(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "pass"
+    assert _refused(fx.evaluate(), "passed at red SHA")
+    assert fx.gate_calls == []
+    assert not (fx.integration / fx.folder / "gate" / "pytest.log").exists()
+
+
+def test_lane_gate_main_resolves_the_integration_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fx = _fixture(tmp_path)
+    seen: list[Path] = []
+
+    def factory(integration: Path) -> object:
+        seen.append(integration)
+        return fx.run_pytest
+
+    monkeypatch.setattr(lane_gate, "run_gate_command", fx.run_gate)
+    monkeypatch.setattr(lane_gate, "run_pytest_in", factory)
+    monkeypatch.chdir(tmp_path)
+    assert lane_gate.main([fx.lane, "--worktree", str(fx.worktree), "--integration", "integration"]) == 0
+    assert seen[0].is_absolute()
+
+
+# --- code-review xhigh round (priority B: bypasses) -------------------------------------------------------------------
+
+
+def test_lane_gate_refuses_sha_log_whose_last_line_is_not_exit_0(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    _write(fx.integration, {f"{fx.folder}/gate/lowest-direct.log": f"{fx.head}\n$ cmd\nexit 0\nboom\nexit 1\n"})
+    assert _refused(fx.evaluate(), "gate/lowest-direct.log does not record exit 0")
+
+
+def test_lane_gate_refuses_na_with_an_empty_reason(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    rows = "".join(f"| {n} | item {n} | {'N/A — ' if n == 2 else 'N/A — r'} |\n" for n in range(1, 11))
+    fx.commit({f"{fx.folder}/checklist.md": "| # | Item | Evidence |\n|---|---|---|\n" + rows}, "docs: checklist")
+    fx.review()
+    assert _refused(fx.evaluate(), "checklist.md: item 2 has N/A without a reason")
+
+
+def test_lane_gate_refuses_non_pytest_red_outside_a_manual_table(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.evidence(handoff_extra=f"| `test_models_hook_rejects_a_string` | `{fx.red}` | `x` |\n")
+    fx.review()
+    result = fx.evaluate(accept_unverified=True)
+    assert _refused(result, "red test_models_hook_rejects_a_string: not a pytest node id")
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("tests/overhead.py", "def check_budget():\n    return None\n"),
+        ("tests/fastapi/test_capture_overhead.py", OVERHEAD_MODULE.replace("0.1 < BUDGET_MS", "0.1 <= BUDGET_MS")),
+    ],
+)
+def test_lane_gate_refuses_overhead_module_changes(tmp_path: Path, path: str, body: str) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.commit({path: body}, "chore: touch overhead")
+    fx.review()
+    assert _refused(fx.evaluate(), path)
+
+
+def test_lane_gate_allows_new_tests_in_an_overhead_module(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    grown = OVERHEAD_MODULE + "\n\ndef test_another_budget():\n    assert BUDGET_MS > 0\n"
+    fx.commit({"tests/fastapi/test_capture_overhead.py": grown}, "test: another budget test")
+    fx.review()
+    assert _refusals(fx.evaluate()) == []
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("tests/test_code_shape.py", "MAX_LINES = 2000\n"),
+        ("tests/conftest.py", "import pytest\n"),
+        ("pyproject.toml", '[project]\nname = "x"\ndependencies = ["starlette"]\n\n[tool.ruff]\nline-length = 200\n'),
+        ("pyproject.toml", '[project]\nname = "x"\ndependencies = ["starlette"]\n\n[tool.pytest.ini_options]\nx = 1\n'),
+    ],
+)
+def test_lane_gate_refuses_gate_config_changes_unless_allowed(tmp_path: Path, path: str, body: str) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.commit({path: body}, "chore: touch gate config")
+    fx.review()
+    assert _refused(fx.evaluate(), path)
+    allowed = fx.evaluate(allow_paths=(path,))
+    assert _refusals(allowed) == []
+    assert any(path in note for note in allowed.notes)  # type: ignore[attr-defined]
+
+
+def test_lane_gate_refuses_findings_without_a_disposition_table(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    table = f"| Finding | Test | Red SHA |\n|---|---|---|\n| f | `{TEST_ID}` | `{fx.red}` |\n"
+    fx.commit({f"{fx.folder}/findings.md": table}, "docs: findings")
+    fx.review()
+    assert _refused(fx.evaluate(), "findings.md: no table with a Disposition column")

@@ -71,12 +71,14 @@ class Options:
     integration: Path
     accept_unverified: bool = False
     no_rerun: bool = False
+    allow_paths: tuple[str, ...] = ()
 
 
 @dataclass
 class Result:
     refusals: list[str] = field(default_factory=list[str])
     unverified: list[str] = field(default_factory=list[str])
+    notes: list[str] = field(default_factory=list[str])
 
 
 @dataclass(frozen=True)
