@@ -544,19 +544,67 @@ def test_lane_gate_allows_parked_finding_without_red_sha(tmp_path: Path) -> None
     assert _refusals(fx.evaluate()) == []
 
 
+def _own_red(fx: Fixture, files: dict[str, str], later: dict[str, str], test_id: str) -> None:
+    """A second red in the fixture lane: ``files`` at its red commit, ``later`` committed after it."""
+    red = fx.commit(files, "test: another red")
+    fx.commit(later, "fix: after the red")
+    fx.evidence(handoff_extra=f"| `{test_id}` | `{red}` | `x` |\n")
+    fx.review()
+
+
+CONST_RED = "EXPECTED = 2\n\n\ndef test_c():\n    assert 2 == EXPECTED\n"
+FIXTURE_TEST = "def test_f(value):\n    assert value == 2\n"
+FIXTURE_DEF = "import pytest\n\n\n@pytest.fixture\ndef value():\n    return {}\n"
+
+
 def test_lane_gate_refuses_red_module_constant_changed_after_red_commit(tmp_path: Path) -> None:
+    # coordinator ruling: a top-level name the red test references may not change after the red commit
     fx = _fixture(tmp_path, review=False)
-    loosened = "from src.widget import widget\n\nEXPECTED = 2\n\n\n" + RED_TEST
-    fx.commit({"tests/test_widget.py": loosened}, "test: add a constant")
-    fx.review()
-    assert _refused(fx.evaluate(), f"red {TEST_ID}: test file changed outside added test functions")
+    later = {"tests/test_const.py": CONST_RED.replace("EXPECTED = 2", "EXPECTED = 3")}
+    _own_red(fx, {"tests/test_const.py": CONST_RED}, later, "tests/test_const.py::test_c")
+    assert _refused(fx.evaluate(), "red tests/test_const.py::test_c: referenced name EXPECTED changed")
 
 
-def test_lane_gate_refuses_conftest_changed_after_red_commit(tmp_path: Path) -> None:
+@pytest.mark.parametrize("where", ["tests/conftest.py", "tests/test_fix.py"])
+def test_lane_gate_refuses_conftest_changed_after_red_commit(tmp_path: Path, where: str) -> None:
+    # coordinator ruling: a fixture the red test requests may not change, in a conftest or in its own file
     fx = _fixture(tmp_path, review=False)
-    fx.commit({"tests/conftest.py": "import pytest\n"}, "test: conftest")
+    before, after = FIXTURE_DEF.format(2), FIXTURE_DEF.format(3)
+    own = where == "tests/test_fix.py"
+    files = {"tests/test_fix.py": (before + "\n\n" if own else "") + FIXTURE_TEST}
+    later = {"tests/test_fix.py": after + "\n\n" + FIXTURE_TEST} if own else {where: after}
+    if not own:
+        files[where] = before
+    _own_red(fx, files, later, "tests/test_fix.py::test_f")
+    assert _refused(fx.evaluate(), "red tests/test_fix.py::test_f: ")
+    assert _refused(fx.evaluate(), "value changed")
+
+
+@pytest.mark.parametrize(
+    "addition",
+    ["import os\n", "def helper():\n    return 1\n", "LIMIT = 3\n", "class Helper:\n    pass\n"],
+)
+def test_lane_gate_allows_added_imports_and_new_top_level_names(tmp_path: Path, addition: str) -> None:
+    fx = _fixture(tmp_path, review=False)
+    grown = "from src.widget import widget\n" + addition + "\n\n" + RED_TEST
+    fx.commit({"tests/test_widget.py": grown}, "test: grow the red file")
     fx.review()
-    assert _refused(fx.evaluate(), f"red {TEST_ID}: tests/conftest.py changed after red commit")
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_allows_conftest_edits_the_red_test_does_not_request(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.commit({"tests/conftest.py": FIXTURE_DEF.format(1)}, "test: an unrelated fixture")
+    fx.review()
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_refuses_red_decorator_changed_after_red_commit(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    red = "import pytest\n\n\n@pytest.mark.parametrize('x', [1, 2])\ndef test_d(x):\n    assert x > 1\n"
+    later = {"tests/test_dec.py": red.replace("[1, 2]", "[2]")}
+    _own_red(fx, {"tests/test_dec.py": red}, later, "tests/test_dec.py::test_d")
+    assert _refused(fx.evaluate(), "red tests/test_dec.py::test_d: test body changed after red commit")
 
 
 def test_lane_gate_runs_gates_in_a_fresh_tree_at_head(tmp_path: Path) -> None:
