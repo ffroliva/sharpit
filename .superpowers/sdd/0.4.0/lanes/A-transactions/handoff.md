@@ -17,7 +17,7 @@ IN PROGRESS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 
 ## Next step
 
-Continue review round 1 fixes. Commit `b9bb0a3651df951caecb6da77f2526ee2a77aa29` adds a red finalizer deadlock regression. No-SQLAlchemy, lowest-direct, and live checks remain for coordinator follow-up; the live example is outside this lane's touch scope.
+Continue review round 1 fixes. Finalizer deadlock: red `b9bb0a3651df951caecb6da77f2526ee2a77aa29`, fix `85fbff9fe8ba8e242b63a2952e6750ecfd7d0083`. No-SQLAlchemy, lowest-direct, and live checks remain for coordinator follow-up; the live example is outside this lane's touch scope.
 
 ## Decisions
 

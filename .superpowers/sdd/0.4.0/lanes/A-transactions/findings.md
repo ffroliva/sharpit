@@ -28,7 +28,7 @@
 
 | Test | Red SHA | Assertion | Disposition |
 |---|---|---|---|
-| `tests/engine/capture/test_transactions.py::test_listener_release_never_runs_under_attach_lock` | `b9bb0a3651df951caecb6da77f2526ee2a77aa29` | `listener release must not block while the attach lock is held` | Fixed in pending commit |
+| `tests/engine/capture/test_transactions.py::test_listener_release_never_runs_under_attach_lock` | `b9bb0a3651df951caecb6da77f2526ee2a77aa29` | `listener release must not block while the attach lock is held` | Fixed in `85fbff9fe8ba8e242b63a2952e6750ecfd7d0083` |
 
 ## Vitest reds
 
