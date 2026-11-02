@@ -5,5 +5,5 @@ from typing import Any
 from starlette.routing import BaseRoute
 
 
-def build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]:
+def build_routes(_ctx: Any, _host_app: Any) -> list[BaseRoute]:
     return []

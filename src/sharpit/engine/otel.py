@@ -64,7 +64,7 @@ class SharpitSpanProcessor:
         self.providers: list[Any] = []  # every provider this processor was added to (identity, never removed)
         self._lock = threading.Lock()
 
-    def on_start(self, span: Any, parent_context: Any = None) -> None:
+    def on_start(self, span: Any, parent_context: Any = None) -> None:  # NOSONAR - OpenTelemetry SpanProcessor contract
         for sink in self.sinks:
             try:
                 on_start = getattr(sink, "on_start", None)
@@ -86,7 +86,7 @@ class SharpitSpanProcessor:
     def shutdown(self) -> None:
         pass
 
-    def force_flush(self, timeout_millis: int = 30000) -> bool:
+    def force_flush(self, timeout_millis: int = 30000) -> bool:  # NOSONAR - OpenTelemetry SpanProcessor contract
         return True
 
 

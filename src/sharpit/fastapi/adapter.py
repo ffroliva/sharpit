@@ -237,7 +237,7 @@ async def _json_http_error(_request: Request, exc: Exception) -> Response:  # NO
     return response
 
 
-async def _not_found(scope: Scope, receive: Receive, send: Send) -> None:
+async def _not_found(scope: Scope, receive: Receive, send: Send) -> None:  # NOSONAR - ASGI callable contract
     """Inactive sharpit: the host's own exception handling renders this, so the 404 is the host's 404."""
     if scope["type"] == "websocket":  # as the host router does for an unknown websocket path
         await send({"type": "websocket.close", "code": 1000, "reason": ""})

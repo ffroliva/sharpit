@@ -10,7 +10,7 @@ from sharpit.engine.collectors.data import repositories_report, repository_detai
 from sharpit.fastapi.routes import json_response, security_headers
 
 
-def build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]:
+def build_routes(ctx: Any, _host_app: Any) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 

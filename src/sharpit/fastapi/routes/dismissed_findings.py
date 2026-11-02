@@ -43,7 +43,7 @@ def _fields(raw: bytes, *, with_note: bool) -> tuple[str, str, str | None] | Non
     return rule_id, identity, note
 
 
-def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
+def build_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
     adapter = cast(Any, import_module("sharpit.fastapi.adapter"))  # resolved per call: tests patch _read_capped
