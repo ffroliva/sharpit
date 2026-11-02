@@ -35,6 +35,10 @@ _PLAIN_PATH_KEYS = frozenset({"http.route", "url.path", "http.target"})
 _SQL_KEYS = frozenset({"db.statement", "db.query.text"})
 _HEADER_PREFIXES = ("http.request.header.", "http.response.header.")
 _SQL_ERROR = re.compile(r"\[SQL: (.*?)\]", re.DOTALL)
+_SQL_ERROR_SHAPE = re.compile(
+    r"^(?:sqlalchemy\.(?:exc|engine)\.|(?:psycopg2?|sqlite3|pymysql|MySQLdb|mysql(?:\.connector)?|asyncpg)\.)"
+    r"[\w.]+:"
+)
 _SQL_PARAMETER_KEYS = re.compile(r"(?:^|[._])(?:parameters?|bind_?params?)(?:[._]|$)", re.IGNORECASE)
 
 
@@ -138,8 +142,20 @@ def _attribute_value(masker: Masker, key: str, value: object) -> str | None:
 def _sql_message(masker: Masker, text: str | None) -> str | None:
     if text is None:
         return None
-    if not masker.capture_parameters:
-        text = _driver_values_dropped(text)
+    if not masker.capture_parameters and (_SQL_ERROR.search(text) or _SQL_ERROR_SHAPE.match(text)):
+        lines = text.splitlines()
+        frame_count = 0
+        if lines and lines[0].startswith("Traceback (most recent call last):"):
+            frame_count = 1
+            for line in lines[1:]:
+                if line.startswith("  File ") or (line.startswith("    ") and line.strip()):
+                    frame_count += 1
+                else:
+                    break
+        frames = "\n".join(lines[:frame_count])
+        remainder = "\n".join(lines[frame_count:])
+        cleaned = _driver_values_dropped(remainder or text)
+        text = f"{frames}\n{cleaned}" if frames else cleaned
         text = _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1)).sql}]", text)
     return masker.mask_text(text)
 
