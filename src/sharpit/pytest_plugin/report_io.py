@@ -23,7 +23,7 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
     try:
         facts = plugin._final_facts(state)  # forced app snapshot precedes advisor assessment
         parts = _report_parts(plugin, session, state, facts)
-        data, status, _reasons = finish(
+        data, _status, _reasons = finish(
             parts,
             state.missing_workers,
             options=GateOptions(
