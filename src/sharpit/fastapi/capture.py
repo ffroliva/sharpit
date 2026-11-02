@@ -46,9 +46,8 @@ CAPTURE_PANELS = (
     "exceptions",
     "sql-trace",
     "activity",
-    "transactions",
     "security-logs",
-)  # any implemented, enabled panel needs the middleware
+)  # any implemented, enabled request-capture panel needs the middleware
 LOG_PANELS = ("log-tail", "exceptions")  # either enabled needs the log handler (spec §6.1 step 3)
 LOG_TAIL_DETACHED_REASON = (
     "The sharpit log handler is not on the root logger: the app reconfigured logging (dictConfig or "

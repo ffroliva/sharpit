@@ -30,7 +30,8 @@
 |---|---|---|---|
 | `tests/engine/capture/test_transactions.py::test_listener_release_never_runs_under_attach_lock` | `b9bb0a3651df951caecb6da77f2526ee2a77aa29` | `listener release must not block while the attach lock is held` | Fixed in `85fbff9fe8ba8e242b63a2952e6750ecfd7d0083` |
 | `tests/engine/capture/test_transactions.py::test_untracked_savepoint_end_does_not_close_root` | `2bf97fc036ea23f977da8766a24e3da5fdaf702b` | `an untracked savepoint release must not close the root transaction` | Fixed in `df3ae12e86ae16163ed5d557b9b157960eff4fd2` |
-| `tests/engine/capture/test_transactions.py::test_buffer_size_reports_capacity_when_empty` | `2e716bd859752f6cb6b57c764332cc20f43091de` | `bufferSize must report the configured ring capacity` | Fixed in pending commit |
+| `tests/engine/capture/test_transactions.py::test_buffer_size_reports_capacity_when_empty` | `2e716bd859752f6cb6b57c764332cc20f43091de` | `bufferSize must report the configured ring capacity` | Fixed in `42604e9ceb04cf4b7aea3ff27057e068e3411315` |
+| `tests/fastapi/test_transactions_api.py::test_transactions_alone_does_not_install_capture_middleware` | `7c52759e30828b9b3f34d2864647ac7c572c03b1` | `transactions alone must not add request capture middleware` | Fixed in pending commit |
 
 ## Vitest reds
 
