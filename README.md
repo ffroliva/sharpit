@@ -31,6 +31,33 @@ unhandled exception, the build fails. When capture cannot see enough to judge, t
 pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-junit.xml
 ```
 
+You no longer need `--sharpit-app` for a typical suite: sharpit picks the one FastAPI or Starlette app defined in the
+project modules your tests already imported (it never imports a module to look). With none, several, or one without
+routes, the REST API advisor is `SKIPPED` and a clean suite still passes; `--sharpit-require-app` makes that `unknown`
+again, as in 0.3.0. The terminal `gate counts:` lists only findings that fail the gate; `--sharpit-verbose` (or `-vv`)
+lists every one. The JSON report and JUnit file always hold every finding.
+
+### Adopting on an existing suite
+
+Start without breaking the build, then freeze what is already there:
+
+```bash
+pytest --sharpit --sharpit-report-only                      # report everything, fail on nothing but blindness
+pytest --sharpit --sharpit-write-baseline=sharpit-baseline.json   # after a complete run: record today's findings
+pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI: only new findings fail
+```
+
+- **Report-only** (`--sharpit-report-only`, ini `sharpit_report_only = true`) runs every gate and advisor and writes the
+  report, but findings do not fail tests or the session. An unknown reason still exits 1 unless
+  `--sharpit-allow-unknown`: report-only relaxes findings, never blindness.
+- **Baselines** match findings by fingerprint. A listed finding is `existing` and never fails, an unlisted one is `new`
+  and gates as usual, a listed one not seen is `fixed`. A count gate that grows past its baselined count is `new`.
+  Vulnerability findings are not baselined in 0.4.0, and INFO findings never fail.
+- `--sharpit-write-baseline=PATH` is the only way a baseline is written. It refuses a partial run (`-k`, `-m`, node ids,
+  `--lf`, `--deselect`, `-x` stopping early, an interrupt) and a run with any unknown reason.
+- A missing or malformed baseline never switches sharpit off: the session runs and the baseline becomes an unknown
+  reason, which fails the run. Own the baseline file in CODEOWNERS, or a PR can baseline its own findings.
+
 ### Outside proof: gflow-cli
 
 Run by sharpit's author on the 0.3.0 integration branch against gflow-cli (a public FastAPI daemon using raw `sqlite3`; see [sharpit's own report](docs/reports/2026-11-01-gflow-cli-sharpit.md)), sharpit ran across **5,662** tests (5 failed by sharpit gates):
@@ -114,6 +141,12 @@ Keyword arguments for `sharpit.install()`:
 - `health_checks`: optional mapping of check names to zero-argument callables (e.g. `health_checks={"cache": ping_cache}`).
 - `alembic_config`: optional path to `alembic.ini` (default `"alembic.ini"`).
 - `settings`: optional pydantic-settings instance or sequence of instances to show configuration provenance.
+- `models`: optional SQLAlchemy 2.0 declarative base, registry, or a list of them or of mapped classes, for the Data
+  panel (e.g. `models=Base`). sharpit never configures mappers or runs SQL to read them.
+
+With a PostgreSQL engine, the PostgreSQL panel reads vital signs, sessions, statements, indexes, tables, vacuum,
+replication and settings on an explicit `POST /sharpit/api/postgresql/read`: one read-only transaction with statement
+and lock timeouts, a read budget and row limits, query text masked. `GET` returns the last read and never touches the database.
 
 Other options are keyword arguments or environment variables, see [Settings](https://ffroliva.github.io/sharpit/settings/).
 
@@ -128,7 +161,7 @@ The full documentation is at **<https://ffroliva.github.io/sharpit/>**:
 - [Pytest plugin](https://ffroliva.github.io/sharpit/pytest-plugin/): CI gates for queries, N+1, exceptions, and advisors
 - [Test report](https://ffroliva.github.io/sharpit/report/): the `sharpit-report/1` JSON schema and JUnit XML
 - [SQL sources](https://ffroliva.github.io/sharpit/sql-sources/): tracing SQLAlchemy and raw `sqlite3`
-- [MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/): the read-only MCP endpoint and its 18 tools
+- [MCP for AI agents](https://ffroliva.github.io/sharpit/mcp/): the read-only MCP endpoint and its tools
 - [Settings](https://ffroliva.github.io/sharpit/settings/): every environment variable and `install()` keyword
 - [Safety model](https://ffroliva.github.io/sharpit/safety/): local-only guard, tokens, masking, proxies and workers
 - [How it works](https://ffroliva.github.io/sharpit/how-it-works/) and [Deviations from BootUI](https://ffroliva.github.io/sharpit/deviations/)
