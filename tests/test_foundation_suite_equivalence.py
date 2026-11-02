@@ -27,7 +27,9 @@ def test_foundation_suite_equivalence(pytester: pytest.Pytester) -> None:
     assert route_paths[-2:] == ["/api/cli", "/api/cli/tools/{tool}"]
 
     pytester.makepyfile("def test_report_control(): pass")
-    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-require-app", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
     data = json.loads((pytester.path / "report.json").read_text())
 
     assert result.ret == 0
