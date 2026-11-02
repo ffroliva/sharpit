@@ -33,9 +33,9 @@ pytest --sharpit --sharpit-report=sharpit-report.json --sharpit-junit=sharpit-ju
 
 ### Outside proof: gflow-cli
 
-In an independent proof against [gflow-cli](https://github.com/ffroliva/sharpit/blob/main/docs/reports/2026-11-01-gflow-cli-sharpit.md) (a public FastAPI daemon using raw `sqlite3`), sharpit ran across **5,662** tests:
-- **0 unattributed SQL statements** out of 27,997 executed;
-- Caught **6 N+1** query defects across test suites;
+Run by sharpit's author on the 0.3.0 integration branch against gflow-cli (a public FastAPI daemon using raw `sqlite3`; see [sharpit's own report](docs/reports/2026-11-01-gflow-cli-sharpit.md)), sharpit ran across **5,662** tests (5 failed by sharpit gates):
+- **0 unattributed SQL statements** across ~53k statements executed (27,997 attributed + 25,092 filtered);
+- **6 N+1 findings**, of which 1 was a real defect, 2 were noise (filtered since 0.3.0), and 3 were expected polling;
 - Proved out-of-code runtime observation without changing production code.
 
 ## 60 seconds
