@@ -420,11 +420,14 @@ class SqlTraceRecorder:
         self._ids = itertools.count(1)
         self._total = 0
         self._evicted = 0
+        self._statements = self._selects = self._max_millis = 0
+        self._max_sql: str | None = None
         self._lock = threading.Lock()
         self.changes = ChangeStream()
 
     def totals(self) -> SqlTotals:
-        return SqlTotals(-1, -1, -1, "")
+        with self._lock:
+            return SqlTotals(self._statements, self._selects, self._max_millis, self._max_sql)
 
     @property
     def aggregate_count(self) -> int:
@@ -515,6 +518,11 @@ class SqlTraceRecorder:
                 self._evicted += 1
             self._entries.append(row)
             self._total += 1
+            self._statements += 1
+            self._selects += category == "SELECT"
+            if self._max_sql is None or millis > self._max_millis:
+                self._max_millis = millis
+                self._max_sql = _truncate(normalized.sql, self._max_sql_length)
             key = normalized.fingerprint
             aggregate = self._aggregates.get(key)
             if aggregate is None:
