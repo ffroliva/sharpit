@@ -114,7 +114,28 @@ def test_action_forwards_report_only_baseline_fail_on_and_report_path() -> None:
     base = ["--sharpit", "--sharpit-report", "r.json"]
     assert _run_argv({}) == [*base, "--sharpit-report-only"]
     full = _run_argv({"REPORT_ONLY": "false", "BASELINE": "b.json", "FAIL_ON": "HIGH"})
-    assert full == [*base, "--sharpit-baseline", "b.json", "--sharpit-fail-on", "HIGH"]
+    # finding: report-only false must override a sharpit_report_only = true ini setting
+    assert full == [
+        *base,
+        "-o",
+        "sharpit_report_only=false",
+        "--sharpit-baseline",
+        "b.json",
+        "--sharpit-fail-on",
+        "HIGH",
+    ]
+
+
+def test_action_rejects_invalid_report_only() -> None:
+    # finding: report-only "yes" silently gated the build instead of failing the step
+    assert _run_argv({"REPORT_ONLY": "yes"}) == []
+
+
+def test_action_removes_stale_report_before_pytest() -> None:
+    # finding: a report left by an earlier step was summarised when pytest wrote none
+    run = str(_step("Run")["run"])
+    assert 'rm -f "$REPORT_PATH"' in run
+    assert run.index('rm -f "$REPORT_PATH"') < run.index("python -")
 
 
 def test_action_runner_default() -> None:
