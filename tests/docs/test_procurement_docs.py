@@ -73,6 +73,53 @@ def test_readme_gate_and_gflow_proof_precede_details() -> None:
     assert "5,662" in readme_text or "5662" in readme_text, "gflow-cli proof must mention test count (5,662)"
     assert "N+1" in readme_text, "gflow-cli proof must mention findings (N+1 queries caught)"
 
+    proof_header = "### Outside proof: gflow-cli"
+    proof_start = readme_text.find(proof_header)
+    assert proof_start != -1, "README.md must contain '### Outside proof: gflow-cli'"
+    proof_end = readme_text.find("## 60 seconds", proof_start)
+    assert proof_end != -1, "README.md must contain '## 60 seconds' after gflow proof"
+    proof_section = readme_text[proof_start:proof_end]
+
+    assert "independent" not in proof_section.lower(), (
+        "gflow-cli proof must drop 'independent' claim as it was run by sharpit's author"
+    )
+    assert "sharpit's author" in proof_section.lower(), (
+        "gflow-cli proof must state run by sharpit's author"
+    )
+    assert "0.3.0 integration branch" in proof_section, (
+        "gflow-cli proof must state run on 0.3.0 integration branch"
+    )
+    assert "sharpit's own report" in proof_section, (
+        "gflow-cli proof link text must state it is sharpit's own report"
+    )
+    assert "5 failed by sharpit gates" in proof_section, (
+        "gflow-cli proof must mention that 5 tests failed by sharpit gates"
+    )
+    assert "53k" in proof_section, (
+        "gflow-cli proof must mention ~53k statements executed"
+    )
+    assert "27,997 attributed" in proof_section, (
+        "gflow-cli proof must state 27,997 attributed statements"
+    )
+    assert "25,092 filtered" in proof_section, (
+        "gflow-cli proof must state 25,092 filtered statements"
+    )
+    assert "0 unattributed" in proof_section, (
+        "gflow-cli proof must state 0 unattributed statements"
+    )
+    assert "6 N+1 findings" in proof_section, (
+        "gflow-cli proof must state 6 N+1 findings instead of defects"
+    )
+    assert "1 was a real defect" in proof_section or "1 real" in proof_section, (
+        "gflow-cli proof must state 1 real defect"
+    )
+    assert "2 were noise" in proof_section or "2 noise" in proof_section, (
+        "gflow-cli proof must state 2 were noise (filtered since 0.3.0)"
+    )
+    assert "3 were expected polling" in proof_section or "3 expected polling" in proof_section, (
+        "gflow-cli proof must state 3 were expected polling"
+    )
+
 
 def test_security_policy_names_supported_versions() -> None:
     security_path = ROOT / "SECURITY.md"
