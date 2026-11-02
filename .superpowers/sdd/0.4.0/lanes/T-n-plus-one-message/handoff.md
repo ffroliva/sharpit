@@ -4,7 +4,7 @@ Implementer: codex-gpt-6
 
 ## Status
 
-Implementation complete; the final full-suite rerun remains. Task reds are committed and recorded. The coordinator can resume with the final gate result and branch review.
+DONE. Implementation and the final four local gates are complete. Task reds and fixes are committed and recorded. The coordinator can resume with lane review and merge gating.
 
 ## Decisions
 
@@ -41,7 +41,10 @@ Implementation complete; the final full-suite rerun remains. Task reds are commi
 - Focused regression set after the review fixes: `61 passed`; exact 1,018-load spike: `1 passed`.
 - F6 budget: `1 passed`; workload `1,000 SELECTs × 5 paired rounds`, on/off via the production ORM callback. Most recent measured overhead `7.696 µs/statement`, noise `22.747 µs`, budget `35 µs`; the spread was noise-limited on this shared machine. The budget was confirmed to fail after a temporary 100 µs sleep was injected into the listener, then the injection was removed.
 - Prior full suite after the listener-test and complexity corrections: `4,207 passed, 9 skipped`.
-- Latest run including the exact 1,018-load test: `4,208 passed, 9 skipped, 1 error` in `308.50s`. The error was `tests/engine/vulns/test_osv.py::test_initial_failure_raises[503]`; `no_side_effects` detected this handoff file changing during the run. The suite will be repeated after committing this evidence update, with no workspace edits while pytest runs.
+- Final full suite including the exact 1,018-load test: `4,208 passed, 9 skipped, 0 failed` in `280.58s`.
+- Final static gates: ruff check clean; ruff format `469 files already formatted`; pyright `0 errors, 0 warnings, 0 informations`.
+- Final pytest log (outside this worktree): `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/T-n-plus-one-message-pytest-final3.log`. Ruff, format and pyright logs are in that directory as `T-n-plus-one-message-{ruff,format,pyright}-final3.log`.
+- An earlier suite attempt caught a concurrent handoff edit via `no_side_effects`; the final rerun after the evidence commit passed.
 - Final static gates: ruff check clean; ruff format `469 files already formatted`; pyright `0 errors, 0 warnings, 0 informations`.
 
 ## Fix SHAs per red
