@@ -15,7 +15,7 @@ PREFIX = ".superpowers/"
 
 def tracked(paths: list[str]) -> list[str]:
     """The paths that live under .superpowers/."""
-    return []
+    return [p for p in paths if p.startswith(PREFIX)]
 
 
 def main() -> int:

@@ -168,6 +168,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: main never tracks .superpowers/ (harvest into docs/reports/ first)
+        if: github.base_ref == 'main'
+        run: python3 scripts/ci/no_superpowers.py
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
       - run: uv build --out-dir "$RUNNER_TEMP/dist"
       - run: |
