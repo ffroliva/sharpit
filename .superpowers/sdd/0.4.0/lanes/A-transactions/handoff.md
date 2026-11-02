@@ -39,6 +39,7 @@ Run the four gates: `ruff check`, `ruff format --check`, `pyright`, and full `py
 | `tests/engine/capture/test_transactions.py::test_savepoint_is_a_child_entry` | `12bf8d03b4dd14c916d74e77b6d4b1bf287a198d` | `releasing a savepoint must not close its outer transaction` |
 | `tests/engine/capture/test_transactions.py::test_savepoint_closes_one_child_per_context` | `41964581198fd775bd63e5b3d9559c87d28eeaf0` | `a savepoint event must close its child entry in each context` |
 | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_committed_sqlite_with_loopback_client` | `5212a0865ee4ca430b56b4ef5eaf344ccf18f3f5` | `the implemented transactions panel must expose its GET report route` |
+| 	ests/engine/capture/test_transactions.py::test_listener_remover_releases_attachments_when_discarded | 6faa15c5a22c5773f87590ddb403e0c89ee2f587 | discarding the owning teardown must release all class-level listeners |
 
 ## UI reds
 
@@ -57,3 +58,13 @@ Run the four gates: `ruff check`, `ruff format --check`, `pyright`, and full `py
 
 Targeted results recorded above; full four gates are next. Live check not run; coordinator-owned example is outside lane touch scope.
 
+
+## Needs from coordinator
+
+- `tests/fastapi/test_capture_wiring.py::test_all_capture_panels_disabled_adds_nothing`: this file's local `CAPTURE_PANELS` tuple omits `transactions`, so the test still observes `CaptureMiddleware` after the transactions panel is implemented. Add the lane flag to that test's disabled panel set; the file is outside this lane's May-touch list.
+- `tests/test_safety_matrix.py::test_write_route_table_is_complete`: include `POST /sharpit/api/transactions/clear` and `POST /sharpit/api/transactions/recording` in the write-route contract. This file is coordinator-owned/protected for lanes.
+- `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip`: the data-flag scenario passes already-merged `tools.TOOLS` as the base and merges implemented transactions tools again, producing collisions. Build that scenario from the base-only catalogue or otherwise exclude already merged lane tools. This file is outside this lane's May-touch list.
+
+## Preliminary full suite
+
+The first detached `-n 4` run reported 3,777 passed, 5 skipped, 7 failed, 2 errors. It overlapped source edits and is not final verification. The named lane-owned listener cleanup and complexity failures are being addressed; several other failures are coordinator-owned or overhead noise. Rerun after the pending fixes. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-pytest.log`.
