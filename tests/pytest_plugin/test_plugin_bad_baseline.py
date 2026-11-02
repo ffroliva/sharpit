@@ -22,7 +22,7 @@ def _report(pytester: pytest.Pytester) -> dict[str, object]:
 
 def _run(pytester: pytest.Pytester, *extra: str) -> tuple[pytest.RunResult, dict[str, object]]:
     pytester.makepyfile("def test_x(): pass")
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit", "--sharpit-no-advisors", "--sharpit-report=report.json", "-q", *extra
     )
     assert result.ret != 4, "a bad baseline must not be a usage error that stops sharpit"

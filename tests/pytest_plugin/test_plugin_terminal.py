@@ -30,7 +30,7 @@ def test_verbose_keeps_advisor_notes(pytester: pytest.Pytester) -> None:
     assert resolve(pytester.parseconfig()).verbose is True
     pytester.makepyfile(appmod=NOTES_APP, test_notes="def test_ok(): pass")
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit", "--sharpit-app=appmod:app", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
 
@@ -52,7 +52,7 @@ def test_gate_failure_still_printed(pytester: pytest.Pytester) -> None:
         """,
     )
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit", "--sharpit-app=appmod:app", "--sharpit-fail-on=LOW", "--sharpit-report=report.json", "-q"
     )
 
@@ -79,7 +79,7 @@ def test_gate_failure_counted_whatever_fail_on(pytester: pytest.Pytester) -> Non
         """
     )
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit",
         "--sharpit-fail-on=CRITICAL",
         "--sharpit-report=report.json",

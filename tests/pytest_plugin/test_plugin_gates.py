@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from importlib import util
-from sqlite3 import connect as _EARLY_CONNECT
 
 import pytest
 
@@ -42,7 +41,7 @@ def test_n_plus_one_fails_the_test(pytester: pytest.Pytester) -> None:
         """
     )
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
 
@@ -280,7 +279,7 @@ def test_fail_on_medium_gates_medium_findings(pytester: pytest.Pytester) -> None
     )
     pytester.makepyfile("def test_empty(): pass")
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit",
         "--sharpit-app=appmod:app",
         "--sharpit-fail-on=MEDIUM",
@@ -392,7 +391,7 @@ def test_swallowed_logged_exception_fails(pytester: pytest.Pytester) -> None:
         """
     )
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
 
@@ -478,7 +477,7 @@ def test_finalizer_logged_exception_is_unattributed(pytester: pytest.Pytester) -
         """
     )
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
 
@@ -534,9 +533,12 @@ def test_logging_lost_in_setup_stays_lost(pytester: pytest.Pytester) -> None:
     assert data["status"] == "unknown"
 
 
-def test_early_connection_limitation_in_report(pytester: pytest.Pytester) -> None:
+def test_early_connection_limitation_in_report(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    from sqlite3 import connect
+
     pytester.makepyfile("def test_empty(): pass")
-    assert callable(_EARLY_CONNECT)
+    monkeypatch.setitem(globals(), "_EARLY_CONNECT", connect)
+    assert callable(globals()["_EARLY_CONNECT"])
 
     pytester.runpytest("--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
 
@@ -644,13 +646,19 @@ def test_plugin_hook_raises_session_continues(
 
 def test_snapshot_failure_does_not_error_the_test(pytester: pytest.Pytester) -> None:
     pytester.makeconftest(
+        "import pytest\n"
         "from sharpit.engine.testsession.sink import TestSessionSink\n"
+        "_snapshot_apps = TestSessionSink.snapshot_apps\n"
         "def broken(*args, **kwargs): raise RuntimeError('snapshot')\n"
         "TestSessionSink.snapshot_apps = broken\n"
+        "@pytest.hookimpl(hookwrapper=True, tryfirst=True)\n"
+        "def pytest_unconfigure(config):\n"
+        "    yield\n"
+        "    TestSessionSink.snapshot_apps = _snapshot_apps\n"
     )
     pytester.makepyfile("def test_passes(): assert True")
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
     )
 

@@ -38,7 +38,7 @@ def _run_report_corpus(
     if variable is not None and value is not None:
         monkeypatch.setenv(variable, value)
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit",
         "--sharpit-app=appmod:app",
         "--sharpit-allow-unknown",
@@ -74,7 +74,7 @@ def test_failed_gate_findings_listed_on_the_test(pytester: pytest.Pytester) -> N
                 db.execute('SELECT * FROM owners WHERE id = 1').fetchall()
         """
     )
-    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
+    result = pytester.runpytest_inprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     assert result.ret == 1
     data = json.loads((pytester.path / "report.json").read_text())
@@ -132,7 +132,7 @@ def test_default_terminal_counts_notes_but_reports_keep_findings(pytester: pytes
         test_notes="def test_ok(): pass",
     )
 
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit",
         "--sharpit-app=appmod:app",
         "--sharpit-allow-unknown",
