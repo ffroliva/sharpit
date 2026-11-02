@@ -7,10 +7,14 @@ Two layouts: flat ``<panel>.json`` files (BootUI 1.17.0) and, for 2.2.0, ``<shar
 (``{"<sharpit-id>": "<reason>"}``) is copied into ``meta.json``; ``nullable.json`` files are never written.
 
 The flat 1.17.0 layout keeps every item (no truncation, so ``page`` stays consistent). The 2.2.0 folders are shape
-goldens: ``tests/golden.py`` compares every payload list item with the golden's first item only, so each list of
-objects is reduced to ONE representative item (first non-null value per key across all items) and a list of scalars to
-its first 3. That makes the golden independent of item order and keeps the fixtures small.
+goldens: each list keeps one item per DISTINCT SHAPE (key set + per-key JSON kind, null its own kind), so real nulls and
+type variants survive, and a list of scalars keeps its first 3. Epoch/duration fields are normalised only when set.
+The 2.2.0 layout also refuses an error body at the root (any ``error`` key) and checks secrets before and after shaping.
 Both layouts replace only an enumerated list of volatile values, then abort on anything that looks like a secret.
+
+Layout: nested when the source folder is named ``2.2.0``, else flat; force it with a third argument. Regenerate:
+    python scripts/sanitize_golden.py replica/evidence/2.2.0 tests/fixtures/bootui/2.2.0 nested
+meta.json keeps its existing ``provisional`` list and takes ``uncaptured`` from ``<src>/uncaptured.json``.
 """
 
 import json
@@ -34,15 +38,40 @@ VOLATILE_KEYS: dict[str, Any] = {
     "host": "localhost",
     "instanceId": "00000000",
     "runId": "00000000",
+    "clientAddress": "127.0.0.1",
 }
 # BootUI 2.2.0 epoch-millisecond fields that change on every capture.
-VOLATILE_TIMES = ("startedAt", "checkedAt", "oldestTimestamp", "newestTimestamp", "readAt", "readStartedAt")
+VOLATILE_TIMES = (
+    "startedAt",
+    "checkedAt",
+    "oldestTimestamp",
+    "newestTimestamp",
+    "readAt",
+    "readStartedAt",
+    "capturedAt",
+    "timestamp",
+    "firstSeen",
+    "lastSeen",
+    "generatedAt",
+    "startTimestamp",
+    "endTimestamp",
+    "epochMillis",
+    "oldestRetainedAt",
+)
+VOLATILE_NUMBERS = {"durationMicros": 1000}
 FIXED_TIME = 1700000000000
 # Config properties read from the capturing machine's environment or JVM: all machine-specific.
 MACHINE_SOURCES = {"systemEnvironment", "systemProperties"}
 ABS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\Users\\|/(?:Users|home)/)")
-
-EMBEDDED_PATH = re.compile(r"[A-Za-z]:[\\/][^\]\s\"']*")  # a Windows path inside a longer string, e.g. file [C:\x]
+# Absolute paths inside longer strings. `http://`, `jdbc:postgresql://`, `classpath:/` and `?d=e:/f` stay intact:
+# a backslash path may follow most chars, a forward-slash drive path only whitespace, a bracket or a quote. Paths with
+# spaces are only taken inside brackets or quotes.
+EMBEDDED_PATHS = (
+    re.compile(r"(?<=[\[(\"'])[A-Za-z]:[\\/][^\])\"']*(?=[\])\"'])"),
+    re.compile(r"(?<![A-Za-z0-9+.\-:/?&#])[A-Za-z]:\\[^\s\])\"']*"),
+    re.compile(r"(?<![^\s\[(\"'])[A-Za-z]:/(?!/)[^\s\])\"']*"),
+    re.compile(r"(?<![\w.\-])/(?:Users|home)/[^\s\])\"']*"),
+)
 
 SECRET_VALUE = re.compile(
     r"eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]+"  # JWT
@@ -52,13 +81,17 @@ SECRET_VALUE = re.compile(
 )
 SENSITIVE_NAME = re.compile(r"(?:passw(?:or)?d|secret|token|api[-_.]?key|credential|private[-_.]?key)", re.IGNORECASE)
 MASK = "******"
+NL = chr(10)
 
 
-def sanitise(node: Any, nested: bool = False) -> Any:  # noqa: ARG001
+def sanitise(node: Any, nested: bool = False) -> Any:
+    """``nested`` is the 2.2.0 layout: epoch/duration fields are normalised only when set, real nulls stay null."""
     if isinstance(node, str):
-        return EMBEDDED_PATH.sub("/path", node)
+        for pattern in EMBEDDED_PATHS:
+            node = pattern.sub("/path", node)
+        return node
     if isinstance(node, list):
-        return [sanitise(v) for v in node]  # pyright: ignore[reportUnknownVariableType]
+        return [sanitise(v, nested) for v in node]  # pyright: ignore[reportUnknownVariableType]
     if not isinstance(node, dict):
         return node
     out: dict[str, Any] = {}
@@ -68,48 +101,56 @@ def sanitise(node: Any, nested: bool = False) -> Any:  # noqa: ARG001
             out[key] = VOLATILE_KEYS[key]
         elif key in VOLATILE_TIMES and isinstance(value, int) and not isinstance(value, bool):
             out[key] = FIXED_TIME
-        elif key in ("startupTimeMillis", "scannedAt"):
+        elif key in VOLATILE_NUMBERS and isinstance(value, int | float) and not isinstance(value, bool):
+            out[key] = VOLATILE_NUMBERS[key]
+        elif key in ("startupTimeMillis", "scannedAt") and not nested:
             out[key] = 0
         elif key == "value" and machine:
             out[key] = "x"
         elif isinstance(value, str) and ABS_PATH.match(value):
             out[key] = "/path"
         else:
-            out[key] = sanitise(value)
+            out[key] = sanitise(value, nested)
     return out
 
 
-def _merge(a: Any, b: Any) -> Any:
-    if a is None:
-        return b
-    if b is None:
-        return a
-    if isinstance(a, dict) and isinstance(b, dict):
-        out: dict[str, Any] = dict(a)  # pyright: ignore[reportUnknownArgumentType]
-        for key, value in b.items():  # pyright: ignore[reportUnknownVariableType]
-            out[key] = _merge(out.get(key), value)
-        return out
-    if isinstance(a, list) and isinstance(b, list):
-        return _reduce([*a, *b])  # pyright: ignore[reportUnknownArgumentType]
-    return a
+def _kind(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int | float):
+        return "number"
+    return {str: "string", list: "array", dict: "object"}.get(type(value), "other")
+
+
+def _signature(item: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    return tuple(sorted((k, _kind(v)) for k, v in item.items()))
 
 
 def _reduce(items: list[Any]) -> list[Any]:
     if items and all(isinstance(i, dict) for i in items):  # pyright: ignore[reportUnknownVariableType]
-        merged = items[0]
-        for item in items[1:]:
-            merged = _merge(merged, item)
-        return [{k: shape_golden(v) for k, v in merged.items()}]
+        seen: dict[tuple[tuple[str, str], ...], dict[str, Any]] = {}
+        for item in items:
+            seen.setdefault(_signature(item), item)
+        return list(seen.values())
     return items[:3]
 
 
 def shape_golden(node: Any) -> Any:
-    """Reduce every list to a representative sample (see the module docstring); scalars and keys are untouched."""
+    """Keep one item per distinct shape (key set + per-key JSON kind, null its own kind) in every list; real nulls and
+    every type variant survive. Lists of scalars keep their first 3. Scalars and keys are untouched."""
     if isinstance(node, dict):
         return {k: shape_golden(v) for k, v in node.items()}  # pyright: ignore[reportUnknownVariableType]
     if isinstance(node, list):
         return _reduce([shape_golden(i) for i in node])  # pyright: ignore[reportUnknownVariableType]
     return node
+
+
+def is_error_envelope(body: Any) -> bool:
+    """A guard or framework error, not a panel payload: any root object with an ``error`` key (covers Spring's
+    ``{timestamp,status,error,path}``)."""
+    return isinstance(body, dict) and "error" in body
 
 
 def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
@@ -132,44 +173,60 @@ def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
     return found
 
 
-def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None) -> None:  # noqa: ARG001
-    repo = Path(__file__).resolve().parents[1]
+def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None) -> None:
+    """``layout`` is ``"nested"`` (2.2.0: ``<id>/captured.json`` folders) or ``"flat"`` (1.17.0). Default: nested when the
+    source folder is named ``2.2.0``, else flat. ``repo`` is the root holding ``replica/evidence`` and
+    ``tests/fixtures/bootui`` (default: this repository; tests pass a temporary one)."""
+    repo = repo or Path(__file__).resolve().parents[1]
     src = src.resolve()
     dst = dst.resolve()
     allowed_src = (repo / "replica" / "evidence").resolve()
     allowed_dst = (repo / "tests" / "fixtures" / "bootui").resolve()
     if not src.is_relative_to(allowed_src) or not dst.is_relative_to(allowed_dst):
         raise ValueError("source must be under replica/evidence and destination under tests/fixtures/bootui")
+    layout = layout or ("nested" if src.name == "2.2.0" else "flat")
+    if layout not in ("nested", "flat"):
+        raise ValueError(f"layout must be 'nested' or 'flat', got {layout!r}")
+    nested = layout == "nested"
     dst.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
 
-    def emit(path: Path, target: Path, shape: bool = False) -> None:
-        data = sanitise(json.loads(path.read_text(encoding="utf-8")))
-        data = shape_golden(data) if shape else data
-        if leaks := find_secrets(data, str(path.relative_to(src))):
-            sys.exit(f"refusing to write {path.relative_to(src)}: possible secret at {', '.join(leaks[:5])}")
+    def emit(path: Path, target: Path) -> None:
+        name = str(path.relative_to(src))
+        data = sanitise(json.loads(path.read_text(encoding="utf-8")), nested)
+        if nested and is_error_envelope(data):
+            sys.exit(f"refusing to write {name}: an error body, not a panel payload")
+        leaks = find_secrets(data, name)  # before shaping: shaping can split a name from its value
+        if nested:
+            data = shape_golden(data)
+            leaks += find_secrets(data, name)
+        if leaks:
+            sys.exit(f"refusing to write {name}: possible secret at {', '.join(leaks[:5])}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
-        written.append(str(path.relative_to(src)))
+        target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + NL, encoding="utf-8", newline=NL)
+        written.append(name)
 
-    folders = sorted(p for p in src.iterdir() if p.is_dir())
-    for path in sorted(src.glob("*.json")):
-        if path.name not in SKIP and path.name != "uncaptured.json":
-            emit(path, dst / path.name)
-    for folder in folders:
-        for path in sorted(folder.glob("*captured.json")):
-            emit(path, dst / folder.name / path.name, shape=True)
-    if folders:
+    if nested:
+        for folder in sorted(p for p in src.iterdir() if p.is_dir()):
+            for path in sorted(folder.glob("*captured.json")):
+                emit(path, dst / folder.name / path.name)
         uncaptured_path = src / "uncaptured.json"
         uncaptured = json.loads(uncaptured_path.read_text(encoding="utf-8")) if uncaptured_path.is_file() else {}
-        meta: dict[str, Any] = {**META_2_2_0, "uncaptured": uncaptured, "provisional": []}
+        old_meta = dst / "meta.json"
+        provisional = (
+            json.loads(old_meta.read_text(encoding="utf-8")).get("provisional", []) if old_meta.is_file() else []
+        )
+        meta: dict[str, Any] = {**META_2_2_0, "uncaptured": uncaptured, "provisional": provisional}
     else:
+        for path in sorted(src.glob("*.json")):
+            if path.name not in SKIP:
+                emit(path, dst / path.name)
         meta = META
-    (dst / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8", newline="\n")
+    (dst / "meta.json").write_text(json.dumps(meta, indent=2) + NL, encoding="utf-8", newline=NL)
     print("written:", ", ".join(written), "+ meta")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         sys.exit(__doc__)
-    main(Path(sys.argv[1]), Path(sys.argv[2]))
+    main(Path(sys.argv[1]), Path(sys.argv[2]), layout=sys.argv[3] if len(sys.argv) == 4 else None)
