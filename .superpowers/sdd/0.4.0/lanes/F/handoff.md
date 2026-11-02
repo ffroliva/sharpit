@@ -16,6 +16,8 @@ F-rest (`tests/safety/`, `tests/masking/`, test extras other than `psycopg[binar
 
 ## Done (commits)
 
+- Review round 1 (`review.md`, CHANGES at `d37c6f2`): red `46ee247`, red-body restore `55eac19`, fix `4c3828b`; see `findings.md` §Review round 1. Settings: an unimplemented 0.4 id in `install(panels=...)` now raises the unknown-panel `ValueError` (as at base), and the message lists implemented panels only.
+
 - Task 1 splits and O4 flag files (Codex, up to `0cc440a`): see the red table below.
 - The half-applied Codex patch to `tests/fastapi/test_unimplemented_panel_surface.py` (a `dict` subclass whose
   `values()` returned `(False,)` when empty so a red-body assertion could never fail) was **discarded** with
@@ -58,11 +60,11 @@ F-rest (`tests/safety/`, `tests/masking/`, test extras other than `psycopg[binar
   look like that. The gate should accept `message` starting with `AssertionError` **or** `assert `, or read the
   failure text.
 
-## Verification (at `337d690`)
+## Verification (at `4c3828b`, review round 1)
 
-- Full suite: `uv run pytest -q -n 4` -> **3567 passed, 5 skipped, 0 failed** (base `7e5fc15`: 3491 passed, 5 skipped).
-  The +76 are tests F added (Codex Task 1/O4 plus this session: golden 6, extension slots 19, example 2, settings
-  env-name rows 14); skips unchanged. Log: `..\0.4.0-integration\.superpowers\sdd\0.4.0\logs\F-full-pytest2.log`.
+- Full suite: `uv run pytest -q -n 4` -> **3574 passed, 5 skipped, 0 failed** (base `7e5fc15`: 3491 passed, 5 skipped).
+  The +83 are tests F added (Codex Task 1/O4; golden 6, extension slots 19, example 2, settings env-name rows 14;
+  review round 1: 7); skips unchanged. Log: `..\0.4.0-integration\.superpowers\sdd\0.4.0\logs\F-full-pytest3.log`.
 - `uv run ruff check`: all checks passed; `uv run ruff format --check`: 407 files already formatted; `uv run pyright`:
   0 errors, 0 warnings.
 - UI: `npm --prefix ui run check` clean; vitest 31 files, 258 tests passed (no `npm run build`).
@@ -74,7 +76,7 @@ Every row is checked against the code at the lane head; adapt calls to it, never
 | Module / symbol | Contract for later lanes |
 |---|---|
 | `sharpit.install` / `sharpit.fastapi.install.install` (models) | `install(app: Any, *, settings: object = (), engines: Sequence[object] = (), health_checks: Mapping[str, Callable[[], object]] \| None = None, models: Iterable[object] \| type \| None = None, **options: Any) -> SharpitHandle` (`src/sharpit/fastapi/install.py`); `fastapi.adapter.install` re-exports it. |
-| `sharpit.engine.context.SharpitContext.models` | `models: tuple[object, ...] = ()` (`src/sharpit/engine/context.py`); `install` stores `tuple(models)`, or `(models,)` for a lone class such as `models=Base`; elements never inspected, mappers never configured. Consumer: A-data. |
+| `sharpit.engine.context.SharpitContext.models` | `models: tuple[object, ...] = ()` (`src/sharpit/engine/context.py`); `install` stores `tuple(models)`, or `(models,)` for a lone class such as `models=Base`; a `str`, `bytes` or `Mapping` raises `TypeError("models must be a model class or an iterable of models, not <type>")`; elements never inspected, mappers never configured. Consumer: A-data. |
 | R5: `SqlTraceRecorder` construction | `sharpit.fastapi.install._configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings) -> CaptureWiring` (`src/sharpit/fastapi/install.py`) builds every recorder, assigns `ctx.capture.sql_trace = SqlTraceRecorder(...)` when `sql-trace` is enabled and `sql_trace_enabled`, then creates and attaches `CaptureWiring`. A-transactions and A-traces attach at this site. (D2's plan text `_configure_capture(ctx, settings) -> None` is stale.) |
 | `sharpit.engine.capture.CaptureState.security_logs` | `security_logs: Any \| None = None` (`src/sharpit/engine/capture/__init__.py`). Consumer: B-security-logs. |
 | `sharpit.engine.capture.CaptureState.transactions` | `transactions: object \| None = None`. Consumer: A-transactions. |
@@ -110,6 +112,7 @@ Every row is checked against the code at the lane head; adapt calls to it, never
 | `sharpit.engine.panels04.tool_definitions` | `tool_definitions() -> tuple[tuple[Any, ...], dict[str, str]]`; gathers `TOOLS` and `COMMANDS` only from implemented panel modules. |
 | `sharpit.engine.tools04.<id>.TOOLS` / `COMMANDS` | Each per-panel module exports `TOOLS = ()` and `COMMANDS = {}` for its owning lane to fill. |
 | `sharpit.fastapi.routes.<id>.build_routes` | `build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]`; empty per-panel route modules are called only when the corresponding `Panel.implemented` is true. |
+| `sharpit.fastapi.routes.sql_trace` / `sharpit.engine.tools04.sql_trace` | Per-panel modules for the existing, implemented `sql-trace` panel (A-sqltrace-insights fills them; never edit the shared loops): `build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]` returning `[]`, and `TOOLS = ()`, `COMMANDS = {}`. Discovery visits `sharpit.engine.panels04.MODULE_PANEL_IDS = (*PANEL_04_IDS, "sql-trace")`, gated by `module_implemented(panel_id) -> bool` (0.4 flag, `True` for `sql-trace`), in both `fastapi/routes/__init__.py::_panel_04_routes` and `panels04.tool_definitions()`; tools are appended after the base catalogue. |
 | `sharpit.engine.advisors.registry.AdvisorSpec.implemented` | `bool = True`; the four pre-registered advisors (`database-advisor`, `security`, `architecture`, `fastapi`) read their `panels04` flags; `advisor_for()` ignores false specs. Rule ownership/fingerprints remain empty until the owner lane fills them. |
 | `sharpit.fastapi.capture.CAPTURE_PANELS` | Contains `transactions` and `security-logs` in addition to legacy capture panels; middleware attaches only when both the settings flag and `Panel.implemented` are true. |
 | `sharpit.engine.sqla.DISCOVERY_PANELS` | Contains `postgresql`, `mysql`, `database-advisor`, and `sqlalchemy-statistics`; engine discovery attaches only when both the settings flag and `Panel.implemented` are true. |
@@ -150,7 +153,6 @@ A-sqlalchemy-statistics), `activity_n_plus_one_threshold: int = 5`, `read_only: 
 | `tests/test_foundation_split_contracts.py::test_plugin_session_options_match_resolver` | `869db29d181a3ad98df7eb5ba6201b4cbc0e091f` | `assert actual == expected` |
 | `tests/test_foundation_split_compat.py::test_capture_configuration_contract_is_owned_by_install_module` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert get_type_hints(_configure_capture)["return"] is CaptureWiring` |
 | `tests/test_foundation_split_compat.py::test_tool_dispatch_import_is_cycle_free` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert result.returncode == 0, result.stderr` |
-| `tests/engine/test_tools.py::test_call_tool_uses_facade_catalogue` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert result == {"facade": True}` |
 | `tests/engine/test_tools.py::test_call_tool_uses_facade_tool_gate` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert calls == [expected.name]` |
 | `tests/pytest_plugin/test_plugin_apps.py::test_plugin_loader_facade_remains_monkeypatchable` | `45797333bd99647623073cb8b7b0b6755bd6a3f7` | `assert state.sink.facts.advisor_runs[0].status != "UNKNOWN"` |
 | `tests/test_foundation_structure.py::test_install_facade_reexports_install_module_implementation` | `dcd50c7ec8b3643461eab99b6852e8917d4c1ec9` | `assert adapter.install is install_module.install` |
@@ -168,23 +170,20 @@ A-sqlalchemy-statistics), `activity_n_plus_one_threshold: int = 5`, `read_only: 
 | `tests/test_foundation_runtime_types.py::test_tool_call_types_resolve_at_runtime` | `359fbe92310fb07b5fdb9553786086ca3303a7a3` | `assert hints.get("call") is CallContext` |
 | `tests/test_foundation_runtime_types.py::test_tool_gate_context_and_via_types_resolve_at_runtime` | `359fbe92310fb07b5fdb9553786086ca3303a7a3` | `assert hints.get("ctx") is SharpitContext` |
 | `tests/engine/test_import_boundary.py::test_opentelemetry_stays_behind_engine_otel_gatekeeper` | `7df27495026acd28f9ba0e8e60e7028113b8cf70` | `assert violations == [...]` (`sharpit/engine/tools.py imports opentelemetry.trace`) |
-| `tests/engine/advisors/test_registry.py::test_0_4_advisor_specs_are_registered_and_gated` | `acbccbb` | `assert all(by_id[advisor_id].implemented is IMPLEMENTED[advisor_id] for advisor_id in advisor_ids)` |
-| `tests/fastapi/test_capture_hooks.py::test_unimplemented_security_logs_does_not_add_capture_middleware` | `acbccbb` | `assert wiring.middleware_added is False` |
-| `tests/fastapi/test_capture_hooks.py::test_unimplemented_database_panels_do_not_enable_discovery` | `acbccbb` | `assert calls[0] == (False, False)` |
-| `tests/fastapi/test_unimplemented_panel_surface.py::test_panel_implemented_defaults_true` | `c11ed916979054a6b994c9733964021e4ac5354f` | `assert panel.implemented is True` |
-| `tests/fastapi/test_unimplemented_panel_surface.py::test_unimplemented_panel_has_no_surface` | `c11ed916979054a6b994c9733964021e4ac5354f` | `assert set(IMPLEMENTED.values()) == {False}` |
-| `tests/engine/test_panel04_registry.py::test_0_4_panels_are_registered_but_unimplemented` | `fbcd986` | `assert set(panels) == PANEL_IDS` |
-| `Vitest: ui/tests/unit/nav.test.ts::keeps every 0.4 panel unimplemented and out of navigation` | `c11ed916979054a6b994c9733964021e4ac5354f` | `expect(Object.values(PANEL_04_IMPLEMENTED)).toEqual(PANEL_04_IDS.map(() => false))` |
+| `tests/engine/advisors/test_registry.py::test_0_4_advisor_specs_are_registered_and_gated` | `acbccbbdea8ce6798151a1a61b534c6fdf1a9ffb` | `assert all(by_id[advisor_id].implemented is IMPLEMENTED[advisor_id] for advisor_id in advisor_ids)` |
+| `tests/fastapi/test_capture_hooks.py::test_unimplemented_security_logs_does_not_add_capture_middleware` | `acbccbbdea8ce6798151a1a61b534c6fdf1a9ffb` | `assert wiring.middleware_added is False` |
+| `tests/fastapi/test_capture_hooks.py::test_unimplemented_database_panels_do_not_enable_discovery` | `acbccbbdea8ce6798151a1a61b534c6fdf1a9ffb` | `assert calls[0] == (False, False)` |
+| `tests/fastapi/test_unimplemented_panel_surface.py::test_panel_implemented_defaults_true` | `c11ed911b56c9460d64ad3253809cf729f6622b7` | `assert panel.implemented is True` |
+| `tests/fastapi/test_unimplemented_panel_surface.py::test_unimplemented_panel_has_no_surface` | `c11ed911b56c9460d64ad3253809cf729f6622b7` | `assert set(IMPLEMENTED.values()) == {False}` |
+| `tests/engine/test_panel04_registry.py::test_0_4_panels_are_registered_but_unimplemented` | `fbcd986f5ae7cdaf4b501afe1a5a9cd60cbbd700` | `assert set(panels) == PANEL_IDS` |
 | `tests/test_golden.py::test_golden_id_mapping_covers_panel_ids` | `746299ee10585f362092a91ca796c1b6e890a33f` | `assert set(ids.values()) == {panel.id for panel in PANELS}` |
 | `tests/test_golden.py::test_golden_loader_reads_nullable_reasons` | `746299ee10585f362092a91ca796c1b6e890a33f` | `assert no_reason is not None` |
 | `tests/test_golden.py::test_provisional_fixture_is_not_counted_as_parity` | `746299ee10585f362092a91ca796c1b6e890a33f` | `assert [w.category for w in provisional] == [UnverifiedParityWarning]` |
 | `tests/test_golden.py::test_golden_loader_rejects_missing_key_and_wrong_type` | `746299ee10585f362092a91ca796c1b6e890a33f` | `assert missing is not None` |
 | `tests/test_golden.py::test_golden_loader_prefers_named_capture` | `746299ee10585f362092a91ca796c1b6e890a33f` | `assert named is not None` |
 | `tests/test_golden.py::test_golden_loader_requires_a_fixture` | `746299ee10585f362092a91ca796c1b6e890a33f` | `assert absent is not None` |
-| `Vitest: ui/tests/component/panels04.test.ts::renders the <id> placeholder with its panel title` (12 ids) | `f4b55d64cbb63494a7d35c59e96660c208a5244b` | `expect(h.target.textContent).toContain('<View> title')` (empty stub view) |
-| `Vitest: ui/tests/component/panels04.test.ts::routes every 0.4 placeholder in App.svelte only behind its implemented flag` | `f4b55d64cbb63494a7d35c59e96660c208a5244b` | `expect(app, view).toContain("import Data from './views/Data.svelte';")` |
 | `tests/test_foundation_extension_slots.py::test_0_4_settings_defaults` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert {name: getattr(s, name, None) for name in SETTINGS_0_4} == SETTINGS_0_4` |
-| `tests/test_foundation_extension_slots.py::test_0_4_settings_env_parsers` (7 params) | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert getattr(s, field, None) == expected` |
+| `tests/test_foundation_extension_slots.py::test_0_4_settings_env_parsers` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert getattr(s, field, None) == expected` |
 | `tests/test_foundation_extension_slots.py::test_models_hook_stores_models_without_side_effects` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert len(models) == 2` |
 | `tests/test_foundation_extension_slots.py::test_models_hook_accepts_a_lone_declarative_base` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert getattr(handle.context, "models", None) == (Base,)` |
 | `tests/test_foundation_extension_slots.py::test_dismissed_pairs_is_inert_empty_set` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert store.dismissed_pairs() == set()` |
@@ -193,11 +192,33 @@ A-sqlalchemy-statistics), `activity_n_plus_one_threshold: int = 5`, `read_only: 
 | `tests/test_foundation_extension_slots.py::test_uninstall_runs_teardowns_in_reverse_even_if_one_fails` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert ran == ["third", "second", "first"]` |
 | `tests/test_foundation_extension_slots.py::test_connection_listener_slot_attaches_and_removes` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert calls == ["begin"]` |
 | `tests/test_foundation_extension_slots.py::test_connection_listener_slot_rejects_unknown_event` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert message == "unknown connection event 'execute'"` |
-| `tests/test_foundation_extension_slots.py::test_report_only_options_are_accepted_and_inert` (2 params) | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert with_options.ret == plain.ret` (usage error 4 before the options exist) |
+| `tests/test_foundation_extension_slots.py::test_report_only_options_are_accepted_and_inert` | `55a6eac71ab4c4afde30eed6f70721aeb4614c1c` | `assert with_options.ret == plain.ret` (usage error 4 before the options exist) |
 | `tests/test_example_app.py::test_sqla_sample_passes_its_models_to_install` | `99c1cf8fa8f28b67a2f806b554c314b88aa23315` | `assert app.state.sharpit.context.models == (Base,)` |
 | `tests/test_example_app.py::test_sqla_sample_otel_provider_only_with_the_sdk` | `99c1cf8fa8f28b67a2f806b554c314b88aa23315` | `assert (provider is not None) == bool(has_sdk)` |
-| `tests/pytest_plugin/test_plugin_gates.py::test_plugin_hook_raises_session_continues[terminal_summary-False-False]` (review finding: split broke the `plugin.Counter` seam) | `ba095efd548889bea12df614b3e2935ddda3eff9` (parent of fix `65c50263c029481a489885a7562b47bc9bb8e8e9`) | `assert 'pass' == 'unknown'` |
-| `tests/pytest_plugin/test_plugin_gates.py::test_plugin_hook_raises_session_continues[worker_advisors-True-True]` (review finding: split broke the `plugin.assess` seam) | `ba095efd548889bea12df614b3e2935ddda3eff9` (parent of fix `65c50263c029481a489885a7562b47bc9bb8e8e9`) | `assert 'pass' == 'unknown'` |
+| `tests/pytest_plugin/test_plugin_gates.py::test_plugin_hook_raises_session_continues[terminal_summary-False-False]` | `ba095efd548889bea12df614b3e2935ddda3eff9` | `assert 'pass' == 'unknown'` |
+| `tests/pytest_plugin/test_plugin_gates.py::test_plugin_hook_raises_session_continues[worker_advisors-True-True]` | `ba095efd548889bea12df614b3e2935ddda3eff9` | `assert 'pass' == 'unknown'` |
+| `tests/test_foundation_review_fixes.py::test_sql_trace_route_and_tool_modules_are_discovered` | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | `assert probe_tool in tools` |
+| `tests/test_foundation_review_fixes.py::test_models_hook_rejects_a_string` | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | `assert message == f"models must be a model class or an iterable of models, not {type(models).__name__}"` |
+| `tests/test_foundation_review_fixes.py::test_unknown_panel_message_lists_only_implemented_panels` | `46ee2477daa57bc7c826c780074dcd7e1ffb09f3` | `assert _value_error({"nope": {"enabled": False}}) == f"Unknown sharpit panel(s): nope; known panels: {known}"` |
 
-Capture red SHAs `d0ea233`, `82b9177`, and `3075c91` are mutation-based contract checks (wrong-value stubs),
-not pre-existing defects. The `3ff293b` and `ba095ef` rows are review-found compatibility regressions.
+## UI reds (manual replay; not pytest node ids)
+
+Replay: `git checkout <sha> -- ui && npm --prefix ui run test -- <file>` in a scratch copy, then restore.
+
+| Vitest test | Red SHA | Observed red output |
+|---|---|---|
+| `ui/tests/unit/nav.test.ts::keeps every 0.4 panel unimplemented and out of navigation` | `c11ed911b56c9460d64ad3253809cf729f6622b7` | `expect(Object.values(PANEL_04_IMPLEMENTED)).toEqual(PANEL_04_IDS.map(() => false))` |
+| `ui/tests/component/panels04.test.ts::renders the <id> placeholder with its panel title` | `f4b55d64cbb63494a7d35c59e96660c208a5244b` | `expect(h.target.textContent).toContain('<View> title')` (empty stub view) |
+| `ui/tests/component/panels04.test.ts::routes every 0.4 placeholder in App.svelte only behind its implemented flag` | `f4b55d64cbb63494a7d35c59e96660c208a5244b` | `expect(app, view).toContain("import Data from './views/Data.svelte';")` |
+
+## Not a red (no replayable red; kept out of the red table)
+
+- `tests/engine/test_tools.py::test_call_tool_uses_facade_catalogue` (recorded at `45797333bd99647623073cb8b7b0b6755bd6a3f7`): at that SHA it fails with `RpcError`, not an `AssertionError`, so it is a characterisation test of the tools facade seam, not a red. It passes at head and stays as a characterisation test.
+- `tests/test_safety_matrix.py::test_disabled_panel_denies_its_endpoints` (scoped in `337d690`): a test-scope correction, not a defect red. The 12 unimplemented 0.4 panels answer 404 by design and are covered by `test_unimplemented_panel_has_no_surface`. In `4c3828b`, three safety-matrix/capture inputs that disable "every panel" now pass only implemented ids, because an unimplemented id is now an unknown panel (review finding 3).
+- `tests/fastapi/test_capture_hooks.py::test_unimplemented_security_logs_does_not_add_capture_middleware` and `::test_unimplemented_database_panels_do_not_enable_discovery`: Codex added `skipif` decorators after their red commit `acbccbb`, and the gate requires the red body unchanged. The change only skipped the tests once an owner flips a flag, so `55eac19` restores the red version byte-for-byte (`git checkout acbccbb -- tests/fastapi/test_capture_hooks.py`). An owner lane that flips `security-logs`/`transactions` or a database panel replaces the matching test with its own positive test.
+- Review minors 4 and 5: controls that pass on arrival, so no red. `tests/test_foundation_review_fixes.py::test_planted_tool_in_an_unimplemented_panel_stays_absent` and `::test_report_only_options_leave_the_sharpit_report_unchanged` (`4c3828b`).
+
+## Open minors
+
+- Review 6: `src/sharpit/ui/static` is not rebuilt (lanes never run `npm run build`); the CI `ui-drift` job fails until the coordinator rebuilds once at integration.
+- Review 7 (for lane_gate): pytest's junit failure message has the `AssertionError: ` prefix only when the assertion text contains a `'` (pytest strips it otherwise, e.g. `c11ed91`'s `assert {True} == {False}`).
