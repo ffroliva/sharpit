@@ -53,7 +53,12 @@ runs:
         if report_only not in ("true", "false"):
             print("::error::report-only must be true or false")
             sys.exit(1)
-        argv = shlex.split(os.environ["RUNNER"]) + shlex.split(os.environ["PYTEST_ARGS"])
+        def split(value):
+            if os.environ.get("RUNNER_OS") != "Windows":
+                return shlex.split(value)
+            # non-POSIX mode keeps backslashes in Windows paths; strip the quotes it leaves on each token
+            return [t[1:-1] if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'" else t for t in shlex.split(value, posix=False)]
+        argv = split(os.environ["RUNNER"]) + split(os.environ["PYTEST_ARGS"])
         argv += ["--sharpit", "--sharpit-report", os.environ["REPORT_PATH"]]
         # false overrides a sharpit_report_only ini setting
         argv += ["--sharpit-report-only"] if report_only == "true" else ["-o", "sharpit_report_only=false"]
