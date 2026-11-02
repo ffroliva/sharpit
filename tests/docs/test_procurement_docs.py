@@ -226,25 +226,116 @@ def test_security_policy_network_claim_matches_gatekeepers() -> None:
     )
 
 
+def _parse_yaml(text: str) -> dict[str, object]:
+    try:
+        import yaml  # type: ignore[import-not-found]
+
+        loaded = yaml.safe_load(text)
+        if isinstance(loaded, dict):
+            return loaded
+    except ImportError:
+        pass
+
+    result: dict[str, object] = {}
+    updates: list[dict[str, object]] = []
+    current_update: dict[str, object] | None = None
+    sub_map: dict[str, object] | None = None
+
+    for line in text.splitlines():
+        trimmed = line.strip()
+        if not trimmed or trimmed.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+
+        if indent == 0:
+            if ":" in trimmed:
+                k, v = trimmed.split(":", 1)
+                k = k.strip()
+                v = v.strip().strip("\"'")
+                if k == "version":
+                    result["version"] = int(v) if v.isdigit() else v
+                elif k == "updates":
+                    result["updates"] = updates
+            continue
+
+        if trimmed.startswith("- "):
+            current_update = {}
+            updates.append(current_update)
+            sub_map = None
+            item_part = trimmed[2:].strip()
+            if ":" in item_part:
+                k, v = item_part.split(":", 1)
+                v = v.strip().strip("\"'")
+                current_update[k.strip()] = int(v) if v.isdigit() else v
+            continue
+
+        if current_update is not None:
+            if ":" in trimmed:
+                k, v = trimmed.split(":", 1)
+                k = k.strip()
+                v = v.strip().strip("\"'")
+                if not v:
+                    sub_dict: dict[str, object] = {}
+                    if indent == 4:
+                        current_update[k] = sub_dict
+                        sub_map = sub_dict
+                    elif indent > 4 and sub_map is not None:
+                        nested_sub: dict[str, object] = {}
+                        sub_map[k] = nested_sub
+                        sub_map = nested_sub
+                else:
+                    val: object = int(v) if v.isdigit() else v
+                    if indent == 4:
+                        current_update[k] = val
+                        sub_map = None
+                    elif sub_map is not None:
+                        sub_map[k] = val
+            elif trimmed.startswith("- ") and sub_map is not None:
+                val = trimmed[2:].strip().strip("\"'")
+                raw_patterns = sub_map.get("patterns")
+                if not isinstance(raw_patterns, list):
+                    patterns_list: list[object] = [val]
+                    sub_map["patterns"] = patterns_list
+                else:
+                    raw_patterns.append(val)
+
+    return result
+
+
 def test_dependabot_covers_uv_pip_actions_and_ui_npm() -> None:
     dependabot_path = ROOT / ".github" / "dependabot.yml"
     assert dependabot_path.is_file(), ".github/dependabot.yml must exist"
-    content = dependabot_path.read_text(encoding="utf-8")
+    raw_content = dependabot_path.read_text(encoding="utf-8")
 
-    assert "version: 2" in content, ".github/dependabot.yml must declare version: 2"
-    assert "updates:" in content, ".github/dependabot.yml must declare updates list"
+    config = _parse_yaml(raw_content)
+    assert config.get("version") == 2, ".github/dependabot.yml must declare version: 2"
+    updates = config.get("updates", [])
+    assert isinstance(updates, list), "Dependabot configuration must declare updates list"
+    assert len(updates) >= 4, "Dependabot must cover at least 4 updates entries"
 
-    ecosystems = re.findall(r"package-ecosystem:\s*[\"']?([a-zA-Z0-9_\-]+)[\"']?", content)
-    directories = re.findall(r"directory:\s*[\"']?([^\"'\n]+)[\"']?", content)
-    assert len(ecosystems) >= 3, "Dependabot must cover at least 3 ecosystems"
-    assert len(directories) == len(ecosystems), "Each ecosystem must have a matching directory"
-
-    entries = list(zip(ecosystems, [d.strip() for d in directories], strict=True))
-    assert ("pip", "/") in entries, "Dependabot must cover pip at /"
+    entries = [(u.get("package-ecosystem"), u.get("directory")) for u in updates if isinstance(u, dict)]
+    assert ("uv", "/") in entries, "Dependabot must cover uv at / (not pip)"
+    assert ("pip", "/") not in entries, "Dependabot must not use pip for /"
+    assert ("pip", "/website") in entries, "Dependabot must cover pip at /website"
     assert ("github-actions", "/") in entries, "Dependabot must cover github-actions at /"
     assert ("npm", "/ui") in entries, "Dependabot must cover npm at /ui"
 
-    assert "interval:" in content, "Dependabot configuration must declare schedule interval"
+    npm_entry = next(
+        (u for u in updates if isinstance(u, dict) and u.get("package-ecosystem") == "npm" and u.get("directory") == "/ui"),
+        None,
+    )
+    assert npm_entry is not None, "npm update entry at /ui must exist"
+    assert npm_entry.get("open-pull-requests-limit") == 2, (
+        "npm update entry must specify open-pull-requests-limit: 2"
+    )
+    assert "groups" in npm_entry, "npm update entry must group dependencies into one PR"
+
+    assert "npm --prefix ui run build" in raw_content, (
+        "Dependabot configuration must comment that npm PRs need 'npm --prefix ui run build' committed"
+    )
+    assert "drift" in raw_content.lower(), (
+        "Dependabot configuration comment must mention CI drift job"
+    )
 
 
 def test_skills_readme_stale_line_corrected() -> None:
