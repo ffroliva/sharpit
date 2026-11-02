@@ -85,9 +85,19 @@ def test_query_text_drops_comment_bodies() -> None:
     )
 
 
-def test_query_text_masks_a_backslash_escaped_quote_conservatively() -> None:
-    # derived: review finding 1: with standard_conforming_strings=off, 'x\' secret' is one literal
-    shown = query_text(MASKED, r"select 'x\' secret' from t" + "\nwhere a = b")
-    assert shown is not None
-    assert "secret" not in shown
-    assert shown.endswith("where a = b")
+def test_query_text_masks_an_ambiguous_backslash_quote_to_the_end_of_the_text() -> None:
+    # derived: final round (1): after an ambiguous \' the literal may close on any later line, so the rest of the
+    # text is masked; supersedes test_query_text_masks_a_backslash_escaped_quote_conservatively (end of line)
+    shown = query_text(MASKED, r"select 'x\' from t" + "\nwhere a = 'b' and pin = secret")
+    assert shown == "select '******'"
+
+
+def test_query_text_masks_postgresql_16_numeric_forms_whole() -> None:
+    # derived: final round (2): hex, octal, binary and underscore-grouped literals (PostgreSQL 16)
+    shown = query_text(MASKED, "select a from t where h = 0xDEAD and o = 0o17 and b = 0b101 and p = 4111_1111")
+    assert shown == "select a from t where h = ****** and o = ****** and b = ****** and p = ******"
+
+
+def test_query_text_masks_nested_comments_whole() -> None:
+    # derived: final round (3): PostgreSQL block comments nest
+    assert query_text(MASKED, "select a /* outer /* inner */ secret */ from t") == "select a from t"
