@@ -8,7 +8,10 @@ endpoint ``mappings/flat`` is checked against the contract §4 DTO instead.
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import time
+from pathlib import Path
 from statistics import median
 
 import pytest
@@ -17,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from conftest import FIXTURES, SideEffectGuard, golden
 from fastapi import FastAPI
+from golden import assert_parity, bootui_ids
 from sharpit import install
 from sharpit.fastapi.adapter import SharpitMount
 
@@ -29,6 +33,13 @@ ENDPOINTS = {
     "beans": "beans",
     "vulnerabilities": "vulnerabilities",
 }
+_SANITIZE = Path(__file__).resolve().parents[1] / "scripts" / "sanitize_golden.py"
+_spec = importlib.util.spec_from_file_location("sanitize_golden", _SANITIZE)
+assert _spec
+assert _spec.loader
+_sanitize = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_sanitize)
+find_secrets = _sanitize.find_secrets
 NOT_COMPARED = {"health", "meta", "mappings"}
 
 # fixture -> {recursive key path: reason}. Paths are excluded from both sides; value-only deviations are listed so
@@ -150,3 +161,65 @@ def test_install_budget(no_side_effects: SideEffectGuard):
         assert (
             TestClient(app, base_url="http://localhost", client=LOCAL).get("/sharpit/api/overview").status_code == 200
         )
+
+
+GOLDEN_2_2_0 = FIXTURES / "2.2.0"
+EXTRA_2_2_0_PANELS = ("overview", "panels", "dismissed-rules", "dismissed-findings")
+
+
+def _meta_2_2_0() -> dict[str, object]:
+    assert (GOLDEN_2_2_0 / "meta.json").is_file()
+    return json.loads((GOLDEN_2_2_0 / "meta.json").read_text(encoding="utf-8"))
+
+
+def _expected_sharpit_ids() -> list[str]:
+    return sorted({*bootui_ids().values(), *EXTRA_2_2_0_PANELS})
+
+
+def test_golden_capture_manifest_has_all_2_2_0_panels_and_no_error_envelopes():
+    meta = _meta_2_2_0()
+    uncaptured = meta.get("uncaptured", {})
+    assert isinstance(uncaptured, dict)
+    provisional = meta.get("provisional", [])
+    assert isinstance(provisional, list)
+    missing: list[str] = []
+    for sid in _expected_sharpit_ids():
+        folder = GOLDEN_2_2_0 / sid
+        has_live = (folder / "captured.json").is_file() or any(folder.glob("*.captured.json"))
+        has_provisional = sid in provisional and any(folder.glob("*provisional.json"))
+        if not (has_live or has_provisional or sid in uncaptured):
+            missing.append(sid)
+    assert missing == []
+    assert meta.get("bootuiVersion") == "2.2.0"
+    assert sorted(p.name for p in GOLDEN_2_2_0.glob("*.json")) == ["ids.json", "meta.json"]
+    for reason in uncaptured.values():
+        assert isinstance(reason, str)
+        assert reason.strip()
+    envelopes: list[str] = []
+    for p in GOLDEN_2_2_0.glob("*/*captured.json"):
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and set(data) == {"error"}:  # pyright: ignore[reportUnknownArgumentType]
+            envelopes.append(str(p.relative_to(GOLDEN_2_2_0)))
+    assert envelopes == []
+
+
+def test_conformance_2_2_0_goldens_and_ids_mapping():
+    captured = sorted(GOLDEN_2_2_0.glob("*/*captured.json"))
+    assert captured
+    for path in captured:
+        sid = path.parent.name
+        name = path.name.removesuffix(".captured.json")
+        assert sid in _expected_sharpit_ids()
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert isinstance(payload, (dict, list))
+        if isinstance(payload, dict):
+            assert_parity(sid, name, payload)  # pyright: ignore[reportUnknownArgumentType]
+    assert set(bootui_ids().values()) >= {"alembic", "sqlalchemy-statistics", "fastapi-security", "fastapi"}
+
+
+def test_golden_2_2_0_fixtures_hold_no_secrets():
+    leaks = {
+        str(p.relative_to(GOLDEN_2_2_0)): find_secrets(json.loads(p.read_text(encoding="utf-8")))
+        for p in GOLDEN_2_2_0.glob("*/*.json")
+    }
+    assert {k: v for k, v in leaks.items() if v} == {}
