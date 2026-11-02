@@ -57,7 +57,6 @@ PANELS: tuple[Panel, ...] = (
     Panel("architecture", "Architecture", True, "/architecture"),
     Panel("sqlalchemy-statistics", "SQLAlchemy Statistics", True, "/sqlalchemy-statistics"),
     Panel("fastapi-security", "FastAPI Security", False, "/fastapi-security"),
-    Panel("fastapi", "FastAPI", True, "/fastapi"),
 )
 
 
