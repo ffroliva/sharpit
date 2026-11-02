@@ -980,3 +980,15 @@ def test_order_cross_site_before_token_before_panel():
     assert decide(f, s) == AUTH
     f = facts("POST", "10.0.0.5", "localhost:8000", api="/loggers/root", authorization=f"Bearer {TOKEN}")
     assert decide(f, s) == _panel_denial("loggers", RO_GLOBAL)
+
+
+# ported: DismissedFindingsControllerTests.mvcGlobalReadOnlyBlocksTheMutationsButNotTheList (guard decision)
+def test_dismissed_findings_global_read_only():
+    s = SharpitSettings(read_only=True)
+    expected = _panel_denial("dismissed-findings", RO_GLOBAL)
+    for method in ("POST", "PUT", "PATCH", "DELETE"):
+        assert decide(facts(method, api="/dismissed-findings"), s) == expected
+        assert decide(facts(method, api="/dismissed-findings/"), s) == expected
+    assert decide(facts("GET", api="/dismissed-findings"), s) is None
+    assert decide(facts("POST", api="/dismissed-findings")) is None
+    assert decide(facts("POST", api="/dismissed-rules"), s) == _panel_denial("dismissed-rules", RO_GLOBAL)

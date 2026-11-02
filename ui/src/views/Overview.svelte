@@ -17,10 +17,10 @@
 
 <div class="panel">
   <header class="panel-head">
-    <h1>Overview</h1>
+    <h1>Scorecard</h1>
     {#if data}<span class="muted">{data.applicationName ?? 'Unnamed application'}</span>{/if}
   </header>
-  <div class="panel-body" use:scrollable role="region" aria-label="Overview">
+  <div class="panel-body" use:scrollable role="region" aria-label="Scorecard">
     {#if error}
       <div class="empty" role="alert"><p class="lead danger">Could not load the overview</p><p>{error}</p></div>
     {:else if !data}
