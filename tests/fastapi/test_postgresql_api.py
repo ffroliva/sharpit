@@ -148,3 +148,17 @@ def test_golden_parity() -> None:
         pytest.skip("no G0a captured.json or provisional postgresql fixture yet (coordinator)")
     client, _ = _client(("primary", FakePgEngine()))
     golden.assert_parity("postgresql", "report", client.post(READ).json())
+
+
+def test_cli_read_refuses_an_async_engine_outside_the_app_loop() -> None:
+    # derived: review finding 2: an AsyncEngine's pool belongs to the app's event loop; the CLI tool runs on a worker
+    # thread and must never drive that pool from a second loop
+    engine = FakePgEngine()
+    engine.dialect.is_async = True
+    _, ctx = _client(("primary", engine))
+    ctx.capture.loop = None
+    tool = next(t for t in tools.TOOLS if t.name == "postgresql_read")
+    summary = tool.handler(tools.CallContext(ctx, {}), {})
+    assert summary["status"] == "DISABLED"
+    assert "async engines run from the panel only" in summary["message"]
+    assert engine.connects == 0
