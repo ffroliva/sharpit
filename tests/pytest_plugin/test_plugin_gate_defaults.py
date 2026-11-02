@@ -251,3 +251,28 @@ def test_explicit_app_ignores_autodetect_candidates(monkeypatch: pytest.MonkeyPa
     assert selected is not None
     assert selected[0] == "explicit_choice_mod:app"
     assert selected[1] is chosen_app
+
+
+def test_autodetected_app_without_routes_is_skipped(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+        from fastapi import FastAPI
+        app = FastAPI()
+        """,
+        test_bare="""
+        import appmod
+
+        def test_uses_app():
+            assert appmod.app is not None
+        """,
+    )
+
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
+    run = _rest_run(pytester)
+    required = pytester.runpytest_subprocess("--sharpit", "--sharpit-require-app", "--sharpit-report=report.json", "-q")
+
+    assert result.ret == 0
+    assert run["status"] == "SKIPPED"
+    assert "no routes seen after install" not in str(run["reason"])
+    assert "appmod:app" in str(run["reason"])
+    assert required.ret == 1
