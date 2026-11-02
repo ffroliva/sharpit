@@ -103,10 +103,10 @@ def autodetect_apps(test_files: Sequence[str] = TEST_FILES) -> tuple[tuple[str, 
     paths = sysconfig.get_paths()
     roots = tuple(os.path.normcase(os.path.abspath(paths[k])) for k in ("stdlib", "platstdlib") if k in paths)
     best: dict[int, tuple[tuple[int, str, int], str, object]] = {}
-    for module_name, module in list(sys.modules.items()):
+    for module_name, module in tuple(sys.modules.items()):
         if type(module) is not ModuleType or not _project_module(module_name, module, test_files, roots):
             continue
-        for order, (attr, value) in enumerate(list(vars(module).items())):
+        for order, (attr, value) in enumerate(tuple(vars(module).items())):
             # type() and its MRO never run instance code; classes compare by identity
             if apps.isdisjoint(type(value).__mro__):
                 continue
