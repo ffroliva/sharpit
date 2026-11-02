@@ -7,6 +7,7 @@ at four, step keys at six, ``env`` entries and ``run`` lines at eight.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -188,6 +189,32 @@ def test_action_preserves_windows_paths_in_pytest_args() -> None:
     # finding: POSIX shlex.split turned tests\test_file.py into teststest_file.py on Windows runners
     argv = _run_argv({"RUNNER_OS": "Windows", "PYTEST_ARGS": 'tests\\test_file.py -k "a b"'})
     assert argv[:3] == ["tests\\test_file.py", "-k", "a b"], argv
+
+
+def test_action_propagates_pytest_exit_code(tmp_path: Path) -> None:
+    # finding: nothing proved a non-zero pytest exit reaches the Run step's exit status
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not available")
+    exe = Path(sys.executable)
+    env = {
+        "PATH": f"{exe.parent.as_posix()}{os.pathsep}{os.environ.get('PATH', '')}",
+        "RUNNER": f'"{exe.as_posix()}" -c "import sys; sys.exit(3)"',
+        "PYTEST_ARGS": "",
+        "REPORT_ONLY": "true",
+        "BASELINE": "",
+        "FAIL_ON": "",
+        "REPORT_PATH": "r.json",
+    }
+    done = subprocess.run(
+        [bash, "-c", textwrap.dedent(str(_step("Run")["run"]))],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 3, done.stderr
 
 
 def test_action_has_no_unquoted_or_expression_run_values() -> None:
