@@ -117,20 +117,6 @@ def test_summary_never_returns_the_authority_of_an_absolute_url():
     assert summary(buf)["httpPath"] == "/owners"
 
 
-def test_detail_applies_the_live_exposure_policy_on_every_read():
-    # ported: TracesServiceTests.detailAppliesTheLiveExposurePolicyOnEveryRead
-    buf = buffer(FULL)
-    buf.add(span(attributes={"db.statement": "select * from users where password = 'hunter2'"}))
-    trace_id = f"{TRACE:032x}"
-    first = buf.detail(trace_id)
-    buf.masker = MASKED
-    second = buf.detail(trace_id)
-    assert first is not None
-    assert second is not None
-    assert "hunter2" in attribute(first["spans"][0], "db.statement")
-    assert "hunter2" not in attribute(second["spans"][0], "db.statement")
-
-
 def test_span_reads_mask_nested_values():
     # ported: TracesServiceTests.spanReadsMaskNestedValuesWithoutChangingStoredEvidence
     raw = span(

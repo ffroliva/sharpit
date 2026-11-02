@@ -4,6 +4,21 @@ Implementer: Codex gpt-6-luna (high)
 Lane plan: `docs/superpowers/plans/2026-11-01-sharpit-0.4.0/A-traces.md`
 Branch / worktree: `lane/0.4.0-A-traces` in `C:\development\github\sharpit-wt\0.4.0-A-traces`, from `release/0.4.0` at `34f1689`
 
+## Fix round 2 (2026-11-02)
+
+- Coordinator ruling applied: deleted the obsolete `test_detail_applies_the_live_exposure_policy_on_every_read`,
+  whose immutable `be36585` red expected FULL exposure to reveal SQL literals. Its row is under `Historical SHA` with
+  reason `superseded: literals keyed on capture_parameters (fix round 1)`.
+- Kept `test_full_exposure_without_capture_parameters_still_hides_sql_literals`, which pins normalized SQL while
+  `capture_parameters` is off, including FULL exposure. The focused OTel/trace/API run passed (65 tests).
+- Verification: focused OTel/trace/API `65 passed`; clean safety/masking matrix `1027 passed, 1 warning`; Ruff check
+  passed; format check reports 476 files already formatted; Pyright reports 0 errors. The first safety run's sole
+  teardown error caught this handoff being edited mid-run; the unchanged rerun passed all 1027 tests.
+- Standard detached full suite `uv run pytest -q -n 4`: `4273 passed, 9 skipped, 43 warnings` in 631.16 s. An earlier
+  SDK-enabled full run had one xdist worker crash at `test_request_overhead_budget`; that test passed alone (1/1),
+  and the standard full run completed cleanly.
+- Final Ruff check passed; format check reports 476 files already formatted; Pyright reports 0 errors.
+
 ## Fix round 1 (2026-11-02)
 
 - Fix commit: `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578`; UI red commit: `654544674d606cf4a6510897049067396df2edea`.
@@ -127,7 +142,6 @@ This fix-round section at the top supersedes gate counts and detail-parity notes
 | tests/engine/capture/test_traces.py::test_list_and_detail_hide_sharpit_self_traces | be3658575fbfb67a17ed15f0aaa57572d87e78f2 | `assert [] == ['2ebe213f5ee...4077f5f4dc74']` |
 | tests/engine/capture/test_traces.py::test_summary_masks_matrix_parameters_of_the_http_path | be3658575fbfb67a17ed15f0aaa57572d87e78f2 | `assert 0 == 1` |
 | tests/engine/capture/test_traces.py::test_summary_never_returns_the_authority_of_an_absolute_url | be3658575fbfb67a17ed15f0aaa57572d87e78f2 | `assert 0 == 1` |
-| tests/engine/capture/test_traces.py::test_detail_applies_the_live_exposure_policy_on_every_read | be3658575fbfb67a17ed15f0aaa57572d87e78f2 | `assert None is not None` |
 | tests/engine/capture/test_traces.py::test_span_reads_mask_nested_values | be3658575fbfb67a17ed15f0aaa57572d87e78f2 | `assert None is not None` |
 | tests/engine/capture/test_traces.py::test_summary_and_span_dto_keys | be3658575fbfb67a17ed15f0aaa57572d87e78f2 | `assert 0 == 1` |
 | tests/engine/capture/test_traces.py::test_event_offsets_are_relative_to_the_span_start | be3658575fbfb67a17ed15f0aaa57572d87e78f2 | `assert None is not None` |
@@ -149,6 +163,12 @@ This fix-round section at the top supersedes gate counts and detail-parity notes
 | tests/fastapi/test_traces_api.py::test_mcp_read_tool_only | 8ff1c1fcfbdf2d1c4013a7998e5c569f8214cd52 | `assert 'get_traces' in [...]` |
 | tests/masking/test_a_traces_masking.py::test_secrets_in_span_attributes_never_appear | 8ff1c1fcfbdf2d1c4013a7998e5c569f8214cd52 | `assert '"spanCount":1' in '{"error":"Not Found"}'` |
 | tests/engine/capture/test_traces.py::test_sql_literals_in_db_statement_are_masked | c4c7d9dff61bc13447f4162e25c14caa7b5c95cb | `assert "select * fro...w = 'hunter2'" == 'select * fro... where pw = ?'` |
+
+### Historical SHA
+
+| Test | Historical SHA | Assertion | Reason |
+|---|---|---|---|
+| `tests/engine/capture/test_traces.py::test_detail_applies_the_live_exposure_policy_on_every_read` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | superseded: literals keyed on capture_parameters (fix round 1) |
 
 ### Superseded
 
@@ -174,13 +194,13 @@ provider, `sharpit.install(app, enabled="ON")`, two TestClient lifespans, each `
 - after two lifespans the provider has exactly one processor: `['SharpitSpanProcessor']`.
 - **Finding:** the first run leaked `pw = 'hunter2'` from `db.statement` (`mask_text` masks key=value pairs, not SQL
   literals). Red `c4c7d9d` (`test_sql_literals_in_db_statement_are_masked`), fix `c7b269a` (`normalize_sql` before
-  `mask_text`, except FULL exposure). Rerun: no secret in list or detail.
+  `mask_text`; literal normalization is keyed on `capture_parameters`, including under FULL exposure). Rerun: no
+  secret in list or detail.
 
 ## How to resume
 
-Read `.superpowers/sdd/0.4.0/lanes/A-traces/findings.md`. Current head/evidence commit is
-`8f0fced9837f802b6e6204e0ac161876b8c7af3c`; implementation is at `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578`.
-The fix-round gates are recorded above; the remaining test conflict
-needs a coordinator/owner resolution that respects the immutable red-test rule. The two global budget tests passed
-when run alone (`A-traces-overhead-r2.log`). Re-run full suite detached to the integration log directory if a new
-policy is chosen. Continue on this lane branch; do not edit review/gate files or push.
+Read `.superpowers/sdd/0.4.0/lanes/A-traces/findings.md`. Implementation is at
+`f47d6f2af0d2fff9b71dd5504a9a2a5a62504578`; this handoff is included in the fix-round 2 commit at the lane `HEAD`.
+All fix-round 2 gates are recorded above. The old FULL-exposure assertion is removed and its red is under
+`Historical SHA`; the new `capture_parameters` assertion remains. Continue on this lane branch; do not edit
+review/gate files or push.

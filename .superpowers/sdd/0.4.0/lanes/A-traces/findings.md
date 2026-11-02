@@ -13,7 +13,6 @@
 | sharpit's own traces listed | `tests/engine/capture/test_traces.py::test_list_and_detail_hide_sharpit_self_traces` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert [] == ['2ebe213f5ee...4077f5f4dc74']` | Fixed in `311852b` |
 | Matrix parameters unmasked | `tests/engine/capture/test_traces.py::test_summary_masks_matrix_parameters_of_the_http_path` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert 0 == 1` | Fixed in `311852b` |
 | Absolute URL authority shown | `tests/engine/capture/test_traces.py::test_summary_never_returns_the_authority_of_an_absolute_url` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert 0 == 1` | Fixed in `311852b` |
-| Masking not live at read / legacy FULL exposure assertion | `tests/engine/capture/test_traces.py::test_detail_applies_the_live_exposure_policy_on_every_read` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | Parked: the immutable old red expects FULL exposure to show literals, while the new red requires `capture_parameters=False` to normalize them |
 | Nested attribute secrets | `tests/engine/capture/test_traces.py::test_span_reads_mask_nested_values` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | Fixed in `311852b` |
 | DTO keys | `tests/engine/capture/test_traces.py::test_summary_and_span_dto_keys` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert 0 == 1` | Fixed in `311852b` |
 | Event offsets | `tests/engine/capture/test_traces.py::test_event_offsets_are_relative_to_the_span_start` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | Fixed in `311852b` |
@@ -80,6 +79,12 @@
 | `tests/engine/capture/test_traces.py::test_reason_when_the_provider_was_set_late` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == NOT_ARMED` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/fastapi/test_traces_api.py::test_detail_matches_the_bootui_span_records` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert problems == []` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `tests/fastapi/test_traces_api.py::test_server_root_path_hides_sharpit_server_spans` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert body['traces'] == []` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+
+### Historical SHA
+
+| Test | Historical SHA | Assertion | Reason |
+|---|---|---|---|
+| `tests/engine/capture/test_traces.py::test_detail_applies_the_live_exposure_policy_on_every_read` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | superseded: literals keyed on capture_parameters (fix round 1) |
 
 ### UI reds
 
