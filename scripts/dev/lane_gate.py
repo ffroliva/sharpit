@@ -378,6 +378,34 @@ class _Integrity:
     unverified: list[str] = field(default_factory=list[str])
 
 
+def _sha_problem(opts: Options, base: str, red: Red) -> tuple[str | None, str]:
+    """(problem or None, the resolved red SHA)."""
+    sha = _resolve(opts.worktree, red.sha)
+    if sha is None:
+        return f"red SHA {red.sha} is unknown", ""
+    if not _is_ancestor(opts.worktree, sha, opts.sha):
+        return f"red SHA {red.sha} is not an ancestor of head", sha
+    if _is_ancestor(opts.worktree, sha, base):
+        return f"red SHA {red.sha} is not a lane commit (already in the integration branch)", sha
+    return None, sha
+
+
+def _source_problems(opts: Options, base: str, red: Red, sha: str) -> list[str]:
+    path = red.test.split("::", 1)[0]
+    at_red = _function_source(_show(opts.worktree, sha, path) or "", red.test)
+    at_head = _function_source(_show(opts.worktree, opts.sha, path) or "", red.test)
+    if at_red is None:
+        return [f"test missing at red SHA {red.sha}"]
+    if at_head is None:
+        return ["test missing at head"]
+    if at_red != at_head:
+        return [f"test body changed after red commit {red.sha}"]
+    if _function_source(_show(opts.worktree, base, path) or "", red.test) == at_red:
+        # council r2: the red test must be in the lane diff; an old test plus a broken src is a fake red
+        return ["test unchanged from the integration branch (a red must add or change it)"]
+    return [f"{problem} {red.sha}" for problem in _red_file_problems(opts, sha, path)]
+
+
 def red_integrity(opts: Options, base: str, reds: Sequence[Red]) -> _Integrity:
     out = _Integrity()
     if not reds:
@@ -387,31 +415,10 @@ def red_integrity(opts: Options, base: str, reds: Sequence[Red]) -> _Integrity:
         if ".py::" not in red.test:
             out.unverified.append(f"{tag}: not a pytest test; replay it by hand at {red.sha}")
             continue
-        sha = _resolve(opts.worktree, red.sha)
-        if sha is None:
-            out.problems.append(f"{tag}: red SHA {red.sha} is unknown")
-            continue
-        if not _is_ancestor(opts.worktree, sha, opts.sha):
-            out.problems.append(f"{tag}: red SHA {red.sha} is not an ancestor of head")
-            continue
-        if _is_ancestor(opts.worktree, sha, base):
-            out.problems.append(f"{tag}: red SHA {red.sha} is not a lane commit (already in the integration branch)")
-            continue
-        path = red.test.split("::", 1)[0]
-        at_red = _function_source(_show(opts.worktree, sha, path) or "", red.test)
-        at_head = _function_source(_show(opts.worktree, opts.sha, path) or "", red.test)
-        if at_red is None:
-            out.problems.append(f"{tag}: test missing at red SHA {red.sha}")
-        elif at_head is None:
-            out.problems.append(f"{tag}: test missing at head")
-        elif at_red != at_head:
-            out.problems.append(f"{tag}: test body changed after red commit {red.sha}")
-        elif _function_source(_show(opts.worktree, base, path) or "", red.test) == at_red:
-            # council r2: the red test must be in the lane diff; an old test plus a broken src is a fake red
-            out.problems.append(f"{tag}: test unchanged from the integration branch (a red must add or change it)")
-        elif file_problems := _red_file_problems(opts, sha, path):
-            out.problems += [f"{tag}: {problem} {red.sha}" for problem in file_problems]
-        else:
+        problem, sha = _sha_problem(opts, base, red)
+        problems = [problem] if problem else _source_problems(opts, base, red, sha)
+        out.problems += [f"{tag}: {p}" for p in problems]
+        if not problems:
             out.replayable.append(Red(red.test, sha))
     return out
 
