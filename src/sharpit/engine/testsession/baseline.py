@@ -34,6 +34,7 @@ class Comparison:
     findings: tuple[Finding, ...]
     fixed: tuple[Entry, ...] | None
     fixed_reason: str | None
+    carried: tuple[Entry, ...] = ()
 
 
 def read(path: Path) -> Baseline:
@@ -90,21 +91,32 @@ def compare(
             finding.observed is not None and entry.observed is not None and finding.observed > entry.observed
         )
         compared.append(replace(finding, baseline_state="existing" if existing else "new"))
+    unseen = [entry for fingerprint, entry in entries.items() if fingerprint not in seen]
+    carried = tuple(e for e in unseen if ran is not None and e.fingerprint.split(":", 1)[0] not in ran)
     if partial:
-        return Comparison(tuple(compared), None, "partial run")
-    fixed = tuple(
-        entry
-        for fingerprint, entry in entries.items()
-        if fingerprint not in seen and not entry.rule_id.startswith("VULN-")
-    )
-    return Comparison(tuple(compared), fixed, None)
+        return Comparison(tuple(compared), None, "partial run", carried)
+    if carried:  # an advisor that did not run completely saw nothing: its entries are neither fixed nor dropped
+        names = ", ".join(sorted({e.fingerprint.split(":", 1)[0] for e in carried}))
+        return Comparison(tuple(compared), None, f"advisor did not run: {names}", carried)
+    return Comparison(tuple(compared), tuple(e for e in unseen if not e.rule_id.startswith("VULN-")), None)
 
 
 def write(path: Path, findings: Sequence[Finding], keep: Sequence[Entry] = ()) -> None:
     """Write stable, sorted baseline bytes. Findings arrive masked from the capture sink."""
-    rows: dict[str, dict[str, Any]] = {}
+    rows: dict[str, dict[str, Any]] = {
+        e.fingerprint: {
+            "fingerprint": e.fingerprint,
+            "target": e.target,
+            "ruleId": e.rule_id,
+            "message": e.message,
+            "observed": e.observed,
+        }
+        for e in keep
+    }
     for finding in findings:
-        if finding.advisor.lower() in {"vulnerability", "vulns"} or finding.rule_id.startswith("VULN-"):
+        if finding.dismissed or finding.advisor.lower() in {"vulnerability", "vulns"}:
+            continue
+        if finding.rule_id.startswith("VULN-"):
             continue
         rows[finding.fingerprint] = {
             "fingerprint": finding.fingerprint,

@@ -134,6 +134,7 @@ class _State:
     partial_selection: bool = False
     worker_partial_facts: list[dict[str, Any]] | None = None
     partial: bool = False
+    baseline_carried: tuple[Any, ...] = ()
 
 
 def _state(config: Any) -> _State | None:

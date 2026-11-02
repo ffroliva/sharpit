@@ -74,9 +74,13 @@ def _report_parts(plugin: Any, session: Any, state: Any, facts: Any) -> list[Any
 def _apply_baseline(state: Any, data: dict[str, Any]) -> None:
     if state.baseline_data is None:
         return
+    ran = {"test-runtime"} | {
+        a["advisor"] for a in data["advisors"] if a["status"] in {"PASSED", "FAILED"} and a["reason"] is None
+    }
     comparison = baseline_io.compare(
-        [finding_from(finding) for finding in data["findings"]], state.baseline_data, partial=state.partial
+        [finding_from(finding) for finding in data["findings"]], state.baseline_data, partial=state.partial, ran=ran
     )
+    state.baseline_carried = comparison.carried
     by_fingerprint = {finding.fingerprint: finding for finding in comparison.findings}
     data["findings"] = [
         {**finding, "baselineState": by_fingerprint[finding["fingerprint"]].baseline_state}
@@ -109,4 +113,8 @@ def _baseline_refusal(state: Any, data: dict[str, Any]) -> str | None:
 
 def _write_baseline(state: Any, data: dict[str, Any]) -> None:
     if state.options.write_baseline:
-        baseline_io.write(state.options.write_baseline, [finding_from(finding) for finding in data["findings"]])
+        baseline_io.write(
+            state.options.write_baseline,
+            [finding_from(finding) for finding in data["findings"]],
+            state.baseline_carried,
+        )
