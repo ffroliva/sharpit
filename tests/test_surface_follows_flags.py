@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -41,7 +44,7 @@ def data_flipped(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(data_routes, "build_routes", build_routes)
     # TOOLS/COMMANDS are built at import: rebuild them as the import would with the flag on
     lane_tools, lane_commands = panels04.tool_definitions()
-    merged_tools, merged_commands = tools.merge_lane_tools(tools.TOOLS, tools.COMMANDS, lane_tools, lane_commands)
+    merged_tools, merged_commands = surface.catalogue_with_lanes(lane_tools, lane_commands)
     monkeypatch.setattr(tools, "TOOLS", merged_tools)
     monkeypatch.setattr(tools, "COMMANDS", merged_commands)
     monkeypatch.setattr(mcp, "TOOLS", merged_tools)
@@ -70,3 +73,33 @@ def test_every_shared_count_follows_a_flag_flip(data_flipped: None) -> None:
     assert surface.lane_route_paths(handle.context, app) == [p.path for p in _panel_04_routes(handle.context, app)]
     assert surface.lane_route_paths(handle.context, app) == ["/api/data/probe"]
     assert client.get("/sharpit/api/data/probe").json() == {"probe": True}
+
+
+_IMPORT_WITH_FLAG_ON = """
+import sys, types
+sys.path.insert(0, sys.argv[1])
+from sharpit.engine import panels04
+from sharpit.engine.tools04 import data
+panels04.IMPLEMENTED["data"] = True
+data.TOOLS = (types.SimpleNamespace(name="get_data_probe", panel="data", action=False),)
+data.COMMANDS = {"get_data_probe": "data probe"}
+import importlib
+from sharpit.engine import tools
+tools = importlib.reload(tools)  # sharpit imports tools early: re-run its import with data implemented
+import surface
+rebuilt, commands = surface.catalogue_with_lanes(*panels04.tool_definitions())
+print([t.name for t in rebuilt] == [t.name for t in tools.TOOLS] and commands == tools.COMMANDS)
+"""
+
+
+def test_catalogue_rebuild_matches_the_import_time_catalogue_with_the_flag_on() -> None:
+    # a fresh interpreter whose tools module is (re-)imported with data implemented: no catalogue patching
+    tests_dir = str(Path(__file__).parent)
+    done = subprocess.run(
+        [sys.executable, "-c", _IMPORT_WITH_FLAG_ON, tests_dir],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert done.stdout.strip() == "True", done.stderr
