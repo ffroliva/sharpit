@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.findings import fails as fails  # the one predicate, re-exported
+from sharpit.engine.advisors.rules import Severity
 
 if TYPE_CHECKING:
     from sharpit.engine.testsession.facts import PhaseFacts, TestFacts
@@ -36,10 +37,35 @@ def _finding(
     identity: str | None = None,
     dismissed_pairs: Collection[tuple[str, str]] = (),
     observed: int | None = None,
+    *,
+    severity: Severity = "HIGH",
 ) -> Finding:
-    fingerprint = Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, identity=identity).fingerprint
+    fingerprint = Finding(rule_id, ADVISOR, severity, target, message, node_id, identity=identity).fingerprint
     is_dismissed = fingerprint in dismissed or (rule_id, identity or target) in dismissed_pairs
-    return Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, is_dismissed, identity, observed)
+    return Finding(rule_id, ADVISOR, severity, target, message, node_id, is_dismissed, identity, observed)
+
+
+def _swallowed_findings(
+    call: PhaseFacts,
+    budget: Budget,
+    node: str,
+    dismissed: Collection[str],
+    dismissed_pairs: Collection[tuple[str, str]],
+) -> list[Finding]:
+    """A programming error swallowed by a broad handler fails the test unless relaxed; any other swallow is a note."""
+    found: list[Finding] = []
+    for fact in call.swallowed:
+        severity: Severity = "HIGH" if fact.programming_error and not budget.allow_swallowed else "INFO"
+        message = (
+            f"{fact.type_name} swallowed by a broad except clause at {fact.location} (neither re-raised nor logged)"
+        )
+        identity = f"{fact.location}:{fact.type_name}"
+        found.append(
+            _finding(
+                SWALLOWED, fact.location, message, node, dismissed, identity, dismissed_pairs, 1, severity=severity
+            )
+        )
+    return found
 
 
 def _n_plus_one_message(call: PhaseFacts, group: str, count: int) -> str:
@@ -115,6 +141,7 @@ def evaluate_test(
                     observed=1,
                 )
             )
+    found.extend(_swallowed_findings(call, budget, node, dismissed, dismissed_pairs))
     if baseline is None:
         return found
     from dataclasses import replace

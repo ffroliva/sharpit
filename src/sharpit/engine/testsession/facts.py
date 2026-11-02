@@ -136,6 +136,7 @@ class TestFacts:
                 "maxQueries": budget.max_queries,
                 "allowNPlusOne": budget.allow_n_plus_one,
                 "maxExceptions": budget.max_exceptions,
+                "allowSwallowed": budget.allow_swallowed,
             },
             "phases": {name: phase.to_json() for name, phase in self.phases.items()},
             "findings": self.findings,
@@ -148,7 +149,14 @@ class TestFacts:
             TestKey(data["nodeId"], data["worker"], data["attempt"]),
             {name: PhaseFacts.from_json(phase) for name, phase in data["phases"].items()},
             data["outcome"],
-            None if budget is None else Budget(budget["maxQueries"], budget["allowNPlusOne"], budget["maxExceptions"]),
+            None
+            if budget is None
+            else Budget(
+                budget["maxQueries"],
+                budget["allowNPlusOne"],
+                budget["maxExceptions"],
+                budget.get("allowSwallowed", False),
+            ),
             list(data["findings"]),
         )
 
