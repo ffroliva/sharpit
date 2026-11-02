@@ -189,14 +189,10 @@ def test_internal_statements_not_traced():
     assert _entries(handle) == []
 
 
-def test_orm_hooks_attach_only_for_test_session():
-    orm = pytest.importorskip("sqlalchemy.orm")
-
-    assert sqla.attached().get("do_orm_execute", False) is False
+def test_session_capture_does_not_register_orm_execute_listener():
+    assert not hasattr(sqla, "do_orm_execute"), "the SQLAlchemy bridge must not install an ORM execution hook"
     assert sqla.attach_session() is True
-    assert sa.event.contains(orm.Session, "do_orm_execute", sqla.do_orm_execute)
     sqla.detach_session()
-    assert sa.event.contains(orm.Session, "do_orm_execute", sqla.do_orm_execute) is False
 
 
 def test_listener_failure_does_not_change_query_result(

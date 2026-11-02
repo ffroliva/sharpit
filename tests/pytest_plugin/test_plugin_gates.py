@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib import util
 from sqlite3 import connect as _EARLY_CONNECT
 
 import pytest
@@ -211,6 +212,52 @@ from appmod import Player, engine
 
 def test_batched_eager_loads():
     statement = select(Player).options(selectinload(Player.performances)).execution_options(yield_per=100)
+    with Session(engine) as session:
+        for player in session.scalars(statement):
+            list(player.performances)
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert not any(item["ruleId"] == "sharpit.n-plus-one" for item in data["findings"])
+    assert result.ret == 0
+
+
+def test_eager_selectinload_batches_are_not_n_plus_one_compatible(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+from sqlalchemy import ForeignKey, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('players.id'))
+
+engine = create_engine('sqlite:///selectin-batches.db')
+Base.metadata.create_all(engine)
+with Session(engine) as session:
+    session.add_all(Player(performances=[Performance()]) for _ in range(1200))
+    session.commit()
+"""
+    )
+    pytester.makepyfile(
+        """
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+from appmod import Player, engine
+
+def test_batched_eager_loads():
+    statement = select(Player).options(selectinload(Player.performances))
     with Session(engine) as session:
         for player in session.scalars(statement):
             list(player.performances)
@@ -680,3 +727,17 @@ def test_pytest_raises_escaped_not_counted(pytester: pytest.Pytester, monkeypatc
     assert result.ret == 0
     data = json.loads((pytester.path / "report.json").read_text())
     assert data["tests"][0]["findings"] == []
+
+
+_SQLALCHEMY_REQUIRED_TESTS = (
+    "test_async_lazy_load_is_attributed",
+    "test_eager_selectinload_batches_are_not_n_plus_one",
+    "test_eager_selectinload_batches_are_not_n_plus_one_compatible",
+    "test_spike_f5_full_count_1018",
+    "test_spike_f5_message_names_relationship",
+)
+for _test_name in _SQLALCHEMY_REQUIRED_TESTS:
+    _test_function = pytest.mark.needs_sqlalchemy(globals()[_test_name])
+    if util.find_spec("sqlalchemy") is None:
+        _test_function = pytest.mark.skip(reason="requires SQLAlchemy")(_test_function)
+    globals()[_test_name] = _test_function
