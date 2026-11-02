@@ -11,11 +11,11 @@ try:
 except ImportError:  # pluggy before the public re-export
     from pluggy._result import Result
 
-from sharpit.pytest_plugin.apps import reconcile_workers
+from sharpit.pytest_plugin.apps import TEST_FILES, reconcile_workers
 from sharpit.pytest_plugin.options import PluginOptions, resolve
 
 _WORKER_APPS = "sharpit-worker-apps"
-APPS_KEY = "sharpit_apps"  # workeroutput: the worker's autodetect candidates, or None when it did not autodetect
+APPS_KEY = "sharpit_apps"  # workeroutput: {"names": candidates or None, "snapshot": an installed app was assessed}
 
 
 def resolve_options(config: Any) -> PluginOptions:
@@ -76,6 +76,7 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
         return
     if state is None:
         return
+    state.test_files = _test_files(session.config)
     if hasattr(session.config, "workerinput"):
         try:
             plugin._final_facts(state)
@@ -84,17 +85,29 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
         plugin._advisors(state)
         try:
             session.config.workeroutput["sharpit"] = state.sink.facts.to_json()
-            session.config.workeroutput[APPS_KEY] = getattr(state, "autodetected", None)
+            names = getattr(state, "autodetected", None)
+            snapshot = names is None and state.options.advisors and not state.options.app
+            session.config.workeroutput[APPS_KEY] = {"names": names, "snapshot": snapshot}
         except Exception as exc:  # noqa: BLE001
             plugin._record_hook_failure(state.sink, exc)
         return
     names = getattr(state, "autodetected", None)
     if names is not None and state.parts:
+        snapshot = getattr(state, "autodetect_snapshot", False)
         try:
-            reconcile_workers(state.parts, names, state.options.require_app)
+            reconcile_workers(state.parts, names, state.options.require_app, snapshot)
         except Exception as exc:  # noqa: BLE001
             plugin._record_hook_failure(state.sink, exc)
+        if snapshot:  # an installed app was assessed: autodetect did not decide anything
+            state.autodetected = None
     plugin._write_report(state, session, exitstatus)
+
+
+def _test_files(config: Any) -> tuple[str, ...]:
+    try:
+        return tuple(config.getini("python_files")) or TEST_FILES
+    except (ValueError, KeyError):
+        return TEST_FILES
 
 
 class WorkerApps:
@@ -105,7 +118,10 @@ class WorkerApps:
         from sharpit import pytest_plugin
 
         state = cast(Any, pytest_plugin)._state(node.config)
-        names = getattr(node, "workeroutput", {}).get(APPS_KEY)
-        if state is None or error is not None or names is None:
+        shipped = getattr(node, "workeroutput", {}).get(APPS_KEY)
+        if state is None or error is not None or not isinstance(shipped, dict):
             return
-        state.autodetected = sorted({*(getattr(state, "autodetected", None) or []), *names})
+        if cast("dict[str, Any]", shipped).get("snapshot"):
+            state.autodetect_snapshot = True
+        if (names := cast("dict[str, Any]", shipped).get("names")) is not None:
+            state.autodetected = sorted({*(getattr(state, "autodetected", None) or []), *names})

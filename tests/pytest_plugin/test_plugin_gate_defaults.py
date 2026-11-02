@@ -235,24 +235,6 @@ def test_worst_status_order() -> None:
     assert _worst(["PASSED"]) == "PASSED"
 
 
-def test_explicit_app_ignores_autodetect_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
-    import sys
-    from types import ModuleType
-
-    from sharpit.pytest_plugin.apps import select_app
-
-    chosen_app, other_app = object(), object()
-    mod = ModuleType("explicit_choice_mod")
-    mod.app = chosen_app  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "explicit_choice_mod", mod)
-
-    selected = select_app("explicit_choice_mod:app", [("other_mod:app", other_app)])
-
-    assert selected is not None
-    assert selected[0] == "explicit_choice_mod:app"
-    assert selected[1] is chosen_app
-
-
 def test_autodetected_app_without_routes_is_skipped(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         appmod="""

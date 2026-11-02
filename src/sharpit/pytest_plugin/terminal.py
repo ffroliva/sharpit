@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from sharpit.engine.advisors.rules import severity_rank
-from sharpit.pytest_plugin.apps import NO_APP_REASON
+from sharpit.engine.testsession.report import TEST_RUNTIME, finding_fails
+from sharpit.pytest_plugin.apps import AUTODETECT, skip_reason
 
 
 def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
@@ -21,11 +21,14 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
         return
     try:
         terminalreporter.write_sep("=", f"sharpit: {data['status']}")
-        if (notice := app_notice(getattr(state, "autodetected", None), state.options.require_app)) is not None:
+        if (notice := app_notice(getattr(state, "autodetected", None), state.options.require_app, data)) is not None:
             terminalreporter.write_line(notice)
         terminalreporter.write_line(f"status: {data['status']}")
         terminalreporter.write_line(f"tests with findings: {sum(1 for test in data['tests'] if test['findings'])}")
-        shown = data["findings"] if state.options.verbose else [f for f in data["findings"] if _fails(f, data)]
+        fail_on = data["gates"]["failOnSeverity"]
+        failing = [f for f in data["findings"] if finding_fails(f, fail_on)]
+        notes = [f for f in data["findings"] if f["advisor"] != TEST_RUNTIME and not finding_fails(f, fail_on)]
+        shown = data["findings"] if state.options.verbose else failing
         counts = plugin.Counter(finding["ruleId"] for finding in shown)  # facade seam: monkeypatchable
         terminalreporter.write_line("gate counts:")
         for rule, count in sorted(counts.items()):
@@ -41,8 +44,8 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
             terminalreporter.write_line("  (none)")
         path = config.option.sharpit_report or config.getini("sharpit_report")
         terminalreporter.write_line(f"report: {path}")
-        if notes := len(data["findings"]) - len(shown):
-            terminalreporter.write_line(f"sharpit: {notes} advisor notes in {path}")
+        if notes and not state.options.verbose:
+            terminalreporter.write_line(f"sharpit: {len(notes)} advisor notes in {path}")
         for warning in data["warnings"]:
             terminalreporter.write_line(f"warning: {warning}")
     except Exception as exc:  # noqa: BLE001
@@ -50,19 +53,13 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
         plugin._refresh_report_after_hook_failure(state, config, exc)
 
 
-def app_notice(names: list[str] | None, require_app: bool) -> str | None:
-    """The autodetect line; None when autodetect did not run."""
-    if names is None:
+def app_notice(names: list[str] | None, require_app: bool, data: dict[str, Any]) -> str | None:
+    """The autodetect line; None when autodetect did not decide (explicit app, installed app, advisors off)."""
+    if names is None or (not names and require_app):
         return None
-    if len(names) == 1:
-        return f"sharpit: using app {names[0]} (pass --sharpit-app to choose)"
-    if names:
-        return f"sharpit: several apps found ({', '.join(names)}); pass --sharpit-app module:attr"
-    return None if require_app else f"sharpit: {NO_APP_REASON}"
-
-
-def _fails(finding: dict[str, Any], data: dict[str, Any]) -> bool:
-    """The JUnit failure predicate (``report.write_junit``): what is not a failure is a note."""
-    return not finding["dismissed"] and severity_rank(finding["severity"]) <= severity_rank(
-        data["gates"]["failOnSeverity"]
-    )
+    if len(names) != 1:
+        return f"sharpit: {skip_reason(names)}"
+    apps: list[dict[str, Any]] = [app for a in data["advisors"] if a["advisor"] == "rest-api" for app in a["apps"]]
+    if any(app["evidence"].get(AUTODETECT) is True for app in apps):
+        return f"sharpit: {skip_reason((), bare=names[0])}"
+    return f"sharpit: using app {names[0]} (pass --sharpit-app to choose)"
