@@ -27,7 +27,11 @@ Branch / worktree: `lane/0.4.0-<lane-id>` in `C:\development\github\sharpit-wt\0
 One row per red test. `Red SHA` is the `test:` commit where the test fails with an `AssertionError` against a
 wrong-value stub. The gate replays each row at that SHA and at the head, and refuses if the red SHA is not a lane commit
 that is an ancestor of the head, or if the test's function body changed after the red commit. Non-pytest rows (for
-example Vitest) are reported `unverified` and need `--accept-unverified`.
+example Vitest) are reported `unverified` and need `--accept-unverified`. The red must add or change the test (a test
+already on the integration branch is refused). After the red commit, its file may only gain new test functions, and no
+`conftest.py` on its path may change. The `AssertionError` must come from the test's own file. The reviewer, not the
+gate, checks that the red commit subject starts with `test:`, and that a review-finding red records the parent of its
+fix commit. Every row that names a test needs a Red SHA, unless the finding is `Parked: <reason>`.
 
 | Test id | Red SHA | Assertion message |
 |---|---|---|
