@@ -1,0 +1,11 @@
+{
+  "pools[].username": "SQLAlchemy reports no username when the configured URL has no user information",
+  "pools[].minimumIdle": "SQLAlchemy QueuePool does not expose a Hikari-style minimum idle setting",
+  "pools[].idleTimeoutMs": "SQLAlchemy pool does not expose an idle timeout setting",
+  "pools[].maxLifetimeMs": "SQLAlchemy pool does not expose a recycle setting when disabled",
+  "pools[].validationTimeoutMs": "SQLAlchemy pool does not expose a validation timeout setting",
+  "pools[].keepaliveTimeMs": "SQLAlchemy pool does not expose a keepalive setting",
+  "pools[].readOnly": "SQLAlchemy pool does not expose a pool-level read-only flag",
+  "pools[].autoCommit": "SQLAlchemy does not expose a boolean auto-commit setting outside AUTOCOMMIT isolation",
+  "pools[].snapshot.pending": "SQLAlchemy QueuePool does not expose a pending checkout count"
+}

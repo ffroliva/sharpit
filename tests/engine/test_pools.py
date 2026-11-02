@@ -16,6 +16,7 @@ from sharpit import install
 from sharpit.engine.collectors.pools import pool_snapshot, pools_report
 from sharpit.engine.masking import MASK
 from sharpit.fastapi.adapter import SharpitHandle
+from tests.golden import assert_parity
 
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
@@ -150,6 +151,11 @@ def test_pools_report_emits_pool_library_present_and_implementation(tmp_path: Pa
     assert "poolLibraryPresent" in report
     assert "hikariPresent" not in report
     assert report["pools"][0]["implementation"] == "SQLAlchemy"
+
+
+def test_pools_report_matches_bootui_2_2_0_golden_and_nullable_fixture(tmp_path: Path):
+    report = pools_report(_ctx(_queue_engine(tmp_path)))
+    assert_parity("database-connection-pools", "pools", report)
 
 
 def test_shape_keys_match_bootui(tmp_path: Path):
