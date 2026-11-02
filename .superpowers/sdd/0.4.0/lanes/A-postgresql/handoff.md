@@ -82,6 +82,13 @@ Finding → test → red SHA: `findings.md` §Fix round 1. Decisions:
 - Red `f2200178bc8e3f285abbfb1277a15187482b1729`, fix `e1413c8`: `pg_stat_statements` created but not in `shared_preload_libraries` raises SQLSTATE 55000 on every read of the view. The statements section is now `SKIPPED` with "pg_stat_statements is installed but not loaded: add it to shared_preload_libraries." and BootUI's install hint; the savepoint rolls back and every later section runs. BootUI 2.2.0 has no special case here (it would report FAILED); this is a sharpit addition. The SQLSTATE is read from the driver error (`sqlstate` / `pgcode`, or SQLAlchemy's `orig`).
 - Not installed at all: `SKIPPED` with "The pg_stat_statements extension is not installed on this server." (`test_an_extension_not_installed_is_skipped_with_a_reason_in_a_full_read`, green at its first commit, so not in the red table).
 
+## No-SQLAlchemy round (after the release/0.4.0 merge)
+
+- `tests/engine/postgresql/test_service.py`, `tests/engine/test_sqla_read_only.py`, `tests/masking/test_a_postgresql_masking.py`: module `pytestmark = pytest.mark.needs_sqlalchemy` + `pytest.importorskip("sqlalchemy")` (the service reports DISABLED and reads nothing without SQLAlchemy 2, so their read paths need it). New top-level names only; no red test body or referenced name changed (`sa`/`create_async_engine` in `test_sqla_read_only.py` are referenced only by non-red leased tests and `test_default_path_unchanged`).
+- `tests/safety/test_a_postgresql_safety.py`: per-test `needs_sqlalchemy` + `skipif` on the three read tests; exports `PANEL`, `GET_ROWS`, `WRITE_ROWS` for the shared safety matrix; new `test_without_sqlalchemy_the_panel_is_disabled_with_the_reason_and_reads_nothing` runs in both jobs (hides `sqlalchemy` from `sys.modules`; characterization of finding 8, no red).
+- Verified in a separate venv without SQLAlchemy (`UV_PROJECT_ENVIRONMENT=C:/t/apg-nosqla-venv`, `-m "not needs_sqlalchemy"`): 56 passed, 4 skipped, 3 deselected. With SQLAlchemy: 93 passed, 4 skipped.
+- `findings.md` red tables carry the `Disposition` column (`Fixed in <full sha>` / `Parked: <reason>`).
+
 ## Needs from coordinator
 
 - **Flag flip fallout (outside this lane's May-touch; each fails only because it pins the pre-postgresql catalogue/route list — add the postgresql row):**
