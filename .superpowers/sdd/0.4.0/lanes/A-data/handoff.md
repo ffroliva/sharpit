@@ -47,8 +47,6 @@ UI reds (vitest, `ui/tests/component/data.test.ts`, SHA `7b5a0270cfc49c9f58dc3bc
 | tests/engine/test_data.py::test_detail_unknown_is_none | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None |
 | tests/engine/test_data.py::test_detail_simple_name_collision | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None |
 | tests/fastapi/test_data_api.py::test_repositories_lists_the_models | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 |
-| tests/fastapi/test_data_api.py::test_detail_by_name | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 |
-| tests/fastapi/test_data_api.py::test_detail_404_empty_body | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert b'{"error":"Not Found"}' == b'' |
 | tests/fastapi/test_data_api.py::test_panel_disabled_403 | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 403 |
 | tests/fastapi/test_data_api.py::test_mcp_lists_read_tool_only | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 'get_data_repositories' in {...} |
 | tests/engine/test_data.py::test_cross_registry_new_mapper_is_not_configured | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | assert ['_check_configure', ...] == [] |
@@ -72,6 +70,8 @@ UI reds (vitest, `ui/tests/component/data.test.ts`, SHA `7b5a0270cfc49c9f58dc3bc
 | tests/engine/test_data.py::test_detail_unconfigured_has_no_methods | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None |
 | tests/fastapi/test_data_api.py::test_get_never_configures_mappers | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 |
 | tests/fastapi/test_data_api.py::test_panel_listed_when_implemented | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert None is not None |
+| tests/fastapi/test_data_api.py::test_detail_by_name | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 |
+| tests/fastapi/test_data_api.py::test_detail_404_empty_body | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert b'{"error":"Not Found"}' == b'' |
 
 ## UI reds (vitest)
 

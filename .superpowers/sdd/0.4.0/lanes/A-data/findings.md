@@ -18,11 +18,8 @@
 | collector/detail red | tests/engine/test_data.py::test_detail_unknown_is_none | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
 | collector/detail red | tests/engine/test_data.py::test_detail_simple_name_collision | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
 | list route absent (404) | tests/fastapi/test_data_api.py::test_repositories_lists_the_models | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
-| detail route absent | tests/fastapi/test_data_api.py::test_detail_by_name | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
-| detail 404 body not empty | tests/fastapi/test_data_api.py::test_detail_404_empty_body | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert b'{"error":"Not Found"}' == b'' | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
 | disabled panel answers 403 | tests/fastapi/test_data_api.py::test_panel_disabled_403 | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 403 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
 | MCP read tool missing | tests/fastapi/test_data_api.py::test_mcp_lists_read_tool_only | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 'get_data_repositories' in {...} | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
-| view is a placeholder (vitest, not pytest-replayable) | ui/tests/component/data.test.ts (4 tests) | 7b5a0270cfc49c9f58dc3bc39a44a59f15ce5b52 | AssertionError: expected placeholder text to contain 'Owner' | Fixed in ddfaffb204141385fe66f51f9ac33284e40d6e88 |
 
 `test_repositories_golden_parity` skips until G0a's `data/repositories.captured.json` merges; it is not a named red.
 
@@ -39,7 +36,6 @@
 | review fix | tests/engine/test_data.py::test_lazy_is_a_strategy_name[None-noload] | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | lazy 'None' != 'noload' | Fixed in d97f0160000c90844caf1f2eec9032f502c9b2bd |
 | review fix | tests/engine/test_data.py::test_lazy_is_a_strategy_name[True-select] | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | lazy 'True' != 'select' | Fixed in d97f0160000c90844caf1f2eec9032f502c9b2bd |
 | review fix | tests/engine/test_data.py::test_lazy_is_a_strategy_name[False-joined] | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | lazy 'False' != 'joined' | Fixed in d97f0160000c90844caf1f2eec9032f502c9b2bd |
-| view keys, stale drawer, duplicates, warnings (vitest) | ui/tests/component/data.test.ts (4 new) | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | expected ... to include 'api/data/repositories/app.b.Owner' and others | Fixed in d97f0160000c90844caf1f2eec9032f502c9b2bd |
 
 ## Fix round 2
 
@@ -51,7 +47,7 @@ Minors: vitest mock now uses the real detail DTO shape (no relationships key); d
 
 ## Historical reds (test or fixture changed after the red commit)
 
-| Finding | Test id | Historical SHA | Red output | Disposition |
+| Finding | Test id | Historical SHA | Red output | Fixed in |
 |---|---|---|---|---|
 | superseded red | tests/engine/test_data.py::test_unconfigured_mapper_is_not_configured | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 2 | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
 | superseded red | tests/engine/test_data.py::test_a_mapper_added_after_configure_is_not_configured | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 3 | Fixed in c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
@@ -59,3 +55,12 @@ Minors: vitest mock now uses the real detail DTO shape (no relationships key); d
 | superseded red | tests/engine/test_data.py::test_detail_unconfigured_has_no_methods | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | Fixed in 482abf764a0d4029ece739ca71156c19eb77d255 |
 | superseded red | tests/fastapi/test_data_api.py::test_get_never_configures_mappers | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
 | superseded red | tests/fastapi/test_data_api.py::test_panel_listed_when_implemented | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert None is not None | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
+| superseded red | tests/fastapi/test_data_api.py::test_detail_by_name | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert 404 == 200 | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
+| superseded red | tests/fastapi/test_data_api.py::test_detail_404_empty_body | d46519a8e5eb105d2b85e8d7e76675e151652467 | assert b'{"error":"Not Found"}' == b'' | Fixed in c781bae0ee2cc0a38915e89e8a6d6b20273329ec |
+
+## UI reds (vitest)
+
+| Finding | Test id | Red SHA | Red output | Disposition |
+|---|---|---|---|---|
+| view is a placeholder (vitest, not pytest-replayable) | ui/tests/component/data.test.ts (4 tests) | 7b5a0270cfc49c9f58dc3bc39a44a59f15ce5b52 | AssertionError: expected placeholder text to contain 'Owner' | Fixed in ddfaffb204141385fe66f51f9ac33284e40d6e88 |
+| view keys, stale drawer, duplicates, warnings (vitest) | ui/tests/component/data.test.ts (4 new) | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | expected ... to include 'api/data/repositories/app.b.Owner' and others | Fixed in d97f0160000c90844caf1f2eec9032f502c9b2bd |
