@@ -68,15 +68,13 @@ def _qualified(cls: Any) -> str:
     return f"{cls.__module__}.{cls.__qualname__}"
 
 
-_LEGACY_LAZY = {None: "noload", True: "select", False: "joined"}
-
-
 def _lazy(value: object) -> str:
     # relationship(lazy=...) still accepts None, True and False; report the strategy they stand for
-    return _LAZY_NAME.get(value, str(value)) if isinstance(value, bool) or value is None else str(value)
-
-
-_LAZY_NAME = _LEGACY_LAZY
+    return (
+        {None: "noload", True: "select", False: "joined"}[value]
+        if value is None or isinstance(value, bool)
+        else str(value)
+    )
 
 
 def _relationships(mapper: Any) -> list[dict[str, Any]]:
@@ -139,16 +137,16 @@ def _is_configured(mapper: Any) -> bool:
 
 def _registry_is_clear(registry: Any) -> bool:
     """No registry this one depends on (itself included) has a mapper waiting to be configured."""
-    if not type(registry).__module__.startswith("sqlalchemy"):
-        return True  # not SQLAlchemy's registry: nothing private to read, the per-mapper flags decide
+    if not any(c.__module__.startswith("sqlalchemy") for c in type(registry).__mro__):
+        return True  # not SQLAlchemy's registry or a subclass: nothing private to read, the per-mapper flags decide
     try:
         pending = [registry]
-        seen: list[Any] = []
+        seen: set[int] = set()
         while pending:
             current = pending.pop()
-            if any(current is other for other in seen):
+            if id(current) in seen:
                 continue
-            seen.append(current)
+            seen.add(id(current))
             if getattr(current, "_new_mappers", True):  # absent or True: fail closed
                 return False
             pending.extend(getattr(current, "_dependencies", ()))

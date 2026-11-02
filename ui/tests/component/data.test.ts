@@ -76,15 +76,19 @@ it('a repeated repositoryInterface still renders every row', async () => {
 
 it('the drawer renders the fetched detail, not the stale list row', async () => {
   const stale = row('Owner', { relationships: null });
+  const method = { name: 'pets', signature: 'pets -> Pet', origin: 'APPLICATION', query: null, nativeQuery: false, namedQuery: null };
   h.route((url) => {
     if (url === 'api/data/repositories') return json(200, report([stale]));
-    if (url === 'api/data/repositories/app.models.Owner') return json(200, { ...row('Owner'), methods: [], fragments: [], unavailableReason: null });
+    if (url === 'api/data/repositories/app.models.Owner') {
+      const { relationships: _unused, ...dto } = row('Owner'); // the real detail DTO has no relationships key
+      return json(200, { ...dto, methods: [method], fragments: [], unavailableReason: null });
+    }
     return undefined;
   });
   mountData();
   await until(() => expect(text()).toContain('Owner'));
   (h.target.querySelector('button.row') as HTMLButtonElement).click();
-  await until(() => expect(text()).toContain('lazy: select'));
+  await until(() => expect(text()).toContain('pets -> Pet'));
   expect(text()).not.toContain('not configured');
 });
 

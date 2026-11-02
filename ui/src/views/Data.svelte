@@ -23,7 +23,7 @@
     repositories: Repository[];
   }
   interface Method { name: string; signature: string }
-  interface Detail { methods: Method[]; unavailableReason: string | null; relationships?: Relationship[] | null }
+  interface Detail { methods: Method[]; unavailableReason: string | null }
 
   let { panel }: { panel: Panel } = $props();
 
@@ -101,7 +101,7 @@
                   {:else if detail.unavailableReason}
                     <p class="muted">{detail.unavailableReason}</p>
                   {:else}
-                    {@const rels = detail.relationships ?? r.relationships ?? []}
+                    {@const rels = r.relationships ?? []}
                     {#if detail.methods.length === 0}
                       <p class="muted">No relationships</p>
                     {/if}
