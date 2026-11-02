@@ -96,3 +96,19 @@ def test_ini_types_exist_in_the_oldest_supported_pytest() -> None:
 
     pytest_addoption(Parser())
     assert {name: kind for name, kind in types.items() if kind not in pytest_8_0_types} == {}
+
+
+def test_require_app_cli_and_ini(pytester: pytest.Pytester) -> None:
+    from sharpit.pytest_plugin.options import resolve
+
+    default = resolve(pytester.parseconfig())
+    cli = resolve(pytester.parseconfig("--sharpit-require-app"))
+    pytester.makeini("""
+        [pytest]
+        sharpit_require_app = true
+    """)
+    ini = resolve(pytester.parseconfig())
+
+    assert default.require_app is False
+    assert cli.require_app is True
+    assert ini.require_app is True

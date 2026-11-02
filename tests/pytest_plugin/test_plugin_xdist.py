@@ -205,3 +205,61 @@ def test_xdist_tx_without_n_merges(pytester: pytest.Pytester) -> None:
     assert result.ret == 0
     data = json.loads((pytester.path / "report.json").read_text())
     assert data["totals"]["queries"] == 1
+
+
+_INSTALL_ON_GW0 = """
+import importlib
+import os
+
+def test_worker_specific_app():
+    if os.environ.get('PYTEST_XDIST_WORKER', 'gw0') == 'gw0':
+        from fastapi import FastAPI
+        import sharpit
+        app = FastAPI()
+        app.get('/ok')(lambda: {'ok': True})
+        sharpit.install(app)
+    else:
+        assert importlib.import_module('otherapp').app is not None
+"""
+
+
+def test_xdist_snapshot_suppresses_worker_autodetect(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        otherapp="""
+        from fastapi import FastAPI
+        app = FastAPI()
+        @app.get('/other')
+        def other():
+            return []
+        """,
+        test_mixed=_INSTALL_ON_GW0,
+    )
+
+    result = pytester.runpytest_subprocess(
+        "-n", "2", "--dist=each", "--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    apps = [app["app"] for app in data["advisors"][0]["apps"]]
+    assert "otherapp:app" not in apps
+    assert len(apps) == 1
+    assert "sharpit: using app" not in result.stdout.str()
+
+
+def test_xdist_snapshot_hides_no_app_notice(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        def test_register_app():
+            from fastapi import FastAPI
+            import sharpit
+            app = FastAPI()
+            app.get('/ok')(lambda: {'ok': True})
+            sharpit.install(app)
+        """
+    )
+
+    result = pytester.runpytest_subprocess(
+        "-n", "2", "--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert "no application found" not in result.stdout.str()
