@@ -17,6 +17,25 @@ from sharpit.pytest_plugin.apps import TEST_FILES, reconcile_workers
 
 WORKER_APPS = "sharpit-worker-apps"
 APPS_KEY = "sharpit_apps"  # workeroutput: {"names": candidates or None, "snapshot": an installed app was assessed}
+UNBOUNDED_READ_LIMITATION = (
+    "unbounded-read needs sharpit.install(app): the capture middleware supplies the route and its page size"
+)
+
+
+def _record_unbounded_read_limitation(state: Any) -> None:
+    sources = state.sink.facts.sources
+    source = next((entry for entry in sources if entry["name"] == "unbounded-read"), None)
+    if source is None:
+        sources.append(
+            {
+                "name": "unbounded-read",
+                "attached": True,
+                "reason": None,
+                "limitations": [UNBOUNDED_READ_LIMITATION],
+            }
+        )
+    elif UNBOUNDED_READ_LIMITATION not in source["limitations"]:
+        source["limitations"].append(UNBOUNDED_READ_LIMITATION)
 
 
 def register_worker_apps(config: Any) -> None:
@@ -55,17 +74,7 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
 
         sqla.apply_relationship_facts(test)
         if sqla.apply_unbounded_read_facts(test):
-            reason = "unbounded-read needs sharpit.install(app): the capture middleware supplies the route and its page size"
-            source = next(
-                (entry for entry in state.sink.facts.sources if entry["name"] == "unbounded-read"),
-                None,
-            )
-            if source is None:
-                state.sink.facts.sources.append(
-                    {"name": "unbounded-read", "attached": True, "reason": None, "limitations": [reason]}
-                )
-            elif reason not in source["limitations"]:
-                source["limitations"].append(reason)
+            _record_unbounded_read_limitation(state)
         findings = plugin.gates.evaluate_test(
             test,
             budget,
