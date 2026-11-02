@@ -294,3 +294,134 @@ def test_sqlalchemy_older_than_two(monkeypatch: pytest.MonkeyPatch) -> None:
     assert report["unavailableReason"] == sqla.unavailable_reason()
     assert "1.4.50" in report["unavailableReason"]
     assert report["total"] == 0
+
+
+DETAIL_KEYS = {
+    "beanName",
+    "repositoryInterface",
+    "domainType",
+    "idType",
+    "storeModule",
+    "customImplementation",
+    "methods",
+    "fragments",
+}
+OWNER_PETS = {
+    "name": "pets",
+    "signature": "pets -> Pet",
+    "origin": "APPLICATION",
+    "query": None,
+    "nativeQuery": False,
+    "namedQuery": None,
+}
+
+
+def configured_owner_pet() -> tuple[type[DeclarativeBase], type, type]:
+    """The models of ``owner_pet`` after the app's first query; callers hold all three (a registry holds weakly)."""
+    models = owner_pet()
+    sa.inspect(models[1]).relationships  # noqa: B018
+    return models
+
+
+def user_base(module: str, table: str) -> tuple[type[DeclarativeBase], type]:
+    class Base(DeclarativeBase):
+        pass
+
+    user = type(
+        "User",
+        (Base,),
+        {"__module__": module, "__tablename__": table, "id": mapped_column(sa.Integer, primary_key=True)},
+    )
+    return Base, user
+
+
+def test_detail_by_bean_name() -> None:
+    # ported: DataControllerTests.repositoryDetailLooksUpByBeanName
+    base, _owner, _pet = configured_owner_pet()
+    detail = data.repository_detail(make_ctx(base), "Owner")
+
+    assert detail is not None
+    assert set(detail) == DETAIL_KEYS | {"table", "unavailableReason"}
+    assert detail["beanName"] == "Owner"
+    assert detail["repositoryInterface"] == f"{__name__}.Owner"
+    assert detail["domainType"] == f"{__name__}.Owner"
+    assert detail["idType"] == "Integer"
+    assert detail["storeModule"] == "SQLAlchemy"
+    assert detail["table"] == "owners"
+    assert detail["methods"] == [OWNER_PETS]
+    assert detail["fragments"] == []
+    assert detail["unavailableReason"] is None
+
+
+def test_detail_by_fq_name() -> None:
+    # ported: DataControllerTests.repositoryDetailLooksUpByFullyQualifiedInterfaceName
+    base, _owner, _pet = configured_owner_pet()
+    detail = data.repository_detail(make_ctx(base), f"{__name__}.Pet")
+
+    assert detail is not None
+    assert detail["beanName"] == "Pet"
+    assert detail["methods"] == []
+
+
+def test_detail_by_simple_name() -> None:
+    # ported: DataControllerTests.repositoryDetailLooksUpBySimpleInterfaceName
+    class Base(DeclarativeBase):
+        pass
+
+    _inner = type(  # held: a registry keeps its classes weakly
+        "Inner",
+        (Base,),
+        {
+            "__module__": "app.models",
+            "__qualname__": "Outer.Inner",
+            "__tablename__": "inner",
+            "id": mapped_column(sa.Integer, primary_key=True),
+        },
+    )
+
+    detail = data.repository_detail(make_ctx(Base), "Inner")
+
+    assert detail is not None
+    assert detail["beanName"] == "Outer.Inner"
+    assert detail["repositoryInterface"] == "app.models.Outer.Inner"
+
+
+def test_detail_unknown_is_none() -> None:
+    # ported: DataControllerTests.repositoryDetailReturnsNotFoundForUnknownRepository
+    base, _owner, _pet = configured_owner_pet()
+    ctx = make_ctx(base)
+
+    assert data.repository_detail(ctx, "Owner") is not None
+    assert data.repository_detail(ctx, "Nope") is None
+    assert data.repository_detail(make_ctx(), "Owner") is None
+
+
+def test_detail_simple_name_collision() -> None:
+    # derived: PLAN Review Focus 4: two ``User`` classes in two modules; FQ names tell them apart, a simple name
+    # answers the first in sorted order whatever the order of models=
+    base_b, _user_b = user_base("app_b.models", "users_b")
+    base_a, _user_a = user_base("app_a.models", "users_a")
+    ctx = make_ctx(base_b, base_a)
+
+    first = data.repository_detail(ctx, "app_a.models.User")
+    second = data.repository_detail(ctx, "app_b.models.User")
+    simple = data.repository_detail(ctx, "User")
+
+    assert first is not None
+    assert second is not None
+    assert simple is not None
+    assert first["table"] == "users_a"
+    assert second["table"] == "users_b"
+    assert simple["repositoryInterface"] == "app_a.models.User"
+
+
+def test_detail_unconfigured_has_no_methods(configure_spy: list[str]) -> None:
+    # derived: an unconfigured registry gives no methods and says why; the lookup configures nothing
+    base, _owner, _pet = owner_pet()
+
+    detail = data.repository_detail(make_ctx(base), "Owner")
+
+    assert detail is not None
+    assert configure_spy == []
+    assert detail["methods"] == []
+    assert detail["unavailableReason"] == data.UNCONFIGURED
