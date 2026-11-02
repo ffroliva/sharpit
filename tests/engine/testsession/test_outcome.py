@@ -345,3 +345,20 @@ def test_earlier_attempt_findings_may_not_resolve() -> None:
     merged = merge([part(tests=[_failing(attempt=1), call_test(attempt=2)])], [])
     earlier = merged.tests[0].findings[0]["fingerprint"]
     assert earlier not in [f["fingerprint"] for f in merged.findings]
+
+
+def test_fail_on_info_advisor_finding_counts_consistently() -> None:
+    # ruling (coordinator, 2026-11-02): INFO findings are notes and never fail, whatever --sharpit-fail-on says
+    note = Finding("RAPI-INFO", "rest-api", "INFO", "GET /x", "a note")
+    run = AdvisorRun.of(
+        "rest-api", [note], {"usable": True, "coverageComplete": True, "limitations": []}, fail_on="INFO"
+    )
+    result = session_status(
+        merge([part(advisor_runs=[run])], []),
+        allow_unknown=False,
+        max_unattributed=10.0,
+        advisors_enabled=True,
+        fail_on="INFO",
+    )
+    assert result.status == "pass", result.fail_reasons
+    assert not any("0 findings" in reason for reason in result.fail_reasons)
