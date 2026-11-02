@@ -66,6 +66,13 @@
 | tests/pytest_plugin/test_plugin_baseline.py::test_write_baseline_requires_path | 68f6cefc09f8b2e54c35b7e88a876866cc6a7a27 | assert ExitCode.OK == 4 | Fixed in 5c15cb87ade6310de742edd63a811eef858f2c59 |
 | tests/pytest_plugin/test_plugin_baseline.py::test_write_baseline_ini_option_writes_nothing | 68f6cefc09f8b2e54c35b7e88a876866cc6a7a27 | assert not exists() | Fixed in 5c15cb87ade6310de742edd63a811eef858f2c59 |
 | tests/engine/testsession/test_baseline.py::test_baseline_write_cleans_lone_surrogates_and_uses_lf | 54ba9dd4c5993116f6beb1fd2cdd9c4f1b25891e | assert path.exists() | Fixed in be8f0883954e625bc39c0cd34e0a2aa741a86385 |
+| tests/pytest_plugin/test_plugin_baseline.py::test_warning_filter_is_not_selection | 20758bae0dd4f4ad23016f7ed19ce514dbd7520b | assert exists() (`-W a::b` read as a node id) | Fixed in 917d3a6f6c8244fcd630a734e2f237b35ff971fe |
+| tests/pytest_plugin/test_plugin_baseline.py::test_maxfail_without_stop_is_complete | 20758bae0dd4f4ad23016f7ed19ce514dbd7520b | assert exists() | Fixed in 917d3a6f6c8244fcd630a734e2f237b35ff971fe |
+| tests/pytest_plugin/test_plugin_baseline.py::test_directory_argument_is_partial | 20758bae0dd4f4ad23016f7ed19ce514dbd7520b | assert ExitCode.OK == 4 | Fixed in 917d3a6f6c8244fcd630a734e2f237b35ff971fe |
+| tests/pytest_plugin/test_plugin_baseline.py::test_ignore_option_is_partial | 20758bae0dd4f4ad23016f7ed19ce514dbd7520b | assert ExitCode.OK == 4 | Fixed in 917d3a6f6c8244fcd630a734e2f237b35ff971fe |
+| tests/test_report_schema.py::test_schema_requires_the_040_report_keys | 49b2b5aaee8df56e10346baf23c04c40ba6a3699 | assert [] != [] | Fixed in e3ef66fde4f0e8f663aa6b566f8a531bb51ee53b |
+| tests/test_report_schema.py::test_schema_requires_the_040_finding_keys | 49b2b5aaee8df56e10346baf23c04c40ba6a3699 | assert [] != [] | Fixed in e3ef66fde4f0e8f663aa6b566f8a531bb51ee53b |
+| tests/pytest_plugin/test_plugin_baseline.py::test_baseline_write_failure_is_reported_unknown | 074eeb60e4758b27db35841fc8b5db310b9c651a | assert any("baseline write failed" ...) | Fixed in 04cf95afe6e85960965560b7cdebb08f58b2861f |
 
 ### Superseded in this round
 
@@ -81,11 +88,12 @@
 
 ### Open (not done in the 05:35 box)
 
-- B3/6/7 partial.py: directory args and --ignore/--ignore-glob not partial; `-W x::y` / `-o key=val.py` misread as selection; `-x/--maxfail` partial without a stop.
-- B8 baseline write failure after the report is written (order, terminal line, unknown reason).
+- `partial.selection_requested` is no longer called by the plugin (selection now comes from parsed options and
+  `config.args_source`); kept only because its red tests may not be edited. Delete with its tests in a later lane.
+
 - B10 vulnerability exclusion matches dead names (`vulnerability`/`vulns`/`VULN-`); real id `vulnerabilities`; report note absent.
-- B14 schema copies: new keys not in `required`.
 - C11 hook-failure refresh into unknownReasons; C15 one existing/new helper (three copies; restapi copy ignores `observed`); exception findings `observed=null`; `_partial_facts` unguarded.
-- review #5 xdist transport test (ini addopts -k with -n 2), #6 masking test decoration; remaining plan-named tests from review #4.
+- review #5 xdist transport test: now harder to make bite, because the controller reads `-k` from parsed addopts too
+  (needs conftest-only deselection under -n 2); #6 masking test decoration; remaining plan-named tests from review #4.
 - Decision recorded: INFO findings never fail (coordinator ruling); `fails` lives in `advisors/findings.py`, re-exported by `gates`.
 - Decision recorded: a malformed/unreadable baseline is no longer a usage error; it is an unknown reason `baseline unusable: <why>` (source `baseline`, not attached), `report.baseline` null, write-baseline refused by the unknown rule.

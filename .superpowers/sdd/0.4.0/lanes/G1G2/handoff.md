@@ -8,10 +8,11 @@ Implementer: Codex / GPT-6 (lane); review round 1 fixes: Claude Code / claude-op
   sharpit off; RecursionError caught), 3 (one failing predicate `findings.fails`, INFO never fails), 4 (fingerprint
   stability, explicit dismissal over baseline, bad baseline at session start); code-review A1 (unknown reason per app
   and worker), A4 (entries of advisors that did not run are carried, not fixed; kept by write-baseline), B2/B12
-  (write-baseline needs `=PATH`, no ini option), B9 (baseline `clean_text` + LF bytes), B13 (dismissed not written).
+  (write-baseline needs `=PATH`, no ini option), B9 (baseline `clean_text` + LF bytes), B13 (dismissed not written), B3/6/7 (partial from parsed options,
+  explicit args, --ignore; maxfail only when stopped), B8 (baseline written before the report; failure is unknown),
+  B14 (schema `required`).
 - Red/fix SHAs and Open items: `findings.md` "Review round 1".
-- Next: the Open list in `findings.md` (partial.py arg heuristics, write-failure ordering, vuln exclusion, schema
-  `required`, C-items).
+- Next: the Open list in `findings.md` (B10 vuln exclusion, C-items, review #5/#6, remaining plan-named tests).
 - Resume: worktree `C:\development\github\sharpit-wt/0.4.0-G1G2`, branch `lane/0.4.0-G1G2`.
 
 ## Status
