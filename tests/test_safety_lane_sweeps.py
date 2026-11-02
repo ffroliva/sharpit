@@ -154,10 +154,21 @@ def test_matrix_feeds_lane_rows_into_its_sweeps(lane_pkg: tuple[str, Path], monk
     (package / "test_a_data_safety.py").write_text(DATA_LANE, encoding="utf-8")
     _plant_data_post(monkeypatch)
 
-    monkeypatch.setattr(matrix, "LANES", safety.load(name))
+    real = matrix.LANES  # lanes already implemented on this branch keep their rows
+    planted = safety.load(name)
+    monkeypatch.setattr(
+        matrix,
+        "LANES",
+        safety.Lanes(
+            real.implemented + planted.implemented,
+            real.invalid + planted.invalid,
+            real.unimportable + planted.unimportable,
+            {**real.params, **planted.params},
+        ),
+    )
     matrix.test_write_route_table_is_complete()  # covered by the lane row
 
-    monkeypatch.setattr(matrix, "LANES", safety.Lanes((), (), (), {}))
+    monkeypatch.setattr(matrix, "LANES", real)  # the planted lane's rows dropped
     with pytest.raises(AssertionError, match="data/probe"):
         matrix.test_write_route_table_is_complete()  # the undocumented route is named
 
