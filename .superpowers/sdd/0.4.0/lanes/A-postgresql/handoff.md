@@ -77,6 +77,11 @@ Finding → test → red SHA: `findings.md` §Fix round 1. Decisions:
 - `test_query_text_masks_a_backslash_escaped_quote_conservatively` (red `e6696c3`, end-of-line rule) is superseded and removed; its row is under `Historical SHA`.
 - Checks: targeted tests (postgresql engine, API, safety, masking: 94 passed, 2 skipped; all 81 `Red SHA` tests pass at head), ruff check/format clean, pyright 0 errors.
 
+## Leased-run fix (coordinator, gate/leased-pg.log on PostgreSQL 16)
+
+- Red `f2200178bc8e3f285abbfb1277a15187482b1729`, fix `e1413c8`: `pg_stat_statements` created but not in `shared_preload_libraries` raises SQLSTATE 55000 on every read of the view. The statements section is now `SKIPPED` with "pg_stat_statements is installed but not loaded: add it to shared_preload_libraries." and BootUI's install hint; the savepoint rolls back and every later section runs. BootUI 2.2.0 has no special case here (it would report FAILED); this is a sharpit addition. The SQLSTATE is read from the driver error (`sqlstate` / `pgcode`, or SQLAlchemy's `orig`).
+- Not installed at all: `SKIPPED` with "The pg_stat_statements extension is not installed on this server." (`test_an_extension_not_installed_is_skipped_with_a_reason_in_a_full_read`, green at its first commit, so not in the red table).
+
 ## Needs from coordinator
 
 - **Flag flip fallout (outside this lane's May-touch; each fails only because it pins the pre-postgresql catalogue/route list — add the postgresql row):**
@@ -177,6 +182,7 @@ Finding → test → red SHA: `findings.md` §Fix round 1. Decisions:
 | tests/engine/postgresql/test_querytext.py::test_query_text_masks_an_ambiguous_backslash_quote_to_the_end_of_the_text | bc21af8195f7dc40d733ad8a1db2d1a6d49a2c57 | assert "select '****... pin = secret" == "select '******'" |
 | tests/engine/postgresql/test_querytext.py::test_query_text_masks_postgresql_16_numeric_forms_whole | bc21af8195f7dc40d733ad8a1db2d1a6d49a2c57 | AssertionError: assert 'select a fro...= ******_1111' == 'select a fro...nd p = ******' |
 | tests/engine/postgresql/test_querytext.py::test_query_text_masks_nested_comments_whole | bc21af8195f7dc40d733ad8a1db2d1a6d49a2c57 | AssertionError: assert 'select a secret */ from t' == 'select a from t' |
+| tests/engine/postgresql/test_sections.py::test_an_extension_created_but_not_preloaded_is_skipped_and_later_sections_still_run | f2200178bc8e3f285abbfb1277a15187482b1729 | AssertionError: assert 'FAILED' == 'SKIPPED' |
 
 ## Superseded red tests
 

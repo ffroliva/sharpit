@@ -85,6 +85,7 @@
 | tests/engine/postgresql/test_querytext.py::test_query_text_masks_an_ambiguous_backslash_quote_to_the_end_of_the_text | bc21af8195f7dc40d733ad8a1db2d1a6d49a2c57 | assert "select '****... pin = secret" == "select '******'" |
 | tests/engine/postgresql/test_querytext.py::test_query_text_masks_postgresql_16_numeric_forms_whole | bc21af8195f7dc40d733ad8a1db2d1a6d49a2c57 | AssertionError: assert 'select a fro...= ******_1111' == 'select a fro...nd p = ******' |
 | tests/engine/postgresql/test_querytext.py::test_query_text_masks_nested_comments_whole | bc21af8195f7dc40d733ad8a1db2d1a6d49a2c57 | AssertionError: assert 'select a secret */ from t' == 'select a from t' |
+| tests/engine/postgresql/test_sections.py::test_an_extension_created_but_not_preloaded_is_skipped_and_later_sections_still_run | f2200178bc8e3f285abbfb1277a15187482b1729 | AssertionError: assert 'FAILED' == 'SKIPPED' |
 
 ## Superseded red tests
 
@@ -129,3 +130,4 @@ Superseded by `tests/engine/postgresql/test_querytext.py::test_query_text_masks_
 | 2 CLI drives an async pool on a second loop | `tests/fastapi/test_postgresql_api.py::test_cli_read_refuses_an_async_engine_outside_the_app_loop` | `98130999f26d8edb2b6f84731e6e6b8565184633` | `AssertionError: assert 'ERROR' == 'DISABLED'` |
 | 8 no unavailable reason without SQLAlchemy 2 | `tests/engine/postgresql/test_service.py::test_without_sqlalchemy_2_the_panel_reports_why` | `342f13eb366fa0b56e427a3d15416ede66caede7` | `AssertionError: assert ('NOT_READ', ...stics views.') == ('DISABLED', ...2.0 or later')` |
 | UI rows/limitations/POST answer | `Vitest: ui/tests/component/postgresql.test.ts::renders the section rows and limitations from the POST answer without a second GET` | `d786b517ca6f94176c2f268860c9e40b8fa547a1` | `AssertionError: expected 'postgresql Read PostgreSQL NOT_READ ·…' to contain 'orders_archive'` |
+| Leased run: pg_stat_statements not preloaded (SQLSTATE 55000) reported FAILED | `tests/engine/postgresql/test_sections.py::test_an_extension_created_but_not_preloaded_is_skipped_and_later_sections_still_run` | `f2200178bc8e3f285abbfb1277a15187482b1729` | `AssertionError: assert 'FAILED' == 'SKIPPED'` |
