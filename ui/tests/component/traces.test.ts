@@ -44,3 +44,43 @@ it('shows the reason when traces are unavailable', async () => {
   mount();
   await until(() => expect(text()).toContain(reason));
 });
+
+it('shows span status and event details', async () => {
+  const richSpan = {
+    ...span('a', null, 0, 40_000_000),
+    statusCode: 'ERROR', statusMessage: 'unique violation detail',
+    events: [{ name: 'exception', timeOffsetNanos: 5, attributes: [{ key: 'exception.type', type: 'STRING', value: 'ValueError' }] }],
+  };
+  h.route((url) => {
+    if (url === 'api/traces') return json(200, report());
+    if (url === `api/traces/${summary.traceId}`) return json(200, { traceId: summary.traceId, spans: [richSpan] });
+    return undefined;
+  });
+  mount();
+  await until(() => expect(text()).toContain('GET /owners'));
+  (document.querySelector('button.link') as HTMLButtonElement).click();
+  await until(() => expect(text()).toContain('unique violation detail'));
+  expect(text()).toContain('exception');
+  expect(text()).toContain('ValueError');
+});
+
+it('ignores a stale detail response after another trace was opened', async () => {
+  const second = { ...summary, traceId: 'another-trace' };
+  const pending = new Map<string, (response: Response) => void>();
+  h.fetchMock.mockImplementation((input) => {
+    const url = String(input);
+    if (url === 'api/traces') return Promise.resolve(json(200, report({ traces: [summary, second] })));
+    return new Promise((resolve) => pending.set(url, resolve));
+  });
+  mount();
+  await until(() => expect(document.querySelectorAll('button.link').length).toBe(2));
+  const buttons = document.querySelectorAll('button.link');
+  (buttons[0] as HTMLButtonElement).click();
+  (buttons[1] as HTMLButtonElement).click();
+  pending.get(`api/traces/${second.traceId}`)?.(json(200, { traceId: second.traceId, spans: [span('new', null, 0, 1)] }));
+  await until(() => expect(text()).toContain('span new'));
+  pending.get(`api/traces/${summary.traceId}`)?.(json(200, { traceId: summary.traceId, spans: [span('stale', null, 0, 1)] }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(text()).toContain('span new');
+  expect(text()).not.toContain('span stale');
+});
