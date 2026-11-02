@@ -219,6 +219,53 @@ def test_fingerprint_stable_across_runtime_values() -> None:
     assert [f.fingerprint for f in one] == [f.fingerprint for f in two]
 
 
+def test_n_plus_one_names_lazy_relationship_and_loader() -> None:
+    call = PhaseFacts(
+        selects=Counter({"fp": 6}),
+        sql_of={"fp": "SELECT * FROM performances WHERE player_id = ?"},
+        relationship_loads=Counter({"Player.performances": 6}),
+        relationship_of={"fp": ("Player.performances", True)},
+        relationship_sites={"Player.performances": "test_app.py:18"},
+    )
+    [finding] = evaluate_test(_facts(call=call), NONE, 5, ())
+
+    assert "Player.performances lazy-loaded 6 times" in finding.message
+    assert "selectinload(Player.performances)" in finding.message
+    assert "test_app.py:18" in finding.message
+
+
+def test_n_plus_one_falls_back_without_relationship_evidence() -> None:
+    [finding] = evaluate_test(_facts(call=selects("fp", 6, "SELECT * FROM items")), NONE, 5, ())
+
+    assert finding.message == "6 executions of one SELECT in the call phase"
+
+
+def test_n_plus_one_suggests_joinedload_for_many_to_one() -> None:
+    call = PhaseFacts(
+        selects=Counter({"fp": 6}),
+        sql_of={"fp": "SELECT * FROM players WHERE id = ?"},
+        relationship_loads=Counter({"Performance.player": 6}),
+        relationship_of={"fp": ("Performance.player", False)},
+    )
+    [finding] = evaluate_test(_facts(call=call), NONE, 5, ())
+
+    assert "Performance.player lazy-loaded 6 times" in finding.message
+    assert "joinedload(Performance.player)" in finding.message
+
+
+def test_relationship_message_keeps_statement_fingerprint() -> None:
+    plain = evaluate_test(_facts(call=selects("fp", 6, "SELECT * FROM performances")), NONE, 5, ())[0]
+    relation = PhaseFacts(
+        selects=Counter({"fp": 6}),
+        sql_of={"fp": "SELECT * FROM performances"},
+        relationship_loads=Counter({"Player.performances": 6}),
+        relationship_of={"fp": ("Player.performances", True)},
+    )
+    [enriched] = evaluate_test(_facts(call=relation), NONE, 5, ())
+
+    assert enriched.fingerprint == plain.fingerprint
+
+
 def test_explicit_dismissal_wins_over_baseline() -> None:
     facts = _facts(call=PhaseFacts(queries=6))
     current = evaluate_test(facts, Budget(5, False, 0), 5, ())[0]
