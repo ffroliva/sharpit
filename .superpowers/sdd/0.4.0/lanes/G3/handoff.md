@@ -27,4 +27,15 @@ Implementer: Claude Code / claude-sonnet-5-5
 - `/sharpit:release` must bump the `sharpit==` literal in `action.yml` together with `__version__`.
 
 ## Gates
-(gate results appended after the final frozen run)
+
+| Gate | Result |
+|---|---|
+| `uv run ruff check` | PASS |
+| `uv run ruff format --check` | PASS (429 files) |
+| `uv run pyright` | PASS (0 errors) |
+| `uv run pytest -q -n 4` | CONCERN: 4 failed, 3836 passed, 5 skipped; log `0.4.0-integration\.superpowers\sdd\0.4.0\logs\G3-final-pytest.log` |
+
+The 4 failures are exactly the inherited G1G2 ones, none in G3 files: the two foundation tests listed in G1G2's
+handoff and the two overhead budgets (`test_request_overhead_budget`, `test_statement_overhead_budget`), which
+G1G2 reported as passing in isolation. G3 touches no hot path. The first full run also showed 2 errors from evidence
+files written into the worktree mid-run; the final run was frozen and had none.
