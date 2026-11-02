@@ -19,6 +19,7 @@ SHA to the head, it is inside the lane diff, the names it references are frozen,
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
 import subprocess
@@ -76,10 +77,9 @@ def _pytest(root: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str]
 def normalise(arg: str, cwd: Path, root: Path) -> str:
     """A node id relative to ``root`` in POSIX form: backslashes, ``./`` and absolute paths are accepted."""
     path, sep, rest = arg.partition("::")
-    try:
+    path = path.replace("\\", "/")  # before resolving: on POSIX a backslash is part of one file name
+    with contextlib.suppress(ValueError):  # outside the tree: leave it for pytest to report
         path = (cwd / path).resolve().relative_to(root).as_posix()
-    except ValueError:  # outside the tree: leave it for pytest to report
-        path = path.replace("\\", "/")
     return path + sep + rest
 
 
