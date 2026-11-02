@@ -469,3 +469,12 @@ def test_lane_gate_accepts_assert_message_or_type_without_traceback(tmp_path: Pa
     fx = _fixture(tmp_path)
     fx.outcomes[fx.red] = outcome
     assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_reads_first_code_span_and_parametrized_ids(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    row = f"| `{TEST_ID}[case]` (1 param) | `{fx.red}` (parent of fix `{fx.head}`) | `assert x` |\n"
+    fx.evidence(handoff_extra=row)
+    fx.review()
+    assert _refusals(fx.evaluate()) == []
+    assert (fx.red, (TEST_ID, f"{TEST_ID}[case]")) in fx.replays
