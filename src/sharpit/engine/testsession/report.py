@@ -15,6 +15,7 @@ from sharpit.engine.advisors.report import severity_counts
 from sharpit.engine.advisors.rules import SEVERITIES, severity_rank
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, TestFacts
 from sharpit.engine.testsession.filters import FILTER_RULES
+from sharpit.engine.testsession.gates import ADVISOR as TEST_RUNTIME  # its findings already failed their test
 from sharpit.engine.testsession.outcome import (
     MergedFacts,
     advisor_summaries,
@@ -140,6 +141,13 @@ def _clean(text: str) -> str:
     return "".join(char if _xml_char(char) else _REPLACEMENT for char in text)
 
 
+def finding_fails(finding: dict[str, Any], fail_on: str) -> bool:
+    """The one gate-failure predicate (JUnit, terminal): a test-runtime finding failed its test whatever ``fail_on``."""
+    if finding["dismissed"]:
+        return False
+    return finding["advisor"] == TEST_RUNTIME or severity_rank(finding["severity"]) <= severity_rank(fail_on)
+
+
 def write_junit(path: Path, data: dict[str, Any], *, allow_unknown: bool) -> None:
     """Spec §7.2: one testcase per finding plus ``sharpit.status``; reads only ``data``."""
     suite = ET.Element("testsuite", name="sharpit")
@@ -150,9 +158,7 @@ def write_junit(path: Path, data: dict[str, Any], *, allow_unknown: bool) -> Non
         cases += 1
         properties = ET.SubElement(case, "properties")
         ET.SubElement(properties, "property", name="severity", value=finding["severity"])
-        if not finding["dismissed"] and severity_rank(finding["severity"]) <= severity_rank(
-            data["gates"]["failOnSeverity"]
-        ):
+        if finding_fails(finding, data["gates"]["failOnSeverity"]):
             failure = ET.SubElement(case, "failure", type=finding["ruleId"], message=_clean(finding["message"]))
             failure.text = _clean(finding["target"])
             failures += 1
