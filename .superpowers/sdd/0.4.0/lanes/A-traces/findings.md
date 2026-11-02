@@ -46,7 +46,7 @@
 
 ## UI reds
 
-| Test | Commit | Assertion message | Disposition |
+| Test | Red SHA | Assertion message | Disposition |
 |---|---|---|---|
 | `ui/tests/component/traces.test.ts` (3 tests) | `e71dbc2d979f9ecdb09afd90263888cf2ce9549c` | `expected 'TracesThis panel's view is not built…' to contain 'GET /owners'` | Fixed in the Task 4 commit |
 
@@ -91,7 +91,7 @@
 
 ### UI reds
 
-| Test | Commit | Assertion | Disposition |
+| Test | Red SHA | Assertion | Disposition |
 |---|---|---|---|
 | `ui/tests/component/traces.test.ts::shows span status and event details` | `654544674d606cf4a6510897049067396df2edea` | expected rendered detail to contain `unique violation detail` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
 | `ui/tests/component/traces.test.ts::ignores a stale detail response after another trace was opened` | `654544674d606cf4a6510897049067396df2edea` | expected newest detail to remain `span new` after stale response | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
