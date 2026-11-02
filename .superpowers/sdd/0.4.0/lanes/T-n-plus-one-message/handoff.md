@@ -40,7 +40,6 @@ new no-hook red test have incompatible expectations about the same symbol. No re
 
 | test id | red SHA | assertion message |
 |---|---|---|
-| `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_lazy_relationship_hook_overhead_budget` | `2d5ca9e8fe9913aa7df36f47eb58dbe19c2b4b30` | `AssertionError: SQLAlchemy lazy relationship hooks: overhead 47.497 µs/lazy load; budget 35.000 µs/lazy load` |
 | `tests/engine/test_sqla.py::test_first_application_location_is_cached_per_relationship` | `e1fcc6840bd0ceb65e6490cabf7c904ac9aaaff2` | `AssertionError: expected one source stack walk for one relationship, got 20` |
 | `tests/engine/test_sqla.py::test_relationship_facts_use_masked_statement_fingerprint` | `57a614127aca92789b3219bd846d03c1367b46ad` | `AssertionError: assert None == ('Payment.refunds', True)` |
 
@@ -90,3 +89,9 @@ load path.
 - Red: `5e9c9c65181486f7e1c40cfa4479b909713780f3`
 - Fix: `d2bf3e3398dea0c7e760ca4e11befb860d2274a1`
 - Next: coordinator resolves whether to supersede the historical budget test body; then rerun the full lane gate.
+
+### Historical SHA (coordinator: timing red, mutation-proven)
+
+| Test | Historical SHA | Reason |
+|---|---|---|
+| `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_lazy_relationship_hook_overhead_budget` | 2d5ca9e8fe9913aa7df36f47eb58dbe19c2b4b30 | a timing red depends on machine load and passed at replay; mutation-proven at 4fb5abc: 100 us busy-wait in sqla.before_cursor_execute -> AssertionError overhead 121.774 us/lazy load, budget 35.000 us |

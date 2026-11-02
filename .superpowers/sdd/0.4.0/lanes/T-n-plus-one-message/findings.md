@@ -15,7 +15,6 @@ Implementer: codex-gpt-6
 | `tests/pytest_plugin/test_plugin_gates.py::test_eager_selectinload_batches_are_not_n_plus_one` | `e03d91e19b80d26a228dc0acb772c3008e76c1fa` | `AssertionError: assert not any(item['ruleId'] == 'sharpit.n-plus-one' for item in data['findings'])` | Fixed in d2bf3e3398dea0c7e760ca4e11befb860d2274a1 |
 | `tests/engine/test_sqla.py::test_first_application_location_is_cached_per_relationship` | `e1fcc6840bd0ceb65e6490cabf7c904ac9aaaff2` | `AssertionError: expected one source stack walk for one relationship, got 20` | Fixed in 5c12d61a77609b671bced513590dcad497c0e27c |
 | `tests/engine/test_sqla.py::test_relationship_facts_use_masked_statement_fingerprint` | `57a614127aca92789b3219bd846d03c1367b46ad` | `AssertionError: assert None == ('Payment.refunds', True)` | Fixed in 5c12d61a77609b671bced513590dcad497c0e27c |
-| `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_lazy_relationship_hook_overhead_budget` | `2d5ca9e8fe9913aa7df36f47eb58dbe19c2b4b30` | `AssertionError: SQLAlchemy lazy relationship hooks: overhead 47.497 µs/lazy load; budget 35.000 µs/lazy load` | Fixed in 5c12d61a77609b671bced513590dcad497c0e27c |
 | `tests/engine/test_sqla.py::test_relationship_facts_tolerate_missing_call_phase` | `2ef99d77f94036c162e2256d032d7f8d37fae894` | `AssertionError: missing call phase must not raise KeyError` | Fixed in d2bf3e3398dea0c7e760ca4e11befb860d2274a1 |
 | `tests/engine/test_sqla.py::test_session_capture_does_not_register_orm_execute_listener` | `5e9c9c65181486f7e1c40cfa4479b909713780f3` | `AssertionError: the SQLAlchemy bridge must not install an ORM execution hook` | Fixed in d2bf3e3398dea0c7e760ca4e11befb860d2274a1 |
 
@@ -29,3 +28,9 @@ Implementer: codex-gpt-6
 | Test id | Historical SHA | Reason |
 |---|---|---|
 | `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_orm_hook_overhead_budget` | 78f1bfa29448ccb2feed65d50eac6a7fbb31c4f9 | removed: it timed the `sqla.do_orm_execute` hook that fix round 2 deleted; the budget is enforced by test_sqlalchemy_lazy_relationship_hook_overhead_budget (round 1) |
+
+### Historical SHA (coordinator: timing red, mutation-proven)
+
+| Test | Historical SHA | Reason |
+|---|---|---|
+| `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_lazy_relationship_hook_overhead_budget` | 2d5ca9e8fe9913aa7df36f47eb58dbe19c2b4b30 | a timing red depends on machine load and passed at replay; mutation-proven at 4fb5abc: 100 us busy-wait in sqla.before_cursor_execute -> AssertionError overhead 121.774 us/lazy load, budget 35.000 us |
