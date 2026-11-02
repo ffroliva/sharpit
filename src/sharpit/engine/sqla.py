@@ -417,14 +417,16 @@ def bounded_read_only[T](
     stmt_ms = max(1, int(statement_timeout * 1000))
     lock_ms = max(1, int(lock_timeout * 1000))
     try:
-        try:
-            conn.exec_driver_sql("SET TRANSACTION READ ONLY")
-            conn.exec_driver_sql(f"SET LOCAL statement_timeout = {stmt_ms}")
-            conn.exec_driver_sql(f"SET LOCAL lock_timeout = {lock_ms}")
-            setting = conn.exec_driver_sql("SELECT current_setting('transaction_read_only')").scalar()
-        except Exception as exc:
-            raise ReadOnlyUnavailable(READ_ONLY_REFUSED) from exc
-        if not conn.in_transaction() or str(setting).strip().lower() != "on":
+        # a driver error here (a dropped connection) propagates as itself: READ_ONLY_REFUSED is only the check below
+        conn.exec_driver_sql("SET TRANSACTION READ ONLY")
+        conn.exec_driver_sql(f"SET LOCAL statement_timeout = {stmt_ms}")
+        conn.exec_driver_sql(f"SET LOCAL lock_timeout = {lock_ms}")
+        setting = conn.exec_driver_sql("SELECT current_setting('transaction_read_only')").scalar()
+        # under DBAPI autocommit every SET LOCAL was its own transaction: on a server whose default is read-only the
+        # setting still says 'on', but the timeouts are gone, so that read is refused too
+        dbapi = getattr(getattr(conn, "connection", None), "dbapi_connection", None)
+        autocommit = getattr(dbapi, "autocommit", False) is True
+        if autocommit or not conn.in_transaction() or str(setting).strip().lower() != "on":
             raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
         return fn(conn)
     finally:
