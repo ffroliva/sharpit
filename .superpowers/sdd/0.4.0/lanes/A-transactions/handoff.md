@@ -8,15 +8,15 @@ In progress. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 
 ## Done
 
-- Read required rules/spec/plans/F handoff and registered with agentctl (`codex-0-4-0-a-transactions`).
+- Read required rules/spec/plans/F handoff and registered as `codex-0-4-0-a-transactions`.
 - Task 1 nullable `readOnly` reason fixture committed (`d50d6b6`). The captured transaction golden is absent; parity remains unverified.
-- Task 2 recorder and connection callbacks committed (`88609ea`); 8 engine tests and targeted Ruff checks passed.
-- Task 3 REST/SSE, recorder wiring, MCP/CLI tools and flag are implemented locally. The focused backend run passed 15 tests; feature commit is pending.
-- Task 5 UI assertion tests committed at `46af71a`; both fail on the placeholder for the expected missing transaction view.
+- Task 2 recorder and connection callbacks committed (`88609ea`). Task 3 REST/SSE, recorder wiring, MCP/CLI tools and flag committed (`7d3a672`).
+- Focused backend suite passed: 16 tests; targeted Ruff passed. Includes true SQLite transaction events, savepoints, API actions, MCP read-only tool list, safety, and masking.
+- Task 5 assertion reds committed (`46af71a`); current Svelte view implementation is local and ready for Vitest and TypeScript verification.
 
 ## Next step
 
-Finish Task 3/5 commit boundaries, add the fixed Svelte view, and run `npm --prefix ui run check` plus the focused Vitest file. Then add the transaction overhead budget, update checklist/docs, run four gates detached with pytest log outside the worktree, then lowest-direct/no-SQLAlchemy if time permits.
+Finish UI view and tests. Then implement Task 4 overhead budget (30,000 ns per begin/commit pair; never raise it), update docs/checklist, and run the four gates with pytest detached at `-n 4` and its log outside the worktree. Run lowest-direct/no-SQLAlchemy if time permits. Finalize handoff and leave agentctl.
 
 ## Decisions
 
@@ -33,8 +33,8 @@ Finish Task 3/5 commit boundaries, add the fixed Svelte view, and run `npm --pre
 | `tests/engine/capture/test_transactions.py::test_bounded_entries_report_stats` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `the transaction ring must respect max_entries` |
 | `tests/engine/capture/test_transactions.py::test_clear_keeps_total_captured` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `clear must empty the retained transactions` |
 | `tests/engine/capture/test_transactions.py::test_paused_records_nothing` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `a paused recorder must return the sentinel id` |
-| `tests/engine/capture/test_transactions.py::test_error_message_is_masked` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `transaction error messages must not expose connection passwords` |
-| `tests/engine/capture/test_transactions.py::test_sql_trace_unavailable_warning` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `missing SQL Trace must explain why statement counts are unavailable` |
+| `tests/engine/capture/test_transactions.py::test_error_message_is_masked` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `transaction errors must not expose connection passwords` |
+| `tests/engine/capture/test_transactions.py::test_sql_trace_unavailable_warning` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `missing SQL Trace must explain why statement counts are not correlated` |
 | `tests/engine/capture/test_transactions.py::test_savepoint_is_a_child_entry` | `12bf8d03b4dd14c916d74e77b6d4b1bf287a198d` | `releasing a savepoint must not close its outer transaction` |
 | `tests/engine/capture/test_transactions.py::test_savepoint_closes_one_child_per_context` | `41964581198fd775bd63e5b3d9559c87d28eeaf0` | `a savepoint event must close its child entry in each context` |
 | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_committed_sqlite_with_loopback_client` | `5212a0865ee4ca430b56b4ef5eaf344ccf18f3f5` | `the implemented transactions panel must expose its GET report route` |
@@ -54,4 +54,4 @@ Finish Task 3/5 commit boundaries, add the fixed Svelte view, and run `npm --pre
 
 ## Gates / live check
 
-Focused backend log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-focused.log` (15 passed). Full gates and live check not run.
+Focused backend log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-focused.log` (16 passed). Full gates and live check not run.
