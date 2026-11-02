@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -34,13 +34,8 @@ class RowLimits:
     max_settings: int = 40
 
     def __post_init__(self) -> None:
-        _validate_limit(self.max_sessions, "max_sessions")
-        _validate_limit(self.max_statements, "max_statements")
-        _validate_limit(self.max_indexes, "max_indexes")
-        _validate_limit(self.max_tables, "max_tables")
-        _validate_limit(self.max_vacuum_tables, "max_vacuum_tables")
-        _validate_limit(self.max_replicas, "max_replicas")
-        _validate_limit(self.max_settings, "max_settings")
+        for f in fields(self):
+            _validate_limit(getattr(self, f.name), f.name)
 
     @classmethod
     def from_settings(cls, settings: SharpitSettings) -> RowLimits:
