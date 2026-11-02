@@ -47,3 +47,13 @@
 |---|---|---|
 | `tests/action/test_action_definition.py::test_action_forwards_report_only_baseline_fail_on_and_report_path` | `c3ba9201e065905f613b80608dae5965af0c756f` | test body changed after this red commit (fix round 06:10); test kept, see the newer row or the fix |
 | tests/test_report_summary.py::test_backslash_in_finding_text_is_escaped_too | 32aaa692c95444caab40e70cf7c7c067d7551ac7 | test body changed after this red commit (fix round 06:10); test kept, see the newer row or the fix |
+
+## Review fix round (review.md @ b93a383)
+
+| Test id | Red SHA | Assertion message | Disposition |
+|---|---|---|---|
+| tests/action/test_action_definition.py::test_action_preserves_windows_paths_in_pytest_args | df80a585c214d3e4af72ad6fca59a2930f90e75d | AssertionError: ['teststest_file.py', '-k', 'a b', ...] | Fixed in 747faf51454fea65faf4a7ea6e9677aed1eb489f |
+
+### Characterisation
+
+- tests/action/test_action_definition.py::test_action_propagates_pytest_exit_code (added in 172c8b4ac5c8e03d48808fde59fa44513ebc2ac1): runs the dedented Run step under bash with a runner that exits 3 and asserts the step exits 3. Passed on first run; the existing `sys.exit(subprocess.call(argv))` already propagates the code, so no red and no fix.
