@@ -127,6 +127,57 @@ def test_ignores_logger_and_warnings_calls() -> None:
     assert handler_swallows(source, _line_of(source, "except:")) is False
 
 
+def test_ignores_unexecuted_nested_raise_and_logger() -> None:
+    source = _src(
+        """
+        def a():
+            try:
+                pass
+            except Exception:
+                def unused():
+                    raise
+                return 0
+
+        def b():
+            try:
+                pass
+            except BaseException:
+                async def unused():
+                    logger.exception("failed")
+                return 0
+
+        def c():
+            try:
+                pass
+            except:
+                report = lambda: logger.exception("failed")
+                return 0
+
+        def d():
+            try:
+                pass
+            except (Exception, KeyError):
+                class Unused:
+                    def method(self):
+                        raise
+                return 0
+
+        def e():
+            try:
+                pass
+            except (KeyError, Exception):
+                def helper():
+                    return 0
+                raise
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except Exception:")) is True, "nested def raise"
+    assert handler_swallows(source, _line_of(source, "except BaseException:")) is True, "nested async def logger"
+    assert handler_swallows(source, _line_of(source, "except:")) is True, "lambda logger"
+    assert handler_swallows(source, _line_of(source, "except (Exception, KeyError):")) is True, "class method raise"
+    assert handler_swallows(source, _line_of(source, "except (KeyError, Exception):")) is False, "direct raise"
+
+
 def _nested() -> int:
     try:
         try:

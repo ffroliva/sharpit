@@ -148,6 +148,35 @@ def test_tool_id_conflict_reports_unattached() -> None:
     assert status.reason == "sys.monitoring tool ids 3 and 4 are in use"
 
 
+@pytest.mark.parametrize("failing", ["register_callback", "set_events"])
+def test_partial_attach_failure_releases_tool_id_and_callback(monkeypatch: pytest.MonkeyPatch, failing: str) -> None:
+    monitoring = sys.monitoring
+    before = [monitoring.get_tool(i) for i in TOOL_IDS]
+    tool = next((i for i, name in zip(TOOL_IDS, before, strict=True) if name is None), None)
+    if tool is None:
+        pytest.skip("sys.monitoring tool ids 3 and 4 are both taken by the outer session")
+
+    def fail(*_args: object) -> None:
+        raise RuntimeError(f"{failing} failed")
+
+    monitor = MonitoringCapture()
+    with monkeypatch.context() as patch:
+        patch.setattr(monitoring, failing, fail)
+        with pytest.raises(RuntimeError):
+            monitor.attach(lambda tag, fact: None)
+    after = [monitoring.get_tool(i) for i in TOOL_IDS]
+    if monitoring.get_tool(tool) is None:  # a leaked id is reused for the probe, then freed below
+        monitoring.use_tool_id(tool, "probe")
+    try:
+        callback = monitoring.register_callback(tool, monitoring.events.EXCEPTION_HANDLED, None)
+    finally:
+        monitoring.free_tool_id(tool)
+
+    assert after == before, "tool id still claimed"
+    assert monitor.tool_id is None
+    assert callback is None, "callback still registered"
+
+
 def test_raise_is_not_subscribed(capture: tuple[MonitoringCapture, list[tuple[TestTag, SwallowedFact]]]) -> None:
     monitor, _ = capture
     assert monitor.tool_id is not None
