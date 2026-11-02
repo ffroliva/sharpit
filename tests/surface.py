@@ -113,4 +113,5 @@ def catalogue_with_lanes(
     """``(TOOLS, COMMANDS)`` as the import builds them: the base catalogue plus the given lane tools."""
     from sharpit.engine import tools
 
-    return tools.merge_lane_tools(tools.TOOLS, tools.COMMANDS, lane_tools, lane_commands)
+    # from the base, not the current TOOLS: a lane implemented at import already has its tools there
+    return tools.merge_lane_tools(tools._BASE_TOOLS, tools._BASE_COMMANDS, lane_tools, lane_commands)  # noqa: SLF001

@@ -18,11 +18,11 @@ import httpx
 import pytest
 from examples.fastapi_sample.app import create_app
 from fastapi.testclient import TestClient
-from starlette.routing import Route
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from conftest import _PATH_PARAMS, SideEffectGuard, get_paths
 from fastapi import FastAPI
+from safety import lane_rows
 from sharpit import install
 from sharpit.engine.guard import (
     AUTHENTICATION_REQUIRED_MESSAGE,
@@ -37,7 +37,6 @@ from sharpit.engine.mcp import DISABLED_MESSAGE
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
 from sharpit.engine.tools import TOOLS, rest_api_service
 from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle, SharpitMount
-from sharpit.fastapi.routes import _panel_04_routes
 
 LOCAL = ("127.0.0.1", 50000)
 GROUP_ID = "0123456789abcdef"  # conftest._PATH_PARAMS["id"]
@@ -360,7 +359,7 @@ def test_write_route_table_is_complete():
     def shape(path: str) -> str:  # a concrete WRITES path back to its route's format
         return path.replace(GROUP_ID, "{id}").replace("sharpit.matrix", "{name}")
 
-    assert _write_routes() == {(w[1], shape(w[2])) for w in WRITES}
+    assert _write_routes() == {(w[1], shape(w[2])) for w in WRITES} | lane_rows()[1]  # + tests/safety/ lane rows
 
 
 def _seed_exceptions(handle: SharpitHandle) -> Callable[[], object]:
@@ -622,20 +621,9 @@ def test_inactive_is_404_everywhere(options: dict[str, str], profiles: str | Non
 GET_PATHS = get_paths()
 
 
-def _lane_get_paths() -> set[str]:
-    """GET paths the implemented per-panel route modules add; their lane covers them in its own safety file."""
-    app = FastAPI()
-    handle = install(app, enabled="ON", show_banner=False)
-    routes = _panel_04_routes(handle.context, app)
-    return {
-        "/sharpit" + r.path_format.format(**{n: _PATH_PARAMS[n] for n in r.param_convertors})
-        for r in routes
-        if isinstance(r, Route) and "GET" in (r.methods or ())
-    }
-
-
 def test_get_route_table_is_complete():
-    assert set(GET_PATHS) - _lane_get_paths() == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"}
+    lane_gets = {fmt.format(**_PATH_PARAMS) for fmt in lane_rows()[0]}  # implemented panels' tests/safety/ rows
+    assert set(GET_PATHS) == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"} | lane_gets
 
 
 ALEMBIC_INI = Path(__file__).resolve().parent / "fixtures" / "alembic" / "linear" / "alembic.ini"

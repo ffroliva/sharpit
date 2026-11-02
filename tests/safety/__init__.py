@@ -8,6 +8,7 @@ the shared matrix. See README.md.
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,20 @@ HERE = Path(__file__).parent
 
 def lane_rows(root: Path = HERE) -> tuple[set[str], set[tuple[str, str]]]:
     """``(GET path formats, (method, path format) writes)`` exported by the lane files of implemented panels."""
-    return set(), set()
+    from sharpit.engine.panels import panel_is_implemented
+
+    gets: set[str] = set()
+    writes: set[tuple[str, str]] = set()
+    for path in sorted(root.glob("test_*_safety.py")):
+        spec = importlib.util.spec_from_file_location(f"_sharpit_lane_rows_{path.stem}", path)
+        assert spec is not None
+        assert spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if panel_is_implemented(module.PANEL):
+            gets |= set(getattr(module, "GET_ROWS", ()))
+            writes |= {(method, fmt) for method, fmt in getattr(module, "WRITE_ROWS", ())}
+    return gets, writes
 
 
 def route_formats(app: Any, methods: frozenset[str]) -> set[tuple[str, str]]:
