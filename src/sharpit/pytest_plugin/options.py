@@ -106,4 +106,5 @@ def resolve(config: Any) -> PluginOptions:
         value("app", None),
         bool(value("advisors", True)),
         unattributed,
+        bool(value("require_app", False)),
     )

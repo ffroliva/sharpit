@@ -64,6 +64,8 @@ def autodetect_apps() -> tuple[tuple[str, object], ...]:
 
 def select_app(explicit: str | None, candidates: Sequence[tuple[str, object]]) -> tuple[str, object] | None:
     """An explicit app wins over candidates; otherwise only a unique candidate is used."""
+    if explicit:
+        return load_app(explicit)
     return candidates[0] if len(candidates) == 1 else None
 
 
@@ -137,7 +139,7 @@ def run_advisors(
         state.autodetected = [name for name, _ in candidates]
         chosen = select_app(None, candidates)
         if chosen is None:
-            if (run := no_app_run(state.autodetected, False)) is not None:
+            if (run := no_app_run(state.autodetected, state.options.require_app)) is not None:
                 state.sink.facts.advisor_runs.append(run)
             return
         models = [(chosen[0], FastApiIntrospector(chosen[1]).api_model())]

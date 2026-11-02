@@ -108,14 +108,12 @@ def _combine_sources(parts: Sequence[SessionFacts], untraced: set[str], engines:
 
 
 def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]:
-    """FAILED over UNKNOWN over PASSED (and SKIPPED when only SKIPPED)."""
+    """FAILED over UNKNOWN over SKIPPED over PASSED (R14); no status at all is PASSED."""
     present = set(statuses)
     if "FAILED" in present:
         return "FAILED"
     if "UNKNOWN" in present:
         return "UNKNOWN"
-    if "PASSED" in present:
-        return "PASSED"
     return "SKIPPED" if "SKIPPED" in present else "PASSED"
 
 

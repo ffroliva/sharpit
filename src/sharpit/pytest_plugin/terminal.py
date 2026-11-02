@@ -20,7 +20,7 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
         return
     try:
         terminalreporter.write_sep("=", f"sharpit: {data['status']}")
-        if (notice := app_notice(getattr(state, "autodetected", None), False)) is not None:
+        if (notice := app_notice(getattr(state, "autodetected", None), state.options.require_app)) is not None:
             terminalreporter.write_line(notice)
         terminalreporter.write_line(f"status: {data['status']}")
         terminalreporter.write_line(f"tests with findings: {sum(1 for test in data['tests'] if test['findings'])}")

@@ -91,7 +91,7 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
     names = getattr(state, "autodetected", None)
     if names is not None and state.parts:
         try:
-            reconcile_workers(state.parts, names, False)
+            reconcile_workers(state.parts, names, state.options.require_app)
         except Exception as exc:  # noqa: BLE001
             plugin._record_hook_failure(state.sink, exc)
     plugin._write_report(state, session, exitstatus)
