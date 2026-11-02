@@ -105,7 +105,8 @@ class Fixture:
                 "failure": '<failure message="AssertionError: assert 1 == 2">trace</failure>',
                 "typeerror": '<failure message="TypeError: bad">trace</failure>',
                 # real pytest: a rewritten assert's message names no exception; --tb=long ends "<file>:<line>: <type>"
-                "rewritten": '<failure message="assert 1 == 2">E   assert 1 == 2\nt.py:2: AssertionError</failure>',
+                "rewritten": f'<failure message="assert 1 == 2">E   assert 1\n{module}:2: AssertionError</failure>',
+                "src-assert": '<failure message="assert 0">E   assert 0\nsrc/widget.py:2: AssertionError</failure>',
                 "bare-assert": '<failure message="assert 0 == 2">no traceback tail</failure>',
                 "typed": '<failure type="AssertionError" message="custom text">no traceback tail</failure>',
                 "rpcerror": '<failure message="pkg.RpcError: x">E   pkg.RpcError: x\nt.py:2: RpcError</failure>',
@@ -500,3 +501,9 @@ def test_lane_gate_refuses_red_test_already_on_integration_branch(tmp_path: Path
     fx.evidence(handoff_extra=f"| `tests/test_old.py::test_old` | `{red}` | `assert 1` |\n")
     fx.review()
     assert _refused(fx.evaluate(), "red tests/test_old.py::test_old: test unchanged from the integration branch")
+
+
+def test_lane_gate_refuses_assertion_raised_outside_the_test(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "src-assert"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside the test file")
