@@ -78,6 +78,23 @@ def test_vulnerability_findings_excluded_from_baseline(tmp_path) -> None:
     assert baseline.read(path).entries == {}
 
 
+def test_vulnerability_advisor_excluded_whatever_the_rule_id(tmp_path) -> None:
+    # audit 2026-11-02: the test above passes with either exclusion removed; each half gets its own test
+    findings = (
+        Finding("OSV-1", "vulnerability", "HIGH", "pkg 1", "m"),
+        Finding("OSV-2", "vulns", "HIGH", "pkg 2", "m"),
+    )
+    path = tmp_path / "baseline.json"
+    baseline.write(path, findings)
+    assert baseline.read(path).entries == {}, "a vulnerability-advisor finding was written to the baseline"
+
+
+def test_vuln_rule_id_excluded_whatever_the_advisor(tmp_path) -> None:
+    path = tmp_path / "baseline.json"
+    baseline.write(path, (Finding("VULN-002", "dependencies", "HIGH", "pkg 1", "m"),))
+    assert baseline.read(path).entries == {}, "a VULN- rule finding was written to the baseline"
+
+
 def _baseline_of(tmp_path, *findings: Finding) -> baseline.Baseline:
     path = tmp_path / "old.json"
     baseline.write(path, findings)
@@ -115,3 +132,41 @@ def test_baseline_write_cleans_lone_surrogates_and_uses_lf(tmp_path) -> None:
         baseline.write(path, [Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "bad \ud800 text")])
     assert path.exists(), "a lone surrogate in a message broke the baseline write"
     assert b"\r\n" not in path.read_bytes()
+
+
+# --- compare() repeats the vulnerability exclusions (G1G2 audit review): one test per clause -------------------------
+
+EMPTY = baseline.Baseline({}, b"")
+
+
+@pytest.mark.parametrize("advisor", ["vulnerability", "vulns", "Vulnerability"])
+def test_compare_leaves_vulnerability_advisor_findings_unannotated(advisor: str) -> None:
+    [compared] = baseline.compare([Finding("OSV-1", advisor, "HIGH", "pkg 1", "m")], EMPTY, partial=False).findings
+    assert compared.baseline_state is None, f"a {advisor!r} finding was compared against the baseline"
+
+
+def test_compare_leaves_vuln_rule_findings_unannotated() -> None:
+    [compared] = baseline.compare(
+        [Finding("VULN-2", "dependencies", "HIGH", "pkg", "m")], EMPTY, partial=False
+    ).findings
+    assert compared.baseline_state is None, "a VULN- rule finding was compared against the baseline"
+
+
+def test_compare_never_reports_a_vuln_entry_as_fixed(tmp_path) -> None:
+    entry = {
+        "fingerprint": "dependencies:VULN-3:x",
+        "ruleId": "VULN-3",
+        "target": "t",
+        "message": "m",
+        "observed": None,
+    }
+    path = tmp_path / "baseline.json"
+    path.write_text(json.dumps({"schema": "sharpit-baseline/1", "findings": [entry]}), encoding="utf-8")
+    result = baseline.compare([], baseline.read(path), partial=False)
+    assert result.fixed == (), "a hand-written VULN- baseline entry was reported as fixed"
+
+
+def test_write_excludes_vulnerability_advisor_whatever_its_case(tmp_path) -> None:
+    path = tmp_path / "baseline.json"
+    baseline.write(path, (Finding("OSV-1", "Vulnerability", "HIGH", "pkg 1", "m"),))
+    assert baseline.read(path).entries == {}, "a 'Vulnerability' finding was written to the baseline"

@@ -105,7 +105,8 @@ class Fixture:
             name = rest[-1]
             body = {
                 "pass": "",
-                "failure": '<failure message="AssertionError: assert 1 == 2">trace</failure>',
+                "failure": f'<failure message="AssertionError: assert 1 == 2">E\n{module}:2: AssertionError</failure>',
+                "helper-did-not-raise": '<failure message="Failed: DID NOT RAISE">E\ntests/h.py:4: Failed</failure>',
                 "typeerror": '<failure message="TypeError: bad">trace</failure>',
                 # real pytest: a rewritten assert's message names no exception; --tb=long ends "<file>:<line>: <type>"
                 "rewritten": f'<failure message="assert 1 == 2">E   assert 1\n{module}:2: AssertionError</failure>',
@@ -118,6 +119,11 @@ class Fixture:
                 "rpcerror": '<failure message="pkg.RpcError: x">E   pkg.RpcError: x\nt.py:2: RpcError</failure>',
                 "error": '<error message="failed on setup">trace</error>',
                 "skip": '<skipped message="skip" />',
+                "scripts-assert": '<failure message="assert 0">E   x\nscripts/helper.py:2: AssertionError</failure>',
+                "abs-helper": f'<failure message="assert 0">E\n{tree}\\tests\\helpers.py:3: AssertionError</failure>',
+                "abs-src-assert": f'<failure message="assert 0">E\n{tree}\\src\\widget.py:2: AssertionError</failure>',
+                "teardown": f'<failure message="assert 0">E   x\n{module}:2: AssertionError</failure>'
+                '<error message="failed on teardown with &quot;RuntimeError&quot;">trace</error>',
             }
             if outcome == "mixed-params":  # one parametrisation fails as a red should, the other passes
                 cases.append(f'<testcase classname="{classname}" name="{name}[a]">{body["rewritten"]}</testcase>')
@@ -486,10 +492,11 @@ def test_lane_gate_replay_syncs_the_test_extra(tmp_path: Path, monkeypatch: pyte
 
 
 @pytest.mark.parametrize("outcome", ["bare-assert", "typed"])
-def test_lane_gate_accepts_assert_message_or_type_without_traceback(tmp_path: Path, outcome: str) -> None:
+def test_lane_gate_refuses_assertion_without_a_traceback_frame(tmp_path: Path, outcome: str) -> None:
+    # fail closed (round 2): with no last frame nobody can tell the assert was not in src/
     fx = _fixture(tmp_path)
     fx.outcomes[fx.red] = outcome
-    assert _refusals(fx.evaluate()) == []
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError with no traceback frame")
 
 
 def test_lane_gate_reads_first_code_span_and_parametrized_ids(tmp_path: Path) -> None:
@@ -924,3 +931,90 @@ def test_lane_gate_refuses_findings_without_a_disposition_table(tmp_path: Path) 
     fx.commit({f"{fx.folder}/findings.md": table}, "docs: findings")
     fx.review()
     assert _refused(fx.evaluate(), "findings.md: no table with a Disposition column")
+
+
+# --- red rule: an assertion counts only when its last frame is under tests/ (G1G2 audit review) -----------------------
+
+
+def test_lane_gate_refuses_assert_raised_in_scripts(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "scripts-assert"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside the test file, not under tests/")
+
+
+def test_lane_gate_refuses_assert_raised_in_src_by_absolute_path(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "abs-src-assert"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside the test file, not under tests/")
+
+
+def test_lane_gate_accepts_helper_under_tests_by_absolute_path(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "abs-helper"
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_refuses_failure_with_teardown_error(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "teardown"
+    assert _refused(fx.evaluate(), f"red {TEST_ID}: error at red SHA")
+
+
+def test_lane_gate_exposes_the_one_accept_rule() -> None:
+    is_red = getattr(lane_gate, "is_red", None)
+    assert callable(is_red), "lane_gate exposes no public is_red for red_check to share"
+    assert is_red(("failure", "AssertionError")) is True
+    assert is_red(("failure", "TypeError")) is False
+    assert callable(getattr(lane_gate, "red_verdicts", None)), "lane_gate exposes no public red_verdicts"
+
+
+def test_lane_gate_accepts_did_not_raise_from_a_helper_under_tests(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx.outcomes[fx.red] = "helper-did-not-raise"
+    assert _refusals(fx.evaluate()) == []
+
+
+# --- overhead module detection by AST (release gate false positive on this lane) --------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("source", "counted"),
+    [
+        ('BODY = "tests/overhead.py:9: check_budget(name)"\n', False),  # (a) only inside a string literal
+        ("from overhead import check_budget\n\n\ndef test_x():\n    check_budget('x', 1, 2, 'ms', 1)\n", True),  # (b)
+        ("import overhead\n\n\ndef test_x():\n    overhead.check_budget('x', 1, 2, 'ms', 1)\n", True),  # (b) attribute
+        ("BUDGET_NS = 50\n", True),  # (c)
+        ("BUDGET_MS: float = 0.2\n", True),  # (c) annotated
+        ("def test_x():\n    BUDGET_MS = 0.2\n    assert BUDGET_MS\n", True),  # (d) function-local: fail closed
+        ("def check_budget():\n    pass\n", True),  # the module that defines the check
+        ("BUDGET_MS = (\n", True),  # (e) unparsable: the text rule, fail closed
+    ],
+)
+def test_overhead_module_is_decided_by_ast(source: str, counted: bool) -> None:
+    assert lane_gate._is_overhead_module("tests/test_x.py", source) is counted, source
+
+
+def test_lane_gate_allows_changes_to_a_module_that_mentions_check_budget_only_in_a_string(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    path = "tests/test_strings.py"
+    fx.commit({path: 'BODY = "tests/overhead.py:9: check_budget("\n\n\ndef test_s():\n    assert BODY\n'}, "test: s")
+    base = fx.head
+    _git(fx.integration, "merge", "-q", "--ff-only", base)  # the module is on the integration branch: a "before"
+    fx.commit({path: 'BODY = "tests/overhead.py:10: check_budget("\n\n\ndef test_s():\n    assert BODY\n'}, "test: s2")
+    fx.review()
+    assert not _refused(fx.evaluate(), "overhead budget module changed"), _refusals(fx.evaluate())
+
+
+def test_check_budget_inside_a_string_is_not_an_overhead_module() -> None:
+    source = "FAKE = '<failure>tests/overhead.py:9: check_budget(name)</failure>'\n"
+    assert lane_gate._is_overhead_module("tests/test_x.py", source) is False, "a string made it an overhead module"
+
+
+def test_function_local_budget_counts_as_an_overhead_module() -> None:
+    source = "def test_x():\n    BUDGET_MS = 0.2\n    assert BUDGET_MS\n"
+    assert lane_gate._is_overhead_module("tests/test_x.py", source) is True, "a function-local BUDGET was not counted"
+
+
+def test_async_check_budget_definition_counts_as_an_overhead_module() -> None:
+    source = "async def check_budget(name):\n    return None\n"
+    assert lane_gate._is_overhead_module("tests/test_x.py", source) is True, "async def check_budget was not counted"

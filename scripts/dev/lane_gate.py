@@ -258,10 +258,26 @@ def _path_refusals(opts: Options, base: str, path: str) -> list[str]:
 
 
 def _is_overhead_module(path: str, before: str | None) -> bool:
-    """An overhead test module: under tests/, defines a top-level ``BUDGET*`` or calls ``check_budget``. Only these
-    files are scanned, so a script that merely mentions a budget name (this gate) is not one."""
-    is_test_py = path.startswith("tests/") and path.endswith(".py")
-    return is_test_py and bool(before) and bool(BUDGET_LINE.search(before or "") or "check_budget(" in (before or ""))
+    """An overhead test module: under tests/, assigns a ``BUDGET*`` name, or calls or defines ``check_budget``, by AST,
+    so text inside a string literal never counts. Only these files are scanned, so a script that merely mentions a
+    budget name (this gate) is not one. Unparsable source falls back to the text rule."""
+    if not (path.startswith("tests/") and path.endswith(".py") and before):
+        return False
+    try:
+        tree = ast.parse(before)
+    except SyntaxError:  # fail closed: the text rule
+        return bool(BUDGET_LINE.search(before) or "check_budget(" in before)
+    for node in ast.walk(tree):  # a function-local BUDGET counts too: fail closed
+        if isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id.startswith("BUDGET") for t in targets):
+                return True
+        func = node.func if isinstance(node, ast.Call) else None
+        called = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+        defined = node.name if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) else ""
+        if "check_budget" in (called, defined):
+            return True
+    return False
 
 
 def _overhead_problems(path: str, before: str, after: str) -> list[str]:
@@ -560,37 +576,52 @@ def _exception_name(failure: ET.Element) -> tuple[str, str]:
     return (named.group(1).rsplit(".", 1)[-1] if named else ""), ""
 
 
-def _is_test_file(frame_file: str, test_path: str) -> bool:
+def _is_under_tests(frame_file: str, root: Path | None) -> bool:
+    """A test file or a shared test helper (``tests/overhead.py::check_budget``). An ``assert`` anywhere else (``src``,
+    ``scripts``, an installed package) is a disguised stub. An absolute frame is judged relative to ``root``."""
     frame = frame_file.replace("\\", "/")
-    return frame == test_path or frame.endswith("/" + test_path)
+    if root is not None:
+        base = str(root).replace("\\", "/").rstrip("/") + "/"
+        if frame.lower().startswith(base.lower()):  # Windows paths compare case-insensitively
+            frame = frame[len(base) :]
+    return frame.startswith("tests/")
 
 
-def _is_library_frame(frame_file: str) -> bool:
-    """Code under test or an installed package: an ``assert`` there is a disguised stub. Shared test helpers
-    (``tests/overhead.py::check_budget``) are fine."""
-    frame = "/" + frame_file.replace("\\", "/").lstrip("/")
-    return "/src/" in frame or "/site-packages/" in frame
+def _classify(name: str, frame: str, root: Path | None) -> str:
+    """The detail a red is judged by: "AssertionError" when it counts as an assertion red.
 
-
-def _classify(name: str, frame: str, test_path: str) -> str:
-    """The detail a red is judged by: "AssertionError" when it counts as an assertion red."""
-    if name == "DidNotRaise":  # pytest.raises red: counts when raised by the test itself
-        return "AssertionError" if frame and _is_test_file(frame, test_path) else "Failed"
-    if name == "AssertionError" and frame and _is_library_frame(frame):
-        return f"AssertionError raised outside the test file, in library code ({frame})"
-    return name
+    An ``assert`` or a ``pytest.raises`` DID NOT RAISE counts only when its last frame is under ``tests/`` (the test
+    file or a shared helper). Without a frame nobody can tell it was not raised in ``src``: that fails closed.
+    """
+    if name not in ("AssertionError", "DidNotRaise"):
+        return name
+    shown = "AssertionError" if name == "AssertionError" else "pytest.raises DID NOT RAISE"
+    if not frame:
+        return f"{shown} with no traceback frame (cannot tell where it was raised)"
+    if not _is_under_tests(frame, root):
+        return f"{shown} raised outside the test file, not under tests/ ({frame})"
+    return "AssertionError"
 
 
 Outcome = tuple[str, str]  # (passed|failure|error|skipped|not collected, a failure's exception class name)
 
 
-def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, list[Outcome]]:
-    """nodeid -> the outcome of every matching case: a bare function id matches all its parametrisations."""
+def is_red(outcome: Outcome) -> bool:
+    """The one accept rule, shared with scripts/dev/red_check.py: a failure judged an assertion red."""
+    return outcome == ("failure", "AssertionError")
+
+
+def red_verdicts(junit: Path, nodeids: Sequence[str], root: Path | None = None) -> dict[str, list[Outcome]]:
+    """nodeid -> the outcome of every matching case: a bare function id matches all its parametrisations.
+
+    ``root`` is the tree pytest ran in, so an absolute traceback frame can be judged as under ``tests/`` or not.
+    A setup/teardown error outranks a failure in the same case: a red with a teardown error is not clean.
+    """
     cases = ET.parse(junit).getroot().iter("testcase") if junit.is_file() else iter(())
     by_key: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
     for case in cases:
         outcome, message, frame = "passed", "", ""
-        for kind in ("failure", "error", "skipped"):
+        for kind in ("error", "failure", "skipped"):
             child = case.find(kind)
             if child is not None:
                 outcome = kind
@@ -606,7 +637,7 @@ def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, list[Outcome]]:
         path, *rest = nodeid.split("::")
         classname = ".".join([path.removesuffix(".py").replace("/", "."), *rest[:-1]])
         result[nodeid] = [
-            (o, _classify(m, f, path) if o == "failure" else m)
+            (o, _classify(m, f, root) if o == "failure" else m)
             for o, m, f in by_key.get((classname, rest[-1]), [("not collected", "", "")])
         ]
     return result
@@ -630,7 +661,7 @@ def _replay(opts: Options, sha: str, nodeids: Sequence[str], run_pytest: PytestR
     with _temp_tree(opts, sha) as tree:
         junit = tree.parent / "junit.xml"
         run_pytest(tree, nodeids, junit)
-        return _outcomes(junit, nodeids)
+        return red_verdicts(junit, nodeids, tree)
 
 
 def replay_refusals(opts: Options, reds: Sequence[Red], run_pytest: PytestRunner) -> list[str]:
@@ -638,7 +669,7 @@ def replay_refusals(opts: Options, reds: Sequence[Red], run_pytest: PytestRunner
     for sha in dict.fromkeys(red.sha for red in reds):
         ids = [red.test for red in reds if red.sha == sha]
         for nodeid, outcomes in _replay(opts, sha, ids, run_pytest).items():
-            bad = [(o, m) for o, m in outcomes if not (o == "failure" and m == "AssertionError")]
+            bad = [(o, m) for o, m in outcomes if not is_red((o, m))]
             if bad:
                 outcome, message = bad[0]
                 detail = f"{message or 'unnamed exception'} failure" if outcome == "failure" else outcome
