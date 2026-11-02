@@ -478,3 +478,25 @@ def test_lane_gate_reads_first_code_span_and_parametrized_ids(tmp_path: Path) ->
     fx.review()
     assert _refusals(fx.evaluate()) == []
     assert (fx.red, (TEST_ID, f"{TEST_ID}[case]")) in fx.replays
+
+
+# --- review round 1 (review-gate.md) ----------------------------------------------------------------------------------
+
+
+def _merge_release(fx: Fixture, files: dict[str, str]) -> None:
+    """Commit ``files`` on the integration branch and merge it into the lane, moving the merge-base past them."""
+    _write(fx.integration, files)
+    _git(fx.integration, "add", *files)
+    _git(fx.integration, "commit", "-q", "-m", "integration change")
+    _git(fx.worktree, "merge", "-q", "--no-edit", "release")
+
+
+def test_lane_gate_refuses_red_test_already_on_integration_branch(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    _merge_release(fx, {"tests/test_old.py": "def test_old():\n    assert 1\n"})
+    red = fx.commit({"src/widget.py": "def widget():\n    return 3\n"}, "test: break src only")
+    fx.commit({"src/widget.py": "def widget():\n    return 2\n"}, "fix: restore src")
+    fx.outcomes[red] = "failure"  # the broken src really fails the old test
+    fx.evidence(handoff_extra=f"| `tests/test_old.py::test_old` | `{red}` | `assert 1` |\n")
+    fx.review()
+    assert _refused(fx.evaluate(), "red tests/test_old.py::test_old: test unchanged from the integration branch")
