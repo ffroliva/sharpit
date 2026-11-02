@@ -11,7 +11,7 @@ In progress. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 - Read required rules/spec/plans/F handoff and registered with agentctl (`codex-0-4-0-a-transactions`).
 - Task 1 nullable `readOnly` reason fixture committed (`d50d6b6`). The captured transaction golden is absent; parity remains unverified.
 - Task 2 recorder and callbacks committed (`88609ea`); REST/SSE, wiring, MCP/CLI tools and flag committed (`7d3a672`); UI view committed (`b422cd1`); overhead budget committed (`895a4d7`).
-- Focused backend tests passed (16 before added async/internal/correlation/retry checks; those four targeted checks also passed). UI Vitest passed 2/2 and `npm --prefix ui run check` exited 0.
+- Focused backend tests passed (16 tests), then four targeted checks passed for async engines, internal callback exclusion, report-time SQL correlation, and late-import/partial listener retry (`66fec2c`). UI Vitest passed 2/2 and `npm --prefix ui run check` exited 0.
 - Overhead: 14.507 µs over a 30 µs budget, 13.519 µs noise. Temporary `time.sleep(0.0001)` control failed at 643.573 µs and was removed.
 - Lane docs and §6.1 checklist updated.
 
@@ -56,3 +56,4 @@ Run the four gates: `ruff check`, `ruff format --check`, `pyright`, and full `py
 ## Gates / live check
 
 Targeted results recorded above; full four gates are next. Live check not run; coordinator-owned example is outside lane touch scope.
+
