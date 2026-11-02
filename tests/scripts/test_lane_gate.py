@@ -762,8 +762,10 @@ def test_lane_gate_removes_the_replay_tree_when_pytest_raises(tmp_path: Path) ->
     def boom(tree: Path, nodeids: Sequence[str], junit: Path) -> None:
         raise RuntimeError("replay crashed")
 
+    options = fx.options()
+    run_gate = fx.run_gate
     with pytest.raises(RuntimeError, match="replay crashed"):
-        lane_gate.evaluate(fx.options(), run_gate=fx.run_gate, run_pytest=boom)
+        lane_gate.evaluate(options, run_gate=run_gate, run_pytest=boom)
     assert len(_git(fx.integration, "worktree", "list").splitlines()) == 2
 
 

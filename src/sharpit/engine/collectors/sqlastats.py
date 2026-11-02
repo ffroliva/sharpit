@@ -63,12 +63,7 @@ RECORDING_PAUSED = "SQL Trace recording is paused: these counters are frozen unt
 ROUTE_UNKNOWN = "No HTTP Exchanges row for this request (HTTP Exchanges disabled, or the row was evicted)"
 
 
-def n_plus_one(
-    rows: list[dict[str, Any]], exchanges: Mapping[str, dict[str, Any]], threshold: int, masker: Masker
-) -> list[dict[str, Any]]:
-    """BootUI's per-statement rule per request: a request running one SELECT shape ``threshold`` times is one hit.
-
-    Groups by the fingerprint the recorder stored at capture time: the stored ``sql`` may be raw and truncated."""
+def _select_counts(rows: list[dict[str, Any]]) -> tuple[dict[tuple[str, str], int], dict[str, str]]:
     counts: dict[tuple[str, str], int] = {}  # (request, fingerprint) -> executions
     shapes: dict[str, str] = {}  # fingerprint -> normalised sql (unmasked until output)
     for row in rows:
@@ -79,6 +74,16 @@ def n_plus_one(
         key = (request_id, shape.fingerprint)
         counts[key] = counts.get(key, 0) + 1
         shapes[shape.fingerprint] = shape.sql
+    return counts, shapes
+
+
+def _merge_n_plus_one(
+    counts: dict[tuple[str, str], int],
+    shapes: dict[str, str],
+    exchanges: Mapping[str, dict[str, Any]],
+    threshold: int,
+    masker: Masker,
+) -> list[dict[str, Any]]:
     merged: dict[tuple[str | None, str | None, str], dict[str, Any]] = {}
     for (request_id, fingerprint), count in counts.items():
         if count < threshold:
@@ -103,6 +108,16 @@ def n_plus_one(
         entry["executionsPerRequest"] = max(entry["executionsPerRequest"], count)
     ranked = sorted(merged.values(), key=lambda e: (-e["executionsPerRequest"], e["sql"] or ""))
     return ranked[:MAX_N_PLUS_ONE]
+
+
+def n_plus_one(
+    rows: list[dict[str, Any]], exchanges: Mapping[str, dict[str, Any]], threshold: int, masker: Masker
+) -> list[dict[str, Any]]:
+    """BootUI's per-statement rule per request: a request running one SELECT shape ``threshold`` times is one hit.
+
+    Groups by the fingerprint the recorder stored at capture time: the stored ``sql`` may be raw and truncated."""
+    counts, shapes = _select_counts(rows)
+    return _merge_n_plus_one(counts, shapes, exchanges, threshold, masker)
 
 
 def _unavailable_reason(ctx: SharpitContext) -> str | None:

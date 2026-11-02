@@ -61,17 +61,17 @@ it('two classes with the same name open independently, keyed by repositoryInterf
     return undefined;
   });
   mountData();
-  await until(() => expect(h.target.querySelectorAll('button.row').length).toBe(2));
+  await until(() => expect(h.target.querySelectorAll('button.row')).toHaveLength(2));
   (h.target.querySelectorAll('button.row')[1] as HTMLButtonElement).click();
   await until(() => expect(h.calls('GET')).toContain('api/data/repositories/app.b.Owner'));
-  expect(h.target.querySelectorAll('button[aria-expanded="true"]').length).toBe(1);
+  expect(h.target.querySelectorAll('button[aria-expanded="true"]')).toHaveLength(1);
 });
 
 it('a repeated repositoryInterface still renders every row', async () => {
   const same = row('Owner', { repositoryInterface: 'app.Owner' });
   h.route((url) => (url === 'api/data/repositories' ? json(200, report([same, same])) : undefined));
   mountData();
-  await until(() => expect(h.target.querySelectorAll('button.row').length).toBe(2));
+  await until(() => expect(h.target.querySelectorAll('button.row')).toHaveLength(2));
 });
 
 it('the drawer renders the fetched detail, not the stale list row', async () => {

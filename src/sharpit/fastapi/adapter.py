@@ -7,6 +7,7 @@ import logging
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -111,6 +112,17 @@ class GuardMiddleware:
         self.ctx = ctx
         self.api_prefix = ctx.settings.api_path[len(ctx.settings.path) :]
 
+    async def _send_with_headers(self, send: Send, message: Message) -> None:
+        if message["type"] == "http.response.start":
+            headers = MutableHeaders(scope=message)
+            # a response with its own CSP owns its whole policy (assets keep no Pragma); else fill in what is
+            # missing, one header at a time, so a header set downstream is never duplicated
+            if "content-security-policy" not in headers:
+                for name, value in security_headers("api"):
+                    if name not in headers:
+                        headers.append(name, value)
+        await send(message)
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             if scope["type"] == "websocket":  # sharpit has no websocket endpoints: refuse before any guard question
@@ -124,18 +136,7 @@ class GuardMiddleware:
             await response(scope, receive, send)
             return
 
-        async def send_with_headers(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                headers = MutableHeaders(scope=message)
-                # a response with its own CSP owns its whole policy (assets keep no Pragma); else fill in what is
-                # missing, one header at a time, so a header set downstream is never duplicated
-                if "content-security-policy" not in headers:
-                    for name, value in security_headers("api"):
-                        if name not in headers:
-                            headers.append(name, value)
-            await send(message)
-
-        await self.app(scope, receive, send_with_headers)
+        await self.app(scope, receive, partial(self._send_with_headers, send))
 
     def _decide(self, scope: Scope) -> guard.Denial | None:
         values = _header_map(scope)
@@ -237,7 +238,7 @@ async def _json_http_error(_request: Request, exc: Exception) -> Response:  # NO
     return response
 
 
-async def _not_found(scope: Scope, receive: Receive, send: Send) -> None:
+async def _not_found(scope: Scope, receive: Receive, send: Send) -> None:  # NOSONAR - ASGI callable contract
     """Inactive sharpit: the host's own exception handling renders this, so the 404 is the host's 404."""
     if scope["type"] == "websocket":  # as the host router does for an unknown websocket path
         await send({"type": "websocket.close", "code": 1000, "reason": ""})
@@ -257,5 +258,5 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     # into build_routes() when the lanes are merged
     rules = f"{ctx.settings.api_path[len(ctx.settings.path) :]}/dismissed-rules"
     at = 1 + max((i for i, r in enumerate(routes) if getattr(r, "path", "").startswith(rules)), default=len(routes) - 1)
-    routes[at:at] = finding_routes(ctx, host_app)
+    routes[at:at] = finding_routes(ctx)
     return routes

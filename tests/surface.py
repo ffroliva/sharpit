@@ -102,9 +102,9 @@ def expected_cli_commands() -> dict[str, str]:
     return {**BASE_CLI_COMMANDS, **lane_commands()}
 
 
-def lane_route_paths(ctx: Any, host_app: Any) -> list[str]:
+def lane_route_paths(ctx: Any) -> list[str]:
     """Sub-app paths the implemented per-panel route modules mount (appended after the base routes)."""
-    return [route.path for route in _panel_04_routes(ctx, host_app)]  # pyright: ignore[reportAttributeAccessIssue]
+    return [route.path for route in _panel_04_routes(ctx)]  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def catalogue_with_lanes(
@@ -155,11 +155,11 @@ def _plant_route(monkeypatch: Any, plant: str) -> None:
     from starlette.routing import Route
 
     module = import_module(f"sharpit.fastapi.routes.{plant.replace('-', '_')}")
-    original = module.build_routes
+    original = getattr(module, "build_routes", None)
 
-    def build_routes(ctx: Any, host_app: Any) -> list[Any]:
+    def build_routes(ctx: Any, _host_app: Any = None) -> list[Any]:
         api = ctx.settings.api_path[len(ctx.settings.path) :]
         probe = Route(f"{api}/{plant}/probe", lambda _request: JSONResponse({"probe": True}), methods=["GET"])
-        return [*original(ctx, host_app), probe]
+        return [*(original(ctx) if original is not None else ()), probe]
 
-    monkeypatch.setattr(module, "build_routes", build_routes)
+    monkeypatch.setattr(module, "build_routes", build_routes, raising=False)
