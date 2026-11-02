@@ -972,3 +972,34 @@ def test_lane_gate_accepts_did_not_raise_from_a_helper_under_tests(tmp_path: Pat
     fx = _fixture(tmp_path)
     fx.outcomes[fx.red] = "helper-did-not-raise"
     assert _refusals(fx.evaluate()) == []
+
+
+# --- overhead module detection by AST (release gate false positive on this lane) --------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("source", "counted"),
+    [
+        ('BODY = "E\ntests/overhead.py:9: check_budget(name)"\n', False),  # (a) only inside a string literal
+        ("from overhead import check_budget\n\n\ndef test_x():\n    check_budget('x', 1, 2, 'ms', 1)\n", True),  # (b)
+        ("import overhead\n\n\ndef test_x():\n    overhead.check_budget('x', 1, 2, 'ms', 1)\n", True),  # (b) attribute
+        ("BUDGET_NS = 50\n", True),  # (c)
+        ("BUDGET_MS: float = 0.2\n", True),  # (c) annotated
+        ("def test_x():\n    BUDGET_MS = 0.2\n    assert BUDGET_MS\n", True),  # (d) function-local: fail closed
+        ("def check_budget():\n    pass\n", True),  # the module that defines the check
+        ("BUDGET_MS = (\n", True),  # (e) unparsable: the text rule, fail closed
+    ],
+)
+def test_overhead_module_is_decided_by_ast(source: str, counted: bool) -> None:
+    assert lane_gate._is_overhead_module("tests/test_x.py", source) is counted, source
+
+
+def test_lane_gate_allows_changes_to_a_module_that_mentions_check_budget_only_in_a_string(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    path = "tests/test_strings.py"
+    fx.commit({path: 'BODY = "tests/overhead.py:9: check_budget("\n\n\ndef test_s():\n    assert BODY\n'}, "test: s")
+    base = fx.head
+    _git(fx.integration, "merge", "-q", "--ff-only", base)  # the module is on the integration branch: a "before"
+    fx.commit({path: 'BODY = "tests/overhead.py:10: check_budget("\n\n\ndef test_s():\n    assert BODY\n'}, "test: s2")
+    fx.review()
+    assert not _refused(fx.evaluate(), "overhead budget module changed"), _refusals(fx.evaluate())
