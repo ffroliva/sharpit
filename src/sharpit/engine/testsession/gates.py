@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sharpit.engine.advisors.findings import Finding
+from sharpit.engine.advisors.findings import fails as fails  # the one predicate, re-exported
 
 if TYPE_CHECKING:
     from sharpit.engine.testsession.facts import TestFacts
@@ -15,11 +16,6 @@ ADVISOR = "test-runtime"
 MAX_QUERIES = "sharpit.max-queries"
 N_PLUS_ONE = "sharpit.n-plus-one"
 EXCEPTION = "sharpit.exception"
-
-
-def fails(dto: Mapping[str, object]) -> bool:
-    """Whether a finding is active and eligible to fail a gate."""
-    return not dto["dismissed"] and dto.get("baselineState") != "existing" and dto["severity"] != "INFO"
 
 
 @dataclass(frozen=True)
