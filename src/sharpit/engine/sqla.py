@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import functools
 import gc
+import inspect
 import logging
 import sys
 import threading
@@ -19,9 +21,11 @@ import time
 import weakref
 from collections.abc import Callable
 from concurrent.futures import Executor
+from types import CodeType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from sharpit.engine.capture.correlation import INTERNAL, REQUEST, internal
+from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, internal
+from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.sources.dispatch import SqlEvent
@@ -52,8 +56,147 @@ DISCOVERY_PANELS = (
     "sqlalchemy-statistics",
 )  # panels that read the registered engines
 START_KEY = "sharpit_sql_start"
+RELATIONSHIP_KEY = "sharpit_relationship"
+_EAGER_RELATIONSHIP_KEY = "sharpit_eager_relationship"
 UNAVAILABLE = "SQLAlchemy is not imported by this application"
 TRACING_DISABLED = "SQL tracing is disabled via SHARPIT_SQL_TRACE_ENABLED=false"
+# Kept as an empty compatibility bucket for existing test cleanup; relationship totals come from SQL facts.
+_relationship_loads: dict[tuple[str, int, str], dict[str, int]] = {}
+_relationship_groups: dict[tuple[str, int, str], dict[str, tuple[str, bool]]] = {}
+_relationship_sites: dict[tuple[str, int, str], dict[str, str | None]] = {}
+_eager_relationship_batches: dict[tuple[str, int, str], dict[str, int]] = {}
+
+
+@functools.lru_cache(maxsize=4096)
+def _is_application_code(code: CodeType) -> bool:
+    return is_application_frame(code.co_filename)
+
+
+def _first_application_location() -> str | None:
+    frame = inspect.currentframe()
+    try:
+        frame = frame.f_back if frame is not None else None
+        while frame is not None:
+            if _is_application_code(frame.f_code):
+                return f"{frame.f_code.co_filename}:{frame.f_lineno}"
+            frame = frame.f_back
+        return None
+    finally:
+        del frame
+
+
+@functools.lru_cache(maxsize=1)
+def _relationship_masker() -> Masker:
+    from sharpit.engine.testsession.sink import report_masker
+
+    return report_masker()
+
+
+@functools.lru_cache(maxsize=1024)
+def _masked_fingerprint(statement: str) -> str:
+    from sharpit.engine.capture.sqltrace import normalize
+
+    return _relationship_masker().mask_text(normalize(statement).fingerprint) or ""
+
+
+def _relationship_path(context: Any) -> tuple[Any, str, str, int] | None:
+    compiled = getattr(context, "compiled", None)
+    compile_state = getattr(compiled, "compile_state", None)
+    current_path = getattr(compile_state, "current_path", None)
+    path = getattr(current_path, "path", ())
+    if not path:
+        return None
+    prop = path[-1]
+    key = getattr(prop, "key", None)
+    direction = getattr(getattr(prop, "direction", None), "name", "")
+    if not isinstance(key, str) or not direction:
+        return None
+    return prop, key, direction, len(path)
+
+
+def _relationship_observation(context: Any, tag: tuple[str, int, str]) -> Any:
+    options = getattr(context, "execution_options", {})
+    relation_value = options.get(RELATIONSHIP_KEY) if options is not None else None
+    if relation_value is not None:
+        return relation_value
+    load_options = options.get("_sa_orm_load_options") if options is not None else None
+    parent = getattr(load_options, "_lazy_loaded_from", None)
+    path_info = _relationship_path(context)
+    if path_info is None:
+        return None
+    prop, key, direction, path_length = path_info
+    if parent is None:
+        if path_length < 2:
+            return None
+        parent_mapper = getattr(prop, "parent", None)
+        model_name = getattr(getattr(parent_mapper, "class_", None), "__name__", None)
+        return _EAGER_RELATIONSHIP_KEY if isinstance(model_name, str) else None
+    model_name = getattr(getattr(parent, "class_", None), "__name__", None)
+    if not isinstance(model_name, str):
+        return None
+    identity = f"{model_name}.{key}"
+    sites = _relationship_sites.get(tag)
+    if sites is None or identity not in sites:
+        with _lock:
+            sites = _relationship_sites.setdefault(tag, {})
+            if identity not in sites:
+                sites[identity] = _first_application_location()
+    collection = direction in {"ONETOMANY", "MANYTOMANY"}
+    return identity, collection
+
+
+def _record_relationship(context: Any) -> None:
+    """Record relationship loads using SQLAlchemy's compiled execution context, without an ORM hook."""
+    tag = TEST.get()
+    if tag is None or tag[2] != "call":
+        return
+    statement = getattr(context, "statement", None)
+    if not isinstance(statement, str):
+        return
+    relation_value = _relationship_observation(context, tag)
+    if isinstance(relation_value, tuple) and len(cast("tuple[object, ...]", relation_value)) == 2:
+        identity, collection = cast("tuple[object, object]", relation_value)
+        if not isinstance(identity, str) or not isinstance(collection, bool):
+            return
+        key = _masked_fingerprint(statement)
+        groups = _relationship_groups.get(tag)
+        if groups is None or key not in groups:
+            with _lock:
+                _relationship_groups.setdefault(tag, {}).setdefault(key, (identity, collection))
+        return
+    if relation_value is not _EAGER_RELATIONSHIP_KEY:
+        return
+    key = _masked_fingerprint(statement)
+    with _lock:
+        batches = _eager_relationship_batches.setdefault(tag, {})
+        batches[key] = batches.get(key, 0) + 1
+
+
+def apply_relationship_facts(test: Any) -> None:
+    """Move one test attempt's relationship observations into its serializable phase facts."""
+    tag = (test.key.node_id, test.key.attempt, "call")
+    with _lock:
+        groups = _relationship_groups.pop(tag, {})
+        sites = _relationship_sites.pop(tag, {})
+        eager_batches = _eager_relationship_batches.pop(tag, {})
+    if not groups and not eager_batches:
+        return
+    phase = test.phases.get("call")
+    if phase is None:
+        return
+    for group, count in eager_batches.items():
+        remaining = phase.selects.get(group, 0) - count
+        if remaining > 0:
+            phase.selects[group] = remaining
+        else:
+            phase.selects.pop(group, None)
+            phase.sql_of.pop(group, None)
+    phase.relationship_of.update(groups)
+    phase.relationship_sites.update(sites)
+    for group, (identity, _collection) in groups.items():
+        count = phase.selects.get(group, 0)
+        if count:
+            phase.relationship_loads[identity] = phase.relationship_loads.get(identity, 0) + count
 
 
 def sqlalchemy_module() -> Any | None:
@@ -187,6 +330,7 @@ def before_cursor_execute(
     try:
         if INTERNAL.get():
             return
+        _record_relationship(context)
         targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets
         if not targets and dispatch.session_sink() is None:
             return
@@ -344,6 +488,9 @@ def detach_all() -> None:
         _statement_contexts.clear()
         _discovery_contexts.clear()
         _session = False
+        _relationship_groups.clear()
+        _relationship_sites.clear()
+        _eager_relationship_batches.clear()
         _sync_listeners()
 
 
@@ -362,6 +509,9 @@ def detach_session() -> None:
     global _session  # noqa: PLW0603
     with _lock:
         _session = False
+        _relationship_groups.clear()
+        _relationship_sites.clear()
+        _eager_relationship_batches.clear()
         _sync_listeners()
 
 

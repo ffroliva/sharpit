@@ -62,6 +62,9 @@ class PhaseFacts:
     selects: Counter[str] = field(default_factory=Counter[str])
     sql_of: dict[str, str] = field(default_factory=dict[str, str])
     exception_groups: dict[str, tuple[str, str]] = field(default_factory=dict[str, tuple[str, str]])
+    relationship_loads: Counter[str] = field(default_factory=Counter[str])
+    relationship_of: dict[str, tuple[str, bool]] = field(default_factory=dict[str, tuple[str, bool]])
+    relationship_sites: dict[str, str | None] = field(default_factory=dict[str, str | None])
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -71,6 +74,9 @@ class PhaseFacts:
             "selects": dict(self.selects),
             "sqlOf": self.sql_of,
             "exceptionGroups": {k: list(v) for k, v in self.exception_groups.items()},
+            "relationshipLoads": dict(self.relationship_loads),
+            "relationshipOf": {k: list(v) for k, v in self.relationship_of.items()},
+            "relationshipSites": self.relationship_sites,
         }
 
     @classmethod
@@ -82,6 +88,9 @@ class PhaseFacts:
             Counter(data["selects"]),
             dict(data["sqlOf"]),
             {k: (v[0], v[1]) for k, v in data["exceptionGroups"].items()},
+            Counter(data.get("relationshipLoads", {})),
+            {k: (v[0], v[1]) for k, v in data.get("relationshipOf", {}).items()},
+            dict(data.get("relationshipSites", {})),
         )
 
 

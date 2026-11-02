@@ -1,9 +1,33 @@
 from __future__ import annotations
 
 import json
+from importlib import util
 from sqlite3 import connect as _EARLY_CONNECT
 
 import pytest
+
+
+def _f5_app_source(player_count: int) -> str:
+    return f"""
+from sqlalchemy import ForeignKey, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('players.id'))
+
+engine = create_engine('sqlite:///n-plus-one.db')
+Base.metadata.create_all(engine)
+with Session(engine) as session:
+    session.add_all(Player(performances=[Performance()]) for _ in range({player_count}))
+    session.commit()
+"""
 
 
 def test_n_plus_one_fails_the_test(pytester: pytest.Pytester) -> None:
@@ -27,6 +51,226 @@ def test_n_plus_one_fails_the_test(pytester: pytest.Pytester) -> None:
     data = json.loads((pytester.path / "report.json").read_text())
     assert data["status"] == "fail"
     assert data["tests"][0]["findings"]
+
+
+def test_spike_f5_message_names_relationship(pytester: pytest.Pytester) -> None:
+    # spike: F5 T1
+    pytester.makepyfile(
+        appmod="""
+from sqlalchemy import ForeignKey, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('players.id'))
+
+engine = create_engine('sqlite:///n-plus-one.db')
+Base.metadata.create_all(engine)
+with Session(engine) as session:
+    session.add_all(Player(performances=[Performance()]) for _ in range(6))
+    session.commit()
+"""
+    )
+    pytester.makepyfile(
+        """
+from sqlalchemy.orm import Session
+from appmod import Player, engine
+
+def test_lazy_performances():
+    with Session(engine) as session:
+        players = session.query(Player).all()
+        for player in players:
+            list(player.performances)
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    finding = next(item for item in data["findings"] if item["ruleId"] == "sharpit.n-plus-one")
+    assert "Player.performances lazy-loaded 6 times" in finding["message"]
+    assert "selectinload(Player.performances)" in finding["message"]
+
+
+def test_spike_f5_full_count_1018(pytester: pytest.Pytester) -> None:
+    # spike: F5 T1 full load count
+    pytester.makepyfile(appmod=_f5_app_source(1018))
+    pytester.makepyfile(
+        """
+from sqlalchemy.orm import Session
+from appmod import Player, engine
+
+def test_lazy_performances():
+    with Session(engine) as session:
+        for player in session.query(Player).all():
+            list(player.performances)
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    finding = next(item for item in data["findings"] if item["ruleId"] == "sharpit.n-plus-one")
+    assert "Player.performances lazy-loaded 1018 times" in finding["message"]
+    assert "selectinload(Player.performances)" in finding["message"]
+
+
+def test_async_lazy_load_is_attributed(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+import asyncio
+from sqlalchemy import ForeignKey, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'async_players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'async_performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('async_players.id'))
+
+engine = create_async_engine('sqlite+aiosqlite:///async-n-plus-one.db')
+async def seed():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with AsyncSession(engine) as session:
+        session.add_all(Player(performances=[Performance()]) for _ in range(6))
+        await session.commit()
+asyncio.run(seed())
+"""
+    )
+    pytester.makepyfile(
+        """
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from appmod import Player, engine
+
+@pytest.mark.asyncio
+async def test_async_performances():
+    async with AsyncSession(engine) as session:
+        players = (await session.scalars(select(Player))).all()
+        for player in players:
+            await session.run_sync(lambda sync_session: list(player.performances))
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    finding = next(item for item in data["findings"] if item["ruleId"] == "sharpit.n-plus-one")
+    assert "Player.performances lazy-loaded 6 times" in finding["message"]
+
+
+def test_eager_selectinload_batches_are_not_n_plus_one(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+from sqlalchemy import ForeignKey, create_engine, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, selectinload
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('players.id'))
+
+engine = create_engine('sqlite:///selectin-batches.db')
+Base.metadata.create_all(engine)
+with Session(engine) as session:
+    session.add_all(Player(performances=[Performance()]) for _ in range(1200))
+    session.commit()
+"""
+    )
+    pytester.makepyfile(
+        """
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+from appmod import Player, engine
+
+def test_batched_eager_loads():
+    statement = select(Player).options(selectinload(Player.performances)).execution_options(yield_per=100)
+    with Session(engine) as session:
+        for player in session.scalars(statement):
+            list(player.performances)
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert not any(item["ruleId"] == "sharpit.n-plus-one" for item in data["findings"])
+    assert result.ret == 0
+
+
+def test_eager_selectinload_batches_are_not_n_plus_one_compatible(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+from sqlalchemy import ForeignKey, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('players.id'))
+
+engine = create_engine('sqlite:///selectin-batches.db')
+Base.metadata.create_all(engine)
+with Session(engine) as session:
+    session.add_all(Player(performances=[Performance()]) for _ in range(1200))
+    session.commit()
+"""
+    )
+    pytester.makepyfile(
+        """
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+from appmod import Player, engine
+
+def test_batched_eager_loads():
+    statement = select(Player).options(selectinload(Player.performances))
+    with Session(engine) as session:
+        for player in session.scalars(statement):
+            list(player.performances)
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert not any(item["ruleId"] == "sharpit.n-plus-one" for item in data["findings"])
+    assert result.ret == 0
 
 
 def test_fail_on_medium_gates_medium_findings(pytester: pytest.Pytester) -> None:
@@ -483,3 +727,17 @@ def test_pytest_raises_escaped_not_counted(pytester: pytest.Pytester, monkeypatc
     assert result.ret == 0
     data = json.loads((pytester.path / "report.json").read_text())
     assert data["tests"][0]["findings"] == []
+
+
+_SQLALCHEMY_REQUIRED_TESTS = (
+    "test_async_lazy_load_is_attributed",
+    "test_eager_selectinload_batches_are_not_n_plus_one",
+    "test_eager_selectinload_batches_are_not_n_plus_one_compatible",
+    "test_spike_f5_full_count_1018",
+    "test_spike_f5_message_names_relationship",
+)
+for _test_name in _SQLALCHEMY_REQUIRED_TESTS:
+    _test_function = pytest.mark.needs_sqlalchemy(globals()[_test_name])
+    if util.find_spec("sqlalchemy") is None:
+        _test_function = pytest.mark.skip(reason="requires SQLAlchemy")(_test_function)
+    globals()[_test_name] = _test_function

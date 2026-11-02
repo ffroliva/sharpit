@@ -48,6 +48,9 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
         test.outcome = report_obj.outcome
         budget = plugin.budget_for(item, state.options.max_queries)
         test.budget = budget
+        from sharpit.engine import sqla
+
+        sqla.apply_relationship_facts(test)
         findings = plugin.gates.evaluate_test(
             test,
             budget,
