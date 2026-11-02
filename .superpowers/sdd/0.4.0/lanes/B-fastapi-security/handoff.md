@@ -6,6 +6,17 @@ Branch / worktree: `lane/0.4.0-B-fastapi-security` in `C:\development\github\sha
 
 ## Status
 
+### Current fix-round 2 state
+
+Fix commit: `ed98dcac8b0e8fae2ed43a59248eb31e26ed3aef`. Source and focused tests are committed. Evidence/docs update is in progress; full suite `-n 4` remains the final gate.
+
+- Focused Python lane/shared regressions: 85 passed, 1 skipped (`B-fastapi-security-r2i-focused.log`).
+- Safety matrix + surface flags: 1,029 passed (`B-fastapi-security-r2-safety.log`).
+- `ruff check`: passed; `ruff format --check`: 474 files already formatted.
+- `pyright src/sharpit`: 0 errors.
+- UI `tsc --noEmit`: passed; Vitest: 35 files / 282 tests passed.
+- Full suite `pytest -q -n 4`: pending; run detached with an external log before final status.
+
 - Task 0 predict: CAUTION 7/10 (`predict.md`, `be95ac5`); mitigations folded into the code.
 - Task 1 model + classification: red `369dc4b`, fix `0d353cb`.
 - Task 2 `security_model()`: red `6ca0044`, fix `3859499`, typing `2f8f203`.
@@ -90,3 +101,25 @@ Evidence:
 - Full suite at the round snapshot: 4,218 passed, 9 skipped, 37 failed (`B-fastapi-security-round1-full.log`); the remaining failures include this lane's security tests and shared introspector consumers.
 
 Next: resolve the listed Python regressions and typing issues while keeping committed red bodies unchanged, then rerun all gates. No changes were made to review/gate files.
+
+## Round 2 root-cause audit (Codex gpt-6-luna)
+
+The 37 failures at `7912d36` came from these independent defects; the focused rerun now passes after the fixes in `ed98dca`.
+
+| Failed tests | Why they failed |
+|---|---|
+| `tests/engine/test_appsecurity.py::test_route_level_unknown_dependency_is_custom` | Its old assertion treated an unknown custom guard as proof of security. Review requires `custom`, `bestEffort: true`, and `secured: false`; the old red is historical, with replacement assertions in `test_custom_guard_is_not_secured` and `test_route_level_unknown_dependency_is_custom_but_unsecured`. |
+| `test_get_never_calls_dependencies`, `test_scheme_found_in_nested_dependency`, `test_security_scopes_read`, `test_route_level_dependency_without_scheme_is_unknown`, `test_internals_drift_degrades`, `test_custom_route_class_is_unknown`, `test_sharpit_mount_hidden`, `test_mounted_sub_app_middleware_is_its_own_chain`, `test_route_chain_is_every_enclosing_stack`, `test_unexpandable_include_router_limitation_says_so` in `tests/fastapi/test_introspector_security.py` | The walker omitted FastAPI 0.162's lazy `_IncludedRouter` routes/dependency context, misclassified `SharpitMount` and framework routes, and `_chains` accessed a nonexistent `Mount.middleware` attribute. The drift fallback also called `vars()` on a bad original router outside its exception guard. |
+| `test_report_golden_parity`, `test_endpoints_rules`, `test_explain_matches_route`, `test_explain_input_edges`, `test_middleware_values_never_exposed`, `test_mcp_read_tool_only`, `test_custom_route_is_unknown_best_effort`, `test_plain_starlette_subapp_routes_are_unknown_best_effort`, `test_plain_starlette_subapp_route_explained_as_unknown`, `test_scheme_less_route_dependency_is_custom_but_not_secured`, `test_scheme_less_parameter_dependency_is_best_effort`, `test_optional_scheme_inside_enforcing_dependency_is_best_effort`, `test_explain_empty_method_defaults_to_get` in `tests/fastapi/test_fastapi_security_api.py` | The missing mount attribute made `model_of()` degrade to an empty model; the leaked `SharpitMount` opaque row also changed endpoint ordering and explain matches. Fixes restore the chain without reading middleware options, and retain custom/optional dependency best-effort status. |
+| `test_scan_finds_fastapi_violations`, `test_generic_types_unwrapped`, `test_mounted_app_without_routes_is_a_limitation`, `test_violations_paging_and_errors`, `test_dismiss_restore_changes_counts`, `test_get_rest_api_report_mcp_never_scans` in `tests/fastapi/test_rest_api_api.py`; `test_router_and_app_level_dependencies_included` in `tests/fastapi/test_introspector_providers.py` | The rewrite dropped lazy included routes and dependencies, leaving REST scans empty/partial and provider discovery incomplete. The static walker now reads stored route lists plus inherited router/app dependencies. |
+| `test_routes_exact_rows`, `test_row_details`, `test_endpoint_is_flat_json_and_sharpit_excluded`, `test_failing_include_router_expansion_yields_fallback_row` in `tests/fastapi/test_introspector_routes.py` | The walker missed FastAPI's `APIWebSocketRoute`, Host child routes, and lazy router routes; Sharpit's Mount subclass appeared as an opaque `(any)` row. The old include-router test required invoking `effective_candidates()`, contrary to the no-user-code rule; it is replaced with a test asserting the method is never called and `/v1/ping` remains visible. |
+| `test_include_router_after_install_seen` in `tests/pytest_plugin/test_plugin_apps.py`; `test_xdist_app_seen_by_one_worker_passes` in `tests/pytest_plugin/test_plugin_xdist.py` | The plugin snapshots the adapter's route model, so the same lazy-router omission hid routes from post-install inclusion and worker advisor autodetection. Reading the live stored route list on each walk fixes both. |
+
+### Review findings retained
+
+- No dependency, security scheme, custom route method, middleware option, or route `matches()` call during introspection.
+- Secured status is based on required security schemes; a custom guard is best effort and unsecured.
+- Mount order is captured for explain; each route uses its actual mount lineage for middleware selection.
+- Nested middleware wrappers and Host routes are read from stored objects; settings/secrets never enter output.
+- Optional auth and scheme-less parameter dependencies remain best effort; failed FastAPI internals degrade with a limitation.
+- UI report and explain keys remain stable; lint-breaking test line was superseded with a multiline identical-intent test.

@@ -3,7 +3,7 @@
 | Finding | Test | Red SHA | Assertion message | Disposition |
 |---|---|---|---|---|
 | No rule classification | tests/engine/test_appsecurity.py::test_rule_classification_table | 369dc4bb06eec787738382ed5ba467fe5b824f41 | `assert ('unknown', False, [], False) == ('unsecured', ...)` | Fixed in `0d353cb` |
-| Route-level guard not custom | tests/engine/test_appsecurity.py::test_route_level_unknown_dependency_is_custom | 369dc4bb06eec787738382ed5ba467fe5b824f41 | `assert ('unknown', False, [], False) == ('custom', True, [], True)` | Fixed in `0d353cb` |
+| Custom guard must not imply secured | tests/engine/test_appsecurity.py::test_custom_guard_is_not_secured | 95136a909eda60bc76c5ba01f280ca80c96f194c | `assert True is False` | Fixed in `ed98dca` |
 | No chain DTO | tests/engine/test_appsecurity.py::test_single_chain_lists_middleware_outermost_first | 369dc4bb06eec787738382ed5ba467fe5b824f41 | `assert [] == [{'order': 0, ...}]` | Fixed in `0d353cb` |
 | Mounted chains missing | tests/engine/test_appsecurity.py::test_two_mounted_apps_two_chains_in_order | 369dc4bb06eec787738382ed5ba467fe5b824f41 | `assert [] == [(0, 'any request', []), ...]` | Fixed in `0d353cb` |
 | Auth types missing | tests/engine/test_appsecurity.py::test_auth_provider_types_listed | 369dc4bb06eec787738382ed5ba467fe5b824f41 | `assert None == {'authenticationProviderTypes': [...]}` | Fixed in `0d353cb` |
@@ -33,6 +33,17 @@
 
 `tests/fastapi/test_fastapi_security_api.py::test_panel_disabled_403` passed at its first run (the guard denies a disabled panel once the flag is true): a regression pin, not a red.
 
+## Historical SHA
+
+| Superseded test | Red SHA | Reason and replacement |
+|---|---|---|
+| tests/engine/test_appsecurity.py::test_route_level_unknown_dependency_is_custom | 369dc4bb06eec787738382ed5ba467fe5b824f41 | Review requires scheme-less custom guards to remain best effort and unsecured. Superseded by `test_custom_guard_is_not_secured` and `test_route_level_unknown_dependency_is_custom_but_unsecured`. |
+| tests/fastapi/test_fastapi_security_api.py::test_custom_route_never_touched_by_any_get | 95136a909eda60bc76c5ba01f280ca80c96f194c | The committed POST line exceeded Ruff's limit. Superseded by the lint-clean identical-intent `test_custom_route_never_touched_by_any_get_lint_clean`; its assertion still checks all GET and MCP reads leave the trap untouched. |
+
+## Review-driven expectation replacement
+
+`tests/fastapi/test_introspector_routes.py::test_failing_include_router_expansion_yields_fallback_row` expected the old `effective_candidates()` method to be called and fail. Calling it can execute route or converter code. It is replaced by `test_lazy_include_router_expansion_never_calls_candidates`, which asserts no candidate method call and confirms `/v1/ping` remains discoverable.
+
 ## UI reds
 
 | Test | Commit | Assertion message |
@@ -47,12 +58,12 @@
 
 | Finding | Red SHA | Disposition |
 |---|---|---|
-| Custom route descriptors or candidate methods can execute user code | 95136a9 | In progress: exact-type handling and no candidate-method calls; targeted tests still fail |
-| Scheme-less dependencies must not prove secured | 95136a9 | In progress: engine rule changed; legacy committed assertion conflicts and remains untouched |
-| Mount capture and skipped unreadable route affect explain | 95136a9 | In progress: engine mount tracking added; targeted verification pending |
-| Every enclosing app and Mount middleware belongs to the chain | 95136a9 | In progress: cumulative app/mount stack collection added; targeted verification pending |
-| Parameter-level scheme-less and nested optional auth are best effort | 95136a9 | In progress: dependency traversal updated; targeted verification pending |
-| UI keys unique and empty explain values use defaults | 95136a9 | In progress: row keys and defaults updated; UI checks pending |
-| include_router limitation text | 95136a9 | In progress: lazy router is not expanded and visible limitation row is emitted |
+| Custom route descriptors or candidate methods can execute user code | 95136a9 | Fixed in `ed98dca`; exact-type handling and static lazy-router expansion |
+| Scheme-less dependencies must not prove secured | 95136a9 | Fixed in `ed98dca`; custom guards are unsecured and best effort |
+| Mount capture and skipped unreadable route affect explain | 95136a9 | Fixed in `ed98dca`; explain respects captured Mount order and limitations |
+| Every enclosing app and Mount middleware belongs to the chain | 95136a9 | Fixed in `ed98dca`; chains follow mount identity and nested middleware wrappers |
+| Parameter-level scheme-less and nested optional auth are best effort | 95136a9 | Fixed in `ed98dca`; focused tests pass |
+| UI keys unique and empty explain values use defaults | 95136a9 | Fixed in `4bf1302`; full UI suite passes |
+| include_router limitation text | 95136a9 | Fixed in `ed98dca`; static expansion retains a visible fallback on drift |
 
-Final round disposition: **Parked pending green gates.** Fix commits `3120361` and `4bf1302` implement the listed mitigations, but targeted/full Python tests and pyright still fail. No red test body was edited.
+Round 2 full-suite verification is recorded in `handoff.md`.
