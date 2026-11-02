@@ -105,3 +105,12 @@ def expected_cli_commands() -> dict[str, str]:
 def lane_route_paths(ctx: Any, host_app: Any) -> list[str]:
     """Sub-app paths the implemented per-panel route modules mount (appended after the base routes)."""
     return [route.path for route in _panel_04_routes(ctx, host_app)]  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def catalogue_with_lanes(
+    lane_tools: tuple[Any, ...], lane_commands: dict[str, str]
+) -> tuple[tuple[Any, ...], dict[str, str]]:
+    """``(TOOLS, COMMANDS)`` as the import builds them: the base catalogue plus the given lane tools."""
+    from sharpit.engine import tools
+
+    return tools.merge_lane_tools(tools.TOOLS, tools.COMMANDS, lane_tools, lane_commands)

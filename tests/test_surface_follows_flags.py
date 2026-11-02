@@ -41,7 +41,7 @@ def data_flipped(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(data_routes, "build_routes", build_routes)
     # TOOLS/COMMANDS are built at import: rebuild them as the import would with the flag on
     lane_tools, lane_commands = panels04.tool_definitions()
-    merged_tools, merged_commands = tools.merge_lane_tools(tools.TOOLS, tools.COMMANDS, lane_tools, lane_commands)
+    merged_tools, merged_commands = surface.catalogue_with_lanes(lane_tools, lane_commands)
     monkeypatch.setattr(tools, "TOOLS", merged_tools)
     monkeypatch.setattr(tools, "COMMANDS", merged_commands)
     monkeypatch.setattr(mcp, "TOOLS", merged_tools)
@@ -70,3 +70,22 @@ def test_every_shared_count_follows_a_flag_flip(data_flipped: None) -> None:
     assert surface.lane_route_paths(handle.context, app) == [p.path for p in _panel_04_routes(handle.context, app)]
     assert surface.lane_route_paths(handle.context, app) == ["/api/data/probe"]
     assert client.get("/sharpit/api/data/probe").json() == {"probe": True}
+
+
+def test_catalogue_rebuild_is_idempotent_for_a_panel_implemented_at_import(monkeypatch: pytest.MonkeyPatch) -> None:
+    # F-rest item 1: when the lane's flag is already on at import, its tools are in TOOLS before the rebuild
+    planted = Tool("get_data_probe", "probe", NONE_SCHEMA, "data", False, lambda _call, _args: {"probe": True})
+    monkeypatch.setitem(panels04.IMPLEMENTED, "data", True)
+    monkeypatch.setattr(data_tools, "TOOLS", (planted,))
+    monkeypatch.setattr(data_tools, "COMMANDS", {"get_data_probe": "data probe"})
+    monkeypatch.setattr(tools, "TOOLS", (*tools.TOOLS, planted))
+    monkeypatch.setattr(tools, "COMMANDS", {**tools.COMMANDS, "get_data_probe": "data probe"})
+
+    try:
+        merged, _commands = surface.catalogue_with_lanes(*panels04.tool_definitions())
+        error: str | None = None
+    except ValueError as exc:
+        merged, error = (), str(exc)
+
+    assert error is None
+    assert [tool.name for tool in merged].count("get_data_probe") == 1
