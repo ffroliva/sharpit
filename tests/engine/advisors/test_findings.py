@@ -122,3 +122,10 @@ def test_severity_counts_of_all_five_in_order():
     counts = severity_counts_of(findings)
     assert [c["severity"] for c in counts] == list(SEVERITIES)
     assert [c["count"] for c in counts] == [0, 2, 0, 1, 0]
+
+
+def test_failed_run_with_incomplete_scan_has_unknown_reason() -> None:
+    finding = _finding()
+    run = AdvisorRun.of("rest-api", [finding], evidence(True, False, ["one rule errored"]))
+    assert run.status == "FAILED"
+    assert run.reason == "one rule errored"

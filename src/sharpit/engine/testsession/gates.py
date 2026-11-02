@@ -17,6 +17,12 @@ N_PLUS_ONE = "sharpit.n-plus-one"
 EXCEPTION = "sharpit.exception"
 
 
+def fails(dto: dict[str, object]) -> bool:
+    """Placeholder for the shared gate predicate."""
+    del dto
+    return True
+
+
 @dataclass(frozen=True)
 class Budget:
     max_queries: int | None

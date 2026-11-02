@@ -8,10 +8,16 @@ import sharpit.engine.testsession as testsession_pkg
 from engine.testsession.tsfakes import NODE, event, run_phase, selects
 from sharpit.engine.capture.sqltrace import normalize
 from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey
-from sharpit.engine.testsession.gates import Budget, evaluate_test
+from sharpit.engine.testsession.gates import Budget, evaluate_test, fails
 from sharpit.engine.testsession.sink import TestSessionSink
 
 NONE = Budget(None, False, 0)
+
+
+def test_fails_excludes_existing_and_info() -> None:
+    assert fails({"dismissed": False, "baselineState": "existing", "severity": "HIGH"}) is False
+    assert fails({"dismissed": False, "baselineState": "new", "severity": "INFO"}) is False
+    assert fails({"dismissed": False, "baselineState": "new", "severity": "HIGH"}) is True
 
 
 def _facts(**phases: PhaseFacts) -> TestFacts:

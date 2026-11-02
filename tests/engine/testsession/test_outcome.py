@@ -47,6 +47,14 @@ def test_status_fail_beats_unknown() -> None:
     assert _status(part(tests=[_failing()], sources=[])) == ("fail", ["1 test failed sharpit gates"])
 
 
+def test_session_status_reports_unknown_reasons_when_fail() -> None:
+    assert _status(part(tests=[_failing()], sources=[])) == (
+        "fail",
+        ["1 test failed sharpit gates"],
+        ["no SQL source attached"],
+    )
+
+
 def test_status_fail_counts_tests_in_plural() -> None:
     tests = [_failing(node="a"), _failing(node="b")]
     assert _status(part(tests=tests)) == ("fail", ["2 tests failed sharpit gates"])
