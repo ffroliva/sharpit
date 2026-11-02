@@ -118,6 +118,20 @@ def test_merge_keeps_incomplete_reason_when_another_failed_run_is_complete() -> 
     assert "advisor 'rest-api' could not assess: one rule errored" in result.unknown_reasons
 
 
+def test_skipped_advisor_reason_does_not_make_capture_unknown() -> None:
+    skipped = AdvisorRun("rest-api", "SKIPPED", (), {}, "no application required", "App#1")
+    result = session_status(
+        merge(
+            [part(sources=[source("sqlite3", attached=True), source("exceptions")], advisor_runs=[skipped])], []
+        ),
+        allow_unknown=False,
+        max_unattributed=10.0,
+        advisors_enabled=True,
+        fail_on="HIGH",
+    )
+    assert "advisor 'rest-api' could not assess: no application required" not in result.unknown_reasons
+
+
 def test_status_fail_counts_tests_in_plural() -> None:
     tests = [_failing(node="a"), _failing(node="b")]
     assert _legacy_status(part(tests=tests)) == ("fail", ["2 tests failed sharpit gates"])
