@@ -17,7 +17,14 @@ Branch / worktree: `lane/0.4.0-B-fastapi-security` in `C:\development\github\sha
 
 - `uv run ruff check`, `uv run ruff format --check`: clean. `uv run pyright`: 0 errors.
 - vitest: 35 files / 280 tests passed; `npm --prefix ui run check` (tsc) exit 0.
-- Full pytest `-n 4`: see §Full suite below.
+- Full pytest `-n 4` at `0460657` (log `0.4.0-integration/.superpowers/sdd/0.4.0/logs/B-fastapi-security-pytest.log`):
+  4238 passed, 9 skipped, 1 failed, 2 errors. The 2 errors are `no_side_effects` teardowns that saw my own edits to
+  `FastapiSecurity.svelte` / `handoff.md` during the run (not product behaviour; both green on rerun, 145 passed with
+  `test_osv.py`, the safety matrix GET sweep and `test_surface_follows_flags.py`). The failure is
+  `test_sql_trace_overhead.py::test_statement_overhead_budget` (50.4 µs vs 50 µs, noise 38.6 µs, loaded run; passes
+  in isolation; this lane has no hot path). Budget untouched.
+
+## Status: DONE_WITH_CONCERNS (llm-council not run; full-suite rerun on a quiet tree is the coordinator's gate)
 
 ## Live check
 
