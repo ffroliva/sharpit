@@ -14,7 +14,6 @@
 | `tests/action/test_action_definition.py::test_action_declares_all_inputs_and_defaults` | `c3ba9201e065905f613b80608dae5965af0c756f` | only `runner` declared | Fixed in 912b1fc |
 | `tests/action/test_action_definition.py::test_action_version_is_literal` | `c3ba9201e065905f613b80608dae5965af0c756f` | no literal pin (0 != 1) | Fixed in 912b1fc |
 | `tests/action/test_action_definition.py::test_action_respects_install_none` | `c3ba9201e065905f613b80608dae5965af0c756f` | bad install value exited 0 | Fixed in 912b1fc |
-| `tests/action/test_action_definition.py::test_action_forwards_report_only_baseline_fail_on_and_report_path` | `c3ba9201e065905f613b80608dae5965af0c756f` | no argv forwarded | Fixed in 912b1fc |
 | `tests/action/test_action_definition.py::test_action_runner_default` | `c3ba9201e065905f613b80608dae5965af0c756f` | default was `pytest` | Fixed in 912b1fc |
 | `tests/action/test_action_definition.py::test_action_invokes_summary_cli` | `c3ba9201e065905f613b80608dae5965af0c756f` | summary command missing | Fixed in 912b1fc |
 | `tests/action/test_action_definition.py::test_action_pytest_args_are_shlex_split_not_shell_evaluated` | `c3ba9201e065905f613b80608dae5965af0c756f` | argv empty | Fixed in 912b1fc |
@@ -26,7 +25,6 @@
 
 | Test id | Red SHA | Assertion message | Disposition |
 |---|---|---|---|
-| tests/test_report_summary.py::test_backslash_in_finding_text_is_escaped_too | 32aaa692c95444caab40e70cf7c7c067d7551ac7 | assert _esc(r"\[x\](https://evil)") == r"\\[x\\](https://evil)" | Fixed in 566cd8f82ea5ee04704f378df22b9a948c1922de |
 
 ## Review round 2 (fix round, 06:10)
 
@@ -42,3 +40,10 @@
 | tests/action/test_action_definition.py::test_action_forwards_report_only_baseline_fail_on_and_report_path | eb39bf939a058f8b72ce3fc0515fb2be4e6354b0 | argv lacks -o sharpit_report_only=false | Fixed in 3f013d9b9de9ee59fa423ce73309f711762c402e |
 | tests/action/test_action_definition.py::test_action_removes_stale_report_before_pytest | eb39bf939a058f8b72ce3fc0515fb2be4e6354b0 | 'rm -f "$REPORT_PATH"' not in run | Fixed in 3f013d9b9de9ee59fa423ce73309f711762c402e |
 | tests/action/test_action_definition.py::test_action_rejects_invalid_report_only | 8d163103367fab0acc52797c5067a66d71ef9ca8 | assert 0 == 1 (first red in eb39bf939a058f8b72ce3fc0515fb2be4e6354b0 was a JSON decode crash; rewritten) | Fixed in 3f013d9b9de9ee59fa423ce73309f711762c402e |
+
+## Superseded reds (coordinator, 06:55)
+
+| Test id | Historical SHA | Reason |
+|---|---|---|
+| `tests/action/test_action_definition.py::test_action_forwards_report_only_baseline_fail_on_and_report_path` | `c3ba9201e065905f613b80608dae5965af0c756f` | test body changed after this red commit (fix round 06:10); test kept, see the newer row or the fix |
+| tests/test_report_summary.py::test_backslash_in_finding_text_is_escaped_too | 32aaa692c95444caab40e70cf7c7c067d7551ac7 | test body changed after this red commit (fix round 06:10); test kept, see the newer row or the fix |
