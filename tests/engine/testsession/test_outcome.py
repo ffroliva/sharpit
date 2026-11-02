@@ -23,10 +23,10 @@ def _status(*parts: SessionFacts, missing: tuple[str, ...] = (), **kwargs: Any) 
     return result
 
 
-
 def _legacy_status(*parts: SessionFacts, missing: tuple[str, ...] = (), **kwargs: Any) -> tuple[str, list[str]]:
     result = _status(*parts, missing=missing, **kwargs)
     return result.status, result.fail_reasons or result.unknown_reasons
+
 
 def _failing(attempt: int = 1, worker: str = "gw0", node: str = NODE, *, dismissed: bool = False) -> Any:
     test = call_test(node, worker=worker, attempt=attempt)
@@ -61,6 +61,7 @@ def test_session_status_reports_unknown_reasons_when_fail() -> None:
     )
 
 
+# fmt: off
 def test_report_only_still_fails_on_unknown_reason_when_status_is_fail() -> None:
     result = session_status(
         merge([part(tests=[_failing()], sources=[])], []),
@@ -73,6 +74,7 @@ def test_report_only_still_fails_on_unknown_reason_when_status_is_fail() -> None
     assert exit_fails(
         result.status, False, report_only=True, unknown_reasons=result.unknown_reasons
     ) is True
+# fmt: on
 
 
 def test_failed_advisor_preserves_unknown_reason_when_status_fails() -> None:
@@ -90,6 +92,29 @@ def test_failed_advisor_preserves_unknown_reason_when_status_fails() -> None:
         fail_on="HIGH",
     )
     assert result.status == "fail"
+    assert "advisor 'rest-api' could not assess: one rule errored" in result.unknown_reasons
+
+
+def test_merge_keeps_incomplete_reason_when_another_failed_run_is_complete() -> None:
+    complete = AdvisorRun.of(
+        "rest-api",
+        [Finding("RAPI-COMPLETE", "rest-api", "HIGH", "GET /a", "finding")],
+        {"usable": True, "coverageComplete": True, "limitations": []},
+        app="App#1",
+    )
+    incomplete = AdvisorRun.of(
+        "rest-api",
+        [Finding("RAPI-INCOMPLETE", "rest-api", "HIGH", "GET /b", "finding")],
+        {"usable": True, "coverageComplete": False, "limitations": ["one rule errored"]},
+        app="App#1",
+    )
+    result = session_status(
+        merge([part(tests=[_failing()], sources=[], advisor_runs=[complete, incomplete])], []),
+        allow_unknown=False,
+        max_unattributed=10.0,
+        advisors_enabled=True,
+        fail_on="HIGH",
+    )
     assert "advisor 'rest-api' could not assess: one rule errored" in result.unknown_reasons
 
 
@@ -175,7 +200,10 @@ def test_status_driver_dual_use_limitation() -> None:
 
 def test_status_driver_seen_in_other_worker_covered() -> None:
     """Session conditions are evaluated on the merged facts: worker 1's engine covers worker 0's import."""
-    assert _legacy_status(part("gw0", untraced_drivers={"asyncpg"}), part("gw1", engine_drivers={"asyncpg"})) == ("pass", [])
+    assert _legacy_status(part("gw0", untraced_drivers={"asyncpg"}), part("gw1", engine_drivers={"asyncpg"})) == (
+        "pass",
+        [],
+    )
 
 
 @pytest.mark.parametrize(
@@ -301,4 +329,3 @@ def test_earlier_attempt_findings_may_not_resolve() -> None:
     merged = merge([part(tests=[_failing(attempt=1), call_test(attempt=2)])], [])
     earlier = merged.tests[0].findings[0]["fingerprint"]
     assert earlier not in [f["fingerprint"] for f in merged.findings]
-
