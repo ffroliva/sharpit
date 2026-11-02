@@ -28,6 +28,22 @@ def test_transaction_route_reports_committed_sqlite_with_loopback_client() -> No
         engine.dispose()
 
 
+# ported: TransactionsControllerSupportTests.traceReportsUnavailableWhenRecorderIsAbsent
+def test_transactions_capture_when_sql_trace_is_disabled() -> None:
+    sa = pytest.importorskip("sqlalchemy")
+    app = FastAPI()
+    engine = sa.create_engine("sqlite://")
+    handle = install(app, enabled="ON", show_banner=False, engines=[engine], sql_trace_enabled=False)
+    try:
+        with engine.begin():
+            pass
+        report = handle.context.capture.transactions.report(None)
+        assert report["totalCaptured"] == 1, "transactions must capture connection events while SQL Trace is off"
+    finally:
+        handle.uninstall_capture()
+        engine.dispose()
+
+
 def _app(**options):
     app = FastAPI()
     handle = install(app, enabled="ON", show_banner=False, **options)
@@ -49,7 +65,7 @@ def test_transactions_recording_controls_and_clear() -> None:
         assert initial["capturing"] is True, "recording must start enabled by default"
         assert paused["capturing"] is False, "missing or null enabled must toggle recording"
         assert resumed["capturing"] is True, "an explicit enabled value must set recording"
-        assert cleared["bufferSize"] == 0, "clear must remove retained entries"
+        assert cleared["bufferSize"] == 200, "clear must preserve the configured transaction ring capacity"
     finally:
         handle.uninstall_capture()
 
@@ -121,6 +137,42 @@ def test_transactions_mcp_exposes_only_the_read_tool() -> None:
         assert result["structuredContent"]["available"] is True, "the MCP read tool must return the cached report"
     finally:
         handle.uninstall_capture()
+
+
+def test_uninstall_capture_removes_listeners() -> None:
+    import pytest
+
+    from sharpit.engine.capture.transactions import (
+        tx_begin,
+        tx_commit,
+        tx_release_savepoint,
+        tx_rollback,
+        tx_rollback_savepoint,
+        tx_savepoint,
+    )
+
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine("sqlite://")
+    handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[engine])
+    callbacks = {
+        "begin": tx_begin,
+        "commit": tx_commit,
+        "rollback": tx_rollback,
+        "savepoint": tx_savepoint,
+        "rollback_savepoint": tx_rollback_savepoint,
+        "release_savepoint": tx_release_savepoint,
+    }
+    try:
+        assert all(sa.event.contains(sa.engine.Engine, event, callback) for event, callback in callbacks.items()), (
+            "install must attach every transaction connection event"
+        )
+        handle.uninstall_capture()
+        assert not any(sa.event.contains(sa.engine.Engine, event, callback) for event, callback in callbacks.items()), (
+            "uninstall must remove every transaction connection event"
+        )
+    finally:
+        handle.uninstall_capture()
+        engine.dispose()
 
 
 @pytest.mark.asyncio
