@@ -20,8 +20,8 @@ from conftest import NEEDS_SQLALCHEMY_MISSING, sqlalchemy_imports_without_marker
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import sqla
-from sharpit.engine.collectors.pools import pools_report
 from sharpit.engine.capture.sqltrace import REPORT_KEYS
+from sharpit.engine.collectors.pools import pools_report
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCAL = ("127.0.0.1", 50000)

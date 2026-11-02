@@ -12,20 +12,27 @@ No BootUI DTO drift (§15). Python source: `src/sharpit/engine/collectors/alembi
 | `heads` | `files.heads` in `_report` |
 | `databases[]` | `_database` in `alembic.py` |
 | `databases[].name` | `_database` |
-| `databases[].available` | `_database` |
-| `databases[].unavailableReason` | `_database` |
-| `databases[].versionTable` | `_database` |
-| `databases[].versionTableSchema` | `_database` |
-| `databases[].currentRevision` | `_database` |
-| `databases[].heads` | `_database` |
+| `databases[].currentVersion` | `_database` |
+| `databases[].applied` | `_database` |
 | `databases[].pending` | `_database` |
-| `databases[].revisions[]` | `_row` |
-| `databases[].revisions[].revision` | `_row` |
-| `databases[].revisions[].downRevisions` | `_row` |
-| `databases[].revisions[].description` | `_row` |
-| `databases[].revisions[].script` | `_row` |
-| `databases[].revisions[].applied` | `_row` |
-| `databases[].revisions[].state` | `_row` |
+| `databases[].total` | `_database` |
+| `databases[].migrations[]` | `_row` |
+| `databases[].migrations[].type` | `_row` |
+| `databases[].migrations[].version` | `_row` |
+| `databases[].migrations[].description` | `_row` |
+| `databases[].migrations[].script` | `_row` |
+| `databases[].migrations[].state` | `_row` |
+| `databases[].migrations[].installedBy` | `_row` (null; Alembic does not expose BootUI's installer) |
+| `databases[].migrations[].installedOn` | `_row` (null; Alembic does not expose BootUI's timestamp) |
+| `databases[].migrations[].installedRank` | `_row` (null; Alembic does not expose BootUI's rank) |
+| `databases[].migrations[].executionTime` | `_row` (null; Alembic does not expose BootUI's duration) |
+| `databases[].migrations[].checksum` | `_row` (null; Alembic does not expose BootUI's checksum) |
+| `databases[].migrateEnabled` | `_database` (false; sharpit never runs migration files) |
+| `databases[].migrateDisabledReason` | `_database` |
+| `databases[].cleanEnabled` | `_database` (false; sharpit never runs migration files) |
+| `databases[].cleanDisabledReason` | `_database` |
+| `databases[].checkedAt` | `_database` |
+| `databases[].unavailableReason` | `_database` |
 
 No 2.2.0 Alembic golden fixture exists in this lane's base. No nullable additions were identified.
 
@@ -108,7 +115,22 @@ the thread-row construction in `threads_report`.
 | `stateCounts[]` | `threads_report` tally |
 | `stateCounts[].state` | `threads_report` tally |
 | `stateCounts[].count` | `threads_report` tally |
-| `threads[]` | `threads_report` |
-| `threads[].id` … `threads[].stackTrace` | thread-row construction; key order in `THREAD_KEYS` |
+| `threads[].id` | thread-row construction |
+| `threads[].name` | `_thread_name` (masked) |
+| `threads[].state` | `infer_state` / free-threaded fallback |
+| `threads[].priority` | thread-row construction; `0` (unavailable in CPython) |
+| `threads[].daemon` | thread-row construction |
+| `threads[].virtual` | thread-row construction; false (unsupported) |
+| `threads[].cpuTimeMillis` | thread-row construction; null (unavailable in CPython) |
+| `threads[].userTimeMillis` | thread-row construction; null (unavailable in CPython) |
+| `threads[].blockedCount` | thread-row construction; `0` (unavailable in CPython) |
+| `threads[].waitedCount` | thread-row construction; `0` (unavailable in CPython) |
+| `threads[].inNative` | thread-row construction; false |
+| `threads[].suspended` | thread-row construction; false |
+| `threads[].deadlocked` | thread-row construction; false |
+| `threads[].lockName` | thread-row construction; null (not measured) |
+| `threads[].lockOwnerId` | thread-row construction; null (not measured) |
+| `threads[].lockOwnerName` | thread-row construction; null (not measured) |
+| `threads[].stackTrace` | `_frame_text` over current Python frames; omitted under metadata-only exposure |
 
 `tasks`, `taskCount`, and `warnings` are sharpit additions. `task_info` maps task rows; `TASK_KEYS` lists their keys.

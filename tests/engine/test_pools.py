@@ -10,13 +10,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.golden import assert_parity
 
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.collectors.pools import pool_snapshot, pools_report
 from sharpit.engine.masking import MASK
 from sharpit.fastapi.adapter import SharpitHandle
-from tests.golden import assert_parity
 
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
