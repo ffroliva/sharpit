@@ -9,9 +9,12 @@
   interface Section { id: string; title: string; status: string; reason: string | null; hint: string | null; rowCount: number; truncated: boolean }
   interface Change { metric: string; previous: string; current: string; direction: string }
   interface Vitals { cacheHitRatio: number | null; rollbackRatio: number | null; connections: number | null; maxConnections: number | null; deadlocks: number | null }
+  type Row = Record<string, unknown>;
   interface Database {
     name: string; databaseName: string | null; serverVersion: string | null; role: string | null; monitoringRole: boolean;
     status: string; message: string | null; vitalSigns: Vitals | null; sections: Section[]; changes: Change[];
+    sessions: Row[]; statements: Row[]; indexes: Row[]; tables: Row[]; vacuum: Row[]; settings: Row[];
+    replication: { replicas: Row[] } | null;
   }
   interface Diagnostic { source: string; level: string; message: string | null }
   interface Report {
@@ -26,6 +29,8 @@
 
   const readOnly = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null);
   let reading = $state(false);
+  let latest = $state<Report | null>(null); // the POST answers the report it read: no second GET
+  const shown = $derived(latest ?? report.data);
   let failure = $state<string | null>(null);
 
   /** The only call that connects to PostgreSQL; GET serves the last read. */
@@ -34,8 +39,7 @@
     reading = true;
     failure = null;
     try {
-      await post('postgresql/read');
-      await report.reload();
+      latest = await post<Report>('postgresql/read');
     } catch (e) {
       failure = errorText(e, 'PostgreSQL could not be read.');
     } finally {
@@ -43,6 +47,12 @@
     }
   }
 
+  const rowLists = (db: Database): [string, Row[]][] =>
+    ([
+      ['Sessions', db.sessions], ['Statements', db.statements], ['Indexes', db.indexes], ['Largest relations', db.tables],
+      ['Autovacuum', db.vacuum], ['Replicas', db.replication?.replicas ?? []], ['Settings', db.settings],
+    ] as [string, Row[]][]).filter(([, rows]) => rows.length > 0);
+  const cell = (v: unknown) => (v === null || v === undefined ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v));
   const percent = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`);
   const statusClass = (s: string) => (s === 'FAILED' || s === 'ERROR' ? 'danger' : s === 'SKIPPED' || s === 'PARTIAL' ? 'warn' : s === 'AVAILABLE' || s === 'READ' ? 'ok' : 'muted');
 </script>
@@ -56,8 +66,8 @@
     {/if}
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
-  {#if report.data}
-    {@const r = report.data}
+  {#if shown}
+    {@const r = shown}
     <p class="sm muted meta">
       <span class={statusClass(r.status)}>{r.status}</span>
       {#if r.readAt} · read {scannedWhen(r.readAt)}{/if} · {r.disclaimer}
@@ -101,8 +111,29 @@
             {/each}
           </tbody>
         </table>
+        {#each rowLists(db) as [title, rows] (title)}
+          <h3>{title}</h3>
+          <div class="rows">
+            <table>
+              <thead><tr>{#each Object.keys(rows[0]) as key (key)}<th>{key}</th>{/each}</tr></thead>
+              <tbody>
+                {#each rows as row, i (i)}
+                  <tr>{#each Object.keys(rows[0]) as key (key)}<td class="sm mono">{cell(row[key])}</td>{/each}</tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/each}
       </section>
     {/each}
+    {#if r.limitations.length}
+      <section class="block" aria-label="Limitations">
+        <h2>Limitations</h2>
+        <ul class="sm">
+          {#each r.limitations as text, i (i)}<li>{text}</li>{/each}
+        </ul>
+      </section>
+    {/if}
     {#if r.diagnostics.length}
       <section class="block" aria-label="Diagnostics">
         <h2>Diagnostics</h2>
@@ -122,4 +153,5 @@
   section.block h2, section.block h3 { padding-bottom: var(--s1); }
   section.block > p, section.block > ul { margin: 0; padding: 0 var(--s4) var(--s2); }
   .hint { display: block; }
+  .rows { overflow-x: auto; }
 </style>
