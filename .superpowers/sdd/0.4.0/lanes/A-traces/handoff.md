@@ -4,6 +4,16 @@ Implementer: Codex gpt-6-luna (high)
 Lane plan: `docs/superpowers/plans/2026-11-01-sharpit-0.4.0/A-traces.md`
 Branch / worktree: `lane/0.4.0-A-traces` in `C:\development\github\sharpit-wt\0.4.0-A-traces`, from `release/0.4.0` at `34f1689`
 
+## Fix round 3 (2026-11-02)
+
+- Review finding fixed in `0fd9a2cca974a3a8e07232f03d72e096b1c7a841`: SQL error cleanup now runs only when the text has a `[SQL: ...]` block or a recognized SQLAlchemy/DBAPI exception prefix. Plain exception text receives `mask_text` only. SQL traceback frame lines are retained while driver values and SQL literals remain masked.
+- Red commits: `d1a2bf2a45203c950ce013bb923aec36c1b87cf4` (non-SQL traceback and ValueError message) and `10d35a242ef7cde7af331f386b3485406f61d4cf` (SQL traceback frames). Each failed by `AssertionError`; test bodies remain unchanged. Red rows and assertion messages are in `findings.md`.
+- Focused tests without SDK: OTel + trace + API, **68 passed, 1 warning**. SDK-enabled via `uv run --with opentelemetry-sdk`: **68 passed, 1 warning**.
+- Safety matrix, lane sweeps, masking corpus, safety/masking panels, and engine masking: **1253 passed, 1 warning**.
+- Ruff check passed; format check: **476 files already formatted**; Pyright: **0 errors, 0 warnings, 0 informations**.
+- Full suite `uv run pytest -q -n 4`: **4276 passed, 9 skipped, 43 warnings** in 544.45s. Logs are outside the worktree under `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/` (`A-traces-fix3-*`).
+- Status: DONE for this review finding. Lowest-direct and no-SQLAlchemy remain coordinator gates. Next step: coordinator lane review/gate.
+
 ## Fix round 2 (2026-11-02)
 
 - Coordinator ruling applied: deleted the obsolete `test_detail_applies_the_live_exposure_policy_on_every_read`,

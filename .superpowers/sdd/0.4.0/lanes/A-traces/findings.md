@@ -34,6 +34,9 @@
 | MCP read tool | `tests/fastapi/test_traces_api.py::test_mcp_read_tool_only` | `8ff1c1fcfbdf2d1c4013a7998e5c569f8214cd52` | `assert 'get_traces' in [...]` | Fixed in `5a78185` |
 | Secrets in span attributes | `tests/masking/test_a_traces_masking.py::test_secrets_in_span_attributes_never_appear` | `8ff1c1fcfbdf2d1c4013a7998e5c569f8214cd52` | `assert '"spanCount":1' in '{"error":"Not Found"}'` | Fixed in `5a78185` |
 | Live check: SQL literal in `db.statement` leaked | `tests/engine/capture/test_traces.py::test_sql_literals_in_db_statement_are_masked` | `c4c7d9dff61bc13447f4162e25c14caa7b5c95cb` | `assert "select * fro...w = 'hunter2'" == 'select * fro... where pw = ?'` | Fixed in `c7b269a` |
+| SQL cleanup truncated non-SQL tracebacks | `tests/engine/capture/test_traces.py::test_non_sql_stacktrace_keeps_its_frames` | `d1a2bf2a45203c950ce013bb923aec36c1b87cf4` | `assert shown == trace` (traceback reduced to header) | Fixed in `0fd9a2cca974a3a8e07232f03d72e096b1c7a841` |
+| SQL cleanup rewrote non-SQL exception messages | `tests/engine/capture/test_traces.py::test_non_sql_exception_message_uses_text_masking_only` | `d1a2bf2a45203c950ce013bb923aec36c1b87cf4` | `assert shown == message` (`'abc'` changed to `?`) | Fixed in `0fd9a2cca974a3a8e07232f03d72e096b1c7a841` |
+| SQL traceback cleanup dropped Python frames | `tests/engine/capture/test_traces.py::test_sql_exception_stacktrace_keeps_python_frames` | `10d35a242ef7cde7af331f386b3485406f61d4cf` | `assert 'File "app.py", line 3' in shown` | Fixed in `0fd9a2cca974a3a8e07232f03d72e096b1c7a841` |
 
 ## Superseded
 
