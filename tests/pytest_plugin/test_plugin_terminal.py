@@ -65,3 +65,30 @@ def test_gate_failure_still_printed(pytester: pytest.Pytester) -> None:
     data = json.loads((pytester.path / "report.json").read_text())
     notes = [f for f in data["findings"] if f["severity"] == "INFO"]
     assert f"sharpit: {len(notes)} advisor notes in report.json" in stdout
+
+
+def test_gate_failure_counted_whatever_fail_on(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        test_gate="""
+        import sqlite3
+        def test_n_plus_one():
+            db = sqlite3.connect(':memory:')
+            db.execute('CREATE TABLE owners (id INTEGER)')
+            for _ in range(6):
+                db.execute('SELECT * FROM owners WHERE id = 1').fetchall()
+        """
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit",
+        "--sharpit-fail-on=CRITICAL",
+        "--sharpit-report=report.json",
+        "--sharpit-junit=report.xml",
+        "-q",
+    )
+
+    stdout = result.stdout.str()
+    junit = (pytester.path / "report.xml").read_text()
+    assert "  sharpit.n-plus-one: 1" in stdout
+    assert "advisor notes in" not in stdout
+    assert 'type="sharpit.n-plus-one"' in junit
