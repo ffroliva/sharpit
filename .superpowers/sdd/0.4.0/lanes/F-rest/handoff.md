@@ -32,6 +32,8 @@ Panel lanes: add `tests/safety/test_<lane_id>_safety.py` (lane id lower case wit
 | `tests/test_safety_lane_sweeps.py::test_lane_file_that_skips_or_fails_is_reported_not_raised` | `0e1033829f7325305fbf70eaa7bdd1e4b0aa7197` | `assert [line.split(":")[0] for line in lanes.unimportable] == ["test_a_skip_safety.py", "test_b_broken_safety.py"]` | Fixed in `6c5e9eb` |
 | `tests/test_safety_lane_sweeps.py::test_panel_is_optional_but_must_be_a_known_id` | `0e1033829f7325305fbf70eaa7bdd1e4b0aa7197` | `assert [line.split(":")[0] for line in lanes.invalid] == ["test_x_safety.py"]` | Fixed in `6c5e9eb` |
 | `tests/test_safety_lane_sweeps.py::test_row_shapes_are_validated_and_convertors_stripped` | `0e1033829f7325305fbf70eaa7bdd1e4b0aa7197` | `assert [lane.gets for lane in lanes.implemented] == [("/sharpit/api/data/{name}",)]` | Fixed in `6c5e9eb` |
+| `tests/test_surface_follows_flags.py::test_shared_counts_follow_a_flip_of_any_unimplemented_panel[data-postgresql-implemented]` | `a949929f2b439b6924374e23f3bd1cbc44ca6da0` | `assert plant not in already` | Fixed in `4f1ba74` |
+| `tests/test_safety_lane_sweeps.py::test_lane_path_params_apply_only_to_that_lanes_rows` | `76dc47f8512c5a2e3428374712b10279e17216d0` | `assert base_path == "/sharpit/api/database-connection-pools/pools/nope/snapshot"` | Fixed in `70f6932` |
 
 ## Superseded reds (test deleted; its row left the red table)
 
@@ -39,6 +41,7 @@ Panel lanes: add `tests/safety/test_<lane_id>_safety.py` (lane id lower case wit
 |---|---|---|
 | test_safety_lane_rows.py::test_lane_rows_complete_the_route_tables | was 7b43c18 | replaced by `test_safety_lane_sweeps.py::test_lane_rows_cover_the_live_write_table` and `::test_matrix_feeds_lane_rows_into_its_sweeps` (round 1 item 7: `safety.route_formats` deleted, real matrix wiring) |
 | test_surface_follows_flags.py::test_catalogue_rebuild_is_idempotent_for_a_panel_implemented_at_import | was 7b43c18 | replaced by `::test_catalogue_rebuild_matches_the_import_time_catalogue_with_the_flag_on` (round 1 item 8: a fresh interpreter re-imports `sharpit.engine.tools` with the flag on; no catalogue patching) |
+| test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip | was aaa97d8 (lane F) | replaced by `::test_shared_counts_follow_a_flip_of_any_unimplemented_panel`: it planted on `data` and asserted `[-1]` positions, which break once real lanes implement panels |
 
 ## Not a red (replacement or wiring tests that pass on arrival)
 
