@@ -1,6 +1,6 @@
 # A-data findings (finding -> test -> red output)
 
-| Finding | Test id | Red SHA | Red output | Status |
+| Finding | Test id | Commit | Red output | Status |
 |---|---|---|---|---|
 | collector lists mapped classes, degrades, never configures | tests/engine/test_data.py (13 reds, see handoff.md) | eb6497d0b447b21b64abf030c177773bb278ed41 | assert 0 == 2 and others | fixed c092d59c41ec9086cecaffc65216d1d36d9ca6d9 |
 | detail lookup | tests/engine/test_data.py (6 reds, see handoff.md) | d551cedd00ad87095df7c885782633cf78921298 | assert None is not None | fixed 482abf764a0d4029ece739ca71156c19eb77d255 |
@@ -17,7 +17,7 @@
 
 ## Fix round 1 (review.md, ponytail-review.md)
 
-| Finding | Test id | Red SHA | Red output | Status |
+| Finding | Test id | Commit | Red output | Status |
 |---|---|---|---|---|
 | review fix | tests/engine/test_data.py::test_cross_registry_new_mapper_is_not_configured | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | assert ['_check_configure', ...] == [] | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
 | review fix | tests/engine/test_data.py::test_join_mapped_class_keeps_its_row | 876bbda60cb23adf4a356b452de7f1423f2ab5cb | assert 0 == 1 | fixed d97f0160000c90844caf1f2eec9032f502c9b2bd |
@@ -32,7 +32,7 @@
 
 ## Fix round 2
 
-| Finding | Test id | Red SHA | Red output | Status |
+| Finding | Test id | Commit | Red output | Status |
 |---|---|---|---|---|
 | registry subclass bypassed the _new_mappers check | tests/engine/test_data.py::test_registry_subclass_new_mapper_is_not_configured | 3ee9fe924d371ac21a821cc6c7d1fd8ae3228d9d | assert ['_check_configure', '_configure_registries'] == [] | fixed 3464bbdeff142dacd9dc5df6fe3626c2fe9d3aae |
 
