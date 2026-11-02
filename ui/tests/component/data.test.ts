@@ -51,3 +51,47 @@ it('shows the error state', async () => {
   mountData();
   await until(() => expect(h.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load'));
 });
+
+it('two classes with the same name open independently, keyed by repositoryInterface', async () => {
+  const a = row('Owner', { repositoryInterface: 'app.a.Owner' });
+  const b = row('Owner', { repositoryInterface: 'app.b.Owner' });
+  h.route((url) => {
+    if (url === 'api/data/repositories') return json(200, report([a, b]));
+    if (url === 'api/data/repositories/app.b.Owner') return json(200, { ...b, methods: [], fragments: [], unavailableReason: null });
+    return undefined;
+  });
+  mountData();
+  await until(() => expect(h.target.querySelectorAll('button.row').length).toBe(2));
+  (h.target.querySelectorAll('button.row')[1] as HTMLButtonElement).click();
+  await until(() => expect(h.calls('GET')).toContain('api/data/repositories/app.b.Owner'));
+  expect(h.target.querySelectorAll('button[aria-expanded="true"]').length).toBe(1);
+});
+
+it('a repeated repositoryInterface still renders every row', async () => {
+  const same = row('Owner', { repositoryInterface: 'app.Owner' });
+  h.route((url) => (url === 'api/data/repositories' ? json(200, report([same, same])) : undefined));
+  mountData();
+  await until(() => expect(h.target.querySelectorAll('button.row').length).toBe(2));
+});
+
+it('the drawer renders the fetched detail, not the stale list row', async () => {
+  const stale = row('Owner', { relationships: null });
+  h.route((url) => {
+    if (url === 'api/data/repositories') return json(200, report([stale]));
+    if (url === 'api/data/repositories/app.models.Owner') return json(200, { ...row('Owner'), methods: [], fragments: [], unavailableReason: null });
+    return undefined;
+  });
+  mountData();
+  await until(() => expect(text()).toContain('Owner'));
+  (h.target.querySelector('button.row') as HTMLButtonElement).click();
+  await until(() => expect(text()).toContain('lazy: select'));
+  expect(text()).not.toContain('not configured');
+});
+
+it('warnings are shown in the empty state', async () => {
+  h.route((url) => (url === 'api/data/repositories'
+    ? json(200, report([], { springDataPresent: false, unavailableReason: null, warnings: ['Ignoring models entry of type object'] }))
+    : undefined));
+  mountData();
+  await until(() => expect(text()).toContain('Ignoring models entry of type object'));
+});

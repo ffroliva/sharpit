@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy import exc
+from sqlalchemy import exc, orm
 from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship
 
 from data_support import spy_on_configure
@@ -410,3 +410,158 @@ def test_detail_unconfigured_has_no_methods(configure_spy: list[str]) -> None:
     assert configure_spy == []
     assert detail["methods"] == []
     assert detail["unavailableReason"] == data.UNCONFIGURED
+
+
+def test_cross_registry_new_mapper_is_not_configured(configure_spy: list[str]) -> None:
+    # derived: spec §4: a new mapper in a registry that another registry depends on flags the dependent too
+    class BaseB(DeclarativeBase):
+        pass
+
+    class Pet(BaseB):
+        __tablename__ = "x_pets"
+        id = mapped_column(sa.Integer, primary_key=True)
+        owner_id = mapped_column(sa.ForeignKey("x_owners.id"))
+
+    class BaseA(DeclarativeBase):
+        metadata = BaseB.metadata
+
+    class Owner(BaseA):
+        __tablename__ = "x_owners"
+        id = mapped_column(sa.Integer, primary_key=True)
+        pets = relationship(Pet)
+
+    sa.inspect(Owner)._check_configure()  # pyright: ignore[reportPrivateUsage] - configures both registries
+    fired: list[object] = []
+    sa.event.listen(orm.Mapper, "before_configured", lambda: fired.append(1))
+
+    class Toy(BaseB):
+        __tablename__ = "x_toys"
+        id = mapped_column(sa.Integer, primary_key=True)
+        broken = relationship("Missing")
+
+    configure_spy.clear()
+    report = data.repositories_report(make_ctx(BaseA))
+
+    assert Toy is not None
+    assert configure_spy == []
+    assert fired == []
+    assert report["total"] == 1
+    assert report["repositories"][0]["relationships"] is None
+
+
+def test_join_mapped_class_keeps_its_row() -> None:
+    # derived: a class mapped to a Join has no ``fullname``; the row stays with table null
+    meta = sa.MetaData()
+    left = sa.Table("j_left", meta, sa.Column("id", sa.Integer, primary_key=True))
+    right = sa.Table(
+        "j_right", meta, sa.Column("id", sa.Integer, primary_key=True), sa.Column("l", sa.ForeignKey("j_left.id"))
+    )
+    registry = orm.registry()
+    joined = type("Joined", (), {"__module__": "app.models"})
+    registry.map_imperatively(
+        joined,
+        sa.join(left, right),
+        properties={"lid": left.c.id, "rid": right.c.id},
+        primary_key=[left.c.id, right.c.id],
+    )
+
+    report = data.repositories_report(make_ctx(registry))
+
+    assert report["total"] == 1
+    assert report["repositories"][0]["table"] is None
+    assert report["repositories"][0]["idType"] == "Integer, Integer"
+
+
+def test_failing_field_drops_only_that_field() -> None:
+    # derived: a per-field failure nulls the field with a warning, never the row
+    class Odd:
+        configured = True
+        local_table = None
+        class_ = type("Odd", (), {"__module__": "app.models"})
+        relationships = ()
+
+        @property
+        def primary_key(self) -> tuple[()]:
+            raise RuntimeError("no pk")
+
+    report = data.repositories_report(make_ctx(SimpleNamespace(mappers=[Odd()])))
+
+    assert report["total"] == 1
+    assert report["repositories"][0]["idType"] is None
+    assert any("no pk" in warning for warning in report["warnings"])
+
+
+def test_warnings_mask_exception_text() -> None:
+    # derived: user-code exception text may quote a DSN; warnings go through the masker
+    class Broken:
+        configured = True
+
+        @property
+        def class_(self) -> type:
+            raise RuntimeError("cannot connect postgresql://app:hunter2secret@db.local/prod")
+
+    report = data.repositories_report(make_ctx(SimpleNamespace(mappers=[Broken()])))
+
+    assert report["warnings"]
+    assert "hunter2secret" not in " ".join(report["warnings"])
+
+
+def test_mapped_class_with_a_mappers_column_is_accepted() -> None:
+    # derived: a model may have a column named ``mappers``; entries are resolved through ``.registry``
+    base, owner, _pet = owner_pet()
+    owner.mappers = mapped_column(sa.Integer)  # pyright: ignore[reportAttributeAccessIssue]
+
+    report = data.repositories_report(make_ctx(owner))
+
+    assert report["total"] == 2
+    assert base.registry is not None
+
+
+def test_registry_lookup_never_runs_class_descriptors() -> None:
+    # derived: spec §4: no user code (a hybrid property) runs while resolving ``models=``
+    seen: list[str] = []
+
+    class Probe:
+        def __get__(self, instance: object, owner: type | None = None) -> list[object]:
+            seen.append("run")
+            return []
+
+    base, owner, _pet = owner_pet()
+    owner.mappers = Probe()  # pyright: ignore[reportAttributeAccessIssue]
+
+    data.repositories_report(make_ctx(owner))
+
+    assert base is not None
+    assert seen == []
+
+
+@pytest.mark.parametrize(
+    ("lazy", "name"),
+    [(None, "noload"), (True, "select"), (False, "joined"), ("dynamic", "dynamic"), ("selectin", "selectin")],
+)
+def test_lazy_is_a_strategy_name(lazy: object, name: str) -> None:
+    # derived: relationship(lazy=...) accepts legacy None/True/False; report the strategy name
+    pet = type("Pet", (), {"__module__": "app.models"})
+    rel = SimpleNamespace(key="pets", mapper=SimpleNamespace(class_=pet), lazy=lazy)
+    mapper = SimpleNamespace(
+        class_=type("Owner", (), {"__module__": "app.models"}),
+        configured=True,
+        primary_key=(),
+        local_table=None,
+        relationships=[rel],
+    )
+
+    report = data.repositories_report(make_ctx(SimpleNamespace(mappers=[mapper])))
+
+    assert report["repositories"][0]["relationships"] == [{"name": "pets", "target": "app.models.Pet", "lazy": name}]
+
+
+def test_detail_carries_relationships() -> None:
+    # derived: the drawer renders from the detail alone
+    base, owner, _pet = owner_pet()
+    sa.inspect(owner).relationships  # noqa: B018
+
+    detail = data.repository_detail(make_ctx(base), "Owner")
+
+    assert detail is not None
+    assert detail["relationships"] == [{"name": "pets", "target": f"{__name__}.Pet", "lazy": "select"}]
