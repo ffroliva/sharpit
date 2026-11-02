@@ -105,3 +105,13 @@ def test_dismissed_findings_not_written(tmp_path) -> None:
     path = tmp_path / "new.json"
     baseline.write(path, [Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "m", dismissed=True)])
     assert baseline.read(path).entries == {}
+
+
+def test_baseline_write_cleans_lone_surrogates_and_uses_lf(tmp_path) -> None:
+    import contextlib
+
+    path = tmp_path / "new.json"
+    with contextlib.suppress(UnicodeEncodeError):
+        baseline.write(path, [Finding("RAPI-1", "rest-api", "HIGH", "GET /x", "bad \ud800 text")])
+    assert path.exists(), "a lone surrogate in a message broke the baseline write"
+    assert b"\r\n" not in path.read_bytes()
