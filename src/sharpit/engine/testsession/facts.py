@@ -81,14 +81,27 @@ class UnboundedReadFact:
     location: str | None
 
     def to_json(self) -> dict[str, Any]:
-        return {"route": self.route, "statement": self.statement, "entity": self.entity,
-                "loaded": self.loaded, "pageSize": self.page_size, "hasLimit": self.has_limit,
-                "location": self.location}
+        return {
+            "route": self.route,
+            "statement": self.statement,
+            "entity": self.entity,
+            "loaded": self.loaded,
+            "pageSize": self.page_size,
+            "hasLimit": self.has_limit,
+            "location": self.location,
+        }
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Self:
-        return cls(data["route"], data["statement"], data["entity"], data["loaded"], data["pageSize"],
-                   data["hasLimit"], data.get("location"))
+        return cls(
+            data["route"],
+            data["statement"],
+            data["entity"],
+            data["loaded"],
+            data["pageSize"],
+            data["hasLimit"],
+            data.get("location"),
+        )
 
 
 @dataclass

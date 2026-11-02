@@ -1,6 +1,6 @@
-from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
+from fastapi import FastAPI
 from sharpit.engine.capture.correlation import paging_of
 
 

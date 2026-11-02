@@ -27,7 +27,13 @@ The Task 1 red is valid and replayed, but the implementation is incomplete: the 
 
 ## Gates
 
-Targeted run: `77 passed, 1 failed`; the sole failure is the F2 spike assertion (implementation unresolved). `tests/engine/test_import_boundary.py`, `tests/test_code_shape.py`, gate tests, and paging tests passed in that run. Full suite and repository-wide ruff/format/pyright are still pending.
+Targeted run after the integration attempt: `13 passed, 1 failed`; the sole failure is the F2 spike assertion (implementation unresolved). `tests/engine/test_import_boundary.py` and `tests/test_code_shape.py` passed. After making the fixture conftest safe for the root suite, the previously affected collection paths collected `1,057` tests successfully.
+
+The one final full run (`uv run pytest -q -n auto`, log `C:\development\github\sharpit-wt\0.4.0-integration\.superpowers\sdd\0.4.0\logs\T-unbounded-read-full-pytest.log`) reported `3 failed, 3316 passed, 9 skipped, 7 errors`. Failures: F2 finding absent; safety lane sweep; capture overhead budget (0.212 ms vs 0.200 ms, within 0.044 ms noise). The seven collection errors came from this fixture conftest shadowing root `tests/conftest.py`; the conftest now re-exports root helpers and isolated collection recheck passes. The full run was not repeated, per the one-run instruction.
+
+Final repository gates: ruff check reports one E501 at line 18 of the committed red test; ruff format --check reports that same red test would be reformatted. Its test body must remain byte-stable after its red commit. Pyright: `0 errors` after the final implementation changes. Full ruff/format therefore remain red for the immutable test source.
+
+The required session-hardening retrospective and memory artifacts were not written because they fall outside this lane plan's hard May-touch boundary; this handoff contains the resume state instead.
 
 ## Resume
 

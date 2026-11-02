@@ -24,8 +24,7 @@ from concurrent.futures import Executor
 from types import CodeType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, internal
-from sharpit.engine.capture.correlation import paging_of
+from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, internal, paging_of
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch, sqlite
@@ -225,23 +224,38 @@ def _mapper_load(target: Any, context: Any) -> None:
         entity = type(target).__name__
         loaded = info.loads.setdefault(query_id, {})
         row_key = f"{info.id}:{query_id}:{entity}"
-        current = next((row for row in loaded.get("rows", ()) if row["entity"] == entity), None)
+        rows = cast("list[dict[str, Any]]", loaded.setdefault("rows", []))
+        current = next((row for row in rows if row["entity"] == entity), None)
         compiled_statement = getattr(getattr(context, "compiled", None), "statement", statement_obj)
         try:
-            has_limit = getattr(compiled_statement, "_limit_clause", None) is not None or getattr(
-                compiled_statement, "_fetch_clause", None
-            ) is not None
+            has_limit = (
+                getattr(compiled_statement, "_limit_clause", None) is not None
+                or getattr(compiled_statement, "_fetch_clause", None) is not None
+            )
         except Exception:
             has_limit = True
         if current is None:
             location = _first_application_location()
-            current = {"entity": entity, "loaded": 0, "statement": masked, "has_limit": has_limit,
-                       "location": location, "route": paging.route, "page_size": paging.page_size,
-                       "row_key": row_key}
-            loaded.setdefault("rows", []).append(current)
-        current["loaded"] += 1
+            current = {
+                "entity": entity,
+                "loaded": 0,
+                "statement": masked,
+                "has_limit": has_limit,
+                "location": location,
+                "route": paging.route,
+                "page_size": paging.page_size,
+                "row_key": row_key,
+            }
+            rows.append(current)
+        current["loaded"] = cast(int, current["loaded"]) + 1
         _unbounded_read_facts.setdefault(tag, {})[row_key] = UnboundedReadFact(
-            paging.route, masked, entity, current["loaded"], paging.page_size, has_limit, current["location"]
+            paging.route,
+            masked,
+            entity,
+            current["loaded"],
+            paging.page_size,
+            has_limit,
+            cast("str | None", current["location"]),
         )
     except Exception as exc:  # noqa: BLE001 - a diagnostic listener never changes a query result
         dispatch.routing_failed(exc)
@@ -250,7 +264,7 @@ def _mapper_load(target: Any, context: Any) -> None:
 def apply_unbounded_read_facts(test: Any) -> None:
     tag = (test.key.node_id, test.key.attempt, "call")
     with _lock:
-        facts = _unbounded_read_facts.pop(tag, [])
+        facts = _unbounded_read_facts.pop(tag, {})
     if facts:
         test.phases.setdefault("call", PhaseFacts())
         test.phases["call"].unbounded_reads.extend(facts.values())

@@ -32,5 +32,11 @@ def budget_for(item: Any, default_max_queries: int | None, *, unbounded_read_fac
         raise pytest.UsageError("sharpit marker: max_queries must be a non-negative integer")
     if not isinstance(exceptions, int) or exceptions < 0:
         raise pytest.UsageError("sharpit marker: max_exceptions must be a non-negative integer")
-    return Budget(queries, bool(settings["allow_n_plus_one"]), exceptions, bool(settings["allow_swallowed"]),
-                  bool(settings["allow_unbounded_read"]), unbounded_read_factor)
+    return Budget(
+        queries,
+        bool(settings["allow_n_plus_one"]),
+        exceptions,
+        bool(settings["allow_swallowed"]),
+        bool(settings["allow_unbounded_read"]),
+        unbounded_read_factor,
+    )

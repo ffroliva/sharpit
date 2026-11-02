@@ -1,7 +1,8 @@
-from fastapi import FastAPI
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.pool import StaticPool
+
+from fastapi import FastAPI
 
 
 class Base(DeclarativeBase):

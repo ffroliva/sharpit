@@ -47,8 +47,9 @@ def pytest_runtest_makereport(item: Any, call: Any) -> Any:
                 test.outcome = "error"
             return
         test.outcome = report_obj.outcome
-        budget = plugin.budget_for(item, state.options.max_queries,
-                                   unbounded_read_factor=state.settings.activity_unbounded_read_factor)
+        budget = plugin.budget_for(
+            item, state.options.max_queries, unbounded_read_factor=state.settings.activity_unbounded_read_factor
+        )
         test.budget = budget
         from sharpit.engine import sqla
 

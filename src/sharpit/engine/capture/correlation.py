@@ -23,9 +23,7 @@ def paging_of(scope: Mapping[str, Any]) -> PagingContext | None:
     path = getattr(route, "path", None)
     dependant = getattr(route, "dependant", None)
     query_params = getattr(dependant, "query_params", ())
-    names = frozenset(
-        name for param in query_params if isinstance((name := getattr(param, "alias", None)), str)
-    )
+    names = frozenset(name for param in query_params if isinstance((name := getattr(param, "alias", None)), str))
     if not isinstance(path, str) or not names.intersection({"skip", "limit", "offset", "page", "page_size"}):
         return None
     raw_query = scope.get("query_string", b"")
@@ -56,7 +54,7 @@ class RequestInfo:
     finished_ns: int | None
     scope: MutableMapping[str, Any] | None = None
     paging: PagingContext | None = None
-    loads: dict[int, Any] = field(default_factory=dict)
+    loads: dict[int, dict[str, Any]] = field(default_factory=dict[int, dict[str, Any]])
 
 
 REQUEST: ContextVar[RequestInfo | None] = ContextVar("sharpit_request", default=None)
