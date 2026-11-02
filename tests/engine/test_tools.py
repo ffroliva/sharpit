@@ -14,6 +14,7 @@ Dropped, with reason:
 from __future__ import annotations
 
 import json
+import asyncio
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -196,6 +197,20 @@ def test_call_tool_uses_the_given_tool_gate(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert result == {"gate": True}
     assert calls == [expected.name]
+
+
+@pytest.mark.parametrize("error", [SystemExit(23), asyncio.CancelledError()])
+def test_tool_gate_propagates_base_exceptions_unchanged(error: BaseException) -> None:
+    from sharpit.engine.tool_dispatch import ToolGate
+
+    gate = ToolGate(max_results=10, max_concurrent=1, timeout=1)
+
+    try:
+        gate.run("raises_base_exception", lambda: (_ for _ in ()).throw(error))
+    except BaseException as raised:
+        assert raised is error
+    else:
+        raise AssertionError("ToolGate did not propagate the handler's BaseException")
 
 
 def test_descriptions_ported_with_names_substituted():

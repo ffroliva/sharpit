@@ -296,6 +296,21 @@ def test_exception_event_message_gets_the_sql_handling():
     assert "alice@example.com" not in shown
 
 
+@pytest.mark.parametrize("separator", ["\r", "\r\n", "\u2028", "\x85"])
+def test_sql_exception_message_drops_driver_detail_for_line_separators(separator: str):
+    message = (
+        "(psycopg.errors.UniqueViolation) duplicate key value violates unique constraint"
+        + separator
+        + "DETAIL:  Key (email)=(alice@example.com) already exists."
+        + separator
+        + "[SQL: INSERT INTO users (email) VALUES (%(email)s)]"
+    )
+    buf = buffer()
+    buf.add(span(events=[event("exception", 2_000, {"exception.message": message})]))
+    shown = first_span(buf)["events"][0]["attributes"][0]["value"]
+    assert "alice@example.com" not in shown
+
+
 def test_exception_event_stacktrace_gets_the_sql_handling():
     trace = 'Traceback (most recent call last):\n  File "app.py", line 3, in <module>\n' + SQL_ERROR
     buf = buffer()
