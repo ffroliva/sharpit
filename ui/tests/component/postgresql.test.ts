@@ -69,3 +69,23 @@ it('read-only hides the read button and says why', async () => {
   expect(button()).toBeUndefined();
   expect(text()).toContain('Read-only: SHARPIT_READ_ONLY=true');
 });
+
+it('renders the section rows and limitations from the POST answer without a second GET', async () => {
+  const withRows = {
+    ...read([]),
+    limitations: ['postgresql+psycopg://db:5432/app/statements: The pg_stat_statements extension is not installed on this server.'],
+    databases: [{ ...database([]), tables: [{ schema: 'public', table: 'orders_archive', totalSizeBytes: 8192 }], settings: [{ name: 'work_mem', value: '4MB', unit: null, source: 'default', note: null }] }],
+  };
+  h.route((url, init) => {
+    if (url === 'api/postgresql') return json(200, notRead);
+    if (url === 'api/postgresql/read' && init?.method === 'POST') return json(200, withRows);
+    return undefined;
+  });
+  h.mount(PostgreSql, { panel: panel('postgresql') });
+  await until(() => expect(button()).toBeDefined());
+  button()!.click();
+  await until(() => expect(text()).toContain('orders_archive'));
+  expect(text()).toContain('work_mem');
+  expect(text()).toContain('The pg_stat_statements extension is not installed on this server.');
+  expect(h.calls('GET')).toEqual(['api/postgresql']);
+});
