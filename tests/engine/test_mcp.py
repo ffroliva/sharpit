@@ -26,6 +26,7 @@ from sharpit.engine.mcp import DISABLED_MESSAGE, INSTRUCTIONS, PROTOCOL_VERSION,
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 from sharpit.engine.tools import TOOLS, CallContext, Tool, tool_gate
 from sharpit.settings import PanelSettings, load_settings
+from surface import BASE_MCP_TOOL_NAMES, expected_mcp_tool_names
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
 JSON = {"content-type": "application/json"}
@@ -218,26 +219,9 @@ def test_tools_list_has_no_action_tool():
     body = _post(_server(), _rpc("tools/list", 2))[1]
     assert body is not None
     tools = body["result"]["tools"]
-    assert [t["name"] for t in tools] == [
-        "get_overview",
-        "get_config",
-        "get_mappings",
-        "get_loggers",
-        "get_beans",
-        "get_http_exchanges",
-        "get_log_tail",
-        "get_exceptions",
-        "get_exception_detail",
-        "get_sql_traces",
-        "get_live_activity",
-        "get_alembic_migrations",
-        "get_health",
-        "get_database_connection_pools",
-        "get_threads",
-        "get_vulnerabilities_report",
-        "get_rest_api_report",
-        "get_rest_api_rule_violations",
-    ]
+    names = [t["name"] for t in tools]
+    assert names[: len(BASE_MCP_TOOL_NAMES)] == BASE_MCP_TOOL_NAMES
+    assert names == expected_mcp_tool_names()  # plus each implemented 0.4 panel's read tools
     assert "rest_api_scan" not in {t["name"] for t in tools}
     first = tools[0]
     assert set(first) == {"name", "description", "inputSchema", "outputSchema"}

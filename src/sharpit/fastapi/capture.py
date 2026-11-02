@@ -184,6 +184,7 @@ class CaptureWiring:
         # 0.4.0 slots (lane F), inert until their lanes fill them
         self.on_security_event: Callable[[Scope, int], None] | None = None  # B-security-logs: 401/403 exchanges
         self.span_processor: object | None = None  # A-traces: one lazily re-armed SDK span processor
+        self._armed: set[int] = set()  # id() of each CaptureState.attachers entry whose remover is in teardowns
 
     def attach_at_install(self, app: Any, ctx: SharpitContext) -> None:
         if self.app is not None:
@@ -197,6 +198,7 @@ class CaptureWiring:
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
         self._wrap_handlers(ctx)  # step 2 (spec §6.1), before the middleware: a too-late install still wraps
         self._attach_sql(ctx)  # steps 4a/4b: listeners trace outside requests too, so a too-late install still traces
+        self._run_attachers(ctx)
         if not any(_panel_enabled(ctx, p) for p in CAPTURE_PANELS):
             return
         try:
@@ -222,11 +224,13 @@ class CaptureWiring:
         self._first_run(ctx)
         self._attach_logging()  # after the host's startup: its basicConfig()/dictConfig() has run
         self._attach_sql(ctx)  # the lifespan may have imported SQLAlchemy, or a shutdown removed the listeners
+        self._run_attachers(ctx)  # likewise for the lanes' hooks
 
     def on_first_request(self, ctx: SharpitContext) -> None:
         self._first_run(ctx)
         self._attach_logging()
         self._attach_sql(ctx)  # no lifespan: the first request is the last chance to find SQLAlchemy imported
+        self._run_attachers(ctx)
 
     def detach(self, ctx: SharpitContext) -> None:
         sqla.remove(ctx)
@@ -242,7 +246,22 @@ class CaptureWiring:
                 teardowns.pop()()
             except Exception as exc:  # noqa: BLE001
                 self.hook_failed("teardown", exc)
+        self._armed.clear()  # the next startup re-runs every attacher
         self.detached = True
+
+    def _run_attachers(self, ctx: SharpitContext) -> None:
+        """Run each lane attacher not yet armed; a remover arms it, ``None`` leaves it for the next chance."""
+        for attacher in ctx.capture.attachers:
+            if id(attacher) in self._armed:
+                continue
+            try:
+                remover = attacher()
+            except Exception as exc:  # noqa: BLE001 - the host's startup never fails on sharpit
+                self.hook_failed("attacher", exc)
+                continue
+            if remover is not None:
+                self._armed.add(id(attacher))
+                ctx.capture.teardowns.append(remover)
 
     def _attach_sql(self, ctx: SharpitContext) -> None:
         """Step 4a (engine discovery) when a database panel is enabled, 4b (statements) when tracing is on."""

@@ -114,18 +114,19 @@ def collector_violations(root: Path = COLLECTORS) -> list[str]:
     return found
 
 
+def _gatekeeper_allows(rel: str, allowed: set[str]) -> bool:
+    """A gatekeeper entry is a file, or a package directory that covers every module below it."""
+    return rel in allowed or any(rel.startswith(f"{entry}/") for entry in allowed)
+
+
 def gatekeeper_violations(root: Path | None = None) -> list[str]:
-    violations = []
-    for path in sorted((root or SRC / "sharpit").rglob("*.py")):
-        rel = _rel(path)
-        for name in imports(path):
-            for lib, allowed in GATEKEEPERS.items():
-                if not _within(name, (lib,)):
-                    continue
-                plugin_pytest_import = lib in {"pytest", "_pytest"} and rel.startswith("sharpit/pytest_plugin/")
-                if rel not in allowed and not plugin_pytest_import:
-                    violations.append(f"{rel} imports {name}: only {sorted(allowed) or 'no file'} may import {lib}")
-    return violations
+    return [
+        f"{_rel(path)} imports {name}: only {sorted(allowed) or 'no file'} may import {lib}"
+        for path in sorted((root or SRC / "sharpit").rglob("*.py"))
+        for name in imports(path)
+        for lib, allowed in GATEKEEPERS.items()
+        if _within(name, (lib,)) and not _gatekeeper_allows(_rel(path), allowed)
+    ]
 
 
 def test_engine_modules_do_not_import_fastapi_or_starlette():
@@ -144,7 +145,8 @@ def test_optional_and_network_libraries_stay_behind_their_gatekeeper():
     assert gatekeeper_violations() == []
 
 
-def test_pytest_gatekeeper_allows_every_plugin_submodule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pytest_gatekeeper_covers_the_plugin_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # replaces test_pytest_gatekeeper_allows_every_plugin_submodule (its helpers changed after its red commit)
     source = tmp_path / "src"
     plugin = source / "sharpit" / "pytest_plugin"
     engine = source / "sharpit" / "engine"
@@ -160,7 +162,8 @@ def test_pytest_gatekeeper_allows_every_plugin_submodule(tmp_path: Path, monkeyp
     assert violations == ["sharpit/engine/rogue.py imports pytest: only ['sharpit/pytest_plugin'] may import pytest"]
 
 
-def test_opentelemetry_stays_behind_engine_otel_gatekeeper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_opentelemetry_import_is_confined_to_engine_otel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # replaces test_opentelemetry_stays_behind_engine_otel_gatekeeper (its helpers changed after its red commit)
     source = tmp_path / "src"
     engine = source / "sharpit" / "engine"
     engine.mkdir(parents=True)
