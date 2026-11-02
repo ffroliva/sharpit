@@ -74,6 +74,7 @@ class SharpitSpanProcessor:
                 continue
 
     def _on_ending(self, span: Any) -> None:  # newer SDKs call it on every processor
+        # This hook needs no action; completed spans are captured by on_end.
         pass
 
     def on_end(self, span: Any) -> None:
