@@ -12,17 +12,16 @@ except ImportError:  # pluggy before the public re-export
     from pluggy._result import Result
 
 from sharpit.pytest_plugin.apps import TEST_FILES, reconcile_workers
-from sharpit.pytest_plugin.options import PluginOptions, resolve
 
-_WORKER_APPS = "sharpit-worker-apps"
+WORKER_APPS = "sharpit-worker-apps"
 APPS_KEY = "sharpit_apps"  # workeroutput: {"names": candidates or None, "snapshot": an installed app was assessed}
 
 
-def resolve_options(config: Any) -> PluginOptions:
-    manager = getattr(config, "pluginmanager", None)  # the facade's pytest_configure resolves first: hook up here
-    if manager is not None and not manager.has_plugin(_WORKER_APPS):
-        manager.register(WorkerApps(), _WORKER_APPS)
-    return resolve(config)
+def register_worker_apps(config: Any) -> None:
+    """Hook WorkerApps into this process once (options.resolve runs it from the facade's pytest_configure)."""
+    manager = getattr(config, "pluginmanager", None)
+    if manager is not None and not manager.has_plugin(WORKER_APPS):
+        manager.register(WorkerApps(), WORKER_APPS)
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -111,7 +110,7 @@ def _test_files(config: Any) -> tuple[str, ...]:
 
 
 class WorkerApps:
-    """Controller-side xdist hook: unions the workers' autodetect candidates (registered by resolve_options)."""
+    """Controller-side xdist hook: unions the workers' autodetect candidates (registered by register_worker_apps)."""
 
     @pytest.hookimpl(optionalhook=True)
     def pytest_testnodedown(self, node: Any, error: Any) -> None:

@@ -77,6 +77,10 @@ class PluginOptions:
 
 
 def resolve(config: Any) -> PluginOptions:
+    from sharpit.pytest_plugin.session import register_worker_apps  # lazy: keeps options import-light
+
+    # the facade's pytest_configure resolves first on every process, the xdist controller included
+    register_worker_apps(config)
     option = getattr(config, "known_args_namespace", config.option)
 
     def value(name: str, default: Any) -> Any:
