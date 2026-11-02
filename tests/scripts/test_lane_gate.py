@@ -5,6 +5,7 @@ and the pytest replays are injected fakes, so these tests never run the real sui
 """
 
 import json
+import shutil
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -150,7 +151,7 @@ def _base_files() -> dict[str, str]:
     }
 
 
-def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
+def _build_fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
     integration = tmp_path / "integration"
     integration.mkdir()
     _git(integration, "init", "-q", "-b", "release")
@@ -175,6 +176,44 @@ def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = Tru
     if review:
         fx.review()
     return fx
+
+
+_TEMPLATE_ROOT: Path | None = None
+_FIXTURE_TEMPLATES: dict[tuple[str, bool], Fixture] = {}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fixture_template_root(tmp_path_factory: pytest.TempPathFactory) -> None:
+    global _TEMPLATE_ROOT
+    _TEMPLATE_ROOT = tmp_path_factory.mktemp("lane-gate-templates")
+
+
+def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
+    if _TEMPLATE_ROOT is None:
+        raise RuntimeError("lane-gate fixture template root was not initialized")
+    key = (lane, review)
+    template = _FIXTURE_TEMPLATES.get(key)
+    if template is None:
+        template_root = _TEMPLATE_ROOT / f"{lane}-review-{review}"
+        template_root.mkdir()
+        template = _build_fixture(template_root, lane, review=review)
+        _FIXTURE_TEMPLATES[key] = template
+
+    copy_root = tmp_path
+    integration = copy_root / "integration"
+    worktree = copy_root / "lane"
+    shutil.copytree(template.integration, integration)
+    shutil.copytree(template.worktree, worktree)
+    _git(integration, "worktree", "repair", str(worktree))
+    return Fixture(
+        integration,
+        worktree,
+        lane,
+        red=template.red,
+        head=template.head,
+        outcomes=template.outcomes.copy(),
+        failing_gates=template.failing_gates.copy(),
+    )
 
 
 def _refusals(result: object) -> list[str]:
