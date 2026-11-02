@@ -339,6 +339,9 @@ def _panels(kwargs: Mapping[str, object], environ: Mapping[str, str], warnings: 
         raise ValueError(f"Unknown sharpit panel(s): {', '.join(unknown)}; known panels: {', '.join(accepted)}")
     out: dict[str, PanelSettings] = {}
     for pid in known:
+        if pid not in accepted:  # unimplemented: defaults only; its SHARPIT_PANELS_<ID>_* env is ignored
+            out[pid] = PanelSettings()
+            continue
         base = given.get(pid)
         flags: dict[str, object] = {"enabled": True, "read_only": False}
         if isinstance(base, PanelSettings):

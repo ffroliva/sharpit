@@ -573,6 +573,12 @@ def merge_lane_tools(
     lane_tools: tuple[Any, ...],
     lane_commands: dict[str, str],
 ) -> tuple[tuple[Tool, ...], dict[str, str]]:
+    """Append the lanes' tools; a lane never shadows a tool name or CLI command key (raises at import)."""
+    names = [t.name for t in (*base_tools, *lane_tools)]
+    if clashes := sorted({n for n in names if names.count(n) > 1}):
+        raise ValueError(f"lane tool name(s) collide with existing tools: {', '.join(clashes)}")
+    if shadowed := sorted(set(lane_commands) & set(base_commands)):
+        raise ValueError(f"lane CLI command(s) collide with existing ones: {', '.join(shadowed)}")
     return (*base_tools, *lane_tools), {**base_commands, **lane_commands}
 
 

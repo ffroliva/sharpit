@@ -7,14 +7,13 @@ from starlette.routing import Mount
 
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine.tool_registry import catalogue
-from sharpit.engine.tools import CallContext, call_tool
+from sharpit.engine.tools import TOOLS, CallContext, call_tool
 
 
 def test_foundation_suite_equivalence(pytester: pytest.Pytester) -> None:
     app = FastAPI(title="foundation")
     handle = install(app, enabled="ON", show_banner=False)
-    tools = catalogue()
+    tools = TOOLS
     tool_names = [tool.name for tool in tools]
     overview = call_tool(CallContext(handle.context, {}), "get_overview", {}, via="mcp")
     mount = next(route for route in app.router.routes if isinstance(route, Mount) and route.path == "/sharpit")

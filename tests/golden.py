@@ -1,8 +1,8 @@
 """BootUI 2.2.0 golden loader (spec §6.1 item 1, council R9).
 
-``assert_parity(sharpit_id, name, payload)`` checks ``payload`` against
-``fixtures/bootui/2.2.0/<sharpit_id>/<name>.captured.json`` (a multi-endpoint panel), else ``captured.json``, else
-``<name>.provisional.json`` / ``provisional.json`` (an :class:`UnverifiedParityWarning`: merges, counted unverified).
+``assert_parity(sharpit_id, name, payload)`` checks ``payload`` against the first of, under
+``fixtures/bootui/2.2.0/<sharpit_id>/``: ``<name>.captured.json``, ``<name>.provisional.json``, ``captured.json``,
+``provisional.json`` (a provisional one emits :class:`UnverifiedParityWarning`: merges, counted unverified).
 Every golden key must be present with a compatible JSON type; extra payload keys are allowed. A payload ``null`` where
 the golden has a value passes only when ``nullable.json`` (``{"<path>": "<reason>"}``, list items as ``items[].key``)
 lists the path with a non-empty reason. A golden ``null`` accepts any payload type.
@@ -70,12 +70,11 @@ def _compare(expected: Any, actual: Any, path: str, nullable: Mapping[str, str],
 
 
 def _fixture(folder: Path, name: str) -> tuple[Path, bool]:
-    for candidate in (f"{name}.captured.json", "captured.json"):
+    order = ((f"{name}.captured.json", True), (f"{name}.provisional.json", False))
+    order += (("captured.json", True), ("provisional.json", False))  # name-specific first, then the shared pair
+    for candidate, captured in order:
         if (folder / candidate).is_file():
-            return folder / candidate, True
-    for candidate in (f"{name}.provisional.json", "provisional.json"):
-        if (folder / candidate).is_file():
-            return folder / candidate, False
+            return folder / candidate, captured
     raise AssertionError(f"no golden fixture for {folder.name}/{name}: expected captured.json or provisional.json")
 
 

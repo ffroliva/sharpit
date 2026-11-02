@@ -11,12 +11,6 @@ try:
 except ImportError:  # pluggy before the public re-export
     from pluggy._result import Result
 
-from sharpit.pytest_plugin.options import PluginOptions, resolve
-
-
-def resolve_options(config: Any) -> PluginOptions:
-    return resolve(config)
-
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: Any, call: Any) -> Any:

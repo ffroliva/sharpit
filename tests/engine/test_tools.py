@@ -173,25 +173,6 @@ def test_call_tool_uses_facade_catalogue(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result == {"facade": True}
 
 
-def test_call_tool_uses_facade_tool_gate(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sharpit.engine import tools as facade
-
-    expected = _tool("get_facade_gate", lambda _call, _args: {"gate": True})
-    calls: list[str] = []
-
-    class Gate:
-        def run(self, name: str, operation: Callable[[], dict[str, Any]]) -> dict[str, Any]:
-            calls.append(name)
-            return operation()
-
-    monkeypatch.setattr(facade, "tool_gate", lambda _ctx, _via: Gate())
-
-    result = facade.call_tool(_call(_ctx()), expected.name, {}, via="mcp", tools=(expected,))
-
-    assert result == {"gate": True}
-    assert calls == [expected.name]
-
-
 def test_call_tool_uses_the_given_tool_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     # replaces test_call_tool_uses_facade_tool_gate: the double now has the real ToolGate's max_results
     from sharpit.engine import tools as facade
