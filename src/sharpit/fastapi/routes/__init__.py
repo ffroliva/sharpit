@@ -41,6 +41,7 @@ from sharpit.engine.singleflight import ActionBusy
 from sharpit.fastapi.sse import sse_response
 
 _adapter = cast(Any, import_module("sharpit.fastapi.adapter"))
+_PAYLOAD_TOO_LARGE = "Request payload exceeds limit"
 
 
 async def _read_capped(request: Request, cap: int) -> bytes | None:
@@ -86,7 +87,7 @@ def _probe_request_body(raw: bytes) -> dict[str, Any] | Response:
         return error(400, "Request body must be a JSON object")
     if not isinstance(body, dict):
         return error(400, "Request body must be a JSON object")
-    return cast("dict[str, Any]", body)
+    return cast(dict[str, Any], body)
 
 
 def _root_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
@@ -232,7 +233,7 @@ def _sql_trace_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     async def sql_trace_recording(request: Request) -> Response:
         raw = await _read_capped(request, small_cap)
         if raw is None:
-            return error(413, "Request payload exceeds limit")
+            return error(413, _PAYLOAD_TOO_LARGE)
         # BootUI SqlTraceControllerSupport.recording: an empty body or a missing/null ``enabled`` flips
         enabled = _toggle_value(raw)
         if enabled is not None and not isinstance(enabled, bool):
@@ -261,7 +262,7 @@ def _logger_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
         if raw is None:
             return error(413, "Request payload exceeds limit")
         body = _json_or_none(raw)
-        level = cast("dict[str, Any]", body).get("level") if isinstance(body, dict) else 0
+        level = cast(dict[str, Any], body).get("level") if isinstance(body, dict) else 0
         if not isinstance(level, str | None):
             return error(400, "Request body must be a JSON object with a string or null 'level'")
         return json_response(set_level(request.path_params["name"], level))
@@ -293,7 +294,7 @@ async def _http_probe(ctx: SharpitContext, host_app: Any, request: Request) -> R
     settings = ctx.settings
     raw = await _read_capped(request, settings.mcp_max_payload_bytes)
     if raw is None:
-        return error(413, "Request payload exceeds limit")
+        return error(413, _PAYLOAD_TOO_LARGE)
     body = _probe_request_body(raw)
     if isinstance(body, Response):
         return body
@@ -388,9 +389,9 @@ def _exception_status_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRo
     async def exception_status(request: Request) -> Response:
         raw = await _read_capped(request, small_cap)
         if raw is None:
-            return error(413, "Request payload exceeds limit")
+            return error(413, _PAYLOAD_TOO_LARGE)
         body = _json_or_none(raw) if raw.strip() else None
-        value = cast("dict[str, Any]", body).get("status") if isinstance(body, dict) else None
+        value = cast(dict[str, Any], body).get("status") if isinstance(body, dict) else None
         gid: str = request.path_params["id"]
         try:
             updated = _exception_store(ctx).set_status(gid, value if isinstance(value, str) else None)
@@ -583,7 +584,7 @@ def _mcp_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     async def mcp_toggle(request: Request) -> Response:
         raw = await _read_capped(request, small_cap)
         if raw is None:
-            return error(413, "Request payload exceeds limit")
+            return error(413, _PAYLOAD_TOO_LARGE)
         # BootUI McpServerController: an empty body or a missing/null ``enabled`` flips; binding refuses the rest
         enabled = _toggle_value(raw)
         if enabled is not None and not isinstance(enabled, bool):
@@ -614,7 +615,7 @@ def _cli_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     async def cli_tool(request: Request) -> Response:
         raw = await _read_capped(request, cap)
         if raw is None:
-            return error(413, "Request payload exceeds limit")
+            return error(413, _PAYLOAD_TOO_LARGE)
         args: object = _json_or_none(raw) if raw.strip() else {}  # invalid JSON -> "Tool arguments must be an object"
         call = tools.CallContext(ctx, request.scope)
         status, body = await run_in_threadpool(tools.cli_invoke, call, request.path_params["tool"], args)
