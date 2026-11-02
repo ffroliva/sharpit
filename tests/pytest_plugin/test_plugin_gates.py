@@ -6,6 +6,29 @@ from sqlite3 import connect as _EARLY_CONNECT
 import pytest
 
 
+def _f5_app_source(player_count: int) -> str:
+    return f"""
+from sqlalchemy import ForeignKey, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('players.id'))
+
+engine = create_engine('sqlite:///n-plus-one.db')
+Base.metadata.create_all(engine)
+with Session(engine) as session:
+    session.add_all(Player(performances=[Performance()]) for _ in range({player_count}))
+    session.commit()
+"""
+
+
 def test_n_plus_one_fails_the_test(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         """
@@ -74,6 +97,32 @@ def test_lazy_performances():
     data = json.loads((pytester.path / "report.json").read_text())
     finding = next(item for item in data["findings"] if item["ruleId"] == "sharpit.n-plus-one")
     assert "Player.performances lazy-loaded 6 times" in finding["message"]
+    assert "selectinload(Player.performances)" in finding["message"]
+
+
+def test_spike_f5_full_count_1018(pytester: pytest.Pytester) -> None:
+    # spike: F5 T1 full load count
+    pytester.makepyfile(appmod=_f5_app_source(1018))
+    pytester.makepyfile(
+        """
+from sqlalchemy.orm import Session
+from appmod import Player, engine
+
+def test_lazy_performances():
+    with Session(engine) as session:
+        for player in session.query(Player).all():
+            list(player.performances)
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    finding = next(item for item in data["findings"] if item["ruleId"] == "sharpit.n-plus-one")
+    assert "Player.performances lazy-loaded 1018 times" in finding["message"]
     assert "selectinload(Player.performances)" in finding["message"]
 
 
