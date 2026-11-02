@@ -13,7 +13,7 @@
 | sharpit's own traces listed | `tests/engine/capture/test_traces.py::test_list_and_detail_hide_sharpit_self_traces` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert [] == ['2ebe213f5ee...4077f5f4dc74']` | Fixed in `311852b` |
 | Matrix parameters unmasked | `tests/engine/capture/test_traces.py::test_summary_masks_matrix_parameters_of_the_http_path` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert 0 == 1` | Fixed in `311852b` |
 | Absolute URL authority shown | `tests/engine/capture/test_traces.py::test_summary_never_returns_the_authority_of_an_absolute_url` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert 0 == 1` | Fixed in `311852b` |
-| Masking not live at read | `tests/engine/capture/test_traces.py::test_detail_applies_the_live_exposure_policy_on_every_read` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | Fixed in `311852b` |
+| Masking not live at read / legacy FULL exposure assertion | `tests/engine/capture/test_traces.py::test_detail_applies_the_live_exposure_policy_on_every_read` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | Parked: the immutable old red expects FULL exposure to show literals, while the new red requires `capture_parameters=False` to normalize them |
 | Nested attribute secrets | `tests/engine/capture/test_traces.py::test_span_reads_mask_nested_values` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | Fixed in `311852b` |
 | DTO keys | `tests/engine/capture/test_traces.py::test_summary_and_span_dto_keys` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert 0 == 1` | Fixed in `311852b` |
 | Event offsets | `tests/engine/capture/test_traces.py::test_event_offsets_are_relative_to_the_span_start` | `be3658575fbfb67a17ed15f0aaa57572d87e78f2` | `assert None is not None` | Fixed in `311852b` |
@@ -47,3 +47,43 @@
 | Test | Commit | Assertion message | Disposition |
 |---|---|---|---|
 | `ui/tests/component/traces.test.ts` (3 tests) | `e71dbc2d979f9ecdb09afd90263888cf2ce9549c` | `expected 'TracesThis panel's view is not built…' to contain 'GET /owners'` | Fixed in the Task 4 commit |
+
+## Fix round 1 reds
+
+| Test | Red SHA | Assertion | Disposition |
+|---|---|---|---|
+| `tests/engine/capture/test_traces.py::test_otel_normalised_set_cookie_header_is_masked` | `2a4dacb585dc6f49e31cd67cc2a01c37a35ef3a4` | `assert '[sid=abc123; HttpOnly]' == '[******]'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_header_attribute_values_go_through_text_masking` | `2a4dacb585dc6f49e31cd67cc2a01c37a35ef3a4` | `assert 'hunter2' not in 'retry after login password=hunter2'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_status_message_drops_driver_echoed_values` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'alice@example.com' not in statusMessage` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_status_message_normalises_the_sql_statement` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'hunter2' not in statusMessage` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_exception_event_message_gets_the_sql_handling` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'alice@example.com' not in event message` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_exception_event_stacktrace_gets_the_sql_handling` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'hunter2' not in event stacktrace` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_db_statement_parameters_hidden_unless_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert "[('alice@example.com',)]" == '******'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_db_query_parameter_hidden_unless_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert 'alice@example.com' == '******'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_bind_parameter_attributes_shown_with_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert '******' == 'alice@example.com'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_full_exposure_without_capture_parameters_still_hides_sql_literals` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert "... 'hunter2'" == '... ?'` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_capture_parameters_shows_sql_literals` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert '... ?' == "... 'alice'"` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_detail_applies_the_live_capture_parameters_policy_on_every_read` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert 'alice' in first` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_span_name_goes_through_text_masking` | `a3042175862b87ced81fdd96c2ae5dbfc77fe8b7` | `assert 'hunter2' not in span name` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_root_span_name_goes_through_text_masking` | `a3042175862b87ced81fdd96c2ae5dbfc77fe8b7` | `assert 'hunter2' not in root span name` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_event_name_goes_through_text_masking` | `a3042175862b87ced81fdd96c2ae5dbfc77fe8b7` | `assert 's3cr3tvalue1' not in event name` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/test_otel.py::test_unset_provider_is_never_resolved_through_the_getter` | `89e4808460958904cc755e2609779a5d51bcb600` | `assert calls == []` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/test_otel.py::test_unset_provider_is_unavailable` | `89e4808460958904cc755e2609779a5d51bcb600` | `assert None == NOT_SDK_PROVIDER` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/test_otel.py::test_set_provider_is_read_from_the_global` | `89e4808460958904cc755e2609779a5d51bcb600` | `assert calls == []` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_spans_of_sharpit_internal_work_never_reach_the_buffer` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert retained == 0` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_spans_of_sharpit_event_streams_never_reach_the_buffer` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert retained == 0` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_a_sharpit_server_span_takes_no_capacity` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert [] == [trace A]` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_the_self_path_check_strips_the_root_path` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert traces == []` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_children_of_a_sharpit_request_take_no_capacity` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert [] == [trace A]` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_reason_when_the_attacher_never_ran` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == ''` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_reason_after_detach` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == ''` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/engine/capture/test_traces.py::test_reason_when_the_provider_was_set_late` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == NOT_ARMED` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/fastapi/test_traces_api.py::test_detail_matches_the_bootui_span_records` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert problems == []` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `tests/fastapi/test_traces_api.py::test_server_root_path_hides_sharpit_server_spans` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert body['traces'] == []` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+
+### UI reds
+
+| Test | Commit | Assertion | Disposition |
+|---|---|---|---|
+| `ui/tests/component/traces.test.ts::shows span status and event details` | `654544674d606cf4a6510897049067396df2edea` | expected rendered detail to contain `unique violation detail` | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |
+| `ui/tests/component/traces.test.ts::ignores a stale detail response after another trace was opened` | `654544674d606cf4a6510897049067396df2edea` | expected newest detail to remain `span new` after stale response | Fixed in `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578` |

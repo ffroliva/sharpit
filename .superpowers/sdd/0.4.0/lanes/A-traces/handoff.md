@@ -1,8 +1,61 @@
 # Lane A-traces handoff
 
-Implementer: claude-flavio opus (Claude Code, Opus 5.5)
+Implementer: Codex gpt-6-luna (high)
 Lane plan: `docs/superpowers/plans/2026-11-01-sharpit-0.4.0/A-traces.md`
 Branch / worktree: `lane/0.4.0-A-traces` in `C:\development\github\sharpit-wt\0.4.0-A-traces`, from `release/0.4.0` at `34f1689`
+
+## Fix round 1 (2026-11-02)
+
+- Fix commit: `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578`; UI red commit: `654544674d606cf4a6510897049067396df2edea`.
+- Status: DONE_WITH_CONCERNS. All requested changes are implemented except the conflicting legacy FULL-exposure
+  assertion, which cannot be edited under red-body immutability and contradicts the new `capture_parameters=False`
+  assertion. The new behavior follows SQL Trace and the fix-round requirement; this is recorded as parked in findings.md.
+- Results: ruff check and format passed; pyright 0 errors; safety/masking matrix 1027 passed; focused trace tests 65
+  passed / 1 legacy failure; UI check clean and vitest 35 files / 280 passed; isolated trace/SQL/request overhead tests
+  3 passed. Full suite (-n 4, OTel SDK extra) 4271 passed, 9 skipped, 3 failed: the legacy assertion and host-wide
+  SQL/request budgets (parallel run; isolated rerun passed, 3/3).
+- The tests at each fix-round red SHA and their assertion messages are recorded below. No test body was edited after its
+  red commit. Lowest-direct and no-SQLAlchemy remain coordinator gates.
+
+### Fix round 1 Python reds
+
+| Test id | Red SHA | Assertion message |
+|---|---|---|
+| `tests/engine/capture/test_traces.py::test_otel_normalised_set_cookie_header_is_masked` | `2a4dacb585dc6f49e31cd67cc2a01c37a35ef3a4` | `assert '[sid=abc123; HttpOnly]' == '[******]'` |
+| `tests/engine/capture/test_traces.py::test_header_attribute_values_go_through_text_masking` | `2a4dacb585dc6f49e31cd67cc2a01c37a35ef3a4` | `assert 'hunter2' not in 'retry after login password=hunter2'` |
+| `tests/engine/capture/test_traces.py::test_status_message_drops_driver_echoed_values` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'alice@example.com' not in statusMessage` |
+| `tests/engine/capture/test_traces.py::test_status_message_normalises_the_sql_statement` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'hunter2' not in statusMessage` |
+| `tests/engine/capture/test_traces.py::test_exception_event_message_gets_the_sql_handling` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'alice@example.com' not in event message` |
+| `tests/engine/capture/test_traces.py::test_exception_event_stacktrace_gets_the_sql_handling` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'hunter2' not in event stacktrace` |
+| `tests/engine/capture/test_traces.py::test_db_statement_parameters_hidden_unless_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert "('alice@example.com',)" == '******'` |
+| `tests/engine/capture/test_traces.py::test_db_query_parameter_hidden_unless_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert 'alice@example.com' == '******'` |
+| `tests/engine/capture/test_traces.py::test_bind_parameter_attributes_shown_with_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert '******' == 'alice@example.com'` |
+| `tests/engine/capture/test_traces.py::test_full_exposure_without_capture_parameters_still_hides_sql_literals` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert "... 'hunter2'" == '... ?'` |
+| `tests/engine/capture/test_traces.py::test_capture_parameters_shows_sql_literals` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert '... ?' == "... 'alice'"` |
+| `tests/engine/capture/test_traces.py::test_detail_applies_the_live_capture_parameters_policy_on_every_read` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert 'alice' in first` |
+| `tests/engine/capture/test_traces.py::test_span_name_goes_through_text_masking` | `a3042175862b87ced81fdd96c2ae5dbfc77fe8b7` | `assert 'hunter2' not in span name` |
+| `tests/engine/capture/test_traces.py::test_root_span_name_goes_through_text_masking` | `a3042175862b87ced81fdd96c2ae5dbfc77fe8b7` | `assert 'hunter2' not in root span name` |
+| `tests/engine/capture/test_traces.py::test_event_name_goes_through_text_masking` | `a3042175862b87ced81fdd96c2ae5dbfc77fe8b7` | `assert 's3cr3tvalue1' not in event name` |
+| `tests/engine/test_otel.py::test_unset_provider_is_never_resolved_through_the_getter` | `89e4808460958904cc755e2609779a5d51bcb600` | `assert calls == []` |
+| `tests/engine/test_otel.py::test_unset_provider_is_unavailable` | `89e4808460958904cc755e2609779a5d51bcb600` | `assert None == NOT_SDK_PROVIDER` |
+| `tests/engine/test_otel.py::test_set_provider_is_read_from_the_global` | `89e4808460958904cc755e2609779a5d51bcb600` | `assert calls == []` |
+| `tests/engine/capture/test_traces.py::test_spans_of_sharpit_internal_work_never_reach_the_buffer` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert retained == 0` |
+| `tests/engine/capture/test_traces.py::test_spans_of_sharpit_event_streams_never_reach_the_buffer` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert retained == 0` |
+| `tests/engine/capture/test_traces.py::test_a_sharpit_server_span_takes_no_capacity` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert [] == [trace A]` |
+| `tests/engine/capture/test_traces.py::test_the_self_path_check_strips_the_root_path` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert traces == []` |
+| `tests/engine/capture/test_traces.py::test_children_of_a_sharpit_request_take_no_capacity` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert [] == [trace A]` |
+| `tests/engine/capture/test_traces.py::test_reason_when_the_attacher_never_ran` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == ''` |
+| `tests/engine/capture/test_traces.py::test_reason_after_detach` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == ''` |
+| `tests/engine/capture/test_traces.py::test_reason_when_the_provider_was_set_late` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == NOT_ARMED` |
+| `tests/fastapi/test_traces_api.py::test_detail_matches_the_bootui_span_records` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert problems == []` |
+| `tests/fastapi/test_traces_api.py::test_server_root_path_hides_sharpit_server_spans` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert body['traces'] == []` |
+
+### Fix round 1 UI reds
+
+| Test | Commit | Assertion |
+|---|---|---|
+| `ui/tests/component/traces.test.ts::shows span status and event details` | `654544674d606cf4a6510897049067396df2edea` | expected `unique violation detail` to render |
+| `ui/tests/component/traces.test.ts::ignores a stale detail response after another trace was opened` | `654544674d606cf4a6510897049067396df2edea` | expected newest detail `span new` to survive stale response |
 
 ## Status
 
@@ -11,7 +64,7 @@ Branch / worktree: `lane/0.4.0-A-traces` in `C:\development\github\sharpit-wt\0.
 - Task 3 routes, MCP tools, flag, safety/masking/budget: red `8ff1c1f`, fix `5a78185`.
 - Live-check finding (SQL literal leak): red `c4c7d9d`, fix `c7b269a`.
 - Task 4 Svelte view: UI red `e71dbc2`, fix in the evidence commit (`feat: traces view and lane evidence`).
-- Status: DONE_WITH_CONCERNS (no OTel SDK in the test extra; see Needs from coordinator).
+- Status: DONE_WITH_CONCERNS (fix round 1 current results are above; no SDK dependency was added to protected files).
 
 ## Gates (implementer, at the lane head)
 
@@ -24,6 +77,8 @@ load-sensitive budgets (SQL listener, capture); all 1160 of those files' tests p
 above is clean. Budgets untouched. Lowest-direct / no-SQLAlchemy: not run (coordinator gate).
 
 ## Decisions and deviations
+
+This fix-round section at the top supersedes gate counts and detail-parity notes below.
 
 1. **No OTel SDK in the test extra.** The lane plan expected F-rest to add `opentelemetry-sdk` to the test extra; it is
    not there (`pyproject.toml`/`uv.lock` are protected). Every test plants an SDK-shaped provider in `sys.modules` and
@@ -43,10 +98,11 @@ above is clean. Budgets untouched. Lowest-direct / no-SQLAlchemy: not run (coord
 6. **`unavailableReason`** added to `TracesReport` (sharpit extension; the golden comparison ignores extra keys).
 7. **Route param is `{id}`** (`/traces/{id}`) so the shared safety matrix uses the existing `_PATH_PARAMS["id"]`; no
    conftest edit.
-8. **Detail parity unchecked**: G0a captured only the list (`captured.json`); the detail keys are pinned by
-   `test_summary_and_span_dto_keys`.
-9. **`SpanAttributeDto.value` is a string** (masked), `type` the Java `AttributeType` name; BootUI sources were not
-   available locally, so this follows the contract's key list only.
+8. **Detail parity**: G0a captured only the list (`captured.json`); the detail fields are checked against BootUI's
+   `TraceDetailDto`, `SpanDto`, `SpanEventDto`, and `SpanAttributeDto` record sources by
+   `tests/fastapi/test_traces_api.py::test_detail_matches_the_bootui_span_records`.
+9. **`SpanAttributeDto.value` is emitted as a masked string** and `type` is the Java `AttributeType` name; source
+   records were read from the read-only `C:\development\github\boot-ui-ref` checkout.
 10. The vitest file is `ui/tests/component/traces.test.ts` (repo convention and include pattern), not beside the view.
 
 ## Needs from coordinator
@@ -122,5 +178,8 @@ provider, `sharpit.install(app, enabled="ON")`, two TestClient lifespans, each `
 
 ## How to resume
 
-All work is committed. Rerun `UV_LINK_MODE=copy uv run pytest -q -n 4` (log outside the worktree), and in `ui/`:
-`npm run check`, `npx vitest run`.
+Read `.superpowers/sdd/0.4.0/lanes/A-traces/findings.md`. Implementation is committed at
+`f47d6f2af0d2fff9b71dd5504a9a2a5a62504578`. The fix-round gates are recorded above; the remaining test conflict
+needs a coordinator/owner resolution that respects the immutable red-test rule. The two global budget tests passed
+when run alone (`A-traces-overhead-r2.log`). Re-run full suite detached to the integration log directory if a new
+policy is chosen. Continue on this lane branch; do not edit review/gate files or push.
