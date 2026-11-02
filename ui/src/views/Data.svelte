@@ -15,9 +15,15 @@
     table: string | null;
     relationships: Relationship[] | null;
   }
-  interface Report { springDataPresent: boolean; total: number; unavailableReason?: string | null; repositories: Repository[] }
+  interface Report {
+    springDataPresent: boolean;
+    total: number;
+    unavailableReason?: string | null;
+    warnings?: string[];
+    repositories: Repository[];
+  }
   interface Method { name: string; signature: string }
-  interface Detail { methods: Method[]; unavailableReason: string | null }
+  interface Detail { methods: Method[]; unavailableReason: string | null; relationships?: Relationship[] | null }
 
   let { panel }: { panel: Panel } = $props();
 
@@ -59,6 +65,9 @@
     {#if report.data.unavailableReason}
       <p class="muted note">{report.data.unavailableReason}</p>
     {/if}
+    {#each report.data.warnings ?? [] as warning, w (w)}
+      <p class="muted note">{warning}</p>
+    {/each}
     {#if report.data.repositories.length === 0}
       <div class="empty">
         <p class="lead">No mapped classes</p>
@@ -71,37 +80,39 @@
           <tr><th>Class</th><th>Table</th><th>Id</th><th>Methods</th><th>Fragments</th></tr>
         </thead>
         <tbody>
-          {#each report.data.repositories as r (r.repositoryInterface)}
+          {#each report.data.repositories as r, i (i)}
             <tr>
               <td>
-                <button class="row mono" aria-expanded={open === r.beanName} onclick={() => void toggle(r.beanName)}>{r.beanName}</button>
+                <button class="row mono" aria-expanded={open === r.repositoryInterface} onclick={() => void toggle(r.repositoryInterface)}>{r.beanName}</button>
               </td>
               <td class="mono">{r.table ?? '—'}</td>
               <td class="mono">{r.idType ?? '—'}</td>
               <td>{count(r.queryMethodCount)}</td>
               <td>{count(r.fragmentCount)}</td>
             </tr>
-            {#if open === r.beanName}
+            {#if open === r.repositoryInterface}
               <tr class="detail">
                 <td colspan="5">
                   <p class="sm muted mono">{r.repositoryInterface} · {r.storeModule}</p>
                   {#if detailError}
                     <p role="alert">{detailError}</p>
-                  {:else if r.relationships === null || detail?.unavailableReason}
-                    <p class="muted">{detail?.unavailableReason ?? 'Mappers are not configured yet: the app has not run a query'}</p>
-                  {:else if r.relationships.length === 0}
-                    <p class="muted">No relationships</p>
+                  {:else if !detail}
+                    <p class="muted">Loading…</p>
+                  {:else if detail.unavailableReason}
+                    <p class="muted">{detail.unavailableReason}</p>
                   {:else}
+                    {@const rels = detail.relationships ?? r.relationships ?? []}
+                    {#if detail.methods.length === 0}
+                      <p class="muted">No relationships</p>
+                    {/if}
                     <ul>
-                      {#each r.relationships as rel (rel.name)}
+                      {#each rels as rel (rel.name)}
                         <li><span class="mono">{rel.name}</span> → <span class="mono">{rel.target}</span> <span class="muted">lazy: {rel.lazy ?? '—'}</span></li>
                       {/each}
                     </ul>
-                    {#if detail}
-                      <ul class="sm muted mono">
-                        {#each detail.methods as m (m.name)}<li>{m.signature}</li>{/each}
-                      </ul>
-                    {/if}
+                    <ul class="sm muted mono">
+                      {#each detail.methods as m (m.name)}<li>{m.signature}</li>{/each}
+                    </ul>
                   {/if}
                 </td>
               </tr>

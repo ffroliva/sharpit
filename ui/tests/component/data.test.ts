@@ -34,7 +34,7 @@ it('shows the unavailable reason when springDataPresent is false', async () => {
 it('opening a row loads the detail and lists each relationship with its lazy mode', async () => {
   h.route((url) => {
     if (url === 'api/data/repositories') return json(200, report([row('Owner')]));
-    if (url === 'api/data/repositories/Owner') {
+    if (url === 'api/data/repositories/app.models.Owner') {
       return json(200, { ...row('Owner'), methods: [{ name: 'pets', signature: 'pets -> Pet', origin: 'APPLICATION', query: null, nativeQuery: false, namedQuery: null }], fragments: [], unavailableReason: null });
     }
     return undefined;

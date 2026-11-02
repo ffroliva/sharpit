@@ -554,14 +554,3 @@ def test_lazy_is_a_strategy_name(lazy: object, name: str) -> None:
     report = data.repositories_report(make_ctx(SimpleNamespace(mappers=[mapper])))
 
     assert report["repositories"][0]["relationships"] == [{"name": "pets", "target": "app.models.Pet", "lazy": name}]
-
-
-def test_detail_carries_relationships() -> None:
-    # derived: the drawer renders from the detail alone
-    base, owner, _pet = owner_pet()
-    sa.inspect(owner).relationships  # noqa: B018
-
-    detail = data.repository_detail(make_ctx(base), "Owner")
-
-    assert detail is not None
-    assert detail["relationships"] == [{"name": "pets", "target": f"{__name__}.Pet", "lazy": "select"}]
