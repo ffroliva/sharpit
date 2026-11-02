@@ -19,6 +19,7 @@ DONE_WITH_CONCERNS (see "Left for others"). Tasks 0–5 complete on `lane/0.4.0-
 | 3 freed-id test superseded (xdist name collision) | Historical, mutation-proven | the `test:` commit after `2e40aef` |
 | 4 gate, marker, report-only, baseline | `29716480fc7c3e62345bc2a0d47bd592f0797fe0` | `c6c549347dfb1348c9aeed74530ff9f901b52639` |
 | 5 overhead budget | `025956260890a0c96e0ef8b6273e79dfae8b1f71` | `2e40aef0ed2910fcdf3a6f792bb8654eda6d568b` |
+| fix round 1 (review #1, #2) | `e6ec74d5f882f40cb6fa37ad19cb6169cc1a12fa` | `85eb0a34a7d176502aba1c5b3370a4bf3cd5300c` |
 
 Per-test red ids and assertion messages: `findings.md` (each replayed at its red SHA with `--junitxml`).
 
@@ -47,6 +48,23 @@ Per-test red ids and assertion messages: `findings.md` (each replayed at its red
   It is not in `RULES` (pinned to BootUI's 20 by `test_registry_covers_every_documented_id`).
 - **Performance**: the per-event fact is cached per (code, offset, exception type) (`_fact`), after the budget test went
   red at ~6 µs/exception from `relpath` per event.
+
+## Fix round 1 (review.md, ponytail-review.md)
+
+Both reviews raise the same two findings; both fixed, none declined.
+
+1. **Nested scopes (major).** `_silent` now walks the clause body itself and stops at `FunctionDef`,
+   `AsyncFunctionDef` and `Lambda`, so a `raise` or logger call that does not run when the clause runs no longer
+   hides a swallow. Deviation from the brief: a `ClassDef` is still entered, because a class body runs when the clause
+   runs (`except Exception: class X: logger.error(...)` logs); its methods are `FunctionDef`s and are stopped. The red
+   test's class case (an unexecuted method's `raise`) covers the brief's intent.
+2. **Partial attach (minor).** `MonitoringCapture.attach` detaches on a `register_callback`/`set_events` failure and
+   re-raises the setup error (the detach error is suppressed so the original one reaches `attach_session`'s hook-failure
+   path). `detach` now runs each step under its own `finally`, so a failing `set_events(tool, 0)` still clears the
+   callback and frees the id (3.12's `free_tool_id` does not clear callbacks).
+
+The red test was run on the working tree before the red commit, with `src/` unchanged since `dd59987`, so it is the
+red SHA's code; both failures were AssertionErrors in the test file.
 
 ## Overhead (Task 5)
 
@@ -77,6 +95,13 @@ busy-wait in the callback → `overhead 5.998 us/exception ... budget 1.500` (As
   budget 35) and `fastapi/test_capture_overhead.py::test_request_overhead_budget` (0.207 ms, noise 0.040, budget 0.2).
   Both pass when run on their own (`3 passed` together with this lane's budget). Not raised; reported.
   This lane's own budget passed inside the loaded full run.
+
+- **Fix round 1** (head `85eb0a3`): `ruff check` clean, `ruff format --check` clean, `pyright` 0 errors; lane tests
+  `71 passed`. Full suite (`uv run pytest -q -n 4`, log `...\logs\T-swallowed-exceptions-fix1-pytest.log`):
+  `2 failed, 4322 passed, 9 skipped`. The xdist name collision is gone. The two failures are the same load-sensitive
+  budgets as before, within the noise under `-n 4`: `test_sqlalchemy_lazy_relationship_hook_overhead_budget`
+  (47.085 µs, noise 55.236) and `test_request_overhead_budget` (0.200 ms, noise 0.044, budget 0.2). Re-run on their
+  own together with this lane's budget: `3 passed`. Not raised; reported.
 
 ## How to resume
 
