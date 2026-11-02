@@ -27,7 +27,6 @@ from sharpit.engine.sources import dispatch
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import CaptureWiring
 from sharpit.fastapi.introspector import FastApiIntrospector
-from sharpit.fastapi.route_registry import register_routes
 from sharpit.fastapi.signals import dev_server_signal
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
 
@@ -104,6 +103,9 @@ def _models(models: object) -> tuple[object, ...]:
     """
     if models is None:
         return ()
+    kind = type(models).__name__
+    if isinstance(models, str | bytes | Mapping):  # iterable, but never a list of models
+        raise TypeError(f"models must be a model class or an iterable of models, not {kind}")
     if isinstance(models, type) or not isinstance(models, Iterable):
         return (models,)
     return tuple(cast("Iterable[object]", models))
@@ -189,11 +191,10 @@ def install(
 
     router.lifespan_context = lifespan
     sub_app = Starlette(
-        routes=[],
+        routes=adapter._routes(ctx, app),
         middleware=[Middleware(GuardMiddleware, ctx=ctx)],
         exception_handlers={404: _json_http_error, 405: _json_http_error, BadRequest: _bad_request},
     )
-    register_routes(sub_app, adapter._routes(ctx, app))
     mount = SharpitMount(sharpit_settings.path, app=sub_app, name="sharpit")
     mount.sharpit_handle = handle
     router.routes.insert(0, mount)

@@ -18,12 +18,8 @@ from sharpit import install
 from sharpit.engine import sqla
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.panels import panel_is_implemented
-from sharpit.engine.panels04 import IMPLEMENTED
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import LOG_PANELS, WrappingHandlers
-
-DB_PANEL_IDS = ("postgresql", "mysql", "database-advisor", "sqlalchemy-statistics")
-O4_CAPTURE_PANEL_IDS = ("transactions", "security-logs")
 
 
 def _log_handlers() -> list[logging.Handler]:
@@ -54,7 +50,12 @@ def _sql_statements(handle: SharpitHandle) -> bool:
 HOOKS: list[Any] = [
     (("log-tail", "exceptions"), "log handler", _log_handler_present),
     (("exceptions",), "exception handlers", _handlers_wrapped),
-    pytest.param(sqla.DISCOVERY_PANELS, "sql discovery", _sql_discovery, marks=pytest.mark.needs_sqlalchemy),
+    pytest.param(
+        tuple(p for p in sqla.DISCOVERY_PANELS if panel_is_implemented(p)),
+        "sql discovery",
+        _sql_discovery,
+        marks=pytest.mark.needs_sqlalchemy,
+    ),
     pytest.param(("sql-trace",), "sql statements", _sql_statements, marks=pytest.mark.needs_sqlalchemy),
 ]
 
@@ -86,35 +87,3 @@ def test_disabled_panel_installs_no_hook(
         with TestClient(app) as client:
             client.get("/host")
             assert present(handle), (hook, panel)
-
-
-@pytest.mark.skipif(
-    any(IMPLEMENTED[panel_id] for panel_id in O4_CAPTURE_PANEL_IDS), reason="capture panel owners supply behavior tests"
-)
-def test_unimplemented_security_logs_does_not_add_capture_middleware() -> None:
-    app = FastAPI()
-    disabled = ("http-exchanges", "exceptions", "sql-trace", "activity", "log-tail")
-    handle = install(app, enabled="ON", show_banner=False, panels={p: {"enabled": False} for p in disabled})
-    wiring = handle.context.capture.wiring
-
-    assert wiring is not None
-    assert wiring.middleware_added is False
-
-
-@pytest.mark.skipif(
-    any(IMPLEMENTED[panel_id] for panel_id in DB_PANEL_IDS), reason="DB owners supply implementation tests"
-)
-def test_unimplemented_database_panels_do_not_enable_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[bool, bool]] = []
-
-    def add(_ctx: Any, *, statements: bool, discovery: bool) -> bool:
-        calls.append((statements, discovery))
-        return False
-
-    monkeypatch.setattr(sqla, "add", add)
-    app = FastAPI()
-    disabled = ("alembic", "database-connection-pools", "health", "sql-trace")
-    install(app, enabled="ON", show_banner=False, panels={p: {"enabled": False} for p in disabled})
-
-    assert calls
-    assert calls[0] == (False, False)

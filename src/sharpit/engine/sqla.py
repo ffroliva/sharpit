@@ -359,17 +359,18 @@ def routed(ctx: SharpitContext) -> tuple[bool, bool]:
         return ctx.context_id in _statement_contexts, ctx.context_id in _discovery_contexts
 
 
-def add_connection_listener(event: ConnectionEvent, fn: Callable[..., None]) -> Callable[[], None]:
+def add_connection_listener(event: ConnectionEvent, fn: Callable[..., None]) -> Callable[[], None] | None:
     """Listen to the class-level ``Engine`` connection event ``event`` (O1 slot); returns an idempotent remover.
 
     Inert until a lane calls it (A-transactions registers here and never edits this module).
-    shortcut: a no-op remover while SQLAlchemy is not imported; the caller retries later, as ``add`` does.
+    Returns ``None`` while SQLAlchemy is not imported: call it from a ``CaptureState.attachers`` entry, which the
+    wiring retries at startup and on the first request, as ``add`` is retried.
     """
     if event not in CONNECTION_EVENTS:
         raise ValueError(f"unknown connection event {event!r}")
     sa = sqlalchemy_module()
     if sa is None:
-        return lambda: None
+        return None
     with _lock:
         sa.event.listen(sa.engine.Engine, event, fn)
 

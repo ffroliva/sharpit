@@ -333,11 +333,15 @@ def _panels(kwargs: Mapping[str, object], environ: Mapping[str, str], warnings: 
         raise TypeError("panels must be a mapping of panel id to PanelSettings")
     given = cast("Mapping[str, Any]", raw_panels)
     known = [p.id for p in PANELS]
-    unknown = sorted(str(k) for k in given if k not in known)
+    accepted = [p.id for p in PANELS if p.implemented]  # an unimplemented 0.4 panel is as unknown as a typo
+    unknown = sorted(str(k) for k in given if k not in accepted)
     if unknown:
-        raise ValueError(f"Unknown sharpit panel(s): {', '.join(unknown)}; known panels: {', '.join(known)}")
+        raise ValueError(f"Unknown sharpit panel(s): {', '.join(unknown)}; known panels: {', '.join(accepted)}")
     out: dict[str, PanelSettings] = {}
     for pid in known:
+        if pid not in accepted:  # unimplemented: defaults only; its SHARPIT_PANELS_<ID>_* env is ignored
+            out[pid] = PanelSettings()
+            continue
         base = given.get(pid)
         flags: dict[str, object] = {"enabled": True, "read_only": False}
         if isinstance(base, PanelSettings):

@@ -177,8 +177,7 @@ def call_tool(
     query = checked.get("query")
     query = query.strip() or None if isinstance(query, str) else None
     raw_limit = checked.get("limit")
-    max_results = getattr(gate, "max_results", settings.mcp_max_results if via == "mcp" else settings.cli_max_results)
-    limit = min(raw_limit, max_results) if isinstance(raw_limit, int) else max_results
+    limit = min(raw_limit, gate.max_results) if isinstance(raw_limit, int) else gate.max_results
     raw_id = checked.get("id")
     gid = raw_id.strip() if isinstance(raw_id, str) else ""
     if "id" in tool.input_schema["properties"] and not gid:  # BootUI: after the panel gates

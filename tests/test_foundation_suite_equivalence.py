@@ -7,14 +7,14 @@ from starlette.routing import Mount
 
 from fastapi import FastAPI
 from sharpit import install
-from sharpit.engine.tool_registry import catalogue
-from sharpit.engine.tools import CallContext, call_tool
+from sharpit.engine.tools import TOOLS, CallContext, call_tool
+from surface import lane_route_paths
 
 
 def test_foundation_suite_equivalence(pytester: pytest.Pytester) -> None:
     app = FastAPI(title="foundation")
     handle = install(app, enabled="ON", show_banner=False)
-    tools = catalogue()
+    tools = TOOLS
     tool_names = [tool.name for tool in tools]
     overview = call_tool(CallContext(handle.context, {}), "get_overview", {}, via="mcp")
     mount = next(route for route in app.router.routes if isinstance(route, Mount) and route.path == "/sharpit")
@@ -24,7 +24,10 @@ def test_foundation_suite_equivalence(pytester: pytest.Pytester) -> None:
     assert overview["applicationName"] == "foundation"
     assert route_paths[:4] == ["/", "/assets/{file}", "/api/auth/session", "/api/panels"]
     assert route_paths.index("/api/exceptions/stream") < route_paths.index("/api/exceptions/{id}")
-    assert route_paths[-2:] == ["/api/cli", "/api/cli/tools/{tool}"]
+    lane_paths = lane_route_paths(handle.context, app)  # implemented per-panel modules mount after the base
+    base_paths = route_paths[: len(route_paths) - len(lane_paths)]
+    assert route_paths[len(base_paths) :] == lane_paths
+    assert base_paths[-2:] == ["/api/cli", "/api/cli/tools/{tool}"]
 
     pytester.makepyfile("def test_report_control(): pass")
     result = pytester.runpytest_subprocess("--sharpit", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q")
