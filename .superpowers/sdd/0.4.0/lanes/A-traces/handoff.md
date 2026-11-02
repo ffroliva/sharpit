@@ -54,7 +54,6 @@ Branch / worktree: `lane/0.4.0-A-traces` in `C:\development\github\sharpit-wt\0.
 | `tests/engine/capture/test_traces.py::test_exception_event_stacktrace_gets_the_sql_handling` | `02fad99cd50e9d8d1e640a1fc315b98ddc9728c2` | `assert 'hunter2' not in event stacktrace` |
 | `tests/engine/capture/test_traces.py::test_db_statement_parameters_hidden_unless_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert "('alice@example.com',)" == '******'` |
 | `tests/engine/capture/test_traces.py::test_db_query_parameter_hidden_unless_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert 'alice@example.com' == '******'` |
-| `tests/engine/capture/test_traces.py::test_bind_parameter_attributes_shown_with_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert '******' == 'alice@example.com'` |
 | `tests/engine/capture/test_traces.py::test_full_exposure_without_capture_parameters_still_hides_sql_literals` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert "... 'hunter2'" == '... ?'` |
 | `tests/engine/capture/test_traces.py::test_capture_parameters_shows_sql_literals` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert '... ?' == "... 'alice'"` |
 | `tests/engine/capture/test_traces.py::test_detail_applies_the_live_capture_parameters_policy_on_every_read` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | `assert 'alice' in first` |
@@ -71,8 +70,6 @@ Branch / worktree: `lane/0.4.0-A-traces` in `C:\development\github\sharpit-wt\0.
 | `tests/engine/capture/test_traces.py::test_children_of_a_sharpit_request_take_no_capacity` | `aa6749489d3fab8ea99a4ae7ae28827bfb45de63` | `assert [] == [trace A]` |
 | `tests/engine/capture/test_traces.py::test_reason_when_the_attacher_never_ran` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == ''` |
 | `tests/engine/capture/test_traces.py::test_reason_after_detach` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == ''` |
-| `tests/engine/capture/test_traces.py::test_reason_when_the_provider_was_set_late` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | `assert '...restart...' == NOT_ARMED` |
-| `tests/fastapi/test_traces_api.py::test_detail_matches_the_bootui_span_records` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert problems == []` |
 | `tests/fastapi/test_traces_api.py::test_server_root_path_hides_sharpit_server_spans` | `02073e24a9d701c16710786a918e7d9000da9713` | `assert body['traces'] == []` |
 
 ### Fix round 1 UI reds
@@ -214,3 +211,11 @@ Read `.superpowers/sdd/0.4.0/lanes/A-traces/findings.md`. Implementation is at
 All fix-round 2 gates are recorded above. The old FULL-exposure assertion is removed and its red is under
 `Historical SHA`; the new `capture_parameters` assertion remains. Continue on this lane branch; do not edit
 review/gate files or push.
+
+### Historical SHA (coordinator: passed at red SHA, mutation-proven)
+
+| Test | Historical SHA | Reason |
+|---|---|---|
+| `tests/engine/capture/test_traces.py::test_bind_parameter_attributes_shown_with_capture_parameters` | `a5395192b4721875d9cfbb5ac44e9246efaee642` | passed at red SHA (behaviour already present); mutation-proven at 4258944, see findings.md Historical SHA |
+| `tests/engine/capture/test_traces.py::test_reason_when_the_provider_was_set_late` | `4e55e328b373dfea0a4dfe44a12d3e57220bf910` | passed at red SHA (behaviour already present); mutation-proven at 4258944, see findings.md Historical SHA |
+| `tests/fastapi/test_traces_api.py::test_detail_matches_the_bootui_span_records` | `02073e24a9d701c16710786a918e7d9000da9713` | passed at red SHA (behaviour already present); mutation-proven at 4258944, see findings.md Historical SHA |
