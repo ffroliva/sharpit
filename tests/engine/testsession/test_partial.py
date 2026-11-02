@@ -1,4 +1,4 @@
-from sharpit.engine.testsession.partial import partial_run
+from sharpit.engine.testsession.partial import partial_run, selection_requested
 
 
 def test_partial_when_deselected() -> None:
@@ -28,3 +28,8 @@ def test_xdist_partial_facts_merged() -> None:
 
 def test_full_run_is_not_partial() -> None:
     assert partial_run([{"deselected": 0, "selection": False, "collected": 4, "run": 4}], {}) is False
+
+
+def test_partial_selection_detects_last_failed_and_deselect_args() -> None:
+    assert selection_requested(["--lf"]) is True
+    assert selection_requested(["--deselect=tests/test_app.py::test_x"]) is True

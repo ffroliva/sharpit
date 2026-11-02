@@ -7,7 +7,7 @@ from typing import Any
 
 
 def selection_requested(args: Sequence[str]) -> bool:
-    flags = {"-k", "-m", "--lf", "--last-failed", "--sw", "--stepwise", "--deselect"}
+    flags = {"-k", "-m", "--last-failed", "--sw", "--stepwise", "--deselect"}
     return any(
         arg in flags
         or arg.startswith(("-k", "-m", "--deselect="))
@@ -18,6 +18,23 @@ def selection_requested(args: Sequence[str]) -> bool:
 
 
 def partial_run(worker_facts: Sequence[Mapping[str, Any]], controller_facts: Mapping[str, Any]) -> bool:
-    """Temporary wrong result for the baseline refusal red."""
-    del worker_facts, controller_facts
-    return False
+    """Any selection, deselection, stop, interrupt, or missing collection/run fact makes a run partial."""
+    if any(
+        facts.get("deselected", 0)
+        or facts.get("selection", False)
+        or facts.get("interrupted", False)
+        or (facts.get("collected") is not None and facts.get("run") is not None and facts["collected"] != facts["run"])
+        for facts in worker_facts
+    ):
+        return True
+    return bool(
+        controller_facts.get("selection")
+        or controller_facts.get("maxfail")
+        or controller_facts.get("stopped")
+        or controller_facts.get("interrupted")
+        or (
+            controller_facts.get("collected") is not None
+            and controller_facts.get("run") is not None
+            and controller_facts["collected"] != controller_facts["run"]
+        )
+    )
