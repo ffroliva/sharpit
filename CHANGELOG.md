@@ -33,9 +33,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Finding identities in `sharpit.yml` may contain inner spaces; existing entries still parse.
 - The overview view is titled Scorecard, as in BootUI 2.2.0. MCP no longer suggests config property names.
 
-### Fixed
+### Security
 
-- With parameter capture off, SQL Trace, traces and the test report no longer show a double-quoted SQL value or secret (shipped in 0.3.0) (#41).
+- With parameter capture off, SQL Trace, traces and the test report no longer show a double-quoted SQL value or
+  secret. The leak affected 0.3.0; upgrade (#41).
 
 ## [0.3.0] - 2026-11-01
 
