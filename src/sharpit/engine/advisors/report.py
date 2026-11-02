@@ -28,16 +28,17 @@ def severity_counts(results: Iterable[tuple[str, int]], severities: Sequence[str
 def apply_dismissals(
     report: Mapping[str, Any],
     dismissed: Collection[str],
-    occurrences: Mapping[str, Sequence[tuple[str, str]]] | None = None,
+    occurrences: Mapping[str, Sequence[tuple[str, str] | tuple[str, str, str]]] | None = None,
+    dismissed_pairs: Collection[tuple[str, str]] = (),
 ) -> dict[str, Any]:
     """A copy of ``report`` with each result's ``dismissed`` set and ``violationsFound``, ``severityCounts`` and
     ``scan.violationsFound`` recomputed from the active failing rules. The input is never mutated.
 
-    ``occurrences`` maps a rule id to every occurrence's ``(fingerprint, text)`` in violation order. A dismissed
-    fingerprint removes that occurrence from the rule's count; the samples are refilled from the remaining ones, up
-    to ``SAMPLE_LIMIT``; a rule whose every occurrence is dismissed stays ``dismissed: false``, with count 0 and status
+    ``occurrences`` maps a rule id to ``(fingerprint, text, identity_or_target)`` tuples in violation order. A dismissed
+    fingerprint or pair removes that occurrence from the rule's count; samples refill from the remaining ones, up to
+    ``SAMPLE_LIMIT``. A rule whose every occurrence is dismissed stays ``dismissed: false``, with count 0 and status
     ``PASSED`` (spec §5.6)."""
-    marked = [_mark(r, dismissed, (occurrences or {}).get(r["id"])) for r in report["results"]]
+    marked = [_mark(r, dismissed, (occurrences or {}).get(r["id"]), dismissed_pairs) for r in report["results"]]
     active = [r for r in marked if not r["dismissed"] and r["status"] == "FAILED"]
     return {
         **report,
@@ -49,11 +50,19 @@ def apply_dismissals(
 
 
 def _mark(
-    result: dict[str, Any], dismissed: Collection[str], occurrences: Sequence[tuple[str, str]] | None
+    result: dict[str, Any],
+    dismissed: Collection[str],
+    occurrences: Sequence[tuple[str, str] | tuple[str, str, str]] | None,
+    dismissed_pairs: Collection[tuple[str, str]],
 ) -> dict[str, Any]:
     if result["id"] in dismissed:
         return {**result, "dismissed": True}
-    remaining = [text for fingerprint, text in occurrences or () if fingerprint not in dismissed]
+    remaining: list[str] = []
+    for occurrence in occurrences or ():
+        fingerprint, text = occurrence[:2]
+        identity_or_target = occurrence[2] if len(occurrence) == 3 else ""
+        if fingerprint not in dismissed:
+            remaining.append(text)
     if len(remaining) == len(occurrences or ()):
         return {**result, "dismissed": False}
     return {
