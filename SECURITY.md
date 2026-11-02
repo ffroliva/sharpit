@@ -22,9 +22,13 @@ Please report suspected security vulnerabilities privately. **Do not post vulner
 
 sharpit enforces strict safety invariants:
 
-- **Local read surface**: Ordinary HTTP GET routes (under `/sharpit` and `/sharpit/api`) and Model Context Protocol (MCP) read tools run strictly in-process and locally. They never open network sockets or make external HTTP requests.
-- **Vulnerability gatekeepers only**: The only outbound network requests in sharpit originate from dedicated vulnerability clients:
-  - The OSV client in `src/sharpit/engine/collectors/vulns/osv.py` (querying `api.osv.dev`);
-  - The EPSS client in `src/sharpit/engine/collectors/vulns/epss.py` (querying `api.first.org`).
-  All other collectors, advisors, and engine components operate entirely offline without network access.
+- **Local read surface**: HTTP GET routes (under `/sharpit` and `/sharpit/api`) and Model Context Protocol (MCP) read tools open no sockets.
+- **Database panels and health checks**:
+  - The health check (POST) pings configured database engines and runs user health callables.
+  - Database panels run read-only SQL through the app's own engines.
+- **Vulnerability scan network egress**: Outbound network requests occur only during an explicit vulnerability scan (POST), which sends installed package names and versions (up to 500) to OSV and CVE IDs to FIRST EPSS:
+  - The OSV client in `src/sharpit/engine/collectors/vulns/osv.py` queries OSV;
+  - The EPSS client in `src/sharpit/engine/collectors/vulns/epss.py` queries FIRST EPSS.
+  - Destinations are configurable via `SHARPIT_VULNERABILITIES_OSV_BASE_URI` and `SHARPIT_VULNERABILITIES_EPSS_BASE_URI`.
+  - Network vulnerability scans can be disabled via `SHARPIT_VULNERABILITIES_OSV_ENABLED=false` and `SHARPIT_VULNERABILITIES_EPSS_ENABLED=false`.
 - **Fails closed**: If network requests to OSV or EPSS fail or time out, the scan reports the failure gracefully without compromising security or crashing the host application.
