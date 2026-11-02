@@ -19,7 +19,7 @@ The full guide, with when to use each step, is [docs/development/workflow.md](..
 
 | Skill | Command | What it does |
 |---|---|---|
-| `sharpit` | (none: user-facing) | How to install, configure and use sharpit in a FastAPI app. |
+| `sharpit` | (none: user-facing) | How to install, configure and use sharpit. Labelled pre-release. |
 | `predict` | `/sharpit:predict` | Five-persona go/no-go on a proposed change |
 | `scenario` | `/sharpit:scenario` | Edge cases across sharpit's ten risk dimensions, before planning |
 | `plan` | `/sharpit:plan` | Task-by-task TDD plan in `docs/superpowers/plans/` |
@@ -51,8 +51,8 @@ effects on GET or MCP, and OSV network failures.
 | optimize | New pointer | Means test-suite speed: points at the standalone pytest-speed skill, vendored in `scripts/pytest_speed/` |
 | gflow-cli (user-facing skill) | Dropped, replaced by `sharpit` | Described the other project's CLI |
 | video-production | Dropped | Video generation workflow; nothing to do with a dev console |
-| sonar | Dropped | sharpit has no SonarQube project; ruff, pyright strict and the council cover it |
+| sonar | Dropped | sharpit uses SonarCloud in CI rather than a standalone CLI skill; ruff, pyright strict and the council cover it |
 | skillopt (skill-optimisation loop) | Not ported | `/sharpit:optimize` was redefined as pytest-speed; no skill-tuning harness is needed yet |
 
-Files the source skills read that sharpit does not have yet (`CHANGELOG.md`, `KNOWN_ISSUES.md`): the skills fall back to
+Files the source skills read that sharpit does not have yet (`KNOWN_ISSUES.md`): the skills fall back to
 git history and the design spec §14/§15 and offer to bootstrap the file, instead of creating it unasked.
