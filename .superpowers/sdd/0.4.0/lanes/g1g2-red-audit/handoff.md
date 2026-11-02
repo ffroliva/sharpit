@@ -40,4 +40,4 @@ parent; only the two overhead-budget tests failed, mutated and unmutated alike, 
 The release gate refused this lane: "overhead budget module changed: tests/scripts/test_lane_gate.py". The cause was
 `check_budget(` inside a fake-junit string literal. `_is_overhead_module` now decides by AST: a `BUDGET*` assignment
 (anywhere, so a function-local one fails closed) or a `check_budget` call or definition. Unparsable source keeps the
-text rule. Reds `d04c027` and `d3b69dc`, fix `64ef10d`.
+text rule. Reds `d04c027` and `d3b69dc`, fix `64ef10d`; async def check_budget: red `800d35a`, fix `c22512d` (`tests/scripts` 157 passed).

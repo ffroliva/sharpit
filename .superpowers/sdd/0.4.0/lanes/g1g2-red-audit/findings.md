@@ -28,6 +28,7 @@ Every row was replayed at its Red SHA in a detached worktree (PYTHONPATH = that 
 | release gate false positive: check_budget( inside a string made an overhead module | `tests/scripts/test_lane_gate.py::test_lane_gate_allows_changes_to_a_module_that_mentions_check_budget_only_in_a_string` | `d04c0274e9a227950896f5f1c0178ee28b4b4c4d` | `AssertionError: ['overhead budget module changed: tests/test_strings.py (BODY)', ...]` | Fixed in 64ef10d |
 | release gate false positive: check_budget( inside a string made an overhead module | `tests/scripts/test_lane_gate.py::test_check_budget_inside_a_string_is_not_an_overhead_module` | `d3b69dc0c84d76125484e25a3b95b8c895d5b592` | `AssertionError: a string made it an overhead module` | Fixed in 64ef10d |
 | overhead detection by AST: a function-local BUDGET stays counted (fail closed) | `tests/scripts/test_lane_gate.py::test_function_local_budget_counts_as_an_overhead_module` | `d3b69dc0c84d76125484e25a3b95b8c895d5b592` | `AssertionError: a function-local BUDGET was not counted` | Fixed in 64ef10d |
+| delta review: async def check_budget no longer detected | `tests/scripts/test_lane_gate.py::test_async_check_budget_definition_counts_as_an_overhead_module` | `800d35a0c93dc27e68870028c98a3d6aa949c364` | `AssertionError: async def check_budget was not counted` | Fixed in c22512d |
 
 ### Historical SHA
 
