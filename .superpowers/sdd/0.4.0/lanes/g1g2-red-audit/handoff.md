@@ -21,7 +21,7 @@ Branch: `fix/0.4.0-g1g2-red-audit` (from release/0.4.0 at `34f1689`)
 - **Docs**: `docs/development/workflow.md` section "Before every `test:` commit: `red_check`" (a working stub
   example, what it checks and what only the gate checks); one pointer line in `AGENTS.md`.
 
-## Gates run (at `e95b53f`)
+## Gates run (at `e95b53f`; `tests/scripts` again at `64ef10d`: 156 passed)
 
 - `uv run ruff check`: all checks passed; `uv run ruff format --check`: 471 files already formatted
 - `uv run pyright`: 0 errors, 0 warnings
@@ -34,3 +34,10 @@ Branch: `fix/0.4.0-g1g2-red-audit` (from release/0.4.0 at `34f1689`)
 
 Not run: the full suite on the head. The mutation runs of the whole suite (M18–M22) ran it five times at `4d99d5b`'s
 parent; only the two overhead-budget tests failed, mutated and unmutated alike, on a loaded machine.
+
+## Round 3: overhead module by AST
+
+The release gate refused this lane: "overhead budget module changed: tests/scripts/test_lane_gate.py". The cause was
+`check_budget(` inside a fake-junit string literal. `_is_overhead_module` now decides by AST: a `BUDGET*` assignment
+(anywhere, so a function-local one fails closed) or a `check_budget` call or definition. Unparsable source keeps the
+text rule. Reds `d04c027` and `d3b69dc`, fix `64ef10d`.
