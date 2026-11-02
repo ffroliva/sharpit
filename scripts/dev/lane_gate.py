@@ -350,20 +350,29 @@ def red_integrity(opts: Options, base: str, reds: Sequence[Red]) -> _Integrity:
     return out
 
 
-def _exception_name(failure: ET.Element) -> str:
-    """The failing exception's class name: the ``--tb=long`` last line ``<file>:<line>: <type>``, else the ``type``
-    attribute, else the message (a rewritten ``assert`` reports message ``assert 1 == 2`` with no exception name).
+def _exception_name(failure: ET.Element) -> tuple[str, str]:
+    """(class name, file of the last frame) of the failing exception.
+
+    The ``--tb=long`` last line is ``<file>:<line>: <type>``. Without it (never seen from real pytest) fall back to the
+    ``type`` attribute, then the message (a rewritten ``assert`` reports ``assert 1 == 2`` with no exception name);
+    the file is then unknown ("").
     """
     tail = (failure.text or "").strip().splitlines()[-1:]
-    found = re.search(r":\d+: ([\w.]+)$", tail[0]) if tail else None
+    found = re.search(r"^(.*):\d+: ([\w.]+)$", tail[0]) if tail else None
+    if found is not None:
+        return found.group(2).rsplit(".", 1)[-1], found.group(1).strip()
     message = failure.get("message", "")
-    if found is None and failure.get("type"):
-        return failure.get("type", "").rsplit(".", 1)[-1]
-    if found is None and message.startswith("assert "):
-        return "AssertionError"
-    if found is None:
-        found = re.match(r"([\w.]+):", message)
-    return found.group(1).rsplit(".", 1)[-1] if found else ""
+    if failure.get("type"):
+        return failure.get("type", "").rsplit(".", 1)[-1], ""
+    if message.startswith("assert "):
+        return "AssertionError", ""
+    named = re.match(r"([\w.]+):", message)
+    return (named.group(1).rsplit(".", 1)[-1] if named else ""), ""
+
+
+def _is_test_file(frame_file: str, test_path: str) -> bool:
+    frame = frame_file.replace("\\", "/")
+    return frame == test_path or frame.endswith("/" + test_path)
 
 
 Outcome = tuple[str, str]  # (passed|failure|error|skipped|not collected, a failure's exception class name)
@@ -372,23 +381,29 @@ Outcome = tuple[str, str]  # (passed|failure|error|skipped|not collected, a fail
 def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, list[Outcome]]:
     """nodeid -> the outcome of every matching case: a bare function id matches all its parametrisations."""
     cases = ET.parse(junit).getroot().iter("testcase") if junit.is_file() else iter(())
-    by_key: dict[tuple[str, str], list[Outcome]] = {}
+    by_key: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
     for case in cases:
-        outcome, message = "passed", ""
+        outcome, message, frame = "passed", "", ""
         for kind in ("failure", "error", "skipped"):
             child = case.find(kind)
             if child is not None:
                 outcome = kind
-                message = _exception_name(child) if kind == "failure" else child.get("message", "")
+                message, frame = _exception_name(child) if kind == "failure" else (child.get("message", ""), "")
                 break
         name = case.get("name", "")
         for key in {name, name.split("[", 1)[0]}:
-            by_key.setdefault((case.get("classname", ""), key), []).append((outcome, message))
+            by_key.setdefault((case.get("classname", ""), key), []).append((outcome, message, frame))
     result: dict[str, list[Outcome]] = {}
     for nodeid in nodeids:
         path, *rest = nodeid.split("::")
         classname = ".".join([path.removesuffix(".py").replace("/", "."), *rest[:-1]])
-        result[nodeid] = by_key.get((classname, rest[-1]), [("not collected", "")])
+        result[nodeid] = [
+            # an AssertionError from src (``def f(): assert False``) is a disguised stub, not the test's assertion
+            (o, f"AssertionError raised outside the test file ({f})")
+            if o == "failure" and m == "AssertionError" and f and not _is_test_file(f, path)
+            else (o, m)
+            for o, m, f in by_key.get((classname, rest[-1]), [("not collected", "", "")])
+        ]
     return result
 
 
