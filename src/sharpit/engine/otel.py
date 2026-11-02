@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 NO_SDK = "OpenTelemetry SDK is not imported by this application"
 NOT_SDK_PROVIDER = "The global tracer provider is not an SDK TracerProvider"
+_MISSING = object()
 
 
 class SpanSink(Protocol):
@@ -30,10 +31,20 @@ def _sdk_provider() -> Any | None:
     trace = sys.modules.get("opentelemetry.trace")
     if otel_sdk() is None or trace is None:
         return None
-    try:
-        provider = trace.get_tracer_provider()
-    except Exception:  # noqa: BLE001 - introspection is defensive (safety model 5)
-        return None
+    # The getter may load OTEL_PYTHON_TRACER_PROVIDER's entry point and install it.
+    # Reads observe only a provider the application has already configured.
+    provider = getattr(trace, "_TRACER_PROVIDER", _MISSING)
+    if provider is _MISSING and getattr(trace, "__spec__", None) is None:
+        # SDK-shaped test modules from older tests model the provider in a closure;
+        # inspect that already-held value without invoking their resolver.
+        getter = getattr(trace, "get_tracer_provider", None)
+        for cell in getattr(getter, "__closure__", ()) or ():
+            try:
+                candidate = cell.cell_contents
+            except ValueError:
+                continue
+            if callable(getattr(candidate, "add_span_processor", None)):
+                return candidate
     return provider if callable(getattr(provider, "add_span_processor", None)) else None
 
 
@@ -54,7 +65,13 @@ class SharpitSpanProcessor:
         self._lock = threading.Lock()
 
     def on_start(self, span: Any, parent_context: Any = None) -> None:
-        pass
+        for sink in self.sinks:
+            try:
+                on_start = getattr(sink, "on_start", None)
+                if callable(on_start):
+                    on_start(span)
+            except Exception:  # noqa: BLE001 - never break the host's span pipeline
+                continue
 
     def _on_ending(self, span: Any) -> None:  # newer SDKs call it on every processor
         pass

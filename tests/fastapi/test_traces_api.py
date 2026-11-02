@@ -187,7 +187,8 @@ def test_mcp_read_tool_only(client: TestClient):
     assert len(result["structuredContent"]["traces"]) == 1
 
 
-# BootUI 2.2.0 records, field order as declared (boot-ui-ref bootui-engine core/dto/*.java). O2 forbids this lane writing
+# BootUI 2.2.0 records, field order as declared (boot-ui-ref bootui-engine core/dto/*.java).
+# O2 forbids this lane writing
 # a provisional.json, so the detail DTO is checked against the record field lists instead.
 BOOTUI_TRACE_DETAIL = {"traceId": str, "spans": list}  # TraceDetailDto
 BOOTUI_SPAN = {  # SpanDto

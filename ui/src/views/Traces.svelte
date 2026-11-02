@@ -23,27 +23,33 @@
   $effect(() => void report.reload());
   let detail = $state<Detail | null>(null);
   let failure = $state<string | null>(null);
+  let detailRequest = 0;
 
   // nanoseconds (the contract's unit) shown as milliseconds
   const ms = (nanos: number) => `${(nanos / 1e6).toFixed(nanos < 1e7 ? 2 : 1)} ms`;
   const why = $derived(panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : undefined);
 
   async function open(t: Summary) {
+    const request = ++detailRequest;
     failure = null;
     try {
-      detail = await get<Detail>(`traces/${encodeURIComponent(t.traceId)}`);
+      const loaded = await get<Detail>(`traces/${encodeURIComponent(t.traceId)}`);
+      if (request === detailRequest) detail = loaded;
     } catch (e) {
-      failure = errorText(e, 'The trace could not be loaded.');
+      if (request === detailRequest) failure = errorText(e, 'The trace could not be loaded.');
     }
   }
   async function clear() {
+    const request = ++detailRequest;
     failure = null;
     try {
       await del('traces');
-      detail = null;
-      report.reload();
+      if (request === detailRequest) {
+        detail = null;
+        report.reload();
+      }
     } catch (e) {
-      failure = errorText(e, 'Clearing failed.');
+      if (request === detailRequest) failure = errorText(e, 'Clearing failed.');
     }
   }
   // waterfall geometry: each bar's offset and width as a share of the whole trace
@@ -71,13 +77,16 @@
       <div class="empty"><p class="lead">Traces unavailable</p><p>{report.data.unavailableReason}</p></div>
     {:else if detail}
       {@const b = bounds(detail.spans)}
-      <p><button onclick={() => (detail = null)}>Back to traces</button> <span class="mono sm">{detail.traceId}</span></p>
+      <p><button onclick={() => { detailRequest++; detail = null; }}>Back to traces</button> <span class="mono sm">{detail.traceId}</span></p>
       <table class="waterfall">
         <thead><tr><th>Span</th><th>Service</th><th>Duration</th><th>Timeline</th></tr></thead>
         <tbody>
           {#each detail.spans as s (s.spanId)}
             <tr class:error={s.statusCode === 'ERROR'}>
-              <td><span class="sm muted">{s.kind}</span> {s.name}</td>
+              <td>
+                <span class="sm muted">{s.kind}</span> {s.name}
+                {#if s.statusMessage}<p class="status-message">{s.statusMessage}</p>{/if}
+              </td>
               <td>{s.serviceName ?? ''}</td>
               <td>{ms(s.durationNanos)}</td>
               <td class="lane">
@@ -96,6 +105,16 @@
                 </dl>
               </td></tr>
             {/if}
+            {#each s.events as e (`${s.spanId}:${e.timeOffsetNanos}:${e.name}`)}
+              <tr class="event"><td colspan="4">
+                <strong>{e.name}</strong> <span class="sm muted">+{ms(e.timeOffsetNanos)}</span>
+                {#if e.attributes.length}
+                  <dl class="attrs mono sm">
+                    {#each e.attributes as a (`${e.name}:${a.key}`)}<dt>{a.key}</dt><dd>{a.value ?? ''}</dd>{/each}
+                  </dl>
+                {/if}
+              </td></tr>
+            {/each}
           {/each}
         </tbody>
       </table>
@@ -127,5 +146,6 @@
   .bar { position: absolute; top: 30%; height: 40%; background: var(--accent, #3b82f6); border-radius: 2px; }
   .attrs { display: grid; grid-template-columns: max-content 1fr; gap: 0 1rem; margin: 0; }
   .attrs dd { margin: 0; overflow-wrap: anywhere; }
+  .status-message { margin: 0.25rem 0 0; }
   .link { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; }
 </style>

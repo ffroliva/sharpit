@@ -8,16 +8,18 @@ Timestamps are epoch nanoseconds, as the contract says.
 
 from __future__ import annotations
 
+import re
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlsplit
-from weakref import WeakKeyDictionary
 
 from sharpit.engine import otel
 from sharpit.engine.capture import under
-from sharpit.engine.capture.sqltrace import normalize_sql
-from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.capture.correlation import INTERNAL
+from sharpit.engine.capture.sqltrace import _driver_values_dropped, normalize, normalize_sql  # pyright: ignore[reportPrivateUsage]
+from sharpit.engine.capture.streams import SSE_TASK
+from sharpit.engine.masking import MASK, Masker, is_sensitive_key
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -25,13 +27,15 @@ if TYPE_CHECKING:
 MIN_LIMIT, MAX_LIMIT = 1, 500  # TracesService clamp
 MAX_SUMMARY_SERVICES = 20
 NOT_ARMED = "The tracer provider was set after sharpit started; restart the application to collect traces"
-NEVER_ATTACHED = ""
-DETACHED = ""
+NEVER_ATTACHED = "Trace collection was not attached; the application has not started or capture middleware is absent"
+DETACHED = "Trace collection was detached when the application shut down"
 _PATH_KEYS = ("http.route", "url.path", "http.target", "url.full", "http.url")
 _URL_KEYS = frozenset({"url.full", "http.url"})
 _PLAIN_PATH_KEYS = frozenset({"http.route", "url.path", "http.target"})
 _SQL_KEYS = frozenset({"db.statement", "db.query.text"})
 _HEADER_PREFIXES = ("http.request.header.", "http.response.header.")
+_SQL_ERROR = re.compile(r"\[SQL: (.*?)\]", re.DOTALL)
+_SQL_PARAMETER_KEYS = re.compile(r"(?:^|[._])(?:parameters?|bind_?params?)(?:[._]|$)", re.IGNORECASE)
 
 
 def _reveals(masker: Masker) -> bool:
@@ -100,12 +104,27 @@ def _text(value: object) -> str:
 
 def _attribute_value(masker: Masker, key: str, value: object) -> str | None:
     if key.startswith(_HEADER_PREFIXES):
+        normalized_key = key.lower().replace("-", "_")
+        header_name = normalized_key.rsplit(".", 1)[-1].replace("_", "-")
         values = [str(v) for v in _items(value) or [value]]
-        shown, _ = masker.mask_header(key.rsplit(".", 1)[-1], values)
-        return _text(shown) if shown else None
-    if key in _SQL_KEYS:  # literals become ``?`` as in SQL Trace; FULL exposure shows the statement as recorded
+        if is_sensitive_key(normalized_key) or header_name in {
+            "authorization",
+            "proxy-authorization",
+            "cookie",
+            "set-cookie",
+            "x-api-key",
+        }:
+            shown = [MASK for _ in values]
+        else:
+            shown, _ = masker.mask_header(header_name, values)
+        return _text([masker.mask_text(v) or "" for v in shown]) if shown else None
+    if _SQL_PARAMETER_KEYS.search(key):
+        return _text(value) if masker.capture_parameters else MASK
+    if key in _SQL_KEYS:  # SQL Trace normalizes literals unless parameter capture is explicitly enabled
         text = _text(value)
-        return masker.mask_text(text if _reveals(masker) else normalize_sql(text))
+        return masker.mask_text(text if masker.capture_parameters else normalize_sql(text))
+    if key in {"exception.message", "exception.stacktrace"}:
+        return _sql_message(masker, _text(value))
     if key in _URL_KEYS or key in _PLAIN_PATH_KEYS:
         return _url(masker, key, str(value)) if masker.mask(key, "")[0] is not None else None
     if key == "url.query":
@@ -114,6 +133,15 @@ def _attribute_value(masker: Masker, key: str, value: object) -> str | None:
     if shown is None or masked:
         return None if shown is None else str(shown)
     return masker.mask_text(_text(shown))
+
+
+def _sql_message(masker: Masker, text: str | None) -> str | None:
+    if text is None:
+        return None
+    if not masker.capture_parameters:
+        text = _driver_values_dropped(text)
+        text = _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1)).sql}]", text)
+    return masker.mask_text(text)
 
 
 def _attributes(masker: Masker, attributes: Mapping[str, Any] | None) -> list[dict[str, Any]]:
@@ -169,6 +197,26 @@ def _plain_path(key: str, value: str) -> str:
     return urlsplit(value).path if key in _URL_KEYS else value.partition("?")[0]
 
 
+def _without_root_path(path: str, root_path: str) -> str:
+    if root_path and (path == root_path or path.startswith(root_path + "/")):
+        return path[len(root_path) :] or "/"
+    return path
+
+
+def _request_root_path(root_path: str, self_path: str) -> str:
+    return root_path[: -len(self_path)] if self_path and root_path.endswith(self_path) else root_path
+
+
+def _self_relative_path(path: str, root_path: str, self_path: str) -> str:
+    path = _without_root_path(path, _request_root_path(root_path, self_path))
+    if not under(path, self_path):
+        marker = self_path + "/"
+        index = path.find(marker)
+        if index > 0 and path[index - 1] == "/":
+            path = path[index:]
+    return path
+
+
 class SpanBuffer:
     def __init__(
         self, masker: Masker, *, capacity: int = 1000, self_path: str = "/sharpit", root_path: str = ""
@@ -178,20 +226,51 @@ class SpanBuffer:
         self.capacity = capacity
         self.self_path = self_path
         self.armed = False
+        self.arm_attempted = False
+        self.detached = False
+        self._self_trace_ids: set[int] = set()
         self._spans: deque[Any] = deque(maxlen=capacity)  # bounded by spans: memory is what a span buffer costs
 
+    def on_start(self, span: Any) -> None:
+        found = _raw_path(span) if getattr(getattr(span, "kind", None), "name", None) == "SERVER" else None
+        if found is not None and under(
+            _self_relative_path(_plain_path(*found), self.root_path, self.self_path), self.self_path
+        ):
+            context = getattr(span, "context", None)
+            if context is not None:
+                self._self_trace_ids.add(context.trace_id)
+
     def add(self, span: Any) -> None:
+        if INTERNAL.get() or SSE_TASK.get():
+            return
+        context = getattr(span, "context", None)
+        if context is None:
+            self._spans.append(span)
+            return
+        trace_id = context.trace_id
+        if trace_id in self._self_trace_ids:
+            if getattr(getattr(span, "kind", None), "name", None) == "SERVER":
+                self._self_trace_ids.discard(trace_id)
+            return
+        found = _raw_path(span) if getattr(getattr(span, "kind", None), "name", None) == "SERVER" else None
+        if found is not None and under(
+            _self_relative_path(_plain_path(*found), self.root_path, self.self_path), self.self_path
+        ):
+            return
         self._spans.append(span)
 
     def arm(self) -> Callable[[], None] | None:
         """A ``CaptureState.attachers`` entry: arm on the SDK provider, or ``None`` to be retried later."""
+        self.arm_attempted = True
         remover = otel.attach(self)
         if remover is None:
             return None
         self.armed = True
+        self.detached = False
 
         def disarm() -> None:
             self.armed = False
+            self.detached = True
             remover()
 
         return disarm
@@ -208,7 +287,9 @@ class SpanBuffer:
     def _is_self(self, spans: Iterable[Any]) -> bool:
         for span in spans:
             found = _raw_path(span) if _kind(span) == "SERVER" else None
-            if found is not None and under(_plain_path(*found), self.self_path):
+            if found is not None and under(
+                _self_relative_path(_plain_path(*found), self.root_path, self.self_path), self.self_path
+            ):
                 return True
         return False
 
@@ -229,7 +310,7 @@ class SpanBuffer:
         services = sorted({name for s in spans if (name := _service(s)) is not None})[:MAX_SUMMARY_SERVICES]
         return {
             "traceId": trace_id,
-            "rootSpanName": self.masker.mask_path(root.name),
+            "rootSpanName": self.masker.mask_text(root.name),
             "httpPath": self._http_path(root, spans),
             "services": services,
             "startEpochNanos": start,
@@ -243,6 +324,10 @@ class SpanBuffer:
     def unavailable_reason(self) -> str | None:
         if self.armed:
             return None
+        if self.detached:
+            return DETACHED
+        if otel.unavailable_reason() is None:
+            return NOT_ARMED if self.arm_attempted else NEVER_ATTACHED
         return otel.unavailable_reason() or NOT_ARMED
 
     def list(self, limit: int) -> dict[str, Any]:
@@ -270,7 +355,7 @@ class SpanBuffer:
             "traceId": _trace_id(span),
             "spanId": _hex(span.context.span_id, 16),
             "parentSpanId": None if parent is None else _hex(parent, 16),
-            "name": self.masker.mask_path(span.name),
+            "name": self.masker.mask_text(span.name),
             "kind": _kind(span),
             "serviceName": _service(span),
             "scope": getattr(scope, "name", None),
@@ -278,11 +363,11 @@ class SpanBuffer:
             "endEpochNanos": end,
             "durationNanos": end - span.start_time,
             "statusCode": _status_code(span),
-            "statusMessage": self.masker.mask_text(span.status.description),
+            "statusMessage": _sql_message(self.masker, span.status.description),
             "attributes": _attributes(self.masker, span.attributes),
             "events": [
                 {
-                    "name": e.name,
+                    "name": self.masker.mask_text(e.name),
                     "timeOffsetNanos": e.timestamp - span.start_time,
                     "attributes": _attributes(self.masker, e.attributes),
                 }
@@ -300,12 +385,6 @@ class SpanBuffer:
         }
 
 
-_BUFFERS: WeakKeyDictionary[SharpitContext, SpanBuffer] = WeakKeyDictionary()
-
-
 def span_buffer(ctx: SharpitContext) -> SpanBuffer:
     """The context's buffer, made on first use (route build); the routes and the MCP tools share it."""
-    buffer = _BUFFERS.get(ctx)
-    if buffer is None:
-        buffer = _BUFFERS[ctx] = SpanBuffer(ctx.masker, self_path=ctx.settings.path)
-    return buffer
+    return ctx.lazy("traces.buffer", lambda: SpanBuffer(ctx.masker, self_path=ctx.settings.path))

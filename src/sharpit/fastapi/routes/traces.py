@@ -27,6 +27,7 @@ def build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]:
             ctx.capture.wiring.span_processor = otel.PROCESSOR
 
     def traces(request: Request) -> Response:
+        buffer.root_path = request.scope.get("root_path", "")
         if request.method == "DELETE":
             buffer.clear()
             return Response(status_code=204, headers=dict(security_headers("api")))
@@ -34,6 +35,7 @@ def build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]:
         return json_response(buffer.list(DEFAULT_LIMIT if limit is None else limit))
 
     def trace_detail(request: Request) -> Response:
+        buffer.root_path = request.scope.get("root_path", "")
         trace_id: str = request.path_params["id"]
         detail = buffer.detail(trace_id)
         return json_response(detail) if detail is not None else error(404, f"trace {trace_id} not found")

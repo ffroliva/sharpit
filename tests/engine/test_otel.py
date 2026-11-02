@@ -4,6 +4,8 @@ The SDK is not a test dependency, so these tests plant SDK-shaped modules in ``s
 relies on the duck-typed ``add_span_processor`` / ``on_end`` contract.
 """
 
+# ruff: noqa: E501  # the frozen red's test helper docstring documents a long OpenTelemetry API name
+
 from __future__ import annotations
 
 import sys
