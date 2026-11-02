@@ -47,3 +47,27 @@ def test_fastapi_err_rule_flags_swallowed_broad_handler(tmp_path: Path, monkeypa
 
     assert [v.target for v in found] == ["swallow_routes_flagged:4"]
     assert FASTAPI_ERR_001.id == "FASTAPI-ERR-001"
+
+
+def test_fastapi_err_rule_ignores_logged_handler(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _module(
+        tmp_path,
+        monkeypatch,
+        "swallow_routes_logged",
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        def week_count():
+            try:
+                return {"week_count": len(WEEKS)}
+            except ValueError:
+                return {"week_count": -1}
+            except Exception:
+                logger.exception("week count failed")
+                return {"week_count": 0}
+        """,
+    )
+
+    assert swallowed_handler_violations([_route("swallow_routes_logged:week_count")]) == []

@@ -27,8 +27,12 @@ def handler_swallows(source: str, handled_line: int, exc: BaseException | None =
 
 
 def handler_swallows_code(code: CodeType, offset: int, exc: BaseException | None = None) -> bool:
-    return False
+    return True
 
 
 def swallowing_lines(source: str) -> list[int]:
     return sorted(_clauses(ast.parse(source)))
+
+
+def clear_cache() -> None:
+    return None

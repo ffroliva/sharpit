@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import dis
 import textwrap
+from types import CodeType
+
+import pytest
 
 from sharpit.engine.testsession import swallowed
-from sharpit.engine.testsession.swallowed import handler_swallows, is_programming_error
+from sharpit.engine.testsession.swallowed import handler_swallows, handler_swallows_code, is_programming_error
 
 
 def _src(text: str) -> str:
@@ -56,3 +60,145 @@ def test_programming_error_types() -> None:
     assert is_programming_error(UnboundLocalError("x")) is True
     assert is_programming_error(ValueError("x")) is False
     assert (AttributeError, TypeError, NameError, ImportError, UnboundLocalError) == swallowed.PROGRAMMING_ERRORS
+
+
+def _handler_offsets(code: CodeType) -> list[int]:
+    return [i.offset for i in dis.get_instructions(code) if i.opname == "PUSH_EXC_INFO"]
+
+
+def test_ignores_narrow_catch() -> None:
+    source = _src(
+        """
+        def a():
+            try:
+                pass
+            except ValueError:
+                return 0
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except ValueError:")) is False
+
+
+def test_ignores_reraise() -> None:
+    source = _src(
+        """
+        def a():
+            try:
+                pass
+            except Exception:
+                raise
+
+        def b():
+            try:
+                pass
+            except Exception as exc:
+                raise RuntimeError("wrapped") from exc
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except Exception:")) is False
+    assert handler_swallows(source, _line_of(source, "except Exception as exc:")) is False
+
+
+def test_ignores_logger_and_warnings_calls() -> None:
+    source = _src(
+        """
+        def a():
+            try:
+                pass
+            except Exception:
+                logger.exception("failed")
+                return 0
+
+        def b():
+            try:
+                pass
+            except BaseException:
+                logging.error("failed")
+
+        def c():
+            try:
+                pass
+            except:
+                warnings.warn("failed")
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except Exception:")) is False
+    assert handler_swallows(source, _line_of(source, "except BaseException:")) is False
+    assert handler_swallows(source, _line_of(source, "except:")) is False
+
+
+def _nested() -> int:
+    try:
+        try:
+            return {}["missing"]
+        except KeyError:
+            raise
+    except Exception:
+        return 0
+
+
+def test_nested_handler_uses_handled_location() -> None:
+    inner, outer = _handler_offsets(_nested.__code__)[:2]
+    error = KeyError("missing")
+
+    assert handler_swallows_code(_nested.__code__, inner, error) is False  # narrow and re-raises
+    assert handler_swallows_code(_nested.__code__, outer, error) is True  # broad, returns a default
+
+
+def _first_match(value: object) -> int:
+    try:
+        return int(value)  # type: ignore[call-overload]
+    except ValueError:
+        return -1
+    except Exception:
+        return 0
+
+
+def test_first_matching_clause_decides() -> None:
+    offset = _handler_offsets(_first_match.__code__)[0]
+
+    assert (
+        handler_swallows_code(_first_match.__code__, offset, ValueError("x")) is False
+    )  # the narrow clause handles it
+    assert handler_swallows_code(_first_match.__code__, offset, TypeError("x")) is True
+
+
+class _Custom(Exception):
+    pass
+
+
+def _unresolvable() -> int:
+    try:
+        return 1
+    except _Custom:
+        return -1
+    except Exception:
+        return 0
+
+
+def test_unresolvable_clause_is_never_flagged() -> None:
+    offset = _handler_offsets(_unresolvable.__code__)[0]
+
+    # ``_Custom`` is not a builtin: it may match, so no finding (never a false positive)
+    assert handler_swallows_code(_unresolvable.__code__, offset, _Custom()) is False
+
+
+def test_cleanup_offset_is_not_a_handler() -> None:
+    cleanup = [i.offset for i in dis.get_instructions(_nested.__code__) if i.opname == "COPY"]
+
+    assert [handler_swallows_code(_nested.__code__, o, KeyError("x")) for o in cleanup] == [False] * len(cleanup)
+
+
+def test_ast_cache_is_per_code_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    swallowed.clear_cache()
+    parses: list[str] = []
+    real_parse = swallowed.ast.parse
+    monkeypatch.setattr(
+        swallowed.ast, "parse", lambda source, *a, **k: parses.append("x") or real_parse(source, *a, **k)
+    )
+    outer = _handler_offsets(_nested.__code__)[1]
+
+    for _ in range(3):
+        handler_swallows_code(_nested.__code__, outer, KeyError("x"))
+
+    assert len(parses) == 1
