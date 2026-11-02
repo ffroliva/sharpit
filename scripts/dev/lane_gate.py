@@ -53,7 +53,12 @@ PROTECTED = (
     "sonar-baseline.txt",
     "tests/engine/test_import_boundary.py",
     "uv.lock",
+    "tests/overhead.py",
+    "tests/test_code_shape.py",
+    "tests/conftest.py",
+    "conftest.py",
 )
+GATE_CONFIG = ("ruff", "pyright", "pytest", "uv")  # [tool.<x>] sections of pyproject.toml
 F_MAY_CHANGE = {"scripts/dev/lane_gate.py", "tests/engine/test_import_boundary.py", "uv.lock", "pyproject.toml"}
 BASELINE = "tests/complexity_baseline.json"
 LEASED_LANE = "A-postgresql"
@@ -85,6 +90,7 @@ class Result:
 class Red:
     test: str
     sha: str
+    manual: bool = False  # from a table under a UI/manual heading: a non-pytest id there is `unverified`
 
 
 # --- git helpers ------------------------------------------------------------------------------------------------------
@@ -123,9 +129,18 @@ def _code(cell: str) -> str:
 
 def _tables(text: str) -> Iterator[tuple[list[str], list[list[str]]]]:
     """Yield (lower-cased header, rows) for every markdown table in ``text``."""
+    for _heading, header, rows in _headed_tables(text):
+        yield header, rows
+
+
+def _headed_tables(text: str) -> Iterator[tuple[str, list[str], list[list[str]]]]:
+    """Yield (nearest markdown heading above, lower-cased header, rows) for every table in ``text``."""
     lines = text.splitlines()
+    heading = ""
     i = 0
     while i < len(lines):
+        if lines[i].startswith("#"):
+            heading = lines[i]
         is_head = lines[i].lstrip().startswith("|") and i + 1 < len(lines)
         if is_head and re.fullmatch(r"\s*\|?[\s:|-]+\|?\s*", lines[i + 1]) and "-" in lines[i + 1]:
             header = [cell.lower() for cell in _cells(lines[i])]
@@ -134,7 +149,7 @@ def _tables(text: str) -> Iterator[tuple[list[str], list[list[str]]]]:
             while i < len(lines) and lines[i].lstrip().startswith("|"):
                 rows.append(_cells(lines[i]))
                 i += 1
-            yield header, rows
+            yield heading, header, rows
         else:
             i += 1
 
@@ -154,8 +169,11 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
     reds: dict[Red, None] = {}
     problems: list[str] = []
     for label, text in texts.items():
-        for header, rows in _tables(text):
+        for heading, header, rows in _headed_tables(text):
             test_col = _column(header, "test id", "test")
+            if test_col is None:  # e.g. "Vitest test"
+                test_col = next((i for i, name in enumerate(header) if "test" in name.split()), None)
+            manual = bool(re.search(r"\b(ui|manual)\b", heading, re.IGNORECASE))
             sha_col = next((i for i, name in enumerate(header) if "red sha" in name), None)
             disp_col = _column(header, "disposition")
             if sha_col is None and disp_col is not None:
@@ -164,10 +182,11 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
                 continue
             for row in rows:
                 test, sha = _cell(row, test_col), _cell(row, sha_col)
-                if not test or (not sha and _cell(row, disp_col).lower().startswith("parked")):
+                disposition = row[disp_col] if disp_col is not None and disp_col < len(row) else ""
+                if not test or (not sha and disposition.lower().startswith("parked")):  # raw cell, as in findings
                     continue
                 if sha:
-                    reds[Red(test, sha)] = None
+                    reds[Red(test, sha, manual)] = None
                 else:
                     problems.append(f"{label}: red table row for {test} has no Red SHA")
     return list(reds), problems
@@ -202,22 +221,40 @@ def _baseline_refusals(lane: str, before: str | None, after: str | None) -> list
     return problems
 
 
-def diff_refusals(opts: Options, base: str) -> list[str]:
-    repo, head, is_f = opts.worktree, opts.sha, opts.lane == "F"
+def _gate_config(text: str | None) -> dict[str, object]:
+    tool = tomllib.loads(text or "").get("tool", {})
+    return {name: tool.get(name) for name in GATE_CONFIG}
+
+
+def diff_refusals(opts: Options, base: str) -> tuple[list[str], list[str]]:
+    """(refusals, notes): a refusal for a path named by ``--allow-path`` becomes a note instead."""
     problems: list[str] = []
-    for path in _diff_paths(repo, base, head):
-        before, after = _show(repo, base, path), _show(repo, head, path)
-        if REVIEWER_OWNED.match(path):
-            problems.append(f"reviewer-owned path changed: {path}")
-        elif path in PROTECTED and not (is_f and path in F_MAY_CHANGE):
-            problems.append(f"protected path changed: {path}")
-        elif path == BASELINE:
-            problems += _baseline_refusals(opts.lane, before, after)
-        elif path == "pyproject.toml" and not is_f and _dependency_lists(before) != _dependency_lists(after):
+    notes: list[str] = []
+    for path in _diff_paths(opts.worktree, base, opts.sha):
+        found = _path_refusals(opts, base, path)
+        if path in opts.allow_paths:
+            notes += [f"allowed by --allow-path: {problem}" for problem in found]
+        else:
+            problems += found
+    return problems, notes
+
+
+def _path_refusals(opts: Options, base: str, path: str) -> list[str]:
+    is_f = opts.lane == "F"
+    before, after = _show(opts.worktree, base, path), _show(opts.worktree, opts.sha, path)
+    if REVIEWER_OWNED.match(path):
+        return [f"reviewer-owned path changed: {path}"]
+    if path in PROTECTED and not (is_f and path in F_MAY_CHANGE):
+        return [f"protected path changed: {path}"]
+    if path == BASELINE:
+        return _baseline_refusals(opts.lane, before, after)
+    if path == "pyproject.toml":
+        old, new = _gate_config(before), _gate_config(after)
+        problems = [f"gate config changed: pyproject.toml [tool.{n}]" for n in GATE_CONFIG if old[n] != new[n]]
+        if not is_f and _dependency_lists(before) != _dependency_lists(after):
             problems.append("dependency list changed: pyproject.toml")
-        elif _is_overhead_module(path, before):
-            problems += _overhead_problems(path, before or "", after or "")
-    return problems
+        return problems
+    return _overhead_problems(path, before or "", after or "") if _is_overhead_module(path, before) else []
 
 
 def _is_overhead_module(path: str, before: str | None) -> bool:
@@ -249,7 +286,7 @@ def _checklist_refusals(opts: Options, text: str) -> list[str]:
         line = next((ln for ln in text.splitlines() if re.match(rf"^\s*\|?\s*{n}\s*(\||\.|\)|\s)", ln)), None)
         if line is None:
             problems.append(f"checklist.md: item {n} missing")
-        elif re.search(r"N/A\s*[—–:-]+\s*\S", line) or any(
+        elif re.search(r"N/A\s*[—–:-]+\s*[^\s|]", line) or any(
             _evidence_path_exists(opts, t) for t in re.findall(r"`([^`]+)`", line)
         ):
             continue
@@ -262,7 +299,10 @@ def _checklist_refusals(opts: Options, text: str) -> list[str]:
 
 def _findings_refusals(text: str) -> list[str]:
     problems: list[str] = []
-    for header, rows in _tables(text):
+    tables = list(_tables(text))
+    if any(rows for _header, rows in tables) and not any("disposition" in header for header, _rows in tables):
+        problems.append("findings.md: no table with a Disposition column (every finding needs one)")
+    for header, rows in tables:
         disp_col, test_col = _column(header, "disposition"), _column(header, "test id", "test")
         if disp_col is None:
             continue
@@ -314,8 +354,8 @@ def evidence_refusals(opts: Options, base: str) -> tuple[list[str], dict[str, st
         lines = log.read_text(encoding="utf-8").splitlines() if log.is_file() else []
         if not lines or opts.sha not in lines[0]:
             problems.append(f"gate/{name}.log does not name head {opts.sha} on line 1 (missing or stale)")
-        elif "exit 0" not in (line.strip() for line in lines[1:]):
-            problems.append(f"gate/{name}.log does not record exit 0 (a failed run)")
+        elif [line.strip() for line in lines if line.strip()][-1] != "exit 0":
+            problems.append(f"gate/{name}.log does not record exit 0 as its last line (a failed run)")
     return problems, found
 
 
@@ -359,12 +399,14 @@ def _bound_names(node: ast.stmt) -> list[str]:
     return [n.id for target in targets for n in ast.walk(target) if isinstance(n, ast.Name)]
 
 
-def _definitions(source: str) -> dict[str, str]:
-    """Each top-level name -> the source of its last definition (def, class, assignment, or one import alias)."""
-    try:
-        body = ast.parse(source).body
-    except SyntaxError:
-        return {}
+def _definitions(source: str, body: list[ast.stmt] | None = None) -> dict[str, str]:
+    """Each top-level name (or each name in ``body``, e.g. a class body) -> the source of its last definition (def,
+    class, assignment, or one import alias)."""
+    if body is None:
+        try:
+            body = ast.parse(source).body
+        except SyntaxError:
+            return {}
     defs: dict[str, str] = {}
     for node in body:
         if isinstance(node, ast.Import | ast.ImportFrom):
@@ -374,6 +416,19 @@ def _definitions(source: str) -> dict[str, str]:
         else:
             defs.update(dict.fromkeys(_bound_names(node), _segment(source, node)))
     return defs
+
+
+def _class_definitions(source: str, classes: list[str]) -> dict[str, str]:
+    try:
+        body: list[ast.stmt] = ast.parse(source).body
+    except SyntaxError:
+        return {}
+    for cls in classes:
+        node = next((n for n in body if isinstance(n, ast.ClassDef) and n.name == cls), None)
+        if node is None:
+            return {}
+        body = node.body
+    return _definitions(source, body)
 
 
 def _test_node(source: str, nodeid: str) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, list[str]] | None:
@@ -402,14 +457,22 @@ def _red_file_problems(opts: Options, sha: str, path: str, nodeid: str) -> list[
         return ["test missing at red SHA"]
     func, classes = found
     args = [a.arg for a in (*func.args.posonlyargs, *func.args.args, *func.args.kwonlyargs) if a.arg != "self"]
-    referenced = {n.id for n in ast.walk(func) if isinstance(n, ast.Name)} | set(args) | set(classes[:1])
-    referenced.discard(func.name)
-    before, after = _definitions(red_source), _definitions(_show(opts.worktree, opts.sha, path) or "")
+    referenced = {n.id for n in ast.walk(func) if isinstance(n, ast.Name)} | set(args)
+    head_source = _show(opts.worktree, opts.sha, path) or ""
+    before, after = _definitions(red_source), _definitions(head_source)
     problems = [
         f"referenced name {name} changed after the red commit"
-        for name in sorted(referenced)
+        for name in sorted(referenced - {func.name})
         if after.get(name) != before.get(name)  # absent at the red SHA and defined later = a shadow
     ]
+    if classes:  # a method red: its class may grow, but class names it uses (self.X, fixtures) stay frozen
+        attrs = {n.attr for n in ast.walk(func) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
+        old_cls, new_cls = _class_definitions(red_source, classes), _class_definitions(head_source, classes)
+        problems += [
+            f"referenced name {name} changed after the red commit"
+            for name in sorted((referenced | attrs) - {func.name})
+            if name in old_cls and new_cls.get(name) != old_cls[name]
+        ]
     parts = path.split("/")[:-1]
     for conftest in ("/".join([*parts[:i], "conftest.py"]) for i in range(len(parts) + 1)):
         old = _definitions(_show(opts.worktree, sha, conftest) or "")
@@ -463,8 +526,11 @@ def red_integrity(opts: Options, base: str, reds: Sequence[Red]) -> _Integrity:
         out.problems.append("no red tests recorded in findings.md/handoff.md (table: | Test id | Red SHA | ... |)")
     for red in reds:
         tag = f"red {red.test}"
-        if ".py::" not in red.test:
+        if ".py::" not in red.test and red.manual:
             out.unverified.append(f"{tag}: not a pytest test; replay it by hand at {red.sha}")
+            continue
+        if ".py::" not in red.test:
+            out.problems.append(f"{tag}: not a pytest node id (path.py::name) and not in a UI/manual table")
             continue
         problem, sha = _sha_problem(opts, base, red)
         problems = [problem] if problem else _source_problems(opts, base, red, sha)
@@ -499,6 +565,22 @@ def _is_test_file(frame_file: str, test_path: str) -> bool:
     return frame == test_path or frame.endswith("/" + test_path)
 
 
+def _is_library_frame(frame_file: str) -> bool:
+    """Code under test or an installed package: an ``assert`` there is a disguised stub. Shared test helpers
+    (``tests/overhead.py::check_budget``) are fine."""
+    frame = "/" + frame_file.replace("\\", "/").lstrip("/")
+    return "/src/" in frame or "/site-packages/" in frame
+
+
+def _classify(name: str, frame: str, test_path: str) -> str:
+    """The detail a red is judged by: "AssertionError" when it counts as an assertion red."""
+    if name == "DidNotRaise":  # pytest.raises red: counts when raised by the test itself
+        return "AssertionError" if frame and _is_test_file(frame, test_path) else "Failed"
+    if name == "AssertionError" and frame and _is_library_frame(frame):
+        return f"AssertionError raised outside the test file, in library code ({frame})"
+    return name
+
+
 Outcome = tuple[str, str]  # (passed|failure|error|skipped|not collected, a failure's exception class name)
 
 
@@ -513,6 +595,8 @@ def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, list[Outcome]]:
             if child is not None:
                 outcome = kind
                 message, frame = _exception_name(child) if kind == "failure" else (child.get("message", ""), "")
+                if message == "Failed" and child.get("message", "").startswith("Failed: DID NOT RAISE"):
+                    message = "DidNotRaise"
                 break
         name = case.get("name", "")
         for key in {name, name.split("[", 1)[0]}:
@@ -522,10 +606,7 @@ def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, list[Outcome]]:
         path, *rest = nodeid.split("::")
         classname = ".".join([path.removesuffix(".py").replace("/", "."), *rest[:-1]])
         result[nodeid] = [
-            # an AssertionError from src (``def f(): assert False``) is a disguised stub, not the test's assertion
-            (o, f"AssertionError raised outside the test file ({f})")
-            if o == "failure" and m == "AssertionError" and f and not _is_test_file(f, path)
-            else (o, m)
+            (o, _classify(m, f, path) if o == "failure" else m)
             for o, m, f in by_key.get((classname, rest[-1]), [("not collected", "", "")])
         ]
     return result
@@ -645,7 +726,8 @@ def evaluate(
     integration_head = _git(opts.integration, "rev-parse", "HEAD").stdout.strip()
     base = _git(opts.worktree, "merge-base", integration_head, opts.sha).stdout.strip()
 
-    result.refusals += diff_refusals(opts, base)
+    diff_problems, result.notes = diff_refusals(opts, base)
+    result.refusals += diff_problems
     evidence, texts = evidence_refusals(opts, base)
     result.refusals += evidence
     reds, table_problems = red_tests({name: texts.get(name, "") for name in ("findings.md", "handoff.md")})
@@ -662,6 +744,9 @@ def evaluate(
         result.refusals.append("red replay and gate re-run skipped: fix the refusals above first")
         return result
     result.refusals += replay_refusals(opts, integrity.replayable, run_pytest)
+    if result.refusals:  # keep the last gate logs: a refused replay must not overwrite them
+        result.refusals.append("gate re-run skipped: the red replay refused")
+        return result
     if not opts.no_rerun:
         result.refusals += gate_refusals(opts, run_gate, prepare_env)
     return result
@@ -675,16 +760,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--integration", type=Path, default=Path.cwd())
     parser.add_argument("--accept-unverified", action="store_true")
     parser.add_argument("--no-rerun", action="store_true", help="test fixture lanes only")
+    parser.add_argument("--allow-path", action="append", default=[], help="protected path this lane may change")
     args = parser.parse_args(argv)
+    integration: Path = args.integration.resolve()
     worktree: Path = args.worktree or WORKTREE_ROOT / f"0.4.0-{args.lane}"
     sha: str = args.sha or _git(worktree, "rev-parse", "HEAD").stdout.strip()
-    opts = Options(args.lane, worktree, sha, args.integration, args.accept_unverified, args.no_rerun)
+    allow = tuple(args.allow_path)
+    opts = Options(args.lane, worktree.resolve(), sha, integration, args.accept_unverified, args.no_rerun, allow)
     result = evaluate(
         opts,
         run_gate=run_gate_command,
         run_pytest=run_pytest_in(opts.integration),
         prepare_env=lambda tree: run_gate_command("uv-sync", SYNC, tree),  # the fresh tree's own .venv, lane's lock
     )
+    for line in result.notes:
+        print(f"note: {line}")
     for line in result.unverified:
         print(f"unverified: {line}")
     for line in result.refusals:
