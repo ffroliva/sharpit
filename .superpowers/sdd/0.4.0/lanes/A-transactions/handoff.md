@@ -4,7 +4,7 @@ Implementer: Codex (GPT-6)
 
 ## Status
 
-In progress. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.0-A-transactions`; no upstream changes merged or rebased.
+DONE_WITH_CONCERNS. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.0-A-transactions`; no upstream changes merged or rebased.
 
 ## Done
 
@@ -17,7 +17,7 @@ In progress. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 
 ## Next step
 
-Run the final full pytest suite detached at `-n 4`, log outside this worktree; then update the gate status. Run no-SQLAlchemy and lowest-direct checks if time permits. Coordinator must resolve the shared-test items below before lane_gate can merge. Live check uses the coordinator-owned example, outside this lane's touch scope.
+Coordinator to update the shared-test items below and rerun lane_gate before merge. No-SQLAlchemy, lowest-direct, and live checks remain for coordinator follow-up; the live example is outside this lane's touch scope.
 
 ## Decisions
 
