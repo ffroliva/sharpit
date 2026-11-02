@@ -507,3 +507,34 @@ def test_lane_gate_refuses_assertion_raised_outside_the_test(tmp_path: Path) -> 
     fx = _fixture(tmp_path)
     fx.outcomes[fx.red] = "src-assert"
     assert _refused(fx.evaluate(), f"red {TEST_ID}: AssertionError raised outside the test file")
+
+
+FINDINGS_HEAD = "| Finding | Test | RED SHA (commit) | Assertion message | Disposition |\n|---|---|---|---|---|\n"
+
+
+@pytest.mark.parametrize("sha_cell", ["", "n/a", "`n/a (not a red)`"])
+def test_lane_gate_refuses_fixed_finding_without_red_sha(tmp_path: Path, sha_cell: str) -> None:
+    fx = _fixture(tmp_path, review=False)
+    rows = f"| ok | `{TEST_ID}` | `{fx.red}` | x | Fixed |\n"
+    rows += f"| skipped | `tests/test_widget.py::test_x` | {sha_cell} | x | Fixed |\n"
+    fx.commit({f"{fx.folder}/findings.md": FINDINGS_HEAD + rows}, "docs: findings")
+    fx.review()
+    assert _refused(fx.evaluate(), "tests/test_widget.py::test_x")
+
+
+def test_lane_gate_refuses_findings_table_without_red_sha_column(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    table = (
+        f"| Finding | Test | Red commit | Disposition |\n|---|---|---|---|\n| f | `{TEST_ID}` | `{fx.red}` | Fixed |\n"
+    )
+    fx.commit({f"{fx.folder}/findings.md": table}, "docs: findings")
+    fx.review()
+    assert _refused(fx.evaluate(), "findings.md: a findings table has no Red SHA column")
+
+
+def test_lane_gate_allows_parked_finding_without_red_sha(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    rows = f"| ok | `{TEST_ID}` | `{fx.red}` | x | Fixed |\n| later | | | | Parked: needs the owner |\n"
+    fx.commit({f"{fx.folder}/findings.md": FINDINGS_HEAD + rows}, "docs: findings")
+    fx.review()
+    assert _refusals(fx.evaluate()) == []
