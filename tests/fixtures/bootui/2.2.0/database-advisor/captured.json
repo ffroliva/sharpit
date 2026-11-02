@@ -19,7 +19,7 @@
     "analyzer": "BootUI Database Advisor",
     "status": "NOT_SCANNED",
     "message": "Database Advisor has not run yet. Run Database checks in the panel, or call database_advisor_scan (bootui db scan), to inspect the physical schema.",
-    "scannedAt": 0,
+    "scannedAt": null,
     "rulesEvaluated": 0,
     "tablesAnalyzed": 0,
     "violationsFound": 0

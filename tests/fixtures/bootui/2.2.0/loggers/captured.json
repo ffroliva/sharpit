@@ -9,6 +9,11 @@
       "name": "ROOT",
       "configuredLevel": "INFO",
       "effectiveLevel": "INFO"
+    },
+    {
+      "name": "_org",
+      "configuredLevel": null,
+      "effectiveLevel": "INFO"
     }
   ],
   "page": {

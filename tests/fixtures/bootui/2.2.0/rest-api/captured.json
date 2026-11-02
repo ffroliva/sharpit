@@ -38,7 +38,7 @@
         "BalanceController repeats leading path segment '/api' on every method but has no class-level @RequestMapping"
       ],
       "recommendation": "Hoist the shared prefix into a class-level @RequestMapping and keep method paths relative.",
-      "learnMoreUrl": "http/path",
+      "learnMoreUrl": "https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-requestmapping.html",
       "dismissed": false,
       "sampleLocations": [
         {

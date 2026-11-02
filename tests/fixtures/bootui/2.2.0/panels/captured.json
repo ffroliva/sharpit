@@ -5,6 +5,15 @@
       "id": "overview",
       "title": "Scorecard",
       "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "readOnly": false,
+      "readOnlyReason": null
+    },
+    {
+      "id": "mysql",
+      "title": "MySQL",
+      "available": false,
       "unavailableReason": "No MySQL JDBC datasource is configured. MariaDB requires a separate integration.",
       "enabled": true,
       "readOnly": false,

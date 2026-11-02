@@ -42,9 +42,27 @@
           "id": "settings",
           "title": "Notable settings",
           "status": "AVAILABLE",
+          "reason": null,
+          "hint": null,
+          "rowCount": 21,
+          "truncated": false
+        },
+        {
+          "id": "statements",
+          "title": "Statement ranking",
+          "status": "SKIPPED",
           "reason": "The pg_stat_statements extension is not installed on this server.",
           "hint": "Install the extension (shared_preload_libraries = 'pg_stat_statements', then CREATE EXTENSION pg_stat_statements;) to rank statements by execution time.",
-          "rowCount": 21,
+          "rowCount": 0,
+          "truncated": false
+        },
+        {
+          "id": "vacuum",
+          "title": "Autovacuum health",
+          "status": "AVAILABLE",
+          "reason": null,
+          "hint": "Autovacuum \"due\" is computed against the live-tuple estimate in pg_stat_user_tables, whereas autovacuum itself uses pg_class.reltuples, and only the dead-tuple trigger is modelled: an insert-only table can also be vacuumed by autovacuum_vacuum_insert_threshold.",
+          "rowCount": 7,
           "truncated": false
         }
       ],
@@ -53,15 +71,29 @@
           "pid": 26873,
           "user": "ledger",
           "applicationName": "PostgreSQL JDBC Driver",
-          "clientAddress": "10.89.0.1",
+          "clientAddress": "127.0.0.1",
           "state": "active",
-          "waitEventType": "Client",
-          "waitEvent": "ClientRead",
+          "waitEventType": null,
+          "waitEvent": null,
           "blockedBy": null,
           "stateSeconds": 0.049384,
           "transactionSeconds": 0.111254,
           "querySeconds": 0.049396,
           "query": "select current_database() as database_name, pg_database_size(current_database()) as database_size, d.xact_commit as xact_commit, d.xact_rollback as xact_rollback, d.blks_read as blks_read, d.blks_hit as blks_hit, (select sum(numbackends)::int from pg_stat_database) as backends, d.deadlocks as deadlocks, d.temp_files as temp_files, d.temp_bytes as temp_bytes, age(p.datfrozenxid) as xid_age, (selec…"
+        },
+        {
+          "pid": 26875,
+          "user": "ledger",
+          "applicationName": "PostgreSQL JDBC Driver",
+          "clientAddress": "127.0.0.1",
+          "state": "idle",
+          "waitEventType": "Client",
+          "waitEvent": "ClientRead",
+          "blockedBy": null,
+          "stateSeconds": 82.243581,
+          "transactionSeconds": null,
+          "querySeconds": 82.243754,
+          "query": "SET application_name = '******'"
         }
       ],
       "statements": [],
@@ -91,6 +123,19 @@
           "sequentialTuplesRead": 0,
           "indexScans": 22,
           "sequentialScanRatio": 0.15384615384615385
+        },
+        {
+          "schema": "public",
+          "table": "databasechangelog",
+          "totalSizeBytes": 16384,
+          "tableSizeBytes": 16384,
+          "indexSizeBytes": 0,
+          "liveTuples": 6,
+          "deadTuples": 0,
+          "sequentialScans": 20,
+          "sequentialTuplesRead": 90,
+          "indexScans": null,
+          "sequentialScanRatio": 1.0
         }
       ],
       "vacuum": [
@@ -124,9 +169,16 @@
         {
           "name": "autovacuum",
           "value": "on",
-          "unit": "s",
+          "unit": null,
           "source": "default",
           "note": "Off means routine vacuum and analyze never run; anti-wraparound vacuum still does."
+        },
+        {
+          "name": "checkpoint_timeout",
+          "value": "300",
+          "unit": "s",
+          "source": "default",
+          "note": "How often a time-triggered checkpoint runs."
         }
       ],
       "changes": [],

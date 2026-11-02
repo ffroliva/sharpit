@@ -1,6 +1,6 @@
 [
   {
-    "timestamp": 1793578783990,
+    "timestamp": 1700000000000,
     "level": "INFO",
     "logger": "io.github.jdubois.bootui.autoconfigure.BootUiAutoConfiguration",
     "message": "BootUI activation: Enabled by bootui.enabled=ON",

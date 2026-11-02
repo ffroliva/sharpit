@@ -15,7 +15,7 @@
     "analyzer": "BootUI Spring Security Advisor",
     "status": "NOT_SCANNED",
     "message": "Security Advisor has not run yet. Run security checks in the panel, or call security_scan (bootui security scan), to inspect the filter chains.",
-    "scannedAt": 0,
+    "scannedAt": null,
     "rulesEvaluated": 0,
     "filterChainsAnalyzed": 0,
     "violationsFound": 0

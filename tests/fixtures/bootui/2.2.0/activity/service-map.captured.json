@@ -1,7 +1,7 @@
 {
   "available": true,
   "unavailableReason": null,
-  "generatedAt": 1793578872437,
+  "generatedAt": 1700000000000,
   "application": {
     "id": "app",
     "kind": "APPLICATION",
@@ -32,12 +32,30 @@
       "interactions": 7,
       "failures": 0,
       "distinctOperations": 3,
-      "lastSeen": 1793578857037,
+      "lastSeen": 1700000000000,
       "outcome": "OBSERVED_OK",
       "sourcePanelId": "http-exchanges",
       "sourceRoute": "/http-exchanges",
       "sourceLabel": "HTTP Exchanges",
       "note": "Incoming traffic BootUI already recorded. Callers are not identified."
+    },
+    {
+      "id": "kafka:topic:1db3f5b2f536ce3af019f87964b4d1b49751c11de9865f2fb53b6b0cbf74a1c4",
+      "kind": "DEPENDENCY",
+      "protocol": "KAFKA",
+      "label": "ledger.events",
+      "detail": "Produced topic",
+      "configured": false,
+      "observed": true,
+      "interactions": 4,
+      "failures": 0,
+      "distinctOperations": null,
+      "lastSeen": 1700000000000,
+      "outcome": "OBSERVED_OK",
+      "sourcePanelId": "kafka",
+      "sourceRoute": "/kafka",
+      "sourceLabel": "Kafka",
+      "note": "Producer evidence only. Consumed records are inbound work, not a dependency."
     }
   ],
   "edges": [
@@ -49,12 +67,12 @@
       "direction": "INBOUND",
       "interactions": 7,
       "failures": 0,
-      "lastSeen": 1793578857037,
+      "lastSeen": 1700000000000,
       "outcome": "OBSERVED_OK",
       "recentInteractions": [
         {
           "id": "inbound:b16d0ba733ad326a",
-          "timestamp": 1793578857037,
+          "timestamp": 1700000000000,
           "operation": "GET",
           "outcome": "OK",
           "durationMs": 48,

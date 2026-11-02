@@ -8,16 +8,7 @@
       "status": "UP",
       "details": {
         "database": "PostgreSQL",
-        "validationQuery": "isValid()",
-        "total": 988310138880,
-        "free": 26894229504,
-        "threshold": 10485760,
-        "path": "/path",
-        "exists": true,
-        "version": "7.4.12",
-        "expiringChains": [],
-        "invalidChains": [],
-        "validChains": []
+        "validationQuery": "isValid()"
       },
       "components": [],
       "available": true,

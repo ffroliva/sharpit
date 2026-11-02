@@ -8,8 +8,8 @@
       "timestamp": "2026-11-02T00:20:57.037232900Z",
       "method": "GET",
       "path": "/path",
-      "query": "consistency=strong",
-      "uri": "htt/path",
+      "query": null,
+      "uri": "http://127.0.0.1:8080/api/v1/accounts/9e4944cd-2d6e-4699-9846-1a359b237121/balance",
       "status": 404,
       "statusFamily": "4xx",
       "durationMs": 48,
@@ -22,9 +22,7 @@
         {
           "name": "Accept",
           "values": [
-            "*/*",
-            "gzip, deflate",
-            "keep-alive"
+            "*/*"
           ],
           "masked": false
         }
@@ -33,9 +31,7 @@
         {
           "name": "Cache-Control",
           "values": [
-            "no-cache, no-store, max-age=0, must-revalidate",
-            "keep-alive",
-            "application/problem+json"
+            "no-cache, no-store, max-age=0, must-revalidate"
           ],
           "masked": false
         }
@@ -43,6 +39,43 @@
       "route": "/api/v1/accounts/{accountUid}/balance",
       "routeSource": "FRAMEWORK_TEMPLATE",
       "requestId": "b16d0ba733ad326a"
+    },
+    {
+      "id": "49183f8d14518fcf",
+      "timestamp": "2026-11-02T00:20:56.765321Z",
+      "method": "GET",
+      "path": "/path",
+      "query": "consistency=strong",
+      "uri": "http://127.0.0.1:8080/api/v1/accounts/6b91f215-895a-4cbf-bd87-536ac425a155/balance?consistency=strong",
+      "status": 200,
+      "statusFamily": "2xx",
+      "durationMs": 53,
+      "responseSizeBytes": null,
+      "remoteAddress": null,
+      "principal": null,
+      "sessionId": null,
+      "traceId": "e9abcdf3d5ea952554901ba9161df950",
+      "requestHeaders": [
+        {
+          "name": "Accept",
+          "values": [
+            "*/*"
+          ],
+          "masked": false
+        }
+      ],
+      "responseHeaders": [
+        {
+          "name": "Cache-Control",
+          "values": [
+            "no-cache, no-store, max-age=0, must-revalidate"
+          ],
+          "masked": false
+        }
+      ],
+      "route": "/api/v1/accounts/{accountUid}/balance",
+      "routeSource": "FRAMEWORK_TEMPLATE",
+      "requestId": "49183f8d14518fcf"
     }
   ],
   "page": {

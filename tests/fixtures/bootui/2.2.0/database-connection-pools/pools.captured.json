@@ -6,7 +6,7 @@
       "beanName": "dataSource",
       "poolName": "HikariPool-1",
       "implementation": "HikariCP",
-      "jdbcUrl": "jdbc:postgresq/path",
+      "jdbcUrl": "jdbc:postgresql://localhost:5432/tiny_ledger",
       "username": "******",
       "driverClassName": "org.postgresql.Driver",
       "minimumIdle": 10,
@@ -21,7 +21,7 @@
       "available": true,
       "unavailableReason": null,
       "snapshot": {
-        "timestamp": 1793578872924,
+        "timestamp": 1700000000000,
         "active": 0,
         "idle": 10,
         "total": 10,

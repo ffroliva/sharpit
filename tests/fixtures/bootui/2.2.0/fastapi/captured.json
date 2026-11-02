@@ -15,7 +15,7 @@
     "analyzer": "BootUI Spring Advisor",
     "status": "NOT_SCANNED",
     "message": "Spring Advisor has not run yet. Run Spring checks in the panel, or call spring_scan (bootui spring scan), to inspect the application context.",
-    "scannedAt": 0,
+    "scannedAt": null,
     "rulesEvaluated": 0,
     "componentsAnalyzed": 0,
     "violationsFound": 0

@@ -32,9 +32,7 @@
       ],
       "potentialNPlusOne": false,
       "callSites": [
-        "com.ffroliva.tinyledger.audit.adapter.out.postgres.PostgresAuditTrail.recordEntry(PostgresAuditTrail.java:28)",
-        "com.ffroliva.tinyledger.ledger.adapter.out.postgres.PostgresEventStore.append(PostgresEventStore.java:58)",
-        "com.ffroliva.tinyledger.ledger.adapter.out.postgres.PostgresEventStore.append(PostgresEventStore.java:84)"
+        "com.ffroliva.tinyledger.audit.adapter.out.postgres.PostgresAuditTrail.recordEntry(PostgresAuditTrail.java:28)"
       ],
       "entryIds": [
         59,

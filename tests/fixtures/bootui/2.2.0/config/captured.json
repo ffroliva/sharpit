@@ -15,8 +15,90 @@
       "origin": null,
       "masked": true,
       "override": false,
+      "description": null,
+      "defaultValue": null
+    },
+    {
+      "name": "bootui.api-path",
+      "value": "/bootui/api",
+      "source": "bootUiNormalizedPaths",
+      "origin": null,
+      "masked": false,
+      "override": false,
       "description": "Internal API base path. Defaults to {@code bootui.path + \"/api\"}. Override only when the API must be served at a different sub-path from the UI (rare).",
+      "defaultValue": null
+    },
+    {
+      "name": "bootui.enabled",
+      "value": "ON",
+      "source": "commandLineArgs",
+      "origin": null,
+      "masked": false,
+      "override": false,
+      "description": "Enable BootUI. AUTO activates only in dev/local contexts.",
       "defaultValue": "auto"
+    },
+    {
+      "name": "local.management.port",
+      "value": 9090,
+      "source": "server.ports",
+      "origin": null,
+      "masked": false,
+      "override": false,
+      "description": null,
+      "defaultValue": null
+    },
+    {
+      "name": "logging.expect-correlation-id",
+      "value": true,
+      "source": "logCorrelation",
+      "origin": null,
+      "masked": false,
+      "override": false,
+      "description": null,
+      "defaultValue": null
+    },
+    {
+      "name": "management.endpoint.health.probes.enabled",
+      "value": "true",
+      "source": "Config resource 'class path resource [application.properties]' via location 'optional:classpath:/'",
+      "origin": null,
+      "masked": false,
+      "override": false,
+      "description": "Whether to enable liveness and readiness probes.",
+      "defaultValue": true
+    },
+    {
+      "name": "management.endpoints.web.exposure.include",
+      "value": "health,info,beans,conditions,configprops,env,loggers,mappings,metrics,startup,scheduledtasks",
+      "source": "commandLineArgs",
+      "origin": null,
+      "masked": false,
+      "override": false,
+      "description": "Endpoint IDs that should be included or '*' for all.",
+      "defaultValue": [
+        "health"
+      ]
+    },
+    {
+      "name": "management.tracing.sampling.probability",
+      "value": "1.0",
+      "source": "Config resource 'class path resource [application.properties]' via location 'optional:classpath:/'",
+      "origin": null,
+      "masked": false,
+      "override": false,
+      "description": "Probability in the range from 0.0 to 1.0 that a trace will be sampled.",
+      "defaultValue": 0.1
+    },
+    {
+      "name": "spring.modulith.events.jdbc.schema-initialization.enabled",
+      "value": "false",
+      "source": "Config resource 'class path resource [application-full.properties]' via location 'optional:classpath:/'",
+      "origin": null,
+      "masked": false,
+      "override": false,
+      "description": null,
+      "defaultValue": false
     }
   ],
   "propertySuggestions": [
@@ -25,6 +107,60 @@
       "type": "java.lang.String",
       "description": "Where the activity stream comes from: {@code journal}, rendering the runtime journal's retained events with every child nested by request or execution id. {@code buffers}, 1.x's feed, was removed in 2.0.0 and fails the start; with the journal disabled, the panel buffers serve the feed on their own. A request may override it with {@code ?source=}.",
       "defaultValue": "journal"
+    },
+    {
+      "name": "bootui.activity.max-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of normalized entries returned in a single activity-stream page after merging and sorting all sources.",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.activity.persistence.dedicated-driver-class-name",
+      "type": "java.lang.String",
+      "description": "Optional explicit JDBC driver class to load for {@code data-source-mode=DEDICATED}; blank lets the driver auto-register itself from the classpath (the usual case for a modern JDBC 4+ driver).",
+      "defaultValue": null
+    },
+    {
+      "name": "bootui.activity.persistence.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether captured Live Activity entries are also durably persisted, in addition to today's in-memory-only default. Disabled by default: no background thread, connection or bean beyond what already exists is created while this is {@code false}.",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.advisors.max-retained-violations",
+      "type": "java.lang.Integer",
+      "description": null,
+      "defaultValue": 10000
+    },
+    {
+      "name": "bootui.allowed-hosts",
+      "type": "java.lang.String[]",
+      "description": "Additional Host header values accepted by the loopback safety filter, beyond the built-in loopback names (localhost, 127.0.0.1, ::1). Used to defend against DNS-rebinding attacks while still allowing custom local hostnames.",
+      "defaultValue": []
+    },
+    {
+      "name": "management.endpoints.access.max-permitted",
+      "type": null,
+      "description": "Maximum level of endpoint access that is permitted. Caps an endpoint's individual access level (management.endpoint.<id>.access) and the default access (management.endpoints.access.default).'",
+      "defaultValue": "unrestricted"
+    },
+    {
+      "name": "spring.datasource.dbcp2.abandoned-usage-tracking",
+      "type": "java.lang.Boolean",
+      "description": null,
+      "defaultValue": null
+    },
+    {
+      "name": "spring.modulith.events.jdbc.schema-initialization.enabled",
+      "type": "java.lang.Boolean",
+      "description": null,
+      "defaultValue": false
+    },
+    {
+      "name": "spring.modulith.moments.granularity",
+      "type": "org.springframework.modulith.moments.support.MomentsProperties$Granularity",
+      "description": null,
+      "defaultValue": "hours"
     }
   ],
   "page": {

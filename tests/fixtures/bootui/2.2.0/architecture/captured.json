@@ -17,7 +17,7 @@
     "analyzer": "BootUI ArchUnit hygiene",
     "status": "NOT_SCANNED",
     "message": "Architecture rules have not run yet. Run architecture checks in the panel, or call architecture_scan (bootui architecture scan), to analyse the application classes.",
-    "scannedAt": 0,
+    "scannedAt": null,
     "rulesEvaluated": 0,
     "classesAnalyzed": 0,
     "violationsFound": 0

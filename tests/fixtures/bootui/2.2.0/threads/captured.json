@@ -1,7 +1,7 @@
 {
   "available": true,
   "unavailableReason": null,
-  "capturedAt": 1793578872990,
+  "capturedAt": 1700000000000,
   "totalThreads": 71,
   "daemonThreads": 57,
   "peakThreads": 71,
@@ -31,13 +31,59 @@
       "inNative": false,
       "suspended": false,
       "deadlocked": false,
-      "lockName": "java.lang.ref.ReferenceQueue$Lock@58ddbfa3",
-      "lockOwnerId": 101,
-      "lockOwnerName": "org.springframework.kafka.KafkaListenerEndpointContainer#0-0-C-1",
+      "lockName": null,
+      "lockOwnerId": null,
+      "lockOwnerName": null,
       "stackTrace": [
         "java.base@25.0.3/java.lang.ref.Reference.waitForReferencePendingList(Native Method)",
         "java.base@25.0.3/java.lang.ref.Reference.processPendingReferences(Reference.java:246)",
         "java.base@25.0.3/java.lang.ref.Reference$ReferenceHandler.run(Reference.java:208)"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "Finalizer",
+      "state": "WAITING",
+      "priority": 8,
+      "daemon": true,
+      "virtual": false,
+      "cpuTimeMillis": 0,
+      "userTimeMillis": 0,
+      "blockedCount": 0,
+      "waitedCount": 1,
+      "inNative": false,
+      "suspended": false,
+      "deadlocked": false,
+      "lockName": "java.lang.ref.ReferenceQueue$Lock@58ddbfa3",
+      "lockOwnerId": null,
+      "lockOwnerName": null,
+      "stackTrace": [
+        "java.base@25.0.3/java.lang.Object.wait0(Native Method)",
+        "java.base@25.0.3/java.lang.Object.wait(Object.java:389)",
+        "java.base@25.0.3/java.lang.Object.wait(Object.java:351)"
+      ]
+    },
+    {
+      "id": 105,
+      "name": "kafka-coordinator-heartbeat-thread | tiny-ledger-audit",
+      "state": "WAITING",
+      "priority": 5,
+      "daemon": true,
+      "virtual": false,
+      "cpuTimeMillis": 62,
+      "userTimeMillis": 15,
+      "blockedCount": 19,
+      "waitedCount": 401,
+      "inNative": false,
+      "suspended": false,
+      "deadlocked": false,
+      "lockName": "java.util.concurrent.locks.ReentrantLock$FairSync@2848d123",
+      "lockOwnerId": 101,
+      "lockOwnerName": "org.springframework.kafka.KafkaListenerEndpointContainer#0-0-C-1",
+      "stackTrace": [
+        "java.base@25.0.3/jdk.internal.misc.Unsafe.park(Native Method)",
+        "java.base@25.0.3/java.util.concurrent.locks.LockSupport.park(LockSupport.java:223)",
+        "java.base@25.0.3/java.util.concurrent.locks.AbstractQueuedSynchronizer.acquire(AbstractQueuedSynchronizer.java:790)"
       ]
     }
   ],

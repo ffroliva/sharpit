@@ -7,13 +7,18 @@
       "scope": "singleton",
       "resource": "class path resource [org/springframework/boot/autoconfigure/availability/ApplicationAvailabilityAutoConfiguration.class]",
       "dependencies": [
-        "org.springframework.boot.autoconfigure.availability.ApplicationAvailabilityAutoConfiguration",
-        "fullAdapterConfig",
-        "auditTrail"
+        "org.springframework.boot.autoconfigure.availability.ApplicationAvailabilityAutoConfiguration"
       ],
-      "aliases": [
-        "bootstrapExecutor"
-      ],
+      "aliases": [],
+      "classification": "FRAMEWORK"
+    },
+    {
+      "name": "errorPageRegistrarBeanPostProcessor",
+      "type": "org.springframework.boot.web.error.ErrorPageRegistrarBeanPostProcessor",
+      "scope": "singleton",
+      "resource": null,
+      "dependencies": [],
+      "aliases": [],
       "classification": "FRAMEWORK"
     }
   ],
