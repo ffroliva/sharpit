@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,18 +37,79 @@ class Comparison:
 
 
 def read(path: Path) -> Baseline:
-    """Placeholder returning an invalid baseline until the baseline loader is implemented."""
-    del path
-    return Baseline({}, b"{}")
+    """Read and validate one stable baseline document."""
+    raw = path.read_bytes()
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError("baseline is not valid JSON") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
+        raise ValueError(f"baseline schema must be {SCHEMA}")
+    rows = payload.get("findings")
+    if not isinstance(rows, list):
+        raise ValueError("baseline findings must be a list")
+    entries: dict[str, Entry] = {}
+    for row in rows:
+        if not isinstance(row, dict) or not all(
+            isinstance(row.get(key), str) for key in ("fingerprint", "ruleId", "target", "message")
+        ):
+            raise ValueError("baseline finding has invalid fields")
+        observed = row.get("observed")
+        if observed is not None and (not isinstance(observed, int) or isinstance(observed, bool)):
+            raise ValueError("baseline observed must be an integer or null")
+        fingerprint = row["fingerprint"]
+        if fingerprint in entries:
+            raise ValueError(f"duplicate fingerprint in baseline: {fingerprint}")
+        entries[fingerprint] = Entry(fingerprint, row["ruleId"], row["target"], row["message"], observed)
+    return Baseline(entries, raw)
 
 
-def compare(findings: tuple[Finding, ...], baseline: Baseline | None, *, partial: bool) -> Comparison:
-    """Placeholder comparison; implemented after the contract tests are committed."""
-    del findings, baseline, partial
-    return Comparison((), (), None)
+def compare(findings: Sequence[Finding], baseline: Baseline | None, *, partial: bool) -> Comparison:
+    """Annotate current findings and report baseline entries no longer seen."""
+    from dataclasses import replace
+
+    if baseline is None:
+        return Comparison(tuple(findings), None, None)
+    entries = baseline.entries
+    seen: set[str] = set()
+    compared: list[Finding] = []
+    for finding in findings:
+        if finding.advisor.lower() in {"vulnerability", "vulns"} or finding.rule_id.startswith("VULN-"):
+            compared.append(finding)
+            continue
+        entry = entries.get(finding.fingerprint)
+        seen.add(finding.fingerprint)
+        existing = entry is not None and not (
+            finding.observed is not None and entry.observed is not None and finding.observed > entry.observed
+        )
+        compared.append(replace(finding, baseline_state="existing" if existing else "new"))
+    if partial:
+        return Comparison(tuple(compared), None, "partial run")
+    fixed = tuple(
+        entry
+        for fingerprint, entry in entries.items()
+        if fingerprint not in seen and not entry.rule_id.startswith("VULN-")
+    )
+    return Comparison(tuple(compared), fixed, None)
 
 
-def write(path: Path, findings: tuple[Finding, ...]) -> None:
-    """Placeholder baseline writer."""
-    del findings
-    path.write_text("{}", encoding="utf-8")
+def write(path: Path, findings: Sequence[Finding]) -> None:
+    """Write stable, sorted baseline bytes. Findings arrive masked from the capture sink."""
+    rows: dict[str, dict[str, Any]] = {}
+    for finding in findings:
+        rows[finding.fingerprint] = {
+            "fingerprint": finding.fingerprint,
+            "target": finding.target,
+            "ruleId": finding.rule_id,
+            "message": finding.message,
+            "observed": finding.observed,
+        }
+    payload = {"schema": SCHEMA, "findings": [rows[key] for key in sorted(rows)]}
+    text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)

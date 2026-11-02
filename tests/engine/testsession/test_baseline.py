@@ -69,3 +69,10 @@ def test_count_gate_increase_is_new(tmp_path) -> None:
     baseline.write(path, (_finding(observed=12),))
     result = baseline.compare((_finding(observed=500),), baseline.read(path), partial=False)
     assert result.findings[0].baseline_state == "new"
+
+
+def test_vulnerability_findings_excluded_from_baseline(tmp_path) -> None:
+    finding = Finding("VULN-001", "vulnerability", "HIGH", "pkg 1", "dependency issue")
+    path = tmp_path / "baseline.json"
+    baseline.write(path, (finding,))
+    assert baseline.read(path).entries == {}
