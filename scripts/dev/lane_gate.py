@@ -28,7 +28,7 @@ import sys
 import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -138,18 +138,34 @@ def _column(header: list[str], *names: str) -> int | None:
     return next((header.index(name) for name in names if name in header), None)
 
 
-def red_tests(texts: Sequence[str]) -> list[Red]:
-    """Every (test, red SHA) pair from tables with a ``Test id``/``Test`` and a ``Red SHA`` column, de-duplicated."""
+def _cell(row: list[str], col: int | None) -> str:
+    return _code(row[col]) if col is not None and col < len(row) else ""
+
+
+def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
+    """Every (test, red SHA) pair from tables with a ``Test id``/``Test`` column and a column whose header contains
+    ``Red SHA``, de-duplicated, plus the problems: a row naming a test with a blank Red SHA (unless parked), and a
+    findings table (one with a ``Disposition`` column) without a Red SHA column."""
     reds: dict[Red, None] = {}
-    for text in texts:
+    problems: list[str] = []
+    for label, text in texts.items():
         for header, rows in _tables(text):
-            test_col, sha_col = _column(header, "test id", "test"), _column(header, "red sha")
+            test_col = _column(header, "test id", "test")
+            sha_col = next((i for i, name in enumerate(header) if "red sha" in name), None)
+            disp_col = _column(header, "disposition")
+            if sha_col is None and disp_col is not None:
+                problems.append(f"{label}: a findings table has no Red SHA column")
             if test_col is None or sha_col is None:
                 continue
             for row in rows:
-                if len(row) > max(test_col, sha_col) and _code(row[test_col]) and _code(row[sha_col]):
-                    reds[Red(_code(row[test_col]), _code(row[sha_col]))] = None
-    return list(reds)
+                test, sha = _cell(row, test_col), _cell(row, sha_col)
+                if not test or (not sha and _cell(row, disp_col).lower().startswith("parked")):
+                    continue
+                if sha:
+                    reds[Red(test, sha)] = None
+                else:
+                    problems.append(f"{label}: red table row for {test} has no Red SHA")
+    return list(reds), problems
 
 
 # --- checks -----------------------------------------------------------------------------------------------------------
@@ -500,8 +516,9 @@ def evaluate(opts: Options, *, run_gate: GateRunner, run_pytest: PytestRunner) -
     result.refusals += diff_refusals(opts, base)
     evidence, texts = evidence_refusals(opts, base)
     result.refusals += evidence
-    integrity = red_integrity(opts, base, red_tests([texts.get("findings.md", ""), texts.get("handoff.md", "")]))
-    result.refusals += integrity.problems
+    reds, table_problems = red_tests({name: texts.get(name, "") for name in ("findings.md", "handoff.md")})
+    integrity = red_integrity(opts, base, reds)
+    result.refusals += table_problems + integrity.problems
     unverified = list(integrity.unverified)
     if opts.lane == LEASED_LANE and (problem := leased_pg_problem(opts)):
         unverified.append(problem)
