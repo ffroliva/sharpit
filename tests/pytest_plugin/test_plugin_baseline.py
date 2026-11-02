@@ -185,3 +185,28 @@ def test_write_baseline_ini_option_writes_nothing(pytester: pytest.Pytester) -> 
     pytester.makeini("[pytest]\nsharpit_write_baseline = b.json")
     pytester.runpytest_subprocess(*_SINGLE)
     assert not (pytester.path / "b.json").exists()
+
+
+def _complete_write(pytester: pytest.Pytester, *extra: str) -> pytest.RunResult:
+    pytester.makepyfile(test_mod="def test_a(): pass")
+    (pytester.path / "sub").mkdir()
+    (pytester.path / "sub" / "test_sub.py").write_text("def test_b(): pass", encoding="utf-8")
+    return pytester.runpytest_subprocess(*_SINGLE, *extra, "--sharpit-write-baseline=b.json")
+
+
+def test_warning_filter_is_not_selection(pytester: pytest.Pytester) -> None:
+    result = _complete_write(pytester, "-W", "ignore::DeprecationWarning")
+    assert (pytester.path / "b.json").exists(), result.stdout.str()
+
+
+def test_maxfail_without_stop_is_complete(pytester: pytest.Pytester) -> None:
+    result = _complete_write(pytester, "--maxfail=5")
+    assert (pytester.path / "b.json").exists(), result.stdout.str()
+
+
+def test_directory_argument_is_partial(pytester: pytest.Pytester) -> None:
+    _refused(pytester, _complete_write(pytester, "sub"))
+
+
+def test_ignore_option_is_partial(pytester: pytest.Pytester) -> None:
+    _refused(pytester, _complete_write(pytester, "--ignore=sub"))
