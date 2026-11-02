@@ -139,3 +139,31 @@ def test_connection_event_slot_records_real_sqlite_transaction(monkeypatch) -> N
     report = recorder.report([])
     assert report["totalCaptured"] == 1, "the real SQLite begin event must be captured once"
     assert report["entries"][0]["status"] == "COMMITTED", "the real SQLite commit event must close the entry"
+
+
+def test_savepoint_closes_one_child_per_context(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from sharpit.engine.capture.transactions import tx_begin, tx_release_savepoint, tx_savepoint
+    from sharpit.engine.sources import dispatch
+
+    contexts = []
+    for context_id in ("first", "second"):
+        recorder = _recorder()
+        contexts.append(
+            SimpleNamespace(
+                context_id=context_id,
+                capture=SimpleNamespace(transactions=recorder, wiring=SimpleNamespace(hook_failed=lambda *_: None)),
+                settings=SimpleNamespace(
+                    transactions_enabled=True,
+                    panels={"transactions": SimpleNamespace(enabled=True)},
+                    sql_trace_capture_call_site=False,
+                ),
+            )
+        )
+    connection = SimpleNamespace(info={}, engine=object(), connection=SimpleNamespace(dbapi_connection=object()))
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: contexts)
+    tx_begin(connection)
+    tx_savepoint(connection, "sa_savepoint_1")
+    tx_release_savepoint(connection, "sa_savepoint_1", None)
+    assert len(connection.info["sharpit_tx"]) == 2, "a savepoint event must close its child entry in each context"
