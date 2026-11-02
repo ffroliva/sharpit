@@ -29,6 +29,54 @@ def test_n_plus_one_fails_the_test(pytester: pytest.Pytester) -> None:
     assert data["tests"][0]["findings"]
 
 
+def test_spike_f5_message_names_relationship(pytester: pytest.Pytester) -> None:
+    # spike: F5 T1
+    pytester.makepyfile(
+        appmod="""
+from sqlalchemy import ForeignKey, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session
+
+class Base(DeclarativeBase): pass
+class Player(Base):
+    __tablename__ = 'players'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performances: Mapped[list['Performance']] = relationship()
+class Performance(Base):
+    __tablename__ = 'performances'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey('players.id'))
+
+engine = create_engine('sqlite:///n-plus-one.db')
+Base.metadata.create_all(engine)
+with Session(engine) as session:
+    session.add_all(Player(performances=[Performance()]) for _ in range(6))
+    session.commit()
+"""
+    )
+    pytester.makepyfile(
+        """
+from sqlalchemy.orm import Session
+from appmod import Player, engine
+
+def test_lazy_performances():
+    with Session(engine) as session:
+        players = session.query(Player).all()
+        for player in players:
+            list(player.performances)
+"""
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    finding = next(item for item in data["findings"] if item["ruleId"] == "sharpit.n-plus-one")
+    assert "Player.performances lazy-loaded 6 times" in finding["message"]
+    assert "selectinload(Player.performances)" in finding["message"]
+
+
 def test_fail_on_medium_gates_medium_findings(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         appmod="from fastapi import FastAPI\napp=FastAPI()\n"

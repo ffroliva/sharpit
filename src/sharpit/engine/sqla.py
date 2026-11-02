@@ -52,6 +52,7 @@ DISCOVERY_PANELS = (
     "sqlalchemy-statistics",
 )  # panels that read the registered engines
 START_KEY = "sharpit_sql_start"
+RELATIONSHIP_KEY = "sharpit_relationship"
 UNAVAILABLE = "SQLAlchemy is not imported by this application"
 TRACING_DISABLED = "SQL tracing is disabled via SHARPIT_SQL_TRACE_ENABLED=false"
 
