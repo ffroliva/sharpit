@@ -1,0 +1,3 @@
+{
+  "traces[].httpPath": "null when no server span carries an HTTP path attribute (http.route, url.path, http.target, url.full, http.url)"
+}
