@@ -197,3 +197,33 @@ def test_autodetect_skips_installed_and_stdlib_modules(monkeypatch: pytest.Monke
 
     assert "fake_dist_app_mod:app" not in detected
     assert "fake_stdlib_app_mod:app" not in detected
+
+
+def test_autodetect_drops_wrapped_host_and_subclassed_mounts(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    from types import ModuleType
+
+    from starlette.middleware.gzip import GZipMiddleware
+    from starlette.routing import Mount
+
+    from fastapi import FastAPI
+    from sharpit.pytest_plugin.apps import autodetect_apps
+
+    class PrefixMount(Mount):
+        pass
+
+    main, gz_child, host_child, sub_child = FastAPI(), FastAPI(), FastAPI(), FastAPI()
+    main.mount("/gz", GZipMiddleware(gz_child))
+    main.host("api.example.com", host_child)
+    main.router.routes.append(PrefixMount("/sub", app=sub_child))
+    mod = ModuleType("mounted_children_mod")
+    for name, app in (("main", main), ("gz_child", gz_child), ("host_child", host_child), ("sub_child", sub_child)):
+        setattr(mod, name, app)
+    monkeypatch.setitem(sys.modules, "mounted_children_mod", mod)
+
+    detected = dict(autodetect_apps())
+
+    assert "mounted_children_mod:main" in detected
+    assert "mounted_children_mod:gz_child" not in detected
+    assert "mounted_children_mod:host_child" not in detected
+    assert "mounted_children_mod:sub_child" not in detected
