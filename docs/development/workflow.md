@@ -35,6 +35,24 @@ In a worktree from `origin/main`, one task at a time with `superpowers:subagent-
 per task, red test first, review between tasks. Before touching activation, the guard, masking, introspection or
 OSV, read **`/sharpit:known-issues`**. Delegated agents get the background-command rule in their brief.
 
+### Before every `test:` commit: `red_check`
+
+```bash
+uv run python scripts/dev/red_check.py tests/engine/test_x.py::test_y [<node id> ...]
+```
+
+Exit 0 only when every test is `RED (assertion in test file)`. A `CRASH` (a `TypeError`, `AttributeError`,
+`NotImplementedError` stub, or an `assert` inside `src/`) or a `PASS` is not a red: nobody has seen the test catch the
+defect. Use a wrong-value stub instead, so the test's own assertion fails:
+
+```python
+def compare(findings, baseline, *, partial):  # stub: every finding "new", so the "existing" assertion fails
+    return Comparison(tuple(replace(f, baseline_state="new") for f in findings), None, None)
+```
+
+It uses `scripts/dev/lane_gate.py`'s classification, so a red it accepts is a red the merge gate accepts. Why:
+[the G1G2 red audit](../reports/2026-11-02-g1g2-red-audit.md).
+
 ## 5. Gate: `/sharpit:check`
 
 The CI jobs behind the gate, and how to reproduce each locally: [`ci.md`](ci.md).

@@ -108,6 +108,7 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 
 - **A crash is not a red.** An `ImportError`, `AttributeError` or collection error before the fix proves nothing; the
   red must be the assertion that names the defect.
+- **Before every `test:` commit** run `uv run python scripts/dev/red_check.py <node ids>` (`docs/development/workflow.md`).
 - **One condition per assert** (ruff `PT018`), so a failure says which condition broke.
 - **Every error found** (review, CI, a user report) becomes a regression test seen red first. The PR lists them as a
   `finding → test → red output` table.
