@@ -481,3 +481,24 @@ def test_sections_on_real_server() -> None:
     assert bad == []
     assert data.vital_signs is not None
     assert data.vital_signs["databaseName"]
+
+
+@pytest.mark.parametrize("name", ["INDEXES_SQL", "TABLES_SQL"])
+def test_relation_sizes_are_read_only_for_the_limited_rows(name: str) -> None:
+    # derived: review finding 4: pg_relation_size and friends lock each relation they size, so they run in an outer
+    # query over the LIMITed set, never over every relation of the database
+    sql: str = getattr(queries, name)
+    inner_end = sql.find("limit {limit}")
+    assert inner_end > sql.find("from (") > 0
+    inner = sql[sql.find("from (") : inner_end]
+    assert [
+        f for f in ("pg_relation_size", "pg_total_relation_size", "pg_table_size", "pg_indexes_size") if f in inner
+    ] == []
+    assert "_size(" in sql[: sql.find("from (")]
+
+
+def test_list_query_limit_is_applied_inside_the_sized_subquery() -> None:
+    # derived: review finding 4
+    conn = FakePgConnection()
+    _run("tables", _context(conn, limits=RowLimits(max_tables=6)), DatabaseData("primary"))
+    assert conn.sql[-1].count("limit 7") == 2
