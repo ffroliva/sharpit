@@ -502,3 +502,42 @@ def test_list_query_limit_is_applied_inside_the_sized_subquery() -> None:
     conn = FakePgConnection()
     _run("tables", _context(conn, limits=RowLimits(max_tables=6)), DatabaseData("primary"))
     assert conn.sql[-1].count("limit 7") == 2
+
+
+class _DriverError(Exception):
+    def __init__(self, message: str, sqlstate: str) -> None:
+        super().__init__(message)
+        self.sqlstate = sqlstate
+
+
+class _StatementsNotPreloaded(FakePgConnection):
+    """pg_stat_statements created but missing from shared_preload_libraries: PostgreSQL 16 answers SQLSTATE 55000."""
+
+    def exec_driver_sql(self, sql: str) -> Any:
+        if "pg_stat_statements s" in sql:
+            self.sql.append(sql)
+            self.aborted = True
+            raise _DriverError('pg_stat_statements must be loaded via "shared_preload_libraries"', "55000")
+        return super().exec_driver_sql(sql)
+
+
+def test_an_extension_created_but_not_preloaded_is_skipped_and_later_sections_still_run() -> None:
+    # derived: coordinator leased run on PostgreSQL 16 (gate/leased-pg.log): the section was FAILED with the raw text
+    data = collect(_StatementsNotPreloaded(), MASKED, RowLimits(), ReadBudget.start(15.0))
+    statements = data.section("statements")
+    assert statements is not None
+    assert statements["status"] == "SKIPPED"
+    assert statements["reason"] == "pg_stat_statements is installed but not loaded: add it to shared_preload_libraries."
+    assert "CREATE EXTENSION pg_stat_statements" in (statements["hint"] or "")
+    assert [s["id"] for s in data.sections if s["status"] != "AVAILABLE"] == ["statements"]
+
+
+def test_an_extension_not_installed_is_skipped_with_a_reason_in_a_full_read() -> None:
+    # derived: coordinator request: the not-installed case inside a whole read
+    conn = FakePgConnection().with_rows("EXTENSION", {"relation": None, "exec_naming": 0})
+    data = collect(conn, MASKED, RowLimits(), ReadBudget.start(15.0))
+    statements = data.section("statements")
+    assert statements is not None
+    assert statements["status"] == "SKIPPED"
+    assert statements["reason"] == "The pg_stat_statements extension is not installed on this server."
+    assert [s["id"] for s in data.sections if s["status"] != "AVAILABLE"] == ["statements"]
