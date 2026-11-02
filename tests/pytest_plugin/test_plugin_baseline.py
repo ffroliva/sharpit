@@ -210,3 +210,16 @@ def test_directory_argument_is_partial(pytester: pytest.Pytester) -> None:
 
 def test_ignore_option_is_partial(pytester: pytest.Pytester) -> None:
     _refused(pytester, _complete_write(pytester, "--ignore=sub"))
+
+
+def test_baseline_write_failure_is_reported_unknown(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("def test_a(): pass")
+    (pytester.path / "b.json").mkdir()  # os.replace onto a directory fails
+    result = pytester.runpytest_subprocess(
+        *_SINGLE[:-2], "-q", "--sharpit-report=report.json", "--sharpit-write-baseline=b.json"
+    )
+    report = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
+    assert any("baseline write failed" in reason for reason in report["unknownReasons"]), report["unknownReasons"]
+    assert report["status"] != "pass"
+    assert "baseline write failed" in result.stdout.str()
+    assert result.ret == 1
