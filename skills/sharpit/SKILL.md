@@ -135,6 +135,12 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
 | PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
 
+The `sqlalchemy-statistics` panel (BootUI's `hibernate-statistics`; `GET {api}/sqlalchemy-statistics`, MCP
+`get_sqlalchemy_statistics`) shows statement counts from SQL Trace's lifetime totals, the slowest statement and N+1
+candidates per route. SQLAlchemy reports SQL statements, not ORM sessions or entities, so the Hibernate-only counters
+(sessions, flushes, transactions, entity and collection counts) are `null`, each with a reason. It needs SQL Trace, and
+reports `statistics.warnings` when SQL Trace recording is paused.
+
 Data rows are listed with `relationships: null` and the reason "Mappers are not configured yet: the app has not run a
 query" until the app's first query has configured the mappers. PostgreSQL query text is masked (string, dollar-quoted
 and numeric literals; comments dropped) unless `SHARPIT_EXPOSE_VALUES=FULL`. If `pg_stat_statements` is not preloaded,
@@ -220,6 +226,26 @@ When inspecting an `unknown` or `fail` result, check:
 - `.sources`: Verify that expected sources (`sqlalchemy`, `sqlite3`, `exceptions`) show `attached: true`.
 - `.tests[]`: Lists per-test query counts across `setup`, `call`, and `teardown`, detected N+1 queries, and finding fingerprints.
 - `.findings[]`: Flat list of all findings with their `fingerprint`, `ruleId`, `target`, and `message`.
+
+### GitHub Action (CI)
+
+The repository root is a composite action (`action.yml`) that runs pytest with sharpit and writes a findings summary to
+the job summary. Pin it to a release tag:
+
+```yaml
+- uses: ffroliva/sharpit@<release tag>
+  with:
+    pytest-args: "-q tests/"
+    baseline: sharpit-baseline.json
+```
+
+Inputs: `pytest-args` (split with Python shlex), `report-only` (default `"true"`: findings are reported, never fail the
+build), `baseline`, `fail-on` (lowest severity that fails), `report-path` (default `sharpit-report.json`), `install`
+(`pip` installs the pinned sharpit; `none` when your project already depends on it, in which case `python` must be
+able to import sharpit) and `runner` (default `python -m pytest`, for example `uv run pytest`). Set `report-only: "false"`
+to gate. The pytest exit code is never masked: the summary step runs `if: always()` and only warns if it fails. The
+summary is rendered by `python -m sharpit.report summary <report.json>`. On Windows runners `runner` and `pytest-args`
+are split in non-POSIX mode so backslashes in paths survive.
 
 ### Per-finding dismissal via `sharpit.yml`
 
