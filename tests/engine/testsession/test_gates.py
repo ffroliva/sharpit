@@ -5,8 +5,8 @@ from collections import Counter
 from pathlib import Path
 
 import sharpit.engine.testsession as testsession_pkg
-from sharpit.engine.advisors.dismissals import DismissalStore
 from engine.testsession.tsfakes import NODE, event, run_phase, selects
+from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.sqltrace import normalize
 from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey
 from sharpit.engine.testsession.gates import Budget, evaluate_test, fails
@@ -26,6 +26,47 @@ def test_per_finding_dismissal_reaches_gate(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(DismissalStore, "dismissed_pairs", lambda _self: {pair})
     store = DismissalStore(tmp_path)
     [finding] = evaluate_test(_facts(call=PhaseFacts(queries=7)), Budget(5, False, 0), 5, (), store.dismissed_pairs())
+    assert fails(finding.to_dto()) is False
+
+
+def test_baselined_query_count_increase_is_new() -> None:
+    facts = _facts(call=PhaseFacts(queries=500))
+    current = evaluate_test(facts, Budget(5, False, 0), 5, ())[0]
+    [increased] = evaluate_test(facts, Budget(5, False, 0), 5, (), baseline={current.fingerprint: 12})
+    assert increased.baseline_state == "new"
+    assert fails(increased.to_dto()) is True
+
+
+def test_existing_baseline_keeps_dismissed_false() -> None:
+    facts = _facts(call=PhaseFacts(queries=6))
+    current = evaluate_test(facts, Budget(5, False, 0), 5, ())[0]
+    [existing] = evaluate_test(facts, Budget(5, False, 0), 5, (), baseline={current.fingerprint: 12})
+    assert existing.dismissed is False
+    assert fails(existing.to_dto()) is False
+
+
+def test_unlisted_finding_is_new() -> None:
+    facts = _facts(call=PhaseFacts(queries=6))
+    [finding] = evaluate_test(facts, Budget(5, False, 0), 5, (), baseline={"other": None})
+    assert finding.baseline_state == "new"
+
+
+def test_unbaselined_run_has_null_baseline_state() -> None:
+    [finding] = evaluate_test(_facts(call=PhaseFacts(queries=6)), Budget(5, False, 0), 5, ())
+    assert finding.baseline_state is None
+
+
+def test_explicit_dismissed_finding_stays_dismissed() -> None:
+    facts = _facts(call=PhaseFacts(queries=6))
+    current = evaluate_test(facts, Budget(5, False, 0), 5, ())[0]
+    [finding] = evaluate_test(
+        facts,
+        Budget(5, False, 0),
+        5,
+        (current.fingerprint,),
+        baseline={current.fingerprint: 12},
+    )
+    assert finding.dismissed is True
     assert fails(finding.to_dto()) is False
 
 

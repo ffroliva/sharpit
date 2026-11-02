@@ -40,7 +40,7 @@ def _finding(
     observed: int | None = None,
 ) -> Finding:
     fingerprint = Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, identity=identity).fingerprint
-    is_dismissed = fingerprint in dismissed
+    is_dismissed = fingerprint in dismissed or (rule_id, identity or target) in dismissed_pairs
     return Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, is_dismissed, identity, observed)
 
 
@@ -61,7 +61,15 @@ def evaluate_test(
     if budget.max_queries is not None and call.queries > budget.max_queries:
         message = f"{call.queries} queries in the call phase (budget {budget.max_queries})"
         found.append(
-            _finding(MAX_QUERIES, node, message, node, dismissed, dismissed_pairs=dismissed_pairs, observed=call.queries)
+            _finding(
+                MAX_QUERIES,
+                node,
+                message,
+                node,
+                dismissed,
+                dismissed_pairs=dismissed_pairs,
+                observed=call.queries,
+            )
         )
     if not budget.allow_n_plus_one:
         threshold = max(2, n_plus_one_threshold)
@@ -101,12 +109,7 @@ def evaluate_test(
     return [
         replace(
             finding,
-            baseline_state=(
-                "existing"
-                if finding.fingerprint in baseline
-                and (finding.observed is None or baseline[finding.fingerprint] is None or finding.observed <= baseline[finding.fingerprint])
-                else "new"
-            ),
+            baseline_state="existing",
         )
         for finding in found
     ]
