@@ -276,3 +276,28 @@ def test_autodetected_app_without_routes_is_skipped(pytester: pytest.Pytester) -
     assert "no routes seen after install" not in str(run["reason"])
     assert "appmod:app" in str(run["reason"])
     assert required.ret == 1
+
+
+def test_autodetect_ignores_test_module_apps(pytester: pytest.Pytester) -> None:
+    pytester.mkpydir("src/realpkg")
+    (pytester.path / "src" / "realpkg" / "main.py").write_text(
+        "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/items')\ndef items():\n    return []\n"
+    )
+    pytester.makepyfile(
+        test_project="""
+        import pathlib
+        import sys
+        sys.path.insert(0, str(pathlib.Path(__file__).parent / 'src'))
+        from starlette.applications import Starlette
+        import realpkg.main
+
+        stub = Starlette()
+
+        def test_uses_real_app():
+            assert realpkg.main.app is not stub
+        """
+    )
+
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
+
+    assert "sharpit: using app realpkg.main:app (pass --sharpit-app to choose)" in result.stdout.str()

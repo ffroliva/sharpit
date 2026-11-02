@@ -176,3 +176,24 @@ def test_autodetect_accepts_fastapi_and_starlette_only(monkeypatch: pytest.Monke
     assert "sample_autodetect_mod:lookalike" not in detected
     assert "sample_autodetect_mod:FastAPI" not in detected
     assert "sample_autodetect_mod:SubFastAPI" not in detected
+
+
+def test_autodetect_skips_installed_and_stdlib_modules(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import sysconfig
+    from pathlib import Path
+    from types import ModuleType
+
+    from fastapi import FastAPI
+    from sharpit.pytest_plugin.apps import autodetect_apps
+
+    for name, root in (("fake_dist_app_mod", "purelib"), ("fake_stdlib_app_mod", "stdlib")):
+        mod = ModuleType(name)
+        mod.__file__ = str(Path(sysconfig.get_paths()[root]) / f"{name}.py")
+        mod.app = FastAPI()  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, name, mod)
+
+    detected = dict(autodetect_apps())
+
+    assert "fake_dist_app_mod:app" not in detected
+    assert "fake_stdlib_app_mod:app" not in detected
