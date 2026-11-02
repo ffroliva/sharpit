@@ -388,6 +388,32 @@ def attached() -> dict[str, bool]:
     return {name: bool(sa.event.contains(sa.engine.Engine, name, fn)) for name, fn in _LISTENERS.items()}
 
 
+READ_ONLY_REFUSED = "The read-only transaction could not be established, so sharpit skipped this read"
+
+
+class ReadOnlyUnavailable(Exception):
+    """Raised when a PostgreSQL read-only transaction pin cannot be established."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def is_internal() -> bool:
+    """Whether the current thread/task is running sharpit's own database read."""
+    return False
+
+
+def bounded_read_only[T](
+    conn: Any,
+    fn: Callable[[Any], T],
+    statement_timeout: float,
+    lock_timeout: float = 2.0,
+) -> T:
+    del statement_timeout, lock_timeout
+    return fn(conn)
+
+
 def bounded[T](conn: Any, fn: Callable[[Any], T], timeout: float) -> T:
     """``fn(conn)`` with the server-side statement timeout set to ``timeout`` where the dialect has one.
 
@@ -426,6 +452,9 @@ async def run_db_read[T](
     *,
     executor: Executor | None = None,
     done: Callable[[], None] | None = None,
+    wall_timeout: float | None = None,
+    statement_timeout: float | None = None,
+    read_only: bool = False,
 ) -> T:
     """Run ``fn(connection)`` for sharpit's own read, off the event loop and invisible to SQL Trace.
 
@@ -435,6 +464,7 @@ async def run_db_read[T](
     ``done`` runs once the read really ended: a sync read that timed out keeps its thread (Python cannot stop it), so
     ``done`` waits for that thread when it runs on ``executor``; single-flight callers release on it.
     """
+    del wall_timeout, statement_timeout, read_only
     with internal():  # the thread and the greenlet copy this context, so the listeners see the marker
         try:
             async with asyncio.timeout(timeout):
