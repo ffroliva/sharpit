@@ -24,4 +24,4 @@ else:
 
     import sharpit
 
-    sharpit.install(app)
+    sharpit.install(app, enabled="ON")
