@@ -8,14 +8,15 @@ Branch / worktree: `lane/0.4.0-B-fastapi-security` in `C:\development\github\sha
 
 ### Current fix-round 2 state
 
-Fix commit: `ed98dcac8b0e8fae2ed43a59248eb31e26ed3aef`. Source and focused tests are committed. Evidence/docs update is in progress; full suite `-n 4` remains the final gate.
+Fix commits: `ed98dcac8b0e8fae2ed43a59248eb31e26ed3aef` and `255e06f50d780eca302e82e8501932d8d23aea97`. Status: **DONE_WITH_CONCERNS**; B-owned regressions are fixed and the complexity refactor preserves behavior. One pytest-plugin test outside B's May-touch list remains failing.
 
-- Focused Python lane/shared regressions: 85 passed, 1 skipped (`B-fastapi-security-r2i-focused.log`).
+- Focused Python lane/shared regressions after the complexity refactor: 85 passed, 1 skipped (`B-fastapi-security-r2j-focused.log`).
 - Safety matrix + surface flags: 1,029 passed (`B-fastapi-security-r2-safety.log`).
-- `ruff check`: passed; `ruff format --check`: 474 files already formatted.
-- `pyright src/sharpit`: 0 errors.
+- `ruff check`: passed; `ruff format --check`: 474 files already formatted after the refactor.
+- `pyright src/sharpit`: 0 errors after the refactor.
+- `tests/test_code_shape.py`: 3 passed; new introspector helpers bring C901 back to the single pre-existing over-limit function.
 - UI `tsc --noEmit`: passed; Vitest: 35 files / 282 tests passed.
-- Full suite `pytest -q -n 4`: pending; run detached with an external log before final status.
+- Final full suite `pytest -q -n 4` at `255e06f`: 4,254 passed, 9 skipped, 1 failed, 45 warnings in 472.69s (`B-fastapi-security-r2-final-full.log`). The remaining failure is `tests/pytest_plugin/test_plugin_reports.py::test_live_engine_driver_counts_as_covered`; it also fails in isolation and is outside B's May-touch list. No lane-owned failures remain. SQLite overhead was load-sensitive in the prior full run; it passed in the final run.
 
 - Task 0 predict: CAUTION 7/10 (`predict.md`, `be95ac5`); mitigations folded into the code.
 - Task 1 model + classification: red `369dc4b`, fix `0d353cb`.
@@ -123,3 +124,7 @@ The 37 failures at `7912d36` came from these independent defects; the focused re
 - Nested middleware wrappers and Host routes are read from stored objects; settings/secrets never enter output.
 - Optional auth and scheme-less parameter dependencies remain best effort; failed FastAPI internals degrade with a limitation.
 - UI report and explain keys remain stable; lint-breaking test line was superseded with a multiline identical-intent test.
+
+## Full-suite failure isolation
+
+The `ed98dca` full run's non-lane failures were checked separately. `test_stream_shutdown_within_lifetime`, `test_lane_gate_needs_accept_unverified_for_non_pytest_red`, `test_xdist_controller_never_imports_app_code`, and `test_sql_trace_route_module_is_mounted` passed together in isolation. `test_live_engine_driver_counts_as_covered` failed in isolation with an unknown report reason (`warning: no SQL statement was executed`); its code and test are outside B's May-touch files, so no B-lane change was made there. The SQLite overhead test reported 82.053 µs overhead against its 50 µs budget, with 137.647 µs noise, identifying a busy-machine result; it passed in the final full run.
