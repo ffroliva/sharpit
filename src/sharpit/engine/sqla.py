@@ -9,6 +9,7 @@ context and the test session; ``sources.dispatch`` sends each statement to the c
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import gc
 import logging
@@ -401,7 +402,7 @@ class ReadOnlyUnavailable(Exception):
 
 def is_internal() -> bool:
     """Whether the current thread/task is running sharpit's own database read."""
-    return False
+    return INTERNAL.get()
 
 
 def bounded_read_only[T](
@@ -410,8 +411,25 @@ def bounded_read_only[T](
     statement_timeout: float,
     lock_timeout: float = 2.0,
 ) -> T:
-    del statement_timeout, lock_timeout
-    return fn(conn)
+    """Run ``fn(conn)`` inside a verified PostgreSQL read-only transaction with statement and lock timeouts."""
+    if getattr(getattr(conn, "dialect", None), "name", None) != "postgresql":
+        raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
+    stmt_ms = max(1, int(statement_timeout * 1000))
+    lock_ms = max(1, int(lock_timeout * 1000))
+    try:
+        try:
+            conn.exec_driver_sql("SET TRANSACTION READ ONLY")
+            conn.exec_driver_sql(f"SET LOCAL statement_timeout = {stmt_ms}")
+            conn.exec_driver_sql(f"SET LOCAL lock_timeout = {lock_ms}")
+            setting = conn.exec_driver_sql("SELECT current_setting('transaction_read_only')").scalar()
+        except Exception as exc:
+            raise ReadOnlyUnavailable(READ_ONLY_REFUSED) from exc
+        if not conn.in_transaction() or str(setting).strip().lower() != "on":
+            raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
+        return fn(conn)
+    finally:
+        with contextlib.suppress(Exception):
+            conn.rollback()
 
 
 def bounded[T](conn: Any, fn: Callable[[Any], T], timeout: float) -> T:
@@ -464,21 +482,26 @@ async def run_db_read[T](
     ``done`` runs once the read really ended: a sync read that timed out keeps its thread (Python cannot stop it), so
     ``done`` waits for that thread when it runs on ``executor``; single-flight callers release on it.
     """
-    del wall_timeout, statement_timeout, read_only
+    wall = timeout if wall_timeout is None else wall_timeout
+    stmt = timeout if statement_timeout is None else statement_timeout
+    sync = getattr(engine, "sync_engine", engine)
     with internal():  # the thread and the greenlet copy this context, so the listeners see the marker
         try:
-            async with asyncio.timeout(timeout):
-                if engine.dialect.is_async:
+            async with asyncio.timeout(wall):
+                if sync.dialect.is_async:
                     from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: PLC0415 - only once the app imported it
 
                     # shortcut: on timeout `done` fires once the await is cancelled, while the driver's own thread
                     # (aiosqlite) may still run the call, so one extra read can overlap; track the driver if it matters
-                    async with AsyncEngine(engine).connect() as conn:
-                        return await conn.run_sync(bounded, fn, timeout)
+                    async_engine = engine if isinstance(engine, AsyncEngine) else AsyncEngine(sync)
+                    async with async_engine.connect() as conn:
+                        if read_only:
+                            return await conn.run_sync(bounded_read_only, fn, stmt)
+                        return await conn.run_sync(bounded, fn, stmt)
 
                 def read() -> T:
-                    with engine.connect() as conn:
-                        return bounded(conn, fn, timeout)
+                    with sync.connect() as conn:
+                        return bounded_read_only(conn, fn, stmt) if read_only else bounded(conn, fn, stmt)
 
                 if executor is None:
                     return await asyncio.to_thread(read)
