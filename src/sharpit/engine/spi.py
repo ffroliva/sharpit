@@ -96,6 +96,10 @@ class SecuredRoute:
     opaque: bool = False  # the route's security could not be read
     path_regex: str | None = None  # the adapter's compiled path pattern; None: cannot be matched statically
     chain: int = 0  # index into ``SecurityModel.chains``
+    # a parameter dependency without a scheme, or an optional scheme inside a user dependency: its effect is unknown
+    unchecked_dependency: bool = False
+    # every enclosing mount, outermost first, as (identity, prefix pattern); pattern None: matched by host, unknown
+    mounts: tuple[tuple[int, str | None], ...] = ()
 
 
 @dataclass(frozen=True)

@@ -7,8 +7,9 @@ from typing import Any
 
 from sharpit.engine.spi import SecuredRoute, SecurityChain, SecurityModel
 
-_SECURED = frozenset({"authenticated", "hasAuthority", "custom"})
+_SECURED = frozenset({"authenticated", "hasAuthority"})  # only a security scheme proves a route secured
 HIDDEN = "sharpit endpoints are hidden from this report"
+_Mounts = tuple[tuple[int, str | None], ...]
 
 
 def model_of(ctx: Any) -> SecurityModel | None:
@@ -42,7 +43,7 @@ def classify(route: SecuredRoute) -> tuple[str, bool, list[str], bool]:
         rule = "custom"
     else:
         rule = "unsecured"
-    return rule, rule in _SECURED, roles, route.unknown_dependency
+    return rule, rule in _SECURED, roles, route.unknown_dependency or route.unchecked_dependency
 
 
 def _matcher(chain: SecurityChain) -> str:
@@ -86,6 +87,8 @@ def _description(route: SecuredRoute) -> str | None:
         return "Route-level dependency without a security scheme (custom guard, not evaluated)"
     if route.schemes:
         return "Managed by " + ", ".join(dict.fromkeys(_simple(s.type_name) for s in route.schemes))
+    if route.unchecked_dependency:
+        return "Dependency without a security scheme (not evaluated)"
     return None
 
 
@@ -143,6 +146,18 @@ def _accepts(route: SecuredRoute, method: str) -> bool:
     return not route.methods or method in route.methods or (method == "HEAD" and "GET" in route.methods)
 
 
+def _inside(route: SecuredRoute, captured: _Mounts, path: str) -> tuple[bool, bool, _Mounts]:
+    """(reached, unreadable, captured): descend the route's mounts below ``captured`` the way Starlette does."""
+    for depth in range(len(captured), len(route.mounts)):
+        regex = route.mounts[depth][1]
+        if regex is None:  # a Host: the request's host is not part of the question
+            return False, True, captured
+        if not re.match(regex, path):
+            return False, False, captured
+        captured = route.mounts[: depth + 1]  # a mount takes every path under its prefix: no fall-through after it
+    return True, False, captured
+
+
 def explain(model: SecurityModel | None, method: str, path: str, hidden: str) -> dict[str, Any]:
     """The first route (Starlette's order) whose compiled pattern and methods accept the request; nothing is called."""
     if path == hidden or path.startswith(hidden + "/"):
@@ -150,7 +165,14 @@ def explain(model: SecurityModel | None, method: str, path: str, hidden: str) ->
     if model is None or not model.present:
         return _unmatched()
     unreadable = False
+    captured: _Mounts = ()
     for route in model.routes:
+        if route.mounts[: len(captured)] != captured:
+            break  # left the mount that took the request: Starlette answers inside it, never with a later route
+        reached, skipped, captured = _inside(route, captured, path)
+        unreadable = unreadable or skipped
+        if not reached:
+            continue
         if route.path_regex is None:
             unreadable = True
         elif re.match(route.path_regex, path) and _accepts(route, method):
@@ -158,7 +180,7 @@ def explain(model: SecurityModel | None, method: str, path: str, hidden: str) ->
             chain = model.chains[route.chain]
             return {
                 "matched": True,
-                "bestEffort": best_effort,
+                "bestEffort": best_effort or unreadable,  # an unreadable route earlier might have taken the request
                 "chainIndex": route.chain,
                 "matcherDescription": _matcher(chain),
                 "filters": [_simple(m) for m in chain.middleware],
