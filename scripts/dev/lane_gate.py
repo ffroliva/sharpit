@@ -323,6 +323,41 @@ def _function_source(source: str, nodeid: str) -> str | None:
     return "\n".join(source.splitlines()[start - 1 : func.end_lineno])
 
 
+def _module_shape(source: str) -> tuple[str, dict[str, str]] | None:
+    """(the module without its top-level test functions, blank lines dropped; {test function name: source})."""
+    try:
+        body = ast.parse(source).body
+    except SyntaxError:
+        return None
+    lines = source.splitlines()
+    tests: dict[str, str] = {}
+    skip: set[int] = set()
+    for node in body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith("test"):
+            start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
+            tests[node.name] = "\n".join(lines[start - 1 : node.end_lineno])
+            skip.update(range(start - 1, node.end_lineno or start))
+    rest = "\n".join(line for i, line in enumerate(lines) if i not in skip and line.strip())
+    return rest, tests
+
+
+def _red_file_problems(opts: Options, sha: str, path: str) -> list[str]:
+    """Round 4, widened: after the red commit the red test's file may only gain new test functions, and no
+    conftest.py on its path may change (constants, parametrize lists, fixtures and helpers can weaken a red too)."""
+    problems: list[str] = []
+    before = _module_shape(_show(opts.worktree, sha, path) or "")
+    after = _module_shape(_show(opts.worktree, opts.sha, path) or "")
+    changed = before is None or after is None or before[0] != after[0]
+    changed = changed or any(after[1].get(name) != src for name, src in before[1].items())  # type: ignore[index]
+    if changed:
+        problems.append("test file changed outside added test functions after the red commit")
+    parts = path.split("/")[:-1]
+    conftests = ["/".join([*parts[:i], "conftest.py"]) for i in range(len(parts) + 1)]
+    moved = _git(opts.worktree, "diff", "--name-only", sha, opts.sha, "--", *conftests).stdout.split()
+    problems += [f"{conftest} changed after red commit" for conftest in moved]
+    return problems
+
+
 @dataclass
 class _Integrity:
     replayable: list[Red] = field(default_factory=list[Red])
@@ -361,6 +396,8 @@ def red_integrity(opts: Options, base: str, reds: Sequence[Red]) -> _Integrity:
         elif _function_source(_show(opts.worktree, base, path) or "", red.test) == at_red:
             # council r2: the red test must be in the lane diff; an old test plus a broken src is a fake red
             out.problems.append(f"{tag}: test unchanged from the integration branch (a red must add or change it)")
+        elif file_problems := _red_file_problems(opts, sha, path):
+            out.problems += [f"{tag}: {problem} {red.sha}" for problem in file_problems]
         else:
             out.replayable.append(Red(red.test, sha))
     return out
