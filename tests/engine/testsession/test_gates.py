@@ -5,11 +5,13 @@ import json
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 import sharpit.engine.testsession as testsession_pkg
 from engine.testsession.tsfakes import NODE, event, run_phase, selects
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.sqltrace import normalize
-from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey
+from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey, UnboundedReadFact
 from sharpit.engine.testsession.gates import Budget, evaluate_test, fails
 from sharpit.engine.testsession.sink import TestSessionSink
 
@@ -303,6 +305,111 @@ def test_explicit_dismissal_wins_over_baseline() -> None:
     )
     assert finding.dismissed is True
     assert fails(finding.to_dto()) is False
+
+
+def _unbounded_read(*, loaded: int = 10, has_limit: bool = False, statement: str = "SELECT * FROM teams") -> TestFacts:
+    fact = UnboundedReadFact("/teams", statement, "Team", loaded, 5, has_limit, "app.py:12")
+    return _facts(call=PhaseFacts(unbounded_reads=[fact]))
+
+
+def test_unbounded_read_exact_threshold_boundary_flags() -> None:
+    found = evaluate_test(_unbounded_read(loaded=10), Budget(None, False, 0), 5, ())
+
+    assert len(found) == 1
+    assert found[0].rule_id == "sharpit.unbounded-read"
+
+
+@pytest.mark.parametrize(
+    "statement",
+    ["SELECT * FROM teams LIMIT 5", "SELECT * FROM teams FETCH FIRST 5 ROWS ONLY"],
+    ids=["limit", "fetch"],
+)
+def test_select_with_limit_or_fetch_is_not_flagged(statement: str) -> None:
+    assert (
+        evaluate_test(_unbounded_read(loaded=52, has_limit=True, statement=statement), Budget(None, False, 0), 5, ())
+        == []
+    )
+
+
+def test_allow_unbounded_read_marker() -> None:
+    from sharpit.pytest_plugin.marker import budget_for
+
+    class Marker:
+        name = "sharpit"
+        kwargs = {"allow_unbounded_read": True}
+
+    class Item:
+        own_markers = [Marker()]
+
+        def listchain(self) -> list[object]:
+            return [self]
+
+    budget = budget_for(Item(), None)
+
+    assert budget.allow_unbounded_read is True
+    assert evaluate_test(_unbounded_read(loaded=52), budget, 5, ()) == []
+
+
+def test_unbounded_read_factor_default_and_override() -> None:
+    from sharpit.pytest_plugin.marker import budget_for
+    from sharpit.settings import load_settings
+
+    class Item:
+        own_markers: list[object] = []
+
+        def listchain(self) -> list[object]:
+            return [self]
+
+    default_settings = load_settings({}, {})
+    override_settings = load_settings({}, {"SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR": "3"})
+    default = budget_for(Item(), None, unbounded_read_factor=default_settings.activity_unbounded_read_factor)
+    override = budget_for(Item(), None, unbounded_read_factor=override_settings.activity_unbounded_read_factor)
+
+    assert default.unbounded_read_factor == 2
+    assert override.unbounded_read_factor == 3
+
+
+def test_unbounded_read_facts_and_budget_survive_json_round_trip() -> None:
+    fact = UnboundedReadFact("/teams", "SELECT * FROM teams", "Team", 52, 5, False, "app.py:12")
+    original = TestFacts(
+        TestKey(NODE, "gw0", 1),
+        phases={"call": PhaseFacts(unbounded_reads=[fact])},
+        budget=Budget(None, False, 0, unbounded_read_factor=3),
+    )
+    restored = TestFacts.from_json(json.loads(json.dumps(original.to_json())))
+
+    assert restored.phases["call"].unbounded_reads == [fact]
+    assert restored.budget is not None
+    assert restored.budget.unbounded_read_factor == 3
+
+
+def test_lookup_query_does_not_add_to_count() -> None:
+    facts = _facts(
+        call=PhaseFacts(
+            unbounded_reads=[
+                UnboundedReadFact("/teams", "SELECT teams", "Team", 52, 5, False, "app.py:12"),
+                UnboundedReadFact("/teams", "SELECT lookup", "Lookup", 1, 5, False, "app.py:13"),
+            ]
+        )
+    )
+    found = evaluate_test(facts, Budget(None, False, 0), 5, ())
+
+    assert len(found) == 1
+    assert found[0].message.startswith("/teams materialized 52 Team rows")
+
+
+def test_unbounded_read_respects_report_only_and_baseline() -> None:
+    current = evaluate_test(_unbounded_read(loaded=52), Budget(None, False, 0), 5, ())
+    assert len(current) == 1
+    [existing] = evaluate_test(
+        _unbounded_read(loaded=52),
+        Budget(None, False, 0),
+        5,
+        (),
+        baseline={current[0].fingerprint: 60},
+    )
+    assert existing.baseline_state == "existing"
+    assert fails(existing.to_dto()) is False
 
 
 # --- sharpit.swallowed-exception (spec 0.4.0 §5.5 F1) ---------------------------------------------------------------

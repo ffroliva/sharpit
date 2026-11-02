@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import json
 import logging
 import types
 from collections.abc import Iterator
@@ -20,7 +21,7 @@ pytest.importorskip("aiosqlite")
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
-from sharpit.engine.capture.correlation import INTERNAL, TEST  # noqa: E402
+from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo  # noqa: E402
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # noqa: E402
 from sharpit.engine.masking import Exposure, Masker  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
@@ -529,3 +530,283 @@ def test_collected_context_detaches_listeners():
     gc.collect()
     sqla.detach_session()  # any listener sync prunes the dead context
     assert not any(sqla.attached().values())
+
+
+def _paging_request(request_id: str) -> RequestInfo:
+    route = types.SimpleNamespace(
+        path="/teams",
+        dependant=types.SimpleNamespace(query_params=[types.SimpleNamespace(alias="limit")]),
+    )
+    return RequestInfo(
+        request_id,
+        "test-context",
+        "GET",
+        "/teams",
+        None,
+        0,
+        None,
+        scope={"route": route, "query_string": b"limit=2"},
+    )
+
+
+def _load_context(statement: Any) -> Any:
+    return types.SimpleNamespace(query=statement, compiled=types.SimpleNamespace(statement=statement))
+
+
+def test_load_counts_are_per_statement():
+    first = sa.select(sa.literal(1))
+    second = sa.select(sa.literal(2))
+    info = _paging_request("request-statement")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-statement", 1, "call"))
+    try:
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(first))
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(second))
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    assert len(info.loads) == 2
+    sqla._unbounded_read_facts.pop(("test-statement", 1, "call"), None)
+
+
+def test_load_counts_are_scoped_to_request():
+    first_request = _paging_request("request-one")
+    second_request = _paging_request("request-two")
+    context = _load_context(sa.select(sa.literal(1)))
+    test_token = TEST.set(("test-request-scope", 1, "call"))
+    try:
+        request_token = REQUEST.set(first_request)
+        sqla._mapper_load(types.SimpleNamespace(), context)
+        REQUEST.reset(request_token)
+        request_token = REQUEST.set(second_request)
+        sqla._mapper_load(types.SimpleNamespace(), context)
+        REQUEST.reset(request_token)
+    finally:
+        TEST.reset(test_token)
+
+    assert first_request.id != second_request.id
+    assert len(first_request.loads) == 1
+    assert len(second_request.loads) == 1
+    rows = sqla._unbounded_read_facts.pop(("test-request-scope", 1, "call"))
+    assert len(rows) == 2
+
+
+def test_multiple_entities_count_separately():
+    class Team:
+        pass
+
+    class Owner:
+        pass
+
+    info = _paging_request("request-entities")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-entities", 1, "call"))
+    try:
+        context = _load_context(sa.select(sa.literal(1)))
+        sqla._mapper_load(Team(), context)
+        sqla._mapper_load(Owner(), context)
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    rows = sqla._unbounded_read_facts.pop(("test-entities", 1, "call"))
+    assert {fact.entity for fact in rows.values()} == {"Team", "Owner"}
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [sa.select(sa.literal(1)).limit(5), sa.select(sa.literal(1)).fetch(5)],
+    ids=["limit", "fetch"],
+)
+def test_select_with_limit_or_fetch_is_not_flagged(statement: Any):
+    info = _paging_request("request-limited")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-limited", 1, "call"))
+    try:
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(statement))
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    rows = sqla._unbounded_read_facts.pop(("test-limited", 1, "call"))
+    assert all(fact.has_limit for fact in rows.values())
+
+
+def test_non_paged_route_is_not_flagged():
+    route = types.SimpleNamespace(
+        path="/teams",
+        dependant=types.SimpleNamespace(query_params=[types.SimpleNamespace(alias="search")]),
+    )
+    info = RequestInfo(
+        "request-non-paged",
+        "test-context",
+        "GET",
+        "/teams",
+        None,
+        0,
+        None,
+        scope={
+            "route": route,
+            "query_string": b"search=x",
+        },
+    )
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-non-paged", 1, "call"))
+    try:
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    assert info.loads == {}
+    assert ("test-non-paged", 1, "call") not in sqla._unbounded_read_facts
+
+
+def test_paging_route_without_bound_page_size_does_not_guess():
+    route = types.SimpleNamespace(
+        path="/teams",
+        dependant=types.SimpleNamespace(query_params=[types.SimpleNamespace(alias="page")]),
+    )
+    info = RequestInfo(
+        "request-no-page-size",
+        "test-context",
+        "GET",
+        "/teams",
+        None,
+        0,
+        None,
+        scope={"route": route, "query_string": b"page=3"},
+    )
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-no-page-size", 1, "call"))
+    try:
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    assert info.loads == {}
+    assert ("test-no-page-size", 1, "call") not in sqla._unbounded_read_facts
+
+
+def test_unbounded_read_fact_drops_sql_values():
+    info = _paging_request("request-masked-sql")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-masked-sql", 1, "call"))
+    try:
+        statement = sa.text("SELECT 'hunter2-secret' AS token")
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(statement))
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    rows = sqla._unbounded_read_facts.pop(("test-masked-sql", 1, "call"))
+    payload = json.dumps([fact.to_json() for fact in rows.values()])
+    assert "hunter2-secret" not in payload
+    assert "parameters" not in payload
+
+
+def test_listener_does_not_change_query_results():
+    from sqlalchemy.orm import Session
+
+    class Base(sa.orm.DeclarativeBase):
+        pass
+
+    class Record(Base):
+        __tablename__ = "listener_results"
+        id = sa.Column(sa.Integer, primary_key=True)
+
+    engine = sa.create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sqla.attach_session()
+    info = _paging_request("request-result")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-query-result", 1, "call"))
+    try:
+        with Session(engine) as session:
+            session.add_all([Record(), Record()])
+            session.commit()
+            result = session.scalars(sa.select(Record)).all()
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+        sqla.detach_session()
+
+    assert len(result) == 2
+    assert [record.id for record in result] == [1, 2]
+    sqla._unbounded_read_facts.pop(("test-query-result", 1, "call"), None)
+
+
+def test_mapper_load_listener_attaches_once_and_detaches():
+    from sqlalchemy.orm import Session
+
+    class Base(sa.orm.DeclarativeBase):
+        pass
+
+    class Record(Base):
+        __tablename__ = "mapper_listener_lifecycle"
+        id = sa.Column(sa.Integer, primary_key=True)
+
+    engine = sa.create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(Record())
+        session.commit()
+
+    sqla.detach_session()
+    assert sqla.attach_session() is True
+    assert sqla.attach_session() is True
+    assert sa.event.contains(sa.orm.Mapper, "load", sqla._mapper_load)
+    info = _paging_request("request-listener-lifecycle")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-listener-lifecycle", 1, "call"))
+    try:
+        with Session(engine) as session:
+            rows = session.scalars(sa.select(Record)).all()
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+        sqla.detach_session()
+
+    loaded = sum(row["loaded"] for row in info.loads.values() for row in row["rows"])
+    assert len(rows) == 1
+    assert loaded == 1
+    assert not sa.event.contains(sa.orm.Mapper, "load", sqla._mapper_load)
+    sqla._unbounded_read_facts.pop(("test-listener-lifecycle", 1, "call"), None)
+
+
+def test_identity_map_hits_are_not_counted():
+    from sqlalchemy.orm import Session
+
+    class Base(sa.orm.DeclarativeBase):
+        pass
+
+    class Record(Base):
+        __tablename__ = "identity_map_loads"
+        id = sa.Column(sa.Integer, primary_key=True)
+
+    engine = sa.create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sqla.attach_session()
+    with Session(engine) as session:
+        session.add_all([Record(), Record()])
+        session.commit()
+        info = _paging_request("request-identity-map")
+        request_token = REQUEST.set(info)
+        test_token = TEST.set(("test-identity-map", 1, "call"))
+        try:
+            first = session.scalars(sa.select(Record)).all()
+            first_count = sum(row["loaded"] for row in info.loads.values() for row in row["rows"])
+            second = session.scalars(sa.select(Record)).all()
+            second_count = sum(row["loaded"] for row in info.loads.values() for row in row["rows"])
+        finally:
+            TEST.reset(test_token)
+            REQUEST.reset(request_token)
+            sqla.detach_session()
+
+    assert len(first) == 2
+    assert len(second) == 2
+    assert first_count == 2
+    assert second_count == first_count
+    sqla._unbounded_read_facts.pop(("test-identity-map", 1, "call"), None)

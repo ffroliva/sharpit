@@ -57,6 +57,7 @@ def test_f2_report_names_materialized_rows_and_page_size(pytester: pytest.Pytest
 # fmt: on
 
 
+# fmt: off
 def test_without_install_reports_limitation_and_does_not_fire(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         fixture="""
@@ -121,3 +122,36 @@ import fixture
     assert any(
         "unbounded-read needs sharpit.install(app)" in limitation for limitation in limitations
     )
+# fmt: on
+
+
+def test_unbounded_read_report_only_does_not_fail_test(pytester: pytest.Pytester) -> None:
+    _spike_project(pytester)
+    result = pytester.runpytest_subprocess(
+        "--sharpit",
+        "--sharpit-report-only",
+        "--sharpit-app=fixture:app",
+        "--sharpit-report=report.json",
+        "-q",
+    )
+    assert result.ret == 0
+    data = _report(pytester)
+    findings = [finding for finding in data["findings"] if finding["ruleId"] == RULE]
+
+    assert len(findings) == 1
+    assert data["tests"][0]["outcome"] == "passed"
+
+
+def test_unbounded_read_factor_environment_override_reaches_gate(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _spike_project(pytester)
+    monkeypatch.setenv("SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR", "11")
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-app=fixture:app", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    data = _report(pytester)
+    findings = [finding for finding in data["findings"] if finding["ruleId"] == RULE]
+
+    assert findings == []
