@@ -44,6 +44,15 @@ def test_buffer_size_reports_capacity_when_empty() -> None:
     assert recorder.report([])["bufferSize"] == 7, "bufferSize must report the configured ring capacity"
 
 
+def test_flags_slow_and_held() -> None:
+    recorder = _recorder(slow_threshold_ms=0, hold_threshold_ms=0)
+    entry_id = _begin(recorder)
+    recorder.end(entry_id, "COMMITTED")
+    row = recorder.report([])["entries"][0]
+    assert row["slow"] is False, "a zero slow threshold must disable slow transaction flags"
+    assert row["connectionHeld"] is False, "a zero hold threshold must disable held connection flags"
+
+
 def test_clear_keeps_total_captured() -> None:
     recorder = _recorder()
     entry_id = _begin(recorder)
@@ -199,6 +208,41 @@ def test_untracked_savepoint_end_does_not_close_root(monkeypatch) -> None:
     row = recorder.report([])["entries"][0]
     assert row["id"] == root_id, "an untracked savepoint event must leave the root transaction on the stack"
     assert row["status"] == "COMMITTED", "an untracked savepoint release must not close the root transaction"
+
+
+def test_begin_over_open_entry_closes_it_unknown(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from sharpit.engine.capture.transactions import tx_begin
+    from sharpit.engine.sources import dispatch
+
+    recorder = _recorder()
+    context = SimpleNamespace(
+        context_id="orphan-context",
+        capture=SimpleNamespace(transactions=recorder, wiring=SimpleNamespace(hook_failed=lambda *_: None)),
+        settings=SimpleNamespace(
+            transactions_enabled=True,
+            panels={"transactions": SimpleNamespace(enabled=True)},
+            sql_trace_capture_call_site=False,
+        ),
+    )
+    connection = SimpleNamespace(info={}, engine=object(), connection=SimpleNamespace(dbapi_connection=object()))
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: [context])
+    tx_begin(connection)
+    first_id = connection.info["sharpit_tx"][0][1]
+    tx_begin(connection)
+    rows = {row["id"]: row for row in recorder.report([])["entries"]}
+    assert rows[first_id]["status"] == "UNKNOWN", "a new begin must close an orphaned open entry as unknown"
+    assert rows[max(rows)]["status"] == "OPEN", "an in-flight transaction must be reported as open"
+
+
+def test_oldest_open_entry_is_not_evicted() -> None:
+    recorder = _recorder(max_entries=1)
+    first_id = _begin(recorder)
+    second_id = _begin(recorder)
+    rows = {row["id"]: row for row in recorder.report([])["entries"]}
+    assert first_id in rows, "the oldest open transaction must remain retained"
+    assert second_id in rows, "a newly opened transaction must be retained even when the ring is full"
 
 
 def test_internal_transaction_callbacks_are_skipped(monkeypatch) -> None:
