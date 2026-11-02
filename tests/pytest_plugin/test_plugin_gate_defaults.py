@@ -301,3 +301,34 @@ def test_autodetect_ignores_test_module_apps(pytester: pytest.Pytester) -> None:
     result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     assert "sharpit: using app realpkg.main:app (pass --sharpit-app to choose)" in result.stdout.str()
+
+
+def test_autodetect_names_app_by_shortest_module_across_workers(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        short="""
+        from fastapi import FastAPI
+        app = FastAPI()
+        @app.get('/items')
+        def items():
+            return []
+        """,
+        longer_reexport="""
+        from short import app
+        """,
+        test_order="""
+        import importlib
+        import os
+
+        def test_import_order_differs_per_worker():
+            first, second = ('longer_reexport', 'short')
+            if os.environ.get('PYTEST_XDIST_WORKER', 'gw0') != 'gw0':
+                first, second = second, first
+            importlib.import_module(first)
+            assert importlib.import_module(second).app is not None
+        """,
+    )
+
+    result = pytester.runpytest_subprocess("-n", "2", "--dist=each", "--sharpit", "--sharpit-report=report.json", "-q")
+
+    assert "sharpit: using app short:app (pass --sharpit-app to choose)" in result.stdout.str()
+    assert _rest_run(pytester)["status"] == "PASSED"
