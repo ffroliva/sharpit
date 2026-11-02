@@ -752,3 +752,10 @@ def violations(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]
 def scan(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> list[RuleResult]:
     found = violations(routes, exception_handlers)
     return [RuleResult.evaluate(rule, found[rule.id]) for rule in RULES]
+
+
+FASTAPI_ERR_001 = RuleDefinition("FASTAPI-ERR-001", "", ERRORS_DOCS, "MEDIUM", "", "", "")
+
+
+def swallowed_handler_violations(routes: Sequence[ApiRouteInfo]) -> list[Violation]:
+    return []
