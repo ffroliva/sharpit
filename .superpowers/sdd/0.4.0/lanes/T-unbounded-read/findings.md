@@ -57,6 +57,15 @@ These tests cover behavior already present in the implementation. Each mutation 
 | Report-only keeps the finding while test remains passed | `tests/pytest_plugin/test_plugin_unbounded_read.py::test_unbounded_read_report_only_does_not_fail_test` | `4541d8e463446148be920cecf831443e651a7e4e` | Ignore report-only option → `AssertionError: result.ret == 0` (nested pytest failed on the gate) | Mutation-proven |
 | Environment factor reaches the pytest gate | `tests/pytest_plugin/test_plugin_unbounded_read.py::test_unbounded_read_factor_environment_override_reaches_gate` | `4541d8e463446148be920cecf831443e651a7e4e` | Hardcode factor 2 in session hook → `AssertionError: result.ret == 0` (nested gate flagged F2) | Mutation-proven |
 
+### Historical SHA
+
+These adapted pre-existing tests are not valid red claims at `59cf19c9927cfb9eb17917cfb004785ce8a1d115`: one fails on a stale internal-shape expectation and one raises `TypeError`. Both tests were mutation-proven at the lane head `5c514bfd19cb1738ebdf8303e54b1c8256a4b5d0`.
+
+| Test | Historical SHA | Reason |
+|---|---|---|
+| `tests/engine/test_sqla.py::test_multiple_entities_count_separately` | `59cf19c9927cfb9eb17917cfb004785ce8a1d115` | Failed with unrelated key-set mismatch at red SHA (expected `{'Team', 'Owner'}`, got `{'rows'}`); mutation-proven at `5c514bfd19cb1738ebdf8303e54b1c8256a4b5d0`: replace `type(target).__name__` with constant `"Entity"` → `AssertionError: assert {'Entity'} == {'Owner', 'Team'}` |
+| `tests/engine/test_sqla.py::test_identity_map_hits_are_not_counted` | `59cf19c9927cfb9eb17917cfb004785ce8a1d115` | Crashed with `TypeError` at red SHA (`list indices must be integers or slices, not str` while treating the load list as a dict); mutation-proven at `5c514bfd19cb1738ebdf8303e54b1c8256a4b5d0`: increment each load count by 2 → `AssertionError: assert 4 == 2` |
+
 ## Mutation run notes
 
 The mutation runs were temporary working-tree edits only; all guarded source lines were restored. Current historical tests pass at the lane head. The final targeted run was 106 passed (`C:\development\github\sharpit-wt\T-targeted-final.log`); the one full suite was 4,404 passed and 9 skipped (`C:\development\github\sharpit-wt\T-full-pytest.log`). Repo gates: Ruff and format passed; Pyright reported 0 errors, 0 warnings, 0 informations.
