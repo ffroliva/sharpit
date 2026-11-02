@@ -58,6 +58,26 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI: only 
 - A missing or malformed baseline never switches sharpit off: the session runs and the baseline becomes an unknown
   reason, which fails the run. Own the baseline file in CODEOWNERS, or a PR can baseline its own findings.
 
+### GitHub Action
+
+The repository root is a composite action (`action.yml`) that runs pytest with sharpit and writes a findings summary to
+the job summary. Pin it to a release tag:
+
+```yaml
+- uses: ffroliva/sharpit@<release tag>
+  with:
+    pytest-args: "-q tests/"
+    baseline: sharpit-baseline.json
+```
+
+Inputs: `pytest-args` (split with Python shlex), `report-only` (default `"true"`: findings are reported, never fail the
+build), `baseline`, `fail-on` (lowest severity that fails), `report-path` (default `sharpit-report.json`), `install`
+(`pip` installs the pinned sharpit; `none` when your project already depends on it, in which case `python` must be
+able to import sharpit) and `runner` (default `python -m pytest`, for example `uv run pytest`). Set `report-only: "false"`
+to gate. The pytest exit code is never masked: the summary step runs `if: always()` and only warns if it fails. The
+summary is rendered by `python -m sharpit.report summary <report.json>`. On Windows runners `runner` and `pytest-args`
+are split in non-POSIX mode so backslashes in paths survive.
+
 ### Outside proof: gflow-cli
 
 Run by sharpit's author on the 0.3.0 integration branch against gflow-cli (a public FastAPI daemon using raw `sqlite3`; see [sharpit's own report](docs/reports/2026-11-01-gflow-cli-sharpit.md)), sharpit ran across **5,662** tests (5 failed by sharpit gates):
@@ -147,6 +167,12 @@ Keyword arguments for `sharpit.install()`:
 With a PostgreSQL engine, the PostgreSQL panel reads vital signs, sessions, statements, indexes, tables, vacuum,
 replication and settings on an explicit `POST /sharpit/api/postgresql/read`: one read-only transaction with statement
 and lock timeouts, a read budget and row limits, query text masked. `GET` returns the last read and never touches the database.
+
+The `sqlalchemy-statistics` panel (BootUI's `hibernate-statistics`; `GET {api}/sqlalchemy-statistics`, MCP
+`get_sqlalchemy_statistics`) shows statement counts from SQL Trace's lifetime totals, the slowest statement and N+1
+candidates per route. SQLAlchemy reports SQL statements, not ORM sessions or entities, so the Hibernate-only counters
+(sessions, flushes, transactions, entity and collection counts) are `null`, each with a reason. It needs SQL Trace, and
+reports `statistics.warnings` when SQL Trace recording is paused.
 
 Other options are keyword arguments or environment variables, see [Settings](https://ffroliva.github.io/sharpit/settings/).
 

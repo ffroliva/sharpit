@@ -40,13 +40,13 @@ Every panel id in BootUI 2.2.0 (`tests/fixtures/bootui/2.2.0/ids.json`) and wher
 | `security-logs` | `security-logs` | not started | |
 | `database-advisor` | `database-advisor` | not started | |
 | `architecture` | `architecture` | not started | |
-| `hibernate-statistics` | `sqlalchemy-statistics` | parked | lane parked; no 2.2.0 golden either (`meta.json` `uncaptured`) |
+| `hibernate-statistics` | `sqlalchemy-statistics` | unverified | implemented in 0.4.0; no BootUI golden: tiny-ledger has no Hibernate statistics (`tests/fixtures/bootui/2.2.0/meta.json` `uncaptured`) |
 | `spring-security` | `fastapi-security` | not started | |
 | `spring` | `fastapi` | not started | |
 
-Counts (31 panels): existing (0.3.0) 19, parity 1, unverified 1, parked 2, not started 8.
+Counts (31 panels): existing (0.3.0) 19, parity 1, unverified 2, parked 1, not started 8.
 
-Not a panel, also parked: the GitHub Action and job summary (lane G3).
+Not a panel, shipped in 0.4.0: the GitHub Action and job summary (lane G3).
 
 Each 0.4 panel's implemented flag is in `src/sharpit/engine/panels04/<id>.py`; `GET /sharpit/api/panels` is the
 runtime answer.
