@@ -279,6 +279,28 @@ def test_first_application_location_is_cached_per_relationship(monkeypatch: pyte
         TEST.reset(token)
 
 
+def test_relationship_facts_use_masked_statement_fingerprint() -> None:
+    from sharpit.engine.capture.sqltrace import normalize
+    from sharpit.engine.testsession.sink import report_masker
+
+    statement = "SELECT * FROM payments WHERE api_key = ?"
+    tag = ("test_relationship_facts_use_masked_statement_fingerprint", 1, "call")
+    context = types.SimpleNamespace(
+        execution_options={sqla.RELATIONSHIP_KEY: ("Payment.refunds", True)},
+        statement=statement,
+    )
+    token = TEST.set(tag)
+    try:
+        sqla._record_relationship(context)
+        masked_fingerprint = report_masker().mask_text(normalize(statement).fingerprint)
+        assert sqla._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
+    finally:
+        sqla._relationship_loads.pop(tag, None)
+        sqla._relationship_groups.pop(tag, None)
+        sqla._relationship_sites.pop(tag, None)
+        TEST.reset(token)
+
+
 def test_pause_returns_early_listeners_kept():
     engine = sa.create_engine("sqlite://")
     handle = _install(engines=[engine])
