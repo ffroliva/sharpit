@@ -200,7 +200,8 @@ def _middleware(app: object) -> tuple[tuple[str, ...], tuple[str, ...]]:
     entries: Any = inspect.getattr_static(app, "user_middleware", None)
     names: list[str] = []
     backends: list[str] = []
-    for entry in list(entries) if isinstance(entries, list | tuple) else ():
+    listed: list[object] = list(cast(list[object], entries)) if isinstance(entries, list | tuple) else []
+    for entry in listed:
         cls: Any = getattr(entry, "cls", None)
         if cls is None or str(getattr(cls, "__module__", "")).startswith("sharpit."):  # sharpit's own: hidden
             continue
@@ -221,7 +222,7 @@ def _scopes(node: object) -> tuple[str, ...]:
 def _schemes_in(node: object, scopes: tuple[str, ...], depth: int, out: list[SecurityScheme], base: type) -> bool:
     """Append every scheme in ``node``'s tree to ``out``; True when one was found. Nothing is called."""
     scopes = (*scopes, *_scopes(node))
-    call = getattr(node, "call", None)
+    call: object = getattr(node, "call", None)
     if issubclass(type(call), base):  # type(), not isinstance(): a user ``__class__`` property is never run
         auto: object = inspect.getattr_static(call, "auto_error", True)  # a user property is not run either
         out.append(SecurityScheme(_dotted(type(call)), auto if isinstance(auto, bool) else True, tuple(sorted(scopes))))
@@ -413,8 +414,8 @@ class FastApiIntrospector:
         if prefix is None or middleware:  # the app's own stack always; a mount only when it adds middleware
             chains.append(SecurityChain(prefix, middleware))
             backends.extend(found)
-        routes: Any = app.routes if isinstance(app, Starlette) else ()  # a framework property; user ASGI apps: opaque
-        for route in list(routes or ()):
+        routes: list[object] = list(app.routes) if isinstance(app, Starlette) else []  # user ASGI apps: opaque
+        for route in routes:
             if not isinstance(route, Mount) or (prefix is None and route.path == self.exclude_mount):
                 continue
             if id(route.app) not in seen and depth < MAX_DEPTH:
