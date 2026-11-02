@@ -70,6 +70,8 @@ class PostgresState:
 
 def postgresql_report(ctx: SharpitContext) -> Dto:
     """The last read, or the initial ``NOT_READ`` report: never discovers an engine, never connects."""
+    if (reason := sqla.unavailable_reason()) is not None:
+        return unavailable_report(reason)
     state = ctx.peek("postgresql")
     if isinstance(state, PostgresState) and state.report is not None:
         return state.report
@@ -93,6 +95,8 @@ def unavailable_report(reason: str) -> Dto:
 
 async def refresh_postgresql(ctx: SharpitContext) -> Dto:
     """Read every registered PostgreSQL engine (single-flight, held until every worker thread returns)."""
+    if (reason := sqla.unavailable_reason()) is not None:
+        return unavailable_report(reason)
     single = ctx.lazy(f"singleflight:{OPERATION}", SingleFlight)
     release = single.try_acquire(OPERATION)
     if release is None:
