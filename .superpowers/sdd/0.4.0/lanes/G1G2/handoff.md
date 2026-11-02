@@ -11,6 +11,9 @@ Implementer: Codex / GPT-6 (lane); review round 1 fixes: Claude Code / claude-op
   (write-baseline needs `=PATH`, no ini option), B9 (baseline `clean_text` + LF bytes), B13 (dismissed not written), B3/6/7 (partial from parsed options,
   explicit args, --ignore; maxfail only when stopped), B8 (baseline written before the report; failure is unknown),
   B14 (schema `required`).
+- Gates at c7cb62d: ruff check clean, ruff format clean, pyright 0 errors; pytest -n 4 over tests/pytest_plugin,
+  tests/engine/testsession, tests/engine/advisors, test_report_schema, import boundary, code shape, foundation tests:
+  496 passed (run at 04cf95a; c7cb62d only renames an unused binding, baseline files re-run 24 passed). Full suite: coordinator gate.
 - Red/fix SHAs and Open items: `findings.md` "Review round 1".
 - Next: the Open list in `findings.md` (B10 vuln exclusion, C-items, review #5/#6, remaining plan-named tests).
 - Resume: worktree `C:\development\github\sharpit-wt/0.4.0-G1G2`, branch `lane/0.4.0-G1G2`.
