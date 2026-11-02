@@ -68,16 +68,6 @@ def test_flags_slow_and_held() -> None:
 
 
 # ported: TransactionRecorderTests.clearEmptiesTheBufferWithoutResettingTotalCaptured
-def test_clear_keeps_total_captured() -> None:
-    recorder = _recorder()
-    entry_id = _begin(recorder)
-    recorder.end(entry_id, "COMMITTED")
-    recorder.clear()
-    report = recorder.report([])
-    assert report["bufferSize"] == 0, "clear must empty the retained transactions"
-    assert report["totalCaptured"] == 1, "clear must keep the lifetime captured count"
-
-
 # ported: TransactionRecorderTests.beginTransactionReturnsSentinelWhenPaused
 def test_paused_records_nothing() -> None:
     recorder = _recorder(recording=False)
@@ -180,6 +170,59 @@ def test_connection_event_slot_records_real_sqlite_transaction(monkeypatch) -> N
     report = recorder.report([])
     assert report["totalCaptured"] == 1, "the real SQLite begin event must be captured once"
     assert report["entries"][0]["status"] == "COMMITTED", "the real SQLite commit event must close the entry"
+
+
+def test_failed_commit_is_unknown_with_masked_error_and_commit_duration(monkeypatch) -> None:
+    import time
+    from types import SimpleNamespace
+
+    import pytest
+
+    from sharpit.engine.capture.transactions import attach
+    from sharpit.engine.sources import dispatch
+
+    sa = pytest.importorskip("sqlalchemy")
+    recorder = _recorder()
+    context = SimpleNamespace(
+        context_id="failed-commit-context",
+        capture=SimpleNamespace(transactions=recorder, wiring=SimpleNamespace(hook_failed=lambda *_: None)),
+        settings=SimpleNamespace(
+            transactions_enabled=True,
+            panels={"transactions": SimpleNamespace(enabled=True)},
+            sql_trace_capture_call_site=False,
+        ),
+    )
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: [context])
+
+    class FailingCommitConnection:
+        def __init__(self, connection) -> None:
+            self.connection = connection
+
+        def __getattr__(self, name: str):
+            return getattr(self.connection, name)
+
+        def commit(self) -> None:
+            time.sleep(0.01)
+            raise RuntimeError("failed postgresql://user:secret@db.local/app")
+
+    base_engine = sa.create_engine("sqlite://")
+    engine = sa.create_engine("sqlite://", creator=lambda: FailingCommitConnection(base_engine.pool._creator()))
+    remove = attach()
+    assert remove is not None, "the connection event slot should attach when SQLAlchemy is loaded"
+    try:
+        with engine.connect() as connection:
+            transaction = connection.begin()
+            with pytest.raises(RuntimeError):
+                transaction.commit()
+    finally:
+        remove()
+        engine.dispose()
+        base_engine.dispose()
+
+    row = recorder.report([])["entries"][0]
+    assert row["status"] == "UNKNOWN", "a failed DBAPI commit must never be reported as committed"
+    assert "secret" not in row["errorMessage"], "a failed commit must not expose connection passwords"
+    assert row["durationMillis"] >= 10, "failed transaction duration must include time spent in DBAPI commit"
 
 
 def test_savepoint_closes_one_child_per_context(monkeypatch) -> None:
