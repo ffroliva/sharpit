@@ -4,21 +4,19 @@ sharpit takes security and procurement hygiene seriously. As an embedded develop
 
 ## Supported Versions
 
-Only the current active release line receives security updates:
+Security updates are provided only for the latest release on PyPI:
 
 | Version | Supported | Notes |
 |---|---|---|
-| 0.3.x (0.3.0) | Yes | Current active release |
-| < 0.3.0 | No | Unsupported |
+| Latest release on PyPI (0.3.x) | Yes | Verifiable support boundary |
+| Prior versions | No | Unsupported |
 
 ## Reporting a Vulnerability
 
-Please report suspected security vulnerabilities privately. **Never report security vulnerabilities through public discussions or bug trackers.**
+Please report suspected security vulnerabilities privately. **Do not post vulnerability details in public issues or discussions.**
 
-To report a vulnerability:
-1. Use GitHub's private vulnerability reporting feature via [Security Advisories](https://github.com/ffroliva/sharpit/security/advisories/new).
-2. Provide a clear description, reproduction steps, affected versions, and potential impact.
-3. The maintainer will acknowledge receipt within 48 hours and provide updates through the private advisory channel.
+- Once enabled on the repository, report privately via GitHub's "Report a vulnerability" button under the **Security** tab.
+- Until private vulnerability reporting is enabled, please open a GitHub issue titled `"Security contact request"` containing **NO details**, and the maintainer will reply with a private channel to share details securely.
 
 ## Network Egress and Trust Boundaries
 
