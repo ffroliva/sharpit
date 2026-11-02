@@ -177,17 +177,53 @@ def test_security_policy_network_claim_matches_gatekeepers() -> None:
     assert security_path.is_file(), "SECURITY.md must exist"
     security_text = security_path.read_text(encoding="utf-8")
 
-    assert "OSV" in security_text, "SECURITY.md must explicitly name OSV client"
-    assert "EPSS" in security_text, "SECURITY.md must explicitly name EPSS client"
-    assert "network" in security_text.lower(), "SECURITY.md must define the network egress boundary"
+    assert "## Network Egress and Trust Boundaries" in security_text, (
+        "SECURITY.md must contain '## Network Egress and Trust Boundaries'"
+    )
+    start = security_text.find("## Network Egress and Trust Boundaries")
+    section = security_text[start:]
 
     osv_gatekeeper = ROOT / "src" / "sharpit" / "engine" / "collectors" / "vulns" / "osv.py"
     epss_gatekeeper = ROOT / "src" / "sharpit" / "engine" / "collectors" / "vulns" / "epss.py"
     assert osv_gatekeeper.is_file(), "OSV gatekeeper src/sharpit/engine/collectors/vulns/osv.py must exist"
     assert epss_gatekeeper.is_file(), "EPSS gatekeeper src/sharpit/engine/collectors/vulns/epss.py must exist"
 
-    assert "GET" in security_text, "SECURITY.md must clarify that ordinary GET routes make no network requests"
-    assert "MCP" in security_text, "SECURITY.md must clarify that MCP tools make no network requests"
+    assert "entirely offline" not in section.lower(), (
+        "SECURITY.md must not falsely claim components operate 'entirely offline'"
+    )
+    assert "open no sockets" in section.lower(), (
+        "SECURITY.md must state that GET routes and MCP tools open no sockets"
+    )
+    assert "health check (post)" in section.lower() or "health check" in section.lower(), (
+        "SECURITY.md must specify the health check behavior"
+    )
+    assert "pings configured database engines" in section.lower(), (
+        "SECURITY.md must state health check pings configured database engines"
+    )
+    assert "runs user health callables" in section.lower(), (
+        "SECURITY.md must state health check runs user health callables"
+    )
+    assert "read-only sql" in section.lower(), (
+        "SECURITY.md must state database panels run read-only SQL through the app's own engines"
+    )
+    assert "vulnerability scan" in section.lower(), (
+        "SECURITY.md must specify vulnerability scan"
+    )
+    assert "500" in section, (
+        "SECURITY.md must mention vulnerability scan package limit (up to 500 packages)"
+    )
+    assert "SHARPIT_VULNERABILITIES_OSV_BASE_URI" in section, (
+        "SECURITY.md must document SHARPIT_VULNERABILITIES_OSV_BASE_URI"
+    )
+    assert "SHARPIT_VULNERABILITIES_EPSS_BASE_URI" in section, (
+        "SECURITY.md must document SHARPIT_VULNERABILITIES_EPSS_BASE_URI"
+    )
+    assert "SHARPIT_VULNERABILITIES_OSV_ENABLED=false" in section, (
+        "SECURITY.md must document SHARPIT_VULNERABILITIES_OSV_ENABLED=false"
+    )
+    assert "SHARPIT_VULNERABILITIES_EPSS_ENABLED=false" in section, (
+        "SECURITY.md must document SHARPIT_VULNERABILITIES_EPSS_ENABLED=false"
+    )
 
 
 def test_dependabot_covers_uv_pip_actions_and_ui_npm() -> None:
