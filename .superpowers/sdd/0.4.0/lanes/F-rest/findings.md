@@ -11,6 +11,8 @@
 | `tests/test_safety_lane_sweeps.py::test_lane_file_that_skips_or_fails_is_reported_not_raised` | `0e1033829f7325305fbf70eaa7bdd1e4b0aa7197` | `assert [line.split(":")[0] for line in lanes.unimportable] == ["test_a_skip_safety.py", "test_b_broken_safety.py"]` | Fixed in `6c5e9eb` |
 | `tests/test_safety_lane_sweeps.py::test_panel_is_optional_but_must_be_a_known_id` | `0e1033829f7325305fbf70eaa7bdd1e4b0aa7197` | `assert [line.split(":")[0] for line in lanes.invalid] == ["test_x_safety.py"]` | Fixed in `6c5e9eb` |
 | `tests/test_safety_lane_sweeps.py::test_row_shapes_are_validated_and_convertors_stripped` | `0e1033829f7325305fbf70eaa7bdd1e4b0aa7197` | `assert [lane.gets for lane in lanes.implemented] == [("/sharpit/api/data/{name}",)]` | Fixed in `6c5e9eb` |
+| `tests/test_surface_follows_flags.py::test_shared_counts_follow_a_flip_of_any_unimplemented_panel[data-postgresql-implemented]` | `a949929f2b439b6924374e23f3bd1cbc44ca6da0` | `assert plant not in already` | Fixed in `4f1ba74` |
+| `tests/test_safety_lane_sweeps.py::test_lane_path_params_apply_only_to_that_lanes_rows` | `76dc47f8512c5a2e3428374712b10279e17216d0` | `assert base_path == "/sharpit/api/database-connection-pools/pools/nope/snapshot"` | Fixed in `70f6932` |
 
 ## Findings
 
@@ -25,9 +27,12 @@
 |---|---|---|
 | test_safety_lane_rows.py::test_lane_rows_complete_the_route_tables | was 7b43c18 | replaced by `test_safety_lane_sweeps.py::test_lane_rows_cover_the_live_write_table` and `::test_matrix_feeds_lane_rows_into_its_sweeps` (round 1 item 7: `safety.route_formats` deleted, real matrix wiring) |
 | test_surface_follows_flags.py::test_catalogue_rebuild_is_idempotent_for_a_panel_implemented_at_import | was 7b43c18 | replaced by `::test_catalogue_rebuild_matches_the_import_time_catalogue_with_the_flag_on` (round 1 item 8: a fresh interpreter re-imports `sharpit.engine.tools` with the flag on; no catalogue patching) |
+| test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip | was aaa97d8 (lane F) | replaced by `::test_shared_counts_follow_a_flip_of_any_unimplemented_panel`: it planted on `data` and asserted `[-1]` positions, which break once real lanes implement panels |
 
 ## Not a red (replacement or wiring tests that pass on arrival)
 
 - `tests/test_safety_lane_sweeps.py::test_matrix_feeds_lane_rows_into_its_sweeps`: checks the matrix's own `ALL_WRITES` and `test_write_route_table_is_complete` with a planted lane (removing the lane union there fails it).
 - `tests/test_surface_follows_flags.py::test_catalogue_rebuild_matches_the_import_time_catalogue_with_the_flag_on`: replacement for the superseded idempotency red; the behaviour was already fixed in `6001f62`.
 - `tests/test_safety_lane_rows.py::test_route_without_a_lane_row_is_named` and `::test_lane_rows_of_an_unimplemented_panel_are_ignored`: deleted with that file (controls, never reds).
+
+5. Round 2 (coordinator): the flag-flip proof plants on the first still-unimplemented 0.4 panel (skips when none) and checks membership against `tests/surface.py`'s expectations (red `a949929`, fix `4f1ba74`); a lane's `PATH_PARAMS` apply only to its own rows, never to base routes (red `76dc47f`, fix `70f6932`).

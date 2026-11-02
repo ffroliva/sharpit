@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import importlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ class Lane:
     panel: str
     gets: tuple[str, ...]  # GET path formats, Starlette convertors stripped
     writes: tuple[tuple[str, str], ...]  # (method, path format)
+    params: dict[str, str] = field(default_factory=dict[str, str])  # PATH_PARAMS: samples for this lane's rows only
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,7 @@ class Lanes:
     implemented: tuple[Lane, ...]  # lane files whose PANEL is implemented
     invalid: tuple[str, ...]  # "<file>: <problem>" (bad PANEL or row shape): the route-table tests fail on these
     unimportable: tuple[str, ...]  # "<file>: <exception>": no rows; reported when the live table is not covered
-    params: dict[str, str]  # PATH_PARAMS from every importable lane file
+    params: dict[str, str]  # PATH_PARAMS of every importable lane file (informational: never applied to base rows)
 
 
 def _strip(fmt: str) -> str:
@@ -93,7 +94,7 @@ def load(package: str = "safety") -> Lanes:
         if panels04.module_implemented(panel):
             gets = tuple(_strip(g) for g in getattr(module, "GET_ROWS", []))
             writes = tuple((m, _strip(p)) for m, p in getattr(module, "WRITE_ROWS", []))
-            implemented.append(Lane(path.name, panel, gets, writes))
+            implemented.append(Lane(path.name, panel, gets, writes, dict(getattr(module, "PATH_PARAMS", {}))))
     return Lanes(tuple(implemented), tuple(invalid), tuple(unimportable), params)
 
 
@@ -101,13 +102,17 @@ def write_cases(
     base: list[tuple[str, str, str, Any]], lanes: Lanes, params: dict[str, str]
 ) -> list[tuple[str, str, str, Any]]:
     """The read-only sweep's ``(panel, method, concrete path, body)`` cases: the base rows plus every lane write."""
-    lane_cases = [(lane.panel, m, p.format(**params), None) for lane in lanes.implemented for m, p in lane.writes]
+    lane_cases = [
+        (lane.panel, m, p.format(**{**params, **lane.params}), None)
+        for lane in lanes.implemented
+        for m, p in lane.writes
+    ]
     return [*base, *lane_cases]
 
 
 def get_rows(lanes: Lanes, params: dict[str, str]) -> set[str]:
     """Concrete GET paths of the implemented lanes (``{param}`` filled from ``params``)."""
-    return {g.format(**params) for lane in lanes.implemented for g in lane.gets}
+    return {g.format(**{**params, **lane.params}) for lane in lanes.implemented for g in lane.gets}
 
 
 def write_rows(lanes: Lanes) -> set[tuple[str, str]]:
@@ -126,3 +131,16 @@ def live_write_routes(app: Any, exempt: tuple[str, ...]) -> set[tuple[str, str]]
             continue
         found |= {(m, path) for m in WRITE_METHODS & set(getattr(route, "methods", None) or ())}
     return found
+
+
+def sample_params(path_format: str, lanes: Lanes, base: dict[str, str]) -> dict[str, str]:
+    """Samples for one route format: the base samples, plus a lane's PATH_PARAMS only when the route is that lane's."""
+    owner = next(
+        (
+            lane
+            for lane in lanes.implemented
+            if path_format in lane.gets or any(path_format == p for _m, p in lane.writes)
+        ),
+        None,
+    )
+    return {**base, **(owner.params if owner is not None else {})}
