@@ -10,7 +10,7 @@ merge gate's replay). A test file (or any id without ``::``) is expanded to its 
   (``src``, ``scripts``): use a wrong-value stub (return the wrong state) so the test's own assertion fails;
 - ``PASS (not a red)``: the test passed or was skipped;
 - ``ERROR (fixture setup/teardown)``: a fixture errored (a failing call plus a teardown error is not a clean red);
-- ``ERROR (collection)``: the id was not collected.
+- ``ERROR (collection)``: the id was not collected; ``ERROR (collection timeout)``: collecting it ran out of time.
 
 Exit 0 only when every test is a valid red. The accept rule is lane_gate.py's own (``is_red``, ``red_verdicts``).
 What only the gate checks: the red SHA is committed and an ancestor of the head, the test is unchanged from the red
@@ -131,7 +131,11 @@ def run(args: Sequence[str], cwd: Path | None = None) -> dict[str, tuple[str, st
         if "::" in nodeid:
             results[nodeid] = _run_one(root, nodeid)
             continue
-        ids, output = _expand(root, nodeid)
+        try:
+            ids, output = _expand(root, nodeid)
+        except subprocess.TimeoutExpired:
+            results[nodeid] = ("ERROR (collection timeout)", f"pytest --collect-only ran over {TIMEOUT}s")
+            continue
         if not ids:
             results[nodeid] = ("ERROR (collection)", _tail(output))
         for found in ids:

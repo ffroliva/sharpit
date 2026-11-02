@@ -560,11 +560,6 @@ def _exception_name(failure: ET.Element) -> tuple[str, str]:
     return (named.group(1).rsplit(".", 1)[-1] if named else ""), ""
 
 
-def _is_test_file(frame_file: str, test_path: str) -> bool:
-    frame = frame_file.replace("\\", "/")
-    return frame == test_path or frame.endswith("/" + test_path)
-
-
 def _is_under_tests(frame_file: str, root: Path | None) -> bool:
     """A test file or a shared test helper (``tests/overhead.py::check_budget``). An ``assert`` anywhere else (``src``,
     ``scripts``, an installed package) is a disguised stub. An absolute frame is judged relative to ``root``."""
@@ -576,13 +571,20 @@ def _is_under_tests(frame_file: str, root: Path | None) -> bool:
     return frame.startswith("tests/")
 
 
-def _classify(name: str, frame: str, test_path: str, root: Path | None) -> str:
-    """The detail a red is judged by: "AssertionError" when it counts as an assertion red."""
-    if name == "DidNotRaise":  # pytest.raises red: counts when raised by the test itself
-        return "AssertionError" if frame and _is_test_file(frame, test_path) else "Failed"
-    if name == "AssertionError" and frame and not _is_under_tests(frame, root):
-        return f"AssertionError raised outside the test file, not under tests/ ({frame})"
-    return name
+def _classify(name: str, frame: str, root: Path | None) -> str:
+    """The detail a red is judged by: "AssertionError" when it counts as an assertion red.
+
+    An ``assert`` or a ``pytest.raises`` DID NOT RAISE counts only when its last frame is under ``tests/`` (the test
+    file or a shared helper). Without a frame nobody can tell it was not raised in ``src``: that fails closed.
+    """
+    if name not in ("AssertionError", "DidNotRaise"):
+        return name
+    shown = "AssertionError" if name == "AssertionError" else "pytest.raises DID NOT RAISE"
+    if not frame:
+        return f"{shown} with no traceback frame (cannot tell where it was raised)"
+    if not _is_under_tests(frame, root):
+        return f"{shown} raised outside the test file, not under tests/ ({frame})"
+    return "AssertionError"
 
 
 Outcome = tuple[str, str]  # (passed|failure|error|skipped|not collected, a failure's exception class name)
@@ -619,7 +621,7 @@ def red_verdicts(junit: Path, nodeids: Sequence[str], root: Path | None = None) 
         path, *rest = nodeid.split("::")
         classname = ".".join([path.removesuffix(".py").replace("/", "."), *rest[:-1]])
         result[nodeid] = [
-            (o, _classify(m, f, path, root) if o == "failure" else m)
+            (o, _classify(m, f, root) if o == "failure" else m)
             for o, m, f in by_key.get((classname, rest[-1]), [("not collected", "", "")])
         ]
     return result
