@@ -272,3 +272,44 @@ def test_header_attribute_values_go_through_text_masking():
     buf = buffer()
     buf.add(span(attributes={"http.request.header.x_note": ("retry after login password=hunter2",)}))
     assert "hunter2" not in attribute(first_span(buf), "http.request.header.x_note")
+
+
+SQL_ERROR = (
+    "IntegrityError: (psycopg.errors.UniqueViolation) duplicate key value violates unique constraint\n"
+    "DETAIL:  Key (email)=(alice@example.com) already exists.\n"
+    "[SQL: INSERT INTO users (email, note) VALUES (%(email)s, 'hunter2')]\n"
+    "[parameters: {'email': 'alice@example.com'}]"
+)
+
+
+def errored_span(**kwargs: Any) -> Any:
+    raw = span(status="ERROR", **kwargs)
+    raw.status.description = SQL_ERROR
+    return raw
+
+
+def test_status_message_drops_driver_echoed_values():
+    buf = buffer()
+    buf.add(errored_span())
+    assert "alice@example.com" not in first_span(buf)["statusMessage"]
+
+
+def test_status_message_normalises_the_sql_statement():
+    buf = buffer()
+    buf.add(errored_span())
+    assert "hunter2" not in first_span(buf)["statusMessage"]
+
+
+def test_exception_event_message_gets_the_sql_handling():
+    buf = buffer()
+    buf.add(span(events=[event("exception", 2_000, {"exception.message": SQL_ERROR})]))
+    shown = first_span(buf)["events"][0]["attributes"][0]["value"]
+    assert "alice@example.com" not in shown
+
+
+def test_exception_event_stacktrace_gets_the_sql_handling():
+    trace = 'Traceback (most recent call last):\n  File "app.py", line 3, in <module>\n' + SQL_ERROR
+    buf = buffer()
+    buf.add(span(events=[event("exception", 2_000, {"exception.stacktrace": trace})]))
+    shown = first_span(buf)["events"][0]["attributes"][0]["value"]
+    assert "hunter2" not in shown
