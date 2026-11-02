@@ -297,6 +297,10 @@ def _stack(conn: Any) -> list[tuple[SharpitContext, int]]:
     return cast("list[tuple[SharpitContext, int]]", conn.info.setdefault("sharpit_tx", []))
 
 
+def _savepoints(conn: Any) -> dict[str, list[tuple[SharpitContext, int]]]:
+    return cast("dict[str, list[tuple[SharpitContext, int]]]", conn.info.setdefault("sharpit_tx_savepoints", {}))
+
+
 def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
     stack = _stack(conn)
     if parent_ids is None:
@@ -305,6 +309,7 @@ def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
             if isinstance(recorder, TransactionRecorder):
                 recorder.end(entry_id, "UNKNOWN")
         stack.clear()
+        _savepoints(conn).clear()
     info = REQUEST.get()
     connection_id = _connection_id(conn)
     for ctx in _targets(conn):
@@ -351,6 +356,23 @@ def _end(conn: Any, status: str, *, name: str | None = None) -> None:
                 dispatch._context_failed(ctx, exc)  # pyright: ignore[reportPrivateUsage]
 
 
+def _end_savepoint(conn: Any, name: str, status: str) -> None:
+    stack = _stack(conn)
+    tracked = _savepoints(conn).pop(name, None)
+    if tracked is None:
+        return
+    tracked_ids = {(ctx.context_id, entry_id) for ctx, entry_id in tracked}
+    closing = [(ctx, entry_id) for ctx, entry_id in stack if (ctx.context_id, entry_id) in tracked_ids]
+    stack[:] = [(ctx, entry_id) for ctx, entry_id in stack if (ctx.context_id, entry_id) not in tracked_ids]
+    for ctx, entry_id in closing:
+        recorder = ctx.capture.transactions
+        if isinstance(recorder, TransactionRecorder):
+            try:
+                recorder.end(entry_id, status)
+            except Exception as exc:  # noqa: BLE001 - never alter the application's transaction
+                dispatch._context_failed(ctx, exc)  # pyright: ignore[reportPrivateUsage]
+
+
 def tx_begin(conn: Any) -> None:
     try:
         _begin(conn)
@@ -376,21 +398,24 @@ def tx_savepoint(conn: Any, name: str | None) -> None:
     try:
         stack = _stack(conn)
         parents = {ctx.context_id: entry_id for ctx, entry_id in stack}
+        before = len(stack)
         _begin(conn, parents)
+        if name is not None:
+            _savepoints(conn)[name] = stack[before:]
     except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
         dispatch.routing_failed(exc)
 
 
 def tx_rollback_savepoint(conn: Any, name: str, context: object) -> None:
     try:
-        _end(conn, "ROLLED_BACK", name=name)
+        _end_savepoint(conn, name, "ROLLED_BACK")
     except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
         dispatch.routing_failed(exc)
 
 
 def tx_release_savepoint(conn: Any, name: str, context: object) -> None:
     try:
-        _end(conn, "COMMITTED", name=name)
+        _end_savepoint(conn, name, "COMMITTED")
     except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
         dispatch.routing_failed(exc)
 
