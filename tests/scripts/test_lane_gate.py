@@ -1018,3 +1018,23 @@ def test_function_local_budget_counts_as_an_overhead_module() -> None:
 def test_async_check_budget_definition_counts_as_an_overhead_module() -> None:
     source = "async def check_budget(name):\n    return None\n"
     assert lane_gate._is_overhead_module("tests/test_x.py", source) is True, "async def check_budget was not counted"
+
+
+def test_lane_fixture_copy_uses_at_most_one_git_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    warm_root = tmp_path / "warm"
+    warm_root.mkdir()
+    _fixture(warm_root)
+    calls: list[tuple[str, ...]] = []
+    original = subprocess.run
+
+    def count_git(args: Sequence[str], *positional: object, **keywords: object) -> subprocess.CompletedProcess[str]:
+        if args and args[0] == "git":
+            calls.append(tuple(args))
+        return original(args, *positional, **keywords)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(subprocess, "run", count_git)
+    copy_root = tmp_path / "copy"
+    copy_root.mkdir()
+    _fixture(copy_root)
+    git_calls = len(calls)
+    assert git_calls <= 1, f"copying a prepared lane fixture used {git_calls} git subprocesses; expected at most 1"
