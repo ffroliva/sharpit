@@ -349,15 +349,24 @@ class FastApiIntrospector:
     ) -> Iterator[tuple[RouteInfo, object | None]]:
         """Each listed row with its leaf route object (``None`` for opaque mount / unexpanded rows)."""
         for route in list(routes):
-            # FastAPI's lazy include_router is intentionally not expanded: doing so calls user-visible
-            # candidate methods. Report its plain prefix as a limitation instead.
+            # Read the router's plain route list; never call effective-candidate methods.
             route_type = type(route)
             if route_type.__module__ == "fastapi.routing" and route_type.__name__ == "_IncludedRouter":
                 context = vars(route).get("include_context")
-                include_prefix = vars(context).get("prefix") if context is not None else None
+                context_values = vars(context) if context is not None else {}
+                include_prefix = context_values.get("prefix")
                 base = prefix + include_prefix if isinstance(include_prefix, str) and include_prefix else prefix
-                path = base or "/"
-                yield RouteInfo((), path, "<unexpanded include_router>", host, None, None, None), None
+                original = vars(route).get("original_router")
+                try:
+                    included_routes = vars(original).get("routes") if original is not None else None
+                except TypeError:
+                    included_routes = None
+                if isinstance(included_routes, list) and all(
+                    type(item) in (APIRoute, Route, WebSocketRoute) for item in included_routes
+                ):
+                    yield from self._walk(included_routes, base, host, path_apps, depth + 1, mounts=mounts)
+                else:
+                    yield RouteInfo((), base or "/", "<unexpanded include_router>", host, None, None, None), None
                 continue
             # Only a top-level mount can be sharpit's own; a host's nested mount at the same path is its own.
             if type(route) is Mount and top and vars(route).get("path") == self.exclude_mount:
@@ -388,7 +397,7 @@ class FastApiIntrospector:
                 continue
             if type(route) not in (APIRoute, WebSocketRoute, Route):
                 # Unknown BaseRoute implementations are opaque; do not inspect even their descriptors.
-                yield RouteInfo((), prefix or "(any)", _qualified(type(route)), host, None, None, None), None
+                yield RouteInfo((), prefix or "(any)", "custom route", host, None, None, None), None
                 continue
             self._mounts_by_route[id(route)] = mounts
             yield self._leaf(route, prefix, host), route
@@ -429,10 +438,13 @@ class FastApiIntrospector:
         for info, route in self._entries():
             chain = _chain_of(info.path, chains)
             if route is None:
-                routes.append(self._opaque_route(info, chain, limitations))
+                if info.handler == "<unexpanded include_router>":
+                    limitations.append(f"Included router at {info.path} could not be expanded.")
+                else:
+                    routes.append(self._opaque_route(info, chain, limitations))
             elif type(route) is APIRoute and not _framework(info.handler):
                 routes.append(_secured_route(info, route, chain, SecurityBase, limitations))
-            elif type(route) is Route:
+            elif type(route) is Route and not _framework(info.handler):
                 routes.append(
                     SecuredRoute(
                         (), info.path, info.handler, opaque=True, path_regex=_path_regex(info.path, False), chain=chain
