@@ -14,7 +14,6 @@ from sharpit import install
 PANEL = "data"
 GET_ROWS = ["/sharpit/api/data/repositories", "/sharpit/api/data/repositories/{name:path}"]
 WRITE_ROWS: list[tuple[str, str]] = []
-PATH_PARAMS = {"name": "Owner"}  # a class the sample app below maps
 
 LOCAL = ("127.0.0.1", 50000)
 PATHS = ("/sharpit/api/data/repositories", "/sharpit/api/data/repositories/Owner")
