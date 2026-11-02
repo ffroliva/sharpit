@@ -20,7 +20,6 @@ rule ids and ``v<n>:`` identities do not fit sharpit's ids). Comment lines insid
 from __future__ import annotations
 
 import base64
-import binascii
 import os
 import re
 import tempfile
@@ -292,7 +291,7 @@ def _decode_note(encoded: str) -> str | None:
         raw = base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
         note = raw.decode("utf-8")
         canonical = _encode_note(note) == encoded
-    except (binascii.Error, ValueError, AdvisorViolationError):
+    except (ValueError, AdvisorViolationError):
         return None
     return note if canonical and note.strip() else None
 
