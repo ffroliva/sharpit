@@ -1,11 +1,11 @@
 # Installation
 
-sharpit is not on PyPI yet. Install it from git:
+Install sharpit from PyPI with the FastAPI host extra:
 
 ```bash
-pip install "sharpit @ git+https://github.com/ffroliva/sharpit.git"
+pip install "sharpit[fastapi]"
 # or
-uv add "sharpit @ git+https://github.com/ffroliva/sharpit.git"
+uv add "sharpit[fastapi]"
 ```
 
 Python 3.12+. Runtime dependencies are only `starlette>=0.44` and `packaging>=23`. Optional extras:
