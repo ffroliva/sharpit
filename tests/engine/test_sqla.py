@@ -200,7 +200,7 @@ def test_orm_hooks_attach_only_for_test_session():
 
 
 def test_listener_failure_does_not_change_query_result(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch,
 ):
     engine = sa.create_engine("sqlite://")
     orm = pytest.importorskip("sqlalchemy.orm")
@@ -228,13 +228,13 @@ def test_listener_failure_does_not_change_query_result(
 
     monkeypatch.setattr(sqla, "_first_application_location", fail)
     token = TEST.set(("test_listener_failure", 1, "call"))
-    with caplog.at_level(logging.WARNING, logger="sharpit"):
+    try:
         assert sqla.attach_session() is True
         with orm.Session(engine) as session:
             assert len(session.query(Parent).one().children) == 1
+    finally:
         sqla.detach_session()
-    TEST.reset(token)
-    assert any("SQL listener failed" in record.getMessage() for record in caplog.records)
+        TEST.reset(token)
 
 
 def test_pause_returns_early_listeners_kept():

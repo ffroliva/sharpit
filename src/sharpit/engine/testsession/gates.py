@@ -10,7 +10,7 @@ from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.findings import fails as fails  # the one predicate, re-exported
 
 if TYPE_CHECKING:
-    from sharpit.engine.testsession.facts import TestFacts
+    from sharpit.engine.testsession.facts import PhaseFacts, TestFacts
 
 ADVISOR = "test-runtime"
 MAX_QUERIES = "sharpit.max-queries"
@@ -38,6 +38,22 @@ def _finding(
     fingerprint = Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, identity=identity).fingerprint
     is_dismissed = fingerprint in dismissed or (rule_id, identity or target) in dismissed_pairs
     return Finding(rule_id, ADVISOR, "HIGH", target, message, node_id, is_dismissed, identity, observed)
+
+
+def _n_plus_one_message(call: PhaseFacts, group: str, count: int) -> str:
+    message = f"{count} executions of one SELECT in the call phase"
+    relation = call.relationship_of.get(group)
+    if relation is None:
+        return message
+    identity, collection = relation
+    relation_count = call.relationship_loads.get(identity, count)
+    loader = "selectinload" if collection else "joinedload"
+    statement = call.sql_of.get(group, call.sql_of.get(identity, "the masked SELECT"))
+    return (
+        f"{identity} lazy-loaded {relation_count} times; {loader}({identity}); "
+        f"first lazy load at {call.relationship_sites.get(identity) or 'unknown'}; "
+        f"masked statement: {statement}; {message}"
+    )
 
 
 def evaluate_test(
@@ -71,23 +87,11 @@ def evaluate_test(
         threshold = max(2, n_plus_one_threshold)
         for group, count in call.selects.items():
             if count >= threshold:
-                message = f"{count} executions of one SELECT in the call phase"
-                relation = call.relationship_of.get(group)
-                if relation is not None:
-                    identity, collection = relation
-                    relation_count = call.relationship_loads.get(identity, count)
-                    loader = "selectinload" if collection else "joinedload"
-                    statement = call.sql_of.get(group, call.sql_of.get(identity, "the masked SELECT"))
-                    message = (
-                        f"{identity} lazy-loaded {relation_count} times; {loader}({identity}); "
-                        f"first lazy load at {call.relationship_sites.get(identity) or 'unknown'}; "
-                        f"masked statement: {statement}; {message}"
-                    )
                 found.append(
                     _finding(
                         N_PLUS_ONE,
                         call.sql_of.get(group, group),
-                        message,
+                        _n_plus_one_message(call, group, count),
                         node,
                         dismissed,
                         group,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from collections import Counter
 from pathlib import Path
 
@@ -265,6 +266,20 @@ def test_n_plus_one_message_includes_masked_statement_and_source() -> None:
 
     assert "masked statement: SELECT * FROM performances WHERE token = ?" in finding.message
     assert "app/tests.py:42" in finding.message
+
+
+def test_relationship_facts_survive_json_round_trip() -> None:
+    facts = PhaseFacts(
+        relationship_loads=Counter({"Player.performances": 6}),
+        relationship_of={"statement-fingerprint": ("Player.performances", True)},
+        relationship_sites={"Player.performances": "tests/app.py:18"},
+    )
+
+    restored = PhaseFacts.from_json(json.loads(json.dumps(facts.to_json())))
+
+    assert restored.relationship_loads == facts.relationship_loads
+    assert restored.relationship_of == facts.relationship_of
+    assert restored.relationship_sites == facts.relationship_sites
 
 
 def test_relationship_message_keeps_statement_fingerprint() -> None:
