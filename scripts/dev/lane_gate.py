@@ -258,10 +258,26 @@ def _path_refusals(opts: Options, base: str, path: str) -> list[str]:
 
 
 def _is_overhead_module(path: str, before: str | None) -> bool:
-    """An overhead test module: under tests/, defines a top-level ``BUDGET*`` or calls ``check_budget``. Only these
-    files are scanned, so a script that merely mentions a budget name (this gate) is not one."""
-    is_test_py = path.startswith("tests/") and path.endswith(".py")
-    return is_test_py and bool(before) and bool(BUDGET_LINE.search(before or "") or "check_budget(" in (before or ""))
+    """An overhead test module: under tests/, assigns a ``BUDGET*`` name, or calls or defines ``check_budget``, by AST,
+    so text inside a string literal never counts. Only these files are scanned, so a script that merely mentions a
+    budget name (this gate) is not one. Unparsable source falls back to the text rule."""
+    if not (path.startswith("tests/") and path.endswith(".py") and before):
+        return False
+    try:
+        tree = ast.parse(before)
+    except SyntaxError:  # fail closed: the text rule
+        return bool(BUDGET_LINE.search(before) or "check_budget(" in before)
+    for node in ast.walk(tree):  # a function-local BUDGET counts too: fail closed
+        if isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id.startswith("BUDGET") for t in targets):
+                return True
+        func = node.func if isinstance(node, ast.Call) else None
+        called = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+        defined = node.name if isinstance(node, ast.FunctionDef) else ""
+        if "check_budget" in (called, defined):
+            return True
+    return False
 
 
 def _overhead_problems(path: str, before: str, after: str) -> list[str]:
