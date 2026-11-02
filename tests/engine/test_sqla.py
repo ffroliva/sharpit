@@ -20,7 +20,7 @@ pytest.importorskip("aiosqlite")
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
-from sharpit.engine.capture.correlation import INTERNAL  # noqa: E402
+from sharpit.engine.capture.correlation import INTERNAL, TEST  # noqa: E402
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # noqa: E402
 from sharpit.engine.masking import Exposure, Masker  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
@@ -187,6 +187,54 @@ def test_internal_statements_not_traced():
     finally:
         INTERNAL.reset(token)
     assert _entries(handle) == []
+
+
+def test_orm_hooks_attach_only_for_test_session():
+    orm = pytest.importorskip("sqlalchemy.orm")
+
+    assert sqla.attached().get("do_orm_execute", False) is False
+    assert sqla.attach_session() is True
+    assert sa.event.contains(orm.Session, "do_orm_execute", sqla.do_orm_execute)
+    sqla.detach_session()
+    assert sa.event.contains(orm.Session, "do_orm_execute", sqla.do_orm_execute) is False
+
+
+def test_listener_failure_does_not_change_query_result(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    engine = sa.create_engine("sqlite://")
+    orm = pytest.importorskip("sqlalchemy.orm")
+    Base = orm.declarative_base()
+
+    class Parent(Base):
+        __tablename__ = "orm_parent"
+        id = sa.Column(sa.Integer, primary_key=True)
+        children = orm.relationship("Child")
+
+    class Child(Base):
+        __tablename__ = "orm_child"
+        id = sa.Column(sa.Integer, primary_key=True)
+        parent_id = sa.Column(sa.Integer, sa.ForeignKey("orm_parent.id"))
+
+    Base.metadata.create_all(engine)
+    with orm.Session(engine) as session:
+        session.add(Parent(children=[Child()]))
+        session.commit()
+
+    _install(engines=[engine])
+
+    def fail() -> str | None:
+        raise RuntimeError("frame inspection failed")
+
+    monkeypatch.setattr(sqla, "_first_application_location", fail)
+    token = TEST.set(("test_listener_failure", 1, "call"))
+    with caplog.at_level(logging.WARNING, logger="sharpit"):
+        assert sqla.attach_session() is True
+        with orm.Session(engine) as session:
+            assert len(session.query(Parent).one().children) == 1
+        sqla.detach_session()
+    TEST.reset(token)
+    assert any("SQL listener failed" in record.getMessage() for record in caplog.records)
 
 
 def test_pause_returns_early_listeners_kept():

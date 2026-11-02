@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import contextvars
 import gc
+import inspect
 import logging
 import sys
 import threading
@@ -21,7 +22,8 @@ from collections.abc import Callable
 from concurrent.futures import Executor
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from sharpit.engine.capture.correlation import INTERNAL, REQUEST, internal
+from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, internal
+from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.sources.dispatch import SqlEvent
@@ -55,6 +57,88 @@ START_KEY = "sharpit_sql_start"
 RELATIONSHIP_KEY = "sharpit_relationship"
 UNAVAILABLE = "SQLAlchemy is not imported by this application"
 TRACING_DISABLED = "SQL tracing is disabled via SHARPIT_SQL_TRACE_ENABLED=false"
+_relationship_loads: dict[tuple[str, int, str], dict[str, int]] = {}
+_relationship_groups: dict[tuple[str, int, str], dict[str, tuple[str, bool]]] = {}
+_relationship_sites: dict[tuple[str, int, str], dict[str, str | None]] = {}
+
+
+def _first_application_location() -> str | None:
+    frame = inspect.currentframe()
+    try:
+        frame = frame.f_back if frame is not None else None
+        while frame is not None:
+            if is_application_frame(frame.f_code.co_filename):
+                return f"{frame.f_code.co_filename}:{frame.f_lineno}"
+            frame = frame.f_back
+        return None
+    finally:
+        del frame
+
+
+def _record_relationship(context: Any) -> None:
+    """Keep bounded relationship metadata for the active test; called only by session ORM/SQL listeners."""
+    options = getattr(context, "execution_options", {})
+    relation_value = options.get(RELATIONSHIP_KEY) if options is not None else None
+    if not isinstance(relation_value, tuple) or len(cast("tuple[object, ...]", relation_value)) != 2:
+        return
+    identity, collection = cast("tuple[object, object]", relation_value)
+    tag = TEST.get()
+    if tag is None or tag[2] != "call":
+        return
+    if not isinstance(identity, str) or not isinstance(collection, bool):
+        return
+    from sharpit.engine.capture.sqltrace import normalize
+
+    statement = getattr(context, "statement", None)
+    if not isinstance(statement, str):
+        return
+    key = normalize(statement).fingerprint
+    with _lock:
+        loads = _relationship_loads.setdefault(tag, {})
+        loads[identity] = loads.get(identity, 0) + 1
+        _relationship_groups.setdefault(tag, {}).setdefault(key, (identity, collection))
+        _relationship_sites.setdefault(tag, {}).setdefault(identity, _first_application_location())
+
+
+def apply_relationship_facts(test: Any) -> None:
+    """Move one test attempt's relationship observations into its serializable phase facts."""
+    tag = (test.key.node_id, test.key.attempt, "call")
+    with _lock:
+        loads = _relationship_loads.pop(tag, {})
+        groups = _relationship_groups.pop(tag, {})
+        sites = _relationship_sites.pop(tag, {})
+    if not loads and not groups:
+        return
+    phase = test.phases["call"]
+    phase.relationship_loads.update(loads)
+    phase.relationship_of.update(groups)
+    phase.relationship_sites.update(sites)
+
+
+def do_orm_execute(state: Any) -> None:
+    """Tag lazy relationship SELECTs during pytest sessions, without affecting a host query on hook failure."""
+    try:
+        if not getattr(state, "is_relationship_load", False):
+            return
+        parent = getattr(state, "lazy_loaded_from", None)
+        path = getattr(getattr(state, "loader_strategy_path", None), "path", ())
+        if parent is None or not path:
+            return
+        prop = path[-1]
+        key = getattr(prop, "key", None)
+        model = getattr(getattr(parent, "class_", None), "__name__", None)
+        direction = getattr(getattr(prop, "direction", None), "name", "")
+        if not isinstance(key, str) or not isinstance(model, str):
+            return
+        collection = direction in {"ONETOMANY", "MANYTOMANY"}
+        tag = TEST.get()
+        if tag is not None and tag[2] == "call":
+            location = _first_application_location()
+            with _lock:
+                _relationship_sites.setdefault(tag, {}).setdefault(f"{model}.{key}", location)
+        state.update_execution_options(**{RELATIONSHIP_KEY: (f"{model}.{key}", collection)})
+    except Exception as exc:  # noqa: BLE001 - an observer must never change host query behavior
+        dispatch.routing_failed(exc)
 
 
 def sqlalchemy_module() -> Any | None:
@@ -188,6 +272,7 @@ def before_cursor_execute(
     try:
         if INTERNAL.get():
             return
+        _record_relationship(context)
         targets = dispatch.recording(conn.engine)  # routed once here; the after hook delivers to the same targets
         if not targets and dispatch.session_sink() is None:
             return
@@ -309,6 +394,14 @@ def _sync_listeners() -> None:
             sa.event.listen(sa.engine.Engine, name, fn)
         elif present and not wanted[name]:
             sa.event.remove(sa.engine.Engine, name, fn)
+    orm = sys.modules.get("sqlalchemy.orm")
+    session_class = getattr(orm, "Session", None)
+    if session_class is not None:
+        present = sa.event.contains(session_class, "do_orm_execute", do_orm_execute)
+        if _session and not present:
+            sa.event.listen(session_class, "do_orm_execute", do_orm_execute)
+        elif present and not _session:
+            sa.event.remove(session_class, "do_orm_execute", do_orm_execute)
 
 
 def add(ctx: SharpitContext, *, statements: bool, discovery: bool) -> bool:
@@ -345,6 +438,9 @@ def detach_all() -> None:
         _statement_contexts.clear()
         _discovery_contexts.clear()
         _session = False
+        _relationship_loads.clear()
+        _relationship_groups.clear()
+        _relationship_sites.clear()
         _sync_listeners()
 
 
@@ -363,6 +459,9 @@ def detach_session() -> None:
     global _session  # noqa: PLW0603
     with _lock:
         _session = False
+        _relationship_loads.clear()
+        _relationship_groups.clear()
+        _relationship_sites.clear()
         _sync_listeners()
 
 
