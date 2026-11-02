@@ -253,3 +253,22 @@ def test_sql_literals_in_db_statement_are_masked():
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None
     assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
+
+
+def first_span(buf: SpanBuffer) -> dict[str, Any]:
+    detail = buf.detail(f"{TRACE:032x}")
+    assert detail is not None
+    return detail["spans"][0]
+
+
+def test_otel_normalised_set_cookie_header_is_masked():
+    # review r1: OTel names header attributes lower case with "-" as "_"; set_cookie missed the credential list
+    buf = buffer()
+    buf.add(span(attributes={"http.response.header.set_cookie": ("sid=abc123; HttpOnly",)}))
+    assert attribute(first_span(buf), "http.response.header.set_cookie") == f"[{MASK}]"
+
+
+def test_header_attribute_values_go_through_text_masking():
+    buf = buffer()
+    buf.add(span(attributes={"http.request.header.x_note": ("retry after login password=hunter2",)}))
+    assert "hunter2" not in attribute(first_span(buf), "http.request.header.x_note")
