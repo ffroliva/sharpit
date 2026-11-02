@@ -741,3 +741,24 @@ def test_lane_gate_removes_the_replay_tree_when_pytest_raises(tmp_path: Path) ->
     with pytest.raises(RuntimeError, match="replay crashed"):
         lane_gate.evaluate(fx.options(), run_gate=fx.run_gate, run_pytest=boom)
     assert len(_git(fx.integration, "worktree", "list").splitlines()) == 2
+
+
+# --- gate run on lane F, and review-gate round 2 minors -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("lane", "path"), [("test-fixture-x", "scripts/dev/tool.py"), ("F", "scripts/dev/lane_gate.py")]
+)
+def test_lane_gate_ignores_budget_names_outside_overhead_modules(tmp_path: Path, lane: str, path: str) -> None:
+    fx = _fixture(tmp_path, lane=lane, review=False)
+    fx.commit({path: "import re\n\nBUDGET_LINE = re.compile('BUDGET_MS = 0.2')\n"}, "feat: mention a budget name")
+    fx.review()
+    assert _refusals(fx.evaluate()) == []
+
+
+def test_lane_gate_refuses_new_definition_shadowing_a_requested_fixture(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    files = {"tests/conftest.py": FIXTURE_DEF.format(2), "tests/test_fix.py": FIXTURE_TEST}
+    later = {"tests/test_fix.py": FIXTURE_DEF.format(3) + "\n\n" + FIXTURE_TEST}
+    _own_red(fx, files, later, "tests/test_fix.py::test_f")
+    assert _refused(fx.evaluate(), "red tests/test_fix.py::test_f: referenced name value changed")
