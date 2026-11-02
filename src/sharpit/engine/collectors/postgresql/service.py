@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
-from sharpit.engine.collectors.postgresql.limits import READ_BUDGET, STATEMENT_TIMEOUT, RowLimits
+from sharpit.engine.collectors.postgresql.limits import LOCK_TIMEOUT, READ_BUDGET, STATEMENT_TIMEOUT, RowLimits
 from sharpit.engine.collectors.postgresql.sections import (
     BUDGET_SKIPPED,
     COLLECTORS,
@@ -176,7 +176,7 @@ async def _read_engine(
             executor=executor,
             done=flight.worker(),
             wall_timeout=budget.remaining() + STATEMENT_TIMEOUT + WALL_MARGIN,
-            statement_timeout=STATEMENT_TIMEOUT,
+            lock_timeout=LOCK_TIMEOUT,
             read_only=True,
         )
     except sqla.ReadOnlyUnavailable as exc:

@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Any, NamedTuple
 
 from sharpit.engine.collectors.postgresql import queries
-from sharpit.engine.collectors.postgresql.limits import RowLimits
+from sharpit.engine.collectors.postgresql.limits import RowLimits, read_one_past
 from sharpit.engine.collectors.postgresql.queries import checkpoint_sql, statement_sql
 from sharpit.engine.collectors.postgresql.querytext import is_metadata_only, query_text, truncate
 from sharpit.engine.masking import MASK, Masker
@@ -166,21 +166,19 @@ def read_list(ctx: ReadContext, label: str, sql: str, max_rows: int, mapper: Cal
     """A bounded list: ``limit max + 1`` so exceeding the bound is observed, never a full-looking page."""
     if ctx.budget.exhausted():
         return Rows.failed(f"The read budget ran out before {label} could be read.")
-    rows: list[Dto] = []
-    truncated = False
+    read: list[Row] = []
     reason: str | None = None
     try:
         with ctx.conn.begin_nested():
-            for read, row in enumerate(ctx.conn.exec_driver_sql(_limited(sql, max_rows + 1)).mappings()):
-                if read >= max_rows:
-                    truncated = True
-                    break
-                if ctx.budget.exhausted():
+            for row in ctx.conn.exec_driver_sql(_limited(sql, max_rows + 1)).mappings():
+                if len(read) < max_rows and ctx.budget.exhausted():
                     reason = f"The read budget ran out while reading {label}."
                     break
-                mapped = mapper(row)
-                if mapped is not None:
-                    rows.append(mapped)
+                read.append(row)  # the row past the limit only proves truncation
+                if len(read) > max_rows:
+                    break
+            kept, truncated = read_one_past(read, max_rows)
+            rows = [mapped for row in kept if (mapped := mapper(row)) is not None]
     except Exception as exc:  # noqa: BLE001 - every driver error becomes the section's reason
         return Rows.failed(_describe(ctx, label, exc))
     return Rows.of(rows, truncated) if reason is None else Rows.partial(rows, reason)

@@ -475,6 +475,7 @@ async def run_db_read[T](
     wall_timeout: float | None = None,
     statement_timeout: float | None = None,
     read_only: bool = False,
+    lock_timeout: float | None = None,
 ) -> T:
     """Run ``fn(connection)`` for sharpit's own read, off the event loop and invisible to SQL Trace.
 
@@ -486,6 +487,7 @@ async def run_db_read[T](
     """
     wall = timeout if wall_timeout is None else wall_timeout
     stmt = timeout if statement_timeout is None else statement_timeout
+    lock = () if lock_timeout is None else (lock_timeout,)  # bounded_read_only's own default otherwise
     sync = getattr(engine, "sync_engine", engine)
     with internal():  # the thread and the greenlet copy this context, so the listeners see the marker
         try:
@@ -498,12 +500,12 @@ async def run_db_read[T](
                     async_engine = engine if isinstance(engine, AsyncEngine) else AsyncEngine(sync)
                     async with async_engine.connect() as conn:
                         if read_only:
-                            return await conn.run_sync(bounded_read_only, fn, stmt)
+                            return await conn.run_sync(bounded_read_only, fn, stmt, *lock)
                         return await conn.run_sync(bounded, fn, stmt)
 
                 def read() -> T:
                     with sync.connect() as conn:
-                        return bounded_read_only(conn, fn, stmt) if read_only else bounded(conn, fn, stmt)
+                        return bounded_read_only(conn, fn, stmt, *lock) if read_only else bounded(conn, fn, stmt)
 
                 if executor is None:
                     return await asyncio.to_thread(read)
