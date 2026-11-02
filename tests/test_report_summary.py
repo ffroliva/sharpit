@@ -162,3 +162,10 @@ def test_summary_cli_runs_as_module(tmp_path: Path) -> None:
     )
     assert done.returncode == 0
     assert done.stdout.startswith("## sharpit report")
+
+
+def test_backslash_in_finding_text_is_escaped_too() -> None:
+    # finding: a pre-escaped value (`\[x\](https://evil)`) must not turn back into a live link or raw HTML
+    from sharpit.report.summary import _esc  # pyright: ignore[reportPrivateUsage]
+
+    assert _esc(r"\[x\](https://evil)") == r"\\\[x\\\](https://evil)"
