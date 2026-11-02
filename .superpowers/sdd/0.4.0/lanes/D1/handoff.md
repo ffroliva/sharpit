@@ -106,19 +106,19 @@ Red table (test id | red SHA | assertion message): `findings.md`.
 | # | Finding | Test id | Red SHA | Fix SHA |
 |---|---|---|---|---|
 | 1 | R-D1a: a REST API target (inner spaces) cannot be dismissed | `tests/engine/advisors/test_dismissals.py::test_dismissed_pairs_accepts_a_real_rest_api_target` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
-| 2 | R-D1b: no owning-panel gate on finding mutations | `tests/fastapi/test_dismissed_findings_api.py::test_finding_mutations_need_the_owning_panel_enabled_and_writable` | same | same |
-| 2 | R-D1b: test-runtime rule ids accepted | `tests/fastapi/test_dismissed_findings_api.py::test_test_runtime_findings_are_refused_with_the_no_panel_message` | same | same |
-| 3 | lone surrogate / C1 / U+2028 identity → 500 or accepted | `tests/fastapi/test_dismissed_findings_api.py::test_non_encodable_and_control_identities_are_refused_with_400_never_500` | same | same |
-| 4 | `_save` stamps after `os.replace`, hiding another store's write | `tests/engine/advisors/test_dismissals.py::test_two_stores_sharing_a_state_dir_keep_each_others_dismissals` | same | same |
-| 5 | finding rule id capped at 64 | `tests/engine/advisors/test_dismissals.py::test_a_finding_rule_id_may_be_as_long_as_a_rule_id` | same | same |
-| 6 | comments in managed sections dropped / counted | `tests/engine/advisors/test_dismissals.py::test_comments_inside_the_managed_sections_are_kept_and_not_counted` | same | same |
-| 7 | a full fingerprint accepted as ruleId | `tests/fastapi/test_dismissed_findings_api.py::test_a_full_fingerprint_is_not_a_finding_rule_id` | same | same |
-| 8 | restoring an unowned rule's finding → 400, line stays | `tests/fastapi/test_dismissed_findings_api.py::test_restoring_a_finding_whose_rule_no_advisor_owns_still_removes_its_line` | same | same |
-| 9 | route splice `max()` crashes install without the anchor | `tests/fastapi/test_dismissed_findings_api.py::test_finding_routes_are_appended_when_the_dismissed_rules_anchor_is_absent` | same | same |
+| 2 | R-D1b: no owning-panel gate on finding mutations | `tests/fastapi/test_dismissed_findings_api.py::test_finding_mutations_need_the_owning_panel_enabled_and_writable` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
+| 2 | R-D1b: test-runtime rule ids accepted | `tests/fastapi/test_dismissed_findings_api.py::test_test_runtime_findings_are_refused_with_the_no_panel_message` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
+| 3 | lone surrogate / C1 / U+2028 identity → 500 or accepted | `tests/fastapi/test_dismissed_findings_api.py::test_non_encodable_and_control_identities_are_refused_with_400_never_500` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
+| 4 | `_save` stamps after `os.replace`, hiding another store's write | `tests/engine/advisors/test_dismissals.py::test_two_stores_sharing_a_state_dir_keep_each_others_dismissals` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
+| 5 | finding rule id capped at 64 | `tests/engine/advisors/test_dismissals.py::test_a_finding_rule_id_may_be_as_long_as_a_rule_id` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
+| 6 | comments in managed sections dropped / counted | `tests/engine/advisors/test_dismissals.py::test_comments_inside_the_managed_sections_are_kept_and_not_counted` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
+| 7 | a full fingerprint accepted as ruleId | `tests/fastapi/test_dismissed_findings_api.py::test_a_full_fingerprint_is_not_a_finding_rule_id` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
+| 8 | restoring an unowned rule's finding → 400, line stays | `tests/fastapi/test_dismissed_findings_api.py::test_restoring_a_finding_whose_rule_no_advisor_owns_still_removes_its_line` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
+| 9 | route splice `max()` crashes install without the anchor | `tests/fastapi/test_dismissed_findings_api.py::test_finding_routes_are_appended_when_the_dismissed_rules_anchor_is_absent` | `09ee50d75fc2125cbc266fade0faafc3dd0903da` | `96ca0d59546beab020685032ebd4cdf40d140141` |
 
 Assertion messages: `findings.md`.
 
-- **Red tests edited after their red commit (forced by R-D1a; flag for the gate).** Inner spaces are now valid, so
+- **Red tests edited after their red commit (forced by R-D1a; coordinator ruling: moved to "Superseded reds" in `findings.md`, header `Historical SHA`, not replayed).** Inner spaces are now valid, so
   four earlier red-committed tests that used a space as *the* invalid character now use a tab, in `96ca0d5`:
   `test_dismissals.py::test_dismissed_findings_note_and_cap_validation` (one tuple),
   `test_dismissals.py::test_malformed_finding_lines_are_ignored_counted_and_kept` (two fixture lines),
