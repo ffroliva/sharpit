@@ -1,5 +1,7 @@
 # Lane D1 handoff
 
+Implementer: claude-flavio opus + claude-subagent opus (fix rounds)
+
 Status: DONE_WITH_CONCERNS. Tasks 0–3 implemented except the MCP default limit (needs `tool_dispatch.py`). Review
 round 1 (`review.md`/`ponytail-review.md` @ 0619594, coordinator rulings R-D1a/b/c) fixed: see "Review round 1" below.
 Next step: `ready-for-review`.
