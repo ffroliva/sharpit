@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 
 TOP = 20
 _SEVERITY_RANK = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
-_MARKDOWN = re.compile(r"([\`*_\[\]<>|&~])")
+_MARKDOWN = re.compile(r"([\\`*_\[\]<>|&~])")
 _LINE_BREAKS = re.compile(r"\s*[\r\n]+\s*")
 
 
