@@ -85,6 +85,7 @@ class SharpitSpanProcessor:
                 continue
 
     def shutdown(self) -> None:
+        # nothing to release: spans go to sharpit's in-memory buffer, which install()/uninstall own
         pass
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:  # NOSONAR - OpenTelemetry SpanProcessor contract

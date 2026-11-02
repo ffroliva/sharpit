@@ -96,7 +96,7 @@ def _app_settings(settings: object) -> tuple[object, ...]:
     return items
 
 
-def _models(models: object) -> tuple[object, ...]:
+def _models(models: object) -> tuple[object, ...]:  # NOSONAR - one element per supplied model: length follows input
     """``install(models=...)`` as a tuple; a lone class (``models=Base``) or other non-iterable is one element.
 
     The elements are never inspected (A-data reads them; spec §10.2, council R3/R15).
@@ -108,7 +108,7 @@ def _models(models: object) -> tuple[object, ...]:
         raise TypeError(f"models must be a model class or an iterable of models, not {kind}")
     if isinstance(models, type) or not isinstance(models, Iterable):
         return (models,)
-    return tuple(cast("Iterable[object]", models))  # NOSONAR - preserve the supplied model collection size
+    return tuple(cast("Iterable[object]", models))
 
 
 def _requested(settings: SharpitSettings, profiles: tuple[str, ...]) -> bool:

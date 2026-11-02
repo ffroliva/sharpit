@@ -80,7 +80,7 @@ select (select c.oid::regclass::text
 """
 
 # PostgresStatementCollector.RELATION_NAME: the catalog-rendered name, interpolated only when it has this shape
-_RELATION_NAME = re.compile(r'(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")++")' r'(?:\.(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")++"))?')
+_RELATION_NAME = re.compile(r'(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")++")(?:\.(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")++"))?')
 
 
 def statement_sql(relation: str | None, exec_naming: bool) -> str:

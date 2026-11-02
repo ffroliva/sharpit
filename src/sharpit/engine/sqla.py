@@ -178,17 +178,25 @@ def _record_relationship(context: Any) -> None:
         with _lock:
             _lazy_seen.setdefault(tag, set()).add(seen_key)
     if isinstance(relation_value, tuple) and len(cast("tuple[object, ...]", relation_value)) == 2:
-        identity, collection = cast("tuple[object, object]", relation_value)
-        if not isinstance(identity, str) or not isinstance(collection, bool):
-            return
-        key = _masked_fingerprint(statement)
-        groups = _relationship_groups.get(tag)
-        if groups is None or key not in groups:
-            with _lock:
-                _relationship_groups.setdefault(tag, {}).setdefault(key, (identity, collection))
+        _store_lazy_group(tag, statement, cast("tuple[object, object]", relation_value))
+    elif relation_value is _EAGER_RELATIONSHIP_KEY:
+        _count_eager_batch(tag, statement)
+
+
+def _store_lazy_group(tag: tuple[str, int, str], statement: str, relation: tuple[object, object]) -> None:
+    """Remember which relationship a lazy-load statement belongs to (first observation wins)."""
+    identity, collection = relation
+    if not isinstance(identity, str) or not isinstance(collection, bool):
         return
-    if relation_value is not _EAGER_RELATIONSHIP_KEY:
-        return
+    key = _masked_fingerprint(statement)
+    groups = _relationship_groups.get(tag)
+    if groups is None or key not in groups:
+        with _lock:
+            _relationship_groups.setdefault(tag, {}).setdefault(key, (identity, collection))
+
+
+def _count_eager_batch(tag: tuple[str, int, str], statement: str) -> None:
+    """Count one eager-load batch statement, so it is not mistaken for an N+1 repeat."""
     key = _masked_fingerprint(statement)
     with _lock:
         batches = _eager_relationship_batches.setdefault(tag, {})
