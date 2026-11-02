@@ -90,7 +90,7 @@ def _probe_request_body(raw: bytes) -> dict[str, Any] | Response:
     return cast(dict[str, Any], body)
 
 
-def _root_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _root_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -125,7 +125,7 @@ def _root_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _read_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _read_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -162,7 +162,7 @@ def _read_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _activity_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _activity_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -208,7 +208,7 @@ def _activity_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _sql_trace_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _sql_trace_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
     cap = settings.mcp_max_payload_bytes
@@ -250,7 +250,7 @@ def _sql_trace_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _logger_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _logger_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -272,7 +272,7 @@ def _logger_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _http_exchange_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _http_exchange_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -354,7 +354,7 @@ def _http_probe_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     return [Route(f"{api}/http-probe", partial(_http_probe, ctx, host_app), methods=["POST"], name="http_probe")]
 
 
-def _exception_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _exception_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -380,7 +380,7 @@ def _exception_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _exception_status_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _exception_status_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
     cap = settings.mcp_max_payload_bytes
@@ -411,7 +411,7 @@ def _exception_store(ctx: SharpitContext) -> ExceptionStore:
     return store
 
 
-def _database_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _database_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -441,7 +441,7 @@ def _database_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _pool_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _pool_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -462,7 +462,7 @@ def _pool_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _thread_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _thread_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -476,7 +476,7 @@ def _thread_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _vulnerability_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _vulnerability_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -498,7 +498,7 @@ def _vulnerability_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute
     ]
 
 
-def _rest_api_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _rest_api_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -530,7 +530,7 @@ def _rest_api_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _dismissed_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _dismissed_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -549,7 +549,7 @@ def _dismissed_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _mcp_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _mcp_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -599,7 +599,7 @@ def _mcp_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _cli_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
+def _cli_routes(ctx: SharpitContext) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
 
@@ -627,34 +627,36 @@ def _cli_routes(ctx: SharpitContext, _host_app: Any) -> list[BaseRoute]:
     ]
 
 
-def _panel_04_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
+def _panel_04_routes(ctx: SharpitContext) -> list[BaseRoute]:
     routes: list[BaseRoute] = []
     for panel in PANELS:
         if panel.id not in MODULE_PANEL_IDS or not panel.implemented:
             continue
         module = import_module(f"sharpit.fastapi.routes.{panel.id.replace('-', '_')}")
-        routes.extend(module.build_routes(ctx, host_app))
+        build_routes = getattr(module, "build_routes", None)
+        if build_routes is not None:
+            routes.extend(build_routes(ctx))
     return routes
 
 
 def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     return [
-        *_root_routes(ctx, host_app),
-        *_read_routes(ctx, host_app),
-        *_http_exchange_routes(ctx, host_app),
+        *_root_routes(ctx),
+        *_read_routes(ctx),
+        *_http_exchange_routes(ctx),
         *_http_probe_routes(ctx, host_app),
-        *_activity_routes(ctx, host_app),
-        *_exception_routes(ctx, host_app),
-        *_exception_status_routes(ctx, host_app),
-        *_logger_routes(ctx, host_app),
-        *_sql_trace_routes(ctx, host_app),
-        *_database_routes(ctx, host_app),
-        *_pool_routes(ctx, host_app),
-        *_thread_routes(ctx, host_app),
-        *_vulnerability_routes(ctx, host_app),
-        *_rest_api_routes(ctx, host_app),
-        *_dismissed_routes(ctx, host_app),
-        *_mcp_routes(ctx, host_app),
-        *_cli_routes(ctx, host_app),
-        *_panel_04_routes(ctx, host_app),
+        *_activity_routes(ctx),
+        *_exception_routes(ctx),
+        *_exception_status_routes(ctx),
+        *_logger_routes(ctx),
+        *_sql_trace_routes(ctx),
+        *_database_routes(ctx),
+        *_pool_routes(ctx),
+        *_thread_routes(ctx),
+        *_vulnerability_routes(ctx),
+        *_rest_api_routes(ctx),
+        *_dismissed_routes(ctx),
+        *_mcp_routes(ctx),
+        *_cli_routes(ctx),
+        *_panel_04_routes(ctx),
     ]
