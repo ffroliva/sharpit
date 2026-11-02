@@ -678,3 +678,17 @@ def test_threads_and_pools_mask(tmp_path: Path, plant: Callable[[Path], str]):
     text = plant(tmp_path)
     assert SENTINEL not in text
     assert JWT not in text
+
+
+@pytest.fixture
+def harmless_hex_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # a CI runner's paths and hashes are hex: one held "9f3c" by chance and failed the sweep on Windows (PR #40)
+    monkeypatch.setenv("HARMLESS_TOOL_DIR", r"C:\hostedtoolcache\windows\ab9f3cde")
+
+
+def test_a_harmless_value_that_shares_hex_with_the_sentinel_is_not_a_leak(
+    harmless_hex_env: None, corpus_app: tuple[FastAPI, Any]
+):
+    app, ctx = corpus_app
+    with TestClient(app, base_url="http://localhost", client=LOCAL, follow_redirects=False) as client:
+        _sweep(Recorder(client), ctx)
