@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import json
 import os
 import re
@@ -28,23 +29,25 @@ import sys
 import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 GateRunner = Callable[[str, Sequence[str], Path], tuple[int, str]]
 PytestRunner = Callable[[Path, Sequence[str], Path], None]
+EnvPreparer = Callable[[Path], tuple[int, str]]
 
 WORKTREE_ROOT = Path(r"C:\development\github\sharpit-wt")
 LANES = ".superpowers/sdd/0.4.0/lanes"
 EVIDENCE = ("handoff.md", "findings.md", "field-map.md", "checklist.md")
 SHA_LOGS = ("lowest-direct", "no-sqlalchemy")  # run by the coordinator in a throwaway copy, pinned to the head SHA
-GATES: tuple[tuple[str, tuple[str, ...], int], ...] = (
-    ("ruff-check", ("uv", "run", "ruff", "check"), 300),
-    ("ruff-format", ("uv", "run", "ruff", "format", "--check"), 300),
-    ("pyright", ("uv", "run", "pyright"), 900),
-    ("pytest", ("uv", "run", "pytest", "-q", "-n", "4"), 1800),
+GATES: tuple[tuple[str, tuple[str, ...], int], ...] = (  # run in a fresh tree whose env sync_env just built
+    ("ruff-check", ("uv", "run", "--no-sync", "ruff", "check"), 300),
+    ("ruff-format", ("uv", "run", "--no-sync", "ruff", "format", "--check"), 300),
+    ("pyright", ("uv", "run", "--no-sync", "pyright"), 900),
+    ("pytest", ("uv", "run", "--no-sync", "pytest", "-q", "-n", "4"), 1800),
 )
+SYNC = ("uv", "sync", "--frozen", "--extra", "test")
 PROTECTED = (
     "scripts/dev/lane_gate.py",
     "sonar-baseline.txt",
@@ -460,17 +463,25 @@ def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, list[Outcome]]:
     return result
 
 
-def _replay(opts: Options, sha: str, nodeids: Sequence[str], run_pytest: PytestRunner) -> dict[str, list[Outcome]]:
+@contextlib.contextmanager
+def _temp_tree(opts: Options, sha: str) -> Generator[Path]:
+    """A detached worktree at ``sha`` in a temp folder: only committed files, removed (and pruned) afterwards."""
     scratch = Path(tempfile.mkdtemp(prefix="lane-gate-"))
     tree = scratch / "tree"
-    _git(opts.worktree, "worktree", "add", "--detach", "--quiet", str(tree), sha)
     try:
-        junit = scratch / "junit.xml"
-        run_pytest(tree, nodeids, junit)
-        return _outcomes(junit, nodeids)
+        _git(opts.worktree, "worktree", "add", "--detach", "--quiet", str(tree), sha)
+        yield tree
     finally:
         _git(opts.worktree, "worktree", "remove", "--force", str(tree), check=False)
         shutil.rmtree(scratch, ignore_errors=True)
+        _git(opts.worktree, "worktree", "prune", check=False)
+
+
+def _replay(opts: Options, sha: str, nodeids: Sequence[str], run_pytest: PytestRunner) -> dict[str, list[Outcome]]:
+    with _temp_tree(opts, sha) as tree:
+        junit = tree.parent / "junit.xml"
+        run_pytest(tree, nodeids, junit)
+        return _outcomes(junit, nodeids)
 
 
 def replay_refusals(opts: Options, reds: Sequence[Red], run_pytest: PytestRunner) -> list[str]:
@@ -495,21 +506,42 @@ def replay_refusals(opts: Options, reds: Sequence[Red], run_pytest: PytestRunner
 # --- the four gates ---------------------------------------------------------------------------------------------------
 
 
-def gate_refusals(opts: Options, run_gate: GateRunner) -> list[str]:
+def gate_refusals(opts: Options, run_gate: GateRunner, prepare_env: EnvPreparer) -> list[str]:
+    """The four gates in a fresh detached tree at the head, never the implementer's tree or virtualenv (untracked
+    files, a planted ``.pth``); the tree's environment is synced from the lane's own lock first."""
     logs = opts.integration / LANES / opts.lane / "gate"
     logs.mkdir(parents=True, exist_ok=True)
     problems: list[str] = []
-    for name, command, _timeout in GATES:
-        code, output = run_gate(name, command, opts.worktree)
-        (logs / f"{name}.log").write_text(f"{opts.sha}\n$ {' '.join(command)}\nexit {code}\n{output}", encoding="utf-8")
+    with _temp_tree(opts, opts.sha) as tree:
+        code, output = prepare_env(tree)
+        (logs / "uv-sync.log").write_text(f"{opts.sha}\n$ {' '.join(SYNC)}\nexit {code}\n{output}", encoding="utf-8")
         if code != 0:
-            problems.append(f"gate {name} failed (exit {code}); see {logs / f'{name}.log'}")
+            return [f"environment sync failed in the fresh tree (exit {code}); see {logs / 'uv-sync.log'}"]
+        for name, command, _timeout in GATES:
+            code, output = run_gate(name, command, tree)
+            log = logs / f"{name}.log"
+            log.write_text(f"{opts.sha}\n$ {' '.join(command)}\nexit {code}\n{output}", encoding="utf-8")
+            if code != 0:
+                problems.append(f"gate {name} failed (exit {code}); see {log}")
     return problems
 
 
 def _env(**extra: str) -> dict[str, str]:
-    # uv's default hardlinks hit Windows' per-file link limit on a busy cache (os error 1142); copying always works
-    return {"UV_LINK_MODE": "copy", **os.environ, **extra}
+    # uv's default hardlinks hit Windows' per-file link limit on a busy cache (os error 1142); copying always works.
+    # A caller's activated venv must not stand in for the tree's own .venv.
+    env = {k: v for k, v in os.environ.items() if k not in {"VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT"}}
+    return {"UV_LINK_MODE": "copy", **env, **extra}
+
+
+def sync_env(tree: Path) -> tuple[int, str]:
+    """Build the fresh tree's own .venv from the lane's lock (``uv sync --frozen --extra test``)."""
+    try:
+        done = subprocess.run(
+            list(SYNC), cwd=tree, env=_env(), capture_output=True, text=True, encoding="utf-8", timeout=900
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "uv sync timed out after 900s"
+    return done.returncode, done.stdout + done.stderr
 
 
 def run_gate_command(name: str, command: Sequence[str], cwd: Path) -> tuple[int, str]:
@@ -543,14 +575,14 @@ def evaluate(
     *,
     run_gate: GateRunner,
     run_pytest: PytestRunner,
-    prepare_env: Callable[[Path], tuple[int, str]] = lambda tree: (0, ""),
+    prepare_env: EnvPreparer = lambda tree: (0, ""),
 ) -> Result:
     result = Result()
     if opts.no_rerun and not opts.lane.startswith(FIXTURE_PREFIX):
         result.refusals.append(f"--no-rerun is only for test fixture lanes ({FIXTURE_PREFIX}-*), not {opts.lane}")
     head = _git(opts.worktree, "rev-parse", "HEAD").stdout.strip()
     if head != opts.sha:
-        result.refusals.append(f"{opts.sha} is not the worktree HEAD ({head}); the gates run in the lane worktree")
+        result.refusals.append(f"{opts.sha} is not the worktree HEAD ({head}); gate the commit you mean")
     if _git(opts.worktree, "status", "--porcelain", "--untracked-files=no").stdout.strip():
         result.refusals.append("lane worktree has uncommitted changes")
     integration_head = _git(opts.integration, "rev-parse", "HEAD").stdout.strip()
@@ -574,7 +606,7 @@ def evaluate(
         return result
     result.refusals += replay_refusals(opts, integrity.replayable, run_pytest)
     if not opts.no_rerun:
-        result.refusals += gate_refusals(opts, run_gate)
+        result.refusals += gate_refusals(opts, run_gate, prepare_env)
     return result
 
 
@@ -590,7 +622,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     worktree: Path = args.worktree or WORKTREE_ROOT / f"0.4.0-{args.lane}"
     sha: str = args.sha or _git(worktree, "rev-parse", "HEAD").stdout.strip()
     opts = Options(args.lane, worktree, sha, args.integration, args.accept_unverified, args.no_rerun)
-    result = evaluate(opts, run_gate=run_gate_command, run_pytest=run_pytest_in(opts.integration))
+    result = evaluate(opts, run_gate=run_gate_command, run_pytest=run_pytest_in(opts.integration), prepare_env=sync_env)
     for line in result.unverified:
         print(f"unverified: {line}")
     for line in result.refusals:
