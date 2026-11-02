@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import DeclarativeBase
 
 from fastapi import FastAPI
 from sharpit import install
@@ -15,7 +16,11 @@ PATHS = ("/sharpit/api/data/repositories", "/sharpit/api/data/repositories/Owner
 
 
 def _client(**options: object) -> TestClient:
+    class Base(DeclarativeBase):
+        pass
+
     app = FastAPI()
+    options.setdefault("models", Base)
     install(app, show_banner=False, config_scan=False, **{"enabled": "ON", **options})
     return TestClient(app, base_url="http://localhost", client=LOCAL)
 

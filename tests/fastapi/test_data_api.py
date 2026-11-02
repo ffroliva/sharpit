@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
-from sqlalchemy import orm
 from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship
 
 from conftest import SideEffectGuard
+from data_support import spy_on_configure
 from fastapi import FastAPI
 from golden import ROOT, assert_parity
 from sharpit import install
-from sharpit.engine.panels import disabled_reason
+from sharpit.engine.panels import PANELS, disabled_reason
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
@@ -77,20 +76,7 @@ def client_for(models: object, **options: Any) -> TestClient:
 
 @pytest.fixture
 def configure_spy(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    calls: list[str] = []
-    for owner, name in (
-        (orm, "configure_mappers"),
-        (orm.Mapper, "_check_configure"),
-        (sys.modules["sqlalchemy.orm.mapper"], "_configure_registries"),
-    ):
-        original: Callable[..., Any] = getattr(owner, name)
-
-        def spy(*args: Any, _name: str = name, _original: Callable[..., Any] = original, **kwargs: Any) -> Any:
-            calls.append(_name)
-            return _original(*args, **kwargs)
-
-        monkeypatch.setattr(owner, name, spy)
-    return calls
+    return spy_on_configure(monkeypatch)
 
 
 def test_repositories_golden_parity(base: type[DeclarativeBase]) -> None:
@@ -98,7 +84,11 @@ def test_repositories_golden_parity(base: type[DeclarativeBase]) -> None:
     response = client_for(base).get(f"{API}/data/repositories")
 
     assert response.status_code == 200
-    if not any((ROOT / "data").glob("*repositories*.json")):
+    folder = ROOT / "data"  # exactly what golden.assert_parity reads
+    if not any(
+        (folder / f).is_file()
+        for f in ("repositories.captured.json", "captured.json", "repositories.provisional.json", "provisional.json")
+    ):
         pytest.skip("golden fixture data/repositories.captured.json is G0a's; parity runs once it merges")
     assert_parity("data", "repositories", response.json())
 
@@ -112,7 +102,7 @@ def test_repositories_lists_the_models(base: type[DeclarativeBase]) -> None:
 
 
 def test_detail_by_name(base: type[DeclarativeBase]) -> None:
-    # ported: DataControllerTests.repositoryDetailReturnsDto
+    # ported: DataControllerTests.repositoryDetailLooksUpByFullyQualifiedInterfaceName
     response = client_for(base).get(f"{API}/data/repositories/{__name__}.Owner")
 
     assert response.status_code == 200
@@ -120,7 +110,7 @@ def test_detail_by_name(base: type[DeclarativeBase]) -> None:
 
 
 def test_detail_404_empty_body(base: type[DeclarativeBase]) -> None:
-    # ported: DataControllerTests.repositoryDetailReturns404WhenNotFound
+    # ported: DataControllerTests.repositoryDetailReturnsNotFoundForUnknownRepository
     response = client_for(base).get(f"{API}/data/repositories/Nope")
 
     assert response.status_code == 404
@@ -177,6 +167,7 @@ def test_panel_listed_when_implemented(base: type[DeclarativeBase]) -> None:
     row = next((p for p in panels if p["id"] == "data"), None)
     assert row is not None
     assert row["readOnly"] is False
+    assert next(p for p in PANELS if p.id == "data").action_capable is False
 
 
 def test_mcp_lists_read_tool_only(base: type[DeclarativeBase]) -> None:

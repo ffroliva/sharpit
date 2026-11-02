@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy import exc, orm
+from sqlalchemy import exc
 from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship
 
+from data_support import spy_on_configure
 from sharpit.engine import sqla
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.collectors import data
@@ -71,21 +70,7 @@ def owner_pet(module: str = __name__, other: str = "Pet", prefix: str = "") -> t
 
 @pytest.fixture
 def configure_spy(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Names of every SQLAlchemy entry point that would configure mappers, recorded when called."""
-    calls: list[str] = []
-    for owner, name in (
-        (orm, "configure_mappers"),
-        (orm.Mapper, "_check_configure"),
-        (sys.modules["sqlalchemy.orm.mapper"], "_configure_registries"),
-    ):
-        original: Callable[..., Any] = getattr(owner, name)
-
-        def spy(*args: Any, _name: str = name, _original: Callable[..., Any] = original, **kwargs: Any) -> Any:
-            calls.append(_name)
-            return _original(*args, **kwargs)
-
-        monkeypatch.setattr(owner, name, spy)
-    return calls
+    return spy_on_configure(monkeypatch)
 
 
 def test_lists_one_row_per_mapped_class() -> None:
