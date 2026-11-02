@@ -107,7 +107,13 @@ def _is_ancestor(repo: Path, older: str, newer: str) -> bool:
 
 
 def _cells(line: str) -> list[str]:
-    return [cell.strip().strip("`").strip() for cell in line.strip().strip("|").split("|")]
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _code(cell: str) -> str:
+    """The first `code span` in a cell (a cell may add notes after it), else the cell's text."""
+    found = re.search(r"`([^`]+)`", cell)
+    return found.group(1).strip() if found else cell.strip()
 
 
 def _tables(text: str) -> Iterator[tuple[list[str], list[list[str]]]]:
@@ -141,8 +147,8 @@ def red_tests(texts: Sequence[str]) -> list[Red]:
             if test_col is None or sha_col is None:
                 continue
             for row in rows:
-                if len(row) > max(test_col, sha_col) and row[test_col] and row[sha_col]:
-                    reds[Red(row[test_col], row[sha_col])] = None
+                if len(row) > max(test_col, sha_col) and _code(row[test_col]) and _code(row[sha_col]):
+                    reds[Red(_code(row[test_col]), _code(row[sha_col]))] = None
     return list(reds)
 
 
@@ -284,7 +290,7 @@ def leased_pg_problem(opts: Options) -> str | None:
 
 
 def _function_source(source: str, nodeid: str) -> str | None:
-    *classes, name = nodeid.split("::")[1:]
+    *classes, name = nodeid.split("[", 1)[0].split("::")[1:]
     try:
         body: list[ast.stmt] = ast.parse(source).body
     except SyntaxError:
@@ -357,11 +363,13 @@ def _exception_name(failure: ET.Element) -> str:
     return found.group(1).rsplit(".", 1)[-1] if found else ""
 
 
-def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, tuple[str, str]]:
-    """nodeid -> (outcome, detail); outcome is passed|failure|error|skipped|not collected; a failure's detail is
-    its exception class name."""
+Outcome = tuple[str, str]  # (passed|failure|error|skipped|not collected, a failure's exception class name)
+
+
+def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, list[Outcome]]:
+    """nodeid -> the outcome of every matching case: a bare function id matches all its parametrisations."""
     cases = ET.parse(junit).getroot().iter("testcase") if junit.is_file() else iter(())
-    by_key: dict[tuple[str, str], tuple[str, str]] = {}
+    by_key: dict[tuple[str, str], list[Outcome]] = {}
     for case in cases:
         outcome, message = "passed", ""
         for kind in ("failure", "error", "skipped"):
@@ -370,19 +378,18 @@ def _outcomes(junit: Path, nodeids: Sequence[str]) -> dict[str, tuple[str, str]]
                 outcome = kind
                 message = _exception_name(child) if kind == "failure" else child.get("message", "")
                 break
-        name = case.get("name", "").split("[", 1)[0]
-        previous = by_key.get((case.get("classname", ""), name))
-        if previous is None or previous[0] == "failure":  # any non-failing parametrisation wins
-            by_key[(case.get("classname", ""), name)] = (outcome, message)
-    result: dict[str, tuple[str, str]] = {}
+        name = case.get("name", "")
+        for key in {name, name.split("[", 1)[0]}:
+            by_key.setdefault((case.get("classname", ""), key), []).append((outcome, message))
+    result: dict[str, list[Outcome]] = {}
     for nodeid in nodeids:
         path, *rest = nodeid.split("::")
         classname = ".".join([path.removesuffix(".py").replace("/", "."), *rest[:-1]])
-        result[nodeid] = by_key.get((classname, rest[-1]), ("not collected", ""))
+        result[nodeid] = by_key.get((classname, rest[-1]), [("not collected", "")])
     return result
 
 
-def _replay(opts: Options, sha: str, nodeids: Sequence[str], run_pytest: PytestRunner) -> dict[str, tuple[str, str]]:
+def _replay(opts: Options, sha: str, nodeids: Sequence[str], run_pytest: PytestRunner) -> dict[str, list[Outcome]]:
     scratch = Path(tempfile.mkdtemp(prefix="lane-gate-"))
     tree = scratch / "tree"
     _git(opts.worktree, "worktree", "add", "--detach", "--quiet", str(tree), sha)
@@ -399,16 +406,18 @@ def replay_refusals(opts: Options, reds: Sequence[Red], run_pytest: PytestRunner
     problems: list[str] = []
     for sha in dict.fromkeys(red.sha for red in reds):
         ids = [red.test for red in reds if red.sha == sha]
-        for nodeid, (outcome, message) in _replay(opts, sha, ids, run_pytest).items():
-            if outcome == "failure" and message == "AssertionError":
-                continue
-            detail = f"{message or 'unnamed exception'} failure" if outcome == "failure" else outcome
-            problems.append(f"red {nodeid}: {detail} at red SHA {sha} (needs an AssertionError failure)")
+        for nodeid, outcomes in _replay(opts, sha, ids, run_pytest).items():
+            bad = [(o, m) for o, m in outcomes if not (o == "failure" and m == "AssertionError")]
+            if bad:
+                outcome, message = bad[0]
+                detail = f"{message or 'unnamed exception'} failure" if outcome == "failure" else outcome
+                problems.append(f"red {nodeid}: {detail} at red SHA {sha} (needs an AssertionError failure)")
     head_ids = list(dict.fromkeys(red.test for red in reds))
     if head_ids:
-        for nodeid, (outcome, _message) in _replay(opts, opts.sha, head_ids, run_pytest).items():
-            if outcome != "passed":
-                problems.append(f"red {nodeid}: does not pass at head ({outcome})")
+        for nodeid, outcomes in _replay(opts, opts.sha, head_ids, run_pytest).items():
+            failing = [o for o, _m in outcomes if o != "passed"]
+            if failing:
+                problems.append(f"red {nodeid}: does not pass at head ({failing[0]})")
     return problems
 
 
