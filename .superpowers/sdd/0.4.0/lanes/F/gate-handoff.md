@@ -94,9 +94,11 @@ What it checks, in order (the red replays and the four gates run only when the c
    column; no reds at all; unknown SHA (`n/a` included); SHA not an ancestor of head; SHA already in the integration
    branch (not a lane commit); test function missing at the red SHA or head; the function's source (decorators
    included, via `ast`) differing between red SHA and head; the function identical at the merge-base (the lane did not
-   add or change it); anything in the red test's file other than newly added top-level test functions changed after
-   the red SHA (constants, parametrize lists, helpers, fixtures, other tests); any `conftest.py` on the test's path
-   changed after the red SHA. Non-pytest ids (Vitest) are `unverified`.
+   add or change it); after the red SHA, a change to or removal of any top-level name the red test references in its
+   file (found with `ast`: names in its body and decorators, its fixture arguments, its class; imports compared per
+   alias), or to a fixture it requests in a `conftest.py` on its path (by name). Added imports, new top-level names and
+   edits to code the test does not reference are allowed (coordinator ruling; it replaces the round-1 whole-file and
+   whole-conftest rule). Non-pytest ids (Vitest) are `unverified`.
 6. **Red replay (R2):** per red SHA a `git worktree add --detach` in a temp folder (removed afterwards), then
    `uv run --project <integration> --frozen python -m pytest -q -p no:cacheprovider -p no:randomly --tb=long
    --junitxml=... <ids>` with `PYTHONPATH=<tree>/src;<tree>` so the replayed tree's code shadows the editable
@@ -185,7 +187,16 @@ finding 15 are logged under Decisions. Finding 11 (wider protected set: `tests/t
 `scripts/ci/sonar_ratchet.py`, `[tool.ruff]`/`[tool.pyright]`, `.github/workflows/ci.yml`, budget comparison lines) is
 left as the owner's call; the reviewer checklist still covers it.
 
-**Two consequences the coordinator must decide on:**
+**Coordinator ruling (after round 1):** rule 5 narrowed to referenced names and requested fixtures (red `cee64aa`,
+fix `ae0acb1`; tests `test_lane_gate_allows_added_imports_and_new_top_level_names` (4 cases),
+`test_lane_gate_allows_conftest_edits_the_red_test_does_not_request`,
+`test_lane_gate_refuses_red_decorator_changed_after_red_commit`, and the two round-1 tests
+`test_lane_gate_refuses_red_module_constant_changed_after_red_commit` /
+`test_lane_gate_refuses_conftest_changed_after_red_commit` rewritten to the referenced-constant and
+requested-fixture cases, since the ruling now allows the unreferenced edits they used). Rule 1 stays: F moves its two
+`test_plugin_gates` rows to "Not a red".
+
+The two decisions as raised, before the ruling:
 
 - **Rule 5 (whole red file) refuses most of lane F's own reds.** F kept adding imports and helpers to its red test
   files after each red commit, which the rule counts as a change. At `d37c6f2`, 24 F rows are refused for this. The
@@ -199,7 +210,26 @@ left as the owner's call; the reviewer checklist still covers it.
   head), but the rule refuses them. If review-finding regressions caught by an existing test should pass, the rule
   needs an exception, for example for rows marked as review findings.
 
-## What the gate says about lane F (round-1 rules, replayed at `d37c6f2` with the real runner)
+## What the gate says about lane F (ruled rules, replay only, at `c1131e9`)
+
+Log: `C:\development\github\sharpit-wt\0.4.0-integration\.superpowers\sdd\0.4.0\logs\F-gate-replay-F-c1131e9.log`
+(integrity and replay only; F's worktree was not touched, the replays ran in temp trees with this worktree's env).
+80 rows read; all 53 replayable rows failed by `AssertionError` from their test file at the red SHA and passed at
+`c1131e9`. Still refused:
+
+1. Referenced name changed after the red commit: `test_import_boundary.py::test_pytest_gatekeeper_allows_every_plugin_submodule`
+   (`gatekeeper_violations`, red `359fbe9`) and `test_panel04_registry.py::test_0_4_panels_are_registered_but_unimplemented`
+   (`PANEL_IDS`, red `fbcd986`).
+2. Rule 1: the two `test_plugin_gates.py::test_plugin_hook_raises_session_continues[...]` rows (F is moving them to
+   "Not a red").
+3. Non-red tables that use a `Red SHA` header, so their rows are read as reds: "Superseded reds" (`Red SHA
+   (historical)`, cells `was 869db29` etc., 9 rows refused as unknown SHAs) and the review tables' rows with `—`,
+   `none (control)`, `open, see handoff ...` or a bare test name without a path (`test_models_hook_rejects_a_string`,
+   `engine/tool_registry.py`, ...), which show up as unknown or `unverified`. Fix in F: rename those columns (e.g. `Former
+   commit`), keep only replayable reds in tables with a `Red SHA` column, and write full `tests/...py::name` ids.
+4. Vitest rows stay `unverified` (`--accept-unverified` after a manual replay).
+
+## What the gate said about lane F (round-1 rules, replayed at `d37c6f2` with the real runner)
 
 Log: `C:\development\github\sharpit-wt\0.4.0-integration\.superpowers\sdd\0.4.0\logs\F-gate-replay-F-d37c6f2-r1.log`
 (red integrity and replay only). 55 red rows. Refusals:
