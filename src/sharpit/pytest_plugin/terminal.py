@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from sharpit.engine.advisors.rules import severity_rank
 from sharpit.pytest_plugin.apps import NO_APP_REASON
 
 
@@ -24,7 +25,8 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
             terminalreporter.write_line(notice)
         terminalreporter.write_line(f"status: {data['status']}")
         terminalreporter.write_line(f"tests with findings: {sum(1 for test in data['tests'] if test['findings'])}")
-        counts = plugin.Counter(finding["ruleId"] for finding in data["findings"])  # facade seam: monkeypatchable
+        shown = data["findings"] if state.options.verbose else [f for f in data["findings"] if _fails(f, data)]
+        counts = plugin.Counter(finding["ruleId"] for finding in shown)  # facade seam: monkeypatchable
         terminalreporter.write_line("gate counts:")
         for rule, count in sorted(counts.items()):
             terminalreporter.write_line(f"  {rule}: {count}")
@@ -37,7 +39,10 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
             terminalreporter.write_line(f"  {test['nodeId']}: {len(test['findings'])} finding(s)")
         if not worst:
             terminalreporter.write_line("  (none)")
-        terminalreporter.write_line(f"report: {config.option.sharpit_report or config.getini('sharpit_report')}")
+        path = config.option.sharpit_report or config.getini("sharpit_report")
+        terminalreporter.write_line(f"report: {path}")
+        if notes := len(data["findings"]) - len(shown):
+            terminalreporter.write_line(f"sharpit: {notes} advisor notes in {path}")
         for warning in data["warnings"]:
             terminalreporter.write_line(f"warning: {warning}")
     except Exception as exc:  # noqa: BLE001
@@ -54,3 +59,10 @@ def app_notice(names: list[str] | None, require_app: bool) -> str | None:
     if names:
         return f"sharpit: several apps found ({', '.join(names)}); pass --sharpit-app module:attr"
     return None if require_app else f"sharpit: {NO_APP_REASON}"
+
+
+def _fails(finding: dict[str, Any], data: dict[str, Any]) -> bool:
+    """The JUnit failure predicate (``report.write_junit``): what is not a failure is a note."""
+    return not finding["dismissed"] and severity_rank(finding["severity"]) <= severity_rank(
+        data["gates"]["failOnSeverity"]
+    )

@@ -112,4 +112,5 @@ def resolve(config: Any) -> PluginOptions:
         bool(value("advisors", True)),
         unattributed,
         bool(value("require_app", False)),
+        bool(value("verbose", False)) or (getattr(option, "verbose", 0) or 0) >= 2,  # -vv lists notes too
     )
