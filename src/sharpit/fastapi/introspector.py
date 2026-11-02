@@ -348,23 +348,25 @@ class FastApiIntrospector:
         mounts: tuple[tuple[int, str | None], ...] = (),
     ) -> Iterator[tuple[RouteInfo, object | None]]:
         """Each listed row with its leaf route object (``None`` for opaque mount / unexpanded rows)."""
-        for route in list(routes):
+        for route in cast(list[Any], list(routes)):
             # Read the router's plain route list; never call effective-candidate methods.
-            route_type = type(route)
+            route_type: Any = type(route)
             if route_type.__module__ == "fastapi.routing" and route_type.__name__ == "_IncludedRouter":
-                context = vars(route).get("include_context")
-                context_values = vars(context) if context is not None else {}
-                include_prefix = context_values.get("prefix")
+                context: Any = vars(route).get("include_context")
+                context_values: dict[str, Any] = vars(context) if context is not None else {}
+                include_prefix: Any = context_values.get("prefix")
                 base = prefix + include_prefix if isinstance(include_prefix, str) and include_prefix else prefix
-                original = vars(route).get("original_router")
+                original: Any = vars(route).get("original_router")
                 try:
-                    included_routes = vars(original).get("routes") if original is not None else None
+                    included_routes: Any = vars(original).get("routes") if original is not None else None
                 except TypeError:
                     included_routes = None
                 if isinstance(included_routes, list) and all(
                     type(item) in (APIRoute, Route, WebSocketRoute) for item in included_routes
                 ):
-                    yield from self._walk(included_routes, base, host, path_apps, depth + 1, mounts=mounts)
+                    yield from self._walk(
+                        cast(list[BaseRoute], included_routes), base, host, path_apps, depth + 1, mounts=mounts
+                    )
                 else:
                     yield RouteInfo((), base or "/", "<unexpanded include_router>", host, None, None, None), None
                 continue
@@ -484,7 +486,7 @@ class FastApiIntrospector:
         if prefix is None or stack:
             chains.append(SecurityChain(prefix, stack))
             backends.extend(found)
-        routes: list[object] = list(app.routes) if isinstance(app, Starlette) else []  # user ASGI apps: opaque
+        routes: list[Any] = list(app.routes) if isinstance(app, Starlette) else []  # user ASGI apps: opaque
         for route in routes:
             if type(route) not in (Mount, Host) or (
                 prefix is None and type(route) is Mount and route.path == self.exclude_mount
@@ -494,8 +496,9 @@ class FastApiIntrospector:
             if id(child) not in seen and depth < MAX_DEPTH:
                 mount_names: tuple[str, ...] = ()
                 if type(route) is Mount:
+                    mount_middleware: Any = route.middleware
                     mount_names = tuple(
-                        _dotted(entry.cls) for entry in route.middleware if getattr(entry, "cls", None) is not None
+                        _dotted(entry.cls) for entry in mount_middleware if getattr(entry, "cls", None) is not None
                     )
                 self._chains(
                     child,

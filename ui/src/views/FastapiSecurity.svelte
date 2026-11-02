@@ -56,7 +56,7 @@
       {#each report.data.limitations as why, i (`${i}:${why}`)}<p>{why}</p>{/each}
       </div>
     {:else}
-      {#each report.data.limitations as why (why)}<p class="warn">{why}</p>{/each}
+      {#each report.data.limitations as why, i (`${i}:${why}`)}<p class="warn">{why}</p>{/each}
       <h2>Middleware stacks</h2>
       {#each report.data.chains as chain (chain.order)}
         <section class="chain">
