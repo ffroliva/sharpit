@@ -11,11 +11,17 @@ Branch / worktree: `lane/0.4.0-A-traces` in `C:\development\github\sharpit-wt\0.
 - Task 3 routes, MCP tools, flag, safety/masking/budget: red `8ff1c1f`, fix `5a78185`.
 - Live-check finding (SQL literal leak): red `c4c7d9d`, fix `c7b269a`.
 - Task 4 Svelte view: UI red `e71dbc2`, fix in the evidence commit (`feat: traces view and lane evidence`).
-- Status: see the Gates section (final run recorded there).
+- Status: DONE_WITH_CONCERNS (no OTel SDK in the test extra; see Needs from coordinator).
 
 ## Gates (implementer, at the lane head)
 
-GATES_PLACEHOLDER
+At `2789561`: `ruff check` all passed; `ruff format --check` 476 files formatted; `pyright` 0 errors;
+`pytest -q -n 4` **4246 passed, 9 skipped** in 391 s (log
+`C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-traces-pytest-final.log`).
+UI: `npm --prefix ui run check` clean; `npx vitest run` 35 files / 278 tests passed.
+An earlier full run had 5 `no_side_effects` errors caused by my own evidence edits mid-run and the two known
+load-sensitive budgets (SQL listener, capture); all 1160 of those files' tests passed in isolation, and the final run
+above is clean. Budgets untouched. Lowest-direct / no-SQLAlchemy: not run (coordinator gate).
 
 ## Decisions and deviations
 
