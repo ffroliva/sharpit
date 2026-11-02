@@ -6,7 +6,7 @@
 | 2 | BootUI port citations | `tests/engine/capture/test_transactions.py`; `tests/fastapi/test_transactions_api.py` |
 | 3 | Safety, panel flag, read-only, masking | `tests/safety/test_a_transactions_safety.py`; `tests/masking/test_a_transactions_masking.py`; `tests/fastapi/test_transactions_api.py` |
 | 4 | Gatekeeper / no SQLAlchemy import in listener | `src/sharpit/engine/capture/transactions.py`; `tests/engine/capture/test_transactions.py` |
-| 5 | Listener overhead budget | `tests/fastapi/test_transactions_overhead.py` — measured 14.507 µs overhead, 13.519 µs noise, 30 µs budget. A temporary 100 µs `tx_begin` delay failed at 643.573 µs; it was removed. Logs are under integration `.superpowers/sdd/0.4.0/logs/`. |
+| 5 | Listener overhead budget | `tests/fastapi/test_transactions_overhead.py` — measured 11.185 µs overhead, 17.993 µs noise, 30 µs budget. A temporary 100 µs `tx_begin` delay failed at 643.573 µs; it was removed. |
 | 6 | MCP read-only | `src/sharpit/engine/tools04/transactions.py`; `tests/fastapi/test_transactions_api.py` |
 | 7 | Svelte view | `ui/src/views/Transactions.svelte`; `ui/tests/component/Transactions.test.ts` |
 | 8 | Four gates, lowest-direct, no-SQLAlchemy | `N/A — coordinator gate logs` |

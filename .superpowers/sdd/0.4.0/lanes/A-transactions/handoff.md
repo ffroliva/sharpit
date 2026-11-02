@@ -8,23 +8,23 @@ In progress. Started at `a766132de82c0305b5cc4a1066a8a1a24cd2745a` on `lane/0.4.
 
 ## Done
 
-- Read required rules/spec/plans/F handoff and registered with agentctl (`codex-0-4-0-a-transactions`).
-- Task 1 nullable `readOnly` reason fixture committed (`d50d6b6`). The captured transaction golden is absent; parity remains unverified.
-- Task 2 recorder and callbacks committed (`88609ea`); REST/SSE, wiring, MCP/CLI tools and flag committed (`7d3a672`); UI view committed (`b422cd1`); overhead budget committed (`895a4d7`).
-- Focused backend tests passed (16 tests), then four targeted checks passed for async engines, internal callback exclusion, report-time SQL correlation, and late-import/partial listener retry (`66fec2c`). UI Vitest passed 2/2 and `npm --prefix ui run check` exited 0.
-- Overhead: 14.507 µs over a 30 µs budget, 13.519 µs noise. Temporary `time.sleep(0.0001)` control failed at 643.573 µs and was removed.
-- Lane docs and §6.1 checklist updated.
+- Read the required rules/spec/plans/F handoff and registered with agentctl (`codex-0-4-0-a-transactions`).
+- Task 1 nullable `readOnly` reason fixture committed (`d50d6b6`). The captured BootUI golden is absent; parity remains unverified.
+- Task 2 recorder, event callbacks, REST/SSE routes, recorder wiring, MCP/CLI tools, flag, UI view, and overhead budget are committed.
+- Listener teardown now uses a finalizer on its owning remover; the red test is green in the latest 19-test engine/API run. The request body handler is split below the complexity ratchet.
+- Repo Ruff check and format passed. Pyright returned 0 errors. Latest lane-targeted run: 23 passed, including the 30 µs listener budget. Latest measured overhead was 11.185 µs with 17.993 µs noise. The 100 µs delay control failed at 643.573 µs and was removed.
+- UI Vitest passed 2/2; `npm --prefix ui run check` exited 0.
 
 ## Next step
 
-Run the four gates: `ruff check`, `ruff format --check`, `pyright`, and full `pytest -q -n 4` detached with its log outside this worktree. Then run lowest-direct and no-SQLAlchemy checks if time permits; update gate status, commit evidence, and report. Live check is coordinator-owned because the shared sample is outside lane scope.
+Run the final full pytest suite detached at `-n 4`, log outside this worktree; then update the gate status. Run no-SQLAlchemy and lowest-direct checks if time permits. Coordinator must resolve the shared-test items below before lane_gate can merge. Live check uses the coordinator-owned example, outside this lane's touch scope.
 
 ## Decisions
 
-- F handoff API is `_configure_capture(app, ctx, settings) -> CaptureWiring`; listener arm/removal uses `CaptureState.attachers` so late SQLAlchemy imports and lifespan restarts work.
-- F exposes begin/commit/rollback/savepoint events only. SQLAlchemy commit failure is surfaced after pre-commit; `test_failed_commit_is_unknown` is parked under O1. `engine/sqla.py` is untouched.
-- Connection listeners are reference-counted across contexts; savepoint events close one nested entry per target context.
-- Live check uses the coordinator-owned example, which this lane cannot edit.
+- F handoff API is `_configure_capture(app, ctx, settings) -> CaptureWiring`; the listener attacher returns `None` before SQLAlchemy is imported, and `CaptureState.attachers` retries it on startup/first request.
+- Connection listeners are class-level and reference-counted. Dropping the owning teardown releases them; explicit uninstall releases immediately.
+- F exposes begin/commit/rollback/savepoint events only. SQLAlchemy commit failure is surfaced after pre-commit; `test_failed_commit_is_unknown` remains parked under O1. `engine/sqla.py` is untouched.
+- Savepoint callbacks close one nested entry per target context. SQL counts are correlated from SQL Trace at report time.
 
 ## Real pytest red tests
 
@@ -39,7 +39,7 @@ Run the four gates: `ruff check`, `ruff format --check`, `pyright`, and full `py
 | `tests/engine/capture/test_transactions.py::test_savepoint_is_a_child_entry` | `12bf8d03b4dd14c916d74e77b6d4b1bf287a198d` | `releasing a savepoint must not close its outer transaction` |
 | `tests/engine/capture/test_transactions.py::test_savepoint_closes_one_child_per_context` | `41964581198fd775bd63e5b3d9559c87d28eeaf0` | `a savepoint event must close its child entry in each context` |
 | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_committed_sqlite_with_loopback_client` | `5212a0865ee4ca430b56b4ef5eaf344ccf18f3f5` | `the implemented transactions panel must expose its GET report route` |
-| 	ests/engine/capture/test_transactions.py::test_listener_remover_releases_attachments_when_discarded | 6faa15c5a22c5773f87590ddb403e0c89ee2f587 | discarding the owning teardown must release all class-level listeners |
+| `tests/engine/capture/test_transactions.py::test_listener_remover_releases_attachments_when_discarded` | `6faa15c5a22c5773f87590ddb403e0c89ee2f587` | `discarding the owning teardown must release all class-level listeners` |
 
 ## UI reds
 
@@ -54,17 +54,13 @@ Run the four gates: `ruff check`, `ruff format --check`, `pyright`, and full `py
 |---|---|---|
 | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_a_committed_sqlite_transaction` | `4723cd4f6e5ccde839dbaa3f4eee8af47f11e96b` | The TestClient source was not loopback-trusted; replacement explicitly uses a loopback client. |
 
-## Gates / live check
-
-Targeted results recorded above; full four gates are next. Live check not run; coordinator-owned example is outside lane touch scope.
-
-
 ## Needs from coordinator
 
-- `tests/fastapi/test_capture_wiring.py::test_all_capture_panels_disabled_adds_nothing`: this file's local `CAPTURE_PANELS` tuple omits `transactions`, so the test still observes `CaptureMiddleware` after the transactions panel is implemented. Add the lane flag to that test's disabled panel set; the file is outside this lane's May-touch list.
-- `tests/test_safety_matrix.py::test_write_route_table_is_complete`: include `POST /sharpit/api/transactions/clear` and `POST /sharpit/api/transactions/recording` in the write-route contract. This file is coordinator-owned/protected for lanes.
-- `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip`: the data-flag scenario passes already-merged `tools.TOOLS` as the base and merges implemented transactions tools again, producing collisions. Build that scenario from the base-only catalogue or otherwise exclude already merged lane tools. This file is outside this lane's May-touch list.
+- `tests/fastapi/test_capture_wiring.py::test_all_capture_panels_disabled_adds_nothing`: its local `CAPTURE_PANELS` tuple omits `transactions`; include the implemented lane or disable it in the test options. This file is outside the lane's May-touch list.
+- `tests/fastapi/test_capture_overhead.py::test_request_overhead_budget`: the “off” app disables the old four capture panels but leaves implemented transactions on, so it still adds middleware. Update the baseline options; this file is outside the lane's May-touch list and its budget must stay unchanged.
+- `tests/test_safety_matrix.py::test_write_route_table_is_complete`: include the two transactions POST routes in the write-route contract. This file is protected from lane edits.
+- `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip`: it merges lane tools on top of already-merged `tools.TOOLS`, duplicating the transaction tool names. Use the base-only catalogue for the planted lane merge. This file is outside the lane's May-touch list.
 
 ## Preliminary full suite
 
-The first detached `-n 4` run reported 3,777 passed, 5 skipped, 7 failed, 2 errors. It overlapped source edits and is not final verification. The named lane-owned listener cleanup and complexity failures are being addressed; several other failures are coordinator-owned or overhead noise. Rerun after the pending fixes. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-pytest.log`.
+The first detached `-n 4` run reported 3,777 passed, 5 skipped, 7 failed, 2 errors, but overlapped source edits and is not final verification. Lane failures from listener cleanup and complexity are fixed. The remaining route/surface failures require coordinator-owned test changes; existing overhead budgets were noisy. Log: `C:/development/github/sharpit-wt/0.4.0-integration/.superpowers/sdd/0.4.0/logs/A-transactions-pytest.log`.
