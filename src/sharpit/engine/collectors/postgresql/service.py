@@ -76,6 +76,21 @@ def postgresql_report(ctx: SharpitContext) -> Dto:
     return _report("NOT_READ", NOT_READ_MESSAGE, None, [], [], False)
 
 
+def has_async_engine(ctx: SharpitContext) -> bool:
+    """Whether a registered PostgreSQL engine is async (its pool belongs to the application's event loop)."""
+    registry = ctx.capture.engine_registry
+    for _name, engine in registry.engines() if registry is not None else []:
+        dialect = getattr(engine, "dialect", None)
+        if getattr(dialect, "name", None) == "postgresql" and getattr(dialect, "is_async", False):
+            return True
+    return False
+
+
+def unavailable_report(reason: str) -> Dto:
+    """A ``DISABLED`` report that read nothing, for a read sharpit refused to start."""
+    return _report("DISABLED", reason, None, [], [], False)
+
+
 async def refresh_postgresql(ctx: SharpitContext) -> Dto:
     """Read every registered PostgreSQL engine (single-flight, held until every worker thread returns)."""
     single = ctx.lazy(f"singleflight:{OPERATION}", SingleFlight)
