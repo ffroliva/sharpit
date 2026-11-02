@@ -105,3 +105,61 @@ def expected_cli_commands() -> dict[str, str]:
 def lane_route_paths(ctx: Any, host_app: Any) -> list[str]:
     """Sub-app paths the implemented per-panel route modules mount (appended after the base routes)."""
     return [route.path for route in _panel_04_routes(ctx, host_app)]  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def catalogue_with_lanes(
+    lane_tools: tuple[Any, ...], lane_commands: dict[str, str]
+) -> tuple[tuple[Any, ...], dict[str, str]]:
+    """``(TOOLS, COMMANDS)`` as the import builds them: the base catalogue plus the given lane tools."""
+    from sharpit.engine import tools
+
+    # from the base, not the current TOOLS: a lane implemented at import already has its tools there
+    return tools.merge_lane_tools(tools._BASE_TOOLS, tools._BASE_COMMANDS, lane_tools, lane_commands)  # noqa: SLF001
+
+
+def plant_unimplemented_panel(monkeypatch: Any) -> str:
+    """Flip the first still-unimplemented 0.4 panel on with a read tool, a CLI command and a GET route; return its id.
+
+    Lanes that really implement their panel never collide with the plant; with every panel implemented it skips.
+    """
+    from importlib import import_module
+
+    import pytest
+
+    from sharpit.engine import mcp, tools
+
+    plant = next((p for p in panels04.PANEL_04_IDS if not panels04.IMPLEMENTED[p]), None)
+    if plant is None:
+        pytest.skip("every 0.4 panel is implemented: no panel left to plant on")
+    module = import_module(f"sharpit.engine.tools04.{plant.replace('-', '_')}")
+    name = f"get_{plant.replace('-', '_')}_probe"
+    planted = tools.Tool(name, "probe", _NONE_SCHEMA, plant, False, lambda _call, _args: {"probe": True})
+    monkeypatch.setitem(panels04.IMPLEMENTED, plant, True)
+    monkeypatch.setattr(module, "TOOLS", (*module.TOOLS, planted))
+    monkeypatch.setattr(module, "COMMANDS", {**getattr(module, "COMMANDS", {}), name: f"{plant} probe"})
+    _plant_route(monkeypatch, plant)
+    merged_tools, merged_commands = catalogue_with_lanes(*panels04.tool_definitions())
+    monkeypatch.setattr(tools, "TOOLS", merged_tools)
+    monkeypatch.setattr(tools, "COMMANDS", merged_commands)
+    monkeypatch.setattr(mcp, "TOOLS", merged_tools)
+    return plant
+
+
+_NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
+
+
+def _plant_route(monkeypatch: Any, plant: str) -> None:
+    from importlib import import_module
+
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    module = import_module(f"sharpit.fastapi.routes.{plant.replace('-', '_')}")
+    original = module.build_routes
+
+    def build_routes(ctx: Any, host_app: Any) -> list[Any]:
+        api = ctx.settings.api_path[len(ctx.settings.path) :]
+        probe = Route(f"{api}/{plant}/probe", lambda _request: JSONResponse({"probe": True}), methods=["GET"])
+        return [*original(ctx, host_app), probe]
+
+    monkeypatch.setattr(module, "build_routes", build_routes)
