@@ -10,13 +10,16 @@ from __future__ import annotations
 
 import collections.abc as abc
 import re
+import sys
 import types
 import typing
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from sharpit.engine.advisors.rules import RuleDefinition, RuleResult
 from sharpit.engine.spi import ApiRouteInfo
+from sharpit.engine.testsession.swallowed import swallowing_lines
 
 ROUTING = "Routing & HTTP method mapping"
 NAMING = "Naming & resource design"
@@ -752,3 +755,36 @@ def violations(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]
 def scan(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> list[RuleResult]:
     found = violations(routes, exception_handlers)
     return [RuleResult.evaluate(rule, found[rule.id]) for rule in RULES]
+
+
+# N (new, not ported): the static half of spec 0.4.0 §5.5 F1; not in RULES, which stays BootUI's 20.
+FASTAPI_ERR_001 = RuleDefinition(
+    "FASTAPI-ERR-001",
+    "Do not swallow exceptions in route handler modules",
+    ERRORS_DOCS,
+    "MEDIUM",
+    "An except clause that catches Exception, BaseException or everything, and neither re-raises nor logs, hides"
+    " programming errors (a misspelt attribute becomes a wrong value served with HTTP 200).",
+    "Catch the specific exceptions you expect, or log/re-raise in the broad handler.",
+    "https://docs.python.org/3/tutorial/errors.html#handling-exceptions",
+)
+
+
+def swallowed_handler_violations(routes: Sequence[ApiRouteInfo]) -> list[Violation]:
+    """Broad swallowing handlers in the modules that define the application's route handlers: files are read and
+    parsed, never imported or called."""
+    found: list[Violation] = []
+    modules = dict.fromkeys(r.handler.partition(":")[0] for r in application_routes(routes))
+    for name in modules:
+        filename = getattr(sys.modules.get(name), "__file__", None)
+        if not isinstance(filename, str) or not filename.endswith(".py"):
+            continue
+        try:
+            lines = swallowing_lines(Path(filename).read_text("utf-8"))
+        except (OSError, SyntaxError, ValueError):  # unreadable or not parseable: nothing to say about it
+            continue
+        found.extend(
+            Violation(f"{name}:{line}", f"{name}:{line} catches broadly and neither re-raises nor logs")
+            for line in lines
+        )
+    return found

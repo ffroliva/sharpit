@@ -303,3 +303,64 @@ def test_explicit_dismissal_wins_over_baseline() -> None:
     )
     assert finding.dismissed is True
     assert fails(finding.to_dto()) is False
+
+
+# --- sharpit.swallowed-exception (spec 0.4.0 §5.5 F1) ---------------------------------------------------------------
+
+SWALLOWED_RULE = "sharpit.swallowed-exception"
+
+
+def _swallowed(type_name: str, programming_error: bool) -> TestFacts:
+    from sharpit.engine.testsession.facts import SwallowedFact
+
+    return _facts(call=PhaseFacts(swallowed=[SwallowedFact("app/weeks.py:21", type_name, programming_error)]))
+
+
+def _swallowed_findings(facts: TestFacts, budget: Budget = NONE) -> list[dict[str, object]]:
+    return [f.to_dto() for f in evaluate_test(facts, budget, 5, ()) if f.rule_id == SWALLOWED_RULE]
+
+
+def test_swallowed_attribute_error_fails_test_by_default() -> None:
+    found = _swallowed_findings(_swallowed("AttributeError", True))
+
+    assert len(found) == 1
+    assert found[0]["severity"] == "HIGH"
+    assert fails(found[0]) is True
+    assert found[0]["target"] == "app/weeks.py:21"
+
+
+def test_non_programming_error_swallow_is_a_note() -> None:
+    found = _swallowed_findings(_swallowed("ValueError", False))
+
+    assert len(found) == 1
+    assert found[0]["severity"] == "INFO"
+    assert fails(found[0]) is False
+
+
+def test_allow_swallowed_marker() -> None:
+    from sharpit.pytest_plugin.marker import budget_for
+
+    class Marker:
+        name = "sharpit"
+        kwargs = {"allow_swallowed": True}
+
+    class Item:
+        own_markers = [Marker()]
+
+        def listchain(self) -> list[object]:
+            return [self]
+
+    budget = budget_for(Item(), None)
+    found = _swallowed_findings(_swallowed("AttributeError", True), budget)
+
+    assert budget.allow_swallowed is True
+    assert len(found) == 1
+    assert found[0]["severity"] == "INFO"
+
+
+def test_swallowed_message_names_handler_and_type_only() -> None:
+    found = _swallowed_findings(_swallowed("AttributeError", True))
+
+    assert [f["message"] for f in found] == [
+        "AttributeError swallowed by a broad except clause at app/weeks.py:21 (neither re-raised nor logged)"
+    ]

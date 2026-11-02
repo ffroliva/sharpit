@@ -54,6 +54,22 @@ class TestKey:
     attempt: int
 
 
+@dataclass(frozen=True)
+class SwallowedFact:
+    """A broad handler in application code that swallowed an exception: never the message or a local value."""
+
+    location: str  # ``path:line`` of the except clause, relative to the working directory when under it
+    type_name: str
+    programming_error: bool
+
+    def to_json(self) -> dict[str, Any]:
+        return {"location": self.location, "type": self.type_name, "programmingError": self.programming_error}
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> Self:
+        return cls(data["location"], data["type"], data["programmingError"])
+
+
 @dataclass
 class PhaseFacts:
     queries: int = 0
@@ -65,6 +81,7 @@ class PhaseFacts:
     relationship_loads: Counter[str] = field(default_factory=Counter[str])
     relationship_of: dict[str, tuple[str, bool]] = field(default_factory=dict[str, tuple[str, bool]])
     relationship_sites: dict[str, str | None] = field(default_factory=dict[str, str | None])
+    swallowed: list[SwallowedFact] = field(default_factory=list[SwallowedFact])
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -77,6 +94,7 @@ class PhaseFacts:
             "relationshipLoads": dict(self.relationship_loads),
             "relationshipOf": {k: list(v) for k, v in self.relationship_of.items()},
             "relationshipSites": self.relationship_sites,
+            "swallowed": [fact.to_json() for fact in self.swallowed],
         }
 
     @classmethod
@@ -91,6 +109,7 @@ class PhaseFacts:
             Counter(data.get("relationshipLoads", {})),
             {k: (v[0], v[1]) for k, v in data.get("relationshipOf", {}).items()},
             dict(data.get("relationshipSites", {})),
+            [SwallowedFact.from_json(fact) for fact in data.get("swallowed", [])],
         )
 
 
@@ -117,6 +136,7 @@ class TestFacts:
                 "maxQueries": budget.max_queries,
                 "allowNPlusOne": budget.allow_n_plus_one,
                 "maxExceptions": budget.max_exceptions,
+                "allowSwallowed": budget.allow_swallowed,
             },
             "phases": {name: phase.to_json() for name, phase in self.phases.items()},
             "findings": self.findings,
@@ -129,7 +149,14 @@ class TestFacts:
             TestKey(data["nodeId"], data["worker"], data["attempt"]),
             {name: PhaseFacts.from_json(phase) for name, phase in data["phases"].items()},
             data["outcome"],
-            None if budget is None else Budget(budget["maxQueries"], budget["allowNPlusOne"], budget["maxExceptions"]),
+            None
+            if budget is None
+            else Budget(
+                budget["maxQueries"],
+                budget["allowNPlusOne"],
+                budget["maxExceptions"],
+                budget.get("allowSwallowed", False),
+            ),
             list(data["findings"]),
         )
 
