@@ -14,7 +14,16 @@ from tests.overhead import check_budget, paired  # noqa: E402
 
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
-from sharpit.engine.capture.transactions import TransactionRecorder, attach  # noqa: E402
+from sharpit.engine.capture.transactions import (  # noqa: E402
+    TransactionRecorder,
+    attach,
+    tx_begin,
+    tx_commit,
+    tx_release_savepoint,
+    tx_rollback,
+    tx_rollback_savepoint,
+    tx_savepoint,
+)
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -50,11 +59,25 @@ def test_transaction_overhead_budget(handle: tuple[SharpitHandle, Any, Any]) -> 
         def detached_round() -> int:
             remover = installed.context.capture.teardowns.pop()
             remover()
+            callbacks = {
+                "begin": tx_begin,
+                "commit": tx_commit,
+                "rollback": tx_rollback,
+                "savepoint": tx_savepoint,
+                "rollback_savepoint": tx_rollback_savepoint,
+                "release_savepoint": tx_release_savepoint,
+            }
+            for event, callback in callbacks.items():
+                if sa.event.contains(sa.engine.Engine, event, callback):
+                    sa.event.remove(sa.engine.Engine, event, callback)
             try:
                 return round_transactions()
             finally:
                 reattach = attach()
                 assert reattach is not None
+                for event, callback in callbacks.items():
+                    if not sa.event.contains(sa.engine.Engine, event, callback):
+                        sa.event.listen(sa.engine.Engine, event, callback)
                 installed.context.capture.teardowns.append(reattach)
 
         result = paired(detached_round, round_transactions, ROUNDS)

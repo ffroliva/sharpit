@@ -299,13 +299,10 @@ def _targets(conn: Any) -> list[SharpitContext]:
     ]
     if held:
         return held
-    if len(contexts) == 1:
-        return contexts
-    if not contexts:
-        try:
-            return dispatch._targets(engine)  # pyright: ignore[reportPrivateUsage]  # direct unit-test compatibility
-        except Exception as exc:  # noqa: BLE001 - transaction listeners must not affect the host
-            dispatch.routing_failed(exc)
+    try:
+        return dispatch._targets(engine)  # pyright: ignore[reportPrivateUsage]  # SQL Trace fallback for unregistered engines
+    except Exception as exc:  # noqa: BLE001 - transaction listeners must not affect the host
+        dispatch.routing_failed(exc)
     return []
 
 

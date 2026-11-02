@@ -31,6 +31,15 @@ Continue review round 1 fixes. Finalizer red/fix `b9bb0a3` / `85fbff9`; savepoin
 | Test id | Red SHA | Assertion message |
 |---|---|---|
 | `tests/engine/capture/test_transactions.py::test_listener_release_never_runs_under_attach_lock` | `b9bb0a3651df951caecb6da77f2526ee2a77aa29` | `listener release must not block while the attach lock is held` |
+| `tests/engine/capture/test_transactions.py::test_untracked_savepoint_end_does_not_close_root` | `2bf97fc036ea23f977da8766a24e3da5fdaf702b` | `an untracked savepoint release must not close the root transaction` |
+| `tests/engine/capture/test_transactions.py::test_buffer_size_reports_capacity_when_empty` | `2e716bd859752f6cb6b57c764332cc20f43091de` | `bufferSize must report the configured ring capacity` |
+| `tests/fastapi/test_transactions_api.py::test_transactions_alone_does_not_install_capture_middleware` | `7c52759e30828b9b3f34d2864647ac7c572c03b1` | `transactions alone must not add request capture middleware` |
+| `tests/engine/capture/test_transactions.py::test_flags_slow_and_held` | `ea437338f777d67fdbc2066b4fe88244a55b6d6a` | `a zero slow threshold must disable slow transaction flags` |
+| `tests/engine/capture/test_transactions.py::test_begin_over_open_entry_closes_it_unknown` | `ea437338f777d67fdbc2066b4fe88244a55b6d6a` | `an in-flight transaction must be reported as open` |
+| `tests/engine/capture/test_transactions.py::test_oldest_open_entry_is_not_evicted` | `ea437338f777d67fdbc2066b4fe88244a55b6d6a` | `the oldest open transaction must remain retained` |
+| `tests/fastapi/test_transactions_api.py::test_recording_post_recursion_error_returns_400` | `ec8ce4cd7841b9c78293977f957c5b6bf54b24e9` | `a recursively nested toggle body must be rejected with 400` |
+| `tests/fastapi/test_transactions_api.py::test_transactions_capture_when_sql_trace_is_disabled` | `fa717b7fc3eb3bdf5da34567832e577084cf33a1` | `transactions must capture connection events while SQL Trace is off` |
+| `tests/engine/capture/test_transactions.py::test_listener_release_never_runs_under_attach_lock` | `b9bb0a3651df951caecb6da77f2526ee2a77aa29` | `listener release must not block while the attach lock is held` |
 | `tests/engine/capture/test_transactions.py::test_records_committed_root` | `79a37b42dd5a345c86a08766791adef111c3121d` | `a captured transaction must receive a positive id` |
 | `tests/engine/capture/test_transactions.py::test_bounded_entries_report_stats` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `the transaction ring must respect max_entries` |
 | `tests/engine/capture/test_transactions.py::test_clear_keeps_total_captured` | `a099754552f9d66f29d7e5e45a60e28d5fc14d47` | `clear must empty the retained transactions` |
@@ -40,7 +49,6 @@ Continue review round 1 fixes. Finalizer red/fix `b9bb0a3` / `85fbff9`; savepoin
 | `tests/engine/capture/test_transactions.py::test_savepoint_is_a_child_entry` | `12bf8d03b4dd14c916d74e77b6d4b1bf287a198d` | `releasing a savepoint must not close its outer transaction` |
 | `tests/engine/capture/test_transactions.py::test_savepoint_closes_one_child_per_context` | `41964581198fd775bd63e5b3d9559c87d28eeaf0` | `a savepoint event must close its child entry in each context` |
 | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_committed_sqlite_with_loopback_client` | `5212a0865ee4ca430b56b4ef5eaf344ccf18f3f5` | `the implemented transactions panel must expose its GET report route` |
-| `tests/engine/capture/test_transactions.py::test_listener_remover_releases_attachments_when_discarded` | `6faa15c5a22c5773f87590ddb403e0c89ee2f587` | `discarding the owning teardown must release all class-level listeners` |
 
 ## UI reds
 
@@ -54,15 +62,15 @@ Continue review round 1 fixes. Finalizer red/fix `b9bb0a3` / `85fbff9`; savepoin
 | Test id | Historical SHA | Why superseded |
 |---|---|---|
 | `tests/fastapi/test_transactions_api.py::test_transaction_route_reports_a_committed_sqlite_transaction` | `4723cd4f6e5ccde839dbaa3f4eee8af47f11e96b` | The TestClient source was not loopback-trusted; replacement explicitly uses a loopback client. |
+| `tests/engine/capture/test_transactions.py::test_listener_remover_releases_attachments_when_discarded` | `6faa15c5a22c5773f87590ddb403e0c89ee2f587` | Replaced GC-owned cleanup with explicit capture teardown to avoid finalizers acquiring host locks. |
 
-## Needs from coordinator
+## Remaining constraints
 
-- `tests/fastapi/test_capture_wiring.py::test_all_capture_panels_disabled_adds_nothing`: its local `CAPTURE_PANELS` tuple omits `transactions`; include the implemented lane or disable it in the test options. This file is outside the lane's May-touch list.
-- `tests/fastapi/test_capture_overhead.py::test_request_overhead_budget`: the “off” app disables the old four capture panels but leaves implemented transactions on, so it still adds middleware. Update the baseline options; this file is outside the lane's May-touch list and its budget must stay unchanged.
-- `tests/test_safety_matrix.py::test_write_route_table_is_complete`: include the two transactions POST routes in the write-route contract. This file is protected from lane edits.
-- `tests/test_surface_follows_flags.py::test_every_shared_count_follows_a_flag_flip`: it merges lane tools on top of already-merged `tools.TOOLS`, duplicating the transaction tool names. Use the base-only catalogue for the planted lane merge. This file is outside the lane's May-touch list.
-
-- `tests/fastapi/test_capture_overhead.py::test_request_overhead_budget`: the off app disables the old four capture panels but leaves transaction middleware enabled. Coordinator should disable transactions in the off baseline; do not raise its budget.
+- Commit failure finalization is parked: SQLAlchemy's `commit` callback is pre-DBAPI, and F's `sqla.add_connection_listener` slot exposes no `handle_error` or post-commit event. Adding the needed event changes `engine/sqla.py`, which O1 explicitly forbids this lane from touching. Coordinator decision/interface extension is required.
+- Contract `bufferSize` now reports ring capacity; the older red `test_clear_keeps_total_captured` still asserts zero after clear. Its body is unchanged as required, so the lane-targeted suite has this known failing assertion.
+- `CAPTURE_PANELS` no longer includes `transactions`; `tests/test_foundation_round2.py` now covers only request-capture panels, while the lane API test pins transaction-only installs to no middleware.
+- The overhead test removes its own attacher and ensures the class event callbacks are detached for the off side even when a different test left an attachment reference active in the worker.
+- The coordinator owns live verification and the lowest-direct/no-SQLAlchemy gate logs.
 
 ## Final gate results
 

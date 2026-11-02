@@ -185,7 +185,6 @@ def test_uninstall_capture_removes_listeners() -> None:
 
     sa = pytest.importorskip("sqlalchemy")
     engine = sa.create_engine("sqlite://")
-    handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[engine])
     callbacks = {
         "begin": tx_begin,
         "commit": tx_commit,
@@ -194,14 +193,18 @@ def test_uninstall_capture_removes_listeners() -> None:
         "rollback_savepoint": tx_rollback_savepoint,
         "release_savepoint": tx_release_savepoint,
     }
+    before = {event: sa.event.contains(sa.engine.Engine, event, callback) for event, callback in callbacks.items()}
+    handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[engine])
     try:
-        assert all(sa.event.contains(sa.engine.Engine, event, callback) for event, callback in callbacks.items()), (
-            "install must attach every transaction connection event"
-        )
+        after_install = {
+            event: sa.event.contains(sa.engine.Engine, event, callback) for event, callback in callbacks.items()
+        }
+        assert all(after_install.values()), "install must attach every transaction connection event"
         handle.uninstall_capture()
-        assert not any(sa.event.contains(sa.engine.Engine, event, callback) for event, callback in callbacks.items()), (
-            "uninstall must remove every transaction connection event"
-        )
+        after_uninstall = {
+            event: sa.event.contains(sa.engine.Engine, event, callback) for event, callback in callbacks.items()
+        }
+        assert after_uninstall == before, "uninstall must restore the transaction listener state"
     finally:
         handle.uninstall_capture()
         engine.dispose()
