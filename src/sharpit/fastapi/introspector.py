@@ -16,7 +16,7 @@ from typing import Any, Literal, cast
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Host, Mount, WebSocketRoute
 
-from sharpit.engine.spi import ApiModel, ApiRouteInfo, AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.spi import ApiModel, ApiRouteInfo, AppInfo, ProviderInfo, RouteInfo, SecurityModel
 
 
 def _version(dist: str) -> str | None:
@@ -273,6 +273,9 @@ class FastApiIntrospector:
         return RouteInfo(
             methods, full, handler, host, _produces(route), _consumes(route), name if isinstance(name, str) else None
         )
+
+    def security_model(self) -> SecurityModel:
+        return SecurityModel(False, (), (), (), ())
 
     def providers(self) -> list[ProviderInfo]:
         # Read attributes only: no dependency is called, the middleware stack is never built, no OpenAPI schema.
