@@ -16,8 +16,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from conftest import SideEffectGuard
+from tests.golden import assert_parity
 
+from conftest import SideEffectGuard
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo
@@ -39,7 +40,6 @@ from sharpit.engine.collectors.threads import (
 )
 from sharpit.engine.tools import CallContext, call_tool
 from sharpit.fastapi.adapter import SharpitHandle
-from tests.golden import assert_parity
 
 _HANDLES: list[SharpitHandle] = []
 SECRET = "hunter2-local-value"

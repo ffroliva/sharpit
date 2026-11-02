@@ -34,7 +34,8 @@ No BootUI DTO drift (§15). Python source: `src/sharpit/engine/collectors/alembi
 | `databases[].checkedAt` | `_database` |
 | `databases[].unavailableReason` | `_database` |
 
-No 2.2.0 Alembic golden fixture exists in this lane's base. No nullable additions were identified.
+No 2.2.0 Alembic golden fixture exists in this lane's base; Alembic's 2.2.0 field parity remains unverified. No
+nullable additions were identified. The coordinator should carry this status into `docs/reference/PARITY.md`.
 
 ## Database Connection Pools
 
@@ -53,8 +54,8 @@ SQLAlchemy gatekeeper `sharpit.engine.sqla` and the context registry.
 | `pools[].username` | `_pool_dto` through masker; null when URL has no user information |
 | `pools[].driverClassName` | `_pool_dto`: backend, driver, and pool class |
 | `pools[].minimumIdle` | null; documented in `tests/fixtures/bootui/2.2.0/database-connection-pools/nullable.json` |
-| `pools[].maximumPoolSize` | `_pool_dto`: pool size plus overflow when measurable |
-| `pools[].connectionTimeoutMs` | `_pool_dto`: QueuePool timeout |
+| `pools[].maximumPoolSize` | `_pool_dto`: pool size plus overflow when measurable; `nullable.json`: unlimited overflow or no fixed size |
+| `pools[].connectionTimeoutMs` | `_pool_dto`: QueuePool timeout; `nullable.json`: pool implementation exposes no checkout timeout |
 | `pools[].idleTimeoutMs` | null; documented in `nullable.json` |
 | `pools[].maxLifetimeMs` | `_pool_dto`: recycle duration, or null when disabled |
 | `pools[].validationTimeoutMs` | null; documented in `nullable.json` |
@@ -63,7 +64,7 @@ SQLAlchemy gatekeeper `sharpit.engine.sqla` and the context registry.
 | `pools[].autoCommit` | true only for AUTOCOMMIT isolation; otherwise null, documented in `nullable.json` |
 | `pools[].available` | `_pool_dto`: whether the pool exposes counters |
 | `pools[].unavailableReason` | `_pool_dto`: reason for pools without counters |
-| `pools[].snapshot` | `_snapshot` |
+| `pools[].snapshot` | `_snapshot`; `nullable.json`: pool implementation exposes no counter snapshot |
 | `pools[].snapshot.timestamp` | `_snapshot` epoch milliseconds |
 | `pools[].snapshot.active` | `_snapshot` checked-out counter |
 | `pools[].snapshot.idle` | `_snapshot` checked-in counter |
@@ -121,8 +122,8 @@ the thread-row construction in `threads_report`.
 | `threads[].priority` | thread-row construction; `0` (unavailable in CPython) |
 | `threads[].daemon` | thread-row construction |
 | `threads[].virtual` | thread-row construction; false (unsupported) |
-| `threads[].cpuTimeMillis` | thread-row construction; null (unavailable in CPython) |
-| `threads[].userTimeMillis` | thread-row construction; null (unavailable in CPython) |
+| `threads[].cpuTimeMillis` | `time.thread_time()` for the calling thread; null for other threads or when unsupported |
+| `threads[].userTimeMillis` | `resource.getrusage(resource.RUSAGE_THREAD)` for the calling thread; null for other threads or when unsupported |
 | `threads[].blockedCount` | thread-row construction; `0` (unavailable in CPython) |
 | `threads[].waitedCount` | thread-row construction; `0` (unavailable in CPython) |
 | `threads[].inNative` | thread-row construction; false |
@@ -132,5 +133,14 @@ the thread-row construction in `threads_report`.
 | `threads[].lockOwnerId` | thread-row construction; null (not measured) |
 | `threads[].lockOwnerName` | thread-row construction; null (not measured) |
 | `threads[].stackTrace` | `_frame_text` over current Python frames; omitted under metadata-only exposure |
+| `page.total` | `paged` thread result metadata |
+| `page.matched` | `paged` thread result metadata |
+| `page.offset` | `paged` thread result metadata |
+| `page.limit` | `paged` thread result metadata |
+| `page.returned` | `paged` thread result metadata |
+| `page.hasMore` | `paged` thread result metadata |
+
+The portable thread timer APIs expose measurements only for the calling thread. Other rows remain null; user time also
+remains null on platforms without `resource.RUSAGE_THREAD` (including Windows).
 
 `tasks`, `taskCount`, and `warnings` are sharpit additions. `task_info` maps task rows; `TASK_KEYS` lists their keys.

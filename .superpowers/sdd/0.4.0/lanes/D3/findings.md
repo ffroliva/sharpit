@@ -8,6 +8,9 @@
 | Non-AUTOCOMMIT engines must not fabricate `autoCommit: false` | `tests/engine/test_pools.py::test_autocommit_from_isolation_level` | `b39e90fbf4cd1d759caa47ab65e03a3527357499` | `assert [False, True] == [None, True]` at `tests/engine/test_pools.py:135` | Fixed in `e11e98071b5c1802e00813d24d27f24da0298b13` |
 | MCP pool report must expose the renamed report field | `tests/fastapi/test_pools_api.py::test_get_database_connection_pools_mcp` | `b39e90fbf4cd1d759caa47ab65e03a3527357499` | `assert 'poolLibraryPresent' in content` at `tests/fastapi/test_pools_api.py:49` | Fixed in `e11e98071b5c1802e00813d24d27f24da0298b13` |
 | Pool report must expose the renamed presence field when SQLAlchemy is unavailable | `tests/fastapi/test_sqla_absent.py::test_pools_report_without_sqlalchemy_emits_pool_library_present_false` | `b39e90fbf4cd1d759caa47ab65e03a3527357499` | `assert 'poolLibraryPresent' in {'hikariPresent': False, ...}` at `tests/fastapi/test_sqla_absent.py:35` | Fixed in `e11e98071b5c1802e00813d24d27f24da0298b13` |
+| Pool nullable fixture must allow NullPool and unlimited overflow | `tests/engine/test_pools.py::test_pools_report_parity_for_nullpool_and_unlimited_overflow` | `03d15905aa84e03d515647afb880e131fe4bdbc4` | `maximumPoolSize`, `connectionTimeoutMs`, and `snapshot` null values were not listed in `nullable.json` | Fixed in `92027673ed5831631a2c02729d5313fec945258a` |
+| Every D3 panel with a 2.2.0 golden must pass conformance | `tests/engine/test_threads.py::test_d3_panels_2_2_0_golden_conformance` | `60ddfccefcb925772235b822eddadcd849b93184` | `threads[].cpuTimeMillis` and `threads[].userTimeMillis`: null in payload, golden has number; not listed in `nullable.json` | Fixed in `92027673ed5831631a2c02729d5313fec945258a` |
+| Thread report must emit per-thread user time when the platform exposes it | `tests/engine/test_threads.py::test_threads_report_emits_user_time_when_resource_supports_it` | `3f9edeaca18cc8adc0f72c08f18ba588e429883a` | `assert None == 1250` at `tests/engine/test_threads.py:449` | Fixed in `92027673ed5831631a2c02729d5313fec945258a` |
 | Legacy D3 panel routes must not be registered as a `panels04` safety lane | `tests/safety/test_d3_safety.py::test_d3_legacy_panel_is_not_added_as_a_panels04_lane` | `7e298febc2fc6acb7053617696bce33d66fb669c` | `assert load().invalid == ()`; the matrix reported that `database-connection-pools` is not in `panels04.MODULE_PANEL_IDS` at `tests/safety/test_d3_safety.py:24` | Fixed in `06a8bcdb4eb916f25f960756d8064f2235c576ad` |
 
 ## Boundary finding
@@ -24,5 +27,15 @@ its direct no-side-effects check and omits the row exports per `tests/safety/REA
 ## Golden limitation
 
 The permitted D3 fixture for Alembic has no `captured.json` or `provisional.json`. Council O2/R9 reserves those for G0a,
-so this lane did not invent a capture. Pool parity is checked against the existing `pools.captured.json` and the D3
-`nullable.json`.
+so this lane did not invent a capture. Alembic's 2.2.0 field parity remains unverified and must be reflected in
+`docs/reference/PARITY.md` by the coordinator. Pool parity is checked against the existing `pools.captured.json` and
+the D3 `nullable.json`; health and threads are covered by the D3 conformance test and owned nullable fixture.
+
+## Review dispositions
+
+- Fixed the pool nullable coverage and added the 2.2.0 conformance test for pools, health, and threads.
+- Fixed the safety test's empty engine list by exercising one file-backed QueuePool.
+- Kept `test_d3_legacy_panel_is_not_added_as_a_panels04_lane`: it is an immutable test red committed at
+  `7e298febc2fc6acb7053617696bce33d66fb669c`; deleting or editing its body would violate red integrity.
+- Kept the D3 masking test despite overlap with `tests/engine/test_pools.py`; the lane plan explicitly requires
+  `tests/masking/test_d3_masking.py`.
