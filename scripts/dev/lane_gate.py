@@ -319,6 +319,48 @@ def leased_pg_problem(opts: Options) -> str | None:
 
 
 def _function_source(source: str, nodeid: str) -> str | None:
+    """The red test function's source, decorators and signature included."""
+    found = _test_node(source, nodeid)
+    return _segment(source, found[0]) if found else None
+
+
+def _segment(source: str, node: ast.stmt) -> str:
+    decorators = getattr(node, "decorator_list", [])
+    start = min([node.lineno, *(d.lineno for d in decorators)])
+    return "\n".join(source.splitlines()[start - 1 : node.end_lineno])
+
+
+def _bound_names(node: ast.stmt) -> list[str]:
+    """Names a top-level def, class or assignment binds."""
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return [node.name]
+    targets: list[ast.expr] = []
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+    elif isinstance(node, ast.AnnAssign | ast.AugAssign):
+        targets = [node.target]
+    return [n.id for target in targets for n in ast.walk(target) if isinstance(n, ast.Name)]
+
+
+def _definitions(source: str) -> dict[str, str]:
+    """Each top-level name -> the source of its last definition (def, class, assignment, or one import alias)."""
+    try:
+        body = ast.parse(source).body
+    except SyntaxError:
+        return {}
+    defs: dict[str, str] = {}
+    for node in body:
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            module = node.module if isinstance(node, ast.ImportFrom) else ""
+            for alias in node.names:  # per alias, so adding a name to an import line changes nothing referenced
+                defs[alias.asname or alias.name.split(".")[0]] = f"from {module} import {alias.name} as {alias.asname}"
+        else:
+            defs.update(dict.fromkeys(_bound_names(node), _segment(source, node)))
+    return defs
+
+
+def _test_node(source: str, nodeid: str) -> tuple[ast.FunctionDef | ast.AsyncFunctionDef, list[str]] | None:
+    """The red test's function node and the names of its enclosing classes."""
     *classes, name = nodeid.split("[", 1)[0].split("::")[1:]
     try:
         body: list[ast.stmt] = ast.parse(source).body
@@ -330,44 +372,36 @@ def _function_source(source: str, nodeid: str) -> str | None:
             return None
         body = node.body
     func = next((n for n in body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name == name), None)
-    if func is None:
-        return None
-    start = min([func.lineno, *(d.lineno for d in func.decorator_list)])
-    return "\n".join(source.splitlines()[start - 1 : func.end_lineno])
+    return (func, classes) if func is not None else None
 
 
-def _module_shape(source: str) -> tuple[str, dict[str, str]] | None:
-    """(the module without its top-level test functions, blank lines dropped; {test function name: source})."""
-    try:
-        body = ast.parse(source).body
-    except SyntaxError:
-        return None
-    lines = source.splitlines()
-    tests: dict[str, str] = {}
-    skip: set[int] = set()
-    for node in body:
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith("test"):
-            start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
-            tests[node.name] = "\n".join(lines[start - 1 : node.end_lineno])
-            skip.update(range(start - 1, node.end_lineno or start))
-    rest = "\n".join(line for i, line in enumerate(lines) if i not in skip and line.strip())
-    return rest, tests
-
-
-def _red_file_problems(opts: Options, sha: str, path: str) -> list[str]:
-    """Round 4, widened: after the red commit the red test's file may only gain new test functions, and no
-    conftest.py on its path may change (constants, parametrize lists, fixtures and helpers can weaken a red too)."""
-    problems: list[str] = []
-    before = _module_shape(_show(opts.worktree, sha, path) or "")
-    after = _module_shape(_show(opts.worktree, opts.sha, path) or "")
-    changed = before is None or after is None or before[0] != after[0]
-    changed = changed or any(after[1].get(name) != src for name, src in before[1].items())  # type: ignore[index]
-    if changed:
-        problems.append("test file changed outside added test functions after the red commit")
+def _red_file_problems(opts: Options, sha: str, path: str, nodeid: str) -> list[str]:
+    """Coordinator ruling on round 4: after the red commit, a top-level name the red test references (in its body,
+    decorators or fixture arguments) may not change or disappear, in its file; a fixture it requests may not change
+    in a conftest.py on its path. Added imports, new names and edits to unreferenced code are allowed."""
+    red_source = _show(opts.worktree, sha, path) or ""
+    found = _test_node(red_source, nodeid)
+    if found is None:
+        return ["test missing at red SHA"]
+    func, classes = found
+    args = [a.arg for a in (*func.args.posonlyargs, *func.args.args, *func.args.kwonlyargs) if a.arg != "self"]
+    referenced = {n.id for n in ast.walk(func) if isinstance(n, ast.Name)} | set(args) | set(classes[:1])
+    referenced.discard(func.name)
+    before, after = _definitions(red_source), _definitions(_show(opts.worktree, opts.sha, path) or "")
+    problems = [
+        f"referenced name {name} changed after the red commit"
+        for name in sorted(referenced)
+        if name in before and after.get(name) != before[name]
+    ]
     parts = path.split("/")[:-1]
-    conftests = ["/".join([*parts[:i], "conftest.py"]) for i in range(len(parts) + 1)]
-    moved = _git(opts.worktree, "diff", "--name-only", sha, opts.sha, "--", *conftests).stdout.split()
-    problems += [f"{conftest} changed after red commit" for conftest in moved]
+    for conftest in ("/".join([*parts[:i], "conftest.py"]) for i in range(len(parts) + 1)):
+        old = _definitions(_show(opts.worktree, sha, conftest) or "")
+        new = _definitions(_show(opts.worktree, opts.sha, conftest) or "")
+        problems += [
+            f"{conftest}: fixture {arg} changed after the red commit"
+            for arg in args
+            if arg not in before and old.get(arg) != new.get(arg)
+        ]
     return problems
 
 
@@ -403,7 +437,7 @@ def _source_problems(opts: Options, base: str, red: Red, sha: str) -> list[str]:
     if _function_source(_show(opts.worktree, base, path) or "", red.test) == at_red:
         # council r2: the red test must be in the lane diff; an old test plus a broken src is a fake red
         return ["test unchanged from the integration branch (a red must add or change it)"]
-    return [f"{problem} {red.sha}" for problem in _red_file_problems(opts, sha, path)]
+    return [f"{problem} {red.sha}" for problem in _red_file_problems(opts, sha, path, red.test)]
 
 
 def red_integrity(opts: Options, base: str, reds: Sequence[Red]) -> _Integrity:
