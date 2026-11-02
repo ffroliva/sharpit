@@ -178,8 +178,9 @@ provider, `sharpit.install(app, enabled="ON")`, two TestClient lifespans, each `
 
 ## How to resume
 
-Read `.superpowers/sdd/0.4.0/lanes/A-traces/findings.md`. Implementation is committed at
-`f47d6f2af0d2fff9b71dd5504a9a2a5a62504578`. The fix-round gates are recorded above; the remaining test conflict
+Read `.superpowers/sdd/0.4.0/lanes/A-traces/findings.md`. Current head/evidence commit is
+`8f0fced9837f802b6e6204e0ac161876b8c7af3c`; implementation is at `f47d6f2af0d2fff9b71dd5504a9a2a5a62504578`.
+The fix-round gates are recorded above; the remaining test conflict
 needs a coordinator/owner resolution that respects the immutable red-test rule. The two global budget tests passed
 when run alone (`A-traces-overhead-r2.log`). Re-run full suite detached to the integration log directory if a new
 policy is chosen. Continue on this lane branch; do not edit review/gate files or push.
