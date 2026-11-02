@@ -253,6 +253,20 @@ def test_n_plus_one_suggests_joinedload_for_many_to_one() -> None:
     assert "joinedload(Performance.player)" in finding.message
 
 
+def test_n_plus_one_message_includes_masked_statement_and_source() -> None:
+    call = PhaseFacts(
+        selects=Counter({"fp": 6}),
+        sql_of={"fp": "SELECT * FROM performances WHERE token = ?"},
+        relationship_loads=Counter({"Player.performances": 6}),
+        relationship_of={"fp": ("Player.performances", True)},
+        relationship_sites={"Player.performances": "app/tests.py:42"},
+    )
+    [finding] = evaluate_test(_facts(call=call), NONE, 5, ())
+
+    assert "masked statement: SELECT * FROM performances WHERE token = ?" in finding.message
+    assert "app/tests.py:42" in finding.message
+
+
 def test_relationship_message_keeps_statement_fingerprint() -> None:
     plain = evaluate_test(_facts(call=selects("fp", 6, "SELECT * FROM performances")), NONE, 5, ())[0]
     relation = PhaseFacts(
