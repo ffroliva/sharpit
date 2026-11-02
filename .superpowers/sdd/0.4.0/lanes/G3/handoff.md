@@ -39,3 +39,19 @@ The 4 failures are exactly the inherited G1G2 ones, none in G3 files: the two fo
 handoff and the two overhead budgets (`test_request_overhead_budget`, `test_statement_overhead_budget`), which
 G1G2 reported as passing in isolation. G3 touches no hot path. The first full run also showed 2 errors from evidence
 files written into the worktree mid-run; the final run was frozen and had none.
+
+## Review round 2 fix round (06:10)
+
+Done: CLI UTF-8 output and clean RecursionError; summary reason dedupe, dismissed excluded, failing-first order
+(engine `fails` + `severity_rank`, local rank table dropped), `baseline.fixed` escaped, bare URLs neutralised with
+U+200B; action `rm -f "$REPORT_PATH"`, `report-only` validated, `-o sharpit_report_only=false` when false.
+Targeted gates only: tests/test_report_summary.py + tests/action (31 passed), import boundary, ruff, pyright on
+src/sharpit/report. Rows in findings.md "Review round 2".
+
+## Open
+
+- Windows `shlex` backslashes in `runner` / `pytest-args` (POSIX shlex eats backslashes in Windows paths).
+- Bare `python` used by the install step when `install: none` (no interpreter selection).
+- Test pinning the `action.yml` version literal to `__version__`.
+- WSL `bash` picked up by `shutil.which("bash")` in the action tests on Windows.
+- Decoration tests (delete-the-control audit of the action tests) not done.

@@ -27,3 +27,18 @@
 | Test id | Red SHA | Assertion message | Disposition |
 |---|---|---|---|
 | tests/test_report_summary.py::test_backslash_in_finding_text_is_escaped_too | 32aaa692c95444caab40e70cf7c7c067d7551ac7 | assert _esc(r"\[x\](https://evil)") == r"\\[x\\](https://evil)" | Fixed in 566cd8f82ea5ee04704f378df22b9a948c1922de |
+
+## Review round 2 (fix round, 06:10)
+
+| Test id | Red SHA | Assertion message | Disposition |
+|---|---|---|---|
+| tests/test_report_summary.py::test_summary_cli_writes_utf8_regardless_of_console_code_page | 009194c4ca2625d21cb0f0671a19a0d0f5772778 | message missing from stdout (UnicodeEncodeError traceback) | Fixed in 0abf952f8795bf13048498377f0665e1f1b2a45b |
+| tests/test_report_summary.py::test_summary_cli_deeply_nested_json_fails_cleanly | 009194c4ca2625d21cb0f0671a19a0d0f5772778 | stderr does not start with "sharpit.report: " (RecursionError traceback) | Fixed in 0abf952f8795bf13048498377f0665e1f1b2a45b |
+| tests/test_report_summary.py::test_summary_unknown_status_prints_each_reason_once | 66fd75cd5563f5822414a24ad2fff51cb267cbdf | assert 2 == 1 | Fixed in 2e559564bc91c974a94b5cca77d4a81d107a4ca9 |
+| tests/test_report_summary.py::test_summary_excludes_dismissed_findings_from_count_and_table | 66fd75cd5563f5822414a24ad2fff51cb267cbdf | '- **Findings:** 1' not in output | Fixed in 2e559564bc91c974a94b5cca77d4a81d107a4ca9 |
+| tests/test_report_summary.py::test_summary_orders_failing_findings_before_severity | 66fd75cd5563f5822414a24ad2fff51cb267cbdf | assert 284 < 239 | Fixed in 2e559564bc91c974a94b5cca77d4a81d107a4ca9 |
+| tests/test_report_summary.py::test_summary_escapes_baseline_fixed | 66fd75cd5563f5822414a24ad2fff51cb267cbdf | 'fixed \<b\>x\</b\>' not in output | Fixed in 2e559564bc91c974a94b5cca77d4a81d107a4ca9 |
+| tests/test_report_summary.py::test_summary_neutralises_bare_urls | 66fd75cd5563f5822414a24ad2fff51cb267cbdf | bare URLs not broken with U+200B | Fixed in 2e559564bc91c974a94b5cca77d4a81d107a4ca9 |
+| tests/action/test_action_definition.py::test_action_forwards_report_only_baseline_fail_on_and_report_path | eb39bf939a058f8b72ce3fc0515fb2be4e6354b0 | argv lacks -o sharpit_report_only=false | Fixed in 3f013d9b9de9ee59fa423ce73309f711762c402e |
+| tests/action/test_action_definition.py::test_action_removes_stale_report_before_pytest | eb39bf939a058f8b72ce3fc0515fb2be4e6354b0 | 'rm -f "$REPORT_PATH"' not in run | Fixed in 3f013d9b9de9ee59fa423ce73309f711762c402e |
+| tests/action/test_action_definition.py::test_action_rejects_invalid_report_only | 8d163103367fab0acc52797c5067a66d71ef9ca8 | assert 0 == 1 (first red in eb39bf939a058f8b72ce3fc0515fb2be4e6354b0 was a JSON decode crash; rewritten) | Fixed in 3f013d9b9de9ee59fa423ce73309f711762c402e |
