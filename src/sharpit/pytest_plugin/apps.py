@@ -167,6 +167,50 @@ def model_of(app: object) -> ApiModel:
     return FastApiIntrospector(app).api_model()
 
 
+def _configured_models(
+    state: Any, load_app: Callable[[str], tuple[str, object]] | None
+) -> list[tuple[str, ApiModel]] | None:
+    try:
+        name, app = (load_app or _load_app)(state.options.app)
+        return [(name, FastApiIntrospector(app).api_model())]
+    except Exception as exc:  # noqa: BLE001
+        state.sink.facts.advisor_runs.append(
+            AdvisorRun(
+                "rest-api",
+                "UNKNOWN",
+                (),
+                {},
+                f"application could not load ({type(exc).__name__})",
+                state.options.app,
+            )
+        )
+        return None
+
+
+def _discovered_models(state: Any) -> list[tuple[str, ApiModel]] | None:
+    candidates = autodetect_apps(getattr(state, "test_files", TEST_FILES))
+    state.autodetected = [name for name, _ in candidates]
+    chosen = select_app(candidates)
+    if chosen is None:
+        if (run := no_app_run(state.autodetected, state.options.require_app)) is not None:
+            state.sink.facts.advisor_runs.append(run)
+        return None
+    model = FastApiIntrospector(chosen[1]).api_model()
+    if not application_routes(model.routes):
+        state.sink.facts.advisor_runs.append(bare_app_run(chosen[0], state.options.require_app))
+        return None
+    return [(chosen[0], model)]
+
+
+def _models_to_assess(
+    state: Any, load_app: Callable[[str], tuple[str, object]] | None
+) -> list[tuple[str, ApiModel]] | None:
+    models = state.sink.app_snapshots()
+    if state.options.app:
+        return _configured_models(state, load_app)
+    return models or _discovered_models(state)
+
+
 def run_advisors(
     state: Any,
     *,
@@ -175,36 +219,9 @@ def run_advisors(
 ) -> None:
     if not state.options.advisors:
         return
-    models = state.sink.app_snapshots()
-    if state.options.app:
-        try:
-            name, app = (load_app or _load_app)(state.options.app)
-            models = [(name, FastApiIntrospector(app).api_model())]
-        except Exception as exc:  # noqa: BLE001
-            state.sink.facts.advisor_runs.append(
-                AdvisorRun(
-                    "rest-api",
-                    "UNKNOWN",
-                    (),
-                    {},
-                    f"application could not load ({type(exc).__name__})",
-                    state.options.app,
-                )
-            )
-            return
-    elif not models:
-        candidates = autodetect_apps(getattr(state, "test_files", TEST_FILES))
-        state.autodetected = [name for name, _ in candidates]
-        chosen = select_app(candidates)
-        if chosen is None:
-            if (run := no_app_run(state.autodetected, state.options.require_app)) is not None:
-                state.sink.facts.advisor_runs.append(run)
-            return
-        model = FastApiIntrospector(chosen[1]).api_model()
-        if not application_routes(model.routes):
-            state.sink.facts.advisor_runs.append(bare_app_run(chosen[0], state.options.require_app))
-            return
-        models = [(chosen[0], model)]
+    models = _models_to_assess(state, load_app)
+    if models is None:
+        return
     for name, model in models:
         if not application_routes(model.routes) and not state.options.app:
             state.sink.facts.advisor_runs.append(

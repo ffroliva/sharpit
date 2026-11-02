@@ -526,6 +526,33 @@ def _vacuum(ctx: ReadContext, data: DatabaseData) -> Dto:
     return _section(VACUUM, "AVAILABLE", rows.reason, ESTIMATE_LIMITATION, len(rows.records), rows.truncated)
 
 
+def _replica_data(ctx: ReadContext, data: DatabaseData, in_recovery: bool) -> tuple[list[Dto], bool, bool, list[str]]:
+    if in_recovery:
+        return [], False, False, [STANDBY_LIMITATION]
+
+    def mapper(row: Row) -> Dto:
+        return {
+            "applicationName": _str(row, "application_name"),
+            "clientAddress": _client_address(ctx, _str(row, "client_addr")),
+            "state": _str(row, "state"),
+            "syncState": _str(row, "sync_state"),
+            "sentLagBytes": _int(row, "sent_lag"),
+            "flushLagBytes": _int(row, "flush_lag"),
+            "replayLagBytes": _int(row, "replay_lag"),
+        }
+
+    rows = read_list(ctx, "Replication statistics", queries.REPLICAS_SQL, ctx.limits.max_replicas, mapper)
+    limitations: list[str] = []
+    if not rows.available:
+        limitations.append(rows.reason or "")
+        return [], False, False, limitations
+    if rows.reason is not None:
+        limitations.append(rows.reason)
+    if rows.records and data.statistics_restricted:
+        limitations.append(RESTRICTED_REPLICA_LIMITATION)
+    return rows.records, True, rows.truncated, limitations
+
+
 def _replication(ctx: ReadContext, data: DatabaseData) -> Dto:
     recovery = read_one(
         ctx, "Recovery state", queries.RECOVERY_SQL, lambda r: (bool(r["in_recovery"]), bool(r["has_checkpointer"]))
@@ -533,33 +560,7 @@ def _replication(ctx: ReadContext, data: DatabaseData) -> Dto:
     if not recovery.available:
         return _section(REPLICATION, "FAILED", recovery.reason)
     in_recovery, has_checkpointer = recovery.records[0] if recovery.records else (False, False)
-    replicas: list[Dto] = []
-    replicas_available = truncated = False
-    limitations: list[str] = []  # every sub-read's reason is kept, so the standby note never hides a real failure
-    if in_recovery:
-        limitations.append(STANDBY_LIMITATION)
-    else:
-
-        def mapper(row: Row) -> Dto:
-            return {
-                "applicationName": _str(row, "application_name"),
-                "clientAddress": _client_address(ctx, _str(row, "client_addr")),
-                "state": _str(row, "state"),
-                "syncState": _str(row, "sync_state"),
-                "sentLagBytes": _int(row, "sent_lag"),
-                "flushLagBytes": _int(row, "flush_lag"),
-                "replayLagBytes": _int(row, "replay_lag"),
-            }
-
-        rows = read_list(ctx, "Replication statistics", queries.REPLICAS_SQL, ctx.limits.max_replicas, mapper)
-        if rows.available:
-            replicas, replicas_available, truncated = rows.records, True, rows.truncated
-            if rows.reason is not None:
-                limitations.append(rows.reason)
-            if replicas and data.statistics_restricted:
-                limitations.append(RESTRICTED_REPLICA_LIMITATION)
-        else:
-            limitations.append(rows.reason or "")
+    replicas, replicas_available, truncated, limitations = _replica_data(ctx, data, in_recovery)
     checkpoints = read_one(ctx, "Checkpoint statistics", checkpoint_sql(has_checkpointer), dict)
     checkpoint: Row = checkpoints.records[0] if checkpoints.available and checkpoints.records else {}
     if not checkpoints.available:

@@ -86,6 +86,18 @@ class PluginOptions:
     write_baseline: Path | None = None
 
 
+def _value(config: Any, option: Any, name: str, default: Any) -> Any:
+    selected = getattr(option, f"sharpit_{name}", None)
+    key = "sharpit" if name == "enabled" else f"sharpit_{name}"
+    if name == "enabled":
+        selected = getattr(option, "sharpit", None)
+    try:
+        configured = config.getini(key)
+    except (ValueError, KeyError):
+        configured = default
+    return configured if selected is None else selected
+
+
 def resolve(config: Any) -> PluginOptions:
     from sharpit.pytest_plugin.session import register_worker_apps  # lazy: keeps options import-light
 
@@ -93,42 +105,32 @@ def resolve(config: Any) -> PluginOptions:
     register_worker_apps(config)
     option = getattr(config, "known_args_namespace", config.option)
 
-    def value(name: str, default: Any) -> Any:
-        selected = getattr(option, f"sharpit_{name}", None)
-        key = "sharpit" if name == "enabled" else f"sharpit_{name}"
-        if name == "enabled":
-            selected = getattr(option, "sharpit", None)
-        try:
-            configured = config.getini(key)
-        except (ValueError, KeyError):
-            configured = default
-        return configured if selected is None else selected
-
-    fail_on = str(value("fail_on", "HIGH")).upper()
+    fail_on = str(_value(config, option, "fail_on", "HIGH")).upper()
     if fail_on not in SEVERITIES:
         raise ValueError(f"--sharpit-fail-on must be one of {', '.join(SEVERITIES)}")
-    maximum = value("max_queries", None)
+    maximum = _value(config, option, "max_queries", None)
     if maximum == "":  # the ini option unset
         maximum = None
     if maximum is not None and int(maximum) < 0:
         raise ValueError("--sharpit-max-queries must be non-negative")
-    unattributed = float(value("max_unattributed", 10))
+    unattributed = float(_value(config, option, "max_unattributed", 10))
     if not 0 <= unattributed <= 100:
         raise ValueError("--sharpit-max-unattributed must be between 0 and 100")
-    junit = value("junit", None)
+    junit = _value(config, option, "junit", None)
     return PluginOptions(
-        bool(value("enabled", False)),
-        Path(value("report", "sharpit-report.json")),
+        bool(_value(config, option, "enabled", False)),
+        Path(_value(config, option, "report", "sharpit-report.json")),
         Path(junit) if junit else None,
         None if maximum is None else int(maximum),
         fail_on,
-        bool(value("allow_unknown", False)),
-        value("app", None),
-        bool(value("advisors", True)),
+        bool(_value(config, option, "allow_unknown", False)),
+        _value(config, option, "app", None),
+        bool(_value(config, option, "advisors", True)),
         unattributed,
-        bool(value("require_app", False)),
-        bool(value("verbose", False)) or (getattr(option, "verbose", 0) or 0) >= 2,  # -vv lists notes too
-        bool(value("report_only", False)),
-        Path(value("baseline", "")) if value("baseline", "") else None,
+        bool(_value(config, option, "require_app", False)),
+        bool(_value(config, option, "verbose", False))
+        or (getattr(option, "verbose", 0) or 0) >= 2,  # -vv lists notes too
+        bool(_value(config, option, "report_only", False)),
+        Path(_value(config, option, "baseline", "")) if _value(config, option, "baseline", "") else None,
         Path(option.sharpit_write_baseline) if getattr(option, "sharpit_write_baseline", None) else None,
     )

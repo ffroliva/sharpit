@@ -194,38 +194,14 @@ class DismissalStore:
             elif section is not None and line.lstrip().startswith("#"):
                 contents.comments.setdefault(section, []).append(line)
             elif section == _KEY and line.startswith(_ITEM):
-                value = line[len(_ITEM) :].strip()
-                if value and value not in contents.rules:
-                    contents.rules.append(value)
+                _parse_rule_line(contents, line)
             elif section == _FINDINGS_KEY and line.strip():
-                finding = _parse_finding(line)
-                if finding is None:  # not a line this version writes: kept as it is, so a newer format is not lost
-                    contents.ignored.append(line)
-                else:
-                    contents.findings.setdefault((finding.rule_id, finding.identity), finding)
+                _parse_finding_line(contents, line)
         return contents
 
     def _save(self, contents: _Contents) -> None:
-        preserved: list[str] = []
-        in_section = False
-        for line in self._lines():
-            if line == _HEADER:
-                continue
-            if _is_top_level_key(line):
-                in_section = _key_of(line) in (_KEY, _FINDINGS_KEY)
-                if not in_section:
-                    preserved.append(line)
-            elif not in_section:
-                preserved.append(line)
-        while preserved and not preserved[-1].strip():
-            preserved.pop()
-        managed: list[str] = []
-        rule_comments, finding_comments = contents.comments.get(_KEY, []), contents.comments.get(_FINDINGS_KEY, [])
-        if contents.rules or contents.had_rules_key:
-            managed += [f"{_KEY}:", *rule_comments, *(f"{_ITEM}{i}" for i in contents.rules)]
-        if contents.findings or contents.ignored or finding_comments:
-            findings = map(_finding_line, contents.findings.values())
-            managed += [f"{_FINDINGS_KEY}:", *finding_comments, *findings, *contents.ignored]
+        preserved = _preserved_lines(self._lines())
+        managed = _managed_lines(contents)
         content = "".join(f"{line}\n" for line in [_HEADER, *preserved, "", *managed])
         self._file.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix="sharpit", suffix=".tmp", dir=self._file.parent)
@@ -239,6 +215,48 @@ class DismissalStore:
             Path(tmp).unlink(missing_ok=True)
             raise
         self._stamp, self._contents = (written.st_mtime_ns, written.st_size), contents
+
+
+def _parse_rule_line(contents: _Contents, line: str) -> None:
+    value = line[len(_ITEM) :].strip()
+    if value and value not in contents.rules:
+        contents.rules.append(value)
+
+
+def _parse_finding_line(contents: _Contents, line: str) -> None:
+    finding = _parse_finding(line)
+    if finding is None:  # not a line this version writes: kept as it is, so a newer format is not lost
+        contents.ignored.append(line)
+    else:
+        contents.findings.setdefault((finding.rule_id, finding.identity), finding)
+
+
+def _preserved_lines(lines: list[str]) -> list[str]:
+    preserved: list[str] = []
+    in_section = False
+    for line in lines:
+        if line == _HEADER:
+            continue
+        if _is_top_level_key(line):
+            in_section = _key_of(line) in (_KEY, _FINDINGS_KEY)
+            if not in_section:
+                preserved.append(line)
+        elif not in_section:
+            preserved.append(line)
+    while preserved and not preserved[-1].strip():
+        preserved.pop()
+    return preserved
+
+
+def _managed_lines(contents: _Contents) -> list[str]:
+    managed: list[str] = []
+    rule_comments, finding_comments = contents.comments.get(_KEY, []), contents.comments.get(_FINDINGS_KEY, [])
+    if contents.rules or contents.had_rules_key:
+        managed += [f"{_KEY}:", *rule_comments, *(f"{_ITEM}{i}" for i in contents.rules)]
+    if contents.findings or contents.ignored or finding_comments:
+        findings = map(_finding_line, contents.findings.values())
+        managed += [f"{_FINDINGS_KEY}:", *finding_comments, *findings, *contents.ignored]
+    return managed
 
 
 def _validate(rule_id: str) -> None:
