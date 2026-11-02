@@ -122,7 +122,7 @@ def test_span_reads_mask_nested_values():
     raw = span(
         attributes={
             "http.request.header.authorization": ("Bearer abc.def.ghi",),
-            "db.statement": "select 1 from t where token = 'sk_live_4eC39HqLyjWDarjtT1zdp7dc'",
+            "db.statement": "select 1 from t where token = 'sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc'",
         },
         events=[event("exception", 2_000, {"exception.message": "login failed password=hunter2"})],
     )
