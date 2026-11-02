@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+
 """Unbounded ORM reads against the F2 spike fixture."""
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ def _report(pytester: pytest.Pytester) -> dict[str, Any]:
     return json.loads((pytester.path / "report.json").read_text("utf-8"))
 
 
+# fmt: off
 def test_spike_f2_unbounded_read_found(pytester: pytest.Pytester) -> None:
     # spike: F2
     _spike_project(pytester)
@@ -38,6 +41,7 @@ def test_spike_f2_unbounded_read_found(pytester: pytest.Pytester) -> None:
     assert "5" in findings[0]["message"]
 
 
+# fmt: off
 def test_f2_report_names_materialized_rows_and_page_size(pytester: pytest.Pytester) -> None:
     # spike: F2
     _spike_project(pytester)
@@ -50,3 +54,4 @@ def test_f2_report_names_materialized_rows_and_page_size(pytester: pytest.Pytest
     assert "Team" in message
     assert "52" in message
     assert "5" in message
+# fmt: on
