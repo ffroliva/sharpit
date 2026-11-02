@@ -263,7 +263,8 @@ def _valid_finding(rule_id: str, identity: str, *, owned: bool = True) -> str | 
 
 def _looks_like_a_note(identity: str) -> bool:
     """An identity whose last word is ``n=...`` would read back as a note."""
-    return False
+    head, space, last = identity.rpartition(" ")
+    return bool(space) and bool(head) and last.startswith(_NOTE_PREFIX)
 
 
 def _validate_finding(rule_id: str, identity: str, *, owned: bool) -> None:
