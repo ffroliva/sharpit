@@ -437,3 +437,13 @@ def test_d3_panels_2_2_0_golden_conformance(tmp_path: Any, no_side_effects: Side
     assert_parity("threads", "captured", report)
     row = next(thread for thread in report["threads"] if thread["id"] == current_thread_id)
     assert row["cpuTimeMillis"] is not None
+
+
+def test_threads_report_emits_user_time_when_resource_supports_it(monkeypatch: pytest.MonkeyPatch):
+    import sys
+
+    usage = SimpleNamespace(RUSAGE_THREAD=7, getrusage=lambda who: SimpleNamespace(ru_utime=1.25))
+    monkeypatch.setitem(sys.modules, "resource", usage)
+    report = threads_report(_ctx(), None, None, None, None)
+    row = next(thread for thread in report["threads"] if thread["id"] == threading.get_ident())
+    assert row["userTimeMillis"] == 1250

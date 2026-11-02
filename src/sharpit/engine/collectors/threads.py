@@ -80,6 +80,17 @@ def _thread_frames(frame: Any, max_frames: int) -> list[Any]:
     return frames
 
 
+def _thread_cpu_time_ms() -> int | None:
+    try:
+        return round(time.thread_time() * 1000)
+    except (AttributeError, NotImplementedError, OSError):
+        return None
+
+
+def _thread_user_time_ms() -> int | None:
+    return None
+
+
 def task_stack(task: Any, max_frames: int) -> list[str]:
     """The task's await chain as frame strings, innermost first, at most ``max_frames``."""
     graph = getattr(asyncio, "capture_call_graph", None)  # 3.14+; looked up per call so a test can force either branch
@@ -180,14 +191,19 @@ def threads_report(
     max_frames = 0 if hide else ctx.settings.threads_max_stack_frames
     # the state is metadata, so frames are read under METADATA_ONLY too; max_frames 0 hides only the stack text
     current: dict[int, Any] = {} if names_only else sys._current_frames()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    current_thread_id = threading.get_ident()
+    cpu_time_ms = _thread_cpu_time_ms()
+    user_time_ms = _thread_user_time_ms()
     rows: list[dict[str, Any]] = []
     for thread in threading.enumerate():
         frames = _thread_frames(current.get(thread.ident or 0), max(max_frames, 1))
+        is_current_thread = thread.ident == current_thread_id
         values = (
             thread.ident or 0,
             _thread_name(ctx, thread.name),
             "UNKNOWN" if names_only else infer_state(frames),
-            0, thread.daemon, False, None, None, 0, 0, False, False, False, None, None, None,
+            0, thread.daemon, False, cpu_time_ms if is_current_thread else None,
+            user_time_ms if is_current_thread else None, 0, 0, False, False, False, None, None, None,
             [_frame_text(f) for f in frames[:max_frames]],
         )  # fmt: skip
         rows.append(dict(zip(THREAD_KEYS, values, strict=True)))
@@ -204,7 +220,7 @@ def threads_report(
     warnings = [w for w in (FREE_THREADED if names_only else None, warning) if w is not None]
     values = (
         True, None, round(time.time() * 1000), len(rows), sum(r["daemon"] for r in rows), len(rows), len(rows),
-        False, False, False, list[int](), [{"state": s, "count": n} for s, n in sorted(tally.items())], page, meta,
+        False, cpu_time_ms is not None, False, list[int](), [{"state": s, "count": n} for s, n in sorted(tally.items())], page, meta,
         tasks, task_count, warnings,
     )  # fmt: skip
     return dict(zip(REPORT_KEYS, values, strict=True))
