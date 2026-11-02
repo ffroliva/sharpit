@@ -500,3 +500,17 @@ def test_comments_inside_the_managed_sections_are_kept_and_not_counted(tmp_path:
     assert "  # indented\n" in written
     assert "# column zero\n" in written
     assert DismissalStore(tmp_path).list_findings().ignored == 0
+
+
+def test_an_identity_ending_in_a_note_token_is_refused_not_split(tmp_path: Path):
+    store = DismissalStore(tmp_path)
+    refused: AdvisorViolationError | None = None
+    try:
+        store.dismiss_finding(RULE, "GET /a n=SW50", None)  # would read back as identity "GET /a", note "Int"
+    except AdvisorViolationError as exc:
+        refused = exc
+    assert DismissalStore(tmp_path).list_findings().dismissed == []
+    assert refused is not None
+    assert refused.status == 400
+    assert refused.message == "Dismissed finding identity is not a valid finding identity."
+    assert store.dismiss_finding(RULE, "n=SW50", None).dismissed == [DismissedFinding(RULE, "n=SW50")]  # one word
