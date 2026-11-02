@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sharpit.engine.capture.correlation import REQUEST
 from sharpit.engine.capture.streams import SSE_TASK
@@ -88,7 +88,13 @@ def _thread_cpu_time_ms() -> int | None:
 
 
 def _thread_user_time_ms() -> int | None:
-    return None
+    try:
+        import resource
+
+        usage = cast(Any, resource).getrusage(cast(Any, resource).RUSAGE_THREAD)
+        return round(usage.ru_utime * 1000)
+    except (AttributeError, ImportError, NotImplementedError, OSError, ValueError):
+        return None
 
 
 def task_stack(task: Any, max_frames: int) -> list[str]:
@@ -219,8 +225,22 @@ def threads_report(
     tasks, task_count, warning = _tasks(ctx, max_frames, cap, names_only)
     warnings = [w for w in (FREE_THREADED if names_only else None, warning) if w is not None]
     values = (
-        True, None, round(time.time() * 1000), len(rows), sum(r["daemon"] for r in rows), len(rows), len(rows),
-        False, cpu_time_ms is not None, False, list[int](), [{"state": s, "count": n} for s, n in sorted(tally.items())], page, meta,
-        tasks, task_count, warnings,
+        True,
+        None,
+        round(time.time() * 1000),
+        len(rows),
+        sum(r["daemon"] for r in rows),
+        len(rows),
+        len(rows),
+        False,
+        cpu_time_ms is not None,
+        False,
+        list[int](),
+        [{"state": s, "count": n} for s, n in sorted(tally.items())],
+        page,
+        meta,
+        tasks,
+        task_count,
+        warnings,
     )  # fmt: skip
     return dict(zip(REPORT_KEYS, values, strict=True))
