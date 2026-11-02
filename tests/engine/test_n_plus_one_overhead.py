@@ -38,28 +38,6 @@ def _workload(engine: object) -> float:
     return elapsed / completed
 
 
-def test_sqlalchemy_orm_hook_overhead_budget() -> None:
-    engine = sa.create_engine("sqlite://")
-    try:
-
-        def off() -> float:
-            return _workload(engine)
-
-        def on() -> float:
-            sa.event.listen(Session, "do_orm_execute", sqla.do_orm_execute)
-            try:
-                return _workload(engine)
-            finally:
-                sa.event.remove(Session, "do_orm_execute", sqla.do_orm_execute)
-
-        result = paired(off, on, rounds=5)
-        check_budget("SQLAlchemy ORM hooks", result, ORM_HOOK_BUDGET, "µs/statement", 1e-6)
-    finally:
-        if sa.event.contains(Session, "do_orm_execute", sqla.do_orm_execute):
-            sa.event.remove(Session, "do_orm_execute", sqla.do_orm_execute)
-        engine.dispose()
-
-
 def test_sqlalchemy_lazy_relationship_hook_overhead_budget() -> None:
     orm = pytest.importorskip("sqlalchemy.orm")
     engine = sa.create_engine("sqlite://")

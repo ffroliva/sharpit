@@ -23,4 +23,9 @@ Implementer: codex-gpt-6
 
 | Test | Historical SHA | Assertion | Disposition |
 |---|---|---|---|
-| `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_orm_hook_overhead_budget` | `78f1bfa29448ccb2feed65d50eac6a7fbb31c4f9` | `AssertionError: SQLAlchemy ORM hooks: overhead exceeded the zero-budget control` | Parked: its locked body references the removed `sqla.do_orm_execute`; see round-two handoff |
+
+## Superseded reds (coordinator, round 2)
+
+| Test id | Historical SHA | Reason |
+|---|---|---|
+| `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_orm_hook_overhead_budget` | 78f1bfa29448ccb2feed65d50eac6a7fbb31c4f9 | removed: it timed the `sqla.do_orm_execute` hook that fix round 2 deleted; the budget is enforced by test_sqlalchemy_lazy_relationship_hook_overhead_budget (round 1) |
