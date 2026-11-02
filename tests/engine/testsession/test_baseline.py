@@ -78,6 +78,23 @@ def test_vulnerability_findings_excluded_from_baseline(tmp_path) -> None:
     assert baseline.read(path).entries == {}
 
 
+def test_vulnerability_advisor_excluded_whatever_the_rule_id(tmp_path) -> None:
+    # audit 2026-11-02: the test above passes with either exclusion removed; each half gets its own test
+    findings = (
+        Finding("OSV-1", "vulnerability", "HIGH", "pkg 1", "m"),
+        Finding("OSV-2", "vulns", "HIGH", "pkg 2", "m"),
+    )
+    path = tmp_path / "baseline.json"
+    baseline.write(path, findings)
+    assert baseline.read(path).entries == {}, "a vulnerability-advisor finding was written to the baseline"
+
+
+def test_vuln_rule_id_excluded_whatever_the_advisor(tmp_path) -> None:
+    path = tmp_path / "baseline.json"
+    baseline.write(path, (Finding("VULN-002", "dependencies", "HIGH", "pkg 1", "m"),))
+    assert baseline.read(path).entries == {}, "a VULN- rule finding was written to the baseline"
+
+
 def _baseline_of(tmp_path, *findings: Finding) -> baseline.Baseline:
     path = tmp_path / "old.json"
     baseline.write(path, findings)
