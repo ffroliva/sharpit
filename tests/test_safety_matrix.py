@@ -18,9 +18,10 @@ import httpx
 import pytest
 from examples.fastapi_sample.app import create_app
 from fastapi.testclient import TestClient
+from starlette.routing import Route
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from conftest import SideEffectGuard, get_paths
+from conftest import _PATH_PARAMS, SideEffectGuard, get_paths
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.guard import (
@@ -36,6 +37,7 @@ from sharpit.engine.mcp import DISABLED_MESSAGE
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
 from sharpit.engine.tools import TOOLS, rest_api_service
 from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle, SharpitMount
+from sharpit.fastapi.routes import _panel_04_routes
 
 LOCAL = ("127.0.0.1", 50000)
 GROUP_ID = "0123456789abcdef"  # conftest._PATH_PARAMS["id"]
@@ -168,7 +170,13 @@ def test_guard_matrix(
 def test_mcp_switch_is_the_only_gate_on_mcp():
     # §7.6: {api}/mcp has no panel gate; MCP off is an in-band JSON-RPC error, not a guard 403
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, read_only=True, panels={p.id: {"enabled": False} for p in PANELS})
+    install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        read_only=True,
+        panels={p.id: {"enabled": False} for p in PANELS if p.implemented},
+    )
     resp = _client(app).post("/sharpit/api/mcp", json=PING)
     assert resp.status_code == 200
     assert resp.json() == {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": DISABLED_MESSAGE}}
@@ -266,7 +274,7 @@ def test_disabled_source_activity_routes(panel: str, source: str | None, row_typ
 def test_ungated_paths_ignore_panel_flags():
     # §7.6: panels, overview and cli carry no panel gate (the overview and cli panels have no API prefix)
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, panels={p.id: {"enabled": False} for p in PANELS})
+    install(app, enabled="ON", show_banner=False, panels={p.id: {"enabled": False} for p in PANELS if p.implemented})
     client = _client(app)
     for path in ("/sharpit/api/panels", "/sharpit/api/overview", "/sharpit/api/cli", "/sharpit/"):
         assert client.get(path).status_code == 200, path
@@ -614,8 +622,20 @@ def test_inactive_is_404_everywhere(options: dict[str, str], profiles: str | Non
 GET_PATHS = get_paths()
 
 
+def _lane_get_paths() -> set[str]:
+    """GET paths the implemented per-panel route modules add; their lane covers them in its own safety file."""
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+    routes = _panel_04_routes(handle.context, app)
+    return {
+        "/sharpit" + r.path_format.format(**{n: _PATH_PARAMS[n] for n in r.param_convertors})
+        for r in routes
+        if isinstance(r, Route) and "GET" in (r.methods or ())
+    }
+
+
 def test_get_route_table_is_complete():
-    assert set(GET_PATHS) == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"}
+    assert set(GET_PATHS) - _lane_get_paths() == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"}
 
 
 ALEMBIC_INI = Path(__file__).resolve().parent / "fixtures" / "alembic" / "linear" / "alembic.ini"

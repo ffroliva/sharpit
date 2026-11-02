@@ -45,6 +45,7 @@ from sharpit.engine.tools import (
     tool_gate,
 )
 from sharpit.settings import PanelSettings, SharpitSettings, load_settings
+from surface import lane_tools
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
 NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
@@ -134,7 +135,8 @@ def _tool(name: str, handler: Callable[[CallContext, dict[str, Any]], dict[str, 
 def test_catalogue_names_panels_actions_and_schemas():
     # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows, panel and action names)
     rows = [(t.name, t.panel, t.action, t.input_schema) for t in TOOLS]
-    assert rows == [
+    assert rows[24:] == [(t.name, t.panel, t.action, t.input_schema) for t in lane_tools()]
+    assert rows[:24] == [
         ("get_overview", "overview", False, NONE_SCHEMA),
         ("get_config", "config", False, QUERY_LIMIT_SCHEMA),
         ("get_mappings", "mappings", False, QUERY_LIMIT_SCHEMA),
@@ -173,13 +175,16 @@ def test_call_tool_uses_facade_catalogue(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result == {"facade": True}
 
 
-def test_call_tool_uses_facade_tool_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_call_tool_uses_the_given_tool_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    # replaces test_call_tool_uses_facade_tool_gate: the double now has the real ToolGate's max_results
     from sharpit.engine import tools as facade
 
     expected = _tool("get_facade_gate", lambda _call, _args: {"gate": True})
     calls: list[str] = []
 
     class Gate:
+        max_results = 200
+
         def run(self, name: str, operation: Callable[[], dict[str, Any]]) -> dict[str, Any]:
             calls.append(name)
             return operation()

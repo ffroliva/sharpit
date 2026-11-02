@@ -33,13 +33,21 @@ IMPLEMENTED = {
     "fastapi": fastapi.IMPLEMENTED,
 }
 PANEL_04_IDS = tuple(IMPLEMENTED)
+# panels with per-panel route/tool modules (fastapi/routes/<id>.py, engine/tools04/<id>.py): every 0.4 id plus the
+# existing sql-trace panel, which A-sqltrace-insights extends without editing shared files
+MODULE_PANEL_IDS = (*PANEL_04_IDS, "sql-trace")
+
+
+def module_implemented(panel_id: str) -> bool:
+    """A 0.4 panel's own flag; the existing ``sql-trace`` panel is always implemented."""
+    return IMPLEMENTED.get(panel_id, True)
 
 
 def tool_definitions() -> tuple[tuple[Any, ...], dict[str, str]]:
     tools: list[Any] = []
     commands: dict[str, str] = {}
-    for panel_id, implemented in IMPLEMENTED.items():
-        if not implemented:
+    for panel_id in MODULE_PANEL_IDS:
+        if not module_implemented(panel_id):
             continue
         module = import_module(f"sharpit.engine.tools04.{panel_id.replace('-', '_')}")
         tools.extend(module.TOOLS)

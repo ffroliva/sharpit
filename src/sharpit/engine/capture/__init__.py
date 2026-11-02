@@ -37,6 +37,11 @@ class CaptureState:
     security_logs: Any | None = None  # B-security-logs' bounded audit buffer
     transactions: object | None = None  # A-transactions' recorder
     teardowns: list[Callable[[], None]] = field(default_factory=list[Callable[[], None]])  # run by uninstall (R17)
+    # lanes' hooks: each returns its remover, or None to be retried (SQLAlchemy not imported yet); re-run after every
+    # lifespan restart, their removers go to ``teardowns``
+    attachers: list[Callable[[], Callable[[], None] | None]] = field(
+        default_factory=list[Callable[[], Callable[[], None] | None]]
+    )
 
 
 def route_path(scope: Mapping[str, Any]) -> str:

@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from sharpit import __version__, install
 from sharpit.engine.collectors.vulns.service import OPERATION
 from sharpit.engine.singleflight import ActionBusy
+from surface import expected_cli_commands
 
 LOCAL = ("127.0.0.1", 50000)
 CLI_DISABLED = "sharpit CLI endpoint is disabled. Set SHARPIT_CLI_ENABLED=true to allow command-line access."
@@ -138,34 +139,13 @@ def test_cli_status_shape_matches_contract():
         "capacityRefusals", "timeouts", "toolCount", "tools",
     ]  # fmt: skip
     assert (body["enabled"], body["serverName"], body["serverVersion"]) == (True, "sharpit", __version__)
-    assert (body["endpoint"], body["maxResults"], body["toolCount"]) == ("/sharpit/api/cli", 200, 24)
+    assert (body["endpoint"], body["maxResults"], body["toolCount"]) == (
+        "/sharpit/api/cli",
+        200,
+        len(expected_cli_commands()),
+    )
     by_name = {t["name"]: t for t in body["tools"]}
-    assert {n: t["command"] for n, t in by_name.items()} == {
-        "get_overview": "overview",
-        "get_config": "config",
-        "get_mappings": "mappings",
-        "get_loggers": "loggers",
-        "get_beans": "beans",
-        "get_http_exchanges": "http exchanges",
-        "get_log_tail": "logs tail",
-        "get_exceptions": "exceptions list",
-        "get_exception_detail": "exceptions show",
-        "clear_exceptions": "exceptions clear",
-        "get_sql_traces": "sql traces",
-        "clear_sql_traces": "sql clear",
-        "pause_sql_trace_recording": "sql pause",
-        "resume_sql_trace_recording": "sql resume",
-        "get_live_activity": "activity",
-        "get_alembic_migrations": "db alembic",
-        "get_health": "health",
-        "get_database_connection_pools": "db pools",
-        "get_threads": "threads",
-        "get_vulnerabilities_report": "vulnerabilities report",
-        "vulnerabilities_scan": "vulnerabilities scan",
-        "get_rest_api_report": "rest-api report",
-        "get_rest_api_rule_violations": "rest-api violations",
-        "rest_api_scan": "rest-api scan",
-    }
+    assert {n: t["command"] for n, t in by_name.items()} == expected_cli_commands()  # base 24 plus lane commands
     assert list(by_name["get_config"]) == [
         "name", "command", "description", "panel", "action", "schema", "arguments", "panelEnabled", "panelReadOnly",
     ]  # fmt: skip

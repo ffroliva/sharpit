@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from sharpit.engine.collectors.restapi.rules import RULE_IDS
-from sharpit.engine.panels04 import IMPLEMENTED
+from sharpit.engine.panels04 import module_implemented
 
 # the vulnerability shape is exactly what dismissals.rule_id() builds from a PEP 503 name
 _VULNERABILITY_KEY = r"[A-Za-z0-9._:-]+::pypi:[a-z0-9._-]+"
@@ -21,7 +21,11 @@ class AdvisorSpec:
     panel: str | None
     owns: Callable[[str], bool]
     fingerprint: re.Pattern[str] | None  # ``<advisor>:<a rule id it owns>:<16 hex>``; None: no finding fingerprints
-    implemented: bool = True
+
+    @property
+    def implemented(self) -> bool:
+        """A 0.4 advisor reads its panel flag at call time; the others are always implemented."""
+        return module_implemented(self.id)
 
 
 def _fingerprint(advisor: str, rule: str) -> re.Pattern[str]:
@@ -54,28 +58,24 @@ ADVISORS: tuple[AdvisorSpec, ...] = (
         "database-advisor",
         lambda _value: False,
         fingerprint=None,
-        implemented=IMPLEMENTED["database-advisor"],
     ),
     AdvisorSpec(
         "security",
         "security",
         lambda _value: False,
         fingerprint=None,
-        implemented=IMPLEMENTED["security"],
     ),
     AdvisorSpec(
         "architecture",
         "architecture",
         lambda _value: False,
         fingerprint=None,
-        implemented=IMPLEMENTED["architecture"],
     ),
     AdvisorSpec(
         "fastapi",
         "fastapi",
         lambda _value: False,
         fingerprint=None,
-        implemented=IMPLEMENTED["fastapi"],
     ),
 )
 
