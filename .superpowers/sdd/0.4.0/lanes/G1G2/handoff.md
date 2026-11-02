@@ -4,9 +4,9 @@ Implementer: Codex / GPT-6
 
 ## Status
 
-- Current head: `8d3ffda60830b558757517cbec913cdba77ee85a` (SKIPPED advisor regression red commit).
-- Done: report-only, baseline lifecycle, xdist partial-run detection, baseline-aware gates, fail/unknown precedence, and per-finding dismissal matching. Targeted engine and plugin integration tests pass.
-- Next: commit the implementation, run the final four detached gates without modifying the worktree, then update the gate table and handoff.
+- Current implementation commit: `e57a5e4e8ca71cbebc76ab26ded75501145df000`.
+- Status: DONE_WITH_CONCERNS. The lane implementation and targeted tests are complete; all red/fix evidence is committed.
+- Next: coordinator updates the two out-of-lane foundation tests and reviews the timing-budget rerun.
 - Decisions: follow council-r3 R1/R6/R8; use `report.finding_fails` for terminal/JUnit. Dismissal key is `(rule_id, identity or target)`; identities may contain spaces.
 - Red commit `2cbbcad9eef91c2e7a2c27230b09014864284095` pins the shared failure predicate and incomplete failed advisor reason; the status-helper test is historical because its helper changed for the tuple return contract.
 - Red commit `59c0ef017879221c9b87a26612d5323861f9e535` pins baseline validation, stable serialization, comparison and partial fixed semantics.
@@ -54,9 +54,24 @@ The older `test_session_status_reports_unknown_reasons_when_fail` row from `2cbb
 
 ## Gates
 
-Full gates are running / pending final frozen-worktree pass. Logs stay outside this worktree.
+| Gate | Result |
+|---|---|
+| `uv run ruff check` | PASS |
+| `uv run ruff format --check` | PASS — 422 files formatted |
+| `uv run pyright` | PASS — 0 errors, 0 warnings |
+| `uv run pytest -q -n 4` | CONCERN — 4 failed, 3815 passed, 5 skipped, 38 warnings; log: `C:\development\github\sharpit-wt\0.4.0-integration\.superpowers\sdd\0.4.0\logs\G1G2-final-pytest.log` |
+
+Pytest failures: `tests/test_foundation_round2.py::test_reserved_options_help_promises_no_behaviour` and `tests/test_foundation_review_fixes.py::test_report_only_options_leave_the_sharpit_report_unchanged` are outside G1G2's May-touch list and require coordinator updates. The request-overhead full-suite sample was 0.276 ms (budget 0.200 ms, noise 0.042 ms); the isolated 10-run check had 0 failures at 0.108/0.114/0.123 ms with 0.057 ms median noise. The SQL-listener full-suite sample was 55.835 µs (budget 50 µs, noise 44.690 µs); the isolated 10-run check had 0 failures at 29.395/33.529/42.057 µs with 36.035 µs median noise. Budgets were not changed. All logs are outside this worktree.
+
+## Session hardening
+
+- xdist workers collect the full suite but execute assigned subsets; partial classification uses selection/deselection facts from workers and collection-versus-run counts on the controller.
+- A `SKIPPED` advisor with a routine explanation is not unknown. Unknown is emitted for `UNKNOWN` runs and `FAILED` runs that preserve an incompleteness reason.
+- Baseline/report integration tests write into pytester temporary directories. The full suite's no-side-effects check also sees edits to this handoff; final gate runs therefore used a frozen worktree.
+- Retrospective, auto-memory, MemPalace, and Obsidian writes were not made because G1G2's May-touch list is limited to the lane evidence and implementation files. The coordinator can place broader session knowledge after integration.
 
 ## Needs from coordinator
 
-- Update `tests/test_foundation_round2.py::test_reserved_options_help_promises_no_behaviour`: G1G2 must replace F's reserved/no-effect option help with real descriptions, but this test is outside G1G2's May-touch list. It currently asserts the old help strings and will need new assertions for report-only and baseline behavior.
-- Update `tests/test_foundation_review_fixes.py::test_report_only_options_leave_the_sharpit_report_unchanged`: it passes a nonexistent `baseline.json` with the now-active baseline option and expects an `options.json` report. The new session-start validation correctly exits before writing that report. This test is outside G1G2's May-touch list; update it with a valid baseline fixture and report-only expectations.
+- Update `tests/test_foundation_round2.py::test_reserved_options_help_promises_no_behaviour`: replace the old reserved/no-effect help expectations with report-only and baseline help assertions.
+- Update `tests/test_foundation_review_fixes.py::test_report_only_options_leave_the_sharpit_report_unchanged`: it passes a nonexistent `baseline.json` with the now-active baseline option and expects `options.json`; update it with a valid baseline fixture and report-only expectations.
+- Compare the full-suite request-overhead sample against `origin/main` on a quiet runner; the isolated 10-run check passed, and this lane did not edit capture middleware or overhead budgets.
