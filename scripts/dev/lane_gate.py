@@ -698,8 +698,9 @@ def run_pytest_in(integration: Path) -> PytestRunner:
 
     def run(tree: Path, nodeids: Sequence[str], junit: Path) -> None:
         env = _env(PYTHONPATH=os.pathsep.join([str(tree / "src"), str(tree)]))
-        command = ["uv", "run", "--project", str(integration), "--frozen", "python", "-m", "pytest", "-q"]
-        command += ["-p", "no:cacheprovider", "-p", "no:randomly", "--tb=long", f"--junitxml={junit}", *nodeids]
+        # the integration venv was never synced with the test extra: `--extra test` keeps pytest installed
+        command = ["uv", "run", "--project", str(integration), "--frozen", "--extra", "test", "python", "-m", "pytest"]
+        command += ["-q", "-p", "no:cacheprovider", "-p", "no:randomly", "--tb=long", f"--junitxml={junit}", *nodeids]
         subprocess.run(command, cwd=tree, env=env, capture_output=True, timeout=900, check=False)
 
     return run
