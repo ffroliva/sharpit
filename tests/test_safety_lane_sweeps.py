@@ -37,7 +37,7 @@ def _plant_data_post(monkeypatch: pytest.MonkeyPatch) -> None:
     def probe(request: Request) -> JSONResponse:
         return JSONResponse({"written": True})
 
-    def build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]:
+    def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
         api = ctx.settings.api_path[len(ctx.settings.path) :]
         return [Route(f"{api}/data/probe", probe, methods=["POST"])]
 

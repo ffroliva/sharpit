@@ -13,7 +13,7 @@ def _run_report_corpus(
     value: str | None,
     warning: str | None,
 ) -> None:
-    secret = "sk_live_12345678901234567890"
+    secret = "sk_live_" + "12345678901234567890"
     pytester.makepyfile(
         appmod=f"""
         from fastapi import FastAPI

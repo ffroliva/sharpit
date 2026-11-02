@@ -78,7 +78,7 @@ class ToolGate:
         def worker() -> None:
             try:
                 outcome["value"] = fn()
-            except BaseException as exc:  # noqa: BLE001 - re-raised or mapped in the caller
+            except BaseException as exc:  # noqa: BLE001 # NOSONAR - worker thread: re-raised or mapped by _raise_tool_error
                 outcome["error"] = exc
             finally:
                 with self._lock:
@@ -151,22 +151,47 @@ def _rule_violation_arguments(checked: dict[str, Any], raw_limit: object, max_re
     return {"scanId": (scan_id or "").strip(), "offset": offset, "pageLimit": raw_limit, "maxResults": max_results}
 
 
+def _find_tool(catalogue: Sequence[Tool], name: object, via: Via, contracts: Any) -> Tool:
+    if not isinstance(name, str) or not name:
+        raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing tool name")
+    tool = next((t for t in catalogue if t.name == name and (via == "cli" or not t.action)), None)
+    if tool is None:
+        raise contracts.RpcError(contracts.INVALID_PARAMS, contracts.UNKNOWN_TOOL_PREFIX + name)
+    return tool
+
+
+def _checked_tool_arguments(tool: Tool, args: object, contracts: Any) -> dict[str, Any]:
+    checked = _check_arguments(args)
+    unexpected = sorted(set(checked) - set(tool.input_schema["properties"]))
+    if unexpected:
+        plural = "" if len(unexpected) == 1 else "s"
+        raise contracts.RpcError(contracts.INVALID_PARAMS, f"Unexpected tool argument{plural}: {', '.join(unexpected)}")
+    return checked
+
+
+def _normalized_arguments(tool: Tool, checked: dict[str, Any], max_results: int, contracts: Any) -> dict[str, Any]:
+    query = checked.get("query")
+    query = query.strip() or None if isinstance(query, str) else None
+    raw_limit = checked.get("limit")
+    limit = min(raw_limit, max_results) if isinstance(raw_limit, int) else max_results
+    raw_id = checked.get("id")
+    gid = raw_id.strip() if isinstance(raw_id, str) else ""
+    if "id" in tool.input_schema["properties"] and not gid:  # BootUI: after the panel gates
+        raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing required argument: id")
+    normalized = {"query": query, "limit": limit, **({"id": gid} if "id" in tool.input_schema["properties"] else {})}
+    if "scanId" in tool.input_schema["properties"]:  # RULE_VIOLATIONS: checked only on the tool that declares them
+        normalized.update(_rule_violation_arguments(checked, raw_limit, max_results))
+    return normalized
+
+
 def call_tool(
     call: CallContext, name: object, args: object, *, via: Via, tools: Sequence[Tool] | None = None
 ) -> dict[str, Any]:
     """The tool's payload, or ``RpcError`` (protocol error) / ``ToolCallError`` (in-band refusal)."""
     contracts = _contracts()
     catalogue = contracts.TOOLS if tools is None else tools
-    if not isinstance(name, str) or not name:
-        raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing tool name")
-    tool = next((t for t in catalogue if t.name == name and (via == "cli" or not t.action)), None)
-    if tool is None:
-        raise contracts.RpcError(contracts.INVALID_PARAMS, contracts.UNKNOWN_TOOL_PREFIX + name)
-    checked = _check_arguments(args)
-    unexpected = sorted(set(checked) - set(tool.input_schema["properties"]))
-    if unexpected:
-        plural = "" if len(unexpected) == 1 else "s"
-        raise contracts.RpcError(contracts.INVALID_PARAMS, f"Unexpected tool argument{plural}: {', '.join(unexpected)}")
+    tool = _find_tool(catalogue, name, via, contracts)
+    checked = _checked_tool_arguments(tool, args, contracts)
     settings = call.ctx.settings
     flags = settings.panels.get(tool.panel, PanelSettings())
     if not flags.enabled:
@@ -174,17 +199,7 @@ def call_tool(
     if tool.action and (settings.read_only or flags.read_only):
         raise contracts.ToolCallError(read_only_reason(tool.panel, settings.read_only), 403)
     gate = contracts.tool_gate(call.ctx, via)
-    query = checked.get("query")
-    query = query.strip() or None if isinstance(query, str) else None
-    raw_limit = checked.get("limit")
-    limit = min(raw_limit, gate.max_results) if isinstance(raw_limit, int) else gate.max_results
-    raw_id = checked.get("id")
-    gid = raw_id.strip() if isinstance(raw_id, str) else ""
-    if "id" in tool.input_schema["properties"] and not gid:  # BootUI: after the panel gates
-        raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing required argument: id")
-    normalized = {"query": query, "limit": limit, **({"id": gid} if "id" in tool.input_schema["properties"] else {})}
-    if "scanId" in tool.input_schema["properties"]:  # RULE_VIOLATIONS: checked only on the tool that declares them
-        normalized.update(_rule_violation_arguments(checked, raw_limit, gate.max_results))
+    normalized = _normalized_arguments(tool, checked, gate.max_results, contracts)
     return gate.run(tool.name, lambda: tool.handler(call, normalized))
 
 

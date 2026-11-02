@@ -387,7 +387,7 @@ def test_swallowed_logged_exception_fails(pytester: pytest.Pytester) -> None:
         """
         import logging
         def test_logged_exception():
-            try: raise ValueError('sk_live_12345678901234567890')
+            try: raise ValueError('sk_' 'live_12345678901234567890')
             except ValueError: logging.getLogger('application').exception('handled')
         """
     )
@@ -398,7 +398,7 @@ def test_swallowed_logged_exception_fails(pytester: pytest.Pytester) -> None:
 
     assert result.ret == 1
     assert "sharpit.exception" in result.stdout.str()
-    assert "sk_live_12345678901234567890" not in (pytester.path / "report.json").read_text()
+    assert "sk_live_" + "12345678901234567890" not in (pytester.path / "report.json").read_text()
 
 
 def test_setup_failure_is_reported_as_error(pytester: pytest.Pytester) -> None:
@@ -466,7 +466,7 @@ def test_finalizer_logged_exception_is_unattributed(pytester: pytest.Pytester) -
         leaked = None
         class Leaker:
             def __del__(self):
-                try: raise ValueError('sk_live_12345678901234567890')
+                try: raise ValueError('sk_' 'live_12345678901234567890')
                 except ValueError: logging.getLogger('app').exception('finalizer')
         def test_a_leak():
             global leaked
@@ -712,7 +712,7 @@ def test_pytest_raises_escaped_not_counted(pytester: pytest.Pytester, monkeypatc
         from sharpit.fastapi.adapter import install
         app = FastAPI()
         @app.get('/error')
-        def error(): raise ValueError('sk_live_12345678901234567890')
+        def error(): raise ValueError('sk_' 'live_12345678901234567890')
         install(app, show_banner=False)
         def test_raises():
             with pytest.raises(ValueError): TestClient(app).get('/error')

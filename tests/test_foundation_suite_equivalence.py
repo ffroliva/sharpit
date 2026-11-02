@@ -24,7 +24,7 @@ def test_foundation_suite_equivalence(pytester: pytest.Pytester) -> None:
     assert overview["applicationName"] == "foundation"
     assert route_paths[:4] == ["/", "/assets/{file}", "/api/auth/session", "/api/panels"]
     assert route_paths.index("/api/exceptions/stream") < route_paths.index("/api/exceptions/{id}")
-    lane_paths = lane_route_paths(handle.context, app)  # implemented per-panel modules mount after the base
+    lane_paths = lane_route_paths(handle.context)  # implemented per-panel modules mount after the base
     base_paths = route_paths[: len(route_paths) - len(lane_paths)]
     assert route_paths[len(base_paths) :] == lane_paths
     assert base_paths[-2:] == ["/api/cli", "/api/cli/tools/{tool}"]

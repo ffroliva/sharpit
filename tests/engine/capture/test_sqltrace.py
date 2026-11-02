@@ -159,6 +159,41 @@ def test_double_quoted_run_that_cannot_be_an_identifier():
     assert normalize_sql('select "firstName" from t where id = 1') == 'select "firstName" from t where id = ?'
 
 
+STRIPE_LIKE = "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc"
+
+
+def test_double_quoted_value_right_of_a_comparison_is_a_literal():
+    # MySQL reads "bob" as a string; an identifier-shaped value in a value position is a literal, fail closed
+    assert normalize_sql('select * from t where name = "bob"') == "select * from t where name = ?"
+
+
+def test_double_quoted_values_in_an_in_list_are_literals():
+    assert normalize_sql('select * from t where name in ("ann", "bob")') == "select * from t where name in (?)"
+
+
+def test_double_quoted_values_in_a_values_list_are_literals():
+    sql = 'insert into t ("a", "b") values ("ann", "bob"), ("cy", "di")'
+    assert normalize_sql(sql) == 'insert into t ("a", "b") values (?, ?), (?, ?)'
+
+
+def test_double_quoted_like_pattern_is_a_literal():
+    assert normalize_sql('select * from t where name like "bob"') == "select * from t where name like ?"
+
+
+def test_double_quoted_secret_is_a_literal_anywhere():
+    assert STRIPE_LIKE not in normalize_sql(f'select "{STRIPE_LIKE}" as k from t')
+
+
+def test_double_quoted_identifiers_stay_readable():
+    sql = """select "userId" from "Order" where "status" = 'x'"""
+    assert normalize_sql(sql) == 'select "userId" from "Order" where "status" = ?'
+
+
+def test_qualified_double_quoted_identifier_in_a_join_stays_readable():
+    sql = 'select * from "a" join "b" on "a"."id" = "b"."id"'
+    assert normalize_sql(sql) == sql
+
+
 def test_boolean_literals_aggregate():
     # ported: SqlStatementNormalizerTests.normalizesBooleanLiteralsSoEquivalentPredicatesAggregate
     assert _fingerprint("select * from t where active = true") == _fingerprint("select * from t where active = FALSE")

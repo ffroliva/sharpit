@@ -422,7 +422,7 @@ def test_rows_distinguish_empty_available_from_failed_and_copy_rows() -> None:
     mutable = ["one"]
     rows = Rows.of(mutable, truncated=True)
     mutable.append("two")
-    assert rows.rows == ["one"]
+    assert rows.records == ["one"]
     assert rows.available is True
     assert rows.truncated is True
     assert Rows.failed("refused").available is False

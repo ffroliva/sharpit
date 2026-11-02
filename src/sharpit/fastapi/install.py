@@ -96,7 +96,7 @@ def _app_settings(settings: object) -> tuple[object, ...]:
     return items
 
 
-def _models(models: object) -> tuple[object, ...]:
+def _models(models: object) -> tuple[object, ...]:  # NOSONAR - one element per supplied model: length follows input
     """``install(models=...)`` as a tuple; a lone class (``models=Base``) or other non-iterable is one element.
 
     The elements are never inspected (A-data reads them; spec §10.2, council R3/R15).
@@ -126,15 +126,17 @@ def install(
     **options: Any,
 ) -> SharpitHandle:
     adapter = cast(Any, import_module("sharpit.fastapi.adapter"))
-    GuardMiddleware = adapter.GuardMiddleware
-    SharpitHandle = adapter.SharpitHandle
-    SharpitMount = adapter.SharpitMount
+    guard_middleware = adapter.GuardMiddleware
+    sharpit_handle_type = adapter.SharpitHandle
+    sharpit_mount_type = adapter.SharpitMount
     _bad_request = adapter._bad_request
     _json_http_error = adapter._json_http_error
     _not_found = adapter._not_found
     caller_module: str | None = sys._getframe(1).f_globals.get("__name__")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     router = app.router
-    existing = next((r.sharpit_handle for r in router.routes if isinstance(r, SharpitMount) and r.sharpit_handle), None)
+    existing = next(
+        (r.sharpit_handle for r in router.routes if isinstance(r, sharpit_mount_type) and r.sharpit_handle), None
+    )
     if existing is not None:
         first = (
             ""
@@ -163,12 +165,12 @@ def install(
         health_checks=dict(health_checks or {}),
         models=_models(models),
     )
-    handle = SharpitHandle(sharpit_settings, activation, ctx, original)
+    handle = sharpit_handle_type(sharpit_settings, activation, ctx, original)
     for warning in activation.warnings:  # the overview panel shows them too, but not while sharpit is inactive
         logger.warning("%s", warning)
 
     if not activation.enabled:
-        mount = SharpitMount(sharpit_settings.path, app=_not_found, name="sharpit")
+        mount = sharpit_mount_type(sharpit_settings.path, app=_not_found, name="sharpit")
         mount.sharpit_handle = handle
         router.routes.insert(0, mount)
         # asked for but still off is a WARNING (uvicorn drops INFO from unconfigured loggers); an explicit OFF is INFO
@@ -192,10 +194,10 @@ def install(
     router.lifespan_context = lifespan
     sub_app = Starlette(
         routes=adapter._routes(ctx, app),
-        middleware=[Middleware(GuardMiddleware, ctx=ctx)],
+        middleware=[Middleware(guard_middleware, ctx=ctx)],
         exception_handlers={404: _json_http_error, 405: _json_http_error, BadRequest: _bad_request},
     )
-    mount = SharpitMount(sharpit_settings.path, app=sub_app, name="sharpit")
+    mount = sharpit_mount_type(sharpit_settings.path, app=sub_app, name="sharpit")
     mount.sharpit_handle = handle
     router.routes.insert(0, mount)
     if sharpit_settings.show_banner:

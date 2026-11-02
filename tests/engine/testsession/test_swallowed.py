@@ -59,7 +59,9 @@ def test_programming_error_types() -> None:
     assert is_programming_error(ModuleNotFoundError("x")) is True  # an ImportError, matched with isinstance
     assert is_programming_error(UnboundLocalError("x")) is True
     assert is_programming_error(ValueError("x")) is False
-    assert (AttributeError, TypeError, NameError, ImportError, UnboundLocalError) == swallowed.PROGRAMMING_ERRORS
+    expected = (AttributeError, TypeError, NameError, ImportError, UnboundLocalError)
+    actual = swallowed.PROGRAMMING_ERRORS
+    assert actual == expected
 
 
 def _handler_offsets(code: CodeType) -> list[int]:

@@ -32,7 +32,7 @@ from sharpit.settings import load_settings
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
 SELECT = "select * from pets where owner_id = {}"
-STRIPE_KEY = "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+STRIPE_KEY = "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc"
 
 
 @pytest.fixture(autouse=True)

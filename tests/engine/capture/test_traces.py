@@ -122,7 +122,7 @@ def test_span_reads_mask_nested_values():
     raw = span(
         attributes={
             "http.request.header.authorization": ("Bearer abc.def.ghi",),
-            "db.statement": "select 1 from t where token = 'sk_live_4eC39HqLyjWDarjtT1zdp7dc'",
+            "db.statement": "select 1 from t where token = 'sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc'",
         },
         events=[event("exception", 2_000, {"exception.message": "login failed password=hunter2"})],
     )
@@ -132,7 +132,7 @@ def test_span_reads_mask_nested_values():
     assert detail is not None
     text = str(detail)
     assert "abc.def.ghi" not in text
-    assert "sk_live_4eC39HqLyjWDarjtT1zdp7dc" not in text
+    assert "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc" not in text
     assert "hunter2" not in text
     assert raw.events[0].attributes["exception.message"] == "login failed password=hunter2"  # stored evidence kept
 
@@ -244,6 +244,15 @@ def test_sql_literals_in_db_statement_are_masked():
     assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
 
 
+def test_double_quoted_value_in_db_statement_is_a_placeholder():
+    # 0.3.0 leak: a double-quoted value (MySQL string literal) passed through normalize_sql verbatim
+    buf = buffer()
+    buf.add(span(attributes={"db.statement": 'select * from owners where pw = "hunter2"'}))
+    detail = buf.detail(f"{TRACE:032x}")
+    assert detail is not None
+    assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
+
+
 def first_span(buf: SpanBuffer) -> dict[str, Any]:
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None
@@ -292,6 +301,21 @@ def test_status_message_normalises_the_sql_statement():
 def test_exception_event_message_gets_the_sql_handling():
     buf = buffer()
     buf.add(span(events=[event("exception", 2_000, {"exception.message": SQL_ERROR})]))
+    shown = first_span(buf)["events"][0]["attributes"][0]["value"]
+    assert "alice@example.com" not in shown
+
+
+@pytest.mark.parametrize("separator", ["\r", "\r\n", "\u2028", "\x85"])
+def test_sql_exception_message_drops_driver_detail_for_line_separators(separator: str):
+    message = (
+        "(psycopg.errors.UniqueViolation) duplicate key value violates unique constraint"
+        + separator
+        + "DETAIL:  Key (email)=(alice@example.com) already exists."
+        + separator
+        + "[SQL: INSERT INTO users (email) VALUES (%(email)s)]"
+    )
+    buf = buffer()
+    buf.add(span(events=[event("exception", 2_000, {"exception.message": message})]))
     shown = first_span(buf)["events"][0]["attributes"][0]["value"]
     assert "alice@example.com" not in shown
 

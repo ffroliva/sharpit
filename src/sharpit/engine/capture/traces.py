@@ -106,57 +106,76 @@ def _text(value: object) -> str:
     return str(value)
 
 
-def _attribute_value(masker: Masker, key: str, value: object) -> str | None:
-    if key.startswith(_HEADER_PREFIXES):
-        normalized_key = key.lower().replace("-", "_")
-        header_name = normalized_key.rsplit(".", 1)[-1].replace("_", "-")
-        values = [str(v) for v in _items(value) or [value]]
-        if is_sensitive_key(normalized_key) or header_name in {
-            "authorization",
-            "proxy-authorization",
-            "cookie",
-            "set-cookie",
-            "x-api-key",
-        }:
-            shown = [MASK for _ in values]
-        else:
-            shown, _ = masker.mask_header(header_name, values)
-        return _text([masker.mask_text(v) or "" for v in shown]) if shown else None
+def _header_attribute(masker: Masker, key: str, value: object) -> str | None:
+    normalized_key = key.lower().replace("-", "_")
+    header_name = normalized_key.rsplit(".", 1)[-1].replace("_", "-")
+    values = [str(v) for v in _items(value) or [value]]
+    sensitive = is_sensitive_key(normalized_key) or header_name in {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+    }
+    shown = [MASK for _ in values] if sensitive else masker.mask_header(header_name, values)[0]
+    return _text([masker.mask_text(v) or "" for v in shown]) if shown else None
+
+
+def _sql_attribute(masker: Masker, key: str, value: object) -> str | None:
     if _SQL_PARAMETER_KEYS.search(key):
         return _text(value) if masker.capture_parameters else MASK
-    if key in _SQL_KEYS:  # SQL Trace normalizes literals unless parameter capture is explicitly enabled
-        text = _text(value)
-        return masker.mask_text(text if masker.capture_parameters else normalize_sql(text))
+    text = _text(value)
+    return masker.mask_text(text if masker.capture_parameters else normalize_sql(text))
+
+
+def _url_attribute(masker: Masker, key: str, value: object) -> str | None:
     if key in {"exception.message", "exception.stacktrace"}:
         return _sql_message(masker, _text(value))
-    if key in _URL_KEYS or key in _PLAIN_PATH_KEYS:
-        return _url(masker, key, str(value)) if masker.mask(key, "")[0] is not None else None
     if key == "url.query":
         return masker.mask_query(str(value))
+    if key in _URL_KEYS or key in _PLAIN_PATH_KEYS:
+        return _url(masker, key, str(value)) if masker.mask(key, "")[0] is not None else None
+    return None
+
+
+def _attribute_value(masker: Masker, key: str, value: object) -> str | None:
+    if key.startswith(_HEADER_PREFIXES):
+        return _header_attribute(masker, key, value)
+    if _SQL_PARAMETER_KEYS.search(key) or key in _SQL_KEYS:
+        return _sql_attribute(masker, key, value)
+    if key in {"exception.message", "exception.stacktrace", "url.query", *_URL_KEYS, *_PLAIN_PATH_KEYS}:
+        return _url_attribute(masker, key, value)
     shown, masked = masker.mask(key, value)
     if shown is None or masked:
         return None if shown is None else str(shown)
     return masker.mask_text(_text(shown))
 
 
+def _traceback_prefix(text: str) -> tuple[str, str]:
+    lines = text.splitlines()
+    if not lines or not lines[0].startswith("Traceback (most recent call last):"):
+        return "", "\n".join(lines)
+    frame_count = 1
+    for line in lines[1:]:
+        if line.startswith("  File ") or (line.startswith("    ") and line.strip()):
+            frame_count += 1
+        else:
+            break
+    return "\n".join(lines[:frame_count]), "\n".join(lines[frame_count:])
+
+
+def _redact_sql_errors(text: str) -> str:
+    frames, remainder = _traceback_prefix(text)
+    cleaned = _driver_values_dropped(remainder or text)
+    text = f"{frames}\n{cleaned}" if frames else cleaned
+    return _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1)).sql}]", text)
+
+
 def _sql_message(masker: Masker, text: str | None) -> str | None:
     if text is None:
         return None
     if not masker.capture_parameters and (_SQL_ERROR.search(text) or _SQL_ERROR_SHAPE.match(text)):
-        lines = text.splitlines()
-        frame_count = 0
-        if lines and lines[0].startswith("Traceback (most recent call last):"):
-            frame_count = 1
-            for line in lines[1:]:
-                if line.startswith("  File ") or (line.startswith("    ") and line.strip()):
-                    frame_count += 1
-                else:
-                    break
-        frames = "\n".join(lines[:frame_count])
-        remainder = "\n".join(lines[frame_count:])
-        cleaned = _driver_values_dropped(remainder or text)
-        text = f"{frames}\n{cleaned}" if frames else cleaned
-        text = _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1)).sql}]", text)
+        text = _redact_sql_errors(text)
     return masker.mask_text(text)
 
 

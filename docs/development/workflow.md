@@ -101,6 +101,14 @@ The owner merges. Agents never merge.
 
 ## 7. Release: `/sharpit:release`
 
+**Before a coordinated release branch goes to `main`: harvest, then untrack.** Lanes commit their evidence under
+`.superpowers/` because `scripts/dev/lane_gate.py` reads it from git; `main` never carries it. Write the run's
+decisions (what merged or parked and why, rulings, policy changes, open items) to
+`docs/reports/<date>-<version>-decisions.md`, then `git rm -r --cached .superpowers/` on the release branch and merge
+it with a merge commit, not a squash, so the evidence stays reachable in history. CI enforces the second half:
+`scripts/ci/no_superpowers.py` fails any pull request into `main` that still tracks `.superpowers/`.
+Example: `docs/reports/2026-11-02-0.4.0-decisions.md`.
+
 Only when the owner asks. A version bump in `src/sharpit/__init__.py` and the changelog go through a
 `chore/release-<version>` PR; after the merge, a signed tag `v<version>` on `main` is the release. Pushing that tag
 runs `.github/workflows/release.yml`, which publishes to PyPI with Trusted Publishing and creates the GitHub Release.
