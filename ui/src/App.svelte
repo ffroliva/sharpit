@@ -25,6 +25,20 @@
   import SqlTrace from './views/SqlTrace.svelte';
   import Threads from './views/Threads.svelte';
   import Vulnerabilities from './views/Vulnerabilities.svelte';
+  // 0.4 placeholders: each routes only while its lib/panels04 flag is true; the owning lane replaces the view file
+  import { panelImplemented } from './lib/panels04';
+  import Architecture from './views/Architecture.svelte';
+  import Data from './views/Data.svelte';
+  import DatabaseAdvisor from './views/DatabaseAdvisor.svelte';
+  import Fastapi from './views/Fastapi.svelte';
+  import FastapiSecurity from './views/FastapiSecurity.svelte';
+  import MySql from './views/MySql.svelte';
+  import PostgreSql from './views/PostgreSql.svelte';
+  import Security from './views/Security.svelte';
+  import SecurityLogs from './views/SecurityLogs.svelte';
+  import SqlalchemyStatistics from './views/SqlalchemyStatistics.svelte';
+  import Traces from './views/Traces.svelte';
+  import Transactions from './views/Transactions.svelte';
 
   let panels = $state<Panel[] | null>(null);
   let shellError = $state<string | null>(null);
@@ -180,6 +194,18 @@
           {:else if current.id === 'alembic'}<Alembic panel={current} />
           {:else if current.id === 'rest-api'}<RestApi panel={current} />
           {:else if current.id === 'mcp-server' || current.id === 'cli'}<ServerStatus panel={current} kind={current.id} />
+          {:else if current.id === 'data' && panelImplemented('data')}<Data panel={current} />
+          {:else if current.id === 'transactions' && panelImplemented('transactions')}<Transactions panel={current} />
+          {:else if current.id === 'postgresql' && panelImplemented('postgresql')}<PostgreSql panel={current} />
+          {:else if current.id === 'mysql' && panelImplemented('mysql')}<MySql panel={current} />
+          {:else if current.id === 'traces' && panelImplemented('traces')}<Traces panel={current} />
+          {:else if current.id === 'security' && panelImplemented('security')}<Security panel={current} />
+          {:else if current.id === 'security-logs' && panelImplemented('security-logs')}<SecurityLogs panel={current} />
+          {:else if current.id === 'database-advisor' && panelImplemented('database-advisor')}<DatabaseAdvisor panel={current} />
+          {:else if current.id === 'architecture' && panelImplemented('architecture')}<Architecture panel={current} />
+          {:else if current.id === 'sqlalchemy-statistics' && panelImplemented('sqlalchemy-statistics')}<SqlalchemyStatistics panel={current} />
+          {:else if current.id === 'fastapi-security' && panelImplemented('fastapi-security')}<FastapiSecurity panel={current} />
+          {:else if current.id === 'fastapi' && panelImplemented('fastapi')}<Fastapi panel={current} />
           {:else}
             <div class="empty"><p class="lead">{current.title}</p><p>This version of the console has no view for this panel yet.</p></div>
           {/if}

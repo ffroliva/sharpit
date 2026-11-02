@@ -35,6 +35,37 @@ In a worktree from `origin/main`, one task at a time with `superpowers:subagent-
 per task, red test first, review between tasks. Before touching activation, the guard, masking, introspection or
 OSV, read **`/sharpit:known-issues`**. Delegated agents get the background-command rule in their brief.
 
+### Before every `test:` commit: `red_check`
+
+```bash
+uv run python scripts/dev/red_check.py tests/engine/test_x.py::test_y [<node id> | <test file> ...]
+```
+
+Exit 0 only when every test is `RED (assertion under tests/)`. Not a red: a `CRASH` (a `TypeError`, `AttributeError`
+or `pytest.fail` stub, or an `assert` outside `tests/`, in `src/` or `scripts/`), a `PASS`, an
+`ERROR (fixture setup/teardown)` or an `ERROR (collection)`. Nobody has seen such a test catch the defect. Use a
+wrong-value stub instead, so the test's own assertion fails:
+
+```python
+def compare(
+    findings: Sequence[Finding], baseline: Baseline | None, *, partial: bool, ran: Collection[str] | None = None
+) -> Comparison:
+    # stub: every finding is "new", so a test expecting "existing" fails on its own assertion
+    from dataclasses import replace
+
+    return Comparison(tuple(replace(f, baseline_state="new") for f in findings), None, None)
+```
+
+(This is `compare` in `src/sharpit/engine/testsession/baseline.py`, whose module already imports every name used.)
+
+What `red_check` checks: each id, run in its own pytest call in the working tree (its `src` first on `PYTHONPATH`),
+fails with an `AssertionError` whose last frame is under `tests/`, by the same `is_red`/`red_verdicts` rule as
+`scripts/dev/lane_gate.py`. It warns when uncommitted files under `src/` or `tests/` could change the verdict.
+
+What only the merge gate checks: the red SHA is committed and an ancestor of the head, the replay at that SHA in a
+fresh tree, the test unchanged from the red SHA to the head, the test inside the lane diff, the names it references
+frozen, and the test passing at the head. Why: [the G1G2 red audit](../reports/2026-11-02-g1g2-red-audit.md).
+
 ## 5. Gate: `/sharpit:check`
 
 The CI jobs behind the gate, and how to reproduce each locally: [`ci.md`](ci.md).
@@ -69,6 +100,14 @@ test that runs pytest in-process restores the logging configuration it changes (
 The owner merges. Agents never merge.
 
 ## 7. Release: `/sharpit:release`
+
+**Before a coordinated release branch goes to `main`: harvest, then untrack.** Lanes commit their evidence under
+`.superpowers/` because `scripts/dev/lane_gate.py` reads it from git; `main` never carries it. Write the run's
+decisions (what merged or parked and why, rulings, policy changes, open items) to
+`docs/reports/<date>-<version>-decisions.md`, then `git rm -r --cached .superpowers/` on the release branch and merge
+it with a merge commit, not a squash, so the evidence stays reachable in history. CI enforces the second half:
+`scripts/ci/no_superpowers.py` fails any pull request into `main` that still tracks `.superpowers/`.
+Example: `docs/reports/2026-11-02-0.4.0-decisions.md`.
 
 Only when the owner asks. A version bump in `src/sharpit/__init__.py` and the changelog go through a
 `chore/release-<version>` PR; after the merge, a signed tag `v<version>` on `main` is the release. Pushing that tag

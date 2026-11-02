@@ -93,8 +93,9 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    the engine (`context`, `paging`, `spi`, `singleflight`, ...).
 4. **Gatekeepers.** One named file per optional or network library: SQLAlchemy only in `engine/sqla.py`,
    `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
-   `engine/collectors/config/settings_source.py`, `urllib.request`/`http.client` only in the OSV and EPSS clients under
-   `engine/collectors/vulns/`, and `pytest`/`_pytest` only in `pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
+   `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, and
+   `urllib.request`/`http.client` only in the OSV and EPSS clients under
+   `engine/collectors/vulns/`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
    SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked
    slow or deselected (a measurement nobody runs detects nothing). See `docs/development/overhead-budgets.md` for what
@@ -107,6 +108,7 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 
 - **A crash is not a red.** An `ImportError`, `AttributeError` or collection error before the fix proves nothing; the
   red must be the assertion that names the defect.
+- **Before every `test:` commit** run `uv run python scripts/dev/red_check.py <node ids>` (`docs/development/workflow.md`).
 - **One condition per assert** (ruff `PT018`), so a failure says which condition broke.
 - **Every error found** (review, CI, a user report) becomes a regression test seen red first. The PR lists them as a
   `finding → test → red output` table.

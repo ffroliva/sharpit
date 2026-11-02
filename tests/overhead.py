@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 import os
 import statistics
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+
+import pytest
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,10 @@ def paired(off: Callable[[], float], on: Callable[[], float], rounds: int) -> Pa
     The sides alternate, so a machine that slows down for a while slows both alike, and the side that goes first
     swaps every round, so the cost of whatever runs first after a switch is not always charged to one side.
     """
+    coverage = sys.modules.get("coverage")
+    if coverage is not None and coverage.Coverage.current() is not None:
+        # every budget test, current and future: the coverage job traces each line, the plain test jobs enforce
+        pytest.skip("overhead timing is meaningless under the coverage tracer; the plain test jobs enforce the budget")
     off_rounds: list[float] = []
     on_rounds: list[float] = []
     for i in range(rounds):

@@ -1,0 +1,80 @@
+name: sharpit
+description: Run pytest with sharpit (SQL and exception advisors) and publish a findings summary to the job summary.
+inputs:
+  pytest-args:
+    description: Extra pytest arguments, split with Python shlex (quote values with spaces).
+    default: ""
+  report-only:
+    description: Report findings without failing the build ("true" or "false").
+    default: "true"
+  baseline:
+    description: Path of a sharpit-baseline/1 file; existing findings never fail the build.
+    default: ""
+  fail-on:
+    description: Lowest advisor severity that fails the build (CRITICAL, HIGH, MEDIUM, LOW, INFO).
+    default: ""
+  report-path:
+    description: Where the sharpit-report/1 JSON is written.
+    default: "sharpit-report.json"
+  install:
+    description: '"pip" installs the pinned sharpit; "none" when the project already depends on it.'
+    default: "pip"
+  runner:
+    description: Command that starts pytest, split with Python shlex (for example "uv run pytest").
+    default: "python -m pytest"
+runs:
+  using: composite
+  steps:
+    - name: Install sharpit
+      shell: bash
+      env:
+        INSTALL: ${{ inputs.install }}
+      run: |
+        if [ "$INSTALL" = "pip" ]; then
+          python -m pip install "sharpit==0.4.0"
+        elif [ "$INSTALL" != "none" ]; then
+          echo "::error::install must be pip or none"
+          exit 1
+        fi
+    - name: Run pytest with sharpit
+      shell: bash
+      env:
+        RUNNER: ${{ inputs.runner }}
+        PYTEST_ARGS: ${{ inputs.pytest-args }}
+        REPORT_ONLY: ${{ inputs.report-only }}
+        BASELINE: ${{ inputs.baseline }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        REPORT_PATH: ${{ inputs.report-path }}
+      run: |
+        rm -f "$REPORT_PATH"
+        python - <<'PY'
+        import os, shlex, subprocess, sys
+        report_only = os.environ["REPORT_ONLY"]
+        if report_only not in ("true", "false"):
+            print("::error::report-only must be true or false")
+            sys.exit(1)
+        def split(value):
+            if os.environ.get("RUNNER_OS") != "Windows":
+                return shlex.split(value)
+            # non-POSIX mode keeps backslashes in Windows paths; strip the quotes it leaves on each token
+            return [t[1:-1] if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'" else t for t in shlex.split(value, posix=False)]
+        argv = split(os.environ["RUNNER"]) + split(os.environ["PYTEST_ARGS"])
+        argv += ["--sharpit", "--sharpit-report", os.environ["REPORT_PATH"]]
+        # false overrides a sharpit_report_only ini setting
+        argv += ["--sharpit-report-only"] if report_only == "true" else ["-o", "sharpit_report_only=false"]
+        for flag, name in (("--sharpit-baseline", "BASELINE"), ("--sharpit-fail-on", "FAIL_ON")):
+            if os.environ[name]:
+                argv += [flag, os.environ[name]]
+        sys.exit(subprocess.call(argv))
+        PY
+    - name: Render job summary
+      if: always()
+      shell: bash
+      env:
+        REPORT_PATH: ${{ inputs.report-path }}
+      run: |
+        if [ -f "$REPORT_PATH" ]; then
+          python -m sharpit.report summary "$REPORT_PATH" >> "$GITHUB_STEP_SUMMARY" || echo "::warning::sharpit summary failed"
+        else
+          echo "::warning::sharpit wrote no report"
+        fi

@@ -1,0 +1,35 @@
+{
+  "enabled": true,
+  "retained": 20,
+  "capacity": 500,
+  "traces": [
+    {
+      "traceId": "2ebe213f5ee32d51495b4077f5f4dc74",
+      "rootSpanName": "security filterchain before",
+      "httpPath": null,
+      "services": [
+        "tiny-ledger"
+      ],
+      "startEpochNanos": 1793578868748204800,
+      "endEpochNanos": 1793578868772861700,
+      "durationNanos": 24656900,
+      "spanCount": 2,
+      "hasError": false,
+      "hasAi": false
+    },
+    {
+      "traceId": "c9bdc3cbe2a6ed25ef75355d78db82b4",
+      "rootSpanName": "http get /api/v1/accounts/{accountUid}/balance",
+      "httpPath": "/api/v1/accounts/{accountUid}/balance",
+      "services": [
+        "tiny-ledger"
+      ],
+      "startEpochNanos": 1793578857037232900,
+      "endEpochNanos": 1793578857086201500,
+      "durationNanos": 48968600,
+      "spanCount": 7,
+      "hasError": false,
+      "hasAi": false
+    }
+  ]
+}

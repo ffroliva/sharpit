@@ -41,10 +41,12 @@ from sharpit.engine.tools import COMMANDS, TOOLS
 SENTINEL = "S3NT1NEL9f3c"
 JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjb3JwdXMifQ.c2lnbmF0dXJlLWJ5dGVz"
 # shaped secrets for the report writers (tests/engine/testsession/test_report.py plants them in both report files)
-STRIPE_KEY = "sk_live_Z9y8X7w6V5u4T3s2R1q0"
+STRIPE_KEY = "sk_live_" + "Z9y8X7w6V5u4T3s2R1q0"
 AWS_KEY = "AKIAABCDEFGHIJKLMNOP"
 GITHUB_TOKEN = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2"
-PROBES = ("S3NT1NEL", "9f3c")  # fragments: an echoed probe is not a leak, a matched secret would be
+# fragments: an echoed probe is not a leak, a matched secret would be. The tail probe keeps non-hex letters: plain
+# "9f3c" also matched a CI runner's hex path by chance.
+PROBES = ("S3NT1NEL", "NEL9f3c")
 AUTH_TOKEN = "corpus-auth-token"  # distinct from the sentinel: it legitimately appears in Set-Cookie
 LOCAL = ("127.0.0.1", 50000)
 REMOTE = ("10.0.0.5", 50000)
@@ -678,3 +680,17 @@ def test_threads_and_pools_mask(tmp_path: Path, plant: Callable[[Path], str]):
     text = plant(tmp_path)
     assert SENTINEL not in text
     assert JWT not in text
+
+
+@pytest.fixture
+def harmless_hex_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # a CI runner's paths and hashes are hex: one held "9f3c" by chance and failed the sweep on Windows (PR #40)
+    monkeypatch.setenv("HARMLESS_TOOL_DIR", r"C:\hostedtoolcache\windows\ab9f3cde")
+
+
+def test_a_harmless_value_that_shares_hex_with_the_sentinel_is_not_a_leak(
+    harmless_hex_env: None, corpus_app: tuple[FastAPI, Any]
+):
+    app, ctx = corpus_app
+    with TestClient(app, base_url="http://localhost", client=LOCAL, follow_redirects=False) as client:
+        _sweep(Recorder(client), ctx)

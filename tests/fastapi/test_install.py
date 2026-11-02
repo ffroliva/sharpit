@@ -21,6 +21,7 @@ from sharpit.engine.guard import (
     MESSAGE_FORWARDED_SOURCE,
 )
 from sharpit.engine.headers import CSP
+from surface import BASE_PANEL_IDS, expected_panel_ids
 
 LOCAL = ("127.0.0.1", 50000)
 REMOTE = ("10.0.0.5", 50000)
@@ -91,7 +92,7 @@ def test_overview_shape_matches_golden_keys():
     assert resp.headers["cache-control"] == "no-store, must-revalidate"
     assert resp.headers["pragma"] == "no-cache"
     body = resp.json()
-    assert set(body) == set(golden("overview"))
+    assert set(body) == set(golden("overview")) | {"run"}  # BootUI 2.2.0 OverviewDto.run
     assert body["frameworkName"] == "FastAPI"
     assert body["webApplicationType"] == "ASGI"
     assert body["managementPort"] is None
@@ -104,27 +105,7 @@ def test_panels_platform_fastapi_and_ids():
     assert resp.status_code == 200
     body = resp.json()
     assert body["platform"] == "fastapi"
-    assert [p["id"] for p in body["panels"]] == [
-        "overview",
-        "config",
-        "mappings",
-        "loggers",
-        "beans",
-        "vulnerabilities",
-        "mcp-server",
-        "cli",
-        "activity",
-        "http-exchanges",
-        "exceptions",
-        "sql-trace",
-        "log-tail",
-        "alembic",
-        "database-connection-pools",
-        "health",
-        "threads",
-        "rest-api",
-        "http-probe",
-    ]
+    assert [p["id"] for p in body["panels"]] == expected_panel_ids()  # the base 19, then implemented 0.4 panels
     loggers = body["panels"][3]
     assert loggers["readOnly"] is True
     assert loggers["readOnlyReason"] == "Panel is read-only via SHARPIT_PANELS_LOGGERS_READ_ONLY=true"
@@ -136,7 +117,7 @@ def test_mvp_panels_stay_available():
     # alembic depends on whether an Alembic config is found: test_alembic_api covers both states
     # database-connection-pools depends on whether SQLAlchemy is imported: test_panel_availability covers both states
     excluded = ("sql-trace", "alembic", "database-connection-pools")
-    mvp = [p for p in body["panels"] if p["id"] not in excluded]
+    mvp = [p for p in body["panels"] if p["id"] in BASE_PANEL_IDS and p["id"] not in excluded]
     assert len(mvp) == 16  # the 8 MVP panels, http-exchanges (Task 2), log-tail (Task 3), exceptions (Task 4),
     # activity (Task 6), health (Task 7), threads (Task 8), rest-api (Task 10), http-probe (Task 11)
     assert all(p["available"] and p["unavailableReason"] is None for p in mvp)

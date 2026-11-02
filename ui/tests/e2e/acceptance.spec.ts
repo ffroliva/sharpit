@@ -9,7 +9,7 @@ test('§10.1 the rail comes from the registry; unavailable and read-only panels 
   const rail = page.getByRole('navigation', { name: 'Panels' });
   const links = rail.getByRole('link');
   await expect(links).toHaveText(PANELS.map((p) => p.title));
-  for (const p of PANELS) await expect(rail.getByRole('link', { name: p.title })).toHaveAttribute('href', `#/${p.id}`);
+  for (const p of PANELS) await expect(rail.getByRole('link', { name: p.title, exact: true })).toHaveAttribute('href', `#/${p.id}`);
 
   // The server's own registry: the e2e server disables CLI and makes MCP Server read-only (playwright.config.ts).
   const registry = (await (await page.request.get('api/panels')).json()) as {
@@ -22,7 +22,7 @@ test('§10.1 the rail comes from the registry; unavailable and read-only panels 
 
   await expect(rail.getByRole('link', { name: 'MCP Server' })).toHaveAccessibleDescription(REASONS.readOnly);
   await expect(rail.getByRole('link', { name: 'CLI' })).toHaveAccessibleDescription(REASONS.disabled);
-  await expect(rail.getByRole('link', { name: 'Overview' })).toHaveAccessibleDescription('');
+  await expect(rail.getByRole('link', { name: 'Scorecard' })).toHaveAccessibleDescription('');
 
   await rail.getByRole('link', { name: 'CLI' }).click();
   await expect(page.locator('main')).toContainText('CLI is unavailable');
@@ -243,7 +243,7 @@ test('§10.7 an untrusted source gets the token prompt, which calls auth/session
 
   // the session cookie now authorises the panel's own calls
   await settled(page);
-  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Scorecard' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Panels' }).getByRole('link')).toHaveCount(PANELS.length);
   await context.close();
 });

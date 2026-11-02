@@ -20,7 +20,8 @@ from examples.fastapi_sample.app import create_app
 from fastapi.testclient import TestClient
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from conftest import SideEffectGuard, get_paths
+import safety
+from conftest import _PATH_PARAMS, SideEffectGuard, get_paths
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.guard import (
@@ -35,7 +36,7 @@ from sharpit.engine.guard import (
 from sharpit.engine.mcp import DISABLED_MESSAGE
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
 from sharpit.engine.tools import TOOLS, rest_api_service
-from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle, SharpitMount
+from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle
 
 LOCAL = ("127.0.0.1", 50000)
 GROUP_ID = "0123456789abcdef"  # conftest._PATH_PARAMS["id"]
@@ -81,6 +82,7 @@ ROWS = [
     ("rest-api-violations", "GET", "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations", 400, True),  # no scanId
     ("mcp-server", "GET", "/sharpit/api/mcp-server", 200, True),
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),
+    ("dismissed-findings", "GET", "/sharpit/api/dismissed-findings", 200, True),
     ("mcp", "POST", "/sharpit/api/mcp", 200, True),
 ]
 
@@ -168,7 +170,13 @@ def test_guard_matrix(
 def test_mcp_switch_is_the_only_gate_on_mcp():
     # §7.6: {api}/mcp has no panel gate; MCP off is an in-band JSON-RPC error, not a guard 403
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, read_only=True, panels={p.id: {"enabled": False} for p in PANELS})
+    install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        read_only=True,
+        panels={p.id: {"enabled": False} for p in PANELS if p.implemented},
+    )
     resp = _client(app).post("/sharpit/api/mcp", json=PING)
     assert resp.status_code == 200
     assert resp.json() == {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": DISABLED_MESSAGE}}
@@ -182,13 +190,14 @@ def _panel_denied(panel: str, reason: str) -> dict[str, str]:
 
 
 def _panel_routes(prefix: str) -> list[tuple[str, str]]:
-    """The prefix itself (GET) plus every ROWS and WRITES route under it, stream routes included."""
+    """The prefix itself (GET) plus every ROWS, WRITES and lane route under it, stream routes included."""
     base = f"/sharpit/api{prefix}"
-    known = [(r[1], r[2]) for r in ROWS] + [(w[1], w[2]) for w in WRITES]
+    known = [(r[1], r[2]) for r in ROWS] + [(w[1], w[2]) for w in ALL_WRITES] + [("GET", p) for p in LANE_GETS]
     return sorted({("GET", base), *((m, p) for m, p in known if p == base or p.startswith(base + "/"))})
 
 
-GATED = [(p.id, p.api_prefix) for p in PANELS if p.api_prefix]
+# an unimplemented 0.4 panel has no routes at all (404): test_unimplemented_panel_has_no_surface covers it
+GATED = [(p.id, p.api_prefix) for p in PANELS if p.api_prefix and p.implemented]
 
 
 @pytest.mark.parametrize(("panel", "prefix"), GATED, ids=[g[0] for g in GATED])
@@ -265,7 +274,7 @@ def test_disabled_source_activity_routes(panel: str, source: str | None, row_typ
 def test_ungated_paths_ignore_panel_flags():
     # §7.6: panels, overview and cli carry no panel gate (the overview and cli panels have no API prefix)
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, panels={p.id: {"enabled": False} for p in PANELS})
+    install(app, enabled="ON", show_banner=False, panels={p.id: {"enabled": False} for p in PANELS if p.implemented})
     client = _client(app)
     for path in ("/sharpit/api/panels", "/sharpit/api/overview", "/sharpit/api/cli", "/sharpit/"):
         assert client.get(path).status_code == 200, path
@@ -288,11 +297,16 @@ WRITES = [
 # Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules is gated by the global flag and the
 # rule's owning panel under its own subject (test_dismissed_rules_obey_global_and_owning_panel_read_only and
 # test_dismissals_per_panel_gate), so it has no row here.
-_NOT_PANEL_WRITES = ("/api/auth/session", "/api/mcp", "/api/cli/", "/api/dismissed-rules/")
+_NOT_PANEL_WRITES = ("/api/auth/session", "/api/mcp", "/api/cli/", "/api/dismissed-rules/", "/api/dismissed-findings")
+# implemented panels' rows from tests/safety/test_<lane>_safety.py feed the same sweeps as the base rows
+LANES = safety.load()
+PATH_PARAMS = dict(_PATH_PARAMS)  # base samples; each lane's PATH_PARAMS stay on its own rows
+ALL_WRITES = safety.write_cases(WRITES, LANES, PATH_PARAMS)
+LANE_GETS = safety.get_rows(LANES, PATH_PARAMS)
 
 
 @pytest.mark.parametrize("scope", ["global", "panel"])
-@pytest.mark.parametrize(("panel", "method", "path", "body"), WRITES, ids=[f"{w[0]}-{w[1]}" for w in WRITES])
+@pytest.mark.parametrize(("panel", "method", "path", "body"), ALL_WRITES, ids=[f"{w[0]}-{w[1]}" for w in ALL_WRITES])
 def test_read_only_denies_panel_actions(
     no_side_effects: SideEffectGuard, panel: str, method: str, path: str, body: Any, scope: str
 ):
@@ -335,23 +349,13 @@ def test_probe_tag_is_refused_before_other_guard_rules():
         installed.uninstall_capture()
 
 
-def _write_routes() -> set[tuple[str, str]]:
-    """(method, path format) of every POST/DELETE sub-app route, read from the sample app's own route table."""
-    mount = next(r for r in create_app(show_banner=False).router.routes if isinstance(r, SharpitMount))
-    found: set[tuple[str, str]] = set()
-    for route in mount.routes:
-        path = "/sharpit" + getattr(route, "path_format", "")
-        if any(path == "/sharpit" + s or path.startswith("/sharpit" + s.rstrip("/") + "/") for s in _NOT_PANEL_WRITES):
-            continue
-        found |= {(m, path) for m in {"POST", "DELETE"} & set(getattr(route, "methods", None) or ())}
-    return found
-
-
 def test_write_route_table_is_complete():
     def shape(path: str) -> str:  # a concrete WRITES path back to its route's format
         return path.replace(GROUP_ID, "{id}").replace("sharpit.matrix", "{name}")
 
-    assert _write_routes() == {(w[1], shape(w[2])) for w in WRITES}
+    live = safety.live_write_routes(create_app(show_banner=False), _NOT_PANEL_WRITES)
+    assert LANES.invalid == ()
+    assert live == {(w[1], shape(w[2])) for w in WRITES} | safety.write_rows(LANES), LANES.unimportable
 
 
 def _seed_exceptions(handle: SharpitHandle) -> Callable[[], object]:
@@ -614,7 +618,8 @@ GET_PATHS = get_paths()
 
 
 def test_get_route_table_is_complete():
-    assert set(GET_PATHS) == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"}
+    assert LANES.invalid == ()
+    assert set(GET_PATHS) == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"} | LANE_GETS, LANES.unimportable
 
 
 ALEMBIC_INI = Path(__file__).resolve().parent / "fixtures" / "alembic" / "linear" / "alembic.ini"

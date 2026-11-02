@@ -5,7 +5,7 @@ export const TOKEN = 'e2e-token';
 
 /** The example app's registry, in rail order: the groups of src/lib/nav.ts (spec 13.1). */
 export const PANELS = [
-  { id: 'overview', title: 'Overview' },
+  { id: 'overview', title: 'Scorecard' }, // BootUI 2.2.0 renamed the panel; its id stays overview
   { id: 'activity', title: 'Live Activity' },
   { id: 'health', title: 'Health' },
   { id: 'threads', title: 'Threads' },
@@ -13,9 +13,13 @@ export const PANELS = [
   { id: 'exceptions', title: 'Exceptions' },
   { id: 'http-exchanges', title: 'HTTP Exchanges' },
   { id: 'http-probe', title: 'HTTP Probe' },
+  { id: 'traces', title: 'Traces' }, // 0.4.0; unavailable here unless the OpenTelemetry SDK is imported
   { id: 'sql-trace', title: 'SQL Trace' }, // unavailable here: the example app does not import SQLAlchemy
   { id: 'database-connection-pools', title: 'Database Connection Pools' },
   { id: 'alembic', title: 'Alembic' },
+  { id: 'data', title: 'Data' }, // 0.4.0
+  { id: 'postgresql', title: 'PostgreSQL' }, // 0.4.0; unavailable without a PostgreSQL engine
+  { id: 'sqlalchemy-statistics', title: 'SQLAlchemy Statistics' }, // 0.4.0
   { id: 'config', title: 'Configuration' },
   { id: 'mappings', title: 'Mappings' },
   { id: 'loggers', title: 'Loggers' },

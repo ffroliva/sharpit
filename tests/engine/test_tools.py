@@ -13,6 +13,7 @@ Dropped, with reason:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from collections.abc import Callable
@@ -25,6 +26,7 @@ from conftest import SideEffectGuard
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.exceptions import ExceptionStore
+from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.restapi.service import RestApiService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
@@ -45,6 +47,7 @@ from sharpit.engine.tools import (
     tool_gate,
 )
 from sharpit.settings import PanelSettings, SharpitSettings, load_settings
+from surface import lane_tools
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
 NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
@@ -134,7 +137,8 @@ def _tool(name: str, handler: Callable[[CallContext, dict[str, Any]], dict[str, 
 def test_catalogue_names_panels_actions_and_schemas():
     # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows, panel and action names)
     rows = [(t.name, t.panel, t.action, t.input_schema) for t in TOOLS]
-    assert rows == [
+    assert rows[24:] == [(t.name, t.panel, t.action, t.input_schema) for t in lane_tools()]
+    assert rows[:24] == [
         ("get_overview", "overview", False, NONE_SCHEMA),
         ("get_config", "config", False, QUERY_LIMIT_SCHEMA),
         ("get_mappings", "mappings", False, QUERY_LIMIT_SCHEMA),
@@ -160,6 +164,53 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_rest_api_rule_violations", "rest-api", False, RULE_VIOLATIONS_SCHEMA),
         ("rest_api_scan", "rest-api", True, NONE_SCHEMA),
     ]
+
+
+def test_call_tool_uses_facade_catalogue(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine import tools as facade
+
+    expected = _tool("get_facade_tool", lambda _call, _args: {"facade": True})
+    monkeypatch.setattr(facade, "TOOLS", (expected,))
+
+    result = facade.call_tool(_call(_ctx()), expected.name, {}, via="mcp")
+
+    assert result == {"facade": True}
+
+
+def test_call_tool_uses_the_given_tool_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    # replaces test_call_tool_uses_facade_tool_gate: the double now has the real ToolGate's max_results
+    from sharpit.engine import tools as facade
+
+    expected = _tool("get_facade_gate", lambda _call, _args: {"gate": True})
+    calls: list[str] = []
+
+    class Gate:
+        max_results = 200
+
+        def run(self, name: str, operation: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+            calls.append(name)
+            return operation()
+
+    monkeypatch.setattr(facade, "tool_gate", lambda _ctx, _via: Gate())
+
+    result = facade.call_tool(_call(_ctx()), expected.name, {}, via="mcp", tools=(expected,))
+
+    assert result == {"gate": True}
+    assert calls == [expected.name]
+
+
+@pytest.mark.parametrize("error", [SystemExit(23), asyncio.CancelledError()])
+def test_tool_gate_propagates_base_exceptions_unchanged(error: BaseException) -> None:
+    from sharpit.engine.tool_dispatch import ToolGate
+
+    gate = ToolGate(max_results=10, max_concurrent=1, timeout=1)
+
+    try:
+        gate.run("raises_base_exception", lambda: (_ for _ in ()).throw(error))
+    except BaseException as raised:
+        assert raised is error
+    else:
+        raise AssertionError("ToolGate did not propagate the handler's BaseException")
 
 
 def test_descriptions_ported_with_names_substituted():
@@ -488,3 +539,25 @@ def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, 
 def test_settings_default_mcp_off():
     # new: brief ruling (MCP is OFF by default)
     assert SharpitSettings().mcp_enabled == "OFF"
+
+
+# ported: McpAgentViewsTests.configDropsOnlyThePropertySuggestions (BootUI 2.2.0 McpAgentViews.config)
+def test_mcp_config_drops_only_the_property_suggestions():
+    from pydantic import Field
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+
+    class App(BaseSettings):
+        model_config = SettingsConfigDict(env_prefix="D1_APP_")
+        api_url: str | None = Field(None, description="Upstream API")  # unset: a suggestion, not a property
+
+    settings = load_settings({"config_scan": False}, {})
+    ctx = SharpitContext(settings, ACTIVATION, FakeIntrospector(), app_settings=(App(),))
+    http = config_report(ctx, None, None, False, None, None)
+    assert http["propertySuggestions"]  # the browser's search box still completes from them
+    view = call_tool(_call(ctx), "get_config", {}, via="mcp")
+    assert view["propertySuggestions"] == []
+    assert view["activeProfiles"] == http["activeProfiles"]
+    assert view["sources"] == http["sources"]
+    assert view["page"]["total"] == http["page"]["total"]
+    cli = call_tool(_call(ctx), "get_config", {}, via="cli")
+    assert cli["propertySuggestions"] == []  # BootUI's CLI shares the MCP dispatcher and tool handlers

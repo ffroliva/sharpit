@@ -1,0 +1,23 @@
+{
+  "springSecurityPresent": true,
+  "chains": [
+    {
+      "order": 1,
+      "requestMatcher": "EndpointRequestMatcher includes=[*], excludes=[], includeLinks=true",
+      "requestMatcherType": "EndpointRequestMatcher",
+      "filters": [
+        "DisableEncodeUrlFilter",
+        "WebAsyncManagerIntegrationFilter",
+        "SecurityContextHolderFilter"
+      ],
+      "csrfEnabled": false,
+      "corsEnabled": false,
+      "sessionManagementPresent": true
+    }
+  ],
+  "auth": {
+    "authenticationProviderTypes": [],
+    "userDetailsServiceTypes": [],
+    "configuredUsername": null
+  }
+}

@@ -44,7 +44,8 @@ PANEL_ACCESS_DENIED = "sharpit panel access denied"
 _BUILT_IN_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"})
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _FORWARDED_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip")
-_GLOBAL_WRITE_SUBJECTS = {"/dismissed-rules": "dismissed-rules"}  # port of BootUiGlobalWritePolicy
+# port of BootUiGlobalWritePolicy
+_GLOBAL_WRITE_SUBJECTS = {"/dismissed-rules": "dismissed-rules", "/dismissed-findings": "dismissed-findings"}
 _DISMISSALS = "/dismissed-rules/"
 _BEARER = "bearer "
 _JAVA_TRIM = "".join(chr(c) for c in range(0x21))  # Java String.trim() strips every char <= U+0020
@@ -312,7 +313,7 @@ def _panel_access(method: str, sub_path: str, settings: SharpitSettings) -> Deni
             if sub_path == prefix or sub_path.startswith(prefix + "/"):
                 return _panel_denied(subject, read_only_reason(subject, True))
     if unsafe and sub_path.startswith(_DISMISSALS):
-        return _owning_panel_access(sub_path[len(_DISMISSALS) :], settings)
+        return owning_panel_access(sub_path[len(_DISMISSALS) :], settings)
     panel = panel_for_api_path(sub_path)
     if panel is None:
         return None
@@ -324,17 +325,18 @@ def _panel_access(method: str, sub_path: str, settings: SharpitSettings) -> Deni
     return None
 
 
-def _owning_panel_access(rule_id: str, settings: SharpitSettings) -> Denial | None:
+def owning_panel_access(rule_id: str, settings: SharpitSettings, subject: str = "dismissed-rules") -> Denial | None:
     """Spec §8: dismissing a rule needs its advisor panel enabled and writable; an id with no owner reaches the
-    route, which refuses it with a 400."""
+    route, which refuses it with a 400. The ``/dismissed-findings`` route calls it once it has parsed the body's
+    ``ruleId`` (sharpit deviation: BootUI gates finding mutations with the global read-only only)."""
     owner = owning_panel(rule_id)
     if owner is None:
         return None
     flags = settings.panels.get(owner, PanelSettings())
     if not flags.enabled:
-        return _panel_denied("dismissed-rules", disabled_reason(owner))
+        return _panel_denied(subject, disabled_reason(owner))
     if flags.read_only:
-        return _panel_denied("dismissed-rules", read_only_reason(owner, False))
+        return _panel_denied(subject, read_only_reason(owner, False))
     return None
 
 

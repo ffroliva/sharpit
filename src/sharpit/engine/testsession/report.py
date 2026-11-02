@@ -15,6 +15,7 @@ from sharpit.engine.advisors.report import severity_counts
 from sharpit.engine.advisors.rules import SEVERITIES, severity_rank
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, TestFacts
 from sharpit.engine.testsession.filters import FILTER_RULES
+from sharpit.engine.testsession.gates import ADVISOR as TEST_RUNTIME  # its findings already failed their test
 from sharpit.engine.testsession.outcome import (
     MergedFacts,
     advisor_summaries,
@@ -75,6 +76,8 @@ def render(
     version: str,
     now_ms: int,
     advisors_enabled: bool,
+    mode: str = "gate",
+    unknown_reasons: list[str] | None = None,
 ) -> dict[str, Any]:
     """The report as a dict: every key of spec §7.1 present, nulls kept, camelCase, epoch ms."""
     attributed = attributed_queries(merged.tests)
@@ -86,6 +89,9 @@ def render(
         "generatedAt": now_ms,
         "status": status,
         "statusReasons": reasons,
+        "mode": mode,
+        "unknownReasons": list(unknown_reasons or ()),
+        "baseline": None,
         "warnings": merged.warnings,
         "gates": gates,
         "sources": merged.sources,
@@ -124,7 +130,7 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 
     def clean(value: Any) -> Any:
         if isinstance(value, str):
-            return _clean(value)
+            return clean_text(value)
         if isinstance(value, list):
             items = cast(list[Any], value)
             return [clean(item) for item in items]
@@ -136,8 +142,17 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     _write_atomic(path, json.dumps(clean(data), indent=2, ensure_ascii=False) + "\n")
 
 
-def _clean(text: str) -> str:
+def clean_text(text: str) -> str:
     return "".join(char if _xml_char(char) else _REPLACEMENT for char in text)
+
+
+def finding_fails(finding: dict[str, Any], fail_on: str) -> bool:
+    """The one gate-failure predicate (JUnit, terminal): a test-runtime finding failed its test whatever ``fail_on``."""
+    from sharpit.engine.testsession.gates import fails
+
+    if not fails(finding):
+        return False
+    return finding["advisor"] == TEST_RUNTIME or severity_rank(finding["severity"]) <= severity_rank(fail_on)
 
 
 def write_junit(path: Path, data: dict[str, Any], *, allow_unknown: bool) -> None:
@@ -150,18 +165,23 @@ def write_junit(path: Path, data: dict[str, Any], *, allow_unknown: bool) -> Non
         cases += 1
         properties = ET.SubElement(case, "properties")
         ET.SubElement(properties, "property", name="severity", value=finding["severity"])
-        if not finding["dismissed"] and severity_rank(finding["severity"]) <= severity_rank(
-            data["gates"]["failOnSeverity"]
-        ):
-            failure = ET.SubElement(case, "failure", type=finding["ruleId"], message=_clean(finding["message"]))
-            failure.text = _clean(finding["target"])
+        if finding_fails(finding, data["gates"]["failOnSeverity"]):
+            if data.get("mode") == "report-only":
+                continue
+            failure = ET.SubElement(case, "failure", type=finding["ruleId"], message=clean_text(finding["message"]))
+            failure.text = clean_text(finding["target"])
             failures += 1
     status = data["status"]
     case = ET.SubElement(suite, "testcase", classname="sharpit", name="sharpit.status")
     cases += 1
-    if status == "fail" or (status == "unknown" and not allow_unknown):
-        failure = ET.SubElement(case, "failure", type=status, message=_clean("; ".join(data["statusReasons"])))
-        failure.text = _clean("\n".join(data["statusReasons"]))
+    unknown = data.get("unknownReasons", data["statusReasons"] if status == "unknown" else [])
+    report_only = data.get("mode") == "report-only"
+    if (report_only and unknown and not allow_unknown) or (
+        not report_only and (status == "fail" or (status == "unknown" and not allow_unknown))
+    ):
+        status_reasons = unknown if report_only else data["statusReasons"]
+        failure = ET.SubElement(case, "failure", type=status, message=clean_text("; ".join(status_reasons)))
+        failure.text = clean_text("\n".join(status_reasons))
         failures += 1
     suite.set("tests", str(cases))
     suite.set("failures", str(failures))

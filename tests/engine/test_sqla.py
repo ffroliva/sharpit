@@ -20,7 +20,7 @@ pytest.importorskip("aiosqlite")
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
-from sharpit.engine.capture.correlation import INTERNAL  # noqa: E402
+from sharpit.engine.capture.correlation import INTERNAL, TEST  # noqa: E402
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # noqa: E402
 from sharpit.engine.masking import Exposure, Masker  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
@@ -187,6 +187,185 @@ def test_internal_statements_not_traced():
     finally:
         INTERNAL.reset(token)
     assert _entries(handle) == []
+
+
+def test_session_capture_does_not_register_orm_execute_listener():
+    assert not hasattr(sqla, "do_orm_execute"), "the SQLAlchemy bridge must not install an ORM execution hook"
+    assert sqla.attach_session() is True
+    sqla.detach_session()
+
+
+def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    # the lazy-load budget (test_n_plus_one_overhead) pins the time; this pins the work behind it as a count
+    orm = pytest.importorskip("sqlalchemy.orm")
+    engine = sa.create_engine("sqlite://")
+    Base = orm.declarative_base()
+
+    class Parent(Base):
+        __tablename__ = "repeat_parent"
+        id = sa.Column(sa.Integer, primary_key=True)
+        children = orm.relationship("Child")
+
+    class Child(Base):
+        __tablename__ = "repeat_child"
+        id = sa.Column(sa.Integer, primary_key=True)
+        parent_id = sa.Column(sa.Integer, sa.ForeignKey("repeat_parent.id"))
+
+    Base.metadata.create_all(engine)
+    with orm.Session(engine) as session:
+        session.add_all(Parent(children=[Child()]) for _ in range(10))
+        session.commit()
+    _install(engines=[engine])
+
+    calls = {"path": 0, "fingerprint": 0}
+    path, fingerprint = sqla._relationship_path, sqla._masked_fingerprint
+
+    def count_path(context: object) -> object:
+        calls["path"] += 1
+        return path(context)
+
+    def count_fingerprint(statement: str) -> str:
+        calls["fingerprint"] += 1
+        return fingerprint(statement)
+
+    monkeypatch.setattr(sqla, "_relationship_path", count_path)
+    monkeypatch.setattr(sqla, "_masked_fingerprint", count_fingerprint)
+    tag = ("test_repeated_lazy_load_inspects_relationship_and_fingerprint_once", 1, "call")
+    token = TEST.set(tag)
+    try:
+        assert sqla.attach_session() is True
+        with orm.Session(engine) as session:
+            parents = list(session.scalars(sa.select(Parent)))
+            calls.update(path=0, fingerprint=0)  # the parent SELECT is not a lazy load
+            for parent in parents:
+                list(parent.children)
+        groups = dict(sqla._relationship_groups[tag])
+        assert calls["path"] == 1, f"relationship path read {calls['path']} times for 10 identical lazy loads"
+        assert calls["fingerprint"] == 1, f"statement fingerprinted {calls['fingerprint']} times for 10 lazy loads"
+        assert list(groups.values()) == [("Parent.children", True)]
+    finally:
+        sqla.detach_session()
+        TEST.reset(token)
+
+
+def test_listener_failure_does_not_change_query_result(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    engine = sa.create_engine("sqlite://")
+    orm = pytest.importorskip("sqlalchemy.orm")
+    Base = orm.declarative_base()
+
+    class Parent(Base):
+        __tablename__ = "orm_parent"
+        id = sa.Column(sa.Integer, primary_key=True)
+        children = orm.relationship("Child")
+
+    class Child(Base):
+        __tablename__ = "orm_child"
+        id = sa.Column(sa.Integer, primary_key=True)
+        parent_id = sa.Column(sa.Integer, sa.ForeignKey("orm_parent.id"))
+
+    Base.metadata.create_all(engine)
+    with orm.Session(engine) as session:
+        session.add(Parent(children=[Child()]))
+        session.commit()
+
+    _install(engines=[engine])
+
+    def fail() -> str | None:
+        raise RuntimeError("frame inspection failed")
+
+    monkeypatch.setattr(sqla, "_first_application_location", fail)
+    token = TEST.set(("test_listener_failure", 1, "call"))
+    try:
+        assert sqla.attach_session() is True
+        with orm.Session(engine) as session:
+            assert len(session.query(Parent).one().children) == 1
+    finally:
+        sqla.detach_session()
+        TEST.reset(token)
+
+
+def test_first_application_location_is_cached_per_relationship(monkeypatch: pytest.MonkeyPatch) -> None:
+    orm = pytest.importorskip("sqlalchemy.orm")
+    engine = sa.create_engine("sqlite://")
+    Base = orm.declarative_base()
+
+    class Parent(Base):
+        __tablename__ = "location_parent"
+        id = sa.Column(sa.Integer, primary_key=True)
+        children = orm.relationship("Child")
+
+    class Child(Base):
+        __tablename__ = "location_child"
+        id = sa.Column(sa.Integer, primary_key=True)
+        parent_id = sa.Column(sa.Integer, sa.ForeignKey("location_parent.id"))
+
+    Base.metadata.create_all(engine)
+    with orm.Session(engine) as session:
+        session.add_all(Parent(children=[Child()]) for _ in range(10))
+        session.commit()
+    _install(engines=[engine])
+
+    original = sqla._first_application_location
+    calls = 0
+
+    def count_location() -> str | None:
+        nonlocal calls
+        calls += 1
+        return original()
+
+    monkeypatch.setattr(sqla, "_first_application_location", count_location)
+    token = TEST.set(("test_first_application_location_is_cached_per_relationship", 1, "call"))
+    try:
+        assert sqla.attach_session() is True
+        with orm.Session(engine) as session:
+            for parent in session.scalars(sa.select(Parent)):
+                list(parent.children)
+        assert calls == 1, f"expected one source stack walk for one relationship, got {calls}"
+    finally:
+        sqla.detach_session()
+        TEST.reset(token)
+
+
+def test_relationship_facts_use_masked_statement_fingerprint() -> None:
+    from sharpit.engine.capture.sqltrace import normalize
+    from sharpit.engine.testsession.sink import report_masker
+
+    statement = "SELECT * FROM payments WHERE api_key = ?"
+    tag = ("test_relationship_facts_use_masked_statement_fingerprint", 1, "call")
+    context = types.SimpleNamespace(
+        execution_options={sqla.RELATIONSHIP_KEY: ("Payment.refunds", True)},
+        statement=statement,
+    )
+    token = TEST.set(tag)
+    try:
+        sqla._record_relationship(context)
+        masked_fingerprint = report_masker().mask_text(normalize(statement).fingerprint)
+        assert sqla._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
+    finally:
+        sqla._relationship_loads.pop(tag, None)
+        sqla._relationship_groups.pop(tag, None)
+        sqla._relationship_sites.pop(tag, None)
+        TEST.reset(token)
+
+
+def test_relationship_facts_tolerate_missing_call_phase() -> None:
+    tag = ("test_relationship_facts_tolerate_missing_call_phase", 1, "call")
+    sqla._relationship_groups[tag] = {"statement-fingerprint": ("Player.performances", True)}
+    test = types.SimpleNamespace(
+        key=types.SimpleNamespace(node_id=tag[0], attempt=tag[1]),
+        phases={},
+    )
+    try:
+        missing_phase_guarded = True
+        try:
+            sqla.apply_relationship_facts(test)
+        except KeyError:
+            missing_phase_guarded = False
+        assert missing_phase_guarded, "missing call phase must not raise KeyError"
+    finally:
+        sqla._relationship_groups.pop(tag, None)
 
 
 def test_pause_returns_early_listeners_kept():

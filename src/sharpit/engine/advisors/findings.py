@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -23,6 +23,8 @@ class Finding:
     test_node_id: str | None = None
     dismissed: bool = False
     identity: str | None = None
+    observed: int | None = None
+    baseline_state: str | None = None
 
     @property
     def fingerprint(self) -> str:
@@ -41,13 +43,20 @@ class Finding:
             "fingerprint": self.fingerprint,
             "testNodeId": self.test_node_id,
             "dismissed": self.dismissed,
+            "observed": self.observed,
+            "baselineState": self.baseline_state,
         }
+
+
+def fails(dto: Mapping[str, object]) -> bool:
+    """The one failing predicate: an active, non-baselined finding; INFO findings are notes and never fail."""
+    return not dto["dismissed"] and dto.get("baselineState") != "existing" and dto["severity"] != "INFO"
 
 
 @dataclass(frozen=True)
 class AdvisorRun:
     advisor: str
-    status: Literal["PASSED", "FAILED", "UNKNOWN"]
+    status: Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
     reason: str | None
@@ -67,14 +76,17 @@ class AdvisorRun:
         """Derive the status (spec §5.3); it is never set by hand."""
         found = tuple(findings)
         gate = severity_rank(fail_on)
-        if any(not f.dismissed and severity_rank(f.severity) <= gate for f in found):
-            return cls(advisor, "FAILED", found, evidence, None, app)
         limitations: list[str] = evidence.get("limitations") or []
         incomplete = (
             not evidence.get("coverageComplete")
             or (not evidence.get("usable") and bool(limitations))
             or scan_status in ("PARTIAL", "ERROR")
         )
+        if any(fails(f.to_dto()) and severity_rank(f.severity) <= gate for f in found):
+            reason = None
+            if incomplete:
+                reason = limitations[0] if limitations else _FALLBACK_REASON
+            return cls(advisor, "FAILED", found, evidence, reason, app)
         if incomplete:
             return cls(advisor, "UNKNOWN", found, evidence, limitations[0] if limitations else _FALLBACK_REASON, app)
         return cls(advisor, "PASSED", found, evidence, None, app)

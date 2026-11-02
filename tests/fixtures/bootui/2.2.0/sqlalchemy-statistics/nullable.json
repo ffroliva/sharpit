@@ -1,0 +1,18 @@
+{
+  "statistics.sessionOpenCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.sessionCloseCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.flushCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.connectCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.transactionCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.successfulTransactionCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.entityLoadCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.entityFetchCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.entityInsertCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.entityUpdateCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.entityDeleteCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.collectionLoadCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.collectionFetchCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.collectionRecreateCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.collectionUpdateCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)",
+  "statistics.collectionRemoveCount": "SQLAlchemy reports SQL statements, not ORM session or entity operations (transactions live in the transactions panel)"
+}

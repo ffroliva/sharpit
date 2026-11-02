@@ -1,17 +1,74 @@
 from __future__ import annotations
 
 import ast
+import json
 from collections import Counter
 from pathlib import Path
 
 import sharpit.engine.testsession as testsession_pkg
 from engine.testsession.tsfakes import NODE, event, run_phase, selects
+from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.sqltrace import normalize
 from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey
-from sharpit.engine.testsession.gates import Budget, evaluate_test
+from sharpit.engine.testsession.gates import Budget, evaluate_test, fails
 from sharpit.engine.testsession.sink import TestSessionSink
 
 NONE = Budget(None, False, 0)
+
+
+def test_fails_excludes_existing_and_info() -> None:
+    assert fails({"dismissed": False, "baselineState": "existing", "severity": "HIGH"}) is False
+    assert fails({"dismissed": False, "baselineState": "new", "severity": "INFO"}) is False
+    assert fails({"dismissed": False, "baselineState": "new", "severity": "HIGH"}) is True
+
+
+def test_per_finding_dismissal_reaches_gate(tmp_path, monkeypatch) -> None:
+    pair = ("sharpit.max-queries", NODE)
+    monkeypatch.setattr(DismissalStore, "dismissed_pairs", lambda _self: {pair})
+    store = DismissalStore(tmp_path)
+    [finding] = evaluate_test(_facts(call=PhaseFacts(queries=7)), Budget(5, False, 0), 5, (), store.dismissed_pairs())
+    assert fails(finding.to_dto()) is False
+
+
+def test_baselined_query_count_increase_is_new() -> None:
+    facts = _facts(call=PhaseFacts(queries=500))
+    current = evaluate_test(facts, Budget(5, False, 0), 5, ())[0]
+    [increased] = evaluate_test(facts, Budget(5, False, 0), 5, (), baseline={current.fingerprint: 12})
+    assert increased.baseline_state == "new"
+    assert fails(increased.to_dto()) is True
+
+
+def test_existing_baseline_keeps_dismissed_false() -> None:
+    facts = _facts(call=PhaseFacts(queries=6))
+    current = evaluate_test(facts, Budget(5, False, 0), 5, ())[0]
+    [existing] = evaluate_test(facts, Budget(5, False, 0), 5, (), baseline={current.fingerprint: 12})
+    assert existing.dismissed is False
+    assert fails(existing.to_dto()) is False
+
+
+def test_unlisted_finding_is_new() -> None:
+    facts = _facts(call=PhaseFacts(queries=6))
+    [finding] = evaluate_test(facts, Budget(5, False, 0), 5, (), baseline={"other": None})
+    assert finding.baseline_state == "new"
+
+
+def test_unbaselined_run_has_null_baseline_state() -> None:
+    [finding] = evaluate_test(_facts(call=PhaseFacts(queries=6)), Budget(5, False, 0), 5, ())
+    assert finding.baseline_state is None
+
+
+def test_explicit_dismissed_finding_stays_dismissed() -> None:
+    facts = _facts(call=PhaseFacts(queries=6))
+    current = evaluate_test(facts, Budget(5, False, 0), 5, ())[0]
+    [finding] = evaluate_test(
+        facts,
+        Budget(5, False, 0),
+        5,
+        (current.fingerprint,),
+        baseline={current.fingerprint: 12},
+    )
+    assert finding.dismissed is True
+    assert fails(finding.to_dto()) is False
 
 
 def _facts(**phases: PhaseFacts) -> TestFacts:
@@ -140,3 +197,170 @@ def test_gates_module_never_reads_duration() -> None:
 
 def test_selects_counter_is_a_counter() -> None:
     assert isinstance(selects("fp", 2).selects, Counter)
+
+
+def test_fingerprint_stable_across_runtime_values() -> None:
+    # spec §5.2: worker, attempt, counts and SQL literals vary between runs; fingerprints must not
+    first = evaluate_test(
+        TestFacts(TestKey(NODE, "gw0", 1), phases={"call": PhaseFacts(queries=7)}), Budget(5, False, 0), 5, ()
+    )
+    second = evaluate_test(
+        TestFacts(TestKey(NODE, "gw3", 2), phases={"call": PhaseFacts(queries=40)}), Budget(5, False, 0), 5, ()
+    )
+    assert [f.fingerprint for f in first] == [f.fingerprint for f in second]
+    one = evaluate_test(_facts(call=selects("fp", 6, "SELECT * FROM pets WHERE owner_id = 1")), NONE, 5, ())
+    two = evaluate_test(
+        TestFacts(
+            TestKey(NODE, "gw1", 3), phases={"call": selects("fp", 60, "SELECT * FROM pets WHERE owner_id = 99")}
+        ),
+        NONE,
+        5,
+        (),
+    )
+    assert [f.fingerprint for f in one] == [f.fingerprint for f in two]
+
+
+def test_n_plus_one_names_lazy_relationship_and_loader() -> None:
+    call = PhaseFacts(
+        selects=Counter({"fp": 6}),
+        sql_of={"fp": "SELECT * FROM performances WHERE player_id = ?"},
+        relationship_loads=Counter({"Player.performances": 6}),
+        relationship_of={"fp": ("Player.performances", True)},
+        relationship_sites={"Player.performances": "test_app.py:18"},
+    )
+    [finding] = evaluate_test(_facts(call=call), NONE, 5, ())
+
+    assert "Player.performances lazy-loaded 6 times" in finding.message
+    assert "selectinload(Player.performances)" in finding.message
+    assert "test_app.py:18" in finding.message
+
+
+def test_n_plus_one_falls_back_without_relationship_evidence() -> None:
+    [finding] = evaluate_test(_facts(call=selects("fp", 6, "SELECT * FROM items")), NONE, 5, ())
+
+    assert finding.message == "6 executions of one SELECT in the call phase"
+
+
+def test_n_plus_one_suggests_joinedload_for_many_to_one() -> None:
+    call = PhaseFacts(
+        selects=Counter({"fp": 6}),
+        sql_of={"fp": "SELECT * FROM players WHERE id = ?"},
+        relationship_loads=Counter({"Performance.player": 6}),
+        relationship_of={"fp": ("Performance.player", False)},
+    )
+    [finding] = evaluate_test(_facts(call=call), NONE, 5, ())
+
+    assert "Performance.player lazy-loaded 6 times" in finding.message
+    assert "joinedload(Performance.player)" in finding.message
+
+
+def test_n_plus_one_message_includes_masked_statement_and_source() -> None:
+    call = PhaseFacts(
+        selects=Counter({"fp": 6}),
+        sql_of={"fp": "SELECT * FROM performances WHERE token = ?"},
+        relationship_loads=Counter({"Player.performances": 6}),
+        relationship_of={"fp": ("Player.performances", True)},
+        relationship_sites={"Player.performances": "app/tests.py:42"},
+    )
+    [finding] = evaluate_test(_facts(call=call), NONE, 5, ())
+
+    assert "masked statement: SELECT * FROM performances WHERE token = ?" in finding.message
+    assert "app/tests.py:42" in finding.message
+
+
+def test_relationship_facts_survive_json_round_trip() -> None:
+    facts = PhaseFacts(
+        relationship_loads=Counter({"Player.performances": 6}),
+        relationship_of={"statement-fingerprint": ("Player.performances", True)},
+        relationship_sites={"Player.performances": "tests/app.py:18"},
+    )
+
+    restored = PhaseFacts.from_json(json.loads(json.dumps(facts.to_json())))
+
+    assert restored.relationship_loads == facts.relationship_loads
+    assert restored.relationship_of == facts.relationship_of
+    assert restored.relationship_sites == facts.relationship_sites
+
+
+def test_relationship_message_keeps_statement_fingerprint() -> None:
+    plain = evaluate_test(_facts(call=selects("fp", 6, "SELECT * FROM performances")), NONE, 5, ())[0]
+    relation = PhaseFacts(
+        selects=Counter({"fp": 6}),
+        sql_of={"fp": "SELECT * FROM performances"},
+        relationship_loads=Counter({"Player.performances": 6}),
+        relationship_of={"fp": ("Player.performances", True)},
+    )
+    [enriched] = evaluate_test(_facts(call=relation), NONE, 5, ())
+
+    assert enriched.fingerprint == plain.fingerprint
+
+
+def test_explicit_dismissal_wins_over_baseline() -> None:
+    facts = _facts(call=PhaseFacts(queries=6))
+    current = evaluate_test(facts, Budget(5, False, 0), 5, ())[0]
+    [finding] = evaluate_test(
+        facts, Budget(5, False, 0), 5, (current.fingerprint,), baseline={current.fingerprint: None}
+    )
+    assert finding.dismissed is True
+    assert fails(finding.to_dto()) is False
+
+
+# --- sharpit.swallowed-exception (spec 0.4.0 §5.5 F1) ---------------------------------------------------------------
+
+SWALLOWED_RULE = "sharpit.swallowed-exception"
+
+
+def _swallowed(type_name: str, programming_error: bool) -> TestFacts:
+    from sharpit.engine.testsession.facts import SwallowedFact
+
+    return _facts(call=PhaseFacts(swallowed=[SwallowedFact("app/weeks.py:21", type_name, programming_error)]))
+
+
+def _swallowed_findings(facts: TestFacts, budget: Budget = NONE) -> list[dict[str, object]]:
+    return [f.to_dto() for f in evaluate_test(facts, budget, 5, ()) if f.rule_id == SWALLOWED_RULE]
+
+
+def test_swallowed_attribute_error_fails_test_by_default() -> None:
+    found = _swallowed_findings(_swallowed("AttributeError", True))
+
+    assert len(found) == 1
+    assert found[0]["severity"] == "HIGH"
+    assert fails(found[0]) is True
+    assert found[0]["target"] == "app/weeks.py:21"
+
+
+def test_non_programming_error_swallow_is_a_note() -> None:
+    found = _swallowed_findings(_swallowed("ValueError", False))
+
+    assert len(found) == 1
+    assert found[0]["severity"] == "INFO"
+    assert fails(found[0]) is False
+
+
+def test_allow_swallowed_marker() -> None:
+    from sharpit.pytest_plugin.marker import budget_for
+
+    class Marker:
+        name = "sharpit"
+        kwargs = {"allow_swallowed": True}
+
+    class Item:
+        own_markers = [Marker()]
+
+        def listchain(self) -> list[object]:
+            return [self]
+
+    budget = budget_for(Item(), None)
+    found = _swallowed_findings(_swallowed("AttributeError", True), budget)
+
+    assert budget.allow_swallowed is True
+    assert len(found) == 1
+    assert found[0]["severity"] == "INFO"
+
+
+def test_swallowed_message_names_handler_and_type_only() -> None:
+    found = _swallowed_findings(_swallowed("AttributeError", True))
+
+    assert [f["message"] for f in found] == [
+        "AttributeError swallowed by a broad except clause at app/weeks.py:21 (neither re-raised nor logged)"
+    ]
