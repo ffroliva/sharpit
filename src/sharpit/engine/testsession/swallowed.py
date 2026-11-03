@@ -1,8 +1,10 @@
 """Swallowed exceptions (spec 0.4.0 §5.5 F1): does the ``except`` clause that handled an exception swallow it?
 
-A clause swallows when it catches everything, ``Exception`` or ``BaseException`` and its body neither raises nor calls
-a logger or ``warnings``. Only stdlib ``ast``/``dis``: no source text, local or message is kept, and a name the parser
-cannot resolve to a builtin exception counts as "may match", so an unknown clause never produces a finding.
+A clause swallows when it catches everything, ``Exception`` or ``BaseException`` and its body neither raises, returns
+an HTTP error response nor calls a recognised sink: a logger, ``warnings``, an error tracker, or a function of the same
+module whose own body does one of those. Only stdlib ``ast``/``dis``: no source text, local or message is kept, and a
+name the parser cannot resolve to a builtin exception counts as "may match", so an unknown clause never produces a
+finding.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import dis
 import functools
 import linecache
 from types import CodeType
+from typing import NamedTuple
 
 PROGRAMMING_ERRORS: tuple[type[BaseException], ...] = (
     AttributeError,
@@ -28,9 +31,21 @@ _LOG_CALLS = frozenset({"debug", "info", "warning", "warn", "error", "exception"
 _LOGGERS = frozenset(
     {"log", "logger", "_log", "_logger", "LOG", "LOGGER", "logging", "warnings", "getLogger", "get_logger"}
 )
+# error-tracker captures that count as handling, kept small: by attribute anywhere, or by dotted name
+_CAPTURE = "capture_exception"  # sentry_sdk.capture_exception, hub.capture_exception, a bare imported capture_exception
+_TRACKERS = frozenset({"rollbar.report_exc_info", "bugsnag.notify"})
+_SELF = frozenset({"self", "cls"})
 
-# a try's clauses, the clause at the given line and the module-level names bound to a logger
-type _Entry = tuple[tuple[ast.ExceptHandler, ...], int, frozenset[str]]
+
+class _Module(NamedTuple):
+    loggers: frozenset[str]  # module-level names bound to a logger
+    defined: frozenset[str]  # every function and method name defined in the module
+    handling: frozenset[str]  # the defined ones whose own body raises, logs or calls a tracker
+    imported: frozenset[str]  # names bound by an import
+
+
+# a try's clauses, the clause at the given line and the facts about its module
+type _Entry = tuple[tuple[ast.ExceptHandler, ...], int, _Module]
 
 
 def is_programming_error(exc: BaseException) -> bool:
@@ -40,14 +55,14 @@ def is_programming_error(exc: BaseException) -> bool:
 def _index(tree: ast.AST) -> dict[int, _Entry]:
     """Every line of every ``except`` clause header -> (that try's clauses, the clause's position)."""
     index: dict[int, _Entry] = {}
-    loggers = _module_loggers(tree)
+    module = _module(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Try):
             handlers = tuple(node.handlers)
             for position, handler in enumerate(handlers):
                 last = handler.type.end_lineno if handler.type is not None else None
                 for line in range(handler.lineno, (last or handler.lineno) + 1):
-                    index.setdefault(line, (handlers, position, loggers))
+                    index.setdefault(line, (handlers, position, module))
     return index
 
 
@@ -61,6 +76,20 @@ def _module_loggers(tree: ast.AST) -> frozenset[str]:
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 names |= {target.id for target in targets if isinstance(target, ast.Name)}
     return frozenset(names)
+
+
+def _module(tree: ast.AST) -> _Module:
+    loggers = _module_loggers(tree)
+    nodes = list(ast.walk(tree))
+    functions = [n for n in nodes if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
+    imported = {
+        (alias.asname or alias.name).split(".")[0]
+        for n in nodes
+        if isinstance(n, ast.Import | ast.ImportFrom)
+        for alias in n.names
+    }
+    handling = {f.name for f in functions if any(_reports(n, loggers) for n in ast.walk(f))}  # one level: no call chase
+    return _Module(loggers, frozenset(f.name for f in functions), frozenset(handling), frozenset(imported))
 
 
 def _elements(handler: ast.ExceptHandler) -> list[ast.expr]:
@@ -94,10 +123,62 @@ def _logs(func: ast.expr, loggers: frozenset[str]) -> bool:
     return isinstance(receiver, ast.Name) and (receiver.id in _LOGGERS or receiver.id in loggers)
 
 
+def _dotted(func: ast.expr) -> str | None:
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        return f"{func.value.id}.{func.attr}"
+    return _call_name(func)
+
+
+def _tracks(func: ast.expr) -> bool:
+    """An error-tracker capture (Sentry, Rollbar, Bugsnag)."""
+    return _call_name(func) == _CAPTURE or _dotted(func) in _TRACKERS
+
+
+def _reports(node: ast.AST, loggers: frozenset[str]) -> bool:
+    """A raise, or a call to a logger, ``warnings`` or an error tracker."""
+    return isinstance(node, ast.Raise) or (
+        isinstance(node, ast.Call) and (_logs(node.func, loggers) or _tracks(node.func))
+    )
+
+
 def _passes(call: ast.Call, bound: str | None) -> bool:
-    """The call hands the caught exception on (``self._report(e)``): a helper that may log or re-raise it."""
+    """The call hands the caught exception on (``self._report(e)``)."""
     arguments = [*call.args, *(keyword.value for keyword in call.keywords)]
     return bound is not None and any(isinstance(a, ast.Name) and a.id == bound for a in arguments)
+
+
+def _hands_on(func: ast.expr, module: _Module) -> bool:
+    """A call handing the exception on handles it when its target, a function of this module, reports; a builtin or a
+    method on a local value (``errors.append(e)``, ``str(e)``) does not."""
+    name = _call_name(func)
+    if name in module.defined:
+        return name in module.handling
+    # fail-safe (0.4.0): an imported, inherited or dynamic target cannot be read here, so never report on a guess
+    if isinstance(func, ast.Name):
+        return not hasattr(builtins, func.id)
+    if isinstance(func, ast.Attribute):
+        return isinstance(func.value, ast.Name) and (func.value.id in _SELF or func.value.id in module.imported)
+    return True  # getattr(self, name)(e), handlers[kind](e), ...
+
+
+def _http_error(value: ast.expr) -> bool:
+    """A statically visible status code >= 400: ``500`` or ``status.HTTP_503_SERVICE_UNAVAILABLE``."""
+    if isinstance(value, ast.Constant):
+        return isinstance(value.value, int) and value.value >= 400
+    code = (_call_name(value) or "").removeprefix("HTTP_")[:3]
+    return code.isdigit() and int(code) >= 400
+
+
+def _error_response(node: ast.AST) -> bool:
+    """``return JSONResponse(..., status_code=500)``: the failure reaches the client."""
+    call = node.value if isinstance(node, ast.Return) else None
+    return isinstance(call, ast.Call) and any(k.arg == "status_code" and _http_error(k.value) for k in call.keywords)
+
+
+def _handles(node: ast.AST, bound: str | None, module: _Module) -> bool:
+    if _reports(node, module.loggers) or _error_response(node):
+        return True
+    return isinstance(node, ast.Call) and _passes(node, bound) and _hands_on(node.func, module)
 
 
 def _unreferenced(node: ast.AST, used: set[str]) -> bool:
@@ -112,16 +193,14 @@ def _unreferenced(node: ast.AST, used: set[str]) -> bool:
     )
 
 
-def _silent(handler: ast.ExceptHandler, loggers: frozenset[str]) -> bool:
+def _silent(handler: ast.ExceptHandler, module: _Module) -> bool:
     nodes = list(ast.walk(handler))
     used = {n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
     used |= {n.attr for n in nodes if isinstance(n, ast.Attribute)}  # a class method called as obj.method()
     pending: list[ast.AST] = list(handler.body)
     while pending:
         node = pending.pop()
-        if isinstance(node, ast.Raise):
-            return False
-        if isinstance(node, ast.Call) and (_logs(node.func, loggers) or _passes(node, handler.name)):
+        if _handles(node, handler.name, module):
             return False
         if not _unreferenced(node, used):
             pending.extend(ast.iter_child_nodes(node))
@@ -144,7 +223,7 @@ def _catches(handler: ast.ExceptHandler, exc_type: type[BaseException]) -> bool 
 
 def _swallowing(entry: _Entry, exc_type: type[BaseException] | None) -> ast.ExceptHandler | None:
     """The clause that handled ``exc_type`` (the one at the entry's line without it) when it swallows, else None."""
-    handlers, position, loggers = entry
+    handlers, position, module = entry
     handler = handlers[position]
     if exc_type is not None:  # CPython tries the clauses in order: find the one that handled it
         for candidate in handlers:
@@ -156,7 +235,7 @@ def _swallowing(entry: _Entry, exc_type: type[BaseException] | None) -> ast.Exce
                 break
         else:
             return None
-    return handler if _broad(handler) and _silent(handler, loggers) else None
+    return handler if _broad(handler) and _silent(handler, module) else None
 
 
 def handler_swallows(source: str, handled_line: int, exc: BaseException | None = None) -> bool:
@@ -202,13 +281,13 @@ def handler_swallows_code(code: CodeType, offset: int, exc: BaseException | None
 def swallowing_lines(source: str) -> list[int]:
     """The header lines of every broad, silent ``except`` clause in a module's source (the static check)."""
     tree = ast.parse(source)
-    loggers = _module_loggers(tree)
+    module = _module(tree)
     found = {
         handler.lineno
         for node in ast.walk(tree)
         if isinstance(node, ast.Try)
         for handler in node.handlers
-        if _broad(handler) and _silent(handler, loggers)
+        if _broad(handler) and _silent(handler, module)
     }
     return sorted(found)
 
