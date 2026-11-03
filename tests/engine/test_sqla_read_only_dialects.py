@@ -273,3 +273,35 @@ def test_other_dialect_read_only_unavailable() -> None:
     assert isinstance(result, sqla.ReadOnlyUnavailable)
     assert conn.queries == []
     assert ran == []
+
+
+def test_sqlite_read_back_not_on_refuses() -> None:
+    # council F5b finding 1: the read-back is the check; a server that keeps query_only off refuses the read
+    conn = _RecordingConn(dialect=_FakeDialect(name="sqlite"), answers={"PRAGMA query_only": [0, 0]})
+
+    result, ran = _read(conn)
+
+    assert isinstance(result, sqla.ReadOnlyUnavailable)
+    assert ran == []
+    assert conn.queries[-1] == "PRAGMA query_only = 0"
+    assert conn.invalidated is False
+
+
+class _ReadBackFails(_RecordingConn):
+    """The second ``PRAGMA query_only`` (the read-back) raises, as a dropped connection would."""
+
+    def exec_driver_sql(self, sql: str) -> _Result:
+        if sql == "PRAGMA query_only" and sql in self.queries:
+            self.queries.append(sql)
+            raise RuntimeError("connection lost during the read-back")
+        return super().exec_driver_sql(sql)
+
+
+def test_sqlite_read_back_failure_refuses() -> None:
+    conn = _ReadBackFails(dialect=_FakeDialect(name="sqlite"), answers={"PRAGMA query_only": [0]})
+
+    result, ran = _read(conn)
+
+    assert isinstance(result, RuntimeError)
+    assert ran == []
+    assert conn.queries[-1] == "PRAGMA query_only = 0"
