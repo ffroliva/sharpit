@@ -29,7 +29,7 @@ All review red commits passed `red_check.py` for their listed tests and were rep
 
 These tests cover behavior already present in the implementation. Each mutation temporarily broke the named guard in the listed source file at test commit `4541d8e463446148be920cecf831443e651a7e4e`; the test then failed at the shown assertion. Tests with parameters are recorded by their base id.
 
-| Finding | Test | Historical SHA | Mutation proof / assertion message | Disposition |
+| Finding | Test | Historical SHA | Mutation proof / assertion message | Status |
 |---|---|---|---|---|
 | Superseded F2 spike red | `tests/pytest_plugin/test_plugin_unbounded_read.py::test_spike_f2_unbounded_read_found` | `cb7fc450ec3429a27ef4a197bf57cf8864d3c022` | Detached `red_check.py` replay: assertion that no `sharpit.unbounded-read` finding exists | Superseded by lint-clean F2 test at `2e373d7bcf262633b98a961e76d942d0b4796dd2` |
 | Counts separate statements by QueryContext | `tests/engine/test_sqla.py::test_load_counts_are_per_statement` | `4541d8e463446148be920cecf831443e651a7e4e` | Mutate `query_id = id(context)` to one constant → `AssertionError: len(info.loads) == 2` (got 1) | Mutation-proven |
