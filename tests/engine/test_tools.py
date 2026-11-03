@@ -115,6 +115,7 @@ SCHEMAS_2_2_0 = {
     "get_log_tail": QUERY_LIMIT_SCHEMA,
     "get_sql_traces": QUERY_LIMIT_SCHEMA,
     "get_live_activity": QUERY_LIMIT_SCHEMA,
+    "get_vulnerabilities_report": QUERY_LIMIT_SCHEMA,  # contract 0.4 drift §7 (lane D4)
 }
 
 
@@ -167,7 +168,7 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_health", "health", False, NONE_SCHEMA),
         ("get_database_connection_pools", "database-connection-pools", False, NONE_SCHEMA),
         ("get_threads", "threads", False, QUERY_LIMIT_SCHEMA),
-        ("get_vulnerabilities_report", "vulnerabilities", False, NONE_SCHEMA),
+        ("get_vulnerabilities_report", "vulnerabilities", False, QUERY_LIMIT_SCHEMA),
         ("vulnerabilities_scan", "vulnerabilities", True, NONE_SCHEMA),
         ("get_rest_api_report", "rest-api", False, NONE_SCHEMA),
         ("get_rest_api_rule_violations", "rest-api", False, RULE_VIOLATIONS_SCHEMA),

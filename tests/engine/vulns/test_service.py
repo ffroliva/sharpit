@@ -41,6 +41,15 @@ VULN_KEYS = {
     "epssScore",
     "epssPercentile",
     "dismissed",
+    "advisorySymbols",  # BootUI 2.2.0 additions (contract 0.4 drift §7)
+    "advisorySymbolSource",
+    "runtimeReach",
+}
+# keys BootUI 2.2.0 added over the 1.x golden these shape tests compare against (lane D4)
+ADDED_2_2_0: dict[str, set[str]] = {
+    "report": {"runtimeReach"},
+    "coverage": {"archivesFirstParty", "firstPartyArchives", "firstPartyArchivesTruncated"},
+    "dependency": {"runtimeReach"},
 }
 
 
@@ -127,10 +136,10 @@ def test_get_never_network(no_side_effects: SideEffectGuard, tmp_state_dir: Path
 def test_not_scanned_shape_matches_golden_keys(tmp_state_dir: Path):
     expected = golden("vulnerabilities")
     report = service(FakeOsv(), [JINJA, FLASK], tmp_state_dir).report()
-    assert report.keys() == expected.keys()
+    assert report.keys() == expected.keys() | ADDED_2_2_0["report"]
     for key in ("scan", "coverage", "evidence"):
-        assert report[key].keys() == expected[key].keys(), key
-    assert report["dependencies"][0].keys() == expected["dependencies"][0].keys()
+        assert report[key].keys() == expected[key].keys() | ADDED_2_2_0.get(key, set()), key
+    assert report["dependencies"][0].keys() == expected["dependencies"][0].keys() | ADDED_2_2_0["dependency"]
     assert report["dependencies"][0]["assessment"] == {"queryComplete": False, "detailAssessmentComplete": False}
     assert [c["severity"] for c in report["severityCounts"]] == [c["severity"] for c in expected["severityCounts"]]
     assert report["scan"] == {
@@ -154,6 +163,7 @@ def test_not_scanned_shape_matches_golden_keys(tmp_state_dir: Path):
         "highestSeverity": "NONE",
         "vulnerabilities": [],
         "assessment": None,
+        "runtimeReach": None,
     }
 
 
@@ -163,11 +173,11 @@ def test_scan_report_shape_matches_golden_keys(tmp_state_dir: Path):
     expected = golden("vulnerabilities")
     osv = fixture_osv()
     report = service(osv, [JINJA, FLASK], tmp_state_dir).scan()
-    assert report.keys() == expected.keys()
+    assert report.keys() == expected.keys() | ADDED_2_2_0["report"]
     for key in ("scan", "coverage", "evidence"):
-        assert report[key].keys() == expected[key].keys(), key
+        assert report[key].keys() == expected[key].keys() | ADDED_2_2_0.get(key, set()), key
     jinja = dep(report, "jinja2")
-    assert jinja.keys() == expected["dependencies"][0].keys()
+    assert jinja.keys() == expected["dependencies"][0].keys() | ADDED_2_2_0["dependency"]
     assert all(v.keys() == VULN_KEYS for v in jinja["vulnerabilities"])
     scan = report["scan"]
     assert scan["status"] == "SCANNED"

@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 
 from sharpit.engine.advisors.dismissals import DismissalStore, rule_id
 from sharpit.engine.advisors.report import evidence, severity_counts
@@ -60,6 +60,16 @@ class _Scan:
     packages_scanned: int
     packages_skipped: int
     dependencies: list[_Dependency]
+
+
+# BootUI 2.2.0 ``RuntimeReachSummaryDto``: runtime reach comes from Code Inventory, which sharpit does not have
+RUNTIME_REACH_UNAVAILABLE: Final[dict[str, Any]] = {
+    "available": False,
+    "unavailableReason": "Code Inventory panel is disabled.",
+    "generation": None,
+    "note": None,
+    "incompleteReason": None,
+}
 
 
 class VulnerabilityService:
@@ -318,6 +328,9 @@ def _render(scan: _Scan, dismissed: set[str]) -> dict[str, Any]:
             "archivesUnidentified": 0,
             "unidentifiedArchives": [],
             "unidentifiedArchivesTruncated": False,
+            "archivesFirstParty": 0,
+            "firstPartyArchives": [],
+            "firstPartyArchivesTruncated": False,
         },
         "dependencies": [
             {
@@ -330,10 +343,12 @@ def _render(scan: _Scan, dismissed: set[str]) -> dict[str, Any]:
                 "highestSeverity": highest,
                 "vulnerabilities": [f.to_dto() for f in marked],
                 "assessment": assessment,
+                "runtimeReach": None,
             }
             for pkg, highest, marked, active_count, assessment in rows
         ],
         "evidence": _evidence(scan),
+        "runtimeReach": dict(RUNTIME_REACH_UNAVAILABLE),
     }
 
 
