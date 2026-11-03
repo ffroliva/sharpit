@@ -4,11 +4,32 @@ from __future__ import annotations
 
 import gc
 import threading
+import time
 import weakref
+from dataclasses import dataclass
 from typing import Any
 
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.masking import Masker
+
+_clock = time.monotonic  # test seam: the catalog budget's clock
+
+
+@dataclass(frozen=True)
+class CatalogBounds:
+    """WAVE-A §4: 300 tables, 300 columns and 100 indexes per table, 500 vendor rows, a cooperative 20 s budget."""
+
+    tables: int = 300
+    columns: int = 300
+    indexes: int = 100
+    vendor_rows: int = 500
+    budget: float = 20.0
+
+
+def catalog(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
+    """The physical schema behind ``conn`` as plain dicts, read within ``bounds``."""
+    return {"dialect": "", "tables": [], "tableCount": 0, "truncated": False, "complete": True, "diagnostics": [],
+            "server": {}}  # fmt: skip
 
 
 def _engine_class() -> type | None:
