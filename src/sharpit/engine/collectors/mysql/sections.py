@@ -566,7 +566,7 @@ def collect_all(
                 }
             )
         else:
-            run_collector()
+            data.sections.append(run_collector())
 
     data.truncated = any(s.get("truncated", False) for s in data.sections)
     return data

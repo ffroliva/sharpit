@@ -71,7 +71,7 @@ def test_full_read_against_mysql_84() -> None:
         assert report["status"] in ("READ", "PARTIAL")
         assert report["dataSourcesRead"] >= 1
         ds = report["dataSources"][0]
-        assert ds["name"] == "leased"
+        assert ds["name"].startswith("mysql+pymysql://")  # EngineRegistry names an engine by its URL
         assert ds["capabilities"]["serverVersion"] is not None
         assert len(ds["sections"]) == 7
         assert client.get("/sharpit/api/mysql").json() == report
