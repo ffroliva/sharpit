@@ -285,6 +285,7 @@ def test_panel_dto_shape_unchanged(tmp_path: Path):
         "recommendation",
         "learnMoreUrl",
         "dismissed",
+        "sampleLocations",
     ]
 
 

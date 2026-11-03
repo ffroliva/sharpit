@@ -88,7 +88,7 @@ def test_sleeper_task_in_threads(client: TestClient) -> None:
 
 def test_rest_api_scan_flags_poor_design(client: TestClient) -> None:
     report = client.post(f"{API}/rest-api/scan").json()
-    failed = {r["id"] for r in report["results"] if r["status"] == "FAILED"}
+    failed = {r["id"] for r in report["results"] if r["status"] == "VIOLATION"}
     assert {"RAPI-NAME-001", "RAPI-RESP-001"} <= failed
 
 

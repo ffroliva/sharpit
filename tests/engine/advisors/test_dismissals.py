@@ -240,7 +240,7 @@ def _occurrence_report() -> dict[str, Any]:
     result = {
         "id": "RAPI-004",
         "severity": "HIGH",
-        "status": "FAILED",
+        "status": "VIOLATION",
         "violationCount": 3,
         "sampleViolations": ["one", "two", "three"],
         "dismissed": False,
@@ -279,7 +279,7 @@ def test_all_occurrences_dismissed_keeps_rule_restorable():
     assert result["dismissed"] is False
     assert result["violationCount"] == 0
     assert result["sampleViolations"] == []
-    assert result["status"] == "PASSED"
+    assert result["status"] == "PASS"
     assert out["violationsFound"] == 0
     assert {c["severity"]: c["count"] for c in out["severityCounts"]}["HIGH"] == 0
 

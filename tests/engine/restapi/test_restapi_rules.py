@@ -55,7 +55,7 @@ def test_clean_routes_pass_every_rule():
         route("/v1/pets/{pet_id}", ("DELETE",), "delete_pet", status_code=204, return_annotation=type(None)),
     ]
     assert {r.id: r.status for r in scan(routes, APP_HANDLER)} == dict.fromkeys(
-        [r.id for r in scan([], APP_HANDLER)], "PASSED"
+        [r.id for r in scan([], APP_HANDLER)], "PASS"
     )
 
 
@@ -200,4 +200,4 @@ def test_framework_routes_excluded():
 def test_samples_bounded_and_counts_full():
     routes = [route(f"/v1/getThing{i}", name=f"read_{i}") for i in range(15)]
     result = next(r for r in scan(routes, APP_HANDLER) if r.id == "RAPI-NAME-001")
-    assert (result.status, result.violation_count, len(result.sample_violations)) == ("FAILED", 15, 10)
+    assert (result.status, result.violation_count, len(result.sample_violations)) == ("VIOLATION", 15, 10)
