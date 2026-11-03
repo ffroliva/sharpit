@@ -149,3 +149,127 @@ def test_sqlite_restore_failure_invalidates() -> None:
 
     assert conn.invalidated is True
     assert isinstance(result, RuntimeError)
+
+
+def _mysql(version: str = "8.0.36", **kwargs: Any) -> _RecordingConn:
+    answers = {
+        "SELECT @@version": [version],
+        "SELECT @@SESSION.autocommit": [0],
+        "SELECT @@SESSION.transaction_read_only": [0, 1],
+        "SELECT @@SESSION.tx_read_only": [0, 1],
+        "SELECT @@SESSION.max_execution_time": [0],
+        "SELECT @@SESSION.max_statement_time": [0.0],
+        "SELECT @@SESSION.innodb_lock_wait_timeout": [50],
+    }
+    answers.update(kwargs.pop("answers", {}))
+    return _RecordingConn(answers=answers, **kwargs)
+
+
+def test_mysql_read_only_statement_order() -> None:
+    conn = _mysql(answers={"SELECT 1": [1]})
+
+    result, _ran = _read(conn)
+
+    assert conn.queries == [
+        "SELECT @@version",
+        "SELECT @@SESSION.autocommit",
+        "SELECT @@SESSION.transaction_read_only",
+        "SELECT @@SESSION.max_execution_time",
+        "SELECT @@SESSION.innodb_lock_wait_timeout",
+        "ROLLBACK",
+        "SET SESSION transaction_read_only = 1",
+        "SET SESSION max_execution_time = 5000",
+        "SET SESSION innodb_lock_wait_timeout = 2",
+        "SELECT @@SESSION.transaction_read_only",
+        "SELECT 1",
+        "ROLLBACK",
+        "SET SESSION transaction_read_only = 0",
+        "SET SESSION max_execution_time = 0",
+        "SET SESSION innodb_lock_wait_timeout = 50",
+    ]
+    assert result == 1
+    assert conn.invalidated is False
+
+
+def test_mysql_verification_failure_refuses() -> None:
+    conn = _mysql(answers={"SELECT @@SESSION.transaction_read_only": [0, 0]})
+
+    result, ran = _read(conn)
+
+    assert "SET SESSION transaction_read_only = 1" in conn.queries
+    assert isinstance(result, sqla.ReadOnlyUnavailable)
+    assert ran == []
+    assert conn.queries[-3:] == [
+        "SET SESSION transaction_read_only = 0",
+        "SET SESSION max_execution_time = 0",
+        "SET SESSION innodb_lock_wait_timeout = 50",
+    ]
+
+
+def test_mysql_autocommit_refused() -> None:
+    conn = _mysql(answers={"SELECT @@SESSION.autocommit": [1]})
+
+    result, ran = _read(conn)
+
+    assert "SELECT @@SESSION.autocommit" in conn.queries
+    assert isinstance(result, sqla.ReadOnlyUnavailable)
+    assert ran == []
+    assert not [q for q in conn.queries if q.startswith("SET ")]
+
+
+def test_mysql_autocommit_execution_option_refused_before_any_statement() -> None:
+    conn = _mysql(options={"isolation_level": "AUTOCOMMIT"})
+
+    result, ran = _read(conn)
+
+    assert isinstance(result, sqla.ReadOnlyUnavailable)
+    assert conn.queries == []
+    assert ran == []
+
+
+def test_mariadb_old_variable_name() -> None:
+    conn = _mysql("10.6.12-MariaDB", answers={"SELECT 1": [1]})
+
+    result, _ran = _read(conn)
+
+    assert "SET SESSION tx_read_only = 1" in conn.queries
+    assert "SET SESSION max_statement_time = 5.0" in conn.queries
+    assert "SELECT @@SESSION.transaction_read_only" not in conn.queries
+    assert result == 1
+
+
+def test_mariadb_11_1_uses_transaction_read_only() -> None:
+    conn = _mysql("11.4.2-MariaDB-ubu2404", answers={"SELECT 1": [1]})
+
+    result, _ran = _read(conn)
+
+    assert "SET SESSION transaction_read_only = 1" in conn.queries
+    assert result == 1
+
+
+def test_mysql_before_5_7_20_uses_tx_read_only() -> None:
+    conn = _mysql("5.7.19-log", answers={"SELECT 1": [1]})
+
+    result, _ran = _read(conn)
+
+    assert "SET SESSION tx_read_only = 1" in conn.queries
+    assert result == 1
+
+
+def test_mysql_restore_failure_invalidates() -> None:
+    conn = _mysql(fail_on="SET SESSION transaction_read_only = 0")
+
+    result, _ran = _read(conn)
+
+    assert conn.invalidated is True
+    assert isinstance(result, RuntimeError)
+
+
+def test_other_dialect_read_only_unavailable() -> None:
+    conn = _RecordingConn(dialect=_FakeDialect(name="oracle"))
+
+    result, ran = _read(conn)
+
+    assert isinstance(result, sqla.ReadOnlyUnavailable)
+    assert conn.queries == []
+    assert ran == []
