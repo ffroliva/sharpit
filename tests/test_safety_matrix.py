@@ -766,3 +766,22 @@ def test_cli_action_tools_gated_is_parametrised_from_the_lanes(tmp_path: Path, m
 def test_sweep_source_read_exemptions_only_shrink() -> None:
     # spec §14: the two declared surfaces and nothing else; R-fastapi-security Task 3 empties it
     assert {("GET", "/beans"), ("mcp", "get_beans")} == SWEEP_SOURCE_READ_EXEMPT
+
+
+def test_any_advisor_violations_route_may_answer_400_without_a_scan_id() -> None:
+    # coordinator fix 0.5.0: every advisor panel's rule violations route needs a scanId, not only rest-api's
+    resp = httpx.Response(400, json={"error": "Advisor scan ID must not be blank."})
+
+    assert _get_problem("/sharpit/api/architecture/rules/ARCH-001/violations", resp) is None
+
+
+def test_violations_400_for_another_reason_fails_the_sweep() -> None:
+    resp = httpx.Response(400, json={"error": "Advisor rule ID must not be blank."})
+
+    assert _get_problem("/sharpit/api/rest-api/rules/RAPI-MAP-001/violations", resp) is not None
+
+
+def test_400_off_a_violations_route_fails_the_sweep() -> None:
+    resp = httpx.Response(400, json={"error": "Advisor scan ID must not be blank."})
+
+    assert _get_problem("/sharpit/api/architecture/rules/ARCH-001", resp) is not None
