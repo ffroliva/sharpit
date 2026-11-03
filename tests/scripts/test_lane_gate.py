@@ -1063,3 +1063,116 @@ def test_reviewer_owned_paths_follow_release(tmp_path: Path, name: str) -> None:
     fx.commit({path: "VERDICT: APPROVE\n"}, "chore: touch a reviewer-owned path")
     fx.review()
     assert _refused(fx.evaluate(release="0.5.0"), f"reviewer-owned path changed: {path}")
+
+
+PROTECTED_ALLOWED_05 = {
+    "F": {"scripts/dev/lane_gate.py", "tests/engine/test_import_boundary.py", "uv.lock"},
+    "F5a-harness": {"tests/conftest.py", "uv.lock", "tests/engine/test_import_boundary.py"},
+    "F5b": {"tests/engine/test_import_boundary.py"},
+    "U20-memory": {"uv.lock"},
+    "W-workload": {"uv.lock"},
+}
+
+
+def _lane_fixture(tmp_path: Path, lane: str) -> Fixture:
+    """A fixture lane in its own folder, so one test can compare lanes."""
+    (tmp_path / lane).mkdir()
+    return _fixture(tmp_path / lane, lane=lane, review=False)
+
+
+@pytest.mark.parametrize(
+    ("lane", "path"), [(lane, path) for lane, paths in PROTECTED_ALLOWED_05.items() for path in sorted(paths)]
+)
+def test_protected_allowed_per_lane(tmp_path: Path, lane: str, path: str) -> None:
+    table = {name: set(paths) for name, paths in lane_gate.PROTECTED_ALLOWED.items()}
+    assert table == PROTECTED_ALLOWED_05
+    assert path in lane_gate.PROTECTED
+    for who in (lane, "C-fastapi"):
+        fx = _lane_fixture(tmp_path, who)
+        fx.commit({path: "# changed by the lane\n"}, "chore: touch a protected file")
+        fx.review()
+        assert _refused(fx.evaluate(), f"protected path changed: {path}") is (who == "C-fastapi"), who
+
+
+DEPENDENCY_PYPROJECT = (
+    '[project]\nname = "x"\ndependencies = ["starlette"]\n\n[project.optional-dependencies]\ntest = ["pymysql"]\n'
+)
+
+
+def test_dependency_change_allowed_per_lane(tmp_path: Path) -> None:
+    lanes = {
+        "F5a-harness": True,
+        "F": True,
+        "U20-memory": True,
+        "W-workload": True,
+        "C-fastapi": False,
+        "F5a-core": False,
+    }
+    for lane, allowed in lanes.items():
+        fx = _lane_fixture(tmp_path, lane)
+        fx.commit({"pyproject.toml": DEPENDENCY_PYPROJECT}, "build: pymysql for the tests")
+        fx.review()
+        assert _refused(fx.evaluate(), "dependency list changed: pyproject.toml") is not allowed, lane
+        config = DEPENDENCY_PYPROJECT + "\n[tool.pytest.ini_options]\nx = 1\n"
+        fx.commit({"pyproject.toml": config}, "chore: pytest config")
+        fx.review()
+        assert _refused(fx.evaluate(), "gate config changed: pyproject.toml [tool.pytest]"), lane
+
+
+GETENV_SCAN = "src/sharpit/engine/collectors/config/getenv_scan.py"
+
+
+def test_baseline_rekey_only_for_foundation_lanes() -> None:
+    before = json.dumps({GETENV_SCAN: 4, "src/a.py": 3})
+    rekeyed = json.dumps({GETENV_SCAN: 4, "src/sharpit/engine/advisors/scan.py": 3})
+    raised = json.dumps({GETENV_SCAN: 4, "src/sharpit/engine/advisors/scan.py": 5})
+    assert lane_gate._baseline_refusals("F5a-core", before, rekeyed) == []
+    assert lane_gate._baseline_refusals("F5a-source", before, json.dumps({"src/a.py": 3})) == []
+    for lane in ("F5a-core", "F5a-source"):
+        assert lane_gate._baseline_refusals(lane, before, raised) == ["complexity baseline total rose: 7 -> 9"], lane
+    assert lane_gate._baseline_refusals("C-fastapi", before, rekeyed) != []
+    assert set(lane_gate.FOUNDATION) == {"F", "F5a-harness", "F5a-source", "F5a-core", "F5b"}
+
+
+ADV = "tests/fastapi/test_database_advisor_leased.py"
+LEASED_05 = {
+    "A-postgresql": (("leased-pg.log", LEASED_TESTS),),  # 0.4.0's bare names, matched as `::<name>` as before
+    "F5b": (
+        (
+            "leased-mysql.log",
+            ("tests/fastapi/test_mysql_read_only_leased.py::test_mysql_read_only_wrapper_rejects_write",),
+        ),
+    ),
+    "A-mysql": (
+        (
+            "leased-mysql.log",
+            (
+                "tests/fastapi/test_mysql_leased.py::test_read_only_wrapper_rejects_write",
+                "tests/fastapi/test_mysql_leased.py::test_full_read_against_mysql_84",
+            ),
+        ),
+    ),
+    "A-dbadv-1": (
+        ("leased-pg.log", (f"{ADV}::test_read_only_wrapper_rejects_write[postgresql]",)),
+        ("leased-mysql.log", (f"{ADV}::test_read_only_wrapper_rejects_write[mysql]",)),
+    ),
+    "A-dbadv-2": (
+        ("leased-pg.log", (f"{ADV}::test_pg_vendor_rules_against_server",)),
+        ("leased-mysql.log", (f"{ADV}::test_mysql_vendor_rules_against_server",)),
+    ),
+}
+
+
+def test_leased_check_uses_full_node_ids(tmp_path: Path) -> None:
+    assert lane_gate.LEASED == LEASED_05
+    fx = _fixture(tmp_path, lane="A-mysql")
+    log = f"{fx.folder}/gate/leased-mysql.log"
+    other = "tests/engine/test_sqla_read_only.py::test_read_only_wrapper_rejects_write PASSED"  # same name, other file
+    full = "tests/fastapi/test_mysql_leased.py::test_full_read_against_mysql_84 PASSED"
+    _write(fx.integration, {log: f"{fx.head}\n{other}\n{full}\n"})
+    wanted = "tests/fastapi/test_mysql_leased.py::test_read_only_wrapper_rejects_write"
+    assert _refused(fx.evaluate(), f"leased-mysql: {wanted} not PASSED")
+    _write(fx.integration, {log: f"{fx.head}\n{wanted} PASSED\n{full}\n"})
+    accepted = fx.evaluate()
+    assert _refusals(accepted) == []
+    assert list(accepted.unverified) == []  # type: ignore[attr-defined]

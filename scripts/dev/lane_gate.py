@@ -67,6 +67,10 @@ BASELINE = "tests/complexity_baseline.json"
 LEASED_LANE = "A-postgresql"
 LEASED_TESTS = ("test_read_only_wrapper_rejects_write", "test_autocommit_engine_is_unavailable")
 FIXTURE_PREFIX = "test-fixture"
+PROTECTED_ALLOWED: dict[str, frozenset[str]] = {}
+DEPENDENCY_ALLOWED = frozenset({"F"})
+FOUNDATION = frozenset({"F"})
+LEASED: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {}
 # every release's reviewer-owned paths, so a lane of one release cannot plant another release's review either
 REVIEWER_OWNED = re.compile(rf"^{re.escape(SDD)}/[^/]+/lanes/[^/]+/(review\.md|live-verify\.md|gate/.*)$")
 UNRESOLVED = (
