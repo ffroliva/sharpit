@@ -24,7 +24,9 @@ Both rules exist to prevent machine noise from distorting the measurement:
 
 The failure message prints overhead, noise, and min/median/max per side.
 
-Noise is how far a typical round sits above the fastest, measured as the median minus the min on the noisier side. If the overshoot (overhead minus budget) is within the noise, the message says so: suspect the machine.
+Noise is how far the fastest round moves between the first and the second half of the run, on the less stable side. The overhead is a difference of two minimums, so the question is how much a minimum depends on which rounds were timed. A busy stretch moves it. A wide but steady spread of single rounds does not, which is normal when there are many short rounds. If the overshoot (overhead minus budget) is within the noise, the message says so: suspect the machine.
+
+Until 2026-11-03, noise was the median minus the min of one side. With many short rounds (the lazy-load budget, 1,001 rounds of 5 ms) that figure stayed between 124 and 274 µs even for real regressions. Every injected regression then printed "suspect a busy machine". `tests/test_overhead_harness.py` holds the cases that tell the two definitions apart. Noise figures in older job summaries and in the known numbers below use the old definition.
 
 ## Is it a false positive? A checklist
 
