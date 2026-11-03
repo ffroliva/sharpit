@@ -201,3 +201,45 @@ def test_trap_route_untouched_by_every_introspecting_surface():
     assert "/sharpit/api/security" in get_paths()  # the route is mounted, so the sweep really reaches it
     assert "security_scan" in trap.CLI_TOOLS
     trap.test_trap_route_untouched_by_every_introspecting_surface()
+
+
+class _HandWrapper:
+    """A pure-ASGI wrapper written by hand (no Starlette middleware base); R-fastapi-security council follow-ups."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        await self.app(scope, receive, send)
+
+
+def test_host_route_behind_hand_written_wrapper_is_classified(tmp_path: Path):
+    from fastapi.security import HTTPBearer
+    from starlette.routing import Host
+
+    from fastapi import Depends
+
+    app = FastAPI()
+    app.get("/me", dependencies=[Depends(HTTPBearer())])(lambda: "me")
+    sub = FastAPI()
+    sub.post("/orders")(lambda: "created")
+    app.router.routes.append(Host("api.example.com", app=_HandWrapper(sub)))
+    client = client_for(app, state_dir=str(tmp_path))
+    scanned = _scan(client)
+    assert scanned["analysisErrors"] == []
+    # the wrapper hides the sub-app's routes: reported as unobserved (PARTIAL), never claimed secured or public
+    assert "Mounted application at / has no inspectable routes." in scanned["evidence"]["limitations"]
+
+
+def test_hand_written_wrapper_around_static_files_is_served_as_is(tmp_path: Path):
+    from starlette.routing import Mount
+    from starlette.staticfiles import StaticFiles
+
+    app = FastAPI()
+    app.get("/ping")(lambda: "pong")
+    app.router.routes.append(Mount("/static", app=_HandWrapper(StaticFiles(directory=str(tmp_path)))))
+    client = client_for(app, state_dir=str(tmp_path / "state"))
+    scanned = _scan(client)
+    assert scanned["analysisErrors"] == []
+    # served as is, never opaque: an opaque row would hide the blanket permit-all finding
+    assert "SEC-AUTHZ-002" in [r["id"] for r in scanned["results"]]
