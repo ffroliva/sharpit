@@ -93,7 +93,7 @@ surfaces. This task removes it:
       only maps the code object's filename (no read); verify with the spy.
 - [ ] The beans golden/contract tests still pass; the spec §14 beans row is deleted in the same commit.
 
-May touch (addition): `src/sharpit/fastapi/introspector.py` (`_resource` only), the F5a-harness exemption list in
+May touch (addition): `src/sharpit/ui/static/` (the rebuilt bundle for the lane's view; CI checks it matches `ui/`), `src/sharpit/fastapi/introspector.py` (`_resource` only), the F5a-harness exemption list in
 `tests/` (delete the beans entries only), spec §14 beans row (coordinator applies on `release/0.5.0`).
 
 ## Interface for B-security and C-fastapi
