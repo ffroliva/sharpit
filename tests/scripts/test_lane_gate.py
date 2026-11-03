@@ -1140,7 +1140,10 @@ LEASED_05 = {
     "F5b": (
         (
             "leased-mysql.log",
-            ("tests/fastapi/test_mysql_read_only_leased.py::test_mysql_read_only_wrapper_rejects_write",),
+            (
+                "tests/fastapi/test_mysql_read_only_leased.py::test_mysql_read_only_wrapper_rejects_write",
+                "tests/fastapi/test_mysql_read_only_leased.py::test_mysql_autocommit_engine_refused",
+            ),
         ),
     ),
     "A-mysql": (
@@ -1192,7 +1195,10 @@ MULTI_PLAN = (
     "# Lanes x and y\n\n| | |\n|---|---|\n| **Council** | not required |\n\n## Must-cover\n\n"
     f"test-fixture-x: `{TEST_ID}`.\n\ntest-fixture-y: `{TEST_ID}`.\n\n## Tasks\n"
 )
-COUNCIL = "# Council\n\nModels: claude opus, codex gpt-6-luna, agy gemini argon\nHead: {head}\n\nVERDICT: APPROVE\n"
+COUNCIL = (
+    "# Council\n\nHead: {head}\n\nReviewer: claude (claude-opus-5-5): ran\nReviewer: codex (gpt-6-luna): ran\n"
+    "Reviewer: agy (gemini-4-argon-high): ran\n\nVERDICT: APPROVE\n"
+)
 
 
 def test_council_required_read_per_lane_from_plan_table(tmp_path: Path) -> None:
@@ -1204,8 +1210,7 @@ def test_council_required_read_per_lane_from_plan_table(tmp_path: Path) -> None:
     fx = _fixture(tmp_path / "x")
     plan = _plan(fx, index, {"multi.md": MULTI_PLAN})
     assert _refused(fx.evaluate(plan_index=plan), "council.md")
-    fx.commit({f"{fx.folder}/council.md": COUNCIL.format(head=fx.head)}, "docs: council")
-    fx.review()
+    _write(fx.integration, {f"{fx.folder}/council.md": COUNCIL.format(head=fx.head)})  # the coordinator writes it
     assert _refusals(fx.evaluate(plan_index=plan)) == []
     (tmp_path / "y").mkdir()
     other = _fixture(tmp_path / "y", lane="test-fixture-y")
@@ -1286,7 +1291,10 @@ def test_must_cover_uses_full_node_ids_and_refuses_skips(tmp_path: Path) -> None
     assert _refused(failing, f"must-cover {COVER}::test_a: failure at the lane head")
     skipped = _cover_check(fx, "`test_skip`", {f"{COVER}::test_skip": "skip:needs a server"})
     assert _refused(skipped, f"must-cover {COVER}::test_skip: skipped (needs a server)")
-    golden = _cover_check(fx, "`test_skip`", {f"{COVER}::test_skip": "skip:post-scan golden absent (G0)"})
+    golden_skip = {f"{COVER}::test_skip": "skip:post-scan golden absent (G0)"}
+    unflagged = _cover_check(fx, "`test_skip`", golden_skip)
+    assert _refused(unflagged, f"must-cover {COVER}::test_skip: skipped (post-scan golden absent (G0)) (pass --accept")
+    golden = _cover_check(fx, "`test_skip`", golden_skip, accept_unverified=True)
     assert _refusals(golden) == []
     assert any(f"{COVER}::test_skip" in line for line in golden.unverified)  # type: ignore[attr-defined]
     (tmp_path / "m").mkdir()
@@ -1346,3 +1354,224 @@ def test_existing_protections_still_refuse(tmp_path: Path, kind: str, files: dic
     index = LANES_TABLE + "| C-fastapi | `x.md` | not required | c |\n"
     plan = _plan(fx, index, {"x.md": f"# x\n\n## Must-cover\n\n`{TEST_ID}`\n"})
     assert _refused(fx.evaluate(release="0.4.0", plan_index=plan), needle)
+
+
+# --- 0.5.0: lane F5-gate, fix round 1 (the lane's council) ------------------------------------------------------------
+
+REQUIRED_INDEX = LANES_TABLE + "| test-fixture-x | `multi.md` | required | c |\n"
+RAN = (
+    "Reviewer: claude (claude-opus-5-5): ran\nReviewer: codex (gpt-6-luna): ran\n"
+    "Reviewer: agy (gemini-4-argon-high): ran\n"
+)
+
+
+def _council(fx: Fixture, body: str, head: str = "") -> None:
+    """council.md where the coordinator writes it: the integration worktree (a reviewer-owned path)."""
+    _write(fx.integration, {f"{fx.folder}/council.md": body.format(head=head or fx.head, ran=RAN)})
+
+
+def test_council_md_in_the_lane_tree_is_refused(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    plan = _plan(fx, REQUIRED_INDEX, {"multi.md": MULTI_PLAN})
+    fx.commit({f"{fx.folder}/council.md": f"Head: {fx.head}\n{RAN}\nVERDICT: APPROVE\n"}, "docs: council")
+    fx.review()
+    result = fx.evaluate(plan_index=plan)
+    assert _refused(result, f"reviewer-owned path changed: {fx.folder}/council.md")
+    assert _refused(result, "council.md: missing")
+
+
+@pytest.mark.parametrize(
+    ("body", "needle"),
+    [
+        ("Head: {head}\n{ran}\nVERDICT: APPROVE\n\n## Round 2\n\nVERDICT: BLOCK\n", "the final VERDICT"),
+        ("Head: {head}\n{ran}\nVERDICT: APPROVE WITH CHANGES\n", "the final VERDICT"),
+        ("Head: {head}\n{ran}\n**VERDICT: APPROVE**\n", "the final VERDICT"),
+        (
+            "Head: {head}\nReviewer: claude (claude-opus-5-5): ran\nReviewer: codex (gpt-6-luna): not run (quota)\n"
+            "Gemini and agy were asked too.\n\nVERDICT: APPROVE\n",
+            "fewer than two model families ran",
+        ),
+        (
+            "Head: {head}\nReviewer: claude (claude-opus-5-5): ran\nReviewer: agy (claude-opus-5-5-high): ran\n\n"
+            "VERDICT: APPROVE\n",
+            "fewer than two model families ran",
+        ),
+    ],
+)
+def test_council_reads_the_final_verdict_and_only_reviewers_that_ran(tmp_path: Path, body: str, needle: str) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan(fx, REQUIRED_INDEX, {"multi.md": MULTI_PLAN})
+    _council(fx, body)
+    assert _refused(fx.evaluate(plan_index=plan), f"council.md: {needle}")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Head: {head}\n{ran}\nVERDICT: APPROVE WITH CHANGES\n\n## Round 2\n\nVERDICT: APPROVE\n",
+        "Head: {head}\n{ran}\nVERDICT: APPROVE WITH NITS\n",
+        "Head: {head}\nReviewer: claude (claude-opus-5-5): ran\nReviewer: agy (gpt-oss-120b-medium): ran, BLOCK\n"
+        "Reviewer: codex (gpt-6-luna): not run\n\nVERDICT: APPROVE\n",
+    ],
+)
+def test_council_accepts_a_later_approve_round_and_nits(tmp_path: Path, body: str) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan(fx, REQUIRED_INDEX, {"multi.md": MULTI_PLAN})
+    _council(fx, body)
+    assert _refusals(fx.evaluate(plan_index=plan)) == []
+
+
+@pytest.mark.parametrize("cell", ["**required**", "yes", "", "required-ish"])
+def test_council_cell_must_be_required_not_required_or_a_dash(tmp_path: Path, cell: str) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan(fx, LANES_TABLE + f"| test-fixture-x | `multi.md` | {cell} | c |\n", {"multi.md": MULTI_PLAN})
+    assert _refused(fx.evaluate(plan_index=plan), "Council cell")
+
+
+def test_golden_skip_of_a_must_cover_test_needs_accept_unverified(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.commit({COVER: COVER_TESTS}, "test: cover")
+    fx.review()
+    golden = {f"{COVER}::test_skip": "skip:post-scan golden absent (G0)"}
+    needle = f"must-cover {COVER}::test_skip: skipped (post-scan golden absent (G0)) (pass --accept-unverified"
+    assert _refused(_cover_check(fx, "`test_skip`", golden), needle)
+    accepted = _cover_check(fx, "`test_skip`", golden, accept_unverified=True)
+    assert _refusals(accepted) == []
+    assert any(f"{COVER}::test_skip" in line for line in accepted.unverified)  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    "path", ["docs/superpowers/plans/2026-11-03-sharpit-0.5.0/PLAN.md", "Docs/Superpowers/Plans/x.md", "plans/x.md"]
+)
+def test_plan_files_are_protected_in_every_lane_diff(tmp_path: Path, path: str) -> None:
+    fx = _fixture(tmp_path, lane="C-fastapi", review=False)
+    fx.commit({path: "| Lane | Plan file | Council |\n"}, "docs: rewrite the plan")
+    fx.review()
+    index = LANES_TABLE + "| C-fastapi | `x.md` | not required | c |\n"
+    plan = _plan(fx, index, {"x.md": f"# x\n\n## Must-cover\n\n`{TEST_ID}`\n"})
+    assert _refused(fx.evaluate(plan_index=plan), f"plan file changed: {path}")
+
+
+def test_plan_index_and_plan_must_be_in_the_integration_worktree(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    plan_text = f"# x\n\n## Must-cover\n\n`{TEST_ID}`\n"
+    index = _plan(fx, LANES_TABLE + "| test-fixture-x | `x.md` | not required | c |\n", {"x.md": plan_text})
+    assert _refusals(fx.evaluate(plan_index=index)) == []
+    for outside in (tmp_path / "elsewhere", fx.worktree / "plans"):
+        _write(outside, {"PLAN.md": index.read_text(encoding="utf-8"), "x.md": plan_text})
+        assert _refused(fx.evaluate(plan_index=outside / "PLAN.md"), "PLAN.md must be in the integration worktree")
+        assert _refused(fx.evaluate(plan_index=index, plan=outside / "x.md"), "must be in the integration worktree")
+
+
+F5B_LEASED = (
+    "tests/fastapi/test_mysql_read_only_leased.py::test_mysql_read_only_wrapper_rejects_write",
+    "tests/fastapi/test_mysql_read_only_leased.py::test_mysql_autocommit_engine_refused",
+)
+
+
+def test_f5b_leased_log_needs_both_leased_tests(tmp_path: Path) -> None:
+    assert lane_gate.LEASED["F5b"] == (("leased-mysql.log", F5B_LEASED),)
+    fx = _fixture(tmp_path, lane="F5b")
+    log = f"{fx.folder}/gate/leased-mysql.log"
+    _write(fx.integration, {log: f"{fx.head}\n{F5B_LEASED[0]} PASSED\n"})
+    assert _refused(fx.evaluate(), f"leased-mysql: {F5B_LEASED[1]} not PASSED")
+    _write(fx.integration, {log: f"{fx.head}\n{F5B_LEASED[0]} PASSED\n{F5B_LEASED[1]} PASSED\n"})
+    assert _refusals(fx.evaluate()) == []
+
+
+SCOPED_PYPROJECTS = (
+    '[project]\nname = "x"\ndependencies = ["starlette", "requests"]\n',  # runtime
+    '[project]\nname = "x"\ndependencies = ["starlette"]\n\n[build-system]\nrequires = ["hatchling"]\n',  # build
+    '[project]\nname = "x"\ndependencies = ["starlette"]\n\n[project.optional-dependencies]\nfastapi = ["fastapi"]\n',
+)
+
+
+def test_dependency_lanes_change_only_the_test_extra(tmp_path: Path) -> None:
+    for lane, allowed in {"F5a-harness": False, "U20-memory": False, "W-workload": False, "F": True}.items():
+        fx = _lane_fixture(tmp_path, lane)
+        for pyproject in SCOPED_PYPROJECTS:
+            fx.commit({"pyproject.toml": pyproject}, "build: a dependency outside the test extra")
+            fx.review()
+            refused = _refused(fx.evaluate(), "dependency list changed: pyproject.toml")
+            assert refused is not allowed, f"{lane}: {pyproject}"
+
+
+def test_pin_and_na_rows_skip_reds_only_in_findings_md() -> None:
+    table = "| Test id | Red SHA | Disposition |\n|---|---|---|\n| `tests/test_w.py::test_pin` | | pin: reverted x |\n"
+    _reds, problems = lane_gate.red_tests({"handoff.md": table})
+    assert problems == ["handoff.md: red table row for tests/test_w.py::test_pin has no Red SHA"]
+    row = "| x | | | | pin: reverted widget() to 1, failed on assert widget() == 2 |\n"
+    assert lane_gate._findings_refusals(FINDINGS_05 + row) != []  # a pin row names the test it pins
+
+
+@pytest.mark.parametrize("release", ["../0.4.0", "..", "0.4.0/../x", ""])
+def test_release_name_is_validated(tmp_path: Path, release: str) -> None:
+    fx = _fixture(tmp_path)
+    assert _refused(fx.evaluate(release=release), "invalid release name")
+
+
+@pytest.mark.parametrize(
+    ("path", "needle"),
+    [
+        ("Tests/conftest.py", "protected path changed"),
+        ("UV.lock", "protected path changed"),
+        (".superpowers/sdd/0.5.0/lanes/X/Review.md", "reviewer-owned path changed"),
+    ],
+)
+def test_protected_and_reviewer_owned_paths_compare_case_insensitively(tmp_path: Path, path: str, needle: str) -> None:
+    fx = _fixture(tmp_path, lane="C-fastapi")
+    assert lane_gate._path_refusals(fx.options(release="0.4.0"), fx.head, path) == [f"{needle}: {path}"]
+
+
+# council finding 7: one test per rule that survived the mutation run (each killed in a scratch copy, findings.md)
+
+
+def test_council_head_must_be_followed_only_by_lane_evidence(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    code = fx.head  # the evidence commit: only the lane folder changes after it
+    fx.commit({f"{fx.folder}/notes.md": "x\n"}, "docs: more evidence")
+    fx.review()
+    plan = _plan(fx, REQUIRED_INDEX, {"multi.md": MULTI_PLAN})
+    _council(fx, "Head: {head}\n{ran}\nVERDICT: APPROVE\n", head=code)
+    assert _refusals(fx.evaluate(plan_index=plan)) == []
+    _council(fx, "Head: {head}\n{ran}\nVERDICT: APPROVE\n", head=fx.red)  # src/widget.py changed after it
+    assert _refused(fx.evaluate(plan_index=plan), "council.md: does not name the head SHA")
+
+
+@pytest.mark.parametrize("plan_text", ["# x\n\n## Tasks\n\n`test_widget`\n", "# x\n\n## Must-cover\n\nnone yet\n"])
+def test_lane_plan_without_must_cover_tests_is_refused(tmp_path: Path, plan_text: str) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan(fx, LANES_TABLE + "| test-fixture-x | `x.md` | not required | c |\n", {"x.md": plan_text})
+    assert _refused(fx.evaluate(plan_index=plan), "x.md: no ## Must-cover tests for lane test-fixture-x")
+
+
+def test_bare_must_cover_name_resolves_only_in_the_lane_diff(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    _merge_release(fx, {"tests/test_old.py": "def test_old():\n    assert 1\n"})  # at the head, not in the lane diff
+    fx.head = _git(fx.worktree, "rev-parse", "HEAD")
+    fx.review()
+    assert _refusals(_cover_check(fx, "`test_widget`")) == []
+    assert _refused(_cover_check(fx, "`test_old`"), "must-cover test_old: not defined in a test file of the lane diff")
+
+
+def test_multi_lane_plan_counts_only_the_lanes_own_paragraphs(tmp_path: Path) -> None:
+    lanes = {"test-fixture-x", "test-fixture-y"}
+    text = f"# x\n\n## Must-cover\n\ntest-fixture-x: `{TEST_ID}`.\n\ntest-fixture-y: `test_absent`.\n\n## Tasks\n"
+    assert lane_gate.must_cover_names(text, "test-fixture-x", lanes) == [TEST_ID]
+    fx = _fixture(tmp_path)
+    index = LANES_TABLE + "| test-fixture-x | `x.md` | not required | c |\n| test-fixture-y | `x.md` | not required | c |\n"
+    assert _refusals(fx.evaluate(plan_index=_plan(fx, index, {"x.md": text}))) == []
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_main_refuses_a_real_lane_without_a_single_plan_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], count: int
+) -> None:
+    fx = _fixture(tmp_path, lane="C-fastapi")
+    monkeypatch.setattr(lane_gate, "run_gate_command", fx.run_gate)
+    monkeypatch.setattr(lane_gate, "run_pytest_in", lambda integration: fx.run_pytest)
+    for n in range(count):
+        _write(fx.integration, {f"docs/superpowers/plans/2026-0{n + 1}-01-sharpit-0.4.0/PLAN.md": "# plan\n"})
+    argv = [fx.lane, "--release", "0.4.0", "--worktree", str(fx.worktree), "--integration", str(fx.integration)]
+    assert lane_gate.main(argv) == 1
+    assert "REFUSED: no single PLAN.md for release 0.4.0" in capsys.readouterr().out
