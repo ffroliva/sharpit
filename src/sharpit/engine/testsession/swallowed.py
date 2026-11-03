@@ -62,6 +62,12 @@ def _call_name(func: ast.expr) -> str | None:
     return func.id if isinstance(func, ast.Name) else None
 
 
+def _passes(call: ast.Call, bound: str | None) -> bool:
+    """The call hands the caught exception on (``self._report(e)``): a helper that may log or re-raise it."""
+    arguments = [*call.args, *(keyword.value for keyword in call.keywords)]
+    return bound is not None and any(isinstance(a, ast.Name) and a.id == bound for a in arguments)
+
+
 def _unreferenced(node: ast.AST, used: set[str]) -> bool:
     """A nested scope whose body cannot run while the clause runs: a def (or a lambda bound only to names) the clause
     never references. A referenced one may be called, awaited or passed on: it is followed, so a doubt never reports."""
@@ -83,7 +89,7 @@ def _silent(handler: ast.ExceptHandler) -> bool:
         node = pending.pop()
         if isinstance(node, ast.Raise):
             return False
-        if isinstance(node, ast.Call) and _call_name(node.func) in _LOG_CALLS:
+        if isinstance(node, ast.Call) and (_call_name(node.func) in _LOG_CALLS or _passes(node, handler.name)):
             return False
         if not _unreferenced(node, used):
             pending.extend(ast.iter_child_nodes(node))
