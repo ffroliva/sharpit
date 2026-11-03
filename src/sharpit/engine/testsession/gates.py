@@ -19,6 +19,8 @@ N_PLUS_ONE = "sharpit.n-plus-one"
 EXCEPTION = "sharpit.exception"
 SWALLOWED = "sharpit.swallowed-exception"
 UNBOUNDED_READ = "sharpit.unbounded-read"
+# a relationship site that starts with this names the declaration, not the load: no application frame was on the stack
+LAZY_LOAD_OUTSIDE_APP = "outside application code"
 # PEP 249 error classes (sqlite3, the DB-API drivers and SQLAlchemy keep these names): a failed query swallowed into a
 # default value hides a broken schema or statement (bench D13). shortcut: matched by class name only, so a driver
 # subclass with its own name (psycopg's UndefinedTable, unwrapped) stays a note; upgrade: record the MRO in the fact.
@@ -139,9 +141,11 @@ def _n_plus_one_message(call: PhaseFacts, group: str, count: int) -> str:
     relation_count = call.relationship_loads.get(identity, count)
     loader = "selectinload" if collection else "joinedload"
     statement = call.sql_of.get(group, call.sql_of.get(identity, "the masked SELECT"))
+    site = call.relationship_sites.get(identity) or "unknown"
+    where = site if site.startswith(LAZY_LOAD_OUTSIDE_APP) else f"at {site}"
     return (
         f"{identity} lazy-loaded {relation_count} times; {loader}({identity}); "
-        f"first lazy load at {call.relationship_sites.get(identity) or 'unknown'}; "
+        f"first lazy load {where}; "
         f"masked statement: {statement}; {message}"
     )
 
