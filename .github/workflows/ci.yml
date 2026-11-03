@@ -55,6 +55,7 @@ jobs:
     needs: test-shard
     if: always()
     strategy:
+      fail-fast: false # each required check reports, none shows as cancelled
       matrix:
         os: [ubuntu-latest]
         python: ["3.12", "3.13", "3.14"]
