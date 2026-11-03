@@ -1051,6 +1051,7 @@ def test_lane_gate_refuses_unresolvable_release(tmp_path: Path) -> None:
     _write(fx.integration, {".superpowers/sdd/0.5.0/lanes/other/review.md": "x\n"})  # two releases, as the real tree
     _git(fx.integration, "switch", "-q", "--detach")
     assert _refused(fx.evaluate(), "cannot resolve the release")
+    _git(fx.integration, "branch", "-q", "-D", "release")  # refs/heads/release would block release/<x>
     _git(fx.integration, "switch", "-q", "-c", "release/0.4.0")
     assert not _refused(fx.evaluate(), "cannot resolve the release")
 
