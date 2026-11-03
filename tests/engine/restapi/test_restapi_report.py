@@ -246,3 +246,16 @@ def test_failed_build_leaves_retention_and_cache_unchanged(tmp_path: Path, monke
         service.scan()
     assert service.report()["violationDetails"]["scanId"] == first
     assert service.violations("RAPI-NAME-001", first, None, None, 1000)["violationCount"] == 1  # still pages
+
+
+def test_rest_api_golden_parity_after_drift(tmp_path: Path):
+    # lane D4: a scan that trips the 2.2.0 RAPI-RESP-011 rule still matches the BootUI 2.2.0 capture
+    from golden import assert_enum_values, assert_parity
+
+    optional = _route("/v1/pets/{id}", "read_pet", return_annotation=Pet | None)
+    report = _service(tmp_path, (*ROUTES, optional)).scan()
+    by_id = {r["id"]: r for r in report["results"]}
+    assert by_id.get("RAPI-RESP-011", {}).get("status") == "VIOLATION"
+    assert by_id["RAPI-RESP-011"]["sampleLocations"] == [], "sharpit keeps no source locations (handoff decision)"
+    assert_parity("rest-api", "captured", report)
+    assert_enum_values("rest-api", "captured", report)

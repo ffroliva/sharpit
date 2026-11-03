@@ -101,3 +101,12 @@ def test_unregistered_rapi_id_has_no_owner():
     assert owning_panel("RAPI-MAP-001") == "rest-api"
     assert owning_panel("RAPI-MAP-004") is None  # documented but not ported
     assert owning_panel("RAPI-NOPE-999") is None
+
+
+def test_registry_lists_bootui_2_2_0_rules():
+    # lane D4: the four ids BootUI 2.2.0 added (contract 0.4 drift §19); RESP-011 ported, the rest skipped
+    added = ["RAPI-RESP-010", "RAPI-RESP-011", "RAPI-VALID-006", "RAPI-VER-007"]
+    assert [i for i in added if i in _documented()] == added
+    resp011 = next((r for r in RULES if r.id == "RAPI-RESP-011"), None)
+    assert ((resp011.severity, resp011.category) if resp011 else None) == ("LOW", "Status codes & responses")
+    assert sorted(i for i in added if i in SKIPPED_RULES) == ["RAPI-RESP-010", "RAPI-VALID-006", "RAPI-VER-007"]
