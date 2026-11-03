@@ -149,3 +149,8 @@ Gates at round 2: ruff, format, pyright 0 errors; lane files green (one `test_sq
 xdist, outside the diff). Full suite (`-n auto`, busy machine): 4723 passed, 14 failed, all outside the diff: three
 overhead budgets and eleven `tests/scripts/test_red_check.py` cases failing as xdist worker crashes. Re-run alone,
 `test_red_check.py` and `test_n_plus_one_overhead.py` give 22 passed. The budgets need the coordinator's quiet paired run.
+
+## Fix round 3 (council round 3)
+
+Red `6983a76`, fix `9c8a664`: `_chains` keeps the wrapper's types in the stack and goes on into the unwrapped sub-app.
+Only `introspector.py` changed in src: lane test files 107 passed, 1 skipped; ruff, format, pyright clean. No full suite (per the coordinator).

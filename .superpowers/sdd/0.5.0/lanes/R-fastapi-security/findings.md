@@ -84,3 +84,11 @@ user_middleware): `test_user_getattribute_never_runs_on_any_surface` covers it.
 `red_check.py`: RED (assertion under `tests/`). Claude #8 (low, a hand-written ASGI wrapper around `StaticFiles` is
 "served as is"): accepted as the reviewer suggests, a deviation-log note for the coordinator (it under-claims security;
 the wrapper is listed in the chain's filters).
+
+## Fix round 3 (council round 3)
+
+| Finding | Test | Red SHA | Assertion message | Disposition |
+|---|---|---|---|---|
+| Claude #9: `_chains` stopped at a mount's middleware wrapper, so mounts nested in it fell to chain 0 without its middleware | tests/fastapi/test_introspector_security.py::test_mount_nested_in_a_middleware_mount_keeps_that_middleware | 6983a761c5be1b30fc1bc42aa5ace695b488220e | `() == ('starlette.middleware.gzip.GZipMiddleware',)` | Fixed in `9c8a664` |
+
+`red_check.py`: RED (assertion under `tests/`).
