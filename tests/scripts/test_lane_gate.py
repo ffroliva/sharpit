@@ -1020,3 +1020,45 @@ def test_function_local_budget_counts_as_an_overhead_module() -> None:
 def test_async_check_budget_definition_counts_as_an_overhead_module() -> None:
     source = "async def check_budget(name):\n    return None\n"
     assert lane_gate._is_overhead_module("tests/test_x.py", source) is True, "async def check_budget was not counted"
+
+
+# --- 0.5.0: lane F5-gate (spec 2026-11-03 §4.0) -----------------------------------------------------------------------
+
+SHA_LOG_NAMES = ("lowest-direct", "no-sqlalchemy")
+
+
+def _evidence_for_release(fx: Fixture, release: str) -> str:
+    """Copy the lane evidence to ``release``'s folder and write that release's review and SHA logs."""
+    old, new = fx.folder, fx.folder.replace("/0.4.0/", f"/{release}/")
+    names = ("handoff.md", "findings.md", "field-map.md", "checklist.md")
+    fx.commit({f"{new}/{n}": (fx.worktree / old / n).read_text(encoding="utf-8") for n in names}, "docs: evidence")
+    logs = {f"{new}/gate/{name}.log": f"{fx.head}\n$ cmd\nok\nexit 0\n" for name in SHA_LOG_NAMES}
+    _write(fx.integration, {f"{new}/review.md": f"Reviewer: claude-reviewer\nHead: {fx.head}\n\nVERDICT: APPROVE\n"})
+    _write(fx.integration, logs)
+    return new
+
+
+def test_lane_gate_release_is_a_parameter(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    assert _refused(fx.evaluate(release="0.5.0"), "missing evidence: handoff.md (at .superpowers/sdd/0.5.0/lanes/")
+    new = _evidence_for_release(fx, "0.5.0")
+    assert _refusals(fx.evaluate(release="0.5.0")) == []
+    assert (fx.integration / new / "gate" / "pytest.log").is_file()
+
+
+def test_lane_gate_refuses_unresolvable_release(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    _write(fx.integration, {".superpowers/sdd/0.5.0/lanes/other/review.md": "x\n"})  # two releases, as the real tree
+    _git(fx.integration, "switch", "-q", "--detach")
+    assert _refused(fx.evaluate(), "cannot resolve the release")
+    _git(fx.integration, "switch", "-q", "-c", "release/0.4.0")
+    assert not _refused(fx.evaluate(), "cannot resolve the release")
+
+
+@pytest.mark.parametrize("name", ["review.md", "live-verify.md", "gate/pytest.log"])
+def test_reviewer_owned_paths_follow_release(tmp_path: Path, name: str) -> None:
+    fx = _fixture(tmp_path, review=False)
+    path = f".superpowers/sdd/0.5.0/lanes/X/{name}"
+    fx.commit({path: "VERDICT: APPROVE\n"}, "chore: touch a reviewer-owned path")
+    fx.review()
+    assert _refused(fx.evaluate(release="0.5.0"), f"reviewer-owned path changed: {path}")

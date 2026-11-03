@@ -77,6 +77,7 @@ class Options:
     accept_unverified: bool = False
     no_rerun: bool = False
     allow_paths: tuple[str, ...] = ()
+    release: str | None = None  # None: resolved from the integration worktree (resolve_release)
 
 
 @dataclass
