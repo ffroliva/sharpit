@@ -1,7 +1,7 @@
 # C-architecture handoff
 
 Implementer: Antigravity (Gemini 3.8 Flash)
-Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 3 done.
+Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 4 done.
 
 ## Commits
 
@@ -10,7 +10,7 @@ Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 3 
 | 1 contract first | 9abd8fd0647cbef2b7281b7b5b96bf57948641df | e4fb22382ed8adbe9087e935fdb5cafbf35f9f77 |
 | 2 graph | 023a622544aa885e7e840d9f754b0045132dbedd | e2676287151c75aecda5f3a8385c0b9cc5952f5e |
 | 3 rules and contracts | 186749dce61175c0f5702a3186df57f2c4390a49 | 353f78e |
-| 4 adapter, routes, MCP, safety | | |
+| 4 adapter, routes, MCP, safety | 83d85675c9287a9354924c7062402175c58e577e | 356479f |
 | 5 view and live check | | |
 
 ## Must-cover
@@ -19,18 +19,18 @@ Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 3 
 |---|---|---|
 | `test_post_scan_golden_parity` | yes | yes (skipped: post-scan golden absent) |
 | `test_report_golden_parity` | yes | yes |
-| `test_package_root_from_factory_app` | pending | pending |
-| `test_namespace_package_root` | pending | pending |
-| `test_main_module_app_not_scanned_through_route` | pending | pending |
-| `test_bounded_files_and_symlinks` | pending | pending |
+| `test_package_root_from_factory_app` | yes | yes |
+| `test_namespace_package_root` | yes | yes |
+| `test_main_module_app_not_scanned_through_route` | yes | yes |
+| `test_bounded_files_and_symlinks` | yes | yes |
 | `test_pyproject_read_only_from_package_sys_path_entry` | yes | yes |
-| `test_get_after_scan_opens_no_source_file` | pending | pending |
-| `test_scan_reads_only_app_package` | pending | pending |
+| `test_get_after_scan_opens_no_source_file` | yes | yes |
+| `test_scan_reads_only_app_package` | yes | yes |
 | `test_violation_never_contains_literal_secret` | yes | yes |
-| `test_read_only_blocks_scan` | pending | pending |
-| `test_inactive_architecture_paths_404` | pending | pending |
-| `test_architecture_get_no_side_effects` | pending | pending |
-| `test_mcp_tools_list_has_only_get` | pending | pending |
+| `test_read_only_blocks_scan` | yes | yes |
+| `test_inactive_architecture_paths_404` | yes | yes |
+| `test_architecture_get_no_side_effects` | yes | yes |
+| `test_mcp_tools_list_has_only_get` | yes | yes |
 | `test_docs_table_matches_registry` | yes | yes |
 
 ## Decisions

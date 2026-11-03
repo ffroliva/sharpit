@@ -36,6 +36,16 @@ Implementer: Antigravity (Gemini 3.8 Flash)
 | tests/engine/collectors/architecture/test_rules.py::test_malformed_pyproject_is_a_limitation | 186749dce61175c0f5702a3186df57f2c4390a49 | `assert any("malformed" in lim.lower() for lim in limitations)`: False | Fixed in 353f78e |
 | tests/engine/collectors/architecture/test_rules.py::test_pyproject_read_only_from_package_sys_path_entry | 186749dce61175c0f5702a3186df57f2c4390a49 | `assert len(contracts) == 1`: 0 == 1 | Fixed in 353f78e |
 | tests/engine/collectors/architecture/test_rules.py::test_violation_never_contains_literal_secret | 186749dce61175c0f5702a3186df57f2c4390a49 | `assert not any(SECRET in v.detail for v in violations)`: SECRET was in detail | Fixed in 353f78e |
+| tests/fastapi/test_architecture_api.py::test_package_root_from_factory_app | 83d85675c9287a9354924c7062402175c58e577e | `assert resp.status_code == 200`: 404 == 200 | Fixed in 356479f |
+| tests/fastapi/test_architecture_api.py::test_namespace_package_root | 83d85675c9287a9354924c7062402175c58e577e | `assert resp.status_code == 200`: 404 == 200 | Fixed in 356479f |
+| tests/fastapi/test_architecture_api.py::test_main_module_app_not_scanned_through_route | 83d85675c9287a9354924c7062402175c58e577e | `assert resp.status_code == 200`: 404 == 200 | Fixed in 356479f |
+| tests/fastapi/test_architecture_api.py::test_bounded_files_and_symlinks | 83d85675c9287a9354924c7062402175c58e577e | `assert resp.status_code == 200`: 404 == 200 | Fixed in 356479f |
+| tests/fastapi/test_architecture_api.py::test_get_after_scan_opens_no_source_file | 83d85675c9287a9354924c7062402175c58e577e | `assert scan_resp.status_code == 200`: 404 == 200 | Fixed in 356479f |
+| tests/fastapi/test_architecture_api.py::test_scan_reads_only_app_package | 83d85675c9287a9354924c7062402175c58e577e | `assert resp.status_code == 200`: 404 == 200 | Fixed in 356479f |
+| tests/fastapi/test_architecture_api.py::test_read_only_blocks_scan | 83d85675c9287a9354924c7062402175c58e577e | `assert resp.status_code == 403`: 404 == 403 | Fixed in 356479f |
+| tests/fastapi/test_architecture_api.py::test_inactive_architecture_paths_404 | 83d85675c9287a9354924c7062402175c58e577e | `assert client_active.get(...).status_code == 200`: 404 == 200 | Fixed in 356479f |
+| tests/fastapi/test_architecture_api.py::test_architecture_get_no_side_effects | 83d85675c9287a9354924c7062402175c58e577e | `assert rep.status_code == 200`: 404 == 200 | Fixed in 356479f |
+| tests/fastapi/test_architecture_api.py::test_mcp_tools_list_has_only_get | 83d85675c9287a9354924c7062402175c58e577e | `assert "get_architecture_report" in tool_names`: "get_architecture_report" in [] | Fixed in 356479f |
 
 ## Pins (pass on the base; mutation-proven, never claimed as reds)
 
