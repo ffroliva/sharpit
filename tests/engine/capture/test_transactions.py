@@ -494,3 +494,112 @@ def test_listener_release_never_runs_under_attach_lock(monkeypatch) -> None:
     transactions._attach_lock.release()
     thread.join(timeout=0.2)
     assert not blocked, "listener release must not block while the attach lock is held"
+
+
+class _WeakContext:
+    """A fake sharpit context that, unlike SimpleNamespace, can be weakly referenced."""
+
+    def __init__(self, recorder: TransactionRecorder, context_id: str = "sqlite-context") -> None:
+        from types import SimpleNamespace
+
+        self.context_id = context_id
+        self.capture = SimpleNamespace(transactions=recorder, wiring=SimpleNamespace(hook_failed=lambda *_: None))
+        self.settings = SimpleNamespace(
+            transactions_enabled=True,
+            panels={"transactions": SimpleNamespace(enabled=True)},
+            sql_trace_capture_call_site=False,
+        )
+
+
+def _attached_sqlite(monkeypatch, recorder: TransactionRecorder):
+    """A real SQLite engine whose connection events route to one fake context holding ``recorder``."""
+    from sharpit.engine.capture.transactions import attach
+    from sharpit.engine.sources import dispatch
+
+    sa = pytest.importorskip("sqlalchemy")
+    targets = [_WeakContext(recorder)]
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: targets)
+    remove = attach()
+    assert remove is not None, "the connection event slot should attach when SQLAlchemy is loaded"
+    return sa.create_engine("sqlite://"), remove, targets
+
+
+def test_nested_unnamed_savepoint_rollback_is_rolled_back(monkeypatch) -> None:
+    recorder = _recorder()
+    engine, remove, _targets = _attached_sqlite(monkeypatch, recorder)
+    try:
+        with engine.connect() as connection:
+            outer = connection.begin()
+            first = connection.begin_nested()
+            first_id = connection.info["sharpit_tx"][-1][1]
+            second = connection.begin_nested()
+            second_id = connection.info["sharpit_tx"][-1][1]
+            second.commit()
+            first.rollback()
+            outer.commit()
+    finally:
+        remove()
+        engine.dispose()
+    rows = {row["id"]: row for row in recorder.report([])["entries"]}
+    assert rows[first_id]["status"] == "ROLLED_BACK", "a rolled-back outer savepoint must never be reported committed"
+    assert rows[second_id]["status"] == "COMMITTED", "the released inner savepoint must be reported committed"
+
+
+def test_untracked_inner_savepoint_does_not_close_tracked_outer(monkeypatch) -> None:
+    recorder = _recorder()
+    engine, remove, _targets = _attached_sqlite(monkeypatch, recorder)
+    try:
+        with engine.connect() as connection:
+            outer = connection.begin()
+            tracked = connection.begin_nested()
+            tracked_id = connection.info["sharpit_tx"][-1][1]
+            recorder.set_recording(False)
+            untracked = connection.begin_nested()
+            recorder.set_recording(True)
+            untracked.commit()
+            status_after_inner = {row["id"]: row for row in recorder.report([])["entries"]}[tracked_id]["status"]
+            tracked.rollback()
+            outer.commit()
+    finally:
+        remove()
+        engine.dispose()
+    assert status_after_inner == "OPEN", "releasing an untracked inner savepoint must not close the tracked outer one"
+
+
+def test_ring_stays_bounded_when_every_entry_is_open() -> None:
+    recorder = _recorder(max_entries=3)
+    for _ in range(30):
+        _begin(recorder)
+    assert len(recorder.report([])["entries"]) <= 6, "open transactions must not grow the ring past twice its capacity"
+
+
+def test_evicted_open_row_counts_unknown() -> None:
+    recorder = _recorder(max_entries=1)
+    for _ in range(3):
+        _begin(recorder)
+    stats = recorder.report([])["stats"]
+    assert stats["evicted"] == 1, "an open row evicted past the hard cap must be counted as evicted"
+    assert stats["unknownCount"] == 1, "an open row evicted past the hard cap must be counted as unknown"
+
+
+def test_savepoint_depth_reset_after_error_and_checkin(monkeypatch) -> None:
+    recorder = _recorder()
+    engine, remove, _targets = _attached_sqlite(monkeypatch, recorder)
+
+    def failing_savepoint(_connection, _name) -> None:
+        raise RuntimeError("savepoint failed")
+
+    try:
+        with pytest.raises(RuntimeError), engine.connect() as connection:
+            connection.begin()
+            with monkeypatch.context() as patch:
+                patch.setattr(engine.dialect, "do_savepoint", failing_savepoint)
+                connection.begin_nested()
+        with engine.connect() as connection:
+            connection.begin()
+            connection.begin_nested()
+            depth = len(connection.info["sharpit_tx_savepoints"])
+    finally:
+        remove()
+        engine.dispose()
+    assert depth == 1, "a savepoint left open by an error must not survive the connection's return to the pool"
