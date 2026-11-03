@@ -41,11 +41,10 @@ Per-test reds, pins and their mutation proofs, and the paired overhead runs: `fi
 
 ## Coordinator rulings applied (after merging release/0.5.0, merge commit on this branch)
 
-- Q1: `tests/safety/test_d2_safety.py` declares `GET_ROWS` for the four new base GET routes (no `PANEL`), commit
-  09c46dbec18b075fa917818df7468f912dea002e. `tests/test_safety_matrix.py::test_get_route_table_is_complete` STILL
-  FAILS: `tests/safety/__init__.py::load` (line 157) adds rows only for files with a `PANEL`
-  ("a PANEL-less file ... adds tests and tool arguments, no rows"), so these rows never reach the matrix. Fixing it
-  needs `tests/safety/__init__.py` (outside May-touch) to feed PANEL-less `GET_ROWS` into `LANE_GETS`.
+- Q1 (corrected ruling): the four new base GET routes are appended to `tests/test_safety_matrix.py::ROWS` (rows only,
+  commit abddfe0330ca2484934d9646e26daded8250d8f5; pass `--allow-path tests/test_safety_matrix.py` to the gate);
+  `GET_ROWS` removed from `tests/safety/test_d2_safety.py`, which keeps `TOOL_ARGS`/`TOOL_SEEDS` and the lane tests.
+  Matrix, tool, surface, safety and masking tests: 1476 passed, 2 skipped.
 - Q2: `tests/surface.py` lists `get_http_routes` and `get_request_profile` at the end of the tool and CLI lists; the two
   tools moved to the end of `_BASE_TOOLS` in `engine/tools.py` so the catalogue order matches the appended names.
 - Follow-ups (left as ruled): (a) `fastapi/routes/activity.py` overwrites the `activity` name in
@@ -56,7 +55,7 @@ Per-test reds, pins and their mutation proofs, and the paired overhead runs: `fi
 
 5295 passed, 5 failed, 24 skipped (log: integration logs/D2-pytest2.log, a 10-minute run under machine load). The
 four budget failures (capture, security-logs, n+1, sql-trace overhead) pass when re-run alone (5 passed, 31 s); the
-remaining failure is `test_get_route_table_is_complete` (Q1 above).
+remaining failure, `test_get_route_table_is_complete`, now passes (Q1 above).
 
 ## Decisions
 
