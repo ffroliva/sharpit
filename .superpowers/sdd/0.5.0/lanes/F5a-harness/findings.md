@@ -41,12 +41,19 @@ fix commit `ff610d5`. Mutations ran in a scratch copy of `ff610d5` (outside the 
 | M12 both `no_side_effects.watch_sources(EXAMPLES)` lines removed | 2 failed: `test_get_sweep_reports_an_app_source_read`, `test_mcp_sweep_reports_an_app_source_read` (`assert None is not None`) |
 | M13 the `linecache` purge removed from `watch_sources` | 1 failed: `test_side_effect_guard_sees_a_read_through_a_warm_linecache` (`assert None is not None`) |
 
-## OPEN: product finding the wired sweeps now report (needs a coordinator ruling)
+## Beans source read: ruled (coordinator, spec §14 at b135c24)
 
-`GET /sharpit/api/beans` and MCP `get_beans` (plain and sqla, 4 cases) read `examples/fastapi_sample/app.py`:
-`fastapi/introspector.py:54` `_resource` calls `inspect.getsourcelines(target)` for each provider's `file:line`
-(0.4.0 behaviour, BootUI `resource`). Before the purge it was hidden by FastAPI warming `linecache` for the same file
-on the first host request, so the reviewer's "120 passed" was order-dependent. Spec §4.4/§14 exempt only config's
-getenv scan. Options: (a) fix `_resource` to use `code.co_firstlineno` / `inspect.getsourcefile` without reading
-(out of this lane's May-touch: `src/sharpit/fastapi/introspector.py`); (b) declare a second exemption in
-`SOURCE_READ_EXEMPT` (a spec change). Neither taken here: the sweeps stay strict and these 4 cases fail at head.
+`GET /beans` and MCP `get_beans` read the provider's source through `fastapi/introspector.py:_resource`
+(`inspect.getsourcelines`); found by the wired sweeps once the `linecache` purge stopped FastAPI's warm cache hiding it.
+Ruling: a temporary, declared exemption in the sweeps only (`SWEEP_SOURCE_READ_EXEMPT` in `tests/test_safety_matrix.py`),
+removed by R-fastapi-security Task 3; `introspector.py` untouched. Exempt surfaces skip only the source-read watch; the
+socket, write, logger, environ and interpreter-state checks still run for them.
+
+| Finding | Test | Red SHA | Assertion message | Disposition |
+|---|---|---|---|---|
+| exemption list may only shrink | `tests/test_safety_matrix.py::test_sweep_source_read_exemptions_only_shrink` | | pin (added with the list it checks) | pin: a third entry `("GET", "/mcp-server")` → 1 failed, `Extra items in the right set` |
+
+| Mutation | Result |
+|---|---|
+| M14 third exemption entry | 1 failed: `test_sweep_source_read_exemptions_only_shrink` |
+| M15 narrowness: `McpServer.status` (`GET /mcp-server`) calls `inspect.getsourcelines` on the sample app's `create_app` | 2 failed: `test_every_get_no_side_effects[/sharpit/api/mcp-server-plain]` and `[...-sqla]` (`app source read: ...\examples\fastapi_sample\app.py`); the beans cases in the same run pass (57 passed) |

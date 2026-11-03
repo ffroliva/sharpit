@@ -639,6 +639,8 @@ def test_get_route_table_is_complete():
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"  # the sample app's source root
+# spec §14: temporary, introspector._resource reads the provider's source; R-fastapi-security Task 3 removes it
+SWEEP_SOURCE_READ_EXEMPT = frozenset({("GET", "/beans"), ("mcp", "get_beans")})
 ALEMBIC_INI = Path(__file__).resolve().parent / "fixtures" / "alembic" / "linear" / "alembic.ini"
 # spec §7.6 / §7.8: with a registered engine, a health check and an Alembic config, a GET or an MCP tool still opens
 # no database connection and runs no check (the plain app has none of them, so it cannot catch that)
@@ -670,7 +672,8 @@ def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, 
     with _client(app) as client:
         client.get("/owners")  # one host request first: the capture wiring that attaches on it is swept too
         no_side_effects.block_network()
-        no_side_effects.watch_sources(EXAMPLES)  # spec §4.4: a sharpit GET or MCP read never opens the app's source
+        if ("GET", path.removeprefix("/sharpit/api")) not in SWEEP_SOURCE_READ_EXEMPT:
+            no_side_effects.watch_sources(EXAMPLES)  # spec §4.4: a sharpit GET never opens the app's source
         # the rest-api violations route needs a scanId: without one it answers 400 (and never scans)
         expected = (400,) if path == "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations" else (200, 307, 404)
         for query in ("", "?q=sharpit&offset=0&limit=5"):
@@ -707,7 +710,8 @@ def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: 
     with _client(app) as client:
         client.get("/owners")
         no_side_effects.block_network()
-        no_side_effects.watch_sources(EXAMPLES)  # spec §4.4: a sharpit GET or MCP read never opens the app's source
+        if ("mcp", tool) not in SWEEP_SOURCE_READ_EXEMPT:
+            no_side_effects.watch_sources(EXAMPLES)  # spec §4.4: a sharpit MCP read never opens the app's source
         arguments = _tool_arguments(tool, app.state.sharpit)
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
         result = client.post("/sharpit/api/mcp", json=call).json()["result"]
@@ -753,3 +757,8 @@ def test_cli_action_tools_gated_is_parametrised_from_the_lanes(tmp_path: Path, m
     marks = fresh["test_cli_action_tools_gated"].pytestmark
     cases = next(m.args[1] for m in marks if m.name == "parametrize" and m.args[0] == ("tool", "panel", "seed"))
     assert "probe_action" in [tool for tool, _panel, _seed in cases]
+
+
+def test_sweep_source_read_exemptions_only_shrink() -> None:
+    # spec §14: the two declared surfaces and nothing else; R-fastapi-security Task 3 empties it
+    assert {("GET", "/beans"), ("mcp", "get_beans")} == SWEEP_SOURCE_READ_EXEMPT

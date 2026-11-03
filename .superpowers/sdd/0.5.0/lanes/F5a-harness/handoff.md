@@ -80,9 +80,10 @@ coordinator (not run here). Budgets untouched.
 | #4 minor, decision 1 wrong | decision 1 rewritten above | N/A |
 | #6 minor, per-thread trace hooks | limit named in `_interpreter_state`'s docstring (`tests/conftest.py`) | N/A |
 
-**OPEN (blocks a green suite):** with the purge the sweeps report a real read: `GET /beans` and `get_beans` (4 cases)
-read app source through `introspector._resource` (`inspect.getsourcelines`). Needs a coordinator ruling: fix
-`introspector.py` (not May-touch) or a spec exemption. Details in `findings.md` (OPEN).
+**Beans source read (ruled, spec §14 at b135c24):** `GET /beans` and `get_beans` read app source through
+`introspector._resource`. Declared temporary exemption `SWEEP_SOURCE_READ_EXEMPT` in the sweeps (removed by
+R-fastapi-security Task 3), pinned exact by `test_sweep_source_read_exemptions_only_shrink`; narrowness mutation M15.
+Lanes that later add a sweep-level exemption must change that pin, which shows in review.
 
 Fix-round gates at `78367d9`: `ruff check` clean, `ruff format --check` clean, `pyright` 0 errors; full `pytest -q -n 4`
 **4625 passed, 9 skipped, 4 errors** (exactly the 4 OPEN beans cases, teardown `app source read`) in 12.5 min
