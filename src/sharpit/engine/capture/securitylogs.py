@@ -29,6 +29,8 @@ AUTHENTICATION_SUCCESS = "AUTHENTICATION_SUCCESS"
 AUTHENTICATION_FAILURE = "AUTHENTICATION_FAILURE"
 AUTHORIZATION_FAILURE = "AUTHORIZATION_FAILURE"
 DEFAULT_MAX_LOGS = 500
+# fastapi/capture.py CAPTURE_TOO_LATE_REASON, which the engine may not import (tests pin the two equal)
+CAPTURE_UNAVAILABLE_REASON = "Request capture is unavailable: install() ran after the app started"
 INVALID_AFTER = "Invalid 'after' parameter: expected an ISO-8601 instant with an offset"
 MAX_DATA_ENTRIES = 20
 MAX_VALUE_LENGTH = 256
@@ -187,6 +189,30 @@ def security_logs_report(
         "events": [_event(e, masker, metadata_only, masks_keys) for e in kept],
         "page": page,
     }
+
+
+def context_report(
+    ctx: SharpitContext,
+    *,
+    principal: str | None = None,
+    type: str | None = None,
+    after_ns: int | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """The panel's report for one context: without the capture middleware only recorded events arrive (contract)."""
+    buffer = ctx.capture.security_logs
+    attached = getattr(ctx.capture.wiring, "middleware_added", False)
+    return security_logs_report(
+        buffer if isinstance(buffer, SecurityEventBuffer) else None,
+        ctx.masker,
+        principal=principal,
+        type=type,
+        after_ns=after_ns,
+        offset=offset,
+        limit=limit,
+        unavailable_reason=None if attached else CAPTURE_UNAVAILABLE_REASON,
+    )
 
 
 def principal_of(user: object) -> str | None:
