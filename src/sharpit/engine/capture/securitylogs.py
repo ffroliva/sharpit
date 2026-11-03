@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from sharpit.engine.capture.correlation import REQUEST
 from sharpit.engine.capture.streams import ChangeStream
-from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.paging import paged
 from sharpit.engine.panels import panel_is_implemented
 
@@ -46,7 +46,7 @@ class SecurityEvent(NamedTuple):
     timestamp_ns: int
     principal: str | None
     type: str
-    data: tuple[tuple[str, str | None], ...]  # sorted by key, at most MAX_DATA_ENTRIES
+    data: tuple[tuple[str, str | None, bool], ...]  # (name, value, masked when recorded), by key, ≤ MAX_DATA_ENTRIES
     omitted: int
     request_id: str | None
 
@@ -56,10 +56,13 @@ def clamp_max_logs(n: int) -> int:
 
 
 class SecurityEventBuffer:
-    """Raw events, newest kept; values are stringified on the host thread so a read never runs host code."""
+    """Events, newest kept; strings are stringified and cut on the host thread, so memory is count x event size and a
+    read never runs host code. A string longer than the output limit is masked strictly before it is cut, so no secret
+    is ever stored half (the read masks the short ones with the live policy)."""
 
-    def __init__(self, max_logs: int) -> None:
+    def __init__(self, max_logs: int, token: str | None = None) -> None:
         self.max_logs = clamp_max_logs(max_logs)
+        self._strict = Masker(Exposure.MASKED, True, token)
         self.changes = ChangeStream()
         self._events: deque[SecurityEvent] = deque(maxlen=self.max_logs)
         self._lock = threading.Lock()
@@ -73,18 +76,27 @@ class SecurityEventBuffer:
         *,
         timestamp_ns: int | None = None,
     ) -> None:
-        items = sorted(((str(k), None if v is None else str(v)) for k, v in data.items()), key=lambda kv: kv[0])
+        keys = sorted(data, key=str)
+        kept = tuple(self._stored(str(k), None if data[k] is None else str(data[k])) for k in keys[:MAX_DATA_ENTRIES])
         event = SecurityEvent(
             time.time_ns() if timestamp_ns is None else timestamp_ns,
-            principal,
-            type,
-            tuple(items[:MAX_DATA_ENTRIES]),
-            max(len(items) - MAX_DATA_ENTRIES, 0),
+            None if principal is None else principal[:MAX_VALUE_LENGTH],
+            type[:MAX_VALUE_LENGTH],
+            kept,
+            max(len(keys) - MAX_DATA_ENTRIES, 0),
             request_id,
         )
         with self._lock:
             self._events.append(event)
         self.changes.signal()
+
+    def _stored(self, name: str, value: str | None) -> tuple[str, str | None, bool]:
+        if len(name) <= MAX_VALUE_LENGTH and (value is None or len(value) <= MAX_VALUE_LENGTH):
+            return name, value, False
+        shown, masked = _scrubbed(self._strict, True, name, value)  # the whole name and value, before either is cut
+        if isinstance(shown, str) and len(shown) > MAX_VALUE_LENGTH:
+            shown = f"{shown[:MAX_VALUE_LENGTH]}..."  # the read's own cut keeps this text and marks it truncated
+        return name[:MAX_VALUE_LENGTH], None if shown is None else str(shown), masked
 
     def snapshot(self) -> list[SecurityEvent]:
         with self._lock:
@@ -114,7 +126,7 @@ def parse_after(raw: str | None) -> int | None:
     return (parsed - _EPOCH) // timedelta(microseconds=1) * 1000
 
 
-def _row(masker: Masker, masks_keys: bool, name: str, value: str | None) -> dict[str, Any]:
+def _scrubbed(masker: Masker, masks_keys: bool, name: str, value: str | None) -> tuple[object | None, bool]:
     shown, masked = masker.mask(name, value)
     if shown is not None and not masked:
         if masks_keys and any(m in _NON_ALNUM.sub("", name.lower()) for m in _ADDRESS_MARKERS):
@@ -122,6 +134,12 @@ def _row(masker: Masker, masks_keys: bool, name: str, value: str | None) -> dict
         else:  # sharpit widening: a secret inside the text (``Bearer <jwt>``, ``token=...``) is scrubbed
             scrubbed = masker.mask_text(str(shown))
             shown, masked = scrubbed, scrubbed != shown
+    return shown, masked
+
+
+def _row(masker: Masker, masks_keys: bool, name: str, value: str | None, recorded_masked: bool) -> dict[str, Any]:
+    shown, masked = _scrubbed(masker, masks_keys, name, value)
+    masked = masked or (recorded_masked and shown is not None)
     truncated = isinstance(shown, str) and len(shown) > MAX_VALUE_LENGTH
     if truncated:
         shown = f"{str(shown)[:MAX_VALUE_LENGTH]}..."
@@ -129,7 +147,7 @@ def _row(masker: Masker, masks_keys: bool, name: str, value: str | None) -> dict
 
 
 def _event(event: SecurityEvent, masker: Masker, metadata_only: bool, masks_keys: bool) -> dict[str, Any]:
-    rows = [_row(masker, masks_keys, name, value) for name, value in event.data]
+    rows = [_row(masker, masks_keys, name, value, pre) for name, value, pre in event.data]
     if event.omitted:
         rows.append(
             {"name": "...", "value": f"{event.omitted} more entries omitted", "masked": False, "truncated": False}
@@ -239,7 +257,7 @@ def attach(ctx: SharpitContext) -> Callable[[Mapping[str, Any], int], None] | No
     """Give an enabled panel its buffer and its context registration; return the 401/403 hook, or None."""
     if not (panel_is_implemented(PANEL) and ctx.settings.panels[PANEL].enabled):
         return None
-    buffer = ctx.capture.security_logs = SecurityEventBuffer(ctx.settings.security_logs_max_logs)
+    buffer = ctx.capture.security_logs = SecurityEventBuffer(ctx.settings.security_logs_max_logs, ctx.token)
     _contexts[ctx.context_id] = ctx
     return on_security_event(buffer, ctx.masker)
 
