@@ -235,7 +235,8 @@ def test_until_cursor_ignored():
     # BootUI's until/cursor/pageSize belong to persistence; sharpit's signature has no such parameters
     import inspect
 
-    assert set(inspect.signature(activity_report).parameters) == {"ctx", "type", "severity", "since", "limit", "q"}
+    params = {"ctx", "type", "severity", "since", "limit", "q", "journal_filters"}  # 2.2.0: journal-only filter flag
+    assert set(inspect.signature(activity_report).parameters) == params
 
 
 def test_kpis_p50_p95_and_nulls():
@@ -383,7 +384,8 @@ def test_shape_keys_match_bootui():
     )  # fmt: skip
     assert PROFILE_KEYS == (
         "available", "unavailableReason", "request", "sql", "sqlGroups", "sqlCorrelationApproximate", "exceptions",
-        "security", "trace", "timing", "notes",
+        "security", "trace", "timing", "notes", "restCalls", "cacheAccesses", "sections", "correlationTiers",
+        "approximate",
     )  # fmt: skip
     ctx = _ctx()
     _request(ctx, "r1")

@@ -450,10 +450,20 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "get_live_activity",
         "Return a bounded, newest-first activity snapshot that merges HTTP requests, SQL statements and exceptions, "
         "correlated by request id. Use first when diagnosing one request.",
-        _LIMIT_ONLY,
+        _QUERY_LIMIT,
         "activity",
         False,
-        lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], None),
+        lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], a["query"]),
+    ),
+    Tool(
+        "get_request_profile",
+        "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the "
+        "request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL. "
+        "An id no longer in the buffer returns available false.",
+        _ID,
+        "activity",
+        False,
+        lambda c, a: activity.request_profile(c.ctx, a["id"]),
     ),
     Tool(
         "get_alembic_migrations",
@@ -572,6 +582,7 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "pause_sql_trace_recording": "sql pause",
     "resume_sql_trace_recording": "sql resume",
     "get_live_activity": "activity",
+    "get_request_profile": "activity profile",
     "get_alembic_migrations": "db alembic",
     "get_health": "health",
     "get_database_connection_pools": "db pools",

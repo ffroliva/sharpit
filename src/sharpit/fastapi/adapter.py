@@ -8,6 +8,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from functools import partial
+from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
 
@@ -265,9 +266,15 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
 def _with_drift_routes(routes: list[BaseRoute], ctx: SharpitContext) -> list[BaseRoute]:
     """The 2.2.0 capture routes (lane D2) go first: a literal path such as ``/exceptions/caught`` must win over
     ``/exceptions/{id}``, and a drift route with the same path and methods replaces the base one."""
+    import sharpit.fastapi.routes as package
     from sharpit.fastapi.routes import exceptions, http_exchanges
 
-    drift = [route for module in (http_exchanges, exceptions) for route in module.build_routes(ctx)]
+    engine_activity = package.activity
+    activity = import_module("sharpit.fastapi.routes.activity")
+    # shortcut: importing the submodule rebinds the package's ``activity`` global, the engine module routes/__init__.py
+    # calls; put it back. Rename the module (or move these routes into routes/__init__.py) once that file may change.
+    package.activity = engine_activity
+    drift = [route for module in (activity, http_exchanges, exceptions) for route in module.build_routes(ctx)]
 
     def key(route: BaseRoute) -> tuple[object, frozenset[str]]:
         return getattr(route, "path", None), frozenset(getattr(route, "methods", None) or ())

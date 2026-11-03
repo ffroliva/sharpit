@@ -111,7 +111,11 @@ RELEASE_TOOLS = (
 
 
 # BootUI 2.2.0 McpToolCatalog: these schemas moved on from the 0.2.0 fixture (contract 0.4 drift §§10, 13, 14)
-SCHEMAS_2_2_0 = {"get_log_tail": QUERY_LIMIT_SCHEMA, "get_sql_traces": QUERY_LIMIT_SCHEMA}
+SCHEMAS_2_2_0 = {
+    "get_log_tail": QUERY_LIMIT_SCHEMA,
+    "get_sql_traces": QUERY_LIMIT_SCHEMA,
+    "get_live_activity": QUERY_LIMIT_SCHEMA,
+}
 
 
 class FakeIntrospector:
@@ -142,8 +146,8 @@ def _tool(name: str, handler: Callable[[CallContext, dict[str, Any]], dict[str, 
 def test_catalogue_names_panels_actions_and_schemas():
     # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows plus the 2.2.0 capture tools, panel and action names)
     rows = [(t.name, t.panel, t.action, t.input_schema) for t in TOOLS]
-    assert rows[25:] == [(t.name, t.panel, t.action, t.input_schema) for t in lane_tools()]
-    assert rows[:25] == [
+    assert rows[26:] == [(t.name, t.panel, t.action, t.input_schema) for t in lane_tools()]
+    assert rows[:26] == [
         ("get_overview", "overview", False, NONE_SCHEMA),
         ("get_config", "config", False, QUERY_LIMIT_SCHEMA),
         ("get_mappings", "mappings", False, QUERY_LIMIT_SCHEMA),
@@ -159,7 +163,8 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("clear_sql_traces", "sql-trace", True, NONE_SCHEMA),
         ("pause_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
         ("resume_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
-        ("get_live_activity", "activity", False, LIMIT_SCHEMA),
+        ("get_live_activity", "activity", False, QUERY_LIMIT_SCHEMA),
+        ("get_request_profile", "activity", False, ID_SCHEMA),
         ("get_alembic_migrations", "alembic", False, NONE_SCHEMA),
         ("get_health", "health", False, NONE_SCHEMA),
         ("get_database_connection_pools", "database-connection-pools", False, NONE_SCHEMA),
