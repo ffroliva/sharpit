@@ -1,10 +1,17 @@
-"""Architecture advisor rule catalog (spec §5.5; BootUI 2.2.0 ARCH-* rules)."""
+"""Architecture advisor rule catalog and evaluators (spec §5.5; BootUI 2.2.0 ARCH-* rules)."""
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Sequence
 
+from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.rules import RuleDefinition
+from sharpit.engine.appsource import ModuleInfo, SourceIndex
+from sharpit.engine.collectors.architecture.contracts import Contract
+from sharpit.engine.collectors.architecture.graph import ImportGraph
+
+ADVISOR = "architecture"
 
 RULES: tuple[RuleDefinition, ...] = (
     RuleDefinition(
@@ -212,12 +219,445 @@ RULES: tuple[RuleDefinition, ...] = (
     ),
 )
 
+_CONTROLLER_PKGS = frozenset({"routers", "api", "endpoints", "controllers"})
+_REPO_PKGS = frozenset({"repositories", "crud"})
+_SERVICE_PKGS = frozenset({"services"})
+_TEST_FRAMEWORKS = frozenset({"pytest", "unittest.mock", "hypothesis"})
+_WEB_MODULES = frozenset({"fastapi", "starlette.requests", "starlette.responses"})
+
+
+def _eval_cycles(graph: ImportGraph, out: list[Finding]) -> None:
+    cycles = graph.find_package_cycles() or graph.find_cycles()
+    for cycle in cycles:
+        chain = " -> ".join(cycle.members) + f" -> {cycle.members[0]}"
+        target = f"{cycle.members[0]} cycle"
+        msg = f"Circular package dependency: {chain}"
+        out.append(Finding("ARCH-PKG-001", ADVISOR, "HIGH", target, msg))
+
+
+def _eval_internal_imports(graph: ImportGraph, out: list[Finding]) -> None:
+    for src_mod, edges in graph.edges.items():
+        src_pkg = src_mod.rpartition(".")[0]
+        for edge in edges:
+            parts = edge.target.split(".")
+            if any(p == "internal" or (p.startswith("_") and not p.startswith("__")) for p in parts):
+                tgt_pkg = edge.target.rpartition(".")[0]
+                if not (edge.target.startswith(f"{src_pkg}.") or src_pkg == tgt_pkg):
+                    msg = f"{src_mod} ({edge.path.name}:{edge.line}) imports internal module {edge.target}"
+                    out.append(Finding("ARCH-MOD-001", ADVISOR, "HIGH", f"{src_mod}:{edge.line}", msg))
+
+
+def _eval_module_ast(
+    mod_name: str,
+    mod_info: ModuleInfo,
+    base_pkgs: set[str],
+    out: dict[str, list[Finding]],
+) -> None:
+    tree = mod_info.tree
+    is_main = mod_name == "__main__" or mod_name.endswith(".__main__")
+    parts = set(mod_name.split("."))
+
+    for node in ast.walk(tree):
+        _check_standard_streams(mod_name, node, out.setdefault("ARCH-CODE-001", []))
+        _check_generic_exceptions(mod_name, node, out.setdefault("ARCH-CODE-002", []))
+        _check_joda_time(mod_name, node, out.setdefault("ARCH-CODE-004", []))
+        if not is_main:
+            _check_terminate_jvm(mod_name, node, out.setdefault("ARCH-CODE-006", []))
+        _check_jdk_internal_apis(mod_name, node, base_pkgs, out.setdefault("ARCH-CODE-007", []))
+        _check_legacy_datetime(mod_name, node, out.setdefault("ARCH-CODE-008", []))
+        _check_exception_naming(mod_name, node, out.setdefault("ARCH-CODE-010", []))
+        _check_loggers_private(mod_name, node, out.setdefault("ARCH-CODE-012", []))
+        if not (parts & {"tests", "test"}):
+            _check_test_frameworks(mod_name, node, out.setdefault("ARCH-CODE-013", []))
+        _check_mutable_globals(mod_name, node, out.setdefault("ARCH-CODE-014", []))
+        _check_instantiate_thread(mod_name, node, out.setdefault("ARCH-CODE-017", []))
+        _check_assert_detail(mod_name, node, out.setdefault("ARCH-CODE-018", []))
+        if parts & (_SERVICE_PKGS | _REPO_PKGS):
+            _check_web_transport_imports(mod_name, node, out.setdefault("ARCH-SPRING-008", []))
+
+
+def _check_standard_streams(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print":
+        out.append(
+            Finding("ARCH-CODE-001", ADVISOR, "LOW", f"{mod_name}:{node.lineno}", f"{mod_name}:{node.lineno} print()")
+        )
+    elif (
+        isinstance(node, ast.Attribute)
+        and node.attr in ("stdout", "stderr")
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "sys"
+    ):
+        out.append(
+            Finding(
+                "ARCH-CODE-001",
+                ADVISOR,
+                "LOW",
+                f"{mod_name}:{node.lineno}",
+                f"{mod_name}:{node.lineno} sys.{node.attr}",
+            )
+        )
+
+
+def _check_generic_exceptions(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.Raise) and node.exc:
+        exc_id: str | None = None
+        if isinstance(node.exc, ast.Name):
+            exc_id = node.exc.id
+        elif isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
+            exc_id = node.exc.func.id
+        if exc_id in ("Exception", "BaseException"):
+            out.append(
+                Finding(
+                    "ARCH-CODE-002",
+                    ADVISOR,
+                    "LOW",
+                    f"{mod_name}:{node.lineno}",
+                    f"{mod_name}:{node.lineno} raises {exc_id}",
+                )
+            )
+
+
+def _check_joda_time(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.Import):
+        out.extend(
+            Finding(
+                "ARCH-CODE-004", ADVISOR, "INFO", f"{mod_name}:{node.lineno}", f"{mod_name}:{node.lineno} pytz import"
+            )
+            for alias in node.names
+            if alias.name == "pytz" or alias.name.startswith("pytz.")
+        )
+    elif (
+        isinstance(node, ast.ImportFrom) and node.module and (node.module == "pytz" or node.module.startswith("pytz."))
+    ):
+        out.append(
+            Finding(
+                "ARCH-CODE-004", ADVISOR, "INFO", f"{mod_name}:{node.lineno}", f"{mod_name}:{node.lineno} pytz import"
+            )
+        )
+
+
+def _check_terminate_jvm(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.Call):
+        is_exit = False
+        name = ""
+        if isinstance(node.func, ast.Name) and node.func.id in ("exit", "quit"):
+            is_exit = True
+            name = node.func.id
+        elif isinstance(node.func, ast.Attribute) and node.func.attr in ("exit", "_exit"):
+            if isinstance(node.func.value, ast.Name) and node.func.value.id in ("sys", "os"):
+                is_exit = True
+                name = f"{node.func.value.id}.{node.func.attr}"
+        if is_exit:
+            out.append(
+                Finding(
+                    "ARCH-CODE-006",
+                    ADVISOR,
+                    "HIGH",
+                    f"{mod_name}:{node.lineno}",
+                    f"{mod_name}:{node.lineno} calls {name}()",
+                )
+            )
+
+
+def _check_jdk_internal_apis(mod_name: str, node: ast.AST, base_pkgs: set[str], out: list[Finding]) -> None:
+    if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+        top = node.module.partition(".")[0]
+        if top not in base_pkgs and top != "__future__":
+            parts = node.module.split(".")
+            if any(p.startswith("_") and not p.startswith("__") for p in parts):
+                out.append(
+                    Finding(
+                        "ARCH-CODE-007",
+                        ADVISOR,
+                        "MEDIUM",
+                        f"{mod_name}:{node.lineno}",
+                        f"{mod_name}:{node.lineno} imports private {node.module}",
+                    )
+                )
+            else:
+                out.extend(
+                    Finding(
+                        "ARCH-CODE-007",
+                        ADVISOR,
+                        "MEDIUM",
+                        f"{mod_name}:{node.lineno}",
+                        f"{mod_name}:{node.lineno} imports private {alias.name} from {node.module}",
+                    )
+                    for alias in node.names
+                    if alias.name.startswith("_") and not alias.name.startswith("__")
+                )
+
+
+def _check_legacy_datetime(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in ("utcnow", "utcfromtimestamp")
+    ):
+        out.append(
+            Finding(
+                "ARCH-CODE-008",
+                ADVISOR,
+                "INFO",
+                f"{mod_name}:{node.lineno}",
+                f"{mod_name}:{node.lineno} calls {node.func.attr}()",
+            )
+        )
+
+
+def _check_exception_naming(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.ClassDef):
+        is_exc = any(
+            isinstance(b, ast.Name)
+            and (b.id in ("Exception", "BaseException") or b.id.endswith(("Error", "Exception")))
+            for b in node.bases
+        )
+        if is_exc and not node.name.endswith(("Error", "Exception")):
+            out.append(
+                Finding(
+                    "ARCH-CODE-010",
+                    ADVISOR,
+                    "INFO",
+                    f"{mod_name}:{node.lineno}",
+                    f"{mod_name}:{node.lineno} exception {node.name} not named Error/Exception",
+                )
+            )
+
+
+def _check_loggers_private(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "getLogger":
+        if not node.args:
+            out.append(
+                Finding(
+                    "ARCH-CODE-012",
+                    ADVISOR,
+                    "LOW",
+                    f"{mod_name}:{node.lineno}",
+                    f"{mod_name}:{node.lineno} getLogger() without name",
+                )
+            )
+        elif len(node.args) > 0 and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            out.append(
+                Finding(
+                    "ARCH-CODE-012",
+                    ADVISOR,
+                    "LOW",
+                    f"{mod_name}:{node.lineno}",
+                    f"{mod_name}:{node.lineno} getLogger() with literal string",
+                )
+            )
+
+
+def _check_test_frameworks(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.Import):
+        out.extend(
+            Finding(
+                "ARCH-CODE-013",
+                ADVISOR,
+                "MEDIUM",
+                f"{mod_name}:{node.lineno}",
+                f"{mod_name}:{node.lineno} imports test library {alias.name}",
+            )
+            for alias in node.names
+            if any(alias.name == tf or alias.name.startswith(f"{tf}.") for tf in _TEST_FRAMEWORKS)
+        )
+    elif (
+        isinstance(node, ast.ImportFrom)
+        and node.module
+        and any(node.module == tf or node.module.startswith(f"{tf}.") for tf in _TEST_FRAMEWORKS)
+    ):
+        out.append(
+            Finding(
+                "ARCH-CODE-013",
+                ADVISOR,
+                "MEDIUM",
+                f"{mod_name}:{node.lineno}",
+                f"{mod_name}:{node.lineno} imports from test library {node.module}",
+            )
+        )
+
+
+def _check_mutable_globals(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        for child in ast.walk(node):
+            if isinstance(child, ast.Global):
+                out.extend(
+                    Finding(
+                        "ARCH-CODE-014",
+                        ADVISOR,
+                        "MEDIUM",
+                        f"{mod_name}:{child.lineno}",
+                        f"{mod_name}:{child.lineno} rebinds public global {name}",
+                    )
+                    for name in child.names
+                    if not name.startswith("_")
+                )
+
+
+def _check_instantiate_thread(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.Call):
+        is_thread = False
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "Thread":
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "threading":
+                is_thread = True
+        elif isinstance(node.func, ast.Name) and node.func.id == "Thread":
+            is_thread = True
+        if is_thread:
+            out.append(
+                Finding(
+                    "ARCH-CODE-017",
+                    ADVISOR,
+                    "MEDIUM",
+                    f"{mod_name}:{node.lineno}",
+                    f"{mod_name}:{node.lineno} directly instantiates Thread",
+                )
+            )
+
+
+def _check_assert_detail(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.Assert) and node.msg is None:
+        out.append(
+            Finding(
+                "ARCH-CODE-018",
+                ADVISOR,
+                "INFO",
+                f"{mod_name}:{node.lineno}",
+                f"{mod_name}:{node.lineno} assert without message",
+            )
+        )
+
+
+def _check_web_transport_imports(mod_name: str, node: ast.AST, out: list[Finding]) -> None:
+    if isinstance(node, ast.Import):
+        out.extend(
+            Finding(
+                "ARCH-SPRING-008",
+                ADVISOR,
+                "MEDIUM",
+                f"{mod_name}:{node.lineno}",
+                f"{mod_name}:{node.lineno} imports web transport {alias.name}",
+            )
+            for alias in node.names
+            if alias.name in _WEB_MODULES or alias.name == "fastapi"
+        )
+    elif isinstance(node, ast.ImportFrom) and node.module and (node.module in _WEB_MODULES or node.module == "fastapi"):
+        out.append(
+            Finding(
+                "ARCH-SPRING-008",
+                ADVISOR,
+                "MEDIUM",
+                f"{mod_name}:{node.lineno}",
+                f"{mod_name}:{node.lineno} imports web transport from {node.module}",
+            )
+        )
+
+
+def _eval_layering(graph: ImportGraph, out: dict[str, list[Finding]]) -> None:
+    for src_mod, edges in graph.edges.items():
+        src_parts = set(src_mod.split("."))
+        for edge in edges:
+            tgt_parts = set(edge.target.split("."))
+            if (src_parts & _CONTROLLER_PKGS) and (tgt_parts & _REPO_PKGS):
+                out.setdefault("ARCH-SPRING-002", []).append(
+                    Finding(
+                        "ARCH-SPRING-002",
+                        ADVISOR,
+                        "LOW",
+                        f"{src_mod}:{edge.line}",
+                        f"Controller {src_mod} imports repository {edge.target}",
+                    )
+                )
+            if (src_parts & _REPO_PKGS) and (tgt_parts & _CONTROLLER_PKGS):
+                out.setdefault("ARCH-SPRING-003", []).append(
+                    Finding(
+                        "ARCH-SPRING-003",
+                        ADVISOR,
+                        "MEDIUM",
+                        f"{src_mod}:{edge.line}",
+                        f"Repository {src_mod} imports controller {edge.target}",
+                    )
+                )
+            if (src_parts & _SERVICE_PKGS) and (tgt_parts & _CONTROLLER_PKGS):
+                out.setdefault("ARCH-SPRING-006", []).append(
+                    Finding(
+                        "ARCH-SPRING-006",
+                        ADVISOR,
+                        "MEDIUM",
+                        f"{src_mod}:{edge.line}",
+                        f"Service {src_mod} imports controller {edge.target}",
+                    )
+                )
+            if (src_parts & _REPO_PKGS) and (tgt_parts & _SERVICE_PKGS):
+                out.setdefault("ARCH-SPRING-007", []).append(
+                    Finding(
+                        "ARCH-SPRING-007",
+                        ADVISOR,
+                        "MEDIUM",
+                        f"{src_mod}:{edge.line}",
+                        f"Repository {src_mod} imports service {edge.target}",
+                    )
+                )
+
+
+def _eval_contracts(graph: ImportGraph, contracts: Sequence[Contract], out: list[Finding]) -> None:
+    for contract in contracts:
+        if contract.contract_type == "layers":
+            for src_mod, edges in graph.edges.items():
+                src_idx = next(
+                    (
+                        i
+                        for i, layer in enumerate(contract.layers)
+                        if src_mod == layer or src_mod.startswith(f"{layer}.")
+                    ),
+                    None,
+                )
+                if src_idx is None:
+                    continue
+                for edge in edges:
+                    tgt_mod = edge.target
+                    tgt_idx = next(
+                        (
+                            i
+                            for i, layer in enumerate(contract.layers)
+                            if tgt_mod == layer or tgt_mod.startswith(f"{layer}.")
+                        ),
+                        None,
+                    )
+                    if tgt_idx is not None and src_idx > tgt_idx:
+                        msg = (
+                            f"Contract {contract.name!r} violated: {src_mod} ({edge.path.name}:{edge.line}) "
+                            f"imports higher layer {tgt_mod}"
+                        )
+                        out.append(Finding("ARCH-PY-001", ADVISOR, "HIGH", f"{src_mod}:{edge.line}", msg))
+        elif contract.contract_type == "forbidden":
+            for src_mod, edges in graph.edges.items():
+                if any(src_mod == sm or src_mod.startswith(f"{sm}.") for sm in contract.source_modules):
+                    for edge in edges:
+                        tgt_mod = edge.target
+                        if any(tgt_mod == fm or tgt_mod.startswith(f"{fm}.") for fm in contract.forbidden_modules):
+                            msg = (
+                                f"Contract {contract.name!r} violated: {src_mod} ({edge.path.name}:{edge.line}) "
+                                f"imports forbidden {tgt_mod}"
+                            )
+                            out.append(Finding("ARCH-PY-001", ADVISOR, "HIGH", f"{src_mod}:{edge.line}", msg))
+
 
 def evaluate_rules(
-    index: object,
-    graph: object,
-    contracts: Sequence[object] = (),
-) -> dict[str, list[object]]:
-    """Skeleton: returns empty findings."""
-    del index, graph, contracts
-    return {}
+    index: SourceIndex,
+    graph: ImportGraph,
+    contracts: Sequence[Contract] = (),
+) -> dict[str, list[Finding]]:
+    """Evaluate architecture rules against the indexed application code and import graph."""
+    findings: dict[str, list[Finding]] = {}
+
+    _eval_cycles(graph, findings.setdefault("ARCH-PKG-001", []))
+    _eval_internal_imports(graph, findings.setdefault("ARCH-MOD-001", []))
+
+    base_pkgs = {m.partition(".")[0] for m in index.modules if m}
+    for mod_name, mod_info in index.modules.items():
+        _eval_module_ast(mod_name, mod_info, base_pkgs, findings)
+
+    _eval_layering(graph, findings)
+    _eval_contracts(graph, contracts, findings.setdefault("ARCH-PY-001", []))
+
+    return {k: v for k, v in findings.items() if v}
