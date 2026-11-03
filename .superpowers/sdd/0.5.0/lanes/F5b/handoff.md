@@ -84,6 +84,24 @@ the server version and variable values from it.
     capture + lazy, head run 2 only lazy (42.5 µs, noise 25.8). Head is not slower than base. No budget constant
     changed.
 
+## Fix round 1 (council: Gemini APPROVE x2, Claude APPROVE WITH CHANGES)
+
+Base: coordinator merge `2281ad2`. The leased MySQL tests passed there (coordinator, MySQL 8.4).
+
+| Finding (`council-claude.md`) | Disposition |
+|---|---|
+| 1 medium: SQLite read-back check untested | `6a2d8cf` (`test:`): `test_sqlite_read_back_not_on_refuses` (read-back answers 0 → refused, `fn` not run, `query_only` still restored) and `test_sqlite_read_back_failure_refuses` (read-back raises → the error, `fn` not run, restored). Both pass at head, so they are pins: M8 deleted the check and both failed (`mutations-fix1.log`, `findings.md`) |
+| 2 low: two MariaDB rules | `47ed801` (`refactor:`): `_is_mariadb(conn, version="")` (dialect name, `dialect.is_mariadb`, or `-MariaDB` in `@@version` when read), used by `bounded()` and `_mysql_read_only`. `bounded()` behaviour unchanged; the read-only path now also honours `is_mariadb` |
+| 3 low: leased test hard-codes `transaction_read_only` | Not changed: the leased file is red-committed (`9e12855`) and must not be edited. MariaDB (`tx_read_only`, `max_statement_time` in seconds) is verified by fakes only, not live; only MySQL 8.4 ran live. A MariaDB < 11.1 leased run needs a new test that reads the variable the code chose |
+| 4 low: MySQL < 5.7.8 refuses with the driver error | Kept as design note 5 (fail-closed, as the PostgreSQL branch). A-mysql and A-dbadv-1 callers must catch driver errors as well as `ReadOnlyUnavailable`. The `tx_read_only` MySQL branch is reachable on 5.7.8 to 5.7.19 only |
+| 5 low: pyright suppressions | `47ed801`: `orm.py` loses the file-level `reportUnusedFunction=false`; the two helpers only `listeners` calls (`_record_relationship`, `_mapper_load`) carry a line-level ignore, so dead-code detection is back on for the rest of `orm`. The file-level `reportPrivateUsage=false` in `orm`/`listeners` and the one line ignore in `events` stay: making the shared state public would rename names that tests and the move-only commit rely on, for no behaviour gain |
+| 6 nit: duplicate importer test | Kept: it is a plan must-cover test and states the rule in its own name |
+
+Gates at `47ed801`: ruff check and format clean, pyright 0 errors; sqla test files 100 passed, 5 skipped; full suite
+`-n 4` (`logs/F5b-suite-fix1.log`): 4673 passed, 11 skipped, 1 failed, `test_request_overhead_budget` (capture per
+request 0.212 ms vs 0.200 ms on a loaded machine; the fix touched only `readonly.py` and `orm.py` comments, not the
+capture path; the base failed the same budget in the paired runs above).
+
 ## How to resume
 
 Nothing left in the lane except the leased MySQL run and the coordinator's council and review. The scratch worktree

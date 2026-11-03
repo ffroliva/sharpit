@@ -43,6 +43,8 @@ held back, `red_check` RED), which is the Red SHA above.
 | tests/test_patch_targets.py::test_patch_targets_are_defined_where_called | cc008ea4c4b847e92f712a81a14c39829e712203 | M0: `capture/activity.py` binds `from sharpit.engine.sqla import unavailable_reason` and calls it bare | `assert problems == []`: "test_activity.py:40 patches sharpit.engine.sqla.unavailable_reason; activity.py:63 looks it up through sharpit.engine.capture.activity" |
 | tests/engine/test_sqla_read_only_dialects.py::test_mysql_autocommit_execution_option_refused_before_any_statement | 9e1285527ad09cf37e457019d68655b37f3fe29e | M6: the execution-options `AUTOCOMMIT` check removed (`mutations-task3.log`) | `assert isinstance(result, sqla.ReadOnlyUnavailable)` |
 | tests/engine/test_sqla_read_only_dialects.py::test_other_dialect_read_only_unavailable | 9e1285527ad09cf37e457019d68655b37f3fe29e | M7: every non-sqlite, non-postgresql dialect takes the MySQL branch | `assert conn.queries == []` |
+| tests/engine/test_sqla_read_only_dialects.py::test_sqlite_read_back_not_on_refuses | 6a2d8cf7e7cd1e4dfa2d3fcaf9c05308d042554c | M8 (council F5b finding 1): the `PRAGMA query_only` read-back check deleted from `_sqlite_read_only` (`mutations-fix1.log`) | `assert isinstance(result, sqla.ReadOnlyUnavailable)` |
+| tests/engine/test_sqla_read_only_dialects.py::test_sqlite_read_back_failure_refuses | 6a2d8cf7e7cd1e4dfa2d3fcaf9c05308d042554c | M8: same mutation (the read-back is never executed, so `fn` runs) | `assert isinstance(result, RuntimeError)` |
 
 ## pin: retargeted patches (Task 1 step 2; `mutations-task1.log`)
 
