@@ -603,3 +603,97 @@ def test_savepoint_depth_reset_after_error_and_checkin(monkeypatch) -> None:
         remove()
         engine.dispose()
     assert depth == 1, "a savepoint left open by an error must not survive the connection's return to the pool"
+
+
+def test_commit_duration_includes_dbapi_commit(monkeypatch) -> None:
+    import time
+
+    from sharpit.engine.capture.transactions import attach
+    from sharpit.engine.sources import dispatch
+
+    sa = pytest.importorskip("sqlalchemy")
+    recorder = _recorder()
+    targets = [_WeakContext(recorder)]
+    monkeypatch.setattr(dispatch, "_targets", lambda _engine: targets)
+
+    class SlowCommitConnection:
+        def __init__(self, connection) -> None:
+            self.connection = connection
+
+        def __getattr__(self, name: str):
+            return getattr(self.connection, name)
+
+        def commit(self) -> None:
+            time.sleep(0.05)
+            self.connection.commit()
+
+    base_engine = sa.create_engine("sqlite://")
+    engine = sa.create_engine("sqlite://", creator=lambda: SlowCommitConnection(base_engine.pool._creator()))
+    remove = attach()
+    assert remove is not None, "the connection event slot should attach when SQLAlchemy is loaded"
+    try:
+        with engine.connect() as connection:
+            connection.begin().commit()
+    finally:
+        remove()
+        engine.dispose()
+        base_engine.dispose()
+    row = recorder.report([])["entries"][0]
+    assert row["durationMillis"] >= 50, "a committed transaction's duration must include the DBAPI commit"
+
+
+def test_later_non_statement_error_does_not_rewrite_committed_row(monkeypatch) -> None:
+    recorder = _recorder()
+    engine, remove, _targets = _attached_sqlite(monkeypatch, recorder)
+
+    def failing_isolation_level(_dbapi_connection) -> str:
+        raise RuntimeError("isolation level unavailable")
+
+    try:
+        with engine.connect() as connection:
+            connection.begin().commit()
+            monkeypatch.setattr(engine.dialect, "get_isolation_level", failing_isolation_level)
+            with pytest.raises(RuntimeError):
+                connection.get_isolation_level()
+    finally:
+        remove()
+        engine.dispose()
+    row = recorder.report([])["entries"][0]
+    assert row["status"] == "COMMITTED", "an error after a successful commit must not rewrite the row to UNKNOWN"
+
+
+def test_two_attachments_one_remove_keeps_routing(monkeypatch) -> None:
+    from sharpit.engine import sqla
+    from sharpit.engine.capture import transactions
+
+    monkeypatch.setattr(transactions, "_attach_count", 0)
+    monkeypatch.setattr(transactions, "_attach_removers", [])
+    monkeypatch.setattr(sqla, "add_connection_listener", lambda _event, _callback: lambda: None)
+    context = _WeakContext(_recorder(), context_id="attached-twice")
+    first = transactions.attach(context)  # type: ignore[arg-type]
+    second = transactions.attach(context)  # type: ignore[arg-type]
+    assert first is not None, "the first attachment must succeed"
+    assert second is not None, "the second attachment must succeed"
+    first()
+    routed = "attached-twice" in transactions._contexts
+    second()
+    assert routed, "removing one of two attachments must keep routing to the still-attached context"
+
+
+def test_conn_info_holds_no_strong_context_reference(monkeypatch) -> None:
+    import gc
+    import weakref
+
+    recorder = _recorder()
+    engine, remove, targets = _attached_sqlite(monkeypatch, recorder)
+    try:
+        with engine.connect() as connection:
+            connection.begin()
+            context_ref = weakref.ref(targets[0])
+            targets.clear()
+            gc.collect()
+            alive = context_ref() is not None
+    finally:
+        remove()
+        engine.dispose()
+    assert not alive, "a pooled connection's info must not keep a dropped sharpit context alive"

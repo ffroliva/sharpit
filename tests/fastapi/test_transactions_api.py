@@ -228,3 +228,25 @@ async def test_async_engine_transaction_recorded() -> None:
     finally:
         handle.uninstall_capture()
         await engine.dispose()
+
+
+def test_transactions_capture_with_sql_trace_and_discovery_off() -> None:
+    import gc
+
+    sa = pytest.importorskip("sqlalchemy")
+    from sharpit.engine import sqla
+    from sharpit.engine.panels import PANELS
+
+    implemented = {panel.id for panel in PANELS if panel.implemented}
+    panels = {panel: {"enabled": False} for panel in sqla.DISCOVERY_PANELS if panel in implemented}
+    gc.collect()  # drop contexts other tests left behind, so this app is the only one
+    engine = sa.create_engine("sqlite://")
+    handle = install(FastAPI(), enabled="ON", show_banner=False, sql_trace_enabled=False, panels=panels)
+    try:
+        with engine.begin():
+            pass
+        report = handle.context.capture.transactions.report(None)
+    finally:
+        handle.uninstall_capture()
+        engine.dispose()
+    assert report["totalCaptured"] == 1, "the only installed context must capture with SQL Trace and discovery off"
