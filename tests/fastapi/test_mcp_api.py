@@ -183,3 +183,13 @@ def test_deeply_nested_json_is_a_parse_error_not_a_500():
     ):
         resp = client.post(path, content=body, headers=headers)
         assert (resp.status_code, "error" in resp.json()) == (400, True), path
+
+
+def test_mcp_server_golden_parity_after_drift(tmp_path: Path):
+    # lane D4: McpServerStatus against the BootUI 2.2.0 capture (supportedProtocolVersions, cancellations,
+    # progressDropped)
+    from golden import assert_parity
+
+    client = _client(tmp_path, mcp_enabled="ON")
+    client.post(MCP, json={"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}})
+    assert_parity("mcp-server", "captured", client.get("/sharpit/api/mcp-server").json())
