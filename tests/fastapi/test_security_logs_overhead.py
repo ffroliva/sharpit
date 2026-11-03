@@ -20,7 +20,7 @@ from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import wiring_of
 
 BUDGET_NS = 2_000
-ROUNDS, REQUESTS = 10, 1000
+ROUNDS, REQUESTS = 40, 250  # many short rounds settle each minimum: on a 200 both sides run the same code
 SCOPE = {
     "type": "http",
     "asgi": {"version": "3.0"},
