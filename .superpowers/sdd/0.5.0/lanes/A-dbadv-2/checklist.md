@@ -10,5 +10,5 @@
 | 6. MCP read-only | N/A — no tool added; A-dbadv-1's `test_mcp_tools_list_has_only_get` still passes |
 | 7. Svelte view | N/A — no view change (rules only; Must-NOT-touch the view) |
 | 8. Four gates, lowest-direct, no-SQLAlchemy | N/A — coordinator gate logs |
-| 9. Live check | `.superpowers/sdd/0.5.0/lanes/A-dbadv-2/wiring.patch` (its in-process e2e test drives `POST /sharpit/api/database-advisor/scan` with `models=`; see handoff §Wiring) |
+| 9. Live check | `tests/engine/collectors/database_advisor/test_scan_wiring.py` (in-process `POST /sharpit/api/database-advisor/scan` with `models=` and SQL Trace: DB-HIB-006 and DB-RUNTIME-001 fire) |
 | 10. Current handoff | `.superpowers/sdd/0.5.0/lanes/A-dbadv-2/handoff.md` |
