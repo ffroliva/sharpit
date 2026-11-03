@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
+from sharpit.engine import appsource
 from sharpit.engine.advisors.dismissals import DismissalStore
+from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.report import evidence
 from sharpit.engine.advisors.rules import RuleResult
 from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope
-from sharpit.engine.collectors.architecture.rules import RULES
+from sharpit.engine.collectors.architecture.contracts import find_pyproject_path, read_contracts
+from sharpit.engine.collectors.architecture.graph import build_graph
+from sharpit.engine.collectors.architecture.rules import RULES, evaluate_rules
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
+
+if TYPE_CHECKING:
+    from sharpit.engine.context import SharpitContext
 
 ADVISOR = "architecture"
 ANALYZER = "BootUI ArchUnit hygiene"
@@ -61,15 +70,67 @@ def _extra(done: Evaluation | None) -> Mapping[str, Any]:
     return {"analysisErrors": errors}
 
 
-def _dummy_run(_request: Any) -> Evaluation:
-    # Skeleton: returns empty scanned evaluation
-    detail = ArchitectureScanDetail(0, (), ())
+def scan_application(app: Any, app_package: str | None = None) -> Evaluation:
+    """Run architecture checks against the application package resolved through appsource."""
+    reasons: list[str] = []
+    search_path = list(sys.path)
+    pkg_name = app_package
+    if app_package:
+        p = Path(app_package)
+        if p.exists():
+            search_path.insert(0, str(p.parent))
+            pkg_name = p.stem if p.is_file() else p.name
+
+    root = appsource.resolve_package_root(
+        app,
+        sys.modules,
+        app_package=pkg_name,
+        search_path=tuple(search_path),
+        reasons=reasons,
+    )
+    if root is None:
+        return Evaluation(
+            status="NOT_SCANNED",
+            message=reasons[0] if reasons else NO_BASE_PACKAGES_MESSAGE,
+            evaluated=(),
+            findings=(),
+            evidence=evidence(usable=False, coverage_complete=False, limitations=reasons),
+            detail=ArchitectureScanDetail(0, (), ()),
+        )
+
+    index = appsource.build_index(root)
+    if not index.modules:
+        base_name = root.stem if root.is_file() else root.name
+        return Evaluation(
+            status="SCANNED",
+            message=NO_CLASSES_MESSAGE,
+            evaluated=tuple(r.id for r in RULES),
+            findings=(),
+            evidence=evidence(usable=True, coverage_complete=not index.truncated, limitations=index.limitations),
+            detail=ArchitectureScanDetail(0, (base_name,), ()),
+        )
+
+    base_pkg = root.stem if root.is_file() else root.name
+    graph = build_graph(index, base_pkg)
+    pyproject = find_pyproject_path(root, sys.path)
+    contracts, c_limitations = read_contracts(pyproject) if pyproject is not None else ((), ())
+    findings_by_rule = evaluate_rules(index, graph, contracts)
+
+    findings: list[Finding] = [f for flist in findings_by_rule.values() for f in flist]
+
+    limitations = [*index.limitations, *c_limitations]
+    classes = len(graph.nodes)
+    status = "PARTIAL" if index.truncated else "SCANNED"
+    message = scanned_message(classes)
+    ev = evidence(usable=True, coverage_complete=not index.truncated, limitations=limitations)
+    detail = ArchitectureScanDetail(classes_analyzed=classes, base_packages=(base_pkg,), analysis_errors=())
+
     return Evaluation(
-        status="SCANNED",
-        message=NO_CLASSES_MESSAGE,
+        status=status,
+        message=message,
         evaluated=tuple(r.id for r in RULES),
-        findings=(),
-        evidence=evidence(usable=False, coverage_complete=True, limitations=[]),
+        findings=tuple(findings),
+        evidence=ev,
         detail=detail,
     )
 
@@ -88,7 +149,7 @@ class ArchitectureService(AdvisorScan):
         run_scan: Callable[[Any], Evaluation] | None = None,
     ) -> None:
         self.base_packages = base_packages
-        runner = run_scan if run_scan is not None else _dummy_run
+        runner: Callable[[Any], Evaluation] = run_scan if run_scan is not None else (lambda req: scan_application(req))
         super().__init__(
             SPEC,
             RULES,
@@ -100,3 +161,30 @@ class ArchitectureService(AdvisorScan):
             single_flight=single_flight,
             max_retained=max_retained,
         )
+
+
+def architecture_service(ctx: SharpitContext, host_app: Any = None) -> ArchitectureService:
+    """The per-install Architecture advisor service, memoised on the context."""
+    app = host_app if host_app is not None else getattr(ctx.introspector, "app", None)
+
+    def default_base_packages() -> Sequence[str]:
+        if ctx.settings.app_package:
+            p = Path(ctx.settings.app_package)
+            return (p.stem if p.exists() and p.is_file() else (p.name if p.exists() else ctx.settings.app_package),)
+        reasons: list[str] = []
+        root = appsource.resolve_package_root(app, sys.modules, reasons=reasons)
+        if root is not None:
+            return (root.stem if root.is_file() else root.name,)
+        return ()
+
+    return ctx.lazy(
+        "architecture",
+        lambda: ArchitectureService(
+            default_base_packages,
+            ctx.lazy("dismissals", lambda: DismissalStore(Path(ctx.settings.state_dir))),
+            ctx.masker,
+            ctx.lazy("singleflight:architecture-scan", SingleFlight),
+            max_retained=ctx.settings.advisors_max_retained_violations,
+            run_scan=lambda req: scan_application(req if req is not None else app, ctx.settings.app_package),
+        ),
+    )
