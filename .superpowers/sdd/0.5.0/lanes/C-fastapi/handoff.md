@@ -32,7 +32,7 @@ Red tables, pins and mutations: `findings.md`.
 | tests/engine/collectors/fastapi_advisor/test_fastapi_advisor_handlers.py::test_decorated_handler_resolved_to_inner_function | yes | yes |
 | tests/engine/collectors/fastapi_advisor/test_fastapi_advisor_handlers.py::test_callable_instance_endpoint_skipped_without_getattr | yes | yes |
 | tests/engine/collectors/fastapi_advisor/test_fastapi_advisor_handlers.py::test_partial_and_library_handlers_skipped_with_limitation | yes | yes |
-| tests/fastapi/test_introspection_trap.py::test_trap_route_untouched_by_every_introspecting_surface | NOT in this base (R-fastapi-security's file, unmerged); this lane ships `tests/fastapi/trap_surfaces_fastapi.py` (GET `/sharpit/api/fastapi`, MCP reads, CLI `fastapi_scan`) | unverified until R-fastapi-security merges (Q3) |
+| tests/fastapi/test_introspection_trap.py::test_trap_route_untouched_by_every_introspecting_surface | yes (R-fastapi-security, merged in 27bef71); collects this lane's `tests/fastapi/trap_surfaces_fastapi.py` | yes |
 | tests/engine/collectors/fastapi_advisor/test_fastapi_advisor_rules_async.py::test_sync_endpoint_doing_io_flagged | yes | yes |
 | tests/engine/collectors/fastapi_advisor/test_fastapi_advisor_rules_async.py::test_blocking_call_in_async_flagged | yes | yes |
 | tests/engine/collectors/fastapi_advisor/test_fastapi_advisor_rules_async.py::test_sync_endpoint_without_io_not_flagged | yes | yes (pin) |
@@ -109,6 +109,13 @@ GET `/sharpit/api/fastapi` 200 NOT_SCANNED; POST `/scan` 200 SCANNED, 10 handler
 FASTAPI-EXC-001 (`/slow` swallows `except Exception`), FASTAPI-RESP-001 x5, FASTAPI-BG-001 (`/background` schedules
 `_background_sql_task`), FASTAPI-ASYNC-001 (`/slow` `time.sleep`); all true positives on reading the source. GET
 violations 200 (1 of 1); MCP `get_fastapi_report` isError false; CLI `fastapi_scan` 200.
+
+## After the R-fastapi-security merge (27bef71)
+
+UI bundle conflict resolved by rebuilding (`index-CQ0Y2zxv.js`); no duplicated top-level defs; no src conflict.
+`tests/fastapi/test_introspection_trap.py` + lane tests + safety matrix + test_tools: 1204 passed, 1 skipped (two
+setup errors were this lane's own findings.md edit during the run, re-run green). findings.md pins table header
+renamed `resolution`.
 
 ## Gates after the rulings (head 1cdbe23 + this evidence commit)
 

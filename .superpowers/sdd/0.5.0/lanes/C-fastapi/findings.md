@@ -35,7 +35,7 @@ the red commit ships the rule as a function returning `[]`.
 
 ## Pins (pass on first run; mutation-proven in a scratch worktree, `scratchpad/cfa-mutate.py`)
 
-| finding | test (node id) | disposition |
+| finding | test (node id) | resolution |
 |---|---|---|
 | pre-scan golden | tests/engine/collectors/fastapi_advisor/test_fastapi_advisor_report.py::test_report_golden_parity | pin: `_scope` without `inspected` -> `fastapi/captured.json parity: inspected: missing from payload` |
 | await asyncio.sleep is not blocking | tests/engine/collectors/fastapi_advisor/test_fastapi_advisor_rules_async.py::test_await_asyncio_sleep_not_flagged | pin: `_blocking` returns True for any call -> `assert ['GET /fine (...ep (line 13)'] == []` |
