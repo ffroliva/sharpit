@@ -1,0 +1,21 @@
+=== M1 apps.no_app_run always None
+E       assert <ExitCode.TESTS_FAILED: 1> == 0
+E        +  where <ExitCode.TESTS_FAILED: 1> = <RunResult ret=1 len(stdout.lines)=11 len(stderr.lines)=4 duration=1.76s>.ret
+C:\Users\ffrol\AppData\Local\Temp\claude\C--development-github-sharpit\ccb23ce8-f0ea-4bcd-9b6d-a55b9e5fbc64\scratchpad\p041-mut\tests\pytest_plugin\test_plugin_bench_pins.py:53: AssertionError
+2 passed in 0.45s
+1 failed in 2.54s
+=== M2 terminal shows every finding
+E       AssertionError: assert '  RAPI-' not in '.          ...sed in 0.35s'
+E         
+E         '  RAPI-' is contained here:
+E           e counts:
+E             RAPI-DOC-001: 6
+E         ? +++++++
+E             RAPI-DOC-002: 6
+E             RAPI-DTO-002: 1...
+=== M3 options verbose never set
+E       assert False
+E        +  where False = all(<generator object test_bench_advisor_notes_with_verbose.<locals>.<genexpr> at 0x0000021866F36420>)
+C:\Users\ffrol\AppData\Local\Temp\claude\C--development-github-sharpit\ccb23ce8-f0ea-4bcd-9b6d-a55b9e5fbc64\scratchpad\p041-mut\tests\pytest_plugin\test_plugin_bench_pins.py:83: AssertionError
+1 passed in 0.39s
+1 failed in 2.14s
