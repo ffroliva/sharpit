@@ -1,0 +1,39 @@
+== M: tests/engine/test_dispatch.py: setattr(sqla_listeners, "_named" -> setattr(sqla, "_named"
+E       AttributeError: <module 'sharpit.engine.sqla' from 'C:\\development\\github\\sharpit-wt\\0.5.0-F5b\\src\\sharpit\\engine\\sqla\\__init__.py'> has no attribute '_named'
+FAILED tests/test_patch_targets.py::test_patch_targets_are_defined_where_called
+FAILED tests/engine/test_dispatch.py::test_before_returns_early_without_targets_or_sink
+2 failed, 11 passed in 25.79s
+== M: tests/engine/test_sqla.py: setattr(sqla_orm, "_relationship_path" -> setattr(sqla, "_relationship_path"
+E       AttributeError: <module 'sharpit.engine.sqla' from 'C:\\development\\github\\sharpit-wt\\0.5.0-F5b\\src\\sharpit\\engine\\sqla\\__init__.py'> has no attribute '_relationship_path'
+FAILED tests/test_patch_targets.py::test_patch_targets_are_defined_where_called
+FAILED tests/engine/test_sqla.py::test_repeated_lazy_load_inspects_relationship_and_fingerprint_once
+2 failed, 54 passed in 36.71s
+== M: tests/engine/test_sqla.py: setattr(sqla_orm, "_masked_fingerprint" -> setattr(sqla, "_masked_fingerprint"
+E       AttributeError: <module 'sharpit.engine.sqla' from 'C:\\development\\github\\sharpit-wt\\0.5.0-F5b\\src\\sharpit\\engine\\sqla\\__init__.py'> has no attribute '_masked_fingerprint'
+FAILED tests/test_patch_targets.py::test_patch_targets_are_defined_where_called
+FAILED tests/engine/test_sqla.py::test_repeated_lazy_load_inspects_relationship_and_fingerprint_once
+2 failed, 54 passed in 35.85s
+== M: tests/engine/test_sqla.py: setattr(sqla_orm, "_first_application_location" -> setattr(sqla, "_first_application_location"
+E         Left contains 2 more items, first extra item: "tests/engine/test_sqla.py:280: sharpit.engine.sqla has no attribute '_first_application_location'"
+E       AttributeError: <module 'sharpit.engine.sqla' from 'C:\\development\\github\\sharpit-wt\\0.5.0-F5b\\src\\sharpit\\engine\\sqla\\__init__.py'> has no attribute '_first_application_location'
+E       AttributeError: <module 'sharpit.engine.sqla' from 'C:\\development\\github\\sharpit-wt\\0.5.0-F5b\\src\\sharpit\\engine\\sqla\\__init__.py'> has no attribute '_first_application_location'
+FAILED tests/test_patch_targets.py::test_patch_targets_are_defined_where_called
+FAILED tests/engine/test_sqla.py::test_listener_failure_does_not_change_query_result
+FAILED tests/engine/test_sqla.py::test_first_application_location_is_cached_per_relationship
+3 failed, 53 passed in 32.60s
+== M: tests/engine/test_sqla.py: setattr(sqla_orm, "id" -> setattr(sqla, "id"
+E         Left contains 2 more items, first extra item: "tests/engine/test_sqla.py:645: sharpit.engine.sqla never uses the builtin 'id'"
+FAILED tests/test_patch_targets.py::test_patch_targets_are_defined_where_called
+1 failed, 55 passed in 29.11s
+== M: tests/engine/test_sqla_read_only.py: setattr(readonly, "bounded" -> setattr(sqla, "bounded"
+E       AssertionError: assert ['tests/engin...qla.readonly'] == []
+E         Left contains 2 more items, first extra item: 'tests/engine/test_sqla_read_only.py:84 patches sharpit.engine.sqla.bounded; src/sharpit/engine/sqla/readonly.py:130 looks it up through sharpit.engine.sqla.readonly'
+FAILED tests/test_patch_targets.py::test_patch_targets_are_defined_where_called
+FAILED tests/engine/test_sqla_read_only.py::test_default_path_unchanged - ass...
+2 failed, 6 passed, 3 skipped in 18.47s
+== M: tests/engine/test_sqla_read_only.py: setattr(readonly, "bounded_read_only" -> setattr(sqla, "bounded_read_only"
+E       AssertionError: assert ['tests/engin...qla.readonly'] == []
+E         Left contains 2 more items, first extra item: 'tests/engine/test_sqla_read_only.py:107 patches sharpit.engine.sqla.bounded_read_only; src/sharpit/engine/sqla/readonly.py:130 looks it up through sharpit.engine.sqla.readonly'
+FAILED tests/test_patch_targets.py::test_patch_targets_are_defined_where_called
+FAILED tests/engine/test_sqla_read_only.py::test_separate_wall_and_statement_timeouts
+2 failed, 6 passed, 3 skipped in 15.69s

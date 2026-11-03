@@ -27,7 +27,7 @@ COLLECTORS = ENGINE / "collectors"
 FRAMEWORKS = ("fastapi", "starlette")
 ADAPTERS = ("sharpit.fastapi", "sharpit.pytest_plugin", "sharpit.ui")
 GATEKEEPERS: dict[str, set[str]] = {
-    "sqlalchemy": {"sharpit/engine/sqla.py"},
+    "sqlalchemy": {"sharpit/engine/sqla"},  # a package: every module under engine/sqla/ (0.5.0 spec §4.1)
     "sqlite3": {"sharpit/engine/sources/sqlite.py"},
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
@@ -277,7 +277,8 @@ def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyP
     plant("collectors/loggers/__init__.py", "from ..health import health_report\n")
     plant("collectors/beans.py", "from sharpit.engine.collectors.mappings import x\n")
     plant("tools.py", "import starlette.requests\nfrom sharpit.fastapi.adapter import y\nimport urllib.request\n")
-    plant("sqla.py", "import sqlalchemy.pool\n")
+    (engine / "sqla").mkdir()
+    plant("sqla/listeners.py", "import sqlalchemy.pool\n")
 
     assert framework_violations(engine) == ["sharpit/engine/tools.py imports starlette.requests"]
     assert adapter_violations(engine) == ["sharpit/engine/tools.py imports sharpit.fastapi.adapter"]
@@ -328,3 +329,34 @@ def test_interpreter_state_call_sites_only_in_session_modules(tmp_path: Path, mo
         "sharpit/engine/collectors/probe.py:10 calls sys.monitoring.use_tool_id",
     ]
     assert real == []
+
+
+def test_sqla_package_is_the_only_sqlalchemy_importer() -> None:
+    """0.5.0 spec §4.1: every module that imports SQLAlchemy lives in the ``engine/sqla/`` package."""
+    importers = [
+        _rel(path)
+        for path in sorted((SRC / "sharpit").rglob("*.py"))
+        if any(_within(n, ("sqlalchemy",)) for n in imports(path))
+    ]
+    outside = [rel for rel in importers if not rel.startswith("sharpit/engine/sqla/")]
+
+    assert importers, "no module imports sqlalchemy: the scan proves nothing"
+    assert outside == []
+
+
+def test_planted_sqlalchemy_import_outside_package_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ``sqla/`` gatekeeper allows every module of the package and nothing beside it, ``sqla_extra.py`` included."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    engine = tmp_path / "src" / "sharpit" / "engine"
+    (engine / "sqla").mkdir(parents=True)
+    (engine / "sqla" / "__init__.py").write_text("import sqlalchemy\n", encoding="utf-8")
+    (engine / "sqla" / "listeners.py").write_text("from sqlalchemy import event\n", encoding="utf-8")
+    (engine / "sqla_extra.py").write_text("import sqlalchemy.orm\n", encoding="utf-8")
+    (engine / "models.py").write_text("from sqlalchemy.engine import Engine\n", encoding="utf-8")
+
+    violations = [v.split(":")[0] for v in gatekeeper_violations()]
+
+    assert violations == [
+        "sharpit/engine/models.py imports sqlalchemy.engine",
+        "sharpit/engine/sqla_extra.py imports sqlalchemy.orm",
+    ]
