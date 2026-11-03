@@ -62,15 +62,48 @@ PROTECTED = (
     "conftest.py",
 )
 GATE_CONFIG = ("ruff", "pyright", "pytest", "uv")  # [tool.<x>] sections of pyproject.toml
-F_MAY_CHANGE = {"scripts/dev/lane_gate.py", "tests/engine/test_import_boundary.py", "uv.lock", "pyproject.toml"}
 BASELINE = "tests/complexity_baseline.json"
-LEASED_LANE = "A-postgresql"
-LEASED_TESTS = ("test_read_only_wrapper_rejects_write", "test_autocommit_engine_is_unavailable")
 FIXTURE_PREFIX = "test-fixture"
-PROTECTED_ALLOWED: dict[str, frozenset[str]] = {}
-DEPENDENCY_ALLOWED = frozenset({"F"})
-FOUNDATION = frozenset({"F"})
-LEASED: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {}
+# lane -> the PROTECTED files it may change (0.5.0 spec §4.0); every other lane changes none
+PROTECTED_ALLOWED: dict[str, frozenset[str]] = {
+    "F": frozenset({"scripts/dev/lane_gate.py", "tests/engine/test_import_boundary.py", "uv.lock"}),
+    "F5a-harness": frozenset({"tests/conftest.py", "uv.lock", "tests/engine/test_import_boundary.py"}),
+    "F5b": frozenset({"tests/engine/test_import_boundary.py"}),
+    "U20-memory": frozenset({"uv.lock"}),  # inert until the owner's O4
+    "W-workload": frozenset({"uv.lock"}),  # inert until the owner's O5
+}
+DEPENDENCY_ALLOWED = frozenset({"F", "F5a-harness", "U20-memory", "W-workload"})  # pyproject.toml dependency lists
+FOUNDATION = frozenset({"F", "F5a-harness", "F5a-source", "F5a-core", "F5b"})  # may re-key the complexity baseline
+LEASED_TESTS = ("test_read_only_wrapper_rejects_write", "test_autocommit_engine_is_unavailable")
+_ADVISOR = "tests/fastapi/test_database_advisor_leased.py"
+# lane -> ((coordinator-written gate log, node ids that must be PASSED in it), ...). A full node id matches only itself;
+# A-postgresql keeps 0.4.0's bare names, matched as `::<name>` (its lane merged under that rule).
+LEASED: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+    "A-postgresql": (("leased-pg.log", LEASED_TESTS),),
+    "F5b": (
+        (
+            "leased-mysql.log",
+            ("tests/fastapi/test_mysql_read_only_leased.py::test_mysql_read_only_wrapper_rejects_write",),
+        ),
+    ),
+    "A-mysql": (
+        (
+            "leased-mysql.log",
+            (
+                "tests/fastapi/test_mysql_leased.py::test_read_only_wrapper_rejects_write",
+                "tests/fastapi/test_mysql_leased.py::test_full_read_against_mysql_84",
+            ),
+        ),
+    ),
+    "A-dbadv-1": (
+        ("leased-pg.log", (f"{_ADVISOR}::test_read_only_wrapper_rejects_write[postgresql]",)),
+        ("leased-mysql.log", (f"{_ADVISOR}::test_read_only_wrapper_rejects_write[mysql]",)),
+    ),
+    "A-dbadv-2": (
+        ("leased-pg.log", (f"{_ADVISOR}::test_pg_vendor_rules_against_server",)),
+        ("leased-mysql.log", (f"{_ADVISOR}::test_mysql_vendor_rules_against_server",)),
+    ),
+}
 # every release's reviewer-owned paths, so a lane of one release cannot plant another release's review either
 REVIEWER_OWNED = re.compile(rf"^{re.escape(SDD)}/[^/]+/lanes/[^/]+/(review\.md|live-verify\.md|gate/.*)$")
 UNRESOLVED = (
@@ -245,7 +278,7 @@ def _dependency_lists(text: str | None) -> object:
 def _baseline_refusals(lane: str, before: str | None, after: str | None) -> list[str]:
     old: dict[str, int] = json.loads(before or "{}")
     new: dict[str, int] = json.loads(after or "{}")
-    if lane == "F":  # F1c: F may re-key moved code; the per-finding total must not rise
+    if lane in FOUNDATION:  # F1c: a foundation lane may re-key moved code; the per-finding total must not rise
         rose = sum(new.values()) > sum(old.values())
         return [f"complexity baseline total rose: {sum(old.values())} -> {sum(new.values())}"] if rose else []
     problems = [f"complexity baseline entry added: {key}" for key in new if key not in old]
@@ -272,18 +305,17 @@ def diff_refusals(opts: Options, base: str) -> tuple[list[str], list[str]]:
 
 
 def _path_refusals(opts: Options, base: str, path: str) -> list[str]:
-    is_f = opts.lane == "F"
     before, after = _show(opts.worktree, base, path), _show(opts.worktree, opts.sha, path)
     if REVIEWER_OWNED.match(path):
         return [f"reviewer-owned path changed: {path}"]
-    if path in PROTECTED and not (is_f and path in F_MAY_CHANGE):
+    if path in PROTECTED and path not in PROTECTED_ALLOWED.get(opts.lane, frozenset()):
         return [f"protected path changed: {path}"]
     if path == BASELINE:
         return _baseline_refusals(opts.lane, before, after)
     if path == "pyproject.toml":
         old, new = _gate_config(before), _gate_config(after)
         problems = [f"gate config changed: pyproject.toml [tool.{n}]" for n in GATE_CONFIG if old[n] != new[n]]
-        if not is_f and _dependency_lists(before) != _dependency_lists(after):
+        if opts.lane not in DEPENDENCY_ALLOWED and _dependency_lists(before) != _dependency_lists(after):
             problems.append("dependency list changed: pyproject.toml")
         return problems
     return _overhead_problems(path, before or "", after or "") if _is_overhead_module(path, before) else []
@@ -407,16 +439,18 @@ def evidence_refusals(opts: Options, base: str) -> tuple[list[str], dict[str, st
     return problems, found
 
 
-def leased_pg_problem(opts: Options) -> str | None:
-    log = opts.integration / _folder(opts) / "gate" / "leased-pg.log"
+def leased_problem(opts: Options, log_name: str, node_ids: Sequence[str]) -> str | None:
+    tag = log_name.removesuffix(".log")
+    log = opts.integration / _folder(opts) / "gate" / log_name
     if not log.is_file():
-        return f"leased-pg: {log} missing"
+        return f"{tag}: {log} missing"
     lines = log.read_text(encoding="utf-8").splitlines()
     if not lines or opts.sha not in lines[0]:
-        return "leased-pg: gate/leased-pg.log line 1 does not name the head SHA"
-    for name in LEASED_TESTS:
-        if not any(re.search(rf"::{name}\s+PASSED\b", ln) for ln in lines[1:]):
-            return f"leased-pg: {name} not PASSED (missing or skipped)"
+        return f"{tag}: gate/{log_name} line 1 does not name the head SHA"
+    for nodeid in node_ids:
+        found = rf"(?:^|\s){re.escape(nodeid)}" if "::" in nodeid else rf"::{re.escape(nodeid)}"
+        if not any(re.search(rf"{found}\s+PASSED\b", ln) for ln in lines[1:]):
+            return f"{tag}: {nodeid} not PASSED (missing or skipped)"
     return None
 
 
@@ -806,8 +840,9 @@ def evaluate(
     integrity = red_integrity(opts, base, reds)
     result.refusals += table_problems + integrity.problems
     unverified = list(integrity.unverified)
-    if opts.lane == LEASED_LANE and (problem := leased_pg_problem(opts)):
-        unverified.append(problem)
+    for log_name, node_ids in LEASED.get(opts.lane, ()):
+        if problem := leased_problem(opts, log_name, node_ids):
+            unverified.append(problem)
     if opts.accept_unverified:
         result.unverified = unverified
     else:
