@@ -240,3 +240,97 @@ def test_source_index_not_retained_after_scan(monkeypatch: pytest.MonkeyPatch) -
     assert "FORM_A" in [s["name"] for s in report["propertySuggestions"]]
     assert len(refs) == 1
     assert refs[0]() is None
+
+
+# ---- fix round 1 (council-claude #1-#3, review-gemini #1) ---------------------------------------------------------
+
+
+def test_main_reexport_resolves_the_real_package(tmp_path: Path) -> None:
+    # `python run.py` with `from myapp.main import app`: __main__ re-exports the app, myapp.main defines it
+    pkg = _write(tmp_path / "myapp" / "__init__.py").parent
+    app = object()
+    modules: dict[str, object] = {
+        "myapp": _module("myapp", pkg / "__init__.py", pkg),
+        "myapp.main": _module("myapp.main", pkg / "main.py", app=app),
+        "__main__": _module("__main__", _write(tmp_path / "run.py"), app=app),
+    }
+
+    assert appsource.resolve_package_root(app, modules) == pkg
+
+
+def test_python_dash_m_package_resolves(tmp_path: Path) -> None:
+    # `python -m myapp`: only __main__ (myapp/__main__.py) holds the app; its __package__ names the package
+    pkg = _write(tmp_path / "myapp" / "__init__.py").parent
+    app = object()
+    main = _module("__main__", _write(pkg / "__main__.py"), app=app, __package__="myapp")
+    modules: dict[str, object] = {"myapp": _module("myapp", pkg / "__init__.py", pkg), "__main__": main}
+
+    assert appsource.resolve_package_root(app, modules) == pkg
+
+
+def test_app_package_beats_autodetect(tmp_path: Path) -> None:
+    other = _write(tmp_path / "other_pkg" / "__init__.py").parent
+    mine = _write(tmp_path / "mine_pkg" / "__init__.py").parent
+    app = object()
+    modules: dict[str, object] = {
+        "other_pkg": _module("other_pkg", other / "__init__.py", other, app=app),
+        "mine_pkg": _module("mine_pkg", mine / "__init__.py", mine),
+    }
+
+    assert appsource.resolve_package_root(app, modules, app_package="mine_pkg") == mine
+
+
+def test_app_package_overrides_a_script_main(tmp_path: Path) -> None:
+    # `python run.py` defining the app itself: not scanned by default, but app_package must fix it as the reason says
+    pkg = _write(tmp_path / "myapp" / "__init__.py").parent
+    app = object()
+    modules: dict[str, object] = {
+        "myapp": _module("myapp", pkg / "__init__.py", pkg),
+        "__main__": _module("__main__", _write(tmp_path / "run.py"), app=app),
+    }
+
+    assert appsource.resolve_package_root(app, modules, app_package="myapp") == pkg
+
+
+def test_wall_budget_checked_per_directory_entry(tmp_path: Path) -> None:
+    deep = tmp_path / "deep_dirs"
+    for n in range(40):  # wide, not deep (Windows MAX_PATH); no .py file anywhere
+        (deep / f"d{n}" / "sub").mkdir(parents=True)
+
+    index = appsource.build_index(deep, wall_budget_s=0.0, thread=False)
+
+    assert index.truncated is True
+    assert any("budget" in reason for reason in index.limitations)
+
+
+def test_unparsable_files_count_toward_max_files(tmp_path: Path) -> None:
+    pkg = tmp_path / "broken_many"
+    for n in range(6):
+        _write(pkg / f"b{n}.py", "def (:\n")
+
+    index = appsource.build_index(pkg, max_files=2, thread=False)
+
+    assert index.truncated is True
+    assert len(index.limitations) == 3
+
+
+def test_file_grown_past_the_size_bound_after_stat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pkg = tmp_path / "grown"
+    _write(pkg / "small.py", "A = 1\n")
+    grown = _write(pkg / "grown.py", "B = 2\n" + "#" * 2048 + "\n")
+    real_stat = os.stat
+
+    def zero_size(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
+        result = real_stat(path, *args, **kwargs)
+        if os.path.basename(os.fsdecode(path)) == grown.name:  # pyright: ignore[reportUnknownArgumentType]
+            values = list(result)
+            values[stat.ST_SIZE] = 0  # a pseudo-file, or one that grew between stat and read
+            return os.stat_result(values)
+        return result
+
+    monkeypatch.setattr(appsource.os, "stat", zero_size)
+    index = appsource.build_index(pkg, max_file_bytes=1024, thread=False)
+
+    assert "grown.small" in index.modules
+    assert "grown.grown" not in index.modules
+    assert any("grown.py" in reason for reason in index.limitations)
