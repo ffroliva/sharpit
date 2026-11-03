@@ -3,7 +3,9 @@
 A lane file may export ``PANEL`` (a sharpit panel id with a per-panel module: a 0.4 id or ``sql-trace``),
 ``GET_ROWS`` (every GET route path format the panel adds), ``WRITE_ROWS`` (every POST/PUT/PATCH/DELETE route as
 ``(method, path format)``), ``PATH_PARAMS`` (sample values for new path parameters) and ``CLI_ACTIONS`` (the
-panel's CLI-only action tool names: ``test_cli_action_tools_gated`` checks each is refused when gated, never on MCP).
+panel's CLI-only action tool names: ``test_cli_action_tools_gated`` checks each is refused when gated, never on MCP),
+``TOOL_ARGS`` (MCP tool name -> callable taking the installed ``SharpitHandle`` and returning the tool's arguments, for
+the matrix's MCP sweep) and ``TOOL_SEEDS`` (the same over test_tools.py's bare ``SharpitContext``, which has no routes).
 ``tests/test_safety_matrix.py``
 feeds the rows of implemented panels into the same sweeps as its base rows (route-table completeness, disabled-panel
 denial, read-only denial), so no lane edits the shared matrix. See README.md.
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 import importlib
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +24,7 @@ import pytest
 
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _CONVERTOR = re.compile(r"\{(\w+):[^}]+\}")
+ToolArgs = Callable[[Any], dict[str, Any]]  # builds one MCP tool's arguments
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,8 @@ class Lanes:
     invalid: tuple[str, ...]  # "<file>: <problem>" (bad PANEL or row shape): the route-table tests fail on these
     unimportable: tuple[str, ...]  # "<file>: <exception>": no rows; reported when the live table is not covered
     params: dict[str, str]  # PATH_PARAMS of every importable lane file (informational: never applied to base rows)
+    tool_args: dict[str, ToolArgs] = field(default_factory=dict[str, ToolArgs])  # TOOL_ARGS: (SharpitHandle) -> args
+    tool_seeds: dict[str, ToolArgs] = field(default_factory=dict[str, ToolArgs])  # TOOL_SEEDS: (SharpitContext) -> args
 
 
 def _strip(fmt: str) -> str:
@@ -55,7 +61,7 @@ def _is_write_row(row: object) -> bool:
     )
 
 
-def _problems(module: Any) -> list[str]:
+def _problems(module: Any, tools: frozenset[str]) -> list[str]:
     problems: list[str] = []
     gets = getattr(module, "GET_ROWS", [])
     if not isinstance(gets, list | tuple) or not all(isinstance(g, str) and g.startswith("/sharpit") for g in gets):
@@ -69,7 +75,54 @@ def _problems(module: Any) -> list[str]:
     actions = getattr(module, "CLI_ACTIONS", [])
     if not isinstance(actions, list | tuple) or not all(isinstance(a, str) and a for a in actions):
         problems.append("CLI_ACTIONS must be a list of tool names")
+    for name in ("TOOL_ARGS", "TOOL_SEEDS"):
+        declared = getattr(module, name, {})
+        if not isinstance(declared, dict) or not all(isinstance(k, str) and callable(v) for k, v in declared.items()):
+            problems.append(f"{name} must map MCP tool names to callables returning the tool's arguments")
+        elif unknown := sorted(set(declared) - tools):  # pyright: ignore[reportUnknownArgumentType]
+            problems.append(f"{name} names unknown MCP tools: {unknown}")
     return problems
+
+
+def _tool_names() -> frozenset[str]:
+    """Every MCP tool a lane may declare arguments for: the live catalogue and every per-panel module's tools."""
+    from sharpit.engine import panels04
+    from sharpit.engine.tools import TOOLS
+
+    names = {t.name for t in TOOLS}
+    for panel in panels04.MODULE_PANEL_IDS:  # an unimplemented panel's tools are not in the live catalogue yet
+        names |= {t.name for t in importlib.import_module(f"sharpit.engine.tools04.{panel.replace('-', '_')}").TOOLS}
+    return frozenset(names)
+
+
+def _rest_api_violations_args(handle: Any) -> dict[str, Any]:
+    """A rule of a REST API scan run over the installed app (the scan only reads route metadata)."""
+    from sharpit.engine.tools import rest_api_service
+
+    report = rest_api_service(handle.context).scan()
+    assert report["results"], report
+    return {"id": report["results"][0]["id"], "scanId": report["violationDetails"]["scanId"]}
+
+
+def _rest_api_violations_seed(ctx: Any) -> dict[str, Any]:
+    """A bare context has no routes: seed the REST API service with one violating route, then scan it."""
+    from sharpit.engine.advisors.dismissals import DismissalStore
+    from sharpit.engine.collectors.restapi.service import RestApiService
+    from sharpit.engine.singleflight import SingleFlight
+    from sharpit.engine.spi import ApiModel, ApiRouteInfo
+
+    route = ApiRouteInfo(("GET",), "/getPets", "app:read_pets", summary="s", tags=("t",))
+    model = ApiModel((route,), ("app:on_error",), ())
+    store = DismissalStore(Path(ctx.settings.state_dir))
+    service = ctx.lazy(
+        "rest-api", lambda: RestApiService(lambda: model, store, ctx.masker, SingleFlight(), max_retained=100)
+    )
+    return {"id": "RAPI-NAME-001", "scanId": service.scan()["violationDetails"]["scanId"]}
+
+
+# the base panels' declarations, on the same path as a lane's
+BASE_TOOL_ARGS: dict[str, ToolArgs] = {"get_rest_api_rule_violations": _rest_api_violations_args}
+BASE_TOOL_SEEDS: dict[str, ToolArgs] = {"get_rest_api_rule_violations": _rest_api_violations_seed}
 
 
 def load(package: str = "safety") -> Lanes:
@@ -81,29 +134,33 @@ def load(package: str = "safety") -> Lanes:
     invalid: list[str] = []
     unimportable: list[str] = []
     params: dict[str, str] = {}
+    tool_args, tool_seeds = dict(BASE_TOOL_ARGS), dict(BASE_TOOL_SEEDS)
+    tools = _tool_names()
     for path in sorted(root.glob("test_*_safety.py")):
         try:
             module = importlib.import_module(f"{package}.{path.stem}")
         except (Exception, pytest.skip.Exception) as exc:  # a module-level skip must not skip the shared tests
             unimportable.append(f"{path.name}: {type(exc).__name__}: {exc}")
             continue
-        if problems := _problems(module):
+        if problems := _problems(module, tools):
             invalid += [f"{path.name}: {problem}" for problem in problems]
             continue
         params.update(getattr(module, "PATH_PARAMS", {}))
         panel = getattr(module, "PANEL", None)
-        if panel is None:  # a safety file for base routes (e.g. D1) adds tests, no rows
-            continue
-        if panel not in panels04.MODULE_PANEL_IDS:
+        if panel is not None and panel not in panels04.MODULE_PANEL_IDS:
             invalid.append(f"{path.name}: PANEL {panel!r} is not one of {panels04.MODULE_PANEL_IDS}")
             continue
-        if panels04.module_implemented(panel):
+        if panel is not None and not panels04.module_implemented(panel):
+            continue
+        tool_args.update(getattr(module, "TOOL_ARGS", {}))
+        tool_seeds.update(getattr(module, "TOOL_SEEDS", {}))
+        if panel is not None:  # a PANEL-less file (base routes, e.g. D1) adds tests and tool arguments, no rows
             gets = tuple(_strip(g) for g in getattr(module, "GET_ROWS", []))
             writes = tuple((m, _strip(p)) for m, p in getattr(module, "WRITE_ROWS", []))
             lane_params = dict(getattr(module, "PATH_PARAMS", {}))
             actions = tuple(getattr(module, "CLI_ACTIONS", ()))
             implemented.append(Lane(path.name, panel, gets, writes, lane_params, actions))
-    return Lanes(tuple(implemented), tuple(invalid), tuple(unimportable), params)
+    return Lanes(tuple(implemented), tuple(invalid), tuple(unimportable), params, tool_args, tool_seeds)
 
 
 def write_cases(

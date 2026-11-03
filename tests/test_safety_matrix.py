@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -662,6 +663,19 @@ def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, C
     return app, lambda: ran
 
 
+ADVISOR_VIOLATIONS = re.compile(r"/sharpit/api/[^/]+/rules/[^/]+/violations")
+NO_SCAN_ID = {"error": "Advisor scan ID must not be blank."}  # contract: the 400 of a violations read without scanId
+
+
+def _get_problem(path: str, resp: httpx.Response) -> str | None:
+    """Why a swept GET's answer is wrong, or None."""
+    if ADVISOR_VIOLATIONS.fullmatch(path):  # any advisor's violations route needs a scanId: without one, 400, no scan
+        ok = resp.status_code == 400 and resp.json() == NO_SCAN_ID
+    else:
+        ok = resp.status_code in (200, 307, 404)
+    return None if ok else f"{path}: {resp.status_code} {resp.text}"
+
+
 @pytest.mark.parametrize("variant", SWEEPS)
 @pytest.mark.parametrize("path", GET_PATHS)
 def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, variant: str):
@@ -674,11 +688,8 @@ def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, 
         no_side_effects.block_network()
         if ("GET", path.removeprefix("/sharpit/api")) not in SWEEP_SOURCE_READ_EXEMPT:
             no_side_effects.watch_sources(EXAMPLES)  # spec §4.4: a sharpit GET never opens the app's source
-        # the rest-api violations route needs a scanId: without one it answers 400 (and never scans)
-        expected = (400,) if path == "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations" else (200, 307, 404)
         for query in ("", "?q=sharpit&offset=0&limit=5"):
-            resp = client.get(path + query)
-            assert resp.status_code in expected, resp.text
+            assert _get_problem(path, client.get(path + query)) is None
     assert no_side_effects.violations == []
     assert ran() == []
 
@@ -687,12 +698,10 @@ MCP_TOOLS = [t.name for t in TOOLS if not t.action]
 
 
 def _tool_arguments(tool: str, handle: SharpitHandle) -> dict[str, Any]:
-    """A tool's required arguments: get_exception_detail gets the id of an exception recorded here and
-    get_rest_api_rule_violations a rule of a REST API scan run here (the scan only reads route metadata)."""
-    if tool == "get_rest_api_rule_violations":
-        report = rest_api_service(handle.context).scan()
-        assert report["results"], report
-        return {"id": report["results"][0]["id"], "scanId": report["violationDetails"]["scanId"]}
+    """A tool's required arguments: built by its TOOL_ARGS (the base's or a lane's, tests/safety), or for
+    get_exception_detail the id of an exception recorded here."""
+    if (build := LANES.tool_args.get(tool)) is not None:
+        return build(handle)
     if tool != "get_exception_detail":
         return {}
     _seed_exceptions(handle)
@@ -762,3 +771,22 @@ def test_cli_action_tools_gated_is_parametrised_from_the_lanes(tmp_path: Path, m
 def test_sweep_source_read_exemptions_only_shrink() -> None:
     # spec §14: the two declared surfaces and nothing else; R-fastapi-security Task 3 empties it
     assert {("GET", "/beans"), ("mcp", "get_beans")} == SWEEP_SOURCE_READ_EXEMPT
+
+
+def test_any_advisor_violations_route_may_answer_400_without_a_scan_id() -> None:
+    # coordinator fix 0.5.0: every advisor panel's rule violations route needs a scanId, not only rest-api's
+    resp = httpx.Response(400, json={"error": "Advisor scan ID must not be blank."})
+
+    assert _get_problem("/sharpit/api/architecture/rules/ARCH-001/violations", resp) is None
+
+
+def test_violations_400_for_another_reason_fails_the_sweep() -> None:
+    resp = httpx.Response(400, json={"error": "Advisor rule ID must not be blank."})
+
+    assert _get_problem("/sharpit/api/rest-api/rules/RAPI-MAP-001/violations", resp) is not None
+
+
+def test_400_off_a_violations_route_fails_the_sweep() -> None:
+    resp = httpx.Response(400, json={"error": "Advisor scan ID must not be blank."})
+
+    assert _get_problem("/sharpit/api/architecture/rules/ARCH-001", resp) is not None
