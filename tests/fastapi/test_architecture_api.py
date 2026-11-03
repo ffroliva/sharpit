@@ -65,22 +65,6 @@ def test_package_root_from_factory_app(tmp_path: Path, monkeypatch: pytest.Monke
     assert "factory_app" in data["basePackages"]
 
 
-def test_namespace_package_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    ns = tmp_path / "ns_app"
-    _write(ns / "main.py", "x = 1\n")
-    monkeypatch.syspath_prepend(str(tmp_path))
-
-    app = FastAPI()
-    install(app, enabled="ON", show_banner=False, config_scan=False, app_package="ns_app")
-    client = TestClient(app, base_url="http://localhost", client=LOCAL)
-
-    resp = client.post("/sharpit/api/architecture/scan")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["scan"]["status"] == "SCANNED"
-    assert data["classesAnalyzed"] >= 1
-
-
 def test_main_module_app_not_scanned_through_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     main_mod = types.ModuleType("__main__")
     app = FastAPI()

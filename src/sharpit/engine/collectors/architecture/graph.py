@@ -79,52 +79,62 @@ class ImportGraph:
         return _tarjan_cycles(pkg_nodes, pkg_edges)
 
 
+@dataclass
+class _Tarjan:
+    """Iterative Tarjan SCC (an import chain can be deeper than the interpreter's recursion limit)."""
+
+    edges: dict[str, list[ImportEdge]]
+    successors: dict[str, list[str]]
+    indices: dict[str, int] = field(default_factory=dict[str, int])
+    lowlinks: dict[str, int] = field(default_factory=dict[str, int])
+    stack: list[str] = field(default_factory=list[str])
+    on_stack: set[str] = field(default_factory=set[str])
+    cycles: list[Cycle] = field(default_factory=list[Cycle])
+
+    def _enter(self, v: str) -> Iterator[str]:
+        self.indices[v] = self.lowlinks[v] = len(self.indices)
+        self.stack.append(v)
+        self.on_stack.add(v)
+        return iter(self.successors[v])
+
+    def visit(self, root: str) -> None:
+        work = [(root, self._enter(root))]
+        while work:
+            v, successors = work[-1]
+            w = next(successors, None)
+            if w is None:
+                work.pop()
+                if work:
+                    parent = work[-1][0]
+                    self.lowlinks[parent] = min(self.lowlinks[parent], self.lowlinks[v])
+                if self.lowlinks[v] == self.indices[v]:
+                    self._pop_component(v)
+            elif w not in self.indices:
+                work.append((w, self._enter(w)))
+            elif w in self.on_stack:
+                self.lowlinks[v] = min(self.lowlinks[v], self.indices[w])
+
+    def _pop_component(self, v: str) -> None:
+        scc: list[str] = []
+        while self.stack:
+            top = self.stack.pop()
+            self.on_stack.remove(top)
+            scc.append(top)
+            if top == v:
+                break
+        if len(scc) > 1:
+            members = set(scc)
+            cycle_edges = [e for src in scc for e in self.edges.get(src, []) if e.target in members]
+            self.cycles.append(Cycle(members=tuple(sorted(scc)), edges=tuple(cycle_edges)))
+
+
 def _tarjan_cycles(nodes: set[str], edges: dict[str, list[ImportEdge]]) -> list[Cycle]:
-    index_counter = 0
-    stack: list[str] = []
-    on_stack: set[str] = set()
-    indices: dict[str, int] = {}
-    lowlinks: dict[str, int] = {}
-    cycles: list[Cycle] = []
-
-    sorted_nodes = sorted(nodes)
-
-    def strongconnect(v: str) -> None:
-        nonlocal index_counter
-        indices[v] = index_counter
-        lowlinks[v] = index_counter
-        index_counter += 1
-        stack.append(v)
-        on_stack.add(v)
-
-        for edge in edges.get(v, []):
-            w = edge.target
-            if w not in nodes:
-                continue
-            if w not in indices:
-                strongconnect(w)
-                lowlinks[v] = min(lowlinks[v], lowlinks[w])
-            elif w in on_stack:
-                lowlinks[v] = min(lowlinks[v], indices[w])
-
-        if lowlinks[v] == indices[v]:
-            scc: list[str] = []
-            while stack:
-                top = stack.pop()
-                on_stack.remove(top)
-                scc.append(top)
-                if top == v:
-                    break
-            if len(scc) > 1:
-                members = tuple(sorted(scc))
-                cycle_edges = [e for src in scc for e in edges.get(src, []) if e.target in scc]
-                cycles.append(Cycle(members=members, edges=tuple(cycle_edges)))
-
-    for node in sorted_nodes:
-        if node not in indices:
-            strongconnect(node)
-
-    return sorted(cycles, key=lambda c: (len(c.members), c.members[0]))
+    successors = {v: [e.target for e in edges.get(v, []) if e.target in nodes] for v in nodes}
+    tarjan = _Tarjan(edges, successors)
+    for node in sorted(nodes):
+        if node not in tarjan.indices:
+            tarjan.visit(node)
+    return sorted(tarjan.cycles, key=lambda c: (len(c.members), c.members[0]))
 
 
 def _find_module_target(candidate: str, known_modules: dict[str, ModuleInfo]) -> str | None:

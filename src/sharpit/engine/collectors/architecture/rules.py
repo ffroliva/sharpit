@@ -599,47 +599,38 @@ def _eval_layering(graph: ImportGraph, out: dict[str, list[Finding]]) -> None:
                 )
 
 
+def _within(module: str, prefixes: Sequence[str]) -> bool:
+    return any(module == p or module.startswith(f"{p}.") for p in prefixes)
+
+
+def _layer(module: str, layers: Sequence[str]) -> int | None:
+    return next((i for i, layer in enumerate(layers) if _within(module, (layer,))), None)
+
+
+def _contract_breach(contract: Contract, src_mod: str, tgt_mod: str) -> str | None:
+    """How importing ``tgt_mod`` from ``src_mod`` breaks ``contract``, or None."""
+    if contract.contract_type == "layers":
+        src_idx, tgt_idx = _layer(src_mod, contract.layers), _layer(tgt_mod, contract.layers)
+        if src_idx is not None and tgt_idx is not None and src_idx > tgt_idx:
+            return "imports higher layer"
+    elif contract.contract_type == "forbidden":
+        if _within(src_mod, contract.source_modules) and _within(tgt_mod, contract.forbidden_modules):
+            return "imports forbidden"
+    return None
+
+
 def _eval_contracts(graph: ImportGraph, contracts: Sequence[Contract], out: list[Finding]) -> None:
     for contract in contracts:
-        if contract.contract_type == "layers":
-            for src_mod, edges in graph.edges.items():
-                src_idx = next(
-                    (
-                        i
-                        for i, layer in enumerate(contract.layers)
-                        if src_mod == layer or src_mod.startswith(f"{layer}.")
-                    ),
-                    None,
-                )
-                if src_idx is None:
+        for src_mod, edges in graph.edges.items():
+            for edge in edges:
+                breach = _contract_breach(contract, src_mod, edge.target)
+                if breach is None:
                     continue
-                for edge in edges:
-                    tgt_mod = edge.target
-                    tgt_idx = next(
-                        (
-                            i
-                            for i, layer in enumerate(contract.layers)
-                            if tgt_mod == layer or tgt_mod.startswith(f"{layer}.")
-                        ),
-                        None,
-                    )
-                    if tgt_idx is not None and src_idx > tgt_idx:
-                        msg = (
-                            f"Contract {contract.name!r} violated: {src_mod} ({edge.path.name}:{edge.line}) "
-                            f"imports higher layer {tgt_mod}"
-                        )
-                        out.append(Finding("ARCH-PY-001", ADVISOR, "HIGH", f"{src_mod}:{edge.line}", msg))
-        elif contract.contract_type == "forbidden":
-            for src_mod, edges in graph.edges.items():
-                if any(src_mod == sm or src_mod.startswith(f"{sm}.") for sm in contract.source_modules):
-                    for edge in edges:
-                        tgt_mod = edge.target
-                        if any(tgt_mod == fm or tgt_mod.startswith(f"{fm}.") for fm in contract.forbidden_modules):
-                            msg = (
-                                f"Contract {contract.name!r} violated: {src_mod} ({edge.path.name}:{edge.line}) "
-                                f"imports forbidden {tgt_mod}"
-                            )
-                            out.append(Finding("ARCH-PY-001", ADVISOR, "HIGH", f"{src_mod}:{edge.line}", msg))
+                msg = (
+                    f"Contract {contract.name!r} violated: {src_mod} ({edge.path.name}:{edge.line}) "
+                    f"{breach} {edge.target}"
+                )
+                out.append(Finding("ARCH-PY-001", ADVISOR, "HIGH", f"{src_mod}:{edge.line}", msg))
 
 
 def evaluate_rules(

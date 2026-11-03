@@ -19,33 +19,22 @@ class Contract:
 
 
 def find_pyproject_path(package_root: Path, sys_path: Sequence[object] = ()) -> Path | None:
-    """Find pyproject.toml in the sys.path entry holding package_root or its parent (for src/ layout).
+    """The ``pyproject.toml`` of the sys.path entry holding ``package_root``, or that entry's parent for a src/ layout.
 
-    Spec §5.5, §14: only the one in the sys.path entry that holds the package (or its parent for a src/ layout).
+    Spec §5.5, §14: nowhere else. The holding entry is the root's own parent directory; an ancestor entry does not
+    hold the package, and nothing is read when the holding entry is not on ``sys_path``.
     """
-    real_pkg = package_root.resolve()
-    for entry in sys_path:
-        if not isinstance(entry, str) or not entry:
-            continue
-        try:
-            entry_path = Path(entry).resolve()
-            if real_pkg == entry_path or real_pkg.is_relative_to(entry_path):
-                # direct sys.path root
-                if (entry_path / "pyproject.toml").is_file():
-                    return entry_path / "pyproject.toml"
-                # src/ layout: entry_path parent
-                if (entry_path.parent / "pyproject.toml").is_file():
-                    return entry_path.parent / "pyproject.toml"
-        except (ValueError, OSError):
-            continue
-
-    # Fallback when sys_path is empty: check package parent or grandparent (if parent is src)
-    parent = package_root.resolve().parent
-    if (parent / "pyproject.toml").is_file():
-        return parent / "pyproject.toml"
-    if parent.name == "src" and (parent.parent / "pyproject.toml").is_file():
-        return parent.parent / "pyproject.toml"
-    return None
+    try:
+        holder = package_root.resolve().parent
+        on_path = any(isinstance(e, str) and e and Path(e).resolve() == holder for e in sys_path)
+    except (OSError, ValueError):
+        return None
+    if not on_path:
+        return None
+    candidates = [holder / "pyproject.toml"]
+    if holder.name == "src":
+        candidates.append(holder.parent / "pyproject.toml")
+    return next((c for c in candidates if c.is_file()), None)
 
 
 def _as_dict(val: object) -> dict[str, object]:
@@ -65,7 +54,7 @@ def _as_str_tuple(val: object) -> tuple[str, ...]:
 def read_contracts(package_root: Path, sys_path: Sequence[object] = ()) -> tuple[list[Contract], list[str]]:
     """Read [tool.importlinter] contracts from pyproject.toml."""
     pyproject_path = find_pyproject_path(package_root, sys_path)
-    if pyproject_path is None or not pyproject_path.is_file():
+    if pyproject_path is None:
         return [], []
 
     try:

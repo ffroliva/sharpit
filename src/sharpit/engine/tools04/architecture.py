@@ -7,31 +7,24 @@ from sharpit.engine.collectors.architecture.report import architecture_service
 from sharpit.engine.tools import CallContext, Tool, ToolCallError
 
 _NONE: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
-_RULE_VIOLATIONS = {
+_RULE_VIOLATIONS: dict[str, Any] = {  # BootUiMcpService.schema RULE_VIOLATIONS (as engine/tools.py)
     "type": "object",
     "properties": {
-        "id": {"type": "string", "description": "The exact rule id, e.g. ARCH-PKG-001."},
+        "id": {"type": "string", "description": "Exact identifier of the resource to fetch.", "minLength": 1},
         "scanId": {
             "type": "string",
-            "description": "The cached report's violationDetails.scanId; stale or missing returns 409.",
+            "minLength": 1,
+            "description": "The cached report's violationDetails.scanId. Never starts a scan.",
         },
-        "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "0-based start index."},
-        "pageLimit": {
+        "offset": {"type": "integer", "minimum": 0, "default": 0},
+        "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 1000,
+            "description": "Page size, default 100, capped at min(1000, SHARPIT_MCP_MAX_RESULTS).",
             "default": 100,
-            "description": "Page size, capped by transport max-results.",
-        },
-        "maxResults": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 1000,
-            "default": 1000,
-            "description": "Transport budget cap.",
         },
     },
-    "required": ["id"],
+    "required": ["id", "scanId"],
     "additionalProperties": False,
 }
 _ADVISOR_GUIDANCE = (
@@ -43,13 +36,7 @@ _ADVISOR_GUIDANCE = (
 def _architecture_violations(call: CallContext, args: dict[str, Any]) -> dict[str, Any]:
     service = architecture_service(call.ctx)
     try:
-        return service.violations(
-            args["id"],
-            args.get("scanId"),
-            args.get("offset"),
-            args.get("pageLimit"),
-            args.get("maxResults", 1000),
-        )
+        return service.violations(args["id"], args["scanId"], args["offset"], args["pageLimit"], args["maxResults"])
     except AdvisorViolationError as exc:
         raise ToolCallError(exc.message, exc.status) from None
 

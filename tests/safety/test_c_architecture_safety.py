@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,6 +22,49 @@ PATH_PARAMS = {
     "rule_id": "ARCH-PKG-001",
 }
 CLI_ACTIONS = ("architecture_scan",)
+
+
+def _seeded_violations(ctx: Any) -> dict[str, Any]:
+    """Arguments for get_architecture_rule_violations: the context's architecture service, scanned.
+
+    The sample app is built by a factory no module holds, so its own scan has no source to read; the service is
+    seeded (before first use) with one evaluated finding, then scanned through its normal path.
+    """
+    from sharpit.engine.advisors.findings import Finding  # noqa: PLC0415
+    from sharpit.engine.advisors.report import evidence  # noqa: PLC0415
+    from sharpit.engine.advisors.scan import Evaluation  # noqa: PLC0415
+    from sharpit.engine.collectors.architecture.report import (  # noqa: PLC0415
+        RULES,
+        ArchitectureScanDetail,
+        ArchitectureService,
+        architecture_service,
+    )
+    from sharpit.engine.singleflight import SingleFlight  # noqa: PLC0415
+    from sharpit.engine.tools import dismissal_store  # noqa: PLC0415
+
+    rule = RULES[0]  # ARCH-PKG-001
+    finding = Finding(rule.id, "architecture", rule.severity, "app.a cycle", "Circular package dependency: a -> b -> a")
+    done = Evaluation(
+        "SCANNED", "seeded", (rule.id,), (finding,), evidence(True, True, []), ArchitectureScanDetail(2, ("app",))
+    )
+    ctx.lazy(
+        "architecture",
+        lambda: ArchitectureService(
+            lambda: ["app"],
+            dismissal_store(ctx),
+            ctx.masker,
+            SingleFlight(),
+            max_retained=100,
+            run_scan=lambda _r: done,
+        ),
+    )
+    report = architecture_service(ctx).scan()
+    assert report["results"], report
+    return {"id": report["results"][0]["id"], "scanId": report["violationDetails"]["scanId"]}
+
+
+TOOL_ARGS = {"get_architecture_rule_violations": lambda handle: _seeded_violations(handle.context)}
+TOOL_SEEDS = {"get_architecture_rule_violations": _seeded_violations}
 
 LOCAL = ("127.0.0.1", 50000)
 PATHS = (
