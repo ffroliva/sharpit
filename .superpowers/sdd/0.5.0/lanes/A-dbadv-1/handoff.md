@@ -89,7 +89,12 @@ port was bound (COMMON: no dev servers on shared ports).
 
 ## Gates (at head)
 
-See the final report section below (updated after the full suite and the lane gate's evidence check).
+At `305cbbe` (evidence commit; code unchanged since `2c5e546`): `ruff check` clean, `ruff format --check` clean,
+`pyright` 0 errors, vitest (DatabaseAdvisor + panels04) 18 passed, `tsc --noEmit` clean, `npm run build` committed.
+Full suite `pytest -q -n 4`: **4898 passed, 16 skipped, 1 failed** — `tests/engine/advisors/test_registry.py::
+test_0_4_advisor_specs_are_registered_and_gated` (Open question 3). Lane gate evidence check (`--accept-unverified`):
+the only refusals are the coordinator's (`review.md`, `gate/lowest-direct.log`, `gate/no-sqlalchemy.log`, the leased
+logs); nothing about findings.md, handoff.md or reds.
 
 ## Open questions for the coordinator
 
@@ -97,6 +102,12 @@ See the final report section below (updated after the full suite and the lane ga
    `gate/leased-mysql.log`). The MySQL server-settings read uses `SHOW SESSION VARIABLES ... WHERE` without a
    savepoint; the PostgreSQL one runs in a savepoint inside the read-only transaction.
 2. The rebuilt UI bundle (`src/sharpit/ui/static/`) is outside the plan's May-touch list; the brief asks for it.
+3. `tests/engine/advisors/test_registry.py::test_0_4_advisor_specs_are_registered_and_gated` (F5a-core, outside this
+   lane's May-touch) asserts `advisor_for("DB-TEST-001") is None`, which holds only while the `database-advisor` flag
+   is off: the registry's `_prefixed` spec owns every `DB-...` id once the flag is on. It fails as soon as this lane
+   flips the flag (the same will happen to `SEC-`/`ARCH-`/`FASTAPI-` when B-security, C-architecture, C-fastapi flip
+   theirs). Suggested fix (coordinator): `assert advisor_for("DB-TEST-001") is (by_id["database-advisor"] if
+   IMPLEMENTED["database-advisor"] else None)`, or pick an id under a prefix no advisor owns. Not edited here.
 
 ## How to resume
 
