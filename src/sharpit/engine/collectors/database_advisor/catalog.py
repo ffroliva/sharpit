@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.advisors.rules import RuleDefinition
@@ -105,7 +105,7 @@ def _pool(pool: Any) -> Pool | None:
     try:
         if isinstance(overflow, int) and callable(size):
             unbounded = overflow < 0
-            max_size = None if unbounded else int(size()) + overflow
+            max_size = None if unbounded else int(cast("int", size())) + overflow
     except Exception:  # noqa: BLE001 - an unreadable number stays unknown
         max_size = None
     return Pool(
@@ -141,8 +141,7 @@ async def read_sources(ctx: SharpitContext, flight: Flight) -> list[Source]:
         if remaining <= 0:
             sources.append(Source(name, dialect, driver, "FAILED", BUDGET_RAN_OUT, {}, pool, keys, echo))
             continue
-        status, message, found = await _read(ctx, flight, engine, CatalogBounds(**{**vars(bounds),
-                                             "budget": remaining}))  # fmt: skip
+        status, message, found = await _read(ctx, flight, engine, replace(bounds, budget=remaining))
         sources.append(Source(name, dialect, driver, status, message, found, pool, keys, echo))
     return sources
 
