@@ -78,7 +78,7 @@ it then failed on). It is never claimed as a red. `lane_gate.py` refuses a red w
 | D3 | `../2026-11-01-sharpit-0.4.0/D3-drift-db-runtime.md` | — | precondition | — | coordinator (Step 0) |
 | P-0.4.1 | `P-0.4.1.md` | not required | committed; build now, merge after F5-gate | T-unbounded-read (branch `base/0.4.1`) | Claude subagent |
 | T-swallowed-2 | `T-swallowed-2.md` | not required | committed; build now, merge after F5-gate | — (branch `base/0.4.1`) | Claude subagent |
-| F5-gate | `F5-gate.md` (lane id `F` under today's gate) | required (checked by hand: today's gate has no council check) | committed, first lane (after Step 0) | preconditions merged | codex gpt-6-luna |
+| F5-gate | `F5-gate.md` (lane id `F` under today's gate) | required | committed, first lane (after Step 0) | preconditions merged | codex gpt-6-luna |
 | F5a-harness | `F5a-foundation.md` | not required | committed | F5-gate | codex gpt-6-luna |
 | F5a-source | `F5a-foundation.md` | required | committed | F5a-harness | codex gpt-6-luna (high) |
 | F5a-core | `F5a-foundation.md` | required | committed | F5a-harness | codex gpt-6-luna (high) or claude-flavio |
