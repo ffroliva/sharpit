@@ -15,6 +15,7 @@ import functools
 import gc
 import inspect
 import logging
+import operator
 import sys
 import threading
 import time
@@ -65,6 +66,13 @@ TRACING_DISABLED = "SQL tracing is disabled via SHARPIT_SQL_TRACE_ENABLED=false"
 _relationship_loads: dict[tuple[str, int, str], dict[str, int]] = {}
 _relationship_groups: dict[tuple[str, int, str], dict[str, tuple[str, bool]]] = {}
 _relationship_sites: dict[tuple[str, int, str], dict[str, str | None]] = {}
+# raw statement -> (application site, batched-query hint) per test, None until the statement repeats: a statement
+# that runs once never pays the stack walk, a later repeat costs one dict lookup
+_statement_sites: dict[tuple[str, int, str], dict[str, tuple[str | None, str] | None]] = {}
+# shortcut: distinct statements per test (literal-inlined SQL is distinct per value); a repeat first seen after the
+# cap gets the plain message. Upgrade if real suites hit it: key by the masked fingerprint instead.
+MAX_STATEMENT_SITES = 256
+GENERIC_BATCH = "one SELECT with WHERE ... IN (...) over all the ids"
 _eager_relationship_batches: dict[tuple[str, int, str], dict[str, int]] = {}
 _unbounded_read_facts: dict[tuple[str, int, str], dict[str, UnboundedReadFact]] = {}
 _unbounded_read_missing_capture: set[tuple[str, int]] = set()
@@ -154,6 +162,36 @@ def _relationship_observation(context: Any, tag: tuple[str, int, str]) -> Any:
     return identity, collection
 
 
+def _batched_query(context: Any) -> str:
+    """``select(Model).where(Model.attr.in_(ids))`` for an ORM SELECT filtered by one equality, else a generic hint."""
+    try:
+        compiled = context.compiled
+        where = compiled.statement.whereclause
+        if where.operator is operator.eq:
+            mapper = compiled.compile_state._primary_entity.mapper  # noqa: SLF001
+            name = mapper.class_.__name__
+            return f"select({name}).where({name}.{mapper.get_property_by_column(where.left).key}.in_(ids))"
+    except Exception:  # noqa: BLE001, S110 - introspection is defensive: a text or Core statement has no entity
+        pass
+    return GENERIC_BATCH
+
+
+def _record_statement_site(context: Any, tag: tuple[str, int, str], statement: str) -> None:
+    """Remember where a repeated statement runs from in application code (its first repeat), and how to batch it."""
+    sites = _statement_sites.get(tag)
+    if sites is None or statement not in sites:
+        if sites is None or len(sites) < MAX_STATEMENT_SITES:
+            with _lock:
+                _statement_sites.setdefault(tag, {}).setdefault(statement, None)
+        return
+    if sites[statement] is not None:
+        return
+    site = (_first_application_location(), _batched_query(context))
+    with _lock:
+        if sites.get(statement) is None:
+            sites[statement] = site
+
+
 def _lazy_key(context: Any, statement: str) -> tuple[Any, Any, str] | None:
     """What a lazy load's observation depends on, or None for anything else (counted per execution, or not cached)."""
     options = getattr(context, "execution_options", None)
@@ -175,6 +213,8 @@ def _record_relationship(context: Any) -> None:
     if not isinstance(statement, str):
         return
     seen_key = _lazy_key(context, statement)
+    if seen_key is None:  # a lazy load gets its site and fix from the relationship instead
+        _record_statement_site(context, tag, statement)
     if seen_key is not None:
         seen = _lazy_seen.get(tag)
         if seen is not None and seen_key in seen:
@@ -217,7 +257,8 @@ def apply_relationship_facts(test: Any) -> None:
         sites = _relationship_sites.pop(tag, {})
         eager_batches = _eager_relationship_batches.pop(tag, {})
         _lazy_seen.pop(tag, None)
-    if not groups and not eager_batches:
+        statement_sites = _statement_sites.pop(tag, {})
+    if not groups and not eager_batches and not statement_sites:
         return
     phase = test.phases.get("call")
     if phase is None:
@@ -235,6 +276,10 @@ def apply_relationship_facts(test: Any) -> None:
         count = phase.selects.get(group, 0)
         if count:
             phase.relationship_loads[identity] = phase.relationship_loads.get(identity, 0) + count
+    for statement, site in statement_sites.items():
+        group = _masked_fingerprint(statement)
+        if site is not None and phase.selects.get(group, 0) > 1 and group not in phase.relationship_of:
+            phase.statement_sites.setdefault(group, site)
 
 
 def _is_primary_mapper_load(target: Any, context: Any) -> bool:
@@ -643,6 +688,7 @@ def detach_all() -> None:
         _session = False
         _relationship_groups.clear()
         _relationship_sites.clear()
+        _statement_sites.clear()
         _eager_relationship_batches.clear()
         _lazy_seen.clear()
         _sync_listeners()
@@ -679,6 +725,7 @@ def detach_session() -> None:
         _unbounded_read_factor = 2
         _relationship_groups.clear()
         _relationship_sites.clear()
+        _statement_sites.clear()
         _eager_relationship_batches.clear()
         _lazy_seen.clear()
         _sync_listeners()

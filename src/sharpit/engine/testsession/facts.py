@@ -133,6 +133,7 @@ class PhaseFacts:
             "relationshipSites": self.relationship_sites,
             "swallowed": [fact.to_json() for fact in self.swallowed],
             "unboundedReads": [fact.to_json() for fact in self.unbounded_reads],
+            "statementSites": {k: list(v) for k, v in self.statement_sites.items()},
         }
 
     @classmethod
@@ -149,6 +150,7 @@ class PhaseFacts:
             dict(data.get("relationshipSites", {})),
             [SwallowedFact.from_json(fact) for fact in data.get("swallowed", [])],
             [UnboundedReadFact.from_json(fact) for fact in data.get("unboundedReads", [])],
+            {k: (v[0], v[1]) for k, v in data.get("statementSites", {}).items()},
         )
 
 
