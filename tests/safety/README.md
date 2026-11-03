@@ -8,7 +8,20 @@ PANEL = "data"  # the panel id (a 0.4 id or sql-trace) whose flag gates these ro
 GET_ROWS = ["/sharpit/api/data", "/sharpit/api/data/{table}"]  # every GET route path format the panel adds
 WRITE_ROWS = [("POST", "/sharpit/api/data/query")]  # every POST/PUT/PATCH/DELETE route as (method, path format)
 PATH_PARAMS = {"table": "orders"}  # samples for this file's own rows only (base routes keep conftest's)
+CLI_ACTIONS = ["data_export"]  # the panel's CLI-only action tools (refused when gated, never on MCP)
+TOOL_ARGS = {"get_data_rule_violations": lambda handle: {...}}  # MCP tool -> its arguments over the installed app
+TOOL_SEEDS = {"get_data_rule_violations": lambda ctx: {...}}  # the same over test_tools.py's bare SharpitContext
 ```
+
+`TOOL_ARGS` and `TOOL_SEEDS` are for MCP tools with required arguments, e.g. an advisor's
+`get_<advisor>_rule_violations`, which needs `{"id", "scanId"}` from a scan: the callable runs that advisor's scan
+through its service and returns the arguments. `TOOL_ARGS` callables take the installed `SharpitHandle`
+(`test_every_mcp_tool_no_side_effects`); `TOOL_SEEDS` callables take `tests/engine/test_tools.py`'s bare
+`SharpitContext`, which has no routes, so they seed what the tool reads first (`test_mcp_tools_no_side_effects`).
+Keys must be MCP tool names and values callables, or the file is refused like a bad row. The base panels' own
+declarations (`BASE_TOOL_ARGS`, `BASE_TOOL_SEEDS` in `__init__.py`, rest-api today) take the same path. The GET sweep
+lets every `/sharpit/api/<panel>/rules/{id}/violations` route answer 400 without `scanId`, but only with the
+contract's `{"error": "Advisor scan ID must not be blank."}`; every other GET answers 200, 307 or 404.
 
 While `PANEL` is implemented, `tests/test_safety_matrix.py` feeds these rows into the same sweeps as its base rows: the
 GET and write route tables must equal the live routes, every route under the panel's prefix answers 403 when the

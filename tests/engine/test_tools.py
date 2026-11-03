@@ -16,22 +16,22 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import safety
 from conftest import SideEffectGuard
 from sharpit.engine.activation import ActivationStatus
-from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.exceptions import ExceptionStore
 from sharpit.engine.collectors.config import config_report
-from sharpit.engine.collectors.restapi.service import RestApiService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
-from sharpit.engine.singleflight import ActionBusy, SingleFlight
-from sharpit.engine.spi import ApiModel, ApiRouteInfo, AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.singleflight import ActionBusy
+from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 from sharpit.engine.tools import (
     COMMANDS,
     INTERNAL_ERROR,
@@ -50,6 +50,7 @@ from sharpit.settings import PanelSettings, SharpitSettings, load_settings
 from surface import lane_tools
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
+LANES = safety.load()  # lane TOOL_SEEDS: arguments for tools this file's bare context cannot answer alone
 NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
 LIMIT_DESCRIPTION = "Optional maximum number of items to return. Capped by the SHARPIT_MCP_MAX_RESULTS server limit."
 QUERY_LIMIT_SCHEMA: dict[str, Any] = {
@@ -517,6 +518,14 @@ def test_cap_counts_running_and_abandoned_together():
 def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, tmp_state_dir: Path):
     # new: brief ruling (no socket, file, logger level or os.environ change)
     ctx = _ctx(state_dir=str(tmp_state_dir))
+    arguments = _mcp_arguments(name, ctx)
+    no_side_effects.rebaseline()
+    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")
+    assert isinstance(result, dict)
+
+
+def _mcp_arguments(name: str, ctx: SharpitContext) -> dict[str, Any]:
+    """A tool's required arguments, seeded into ``ctx``."""
     arguments: dict[str, Any] = {}
     if name == "get_exception_detail":  # the one tool with a required argument: the id of a recorded exception
         store = ctx.capture.exceptions = ExceptionStore(10, 5, 20, ctx.masker)
@@ -525,15 +534,9 @@ def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, 
         except RuntimeError as exc:
             store.record(exc, "log", None, "test")
         arguments = {"id": store.report()["groups"][0]["id"]}
-    if name == "get_rest_api_rule_violations":  # needs a cached scan: seeded with one violating route
-        route = ApiRouteInfo(("GET",), "/getPets", "app:read_pets", summary="s", tags=("t",))
-        model = ApiModel((route,), ("app:on_error",), ())
-        service = ctx.lazy("rest-api", lambda: RestApiService(lambda: model, DismissalStore(tmp_state_dir), ctx.masker,
-                                                             SingleFlight(), max_retained=100))  # fmt: skip
-        arguments = {"id": "RAPI-NAME-001", "scanId": service.scan()["violationDetails"]["scanId"]}
-    no_side_effects.rebaseline()
-    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")
-    assert isinstance(result, dict)
+    if (seed := LANES.tool_seeds.get(name)) is not None:  # e.g. get_rest_api_rule_violations: a cached scan's id
+        arguments = seed(ctx)
+    return arguments
 
 
 def test_settings_default_mcp_off():
@@ -561,3 +564,20 @@ def test_mcp_config_drops_only_the_property_suggestions():
     assert view["page"]["total"] == http["page"]["total"]
     cli = call_tool(_call(ctx), "get_config", {}, via="cli")
     assert cli["propertySuggestions"] == []  # BootUI's CLI shares the MCP dispatcher and tool handlers
+
+
+def test_lane_tool_seeds_reach_the_mcp_sweep(
+    tmp_path: Path, tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # coordinator fix 0.5.0: a lane's TOOL_SEEDS build a tool's arguments over this file's bare context
+    name = f"seedpkg_{uuid.uuid4().hex[:8]}"
+    (tmp_path / name).mkdir()
+    (tmp_path / name / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / name / "test_c_probe_safety.py").write_text(
+        'TOOL_SEEDS = {"get_overview": lambda ctx: {"ctx": ctx}}\n', encoding="utf-8"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setitem(globals(), "LANES", safety.load(name))
+    ctx = _ctx(state_dir=str(tmp_state_dir))
+
+    assert _mcp_arguments("get_overview", ctx) == {"ctx": ctx}
