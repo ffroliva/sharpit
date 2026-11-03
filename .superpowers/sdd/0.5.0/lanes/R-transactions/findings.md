@@ -29,6 +29,7 @@ all RED (assertion under tests/).
 | tests/engine/capture/test_transactions.py::test_savepoint_depth_reset_after_error_and_checkin | 333a91a79a88ddd338280d12e9d44aab6fab214c | both savepoint-frame resets (`_savepoints(...).clear()` in the root `_begin` and in `_end`) replaced by `pass` | `AssertionError: a savepoint left open by an error must not survive the connection's return to the pool` |
 | tests/fastapi/test_transactions_overhead.py::test_overhead_measures_production_contexts_path | 625ca640a5cb51917cc448885b674283e1af7485 | the old helper (`teardowns.pop()()` then `attach()` without ctx) instead of `_listeners_detached()` | `AssertionError: the attached side must route through the panel's own contexts, not SQL Trace's` |
 | tests/safety/test_a_transactions_safety.py::test_inactive_transactions_paths_404 | 43f00a0f4cd30465bb76cf14915f6c1266e31166 | none: the global fail-closed guard (also pinned by `tests/test_safety_matrix.py::test_inactive_is_404_everywhere`) | N/A |
+| tests/engine/capture/test_transactions.py::test_clear_empties_the_buffer_without_resetting_total_captured | 213b9933eadd24c4a59bdbfeb91ab935c97d7f5c | `clear()` also sets `self._total = 0` | `AssertionError: clear must not reset totalCaptured` |
 
 Why finding 6 is a pin, not a red: its defect lives in the test's own helper. A red test may not reference a top-level
 name that changes after its red commit, so the helper fix and the test landed together and the old helper was

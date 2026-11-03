@@ -106,6 +106,16 @@ on request rows, `sqlStatementCount` 2 on the N+1 row correlated from SQL Trace.
 3. Add `test_transactions_overhead.py` to `TIMING_MODULES` in `tests/conftest.py` (outside May-touch) so the
    transactions budget runs last; `tests/test_overhead_harness.py` fails until then.
 
+## Review (Gemini, CHANGES) fixes
+
+- MAJOR: the five `.superpowers/sdd/0.4.0/lanes/A-transactions/*` files carried in by the Task 0 merge removed (837e586).
+- minor 2: `test_paused_records_nothing` is a recorded 0.4.0 red (`a099754`), so it and the misplaced
+  `# ported: ...clearEmptiesTheBufferWithoutResettingTotalCaptured` line above it are left untouched. No recorder-level
+  clear test existed; added `test_clear_empties_the_buffer_without_resetting_total_captured` carrying that citation
+  (pin, mutation-proven) in 213b993. The stale line above `test_paused_records_nothing` remains (noted, not edited).
+- minor 3: `test_uninstall_capture_removes_listeners` is not a recorded red: its redundant `import pytest` removed (213b993).
+- Coordinator questions 1 and 3 resolved by the coordinator's merge f66f8f9 (bundle allowed, TIMING_MODULES entry).
+
 ## How to resume
 
 Nothing left in the lane plan. If review asks for changes: new red test first (never edit a test after its red
