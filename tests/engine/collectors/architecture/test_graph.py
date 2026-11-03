@@ -94,3 +94,21 @@ def test_external_imports_ignored(tmp_path: Path) -> None:
     targets = [e.target for e in graph.edges.get("ext_app.consumer", [])]
 
     assert targets == ["ext_app.internal"]
+
+
+def test_deep_import_chain_does_not_crash() -> None:
+    # an import chain deeper than the interpreter's recursion limit (bound: 2,000 files), closed into one cycle
+    from sharpit.engine.collectors.architecture.graph import ImportEdge, ImportGraph  # noqa: PLC0415
+
+    names = [f"deep_app.m{i:04d}" for i in range(3000)]
+    graph = ImportGraph()
+    graph.nodes.update(names)
+    for i, name in enumerate(names):
+        graph.edges[name] = [ImportEdge(name, names[(i + 1) % len(names)], 1, Path("m.py"))]
+
+    try:
+        cycles = graph.find_cycles()
+    except RecursionError:
+        cycles = []
+
+    assert [len(c.members) for c in cycles] == [3000]

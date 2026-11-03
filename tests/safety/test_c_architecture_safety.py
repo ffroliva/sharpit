@@ -46,3 +46,14 @@ def test_cross_site_request_is_refused(path: str) -> None:
 def test_inactive_install_answers_404(path: str) -> None:
     # derived: fails closed, an inactive mount answers 404 for every path
     assert _client(enabled="OFF").get(path).status_code == 404
+
+
+def test_architecture_violations_tool_uses_rule_violations_schema() -> None:
+    # derived: BootUiMcpService.schema RULE_VIOLATIONS, as get_rest_api_rule_violations (review fix 1: GET /cli 500)
+    from sharpit.engine.tools import TOOLS  # noqa: PLC0415
+    from sharpit.engine.tools04.architecture import TOOLS as ARCHITECTURE_TOOLS  # noqa: PLC0415
+
+    rest_api = next(t for t in TOOLS if t.name == "get_rest_api_rule_violations")
+    architecture = next(t for t in ARCHITECTURE_TOOLS if t.name == "get_architecture_rule_violations")
+
+    assert architecture.input_schema == rest_api.input_schema

@@ -42,3 +42,45 @@ def test_post_scan_golden_parity(tmp_path: Path) -> None:
     report = service.scan()
     assert_parity("architecture", "scanned.captured", report)
     assert_enum_values("architecture", "scanned.captured", report)
+
+
+def test_post_scan_golden_parity_on_fixture_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # ported: ArchitectureScannerTests.scanRefreshesCachedReportAndAppliesDismissals (review fix 8: a real scan)
+    import sys  # noqa: PLC0415
+    import types  # noqa: PLC0415
+
+    from sharpit.engine.collectors.architecture.report import scan_application  # noqa: PLC0415
+
+    pkg = tmp_path / "arch_golden_app"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "a.py").write_text("import arch_golden_app.b\n", encoding="utf-8")
+    (pkg / "b.py").write_text("import arch_golden_app.a\n", encoding="utf-8")
+    module = types.ModuleType("arch_golden_app")
+    module.__file__ = str(pkg / "__init__.py")
+    module.__path__ = [str(pkg)]
+    monkeypatch.setitem(sys.modules, "arch_golden_app", module)
+    service = ArchitectureService(
+        base_packages=lambda: [],
+        dismissals=DismissalStore(tmp_path / "state"),
+        masker=Masker(Exposure.MASKED, True),
+        single_flight=SingleFlight(),
+        max_retained=1000,
+        run_scan=lambda _request: scan_application(None, "arch_golden_app"),
+    )
+
+    report = service.scan()
+    violated = [r for r in report["results"] if r["violationCount"]]
+    assert report["scan"]["status"] == "SCANNED"
+    assert "ARCH-PKG-001" in [r["id"] for r in violated]
+    page = service.violations("ARCH-PKG-001", report["violationDetails"]["scanId"], 0, 100, 1000)
+    assert page["page"]["total"] == 1
+
+    goldens = Path(__file__).resolve().parents[3] / "fixtures" / "bootui" / "2.2.0" / "architecture"
+    if (goldens / "scanned.captured.json").is_file():
+        assert_parity("architecture", "scanned.captured", report)
+        assert_enum_values("architecture", "scanned.captured", report)
+    if (goldens / "violations.captured.json").is_file():
+        assert_parity("architecture", "violations.captured", page)
+    if not ((goldens / "scanned.captured.json").is_file() and (goldens / "violations.captured.json").is_file()):
+        pytest.skip("post-scan golden absent")
