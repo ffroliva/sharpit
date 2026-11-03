@@ -167,7 +167,9 @@ def test_read_only_blocks_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_mcp_tools_list_has_only_get(tmp_path: Path):
     tools = _mcp(client_for(state_dir=str(tmp_path)), "tools/list")["result"]["tools"]
-    names = sorted(t["name"] for t in tools if "security" in t["name"] and "fastapi" not in t["name"])
+    # the security advisor's own tools; fastapi-security and security-logs pin theirs in their own tests
+    advisor = ("fastapi", "security_log")
+    names = sorted(t["name"] for t in tools if "security" in t["name"] and not any(n in t["name"] for n in advisor))
     assert names == ["get_security_report", "get_security_rule_violations"]
 
 
