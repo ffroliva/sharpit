@@ -97,9 +97,10 @@ def test_mcp_server_status_shape():
     body = _client(mcp_enabled="ON").get("/sharpit/api/mcp-server").json()
     assert list(body) == [
         "enabled", "configuredMode", "overridden", "serverName", "serverVersion", "transport", "endpoint",
-        "protocolVersion", "maxResults", "callCount", "totalLatencyMillis", "capacityRefusals", "timeouts",
-        "responseLimitRefusals", "toolCount", "tools",
-    ]  # fmt: skip
+        "protocolVersion", "supportedProtocolVersions", "maxResults", "callCount", "totalLatencyMillis",
+        "capacityRefusals", "timeouts", "responseLimitRefusals", "cancellations", "progressDropped", "toolCount",
+        "tools",
+    ]  # fmt: skip  # BootUI 2.2.0 key order (lane D4)
     assert (body["enabled"], body["configuredMode"], body["overridden"]) == (True, "ON", False)
     assert (body["serverName"], body["serverVersion"], body["transport"]) == ("sharpit", __version__, "http")
     assert (body["endpoint"], body["protocolVersion"], body["maxResults"]) == ("/sharpit/api/mcp", "2025-06-18", 200)
