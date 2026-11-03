@@ -1243,6 +1243,7 @@ COVER_TESTS = (
     "\n\nclass TestK:\n    def test_m(self):\n        assert True\n"
 )
 LEASED_MYSQL = "tests/fastapi/test_mysql_leased.py::test_read_only_wrapper_rejects_write"
+GOLDEN_MARK = "(skips with reason `post-scan golden absent` until G0 lands)"  # how the plans mark a golden skip
 
 
 def _cover_runner(fx: Fixture, at_head: dict[str, str]) -> object:
@@ -1292,9 +1293,9 @@ def test_must_cover_uses_full_node_ids_and_refuses_skips(tmp_path: Path) -> None
     skipped = _cover_check(fx, "`test_skip`", {f"{COVER}::test_skip": "skip:needs a server"})
     assert _refused(skipped, f"must-cover {COVER}::test_skip: skipped (needs a server)")
     golden_skip = {f"{COVER}::test_skip": "skip:post-scan golden absent (G0)"}
-    unflagged = _cover_check(fx, "`test_skip`", golden_skip)
+    unflagged = _cover_check(fx, f"`test_skip` {GOLDEN_MARK}", golden_skip)
     assert _refused(unflagged, f"must-cover {COVER}::test_skip: skipped (post-scan golden absent (G0)) (pass --accept")
-    golden = _cover_check(fx, "`test_skip`", golden_skip, accept_unverified=True)
+    golden = _cover_check(fx, f"`test_skip` {GOLDEN_MARK}", golden_skip, accept_unverified=True)
     assert _refusals(golden) == []
     assert any(f"{COVER}::test_skip" in line for line in golden.unverified)  # type: ignore[attr-defined]
     (tmp_path / "m").mkdir()
@@ -1434,8 +1435,8 @@ def test_golden_skip_of_a_must_cover_test_needs_accept_unverified(tmp_path: Path
     fx.review()
     golden = {f"{COVER}::test_skip": "skip:post-scan golden absent (G0)"}
     needle = f"must-cover {COVER}::test_skip: skipped (post-scan golden absent (G0)) (pass --accept-unverified"
-    assert _refused(_cover_check(fx, "`test_skip`", golden), needle)
-    accepted = _cover_check(fx, "`test_skip`", golden, accept_unverified=True)
+    assert _refused(_cover_check(fx, f"`test_skip` {GOLDEN_MARK}", golden), needle)
+    accepted = _cover_check(fx, f"`test_skip` {GOLDEN_MARK}", golden, accept_unverified=True)
     assert _refusals(accepted) == []
     assert any(f"{COVER}::test_skip" in line for line in accepted.unverified)  # type: ignore[attr-defined]
 
@@ -1577,3 +1578,42 @@ def test_main_refuses_a_real_lane_without_a_single_plan_index(
     argv = [fx.lane, "--release", "0.4.0", "--worktree", str(fx.worktree), "--integration", str(fx.integration)]
     assert lane_gate.main(argv) == 1
     assert "REFUSED: no single PLAN.md for release 0.4.0" in capsys.readouterr().out
+
+
+def test_golden_skip_is_accepted_only_for_a_test_the_plan_marks(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.commit({COVER: COVER_TESTS}, "test: cover")
+    fx.review()
+    golden = {f"{COVER}::test_skip": "skip:post-scan golden absent (G0)"}
+    marked = _cover_check(fx, f"`test_skip` {GOLDEN_MARK}, `test_a`", golden, accept_unverified=True)
+    assert _refusals(marked) == []
+    assert any(f"{COVER}::test_skip" in line for line in marked.unverified)  # type: ignore[attr-defined]
+    neighbour = _cover_check(fx, f"`test_a` {GOLDEN_MARK}, `test_skip`", golden, accept_unverified=True)
+    needle = f"must-cover {COVER}::test_skip: skipped (post-scan golden absent (G0)); the plan does not mark it"
+    assert _refused(neighbour, needle)
+    assert _refused(_cover_check(fx, "`test_skip`", golden, accept_unverified=True), needle)
+
+
+def test_argon_counts_as_the_google_family() -> None:
+    assert lane_gate._families_ran("Reviewer: agy (argon-high): ran\n") == ["google"]
+
+
+def test_lane_diff_may_not_touch_another_sdd_lane_entry(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    other, release = ".superpowers/sdd/0.4.0/lanes/test-fixture-y", ".superpowers/sdd/0.5.0/lanes/test-fixture-x/x.md"
+    fx.commit({other: "a file or symlink at another lane's folder\n", release: "planted\n"}, "docs: plant")
+    fx.review()
+    result = fx.evaluate()
+    assert _refused(result, f"not the lane's own evidence folder: {other}")
+    assert _refused(result, f"not the lane's own evidence folder: {release}")
+
+
+def test_plan_index_at_the_integration_root_protects_that_file(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, review=False)
+    fx.commit({"PLAN.md": "| Lane | Plan file | Council |\n", "README.md": "# readme\n"}, "docs: rewrite the plan")
+    fx.review()
+    index = LANES_TABLE + "| test-fixture-x | `x.md` | not required | c |\n"
+    _write(fx.integration, {"PLAN.md": f"# plan\n\n## Lanes\n\n{index}\n", "x.md": f"## Must-cover\n\n`{TEST_ID}`\n"})
+    result = fx.evaluate(plan_index=fx.integration / "PLAN.md")
+    assert _refused(result, "plan file changed: PLAN.md")
+    assert not _refused(result, "plan file changed: README.md")
