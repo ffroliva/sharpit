@@ -973,6 +973,39 @@ def run_pytest_in(integration: Path) -> PytestRunner:
 # --- entry points -----------------------------------------------------------------------------------------------------
 
 
+def _with_release(opts: Options, result: Result) -> Options | None:
+    """``opts`` with its release resolved (noted), or None with the refusal recorded."""
+    if opts.release is not None:
+        return opts
+    release, how = resolve_release(opts.integration)
+    (result.notes if release else result.refusals).append(how)
+    return replace(opts, release=release) if release else None
+
+
+def _worktree_refusals(opts: Options) -> list[str]:
+    problems: list[str] = []
+    if opts.no_rerun and not opts.lane.startswith(FIXTURE_PREFIX):
+        problems.append(f"--no-rerun is only for test fixture lanes ({FIXTURE_PREFIX}-*), not {opts.lane}")
+    head = _git(opts.worktree, "rev-parse", "HEAD").stdout.strip()
+    if head != opts.sha:
+        problems.append(f"{opts.sha} is not the worktree HEAD ({head}); gate the commit you mean")
+    if _git(opts.worktree, "status", "--porcelain", "--untracked-files=no").stdout.strip():
+        problems.append("lane worktree has uncommitted changes")
+    return problems
+
+
+def _record_unverified(opts: Options, result: Result, integrity: _Integrity) -> None:
+    """Non-pytest reds and leased-database gaps: recorded with --accept-unverified, else refused."""
+    unverified = list(integrity.unverified)
+    for log_name, node_ids in LEASED.get(opts.lane, ()):
+        if problem := leased_problem(opts, log_name, node_ids):
+            unverified.append(problem)
+    if opts.accept_unverified:
+        result.unverified = unverified
+    else:
+        result.refusals += [f"{line} (pass --accept-unverified to record it as unverified)" for line in unverified]
+
+
 def evaluate(
     opts: Options,
     *,
@@ -981,20 +1014,11 @@ def evaluate(
     prepare_env: EnvPreparer = lambda tree: (0, ""),
 ) -> Result:
     result = Result()
-    if opts.release is None:
-        release, how = resolve_release(opts.integration)
-        if release is None:
-            result.refusals.append(how)
-            return result
-        opts = replace(opts, release=release)
-        result.notes.append(how)
-    if opts.no_rerun and not opts.lane.startswith(FIXTURE_PREFIX):
-        result.refusals.append(f"--no-rerun is only for test fixture lanes ({FIXTURE_PREFIX}-*), not {opts.lane}")
-    head = _git(opts.worktree, "rev-parse", "HEAD").stdout.strip()
-    if head != opts.sha:
-        result.refusals.append(f"{opts.sha} is not the worktree HEAD ({head}); gate the commit you mean")
-    if _git(opts.worktree, "status", "--porcelain", "--untracked-files=no").stdout.strip():
-        result.refusals.append("lane worktree has uncommitted changes")
+    resolved = _with_release(opts, result)
+    if resolved is None:
+        return result
+    opts = resolved
+    result.refusals += _worktree_refusals(opts)
     integration_head = _git(opts.integration, "rev-parse", "HEAD").stdout.strip()
     base = _git(opts.worktree, "merge-base", integration_head, opts.sha).stdout.strip()
 
@@ -1006,18 +1030,9 @@ def evaluate(
     reds, table_problems = red_tests({name: texts.get(name, "") for name in ("findings.md", "handoff.md")})
     integrity = red_integrity(opts, base, reds)
     result.refusals += table_problems + integrity.problems
-    unverified = list(integrity.unverified)
-    for log_name, node_ids in LEASED.get(opts.lane, ()):
-        if problem := leased_problem(opts, log_name, node_ids):
-            unverified.append(problem)
-    if opts.accept_unverified:
-        result.unverified = unverified
-    else:
-        result.refusals += [f"{line} (pass --accept-unverified to record it as unverified)" for line in unverified]
-    cover: list[str] = []
-    if opts.plan_index is not None:
-        plan_problems, cover = plan_refusals(opts, base)
-        result.refusals += plan_problems
+    _record_unverified(opts, result, integrity)
+    plan_problems, cover = plan_refusals(opts, base) if opts.plan_index is not None else ([], [])
+    result.refusals += plan_problems
     if result.refusals:
         result.refusals.append("red replay and gate re-run skipped: fix the refusals above first")
         return result
@@ -1025,13 +1040,11 @@ def evaluate(
     if result.refusals:  # keep the last gate logs: a refused replay must not overwrite them
         result.refusals.append("gate re-run skipped: the red replay refused")
         return result
-    if cover:
-        cover_problems, cover_unverified = must_cover_refusals(opts, cover, run_pytest)
-        result.refusals += cover_problems
-        result.unverified += cover_unverified  # post-scan golden absent: reported, never refused
-        if result.refusals:
-            result.refusals.append("gate re-run skipped: a must-cover test refused")
-            return result
+    cover_problems, cover_unverified = must_cover_refusals(opts, cover, run_pytest) if cover else ([], [])
+    result.unverified += cover_unverified  # post-scan golden absent: reported, never refused
+    if cover_problems:
+        result.refusals += [*cover_problems, "gate re-run skipped: a must-cover test refused"]
+        return result
     if not opts.no_rerun:
         result.refusals += gate_refusals(opts, run_gate, prepare_env)
     return result
