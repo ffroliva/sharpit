@@ -19,6 +19,7 @@ from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo  # noqa: E402
 from sharpit.engine.sources import dispatch  # noqa: E402
 from sharpit.engine.sources.dispatch import SqlEvent  # noqa: E402
+from sharpit.engine.sqla import listeners as sqla_listeners  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -200,7 +201,7 @@ def test_before_returns_early_without_targets_or_sink(monkeypatch: pytest.Monkey
     _install()
     _install()
     named: list[object] = []
-    monkeypatch.setattr(sqla, "_named", lambda *a: named.append(a) or (None, None))
+    monkeypatch.setattr(sqla_listeners, "_named", lambda *a: named.append(a) or (None, None))
     engine = sa.create_engine("sqlite://")
     with engine.connect() as conn:
         conn.exec_driver_sql("select 1")
