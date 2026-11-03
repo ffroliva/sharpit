@@ -139,7 +139,10 @@ class FakeMySqlConnection:
         self.rows: dict[str, list[Row]] = {}
         self.failures: dict[str, str] = {}
         self.sql: list[str] = []
+        self.options: dict[str, Any] = {}
         self.savepoints = 0
+        self.rolled_back = 0
+        self.invalidated = False
         self.aborted = False
 
     def with_rows(self, kind: str, *rows: Row) -> FakeMySqlConnection:
@@ -150,8 +153,29 @@ class FakeMySqlConnection:
         self.failures[kind] = message
         return self
 
+    def rollback(self) -> None:
+        self.rolled_back += 1
+        self.sql.append("ROLLBACK")
+
+    def invalidate(self) -> None:
+        self.invalidated = True
+
+    def get_execution_options(self) -> dict[str, Any]:
+        return self.options
+
     def exec_driver_sql(self, sql: str) -> _Result:
         self.sql.append(sql)
+        if sql.startswith("SET "):
+            return _Result([])
+        if sql == "SELECT @@version":
+            return _Result([{"version": "8.4.0"}])
+        if "@@SESSION.autocommit" in sql:
+            return _Result([{"autocommit": self.options.get("autocommit", 0)}])
+        if "@@SESSION.transaction_read_only" in sql or "@@SESSION.tx_read_only" in sql:
+            ro_count = sum(1 for s in self.sql if "transaction_read_only" in s or "tx_read_only" in s)
+            return _Result([{"read_only": 0 if ro_count <= 1 else 1}])
+        if any(v in sql for v in ("max_execution_time", "max_statement_time", "innodb_lock_wait_timeout")):
+            return _Result([{"timeout": 0}])
         kind = kind_of(sql)
         if kind in self.failures:
             raise RuntimeError(self.failures[kind])
@@ -170,11 +194,29 @@ class FakeMySqlConnection:
 
 
 class FakeMySqlEngine:
-    def __init__(self, conn: FakeMySqlConnection | None = None, refuse: str | None = None) -> None:
+    def __init__(
+        self,
+        conn: FakeMySqlConnection | None = None,
+        refuse: str | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> None:
         self.conn = conn or FakeMySqlConnection()
+        if options:
+            self.conn.options.update(options)
         self.dialect = self.conn.dialect
         self.refuse = refuse
         self.connects = 0
+
+    @property
+    def options(self) -> dict[str, Any]:
+        return self.conn.options
+
+    @options.setter
+    def options(self, val: dict[str, Any]) -> None:
+        self.conn.options = val
+
+    def get_execution_options(self) -> dict[str, Any]:
+        return self.options
 
     @contextmanager
     def connect(self) -> Generator[FakeMySqlConnection]:
