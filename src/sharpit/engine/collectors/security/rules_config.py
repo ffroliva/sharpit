@@ -2,13 +2,54 @@
 
 from __future__ import annotations
 
-from sharpit.engine.collectors.security import Inputs, SecurityRule, Violation, rule
+from sharpit.engine.appsource import getenv_findings
+from sharpit.engine.collectors.security import (
+    Inputs,
+    SecurityRule,
+    Violation,
+    chain_has,
+    rule,
+    source_file,
+    source_modules,
+)
+from sharpit.engine.masking import is_sensitive_key
 
 _SECRETS = "https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html"
 
 
-def _none(_inputs: Inputs) -> list[Violation]:
-    return []
+_STACK = "ASGI middleware stack"
+
+
+def _debug(inputs: Inputs) -> list[Violation]:
+    if not inputs.facts.debug:
+        return []
+    return [Violation("application", "FastAPI(debug=True): unhandled errors return their traceback to the client.")]
+
+
+def _https_in_production(inputs: Inputs) -> list[Violation]:
+    model = inputs.model
+    if not inputs.view.production or not model.chains or chain_has(model, 0, "HTTPSRedirectMiddleware"):
+        return []
+    message = "A production-like profile is active and the application's stack has no HTTPSRedirectMiddleware."
+    return [Violation(_STACK, message)]
+
+
+def _literal_secret_defaults(inputs: Inputs) -> list[Violation]:
+    return [
+        Violation(read.location, f"{read.location} reads {read.key} with a literal default.")
+        for module in source_modules(inputs)
+        for read in getenv_findings(module.tree, source_file(module))
+        if read.default and read.default.strip() and is_sensitive_key(read.key)
+    ]
+
+
+def _debug_logging(inputs: Inputs) -> list[Violation]:
+    if not inputs.view.production:
+        return []
+    return [
+        Violation(f"logger {name}", f"The {name} logger runs at DEBUG under a production-like profile.")
+        for name in sorted(inputs.view.debug_loggers)
+    ]
 
 
 RULES: tuple[SecurityRule, ...] = (
@@ -22,7 +63,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Leave debug off outside local development.",
             "https://www.starlette.io/applications/",
         ),
-        _none,
+        _debug,
     ),
     SecurityRule(
         rule(
@@ -35,7 +76,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Add HTTPSRedirectMiddleware, or confirm the proxy redirects HTTP to HTTPS.",
             "https://fastapi.tiangolo.com/advanced/middleware/#httpsredirectmiddleware",
         ),
-        _none,
+        _https_in_production,
     ),
     SecurityRule(
         rule(
@@ -48,7 +89,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Drop the default and fail at startup when the secret is missing.",
             _SECRETS,
         ),
-        _none,
+        _literal_secret_defaults,
         needs_source=True,
     ),
     SecurityRule(
@@ -62,6 +103,6 @@ RULES: tuple[SecurityRule, ...] = (
             "Set the fastapi, starlette, uvicorn and sqlalchemy.engine loggers to INFO or higher in production.",
             "https://docs.python.org/3/library/logging.html#logging-levels",
         ),
-        _none,
+        _debug_logging,
     ),
 )

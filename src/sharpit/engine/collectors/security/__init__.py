@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from sharpit.engine.advisors.rules import RuleDefinition, Severity
-from sharpit.engine.appsource import SourceIndex
+from sharpit.engine.appsource import ModuleInfo, SourceIndex
 from sharpit.engine.spi import SecuredRoute, SecurityFacts, SecurityModel
 
 ADVISOR = "security"
@@ -68,3 +68,13 @@ def rule(
     rule_id: str, name: str, category: str, severity: Severity, description: str, recommendation: str, url: str
 ) -> RuleDefinition:
     return RuleDefinition(rule_id, name, category, severity, description, recommendation, url)
+
+
+def source_modules(inputs: Inputs) -> list[ModuleInfo]:
+    return list(inputs.source.modules.values()) if inputs.source is not None else []
+
+
+def source_file(module: ModuleInfo) -> str:
+    """The module's path from its top package's parent (shop/settings.py), as appsource names it."""
+    depth = len(module.name.split(".")) + (module.path.name == "__init__.py")
+    return module.path.relative_to(module.path.parents[depth - 1]).as_posix()
