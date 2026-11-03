@@ -188,3 +188,12 @@ def test_budget_order_check_survives_a_fixture_conftest(monkeypatch: pytest.Monk
         test_every_budget_module_runs_last()
     except ImportError as error:
         raise AssertionError(f"the budget-order check re-imports conftest at run time: {error}") from error
+
+
+def test_harness_never_imports_the_bare_conftest_module() -> None:
+    # sys.modules["conftest"] is whichever conftest.py pytester loaded last in this worker, at collection or run time
+    import ast
+
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    bare = [node.lineno for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module == "conftest"]
+    assert bare == [], f"test_overhead_harness.py imports the bare 'conftest' module at lines {bare}"
