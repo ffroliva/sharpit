@@ -80,3 +80,31 @@ five files serially: **149 passed** (`logs/F5a-source-rerun.log`). Budgets untou
 ## How to resume
 
 `git log --oneline release/0.5.0..HEAD` in the worktree; the lane is complete pending council and review.
+
+## Fix round 1 (2026-11-03)
+
+Inputs: `council-claude.md` (APPROVE WITH CHANGES), `council-gptoss.md`, `review-gemini-r1.md` (APPROVE).
+Merged `release/0.5.0` first (`784b2a2`, brings the spec §14 rows for decisions 2 and 3); no duplicated top-level defs.
+Red `7ff18edae1a3534b17e5c929be137e2bfe1bab34` (7 tests, all RED), fix `ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a`.
+Rows in `findings.md`.
+
+| Finding | Change |
+|---|---|
+| claude #1 high: `__main__` hides the app, `app_package` cannot override | explicit `app_package` now wins over autodetect; `__main__` is a holder only when no other module holds the app (`python run.py` re-exporting `myapp.main:app` → `myapp`); a `__main__`-only app resolves through `vars(__main__)["__package__"]` (`python -m myapp` → `myapp`); a script that defines the app itself (`python run.py`, no package) stays `NOT_SCANNED` with the documented reason (spec §4.2 and the must-cover test), and `app_package` now fixes it as the reason says |
+| claude #2 medium: budget only checked at `.py` files | deadline checked per directory entry (`>=`, Windows clock granularity); stopping sets `truncated` and a "wall budget" limitation. The thread-path daemon now stops at the same check, so a timed-out worker no longer walks on |
+| claude #3 medium: failed files not counted | `max_files` counts every `.py` file attempted (parsed, oversize, unparsable, not regular) |
+| gemini #1 minor: no post-read size check | `len(data) > max_file_bytes` → "larger than ..." limitation |
+| claude #8 low: realpath up to 3x per file | one `realpath` per entry, reused for containment and the open; `_add` no longer re-checks (containment stays on the entry) |
+| claude #4, #5 low: §14 rows | in `release/0.5.0` (merged) |
+| claude #6 low: config and advisors may resolve different roots | not fixed: `SharpitContext` has no app reference and `context.py`/`install.py` are outside May-touch. Question for the coordinator: pass the app (or the autodetected holder name) into the context in a lane that owns `context.py`, or log it in §14 |
+| claude #7 low: only the first `__path__` entry; `list(_NamespacePath)` may recalculate | not fixed: the interface returns one `Path`; multi-portion namespace packages are rare for an app root. Recalculation is an import-system cache refresh, none of the four forbidden effects. Revisit if an advisor lane meets a namespace app |
+| claude #9 low / handoff q2: stale `collectors/config/getenv_scan` strings | left (outside May-touch): `tests/test_side_effect_guard.py::test_side_effect_guard_allows_config_getenv_scan` (fake frame name `sharpit.engine.collectors.config.getenv_scan`, still under the config prefix) and `tests/scripts/test_lane_gate.py::GETENV_SCAN` (a baseline-key fixture string) |
+| gptoss high/medium: `is_junction` missing | rejected by the coordinator (exists on 3.12+) |
+| gptoss low: limitation strings expose path handling | not fixed: limitations reach no report today; the advisor core masks every string at its output boundary (spec §4.3) |
+| gptoss low: non-str `sys.path` entries | by design, skipped (`Sequence[object]`) |
+
+Gates at `ea1cf65`: ruff clean, `ruff format --check` clean, pyright 0 errors. Full `pytest -q -n 4`: 4668 passed,
+9 skipped, 3 failed in 18:48 (`logs/F5a-source-pytest-r1.log`; it overlapped for its first 14 minutes with an earlier
+run of mine I had wrongly taken for timed out, killed by PID once found). The 3 failures were two overhead budgets
+("busy machine") and the known xdist `TIMING_MODULES` conftest collision; serial rerun of those three files:
+**18 passed** (`logs/F5a-source-rerun-r1.log`). Budgets untouched.

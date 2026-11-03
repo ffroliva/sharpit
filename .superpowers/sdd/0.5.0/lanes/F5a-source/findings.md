@@ -35,9 +35,34 @@ Run: `tests/engine/test_appsource.py tests/engine/config` against the mutated `s
 | config back on `find_spec` | `test_config_uses_the_one_resolver`, `test_source_index_not_retained_after_scan`, 5 config report tests |
 | config caches the `SourceIndex` | `test_config_uses_the_one_resolver`, `test_source_index_not_retained_after_scan` |
 | unloaded `app_package` through `find_spec` | `test_app_package_setting_never_imports` (+ 6 config tests) |
-| all three link defences (entry `is_symlink`/`is_junction`, entry containment, `_add` containment) | `test_appsource_never_imports_or_follows_symlinks` (`assert 'trap_pkg_appsource.jlink.o' not in ...`) |
+| all three link defences (entry `is_symlink`/`is_junction`, entry containment, `_add` containment; fix round 1 merged the last two into one realpath per entry, council-claude #8) | `test_appsource_never_imports_or_follows_symlinks` (`assert 'trap_pkg_appsource.jlink.o' not in ...`) |
 | any ONE link defence alone | nothing fails: the other two still hold (defence in depth, by design; recorded, not a gap) |
 
 ## Pins
 
 None: every lane test was red at the red SHA.
+
+## Fix round 1 (council-claude.md, council-gptoss.md, review-gemini-r1.md)
+
+Red commit `7ff18edae1a3534b17e5c929be137e2bfe1bab34` (7 tests, all `RED (assertion under tests/)` from `red_check.py` at that SHA; log
+`logs/F5a-source-redcheck-r1.log`). Fix commit `ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a`. A first version of the red commit (`2f55f98`, never
+reviewed or recorded) crashed one test on Windows MAX_PATH (40 nested dirs); it was amended to 40 sibling dirs
+before any record, so `2f55f98` is not an ancestor of the head.
+
+| Finding | Test | Red SHA | Assertion message | Disposition |
+|---|---|---|---|---|
+| council-claude #1 (high): a `__main__` re-export hides the real package | tests/engine/test_appsource.py::test_main_reexport_resolves_the_real_package | 7ff18edae1a3534b17e5c929be137e2bfe1bab34 | `assert None == WindowsPath('.../myapp')` | Fixed in ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a |
+| council-claude #1 (high): `python -m pkg` app not resolved | tests/engine/test_appsource.py::test_python_dash_m_package_resolves | 7ff18edae1a3534b17e5c929be137e2bfe1bab34 | `assert None == WindowsPath('.../myapp')` | Fixed in ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a |
+| council-claude #1 (high): `app_package` cannot override autodetect | tests/engine/test_appsource.py::test_app_package_beats_autodetect | 7ff18edae1a3534b17e5c929be137e2bfe1bab34 | `assert WindowsPath('.../other_pkg') == WindowsPath('.../mine_pkg')` | Fixed in ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a |
+| council-claude #1 (high): `app_package` cannot fix a script `__main__` | tests/engine/test_appsource.py::test_app_package_overrides_a_script_main | 7ff18edae1a3534b17e5c929be137e2bfe1bab34 | `assert None == WindowsPath('.../myapp')` | Fixed in ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a |
+| council-claude #2 (medium): wall budget only checked at .py files | tests/engine/test_appsource.py::test_wall_budget_checked_per_directory_entry | 7ff18edae1a3534b17e5c929be137e2bfe1bab34 | `assert False is True` (`index.truncated`) | Fixed in ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a |
+| council-claude #3 (medium): failed files do not count toward max_files | tests/engine/test_appsource.py::test_unparsable_files_count_toward_max_files | 7ff18edae1a3534b17e5c929be137e2bfe1bab34 | `assert False is True` (`index.truncated`) | Fixed in ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a |
+| review-gemini #1 (minor): no post-read size check | tests/engine/test_appsource.py::test_file_grown_past_the_size_bound_after_stat | 7ff18edae1a3534b17e5c929be137e2bfe1bab34 | `assert 'grown.grown' not in {...}` | Fixed in ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a |
+
+Mutation: each rule removed is exactly the red state above (the fix adds one rule per test); reverting `ea1cf6541ca4dc2f3e04b8842cf0f99d9064d73a` in
+`src/` alone makes all seven fail again (the red replay).
+
+Not fixed, with reason:
+- council-gptoss "`entry.is_junction()` does not exist": rejected by the coordinator (`os.DirEntry.is_junction` exists on 3.12+; the junction test runs it on Windows).
+- council-gptoss low "limitation strings leak path handling": limitations are not part of any report today; advisor lanes mask them at the core's output boundary (spec §4.3).
+- council-gptoss low "non-str `sys.path` entries": skipped by `_search` by design (typed `Sequence[object]`); not worth a test.
