@@ -108,7 +108,15 @@ def _n_plus_one_message(call: PhaseFacts, group: str, count: int) -> str:
     message = f"{count} executions of one SELECT in the call phase"
     relation = call.relationship_of.get(group)
     if relation is None:
-        return message
+        site = call.statement_sites.get(group)
+        if site is None:
+            return message
+        location, batched = site
+        statement = call.sql_of.get(group, "the masked SELECT")
+        return (
+            f"{message}; first at {location or 'unknown'}; batch into one query: {batched}; "
+            f"masked statement: {statement}"
+        )
     identity, collection = relation
     relation_count = call.relationship_loads.get(identity, count)
     loader = "selectinload" if collection else "joinedload"

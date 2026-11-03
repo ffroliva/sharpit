@@ -117,6 +117,8 @@ class PhaseFacts:
     relationship_sites: dict[str, str | None] = field(default_factory=dict[str, str | None])
     swallowed: list[SwallowedFact] = field(default_factory=list[SwallowedFact])
     unbounded_reads: list[UnboundedReadFact] = field(default_factory=list[UnboundedReadFact])
+    # repeated-SELECT group -> (first application site, batched-query suggestion), for groups with no relationship
+    statement_sites: dict[str, tuple[str | None, str]] = field(default_factory=dict[str, tuple[str | None, str]])
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -131,6 +133,7 @@ class PhaseFacts:
             "relationshipSites": self.relationship_sites,
             "swallowed": [fact.to_json() for fact in self.swallowed],
             "unboundedReads": [fact.to_json() for fact in self.unbounded_reads],
+            "statementSites": {k: list(v) for k, v in self.statement_sites.items()},
         }
 
     @classmethod
@@ -147,6 +150,7 @@ class PhaseFacts:
             dict(data.get("relationshipSites", {})),
             [SwallowedFact.from_json(fact) for fact in data.get("swallowed", [])],
             [UnboundedReadFact.from_json(fact) for fact in data.get("unboundedReads", [])],
+            {k: (v[0], v[1]) for k, v in data.get("statementSites", {}).items()},
         )
 
 
