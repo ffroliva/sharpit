@@ -163,3 +163,8 @@ Only `introspector.py` changed in src: lane test files 107 passed, 1 skipped; ru
   Fixed in `d308ee5`.
 - Locked versions: lane files 552 passed, 4 skipped; ruff, format, pyright clean. Lowest-direct `tests/fastapi
   tests/pytest_plugin`: 665 passed, 1 failed (item 1). `uv.lock` restored, not committed.
+
+Coordinator ruling applied: `test_scopes_floor_and_newest_classify_same` and its `_floor_shape` helper deleted in
+`a1d9cef` (superseded by `0b3f586`; Historical SHA row in findings.md; mutation proof on both versions recorded there).
+Locked: lane files 551 passed, 4 skipped; ruff, format, pyright clean. Lowest-direct `tests/fastapi tests/pytest_plugin`:
+665 passed, 7 skipped, 0 failed (both former failures pass or are gone).

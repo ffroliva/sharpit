@@ -9,11 +9,10 @@ Task 0 regression found after the rebase and the Task 3 coordinator addition.
 |---|---|---|---|---|
 | Review 1 / spec §5.2: a `route_class` subclass of `APIRoute` dropped from mappings, rest-api and security (exact-type check) | tests/fastapi/test_introspector_routes.py::test_custom_apiroute_subclass_still_classified | 3ffec3e06308058cb10fb11cea31b6dfeaaad400 | `assert [] == [(('GET',), '/timed', '...timed')]` | Fixed in `978e1d0` |
 | Task 0: `vars()` on a slotted app object (the plugin's `AsyncEngine`) raised, failing `test_live_engine_driver_counts_as_covered` | tests/fastapi/test_introspector_routes.py::test_object_without_dict_has_no_routes | 3ffec3e06308058cb10fb11cea31b6dfeaaad400 | `assert 'raised vars() argument must have __dict__ attribute' == []` | Fixed in `978e1d0` |
-| FastAPI 0.115 cumulative `security_scopes` doubled scopes vs `own_oauth_scopes` (>= 0.120) | tests/fastapi/test_introspector_security.py::test_scopes_floor_and_newest_classify_same | 3ffec3e06308058cb10fb11cea31b6dfeaaad400 | `('admin', 'admin', 'read') != ('admin', 'read')` | Fixed in `978e1d0` |
 | Review 2: an `APIRoute` inside a plain Starlette sub-app classified as inspectable | tests/fastapi/test_introspector_security.py::test_apiroute_in_plain_starlette_subapp_is_unknown | 3ffec3e06308058cb10fb11cea31b6dfeaaad400 | `assert [('/sub/secret', False)] == [('/sub/secret', True)]` | Fixed in `978e1d0` |
 | Task 3 / spec §14 beans row: `_resource` opened the provider's source (`inspect.getsourcelines`) | tests/fastapi/test_introspection_trap.py::test_beans_resource_never_opens_the_source_file | 24165af1ed2b50b51e34347c23e7ba2df053fe92 | `assert ['_builtin_open'] == []` | Fixed in `1b81242` |
 
-`red_check.py` said RED for all five at their red SHA (assertion under `tests/`).
+`red_check.py` said RED for all five at their red SHA (the scopes red is now in Historical SHA; four remain) (assertion under `tests/`).
 
 ## Pins (passed on first run; mutation-proven in a scratch worktree `R-fs-base`)
 
@@ -41,7 +40,7 @@ Carried from 0.4.0 (red `95136a9`, unchanged): `test_plain_starlette_subapp_rout
 | `issubclass(type(route), _KNOWN_ROUTES)` / `issubclass(..., APIRoute)` | `test_custom_apiroute_subclass_still_classified` (exact type) or the trap test (`isinstance`, M1) |
 | `_attrs()` instead of `vars()` | `test_object_without_dict_has_no_routes` |
 | `in_fastapi` per route | `test_apiroute_in_plain_starlette_subapp_is_unknown` |
-| `sorted(set(scopes))` | `test_scopes_floor_and_newest_classify_same` |
+| `sorted(set(scopes))` | `test_scopes_read_at_the_installed_fastapi` on the FastAPI 0.115 floor (fix round 4, M2) |
 | `_first_line` instead of `getsourcelines` | `test_beans_resource_never_opens_the_source_file` |
 
 ## Historical SHA
@@ -49,6 +48,7 @@ Carried from 0.4.0 (red `95136a9`, unchanged): `test_plain_starlette_subapp_rout
 | Superseded red | Historical SHA | Reason |
 |---|---|---|
 | (local only, never merged) the same four Task 1 reds | e6ddeaa7094ddc7fdc4255489d6354ffc0e3cc90 | Rewritten before any fix commit: a string replace had also changed the 0.4.0 red `test_plain_starlette_subapp_route_explained_as_unknown`, and the rest-api assertion did not filter framework routes as every consumer does. Re-committed as `3ffec3e` with additions only. |
+| tests/fastapi/test_introspector_security.py::test_scopes_floor_and_newest_classify_same (deleted in `a1d9cef`) | 3ffec3e06308058cb10fb11cea31b6dfeaaad400 | fake floor shape; superseded by 0b3f586 (real FastAPI floor and newest, mutation-proven) |
 
 ## Fix round 1 (council: `council-claude.md`, `council-gemini.md`)
 
@@ -97,11 +97,13 @@ the wrapper is listed in the chain's filters).
 
 | Failure | Cause | Disposition |
 |---|---|---|
-| tests/fastapi/test_introspector_security.py::test_scopes_floor_and_newest_classify_same | The test, not the introspector: its `_floor_shape` builds the floor copy from `own_oauth_scopes`/`parent_oauth_scopes`, which a real 0.115 `Dependant` does not have, so the copy holds no scopes. The real 0.115 app classifies `('admin', 'read')` (the expected side of the diff). Red at `9106999` too (before every fix round), so not the static `__dict__` read. | Left red: the fix is a test edit after its red commit (coordinator's call: e.g. `_floor_shape` keeps a node's own `security_scopes` when `own_oauth_scopes` is absent, or skip below 0.120). New pin `test_scopes_read_at_the_installed_fastapi` (`0b3f586`) holds on both legs. |
+| tests/fastapi/test_introspector_security.py::test_scopes_floor_and_newest_classify_same | The test, not the introspector: its `_floor_shape` builds the floor copy from `own_oauth_scopes`/`parent_oauth_scopes`, which a real 0.115 `Dependant` does not have, so the copy holds no scopes. The real 0.115 app classifies `('admin', 'read')` (the expected side of the diff). Red at `9106999` too (before every fix round), so not the static `__dict__` read. | Coordinator ruling: deleted in `a1d9cef` (moved to Historical SHA), superseded by the real-floor pin `test_scopes_read_at_the_installed_fastapi` (`0b3f586`). |
 | tests/pytest_plugin/test_plugin_inert.py::test_plain_run_untouched | Lane-caused (base subset `tests/fastapi tests/pytest_plugin` at lowest: 616 passed; head: fails). `test_introspection_trap.py` calls `get_paths()` at import, which installs the sample app and patches `sqlite3.connect` during collection; `test_sqlite_console.py`, collected later, records the patched function as `REAL_CONNECT` and its teardown re-installs it. Also the cause of the `test_sqlite_console` flakes seen at locked versions in rounds 1-2. | Fixed in `d308ee5` (the trap module detaches sqlite/SQLAlchemy hooks right after `get_paths()`). Proof: a spy plugin printing every change of `sqlite3.connect` between tests: before, `PATCHED after test_console_shows_sqlite3_data_source` and never restored; after, no change, and the head subset gives 665 passed with only the scopes test failing. |
 
 ### Pin
 
-| Test | Mutation (reverted) | Failure under the mutation (lowest-direct venv) |
-|---|---|---|
-| tests/fastapi/test_introspector_security.py::test_scopes_read_at_the_installed_fastapi | `_scopes` drops the `security_scopes` fallback | `[('/a', ('GET',), ((BEARER, True, ()),))] == [... ('admin', 'read') ...]` |
+| Test | Mutation (scratch copy, reverted) | Locked (FastAPI newest) | Lowest-direct (FastAPI 0.115.7) |
+|---|---|---|---|
+| tests/fastapi/test_introspector_security.py::test_scopes_read_at_the_installed_fastapi | M0: `_scopes` drops the `security_scopes` fallback | n/a (newest reads `own_oauth_scopes`) | FAILED: `[... True, ()),))] == [... ('admin', 'read')),))]` |
+| same | M1: `_scopes` returns `()` (scopes extraction broken) | FAILED: `[... True, ()),))] == [... ('admin', 'read')),))]` | FAILED: same |
+| same | M2: no `sorted(set(...))` dedupe | passed (newest has no cumulative scopes to dedupe) | FAILED: scopes differ from `('admin', 'read')` (pytest's diff truncated) |
