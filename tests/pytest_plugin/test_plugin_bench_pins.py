@@ -82,3 +82,42 @@ def test_bench_advisor_notes_with_verbose(pytester: pytest.Pytester) -> None:
     assert rules
     assert all(f"  {rule}: " in stdout for rule in rules)
     assert "advisor notes in" not in stdout
+
+
+def _query_loop_finding(pytester: pytest.Pytester, call: str, site: str) -> tuple[str, int]:
+    _twin(
+        pytester,
+        "query_loop_app",
+        test_loop=f"""
+from sqlalchemy.orm import Session
+from query_loop_app import engine, get_performances, get_points
+
+def test_loop():
+    with Session(engine) as db:
+        assert len({call}(db, list(range(1, 31)))) == 30
+""",
+    )
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 1
+    finding = next(f for f in _report(pytester)["findings"] if f["ruleId"] == "sharpit.n-plus-one")
+    source = (TWINS / "query_loop_app.py").read_text("utf-8").splitlines()
+    return finding["message"], next(n for n, text in enumerate(source, 1) if site in text)
+
+
+def test_n_plus_one_without_relationship_names_location_and_fix(pytester: pytest.Pytester) -> None:
+    # bench: F5 / U6 gap, T3 performances query loop (`db.get` per id, no relationship)
+    message, line = _query_loop_finding(pytester, "get_performances", "db.get(")
+
+    assert message.startswith("30 executions of one SELECT in the call phase")
+    assert f"query_loop_app.py:{line}" in message
+    assert "select(Performance).where(Performance.performance_id.in_(ids))" in message
+
+
+def test_n_plus_one_without_entity_names_location_and_generic_fix(pytester: pytest.Pytester) -> None:
+    # a textual SELECT per id: the site is known, the entity is not, so the fix stays generic
+    message, line = _query_loop_finding(pytester, "get_points", "db.execute(")
+
+    assert f"query_loop_app.py:{line}" in message
+    assert "WHERE ... IN (...)" in message

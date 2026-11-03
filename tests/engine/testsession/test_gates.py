@@ -472,3 +472,37 @@ def test_swallowed_message_names_handler_and_type_only() -> None:
     assert [f["message"] for f in found] == [
         "AttributeError swallowed by a broad except clause at app/weeks.py:21 (neither re-raised nor logged)"
     ]
+
+
+LOOP_SQL = "SELECT performances.performance_id FROM performances WHERE performances.performance_id = ?"
+LOOP_FIX = "select(Performance).where(Performance.performance_id.in_(ids))"
+
+
+def _query_loop(**sites: tuple[str | None, str]) -> PhaseFacts:
+    call = selects("fp", 30, LOOP_SQL)
+    call.statement_sites.update(sites)
+    return call
+
+
+def test_n_plus_one_message_names_first_site_and_batched_query() -> None:
+    [finding] = evaluate_test(_facts(call=_query_loop(fp=("app/crud.py:27", LOOP_FIX))), NONE, 5, ())
+
+    assert "first at app/crud.py:27" in finding.message
+    assert f"batch into one query: {LOOP_FIX}" in finding.message
+    assert f"masked statement: {LOOP_SQL}" in finding.message
+
+
+def test_n_plus_one_fingerprint_unchanged() -> None:
+    [plain] = evaluate_test(_facts(call=_query_loop()), NONE, 5, ())
+    [sited] = evaluate_test(_facts(call=_query_loop(fp=("app/crud.py:27", LOOP_FIX))), NONE, 5, ())
+
+    assert sited.fingerprint == plain.fingerprint
+    assert sited.identity == plain.identity
+
+
+def test_statement_sites_survive_json_round_trip() -> None:
+    facts = _query_loop(fp=("app/crud.py:27", LOOP_FIX))
+
+    restored = PhaseFacts.from_json(json.loads(json.dumps(facts.to_json())))
+
+    assert restored.statement_sites == facts.statement_sites
