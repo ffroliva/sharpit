@@ -8,8 +8,10 @@ from typing import Any
 import pytest
 
 from golden import ROOT, assert_enum_values, assert_parity
+from sharpit.engine import panels04
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.advisors.findings import Finding
+from sharpit.engine.advisors.registry import ADVISORS, AdvisorSpec, advisor_for
 from sharpit.engine.advisors.report import evidence
 from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.advisors.rules import RuleDefinition
@@ -18,6 +20,7 @@ from sharpit.engine.collectors.restapi.service import RestApiService
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.singleflight import ActionBusy, SingleFlight
 from sharpit.engine.spi import ApiModel, ApiRouteInfo
+from sharpit.pytest_plugin import apps
 
 
 class Pet:
@@ -159,3 +162,35 @@ def test_advisor_core_masks_every_string(tmp_path: Path):
     assert "hunter2" not in json.dumps(report)
     assert "hunter2" not in json.dumps(core.report())
     assert "hunter2" not in json.dumps(page)
+
+
+# each 0.5.0 advisor's flag, a rule id it owns by prefix, and that id's finding fingerprint
+OWNED = [
+    ("security", "SEC-001"),
+    ("architecture", "ARCH-LAYER-001"),
+    ("fastapi", "FASTAPI-001"),
+    ("fastapi", "SPRING-WEB-001"),
+    ("database-advisor", "DB-TEST-001"),
+]
+
+
+@pytest.mark.parametrize(("advisor", "rule"), OWNED)
+def test_registry_owns_by_prefix(monkeypatch: pytest.MonkeyPatch, advisor: str, rule: str):
+    monkeypatch.setitem(panels04.IMPLEMENTED, advisor, True)
+    owner = advisor_for(rule)
+    assert (owner.id if owner else None) == advisor
+    fingerprint = advisor_for(f"{advisor}:{rule}:0123456789abcdef")
+    assert (fingerprint.id if fingerprint else None) == advisor
+    monkeypatch.setitem(panels04.IMPLEMENTED, advisor, False)
+    assert advisor_for(rule) is None
+
+
+def test_pytest_plugin_discovers_advisors_from_registry(monkeypatch: pytest.MonkeyPatch):
+    extra = AdvisorSpec(
+        "security", "security", lambda _v: False, None, assess="sharpit.engine.collectors.restapi.service"
+    )
+    monkeypatch.setattr("sharpit.pytest_plugin.apps.ADVISORS", (*ADVISORS, extra))
+    monkeypatch.setitem(panels04.IMPLEMENTED, "security", True)
+    assert [advisor for advisor, _ in apps.advisor_assessors()] == ["rest-api", "security"]
+    monkeypatch.setitem(panels04.IMPLEMENTED, "security", False)
+    assert [advisor for advisor, _ in apps.advisor_assessors()] == ["rest-api"]

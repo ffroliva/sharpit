@@ -21,6 +21,7 @@ class AdvisorSpec:
     panel: str | None
     owns: Callable[[str], bool]
     fingerprint: re.Pattern[str] | None  # ``<advisor>:<a rule id it owns>:<16 hex>``; None: no finding fingerprints
+    assess: str | None = None  # module whose ``assess(model, masker, ...)`` the pytest plugin runs; None: none
 
     @property
     def implemented(self) -> bool:

@@ -13,6 +13,7 @@ from types import ModuleType
 from typing import Any, cast
 
 from sharpit.engine.advisors.findings import AdvisorRun
+from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.collectors.restapi.rules import application_routes
 from sharpit.engine.collectors.restapi.service import assess
@@ -23,6 +24,7 @@ from sharpit.fastapi.introspector import FastApiIntrospector
 __all__ = [
     "AUTODETECT",
     "TEST_FILES",
+    "advisor_assessors",
     "autodetect_apps",
     "bare_app_run",
     "no_app_run",
@@ -209,6 +211,11 @@ def _models_to_assess(
     if state.options.app:
         return _configured_models(state, load_app)
     return models or _discovered_models(state)
+
+
+def advisor_assessors() -> list[tuple[str, Callable[..., AdvisorRun]]]:
+    """Each implemented advisor's pytest assessment, from the registry (skeleton)."""
+    return [] * len(ADVISORS)  # skeleton
 
 
 def run_advisors(
