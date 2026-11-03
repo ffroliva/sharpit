@@ -1,0 +1,122 @@
+diff --git a/src/sharpit/engine/collectors/database_advisor/catalog.py b/src/sharpit/engine/collectors/database_advisor/catalog.py
+index 31220c9..f3e685e 100644
+--- a/src/sharpit/engine/collectors/database_advisor/catalog.py
++++ b/src/sharpit/engine/collectors/database_advisor/catalog.py
+@@ -146,6 +146,13 @@ async def read_sources(ctx: SharpitContext, flight: Flight) -> list[Source]:
+     return sources
+ 
+ 
++def _catalog_and_vendor(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
++    """The catalog plus the vendor facts, in one read-only read."""
++    from sharpit.engine.collectors.database_advisor.rules_vendor import read_vendor  # noqa: PLC0415 - imports this module
++
++    return {**catalog(conn, bounds), "vendor": read_vendor(conn, bounds)}
++
++
+ async def _read(
+     ctx: SharpitContext, flight: Flight, engine: Any, bounds: CatalogBounds
+ ) -> tuple[str, str | None, dict[str, Any]]:
+@@ -153,7 +160,7 @@ async def _read(
+     try:
+         found = await sqla.run_db_read(
+             engine,
+-            lambda conn: catalog(conn, bounds),
++            lambda conn: _catalog_and_vendor(conn, bounds),
+             min(CATALOG_TIMEOUT, bounds.budget),
+             executor=executor,
+             done=flight.worker(),
+diff --git a/src/sharpit/engine/collectors/database_advisor/report.py b/src/sharpit/engine/collectors/database_advisor/report.py
+index ea18d5c..4c1dacf 100644
+--- a/src/sharpit/engine/collectors/database_advisor/report.py
++++ b/src/sharpit/engine/collectors/database_advisor/report.py
+@@ -9,14 +9,14 @@ the report with its retained details. A rule that could judge no datasource is `
+ from __future__ import annotations
+ 
+ from collections.abc import Sequence
+-from dataclasses import dataclass
++from dataclasses import dataclass, replace
+ from typing import TYPE_CHECKING, Any
+ 
+ from sharpit.engine import sqla
+ from sharpit.engine.advisors.findings import Finding
+ from sharpit.engine.advisors.report import evidence
+ from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope
+-from sharpit.engine.collectors.database_advisor import RULES
++from sharpit.engine.collectors.database_advisor import RULES, rules_orm, rules_runtime
+ from sharpit.engine.collectors.database_advisor.catalog import LABELS, Source, read_sources
+ from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
+ 
+@@ -188,6 +188,19 @@ class DatabaseAdvisorService(AdvisorScan):
+         )
+ 
+ 
++def _with_app_facts(ctx: SharpitContext, sources: list[Source]) -> list[Source]:
++    """Each source with the declared models (ORM rules); the first with the SQL Trace window (DB-RUNTIME-001)."""
++    if not sources:
++        return sources
++    declared = rules_orm.facts(ctx.models)
++    trace = ctx.capture.sql_trace
++    window = rules_runtime.facts(trace.rows() if trace is not None else [])
++    first, *rest = sources
++    return [replace(first, catalog={**first.catalog, "orm": declared, "runtime": window})] + [
++        replace(s, catalog={**s.catalog, "orm": declared}) for s in rest
++    ]
++
++
+ async def run_scan(ctx: SharpitContext, service: DatabaseAdvisorService) -> dict[str, Any]:
+     """Read every registered engine and scan (``ActionBusy`` while a scan, or a worker it left running, is live)."""
+     if (reason := sqla.unavailable_reason()) is not None:
+@@ -198,6 +211,6 @@ async def run_scan(ctx: SharpitContext, service: DatabaseAdvisorService) -> dict
+         raise ActionBusy(OPERATION, single.active)
+     flight = Flight(release)
+     try:
+-        return service.scan(await read_sources(ctx, flight))
++        return service.scan(_with_app_facts(ctx, await read_sources(ctx, flight)))
+     finally:
+         flight.done()
+diff --git a/tests/engine/collectors/database_advisor/test_wiring_e2e.py b/tests/engine/collectors/database_advisor/test_wiring_e2e.py
+new file mode 100644
+index 0000000..80b1064
+--- /dev/null
++++ b/tests/engine/collectors/database_advisor/test_wiring_e2e.py
+@@ -0,0 +1,40 @@
++"""The scan feeds the ORM, runtime and vendor rules (coordinator wiring for A-dbadv-2)."""
++
++from __future__ import annotations
++
++from typing import Any
++
++import pytest
++from fastapi.testclient import TestClient
++from tests.engine.postgresql.fakes import FakeRegistry
++
++from fastapi import FastAPI
++from sharpit import install
++
++pytestmark = pytest.mark.needs_sqlalchemy
++sa = pytest.importorskip("sqlalchemy")
++orm = pytest.importorskip("sqlalchemy.orm")
++StaticPool = pytest.importorskip("sqlalchemy.pool").StaticPool
++
++
++def test_scan_runs_orm_rules_from_install_models() -> None:
++    engine = sa.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
++    with engine.begin() as conn:
++        conn.exec_driver_sql("CREATE TABLE users (id INTEGER PRIMARY KEY)")
++    reg = orm.registry()
++    table = sa.Table(
++        "users", reg.metadata, sa.Column("id", sa.Integer, primary_key=True), sa.Column("email", sa.String(50))
++    )
++    user = type("User", (), {})  # the registry holds mapped classes weakly
++    reg.map_imperatively(user, table)
++    reg.configure()
++    app = FastAPI()
++    handle = install(app, enabled="ON", show_banner=False, config_scan=False, models=(reg,))
++    handle.context.capture.engine_registry = FakeRegistry(("db", engine))
++    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
++
++    response = client.post("/sharpit/api/database-advisor/scan")
++    report: dict[str, Any] = response.json()
++
++    assert user.__name__ == "User"
++    assert "DB-HIB-006" in [r["id"] for r in report["results"]]
