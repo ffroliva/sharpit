@@ -354,11 +354,13 @@ class CaptureMiddleware:
                 None,
                 time.perf_counter_ns(),
                 None,
+                scope=scope,
             )
         except Exception as exc:  # noqa: BLE001 - a capture failure never changes the host's response
             wiring.hook_failed("request start", exc)
             await self.app(scope, receive, send)
             return
+        sqla.note_request_captured()
 
         status: int | None = None
         response_headers: list[tuple[bytes, bytes]] = []
