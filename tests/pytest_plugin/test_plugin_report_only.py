@@ -11,7 +11,7 @@ def test_report_only_does_not_fail_finding_test(pytester: pytest.Pytester) -> No
         " c=sqlite3.connect(':memory:')\n"
         " for _ in range(5): c.execute('SELECT 1').fetchone()"
     )
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit",
         "--sharpit-no-advisors",
         "--sharpit-allow-unknown",
