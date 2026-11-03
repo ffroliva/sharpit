@@ -10,6 +10,9 @@ from typing import Any
 
 import pytest
 
+pytestmark = pytest.mark.needs_sqlalchemy  # every test here runs an ORM fixture app
+pytest.importorskip("sqlalchemy")
+
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "apps" / "unbounded_read"
 RULE = "sharpit.unbounded-read"
 
