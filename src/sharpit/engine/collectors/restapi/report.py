@@ -34,8 +34,8 @@ def incomplete_message(limitations: Sequence[str]) -> str:
 
 
 def failing(results: Iterable[RuleResult]) -> list[RuleResult]:
-    """Only the FAILED rules, most severe first, then the most violations, then by id (``violationResults``)."""
-    found = [r for r in results if r.status == "FAILED"]
+    """Only the violating rules, most severe first, then the most violations, then by id (``violationResults``)."""
+    found = [r for r in results if r.status == "VIOLATION"]
     return sorted(found, key=lambda r: (severity_rank(r.severity), -r.violation_count, r.id))
 
 

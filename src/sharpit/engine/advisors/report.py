@@ -37,9 +37,9 @@ def apply_dismissals(
     ``occurrences`` maps a rule id to ``(fingerprint, text, identity_or_target)`` tuples in violation order. A dismissed
     fingerprint or pair removes that occurrence from the rule's count; samples refill from the remaining ones, up to
     ``SAMPLE_LIMIT``. A rule whose every occurrence is dismissed stays ``dismissed: false``, with count 0 and status
-    ``PASSED`` (spec §5.6)."""
+    ``PASS`` (spec §5.6)."""
     marked = [_mark(r, dismissed, (occurrences or {}).get(r["id"]), dismissed_pairs) for r in report["results"]]
-    active = [r for r in marked if not r["dismissed"] and r["status"] == "FAILED"]
+    active = [r for r in marked if not r["dismissed"] and r["status"] == "VIOLATION"]
     return {
         **report,
         "violationsFound": len(active),
@@ -66,7 +66,7 @@ def _mark(
     return {
         **result,
         "dismissed": False,  # only a dismissed rule id is restorable by the rule's Restore
-        "status": result["status"] if remaining else "PASSED",  # nothing left to fail on
+        "status": result["status"] if remaining else "PASS",  # nothing left to fail on
         "violationCount": len(remaining),
         "sampleViolations": remaining[:SAMPLE_LIMIT],
     }

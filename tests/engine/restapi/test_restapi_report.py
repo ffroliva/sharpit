@@ -108,7 +108,7 @@ def test_shape_keys_match_bootui(tmp_path: Path):
     )
     ids = [r["id"] for r in report["results"]]
     assert ids == ["RAPI-MAP-003", "RAPI-DOC-002", "RAPI-NAME-001", "RAPI-NAME-003"]  # severity, then count, then id
-    assert all(r["status"] == "FAILED" and r["dismissed"] is False for r in report["results"])
+    assert all(r["status"] == "VIOLATION" and r["dismissed"] is False for r in report["results"])
     assert report["violationsFound"] == report["scan"]["violationsFound"] == 4
     assert {c["severity"]: c["count"] for c in report["severityCounts"]} == {
         "CRITICAL": 0,
@@ -199,11 +199,12 @@ RESULT_KEYS = {
     "violationCount",
     "sampleViolations",
     "dismissed",
+    "sampleLocations",
 }
 
 
 def test_result_keys_match_bootui(tmp_path: Path):
-    # ported: RestApiRuleResultDto (11 components)
+    # ported: RestApiRuleResultDto (12 components; 2.2.0 adds sampleLocations)
     assert set(_service(tmp_path).scan()["results"][0]) == RESULT_KEYS
 
 

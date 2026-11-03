@@ -157,7 +157,7 @@ class RestApiService:
         """The last completed scan, else ``NOT_SCANNED``; dismissals applied. Never scans."""
         with self._swap:
             cached = self._cached
-            base = cached.report if cached else report.not_scanned(self._retention.details())
+            base = cached.report if cached else report.not_scanned(self._details())
         return apply_dismissals(
             base,
             set(self.dismissals.list()),
@@ -177,6 +177,9 @@ class RestApiService:
     ) -> dict[str, Any]:
         """One page of the cached scan's retained violations for ``rule_id``. Never scans."""
         return self._retention.page(scan_id, rule_id, offset, limit, max_results)
+
+    def _details(self) -> dict[str, Any]:
+        return {**self._retention.details(), "locationNotes": [], "changes": None}  # AdvisorViolationDetailsDto
 
     def _scan(self) -> _Scan:
         scanned_at = int(time.time() * 1000)
@@ -210,6 +213,6 @@ class RestApiService:
         scan = _Scan(result, done, occurrences)
         with self._swap:  # build first: a failed build must leave retention and cache as they were
             self._retention.store(found, {rule: [fp for fp, _, _ in pairs] for rule, pairs in occurrences.items()})
-            result["violationDetails"] = self._retention.details()
+            result["violationDetails"] = self._details()
             self._cached = scan
         return scan

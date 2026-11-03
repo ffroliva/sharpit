@@ -146,5 +146,28 @@ def assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> Non
         warnings.warn(f"{sharpit_id}/{name}: provisional fixture, unverified", UnverifiedParityWarning, stacklevel=2)
 
 
+def _leaves(value: Any, path: str, out: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
+    """Every scalar in ``value`` with its path (list items as ``items[].key``, as in ``nullable.json``)."""
+    if isinstance(value, Mapping):
+        for key, child in cast("Mapping[str, Any]", value).items():
+            _leaves(child, f"{path}.{key}" if path else key, out)
+    elif isinstance(value, list):
+        for item in cast("list[Any]", value):
+            _leaves(item, f"{path}[]", out)
+    else:
+        out.append((path, value))
+    return out
+
+
 def assert_enum_values(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None:
-    """Every value at a path ``<sharpit_id>/enums.json`` lists is one of its allowed values (skeleton)."""
+    """Every value at a path ``<sharpit_id>/enums.json`` (``{"<path>": [allowed, ...]}``) lists is an allowed one.
+
+    ``assert_parity`` checks keys and types only, so a wrong status string (``FAILED`` for ``VIOLATION``) passes it."""
+    path = ROOT / sharpit_id / "enums.json"
+    if not path.is_file():
+        raise AssertionError(f"no enum values for {sharpit_id}/{name}: expected {path.name}")
+    enums: dict[str, list[Any]] = _load(path)
+    leaves = _leaves(payload, "", [])
+    errors = [f"{at}: {value!r} not in {enums[at]}" for at, value in leaves if at in enums and value not in enums[at]]
+    if errors:
+        raise AssertionError(f"{sharpit_id}/{name} enum values: " + "; ".join(errors))
