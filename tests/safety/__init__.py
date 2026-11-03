@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ import pytest
 
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _CONVERTOR = re.compile(r"\{(\w+):[^}]+\}")
+ToolArgs = Callable[[Any], dict[str, Any]]  # builds one MCP tool's arguments
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,8 @@ class Lanes:
     invalid: tuple[str, ...]  # "<file>: <problem>" (bad PANEL or row shape): the route-table tests fail on these
     unimportable: tuple[str, ...]  # "<file>: <exception>": no rows; reported when the live table is not covered
     params: dict[str, str]  # PATH_PARAMS of every importable lane file (informational: never applied to base rows)
+    tool_args: dict[str, ToolArgs] = field(default_factory=dict[str, ToolArgs])  # TOOL_ARGS: (SharpitHandle) -> args
+    tool_seeds: dict[str, ToolArgs] = field(default_factory=dict[str, ToolArgs])  # TOOL_SEEDS: (SharpitContext) -> args
 
 
 def _strip(fmt: str) -> str:

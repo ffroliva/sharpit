@@ -517,6 +517,14 @@ def test_cap_counts_running_and_abandoned_together():
 def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, tmp_state_dir: Path):
     # new: brief ruling (no socket, file, logger level or os.environ change)
     ctx = _ctx(state_dir=str(tmp_state_dir))
+    arguments = _mcp_arguments(name, ctx)
+    no_side_effects.rebaseline()
+    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")
+    assert isinstance(result, dict)
+
+
+def _mcp_arguments(name: str, ctx: SharpitContext) -> dict[str, Any]:
+    """A tool's required arguments, seeded into ``ctx``."""
     arguments: dict[str, Any] = {}
     if name == "get_exception_detail":  # the one tool with a required argument: the id of a recorded exception
         store = ctx.capture.exceptions = ExceptionStore(10, 5, 20, ctx.masker)
@@ -528,12 +536,11 @@ def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, 
     if name == "get_rest_api_rule_violations":  # needs a cached scan: seeded with one violating route
         route = ApiRouteInfo(("GET",), "/getPets", "app:read_pets", summary="s", tags=("t",))
         model = ApiModel((route,), ("app:on_error",), ())
-        service = ctx.lazy("rest-api", lambda: RestApiService(lambda: model, DismissalStore(tmp_state_dir), ctx.masker,
+        store = DismissalStore(Path(ctx.settings.state_dir))
+        service = ctx.lazy("rest-api", lambda: RestApiService(lambda: model, store, ctx.masker,
                                                              SingleFlight(), max_retained=100))  # fmt: skip
         arguments = {"id": "RAPI-NAME-001", "scanId": service.scan()["violationDetails"]["scanId"]}
-    no_side_effects.rebaseline()
-    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")
-    assert isinstance(result, dict)
+    return arguments
 
 
 def test_settings_default_mcp_off():

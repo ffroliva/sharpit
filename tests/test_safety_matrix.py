@@ -662,6 +662,13 @@ def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, C
     return app, lambda: ran
 
 
+def _get_problem(path: str, resp: httpx.Response) -> str | None:
+    """Why a swept GET's answer is wrong, or None."""
+    # the rest-api violations route needs a scanId: without one it answers 400 (and never scans)
+    expected = (400,) if path == "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations" else (200, 307, 404)
+    return None if resp.status_code in expected else f"{path}: {resp.status_code} {resp.text}"
+
+
 @pytest.mark.parametrize("variant", SWEEPS)
 @pytest.mark.parametrize("path", GET_PATHS)
 def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, variant: str):
@@ -674,11 +681,8 @@ def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, 
         no_side_effects.block_network()
         if ("GET", path.removeprefix("/sharpit/api")) not in SWEEP_SOURCE_READ_EXEMPT:
             no_side_effects.watch_sources(EXAMPLES)  # spec §4.4: a sharpit GET never opens the app's source
-        # the rest-api violations route needs a scanId: without one it answers 400 (and never scans)
-        expected = (400,) if path == "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations" else (200, 307, 404)
         for query in ("", "?q=sharpit&offset=0&limit=5"):
-            resp = client.get(path + query)
-            assert resp.status_code in expected, resp.text
+            assert _get_problem(path, client.get(path + query)) is None
     assert no_side_effects.violations == []
     assert ran() == []
 
