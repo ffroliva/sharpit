@@ -241,7 +241,7 @@ def test_failed_build_leaves_retention_and_cache_unchanged(tmp_path: Path, monke
     # a scan whose report cannot be built must not replace the retained details (review r0 finding 3)
     service = _service(tmp_path)
     first = service.scan()["violationDetails"]["scanId"]
-    monkeypatch.setattr("sharpit.engine.collectors.restapi.service.report.build", lambda *a, **k: 1 / 0)
+    monkeypatch.setattr("sharpit.engine.advisors.scan.build_report", lambda *a, **k: 1 / 0)
     with pytest.raises(ZeroDivisionError):
         service.scan()
     assert service.report()["violationDetails"]["scanId"] == first
