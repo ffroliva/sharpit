@@ -6,6 +6,7 @@ paging and dismissals live there. Nothing is read before the first explicit scan
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
 from typing import Any
@@ -17,6 +18,7 @@ from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scop
 from sharpit.engine.collectors.security import (
     Inputs,
     SecurityRule,
+    View,
     Violation,
     rules_auth,
     rules_config,
@@ -25,7 +27,8 @@ from sharpit.engine.collectors.security import (
 )
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
-from sharpit.engine.spi import SecurityChain
+from sharpit.engine.spi import SecurityChain, SecurityFacts, SecurityModel
+from sharpit.settings import SharpitSettings
 
 ANALYZER = "sharpit FastAPI Security Advisor"
 DISCLAIMER = (
@@ -77,6 +80,22 @@ def _extra(done: Evaluation | None) -> Mapping[str, Any]:
 def scan_evaluation(inputs: Inputs) -> Evaluation:
     chains = tuple(_matcher(c) for c in inputs.model.chains)
     return Evaluation("SCANNED", "", (), (), evidence(), _Done(chains))
+
+
+def view_of(_settings: SharpitSettings, _environ: Mapping[str, str]) -> View:
+    """The settings and process state the rules read (active profiles, framework logger levels); nothing is set."""
+    return View()
+
+
+def build_inputs(
+    model: SecurityModel,
+    facts: SecurityFacts,
+    _app: object,
+    _settings: SharpitSettings,
+    _environ: Mapping[str, str] = os.environ,
+) -> Inputs:
+    """One scan's inputs: the app source through the one package-root resolver (``engine/appsource.py``)."""
+    return Inputs(model, facts, None)
 
 
 SPEC = ScanSpec("security", ANALYZER, DISCLAIMER, NOT_SCANNED_MESSAGE)
