@@ -65,31 +65,40 @@ def test_get_renders_the_last_scan(tmp_path: Path):
     assert after["scan"]["scannedAt"] == scanned["scan"]["scannedAt"]
 
 
-def test_violations_page_after_scan(tmp_path: Path):
+def test_violations_page_counts_the_rule_after_scan(tmp_path: Path):
+    # supersedes test_violations_page_after_scan (red 0f50d8e read a key the page DTO does not have)
     client = client_for(state_dir=str(tmp_path))
     scan_id = _scan(client)["violationDetails"]["scanId"]
     response = client.get(f"{API}/rules/SEC-CORS-002/violations", params={"scanId": scan_id})
     assert response.status_code == 200
-    assert response.json()["total"] == 1
+    assert response.json()["violationCount"] == 1
 
 
 def test_get_after_scan_opens_no_source_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # ported: SecurityScannerTests.initialReportDoesNotInspectConfigurationBeforeExplicitScan (and after a scan)
-    client = client_for(state_dir=str(tmp_path))
+    # ported: SecurityScannerTests.initialReportDoesNotInspectConfigurationBeforeExplicitScan (and after a scan).
+    # Supersedes red 0f50d8e, which also counted the dismissal store's own state file (re-read on every render by
+    # the shared advisor core): the GET reads no app source, lists no directory and runs no introspection.
+    package = _source_package(tmp_path, monkeypatch, "getapp")
+    client = client_for(state_dir=str(tmp_path / "state"), app_package="getapp")
     scan_id = _scan(client)["violationDetails"]["scanId"]
+    root = os.path.realpath(package)
     touched: list[str] = []
 
     def spy(name: str, original: Any) -> Any:
         def call(*args: Any, **kwargs: Any) -> Any:
-            touched.append(name)
+            target = args[0] if args else None
+            if name in ("scandir", "security_model", "security_facts"):
+                touched.append(name)
+            elif isinstance(target, str | os.PathLike):
+                path = os.path.realpath(os.fspath(target))  # pyright: ignore[reportUnknownArgumentType]
+                if os.path.commonpath([path, root]) == root or path.endswith(".py"):
+                    touched.append(f"{name} {path}")
             return original(*args, **kwargs)
 
         return call
 
     for owner, attr in ((builtins, "open"), (io, "open"), (tokenize, "open"), (os, "scandir")):
         monkeypatch.setattr(owner, attr, spy(attr, getattr(owner, attr)))
-    for attr in ("read_text", "read_bytes", "open"):
-        monkeypatch.setattr(Path, attr, spy(f"Path.{attr}", getattr(Path, attr)))
     for attr in ("security_model", "security_facts"):
         monkeypatch.setattr(FastApiIntrospector, attr, spy(attr, getattr(FastApiIntrospector, attr)))
     statuses = [
@@ -98,6 +107,18 @@ def test_get_after_scan_opens_no_source_file(tmp_path: Path, monkeypatch: pytest
     ]
     assert statuses == [200, 200]
     assert touched == []
+
+
+def _source_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str) -> Path:
+    package = tmp_path / name
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "settings.py").write_text("import os" + chr(10), encoding="utf-8")
+    module = ModuleType(name)
+    module.__file__ = str(package / "__init__.py")
+    module.__path__ = [str(package)]
+    monkeypatch.setitem(sys.modules, name, module)
+    return package
 
 
 def test_scan_reads_only_app_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
