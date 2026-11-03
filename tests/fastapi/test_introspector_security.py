@@ -438,3 +438,8 @@ def test_mount_nested_in_a_middleware_mount_keeps_that_middleware():
     [row] = [r for r in model.routes if r.path == "/a/inner/x"]
     assert model.chains[row.chain].middleware == ("starlette.middleware.gzip.GZipMiddleware",)
     assert explain(model, "GET", "/a/inner/x", "/sharpit")["filters"] == ["GZipMiddleware"]
+
+
+def test_scopes_read_at_the_installed_fastapi():
+    # fix round 4: holds on both CI legs (0.115 ``security_scopes``, >= 0.120 ``own_oauth_scopes``) without a simulation
+    assert _rows(_scoped_app()) == [("/a", ("GET",), ((BEARER, True, ("admin", "read")),))]
