@@ -1,9 +1,12 @@
-"""Mechanical 0.4.0 lane merge gate (spec §10.3; council C2, F1c, F1f, R2, R7, round 4).
+"""Mechanical lane merge gate (0.4.0 spec §10.3; council C2, F1c, F1f, R2, R7, round 4; 0.5.0 spec §4.0).
 
-Run the release/0.4.0 copy from the integration worktree, never a lane's copy:
+Run the release branch's copy from the integration worktree, never a lane's copy:
 
-    uv run python scripts/dev/lane_gate.py <lane-id> [--worktree PATH] [--sha SHA] [--integration PATH]
+    uv run python scripts/dev/lane_gate.py <lane-id> [--release X] [--worktree PATH] [--sha SHA] [--integration PATH]
                                            [--accept-unverified] [--no-rerun]
+
+The release (evidence under ``.superpowers/sdd/<release>/lanes/<lane-id>/``) is ``--release``, else the integration
+branch ``release/<x>``, else the only release folder in the integration worktree; otherwise the gate refuses.
 
 Exit 0 only when every check passes; each refusal is printed. Checks, in order:
 
@@ -30,7 +33,7 @@ import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 GateRunner = Callable[[str, Sequence[str], Path], tuple[int, str]]
@@ -38,7 +41,7 @@ PytestRunner = Callable[[Path, Sequence[str], Path], None]
 EnvPreparer = Callable[[Path], tuple[int, str]]
 
 WORKTREE_ROOT = Path(r"C:\development\github\sharpit-wt")
-LANES = ".superpowers/sdd/0.4.0/lanes"
+SDD = ".superpowers/sdd"  # <SDD>/<release>/lanes/<lane id>/
 EVIDENCE = ("handoff.md", "findings.md", "field-map.md", "checklist.md")
 SHA_LOGS = ("lowest-direct", "no-sqlalchemy")  # run by the coordinator in a throwaway copy, pinned to the head SHA
 GATES: tuple[tuple[str, tuple[str, ...], int], ...] = (  # run in a fresh tree after SYNC built its env
@@ -64,7 +67,12 @@ BASELINE = "tests/complexity_baseline.json"
 LEASED_LANE = "A-postgresql"
 LEASED_TESTS = ("test_read_only_wrapper_rejects_write", "test_autocommit_engine_is_unavailable")
 FIXTURE_PREFIX = "test-fixture"
-REVIEWER_OWNED = re.compile(rf"^{re.escape(LANES)}/[^/]+/(review\.md|live-verify\.md|gate/.*)$")
+# every release's reviewer-owned paths, so a lane of one release cannot plant another release's review either
+REVIEWER_OWNED = re.compile(rf"^{re.escape(SDD)}/[^/]+/lanes/[^/]+/(review\.md|live-verify\.md|gate/.*)$")
+UNRESOLVED = (
+    f"cannot resolve the release: the integration HEAD is not on release/<x> and its worktree does not hold exactly"
+    f" one {SDD}/<x>/lanes folder; pass --release"
+)
 BUDGET_LINE = re.compile(r"^(BUDGET\w*)\s*(?::[^=]*)?=\s*(.+?)\s*$", re.MULTILINE)
 
 
@@ -113,6 +121,25 @@ def _resolve(repo: Path, ref: str) -> str | None:
 
 def _is_ancestor(repo: Path, older: str, newer: str) -> bool:
     return _git(repo, "merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
+
+
+def resolve_release(integration: Path) -> tuple[str | None, str]:
+    """(release or None, how it was found) when ``--release`` is absent: the integration branch ``release/<x>``, else
+    the one ``<SDD>/<x>/lanes`` folder in the integration worktree. Anything else does not resolve: never a default."""
+    branch = _git(integration, "branch", "--show-current", check=False).stdout.strip()
+    if branch.startswith("release/"):
+        return branch.removeprefix("release/"), f"release {branch.removeprefix('release/')} from branch {branch}"
+    found = sorted(path.parent.name for path in (integration / SDD).glob("*/lanes") if path.is_dir())
+    if len(found) == 1:
+        return found[0], f"release {found[0]} from the only {SDD}/<x>/lanes folder in {integration}"
+    return None, UNRESOLVED
+
+
+def _folder(opts: Options) -> str:
+    """The lane's evidence folder, relative to a worktree root."""
+    if opts.release is None:
+        raise ValueError("Options.release is unresolved: evaluate() resolves it")
+    return f"{SDD}/{opts.release}/lanes/{opts.lane}"
 
 
 # --- markdown tables --------------------------------------------------------------------------------------------------
@@ -335,7 +362,7 @@ def _findings_refusals(text: str) -> list[str]:
 
 
 def _review_refusals(opts: Options, handoff: str) -> list[str]:
-    path = opts.integration / LANES / opts.lane / "review.md"
+    path = opts.integration / _folder(opts) / "review.md"
     if not path.is_file():
         return [f"missing review: {path}"]
     text = path.read_text(encoding="utf-8")
@@ -357,7 +384,7 @@ def _review_refusals(opts: Options, handoff: str) -> list[str]:
 
 
 def evidence_refusals(opts: Options, base: str) -> tuple[list[str], dict[str, str]]:
-    folder = f"{LANES}/{opts.lane}"
+    folder = _folder(opts)
     texts = {name: _show(opts.worktree, opts.sha, f"{folder}/{name}") for name in EVIDENCE}
     problems = [f"missing evidence: {name} (at {folder}/ in the lane head)" for name, t in texts.items() if t is None]
     found = {name: text for name, text in texts.items() if text is not None}
@@ -377,7 +404,7 @@ def evidence_refusals(opts: Options, base: str) -> tuple[list[str], dict[str, st
 
 
 def leased_pg_problem(opts: Options) -> str | None:
-    log = opts.integration / LANES / opts.lane / "gate" / "leased-pg.log"
+    log = opts.integration / _folder(opts) / "gate" / "leased-pg.log"
     if not log.is_file():
         return f"leased-pg: {log} missing"
     lines = log.read_text(encoding="utf-8").splitlines()
@@ -690,7 +717,7 @@ def replay_refusals(opts: Options, reds: Sequence[Red], run_pytest: PytestRunner
 def gate_refusals(opts: Options, run_gate: GateRunner, prepare_env: EnvPreparer) -> list[str]:
     """The four gates in a fresh detached tree at the head, never the implementer's tree or virtualenv (untracked
     files, a planted ``.pth``); the tree's environment is synced from the lane's own lock first."""
-    logs = opts.integration / LANES / opts.lane / "gate"
+    logs = opts.integration / _folder(opts) / "gate"
     logs.mkdir(parents=True, exist_ok=True)
     problems: list[str] = []
     with _temp_tree(opts, opts.sha) as tree:
@@ -749,6 +776,13 @@ def evaluate(
     prepare_env: EnvPreparer = lambda tree: (0, ""),
 ) -> Result:
     result = Result()
+    if opts.release is None:
+        release, how = resolve_release(opts.integration)
+        if release is None:
+            result.refusals.append(how)
+            return result
+        opts = replace(opts, release=release)
+        result.notes.append(how)
     if opts.no_rerun and not opts.lane.startswith(FIXTURE_PREFIX):
         result.refusals.append(f"--no-rerun is only for test fixture lanes ({FIXTURE_PREFIX}-*), not {opts.lane}")
     head = _git(opts.worktree, "rev-parse", "HEAD").stdout.strip()
@@ -759,7 +793,8 @@ def evaluate(
     integration_head = _git(opts.integration, "rev-parse", "HEAD").stdout.strip()
     base = _git(opts.worktree, "merge-base", integration_head, opts.sha).stdout.strip()
 
-    diff_problems, result.notes = diff_refusals(opts, base)
+    diff_problems, notes = diff_refusals(opts, base)
+    result.notes += notes
     result.refusals += diff_problems
     evidence, texts = evidence_refusals(opts, base)
     result.refusals += evidence
@@ -794,12 +829,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--accept-unverified", action="store_true")
     parser.add_argument("--no-rerun", action="store_true", help="test fixture lanes only")
     parser.add_argument("--allow-path", action="append", default=[], help="protected path this lane may change")
+    parser.add_argument("--release", help="default: the integration branch release/<x>, else refused")
     args = parser.parse_args(argv)
     integration: Path = args.integration.resolve()
-    worktree: Path = args.worktree or WORKTREE_ROOT / f"0.4.0-{args.lane}"
+    release, how = (args.release, "") if args.release else resolve_release(integration)
+    if release is None:
+        print(f"REFUSED: {how}")
+        return 1
+    worktree: Path = args.worktree or WORKTREE_ROOT / f"{release}-{args.lane}"
     sha: str = args.sha or _git(worktree, "rev-parse", "HEAD").stdout.strip()
     allow = tuple(args.allow_path)
-    opts = Options(args.lane, worktree.resolve(), sha, integration, args.accept_unverified, args.no_rerun, allow)
+    opts = Options(
+        args.lane, worktree.resolve(), sha, integration, args.accept_unverified, args.no_rerun, allow, release
+    )
     result = evaluate(
         opts,
         run_gate=run_gate_command,
