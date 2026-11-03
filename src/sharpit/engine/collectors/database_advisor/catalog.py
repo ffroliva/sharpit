@@ -146,6 +146,13 @@ async def read_sources(ctx: SharpitContext, flight: Flight) -> list[Source]:
     return sources
 
 
+def _catalog_and_vendor(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
+    """The catalog plus the vendor facts, in one read-only read."""
+    from sharpit.engine.collectors.database_advisor.rules_vendor import read_vendor  # noqa: PLC0415 - imports this module
+
+    return {**catalog(conn, bounds), "vendor": read_vendor(conn, bounds)}
+
+
 async def _read(
     ctx: SharpitContext, flight: Flight, engine: Any, bounds: CatalogBounds
 ) -> tuple[str, str | None, dict[str, Any]]:
@@ -153,7 +160,7 @@ async def _read(
     try:
         found = await sqla.run_db_read(
             engine,
-            lambda conn: catalog(conn, bounds),
+            lambda conn: _catalog_and_vendor(conn, bounds),
             min(CATALOG_TIMEOUT, bounds.budget),
             executor=executor,
             done=flight.worker(),
