@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from sharpit.engine import sqla
+from sharpit.engine.capture import transactions
 from sharpit.engine.sources import sqlite
 
 pytest_plugins = ["pytester", "_shard"]  # _shard: SHARPIT_SHARD=i/n, the CI shards (tests/_shard.py)
@@ -273,6 +274,10 @@ def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
     """
     sqlite.detach_all()
     sqla.detach_all()  # install() without shutdown leaves contexts; 2+ make routing outside a request ambiguous
+    # Transactions route through their own table: a leaked context (some with a fake engine registry) broke routing.
+    with transactions._contexts_lock:  # pyright: ignore[reportPrivateUsage]
+        transactions._contexts.clear()  # pyright: ignore[reportPrivateUsage]
+        transactions._context_attachments.clear()  # pyright: ignore[reportPrivateUsage]
     yield
     leaked = sqlite.is_attached()
     sqlite.detach_all()
