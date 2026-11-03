@@ -1319,3 +1319,30 @@ def test_findings_accept_pin_and_na_rows() -> None:
     for bad in ("pin", "pin:", "pin: ", "N/A", "N/A —", "n/a: "):
         row = f"| x | `tests/test_w.py::test_x` | | | {bad} |\n"
         assert lane_gate._findings_refusals(FINDINGS_05 + row) != [], bad
+
+
+PROTECTIONS = [
+    ("protected", {"uv.lock": "lock2\n"}, "protected path changed: uv.lock"),
+    ("protected", {"tests/conftest.py": "import pytest\n"}, "protected path changed: tests/conftest.py"),
+    ("protected", {"sonar-baseline.txt": "8\n"}, "protected path changed: sonar-baseline.txt"),
+    ("budget", {"tests/fastapi/test_capture_overhead.py": "BUDGET_MS = 0.4\n"}, "overhead budget module changed"),
+    ("baseline", {"tests/complexity_baseline.json": '{"src/a.py": 4, "src/b.py": 2}\n'}, "complexity baseline raised"),
+    ("dependency", {"pyproject.toml": DEPENDENCY_PYPROJECT}, "dependency list changed"),
+    ("reviewer", {".superpowers/sdd/0.4.0/lanes/X/review.md": "x\n"}, "reviewer-owned path changed"),
+    ("crash red", {}, f"red {TEST_ID}: TypeError failure"),
+    ("passing red", {}, f"red {TEST_ID}: passed at red SHA"),
+    ("verdict", {}, "review.md: last line is not VERDICT: APPROVE"),
+]
+
+
+@pytest.mark.parametrize(("kind", "files", "needle"), PROTECTIONS)
+def test_existing_protections_still_refuse(tmp_path: Path, kind: str, files: dict[str, str], needle: str) -> None:
+    # mutation guard (spec §4.0): with every 0.5.0 option in play, today's refusals still fire
+    fx = _fixture(tmp_path, lane="C-fastapi", review=False)
+    if files:
+        fx.commit(files, "chore: a change the gate must refuse")
+    fx.review(f"Reviewer: r\nHead: {fx.head}\n" if kind == "verdict" else None)
+    fx.outcomes[fx.red] = {"crash red": "typeerror", "passing red": "pass"}.get(kind, "failure")
+    index = LANES_TABLE + "| C-fastapi | `x.md` | not required | c |\n"
+    plan = _plan(fx, index, {"x.md": f"# x\n\n## Must-cover\n\n`{TEST_ID}`\n"})
+    assert _refused(fx.evaluate(release="0.4.0", plan_index=plan), needle)

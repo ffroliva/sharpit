@@ -225,6 +225,17 @@ def _column(header: list[str], *names: str) -> int | None:
     return next((header.index(name) for name in names if name in header), None)
 
 
+def _test_column(header: list[str]) -> int | None:
+    """``Test id``/``Test``, else the first header with the word ``test`` (``Vitest test``, ``test (node id)``)."""
+    found = _column(header, "test id", "test")
+    return found if found is not None else next((i for i, name in enumerate(header) if "test" in name.split()), None)
+
+
+def _not_a_red(disposition: str) -> bool:
+    """A ``pin: <mutation>`` or ``N/A — <reason>`` findings row (0.5.0 PLAN.md): no red SHA, never replayed."""
+    return bool(re.match(r"(pin\b|n/a\b)", disposition.strip().lower()))
+
+
 def _cell(row: list[str], col: int | None) -> str:
     return _code(row[col]) if col is not None and col < len(row) else ""
 
@@ -237,9 +248,7 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
     problems: list[str] = []
     for label, text in texts.items():
         for heading, header, rows in _headed_tables(text):
-            test_col = _column(header, "test id", "test")
-            if test_col is None:  # e.g. "Vitest test"
-                test_col = next((i for i, name in enumerate(header) if "test" in name.split()), None)
+            test_col = _test_column(header)
             manual = bool(re.search(r"\b(ui|manual)\b", heading, re.IGNORECASE))
             sha_col = next((i for i, name in enumerate(header) if "red sha" in name), None)
             disp_col = _column(header, "disposition")
@@ -250,7 +259,8 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
             for row in rows:
                 test, sha = _cell(row, test_col), _cell(row, sha_col)
                 disposition = row[disp_col] if disp_col is not None and disp_col < len(row) else ""
-                if not test or (not sha and disposition.lower().startswith("parked")):  # raw cell, as in findings
+                parked = not sha and disposition.lower().startswith("parked")  # raw cell, as in findings
+                if not test or parked or _not_a_red(disposition):
                     continue
                 if sha:
                     reds[Red(test, sha, manual)] = None
@@ -385,7 +395,7 @@ def _findings_refusals(text: str) -> list[str]:
     if any(rows for _header, rows in tables) and not any("disposition" in header for header, _rows in tables):
         problems.append("findings.md: no table with a Disposition column (every finding needs one)")
     for header, rows in tables:
-        disp_col, test_col = _column(header, "disposition"), _column(header, "test id", "test")
+        disp_col, test_col = _column(header, "disposition"), _test_column(header)
         if disp_col is None:
             continue
         for row in rows:
@@ -394,7 +404,9 @@ def _findings_refusals(text: str) -> list[str]:
             word = disposition.lower()
             fixed = word.startswith("fixed") and bool(test)
             parked = word.startswith("parked") and bool(disposition[6:].strip(" :-—–()"))
-            if not (fixed or parked):
+            pinned = bool(re.match(r"pin\b[\s:—–-]*[^\s:—–-]", word))  # pin: <the mutation, the assertion it failed>
+            not_applicable = bool(re.match(r"n/a\s*[—–:-]+\s*[^\s:—–-]", word))  # N/A — <reason>
+            if not (fixed or parked or pinned or not_applicable):
                 problems.append(f"findings.md: unresolved finding: {' | '.join(row)}")
     return problems
 

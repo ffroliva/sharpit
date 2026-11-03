@@ -66,6 +66,29 @@ What only the merge gate checks: the red SHA is committed and an ancestor of the
 fresh tree, the test unchanged from the red SHA to the head, the test inside the lane diff, the names it references
 frozen, and the test passing at the head. Why: [the G1G2 red audit](../reports/2026-11-02-g1g2-red-audit.md).
 
+**The merge gate per release (0.5.0 spec §4.0).** The coordinator runs the release branch's copy from the integration
+worktree:
+
+```bash
+uv run python scripts/dev/lane_gate.py <lane id> --release 0.5.0 --worktree <lane worktree> \
+    [--plan-index docs/superpowers/plans/2026-11-03-sharpit-0.5.0/PLAN.md] [--accept-unverified]
+```
+
+Without `--release` the gate takes `release/<x>` from the integration branch, else the only
+`.superpowers/sdd/<x>/lanes` folder there, else it refuses. Evidence is read from
+`.superpowers/sdd/<release>/lanes/<lane id>/`; a lane diff may never touch any release's `review.md`, `live-verify.md`
+or `gate/`. The rules live in the gate as tables: `PROTECTED_ALLOWED` (protected files per lane), `DEPENDENCY_ALLOWED`
+(`pyproject.toml` dependency lists; `[tool.*]` gate config stays refused for every lane), `FOUNDATION` (may re-key the
+complexity baseline, total never rising) and `LEASED` (lane → coordinator-written `gate/leased-*.log` and the full node
+ids that must be `PASSED` in it). From PLAN.md's Lanes table (`--plan-index`, default the release's plan folder) the
+gate reads the lane's plan file and `Council` column: `required` needs a committed `council.md` with a
+`VERDICT: APPROVE` line, two or more model families and the head SHA (or a commit followed only by evidence changes).
+Every test in the lane's `## Must-cover` section (its `<lane id>:` paragraphs in a multi-lane file) must exist at the
+head and pass there: a full node id is used as is, a bare name resolves only among the lane diff's test files. A skip
+is refused unless the test is leased (the leased log decides) or skipped as `post-scan golden absent` (reported
+`unverified`). `findings.md` rows take `fixed`, `parked: <reason>`, `pin: <mutation>` or `N/A — <reason>`; pin and
+N/A rows carry no red SHA and are never replayed.
+
 ## 5. Gate: `/sharpit:check`
 
 The CI jobs behind the gate, and how to reproduce each locally: [`ci.md`](ci.md).
