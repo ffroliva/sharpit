@@ -9,7 +9,7 @@ from sharpit import install
 LOCAL = ("127.0.0.1", 50000)
 
 
-def test_transaction_get_and_stream_do_not_trigger_side_effects(no_side_effects: SideEffectGuard) -> None:
+def test_transactions_get_no_side_effects(no_side_effects: SideEffectGuard) -> None:
     app = FastAPI()
     handle = install(
         app,
@@ -30,6 +30,15 @@ def test_transaction_get_and_stream_do_not_trigger_side_effects(no_side_effects:
         assert no_side_effects.violations == [], "transaction GET and stream must not open sockets"
     finally:
         handle.uninstall_capture()
+
+
+def test_inactive_transactions_paths_404() -> None:
+    app = FastAPI()
+    install(app, enabled="OFF", show_banner=False)
+    client = TestClient(app, base_url="http://localhost", client=LOCAL)
+    statuses = [client.get(path).status_code for path in GET_ROWS]
+    statuses += [client.request(method, path).status_code for method, path in WRITE_ROWS]
+    assert statuses == [404] * (len(GET_ROWS) + len(WRITE_ROWS)), "an inactive mount must answer 404 on every path"
 
 
 PANEL = "transactions"
