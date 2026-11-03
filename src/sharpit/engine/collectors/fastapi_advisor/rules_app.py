@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sharpit.engine.advisors.rules import RuleDefinition
+from sharpit.engine.appsource import SourceIndex
+from sharpit.engine.collectors.fastapi_advisor.handlers import Handler, Hit
 
 ON_EVENT = RuleDefinition(
     "FASTAPI-EVT-001",
@@ -42,3 +46,19 @@ DEFAULT_TITLE = RuleDefinition(
     "https://fastapi.tiangolo.com/tutorial/metadata/",
 )
 RULES = (ON_EVENT, BROAD_EXCEPT, DEBUG, DEFAULT_TITLE)
+
+
+def on_event(index: SourceIndex) -> list[Hit]:
+    return []
+
+
+def broad_except(handlers: Sequence[Handler]) -> list[Hit]:
+    return []
+
+
+def debug(app: object) -> list[Hit]:
+    return []
+
+
+def default_title(app: object) -> list[Hit]:
+    return []

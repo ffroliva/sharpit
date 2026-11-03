@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sharpit.engine.advisors.rules import RuleDefinition
+from sharpit.engine.appsource import SourceIndex
+from sharpit.engine.collectors.fastapi_advisor.handlers import Handler, Hit
 
 _CONCURRENCY = "https://fastapi.tiangolo.com/async/"
 _BACKGROUND = "https://fastapi.tiangolo.com/tutorial/background-tasks/"
@@ -49,3 +53,19 @@ HEAVY_BACKGROUND = RuleDefinition(
     _BACKGROUND,
 )
 RULES = (SYNC_IO, ASYNC_BLOCKING, HTTP_TIMEOUT, HEAVY_BACKGROUND)
+
+
+def sync_io(handlers: Sequence[Handler]) -> list[Hit]:
+    return []
+
+
+def async_blocking(handlers: Sequence[Handler]) -> list[Hit]:
+    return []
+
+
+def heavy_background(handlers: Sequence[Handler]) -> list[Hit]:
+    return []
+
+
+def http_timeout(index: SourceIndex) -> list[Hit]:
+    return []

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sharpit.engine.advisors.rules import RuleDefinition
+from sharpit.engine.appsource import SourceIndex
+from sharpit.engine.collectors.fastapi_advisor.handlers import Handler, Hit
 
 PYDANTIC_V1 = RuleDefinition(
     "FASTAPI-PYD-001",
@@ -25,3 +29,11 @@ DICT_RESPONSE = RuleDefinition(
     "https://fastapi.tiangolo.com/tutorial/response-model/",
 )
 RULES = (PYDANTIC_V1, DICT_RESPONSE)
+
+
+def pydantic_v1(index: SourceIndex) -> list[Hit]:
+    return []
+
+
+def dict_response(handlers: Sequence[Handler]) -> list[Hit]:
+    return []

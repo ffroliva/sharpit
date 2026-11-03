@@ -89,3 +89,45 @@ def index_handlers(endpoints: Sequence[Endpoint], index: SourceIndex) -> tuple[l
             Handler(route.label, f"{module.name}:{code.co_qualname}", is_async, module, node, route.response_model)
         )
     return handlers, limitations
+
+
+# ---- AST helpers shared by the rule modules -------------------------------------------------------------------
+
+type Hit = tuple[str, str]  # (target, message): one finding before it becomes a ``Finding``
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def import_aliases(tree: ast.Module) -> dict[str, str]:
+    """Local name -> dotted origin for every absolute import (``from time import sleep as s``: ``s`` -> time.sleep)."""
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name.partition(".")[0]
+                aliases[local] = alias.name if alias.asname else local
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            for alias in node.names:
+                aliases[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+    return aliases
+
+
+def call_name(func: ast.expr, aliases: dict[str, str]) -> str | None:
+    """The dotted name a call targets, through import aliases; None when its base is not a plain name."""
+    parts: list[str] = []
+    while isinstance(func, ast.Attribute):
+        parts.append(func.attr)
+        func = func.value
+    if not isinstance(func, ast.Name):
+        return None
+    return ".".join([aliases.get(func.id, func.id), *reversed(parts)])
+
+
+def own_nodes(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.AST]:
+    """Every node of a function's own body, in source order; nested functions, lambdas and classes excluded."""
+    found: list[ast.AST] = []
+    stack: list[ast.AST] = list(reversed(function.body))
+    while stack:
+        node = stack.pop()
+        found.append(node)
+        stack.extend(reversed([c for c in ast.iter_child_nodes(node) if not isinstance(c, _SCOPES)]))
+    return found
