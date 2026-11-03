@@ -15,7 +15,7 @@ import pytest
 from sharpit.engine import sqla
 from sharpit.engine.sources import sqlite
 
-pytest_plugins = ["pytester"]
+pytest_plugins = ["pytester", "_shard"]  # _shard: SHARPIT_SHARD=i/n, the CI shards (tests/_shard.py)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}
