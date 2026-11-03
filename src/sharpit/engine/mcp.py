@@ -337,15 +337,18 @@ class McpServer:
         if method == "prompts/list":
             return {"prompts": [{"name": p.name, "description": p.description, "arguments": []} for p in PROMPTS]}
         if method == "prompts/get":
-            name = params.get("name")
-            if not isinstance(name, str) or not name:
-                raise RpcError(INVALID_PARAMS, "Missing prompt name")
-            prompt = next((p for p in PROMPTS if p.name == name), None)
-            if prompt is None:
-                raise RpcError(INVALID_PARAMS, f"Unknown prompt: {name}")
-            message = {"role": "user", "content": {"type": "text", "text": prompt.text}}
-            return {"description": prompt.description, "messages": [message]}
+            return _get_prompt(params.get("name"))
         raise RpcError(METHOD_NOT_FOUND, f"Unknown method: {method}")
+
+
+def _get_prompt(name: object) -> dict[str, Any]:
+    if not isinstance(name, str) or not name:
+        raise RpcError(INVALID_PARAMS, "Missing prompt name")
+    prompt = next((p for p in PROMPTS if p.name == name), None)
+    if prompt is None:
+        raise RpcError(INVALID_PARAMS, f"Unknown prompt: {name}")
+    message = {"role": "user", "content": {"type": "text", "text": prompt.text}}
+    return {"description": prompt.description, "messages": [message]}
 
 
 def _describe(tool: Tool) -> dict[str, Any]:

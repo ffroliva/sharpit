@@ -117,6 +117,7 @@ FROZEN_TEXT: dict[str, list[str]] = {
     "RAPI-RESP-001": ["app.pets:create_pet [POST /v1/pets] — creation-like POST with the default 200 status"],
     "RAPI-RESP-002": ["app.pets:read_pets [DELETE /v1/pets] — DELETE with the default 200 status and no response body"],
     "RAPI-RESP-006": ["app.pets:read_pets [GET /v1/pets] — 204 declared with a content-capable return type"],
+    "RAPI-RESP-011": ["app.pets:read_pets [GET /v1/pets] — Optional return served as 200 with a null body"],
     "RAPI-VER-001": [
         "No API version signal (no /vN path, version header/param, or versioned media type) was "
         "detected across 1 handler(s)."
@@ -144,6 +145,7 @@ FROZEN_FINGERPRINTS: dict[str, str] = {
     "RAPI-RESP-001": "rest-api:RAPI-RESP-001:40e1bd988af5aa98",
     "RAPI-RESP-002": "rest-api:RAPI-RESP-002:311078b48490c174",
     "RAPI-RESP-006": "rest-api:RAPI-RESP-006:727e9bcc02d4b9e2",
+    "RAPI-RESP-011": "rest-api:RAPI-RESP-011:87454e0bf8d27120",
     "RAPI-VER-001": "rest-api:RAPI-VER-001:222e408e5ca73df7",
 }
 
