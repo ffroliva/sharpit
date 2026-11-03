@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from sharpit.engine.collectors.security import Inputs, SecurityRule, Violation, rule
+from collections.abc import Callable
+
+from sharpit.engine.collectors.security import Inputs, SecurityRule, Violation, rule, simple
+from sharpit.engine.spi import MiddlewareFacts
 
 _CORS = "https://fastapi.tiangolo.com/tutorial/cors/"
 _SESSIONS = "https://www.starlette.io/middleware/#sessionmiddleware"
@@ -10,8 +13,81 @@ _OAUTH = "https://fastapi.tiangolo.com/advanced/security/oauth2-scopes/"
 _MIDDLEWARE = "https://fastapi.tiangolo.com/advanced/middleware/"
 
 
-def _none(_inputs: Inputs) -> list[Violation]:
-    return []
+def _of(inputs: Inputs, kind: str) -> list[MiddlewareFacts]:
+    return [m for m in inputs.facts.middleware if simple(m.name) == kind]
+
+
+def _flagged(kind: str, test: Callable[[tuple[str, ...]], bool], message: str) -> Callable[[Inputs], list[Violation]]:
+    """One violation per ``kind`` middleware whose option facts pass ``test``; the message names facts, not values."""
+
+    def check(inputs: Inputs) -> list[Violation]:
+        return [Violation(kind, message) for m in _of(inputs, kind) if test(m.flags)]
+
+    return check
+
+
+_session_insecure = _flagged(
+    "SessionMiddleware",
+    lambda f: "https_only" not in f,
+    "SessionMiddleware sends the session cookie without the Secure flag (https_only is off).",
+)
+_session_same_site = _flagged(
+    "SessionMiddleware",
+    lambda f: "same_site_none" in f,
+    'SessionMiddleware sets SameSite=None on the session cookie (same_site="none").',
+)
+_session_short_secret = _flagged(
+    "SessionMiddleware",
+    lambda f: "short_secret" in f,
+    "SessionMiddleware signs sessions with a secret_key shorter than 32 characters.",
+)
+_cors_wildcard = _flagged(
+    "CORSMiddleware",
+    lambda f: "any_origin" in f and "credentials" not in f,
+    'CORSMiddleware allows any origin ("*").',
+)
+_cors_credentials = _flagged(
+    "CORSMiddleware",
+    lambda f: "any_origin" in f and "credentials" in f,
+    'CORSMiddleware allows any origin ("*") with allow_credentials=True; the request Origin is reflected.',
+)
+
+
+def _cors_broad(inputs: Inputs) -> list[Violation]:
+    found: list[Violation] = []
+    for m in _of(inputs, "CORSMiddleware"):
+        if "broad_origin_regex" in m.flags:
+            extra = " with allow_credentials=True" if "credentials" in m.flags else ""
+            found.append(Violation("CORSMiddleware", f"CORSMiddleware allow_origin_regex matches any host{extra}."))
+    return found
+
+
+def _insecure_urls(fields: tuple[str, ...], kind: str | None) -> Callable[[Inputs], list[Violation]]:
+    def check(inputs: Inputs) -> list[Violation]:
+        return [
+            Violation(
+                f"{simple(u.scheme)} {u.field}", f"{simple(u.scheme)} declares an http:// {u.field} to a remote host."
+            )
+            for u in inputs.facts.scheme_urls
+            if u.insecure and u.field in fields and (kind is None or simple(u.scheme) == kind)
+        ]
+
+    return check
+
+
+def _host_header(inputs: Inputs) -> list[Violation]:
+    trusted = _of(inputs, "TrustedHostMiddleware")
+    if not trusted:
+        return [Violation("ASGI middleware stack", "No TrustedHostMiddleware: any Host header is accepted.")]
+    message = 'TrustedHostMiddleware allows any host (allowed_hosts includes "*").'
+    return [Violation("TrustedHostMiddleware", message) for m in trusted if "any_host" in m.flags]
+
+
+_proxy_any = _flagged(
+    "ProxyHeadersMiddleware",
+    lambda f: "trust_any_proxy" in f,
+    'ProxyHeadersMiddleware trusts forwarded headers from any client (trusted_hosts="*").',
+)
 
 
 RULES: tuple[SecurityRule, ...] = (
@@ -25,7 +101,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Pass https_only=True to SessionMiddleware when the app is served over HTTPS.",
             _SESSIONS,
         ),
-        _none,
+        _session_insecure,
     ),
     SecurityRule(
         rule(
@@ -37,7 +113,7 @@ RULES: tuple[SecurityRule, ...] = (
             'Keep the default same_site="lax" (or "strict") unless a cross-site flow needs the session.',
             _SESSIONS,
         ),
-        _none,
+        _session_same_site,
     ),
     SecurityRule(
         rule(
@@ -50,7 +126,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Use a random secret of at least 32 characters, loaded from the environment or a secret store.",
             _SESSIONS,
         ),
-        _none,
+        _session_short_secret,
     ),
     SecurityRule(
         rule(
@@ -63,7 +139,7 @@ RULES: tuple[SecurityRule, ...] = (
             'List the exact trusted origins in allow_origins instead of "*".',
             _CORS,
         ),
-        _none,
+        _cors_wildcard,
     ),
     SecurityRule(
         rule(
@@ -76,7 +152,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Never pair allow_credentials=True with a wildcard origin; list explicit origins.",
             _CORS,
         ),
-        _none,
+        _cors_credentials,
     ),
     SecurityRule(
         rule(
@@ -89,7 +165,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Anchor the pattern to the trusted domains only.",
             _CORS,
         ),
-        _none,
+        _cors_broad,
     ),
     SecurityRule(
         rule(
@@ -102,7 +178,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Use an https:// openIdConnectUrl.",
             "https://fastapi.tiangolo.com/reference/security/#fastapi.security.OpenIdConnect",
         ),
-        _none,
+        _insecure_urls(("openIdConnectUrl",), "OpenIdConnect"),
     ),
     SecurityRule(
         rule(
@@ -115,7 +191,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Use https:// for every OAuth2 flow URL.",
             _OAUTH,
         ),
-        _none,
+        _insecure_urls(("authorizationUrl", "tokenUrl", "refreshUrl"), None),
     ),
     SecurityRule(
         rule(
@@ -128,7 +204,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Add TrustedHostMiddleware with the exact host names the app serves.",
             _MIDDLEWARE,
         ),
-        _none,
+        _host_header,
     ),
     SecurityRule(
         rule(
@@ -141,6 +217,6 @@ RULES: tuple[SecurityRule, ...] = (
             "Pass the proxy's address in trusted_hosts (or uvicorn --forwarded-allow-ips).",
             "https://www.uvicorn.org/deployment/#proxies-and-forwarded-headers",
         ),
-        _none,
+        _proxy_any,
     ),
 )
