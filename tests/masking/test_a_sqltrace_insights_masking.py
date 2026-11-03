@@ -43,6 +43,7 @@ def test_insights_statement_text_masked():
         handle.uninstall_capture()
     assert response.status_code == 200
     body = response.text
-    assert [s["sql"] for s in response.json()["statements"]] == ["select ?", "select ?, ?"]
+    # insights rank by duration, so two near-equal statements may swap: the masked texts, not their order
+    assert sorted(s["sql"] for s in response.json()["statements"]) == ["select ?", "select ?, ?"]
     assert STRIPE_KEY not in body
     assert EMAIL not in body
