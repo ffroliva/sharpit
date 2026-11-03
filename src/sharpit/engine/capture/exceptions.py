@@ -198,6 +198,11 @@ class _Group:
         }
 
 
+def caught_report() -> dict[str, Any]:
+    """``CaughtExceptionsReport``."""
+    return {}
+
+
 class ExceptionStore:
     """Bounded groups (oldest ``lastSeen`` evicted) with bounded occurrences each; thread-safe."""
 

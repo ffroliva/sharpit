@@ -265,3 +265,16 @@ def test_log_handler_failure_silent(
     assert "store failed" not in err
     assert err.count("sharpit") == 1, err
     assert "RuntimeError" in err, err
+
+
+def test_log_tail_line_sets_message_omitted_in_metadata_only_mode():
+    # ported: LogTailStoreTests.setsMessageOmittedWhenMetadataOnly (BootUI 2.2.0 LogLineDto.messageOmitted)
+    record = logging.LogRecord("app", logging.INFO, __file__, 1, "token=%s", ("abc",), None)
+    hidden = _handler(Masker(Exposure.METADATA_ONLY, True))[0].line(record)
+    assert hidden is not None
+    assert hidden["message"] is None
+    assert hidden.get("messageOmitted") is True, "a withheld message says so"
+    for exposure in (Exposure.MASKED, Exposure.FULL):
+        shown = _handler(Masker(exposure, True))[0].line(record)
+        assert shown is not None
+        assert shown.get("messageOmitted") is False, exposure

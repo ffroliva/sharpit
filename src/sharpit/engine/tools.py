@@ -362,7 +362,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "get_log_tail",
         "Return the latest buffered application log snapshot, oldest first. Messages are masked at capture, but logs "
         "are application-controlled and may contain sensitive data; use them only in the local diagnostic context.",
-        _NONE,
+        _QUERY_LIMIT,
         "log-tail",
         False,
         lambda c, _a: {"entries": log_tail_lines(c.ctx)},
@@ -398,7 +398,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "get_sql_traces",
         "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain "
         "sensitive values; correlate it locally with request or trace identifiers.",
-        _NONE,
+        _QUERY_LIMIT,
         "sql-trace",
         False,
         lambda c, _a: sql_trace_report(c.ctx),

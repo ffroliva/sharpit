@@ -487,3 +487,22 @@ def test_clear_exceptions_cli_only():
     resp = client.post("/sharpit/api/cli/tools/clear_exceptions", json={})
     assert (resp.status_code, resp.json()) == (200, {"cleared": True})
     assert _store(handle).report()["totalExceptions"] == 0
+
+
+def test_exceptions_caught_golden_parity():
+    from golden import assert_parity
+
+    app = _failing_app()
+    _install(app)
+    resp = _client(app).get("/sharpit/api/exceptions/caught")
+    assert resp.status_code == 200, "GET /exceptions/caught is served, not read as a group id"
+    assert_parity("exceptions", "caught", resp.json())
+    assert resp.json()["available"] is False
+
+
+def test_exceptions_report_carries_caught_in_code():
+    app = _failing_app()
+    _install(app)
+    report = _client(app).get("/sharpit/api/exceptions").json()
+    assert "caughtInCode" in report, "the 2.2.0 report carries caughtInCode"
+    assert report["caughtInCode"] is None

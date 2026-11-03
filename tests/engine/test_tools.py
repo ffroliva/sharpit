@@ -147,11 +147,11 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_beans", "beans", False, QUERY_LIMIT_SCHEMA),
         ("get_http_exchanges", "http-exchanges", False, LIMIT_SCHEMA),
         ("get_http_routes", "http-exchanges", False, LIMIT_SCHEMA),
-        ("get_log_tail", "log-tail", False, NONE_SCHEMA),
+        ("get_log_tail", "log-tail", False, QUERY_LIMIT_SCHEMA),
         ("get_exceptions", "exceptions", False, NONE_SCHEMA),
         ("get_exception_detail", "exceptions", False, ID_SCHEMA),
         ("clear_exceptions", "exceptions", True, NONE_SCHEMA),
-        ("get_sql_traces", "sql-trace", False, NONE_SCHEMA),
+        ("get_sql_traces", "sql-trace", False, QUERY_LIMIT_SCHEMA),
         ("clear_sql_traces", "sql-trace", True, NONE_SCHEMA),
         ("pause_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
         ("resume_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
@@ -582,3 +582,28 @@ def test_lane_tool_seeds_reach_the_mcp_sweep(
     ctx = _ctx(state_dir=str(tmp_state_dir))
 
     assert _mcp_arguments("get_overview", ctx) == {"ctx": ctx}
+
+
+def test_mcp_sql_traces_and_log_tail_accept_query_and_limit_with_page_metadata(monkeypatch: pytest.MonkeyPatch):
+    # ported: McpAgentViewsTests.sqlTracesAndLogTailFilterAndPage
+    from sharpit.engine import tools as facade
+    from sharpit.engine.capture.logtail import LogTailBuffer
+    from sharpit.engine.capture.sqltrace import SqlTraceRecorder
+
+    ctx = _ctx()
+    recorder = SqlTraceRecorder(ctx.masker)
+    for sql in ("select * from orders", "select * from pets", "select id from orders"):
+        recorder.record(sql, duration_ns=1_000, thread="main", connection_id="c1")
+    ctx.capture.sql_trace = recorder
+    monkeypatch.setattr(facade, "sql_trace_unavailable_reason", lambda _ctx: None)
+    traces = call_tool(_call(ctx), "get_sql_traces", {"query": "orders", "limit": 1}, via="mcp")
+    assert traces.get("page") == {"total": 3, "matched": 2, "offset": 0, "limit": 1, "returned": 1, "hasMore": True}
+    assert [e["sql"] for e in traces["entries"]] == ["select id from orders"], "newest first, filtered, limited"
+    buffer = LogTailBuffer(10, 1 << 20)
+    for n in range(3):
+        line = {"timestamp": n, "level": "INFO", "logger": "app", "message": f"line {n}", "thread": "main"}
+        buffer.append({**line, "messageOmitted": False})
+    ctx.capture.log_tail = buffer
+    tail = call_tool(_call(ctx), "get_log_tail", {"query": "line", "limit": 2}, via="mcp")
+    assert [entry["message"] for entry in tail["entries"]] == ["line 1", "line 2"], "the newest lines, oldest first"
+    assert tail.get("page", {}).get("matched") == 3

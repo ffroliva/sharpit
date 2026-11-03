@@ -404,3 +404,15 @@ def test_get_log_tail_mcp(no_side_effects: SideEffectGuard):
     entries = result["structuredContent"]["entries"]
     assert [e["message"] for e in entries if e["logger"] == "host.app"] == ["for the agent password=******"]
     assert no_side_effects.violations == []
+
+
+def test_log_tail_recent_golden_parity():
+    from golden import assert_parity
+
+    app, _ = _handle()
+    with _client(app) as client:
+        logging.getLogger("host.app").warning("golden %s", "line")
+        lines = client.get(f"{API}/recent").json()
+    line = next(line for line in lines if line["message"] == "golden line")
+    assert line.get("messageOmitted") is False, "a shown message is not omitted"
+    assert_parity("log-tail", "recent", lines)
