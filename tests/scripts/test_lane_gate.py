@@ -1176,3 +1176,124 @@ def test_leased_check_uses_full_node_ids(tmp_path: Path) -> None:
     accepted = fx.evaluate()
     assert _refusals(accepted) == []
     assert list(accepted.unverified) == []  # type: ignore[attr-defined]
+
+
+def _plan(fx: Fixture, index: str, plans: dict[str, str]) -> Path:
+    """PLAN.md (its Lanes table) and the lane plan files, in the integration worktree; returns PLAN.md's path."""
+    _write(
+        fx.integration,
+        {"plans/PLAN.md": f"# plan\n\n## Lanes\n\n{index}\n", **{f"plans/{n}": t for n, t in plans.items()}},
+    )
+    return fx.integration / "plans" / "PLAN.md"
+
+
+LANES_TABLE = "| Lane | Plan file | Council | Class |\n|---|---|---|---|\n"
+MULTI_PLAN = (
+    "# Lanes x and y\n\n| | |\n|---|---|\n| **Council** | not required |\n\n## Must-cover\n\n"
+    f"test-fixture-x: `{TEST_ID}`.\n\ntest-fixture-y: `{TEST_ID}`.\n\n## Tasks\n"
+)
+COUNCIL = "# Council\n\nModels: claude opus, codex gpt-6-luna, agy gemini argon\nHead: {head}\n\nVERDICT: APPROVE\n"
+
+
+def test_council_required_read_per_lane_from_plan_table(tmp_path: Path) -> None:
+    index = (
+        LANES_TABLE
+        + "| test-fixture-x | `multi.md` | required | c |\n| test-fixture-y | `multi.md` | not required | c |\n"
+    )
+    (tmp_path / "x").mkdir()
+    fx = _fixture(tmp_path / "x")
+    plan = _plan(fx, index, {"multi.md": MULTI_PLAN})
+    assert _refused(fx.evaluate(plan_index=plan), "council.md")
+    fx.commit({f"{fx.folder}/council.md": COUNCIL.format(head=fx.head)}, "docs: council")
+    fx.review()
+    assert _refusals(fx.evaluate(plan_index=plan)) == []
+    (tmp_path / "y").mkdir()
+    other = _fixture(tmp_path / "y", lane="test-fixture-y")
+    assert _refusals(other.evaluate(plan_index=_plan(other, index, {"multi.md": MULTI_PLAN}))) == []
+    unknown = _plan(other, LANES_TABLE + "| test-fixture-x | `multi.md` | required | c |\n", {"multi.md": MULTI_PLAN})
+    assert _refused(other.evaluate(plan_index=unknown), "test-fixture-y is not in the Lanes table")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Models: claude opus, codex gpt-6-luna\nHead: {head}\n",  # no VERDICT line
+        "Models: claude opus, codex gpt-6-luna\nHead: {head}\n\nVERDICT: BLOCK\n",  # a verdict that is not APPROVE
+        "Models: claude opus, claude sonnet\nHead: {head}\n\nVERDICT: APPROVE\n",  # one model family
+        "Models: claude opus, codex gpt-6-luna\nHead: 0000000\n\nVERDICT: APPROVE\n",  # not the head SHA
+    ],
+)
+def test_lane_gate_refuses_shallow_council_file(tmp_path: Path, body: str) -> None:
+    fx = _fixture(tmp_path, review=False)
+    plan = _plan(fx, LANES_TABLE + "| test-fixture-x | `multi.md` | required | c |\n", {"multi.md": MULTI_PLAN})
+    fx.commit({f"{fx.folder}/x.txt": "x\n"}, "docs: the head the council names")
+    fx.commit({f"{fx.folder}/council.md": body.format(head=fx.head)}, "docs: council")
+    fx.review()
+    assert _refused(fx.evaluate(plan_index=plan), "council.md: ")
+
+
+COVER = "tests/test_cover.py"
+COVER_TESTS = (
+    "def test_a():\n    assert True\n\n\ndef test_twin():\n    assert True\n\n\ndef test_skip():\n    assert True\n"
+    "\n\nclass TestK:\n    def test_m(self):\n        assert True\n"
+)
+LEASED_MYSQL = "tests/fastapi/test_mysql_leased.py::test_read_only_wrapper_rejects_write"
+
+
+def _cover_runner(fx: Fixture, at_head: dict[str, str]) -> object:
+    """fx.run_pytest, except ``at_head`` decides chosen node ids at the head: ``failure`` or ``skip:<reason>``."""
+
+    def run(tree: Path, nodeids: Sequence[str], junit: Path) -> None:
+        if _git(tree, "rev-parse", "HEAD") != fx.head or not set(nodeids) & set(at_head):
+            fx.run_pytest(tree, nodeids, junit)
+            return
+        fx.replays.append((fx.head, tuple(nodeids)))
+        cases = []
+        for nodeid in nodeids:
+            module, *rest = nodeid.split("::")
+            classname = ".".join([module.removesuffix(".py").replace("/", "."), *rest[:-1]])
+            outcome = at_head.get(nodeid, "pass")
+            body = ""
+            if outcome == "failure":
+                body = f'<failure message="assert 0">E\n{module}:2: AssertionError</failure>'
+            elif outcome.startswith("skip:"):
+                body = f'<skipped type="pytest.skip" message="{outcome[5:]}" />'
+            cases.append(f'<testcase classname="{classname}" name="{rest[-1]}">{body}</testcase>')
+        junit.write_text(f"<testsuites><testsuite>{''.join(cases)}</testsuite></testsuites>", encoding="utf-8")
+
+    return run
+
+
+def _cover_check(fx: Fixture, names: str, at_head: dict[str, str] | None = None, **overrides: object) -> object:
+    index = LANES_TABLE + f"| {fx.lane} | `x.md` | not required | c |\n"
+    plan = _plan(fx, index, {"x.md": f"# x\n\n## Must-cover\n\n{names}\n\n## Tasks\n"})
+    opts = fx.options(plan_index=plan, **overrides)
+    return lane_gate.evaluate(opts, run_gate=fx.run_gate, run_pytest=_cover_runner(fx, at_head or {}))
+
+
+def test_must_cover_uses_full_node_ids_and_refuses_skips(tmp_path: Path) -> None:
+    (tmp_path / "x").mkdir()
+    fx = _fixture(tmp_path / "x", review=False)
+    fx.commit({COVER: COVER_TESTS, "tests/test_twin.py": "def test_twin():\n    assert True\n"}, "test: cover")
+    fx.review()
+    assert _refused(_cover_check(fx, "`test_absent`"), "must-cover test_absent: not defined")
+    assert _refused(_cover_check(fx, "`test_twin`"), "must-cover test_twin: ambiguous")
+    assert _refused(_cover_check(fx, "`tests/test_gone.py::test_x`"), "must-cover tests/test_gone.py::test_x: not at")
+    listed = f"`test_a`, `test_m` and `{TEST_ID}`"
+    assert _refusals(_cover_check(fx, listed)) == []
+    assert (fx.head, (f"{COVER}::test_a", f"{COVER}::TestK::test_m", TEST_ID)) in fx.replays
+    failing = _cover_check(fx, listed, {f"{COVER}::test_a": "failure"})
+    assert _refused(failing, f"must-cover {COVER}::test_a: failure at the lane head")
+    skipped = _cover_check(fx, "`test_skip`", {f"{COVER}::test_skip": "skip:needs a server"})
+    assert _refused(skipped, f"must-cover {COVER}::test_skip: skipped (needs a server)")
+    golden = _cover_check(fx, "`test_skip`", {f"{COVER}::test_skip": "skip:post-scan golden absent (G0)"})
+    assert _refusals(golden) == []
+    assert any(f"{COVER}::test_skip" in line for line in golden.unverified)  # type: ignore[attr-defined]
+    (tmp_path / "m").mkdir()
+    leased = _fixture(tmp_path / "m", lane="A-mysql", review=False)
+    leased.commit({LEASED_MYSQL.split("::")[0]: "def test_read_only_wrapper_rejects_write():\n    assert 1\n"}, "test")
+    leased.review()
+    run = _cover_check(
+        leased, "`test_read_only_wrapper_rejects_write`", {LEASED_MYSQL: "skip:no server"}, accept_unverified=True
+    )
+    assert _refusals(run) == []

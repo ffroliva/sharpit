@@ -123,6 +123,8 @@ class Options:
     no_rerun: bool = False
     allow_paths: tuple[str, ...] = ()
     release: str | None = None  # None: resolved from the integration worktree (resolve_release)
+    plan_index: Path | None = None  # PLAN.md with the Lanes table; None: no council or must-cover check
+    plan: Path | None = None  # the lane plan file; None: PLAN.md's "Plan file" column
 
 
 @dataclass
