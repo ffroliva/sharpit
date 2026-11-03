@@ -9,12 +9,15 @@ package are skipped with a limitation naming the route.
 from __future__ import annotations
 
 import ast
+import inspect
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from types import FunctionType
+from typing import Any, cast
 
 from sharpit.engine.appsource import ModuleInfo, SourceIndex
+from sharpit.engine.spi import RouteInfo
 
 
 @dataclass(frozen=True)
@@ -130,4 +133,30 @@ def own_nodes(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.AST]
         node = stack.pop()
         found.append(node)
         stack.extend(reversed([c for c in ast.iter_child_nodes(node) if not isinstance(c, _SCOPES)]))
+    return found
+
+
+# ---- the routes the adapter's walk yields -----------------------------------------------------------------------
+
+_FRAMEWORK = frozenset({"fastapi", "starlette", "sharpit"})
+
+
+def route_endpoints(introspector: object) -> list[Endpoint]:
+    """Each host route's endpoint and declared response model, read with ``getattr_static`` from the route object.
+
+    ``api_model()`` carries handler names only, so the objects come from the walk it is built on (``_entries``,
+    duck-typed as ``tools.rest_api_service`` does ``api_model``); framework routes (docs, OpenAPI) are not the host's.
+    """
+    walk: Any = getattr(introspector, "_entries", None)
+    if not callable(walk):
+        return []
+    entries = cast("Callable[[], Iterable[tuple[RouteInfo, object | None]]]", walk)
+    found: list[Endpoint] = []
+    for info, route in entries():
+        top = info.handler.partition(":")[0].partition(".")[0]
+        if route is None or info.methods == ("WS",) or top in _FRAMEWORK:
+            continue
+        endpoint = inspect.getattr_static(route, "endpoint", None)
+        model = inspect.getattr_static(route, "response_model", None)
+        found.append(Endpoint(f"{','.join(info.methods)} {info.path}", endpoint, model))
     return found

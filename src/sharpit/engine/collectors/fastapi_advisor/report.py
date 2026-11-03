@@ -5,9 +5,11 @@ The shape (``inspected``/``componentsAnalyzed`` scope keys, ``analysisErrors``) 
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, cast
 
+from sharpit.engine import appsource
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.report import evidence
@@ -15,9 +17,10 @@ from sharpit.engine.advisors.rules import RuleDefinition
 from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope
 from sharpit.engine.appsource import SourceIndex
 from sharpit.engine.collectors.fastapi_advisor import rules_app, rules_async, rules_models
-from sharpit.engine.collectors.fastapi_advisor.handlers import Endpoint, Handler, Hit, index_handlers
+from sharpit.engine.collectors.fastapi_advisor.handlers import Endpoint, Handler, Hit, index_handlers, route_endpoints
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
+from sharpit.settings import SharpitSettings
 
 ADVISOR = "fastapi"
 ANALYZER = "sharpit FastAPI Advisor"
@@ -91,6 +94,19 @@ def _scope(done: Evaluation | None) -> Scope:
 
 def _extra(_done: Evaluation | None) -> Mapping[str, Any]:
     return {"analysisErrors": []}  # no rule reports ERROR: a rule that cannot see its evidence is skipped
+
+
+def scan_app(introspector: object, settings: SharpitSettings) -> Evaluation:
+    """POST/CLI only: the app object from the introspector, its root from the one resolver, its source indexed."""
+    app = getattr(introspector, "app", None)
+    reasons: list[str] = []
+    root = appsource.resolve_package_root(app, sys.modules, app_package=settings.app_package, reasons=reasons)
+    index = None
+    if root is not None:
+        index = appsource.build_index(
+            root, max_files=settings.architecture_max_files, max_file_bytes=settings.architecture_max_file_bytes
+        )
+    return evaluate(app, route_endpoints(introspector), index, reasons)
 
 
 class FastapiAdvisor(AdvisorScan):
