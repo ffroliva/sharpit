@@ -6,7 +6,7 @@ import contextlib
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from sharpit.engine.collectors.mysql.limits import RowLimits, read_one_past
+from sharpit.engine.collectors.mysql.limits import ReadBudget, RowLimits, read_one_past
 from sharpit.engine.collectors.mysql.queries import (
     CAPABILITIES_SQL,
     CURATED_SETTINGS,
@@ -408,9 +408,7 @@ def collect_settings(conn: Any, limits: RowLimits, data: DataSourceData) -> Dto:
         with conn.begin_nested():
             rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(SETTINGS_SQL).mappings()]
         found = {
-            str(r["Variable_name"]).lower(): str(r["Value"])
-            for r in rows
-            if "Variable_name" in r and "Value" in r
+            str(r["Variable_name"]).lower(): str(r["Value"]) for r in rows if "Variable_name" in r and "Value" in r
         }
         settings: list[Dto] = [
             {
@@ -452,11 +450,7 @@ def collect_metrics(conn: Any, data: DataSourceData) -> list[Dto]:
     try:
         with conn.begin_nested():
             rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(STATUS_SQL).mappings()]
-        status_map = {
-            str(r["Variable_name"]): str(r["Value"])
-            for r in rows
-            if "Variable_name" in r and "Value" in r
-        }
+        status_map = {str(r["Variable_name"]): str(r["Value"]) for r in rows if "Variable_name" in r and "Value" in r}
         metrics: list[Dto] = []
 
         def add_metric(var_name: str, label: str, unit: str | None = None) -> None:
@@ -533,3 +527,46 @@ def compare_changes(previous: dict[str, Any] | None, current: dict[str, Any]) ->
             }
         )
     return changes
+
+
+BUDGET_SKIPPED = "The read budget ran out before this section was read."
+
+
+def collect_all(
+    conn: Any,
+    masker: Masker,
+    limits: RowLimits,
+    budget: ReadBudget,
+    data: DataSourceData,
+) -> DataSourceData:
+    collect_capabilities(conn, data)
+    collect_metrics(conn, data)
+
+    collectors = (
+        ("sessions", "Active sessions", lambda: collect_sessions(conn, masker, limits, data)),
+        ("statements", "Top normalized statements", lambda: collect_statements(conn, masker, limits, data)),
+        ("indexes", "Index usage and efficiency", lambda: collect_indexes(conn, limits, data)),
+        ("tables", "Largest tables", lambda: collect_tables(conn, limits, data)),
+        ("lock-waits", "Lock waits", lambda: collect_lock_waits(conn, masker, limits, data)),
+        ("replication-channels", "Replication channels", lambda: collect_replication(conn, limits, data)),
+        ("settings", "Notable configuration", lambda: collect_settings(conn, limits, data)),
+    )
+
+    for section_id, title, run_collector in collectors:
+        if budget.exhausted():
+            data.sections.append(
+                {
+                    "id": section_id,
+                    "title": title,
+                    "status": "SKIPPED",
+                    "reason": BUDGET_SKIPPED,
+                    "hint": None,
+                    "rowCount": 0,
+                    "truncated": False,
+                }
+            )
+        else:
+            run_collector()
+
+    data.truncated = any(s.get("truncated", False) for s in data.sections)
+    return data

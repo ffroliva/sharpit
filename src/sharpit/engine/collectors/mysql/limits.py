@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,23 @@ STATEMENT_TIMEOUT = 5.0
 LOCK_TIMEOUT = 2.0
 READ_BUDGET = 15.0
 MAX_ROW_LIMIT = 2_147_483_646
+
+
+@dataclass
+class ReadBudget:
+    seconds: float
+    started: float
+    clock: Callable[[], float] = time.monotonic
+
+    @classmethod
+    def start(cls, seconds: float, clock: Callable[[], float] = time.monotonic) -> ReadBudget:
+        return cls(seconds, clock(), clock)
+
+    def remaining(self) -> float:
+        return max(0.0, self.seconds - (self.clock() - self.started))
+
+    def exhausted(self) -> bool:
+        return self.remaining() <= 0.0
 
 
 def _validate_limit(value: int, name: str) -> int:
