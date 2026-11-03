@@ -116,6 +116,7 @@ LEASED: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 REVIEWER_OWNED = re.compile(
     rf"^{re.escape(SDD)}/[^/]+/lanes/[^/]+/(review\.md|live-verify\.md|council\.md|gate/.*)$", re.IGNORECASE
 )
+SDD_LANES = re.compile(rf"^{re.escape(SDD)}/[^/]+/lanes/([^/]+)(/.*)?$", re.IGNORECASE)  # lane id, path inside
 UNRESOLVED = (
     f"cannot resolve the release: the integration HEAD is not on release/<x> and its worktree does not hold exactly"
     f" one {SDD}/<x>/lanes folder; pass --release"
@@ -335,7 +336,7 @@ def _plan_dirs(opts: Options) -> set[str]:
     for given in (opts.plan_index, opts.plan):
         if given is not None and _inside(given, opts.integration):
             rel = given.resolve().parent.relative_to(opts.integration.resolve()).as_posix()
-            dirs |= {f"{rel.lower()}/"} if rel != "." else set()
+            dirs.add(f"{rel.lower()}/" if rel != "." else given.name.lower())  # at the root: that file itself
     return dirs
 
 
@@ -353,6 +354,9 @@ def _path_refusals(opts: Options, base: str, path: str) -> list[str]:
     key = path.lower()  # a case-insensitive checkout (NTFS) lands Tests/conftest.py on tests/conftest.py
     if REVIEWER_OWNED.match(path):
         return [f"reviewer-owned path changed: {path}"]
+    lanes_entry = SDD_LANES.match(path)  # another lane's folder, or a file or symlink where a lane folder goes
+    if lanes_entry and (lanes_entry.group(2) is None or lanes_entry.group(1).lower() != opts.lane.lower()):
+        return [f"not the lane's own evidence folder: {path}"]
     if key in PROTECTED and key not in PROTECTED_ALLOWED.get(opts.lane, frozenset()):
         return [f"protected path changed: {path}"]
     if opts.lane not in PLAN_LANES and any(key.startswith(d) for d in _plan_dirs(opts)):
@@ -511,7 +515,7 @@ def leased_problem(opts: Options, log_name: str, node_ids: Sequence[str]) -> str
 FAMILIES = {  # model family -> words of a model id (the parenthesised part of a Reviewer line)
     "anthropic": ("claude", "opus", "sonnet", "haiku", "fable"),
     "openai": ("codex", "gpt"),
-    "google": ("gemini",),
+    "google": ("gemini", "argon"),
 }
 REVIEWER_LINE = re.compile(r"^Reviewer:\s*[\w.-]+\s*\(([^)]+)\)\s*:\s*(.*)$", re.MULTILINE)  # harness (model): ran
 VERDICT_LINE = re.compile(r"^\W*verdict\s*:\s*(.*?)\s*$", re.IGNORECASE | re.MULTILINE)
@@ -571,6 +575,12 @@ def _council_refusals(opts: Options) -> list[str]:
 def must_cover_names(plan_text: str, lane: str, lanes: set[str]) -> list[str] | None:
     """The tests named in the plan's ``## Must-cover`` section, or None without one. In a multi-lane plan file (a
     paragraph starts ``<lane id>:``) only the lane's own paragraphs count."""
+    marks = must_cover_marks(plan_text, lane, lanes)
+    return None if marks is None else list(marks)
+
+
+def must_cover_marks(plan_text: str, lane: str, lanes: set[str]) -> dict[str, str] | None:
+    """must_cover_names, each with the plan text after it up to the next test name (where a golden skip is marked)."""
     found = re.search(r"^## Must-cover[^\n]*\n(.*?)(?=^#{1,2} |\Z)", plan_text, re.MULTILINE | re.DOTALL)
     if found is None:
         return None
@@ -578,8 +588,17 @@ def must_cover_names(plan_text: str, lane: str, lanes: set[str]) -> list[str] | 
     owner = {p: m.group(1) for p in paragraphs if (m := re.match(r"([\w.-]+):\s", p)) and m.group(1) in lanes}
     if owner:
         paragraphs = [p for p in paragraphs if owner.get(p) == lane]
-    names = (token.strip() for p in paragraphs for token in re.findall(r"`([^`]+)`", p))
-    return list(dict.fromkeys(name for name in names if TEST_TOKEN.match(name)))
+    marks: dict[str, str] = {}
+    for paragraph in paragraphs:
+        current: str | None = None
+        for piece in re.split(r"(`[^`]+`)", paragraph):
+            name = piece.strip("`").strip()
+            if piece.startswith("`") and TEST_TOKEN.match(name):
+                current = name
+                marks.setdefault(name, "")
+            elif current is not None:
+                marks[current] += piece
+    return marks
 
 
 def _defined_tests(source: str) -> list[tuple[str, ...]]:
@@ -631,29 +650,31 @@ def must_cover_ids(opts: Options, base: str, names: Sequence[str]) -> tuple[list
     return ids, problems
 
 
-def plan_refusals(opts: Options, base: str) -> tuple[list[str], list[str]]:
-    """(refusals, must-cover node ids) from PLAN.md's Lanes table and the lane plan file."""
+def plan_refusals(opts: Options, base: str) -> tuple[list[str], list[str], list[str]]:
+    """(refusals, must-cover node ids, the ids the plan marks ``post-scan golden absent``) from PLAN.md's Lanes table
+    and the lane plan file."""
     if opts.plan_index is None or not opts.plan_index.is_file():
-        return [f"PLAN.md not found: {opts.plan_index}"], []
+        return [f"PLAN.md not found: {opts.plan_index}"], [], []
     if not _inside(opts.plan_index, opts.integration):  # a lane-written PLAN.md would choose its own rules
-        return [f"PLAN.md must be in the integration worktree ({opts.integration}), not {opts.plan_index}"], []
+        return [f"PLAN.md must be in the integration worktree ({opts.integration}), not {opts.plan_index}"], [], []
     row, lanes = _lane_row(opts.plan_index, opts.lane)
     if row is None:
-        return [f"lane {opts.lane} is not in the Lanes table of {opts.plan_index}"], []
+        return [f"lane {opts.lane} is not in the Lanes table of {opts.plan_index}"], [], []
     cell = row.get("council", "").strip()
     if cell.lower() not in COUNCIL_CELLS:
-        return [f"Council cell for {opts.lane} is '{cell}': write required, not required or —"], []
+        return [f"Council cell for {opts.lane} is '{cell}': write required, not required or —"], [], []
     problems = _council_refusals(opts) if COUNCIL_CELLS[cell.lower()] else []
     plan = opts.plan or opts.plan_index.parent / _code(row.get("plan file", ""))
     if not _inside(plan, opts.integration):
-        return [*problems, f"lane plan {plan} must be in the integration worktree ({opts.integration})"], []
+        return [*problems, f"lane plan {plan} must be in the integration worktree ({opts.integration})"], [], []
     if not plan.is_file():
-        return [*problems, f"lane plan not found: {plan}"], []
-    names = must_cover_names(plan.read_text(encoding="utf-8"), opts.lane, lanes)
-    if not names:
-        return [*problems, f"{plan.name}: no ## Must-cover tests for lane {opts.lane}"], []
-    ids, more = must_cover_ids(opts, base, names)
-    return problems + more, ids
+        return [*problems, f"lane plan not found: {plan}"], [], []
+    marks = must_cover_marks(plan.read_text(encoding="utf-8"), opts.lane, lanes)
+    if not marks:
+        return [*problems, f"{plan.name}: no ## Must-cover tests for lane {opts.lane}"], [], []
+    ids, more = must_cover_ids(opts, base, list(marks))
+    golden, _again = must_cover_ids(opts, base, [name for name, text in marks.items() if GOLDEN_SKIP in text])
+    return problems + more, ids, golden
 
 
 def _is_leased(nodeid: str, leased: Sequence[str]) -> bool:
@@ -665,9 +686,12 @@ def _is_leased(nodeid: str, leased: Sequence[str]) -> bool:
     )
 
 
-def must_cover_refusals(opts: Options, ids: Sequence[str], run_pytest: PytestRunner) -> tuple[list[str], list[str]]:
+def must_cover_refusals(
+    opts: Options, ids: Sequence[str], run_pytest: PytestRunner, golden: Sequence[str] = ()
+) -> tuple[list[str], list[str]]:
     """(refusals, unverified): every must-cover test passes at the head. A skip is refused unless the test is leased
-    (the leased log decides) or skipped as ``post-scan golden absent`` under --accept-unverified (then unverified)."""
+    (the leased log decides) or skipped as ``post-scan golden absent`` under --accept-unverified (then unverified),
+    and that golden skip only for a test the plan marks ``post-scan golden absent`` (``golden``)."""
     leased = [nodeid for _log, nodeids in LEASED.get(opts.lane, ()) for nodeid in nodeids]
     problems: list[str] = []
     unverified: list[str] = []
@@ -675,7 +699,9 @@ def must_cover_refusals(opts: Options, ids: Sequence[str], run_pytest: PytestRun
         for outcome, detail in outcomes:
             if outcome == "passed" or (outcome == "skipped" and _is_leased(nodeid, leased)):
                 continue
-            if outcome == "skipped" and detail.startswith(GOLDEN_SKIP) and opts.accept_unverified:
+            if outcome == "skipped" and detail.startswith(GOLDEN_SKIP) and nodeid not in golden:
+                problems.append(f"must-cover {nodeid}: skipped ({detail}); the plan does not mark it {GOLDEN_SKIP}")
+            elif outcome == "skipped" and detail.startswith(GOLDEN_SKIP) and opts.accept_unverified:
                 unverified.append(f"must-cover {nodeid}: skipped ({detail})")
             elif outcome == "skipped" and detail.startswith(GOLDEN_SKIP):
                 problems.append(f"must-cover {nodeid}: skipped ({detail}) {ACCEPT_HINT}")
@@ -1098,7 +1124,7 @@ def evaluate(
     integrity = red_integrity(opts, base, reds)
     result.refusals += table_problems + integrity.problems
     _record_unverified(opts, result, integrity)
-    plan_problems, cover = plan_refusals(opts, base) if opts.plan_index is not None else ([], [])
+    plan_problems, cover, golden = plan_refusals(opts, base) if opts.plan_index is not None else ([], [], [])
     result.refusals += plan_problems
     if result.refusals:
         result.refusals.append("red replay and gate re-run skipped: fix the refusals above first")
@@ -1107,7 +1133,7 @@ def evaluate(
     if result.refusals:  # keep the last gate logs: a refused replay must not overwrite them
         result.refusals.append("gate re-run skipped: the red replay refused")
         return result
-    cover_problems, cover_unverified = must_cover_refusals(opts, cover, run_pytest) if cover else ([], [])
+    cover_problems, cover_unverified = must_cover_refusals(opts, cover, run_pytest, golden) if cover else ([], [])
     result.unverified += cover_unverified  # post-scan golden absent under --accept-unverified
     if cover_problems:
         result.refusals += [*cover_problems, "gate re-run skipped: a must-cover test refused"]
