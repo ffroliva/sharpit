@@ -7,6 +7,7 @@ import inspect
 import re
 import sys
 import sysconfig
+import types
 import typing
 from collections.abc import Iterator
 from dataclasses import replace
@@ -71,12 +72,31 @@ def _source_target(obj: object) -> object:
     return inspect.unwrap(obj) if callable(obj) else obj
 
 
+def _first_line(target: object) -> int | None:
+    """The definition's line from compiled metadata; the source file is never opened (spec §4.4)."""
+    code = getattr(target, "__code__", None)  # a function, or a bound method's function
+    if isinstance(code, types.CodeType):
+        return code.co_firstlineno
+    if not inspect.isclass(target):
+        return None
+    own = _attrs(target)
+    line = own.get("__firstlineno__")  # Python 3.13+
+    if isinstance(line, int):
+        return line
+    # 3.12: the class's first own function (its ``def`` line, not the ``class`` line)
+    funcs = [getattr(v, "__func__", v) for v in own.values()]
+    return min((f.__code__.co_firstlineno for f in funcs if inspect.isfunction(f)), default=None)
+
+
 def _resource(obj: object) -> str | None:
-    """``file:line`` where the provider is defined, or ``None`` (built-ins, ``exec``'d code)."""
+    """``file:line`` where the provider is defined (``file`` alone when no line is known), or ``None``."""
     try:
         target: Any = _source_target(obj)
-        source = inspect.getsourcefile(target)
-        return f"{source}:{inspect.getsourcelines(target)[1]}" if source else None
+        source = inspect.getsourcefile(target)  # maps the filename; stats it, never reads it
+        if not source:
+            return None
+        line = _first_line(target)
+        return f"{source}:{line}" if line is not None else source
     except Exception:  # noqa: BLE001 - no source (built-in, C extension, exec'd): the bean stays, without a resource
         return None
 
