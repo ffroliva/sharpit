@@ -839,32 +839,50 @@ def _broad_regex(pattern: object) -> bool:
     return any(compiled.fullmatch(origin) is not None for origin in _PROBE_ORIGINS)
 
 
-def _option_flags(name: str, options: dict[str, object]) -> tuple[str, ...]:
+def _cors_flags(options: dict[str, object]) -> set[str]:
     flags: set[str] = set()
-    kind = name.rpartition(".")[2]
-    if kind == "CORSMiddleware":
-        if "*" in _strings(options.get("allow_origins")):
-            flags.add("any_origin")
-        if options.get("allow_credentials") is True:
-            flags.add("credentials")
-        if _broad_regex(options.get("allow_origin_regex")):
-            flags.add("broad_origin_regex")
-    elif kind == "SessionMiddleware":
-        if options.get("https_only") is True:
-            flags.add("https_only")
-        same_site = options.get("same_site")
-        if type(same_site) is str and same_site.lower() == "none":
-            flags.add("same_site_none")
-        secret = options.get("secret_key")
-        if type(secret) is str and len(secret) < 32:  # noqa: PLR2004 - the length is the fact, never the value
-            flags.add("short_secret")
-    elif kind == "TrustedHostMiddleware":
-        hosts = options.get("allowed_hosts")
-        if hosts is None or "*" in _strings(hosts):  # Starlette: None allows every host
-            flags.add("any_host")
-    elif kind == "ProxyHeadersMiddleware" and "*" in _strings(options.get("trusted_hosts", "127.0.0.1")):
-        flags.add("trust_any_proxy")
-    return tuple(sorted(flags))
+    if "*" in _strings(options.get("allow_origins")):
+        flags.add("any_origin")
+    if options.get("allow_credentials") is True:
+        flags.add("credentials")
+    if _broad_regex(options.get("allow_origin_regex")):
+        flags.add("broad_origin_regex")
+    return flags
+
+
+def _session_flags(options: dict[str, object]) -> set[str]:
+    flags: set[str] = set()
+    if options.get("https_only") is True:
+        flags.add("https_only")
+    same_site = options.get("same_site")
+    if type(same_site) is str and same_site.lower() == "none":
+        flags.add("same_site_none")
+    secret = options.get("secret_key")
+    if type(secret) is str and len(secret) < 32:  # noqa: PLR2004 - the length is the fact, never the value
+        flags.add("short_secret")
+    return flags
+
+
+def _host_flags(options: dict[str, object]) -> set[str]:
+    hosts = options.get("allowed_hosts")
+    return {"any_host"} if hosts is None or "*" in _strings(hosts) else set()  # Starlette: None allows every host
+
+
+def _proxy_flags(options: dict[str, object]) -> set[str]:
+    return {"trust_any_proxy"} if "*" in _strings(options.get("trusted_hosts", "127.0.0.1")) else set()
+
+
+_FLAG_READERS = {
+    "CORSMiddleware": _cors_flags,
+    "SessionMiddleware": _session_flags,
+    "TrustedHostMiddleware": _host_flags,
+    "ProxyHeadersMiddleware": _proxy_flags,
+}
+
+
+def _option_flags(name: str, options: dict[str, object]) -> tuple[str, ...]:
+    reader = _FLAG_READERS.get(name.rpartition(".")[2])
+    return tuple(sorted(reader(options))) if reader is not None else ()
 
 
 def _middleware_facts(app: object, limitations: list[str]) -> tuple[MiddlewareFacts, ...]:
