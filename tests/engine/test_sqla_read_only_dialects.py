@@ -30,7 +30,8 @@ def _outcome(engine: Any, fn: Callable[[Any], Any]) -> Any:
 
 
 def _sqlite_engine(query_only: int = 0) -> Any:
-    engine = sa.create_engine("sqlite://", poolclass=StaticPool)  # one connection: the tests see what the read left
+    # one connection, shared with the read's worker thread: the tests see what the read left on it
+    engine = sa.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     with engine.begin() as conn:
         conn.exec_driver_sql("CREATE TABLE probe (id INTEGER)")
         conn.exec_driver_sql(f"PRAGMA query_only = {query_only}")
