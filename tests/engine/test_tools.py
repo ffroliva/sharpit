@@ -616,3 +616,98 @@ def test_mcp_sql_traces_and_log_tail_accept_query_and_limit_with_page_metadata(m
     tail = call_tool(_call(ctx), "get_log_tail", {"query": "line", "limit": 2}, via="mcp")
     assert [entry["message"] for entry in tail["entries"]] == ["line 1", "line 2"], "the newest lines, oldest first"
     assert tail.get("page", {}).get("matched") == 3
+
+
+# --- lane D4: get_vulnerabilities_report compaction, get_threads default limit -----------------------------------
+
+
+def _vuln(i: int) -> dict[str, Any]:
+    many = [f"item-{i}-{n}" for n in range(5)]
+    return {
+        "id": f"GHSA-{i}",
+        "summary": "s",
+        "details": "d",
+        "aliases": many,
+        "references": many,
+        "fixedVersions": many,
+        "severity": "HIGH",
+        "dismissed": False,
+    }
+
+
+def _vuln_report(vulnerable: int = 12, clean: int = 3) -> dict[str, Any]:
+    deps = [
+        {
+            "packageName": f"pkg-{i}",
+            "version": "1.0",
+            "vulnerabilityCount": 7 if i == 0 else 1,
+            "vulnerabilities": [_vuln(n) for n in range(7 if i == 0 else 1)],
+        }
+        for i in range(vulnerable)
+    ]
+    deps += [
+        {"packageName": f"clean-{i}", "version": "1.0", "vulnerabilityCount": 0, "vulnerabilities": []}
+        for i in range(clean)
+    ]
+    return {"scan": {"status": "SCANNED", "message": "Scan completed against OSV.dev."}, "dependencies": deps}
+
+
+class _FakeVulnService:
+    def __init__(self, report: dict[str, Any]) -> None:
+        self.cached = report
+
+    def report(self) -> dict[str, Any]:
+        return self.cached
+
+
+def _call_or_error(ctx: SharpitContext, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return call_tool(_call(ctx), name, args, via="mcp")
+    except RpcError as exc:
+        return {"rpcError": exc.message}
+
+
+def test_mcp_vulnerabilities_compacts_dependencies_and_advisories(monkeypatch: pytest.MonkeyPatch):
+    # ported: McpAgentViewsTests.vulnerabilitiesCompactsDependenciesAndAdvisories
+    from sharpit.engine import tools
+
+    cached = _vuln_report()
+    monkeypatch.setattr(tools, "vulnerability_service", lambda _ctx: _FakeVulnService(cached))
+    out = _call_or_error(_ctx(), "get_vulnerabilities_report", {})
+    names = [d["packageName"] for d in out.get("dependencies", [])]
+    assert names == [f"pkg-{i}" for i in range(10)], "default limit 10, vulnerable dependencies only"
+    assert out.get("page", {}).get("hasMore") is True
+    first = out["dependencies"][0]
+    assert len(first["vulnerabilities"]) == 5, "ADVISORIES_PER_DEPENDENCY = 5"
+    assert first.get("advisories") == {"total": 7, "returned": 5, "truncated": True}
+    advisory = first["vulnerabilities"][0]
+    assert [len(advisory[k]) for k in ("aliases", "references", "fixedVersions")] == [3, 3, 3]
+    assert len(cached["dependencies"][0]["vulnerabilities"]) == 7, "the cached report is never mutated"
+    assert len(cached["dependencies"][0]["vulnerabilities"][0]["aliases"]) == 5
+
+
+def test_mcp_vulnerabilities_query_includes_clean_dependencies(monkeypatch: pytest.MonkeyPatch):
+    # ported: McpAgentViewsTests.vulnerabilitiesQueryMatchesAnyDependency
+    from sharpit.engine import tools
+
+    monkeypatch.setattr(tools, "vulnerability_service", lambda _ctx: _FakeVulnService(_vuln_report()))
+    out = _call_or_error(_ctx(), "get_vulnerabilities_report", {"query": "clean-1", "limit": 3})
+    assert [d["packageName"] for d in out.get("dependencies", [])] == ["clean-1"]
+
+
+def test_get_threads_default_limit_is_25(monkeypatch: pytest.MonkeyPatch):
+    # ported: McpAgentViews.INVENTORY_DEFAULT_LIMIT (get_threads without a limit returns 25 entries)
+    from sharpit.engine import tools
+
+    seen: list[int | None] = []
+
+    def fake(_ctx: SharpitContext, _q: str | None, _s: str | None, _o: int | None, limit: int | None) -> dict[str, Any]:
+        seen.append(limit)
+        return {}
+
+    monkeypatch.setattr(tools, "threads_report", fake)
+    ctx = _ctx(mcp_max_results=200, cli_max_results=10)
+    call_tool(_call(ctx), "get_threads", {}, via="mcp")
+    call_tool(_call(ctx), "get_threads", {"limit": 50}, via="mcp")
+    call_tool(_call(ctx), "get_threads", {}, via="cli")
+    assert seen == [25, 50, 10], "absent limit: 25, capped by the via's max results; an explicit limit is kept"

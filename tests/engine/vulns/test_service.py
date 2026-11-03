@@ -7,6 +7,7 @@ The real OSV and EPSS clients run against a fake opener routed by URL, so no soc
 
 import json
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -497,3 +498,57 @@ def test_report_before_a_scan_reads_the_inventory_once_and_a_scan_refreshes_it(t
     assert len(calls) == 1
     svc.scan()
     assert len(calls) == 2  # a scan always re-reads the inventory
+
+
+# --- lane D4: BootUI 2.2.0 drift -----------------------------------------------------------------------------------
+
+RUNTIME_REACH_UNAVAILABLE = {
+    "available": False,
+    "unavailableReason": "Code Inventory panel is disabled.",
+    "generation": None,
+    "note": None,
+    "incompleteReason": None,
+}
+
+
+# ported: VulnerabilityReportServiceTests.includesRuntimeReachAndAdvisorySymbolFields
+def test_vulnerabilities_new_keys_present(tmp_state_dir: Path):
+    report = service(fixture_osv(), [JINJA, FLASK], tmp_state_dir).scan()
+    assert report.get("runtimeReach") == RUNTIME_REACH_UNAVAILABLE
+    jinja = dep(report, "jinja2")
+    assert jinja.get("runtimeReach", "absent") is None
+    (ghsa,) = jinja["vulnerabilities"]
+    assert ghsa.get("advisorySymbols") == []
+    assert ghsa.get("advisorySymbolSource") == "NONE"
+    assert ghsa.get("runtimeReach", "absent") is None
+
+
+def test_vulnerabilities_golden_parity_after_drift(tmp_state_dir: Path):
+    from golden import assert_parity
+
+    svc = service(fixture_osv(), [JINJA, FLASK], tmp_state_dir)
+    assert_parity("vulnerabilities", "captured", svc.report())
+    assert_parity("vulnerabilities", "captured", svc.scan())
+
+
+def test_osv_down_releases_lock(tmp_state_dir: Path):
+    # OSV unreachable (connection refused, not an HTTP status): ERROR, inventory kept, the lock released
+    osv = FakeOsv(ids={"jinja2": ["V-1"]}, docs={"V-1": advisory("V-1", JINJA)})
+    osv.query = [urllib.error.URLError(ConnectionRefusedError("refused"))]  # type: ignore[list-item]
+    flight = SingleFlight()
+    svc = service(osv, [JINJA, FLASK], tmp_state_dir, flight)
+    failed = svc.scan()
+    assert failed["scan"]["status"] == "ERROR"
+    assert failed["total"] == 2
+    assert svc.scan()["scan"]["status"] == "SCANNED", "the single-flight lock was released"
+
+
+def test_epss_down_keeps_osv_and_releases_lock(tmp_state_dir: Path):
+    osv = fixture_osv()
+    osv.epss = urllib.error.URLError(ConnectionRefusedError("refused"))  # type: ignore[assignment]
+    svc = service(osv, [JINJA, FLASK], tmp_state_dir)
+    report = svc.scan()
+    assert report["scan"]["status"] == "SCANNED"
+    assert dep(report, "jinja2")["vulnerabilityCount"] == 1
+    osv.query = [(200, fixture_text("osv/querybatch.json"))]
+    assert svc.scan()["scan"]["status"] == "SCANNED", "the single-flight lock was released"
