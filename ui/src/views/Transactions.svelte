@@ -64,7 +64,7 @@
 </script>
 
 <PanelShell
-  title="Transactions"
+  title={panel.title}
   loading={report.loading}
   error={report.error}
   onretry={report.reload}
