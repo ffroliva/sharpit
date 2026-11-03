@@ -2,6 +2,18 @@
 
 from __future__ import annotations
 
-from sharpit.engine.collectors.database_advisor import rules_driver_pool, rules_schema
+from sharpit.engine.collectors.database_advisor import (
+    rules_driver_pool,
+    rules_orm,
+    rules_runtime,
+    rules_schema,
+    rules_vendor,
+)
 
-RULES = (*rules_schema.RULES, *rules_driver_pool.RULES)
+RULES = (
+    *rules_schema.RULES,
+    *rules_vendor.RULES,
+    *rules_orm.RULES,
+    *rules_runtime.RULES,
+    *rules_driver_pool.RULES,
+)

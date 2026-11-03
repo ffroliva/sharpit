@@ -9,14 +9,14 @@ the report with its retained details. A rule that could judge no datasource is `
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from sharpit.engine import sqla
 from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.report import evidence
 from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope
-from sharpit.engine.collectors.database_advisor import RULES
+from sharpit.engine.collectors.database_advisor import RULES, rules_orm, rules_runtime
 from sharpit.engine.collectors.database_advisor.catalog import LABELS, Source, read_sources
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
 
@@ -188,6 +188,19 @@ class DatabaseAdvisorService(AdvisorScan):
         )
 
 
+def _with_app_facts(ctx: SharpitContext, sources: list[Source]) -> list[Source]:
+    """Each source with the declared models (ORM rules); the first with the SQL Trace window (DB-RUNTIME-001)."""
+    if not sources:
+        return sources
+    declared = rules_orm.facts(ctx.models)
+    trace = ctx.capture.sql_trace
+    window = rules_runtime.facts(trace.rows() if trace is not None else [])
+    first, *rest = sources
+    return [replace(first, catalog={**first.catalog, "orm": declared, "runtime": window})] + [
+        replace(s, catalog={**s.catalog, "orm": declared}) for s in rest
+    ]
+
+
 async def run_scan(ctx: SharpitContext, service: DatabaseAdvisorService) -> dict[str, Any]:
     """Read every registered engine and scan (``ActionBusy`` while a scan, or a worker it left running, is live)."""
     if (reason := sqla.unavailable_reason()) is not None:
@@ -198,6 +211,6 @@ async def run_scan(ctx: SharpitContext, service: DatabaseAdvisorService) -> dict
         raise ActionBusy(OPERATION, single.active)
     flight = Flight(release)
     try:
-        return service.scan(await read_sources(ctx, flight))
+        return service.scan(_with_app_facts(ctx, await read_sources(ctx, flight)))
     finally:
         flight.done()

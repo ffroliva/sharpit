@@ -35,27 +35,27 @@ BootUI registers 48 checks. `P` marks a check sharpit ports (33); the others are
 | DB-SCHEMA-005 | Unique index duplicating a proven primary-key backing index | Schema | P | implemented | |
 | DB-SCHEMA-006 | Potential duplicate foreign-key definitions | Schema | P | implemented | |
 | DB-SCHEMA-007 | Narrow auto-generated primary key | Schema | P | implemented | |
-| DB-SCHEMA-010 | Invisible or ignored indexes | Schema | P | planned (A-dbadv-2) | |
-| DB-PG-001 | Invalid PostgreSQL indexes | PostgreSQL | P | planned (A-dbadv-2) | |
-| DB-PG-002 | PostgreSQL sequence nearing exhaustion | PostgreSQL | P | planned (A-dbadv-2) | |
-| DB-PG-003 | PostgreSQL NOT VALID constraint never validated | PostgreSQL | P | planned (A-dbadv-2) | |
-| DB-PG-004 | PostgreSQL table lacking usable replica identity | PostgreSQL | P | planned (A-dbadv-2) | |
-| DB-PG-005 | PostgreSQL unlogged tables | PostgreSQL | P | planned (A-dbadv-2) | |
-| DB-MYSQL-001 | Tables on a non-transactional storage engine | MySQL | P | planned (A-dbadv-2) | |
-| DB-MYSQL-002 | Tables/columns using the legacy utf8mb3 character set | MySQL | P | planned (A-dbadv-2) | |
-| DB-MYSQL-003 | MySQL/MariaDB AUTO_INCREMENT nearing exhaustion | MySQL | P | planned (A-dbadv-2) | |
+| DB-SCHEMA-010 | Invisible or ignored indexes | Schema | P | implemented | |
+| DB-PG-001 | Invalid PostgreSQL indexes | PostgreSQL | P | implemented | |
+| DB-PG-002 | PostgreSQL sequence nearing exhaustion | PostgreSQL | P | implemented | |
+| DB-PG-003 | PostgreSQL NOT VALID constraint never validated | PostgreSQL | P | implemented | |
+| DB-PG-004 | PostgreSQL table lacking usable replica identity | PostgreSQL | P | implemented | |
+| DB-PG-005 | PostgreSQL unlogged tables | PostgreSQL | P | implemented | |
+| DB-MYSQL-001 | Tables on a non-transactional storage engine | MySQL | P | implemented | |
+| DB-MYSQL-002 | Tables/columns using the legacy utf8mb3 character set | MySQL | P | implemented | |
+| DB-MYSQL-003 | MySQL/MariaDB AUTO_INCREMENT nearing exhaustion | MySQL | P | implemented | |
 | DB-ORACLE-001 | Unusable Oracle indexes | Oracle | dropped | dropped | Oracle has no verified read-only path in sharpit (spec §5.0) |
 | DB-ORACLE-002 | Disabled or unvalidated Oracle constraints | Oracle | dropped | dropped | Oracle has no verified read-only path in sharpit (spec §5.0) |
 | DB-ORACLE-003 | Oracle sequence or identity generator nearing exhaustion | Oracle | dropped | dropped | Oracle has no verified read-only path in sharpit (spec §5.0) |
-| DB-HIB-002 | Declared entity relation name not found in the observed schema | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-003 | Declared column nullability differs from observed metadata | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-004 | Declared column length exceeds observed column size | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-005 | Declared uniqueness has no observed enforcing key | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-006 | Declared column name not found in the observed relation | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-007 | Declared association has no matching observed foreign key | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-009 | IDENTITY identifier column without database-side generation | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-010 | Declared numeric precision or scale exceeds the observed column | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-RUNTIME-001 | SQL text variations with predicate literals | Runtime SQL | P | planned (A-dbadv-2) | |
+| DB-HIB-002 | Declared entity relation name not found in the observed schema | ORM mapping | P | implemented | |
+| DB-HIB-003 | Declared column nullability differs from observed metadata | ORM mapping | P | implemented | |
+| DB-HIB-004 | Declared column length exceeds observed column size | ORM mapping | P | implemented | |
+| DB-HIB-005 | Declared uniqueness has no observed enforcing key | ORM mapping | P | implemented | |
+| DB-HIB-006 | Declared column name not found in the observed relation | ORM mapping | P | implemented | |
+| DB-HIB-007 | Declared association has no matching observed foreign key | ORM mapping | P | implemented | |
+| DB-HIB-009 | IDENTITY identifier column without database-side generation | ORM mapping | P | implemented | |
+| DB-HIB-010 | Declared numeric precision or scale exceeds the observed column | ORM mapping | P | implemented | |
+| DB-RUNTIME-001 | SQL text variations with predicate literals | Runtime SQL | P | implemented | |
 | DB-DRIVER-001 | PostgreSQL driver does not rewrite batched inserts | Driver | dropped | dropped | pgjdbc property; SQLAlchemy 2.0 batches inserts itself (insertmanyvalues) |
 | DB-DRIVER-002 | MySQL Connector/J does not rewrite batched statements | Driver | dropped | dropped | Connector/J property; SQLAlchemy 2.0 batches inserts itself (insertmanyvalues) |
 | DB-DRIVER-003 | MySQL Connector/J reports affected rows instead of found rows | Driver | dropped | dropped | Connector/J property; SQLAlchemy's MySQL dialects set the found-rows client flag |
@@ -69,8 +69,8 @@ BootUI registers 48 checks. `P` marks a check sharpit ports (33); the others are
 | DB-POOL-002 | Connection pool is larger than the server's connection limit | Connection pool | P | implemented | |
 | DB-POOL-003 | Connection pool has no maximum connection lifetime | Connection pool | P | implemented | |
 | DB-POOL-004 | Connection pool leaves no headroom for a second instance | Connection pool | P | implemented | |
-| DB-SERVER-001 | PostgreSQL does not end sessions that are idle in a transaction | Server | P | planned (A-dbadv-2) | |
-| DB-SERVER-002 | PostgreSQL has no statement timeout | Server | P | planned (A-dbadv-2) | |
+| DB-SERVER-001 | PostgreSQL does not end sessions that are idle in a transaction | Server | P | implemented | |
+| DB-SERVER-002 | PostgreSQL has no statement timeout | Server | P | implemented | |
 | DB-SERVER-003 | PostgreSQL autovacuum is disabled | Server | dropped | dropped | server-wide maintenance setting, not this application's use of the server; the postgresql panel shows it |
 | DB-SERVER-004 | PostgreSQL `pg_stat_statements` is not available | Server | dropped | dropped | server observability, not this application's use of the server; the postgresql panel reports it |
 | DB-SERVER-005 | PostgreSQL does not measure I/O time | Server | dropped | dropped | server observability (`track_io_timing`); the postgresql panel shows it |

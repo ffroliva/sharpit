@@ -91,3 +91,60 @@ def test_server_limits_are_read(url: str) -> None:
         assert "max_connections" in found["server"]
     finally:
         engine.dispose()
+
+
+# --- lane A-dbadv-2: the vendor rules against a server, through the scan's own read-only read --------------------
+
+PG_VENDOR = ("DB-PG-001", "DB-PG-002", "DB-PG-003", "DB-PG-004", "DB-PG-005", "DB-SERVER-001", "DB-SERVER-002")
+MYSQL_VENDOR = ("DB-SCHEMA-010", "DB-MYSQL-001", "DB-MYSQL-002", "DB-MYSQL-003")
+
+
+def _vendor_scan(url: str, dialect: str) -> tuple[list[str], dict[str, str], int, set[str], set[str]]:
+    """Evaluated rule ids, skip reasons, probe rows after, and the table names before/after the scan's read."""
+    from sharpit.engine.collectors.database_advisor import catalog, report  # noqa: PLC0415 - after importorskip
+
+    engine = _engine(url)
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("CREATE TABLE IF NOT EXISTS sharpit_dbadv2_probe (id INTEGER PRIMARY KEY)")
+        before = set(sa.inspect(engine).get_table_names())
+        found = asyncio.run(
+            sqla.run_db_read(
+                engine,
+                lambda c: catalog._catalog_and_vendor(c, sqla_inspect.CatalogBounds()),  # noqa: SLF001
+                5.0,
+                read_only=True,
+            )
+        )
+        source = catalog.Source("db", dialect, "driver", "AVAILABLE", None, found)
+        evaluation = report.evaluate([source])
+        reasons = {d["source"]: d["message"] for d in evaluation.detail.diagnostics}
+        with engine.connect() as conn:
+            rows = int(conn.exec_driver_sql("SELECT count(*) FROM sharpit_dbadv2_probe").scalar() or 0)
+        after = set(sa.inspect(engine).get_table_names())
+        return list(evaluation.evaluated), reasons, rows, before, after
+    finally:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("DROP TABLE IF EXISTS sharpit_dbadv2_probe")
+        engine.dispose()
+
+
+@pytest.mark.skipif(not PG_URL, reason="requires a leased PostgreSQL via SHARPIT_TEST_POSTGRES_URL")
+def test_pg_vendor_rules_against_server() -> None:
+    evaluated, reasons, rows, before, after = _vendor_scan(PG_URL, "postgresql")
+
+    assert [rule for rule in PG_VENDOR if rule in evaluated]
+    assert [rule for rule in PG_VENDOR if "not read" in reasons.get(rule, "")] == []
+    assert rows == 0
+    assert after == before
+
+
+@pytest.mark.skipif(not MYSQL_URL, reason="requires a leased MySQL via SHARPIT_TEST_MYSQL_URL")
+def test_mysql_vendor_rules_against_server() -> None:
+    url = MYSQL_URL.replace("mysql://", "mysql+pymysql://", 1)
+    evaluated, reasons, rows, before, after = _vendor_scan(url, "mysql")
+
+    assert [rule for rule in MYSQL_VENDOR if rule in evaluated]
+    assert [rule for rule in MYSQL_VENDOR if "not read" in reasons.get(rule, "")] == []
+    assert rows == 0
+    assert after == before
