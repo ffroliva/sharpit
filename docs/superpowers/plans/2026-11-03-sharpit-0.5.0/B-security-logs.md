@@ -30,7 +30,7 @@ Red rule: PLAN.md §Red rule.
 ## Must-cover
 
 `test_security_event_values_masked_everywhere`, `test_stream_guarded`, `test_security_logs_get_no_side_effects`,
-`test_inactive_security_logs_paths_404`, `test_mcp_tools_list_has_only_get`, `test_report_golden_parity`.
+`test_inactive_security_logs_paths_404`, `test_mcp_tools_list_has_only_get`, `tests/fastapi/test_security_logs_api.py::test_report_golden_parity`.
 
 Detail (scenario rows 5, 6, 20, 36):
 
