@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import linecache
 import sys
 import tokenize
 import tracemalloc
@@ -161,6 +162,25 @@ def test_side_effect_guard_ignores_reads_outside_the_app(tmp_path: Path, monkeyp
         guard.unwatch_sources()
 
     assert error is None
+
+
+def test_side_effect_guard_sees_a_read_through_a_warm_linecache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # fix round 1: the host's FastAPI reads its endpoint's source (inspect.getsourcelines) on the first request, so
+    # linecache is warm before the sweep watches; a later inspect.getsource by sharpit must still be reported
+    root = _app_root(tmp_path, monkeypatch)
+    linecache.getlines(str(root / "main.py"))  # the host warmed the cache
+    guard = SideEffectGuard(tmp_path / "state")
+    guard.watch_sources(root)
+    try:
+        linecache.getlines(str(root / "main.py"))  # what inspect.getsource does
+        error = _verify_error(guard)
+    finally:
+        guard.unwatch_sources()
+        linecache.clearcache()
+
+    assert error is not None, "a read served by a warm linecache was not reported"
 
 
 # --- the shared sweeps watch the sample app's source (0.5.0 spec §4.4: every lane's no_side_effects test inherits it)
