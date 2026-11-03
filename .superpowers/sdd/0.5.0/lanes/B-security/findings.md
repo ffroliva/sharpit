@@ -97,3 +97,34 @@ its red SHA, where the rule did not exist, which is the "remove it and a named t
 | Observation | Status |
 |---|---|
 | `app_package="examples.fastapi_sqla"` scans the whole top-level `examples` package, so the live check reports `examples/fastapi_sample/app.py` literals: `appsource.resolve_package_root` returns the top-level package by design (F5a, must-not-touch) | for the coordinator |
+
+## Fix round 1 (council-claude, council-gemini, review-gemini-r1)
+
+Reds replayed at `f377fbe` (`red_check.py`: 10 RED, 2 pins); fix `7253641`.
+
+| Test | Red SHA | Assertion message | Disposition |
+|---|---|---|---|
+| tests/engine/collectors/security/test_fix_round1.py::test_mounted_sub_app_cors_with_credentials_is_flagged | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `AssertionError: assert [] == ['CORSMiddleware at /api']` | Fixed in `7253641` |
+| tests/engine/collectors/security/test_fix_round1.py::test_mounted_sub_app_cors_message_names_the_mount | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `assert [] == ['CORSMiddlew...s reflected.']` | Fixed in `7253641` |
+| tests/engine/collectors/security/test_fix_round1.py::test_mounted_trusted_host_allowing_any_host_is_flagged | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `AssertionError: assert [] == ['TrustedHost...ware at /api']` | Fixed in `7253641` |
+| tests/engine/collectors/security/test_fix_round1.py::test_middleware_instance_wrapping_a_mount_is_a_limitation | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `AssertionError: assert 'CORSMiddleware options on the app mounted at /w were not read.' in ()` | Fixed in `7253641` |
+| tests/engine/collectors/security/test_fix_round1.py::test_literal_secret_as_keyword_dict_value_default_or_field | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `AssertionError: assert [] == ['shop/wiring.../wiring.py:8']` | Fixed in `7253641` |
+| tests/engine/collectors/security/test_fix_round1.py::test_literal_secret_shapes_message_has_no_value | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `assert [] != []` | Fixed in `7253641` |
+| tests/engine/collectors/security/test_fix_round1.py::test_unsecured_write_with_an_ordinary_dependency_is_flagged | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `AssertionError: assert [] == ['POST /items']` | Fixed in `7253641` |
+| tests/engine/collectors/security/test_fix_round1.py::test_cors_origins_as_set_or_frozenset_are_read | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `AssertionError: assert [[], []] == [['CORSMiddle...SMiddleware']]` | Fixed in `7253641` |
+| tests/engine/collectors/security/test_fix_round1.py::test_short_session_secret_wrapped_in_secret_types_is_flagged | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `AssertionError: assert [[], []] == [['SessionMid...nMiddleware']]` | Fixed in `7253641` |
+| tests/engine/collectors/security/test_fix_round1.py::test_bcrypt_zero_rounds_is_flagged | f377fbe9fe284fb4498f21b53a80d22131e656e7 | `AssertionError: assert [] == ['shop/hashin...hashing.py:2']` | Fixed in `7253641` |
+
+| Test | Historical SHA | Why | Proof |
+|---|---|---|---|
+| tests/engine/collectors/security/test_fix_round1.py::test_mounted_trusted_host_does_not_cover_the_root_app | f377fbe9fe284fb4498f21b53a80d22131e656e7 | pin: guards the new mounted reads (a sub-app's TrustedHost must not satisfy the root) | `_host_header` back to `if not trusted:`: `assert [] == ['ASGI middleware stack']` |
+| tests/engine/collectors/security/test_fix_round1.py::test_long_session_secret_wrapped_in_secret_types_is_not_flagged | f377fbe9fe284fb4498f21b53a80d22131e656e7 | pin: guards the Secret unwrap (a long wrapped key is fine) | `_secret_text` returning `""`: `assert [['SessionMid...nMiddleware']] == [[], []]` |
+
+| Review item | Resolution |
+|---|---|
+| claude #1 mounted middleware | `FastApiIntrospector._mounted_middleware` reads each mounted Starlette app's `user_middleware` with the same readers (`MiddlewareFacts.mount`); a middleware instance wrapping a mount is a limitation; findings name the mount; `SEC-FAPI-001` absence counts only the root's TrustedHost |
+| claude #2 literal shapes | `_named_values`: keyword arguments, string dict keys, parameter defaults, `Field(default=...)`/`Field(...)` |
+| gemini Medium / claude #3 | `_unsecured_writes` no longer skips `unchecked_dependency`; docs row says an ordinary dependency does not count |
+| claude #4 / gemini minor 3 | `_secret_text` unwraps Starlette `Secret` (`_value`) and pydantic `SecretStr` (`_secret_value`) from the instance dict, no `str()` |
+| gemini minor 2 | `_strings` accepts exact `set`/`frozenset` |
+| gemini minor 1 | `_first_int` keeps `0` |

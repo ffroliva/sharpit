@@ -69,6 +69,19 @@ ruff 0, format 0 (591 files), pyright 0 errors; lane + safety matrix + test_tool
 alone: n+1 and capture pass; sql-trace statement is flaky on both sides (base `bf43b1b`: 1 failed, 1 passed; head: 2
 passed). No hot-path file is in the lane diff; the budgets need the coordinator's quiet paired run.
 
+## Fix round 1
+
+Merge of release/0.5.0: `f863561` (bundle conflict resolved by rebuilding; no duplicated top-level defs). Red `f377fbe`
+(10 RED, 2 pins mutation-proven), fix `7253641`: mounted sub-apps' middleware read statically (a wrapping middleware
+instance is a limitation), SEC-SRC-001 keyword/dict/default/`Field` literals, SEC-AUTHZ-001 past ordinary dependencies,
+set/frozenset origins, `Secret`/`SecretStr` session keys, bcrypt `rounds=0`. Docs rows updated. Introspector and spi
+stay additions-only vs release/0.5.0.
+
+Gates: ruff, format, pyright 0; lane + safety matrix + test_tools + code shape + import boundary: 1339 passed,
+1 skipped. Full suite (`-n 4`): 5124 passed, 17 skipped, 7 failed, all in `tests/fastapi/test_transactions_*`
+(order-dependent under xdist: the same 7 fail on release/0.5.0 with `-n 4 tests/fastapi`; both files pass alone at
+head and on release, 16 passed).
+
 ## Open questions for the coordinator
 
 1. The post-scan golden (G0) is absent: `test_post_scan_golden_parity` stays `unverified`.
