@@ -1497,14 +1497,16 @@ SCOPED_PYPROJECTS = (
 )
 
 
-def test_dependency_lanes_change_only_the_test_extra(tmp_path: Path) -> None:
-    for lane, allowed in {"F5a-harness": False, "U20-memory": False, "W-workload": False, "F": True}.items():
-        fx = _lane_fixture(tmp_path, lane)
-        for pyproject in SCOPED_PYPROJECTS:
-            fx.commit({"pyproject.toml": pyproject}, "build: a dependency outside the test extra")
-            fx.review()
-            refused = _refused(fx.evaluate(), "dependency list changed: pyproject.toml")
-            assert refused is not allowed, f"{lane}: {pyproject}"
+@pytest.mark.parametrize(  # one lane per test: four lanes in one test neared the 60 s pytest-timeout under load
+    ("lane", "allowed"), [("F5a-harness", False), ("U20-memory", False), ("W-workload", False), ("F", True)]
+)
+def test_dependency_lanes_change_only_the_test_extra(tmp_path: Path, lane: str, allowed: bool) -> None:
+    fx = _lane_fixture(tmp_path, lane)
+    for pyproject in SCOPED_PYPROJECTS:
+        fx.commit({"pyproject.toml": pyproject}, "build: a dependency outside the test extra")
+        fx.review()
+        refused = _refused(fx.evaluate(), "dependency list changed: pyproject.toml")
+        assert refused is not allowed, f"{lane}: {pyproject}"
 
 
 def test_pin_and_na_rows_skip_reds_only_in_findings_md() -> None:
