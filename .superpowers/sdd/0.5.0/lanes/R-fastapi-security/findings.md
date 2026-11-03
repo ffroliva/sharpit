@@ -74,3 +74,13 @@ user_middleware): `test_user_getattribute_never_runs_on_any_surface` covers it.
 | Test | Mutation (reverted) | Failure under the mutation |
 |---|---|---|
 | tests/fastapi/test_introspection_trap.py::test_class_provider_resource_is_its_definition_line | `_first_line`: `if not inspect.isclass(target):` → `if True:` (no line for any class) | `'...test_introspection_trap.py' == '...test_introspection_trap.py:178'` (also fails `test_class_provider_line_never_touches_class_attributes`) |
+
+## Fix round 2 (council round 2: `council-claude.md` "## Round 2")
+
+| Finding | Test | Red SHA | Assertion message | Disposition |
+|---|---|---|---|---|
+| Claude #7: a mount adding no middleware took the chain appended last (a sibling's), so its routes and opaque/StaticFiles rows showed the sibling's filters | tests/fastapi/test_introspector_security.py::test_mount_without_middleware_keeps_its_parent_chain | ece3654d28f30adb57c1be9624d6b1531b1ef9d1 | `[('/api/ping', 1), ('/static/{path}', 1)] == [('/api/ping', 0), ('/static/{path}', 0)]` | Fixed in `564a09a` |
+
+`red_check.py`: RED (assertion under `tests/`). Claude #8 (low, a hand-written ASGI wrapper around `StaticFiles` is
+"served as is"): accepted as the reviewer suggests, a deviation-log note for the coordinator (it under-claims security;
+the wrapper is listed in the chain's filters).

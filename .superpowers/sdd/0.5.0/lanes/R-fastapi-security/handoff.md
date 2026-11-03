@@ -138,3 +138,14 @@ in this round's files: `test_request_overhead_budget`, `test_statement_overhead_
 `ImportError` in `tests/test_overhead_harness.py` (`from conftest import TIMING_MODULES` resolved to
 `tests/fixtures/apps/unbounded_read/conftest.py`: the release/0.5.0 fix `1e5741d` still collides under xdist). Re-run
 alone at the head: all four files 33 passed. Question for the coordinator: the `TIMING_MODULES` import on release/0.5.0.
+
+## Fix round 2 (council round 2)
+
+Red `ece3654`, fix `564a09a`: `_chains` passes the parent's chain index down; a mount whose stack is empty maps to it
+instead of `len(chains) - 1`. Claude #8 (low): for the spec §14 deviation log (coordinator): a pure-ASGI wrapper around
+a framework app is "served as is" (`unsecured`, wrapper in the filters), never over-claimed as secured.
+
+Gates at round 2: ruff, format, pyright 0 errors; lane files green (one `test_sqlite_console` cross-test leak under
+xdist, outside the diff). Full suite (`-n auto`, busy machine): 4723 passed, 14 failed, all outside the diff: three
+overhead budgets and eleven `tests/scripts/test_red_check.py` cases failing as xdist worker crashes. Re-run alone,
+`test_red_check.py` and `test_n_plus_one_overhead.py` give 22 passed. The budgets need the coordinator's quiet paired run.
