@@ -31,7 +31,7 @@ depth 8 and `functools.partial` through `vars(partial_obj)["func"]`; callable in
 `unverified`),
 `test_report_golden_parity`, `test_decorated_handler_resolved_to_inner_function`,
 `test_callable_instance_endpoint_skipped_without_getattr`, `test_partial_and_library_handlers_skipped_with_limitation`,
-`test_trap_route_untouched_by_every_introspecting_surface` (via `trap_surfaces_fastapi.py`),
+`tests/fastapi/test_introspection_trap.py::test_trap_route_untouched_by_every_introspecting_surface` (R-fastapi-security's test; it collects this lane's `trap_surfaces_fastapi.py`) (via `trap_surfaces_fastapi.py`),
 `test_sync_endpoint_doing_io_flagged`, `test_blocking_call_in_async_flagged`, `test_sync_endpoint_without_io_not_flagged`,
 `test_violation_never_contains_literal_secret`, `test_scan_reads_only_app_package`, `test_get_after_scan_opens_no_source_file`,
 `test_read_only_blocks_scan`, `test_inactive_fastapi_paths_404`, `test_fastapi_get_no_side_effects`,

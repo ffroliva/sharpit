@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 TESTS = ROOT / "tests"
@@ -204,6 +206,8 @@ def misses(patch: Patch) -> list[str]:
     ]
 
 
+# imports every module to resolve patch targets: 50-59 s alone, so 60 s killed its worker under load
+@pytest.mark.timeout(300)
 def test_patch_targets_are_defined_where_called() -> None:
     patches = sqla_patches()
     problems = [problem for patch in patches for problem in misses(patch)]

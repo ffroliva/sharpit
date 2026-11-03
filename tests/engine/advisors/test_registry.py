@@ -22,7 +22,7 @@ def _owner(rule: str) -> str | None:
 def test_registry_owns_today_ids():
     assert {_owner(rule) for rule in RULE_IDS} == {"rest-api"}
     assert _owner("GHSA-aaaa::pypi:jinja2") == "vulnerabilities"
-    assert _owner("SPRING-WEB-001") is None
+    assert _owner("QUARKUS-WEB-001") is None
     assert _owner("RAPI-NOPE") is None  # an unported RAPI- id has no owner
 
 
