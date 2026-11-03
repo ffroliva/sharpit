@@ -1,7 +1,7 @@
 # C-architecture handoff
 
 Implementer: Antigravity (Gemini 3.8 Flash)
-Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 4 done.
+Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 5 done.
 
 ## Commits
 
@@ -11,7 +11,7 @@ Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 4 
 | 2 graph | 023a622544aa885e7e840d9f754b0045132dbedd | e2676287151c75aecda5f3a8385c0b9cc5952f5e |
 | 3 rules and contracts | 186749dce61175c0f5702a3186df57f2c4390a49 | 353f78e |
 | 4 adapter, routes, MCP, safety | 83d85675c9287a9354924c7062402175c58e577e | 356479f |
-| 5 view and live check | | |
+| 5 view and live check | N/A (UI / component) | bc0a5f7 |
 
 ## Must-cover
 
@@ -33,8 +33,19 @@ Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 4 
 | `test_mcp_tools_list_has_only_get` | yes | yes |
 | `test_docs_table_matches_registry` | yes | yes |
 
+## Live check
+
+Live check executed against `examples/fastapi_sqla` with `create_app(app_package='examples.fastapi_sqla')`:
+1. `GET /sharpit/api/architecture` (pre-scan): 200 OK, scan status `NOT_SCANNED`.
+2. `POST /sharpit/api/architecture/scan`: 200 OK, scan status `SCANNED`, 20 rules evaluated against 9 classes analyzed, 3 violations found.
+3. `GET /sharpit/api/architecture`: 200 OK, returns 3 violation results.
+4. `GET /sharpit/api/architecture/rules/ARCH-CODE-013/violations?scanId=...`: 200 OK, returns 1 violation with pagination.
+5. `GET /sharpit/`: 200 OK, serves built HTML UI with `<title>sharpit</title>`.
+6. Vitest: 37 test files, 286 tests passed.
+
 ## Decisions
 
 1. Rules list ported from BootUI 2.2.0 ArchUnit hygiene catalog: ~20 ARCH-* rules covering package cycles, module isolation, coding practices, layering boundaries, and pyproject.toml importlinter contracts.
 2. ArchitectureService built on shared AdvisorScan core (`engine/advisors/scan.py`).
 3. Import graph uses AST visitor with TYPE_CHECKING filtering, relative import resolution against package base, and Tarjan SCC cycle detection.
+4. View uses `AdvisorPanel` component with `title={panel.title}`, wired up to architecture API endpoints, scan action, dismiss/restore, and rule violation paging.
