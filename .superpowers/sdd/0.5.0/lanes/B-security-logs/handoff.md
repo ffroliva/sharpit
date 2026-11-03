@@ -56,6 +56,15 @@ pays one tuple-membership test, as before this lane.
   sharpit limit tool); BootUI's guide default 20 is not applied. No required args, so no TOOL_ARGS/TOOL_SEEDS.
 - Stream: reuses `change_events` + `sse_response` (shared coalescing, not BootUI's 750 ms; unchanged).
 
+## Final run (e5bc7fc)
+
+Lane tests + the three Q2/Q3 files + overhead harness: 96 passed. ruff, `ruff format --check`, pyright (whole tree):
+clean. Full suite `-n 4` (log `0.5.0-integration/.superpowers/sdd/0.5.0/logs/B-security-logs-pytest2.log`): 5090 passed,
+16 skipped, 4 failed, all timing-sensitive under load: three budgets (security-logs 6.1 µs with 7.3 µs noise;
+n+1 lazy-load 36.9 vs 35 µs, noise 32; transactions) and `test_overhead_measures_production_contexts_path`
+(transactions lane; passes alone, 2/2). The budget file alone: see findings §Overhead (4/5 ok, one OVER inside noise;
+the exact pin 5/5).
+
 ## Coordinator rulings
 
 Q1 done on release (c63623b, merged in 1c4d1e2). Q2/Q3 approved and applied in cc700e5. Q4: perf audit; budget kept
