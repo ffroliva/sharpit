@@ -92,3 +92,16 @@ the wrapper is listed in the chain's filters).
 | Claude #9: `_chains` stopped at a mount's middleware wrapper, so mounts nested in it fell to chain 0 without its middleware | tests/fastapi/test_introspector_security.py::test_mount_nested_in_a_middleware_mount_keeps_that_middleware | 6983a761c5be1b30fc1bc42aa5ace695b488220e | `() == ('starlette.middleware.gzip.GZipMiddleware',)` | Fixed in `9c8a664` |
 
 `red_check.py`: RED (assertion under `tests/`).
+
+## Fix round 4 (lowest-direct CI: FastAPI 0.115.7, Python 3.12)
+
+| Failure | Cause | Disposition |
+|---|---|---|
+| tests/fastapi/test_introspector_security.py::test_scopes_floor_and_newest_classify_same | The test, not the introspector: its `_floor_shape` builds the floor copy from `own_oauth_scopes`/`parent_oauth_scopes`, which a real 0.115 `Dependant` does not have, so the copy holds no scopes. The real 0.115 app classifies `('admin', 'read')` (the expected side of the diff). Red at `9106999` too (before every fix round), so not the static `__dict__` read. | Left red: the fix is a test edit after its red commit (coordinator's call: e.g. `_floor_shape` keeps a node's own `security_scopes` when `own_oauth_scopes` is absent, or skip below 0.120). New pin `test_scopes_read_at_the_installed_fastapi` (`0b3f586`) holds on both legs. |
+| tests/pytest_plugin/test_plugin_inert.py::test_plain_run_untouched | Lane-caused (base subset `tests/fastapi tests/pytest_plugin` at lowest: 616 passed; head: fails). `test_introspection_trap.py` calls `get_paths()` at import, which installs the sample app and patches `sqlite3.connect` during collection; `test_sqlite_console.py`, collected later, records the patched function as `REAL_CONNECT` and its teardown re-installs it. Also the cause of the `test_sqlite_console` flakes seen at locked versions in rounds 1-2. | Fixed in `d308ee5` (the trap module detaches sqlite/SQLAlchemy hooks right after `get_paths()`). Proof: a spy plugin printing every change of `sqlite3.connect` between tests: before, `PATCHED after test_console_shows_sqlite3_data_source` and never restored; after, no change, and the head subset gives 665 passed with only the scopes test failing. |
+
+### Pin
+
+| Test | Mutation (reverted) | Failure under the mutation (lowest-direct venv) |
+|---|---|---|
+| tests/fastapi/test_introspector_security.py::test_scopes_read_at_the_installed_fastapi | `_scopes` drops the `security_scopes` fallback | `[('/a', ('GET',), ((BEARER, True, ()),))] == [... ('admin', 'read') ...]` |

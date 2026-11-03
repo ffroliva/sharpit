@@ -154,3 +154,12 @@ overhead budgets and eleven `tests/scripts/test_red_check.py` cases failing as x
 
 Red `6983a76`, fix `9c8a664`: `_chains` keeps the wrapper's types in the stack and goes on into the unwrapped sub-app.
 Only `introspector.py` changed in src: lane test files 107 passed, 1 skipped; ruff, format, pyright clean. No full suite (per the coordinator).
+
+## Fix round 4 (lowest-direct CI)
+
+- Item 1 (`test_scopes_floor_and_newest_classify_same`): a test bug, red since `9106999`; the introspector reads 0.115
+  scopes correctly. Needs a coordinator decision to edit the test (it is past its red commit). Pin added: `0b3f586`.
+- Item 2 (`test_plain_run_untouched`): not base; the lane's trap module left `sqlite3.connect` patched at collection.
+  Fixed in `d308ee5`.
+- Locked versions: lane files 552 passed, 4 skipped; ruff, format, pyright clean. Lowest-direct `tests/fastapi
+  tests/pytest_plugin`: 665 passed, 1 failed (item 1). `uv.lock` restored, not committed.
