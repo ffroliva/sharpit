@@ -11,14 +11,28 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-B.md` §1 (shared advisor contract), §2 (rules, DTOs, Python mapping, [JVM] drops); golden `security/captured.json` (pre-scan) + G0's `security/scanned.captured.json` if present |
 | **Worker** | claude-flavio (Opus); reviewer codex |
 | **Council** | **required** |
-| **Depends on** | R-fastapi-security merged (consumes `SecurityModel`), F5 (`advisors/scan.py`, `appsource.py`) |
-| **May touch** | `src/sharpit/engine/collectors/security/` (new package: `__init__.py`, `rules_auth.py`, `rules_transport.py`, `rules_config.py`, `rules_source.py`, `report.py`; each < 600 lines), `src/sharpit/engine/spi.py` (append-only, if a field is missing from `SecurityModel`), `src/sharpit/fastapi/introspector.py` (append-only: a read helper for middleware options, `vars()` only), `src/sharpit/fastapi/routes/security.py` (F stub), `src/sharpit/engine/panels04/security.py` + `ui/src/lib/panels04/security.ts` (flag only), `src/sharpit/engine/tools04/security.py`, `ui/src/views/Security.svelte` + test, `docs/security-advisor-checks.md` (new catalogue table), `tests/engine/collectors/security/`, `tests/fastapi/test_security_api.py`, `tests/safety/test_b_security_safety.py`, `tests/masking/test_b_security_masking.py`, `tests/test_security_docs_table.py`, `tests/fixtures/bootui/2.2.0/security/nullable.json`, the lane folder |
-| **Must NOT touch** | `engine/appsource.py`, `engine/advisors/scan.py`, `settings.py` (F5's); guard, masking engine, activation |
+| **Depends on** | R-fastapi-security merged (consumes `SecurityModel`; R0 on `introspector.py`/`spi.py`), F5a (`advisors/scan.py` with the security scope hook, `appsource.py` incl. the getenv helpers) |
+| **May touch** | `src/sharpit/engine/collectors/security/` (new package: `__init__.py`, `rules_auth.py`, `rules_transport.py`, `rules_config.py`, `rules_source.py`, `report.py`; each < 600 lines), `src/sharpit/engine/spi.py` (append-only, if a field is missing from `SecurityModel`), `src/sharpit/fastapi/introspector.py` (append-only: a read helper for middleware options, `vars()` only), `src/sharpit/fastapi/routes/security.py` (F stub), `src/sharpit/engine/panels04/security.py` + `ui/src/lib/panels04/security.ts` (flag only), `src/sharpit/engine/tools04/security.py`, `ui/src/views/Security.svelte` + test, `docs/security-advisor-checks.md` (new catalogue table), `tests/engine/collectors/security/`, `tests/fastapi/test_security_api.py`, `tests/safety/test_b_security_safety.py`, `tests/fastapi/trap_surfaces_security.py`, `tests/masking/test_b_security_masking.py`, `tests/test_security_docs_table.py`, `tests/fixtures/bootui/2.2.0/security/nullable.json`, the lane folder |
+| **Must NOT touch** | `engine/appsource.py`, `engine/advisors/scan.py`, `settings.py` (F5a's); guard, masking engine, activation |
 
-**Architecture:** One `AdvisorScan` (F5) with this lane's rule list. Rules are pure functions
+**Architecture:** One `AdvisorScan` (F5a) with this lane's rule list. Rules are pure functions
 `(SecurityModel, SourceIndex | None, settings view) -> list[Violation]`. The adapter builds the `SecurityModel` and the
 `SourceIndex` on POST only. Middleware options (CORS origins, TrustedHost hosts) are read as booleans/classes
 ("allows any origin", "credentials on"), never serialised as values (0.4.0 B decision).
+
+**Contract surface inventory** (WAVE-B §1, §2): `GET {api}/security` (cached report), `POST {api}/security/scan`,
+`GET {api}/security/rules/{id}/violations`; MCP `get_security_report`, `get_security_rule_violations`; `security_scan`
+CLI-only (deviation, spec §14). Any other BootUI route found in `SecurityController` is built or logged.
+
+Red rule: PLAN.md §Red rule. `test_report_golden_parity` against the pre-scan golden is a pin (F5a's core emits it);
+the post-scan assertion is the red once G0 delivers.
+
+## Must-cover
+
+`test_violation_never_contains_literal_secret`, `test_get_after_scan_opens_no_source_file`,
+`test_scan_reads_only_app_package`, `test_trap_route_untouched_by_every_introspecting_surface` (re-run with the security
+surfaces), `test_scopes_floor_and_newest_classify_same`, `test_read_only_blocks_scan`, `test_inactive_security_paths_404`,
+`test_security_get_no_side_effects`, `test_mcp_tools_list_has_only_get`, `test_docs_table_matches_registry`.
 
 ## Review Focus
 
@@ -46,8 +60,8 @@ then the rules:
 - auth: routes with no security dependency on a non-public path; docs routes exposed without one; mixed auth schemes.
 - transport: CORS `*` with credentials; no TrustedHost; no HTTPS redirect when `--proxy-headers`-style deployment
   flags are absent (best effort, `bestEffort: true`).
-- config: `debug=True`; `SECRET_KEY`-style settings with a literal default (`os.getenv("X", "dev-secret")`, the
-  config collector's existing detection reused, not copied).
+- config: `debug=True`; `SECRET_KEY`-style settings with a literal default (`os.getenv("X", "dev-secret")`, via the
+  getenv helpers F5a moved into `engine/appsource.py`; never an import from `collectors/config`, architecture rule 3).
 - source: hardcoded secrets in the app package via `appsource` (pattern list from the masking corpus).
 - Each category's tests include `test_violation_never_contains_literal_secret` for its rules (the literal
   `sk-live-...` absent from message, preview and MCP output).
@@ -55,8 +69,10 @@ then the rules:
 ## Task 3: adapter, routes, MCP, safety
 
 - [ ] **Step 1:** Tests: `test_get_after_scan_opens_no_source_file` (spy on `open`, `io.open`, `Path.read_text`,
-  `Path.open` during the GET), `test_scan_reads_only_app_package`, `test_introspection_never_reads_or_calls_custom_route_attributes`
-  (shared trap route), `test_read_only_blocks_scan`, `test_inactive_security_paths_404`,
+  `Path.open` during the GET), `test_scan_reads_only_app_package`, `test_trap_route_untouched_by_every_introspecting_surface`
+  (R-fastapi-security's test file, extended with the security routes and tools through a parametrisation hook in
+  `tests/fastapi/test_introspection_trap.py`; B-security adds only its own parameter module
+  `tests/fastapi/trap_surfaces_security.py`), `test_scopes_floor_and_newest_classify_same`, `test_read_only_blocks_scan`, `test_inactive_security_paths_404`,
   `test_security_get_no_side_effects`, `test_mcp_tools_list_has_only_get` (`get_security_report`,
   `get_security_rule_violations`; `security_scan` CLI-only).
 - [ ] **Step 2:** Implement; flag on. Commit `feat: security advisor panel`.

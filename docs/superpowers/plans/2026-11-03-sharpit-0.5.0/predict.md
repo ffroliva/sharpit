@@ -6,6 +6,10 @@ sections (`BOOTUI-CONTRACT-0.4-WAVE-A.md` §2, §3, §4, §6; `-WAVE-B.md` §2, 
 `origin/main` @ `f5a7681`, without reading the others first. No subagents: the facts each persona needs were gathered
 once (listed under "Evidence read") and the personas disagree enough on their own.
 
+> Superseded in part by the high-tier council round 1 (BLOCK; resolved in spec r2 §15). The mitigations below were
+> carried forward; the council added C1–C4 and H1–H18, which this predict missed (notably the PostgreSQL-only
+> read-only wrapper and the 0.3.0 panels' drift).
+
 ## Verdict: CAUTION   Confidence: 6/10
 
 ## Summary

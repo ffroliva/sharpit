@@ -12,13 +12,25 @@
 | **Source** | upstream tracker U17 (BootUI needs 3 requests per route; sharpit flags per request: keep that, make the count configurable) |
 | **Worker** | codex gpt-6-luna (or claude-flavio if U20 is done and codex is busy); reviewer the other |
 | **Council** | **required** (a new action surface that drives the host app) |
-| **Depends on** | owner O5; U20-memory (R0: `pytest_plugin/options.py`); spike verdict |
+| **Depends on** | owner O5 (**OWNER-ONLY**; advisor recommends its own release); T-unbounded-read-2 (R0: `engine/testsession/gates.py`), which itself follows U20-memory (`pytest_plugin/options.py`); spike verdict |
 | **May touch** | `src/sharpit/engine/workload/` (new: `spec.py` (TOML via `tomllib`), `runner.py` (drives an ASGI callable passed in; no Starlette import in the engine: the adapter passes a `send(method, path, body) -> (status, elapsed_ns, facts)` callable), `compare.py`, `report.py`), `src/sharpit/fastapi/workload.py` (adapter: `httpx.ASGITransport` or Starlette `TestClient`, in-process), `src/sharpit/__main__.py` or the CLI module (`sharpit workload run|compare|sweep`), `src/sharpit/pytest_plugin/options.py` (`--sharpit-min-requests`), `src/sharpit/engine/testsession/gates.py` (evidence sufficiency: `insufficient` status per rule), `tests/engine/workload/`, `tests/fastapi/test_workload.py`, `tests/safety/test_w_workload_safety.py`, `docs/workload.md`, `docs/superpowers/spikes/2026-11-xx-workload.md`, the lane folder |
 | **Must NOT touch** | any GET route or MCP tool module (the workload is not reachable from either); `settings.py`; budgets |
 
+Additions after council round 1 (M9): `pyproject.toml`/`uv.lock` (a `workload` extra and the `sharpit` console entry
+point) only with O5, through F5-gate's `ALLOWED_PATHS`; non-GET requests in a spec are refused unless `--allow-writes`;
+activation honoured (sharpit inactive or a disabled profile → refused with the activation reason). Red rule: PLAN.md
+§Red rule; `test_workload_not_reachable_from_get_or_mcp` passes on the skeleton and is recorded as a pin with its
+mutation (register a dummy workload route in a scratch tree).
+
+## Must-cover
+
+`test_sharpit_opens_no_socket_or_listener`, `test_workload_report_masked`, `test_workload_not_reachable_from_get_or_mcp`,
+`test_writes_refused_without_allow_writes`, `test_workload_honours_activation`, `test_min_requests_insufficient_vs_clean`.
+
 ## Review Focus
 
-1. Zero sockets: the run is in-process; a socket spy counts no `connect`.
+1. sharpit opens no socket and no listening port (the app's own DB connections are allowed): a spy on `socket.socket`
+   creation from sharpit frames and on `bind`/`listen` counts zero.
 2. The report is masked aggregates only: no request or response body, no header value.
 3. Not reachable from a GET, an MCP tool or a running sharpit mount.
 
@@ -43,7 +55,7 @@ Verdict: `docs/superpowers/spikes/2026-11-xx-workload.md`.
 - [ ] Implement in O5's format. Commit `feat: workload compare, sweep and offline report`.
 
 ## Task 3: CLI and safety
-- [ ] Red commit: `test_workload_opens_no_socket`, `test_workload_not_reachable_from_get_or_mcp` (route table and
+- [ ] Red commit: `test_sharpit_opens_no_socket_or_listener`, `test_writes_refused_without_allow_writes`, `test_workload_honours_activation`, `test_workload_not_reachable_from_get_or_mcp` (pin; route table and
   `tools/list` contain nothing workload), `test_workload_refuses_without_app`. Implement the CLI. Commit
   `feat: sharpit workload CLI`.
 

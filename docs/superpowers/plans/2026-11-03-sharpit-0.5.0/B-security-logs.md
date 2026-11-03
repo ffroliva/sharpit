@@ -11,8 +11,8 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-B.md` §4; golden `security-logs/captured.json` (one real `AUTHENTICATION_SUCCESS` event, `page` metadata) |
 | **Worker** | codex gpt-6-luna; reviewer Opus |
 | **Council** | **required** (Wave B rule, 0.4.0 spec §8) |
-| **Depends on** | R-transactions (R0: `fastapi/capture.py`) |
-| **May touch** | the 0.4.0 lane's May-touch list, unchanged (incl. one assignment in `fastapi/capture.py` at the attach point and one export line in `src/sharpit/__init__.py`); the lane folder `.superpowers/sdd/0.5.0/lanes/B-security-logs/` |
+| **Depends on** | R-transactions (R0: `fastapi/capture.py`); R0 next: D2 |
+| **May touch** | `src/sharpit/engine/capture/securitylogs.py` (new), `src/sharpit/fastapi/capture.py` (one assignment of `CaptureState.security_logs` and `CaptureWiring.on_security_event` at the attach point, nothing else), `src/sharpit/__init__.py` (one export line `record_security_event`), `src/sharpit/fastapi/routes/security_logs.py`, `src/sharpit/engine/panels04/security_logs.py`, `ui/src/lib/panels04/security_logs.ts`, `src/sharpit/engine/tools04/security_logs.py`, `ui/src/views/SecurityLogs.svelte`, `ui/tests/component/SecurityLogs.test.ts`, `tests/engine/capture/test_securitylogs.py`, `tests/fastapi/test_security_logs_api.py`, `tests/fastapi/test_security_logs_overhead.py`, `tests/safety/test_b_security_logs_safety.py`, `tests/masking/test_b_security_logs_masking.py`, `tests/fixtures/bootui/2.2.0/security-logs/nullable.json`, the lane folder `.superpowers/sdd/0.5.0/lanes/B-security-logs/` |
 | **Must NOT touch** | `settings.py` (`security_logs_max_logs` exists, `settings.py:93`); guard; other lanes' modules |
 
 ## Deltas from the 0.4.0 plan
@@ -25,7 +25,14 @@
 3. No framework source emits `AUTHENTICATION_SUCCESS`; only `record_security_event` does (spec §14).
 4. Task 0: predict (lane level) + `/sharpit:llm-council --tier high` → `council.md`.
 
-## Must-cover tests (scenario rows 5, 6, 20, 36)
+Red rule: PLAN.md §Red rule.
+
+## Must-cover
+
+`test_security_event_values_masked_everywhere`, `test_stream_guarded`, `test_security_logs_get_no_side_effects`,
+`test_inactive_security_logs_paths_404`, `test_mcp_tools_list_has_only_get`, `test_report_golden_parity`.
+
+Detail (scenario rows 5, 6, 20, 36):
 
 - `test_security_event_values_masked_everywhere` — `data={"details": "Bearer eyJhbGciOi..."}` and a 401 exchange
   with `Authorization`: masked in GET, stream frame and MCP `get_security_logs`; principal unchanged.

@@ -12,9 +12,18 @@
 | **Source** | upstream tracker U3, U14; 0.4.0 lane `T-unbounded-read` (`lane/0.4.0-T-unbounded-read`, 21 commits, not on `main` at planning time) |
 | **Worker** | codex gpt-6-luna (built T-unbounded-read); reviewer Opus |
 | **Council** | not required |
-| **Depends on** | T-unbounded-read on `main`/`release/0.5.0`; U20-memory (R0: `fastapi/capture.py`, `facts.py`) |
+| **Depends on** | T-unbounded-read on `release/0.5.0`; D2 (R0: `fastapi/capture.py`); U20-memory (R0: `facts.py`, `gates.py`). R0 next: W-workload (`gates.py`). Spike may run now; build only on GO |
 | **May touch** | `src/sharpit/fastapi/capture.py` (response item count, one block, only on GO), `src/sharpit/engine/capture/correlation.py`, `src/sharpit/engine/testsession/facts.py`, `src/sharpit/engine/testsession/gates.py` (`_unbounded_read_findings`), `tests/fastapi/test_capture_item_count.py`, `tests/fastapi/test_capture_item_count_overhead.py`, `tests/pytest_plugin/test_plugin_unbounded_read_2.py`, `tests/fixtures/apps/unbounded_read_2/`, `docs/superpowers/spikes/2026-11-xx-unbounded-read.md`, the lane folder |
 | **Must NOT touch** | `engine/sqla/` (T-unbounded-read's ORM load counting is reused as is), the capture budget constant |
+
+Red rule: PLAN.md §Red rule. Overhead verdicts under multi-agent load are `parked: budget under load` and re-measured
+paired in a quiet window.
+
+## Must-cover (GO only)
+
+`test_item_count_overhead_budget`, `test_non_paged_route_loading_10000_returning_10_found`,
+`test_export_route_returning_all_not_flagged`, `test_paged_route_behaviour_unchanged`,
+`test_streaming_response_skipped_with_limitation`.
 
 ## Review Focus
 

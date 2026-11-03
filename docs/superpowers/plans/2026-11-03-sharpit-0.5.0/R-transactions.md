@@ -12,8 +12,8 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-A.md` §2; golden `tests/fixtures/bootui/2.2.0/transactions/captured.json` (real rows) |
 | **Worker** | codex gpt-6-luna (implemented the 0.4.0 lane); reviewer Opus |
 | **Council** | not required |
-| **Depends on** | F5 (the `sqla.py` edit lands in `engine/sqla/events.py`) |
-| **May touch** | everything in the 0.4.0 lane's May-touch list, with `src/sharpit/engine/sqla.py` read as `src/sharpit/engine/sqla/events.py` (the commit-failure / post-commit connection event only); plus `src/sharpit/fastapi/capture.py` lines 46–50 and `tests/test_foundation_round2.py` (review minor 7, ratified here); the lane folder `.superpowers/sdd/0.5.0/lanes/R-transactions/` |
+| **Depends on** | F5b (the `sqla.py` edit lands in `engine/sqla/events.py`); R0 next: B-security-logs, D2 (`fastapi/capture.py`, `install.py`) |
+| **May touch** | resolved from `git diff --name-only origin/main...666a0ab`: `src/sharpit/engine/capture/transactions.py`, `src/sharpit/engine/panels04/transactions.py`, `src/sharpit/engine/sqla/events.py` (the branch's `sqla.py` hunk: commit-failure / post-commit connection event only), `src/sharpit/engine/tools04/transactions.py`, `src/sharpit/fastapi/capture.py` (lines 46–50; review minor 7 ratified), `src/sharpit/fastapi/install.py` (`_configure_capture` only), `src/sharpit/fastapi/routes/transactions.py`, `tests/engine/capture/test_transactions.py`, `tests/fastapi/test_transactions_api.py`, `tests/fastapi/test_transactions_overhead.py`, `tests/fixtures/bootui/2.2.0/transactions/nullable.json`, `tests/masking/test_a_transactions_masking.py`, `tests/safety/test_a_transactions_safety.py`, `tests/test_foundation_round2.py` (minor 7 ratified), `ui/src/lib/panels04/transactions.ts`, `ui/src/views/Transactions.svelte`, `ui/tests/component/Transactions.test.ts`; the lane folder `.superpowers/sdd/0.5.0/lanes/R-transactions/` |
 | **Must NOT touch** | `engine/sqla/` modules other than `events.py`; `engine/capture/sqltrace.py`; `settings.py`; shared UI files; other lanes' modules; existing budget constants |
 
 ## Review Focus
@@ -21,6 +21,16 @@
 1. Two unnamed savepoints (SQLAlchemy 2.1 fires `savepoint(conn, None)`) never overwrite each other.
 2. The ring is bounded even when every row stays open.
 3. A committed row is never rewritten to `UNKNOWN` by a later non-statement `handle_error`.
+
+Red rule: PLAN.md §Red rule. Third attempt by the same implementer: the reviewer replays round 2's majors as the named
+reds below **before** reading the new code.
+
+## Must-cover
+
+`test_nested_unnamed_savepoint_rollback_is_rolled_back`, `test_untracked_inner_savepoint_does_not_close_tracked_outer`,
+`test_ring_stays_bounded_when_every_entry_is_open`, `test_savepoint_depth_reset_after_error_and_checkin`,
+`test_later_non_statement_error_does_not_rewrite_committed_row`, `test_report_golden_parity`,
+`test_transactions_get_no_side_effects`, `test_error_message_masked`.
 
 ## Task 0: rebase and baseline
 
@@ -43,8 +53,11 @@
   - `test_ring_stays_bounded_when_every_entry_is_open` — `max_entries=3`, 30 begins, no end →
     `len(entries) <= 6` (expected failure: 30).
   - `test_evicted_open_row_counts_unknown` — the evicted open row increments `unknownCount` and `evicted`.
-- [ ] **Step 2:** Savepoints keyed by a per-connection depth counter in `conn.info`; open rows past capacity kept up
-  to `2 × max_entries`, then the oldest evicted as `UNKNOWN`.
+  - `test_savepoint_depth_reset_after_error_and_checkin` — a savepoint raises mid-way, the connection goes back to the
+    pool and is checked out again: the next `begin_nested()` is depth 1 (expected failure: stale depth 2).
+- [ ] **Step 2:** Savepoints keyed by a per-connection depth counter in `conn.info`, reset on the pool `checkin` and
+  `reset` events (registered through the `engine/sqla/events.py` slot); open rows past capacity kept up to
+  `2 × max_entries`, then the oldest evicted as `UNKNOWN`.
 - [ ] **Step 3:** Green. Commit `fix: bound the transactions ring and key savepoints by depth`.
 
 ## Task 2: minors (review findings 3, 4, 5, 6, 8, 9, 10)

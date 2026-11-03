@@ -12,8 +12,8 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-B.md` §3; goldens `fastapi-security/captured.json`, `endpoints.captured.json` |
 | **Worker** | claude-flavio (Opus); reviewer codex |
 | **Council** | **required** (`council.md` is Task 0; it was the missing 0.4.0 prerequisite) |
-| **Depends on** | F5 |
-| **May touch** | the 0.4.0 lane's May-touch list (`engine/collectors/appsecurity.py`, `engine/spi.py` append-only, `fastapi/introspector.py`, `fastapi/routes/fastapi_security.py`, the flag files, `engine/tools04/fastapi_security.py`, `ui/src/views/FastapiSecurity.svelte` + test, `tests/engine/test_appsecurity.py`, `tests/fastapi/test_introspector_security.py`, `tests/fastapi/test_fastapi_security_api.py`, `tests/safety/test_b_fastapi_security_safety.py`, `tests/masking/test_b_fastapi_security_masking.py`, `fastapi-security/nullable.json`); the lane folder |
+| **Depends on** | F5a; R0 next: B-security (`introspector.py`, `spi.py`) |
+| **May touch** | resolved from `git diff --name-only origin/main...12a67b5`: `src/sharpit/engine/collectors/appsecurity.py`, `src/sharpit/engine/panels04/fastapi_security.py`, `src/sharpit/engine/spi.py` (append-only), `src/sharpit/engine/tools04/fastapi_security.py`, `src/sharpit/fastapi/introspector.py` (incl. the shared `_walk`), `src/sharpit/fastapi/routes/fastapi_security.py`, `tests/engine/test_appsecurity.py`, `tests/fastapi/test_fastapi_security_api.py`, `tests/fastapi/test_introspector_routes.py`, `tests/fastapi/test_introspector_security.py`, `tests/fixtures/bootui/2.2.0/fastapi-security/nullable.json`, `tests/masking/test_b_fastapi_security_masking.py`, `tests/safety/test_b_fastapi_security_safety.py`, `ui/src/lib/panels04/fastapi_security.ts`, `ui/src/views/FastapiSecurity.svelte`, `ui/tests/component/fastapiSecurity.test.ts`; plus `tests/fastapi/test_introspection_trap.py` (new: the trap over every introspecting GET and MCP tool; it also collects surfaces from `tests/fastapi/trap_surfaces_*.py` so later lanes add a file, never edit this one); the lane folder |
 | **Must NOT touch** | `pytest_plugin/` and `tests/pytest_plugin/` (a fix there is a finding for the coordinator, not this lane); guard, activation, masking engine; `settings.py` |
 
 ## Review Focus
@@ -21,6 +21,15 @@
 1. No `getattr` on an unknown route class; a trap property is never evaluated.
 2. Routes of an opaque or plain-Starlette sub-app are `unknown` + `bestEffort`.
 3. `test_live_engine_driver_counts_as_covered` is green at the lane head.
+
+Red rule: PLAN.md §Red rule.
+
+## Must-cover
+
+`test_introspection_never_reads_or_calls_custom_route_attributes`, `test_trap_route_untouched_by_every_introspecting_surface`,
+`test_custom_apiroute_subclass_still_classified`, `test_mount_property_never_evaluated`,
+`test_plain_starlette_subapp_routes_are_unknown_best_effort`, `test_scopes_floor_and_newest_classify_same`,
+`test_live_engine_driver_counts_as_covered`, `test_report_golden_parity`.
 
 ## Task 0: council and rebase
 
@@ -47,9 +56,19 @@
   - `test_plain_starlette_subapp_routes_are_unknown_best_effort` — `app.mount("/sub", Starlette(routes=[...],
     middleware=[auth]))`; `/sub/secret` is `rule: "unknown"`, `bestEffort: true` in endpoints and explain (expected
     failure: `unsecured`, `false`).
-- [ ] **Step 2:** Read `vars(route)` only for `APIRoute`, `Route`, `Mount`, `WebSocketRoute`, `Host`, `Router` (exact
-  `type(...) in` check, not `isinstance`, so a subclass is unknown); never descend into a sub-app that is not a
-  `FastAPI` instance for dependency classification.
+  - `test_custom_apiroute_subclass_still_classified` — `APIRouter(route_class=TimedRoute)` where `TimedRoute(APIRoute)`:
+    routes, endpoints, mappings and rest-api still classify it (guards the shared `_walk`; a pin today on `main`,
+    red if Step 2 used an exact-type check).
+  - `test_mount_property_never_evaluated` — a `Mount` subclass whose `routes` property counts reads → 0.
+  - `test_trap_route_untouched_by_every_introspecting_surface` — the trap route mounted; GET every introspecting route
+    (mappings, rest-api report/scan via CLI, fastapi-security report/endpoints/explain) and call every introspecting
+    MCP tool; counter 0.
+  - `test_scopes_floor_and_newest_classify_same` — the same app classified identically with `security_scopes`
+    (FastAPI 0.115, lowest-direct leg) and `own_oauth_scopes` (≥ 0.120).
+- [ ] **Step 2:** `isinstance` against `APIRoute`, `APIWebSocketRoute`, `Route`, `WebSocketRoute`, `Mount`, `Host`,
+  `Router` (subclasses stay classified); read attributes only with `vars(route)` / `inspect.getattr_static` (no
+  descriptor runs); a `Mount`'s app from `vars(mount)["_base_app"]`, type-checked; never descend into a sub-app that is
+  not a `FastAPI` instance for dependency classification; anything else `unknown` + `bestEffort`.
 - [ ] **Step 3:** Green; the 0.4.0 lane tests green. Commit `fix: static-only route reads in the security model`.
 
 ## Task 2: finish the panel

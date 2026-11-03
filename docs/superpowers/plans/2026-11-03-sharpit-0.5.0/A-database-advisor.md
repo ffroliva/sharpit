@@ -1,66 +1,91 @@
-# Lane A-database-advisor: the `database-advisor` panel
+# Lanes A-dbadv-1 and A-dbadv-2: the `database-advisor` panel
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development (or executing-plans), one task
-> at a time, `/sharpit:check` before every commit. Steps use `- [ ]` checkboxes.
+> at a time, `/sharpit:check` before every commit. Steps use `- [ ]` checkboxes. Red rule: PLAN.md §Red rule.
+> Two lanes, run in order; each has its own worktree, evidence folder and gate run.
 
-| | |
-|---|---|
-| **Lane id** | `A-database-advisor` (worktree `C:\development\github\sharpit-wt\0.5.0-A-database-advisor`, branch `lane/0.5.0-A-database-advisor`) |
-| **Goal** | BootUI's database advisor: 33 portable checks over a bounded, read-only POST scan of the app's engines plus the mapped models and the SQL Trace ring; GET serves the cached report; paged violations. |
-| **Spec** | §5, §5.8; 0.4.0 spec §6.4 |
-| **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-A.md` §4; BootUI `docs/DATABASE-ADVISOR-CHECKS.md` and `engine/databaseadvisor/` (rule texts); golden `database-advisor/captured.json` (pre-scan) + G0's `scanned.captured.json` if present |
-| **Worker** | codex gpt-6-luna, high; reviewer Opus |
-| **Council** | not required (database access rules are 0.4.0 §6.4, unchanged); `ponytail-review` mandatory (touches `engine/sqla/`) |
-| **Depends on** | F5; R-transactions merged (R0: `engine/sqla/`); A-mysql merged (leased MySQL, vendor SQL conventions) |
-| **May touch** | `src/sharpit/engine/sqla/inspect.py` (F5's empty module: `inspect()`-based catalog reads, bounded), `src/sharpit/engine/collectors/database_advisor/` (new: `catalog.py` (DTOs from the inspector rows), `rules_schema.py`, `rules_orm.py`, `rules_runtime.py`, `rules_driver_pool.py`, `rules_vendor.py`, `report.py`), `src/sharpit/fastapi/routes/database_advisor.py` (F stub), the flag files, `src/sharpit/engine/tools04/database_advisor.py`, `ui/src/views/DatabaseAdvisor.svelte` + test, `docs/database-advisor-checks.md`, `tests/engine/collectors/database_advisor/`, `tests/engine/test_sqla_inspect.py`, `tests/fastapi/test_database_advisor_api.py`, `tests/fastapi/test_database_advisor_leased.py`, `tests/safety/test_a_database_advisor_safety.py`, `tests/masking/test_a_database_advisor_masking.py`, `tests/test_database_advisor_docs_table.py`, `tests/fixtures/bootui/2.2.0/database-advisor/nullable.json`, the lane folder |
-| **Must NOT touch** | `engine/sqla/` modules other than `inspect.py`; `engine/capture/sqltrace.py` (read its report only); `engine/collectors/data.py` (call its model walker, never edit); `settings.py` |
+| | A-dbadv-1 | A-dbadv-2 |
+|---|---|---|
+| **Worktree / branch** | `C:\development\github\sharpit-wt\0.5.0-A-dbadv-1`, `lane/0.5.0-A-dbadv-1` | `...\0.5.0-A-dbadv-2`, `lane/0.5.0-A-dbadv-2` |
+| **Goal** | Bounded read-only catalog reads, schema and driver/pool rules, the panel (routes, tools, view) on F5a's core | ORM rules (configured-gate), `DB-RUNTIME-001`, vendor rules (`DB-PG-*`, `DB-MYSQL-*`) |
+| **Worker** | codex gpt-6-luna, high; reviewer Opus; `ponytail-review` mandatory (touches `engine/sqla/`) | codex or claude-flavio; reviewer the other |
+| **Council** | not required (0.4.0 §6.4 + F5b's council) | not required |
+| **Depends on** | F5a, F5b (R0 `engine/sqla/`: it owns `sqla/inspect.py`, a different file from R-transactions' `events.py`, so no edge to R-transactions). Lease scheduling: after A-mysql frees the MySQL lease; with no lease, PostgreSQL + SQLite only and MySQL `unverified` | A-dbadv-1 merged |
+| **May touch** | `src/sharpit/engine/sqla/inspect.py`, `src/sharpit/engine/collectors/database_advisor/{__init__,catalog,rules_schema,rules_driver_pool,report}.py`, `src/sharpit/fastapi/routes/database_advisor.py`, `src/sharpit/engine/panels04/database_advisor.py`, `ui/src/lib/panels04/database_advisor.ts`, `src/sharpit/engine/tools04/database_advisor.py`, `ui/src/views/DatabaseAdvisor.svelte`, `ui/tests/component/DatabaseAdvisor.test.ts`, `docs/database-advisor-checks.md`, `tests/engine/collectors/database_advisor/`, `tests/engine/test_sqla_inspect.py`, `tests/fastapi/test_database_advisor_api.py`, `tests/fastapi/test_database_advisor_leased.py`, `tests/safety/test_a_database_advisor_safety.py` (declares `database_advisor_scan`), `tests/masking/test_a_database_advisor_masking.py`, `tests/test_database_advisor_docs_table.py`, `tests/fixtures/bootui/2.2.0/database-advisor/nullable.json`, the lane folder | `src/sharpit/engine/collectors/database_advisor/{rules_orm,rules_runtime,rules_vendor}.py`, the rule registration list in `database_advisor/__init__.py`, `docs/database-advisor-checks.md` (status column), `tests/engine/collectors/database_advisor/test_rules_{orm,runtime,vendor}.py`, the lane folder |
+| **Must NOT touch** | `engine/sqla/` except `inspect.py`; `engine/capture/sqltrace.py` (report API only); any collector (rule 3: the mapper walk is `engine/sqla/orm.py`); `settings.py` | `engine/sqla/` (calls `sqla/orm.py`, never edits it), routes, tools, view |
 
-**Architecture:** POST → `run_db_read(read_only=True)` → `sqla.inspect.catalog(conn, bounds)` returns plain dicts
-(tables ≤ 300, columns ≤ 300 per table, indexes ≤ 100 per table, vendor rows ≤ 500), cooperative 20 s budget →
-rules (pure functions over the catalog, the mapped models from `install(models=...)` read without configuring mappers,
-the SQL Trace report, the engine's pool class and URL query parameters; the password is never read). Dialect gating:
-`DB-PG-*` on PostgreSQL, `DB-MYSQL-*` on MySQL/MariaDB, `DB-ORACLE-*` dropped ([vendor], listed); others `SKIPPED`
-with a reason.
+**Architecture (A-dbadv-1):** POST → `run_db_read(read_only=True)` (F5b's verified path on PostgreSQL, MySQL/MariaDB,
+SQLite; other dialects → `unavailableReason`) → `sqla.inspect.catalog(conn, bounds)` returns plain dicts (tables ≤ 300,
+columns ≤ 300 per table, indexes ≤ 100 per table, vendor rows ≤ 500; cooperative 20 s) → rules → F5a's core with the
+database-advisor scope hook (`dataSourceNames`, `dataSources`, `diagnostics`, `tablesAnalyzed`, `rulesSkipped`,
+`rulesErrored`, `suppression`, `truncated`). Driver/pool rules read the pool class and an **allow-list of URL query
+keys** (`pool_pre_ping`, `pool_recycle`, `connect_timeout`, `charset`, `sslmode` presence only); never a value, never
+`url.password`.
 
-## Review Focus
+**Architecture (A-dbadv-2):** ORM rules read mappers only through `engine/sqla/orm.py`'s configured-gate: an
+unconfigured registry makes those rules `SKIPPED` with a reason, never `configure_mappers()` (`mapper.relationships`
+would configure). `DB-RUNTIME-001` reads the SQL Trace report. Vendor rules run on their dialect, `SKIPPED` elsewhere;
+`DB-ORACLE-*` dropped (vendor), listed.
 
-1. A GET runs no SQL and configures no mapper.
-2. Truncation is reported (`truncated: true`, diagnostic), never silent.
-3. Driver/pool rules read the URL query and pool class only; `url.password` never touched (spy).
+**Contract surface inventory** (WAVE-A §4, `DatabaseAdvisorController`): `GET {api}/database-advisor`,
+`POST {api}/database-advisor/scan`, `GET {api}/database-advisor/rules/{id}/violations`, the changes route and the
+rule-detail route (exact suffixes copied from the controller in Task 1, built, not omitted); MCP
+`get_database_advisor_report`, `get_database_advisor_rule_violations`; `database_advisor_scan` CLI-only (§14).
 
-## Tasks
+## Must-cover
+
+A-dbadv-1: `test_report_golden_parity`, `test_table_bound_truncates`, `test_index_bound_per_table`,
+`test_catalog_inside_read_only_wrapper`, `test_dbadv_read_uses_verified_read_only_path`, `test_autocommit_engine_is_unavailable`,
+`test_password_never_read`, `test_query_string_secret_never_read_or_emitted`, `test_driver_error_dsn_password_masked`,
+`test_statement_text_masked`, `test_read_only_blocks_scan`, `test_inactive_database_advisor_paths_404`,
+`test_database_advisor_get_no_side_effects`, `test_mcp_tools_list_has_only_get`, `test_changes_and_rule_detail_routes`,
+`test_read_only_wrapper_rejects_write` (leased PG + MySQL).
+
+A-dbadv-2: `test_scan_never_configures_mappers`, `test_unconfigured_registry_skips_orm_rules`,
+`test_unsupported_dialect_skips_vendor_rules`, one test per ORM/runtime/vendor rule.
+
+## A-dbadv-1 tasks
 
 ### Task 1: contract and catalogue
-- [ ] Red commit: `test_report_golden_parity` (pre-scan; post-scan if G0), `test_docs_table_matches_registry` (33 P,
-  the rest dropped with reason), field map, `nullable.json`.
+- [ ] Copy the controller's route list into this file's inventory. Red commit: `test_report_golden_parity` (pre-scan:
+  a pin with the scope hook; post-scan red if G0), `test_docs_table_matches_registry` (33 P, the rest dropped with
+  reason), field map, `nullable.json`.
 
 ### Task 2: bounded catalog reads (`engine/sqla/inspect.py`)
-- [ ] Red commit on sqlite + the leased PostgreSQL: `test_table_bound_truncates` (1,000 tables → 300,
-  `truncated`), `test_index_bound_per_table`, `test_catalog_inside_read_only_wrapper` (a write attempted by a test
-  hook inside the scan is rejected), `test_catalog_timeout_is_a_diagnostic`. Implement. Commit
-  `feat: bounded catalog reads for the database advisor`.
+- [ ] Red commit (skeleton `catalog` returns `{}`; assertions on counts and flags): `test_table_bound_truncates`
+  (1,000 sqlite tables → 300, `truncated is True`), `test_index_bound_per_table`, `test_catalog_inside_read_only_wrapper`
+  (sqlite: a write attempted from a test hook inside the scan fails with "readonly database"),
+  `test_catalog_timeout_is_a_diagnostic`. Implement. Commit `feat: bounded catalog reads for the database advisor`.
 
-### Task 3: rules (one commit per family)
-- [ ] Red commits, one test per check (`# ported: DatabaseAdvisorAuditRulesTests.<method>` where present):
-  schema (FK without index, table without PK, nullable FK, duplicate index, wide varchar PK, ...), orm (relationship
-  without `lazy` choice on a hot path, missing `index=True` on a filtered column seen in SQL Trace, ...), runtime
-  (`DB-RUNTIME-001` from the SQL Trace ring), driver/pool (`pool_pre_ping` off, `NullPool` under a server, no
-  `pool_recycle` on MySQL, ...), vendor (`DB-PG-*`, `DB-MYSQL-*`). `test_unsupported_dialect_skips_vendor_rules`.
-  `test_password_never_read` (spy on `URL.password`).
+### Task 3: schema and driver/pool rules
+- [ ] Red commits, one test per check (`# ported: DatabaseAdvisorAuditRulesTests.<method>` where present), plus
+  `test_password_never_read` (spy on `URL.password`), `test_query_string_secret_never_read_or_emitted`
+  (`?password=x&sslpassword=y&token=z`: no value in the report or MCP output). Commit per family.
 
 ### Task 4: routes, MCP, safety
-- [ ] Red commit: `test_autocommit_engine_is_unavailable`, `test_read_only_blocks_scan`,
-  `test_inactive_database_advisor_paths_404`, `test_database_advisor_get_no_side_effects` (no SQL, no mapper
-  configuration: 0.4.0's `test_get_never_configures_mappers` pattern), `test_mcp_tools_list_has_only_get`
-  (`get_database_advisor_report`, `get_database_advisor_rule_violations`; `database_advisor_scan` CLI-only),
-  `test_statement_text_masked` (violation previews from SQL Trace masked). Flag on. Commit
-  `feat: database advisor panel`.
+- [ ] Red commit: `test_dbadv_read_uses_verified_read_only_path` (spy: `bounded` never called),
+  `test_autocommit_engine_is_unavailable`, `test_driver_error_dsn_password_masked`, `test_statement_text_masked`,
+  `test_read_only_blocks_scan`, `test_inactive_database_advisor_paths_404`, `test_database_advisor_get_no_side_effects`,
+  `test_mcp_tools_list_has_only_get`, `test_changes_and_rule_detail_routes`. Flag on. Commit `feat: database advisor panel`.
 
 ### Task 5: leased databases, view, live check
-- [ ] `tests/fastapi/test_database_advisor_leased.py` on PostgreSQL and MySQL (coordinator runs;
-  `gate/leased-pg.log`, `gate/leased-mysql.log`). Svelte view (reference `views/DatabaseAdvisor.vue`), vitest; live
-  check on `examples/fastapi_sqla`. Commit `feat: database advisor view`.
+- [ ] `tests/fastapi/test_database_advisor_leased.py` on PostgreSQL and MySQL (coordinator; `gate/leased-pg.log`,
+  `gate/leased-mysql.log`). Svelte view (reference `views/DatabaseAdvisor.vue`), vitest; live check. Commit
+  `feat: database advisor view`.
+
+## A-dbadv-2 tasks
+
+### Task 1: ORM rules
+- [ ] Red commit: `test_scan_never_configures_mappers` (an unconfigured registry with a relationship whose target is
+  a string: after the scan `registry.configured is False`), `test_unconfigured_registry_skips_orm_rules`, one test per
+  `DB-HIB-*` analogue. Implement. Commit `feat: database advisor ORM rules`.
+
+### Task 2: runtime and vendor rules
+- [ ] Red commit: `DB-RUNTIME-001` from a seeded SQL Trace ring; `DB-PG-*` on PostgreSQL (leased), `DB-MYSQL-*` on
+  MySQL (leased; skip = unverified), `test_unsupported_dialect_skips_vendor_rules`. Implement. Commit
+  `feat: database advisor runtime and vendor rules`.
 
 ## Evidence
 
-`.superpowers/sdd/0.5.0/lanes/A-database-advisor/`: `handoff.md`, `findings.md`, `field-map.md`, `checklist.md`.
+`.superpowers/sdd/0.5.0/lanes/A-dbadv-1/` and `.../A-dbadv-2/`: `handoff.md`, `findings.md`, `field-map.md`,
+`checklist.md`.

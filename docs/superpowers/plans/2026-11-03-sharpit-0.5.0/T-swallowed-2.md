@@ -11,9 +11,17 @@
 | **Source** | upstream tracker U1, U2, U17, U19; 0.4.0 lane `T-swallowed-exceptions` (merged, `3ddeaea`) |
 | **Worker** | Claude subagent; reviewer codex |
 | **Council** | not required |
-| **Depends on** | P-0.4.1 (R0: `gates.py`) |
+| **Depends on** | none (its files are disjoint from P-0.4.1's; council M10). Branches from `main`, like P |
 | **May touch** | `src/sharpit/engine/testsession/swallowed.py` (AST rule only, behind a red), `tests/engine/testsession/test_swallowed.py`, `tests/pytest_plugin/test_plugin_swallowed_bench.py` (new), `tests/fixtures/apps/swallow_twins/` (new), the lane folder |
 | **Must NOT touch** | the `sys.monitoring` hook and its tool-id logic, budgets, `gates.py` |
+
+Red rule: PLAN.md §Red rule. Task 2's probes are run first; only a probe that fails becomes a red commit, the others
+are recorded as pins with their mutation.
+
+## Must-cover
+
+`test_library_warn_does_not_hide_app_swallow`, `test_swallow_in_loop_is_one_finding`, `test_db_error_swallow_found`,
+`test_logged_handler_is_not_a_finding`.
 
 ## What 0.4.0 already does
 
@@ -36,7 +44,8 @@ the fact is cached per handler and type, so a swallow in a loop is one finding (
   "handled" (`_report(e)`), logged in spec §14; if green, record.
 - [ ] `test_non_logger_error_call_is_not_logging` — `except Exception: response.error("x")` (an object that is not a
   logger) counted as logging today (false negative)? If red: restrict `_LOG_CALLS` to receivers named `log`, `logger`,
-  `_log`, `LOGGER`, `logging` or a `getLogger(...)` result; logged in §14.
+  `_log`, `_logger`, `LOG`, `LOGGER`, `logging`, or a module-level name assigned from `logging.getLogger(...)`,
+  `structlog.get_logger(...)` or `loguru.logger`; logged in §14.
 - [ ] Commit per fix `fix: swallowed rule <edge>`.
 
 ## Evidence
