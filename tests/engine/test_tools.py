@@ -136,16 +136,17 @@ def _tool(name: str, handler: Callable[[CallContext, dict[str, Any]], dict[str, 
 
 
 def test_catalogue_names_panels_actions_and_schemas():
-    # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows, panel and action names)
+    # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows plus the 2.2.0 capture tools, panel and action names)
     rows = [(t.name, t.panel, t.action, t.input_schema) for t in TOOLS]
-    assert rows[24:] == [(t.name, t.panel, t.action, t.input_schema) for t in lane_tools()]
-    assert rows[:24] == [
+    assert rows[25:] == [(t.name, t.panel, t.action, t.input_schema) for t in lane_tools()]
+    assert rows[:25] == [
         ("get_overview", "overview", False, NONE_SCHEMA),
         ("get_config", "config", False, QUERY_LIMIT_SCHEMA),
         ("get_mappings", "mappings", False, QUERY_LIMIT_SCHEMA),
         ("get_loggers", "loggers", False, QUERY_LIMIT_SCHEMA),
         ("get_beans", "beans", False, QUERY_LIMIT_SCHEMA),
         ("get_http_exchanges", "http-exchanges", False, LIMIT_SCHEMA),
+        ("get_http_routes", "http-exchanges", False, LIMIT_SCHEMA),
         ("get_log_tail", "log-tail", False, NONE_SCHEMA),
         ("get_exceptions", "exceptions", False, NONE_SCHEMA),
         ("get_exception_detail", "exceptions", False, ID_SCHEMA),

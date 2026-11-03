@@ -32,7 +32,7 @@ def test_http_exchanges_shape():
     client.get("/owners?page=2&token=abc", headers={"Authorization": "Bearer secret-value"})
     client.post("/owners")  # 405
     report = client.get(API).json()
-    assert list(report) == ["total", "recorded", "hiddenSelf", "exchanges", "page", "unavailableReason"]
+    assert list(report) == ["total", "recorded", "hiddenSelf", "exchanges", "page", "unavailableReason", "retention"]
     assert (report["total"], report["unavailableReason"]) == (2, None)
     newest, oldest = report["exchanges"]
     assert tuple(oldest) == DTO_KEYS

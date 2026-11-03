@@ -22,6 +22,7 @@ from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.capture import activity
 from sharpit.engine.capture.exceptions import unknown_group
 from sharpit.engine.capture.exchanges import unavailable_report
+from sharpit.engine.capture.routes import NOT_INSTALLED, summarize_http_routes
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.sqltrace import unavailable_report as sql_trace_unavailable
 from sharpit.engine.collectors.alembic import alembic_report
@@ -266,12 +267,13 @@ def http_exchanges_report(
     status_class: str | None,
     offset: int | None,
     limit: int | None,
+    route: str | None = None,
 ) -> dict[str, Any]:
     """``HttpExchangesReport``; unavailable when request capture is not installed for this context."""
     buffer = ctx.capture.exchanges
     if buffer is None:
-        return unavailable_report("Request capture is not installed")
-    return buffer.report(q, method, status_class, offset, limit)
+        return unavailable_report(NOT_INSTALLED)
+    return buffer.report(q, method, status_class, offset, limit, route)
 
 
 def log_tail_lines(ctx: SharpitContext) -> list[dict[str, Any]]:
@@ -345,6 +347,16 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "http-exchanges",
         False,
         lambda c, a: http_exchanges_report(c.ctx, None, None, None, None, a["limit"]),
+    ),
+    Tool(
+        "get_http_routes",
+        "Return the HTTP routes this application served, grouped by method and route template, with request counts, "
+        "status classes, errors and duration percentiles over the retained exchanges, ranked by requests, total time "
+        "and p95 latency. A path no route matched is grouped by its masked path; query strings are never used.",
+        _LIMIT_ONLY,
+        "http-exchanges",
+        False,
+        lambda c, a: summarize_http_routes(c.ctx.capture.exchanges, limit=a["limit"]),
     ),
     Tool(
         "get_log_tail",
@@ -534,6 +546,7 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_loggers": "loggers",
     "get_beans": "beans",
     "get_http_exchanges": "http exchanges",
+    "get_http_routes": "http routes",
     "get_log_tail": "logs tail",
     "get_exceptions": "exceptions list",
     "get_exception_detail": "exceptions show",
