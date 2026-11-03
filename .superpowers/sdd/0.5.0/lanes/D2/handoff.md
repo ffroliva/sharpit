@@ -51,6 +51,10 @@ Per-test reds, pins and their mutation proofs, and the paired overhead runs: `fi
   `routes/__init__.py`; `adapter.py` puts it back (commented `shortcut:`). Rename or move it when that file may change.
   (b) MCP compacted default limits need the "limit was given" fact that `engine/tool_dispatch.py` drops.
 
+- No-SQLAlchemy job: `test_activity_journal_filters_warn_on_the_buffer_feed` (red f7429da, not a must-cover name)
+  assumed SQLAlchemy installed; deleted and superseded by `test_activity_journal_filters_warn_only_when_given`, which
+  checks only the journal warning (findings.md, Historical SHA table). Passes with and without SQLAlchemy.
+
 ## Full suite after the rulings
 
 5295 passed, 5 failed, 24 skipped (log: integration logs/D2-pytest2.log, a 10-minute run under machine load). The

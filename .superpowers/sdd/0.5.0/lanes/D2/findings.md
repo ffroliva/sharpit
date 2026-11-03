@@ -29,7 +29,6 @@ Every red below was checked with `scripts/dev/red_check.py` before its `test:` c
 | tests/engine/capture/test_activity.py::test_activity_buffer_source_emits_warning_on_journal_only_filters | f7429daae5488f5d022d50b976ef187b3bcfe3d9 | journal-only filters on the buffer feed say they do not apply | Fixed in 37d49a25acf902fd5c49918740b30bc72d79385f |
 | tests/fastapi/test_activity_api.py::test_activity_journal_golden_parity | f7429daae5488f5d022d50b976ef187b3bcfe3d9 | GET /activity/journal is served | Fixed in 37d49a25acf902fd5c49918740b30bc72d79385f |
 | tests/fastapi/test_activity_api.py::test_activity_resources_golden_parity | f7429daae5488f5d022d50b976ef187b3bcfe3d9 | GET /activity/resources is served | Fixed in 37d49a25acf902fd5c49918740b30bc72d79385f |
-| tests/fastapi/test_activity_api.py::test_activity_journal_filters_warn_on_the_buffer_feed | f7429daae5488f5d022d50b976ef187b3bcfe3d9 | the route filter adds no journal warning | Fixed in 37d49a25acf902fd5c49918740b30bc72d79385f |
 | tests/fastapi/test_activity_api.py::test_get_request_profile_mcp_tool | f7429daae5488f5d022d50b976ef187b3bcfe3d9 | the MCP answer has a result (Unknown tool error) | Fixed in 37d49a25acf902fd5c49918740b30bc72d79385f |
 | tests/safety/test_d2_safety.py::test_capture_drift_get_no_side_effects | f7429daae5488f5d022d50b976ef187b3bcfe3d9 | every 2.2.0 capture GET is served | Fixed in 37d49a25acf902fd5c49918740b30bc72d79385f |
 | tests/safety/test_d2_safety.py::test_new_tools_read_only | f7429daae5488f5d022d50b976ef187b3bcfe3d9 | both 2.2.0 capture tools are listed | Fixed in 37d49a25acf902fd5c49918740b30bc72d79385f |
@@ -44,6 +43,8 @@ committed. No test changed after its recorded red SHA.
 |---|---|---|
 | tests/engine/capture/test_http_routes.py::test_capture_overhead_budget_unchanged | e1895b79a2a52339feacc76c40339e77168e2073 | scratch copy at f7429da, `BUDGET_MS = 0.3` in test_capture_overhead.py: `AssertionError: test_capture_overhead.py assert 'BUDGET_MS = 0.3' == 'BUDGET_MS = 0.2'` |
 | tests/masking/test_d2_masking.py::test_unmatched_path_secret_never_reaches_route_labels | f7429daae5488f5d022d50b976ef187b3bcfe3d9 | scratch copy at f7429da, `route_of` returns the path unmasked and `exchange_row` passes the raw path: `assert 'eyJhbGciOiJ...' not in '{"available...'` (the JWT reaches `/http-exchanges/routes`) |
+| tests/fastapi/test_activity_api.py::test_activity_journal_filters_warn_on_the_buffer_feed | f7429daae5488f5d022d50b976ef187b3bcfe3d9 | red at that SHA (no journal warning); assumes SQLAlchemy installed (its no-warning check fails in the no-sqlalchemy job), superseded by tests/fastapi/test_activity_api.py::test_activity_journal_filters_warn_only_when_given and deleted |
+| tests/fastapi/test_activity_api.py::test_activity_journal_filters_warn_only_when_given | 37d49a25acf902fd5c49918740b30bc72d79385f | added after the fix (supersedes the row above): with the journal warning removed from `activity_report` it fails `AssertionError: {'route': '/pets'} assert 'The route, run, request id, ...' in ['SQL: SQLAlchemy is not imported by this application']` |
 
 ## Existing pins updated for the 2.2.0 contract (keys added, nothing removed or loosened)
 

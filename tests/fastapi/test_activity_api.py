@@ -204,14 +204,17 @@ def test_activity_resources_golden_parity():
     assert resp.json()["available"] is False, "no resource track: memory keys stay null until U20"
 
 
-def test_activity_journal_filters_warn_on_the_buffer_feed():
+def test_activity_journal_filters_warn_only_when_given():
+    # supersedes test_activity_journal_filters_warn_on_the_buffer_feed, which assumed SQLAlchemy is installed
+    from sharpit.engine.capture.activity import BUFFER_SOURCE_FILTERS
+
     app, _ = _app()
     client = _client(app)
     client.get("/pets")
     for params in ({"route": "/pets"}, {"run": "r"}, {"requestId": "x"}, {"noRequest": "true"}):
-        warnings = client.get(API, params=params).json()["warnings"]
-        assert any("runtime journal (source=journal)" in w for w in warnings), params
-    assert client.get(API, params={"noRequest": "false"}).json()["warnings"] == []
+        assert BUFFER_SOURCE_FILTERS in client.get(API, params=params).json()["warnings"], params
+    for params in ({}, {"noRequest": "false"}):
+        assert BUFFER_SOURCE_FILTERS not in client.get(API, params=params).json()["warnings"], params
 
 
 def test_get_request_profile_mcp_tool():
