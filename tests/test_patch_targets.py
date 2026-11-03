@@ -206,6 +206,22 @@ def misses(patch: Patch) -> list[str]:
     ]
 
 
+def test_uses_walks_each_source_file_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The scan asks ``uses`` once per patch; re-walking every src tree per patch made it 150 s (T-suite-speed)."""
+    real = _scoped
+    walks: list[ast.Module] = []
+
+    def counting(tree: ast.Module) -> Iterator[tuple[ast.AST, bool]]:
+        walks.append(tree)
+        return real(tree)
+
+    monkeypatch.setitem(globals(), "_scoped", counting)
+    uses("first_name_nobody_uses", object())
+    after_first = len(walks)
+    uses("second_name_nobody_uses", object())
+    assert len(walks) == after_first, "uses() walked the src trees again for a second name"
+
+
 # imports every module to resolve patch targets: 50-59 s alone, so 60 s killed its worker under load
 @pytest.mark.timeout(300)
 def test_patch_targets_are_defined_where_called() -> None:
