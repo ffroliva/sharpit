@@ -61,7 +61,7 @@ Red tables, pins with mutations, rule-removal table: `findings.md`.
 | `tests/fastapi/test_introspector_routes.py::test_custom_apiroute_subclass_still_classified` | yes (red) | pass |
 | `tests/fastapi/test_introspector_routes.py::test_mount_property_never_evaluated` | yes (pin) | pass |
 | `tests/fastapi/test_fastapi_security_api.py::test_plain_starlette_subapp_routes_are_unknown_best_effort` | yes (0.4.0 red `95136a9`) | pass |
-| `tests/fastapi/test_introspector_security.py::test_scopes_floor_and_newest_classify_same` | yes (red) | pass |
+| `tests/fastapi/test_introspector_security.py::test_scopes_read_at_the_installed_fastapi` | yes (pin `0b3f586`, replaces the deleted floor-shape scopes test) | pass (locked and lowest-direct) |
 | `tests/pytest_plugin/test_plugin_reports.py::test_live_engine_driver_counts_as_covered` | yes (not lane-owned) | pass |
 | `tests/fastapi/test_fastapi_security_api.py::test_report_golden_parity` | yes | pass |
 
