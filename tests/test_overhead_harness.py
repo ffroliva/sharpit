@@ -7,6 +7,7 @@ machine adds noise in a known pattern. A correct harness reports ``TRUE`` whatev
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -162,3 +163,17 @@ def test_timing_is_skipped_while_a_coverage_tracer_runs(monkeypatch: pytest.Monk
     monkeypatch.setitem(__import__("sys").modules, "coverage", _ActiveCoverage)
     with pytest.raises(pytest.skip.Exception, match="coverage"):
         paired(lambda: 1.0, lambda: 1.0, rounds=1)
+
+
+def test_every_budget_module_runs_last() -> None:
+    # a budget timed mid-suite meets every xdist worker busy; tests/conftest.py orders TIMING_MODULES last
+    from conftest import TIMING_MODULES
+
+    timed = {
+        p.name
+        for p in Path(__file__).parent.rglob("test_*.py")
+        if re.search(r"^from tests\.overhead import .*\bcheck_budget\b", p.read_text(encoding="utf-8"), re.MULTILINE)
+    }
+    assert "test_capture_overhead.py" in timed  # the scan sees a known budget module
+    missing = timed - set(TIMING_MODULES) - {Path(__file__).name}  # this file times a fake clock
+    assert not missing, sorted(missing)

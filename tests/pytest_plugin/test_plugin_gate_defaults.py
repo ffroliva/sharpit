@@ -204,7 +204,7 @@ def test_clean_query():
 def test_require_app_no_app_is_unknown(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(_CLEAN_SUITE)
 
-    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-require-app", "--sharpit-report=report.json", "-q")
+    result = pytester.runpytest_inprocess("--sharpit", "--sharpit-require-app", "--sharpit-report=report.json", "-q")
 
     assert result.ret == 1
     data = json.loads((pytester.path / "report.json").read_text())
@@ -220,7 +220,7 @@ def test_require_app_ini_true_is_unknown(pytester: pytest.Pytester) -> None:
     """)
     pytester.makepyfile(_CLEAN_SUITE)
 
-    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
+    result = pytester.runpytest_inprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     assert result.ret == 1
     assert _rest_run(pytester)["status"] == "UNKNOWN"
@@ -282,7 +282,7 @@ def test_autodetect_ignores_test_module_apps(pytester: pytest.Pytester) -> None:
         """
     )
 
-    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
+    result = pytester.runpytest_inprocess("--sharpit", "--sharpit-report=report.json", "-q")
 
     assert "sharpit: using app realpkg.main:app (pass --sharpit-app to choose)" in result.stdout.str()
 
