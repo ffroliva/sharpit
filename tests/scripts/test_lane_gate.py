@@ -1297,3 +1297,25 @@ def test_must_cover_uses_full_node_ids_and_refuses_skips(tmp_path: Path) -> None
         leased, "`test_read_only_wrapper_rejects_write`", {LEASED_MYSQL: "skip:no server"}, accept_unverified=True
     )
     assert _refusals(run) == []
+
+
+FINDINGS_05 = (
+    "| finding | test (node id) | red SHA | red output (last assertion line) | disposition |\n|---|---|---|---|---|\n"
+)
+
+
+def test_findings_accept_pin_and_na_rows() -> None:
+    rows = (
+        f"| a | `{TEST_ID}` | `abc1234` | `assert 1 == 2` | fixed |\n"
+        "| b | `tests/test_w.py::test_pin` | | | pin: reverted widget() to 1, failed on assert widget() == 2 |\n"
+        "| c | `tests/test_w.py::test_p2` | `abc1234` | | pin: reverted the guard, failed on assert refused |\n"
+        "| d | | | | N/A — deletion |\n"
+        "| e | | | | parked: needs the owner |\n"
+    )
+    assert lane_gate._findings_refusals(FINDINGS_05 + rows) == []
+    reds, problems = lane_gate.red_tests({"findings.md": FINDINGS_05 + rows})
+    assert problems == []
+    assert [red.test for red in reds] == [TEST_ID]  # pin and N/A rows are never replayed
+    for bad in ("pin", "pin:", "pin: ", "N/A", "N/A —", "n/a: "):
+        row = f"| x | `tests/test_w.py::test_x` | | | {bad} |\n"
+        assert lane_gate._findings_refusals(FINDINGS_05 + row) != [], bad
