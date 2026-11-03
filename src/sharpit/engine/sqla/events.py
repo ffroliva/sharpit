@@ -8,7 +8,9 @@ from typing import Literal
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.sqla import _lock  # pyright: ignore[reportPrivateUsage] - one lock for the whole package
 
-ConnectionEvent = Literal["begin", "commit", "rollback", "savepoint", "rollback_savepoint", "release_savepoint"]
+ConnectionEvent = Literal[
+    "begin", "commit", "rollback", "savepoint", "rollback_savepoint", "release_savepoint", "handle_error"
+]
 CONNECTION_EVENTS: tuple[ConnectionEvent, ...] = (
     "begin",
     "commit",
@@ -16,13 +18,14 @@ CONNECTION_EVENTS: tuple[ConnectionEvent, ...] = (
     "savepoint",
     "rollback_savepoint",
     "release_savepoint",
+    "handle_error",
 )  # add_connection_listener's events (O1)
 
 
 def add_connection_listener(event: ConnectionEvent, fn: Callable[..., None]) -> Callable[[], None] | None:
     """Listen to the class-level ``Engine`` connection event ``event`` (O1 slot); returns an idempotent remover.
 
-    Inert until a lane calls it (A-transactions registers here and never edits this module).
+    Inert until a lane calls it (the transactions panel registers here).
     Returns ``None`` while SQLAlchemy is not imported: call it from a ``CaptureState.attachers`` entry, which the
     wiring retries at startup and on the first request, as ``add`` is retried.
     """

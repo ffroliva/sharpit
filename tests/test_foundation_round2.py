@@ -26,7 +26,7 @@ from sharpit.engine.panels import PANELS
 from sharpit.settings import load_settings
 
 LOCAL = ("127.0.0.1", 50000)
-CAPTURE_04 = ("transactions", "security-logs")
+CAPTURE_04 = ("security-logs",)
 DISCOVERY_04 = ("postgresql", "mysql", "database-advisor", "sqlalchemy-statistics")
 LEGACY_CAPTURE = ("http-exchanges", "exceptions", "sql-trace", "activity", "log-tail")
 LEGACY_DISCOVERY = ("alembic", "database-connection-pools", "health", "sql-trace")
