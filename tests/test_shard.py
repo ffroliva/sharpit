@@ -1,5 +1,6 @@
 """SHARPIT_SHARD=i/n splits the suite by test file: every test runs in exactly one shard."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -47,3 +48,17 @@ def test_a_malformed_shard_spec_is_an_error_not_the_whole_suite(
     monkeypatch.setenv("SHARPIT_SHARD", "3/2")
     result = pytester.runpytest("-p", "_shard", "-q", "-p", "no:cacheprovider")
     assert result.ret != 0
+
+
+WEIGHTS = json.loads((TESTS / "shard_weights.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+@pytest.mark.parametrize("n", [2, 3, 4])
+def test_measured_weights_balance_the_shards_within_the_longest_first_bound(platform: str, n: int) -> None:
+    weights: dict[str, float] = WEIGHTS[platform]
+    loads = [0.0] * n
+    for rel, seconds in weights.items():
+        loads[shard_of(rel, n, platform) - 1] += seconds
+    floor = max(max(weights.values()), sum(weights.values()) / n)  # no split by file beats this
+    assert max(loads) <= floor * 4 / 3, f"shard loads {[round(x) for x in loads]}, floor {floor:.0f}"
