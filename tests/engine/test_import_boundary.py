@@ -41,8 +41,31 @@ GATEKEEPERS: dict[str, set[str]] = {
 }
 
 
-# dotted call (or assignment target) -> changes interpreter state; F5a-harness fills it with its fix commit
-INTERPRETER_STATE_CALLS: frozenset[str] = frozenset()
+# a dotted call (or assignment target) that changes interpreter state; reads such as gc.get_objects() are not here
+_GC_CALLBACKS = ("append", "extend", "insert", "remove", "pop", "clear", "__setitem__", "__delitem__", "__iadd__")
+_MONITORING = ("use_tool_id", "free_tool_id", "clear_tool_id", "register_callback", "set_events", "set_local_events")
+INTERPRETER_STATE_CALLS: frozenset[str] = frozenset(
+    {
+        "tracemalloc.start",
+        "tracemalloc.stop",
+        "tracemalloc.clear_traces",
+        "gc.callbacks",
+        *(f"gc.callbacks.{m}" for m in _GC_CALLBACKS),
+        "gc.set_threshold",
+        "gc.disable",
+        "gc.enable",
+        "gc.freeze",
+        "gc.unfreeze",
+        "gc.set_debug",
+        "sys.settrace",
+        "sys.setprofile",
+        "threading.settrace",
+        "threading.setprofile",
+        "threading.settrace_all_threads",
+        "threading.setprofile_all_threads",
+        *(f"sys.monitoring.{m}" for m in _MONITORING),
+    }
+)
 SESSION_MODULES = {"sharpit/pytest_plugin", "sharpit/engine/testsession"}
 
 

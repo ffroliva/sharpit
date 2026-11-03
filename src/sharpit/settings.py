@@ -103,6 +103,22 @@ class SharpitSettings:
     transactions_max_entries: int = 200
     transactions_slow_transaction_threshold_millis: int = 200
     transactions_connection_hold_threshold_millis: int = 500
+    # 0.5.0 committed lanes (spec §4.5): BootUI's bootui.mysql.* (WAVE-A §6), BootUI's fixed database-advisor scan
+    # bounds (WAVE-A §4, settable here), the app-source index bounds (spec §4.2) and the app package override
+    mysql_max_sessions: int = 100
+    mysql_max_statements: int = 100
+    mysql_max_indexes: int = 500
+    mysql_max_tables: int = 200
+    mysql_max_lock_waits: int = 100
+    mysql_max_replication_channels: int = 10
+    mysql_max_settings: int = 40
+    database_advisor_max_tables: int = 300
+    database_advisor_max_columns: int = 300
+    database_advisor_max_indexes_per_table: int = 100
+    database_advisor_max_vendor_rows: int = 500
+    architecture_max_files: int = 2000
+    architecture_max_file_bytes: int = 524288
+    app_package: str | None = None  # dotted name, resolved through sys.modules only (never imported)
     warnings: tuple[str, ...] = ()
 
 
@@ -166,8 +182,8 @@ def _min_two_int(raw: object) -> int:
     return max(2, _non_negative_int(raw))
 
 
-def _postgresql_limit(raw: object) -> int:
-    """PostgreSQL row limits: 1..2147483646, so ``limit + 1`` (one past, to detect truncation) fits an int4."""
+def _row_limit(raw: object) -> int:
+    """PostgreSQL/MySQL row limits: 1..2147483646, so ``limit + 1`` (one past, to detect truncation) fits an int4."""
     n = _int(raw)
     if n > 2147483646:
         raise ValueError(raw)
@@ -184,6 +200,16 @@ def _duration(raw: object) -> float:
     if seconds <= 0:
         raise ValueError(raw)
     return seconds
+
+
+_MODULE_NAME = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
+
+
+def _module_name(raw: object) -> str:
+    name = _str(raw)
+    if not _MODULE_NAME.fullmatch(name):
+        raise ValueError(raw)
+    return name
 
 
 def _str(raw: object) -> str:
@@ -288,18 +314,32 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "advisors_max_retained_violations": (_int, None),
     "stream_max_seconds": (_duration, None),
     "security_logs_max_logs": (_int, None),
-    "postgresql_max_sessions": (_postgresql_limit, None),
-    "postgresql_max_statements": (_postgresql_limit, None),
-    "postgresql_max_indexes": (_postgresql_limit, None),
-    "postgresql_max_tables": (_postgresql_limit, None),
-    "postgresql_max_vacuum_tables": (_postgresql_limit, None),
-    "postgresql_max_replicas": (_postgresql_limit, None),
-    "postgresql_max_settings": (_postgresql_limit, None),
+    "postgresql_max_sessions": (_row_limit, None),
+    "postgresql_max_statements": (_row_limit, None),
+    "postgresql_max_indexes": (_row_limit, None),
+    "postgresql_max_tables": (_row_limit, None),
+    "postgresql_max_vacuum_tables": (_row_limit, None),
+    "postgresql_max_replicas": (_row_limit, None),
+    "postgresql_max_settings": (_row_limit, None),
     "transactions_enabled": (_bool, False),
     "transactions_recording": (_bool, False),
     "transactions_max_entries": (_int, None),
     "transactions_slow_transaction_threshold_millis": (_int, None),
     "transactions_connection_hold_threshold_millis": (_int, None),
+    "mysql_max_sessions": (_row_limit, None),
+    "mysql_max_statements": (_row_limit, None),
+    "mysql_max_indexes": (_row_limit, None),
+    "mysql_max_tables": (_row_limit, None),
+    "mysql_max_lock_waits": (_row_limit, None),
+    "mysql_max_replication_channels": (_row_limit, None),
+    "mysql_max_settings": (_row_limit, None),
+    "database_advisor_max_tables": (_int, None),
+    "database_advisor_max_columns": (_int, None),
+    "database_advisor_max_indexes_per_table": (_int, None),
+    "database_advisor_max_vendor_rows": (_int, None),
+    "architecture_max_files": (_int, None),
+    "architecture_max_file_bytes": (_int, None),
+    "app_package": (_module_name, None),
 }
 _DEFAULTS = SharpitSettings()
 _FIELDS = {f.name for f in dataclasses.fields(SharpitSettings)} - {"warnings"}

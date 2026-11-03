@@ -398,6 +398,7 @@ BASE_CLI_ACTIONS: list[tuple[str, str, Seed]] = [
     ("pause_sql_trace_recording", "sql-trace", _seed_sql_trace),
     ("resume_sql_trace_recording", "sql-trace", _seed_sql_trace),
     ("rest_api_scan", "rest-api", _seed_rest_api),
+    ("postgresql_read", "postgresql", _no_seed),  # its lane file predates CLI_ACTIONS
 ]
 
 

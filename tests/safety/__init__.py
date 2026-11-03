@@ -2,7 +2,9 @@
 
 A lane file may export ``PANEL`` (a sharpit panel id with a per-panel module: a 0.4 id or ``sql-trace``),
 ``GET_ROWS`` (every GET route path format the panel adds), ``WRITE_ROWS`` (every POST/PUT/PATCH/DELETE route as
-``(method, path format)``) and ``PATH_PARAMS`` (sample values for new path parameters). ``tests/test_safety_matrix.py``
+``(method, path format)``), ``PATH_PARAMS`` (sample values for new path parameters) and ``CLI_ACTIONS`` (the
+panel's CLI-only action tool names: ``test_cli_action_tools_gated`` checks each is refused when gated, never on MCP).
+``tests/test_safety_matrix.py``
 feeds the rows of implemented panels into the same sweeps as its base rows (route-table completeness, disabled-panel
 denial, read-only denial), so no lane edits the shared matrix. See README.md.
 """
@@ -64,6 +66,9 @@ def _problems(module: Any) -> list[str]:
     params = getattr(module, "PATH_PARAMS", {})
     if not isinstance(params, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in params.items()):
         problems.append("PATH_PARAMS must map parameter names to sample strings")
+    actions = getattr(module, "CLI_ACTIONS", [])
+    if not isinstance(actions, list | tuple) or not all(isinstance(a, str) and a for a in actions):
+        problems.append("CLI_ACTIONS must be a list of tool names")
     return problems
 
 
@@ -95,7 +100,9 @@ def load(package: str = "safety") -> Lanes:
         if panels04.module_implemented(panel):
             gets = tuple(_strip(g) for g in getattr(module, "GET_ROWS", []))
             writes = tuple((m, _strip(p)) for m, p in getattr(module, "WRITE_ROWS", []))
-            implemented.append(Lane(path.name, panel, gets, writes, dict(getattr(module, "PATH_PARAMS", {}))))
+            lane_params = dict(getattr(module, "PATH_PARAMS", {}))
+            actions = tuple(getattr(module, "CLI_ACTIONS", ()))
+            implemented.append(Lane(path.name, panel, gets, writes, lane_params, actions))
     return Lanes(tuple(implemented), tuple(invalid), tuple(unimportable), params)
 
 
