@@ -106,10 +106,27 @@ Request for the coordinator's `/sharpit:live-verify`: the same requests against 
 2. `tests/test_safety_matrix.py` edit is limited to the plan's addition (the exemption list) plus the F5a pin
    `test_sweep_source_read_exemptions_only_shrink`, whose assertion had to change with the list (now `frozenset()`).
 3. Spec §14 beans row: delete on `release/0.5.0` (coordinator applies, per the plan).
-4. The 3.12 class-resource fallback is not exercised locally (venv is 3.13.7); CI 3.12 runs it.
+4. The 3.12 class-resource fallback now runs on every Python through a `type()`-built class (fix round 1).
 5. Not touched: `pytest_plugin/` (the Task 0 cause was in `introspector.py`).
 
 ## How to resume
 
 Everything is committed. Next: the coordinator's council (Task 0 Step 1) and review on this head; a finding there is a
 new red test in this lane's May-touch files.
+
+## Fix round 1 (council)
+
+Red `0243173` (9 reds + the class-resource pin), fix `83e9a11`; red `5e718e4`, fix `0b1f608`. Table in findings.md.
+
+- Gemini high: an opaque mount row is registered with its enclosing mounts, its own mount (chain) and whether the
+  innermost app (middleware wrappers unwrapped through instance dicts) is served as is. Only a non-Starlette framework
+  app (`StaticFiles`) is; a wrapped or Starlette app is opaque with the limitation. `api_model` uses the same flag.
+- Claude #1/#6: `_attrs` is `object.__getattribute__(obj, "__dict__")`, any exception -> `{}`; every app-level read
+  goes through it. Claude #2: the class fallback uses `type()` checks only. #3: pinned and mutation-proven.
+  #4: `inspect.getattr_static` for `__qualname__`. #5: `issubclass(type(app), FastAPI)`; redundant lazy import dropped.
+- New: explain consumes each mount's prefix the way Starlette does (two mounts deep was unmatched).
+
+Not done, with reason: Gemini low (UI `matcherDescription` null renders `()`): the explain DTO always sets it for a
+matched result (`_matcher` never returns null), so no output changes; left to the UI owner. `pytest_plugin/apps.py`
+`_discovered_models` has no try around `api_model()` (Claude #1 note): outside May-touch, and `api_model` no longer
+raises on a user hook.

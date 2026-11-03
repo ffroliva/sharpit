@@ -49,3 +49,28 @@ Carried from 0.4.0 (red `95136a9`, unchanged): `test_plain_starlette_subapp_rout
 | Superseded red | Historical SHA | Reason |
 |---|---|---|
 | (local only, never merged) the same four Task 1 reds | e6ddeaa7094ddc7fdc4255489d6354ffc0e3cc90 | Rewritten before any fix commit: a string replace had also changed the 0.4.0 red `test_plain_starlette_subapp_route_explained_as_unknown`, and the rest-api assertion did not filter framework routes as every consumer does. Re-committed as `3ffec3e` with additions only. |
+
+## Fix round 1 (council: `council-claude.md`, `council-gemini.md`)
+
+Merged `release/0.5.0` first (`b274482`; no duplicated top-level defs in the merged files).
+
+| Finding | Test | Red SHA | Assertion message | Disposition |
+|---|---|---|---|---|
+| Gemini high: an opaque sub-app behind mount middleware reported as framework code (`opaque=False`, chain 0) | tests/fastapi/test_introspector_security.py::test_opaque_sub_app_behind_middleware_is_unknown_on_its_own_chain[mount-middleware] and [wrapped-starlette-app] | 0243173bd5449ae4f33cd8086c3cd48460ce41bd | `[('/legacy/{path}', False, 0)] == [('/legacy/{path}', True, 1)]` | Fixed in `83e9a11` |
+| Same fix: an opaque mount row carried no enclosing mounts, so explain stopped at it inside a sub-app | tests/fastapi/test_introspector_security.py::test_opaque_mount_inside_sub_app_is_explained | 0243173bd5449ae4f33cd8086c3cd48460ce41bd | `assert None == '/admin/legacy/{path}'` | Fixed in `83e9a11` |
+| Claude #1: `vars()` ran a user `__getattribute__`/`__getattr__` (app, route subclass) | tests/fastapi/test_introspector_routes.py::test_user_getattribute_never_runs_on_any_surface | 0243173bd5449ae4f33cd8086c3cd48460ce41bd | `['app.router', ...31 more] == []` | Fixed in `83e9a11` |
+| Claude #1: a raising hook broke the introspector | tests/fastapi/test_introspector_routes.py::test_user_getattribute_that_raises_degrades, ::test_slotted_app_with_raising_getattr_has_no_routes | 0243173bd5449ae4f33cd8086c3cd48460ce41bd | `isinstance('raised RuntimeError: router', FastApiIntrospector)` | Fixed in `83e9a11` |
+| Claude #2: the 3.12 class-line fallback ran a class-level proxy (`__func__`, `__class__`) | tests/fastapi/test_introspection_trap.py::test_class_provider_line_never_touches_class_attributes (type()-built class: no `__firstlineno__`, the 3.12 path on every Python) | 0243173bd5449ae4f33cd8086c3cd48460ce41bd | `['__func__', '__class__'] == []` | Fixed in `83e9a11` |
+| Claude #4 (low): `hasattr(obj, "__qualname__")` ran an instance's `__getattr__` | tests/fastapi/test_introspection_trap.py::test_callable_instance_provider_hook_never_runs | 0243173bd5449ae4f33cd8086c3cd48460ce41bd | `'...:_Checker' in 'raised RuntimeError: __qualname__'` | Fixed in `83e9a11` |
+| Claude #5 (low): `isinstance(self.app, FastAPI)` read a user `__class__` | tests/fastapi/test_introspector_security.py::test_object_posing_as_fastapi_is_not_present | 0243173bd5449ae4f33cd8086c3cd48460ce41bd | `assert True is False` (`present`) | Fixed in `83e9a11` |
+| Found in this round: explain matched every mount pattern against the full path, so a route two mounts deep was a confident "unmatched" | tests/fastapi/test_introspector_security.py::test_route_two_mounts_deep_is_explained | 5e718e4979793eda87e7540014695f52cd61c230 | `assert None == '/a/b/c'` | Fixed in `0b1f608` |
+
+`red_check.py` said RED for all ten at their red SHA (assertion under `tests/`). Claude #6 (low, app-level `getattr`)
+is fixed by the same commit (`_attrs(self.app)` for router, title, docs_url, exception_handlers, dependency_overrides,
+user_middleware): `test_user_getattribute_never_runs_on_any_surface` covers it.
+
+### Pin (Claude #3)
+
+| Test | Mutation (reverted) | Failure under the mutation |
+|---|---|---|
+| tests/fastapi/test_introspection_trap.py::test_class_provider_resource_is_its_definition_line | `_first_line`: `if not inspect.isclass(target):` → `if True:` (no line for any class) | `'...test_introspection_trap.py' == '...test_introspection_trap.py:178'` (also fails `test_class_provider_line_never_touches_class_attributes`) |
