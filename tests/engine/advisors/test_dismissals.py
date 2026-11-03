@@ -191,7 +191,7 @@ def test_rapi_id_accepted_quote_space_slash_refused(tmp_path: Path):
         ("RAPI-NOPE-1", None),
         (A, "vulnerabilities"),
         ("PYSEC-2017-9999::pypi:zope.interface", "vulnerabilities"),
-        ("SPRING-WEB-001", None),
+        ("QUARKUS-WEB-001", None),
         ("rapi-map-001", None),
         ("GHSA-1::pypi:Jinja2", None),
         ("::pypi:jinja2", None),
@@ -206,7 +206,7 @@ def test_owning_panel(rule_id: str, panel: str | None):
 def test_unknown_owner_refused_before_the_file_is_touched(tmp_path: Path):
     store = DismissalStore(tmp_path)
     with pytest.raises(BadRequest):
-        store.add("SPRING-WEB-001")
+        store.add("QUARKUS-WEB-001")
     assert list(tmp_path.iterdir()) == []
 
 
