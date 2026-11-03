@@ -37,11 +37,16 @@ from sharpit.engine.spi import (
 
 
 def _attrs(obj: object) -> dict[str, object]:
-    """``obj``'s own attributes, without running a descriptor; ``{}`` for an object without ``__dict__``."""
+    """``obj``'s own attributes, read statically; ``{}`` for an object without ``__dict__``.
+
+    ``object.__getattribute__`` skips a user ``__getattribute__`` and never falls back to ``__getattr__`` (``vars()``
+    does both).
+    """
     try:
-        return cast(dict[str, object], vars(obj))
-    except TypeError:  # __slots__ (a SQLAlchemy AsyncEngine passed as the app) or a built-in
+        values = object.__getattribute__(obj, "__dict__")
+    except Exception:  # noqa: BLE001 - __slots__ (a SQLAlchemy AsyncEngine passed as the app), a built-in, a drift
         return {}
+    return cast(dict[str, object], values) if isinstance(values, dict | types.MappingProxyType) else {}
 
 
 def _version(dist: str) -> str | None:
@@ -59,7 +64,7 @@ def _qualified(obj: object) -> str:
     """``module:qualname`` of a callable (a class for instances); never ``repr``, which can carry closure values."""
     while isinstance(obj, functools.partial):
         obj = obj.func  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    if not hasattr(obj, "__qualname__"):
+    if inspect.getattr_static(obj, "__qualname__", None) is None:  # static: an instance's ``__getattr__`` never runs
         obj = type(obj)
     return f"{getattr(obj, '__module__', None) or '?'}:{getattr(obj, '__qualname__', '?')}"
 
@@ -84,8 +89,12 @@ def _first_line(target: object) -> int | None:
     if isinstance(line, int):
         return line
     # 3.12: the class's first own function (its ``def`` line, not the ``class`` line)
-    funcs = [getattr(v, "__func__", v) for v in own.values()]
-    return min((f.__code__.co_firstlineno for f in funcs if inspect.isfunction(f)), default=None)
+    # type() checks only: isinstance() or getattr() would run a class-level proxy's own code
+    funcs: list[object] = [
+        cast(Any, v).__func__ if issubclass(type(v), staticmethod | classmethod) else v for v in own.values()
+    ]
+    lines = [f.__code__.co_firstlineno for f in funcs if type(f) is types.FunctionType]
+    return min(lines, default=None)
 
 
 def _resource(obj: object) -> str | None:
@@ -247,23 +256,25 @@ def _middleware(app: object) -> tuple[tuple[str, ...], tuple[str, ...]]:
     return tuple(names), tuple(backends)
 
 
-def _wrapped_middleware(app: object) -> tuple[str, ...]:
-    """Types in a mounted middleware wrapper chain; only instance dictionaries are read."""
+def _wrapped_middleware(app: object) -> tuple[tuple[str, ...], object]:
+    """(types in a mounted middleware wrapper chain, the innermost app); only instance dictionaries are read."""
     names: list[str] = []
     current = app
     seen: set[int] = set()
     while id(current) not in seen:
         seen.add(id(current))
-        try:
-            values = cast(dict[str, object], object.__getattribute__(current, "__dict__"))
-        except AttributeError:
-            break
-        inner = values.get("app")
+        inner = _attrs(current).get("app")
         if inner is None:
             break
         names.append(_dotted(type(current)))
         current = inner
-    return tuple(names)
+    return tuple(names), current
+
+
+def _served_as_is(app: object) -> bool:
+    """A framework app with no security of its own (``StaticFiles``); a wrapped or Starlette app is the user's."""
+    inner = _wrapped_middleware(app)[1]
+    return not issubclass(type(inner), Starlette) and _framework(_qualified(inner))
 
 
 def _scopes(node: object) -> tuple[str, ...]:
@@ -367,15 +378,16 @@ class FastApiIntrospector:
     def __init__(self, app: object, exclude_mount: str | None = None, lifespan: object | None = None) -> None:
         self.app = app
         # The host's own lifespan: install() passes it before wrapping ``router.lifespan_context``.
-        raw = lifespan if lifespan is not None else getattr(getattr(app, "router", None), "lifespan_context", None)
+        raw = lifespan if lifespan is not None else _attrs(_attrs(app).get("router")).get("lifespan_context")
         self.lifespan = _host_lifespan(raw) if raw is not None else None
         self.exclude_mount = (exclude_mount or "").rstrip(
             "/"
         ) or None  # sharpit's own mount path: its rows are not the host's
 
     def app_info(self) -> AppInfo:
-        title = getattr(self.app, "title", None)
-        docs_url = getattr(self.app, "docs_url", None)
+        values = _attrs(self.app)  # a FastAPI subclass's properties are never run
+        title = values.get("title")
+        docs_url = values.get("docs_url")
         return AppInfo(
             title if isinstance(title, str) else None,
             "FastAPI",
@@ -396,12 +408,12 @@ class FastApiIntrospector:
             if route is None:
                 if info.handler == "<unexpanded include_router>":
                     limitations.append(f"Included router at {info.path} could not be expanded.")
-                elif not _framework(info.handler):  # StaticFiles and other framework apps serve no API
+                elif not self._opaque_rows.get(id(info), ((), None, False))[2]:  # StaticFiles serves no API
                     base = info.path.removesuffix("/{path}") or "/"
                     limitations.append(f"Mounted application at {base} has no inspectable routes.")
             elif not issubclass(type(route), WebSocketRoute) and _attrs(route).get("endpoint") is not None:
                 routes.append(_api_route(info, route))
-        handlers: Any = getattr(self.app, "exception_handlers", None) or {}
+        handlers: Any = _attrs(self.app).get("exception_handlers") or {}
         # sharpit's exception capture wraps each handler: report the host's own function
         names = tuple(_qualified(getattr(h, "__sharpit_original__", h)) for h in list(handlers.values()))
         return ApiModel(tuple(routes), names, tuple(limitations))
@@ -411,6 +423,8 @@ class FastApiIntrospector:
         self._mounts_by_route: dict[int, tuple[tuple[int, str | None], ...]] = {}
         self._included_dependencies_by_route: dict[int, tuple[object, ...]] = {}
         self._fastapi_routes: set[int] = set()  # routes whose enclosing app is FastAPI: dependencies classify
+        # opaque mount rows by id(RouteInfo), as each row is made: (enclosing mounts, own mount, served as is)
+        self._opaque_rows: dict[int, tuple[tuple[tuple[int, str | None], ...], int | None, bool]] = {}
         router: object | None = _attrs(self.app).get("router")
         app_dependencies = _as_objects(_attrs(router).get("dependencies", ())) if router is not None else ()
         return self._walk(
@@ -545,18 +559,17 @@ class FastApiIntrospector:
             )
         else:
             route_name = values.get("name")
-            yield (
-                RouteInfo(
-                    (),
-                    base + "/{path}",
-                    _qualified(child_app),
-                    inner_host,
-                    None,
-                    None,
-                    route_name if isinstance(route_name, str) else None,
-                ),
+            info = RouteInfo(
+                (),
+                base + "/{path}",
+                _qualified(child_app),
+                inner_host,
                 None,
+                None,
+                route_name if isinstance(route_name, str) else None,
             )
+            self._opaque_rows[id(info)] = (mounts, id(route), _served_as_is(child_app))
+            yield info, None
 
     @staticmethod
     def _leaf(route: BaseRoute, prefix: str, host: str | None) -> RouteInfo:
@@ -580,11 +593,9 @@ class FastApiIntrospector:
         """Middleware stacks and each route's security schemes, read from objects FastAPI built; nothing is called."""
         try:
             from fastapi.security.base import SecurityBase  # noqa: PLC0415
-
-            from fastapi import FastAPI  # noqa: PLC0415 - FastAPI is optional for sharpit
         except ImportError:
             return SecurityModel(False, (), (), (), (NOT_FASTAPI,))
-        if not isinstance(self.app, FastAPI):
+        if not issubclass(type(self.app), FastAPI):  # type(): a user ``__class__`` property is never run
             return SecurityModel(False, (), (), (), (NOT_FASTAPI,))
         chains: list[SecurityChain] = []
         backends: list[str] = []
@@ -593,11 +604,15 @@ class FastApiIntrospector:
         routes: list[SecuredRoute] = []
         limitations: list[str] = []
         for info, route in self._entries():
-            mounts = self._mounts_by_route.get(id(route), ()) if route is not None else ()
-            chain = self._chain_by_mount.get(mounts[-1][0], 0) if mounts else 0
-            row = self._security_row(info, route, chain, SecurityBase, limitations)
+            if route is None:  # an opaque mount row: its own mount picks the chain, its path_regex matches it
+                mounts, own, served = self._opaque_rows.get(id(info), ((), None, False))
+            else:
+                mounts, served = self._mounts_by_route.get(id(route), ()), False
+                own = mounts[-1][0] if mounts else None
+            chain = self._chain_by_mount.get(own, 0) if own is not None else 0
+            row = self._security_row(info, route, chain, SecurityBase, limitations, served)
             if row is not None:
-                routes.append(replace(row, mounts=mounts) if route is not None else row)
+                routes.append(replace(row, mounts=mounts))
         return SecurityModel(True, tuple(chains), tuple(backends), tuple(routes), tuple(limitations))
 
     def _security_row(
@@ -607,12 +622,13 @@ class FastApiIntrospector:
         chain: int,
         security_base: type,
         limitations: list[str],
+        served: bool,
     ) -> SecuredRoute | None:
         if route is None:
             if info.handler == "<unexpanded include_router>":
                 limitations.append(f"Included router at {info.path} could not be expanded.")
                 return None
-            return self._opaque_route(info, chain, limitations)
+            return self._opaque_route(info, chain, limitations, served)
         if _framework(info.handler):
             return None
         if issubclass(type(route), APIRoute) and id(route) in self._fastapi_routes:
@@ -664,7 +680,7 @@ class FastApiIntrospector:
             if id(child) not in seen and depth < MAX_DEPTH:
                 mount_names: tuple[str, ...] = ()
                 if is_mount:
-                    mount_names = _wrapped_middleware(child)
+                    mount_names = _wrapped_middleware(child)[0]
                 child_prefix = values.get("path", "") if is_mount else ""
                 self._chains(
                     child,
@@ -678,10 +694,10 @@ class FastApiIntrospector:
                 )
 
     @staticmethod
-    def _opaque_route(info: RouteInfo, chain: int, limitations: list[str]) -> SecuredRoute:
+    def _opaque_route(info: RouteInfo, chain: int, limitations: list[str], served: bool) -> SecuredRoute:
         if info.path == "(any)":
             return SecuredRoute((), info.path, info.handler, opaque=True, chain=chain)
-        if _framework(info.handler):  # StaticFiles and other framework apps: served as is, no security of their own
+        if served:  # StaticFiles and other framework apps: served as is, no security of their own
             return SecuredRoute((), info.path, info.handler, path_regex=_path_regex(info.path, True), chain=chain)
         base = info.path.removesuffix("/{path}") or "/"
         limitations.append(f"Mounted application at {base} has no inspectable routes.")
@@ -728,7 +744,7 @@ class FastApiIntrospector:
                 continue
 
         overridden_by: dict[int, int] = {}
-        overrides: Any = getattr(self.app, "dependency_overrides", None) or {}
+        overrides: Any = _attrs(self.app).get("dependency_overrides") or {}
         for original, override in list(overrides.items()):
             try:
                 add(original, "request")
@@ -739,7 +755,7 @@ class FastApiIntrospector:
             except Exception:  # noqa: BLE001,S112
                 continue
 
-        middleware: Any = getattr(self.app, "user_middleware", None) or ()
+        middleware: Any = _attrs(self.app).get("user_middleware") or ()
         for entry in list(middleware):
             cls = getattr(entry, "cls", None)  # only the class: args/kwargs (secret keys) are never read
             if cls is not None and not getattr(cls, "__module__", "").startswith("sharpit."):  # not sharpit's own
