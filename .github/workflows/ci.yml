@@ -4,6 +4,9 @@ on:
     branches: [main, mvp]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py) where one runner would take over ~2 min.
   # Each leg's shards together run every test exactly once (tests/test_shard.py).
@@ -121,13 +124,16 @@ jobs:
     needs: coverage
     runs-on: ubuntu-latest
     # Forked PRs and Dependabot runs get no SONAR_TOKEN; scan trusted pushes and internal PRs only.
+    # always(): when coverage fails, sonar must fail too, not skip (a skipped required check counts as green).
     if: >-
+      always() &&
       github.actor != 'dependabot[bot]' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
       pull-requests: read
     steps:
+      - run: test "${{ needs.coverage.result }}" = success
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # blame and new-code detection need full history

@@ -51,7 +51,8 @@ A file is never split, so that shard takes about 95 s of pytest on four workers 
 | `coverage` | 3 |
 
 Branch protection requires the job names in the first table, so each keeps a job that `needs:` its shards and runs
-`if: always()` (a skipped required check counts as green): it fails unless the whole shard matrix succeeded. One red
+`if: always()` (a skipped required check counts as green): it fails unless the whole shard matrix succeeded. `sonar` does the same with `coverage` (it
+fails, never skips, when coverage did not succeed; forks and Dependabot still skip it for want of a token). One red
 shard therefore turns all four `test` checks red; the shard job's own name says which leg failed. To add a shard,
 change the matrix only; never shard to hide a slow test (`skills/optimize/SKILL.md`).
 
