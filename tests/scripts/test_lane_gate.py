@@ -1600,12 +1600,12 @@ def test_argon_counts_as_the_google_family() -> None:
 
 def test_lane_diff_may_not_touch_another_sdd_lane_entry(tmp_path: Path) -> None:
     fx = _fixture(tmp_path, review=False)
-    other, release = ".superpowers/sdd/0.4.0/lanes/test-fixture-y", ".superpowers/sdd/0.5.0/lanes/test-fixture-x/x.md"
-    fx.commit({other: "a file or symlink at another lane's folder\n", release: "planted\n"}, "docs: plant")
+    other, entry = ".superpowers/sdd/0.4.0/lanes/test-fixture-y/x.md", ".superpowers/sdd/0.5.0/lanes/test-fixture-x"
+    fx.commit({other: "planted\n", entry: "a file or symlink where the lane's folder goes\n"}, "docs: plant")
     fx.review()
     result = fx.evaluate()
     assert _refused(result, f"not the lane's own evidence folder: {other}")
-    assert _refused(result, f"not the lane's own evidence folder: {release}")
+    assert _refused(result, f"not the lane's own evidence folder: {entry}")
 
 
 def test_plan_index_at_the_integration_root_protects_that_file(tmp_path: Path) -> None:
