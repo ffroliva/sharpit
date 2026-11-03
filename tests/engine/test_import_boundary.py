@@ -27,7 +27,7 @@ COLLECTORS = ENGINE / "collectors"
 FRAMEWORKS = ("fastapi", "starlette")
 ADAPTERS = ("sharpit.fastapi", "sharpit.pytest_plugin", "sharpit.ui")
 GATEKEEPERS: dict[str, set[str]] = {
-    "sqlalchemy": {"sharpit/engine/sqla.py"},
+    "sqlalchemy": {"sharpit/engine/sqla"},  # a package: every module under engine/sqla/ (0.5.0 spec §4.1)
     "sqlite3": {"sharpit/engine/sources/sqlite.py"},
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
@@ -277,7 +277,8 @@ def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyP
     plant("collectors/loggers/__init__.py", "from ..health import health_report\n")
     plant("collectors/beans.py", "from sharpit.engine.collectors.mappings import x\n")
     plant("tools.py", "import starlette.requests\nfrom sharpit.fastapi.adapter import y\nimport urllib.request\n")
-    plant("sqla.py", "import sqlalchemy.pool\n")
+    (engine / "sqla").mkdir()
+    plant("sqla/listeners.py", "import sqlalchemy.pool\n")
 
     assert framework_violations(engine) == ["sharpit/engine/tools.py imports starlette.requests"]
     assert adapter_violations(engine) == ["sharpit/engine/tools.py imports sharpit.fastapi.adapter"]

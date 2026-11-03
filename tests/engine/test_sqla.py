@@ -24,6 +24,7 @@ from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo  # noqa: E402
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # noqa: E402
 from sharpit.engine.masking import Exposure, Masker  # noqa: E402
+from sharpit.engine.sqla import orm as sqla_orm  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -219,7 +220,7 @@ def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(monkeypat
     _install(engines=[engine])
 
     calls = {"path": 0, "fingerprint": 0}
-    path, fingerprint = sqla._relationship_path, sqla._masked_fingerprint
+    path, fingerprint = sqla_orm._relationship_path, sqla_orm._masked_fingerprint
 
     def count_path(context: object) -> object:
         calls["path"] += 1
@@ -229,8 +230,8 @@ def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(monkeypat
         calls["fingerprint"] += 1
         return fingerprint(statement)
 
-    monkeypatch.setattr(sqla, "_relationship_path", count_path)
-    monkeypatch.setattr(sqla, "_masked_fingerprint", count_fingerprint)
+    monkeypatch.setattr(sqla_orm, "_relationship_path", count_path)
+    monkeypatch.setattr(sqla_orm, "_masked_fingerprint", count_fingerprint)
     tag = ("test_repeated_lazy_load_inspects_relationship_and_fingerprint_once", 1, "call")
     token = TEST.set(tag)
     try:
@@ -240,7 +241,7 @@ def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(monkeypat
             calls.update(path=0, fingerprint=0)  # the parent SELECT is not a lazy load
             for parent in parents:
                 list(parent.children)
-        groups = dict(sqla._relationship_groups[tag])
+        groups = dict(sqla_orm._relationship_groups[tag])
         assert calls["path"] == 1, f"relationship path read {calls['path']} times for 10 identical lazy loads"
         assert calls["fingerprint"] == 1, f"statement fingerprinted {calls['fingerprint']} times for 10 lazy loads"
         assert list(groups.values()) == [("Parent.children", True)]
@@ -276,7 +277,7 @@ def test_listener_failure_does_not_change_query_result(
     def fail() -> str | None:
         raise RuntimeError("frame inspection failed")
 
-    monkeypatch.setattr(sqla, "_first_application_location", fail)
+    monkeypatch.setattr(sqla_orm, "_first_application_location", fail)
     token = TEST.set(("test_listener_failure", 1, "call"))
     try:
         assert sqla.attach_session() is True
@@ -308,7 +309,7 @@ def test_first_application_location_is_cached_per_relationship(monkeypatch: pyte
         session.commit()
     _install(engines=[engine])
 
-    original = sqla._first_application_location
+    original = sqla_orm._first_application_location
     calls = 0
 
     def count_location() -> str | None:
@@ -316,7 +317,7 @@ def test_first_application_location_is_cached_per_relationship(monkeypatch: pyte
         calls += 1
         return original()
 
-    monkeypatch.setattr(sqla, "_first_application_location", count_location)
+    monkeypatch.setattr(sqla_orm, "_first_application_location", count_location)
     token = TEST.set(("test_first_application_location_is_cached_per_relationship", 1, "call"))
     try:
         assert sqla.attach_session() is True
@@ -341,19 +342,19 @@ def test_relationship_facts_use_masked_statement_fingerprint() -> None:
     )
     token = TEST.set(tag)
     try:
-        sqla._record_relationship(context)
+        sqla_orm._record_relationship(context)
         masked_fingerprint = report_masker().mask_text(normalize(statement).fingerprint)
-        assert sqla._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
+        assert sqla_orm._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
     finally:
-        sqla._relationship_loads.pop(tag, None)
-        sqla._relationship_groups.pop(tag, None)
-        sqla._relationship_sites.pop(tag, None)
+        sqla_orm._relationship_loads.pop(tag, None)
+        sqla_orm._relationship_groups.pop(tag, None)
+        sqla_orm._relationship_sites.pop(tag, None)
         TEST.reset(token)
 
 
 def test_relationship_facts_tolerate_missing_call_phase() -> None:
     tag = ("test_relationship_facts_tolerate_missing_call_phase", 1, "call")
-    sqla._relationship_groups[tag] = {"statement-fingerprint": ("Player.performances", True)}
+    sqla_orm._relationship_groups[tag] = {"statement-fingerprint": ("Player.performances", True)}
     test = types.SimpleNamespace(
         key=types.SimpleNamespace(node_id=tag[0], attempt=tag[1]),
         phases={},
@@ -366,7 +367,7 @@ def test_relationship_facts_tolerate_missing_call_phase() -> None:
             missing_phase_guarded = False
         assert missing_phase_guarded, "missing call phase must not raise KeyError"
     finally:
-        sqla._relationship_groups.pop(tag, None)
+        sqla_orm._relationship_groups.pop(tag, None)
 
 
 def test_pause_returns_early_listeners_kept():
@@ -627,8 +628,8 @@ def test_load_counts_are_per_statement():
     request_token = REQUEST.set(info)
     test_token = TEST.set(("test-statement", 1, "call"))
     try:
-        sqla._mapper_load(types.SimpleNamespace(), _load_context(first))
-        sqla._mapper_load(types.SimpleNamespace(), _load_context(second))
+        sqla_orm._mapper_load(types.SimpleNamespace(), _load_context(first))
+        sqla_orm._mapper_load(types.SimpleNamespace(), _load_context(second))
     finally:
         TEST.reset(test_token)
         REQUEST.reset(request_token)
@@ -641,16 +642,16 @@ def test_load_counts_keep_statement_identity_when_ids_are_reused(monkeypatch: py
     info = _paging_request("request-statement-identity")
     request_token = REQUEST.set(info)
     test_token = TEST.set(("test-statement-identity", 1, "call"))
-    monkeypatch.setattr(sqla, "id", lambda _context: 1, raising=False)
+    monkeypatch.setattr(sqla_orm, "id", lambda _context: 1, raising=False)
     try:
-        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
-        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(2))))
+        sqla_orm._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
+        sqla_orm._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(2))))
     finally:
         TEST.reset(test_token)
         REQUEST.reset(request_token)
 
     assert len(info.loads) == 2
-    sqla._unbounded_read_facts.pop(("test-statement-identity", 1, "call"), None)
+    sqla_orm._unbounded_read_facts.pop(("test-statement-identity", 1, "call"), None)
 
 
 def test_unbounded_read_facts_keep_request_identity_when_context_ids_are_reused_current(
@@ -660,20 +661,20 @@ def test_unbounded_read_facts_keep_request_identity_when_context_ids_are_reused_
     second = _paging_request("request-statement-identity-current-second")
     context = _load_context(sa.select(sa.literal(1)))
     tag = ("test-statement-identity-current", 1, "call")
-    monkeypatch.setattr(sqla, "id", lambda _context: 1, raising=False)
+    monkeypatch.setattr(sqla_orm, "id", lambda _context: 1, raising=False)
     test_token = TEST.set(tag)
     try:
         for info in (first, second):
             request_token = REQUEST.set(info)
             try:
                 for _ in range(4):
-                    sqla._mapper_load(types.SimpleNamespace(), context)
+                    sqla_orm._mapper_load(types.SimpleNamespace(), context)
             finally:
                 REQUEST.reset(request_token)
     finally:
         TEST.reset(test_token)
 
-    facts = sqla._unbounded_read_facts.pop(tag, {})
+    facts = sqla_orm._unbounded_read_facts.pop(tag, {})
     assert len(facts) == 2
 
 
@@ -695,13 +696,13 @@ def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch)
     test_token = TEST.set(("test-statement-shape", 1, "call"))
     try:
         for _ in range(50):
-            sqla._mapper_load(types.SimpleNamespace(), context)
+            sqla_orm._mapper_load(types.SimpleNamespace(), context)
     finally:
         TEST.reset(test_token)
         REQUEST.reset(request_token)
 
     assert calls == 1
-    sqla._unbounded_read_facts.pop(("test-statement-shape", 1, "call"), None)
+    sqla_orm._unbounded_read_facts.pop(("test-statement-shape", 1, "call"), None)
 
 
 def test_load_compiles_and_masks_statement_once_current(monkeypatch: pytest.MonkeyPatch):
@@ -722,13 +723,13 @@ def test_load_compiles_and_masks_statement_once_current(monkeypatch: pytest.Monk
     test_token = TEST.set(("test-statement-shape-current", 1, "call"))
     try:
         for _ in range(50):
-            sqla._mapper_load(types.SimpleNamespace(), context)
+            sqla_orm._mapper_load(types.SimpleNamespace(), context)
     finally:
         TEST.reset(test_token)
         REQUEST.reset(request_token)
 
     assert calls == 1
-    sqla._unbounded_read_facts.pop(("test-statement-shape-current", 1, "call"), None)
+    sqla_orm._unbounded_read_facts.pop(("test-statement-shape-current", 1, "call"), None)
 
 
 @pytest.mark.parametrize("loader", ["selectin", "joined", "lazy"])
@@ -775,7 +776,7 @@ def test_relationship_rows_are_not_counted_as_parent_page_rows(loader: str):
         REQUEST.reset(request_token)
         sqla.detach_session()
 
-    facts = sqla._unbounded_read_facts.pop((f"test-relationship-{loader}", 1, "call"), {})
+    facts = sqla_orm._unbounded_read_facts.pop((f"test-relationship-{loader}", 1, "call"), {})
     assert len(teams) == 5
     assert all(fact.entity == "Team" for fact in facts.values())
     assert sum(fact.loaded for fact in facts.values()) == 5
@@ -900,10 +901,10 @@ def test_load_counts_are_scoped_to_request():
     test_token = TEST.set(("test-request-scope", 1, "call"))
     try:
         request_token = REQUEST.set(first_request)
-        sqla._mapper_load(types.SimpleNamespace(), context)
+        sqla_orm._mapper_load(types.SimpleNamespace(), context)
         REQUEST.reset(request_token)
         request_token = REQUEST.set(second_request)
-        sqla._mapper_load(types.SimpleNamespace(), context)
+        sqla_orm._mapper_load(types.SimpleNamespace(), context)
         REQUEST.reset(request_token)
     finally:
         TEST.reset(test_token)
@@ -926,8 +927,8 @@ def test_multiple_entities_count_separately():
     test_token = TEST.set(("test-entities", 1, "call"))
     try:
         context = _load_context(sa.select(sa.literal(1)))
-        sqla._mapper_load(Team(), context)
-        sqla._mapper_load(Owner(), context)
+        sqla_orm._mapper_load(Team(), context)
+        sqla_orm._mapper_load(Owner(), context)
     finally:
         TEST.reset(test_token)
         REQUEST.reset(request_token)
@@ -949,7 +950,7 @@ def test_select_with_limit_or_fetch_is_not_flagged(statement: Any):
     try:
         context = _load_context(statement)
         for _ in range(4):
-            sqla._mapper_load(types.SimpleNamespace(), context)
+            sqla_orm._mapper_load(types.SimpleNamespace(), context)
     finally:
         TEST.reset(test_token)
         REQUEST.reset(request_token)
@@ -980,13 +981,13 @@ def test_non_paged_route_is_not_flagged():
     request_token = REQUEST.set(info)
     test_token = TEST.set(("test-non-paged", 1, "call"))
     try:
-        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
+        sqla_orm._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
     finally:
         TEST.reset(test_token)
         REQUEST.reset(request_token)
 
     assert info.loads == {}
-    assert ("test-non-paged", 1, "call") not in sqla._unbounded_read_facts
+    assert ("test-non-paged", 1, "call") not in sqla_orm._unbounded_read_facts
 
 
 def test_paging_route_without_bound_page_size_does_not_guess():
@@ -1007,13 +1008,13 @@ def test_paging_route_without_bound_page_size_does_not_guess():
     request_token = REQUEST.set(info)
     test_token = TEST.set(("test-no-page-size", 1, "call"))
     try:
-        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
+        sqla_orm._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
     finally:
         TEST.reset(test_token)
         REQUEST.reset(request_token)
 
     assert info.loads == {}
-    assert ("test-no-page-size", 1, "call") not in sqla._unbounded_read_facts
+    assert ("test-no-page-size", 1, "call") not in sqla_orm._unbounded_read_facts
 
 
 def test_unbounded_read_fact_drops_sql_values():
@@ -1024,7 +1025,7 @@ def test_unbounded_read_fact_drops_sql_values():
         statement = sa.text("SELECT 'hunter2-secret' AS token")
         context = _load_context(statement)
         for _ in range(4):
-            sqla._mapper_load(types.SimpleNamespace(), context)
+            sqla_orm._mapper_load(types.SimpleNamespace(), context)
     finally:
         TEST.reset(test_token)
         REQUEST.reset(request_token)
@@ -1085,7 +1086,7 @@ def test_mapper_load_listener_attaches_once_and_detaches():
     sqla.detach_session()
     assert sqla.attach_session() is True
     assert sqla.attach_session() is True
-    assert sa.event.contains(sa.orm.Mapper, "load", sqla._mapper_load)
+    assert sa.event.contains(sa.orm.Mapper, "load", sqla_orm._mapper_load)
     info = _paging_request("request-listener-lifecycle")
     request_token = REQUEST.set(info)
     test_token = TEST.set(("test-listener-lifecycle", 1, "call"))
@@ -1100,7 +1101,7 @@ def test_mapper_load_listener_attaches_once_and_detaches():
     loaded = sum(state["loaded"] for by_entity in info.loads.values() for state in by_entity.values())
     assert len(rows) == 1
     assert loaded == 1
-    assert not sa.event.contains(sa.orm.Mapper, "load", sqla._mapper_load)
+    assert not sa.event.contains(sa.orm.Mapper, "load", sqla_orm._mapper_load)
 
 
 def test_identity_map_hits_are_not_counted():
