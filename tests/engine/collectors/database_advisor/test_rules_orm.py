@@ -6,6 +6,8 @@ dicts in ``sqla.inspect.catalog``'s shape.
 
 from __future__ import annotations
 
+import gc
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -16,6 +18,18 @@ from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
 orm = pytest.importorskip("sqlalchemy.orm")
+
+
+@pytest.fixture(autouse=True)
+def _keep_mapped_classes() -> Iterator[None]:
+    """A registry holds its mapped classes weakly: the tests' throwaway classes must outlive a cyclic collection."""
+    was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if was_enabled:
+            gc.enable()
 
 
 def _column(name: str, type_: str = "INTEGER", *, nullable: bool = True, autoincrement: bool = False) -> dict[str, Any]:
@@ -229,3 +243,21 @@ def test_hib_010_unconstrained_numeric_is_not_compared() -> None:
     source = _source((reg,), _table("users", ID, _column("price", "NUMERIC")))
 
     assert _check("DB-HIB-010", source) == []
+
+
+def test_scan_leaves_a_configurable_registry_unconfigured() -> None:
+    # a registry that configure_mappers() *could* configure: a scan that configured it would flip mapper.configured
+    reg = orm.registry()
+    sa.Table("child", reg.metadata, sa.Column("id", sa.Integer, primary_key=True),
+             sa.Column("parent_id", sa.ForeignKey("parent.id")))  # fmt: skip
+    parent = sa.Table("parent", reg.metadata, sa.Column("id", sa.Integer, primary_key=True))
+    child_class, parent_class = type("Child", (), {}), type("Parent", (), {})
+    reg.map_imperatively(child_class, reg.metadata.tables["child"])
+    mapper = reg.map_imperatively(parent_class, parent, properties={"children": orm.relationship(child_class)})
+    source = _source((reg,), _table("parent", ID), _table("child", ID, _column("parent_id")))
+
+    report.evaluate([source])
+    outcomes = [rule.check(source) for rule in rules_orm.RULES]
+
+    assert mapper.configured is False
+    assert all(isinstance(outcome, str) for outcome in outcomes)
