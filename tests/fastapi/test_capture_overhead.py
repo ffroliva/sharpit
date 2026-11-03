@@ -18,7 +18,7 @@ from sharpit.fastapi.adapter import SharpitHandle
 
 BUDGET_MS = 0.2
 ROUNDS, REQUESTS = 10, 1000
-CAPTURE_PANELS = ("http-exchanges", "exceptions", "sql-trace", "activity")
+CAPTURE_PANELS = ("http-exchanges", "exceptions", "sql-trace", "activity", "security-logs")
 SCOPE = {
     "type": "http",
     "asgi": {"version": "3.0"},

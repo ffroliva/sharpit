@@ -25,6 +25,7 @@ from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_request_id
 from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sources import dispatch, sqlite
 
@@ -189,6 +190,7 @@ class CaptureWiring:
         if self.app is not None:
             return
         self.app = app
+        self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
         if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
             self.log_handler = SharpitLogHandler(ctx.masker, ctx.capture.log_tail)
