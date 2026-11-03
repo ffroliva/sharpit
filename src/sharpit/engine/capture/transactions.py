@@ -126,6 +126,7 @@ class TransactionRecorder:
         self._ids = itertools.count(1)
         self._total = 0
         self._evicted = 0
+        self._evicted_open = 0
         self._lock = threading.RLock()
         self.changes = ChangeStream()
 
@@ -146,6 +147,13 @@ class TransactionRecorder:
             entry_id = next(self._ids)
             while len(self._entries) >= self.max_entries and self._evict_completed_locked():
                 pass
+            if len(self._entries) >= 2 * self.max_entries:
+                # Open rows may outlive capacity (a long transaction) but never twice it: a connection dropped
+                # without an end event would otherwise grow the ring forever.
+                stale = self._entries.popleft()
+                self._open.pop(stale["id"], None)
+                self._evicted += 1
+                self._evicted_open += 1
             row = {
                 "id": entry_id,
                 "methodName": method or "unknown",
@@ -230,7 +238,7 @@ class TransactionRecorder:
     def report(self, sql_rows: list[dict[str, Any]] | None) -> dict[str, Any]:
         with self._lock:
             rows = [dict(row) for row in self._entries]
-            total, evicted = self._total, self._evicted
+            total, evicted, evicted_open = self._total, self._evicted, self._evicted_open
         warnings = [] if sql_rows is not None else [NO_SQL_TRACE]
         for row in rows:
             if sql_rows is not None:
@@ -258,7 +266,7 @@ class TransactionRecorder:
             connectionHeldTransactions=sum(row["connectionHeld"] for row in rows),
             committedCount=sum(row["status"] == "COMMITTED" for row in rows),
             rolledBackCount=sum(row["status"] == "ROLLED_BACK" for row in rows),
-            unknownCount=sum(row["status"] == "UNKNOWN" for row in rows),
+            unknownCount=sum(row["status"] == "UNKNOWN" for row in rows) + evicted_open,
             nestedCount=sum(row["parentId"] is not None for row in rows),
             evicted=evicted,
         )
@@ -332,8 +340,11 @@ def _stack(conn: Any) -> list[tuple[SharpitContext, int]]:
     return cast("list[tuple[SharpitContext, int]]", conn.info.setdefault("sharpit_tx", []))
 
 
-def _savepoints(conn: Any) -> dict[str | None, list[tuple[SharpitContext, int]]]:
-    return cast("dict[str | None, list[tuple[SharpitContext, int]]]", conn.info.setdefault("sharpit_tx_savepoints", {}))
+def _savepoints(conn: Any) -> list[tuple[str | None, list[tuple[SharpitContext, int]]]]:
+    """Open savepoints, innermost last; one frame per savepoint event, empty when nothing was recorded."""
+    return cast(
+        "list[tuple[str | None, list[tuple[SharpitContext, int]]]]", conn.info.setdefault("sharpit_tx_savepoints", [])
+    )
 
 
 def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
@@ -368,20 +379,10 @@ def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
             dispatch._context_failed(ctx, exc)  # pyright: ignore[reportPrivateUsage]
 
 
-def _end(conn: Any, status: str, *, name: str | None = None) -> None:
+def _end(conn: Any, status: str) -> None:
     stack = _stack(conn)
-    targets = {ctx.context_id: ctx for ctx in _targets(conn)}
-    closing: list[tuple[SharpitContext, int]]
-    if name is None:
-        closing, stack[:] = stack[:], []
-    else:
-        closing = []
-        closed: set[str] = set()
-        for index in range(len(stack) - 1, -1, -1):
-            ctx, _ = stack[index]
-            if ctx.context_id in targets and ctx.context_id not in closed:
-                closing.append(stack.pop(index))
-                closed.add(ctx.context_id)
+    closing, stack[:] = stack[:], []
+    _savepoints(conn).clear()
     for ctx, entry_id in closing:
         recorder = ctx.capture.transactions
         if isinstance(recorder, TransactionRecorder):
@@ -394,12 +395,14 @@ def _end(conn: Any, status: str, *, name: str | None = None) -> None:
 def _end_savepoint(conn: Any, name: str, status: str) -> None:
     stack = _stack(conn)
     savepoints = _savepoints(conn)
-    tracked = savepoints.pop(name, None)
-    if tracked is None:
-        # SQLAlchemy emits savepoint(name=None) before generating its sa_savepoint_N name.
-        tracked = savepoints.pop(None, None)
-    if tracked is None:
+    names = [frame_name for frame_name, _ in savepoints]
+    # SQLAlchemy emits savepoint(name=None) before generating its sa_savepoint_N name: match the innermost unnamed.
+    key = name if name in names else None
+    if key not in names:
         return
+    depth = len(names) - 1 - names[::-1].index(key)
+    tracked = [item for _, frame in savepoints[depth:] for item in frame]  # inner savepoints end with their outer
+    del savepoints[depth:]
     tracked_ids = {(ctx.context_id, entry_id) for ctx, entry_id in tracked}
     closing = [(ctx, entry_id) for ctx, entry_id in stack if (ctx.context_id, entry_id) in tracked_ids]
     stack[:] = [(ctx, entry_id) for ctx, entry_id in stack if (ctx.context_id, entry_id) not in tracked_ids]
@@ -461,8 +464,7 @@ def tx_savepoint(conn: Any, name: str | None) -> None:
         parents = {ctx.context_id: entry_id for ctx, entry_id in stack}
         before = len(stack)
         _begin(conn, parents)
-        if stack[before:]:
-            _savepoints(conn)[name] = stack[before:]
+        _savepoints(conn).append((name, stack[before:]))
     except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
         dispatch.routing_failed(exc)
 
