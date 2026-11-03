@@ -5,8 +5,11 @@ Branch `lane/0.5.0-C-fastapi`, from `release/0.5.0` @ cd05632. Plan: `docs/super
 
 ## Status
 
-DONE_WITH_CONCERNS: Tasks 1-5 done. Eight shared tests outside May-touch fail once the `fastapi` flag is on (Q1, Q2);
-they need a coordinator fix commit on `release/0.5.0`.
+DONE: Tasks 1-5 done; coordinator rulings applied. Q2: merged release/0.5.0 (d0b585b, no duplicated top-level defs),
+`SPRING-WEB-001` -> `QUARKUS-WEB-001` in the three shared tests (0295990). Q1: merged release/0.5.0 again (b8f9503, no
+duplicated defs), `TOOL_ARGS`/`TOOL_SEEDS` for `get_fastapi_rule_violations` in `tests/safety/test_c_fastapi_safety.py`
+(1cdbe23): the context's fastapi service is seeded with one evaluated finding before first use (the sample app is a
+factory no module holds, so its own scan reads no source and finds nothing), then scanned through its normal path.
 
 | Task | Red | Fix |
 |---|---|---|
@@ -107,7 +110,20 @@ FASTAPI-EXC-001 (`/slow` swallows `except Exception`), FASTAPI-RESP-001 x5, FAST
 `_background_sql_task`), FASTAPI-ASYNC-001 (`/slow` `time.sleep`); all true positives on reading the source. GET
 violations 200 (1 of 1); MCP `get_fastapi_report` isError false; CLI `fastapi_scan` 200.
 
-## Gates (head, see Status for the evidence commit)
+## Gates after the rulings (head 1cdbe23 + this evidence commit)
+
+- ruff check, `ruff format --check`, pyright: clean.
+- `tests/test_safety_matrix.py tests/engine/test_tools.py tests/safety` + lane tests: 1187 passed, 1 skipped.
+- Full suite (`-n 4`, log `0.5.0-integration/.superpowers/sdd/0.5.0/logs/C-fastapi-full2.log`): 4781 passed,
+  12 skipped, 3 failed, none from this lane:
+  - `tests/fastapi/test_capture_overhead.py::test_request_overhead_budget` and
+    `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_lazy_relationship_hook_overhead_budget`: budgets
+    under load (several agents' suites on the machine); this lane touches no hot path. Parked: budget under load, for
+    a paired lane-vs-base re-run in a quiet window.
+  - `tests/scripts/test_lane_gate.py::test_must_cover_refuses_skips_unless_leased_or_golden`: xdist worker crash;
+    passes alone (1 passed).
+
+## Gates (first run, before the rulings)
 
 - `ruff check`: all passed; `ruff format --check`: 574 files formatted; `pyright`: 0 errors.
 - UI: `npm run check` clean; vitest 37 files / 285 tests passed; `npm run build` committed (e25f112).
