@@ -16,11 +16,15 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from tests.golden import assert_parity
 
+from conftest import SideEffectGuard
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo
 from sharpit.engine.capture.streams import SSE_TASK
+from sharpit.engine.collectors.health import health_service
+from sharpit.engine.collectors.pools import pools_report
 from sharpit.engine.collectors.threads import (
     BLOCKING_WAITS,
     FREE_THREADED,
@@ -416,3 +420,51 @@ def test_shape_keys_match_bootui(loop_thread: LoopThread):
     assert tuple(report["tasks"][0]) == TASK_KEYS
     assert tuple(report["stateCounts"][0]) == ("state", "count")
     assert tuple(report["page"]) == ("total", "matched", "offset", "limit", "returned", "hasMore")
+
+
+def test_d3_panels_2_2_0_golden_conformance(tmp_path: Any, no_side_effects: SideEffectGuard):
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'parity.db'}", poolclass=sa.QueuePool)
+    ctx = _ctx(state_dir=str(no_side_effects.state_dir))
+    pools_ctx = _ctx(state_dir=str(no_side_effects.state_dir), engines=[engine])
+    no_side_effects.rebaseline()
+
+    assert_parity("database-connection-pools", "pools", pools_report(pools_ctx))
+    assert_parity("health", "health", health_service(ctx).report())
+
+    current_thread_id = threading.get_ident()
+    report = threads_report(ctx, None, None, None, None)
+    assert_parity("threads", "captured", report)
+    row = next(thread for thread in report["threads"] if thread["id"] == current_thread_id)
+    assert row["cpuTimeMillis"] is not None
+
+
+def test_threads_report_emits_user_time_when_resource_supports_it(monkeypatch: pytest.MonkeyPatch):
+    import sys
+
+    usage = SimpleNamespace(RUSAGE_THREAD=7, getrusage=lambda who: SimpleNamespace(ru_utime=1.25))
+    monkeypatch.setitem(sys.modules, "resource", usage)
+    report = threads_report(_ctx(), None, None, None, None)
+    row = next(thread for thread in report["threads"] if thread["id"] == threading.get_ident())
+    assert row["userTimeMillis"] == 1250
+
+
+def test_threads_report_has_no_cpu_time_when_the_platform_has_no_thread_clock(monkeypatch: pytest.MonkeyPatch):
+    def no_thread_clock() -> float:
+        raise NotImplementedError
+
+    monkeypatch.setattr("time.thread_time", no_thread_clock)
+    report = threads_report(_ctx(), None, None, None, None)
+    row = next(thread for thread in report["threads"] if thread["id"] == threading.get_ident())
+    assert row["cpuTimeMillis"] is None
+    assert report["cpuTimeSupported"] is False
+
+
+def test_threads_report_has_no_user_time_when_resource_has_no_per_thread_usage(monkeypatch: pytest.MonkeyPatch):
+    import sys
+
+    usage = SimpleNamespace(getrusage=lambda who: SimpleNamespace(ru_utime=1.25))  # no RUSAGE_THREAD, as on macOS
+    monkeypatch.setitem(sys.modules, "resource", usage)
+    report = threads_report(_ctx(), None, None, None, None)
+    row = next(thread for thread in report["threads"] if thread["id"] == threading.get_ident())
+    assert row["userTimeMillis"] is None

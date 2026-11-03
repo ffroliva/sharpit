@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sharpit.engine.capture.correlation import REQUEST
 from sharpit.engine.capture.streams import SSE_TASK
@@ -78,6 +78,23 @@ def _thread_frames(frame: Any, max_frames: int) -> list[Any]:
         frames.append(frame)
         frame = frame.f_back
     return frames
+
+
+def _thread_cpu_time_ms() -> int | None:
+    try:
+        return round(time.thread_time() * 1000)
+    except (AttributeError, NotImplementedError, OSError):
+        return None
+
+
+def _thread_user_time_ms() -> int | None:
+    try:
+        import resource
+
+        usage = cast(Any, resource).getrusage(cast(Any, resource).RUSAGE_THREAD)
+        return round(usage.ru_utime * 1000)
+    except (AttributeError, ImportError, NotImplementedError, OSError, ValueError):
+        return None
 
 
 def task_stack(task: Any, max_frames: int) -> list[str]:
@@ -171,6 +188,31 @@ def _thread_name(ctx: SharpitContext, name: str) -> str:
     return shown if shown is not None else MASK if ctx.settings.mask_secrets and is_secret_value(name) else name
 
 
+def _thread_rows(
+    ctx: SharpitContext, max_frames: int, names_only: bool, cpu_time_ms: int | None
+) -> list[dict[str, Any]]:
+    """One ``ThreadInfo`` per live thread, by id; CPU and user time are known only for the calling thread."""
+    # the state is metadata, so frames are read under METADATA_ONLY too; max_frames 0 hides only the stack text
+    current: dict[int, Any] = {} if names_only else sys._current_frames()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    current_thread_id = threading.get_ident()
+    user_time_ms = _thread_user_time_ms()
+    rows: list[dict[str, Any]] = []
+    for thread in threading.enumerate():
+        frames = _thread_frames(current.get(thread.ident or 0), max(max_frames, 1))
+        is_current_thread = thread.ident == current_thread_id
+        values = (
+            thread.ident or 0,
+            _thread_name(ctx, thread.name),
+            "UNKNOWN" if names_only else infer_state(frames),
+            0, thread.daemon, False, cpu_time_ms if is_current_thread else None,
+            user_time_ms if is_current_thread else None, 0, 0, False, False, False, None, None, None,
+            [_frame_text(f) for f in frames[:max_frames]],
+        )  # fmt: skip
+        rows.append(dict(zip(THREAD_KEYS, values, strict=True)))
+    rows.sort(key=lambda r: r["id"])
+    return rows
+
+
 def threads_report(
     ctx: SharpitContext, q: str | None, state: str | None, offset: int | None, limit: int | None
 ) -> dict[str, Any]:
@@ -178,20 +220,8 @@ def threads_report(
     names_only = not getattr(sys, "_is_gil_enabled", lambda: True)()  # 3.13+; free-threaded builds are unsupported
     hide = names_only or ctx.settings.expose_values is Exposure.METADATA_ONLY  # BootUI: no stacks under METADATA_ONLY
     max_frames = 0 if hide else ctx.settings.threads_max_stack_frames
-    # the state is metadata, so frames are read under METADATA_ONLY too; max_frames 0 hides only the stack text
-    current: dict[int, Any] = {} if names_only else sys._current_frames()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-    rows: list[dict[str, Any]] = []
-    for thread in threading.enumerate():
-        frames = _thread_frames(current.get(thread.ident or 0), max(max_frames, 1))
-        values = (
-            thread.ident or 0,
-            _thread_name(ctx, thread.name),
-            "UNKNOWN" if names_only else infer_state(frames),
-            0, thread.daemon, False, None, None, 0, 0, False, False, False, None, None, None,
-            [_frame_text(f) for f in frames[:max_frames]],
-        )  # fmt: skip
-        rows.append(dict(zip(THREAD_KEYS, values, strict=True)))
-    rows.sort(key=lambda r: r["id"])
+    cpu_time_ms = _thread_cpu_time_ms()
+    rows = _thread_rows(ctx, max_frames, names_only, cpu_time_ms)
     tally: dict[str, int] = {}
     for row in rows:
         tally[row["state"]] = tally.get(row["state"], 0) + 1
@@ -203,8 +233,22 @@ def threads_report(
     tasks, task_count, warning = _tasks(ctx, max_frames, cap, names_only)
     warnings = [w for w in (FREE_THREADED if names_only else None, warning) if w is not None]
     values = (
-        True, None, round(time.time() * 1000), len(rows), sum(r["daemon"] for r in rows), len(rows), len(rows),
-        False, False, False, list[int](), [{"state": s, "count": n} for s, n in sorted(tally.items())], page, meta,
-        tasks, task_count, warnings,
+        True,
+        None,
+        round(time.time() * 1000),
+        len(rows),
+        sum(r["daemon"] for r in rows),
+        len(rows),
+        len(rows),
+        False,
+        cpu_time_ms is not None,
+        False,
+        list[int](),
+        [{"state": s, "count": n} for s, n in sorted(tally.items())],
+        page,
+        meta,
+        tasks,
+        task_count,
+        warnings,
     )  # fmt: skip
     return dict(zip(REPORT_KEYS, values, strict=True))
