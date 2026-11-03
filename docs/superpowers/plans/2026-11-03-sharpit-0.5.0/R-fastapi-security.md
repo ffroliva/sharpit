@@ -28,8 +28,9 @@ Red rule: PLAN.md §Red rule.
 
 `test_introspection_never_reads_or_calls_custom_route_attributes`, `test_trap_route_untouched_by_every_introspecting_surface`,
 `test_custom_apiroute_subclass_still_classified`, `test_mount_property_never_evaluated`,
-`test_plain_starlette_subapp_routes_are_unknown_best_effort`, `test_scopes_floor_and_newest_classify_same`,
-`test_live_engine_driver_counts_as_covered`, `test_report_golden_parity`.
+`test_plain_starlette_subapp_routes_are_unknown_best_effort`, `tests/fastapi/test_introspector_security.py::test_scopes_read_at_the_installed_fastapi` (replaces the deleted
+`test_scopes_floor_and_newest_classify_same`: coordinator ruling 2026-11-03, its fake floor shape never existed),
+`tests/pytest_plugin/test_plugin_reports.py::test_live_engine_driver_counts_as_covered`, `test_report_golden_parity`.
 
 ## Task 0: council and rebase
 
