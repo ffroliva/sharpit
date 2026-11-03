@@ -520,22 +520,28 @@ def _release_attachment() -> None:
                 _attach_removers.pop()()
 
 
+def _listen() -> list[Callable[[], None]] | None:
+    """Every class listener's remover, or ``None`` (nothing left attached) while SQLAlchemy is not imported."""
+    removers: list[Callable[[], None]] = []
+    for event, callback in CONNECTION_CALLBACKS.items():
+        remover = sqla.add_connection_listener(cast(Any, event), callback)
+        if remover is None:
+            for attached in reversed(removers):
+                attached()
+            return None
+        removers.append(remover)
+    checkin = add_pool_listener("checkin", tx_checkin)
+    return [*removers, checkin] if checkin is not None else removers
+
+
 def attach(ctx: SharpitContext | None = None) -> Callable[[], None] | None:
     """Attach the shared class listeners once and return a per-context reference-counted remover."""
     global _attach_count, _attach_removers  # noqa: PLW0603
     with _attach_lock:
         if _attach_count == 0:
-            removers: list[Callable[[], None]] = []
-            for event, callback in CONNECTION_CALLBACKS.items():
-                remover = sqla.add_connection_listener(cast(Any, event), callback)
-                if remover is None:
-                    for attached in reversed(removers):
-                        attached()
-                    return None
-                removers.append(remover)
-            checkin = add_pool_listener("checkin", tx_checkin)
-            if checkin is not None:
-                removers.append(checkin)
+            removers = _listen()
+            if removers is None:
+                return None
             _attach_removers = removers
         _attach_count += 1
     if ctx is not None:
