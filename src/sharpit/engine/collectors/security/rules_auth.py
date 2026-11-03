@@ -2,14 +2,124 @@
 
 from __future__ import annotations
 
-from sharpit.engine.collectors.security import Inputs, SecurityRule, Violation, rule
+from collections.abc import Callable
+
+from sharpit.engine.collectors.security import (
+    UNSAFE_METHODS,
+    Inputs,
+    SecurityRule,
+    Violation,
+    chain_has,
+    route_label,
+    rule,
+    simple,
+)
+from sharpit.engine.spi import SecuredRoute
 
 _SECURITY = "https://fastapi.tiangolo.com/tutorial/security/"
 _CSRF = "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"
 
 
-def _none(_inputs: Inputs) -> list[Violation]:
-    return []
+def _required(route: SecuredRoute) -> list[str]:
+    return [simple(s.type_name) for s in route.schemes if s.auto_error]
+
+
+def _secured(route: SecuredRoute) -> bool:
+    return bool(_required(route)) or route.unknown_dependency
+
+
+def _api_routes(inputs: Inputs) -> list[SecuredRoute]:
+    """Known route handlers (a mount row has no methods; an opaque row cannot be classified)."""
+    return [r for r in inputs.model.routes if r.methods and not r.opaque]
+
+
+def _unsafe(route: SecuredRoute) -> bool:
+    return bool(UNSAFE_METHODS.intersection(route.methods))
+
+
+def _csrf_protected(inputs: Inputs, route: SecuredRoute) -> bool:
+    chains = inputs.model.chains
+    stack = chains[route.chain].middleware if 0 <= route.chain < len(chains) else ()
+    return any("csrf" in simple(m).lower() for m in stack)
+
+
+def _without_https(scheme: str) -> Callable[[Inputs], list[Violation]]:
+    def check(inputs: Inputs) -> list[Violation]:
+        return [
+            Violation(
+                route_label(r),
+                f"{route_label(r)} requires {scheme} and its middleware stack has no HTTPSRedirectMiddleware.",
+            )
+            for r in _api_routes(inputs)
+            if scheme in _required(r) and not chain_has(inputs.model, r.chain, "HTTPSRedirectMiddleware")
+        ]
+
+    return check
+
+
+def _unsecured_writes(inputs: Inputs) -> list[Violation]:
+    routes = _api_routes(inputs)
+    if not any(_secured(r) for r in routes):
+        return []  # nothing is secured: SEC-AUTHZ-002's finding, not one per route
+    return [
+        Violation(route_label(r), f"{route_label(r)} changes state with no security dependency.")
+        for r in routes
+        if _unsafe(r) and not r.schemes and not _secured(r) and not r.unchecked_dependency
+    ]
+
+
+def _blanket_permit_all(inputs: Inputs) -> list[Violation]:
+    model = inputs.model
+    routes = _api_routes(inputs)
+    unknown = any(r.opaque for r in model.routes)  # an unreadable route may be secured: never claim blanket access
+    if not routes or unknown or model.auth_backends or any(r.schemes or _secured(r) for r in routes):
+        return []
+    message = (
+        f"None of the {len(routes)} routes requires a security scheme or a custom dependency, and no"
+        " AuthenticationMiddleware is installed."
+    )
+    return [Violation("application", message)]
+
+
+def _csrf(test: Callable[[Inputs, SecuredRoute], bool], why: str) -> Callable[[Inputs], list[Violation]]:
+    def check(inputs: Inputs) -> list[Violation]:
+        return [
+            Violation(route_label(r), f"{route_label(r)} {why} and no CSRF middleware is on its stack.")
+            for r in _api_routes(inputs)
+            if _unsafe(r) and test(inputs, r) and not _csrf_protected(inputs, r)
+        ]
+
+    return check
+
+
+def _cookie_credentials(inputs: Inputs, route: SecuredRoute) -> bool:
+    return "APIKeyCookie" in _required(route) or chain_has(inputs.model, route.chain, "SessionMiddleware")
+
+
+def _public_openapi(inputs: Inputs) -> list[Violation]:
+    url = inputs.facts.openapi_url
+    secured = [r for r in _api_routes(inputs) if _required(r)]
+    if url is None or not secured:
+        return []
+    message = f"The OpenAPI schema at {url} is public while {len(secured)} route(s) require a security scheme."
+    return [Violation(url, message)]
+
+
+def _optional_only(inputs: Inputs) -> list[Violation]:
+    return [
+        Violation(route_label(r), f"{route_label(r)} has only optional security schemes (auto_error=False).")
+        for r in _api_routes(inputs)
+        if r.schemes and not _required(r) and not r.unknown_dependency  # an optional scheme always marks unchecked
+    ]
+
+
+def _mixed_schemes(inputs: Inputs) -> list[Violation]:
+    found: list[Violation] = []
+    for r in _api_routes(inputs):
+        kinds = sorted(set(_required(r)))
+        if len(kinds) > 1:
+            found.append(Violation(route_label(r), f"{route_label(r)} requires {' and '.join(kinds)}."))
+    return found
 
 
 RULES: tuple[SecurityRule, ...] = (
@@ -24,7 +134,7 @@ RULES: tuple[SecurityRule, ...] = (
             " token-based schemes.",
             "https://fastapi.tiangolo.com/advanced/security/http-basic-auth/",
         ),
-        _none,
+        _without_https("HTTPBasic"),
     ),
     SecurityRule(
         rule(
@@ -37,7 +147,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Serve the token endpoint over HTTPS only: add HTTPSRedirectMiddleware or enforce TLS at the proxy.",
             "https://fastapi.tiangolo.com/tutorial/security/simple-oauth2/",
         ),
-        _none,
+        _without_https("OAuth2PasswordBearer"),
     ),
     SecurityRule(
         rule(
@@ -50,7 +160,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Add the app's security dependency to the route (Depends/Security), or document why it is public.",
             _SECURITY,
         ),
-        _none,
+        _unsecured_writes,
     ),
     SecurityRule(
         rule(
@@ -63,7 +173,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Protect non-public routes with a fastapi.security scheme dependency or an authentication middleware.",
             _SECURITY,
         ),
-        _none,
+        _blanket_permit_all,
     ),
     SecurityRule(
         rule(
@@ -77,7 +187,7 @@ RULES: tuple[SecurityRule, ...] = (
             " methods.",
             _CSRF,
         ),
-        _none,
+        _csrf(_cookie_credentials, "reads a browser-sent cookie credential"),
     ),
     SecurityRule(
         rule(
@@ -90,7 +200,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Add a CSRF middleware or move browser clients to a token in a request header.",
             _CSRF,
         ),
-        _none,
+        _csrf(lambda _i, r: "HTTPBasic" in _required(r), "requires HTTPBasic"),
     ),
     SecurityRule(
         rule(
@@ -103,7 +213,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Set openapi_url=None outside development, or serve the docs behind the same security dependency.",
             "https://fastapi.tiangolo.com/how-to/conditional-openapi/",
         ),
-        _none,
+        _public_openapi,
     ),
     SecurityRule(
         rule(
@@ -116,7 +226,7 @@ RULES: tuple[SecurityRule, ...] = (
             "Check the optional credential inside the endpoint, or use auto_error=True.",
             _SECURITY,
         ),
-        _none,
+        _optional_only,
     ),
     SecurityRule(
         rule(
@@ -129,6 +239,6 @@ RULES: tuple[SecurityRule, ...] = (
             "Pick one authentication scheme per route, or combine them in one dependency that accepts either.",
             _SECURITY,
         ),
-        _none,
+        _mixed_schemes,
     ),
 )
