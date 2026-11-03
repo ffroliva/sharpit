@@ -6,6 +6,7 @@ Implementer: agy-flavio, Gemini 3.8
 
 | Test | Red SHA | Assertion message | Disposition |
 |---|---|---|---|
+| tests/fastapi/test_mysql_api.py::test_report_golden_parity | 0637bf5965d2f0ae18a081749f338829413b771b | `mysql/captured.json parity: localOnly: missing from payload; ...` | Fixed in next commit |
 
 ## Pins (pass on the base; mutation-proven, never claimed as reds)
 

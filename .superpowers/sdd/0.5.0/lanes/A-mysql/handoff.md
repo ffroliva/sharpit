@@ -4,17 +4,20 @@ Implementer: agy-flavio, Gemini 3.8
 
 ## Status
 
-IN_PROGRESS (Task 1: contract first).
+IN_PROGRESS (Task 1 done, moving to Task 2).
 
 ## Tasks
 
 | Task | Commit | What it proved |
 |---|---|---|
+| 1 red | `0637bf5965d2f0ae18a081749f338829413b771b` (`test:`) | `test_report_golden_parity` failed cleanly on empty skeleton report with AssertionError under tests/ |
+| 1 fix | pending (`feat:`) | `mysql_report` returns complete `NOT_READ` report matching `tests/fixtures/bootui/2.2.0/mysql/captured.json` |
 
 ## Red tests
 
 | Test id | Red SHA | Assertion message |
 |---|---|---|
+| tests/fastapi/test_mysql_api.py::test_report_golden_parity | 0637bf5965d2f0ae18a081749f338829413b771b | `mysql/captured.json parity: localOnly: missing from payload; ...` |
 
 ## Decisions
 
