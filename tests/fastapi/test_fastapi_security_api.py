@@ -318,3 +318,31 @@ def test_explain_empty_method_defaults_to_get():
 
 def test_explain_empty_path_defaults_to_root():
     assert _explain(client_for(), "GET", "").status_code == 200
+
+
+class CountingRoute(BaseRoute):
+    """Review row 1: a custom route whose ``effective_candidates`` property and ``matches`` method are user code."""
+
+    calls = 0
+
+    @property
+    def effective_candidates(self) -> list[object]:
+        CountingRoute.calls += 1
+        return []
+
+    def matches(self, scope: Any) -> tuple[Match, dict[str, Any]]:
+        CountingRoute.calls += 1
+        return Match.NONE, {}
+
+
+def test_introspection_never_reads_or_calls_custom_route_attributes():
+    CountingRoute.calls = 0
+    app = FastAPI()
+    app.router.routes.append(CountingRoute())
+    client = client_for(app)
+    client.get(API)
+    rows = _endpoint_rows(client)
+    body = _explain(client, "GET", "/anything").json()
+    assert CountingRoute.calls == 0
+    assert [(rule, best) for _, rule, _, best in rows] == [("unknown", True)]
+    assert (body["matched"], body["bestEffort"]) == (False, True)  # the custom route may take it: never "unsecured"

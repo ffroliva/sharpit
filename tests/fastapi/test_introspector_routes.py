@@ -1,7 +1,9 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.responses import PlainTextResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
@@ -11,6 +13,7 @@ from starlette.routing import BaseRoute, Host, Mount, Route, WebSocketRoute
 from conftest import SideEffectGuard
 from fastapi import APIRouter, FastAPI, Request, UploadFile, WebSocket
 from sharpit import install
+from sharpit.engine.collectors.restapi.rules import application_routes
 from sharpit.engine.spi import RouteInfo
 from sharpit.fastapi.introspector import FastApiIntrospector
 
@@ -209,3 +212,68 @@ def test_custom_sharpit_path_excluded(path: str, no_side_effects: SideEffectGuar
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, path=path.rstrip("/"))
     assert not [r for r in FastApiIntrospector(app, path).routes() if r.path.startswith("/dev-tools")]
+
+
+class TimedRoute(APIRoute):
+    """A user ``route_class``: a real ``APIRoute`` subclass, as ``APIRouter(route_class=...)`` builds."""
+
+
+def test_custom_apiroute_subclass_still_classified(no_side_effects: SideEffectGuard):
+    router = APIRouter(route_class=TimedRoute)
+
+    @router.get("/timed")
+    def timed() -> str:  # pyright: ignore[reportUnusedFunction]
+        return "t"
+
+    app = FastAPI()
+    app.include_router(router)
+    intro = FastApiIntrospector(app, "/sharpit")
+    mappings = [(r.methods, r.path, r.handler) for r in intro.routes() if r.path == "/timed"]
+    rest_api = [r.path for r in application_routes(intro.api_model().routes)]  # as the rest-api scan reads it
+    security = [(r.path, r.opaque) for r in intro.security_model().routes]
+    assert mappings == [
+        (("GET",), "/timed", f"{__name__}:test_custom_apiroute_subclass_still_classified.<locals>.timed")
+    ]
+    assert rest_api == ["/timed"]
+    assert security == [("/timed", False)]
+
+
+class CountingMount(Mount):
+    reads = 0
+
+    @property
+    def routes(self) -> list[BaseRoute]:
+        CountingMount.reads += 1
+        return []
+
+
+def test_mount_property_never_evaluated(no_side_effects: SideEffectGuard):
+    CountingMount.reads = 0
+    app = FastAPI()
+    app.router.routes.append(CountingMount("/m", routes=[Route("/a", plain)]))
+    intro = FastApiIntrospector(app, "/sharpit")
+    intro.routes()
+    intro.api_model()
+    intro.security_model()
+    intro.providers()
+    assert CountingMount.reads == 0
+
+
+class Slotted:
+    """An app-like object without ``__dict__`` (the pytest plugin passes a SQLAlchemy ``AsyncEngine`` as the app)."""
+
+    __slots__ = ("name",)
+
+
+def _read_or_error(read: Any) -> object:
+    try:
+        return read()
+    except TypeError as exc:  # the defect: vars() on a slotted object
+        return f"raised {exc}"
+
+
+def test_object_without_dict_has_no_routes():
+    intro = FastApiIntrospector(Slotted())
+    assert _read_or_error(intro.routes) == []
+    assert _read_or_error(lambda: intro.api_model().routes) == ()
+    assert _read_or_error(intro.providers) == []
