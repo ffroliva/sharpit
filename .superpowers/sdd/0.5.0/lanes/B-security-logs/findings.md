@@ -63,6 +63,7 @@ Every red below was checked with `scripts/dev/red_check.py` before its `test:` c
 | tests/safety/test_b_security_logs_safety.py::test_inactive_security_logs_paths_404 | b76a93228dd86ff55fd534d5eb693ffe8b1f70fc | none: the global fail-closed guard (`test_inactive_is_404_everywhere`) | N/A |
 | tests/masking/test_b_security_logs_masking.py::test_security_event_data_masked_before_output | b76a93228dd86ff55fd534d5eb693ffe8b1f70fc | `_row` skips `masker.mask` (`shown, masked = value, False`) | `AssertionError: secret values must be masked before output` |
 | tests/fastapi/test_security_logs_overhead.py::test_security_logs_hook_overhead_budget | b76a93228dd86ff55fd534d5eb693ffe8b1f70fc | `attach` returns `None` instead of the hook | `AssertionError: the on side measures the attached hook` |
+| tests/fastapi/test_security_logs_overhead.py::test_200_request_runs_no_security_logs_code | ad1274dd85ec8b37ac258e7f37eb39d1b3f8ffd7 | the capture middleware's guard `sent in (401, 403)` → `sent is not None` (the hook runs on a 200) | `AssertionError: a 200 runs no security-logs code (only the capture middleware's status compare)` |
 
 ## New rules mutation-proven (scratch worktree at 1ef1873, reverted)
 
@@ -104,3 +105,13 @@ panel differs), after 27ef24b (40 rounds × 250 requests), five runs: overhead +
 -0.4, -3.3 µs on a ~155 µs request; noise 3.6–25 µs. Under the full suite: +33.7 µs, noise 88 µs (OVER). On a 200 both
 sides execute identical code, so the true difference is zero; a 2 µs budget sits below this harness's resolution
 (noise is 2–12x the budget). Not raised; flagged for the coordinator (handoff question 4).
+
+### After the perf audit (coordinator Q4 ruling; `0.5.0-integration/.superpowers/sdd/0.5.0/lanes/B-security-logs/perf-audit.md`)
+
+The budget test is a pin, not a recorded red, so it changed in place (ad1274d): `ROUNDS, REQUESTS = 1000, 10` (rounds
+shorter than a load wave, PR #56), budget unchanged at 2 µs. New exact pin
+`test_200_request_runs_no_security_logs_code`: `sys.setprofile` counts zero calls into `securitylogs.py` over a round
+of 200 requests and sees `hook` on a round of 401s; mutation-proven above.
+
+Five runs of the budget file alone at ad1274d (log `B-ovh-1000.jsonl`), overhead / noise in µs on a ~77 µs request:
++2.68 / 5.21 (OVER, within noise), +0.66 / 2.54, -0.91 / 3.18, +0.07 / 4.66, -0.75 / 8.59. The exact pin passed 5/5.

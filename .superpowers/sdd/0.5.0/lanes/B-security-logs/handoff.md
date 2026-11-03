@@ -2,7 +2,7 @@
 
 Implementer: Claude subagent (claude-opus-5-5)
 
-Status: DONE_WITH_CONCERNS (four coordinator questions below; each blocks one pre-existing test outside May-touch).
+Status: DONE. The four coordinator questions below are answered (see Coordinator rulings).
 Branch `lane/0.5.0-B-security-logs`, worktree `C:\development\github\sharpit-wt\0.5.0-B-security-logs`, base `ae0c227`.
 Task 0 (predict + council) skipped on the coordinator's instruction: the council runs on the finished diff.
 
@@ -19,7 +19,10 @@ Task 0 (predict + council) skipped on the coordinator's instruction: the council
 | b62dbdc | test: security-logs view (red) |
 | 1ef1873 | feat: security-logs view and rebuilt UI bundle |
 | 27ef24b | test: security-logs hook budget runs 40 short rounds to settle each side's minimum |
-| (this) | docs: lane B-security-logs evidence |
+| e6a0c38 | docs: lane B-security-logs evidence |
+| 1c4d1e2 | chore: merge release/0.5.0 into lane B-security-logs (UI bundle rebuilt from merged ui/) |
+| cc700e5 | test: all-capture-panels-off lists include security-logs (coordinator Q2/Q3) |
+| ad1274d | test: security-logs budget in 1000 short rounds and an exact no-lane-code-on-200 check (perf audit) |
 
 Red SHAs, assertions, dispositions, pins and mutation proofs: `findings.md`.
 
@@ -53,7 +56,13 @@ pays one tuple-membership test, as before this lane.
   sharpit limit tool); BootUI's guide default 20 is not applied. No required args, so no TOOL_ARGS/TOOL_SEEDS.
 - Stream: reuses `change_events` + `sse_response` (shared coalescing, not BootUI's 750 ms; unchanged).
 
-## Questions for the coordinator (files outside May-touch, not edited)
+## Coordinator rulings
+
+Q1 done on release (c63623b, merged in 1c4d1e2). Q2/Q3 approved and applied in cc700e5. Q4: perf audit; budget kept
+at 2 µs, measurement changed to 1000 × 10 and an exact `sys.setprofile` pin added (ad1274d; findings §Overhead).
+The `record_security_event(data=)` and unavailable-reason decisions were accepted; kept above for the council.
+
+## Questions for the coordinator (as asked; answered above)
 
 1. `tests/conftest.py` `TIMING_MODULES`: add `"test_security_logs_overhead.py",  # lane B-security-logs`.
    Without it `tests/test_overhead_harness.py::test_every_budget_module_runs_last` and
@@ -105,4 +114,4 @@ MCP `get_security_logs`.
 
 ## How to resume
 
-Answer the four questions (one line each), re-run the six named tests, then the lane gate.
+Coordinator: review, council, gate logs, then `lane_gate.py B-security-logs`.
