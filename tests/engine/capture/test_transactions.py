@@ -428,6 +428,17 @@ async def test_subscriber_signalled() -> None:
     subscription.close()
 
 
+def _fresh_attach_state(monkeypatch, transactions) -> None:
+    """Fake a never-attached panel without touching the real class listeners a leaked install() still owns.
+
+    Patching only the counter let ``attach()`` arm and then remove the real ``Pool`` checkin listener while the
+    restored counter still claimed it, so later installs in the same xdist worker ran without it.
+    """
+    monkeypatch.setattr(transactions, "_attach_count", 0)
+    monkeypatch.setattr(transactions, "_attach_removers", [])
+    monkeypatch.setattr(transactions, "add_pool_listener", lambda _event, _callback: lambda: None)
+
+
 def test_attacher_retries_late_sqlalchemy_and_removes_partial_listeners(monkeypatch) -> None:
     from sharpit.engine import sqla
     from sharpit.engine.capture import transactions
@@ -435,8 +446,7 @@ def test_attacher_retries_late_sqlalchemy_and_removes_partial_listeners(monkeypa
 
     removed: list[str] = []
     installed: list[str] = []
-    monkeypatch.setattr(transactions, "_attach_count", 0)
-    monkeypatch.setattr(transactions, "_attach_removers", [])
+    _fresh_attach_state(monkeypatch, transactions)
 
     def late(event, _callback):
         installed.append(event)
@@ -463,8 +473,7 @@ def test_listener_remover_releases_attachments_when_called(monkeypatch) -> None:
     from sharpit.engine.capture.transactions import attach
 
     removed: list[str] = []
-    monkeypatch.setattr(transactions, "_attach_count", 0)
-    monkeypatch.setattr(transactions, "_attach_removers", [])
+    _fresh_attach_state(monkeypatch, transactions)
     monkeypatch.setattr(sqla, "add_connection_listener", lambda event, _callback: lambda: removed.append(event))
     remove = attach()
     assert remove is not None, "the transaction listener must attach for this context"
@@ -480,8 +489,7 @@ def test_listener_release_never_runs_under_attach_lock(monkeypatch) -> None:
     from sharpit.engine.capture import transactions
     from sharpit.engine.capture.transactions import attach
 
-    monkeypatch.setattr(transactions, "_attach_count", 0)
-    monkeypatch.setattr(transactions, "_attach_removers", [])
+    _fresh_attach_state(monkeypatch, transactions)
     monkeypatch.setattr(sqla, "add_connection_listener", lambda _event, _callback: lambda: None)
     remover = attach()
     assert remover is not None, "the transaction listener must attach for this context"
@@ -676,8 +684,7 @@ def test_two_attachments_one_remove_keeps_routing(monkeypatch) -> None:
     from sharpit.engine import sqla
     from sharpit.engine.capture import transactions
 
-    monkeypatch.setattr(transactions, "_attach_count", 0)
-    monkeypatch.setattr(transactions, "_attach_removers", [])
+    _fresh_attach_state(monkeypatch, transactions)
     monkeypatch.setattr(sqla, "add_connection_listener", lambda _event, _callback: lambda: None)
     context = _WeakContext(_recorder(), context_id="attached-twice")
     first = transactions.attach(context)  # type: ignore[arg-type]
