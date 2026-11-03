@@ -1,0 +1,115 @@
+# Lane R-fastapi-security handoff (0.5.0, wave 2)
+
+Implementer: Claude Code claude-flavio (Opus 5.5)
+Lane plan: `docs/superpowers/plans/2026-11-03-sharpit-0.5.0/R-fastapi-security.md`
+Branch / worktree: `lane/0.5.0-R-fastapi-security` in `C:\development\github\sharpit-wt\0.5.0-R-fastapi-security`,
+base `836d3fd` (local `release/0.5.0`).
+
+## Status: DONE_WITH_CONCERNS (council is the coordinator's, Task 0 Step 1; concerns below)
+
+| Commit | What |
+|---|---|
+| `eef4d71` | Task 0: merge of `lane/0.4.0-B-fastapi-security` @ `12a67b5` (linear lane, no merge commits in it). One conflict: `routes/fastapi_security.py` (base had emptied the stub; took the lane's, signature aligned to `build_routes(ctx, _host_app=None)` as the siblings after `8c2c9bc`). No duplicated top-level defs in any merged `.py`. |
+| `3ffec3e` | Task 1 red (4 reds + 3 pins) |
+| `978e1d0` | Task 1 fix: `fix: static-only route reads in the security model` |
+| `24165af` | Task 3 red (beans exemption deleted + lane red) |
+| `1b81242` | Task 3 fix |
+| `75e353d` | Task 2 pin: inactive 404 for every fastapi-security path and its MCP tool |
+| `aabca65` | rebuilt UI bundle (`npm run build`, per this brief) |
+| `4d39bf5` | fake Stripe keys built in pieces (the secret-literal pin; full-suite finding) |
+
+Red tables, pins with mutations, rule-removal table: `findings.md`.
+
+## Task 0 outcome
+
+`uv run pytest -q tests/pytest_plugin/test_plugin_reports.py::test_live_engine_driver_counts_as_covered`:
+
+- base `836d3fd` (detached scratch worktree `R-fs-base`): `1 passed in 2.97s`.
+- merged head `eef4d71`: `1 failed` — `assert <ExitCode.TESTS_FAILED: 1> == 0` (inner run: status unknown).
+- Root cause (systematic debugging, reproduced directly): the plugin passes the app object `appmod:engine` (a SQLAlchemy
+  `AsyncEngine`, `__slots__`) to `FastApiIntrospector`; the 0.4.0 lane's `_entries()` called `vars(self.app)` →
+  `TypeError: vars() argument must have __dict__ attribute` from `routes()`, `api_model()` and `providers()`. Base used
+  `getattr`. Fix in `introspector.py` only (`_attrs()` returns `{}` for an object without `__dict__`); red
+  `test_object_without_dict_has_no_routes`. Green at the head (in the lane run and the full suite).
+
+## Decisions
+
+1. 0.4.0 lane decisions 1–7 stand (see `.superpowers/sdd/0.4.0/lanes/B-fastapi-security/handoff.md`).
+2. Route classes match by `issubclass(type(route), ...)`, never `isinstance` (a user `__class__` property would run)
+   nor exact type (drops a `route_class`). Route/mount/router attributes come from the instance `__dict__` only, so a
+   subclass property is never evaluated.
+3. "Never descend into a non-FastAPI sub-app for dependency classification": routes are still walked (mappings and
+   rest-api list them), but an `APIRoute` whose enclosing app is a plain `Starlette` is `unknown` + `bestEffort`. A
+   `Mount(routes=...)` (a `Router`, not an app) inherits its parent's FastAPI-ness.
+4. Explain for a path behind an unreadable custom route stays `matched: false, bestEffort: true` (0.4.0 design: the
+   custom route might take it); the review-1 test asserts that rather than inventing a `rule: "unknown"` match.
+5. Scopes: deduplicated (`sorted(set(...))`). FastAPI 0.115's `security_scopes` are cumulative down the tree, so the
+   union along the path doubled them; the floor/newest test simulates the 0.115 `Dependant` shape on FastAPI 0.162.
+6. Task 3 class `resource`: 3.13+ `__firstlineno__` (the `class` line); 3.12 the lowest `co_firstlineno` of the class's
+   own functions (its first `def` line, not the `class` line); none → the file alone. The contract shape (`file:line`
+   string, or the file) does not change, so no §14 shape row is needed; the 3.12 value differs by a few lines. The
+   coordinator deletes spec §14's beans row on `release/0.5.0`.
+7. The four F5a beans sweep cases fail at the Task 3 red through the `no_side_effects` teardown (not a valid red), so
+   the lane red is `test_beans_resource_never_opens_the_source_file` with its own spy.
+
+## Must-cover
+
+| Test | Exists | At head |
+|---|---|---|
+| `tests/fastapi/test_fastapi_security_api.py::test_introspection_never_reads_or_calls_custom_route_attributes` | yes (pin) | pass |
+| `tests/fastapi/test_introspection_trap.py::test_trap_route_untouched_by_every_introspecting_surface` | yes (pin) | pass |
+| `tests/fastapi/test_introspector_routes.py::test_custom_apiroute_subclass_still_classified` | yes (red) | pass |
+| `tests/fastapi/test_introspector_routes.py::test_mount_property_never_evaluated` | yes (pin) | pass |
+| `tests/fastapi/test_fastapi_security_api.py::test_plain_starlette_subapp_routes_are_unknown_best_effort` | yes (0.4.0 red `95136a9`) | pass |
+| `tests/fastapi/test_introspector_security.py::test_scopes_floor_and_newest_classify_same` | yes (red) | pass |
+| `tests/pytest_plugin/test_plugin_reports.py::test_live_engine_driver_counts_as_covered` | yes (not lane-owned) | pass |
+| `tests/fastapi/test_fastapi_security_api.py::test_report_golden_parity` | yes | pass |
+
+Task 2 names: `test_inactive_fastapi_security_paths_404` is the new pin in `tests/safety/test_b_fastapi_security_safety.py`;
+"get no side effects" is that file's `test_get_no_side_effects`, "MCP list has only get" is
+`test_mcp_read_tool_only`. Panel flags were already `True` in both flag files (0.4.0 lane).
+
+## Gates (suite at `aabca65`; `4d39bf5` changes two test constants only)
+
+- `uv run ruff check`, `uv run ruff format --check`: clean. `uv run pyright`: 0 errors, 0 warnings.
+- Full `pytest -q -n 4` at `aabca65` (log `0.5.0-integration/.superpowers/sdd/0.5.0/logs/R-fastapi-security-pytest.log`):
+  4718 passed, 9 skipped, 5 failed in 782 s.
+  - `test_no_full_secret_shaped_literal_in_the_tree`: lane-owned (the 0.4.0 tests' fake Stripe keys). Fixed in
+    `4d39bf5` (built in pieces, same runtime value); that file + both lane files: 24 passed.
+  - `test_every_budget_module_runs_last` (ImportError: `conftest` resolved to `tests/fixtures/apps/unbounded_read/conftest.py`
+    under xdist) and `test_sqlalchemy_lazy_relationship_hook_overhead_budget`: pass alone at the head (17 passed in
+    the budget run, `R-fs-budget-head.log`).
+  - `test_request_overhead_budget`: fails alone at the head and at the base `836d3fd` alike (`R-fs-budget-base.log`,
+    0.251 ms vs budget 0.200 on base): machine load (other agents running), no hot path in this lane.
+  - `test_statement_overhead_budget`: failed once at the head; paired re-run head 3/3, base 3/3 passed (`R-fs-sqlpair.log`).
+  Budgets untouched. A suite rerun on a quiet machine is the coordinator's gate.
+
+UI: `npm ci`, `npm run build` exit 0 (bundle committed in `aabca65`), vitest `fastapiSecurity.test.ts` 7 passed.
+
+## Live check
+
+In-process (no port bound), `examples.fastapi_sqla.app.create_app(enabled="ON", mcp_enabled="ON")` via `TestClient`:
+
+- `GET /sharpit/api/fastapi-security` → 200, `springSecurityPresent: true`, one chain `["GZipMiddleware"]`, `limitations: []`.
+- `GET /sharpit/api/fastapi-security/endpoints` → 200, `total: 10`, e.g. `GET /background` `unsecured`.
+- `GET /sharpit/api/fastapi-security/explain?method=GET&path=/owners` → 200, `matched: true`, `rule: "unsecured"`.
+- `GET /sharpit/api/fastapi-security/explain?path=nope` → 400 `{"error": "Invalid request"}`.
+- `GET /sharpit/api/beans` → 200, e.g. `examples.fastapi_sqla.app:create_app.<locals>.lifespan` → `...\app.py:156`.
+- MCP `get_fastapi_security` → `isError: false`.
+
+Request for the coordinator's `/sharpit:live-verify`: the same requests against a running example.
+
+## Questions / needs for the coordinator
+
+1. `src/sharpit/ui/static/` is outside the plan's May-touch; this brief asks for the rebuilt bundle, so it is
+   committed alone in `aabca65` (drop it if the coordinator rebuilds per wave).
+2. `tests/test_safety_matrix.py` edit is limited to the plan's addition (the exemption list) plus the F5a pin
+   `test_sweep_source_read_exemptions_only_shrink`, whose assertion had to change with the list (now `frozenset()`).
+3. Spec §14 beans row: delete on `release/0.5.0` (coordinator applies, per the plan).
+4. The 3.12 class-resource fallback is not exercised locally (venv is 3.13.7); CI 3.12 runs it.
+5. Not touched: `pytest_plugin/` (the Task 0 cause was in `introspector.py`).
+
+## How to resume
+
+Everything is committed. Next: the coordinator's council (Task 0 Step 1) and review on this head; a finding there is a
+new red test in this lane's May-touch files.
