@@ -681,12 +681,12 @@ class FastApiIntrospector:
             if child is None:
                 continue
             if id(child) not in seen and depth < MAX_DEPTH:
-                mount_names: tuple[str, ...] = ()
-                if is_mount:
-                    mount_names = _wrapped_middleware(child)[0]
+                # the wrapper's types join the stack; the walk goes on in the sub-app it wraps (nested mounts)
+                wrappers, inner = _wrapped_middleware(child)
+                mount_names = wrappers if is_mount else ()
                 child_prefix = values.get("path", "") if is_mount else ""
                 self._chains(
-                    child,
+                    inner,
                     (prefix or "") + (child_prefix if isinstance(child_prefix, str) else ""),
                     chains,
                     backends,
