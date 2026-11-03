@@ -100,6 +100,7 @@ it then failed on). It is never claimed as a red. `lane_gate.py` refuses a red w
 | U20-memory | `U20-memory.md` | required | spike now; build **OWNER-ONLY** (O3/O4) | D2 | claude-flavio (Opus) |
 | T-unbounded-read-2 | `T-unbounded-read-2.md` | not required | spike now; build on GO | D2, U20-memory merged or parked/declined | codex gpt-6-luna |
 | W-workload | `W-workload.md` | required | spike only; build **OWNER-ONLY** (O5) | T-unbounded-read-2 | codex or claude-flavio |
+| BENCH-0.4.0 | `BENCH-0.4.0.md` | not required | committed (added 2026-11-03 from sharpit-bench Python round: U1/U2, U6, U7, U8) | T-swallowed-2, P-0.4.1 | Claude subagent |
 | final | Step 5 below | — | — | all above merged or parked | coordinator |
 
 This table is the single source for ids, plan files and council requirements (F5-gate reads the "Plan file" and
