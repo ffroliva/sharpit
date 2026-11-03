@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import math
+import re
 from collections.abc import Callable
 from concurrent.futures import Executor
 from typing import Any
@@ -36,11 +38,14 @@ def bounded_read_only[T](
     """Run ``fn(conn)`` read-only as the server confirmed it, else raise ``ReadOnlyUnavailable`` without running it.
 
     PostgreSQL: a verified read-only transaction with statement and lock timeouts. SQLite: ``PRAGMA query_only``,
-    verified and put back. Any other dialect is refused.
+    verified and put back. MySQL/MariaDB: the session's read-only variable and timeouts, verified and put back. Any
+    other dialect is refused.
     """
     name = getattr(getattr(conn, "dialect", None), "name", None)
     if name == "sqlite":
         return _sqlite_read_only(conn, fn)
+    if name in ("mysql", "mariadb"):
+        return _mysql_read_only(conn, fn, statement_timeout, lock_timeout)
     if name != "postgresql":
         raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
     stmt_ms = max(1, int(statement_timeout * 1000))
@@ -83,6 +88,51 @@ def _sqlite_read_only[T](conn: Any, fn: Callable[[Any], T]) -> T:
         return fn(conn)
     finally:
         _restore(conn, [f"PRAGMA query_only = {saved}"])
+
+
+def _version(text: str) -> tuple[int, ...]:
+    """``(10, 6, 12)`` from ``10.6.12-MariaDB-log``; ``(0,)`` when it does not start with a number."""
+    match = re.match(r"\d+(?:\.\d+)*", text)
+    return tuple(int(part) for part in match.group().split(".")) if match else (0,)
+
+
+def _number(value: Any) -> int | float:
+    """A session value as a number, so it can only ever be written back as one (``float`` raises otherwise)."""
+    number = float(value)
+    return int(number) if number.is_integer() else number
+
+
+def _mysql_read_only[T](conn: Any, fn: Callable[[Any], T], statement_timeout: float, lock_timeout: float) -> T:
+    """The session characteristic, not ``START TRANSACTION READ ONLY``: only ``@@SESSION`` can be read back.
+
+    pymysql's ``autocommit`` is a method, so autocommit is asked of the server: under it each statement is its own
+    transaction and the timeouts and the rollback mean nothing, so the read is refused.
+    """
+    options: dict[str, Any] = conn.get_execution_options() if hasattr(conn, "get_execution_options") else {}
+    if str(options.get("isolation_level", "")).upper() == "AUTOCOMMIT":
+        raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
+    version = str(conn.exec_driver_sql("SELECT @@version").scalar())
+    mariadb = "mariadb" in version.lower() or conn.dialect.name == "mariadb"
+    modern = _version(version) >= ((11, 1) if mariadb else (5, 7, 20))
+    read_only = "transaction_read_only" if modern else "tx_read_only"
+    if mariadb:
+        timeout, value = "max_statement_time", round(max(statement_timeout, 0.001), 3)
+    else:
+        timeout, value = "max_execution_time", max(1, int(statement_timeout * 1000))
+    if _number(conn.exec_driver_sql("SELECT @@SESSION.autocommit").scalar() or 0) != 0:
+        raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
+    names = (read_only, timeout, "innodb_lock_wait_timeout")
+    saved = {name: _number(conn.exec_driver_sql(f"SELECT @@SESSION.{name}").scalar() or 0) for name in names}
+    conn.rollback()  # SQLAlchemy's own, so its state stays in step; the next transaction takes the session value
+    try:
+        conn.exec_driver_sql(f"SET SESSION {read_only} = 1")
+        conn.exec_driver_sql(f"SET SESSION {timeout} = {value}")
+        conn.exec_driver_sql(f"SET SESSION innodb_lock_wait_timeout = {max(1, math.ceil(lock_timeout))}")
+        if _number(conn.exec_driver_sql(f"SELECT @@SESSION.{read_only}").scalar() or 0) != 1:
+            raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
+        return fn(conn)
+    finally:
+        _restore(conn, [f"SET SESSION {name} = {saved[name]}" for name in names])
 
 
 def bounded[T](conn: Any, fn: Callable[[Any], T], timeout: float) -> T:
