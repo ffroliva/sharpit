@@ -146,3 +146,27 @@ def test_lazy_load_n_plus_one_names_the_first_app_frame(pytester: pytest.Pyteste
     assert result.ret == 1
     assert finding["message"].startswith("Player.performances lazy-loaded 10 times")
     assert f"serialize_app.py:{line}" in finding["message"]
+
+
+BATCH_TEST = """
+from sqlalchemy.orm import Session
+from batch_app import TEAMS, engine, players_of, teams_with_players
+
+def test_batches():
+    with Session(engine) as db:
+        teams = teams_with_players(db)
+        assert sum(len(team.players) for team in teams) == TEAMS
+        assert len(players_of(db, [team.team_id for team in teams])) == TEAMS
+"""
+
+
+def test_selectinload_and_in_batch_never_count_as_n_plus_one(pytester: pytest.Pytester) -> None:
+    # bench: U8, queryspy strict false-alarmed on every clean case; batched loads are one query each, not N+1
+    _twin(pytester, "batch_app", test_batch=BATCH_TEST)
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    rules = [f["ruleId"] for f in _report(pytester)["findings"]]
+
+    assert result.ret == 0
+    assert "sharpit.n-plus-one" not in rules
