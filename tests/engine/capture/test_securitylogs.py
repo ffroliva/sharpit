@@ -238,3 +238,31 @@ def test_principal_never_runs_user_properties() -> None:
     assert principal_of(UnauthenticatedUser()) is None, "an unauthenticated user has no principal"
     assert principal_of(None) is None, "no user, no principal"
     assert principal_of(_PlainUser()) == "u-7", "a plain identity attribute is the principal"
+
+
+def test_stored_event_strings_are_bounded() -> None:
+    buffer = SecurityEventBuffer(500)
+    huge = "z" * 100_000
+    data = {f"{huge}{i:03d}": huge for i in range(50)}
+    buffer.add(huge, huge, data, None, timestamp_ns=T0)
+    stored = buffer.snapshot()
+    assert len(stored) == 1, "the event is stored"
+    event = stored[0]
+    assert len(event.principal or "") <= 256, "the stored principal is cut to 256 characters"
+    assert len(event.type) <= 256, "the stored type is cut to 256 characters"
+    assert len(event.data) <= 20, "at most 20 data entries are stored"
+    assert max(len(row[0]) for row in event.data) <= 256, "stored key names are cut to 256 characters"
+    assert max(len(row[1] or "") for row in event.data) <= 259, "stored values are cut to 256 characters plus '...'"
+
+
+def test_long_values_are_masked_before_they_are_cut() -> None:
+    buffer = SecurityEventBuffer(500)
+    data = {"note": "x" * 240 + f" Bearer {JWT}", "a" * 300 + "_password": "hunter2"}
+    buffer.add(AUTHENTICATION_FAILURE, None, data, None, timestamp_ns=T0)
+    stored = buffer.snapshot()
+    assert len(stored) == 1, "the event is stored"
+    values = [row[1] or "" for row in stored[0].data]
+    assert not any(JWT[:12] in v for v in values), "a token straddling the cut is masked, never stored half"
+    assert "hunter2" not in values, "a long sensitive key name masks its value before the name is cut"
+    shown = _report(buffer)["events"][0]["data"]
+    assert [r["masked"] for r in shown] == [True, True], "both rows are reported masked"
