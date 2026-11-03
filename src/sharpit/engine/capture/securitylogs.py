@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+import inspect
+import logging
 import re
 import threading
 import time
+import weakref
 from collections import Counter, deque
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
+from sharpit.engine.capture.correlation import REQUEST
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker
 from sharpit.engine.paging import paged
+from sharpit.engine.panels import panel_is_implemented
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
+logger = logging.getLogger("sharpit")
+
+PANEL = "security-logs"
 AUTHENTICATION_SUCCESS = "AUTHENTICATION_SUCCESS"
 AUTHENTICATION_FAILURE = "AUTHENTICATION_FAILURE"
 AUTHORIZATION_FAILURE = "AUTHORIZATION_FAILURE"
@@ -27,6 +35,8 @@ _ADDRESS_MARKERS = ("sessionid", "remoteaddress", "remoteaddr", "ipaddress")
 _NON_ALNUM = re.compile(r"[^a-z0-9]")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _SECOND = 1_000_000_000
+# installed contexts whose panel is enabled, by context id: record_security_event finds the current request's app here
+_contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
 
 
 class SecurityEvent(NamedTuple):
@@ -179,16 +189,50 @@ def security_logs_report(
 
 
 def principal_of(user: object) -> str | None:
-    return ""
+    """``scope["user"]``'s plain ``identity`` attribute, else its type name; never runs a user property."""
+    if user is None or type(user).__name__ == "UnauthenticatedUser":
+        return None
+    identity = inspect.getattr_static(user, "identity", None)  # a property comes back as the descriptor, unrun
+    return identity if isinstance(identity, str) else type(user).__name__
 
 
 def on_security_event(buffer: SecurityEventBuffer, masker: Masker) -> Callable[[Mapping[str, Any], int], None]:
-    return lambda _scope, _status: None
+    """The capture middleware's 401/403 hook; it runs before the request id is reset (R12)."""
+
+    def hook(scope: Mapping[str, Any], status: int) -> None:
+        info = REQUEST.get()
+        data = {"method": scope["method"], "path": masker.mask_path(scope["path"]), "status": status}
+        kind = AUTHENTICATION_FAILURE if status == 401 else AUTHORIZATION_FAILURE
+        buffer.add(kind, principal_of(scope.get("user")), data, info.id if info is not None else None)
+
+    return hook
 
 
 def attach(ctx: SharpitContext) -> Callable[[Mapping[str, Any], int], None] | None:
-    return None
+    """Give an enabled panel its buffer and its context registration; return the 401/403 hook, or None."""
+    if not (panel_is_implemented(PANEL) and ctx.settings.panels[PANEL].enabled):
+        return None
+    buffer = ctx.capture.security_logs = SecurityEventBuffer(ctx.settings.security_logs_max_logs)
+    _contexts[ctx.context_id] = ctx
+    return on_security_event(buffer, ctx.masker)
 
 
 def record_security_event(type: str, principal: str | None = None, data: Mapping[str, object] | None = None) -> None:
-    return None
+    """Record an audit event (e.g. ``AUTHENTICATION_SUCCESS``) in the sharpit console of the app serving the current
+    request. Outside a request, for an inactive sharpit or a disabled panel it does nothing; it never raises."""
+    try:
+        info = REQUEST.get()
+        ctx = _contexts.get(info.context_id) if info is not None else None
+        buffer = ctx.capture.security_logs if ctx is not None else None
+        if info is None or not isinstance(buffer, SecurityEventBuffer):
+            return
+        given = cast("tuple[object, object, object]", (type, principal, data))  # public API: untyped callers
+        if not (isinstance(given[0], str) and given[0].strip()) or not isinstance(given[1], str | None):
+            logger.warning("sharpit record_security_event dropped an event: type must be a non-blank str")
+            return
+        if not isinstance(given[2], Mapping | None):
+            logger.warning("sharpit record_security_event dropped an event: data must be a mapping")
+            return
+        buffer.add(type.strip(), principal, data or {}, info.id)
+    except Exception as exc:  # noqa: BLE001 - the host's request never fails on sharpit
+        logger.warning("sharpit record_security_event dropped an event (%s)", exc.__class__.__name__)
