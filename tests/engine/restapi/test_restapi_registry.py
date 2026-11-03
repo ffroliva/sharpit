@@ -24,6 +24,7 @@ PORTED = [
     "RAPI-RESP-001",
     "RAPI-RESP-002",
     "RAPI-RESP-006",
+    "RAPI-RESP-011",  # BootUI 2.2.0
     "RAPI-DTO-001",
     "RAPI-DTO-002",
     "RAPI-PAGE-001",
@@ -41,11 +42,11 @@ def _documented() -> list[str]:
 
 def test_registry_covers_every_documented_id():
     documented = _documented()
-    assert len(documented) == 56
-    assert len(set(documented)) == 56
+    assert len(documented) == 60  # 56 at 81d1476 plus the four BootUI 2.2.0 ids
+    assert len(set(documented)) == 60
     assert "81d1476af6bccb2b70830d3f1b6ac72b737ae2e2" in IDS_FILE.read_text("utf-8")  # the source commit is recorded
     ported = [r.id for r in RULES]
-    assert ported == PORTED  # exactly the 20 rules of spec §7.10, in BootUI order
+    assert ported == PORTED  # the 20 rules of spec §7.10 plus 2.2.0's RESP-011, in BootUI order
     assert set(ported).isdisjoint(SKIPPED_RULES)
     assert set(ported) | set(SKIPPED_RULES) == set(documented)
     assert all(reason.strip() for reason in SKIPPED_RULES.values())
@@ -67,6 +68,7 @@ def test_severities_match_bootui_calibration():
         "RAPI-RESP-001": "LOW",
         "RAPI-RESP-002": "LOW",
         "RAPI-RESP-006": "HIGH",
+        "RAPI-RESP-011": "LOW",
         "RAPI-DTO-001": "HIGH",
         "RAPI-DTO-002": "LOW",
         "RAPI-PAGE-001": "LOW",

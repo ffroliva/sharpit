@@ -82,6 +82,7 @@ CASES: dict[str, tuple[list[ApiRouteInfo], tuple[str, ...], list[str]]] = {
         APP_HANDLER,
         ["GET /v1/pets app.pets:read_pets"],
     ),
+    "RAPI-RESP-011": ([route(return_annotation=Pet | None)], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
     "RAPI-DTO-001": ([route(response_model=PetTable)], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
     "RAPI-DTO-002": ([route(return_annotation=None)], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),
     "RAPI-PAGE-001": ([route(return_annotation=list[Pet])], APP_HANDLER, ["GET /v1/pets app.pets:read_pets"]),

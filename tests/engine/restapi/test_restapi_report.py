@@ -100,7 +100,7 @@ def test_shape_keys_match_bootui(tmp_path: Path):
         3,
         5,
     )
-    assert report["rulesEvaluated"] == report["scan"]["rulesEvaluated"] == 20
+    assert report["rulesEvaluated"] == report["scan"]["rulesEvaluated"] == 21  # 20 + 2.2.0's RAPI-RESP-011
     assert report["scan"]["status"] == "SCANNED"
     assert isinstance(report["scan"]["scannedAt"], int)
     assert report["scan"]["message"] == (
