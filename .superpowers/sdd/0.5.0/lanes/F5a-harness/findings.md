@@ -39,7 +39,7 @@ fix commit `ff610d5`. Mutations ran in a scratch copy of `ff610d5` (outside the 
 |---|---|
 | M11 `CLI_ACTIONS = BASE_CLI_ACTIONS` (review mutation C) | 1 failed: `test_cli_action_tools_gated_is_parametrised_from_the_lanes` (`assert 'probe_action' in [...]`). The reviewer's suggested `assert CLI_ACTIONS == cli_action_cases(LANES)` would not bite: no lane declares `CLI_ACTIONS` yet, so both sides equal `BASE_CLI_ACTIONS`; the pin re-runs the module with a planted lane instead |
 | M12 both `no_side_effects.watch_sources(EXAMPLES)` lines removed | 2 failed: `test_get_sweep_reports_an_app_source_read`, `test_mcp_sweep_reports_an_app_source_read` (`assert None is not None`) |
-| M13 the `linecache` purge removed from `watch_sources` | expected: `test_side_effect_guard_sees_a_read_through_a_warm_linecache` red (it is red at `a40b319`, which has no purge) |
+| M13 the `linecache` purge removed from `watch_sources` | 1 failed: `test_side_effect_guard_sees_a_read_through_a_warm_linecache` (`assert None is not None`) |
 
 ## OPEN: product finding the wired sweeps now report (needs a coordinator ruling)
 
