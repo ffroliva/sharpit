@@ -5,7 +5,7 @@ Branch `lane/0.5.0-F5a-core`, from `release/0.5.0` @ 836d3fd. Plan: `docs/superp
 
 ## Status
 
-DONE_WITH_CONCERNS: Tasks 2, 3, 4 done; one test outside May-touch fails by design (question Q1).
+DONE: Tasks 2, 3, 4 done. Q1 resolved by the coordinator (May-touch amended): merged release/0.5.0 (335e104, no duplicated top-level defs), dogfood fix 8c58f6ec388f2ec61d789166946d339c80436b4e. `pytest -n 4 tests/test_dogfood_sqla.py tests/engine/advisors`: 132 passed; ruff, format, pyright clean.
 
 | Task | Red | Fix |
 |---|---|---|
@@ -60,14 +60,14 @@ Spec §4.3: "vocabulary from the contract and goldens, not from `advisors/rules.
 
 ## Questions for the coordinator
 
-- **Q1 (blocks a green full suite):** `tests/test_dogfood_sqla.py:91` filters rule results on `r["status"] == "FAILED"`; with `VIOLATION` it collects nothing and `test_rest_api_scan_flags_poor_design` fails. The file is outside May-touch. Fix: `"FAILED"` -> `"VIOLATION"` on that line. Please amend May-touch or apply it at merge.
-- **Q2:** G0 recapture through `scripts/sanitize_golden.py` keeps `nullable.json`/`meta.json`; check that it also keeps `enums.json` (not in May-touch, not verified).
+- **Q1 RESOLVED (coordinator: yes; fixed in 8c58f6e):** `tests/test_dogfood_sqla.py:91` filters rule results on `r["status"] == "FAILED"`; with `VIOLATION` it collects nothing and `test_rest_api_scan_flags_poor_design` fails. The file is outside May-touch. Fix: `"FAILED"` -> `"VIOLATION"` on that line. Please amend May-touch or apply it at merge.
+- **Q2 (to the council, with the PASS vs PASSED choice):** G0 recapture through `scripts/sanitize_golden.py` keeps `nullable.json`/`meta.json`; check that it also keeps `enums.json` (not in May-touch, not verified).
 
 ## Gates (head a3f9531 + evidence commit)
 
 - ruff check: all passed; ruff format --check: 550 files formatted; pyright: 0 errors.
 - Full suite (`-n 4`, log `0.5.0-integration/.superpowers/sdd/0.5.0/logs/F5a-core-full.log`): 4668 passed, 9 skipped, 2 failed:
-  - `tests/test_dogfood_sqla.py::test_rest_api_scan_flags_poor_design`: Q1.
+  - `tests/test_dogfood_sqla.py::test_rest_api_scan_flags_poor_design`: Q1, fixed in 8c58f6e (passes).
   - `tests/test_overhead_harness.py::test_every_budget_module_runs_last`: not this lane. `ImportError: cannot import name 'TIMING_MODULES' from 'conftest'` resolves to `tests/fixtures/apps/unbounded_read/conftest.py` when that conftest is imported first; reproduced with `pytest tests/fixtures tests/test_overhead_harness.py`, while the file passes alone (16 passed). The lane diff touches none of `tests/fixtures/apps`, `tests/conftest.py`, `tests/test_overhead_harness.py`: a pre-existing order dependence.
 
 ## How to resume
