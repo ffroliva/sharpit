@@ -11,7 +11,7 @@
 | **Source** | upstream tracker U1, U2, U17, U19; 0.4.0 lane `T-swallowed-exceptions` (merged, `3ddeaea`) |
 | **Worker** | Claude subagent; reviewer codex |
 | **Council** | not required |
-| **Depends on** | none (its files are disjoint from P-0.4.1's; council M10). Branches from `main`, like P |
+| **Depends on** | none (its files are disjoint from P-0.4.1's; council M10). Branches from `base/0.4.1` like P. **Build now, merge after F5-gate** (council r2 M6) |
 | **May touch** | `src/sharpit/engine/testsession/swallowed.py` (AST rule only, behind a red), `tests/engine/testsession/test_swallowed.py`, `tests/pytest_plugin/test_plugin_swallowed_bench.py` (new), `tests/fixtures/apps/swallow_twins/` (new), the lane folder |
 | **Must NOT touch** | the `sys.monitoring` hook and its tool-id logic, budgets, `gates.py` |
 

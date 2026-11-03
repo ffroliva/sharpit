@@ -11,7 +11,7 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-A.md` §8; golden `sql-trace/insights.captured.json` |
 | **Worker** | agy-flavio, Gemini 3.8 (after A-mysql) or a Claude subagent; reviewer codex |
 | **Council** | not required |
-| **Depends on** | F5a (extended `no_side_effects`); none on R0 except D2 follows it |
+| **Depends on** | F5a-harness (extended `no_side_effects`); none on R0 except D2 follows it |
 | **May touch** | `src/sharpit/engine/capture/sqlinsights.py` (new), `src/sharpit/fastapi/routes/sql_trace.py` (0 bytes today: the insights route), `src/sharpit/engine/tools04/sql_trace.py` (`get_sql_trace_insights` replaces `TOOLS = ()`), `ui/src/views/SqlTrace.svelte` (Insights tab only) + its `ui/tests/component/` test, `tests/engine/capture/test_sqlinsights.py`, `tests/fastapi/test_sql_trace_insights_api.py`, `tests/safety/test_a_sqltrace_insights_safety.py`, `tests/masking/test_a_sqltrace_insights_masking.py`, `tests/fixtures/bootui/2.2.0/sql-trace/nullable.json`, the lane folder `.superpowers/sdd/0.5.0/lanes/A-sqltrace-insights/` |
 | **Must NOT touch** | `engine/capture/sqltrace.py` (public API only: `rows()`, `normalize`), `engine/tools.py` |
 

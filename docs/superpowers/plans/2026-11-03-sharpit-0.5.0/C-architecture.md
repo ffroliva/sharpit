@@ -11,7 +11,7 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-B.md` §1, §6; golden `architecture/captured.json` (pre-scan) + G0's `scanned.captured.json`/`violations.captured.json` if present |
 | **Worker** | agy-sergio, Gemini 4 Argon; reviewer Opus |
 | **Council** | not required (source reading is F5a's, reviewed by its council) |
-| **Depends on** | F5a |
+| **Depends on** | F5a-source, F5a-core |
 | **May touch** | `src/sharpit/engine/collectors/architecture/` (new: `graph.py`, `contracts.py`, `rules.py`, `report.py`), `src/sharpit/fastapi/routes/architecture.py`, `src/sharpit/engine/panels04/architecture.py`, `ui/src/lib/panels04/architecture.ts`, `src/sharpit/engine/tools04/architecture.py`, `ui/src/views/Architecture.svelte`, `ui/tests/component/Architecture.test.ts`, `docs/architecture-advisor-checks.md`, `tests/engine/collectors/architecture/`, `tests/fastapi/test_architecture_api.py`, `tests/safety/test_c_architecture_safety.py` (declares `architecture_scan` as a CLI action, F5a's `load()`), `tests/test_architecture_docs_table.py`, `tests/fixtures/apps/arch_*`, `tests/fixtures/bootui/2.2.0/architecture/nullable.json`, the lane folder |
 | **Must NOT touch** | `engine/appsource.py`, `engine/advisors/*`, `settings.py`, `fastapi/introspector.py` |
 
@@ -26,6 +26,9 @@ read with `tomllib`, contracts never executed, no import-linter import (spec §5
 
 ## Must-cover
 
+`test_post_scan_golden_parity` (asserts `scanned.captured.json`/`violations.captured.json` with `assert_parity` and
+`assert_enum_values`; skips with reason `post-scan golden absent` until G0 lands, which the gate reports as
+`unverified`),
 `test_report_golden_parity`, `test_package_root_from_factory_app`, `test_namespace_package_root`,
 `test_main_module_app_not_scanned_through_route`, `test_bounded_files_and_symlinks`, `test_pyproject_read_only_from_package_sys_path_entry`,
 `test_get_after_scan_opens_no_source_file`, `test_scan_reads_only_app_package`, `test_violation_never_contains_literal_secret`,

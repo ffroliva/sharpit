@@ -72,64 +72,76 @@ it then failed on). It is never claimed as a red. `lane_gate.py` refuses a red w
 
 ## Lanes
 
-| Lane | Plan file | Class | Depends on | Worker (coordinator decides; this is the fit) |
-|---|---|---|---|---|
-| T-unbounded-read | `../2026-11-01-sharpit-0.4.0/T-unbounded-read.md` (built; review APPROVE) | precondition | — | coordinator: `lane_gate.py`, merge |
-| D3 | `../2026-11-01-sharpit-0.4.0/D3-drift-db-runtime.md` (built; review APPROVE; `lane/0.4.0-D3`) | precondition | — | coordinator: `lane_gate.py`, merge |
-| P-0.4.1 | `P-0.4.1.md` | committed | T-unbounded-read (from `main`) | Claude subagent |
-| T-swallowed-2 | `T-swallowed-2.md` | committed | — (from `main`) | Claude subagent |
-| F5-gate | `F5-gate.md` (lane id `F` under today's gate) | committed, 1st | preconditions | codex gpt-6-luna |
-| F5a | `F5a-foundation.md` (Council: required) | committed | F5-gate | codex gpt-6-luna (high) |
-| F5b | `F5b-sqla.md` (Council: required) | committed | F5a (R0: `tests/engine/test_import_boundary.py`; Task 4 folds F5a's `engine/models.py`), P-0.4.1 | codex gpt-6-luna (high) |
-| A-sqltrace-insights | `A-sqltrace-insights.md` | committed | F5a | agy-flavio Gemini 3.8 or Claude subagent |
-| R-fastapi-security | `R-fastapi-security.md` (Council: required) | committed | F5a | claude-flavio (Opus) |
-| C-architecture | `C-architecture.md` | committed | F5a | agy-sergio, Gemini 4 Argon |
-| R-transactions | `R-transactions.md` | committed | F5b | codex gpt-6-luna |
-| A-mysql | `A-mysql.md` | committed | F5b | agy-flavio, Gemini 3.8 |
-| B-security-logs | `B-security-logs.md` (Council: required) | committed | R-transactions | codex gpt-6-luna |
-| B-security | `B-security.md` (Council: required) | committed | R-fastapi-security | claude-flavio (Opus) |
-| C-fastapi | `C-fastapi.md` | committed | F5a (worker: after C-architecture) | agy-sergio, Gemini 4 Argon |
-| A-dbadv-1 | `A-database-advisor.md` | committed | F5a, F5b (lease: after A-mysql, or PG-only) | codex gpt-6-luna (high) |
-| A-dbadv-2 | `A-database-advisor.md` | committed | A-dbadv-1 | codex or claude-flavio |
-| D2 | `D2-capture-drift.md` | committed | A-sqltrace-insights, B-security-logs, R-transactions | codex gpt-6-luna |
-| D4 | `D4-drift.md` | committed | F5a, D2 | codex gpt-6-luna |
-| V-unverified | `V-unverified.md` | committed (Task 3 only without G0) | G0 Tasks 4–5 (owner-only) | Claude subagent |
-| G0 | `G0-goldens.md` | Task 1 groundwork now; Tasks 2–7 **OWNER-ONLY** (O1) | — | agy-sergio, Gemini 3.8 slot |
-| U20-memory | `U20-memory.md` | spike now; build **OWNER-ONLY** (O3/O4) | D2 | claude-flavio (Opus) |
-| T-unbounded-read-2 | `T-unbounded-read-2.md` | spike now; build on GO | D2, U20-memory | codex gpt-6-luna |
-| W-workload | `W-workload.md` | spike only; build **OWNER-ONLY** (O5) | T-unbounded-read-2 | codex or claude-flavio |
-| final | Step 5 below | — | all above merged or parked | coordinator |
+| Lane | Plan file | Council | Class | Depends on | Worker (coordinator decides; this is the fit) |
+|---|---|---|---|---|---|
+| T-unbounded-read | `../2026-11-01-sharpit-0.4.0/T-unbounded-read.md` | — | precondition | — | coordinator (Step 0) |
+| D3 | `../2026-11-01-sharpit-0.4.0/D3-drift-db-runtime.md` | — | precondition | — | coordinator (Step 0) |
+| P-0.4.1 | `P-0.4.1.md` | not required | committed; build now, merge after F5-gate | T-unbounded-read (branch `base/0.4.1`) | Claude subagent |
+| T-swallowed-2 | `T-swallowed-2.md` | not required | committed; build now, merge after F5-gate | — (branch `base/0.4.1`) | Claude subagent |
+| F5-gate | `F5-gate.md` (lane id `F` under today's gate) | required (checked by hand: today's gate has no council check) | committed, 1st | preconditions merged | codex gpt-6-luna |
+| F5a-harness | `F5a-foundation.md` | not required | committed | F5-gate | codex gpt-6-luna |
+| F5a-source | `F5a-foundation.md` | required | committed | F5a-harness | codex gpt-6-luna (high) |
+| F5a-core | `F5a-foundation.md` | required | committed | F5a-harness | codex gpt-6-luna (high) or claude-flavio |
+| F5b | `F5b-sqla.md` | required | committed | F5a-harness, P-0.4.1 | codex gpt-6-luna (high) |
+| A-sqltrace-insights | `A-sqltrace-insights.md` | not required | committed | F5a-harness | agy-flavio Gemini 3.8 or Claude subagent |
+| R-fastapi-security | `R-fastapi-security.md` | required | committed | F5a-harness | claude-flavio (Opus) |
+| C-architecture | `C-architecture.md` | not required | committed | F5a-source, F5a-core | agy-sergio, Gemini 4 Argon |
+| R-transactions | `R-transactions.md` | not required | committed | F5b | codex gpt-6-luna |
+| A-mysql | `A-mysql.md` | not required | committed | F5b | agy-flavio, Gemini 3.8 |
+| B-security-logs | `B-security-logs.md` | required | committed | R-transactions | codex gpt-6-luna |
+| B-security | `B-security.md` | required | committed | R-fastapi-security, F5a-source, F5a-core | claude-flavio (Opus) |
+| C-fastapi | `C-fastapi.md` | not required | committed | F5a-source, F5a-core (worker: after C-architecture) | agy-sergio, Gemini 4 Argon |
+| A-dbadv-1 | `A-database-advisor.md` | not required | committed | F5a-core, F5b (lease: after A-mysql, or PG-only) | codex gpt-6-luna (high) |
+| A-dbadv-2 | `A-database-advisor.md` | not required | committed | A-dbadv-1 | codex or claude-flavio |
+| D2 | `D2-capture-drift.md` | not required | committed | A-sqltrace-insights, B-security-logs, R-transactions | codex gpt-6-luna |
+| D4 | `D4-drift.md` | not required | committed | F5a-core, D2 | codex gpt-6-luna |
+| V-unverified | `V-unverified.md` | not required | committed (Task 3 only without G0) | F5a-harness; G0 Tasks 4–5 (owner-only) | Claude subagent |
+| G0 | `G0-goldens.md` | not required | Task 1 groundwork now; Tasks 2–7 **OWNER-ONLY** (O1) | — | agy-sergio, Gemini 3.8 slot |
+| U20-memory | `U20-memory.md` | required | spike now; build **OWNER-ONLY** (O3/O4) | D2 | claude-flavio (Opus) |
+| T-unbounded-read-2 | `T-unbounded-read-2.md` | not required | spike now; build on GO | D2, U20-memory merged or parked/declined | codex gpt-6-luna |
+| W-workload | `W-workload.md` | required | spike only; build **OWNER-ONLY** (O5) | T-unbounded-read-2 | codex or claude-flavio |
+| final | Step 5 below | — | — | all above merged or parked | coordinator |
 
-This table is the single source for ids, plan files (F5-gate reads the "Plan file" column) and dependencies.
+This table is the single source for ids, plan files and council requirements (F5-gate reads the "Plan file" and
+"Council" columns per lane id, so multi-lane files resolve correctly) and for dependencies. A precondition is done when
+it is **merged into `release/0.5.0` through `lane_gate.py`** (Step 0), not when its review said APPROVE: heads move
+after review (council r2 saw T-unbounded-read at `56c54a3` after its reviewed `d7c0e1d`; D3's head `74aee39` is after
+its reviewed `290478a`), and D3's last gate run failed two overhead budget tests on a loaded machine
+(`gate/pytest.log`: 2 failed, 4,410 passed). Step 0 compares each `review.md` SHA with the head at gate time.
 
 **Rule R0: two lanes whose May-touch lists intersect never run at the same time.** Known chains:
 
 | Shared file(s) | Chain (order) |
 |---|---|
-| `engine/sqla.py` → `engine/sqla/` | T-unbounded-read → P-0.4.1 → F5b; then per submodule: `events.py` R-transactions, `inspect.py` A-dbadv-1 (disjoint, may overlap in time) |
+| `engine/sqla.py` → `engine/sqla/` | T-unbounded-read → P-0.4.1 → F5b; then per submodule: `events.py` R-transactions, `inspect.py` A-dbadv-1 (disjoint, may overlap; neither adds names to `sqla/__init__.py`) |
 | `fastapi/capture.py`, `fastapi/install.py` | R-transactions → B-security-logs → D2 → T-unbounded-read-2 |
 | `engine/capture/activity.py` | D2 → U20-memory |
 | `fastapi/introspector.py`, `engine/spi.py` | R-fastapi-security → B-security |
 | `fastapi/routes/sql_trace.py`, `engine/tools.py` | A-sqltrace-insights → D2 → D4 |
-| `engine/collectors/restapi/service.py`, `engine/advisors/{rules,report}.py` | F5a → D4 |
+| `engine/collectors/restapi/{service,report}.py`, `engine/advisors/{rules,report}.py` | F5a-core (status vocabulary, `sampleLocations` key) → D4 (fills `sampleLocations`, new rules) |
+| `engine/collectors/data.py`, `engine/models.py` | F5a-harness → V-unverified |
 | `engine/testsession/facts.py`, `gates.py`, `pytest_plugin/session.py`, `marker.py` | P-0.4.1 → U20-memory → T-unbounded-read-2 → W-workload |
 | `pytest_plugin/options.py` | U20-memory → W-workload |
-| `engine/appsource.py`, `engine/advisors/scan.py`, `registry.py`, `tests/conftest.py`, `tests/safety/__init__.py`, `tests/test_safety_matrix.py`, `tests/engine/test_import_boundary.py` | F5a (and F5b for the boundary test's gatekeeper key); consumers never edit; a needed change is a coordinator fix commit on `release/0.5.0`, then the lane rebases |
-| `settings.py` | F5a; later only U20-memory (`memory_*`, after O3) |
+| `pytest_plugin/apps.py`, `engine/advisors/scan.py`, `registry.py`, `tests/golden.py` | F5a-core |
+| `engine/appsource.py`, `engine/collectors/config/` | F5a-source |
+| `tests/conftest.py`, `tests/safety/__init__.py`, `tests/test_safety_matrix.py`, `tests/engine/test_import_boundary.py` | F5a-harness, then F5b (boundary gatekeeper key); consumers never edit; a needed change is a coordinator fix commit on `release/0.5.0`, then the lane rebases |
+| `settings.py` | F5a-harness; later only U20-memory (`memory_*`, after O3) |
 | `tests/fastapi/test_introspection_trap.py` | R-fastapi-security only; later lanes add `trap_surfaces_<lane>.py` files |
 | `ui/src/lib/panels04/index.ts`, `nav.ts`, `App.svelte`, `types.ts` | nobody |
 | `src/sharpit/__init__.py` | B-security-logs only |
 
-Dropped as false edges (council M10): T-swallowed-2 → P-0.4.1, U20 → T-swallowed-2, A-dbadv-1 → R-transactions,
+Dropped as false edges (council r1 M10): T-swallowed-2 → P-0.4.1, U20 → T-swallowed-2, A-dbadv-1 → R-transactions,
 C-fastapi → B-security.
 
-**Critical path:** preconditions → F5-gate → F5a → F5b → R-transactions → B-security-logs → D2 → D4.
-**Start order:** coordinator merges T-unbounded-read and D3; Claude subagents run P-0.4.1 and T-swallowed-2 from
-`main` meanwhile; codex runs F5-gate, then F5a, then F5b (F5b's council may run during F5a; its move commit only after
-its `council.md` APPROVE). After F5a: claude-flavio R-fastapi-security, agy-sergio C-architecture, agy-flavio
-A-sqltrace-insights. After F5b: codex R-transactions, agy-flavio A-mysql. As slots free: codex B-security-logs → D2 →
-D4 and A-dbadv-1/2; claude-flavio B-security; agy-sergio C-fastapi. Spikes (U20 Task 0, T-unbounded-read-2 Task 0)
-fill idle slots, never ahead of a committed lane. At most four code lanes, two full suites, one gate run at a time.
+**Critical path:** Step 0 → F5-gate → F5a-harness → F5b → R-transactions → B-security-logs → D2 → D4.
+**Start order:** coordinator runs Step 0 (re-review and re-gate both preconditions); meanwhile Claude subagents build
+P-0.4.1 and T-swallowed-2 on `base/0.4.1` (merge after F5-gate), and spikes plus G0 Task 1 run in scratch worktrees.
+codex runs F5-gate, then F5a-harness; then F5a-source and F5a-core in parallel (codex + claude-flavio) and F5b
+(its council may run earlier; its move commit only after `council.md` APPROVE). After F5a-harness: claude-flavio
+R-fastapi-security (if not on F5a-core), agy-flavio A-sqltrace-insights. After F5a-source + F5a-core: agy-sergio
+C-architecture. After F5b: codex R-transactions, agy-flavio A-mysql. As slots free: codex B-security-logs → D2 → D4
+and A-dbadv-1/2; claude-flavio B-security; agy-sergio C-fastapi. At most four code lanes, two full suites, one gate
+run at a time.
 
 **Large-lane split/stop:** a lane whose rule tasks pass ~600 source lines parks the remaining rules as `<lane>-2` with
 catalogue rows "not yet" (B-security, C-architecture already have this line; A-database-advisor is pre-split).
@@ -151,12 +163,14 @@ write `review.md`, `gate/<name>.log` and `live-verify.md` **in the integration w
 of the head; replayed there in a fresh tree it fails with an `AssertionError` whose last frame is under `tests/` (crash,
 pass or `src/` assert refused); the test is unchanged to the head and passes there; the four gates at the head;
 `review.md` `VERDICT: APPROVE` by a reviewer other than the implementer, with the head SHA; `checklist.md` evidence per
-item; the complexity baseline only went down; protected files changed only by foundation lanes or a lane's
-`ALLOWED_PATHS`; leased logs per the lane mapping; `council.md` for `Council: required` lanes; every `## Must-cover`
-test present and passing. `findings.md` rows:
+item; the complexity baseline only went down (re-keying only for foundation lanes); protected files changed only per
+the lane's `PROTECTED_ALLOWED` entry; reviewer-owned paths of the current release never in a lane diff; leased logs per the lane mapping; `council.md` for `Council: required` lanes; every `## Must-cover`
+test present and passing (full node ids; a skip refused unless leased or `post-scan golden absent`). `findings.md`
+rows (the column is named `disposition`, values `fixed`, `pin: <mutation>`, `parked: <reason>`, `N/A — <reason>`;
+`pin` and `N/A` rows carry no red SHA):
 
 ```
-| finding | test (node id) | red SHA | red output (last assertion line) | status (fixed / pin: mutation / parked: reason / N/A — deletion) |
+| finding | test (node id) | red SHA | red output (last assertion line) | disposition |
 ```
 
 ## Workers
@@ -181,12 +195,21 @@ Councils: `/sharpit:llm-council --tier high` = Opus + codex gpt-6-luna + agy Arg
       O3, O4, O5, O7, O10 push) in the ledger; a lane or task waiting on an owner call does not start.
 - [ ] `agentctl.py join`; leases for the reference stack and a MySQL 8.4 container.
 - [ ] Create local `release/0.5.0` from `origin/main` in `C:\development\github\sharpit-wt\0.5.0-integration`;
-      cherry-pick this plan's commits; gate and merge T-unbounded-read and D3 (0.4.0 gate copy).
+      cherry-pick this plan's commits.
+- [ ] Preconditions (council r2 H9), each until merged:
+      - re-review the commits after the reviewed SHA on each head (T-unbounded-read `lane/0.4.0-T-unbounded-read`,
+        D3 `lane/0.4.0-D3` @ `74aee39` after `290478a`): a fresh reviewer, `review.md` re-stamped with the current head;
+      - D3: re-run its two failed overhead budget tests paired lane-vs-base in a quiet window (one full suite at a time,
+        no other agent's suite running); a budget is never raised; still red → D3 parks and its rows stay drift;
+      - `uv run python scripts/dev/lane_gate.py <lane> --integration C:\development\github\sharpit-wt\0.4.0-integration`
+        (the 0.4.0 copy, where their evidence lives) → exit 0, then `git merge --no-ff` into `release/0.5.0`.
+- [ ] Create local `base/0.4.1` = `main` + the T-unbounded-read merge commit (never pushed) for P-0.4.1 and
+      T-swallowed-2.
 
 ### Step 1: per lane
 
 - [ ] Worktree `C:\development\github\sharpit-wt\0.5.0-<lane>` on `lane/0.5.0-<lane>` from the current
-      `release/0.5.0` head (resumes: rebase the 0.4.0 branch; P-0.4.1 and T-swallowed-2: from `main`).
+      `release/0.5.0` head (resumes: rebase the 0.4.0 branch; P-0.4.1 and T-swallowed-2: from `base/0.4.1`).
 - [ ] Brief from `~/.agents/skills/harness-delegation/SKILL.md` + the lane plan + the spec + the background rule +
       "touch only the files your lane plan lists" + PLAN.md §Red rule.
 - [ ] Launch in the background; ledger `start <lane> <worker> <model> <time>`.
@@ -210,8 +233,9 @@ Councils: `/sharpit:llm-council --tier high` = Opus + codex gpt-6-luna + agy Arg
 
 - [ ] `npm --prefix ui run build` (never while pytest runs there), static drift, lowest-direct, no-SQLAlchemy,
       coverage, `/sharpit:live-verify` on `examples/fastapi_sqla` and tiny-ledger-py.
-- [ ] When G0's fixture commit lands: cherry-pick it, re-run every parity test on `release/0.5.0`, update PARITY rows
-      (`unverified (post-scan)` → `parity` only when the post-scan test passes).
+- [ ] When G0's fixture commit lands: cherry-pick it and run every `test_post_scan_golden_parity` (they stop skipping)
+      and every `test_report_golden_parity` on `release/0.5.0`; update PARITY rows (`unverified (post-scan)` →
+      `parity` only when the post-scan test passes, enum values included).
 
 ### Step 5: final integration
 

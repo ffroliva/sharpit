@@ -12,7 +12,7 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-B.md` §3; goldens `fastapi-security/captured.json`, `endpoints.captured.json` |
 | **Worker** | claude-flavio (Opus); reviewer codex |
 | **Council** | **required** (`council.md` is Task 0; it was the missing 0.4.0 prerequisite) |
-| **Depends on** | F5a; R0 next: B-security (`introspector.py`, `spi.py`) |
+| **Depends on** | F5a-harness (the extended side-effect guard); R0 next: B-security (`introspector.py`, `spi.py`) |
 | **May touch** | resolved from `git diff --name-only origin/main...12a67b5`: `src/sharpit/engine/collectors/appsecurity.py`, `src/sharpit/engine/panels04/fastapi_security.py`, `src/sharpit/engine/spi.py` (append-only), `src/sharpit/engine/tools04/fastapi_security.py`, `src/sharpit/fastapi/introspector.py` (incl. the shared `_walk`), `src/sharpit/fastapi/routes/fastapi_security.py`, `tests/engine/test_appsecurity.py`, `tests/fastapi/test_fastapi_security_api.py`, `tests/fastapi/test_introspector_routes.py`, `tests/fastapi/test_introspector_security.py`, `tests/fixtures/bootui/2.2.0/fastapi-security/nullable.json`, `tests/masking/test_b_fastapi_security_masking.py`, `tests/safety/test_b_fastapi_security_safety.py`, `ui/src/lib/panels04/fastapi_security.ts`, `ui/src/views/FastapiSecurity.svelte`, `ui/tests/component/fastapiSecurity.test.ts`; plus `tests/fastapi/test_introspection_trap.py` (new: the trap over every introspecting GET and MCP tool; it also collects surfaces from `tests/fastapi/trap_surfaces_*.py` so later lanes add a file, never edit this one); the lane folder |
 | **Must NOT touch** | `pytest_plugin/` and `tests/pytest_plugin/` (a fix there is a finding for the coordinator, not this lane); guard, activation, masking engine; `settings.py` |
 

@@ -11,7 +11,7 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-B.md` §1 (shared advisor contract), §2 (rules, DTOs, Python mapping, [JVM] drops); golden `security/captured.json` (pre-scan) + G0's `security/scanned.captured.json` if present |
 | **Worker** | claude-flavio (Opus); reviewer codex |
 | **Council** | **required** |
-| **Depends on** | R-fastapi-security merged (consumes `SecurityModel`; R0 on `introspector.py`/`spi.py`), F5a (`advisors/scan.py` with the security scope hook, `appsource.py` incl. the getenv helpers) |
+| **Depends on** | R-fastapi-security merged (consumes `SecurityModel`; R0 on `introspector.py`/`spi.py`), F5a-core (`advisors/scan.py` with the security scope hook), F5a-source (`appsource.py` incl. the getenv helpers) |
 | **May touch** | `src/sharpit/engine/collectors/security/` (new package: `__init__.py`, `rules_auth.py`, `rules_transport.py`, `rules_config.py`, `rules_source.py`, `report.py`; each < 600 lines), `src/sharpit/engine/spi.py` (append-only, if a field is missing from `SecurityModel`), `src/sharpit/fastapi/introspector.py` (append-only: a read helper for middleware options, `vars()` only), `src/sharpit/fastapi/routes/security.py` (F stub), `src/sharpit/engine/panels04/security.py` + `ui/src/lib/panels04/security.ts` (flag only), `src/sharpit/engine/tools04/security.py`, `ui/src/views/Security.svelte` + test, `docs/security-advisor-checks.md` (new catalogue table), `tests/engine/collectors/security/`, `tests/fastapi/test_security_api.py`, `tests/safety/test_b_security_safety.py`, `tests/fastapi/trap_surfaces_security.py`, `tests/masking/test_b_security_masking.py`, `tests/test_security_docs_table.py`, `tests/fixtures/bootui/2.2.0/security/nullable.json`, the lane folder |
 | **Must NOT touch** | `engine/appsource.py`, `engine/advisors/scan.py`, `settings.py` (F5a's); guard, masking engine, activation |
 
@@ -29,6 +29,9 @@ the post-scan assertion is the red once G0 delivers.
 
 ## Must-cover
 
+`test_post_scan_golden_parity` (asserts `scanned.captured.json`/`violations.captured.json` with `assert_parity` and
+`assert_enum_values`; skips with reason `post-scan golden absent` until G0 lands, which the gate reports as
+`unverified`),
 `test_violation_never_contains_literal_secret`, `test_get_after_scan_opens_no_source_file`,
 `test_scan_reads_only_app_package`, `test_trap_route_untouched_by_every_introspecting_surface` (re-run with the security
 surfaces), `test_scopes_floor_and_newest_classify_same`, `test_read_only_blocks_scan`, `test_inactive_security_paths_404`,

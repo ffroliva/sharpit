@@ -10,13 +10,18 @@
 | **Design** | `docs/superpowers/plans/2026-11-01-sharpit-0.4.0/D4-drift-vulns-mcp-restapi.md` governs; deltas below |
 | **Worker** | codex gpt-6-luna; reviewer Opus |
 | **Council** | not required |
-| **Depends on** | F5a (rest-api now runs on the shared core; `advisors/` files), D2 (R0: `engine/tools.py`) |
+| **Depends on** | F5a-core (rest-api on the shared core; it settles the `RuleResult` contract in `advisors/{rules,report}.py`, council r2 H3), D2 (R0: `engine/tools.py`) |
 | **May touch** | `src/sharpit/engine/collectors/vulns/{interpreter,cvss,service}.py`, `src/sharpit/engine/mcp.py`, `src/sharpit/engine/advisors/{rules,report}.py`, `src/sharpit/engine/collectors/restapi/{rules,service}.py`, `src/sharpit/engine/tools.py`, `tests/fixtures/restapi/rest_api_check_ids.txt`, the tests named in the 0.4.0 plan, `tests/fixtures/bootui/2.2.0/{vulnerabilities,mcp-server,rest-api}/nullable.json`, the lane folder `.superpowers/sdd/0.5.0/lanes/D4/` |
 | **Must NOT touch** | `engine/advisors/scan.py`, `registry.py` (F5a's), OSV/EPSS network clients beyond the files above, guard |
 
 ## Deltas from the 0.4.0 plan
 
-1. rest-api edits go through F5a's core hooks; `scan.py` is not edited (a needed change is a coordinator fix commit).
+1. rest-api edits go through F5a-core's hooks; `scan.py` is not edited. `advisors/{rules,report}.py` stay in May-touch
+   only to fill `sampleLocations` (F5a-core ships the key defaulting to `[]`) and register the new `RAPI-*` rules; the
+   status vocabulary is F5a-core's and is not changed here.
+4. D3's MCP `get_threads` default limit (BootUI `INVENTORY_DEFAULT_LIMIT = 25`) still uses the shared
+   `_QUERY_LIMIT` on the D3 branch (`tools.py:459-467`); D4 owns `engine/tools.py` after D2 and fixes it (council
+   r2 M1).
 2. The `vulnerabilities` golden records a failed OSV scan (`scan.status: "ERROR"`, PKIX), so its items are unchecked:
    the PARITY row stays `unverified` until G0's recapture (O1).
 3. OSV/EPSS network failure scenarios (skill D7) apply: the lane's tests cover OSV down, EPSS down, the lock released.
@@ -25,7 +30,7 @@
 
 `test_rest_api_new_rules_fire` (one per new id), `test_rest_api_golden_parity_after_drift`,
 `test_mcp_server_golden_parity_after_drift`, `test_vulnerabilities_new_keys_present`, `test_osv_down_releases_lock`,
-`test_mcp_compaction_masks`.
+`test_mcp_compaction_masks`, `test_get_threads_default_limit_is_25` (red: today the shared `_QUERY_LIMIT` schema default applies).
 
 ## Evidence
 

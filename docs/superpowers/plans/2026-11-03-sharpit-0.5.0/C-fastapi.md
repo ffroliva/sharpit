@@ -11,7 +11,7 @@
 | **Contract** | `BOOTUI-CONTRACT-0.4-WAVE-B.md` §1, §7 (`SPRING-*` ids kept where the concept maps, `FASTAPI-*` new); golden `fastapi/captured.json` (pre-scan; scope keys `inspected`, `componentsAnalyzed`) + G0's post-scan files if present |
 | **Worker** | agy-sergio, Gemini 4 Argon (after C-architecture, same AST idioms); reviewer Opus |
 | **Council** | not required |
-| **Depends on** | F5a; C-architecture (worker only, no shared file). No introspector edit: handlers come from the existing `FastApiIntrospector.api_model()` (`introspector.py:195`) |
+| **Depends on** | F5a-source, F5a-core; C-architecture (worker only, no shared file). No introspector edit: handlers come from the existing `FastApiIntrospector.api_model()` (`introspector.py:195`) |
 | **May touch** | `src/sharpit/engine/collectors/fastapi_advisor/` (new: `handlers.py`, `rules_async.py`, `rules_models.py`, `rules_app.py`, `report.py`), `src/sharpit/fastapi/routes/fastapi.py`, `src/sharpit/engine/panels04/fastapi.py`, `ui/src/lib/panels04/fastapi.ts`, `src/sharpit/engine/tools04/fastapi.py`, `ui/src/views/Fastapi.svelte`, `ui/tests/component/Fastapi.test.ts`, `docs/fastapi-advisor-checks.md`, `tests/engine/collectors/fastapi_advisor/`, `tests/fastapi/test_fastapi_advisor_api.py`, `tests/fastapi/trap_surfaces_fastapi.py`, `tests/safety/test_c_fastapi_safety.py` (declares `fastapi_scan`), `tests/test_fastapi_docs_table.py`, `tests/fixtures/bootui/2.2.0/fastapi/nullable.json`, the lane folder |
 | **Must NOT touch** | `fastapi/introspector.py`, `engine/testsession/swallowed.py` (imported: the broad-except rule calls `swallowing_lines`), `engine/appsource.py`, `engine/advisors/*`, `settings.py` |
 
@@ -26,6 +26,9 @@ depth 8 and `functools.partial` through `vars(partial_obj)["func"]`; callable in
 
 ## Must-cover
 
+`test_post_scan_golden_parity` (asserts `scanned.captured.json`/`violations.captured.json` with `assert_parity` and
+`assert_enum_values`; skips with reason `post-scan golden absent` until G0 lands, which the gate reports as
+`unverified`),
 `test_report_golden_parity`, `test_decorated_handler_resolved_to_inner_function`,
 `test_callable_instance_endpoint_skipped_without_getattr`, `test_partial_and_library_handlers_skipped_with_limitation`,
 `test_trap_route_untouched_by_every_introspecting_surface` (via `trap_surfaces_fastapi.py`),

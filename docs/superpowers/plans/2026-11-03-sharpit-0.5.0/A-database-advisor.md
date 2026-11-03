@@ -10,9 +10,9 @@
 | **Goal** | Bounded read-only catalog reads, schema and driver/pool rules, the panel (routes, tools, view) on F5a's core | ORM rules (configured-gate), `DB-RUNTIME-001`, vendor rules (`DB-PG-*`, `DB-MYSQL-*`) |
 | **Worker** | codex gpt-6-luna, high; reviewer Opus; `ponytail-review` mandatory (touches `engine/sqla/`) | codex or claude-flavio; reviewer the other |
 | **Council** | not required (0.4.0 §6.4 + F5b's council) | not required |
-| **Depends on** | F5a, F5b (R0 `engine/sqla/`: it owns `sqla/inspect.py`, a different file from R-transactions' `events.py`, so no edge to R-transactions). Lease scheduling: after A-mysql frees the MySQL lease; with no lease, PostgreSQL + SQLite only and MySQL `unverified` | A-dbadv-1 merged |
+| **Depends on** | F5a-core, F5b (R0 `engine/sqla/`: it owns `sqla/inspect.py`, a different file from R-transactions' `events.py`, so no edge to R-transactions). Lease scheduling: after A-mysql frees the MySQL lease; with no lease, PostgreSQL + SQLite only and MySQL `unverified` | A-dbadv-1 merged |
 | **May touch** | `src/sharpit/engine/sqla/inspect.py`, `src/sharpit/engine/collectors/database_advisor/{__init__,catalog,rules_schema,rules_driver_pool,report}.py`, `src/sharpit/fastapi/routes/database_advisor.py`, `src/sharpit/engine/panels04/database_advisor.py`, `ui/src/lib/panels04/database_advisor.ts`, `src/sharpit/engine/tools04/database_advisor.py`, `ui/src/views/DatabaseAdvisor.svelte`, `ui/tests/component/DatabaseAdvisor.test.ts`, `docs/database-advisor-checks.md`, `tests/engine/collectors/database_advisor/`, `tests/engine/test_sqla_inspect.py`, `tests/fastapi/test_database_advisor_api.py`, `tests/fastapi/test_database_advisor_leased.py`, `tests/safety/test_a_database_advisor_safety.py` (declares `database_advisor_scan`), `tests/masking/test_a_database_advisor_masking.py`, `tests/test_database_advisor_docs_table.py`, `tests/fixtures/bootui/2.2.0/database-advisor/nullable.json`, the lane folder | `src/sharpit/engine/collectors/database_advisor/{rules_orm,rules_runtime,rules_vendor}.py`, the rule registration list in `database_advisor/__init__.py`, `docs/database-advisor-checks.md` (status column), `tests/engine/collectors/database_advisor/test_rules_{orm,runtime,vendor}.py`, the lane folder |
-| **Must NOT touch** | `engine/sqla/` except `inspect.py`; `engine/capture/sqltrace.py` (report API only); any collector (rule 3: the mapper walk is `engine/sqla/orm.py`); `settings.py` | `engine/sqla/` (calls `sqla/orm.py`, never edits it), routes, tools, view |
+| **Must NOT touch** | `engine/sqla/` except `inspect.py`; `engine/capture/sqltrace.py` (report API only); any collector (rule 3: the mapper walk is `engine/models.py`, F5a-harness); `settings.py` | `engine/sqla/`, `engine/models.py` (calls it, never edits it), routes, tools, view |
 
 **Architecture (A-dbadv-1):** POST → `run_db_read(read_only=True)` (F5b's verified path on PostgreSQL, MySQL/MariaDB,
 SQLite; other dialects → `unavailableReason`) → `sqla.inspect.catalog(conn, bounds)` returns plain dicts (tables ≤ 300,
@@ -22,7 +22,7 @@ database-advisor scope hook (`dataSourceNames`, `dataSources`, `diagnostics`, `t
 keys** (`pool_pre_ping`, `pool_recycle`, `connect_timeout`, `charset`, `sslmode` presence only); never a value, never
 `url.password`.
 
-**Architecture (A-dbadv-2):** ORM rules read mappers only through `engine/sqla/orm.py`'s configured-gate: an
+**Architecture (A-dbadv-2):** ORM rules read mappers only through `engine/models.py`'s configured-gate: an
 unconfigured registry makes those rules `SKIPPED` with a reason, never `configure_mappers()` (`mapper.relationships`
 would configure). `DB-RUNTIME-001` reads the SQL Trace report. Vendor rules run on their dialect, `SKIPPED` elsewhere;
 `DB-ORACLE-*` dropped (vendor), listed.
@@ -34,7 +34,9 @@ rule-detail route (exact suffixes copied from the controller in Task 1, built, n
 
 ## Must-cover
 
-A-dbadv-1: `test_report_golden_parity`, `test_table_bound_truncates`, `test_index_bound_per_table`,
+A-dbadv-1: `test_report_golden_parity`, `test_post_scan_golden_parity` (asserts `scanned.captured.json`/`violations.captured.json` with `assert_parity` and
+`assert_enum_values`; skips with reason `post-scan golden absent` until G0 lands, which the gate reports as
+`unverified`), `test_table_bound_truncates`, `test_index_bound_per_table`,
 `test_catalog_inside_read_only_wrapper`, `test_dbadv_read_uses_verified_read_only_path`, `test_autocommit_engine_is_unavailable`,
 `test_password_never_read`, `test_query_string_secret_never_read_or_emitted`, `test_driver_error_dsn_password_masked`,
 `test_statement_text_masked`, `test_read_only_blocks_scan`, `test_inactive_database_advisor_paths_404`,

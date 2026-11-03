@@ -102,5 +102,5 @@ reds below **before** reading the new code.
 ## Evidence
 
 `.superpowers/sdd/0.5.0/lanes/R-transactions/`: `handoff.md` (rebase mapping, last green command), `findings.md`
-(rows for review findings 1–10: `fixed` + red test + red SHA, or `N/A — deletion` for 8, `ratified` for 7),
+(rows for review findings 1–10: `fixed` + red test + red SHA, `N/A — deletion` for 8, `N/A — ratified in May-touch` for 7),
 `field-map.md` (copied from the 0.4.0 lane), `checklist.md`.

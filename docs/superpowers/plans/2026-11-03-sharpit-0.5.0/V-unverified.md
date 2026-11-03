@@ -10,7 +10,7 @@
 | **Spec** | §5.9 |
 | **Worker** | Claude subagent; reviewer codex |
 | **Council** | not required |
-| **Depends on** | G0 Tasks 4–5 (owner-only, O1). Without them the lane is Task 3 only |
+| **Depends on** | F5a-harness merged (R0: `engine/collectors/data.py`, council r2 M3); G0 Tasks 4–5 (owner-only, O1). Without them the lane is Task 3 only |
 | **May touch** | `tests/fastapi/test_data_api.py`, `tests/fastapi/test_sqlalchemy_statistics_api.py` (parity tests only), `src/sharpit/engine/collectors/data.py`, `src/sharpit/engine/collectors/sqlastats.py` (only to fix a mismatch a new golden shows), `tests/fixtures/bootui/2.2.0/{data,sqlalchemy-statistics}/nullable.json`, the lane folder |
 | **Must NOT touch** | `docs/reference/PARITY.md` (coordinator-owned), `engine/capture/sqltrace.py`, `engine/sqla/`, other panels |
 
