@@ -78,7 +78,7 @@ it then failed on). It is never claimed as a red. `lane_gate.py` refuses a red w
 | D3 | `../2026-11-01-sharpit-0.4.0/D3-drift-db-runtime.md` | — | precondition | — | coordinator (Step 0) |
 | P-0.4.1 | `P-0.4.1.md` | not required | committed; build now, merge after F5-gate | T-unbounded-read (branch `base/0.4.1`) | Claude subagent |
 | T-swallowed-2 | `T-swallowed-2.md` | not required | committed; build now, merge after F5-gate | — (branch `base/0.4.1`) | Claude subagent |
-| F5-gate | `F5-gate.md` (lane id `F` under today's gate) | required (checked by hand: today's gate has no council check) | committed, 1st | preconditions merged | codex gpt-6-luna |
+| F5-gate | `F5-gate.md` (lane id `F` under today's gate) | required (checked by hand: today's gate has no council check) | committed, first lane (after Step 0) | preconditions merged | codex gpt-6-luna |
 | F5a-harness | `F5a-foundation.md` | not required | committed | F5-gate | codex gpt-6-luna |
 | F5a-source | `F5a-foundation.md` | required | committed | F5a-harness | codex gpt-6-luna (high) |
 | F5a-core | `F5a-foundation.md` | required | committed | F5a-harness | codex gpt-6-luna (high) or claude-flavio |
@@ -105,8 +105,8 @@ it then failed on). It is never claimed as a red. `lane_gate.py` refuses a red w
 This table is the single source for ids, plan files and council requirements (F5-gate reads the "Plan file" and
 "Council" columns per lane id, so multi-lane files resolve correctly) and for dependencies. A precondition is done when
 it is **merged into `release/0.5.0` through `lane_gate.py`** (Step 0), not when its review said APPROVE: heads move
-after review (council r2 saw T-unbounded-read at `56c54a3` after its reviewed `d7c0e1d`; D3's head `74aee39` is after
-its reviewed `290478a`), and D3's last gate run failed two overhead budget tests on a loaded machine
+after review (T-unbounded-read's head has moved several times since its review; D3's head `74aee39` is after its
+reviewed `290478a`), and D3's last gate run failed two overhead budget tests on a loaded machine
 (`gate/pytest.log`: 2 failed, 4,410 passed). Step 0 compares each `review.md` SHA with the head at gate time.
 
 **Rule R0: two lanes whose May-touch lists intersect never run at the same time.** Known chains:
@@ -163,8 +163,9 @@ write `review.md`, `gate/<name>.log` and `live-verify.md` **in the integration w
 of the head; replayed there in a fresh tree it fails with an `AssertionError` whose last frame is under `tests/` (crash,
 pass or `src/` assert refused); the test is unchanged to the head and passes there; the four gates at the head;
 `review.md` `VERDICT: APPROVE` by a reviewer other than the implementer, with the head SHA; `checklist.md` evidence per
-item; the complexity baseline only went down (re-keying only for foundation lanes); protected files changed only per
-the lane's `PROTECTED_ALLOWED` entry; reviewer-owned paths of the current release never in a lane diff; leased logs per the lane mapping; `council.md` for `Council: required` lanes; every `## Must-cover`
+item; the complexity baseline only went down (re-keying only for the foundation set `F`, `F5a-harness`,
+`F5a-source`, `F5a-core`, `F5b`); protected files changed only per the lane's `PROTECTED_ALLOWED` entry; dependency
+lists in `pyproject.toml` changed only by `DEPENDENCY_ALLOWED` lanes (`[tool.*]` by `F` only); reviewer-owned paths of the current release never in a lane diff; leased logs per the lane mapping; `council.md` for `Council: required` lanes; every `## Must-cover`
 test present and passing (full node ids; a skip refused unless leased or `post-scan golden absent`). `findings.md`
 rows (the column is named `disposition`, values `fixed`, `pin: <mutation>`, `parked: <reason>`, `N/A — <reason>`;
 `pin` and `N/A` rows carry no red SHA):
@@ -196,7 +197,8 @@ Councils: `/sharpit:llm-council --tier high` = Opus + codex gpt-6-luna + agy Arg
 - [ ] `agentctl.py join`; leases for the reference stack and a MySQL 8.4 container.
 - [ ] Create local `release/0.5.0` from `origin/main` in `C:\development\github\sharpit-wt\0.5.0-integration`;
       cherry-pick this plan's commits.
-- [ ] Preconditions (council r2 H9), each until merged:
+- [ ] Preconditions (council r2 H9), each until merged. First **freeze** `lane/0.4.0-T-unbounded-read` and
+      `lane/0.4.0-D3` (ledger line with the head SHA; no worker commits to them after that):
       - re-review the commits after the reviewed SHA on each head (T-unbounded-read `lane/0.4.0-T-unbounded-read`,
         D3 `lane/0.4.0-D3` @ `74aee39` after `290478a`): a fresh reviewer, `review.md` re-stamped with the current head;
       - D3: re-run its two failed overhead budget tests paired lane-vs-base in a quiet window (one full suite at a time,
@@ -204,7 +206,8 @@ Councils: `/sharpit:llm-council --tier high` = Opus + codex gpt-6-luna + agy Arg
       - `uv run python scripts/dev/lane_gate.py <lane> --integration C:\development\github\sharpit-wt\0.4.0-integration`
         (the 0.4.0 copy, where their evidence lives) → exit 0, then `git merge --no-ff` into `release/0.5.0`.
 - [ ] Create local `base/0.4.1` = `main` + the T-unbounded-read merge commit (never pushed) for P-0.4.1 and
-      T-swallowed-2.
+      T-swallowed-2. Before gating either, merge the current `release/0.5.0` into it (council r3 L1: the merge base
+      is criss-cross, so the gated diff must hold only the lane's own changes).
 
 ### Step 1: per lane
 

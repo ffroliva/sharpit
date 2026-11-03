@@ -17,7 +17,7 @@
 | **Must NOT touch** | any GET route or MCP tool module (the workload is not reachable from either); `settings.py`; budgets |
 
 Additions after council round 1 (M9): `pyproject.toml`/`uv.lock` (a `workload` extra and the `sharpit` console entry
-point) only with O5, through F5-gate's `ALLOWED_PATHS`; non-GET requests in a spec are refused unless `--allow-writes`;
+point) only with O5, through F5-gate's `PROTECTED_ALLOWED` (`uv.lock`) and `DEPENDENCY_ALLOWED` (`pyproject.toml`); non-GET requests in a spec are refused unless `--allow-writes`;
 activation honoured (sharpit inactive or a disabled profile → refused with the activation reason). Red rule: PLAN.md
 §Red rule; `test_workload_not_reachable_from_get_or_mcp` passes on the skeleton and is recorded as a pin with its
 mutation (register a dummy workload route in a scratch tree).

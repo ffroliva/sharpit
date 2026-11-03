@@ -76,10 +76,11 @@ and the leased write-rejection test is the acceptance test:
    `ReadOnlyUnavailable`: a server-side answer, independent of the driver (pymysql's `autocommit` is a method, so the
    PostgreSQL branch's `getattr(dbapi, "autocommit") is True` idiom, `sqla.py:625`, cannot see it). An engine whose
    execution options say `isolation_level="AUTOCOMMIT"` is refused before any statement.
-3. `ROLLBACK` (ends any implicit transaction autobegin opened, so the next transaction takes the session value), then
-   `SET SESSION <ro var> = 1` and the timeout variables.
+3. `conn.rollback()` (SQLAlchemy's own, so its transaction state stays in step; council r3 L2; ends any implicit
+   transaction autobegin opened, so the next transaction takes the session value), then `SET SESSION <ro var> = 1` and
+   the timeout variables.
 4. Verify `SELECT @@SESSION.<ro var>` is `1`, else `ReadOnlyUnavailable`. Then `fn(conn)`.
-5. `finally`: `ROLLBACK`, restore every saved session value; a restore failure → `conn.invalidate()` (the `bounded()`
+5. `finally`: `conn.rollback()`, restore every saved session value; a restore failure → `conn.invalidate()` (the `bounded()`
    pattern), so a read-only session never returns to the app's pool.
 
 - [ ] **Step 1:** Red commit (a recording fake connection whose `SELECT` answers are scripted, plus the leased file):

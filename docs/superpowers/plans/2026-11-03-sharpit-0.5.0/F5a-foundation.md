@@ -13,8 +13,14 @@
 | **Worker** | codex gpt-6-luna; reviewer Opus | codex gpt-6-luna (high); reviewer Opus | codex gpt-6-luna (high) or claude-flavio; reviewer the other |
 | **Council** | not required | **required** (`appsource`) | **required** (WAVE-B `[AMBIG]` vocabulary) |
 | **Depends on** | F5-gate | F5a-harness | F5a-harness |
-| **Protected files allowed (F5-gate `PROTECTED_ALLOWED`)** | `tests/conftest.py`, `pyproject.toml`, `uv.lock`, `tests/engine/test_import_boundary.py`, `src/sharpit/settings.py` | none | none |
-| **May touch** | `tests/conftest.py` (`SideEffectGuard.verify`), `tests/safety/__init__.py` (`load()` reads per-lane CLI actions), `tests/test_safety_matrix.py` (`CLI_ACTIONS` from `load()`, `postgresql_read` added, stale comment at `:199`), `tests/engine/test_import_boundary.py` (call-site rule), `src/sharpit/engine/models.py` (new: mapper walk + configured-gate from `collectors/data.py`; no SQLAlchemy import, `getattr_static` only), `src/sharpit/engine/collectors/data.py` (imports it), `tests/engine/test_models.py`, `tests/engine/test_data.py` (moved tests), `src/sharpit/settings.py`, `pyproject.toml`, `uv.lock`, `tests/test_surface_05.py`, `tests/test_settings_05.py`, `tests/test_side_effect_guard.py`, the lane folder | `src/sharpit/engine/appsource.py` (new), `src/sharpit/engine/collectors/config/getenv_scan.py` (removed; logic in `appsource.py`), `src/sharpit/engine/collectors/config/__init__.py` (imports the engine, one resolver), `tests/engine/test_appsource.py`, the config getenv tests (import path only), the lane folder | `src/sharpit/engine/advisors/scan.py` (new), `src/sharpit/engine/advisors/rules.py` (`Status` → `VIOLATION`/`PASSED`/`SKIPPED`, `sampleLocations` default `[]`), `src/sharpit/engine/advisors/report.py` (filters on `VIOLATION`), `src/sharpit/engine/advisors/registry.py` (prefix `owns`, fingerprints), `src/sharpit/engine/advisors/__init__.py`, `src/sharpit/engine/collectors/restapi/{service,report}.py` (onto the core; `VIOLATION`), `src/sharpit/pytest_plugin/apps.py` (advisor discovery from the registry), `tests/golden.py` (`assert_enum_values`), `tests/fixtures/bootui/2.2.0/*/enums.json` (new: enum key paths per golden folder), `tests/engine/restapi/test_restapi_{report,rules,findings}.py`, `tests/engine/advisors/test_scan.py`, `tests/engine/advisors/test_advisor_rules.py`, the lane folder |
+| **Protected files allowed (F5-gate `PROTECTED_ALLOWED`)** | `PROTECTED_ALLOWED`: `tests/conftest.py`, `uv.lock`, `tests/engine/test_import_boundary.py`; `DEPENDENCY_ALLOWED`: yes (`pymysql` in `test`) | none (foundation set: may lower `tests/complexity_baseline.json`) | none (foundation set) |
+| **May touch** | `tests/conftest.py` (`SideEffectGuard.verify`), `tests/safety/__init__.py` (`load()` reads per-lane CLI actions), `tests/test_safety_matrix.py` (`CLI_ACTIONS` from `load()`, `postgresql_read` added, stale comment at `:199`), `tests/engine/test_import_boundary.py` (call-site rule), `src/sharpit/engine/models.py` (new: mapper walk + configured-gate from `collectors/data.py`; no SQLAlchemy import, `getattr_static` only), `src/sharpit/engine/collectors/data.py` (imports it), `tests/engine/test_models.py`, `tests/engine/test_data.py` (moved tests), `src/sharpit/settings.py`, `pyproject.toml`, `uv.lock`, `tests/test_surface_05.py`, `tests/test_settings_05.py`, `tests/test_side_effect_guard.py`, the lane folder | `src/sharpit/engine/appsource.py` (new), `src/sharpit/engine/collectors/config/getenv_scan.py` (removed; logic in `appsource.py`), `src/sharpit/engine/collectors/config/__init__.py` (imports the engine, one resolver), `tests/engine/test_appsource.py`, the config getenv tests (import path only), `tests/complexity_baseline.json` (remove the
+`src/sharpit/engine/collectors/config/getenv_scan.py: 1` entry, `:7`, and add none for `appsource.py`: its functions stay
+under C901, so the total only goes down), the lane folder | `src/sharpit/engine/advisors/scan.py` (new), `src/sharpit/engine/advisors/rules.py` (`Status` → `VIOLATION`/`PASSED`/`SKIPPED`, `sampleLocations` default `[]`), `src/sharpit/engine/advisors/report.py` (filters on `VIOLATION`), `src/sharpit/engine/advisors/registry.py` (prefix `owns`, fingerprints), `src/sharpit/engine/advisors/__init__.py`, `src/sharpit/engine/collectors/restapi/{service,report}.py` (onto the core; `VIOLATION`), `src/sharpit/pytest_plugin/apps.py` (advisor discovery from the registry), `tests/golden.py` (`assert_enum_values`), `tests/fixtures/bootui/2.2.0/*/enums.json` (new: enum key paths per golden folder), `tests/engine/restapi/test_restapi_{report,rules,findings}.py`, `tests/engine/advisors/test_scan.py`,
+`tests/engine/advisors/test_advisor_rules.py`, `tests/engine/advisors/test_advisor_report.py` (`_result(... status="FAILED")`,
+`:40` → `"VIOLATION"`), `tests/engine/advisors/test_dismissals.py` (rule result `"status": "FAILED"`, `:243` →
+`"VIOLATION"`), the lane folder. **Not changed:** `advisors/findings.py:59,89` and `testsession/outcome.py:117` keep
+`FAILED`: that is the `sharpit-report/1` advisor-run status, not the BootUI rule-result status |
 | **Must NOT touch** | `engine/sqla.py`, panel flags, routes, views; budget constants | anything outside its list | `engine/sqla.py`, `engine/collectors/restapi/rules.py` (D4's new rules), budget constants |
 
 ## Must-cover
@@ -30,7 +36,7 @@ F5a-source: `tests/engine/test_appsource.py::test_appsource_never_imports_or_fol
 `tests/engine/test_appsource.py::test_single_module_app_indexes_only_that_file`,
 `tests/engine/test_appsource.py::test_main_module_app_not_scanned_with_reason`,
 `tests/engine/test_appsource.py::test_app_package_setting_never_imports`,
-`tests/engine/test_appsource.py::test_config_and_advisors_resolve_same_root`,
+`tests/engine/test_appsource.py::test_config_uses_the_one_resolver`,
 `tests/engine/test_appsource.py::test_source_index_not_retained_after_scan`.
 
 F5a-core: `tests/engine/advisors/test_scan.py::test_advisor_core_matches_rest_api_post_scan_golden`,
@@ -74,7 +80,9 @@ truncated)`, `ModuleInfo(name, path, tree, imports, functions)`, the getenv help
   `assert "pkg.mod" in index.modules`), `test_bounded_files_and_size`, `test_fifo_and_device_skipped` (POSIX),
   `test_recursion_error_is_a_limitation`, `test_resolve_package_root_from_factory_app`,
   `test_single_module_app_indexes_only_that_file`, `test_main_module_app_not_scanned_with_reason`,
-  `test_app_package_setting_never_imports`, `test_config_and_advisors_resolve_same_root`,
+  `test_app_package_setting_never_imports`, `test_config_uses_the_one_resolver` (config calls
+  `appsource.resolve_package_root`, and an `ast` scan finds no other root resolver under `src/`; each advisor lane
+  asserts its own use, since F5a-core runs in parallel),
   `test_source_index_not_retained_after_scan`. Config's getenv tests stay green (import path only).
 - [ ] **Step 2:** Implement (`os.scandir`, `realpath` + `commonpath`, `os.stat` + `S_ISREG`, `tokenize.open`,
   `ast.parse`). **Step 3:** Commit `feat: bounded app-source index; config getenv scan moves onto it`.
@@ -93,8 +101,9 @@ truncated)`, `ModuleInfo(name, path, tree, imports, functions)`, the getenv help
     `tests/golden.py:66-100`, so `FAILED` passes).
   - `test_advisor_core_matches_rest_api_post_scan_golden` — rest-api report: `results[0].status == "VIOLATION"`,
     `sampleLocations` present (expected failure: `"FAILED"`, `advisors/rules.py:41`).
-  - existing `tests/engine/restapi/test_restapi_{report,rules,findings}.py` assertions on `"FAILED"` change to
-    `"VIOLATION"` in this commit (they encode the bug; listed in `findings.md`).
+  - existing `tests/engine/restapi/test_restapi_{report,rules,findings}.py`, `tests/engine/advisors/test_advisor_report.py:40`
+    and `tests/engine/advisors/test_dismissals.py:243` change `"FAILED"` to `"VIOLATION"` in the fix commit (they encode
+    the old rule status; listed in `findings.md` as `N/A — test encoded the old status`).
 - [ ] **Step 2:** `Status = Literal["VIOLATION", "PASSED", "SKIPPED"]` (`rules.py:13`, final names per the council),
   `report.py:42` and `restapi/report.py:38` filter on `VIOLATION`, `sampleLocations` default `[]` (D4 fills it).
 - [ ] **Step 3:** Green. Commit `fix: advisor rule results use BootUI's VIOLATION status and carry sampleLocations`.

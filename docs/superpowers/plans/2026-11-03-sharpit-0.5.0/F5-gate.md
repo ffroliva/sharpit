@@ -21,6 +21,7 @@
 `tests/scripts/test_lane_gate.py::test_reviewer_owned_paths_follow_release`,
 `tests/scripts/test_lane_gate.py::test_protected_allowed_per_lane`,
 `tests/scripts/test_lane_gate.py::test_baseline_rekey_only_for_foundation_lanes`,
+`tests/scripts/test_lane_gate.py::test_dependency_change_allowed_per_lane`,
 `tests/scripts/test_lane_gate.py::test_leased_check_uses_full_node_ids`,
 `tests/scripts/test_lane_gate.py::test_must_cover_uses_full_node_ids_and_refuses_skips`,
 `tests/scripts/test_lane_gate.py::test_council_required_read_per_lane_from_plan_table`,
@@ -50,19 +51,28 @@ the returned refusals, so a red is an `AssertionError`, never an argparse `Syste
 
 ### Task 2: protected files per lane, baseline re-key, leased evidence
 - [ ] **Step 1:** Red commit:
-  - `test_protected_allowed_per_lane` — `PROTECTED_ALLOWED` in the gate: `F` (today's `F_MAY_CHANGE`), `F5a-harness`:
-    `{tests/conftest.py, pyproject.toml, uv.lock, tests/engine/test_import_boundary.py, src/sharpit/settings.py}`,
-    `F5b`: `{tests/engine/test_import_boundary.py}`, `U20-memory`: `{pyproject.toml, uv.lock, src/sharpit/settings.py}`,
-    `W-workload`: `{pyproject.toml, uv.lock}`. One parametrised case per entry: allowed for that lane, refused for
-    `C-fastapi`. (Entries for U20/W are inert until the owner's O3/O4/O5 let those lanes build.)
+  - `test_protected_allowed_per_lane` — `PROTECTED_ALLOWED` in the gate covers only files in `PROTECTED` (`:51-60`):
+    `F` (today's `F_MAY_CHANGE`), `F5a-harness`: `{tests/conftest.py, uv.lock, tests/engine/test_import_boundary.py}`,
+    `F5b`: `{tests/engine/test_import_boundary.py}`, `U20-memory`: `{uv.lock}`, `W-workload`: `{uv.lock}`. One
+    parametrised case per entry: allowed for that lane, refused for `C-fastapi`. (`settings.py` and `pyproject.toml`
+    are not in `PROTECTED`; `settings.py` ownership is the R0 table's job, `pyproject.toml` is the next test's.)
+  - `test_dependency_change_allowed_per_lane` — the dependency-list check (`:254`, today `not is_f`) reads
+    `DEPENDENCY_ALLOWED = {"F", "F5a-harness"}` plus `U20-memory` and `W-workload` (inert until O4/O5): a
+    `pyproject.toml` diff adding `pymysql` to the `test` extra is accepted for `F5a-harness` (expected failure today:
+    "dependency list changed: pyproject.toml") and refused for `C-fastapi` and for `F5a-core`. `[tool.*]` gate config
+    (`GATE_CONFIG`, `:253`) stays changeable by `F` only: a `[tool.pytest]` change by `F5a-harness` is refused.
   - `test_baseline_rekey_only_for_foundation_lanes` — `_baseline_refusals` takes the foundation flag (today
-    `lane == "F"`, `:216`): `F5a-core` may re-key moved code with the total not rising; `C-fastapi` may not.
+    `lane == "F"`, `:216`) from the explicit set `FOUNDATION = {F, F5a-harness, F5a-source, F5a-core, F5b}`:
+    `F5a-source` removing `getenv_scan.py`'s entry and `F5a-core` re-keying moved code are accepted with the total
+    not rising; a raised total is refused for both; `C-fastapi` may not re-key at all.
   - `test_leased_check_uses_full_node_ids` — `LEASED` maps lane → `(log name, (full node ids,))`:
     `A-postgresql` → `leased-pg.log`, its two existing node ids; `F5b` → `leased-mysql.log`,
     `tests/fastapi/test_mysql_read_only_leased.py::test_mysql_read_only_wrapper_rejects_write`; `A-mysql` →
     `leased-mysql.log`, `tests/fastapi/test_mysql_leased.py::test_read_only_wrapper_rejects_write` and
-    `::test_full_read_against_mysql_84`; `A-dbadv-1` → `leased-pg.log` + `leased-mysql.log`,
-    `tests/fastapi/test_database_advisor_leased.py::...` node ids; `A-dbadv-2` → the vendor-rule node ids. A log
+    `::test_full_read_against_mysql_84`; `A-dbadv-1` → `tests/fastapi/test_database_advisor_leased.py::test_read_only_wrapper_rejects_write[postgresql]`
+    in `leased-pg.log` and `...[mysql]` in `leased-mysql.log`; `A-dbadv-2` →
+    `tests/fastapi/test_database_advisor_leased.py::test_pg_vendor_rules_against_server` (`leased-pg.log`) and
+    `::test_mysql_vendor_rules_against_server` (`leased-mysql.log`). A log
     line `tests/engine/test_sqla_read_only.py::test_read_only_wrapper_rejects_write PASSED` does **not** satisfy
     A-mysql (expected failure today: the regex `::{name}\s+PASSED`, `:385-387`, accepts it).
 - [ ] **Step 2:** Implement; `leased_pg_problem` → `leased_problem(opts, log, node_ids)`; non-leased tests (e.g.
