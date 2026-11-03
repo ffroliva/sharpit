@@ -1,6 +1,6 @@
 """Lane D2 safety rows: the 2.2.0 capture routes and tools read without side effects (AGENTS.md safety model 4).
 
-Base panels (activity, http-exchanges, exceptions): no ``PANEL``; ``GET_ROWS`` declares the new base GET routes.
+Base panels (activity, http-exchanges, exceptions): no ``PANEL``; their GET routes are rows in the matrix ROWS.
 ``get_request_profile`` needs an ``id``: declared for the MCP sweeps.
 """
 
@@ -13,13 +13,6 @@ from fastapi.testclient import TestClient
 
 from conftest import SideEffectGuard
 
-GET_ROWS = [  # base-route rows (no PANEL): the four 2.2.0 capture GETs
-    "/sharpit/api/http-exchanges/routes",
-    "/sharpit/api/exceptions/caught",
-    "/sharpit/api/activity/journal",
-    "/sharpit/api/activity/resources",
-]
-WRITE_ROWS: list[tuple[str, str]] = []
 TOOL_ARGS = {"get_request_profile": lambda _handle: {"id": "no-such-request"}}
 TOOL_SEEDS = {"get_request_profile": lambda _ctx: {"id": "no-such-request"}}
 NEW_GETS = [
