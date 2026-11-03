@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sharpit.engine.advisors.rules import RuleDefinition
 
 RULES: tuple[RuleDefinition, ...] = (
@@ -209,3 +211,13 @@ RULES: tuple[RuleDefinition, ...] = (
         learn_more_url="https://github.com/ffroliva/sharpit",
     ),
 )
+
+
+def evaluate_rules(
+    index: object,
+    graph: object,
+    contracts: Sequence[object] = (),
+) -> dict[str, list[object]]:
+    """Skeleton: returns empty findings."""
+    del index, graph, contracts
+    return {}
