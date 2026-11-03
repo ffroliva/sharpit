@@ -63,6 +63,14 @@ rule is absent (skeleton) and its named test fails.
 |---|---|---|---|
 | tests/engine/collectors/database_advisor/test_rules_orm.py::test_scan_leaves_a_configurable_registry_unconfigured | a0c88d0b90f343218c7fbcc30d990ef4b45badd1 | in `rules_orm.facts` replace the configured-gate with `registry.configure()` (scratch edit, reverted) | fails: `assert True is False` (`Mapper[Parent].configured`); `test_unconfigured_registry_skips_orm_rules` fails too |
 
+### Leased pins (cannot be red without a server; the coordinator runs them on PostgreSQL 17 and MySQL 8.4)
+
+| Test | Status |
+|---|---|
+| tests/fastapi/test_database_advisor_leased.py::test_pg_vendor_rules_against_server | leased pin: skips here without `SHARPIT_TEST_POSTGRES_URL`; asserts a vendor rule is evaluated through `catalog._catalog_and_vendor` inside `run_db_read(read_only=True)`, no "not read" skip, no row or table written. Helper smoke-run on SQLite (vendor rules skip by dialect) |
+| tests/fastapi/test_database_advisor_leased.py::test_mysql_vendor_rules_against_server | leased pin: skips here without `SHARPIT_TEST_MYSQL_URL`; same assertions on MySQL |
+| tests/engine/collectors/database_advisor/test_rules_vendor.py::test_pg_vendor_rules_on_a_leased_server / ::test_mysql_vendor_rules_on_a_leased_server | leased: per-rule hits on PG (PG-002/003/005) and MySQL (MYSQL-001/002) |
+
 Note on `test_scan_never_configures_mappers` (red at the ORM red SHA through its second assertion): its first assertion
 (`mapper.configured is False`) cannot catch a scan that configures, because its relationship target is never declared, so
 `configure()` raises and nothing is configured (the same mutation leaves it passing). The pin above closes that gap with

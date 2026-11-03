@@ -31,6 +31,7 @@ dialect reason ("This check reads the postgresql catalog; datasource db is sqlit
 | one test per ORM rule (`test_hib_00{2,3,4,5,6,7,9}_*`, `test_hib_010_*`) | yes | yes |
 | DB-RUNTIME-001 from a seeded SQL Trace ring (`test_runtime_001_*`) | yes | yes |
 | one test per vendor rule (`test_schema_010_*`, `test_pg_00{1..5}_*`, `test_mysql_00{1..3}_*`, `test_server_00{1,2}_*`) | yes | yes |
+| `tests/fastapi/test_database_advisor_leased.py::test_pg_vendor_rules_against_server`, `::test_mysql_vendor_rules_against_server` (lane gate LEASED map) | yes | skip without the leased URLs (unverified here) |
 | `test_pg_vendor_rules_on_a_leased_server`, `test_mysql_vendor_rules_on_a_leased_server` | yes | skip without `SHARPIT_TEST_POSTGRES_URL` / `SHARPIT_TEST_MYSQL_URL` (leased; unverified here) |
 
 Unverified: DB-PG-004 (publications) has no leased test; the plan's must-cover does not name one, so none was added.
