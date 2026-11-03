@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from sharpit.engine import sqla
+from sharpit.engine.sqla import readonly
 
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
@@ -80,7 +81,7 @@ def test_default_path_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
         calls.append(timeout)
         return original(conn, fn, timeout)
 
-    monkeypatch.setattr(sqla, "bounded", spy_bounded)
+    monkeypatch.setattr(readonly, "bounded", spy_bounded)
     result = asyncio.run(sqla.run_db_read(engine, lambda c: c.exec_driver_sql("SELECT 1").scalar(), 5.0))
     assert result == 1
     assert calls == [5.0]
@@ -103,7 +104,7 @@ def test_separate_wall_and_statement_timeouts(monkeypatch: pytest.MonkeyPatch) -
         return fn(conn)
 
     monkeypatch.setattr(asyncio, "timeout", spy_timeout)
-    monkeypatch.setattr(sqla, "bounded_read_only", spy_ro)
+    monkeypatch.setattr(readonly, "bounded_read_only", spy_ro)
     result = asyncio.run(
         sqla.run_db_read(
             engine,

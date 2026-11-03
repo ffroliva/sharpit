@@ -24,6 +24,7 @@ Implementation plan: `docs/superpowers/plans/2026-10-30-sharpit-mvp.md`. BootUI 
 src/sharpit/__init__.py        install, __version__ (the only version site)
 src/sharpit/settings.py        SharpitSettings, load_settings (SHARPIT_* env + kwargs)
 src/sharpit/engine/            framework-free core: activation, guard, masking, panels, collectors, paging
+src/sharpit/engine/sqla/       the SQLAlchemy gatekeeper: listeners, events, orm, inspect, readonly (sharpit's own reads)
 src/sharpit/fastapi/           the FastAPI/Starlette adapter: routes, introspection, dev-server signals
 src/sharpit/pytest_plugin/     the pytest adapter: optional plugin entry point and test-session hooks
 src/sharpit/ui/static/         the built UI (committed; CI checks it matches ui/ when ui/ exists)
@@ -91,8 +92,8 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    `CaptureHooks` in `engine/capture/`) and the adapter implements it.
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
    the engine (`context`, `paging`, `spi`, `singleflight`, ...).
-4. **Gatekeepers.** One named file per optional or network library: SQLAlchemy only in `engine/sqla.py`,
-   `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
+4. **Gatekeepers.** One named file (or package) per optional or network library: SQLAlchemy only in the
+   `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
    `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, and
    `urllib.request`/`http.client` only in the OSV and EPSS clients under
    `engine/collectors/vulns/`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
