@@ -250,3 +250,23 @@ def test_transactions_capture_with_sql_trace_and_discovery_off() -> None:
         handle.uninstall_capture()
         engine.dispose()
     assert report["totalCaptured"] == 1, "the only installed context must capture with SQL Trace and discovery off"
+
+
+def test_report_golden_parity() -> None:
+    from tests.golden import assert_parity
+
+    sa = pytest.importorskip("sqlalchemy")
+    app = FastAPI()
+    engine = sa.create_engine("sqlite://")
+    handle = install(app, enabled="ON", show_banner=False, engines=[engine])
+    try:
+        with engine.connect() as connection:
+            outer = connection.begin()
+            connection.begin_nested().commit()
+            outer.commit()
+        with _client(app) as client:
+            body = client.get("/sharpit/api/transactions").json()
+    finally:
+        handle.uninstall_capture()
+        engine.dispose()
+    assert_parity("transactions", "captured", body)
