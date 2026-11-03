@@ -28,6 +28,7 @@ class Lane:
     gets: tuple[str, ...]  # GET path formats, Starlette convertors stripped
     writes: tuple[tuple[str, str], ...]  # (method, path format)
     params: dict[str, str] = field(default_factory=dict[str, str])  # PATH_PARAMS: samples for this lane's rows only
+    cli_actions: tuple[str, ...] = ()  # CLI_ACTIONS: the lane's CLI-only action tools (never on MCP)
 
 
 @dataclass(frozen=True)

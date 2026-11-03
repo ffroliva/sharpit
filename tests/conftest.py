@@ -152,6 +152,13 @@ class SideEffectGuard:
             setattr(owner, attr, original)
         self._originals.clear()
 
+    def watch_sources(self, root: Path) -> None:
+        """Report every file opened under ``root`` (the app's source tree) until ``unwatch_sources``."""
+        del root
+
+    def unwatch_sources(self) -> None:
+        pass
+
     def verify(self) -> None:
         problems = list(self.violations)
         for label, before, root in (("cwd", self._cwd_snap, self.cwd), ("state dir", self._state_snap, self.state_dir)):

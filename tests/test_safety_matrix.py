@@ -196,7 +196,7 @@ def _panel_routes(prefix: str) -> list[tuple[str, str]]:
     return sorted({("GET", base), *((m, p) for m, p in known if p == base or p.startswith(base + "/"))})
 
 
-# an unimplemented 0.4 panel has no routes at all (404): test_unimplemented_panel_has_no_surface covers it
+# an unimplemented 0.4 panel has no routes at all (404): tests/test_surface_05.py covers it
 GATED = [(p.id, p.api_prefix) for p in PANELS if p.api_prefix and p.implemented]
 
 
@@ -384,14 +384,29 @@ def _seed_sql_trace(handle: SharpitHandle) -> Callable[[], object]:
     return lambda: (recorder.report([])["totalCaptured"], len(recorder.report([])["entries"]), recorder.recording)
 
 
-# CLI-only action tools (never on MCP): (tool, panel, seed returning a state probe); Tasks 5 and 10 add theirs
-CLI_ACTIONS: list[tuple[str, str, Callable[[SharpitHandle], Callable[[], object]]]] = [
+def _no_seed(_handle: SharpitHandle) -> Callable[[], object]:
+    """A lane-declared action: no state to seed; the 403 and the MCP listing are what is checked."""
+    return lambda: None
+
+
+Seed = Callable[[SharpitHandle], Callable[[], object]]
+# CLI-only action tools (never on MCP): (tool, panel, seed returning a state probe). A lane declares its own in its
+# safety file (CLI_ACTIONS = ["<tool>", ...]); cli_action_cases adds them while the lane's flag is on.
+BASE_CLI_ACTIONS: list[tuple[str, str, Seed]] = [
     ("clear_exceptions", "exceptions", _seed_exceptions),
     ("clear_sql_traces", "sql-trace", _seed_sql_trace),
     ("pause_sql_trace_recording", "sql-trace", _seed_sql_trace),
     ("resume_sql_trace_recording", "sql-trace", _seed_sql_trace),
     ("rest_api_scan", "rest-api", _seed_rest_api),
 ]
+
+
+def cli_action_cases(lanes: safety.Lanes) -> list[tuple[str, str, Seed]]:
+    lane_cases = [(tool, lane.panel, _no_seed) for lane in lanes.implemented for tool in lane.cli_actions]
+    return [*BASE_CLI_ACTIONS, *lane_cases]
+
+
+CLI_ACTIONS = cli_action_cases(LANES)
 GATES: dict[str, Callable[[str], dict[str, Any]]] = {
     "panel-disabled": lambda panel: {"panels": {panel: {"enabled": False}}},
     "panel-read-only": lambda panel: {"panels": {panel: {"read_only": True}}},
@@ -695,3 +710,23 @@ def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: 
     assert result["isError"] is False, result
     assert no_side_effects.violations == []
     assert ran() == []
+
+
+CLI_LANE = """PANEL = "postgresql"
+GET_ROWS = ["/sharpit/api/postgresql"]
+CLI_ACTIONS = ["probe_action"]
+"""
+
+
+def test_cli_actions_declared_per_lane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 0.5.0 spec §4.4: a lane's safety file declares its CLI-only actions; test_cli_action_tools_gated picks them up
+    package = tmp_path / "cli_lane_pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "test_probe_safety.py").write_text(CLI_LANE, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    cases = {tool: panel for tool, panel, _seed in cli_action_cases(safety.load("cli_lane_pkg"))}
+
+    assert cases.get("probe_action") == "postgresql"
+    assert cases.get("postgresql_read") == "postgresql"
