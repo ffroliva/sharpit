@@ -17,6 +17,20 @@ Status: DONE_WITH_CONCERNS (load-sensitive budgets only, see Gates)
     `loguru.logger`. Guard test `test_logger_receivers_still_count_as_logging` (self.logger, module logger,
     `logging.getLogger(__name__)`, annotated structlog logger, `log.bind(...)`).
 
+## Fix round 1 (review.md finding 1, major)
+- Reds at `84f4d789c6438294c524a713d063870c82b8fdea`, fixed in `bef2d10f8d6cbf84f97af9fb72c2ab6467a0cc85`.
+- Sink rule (`swallowed.py` `_handles`): a clause handles the exception when its body (1) raises; (2) returns a call
+  with `status_code=` a constant >= 400 or `HTTP_4xx/5xx_*` name; (3) calls a logger (receiver rule of 9503c40) or
+  `warnings`; (4) calls an error tracker: any `*.capture_exception` / `capture_exception`, `rollbar.report_exc_info`,
+  `bugsnag.notify`; (5) hands the caught name to a function/method defined in the same module whose own body (one
+  level, `ast.walk` of the def, no call chase) does (1), (3) or (4). Builtins (`str`, `repr`, `print`, `isinstance`,
+  `setattr`) and methods on local values (`errors.append`, `metrics.increment` on a non-import) are not handling.
+- Fail-safe kept (`_hands_on`, comment on the line): a target that cannot be read here — an imported or unknown bare
+  name, `self.`/`cls.` method not defined in the module (inherited), a method on an imported module, a dynamic call
+  (`getattr(self, name)(e)`) — counts as handling, so it is never reported on a guess. The 0.5.0 red
+  `test_helper_that_logs_is_not_a_swallow` (undefined `self._report`) stays green under that rule.
+- Spec §14 note for the coordinator: replace entry (1) above with this sink rule.
+
 ## Decisions
 - Bare-name calls (`warn("x")`, `log(...)`) keep 0.4.0 behaviour (count as logging): no proven edge, and restricting
   them would add false positives for `from warnings import warn`.
@@ -26,6 +40,15 @@ Status: DONE_WITH_CONCERNS (load-sensitive budgets only, see Gates)
   positives); (2) `_LOG_CALLS` restricted to logger receivers as above.
 - U17's 16-catch limit does not apply: facts are de-duplicated per handler and type (`record`) and again by
   fingerprint (`outcome.py`).
+
+## Gates (fix round 1, head bef2d10)
+- ruff check: all passed; ruff format --check: formatted; pyright: 0 errors. Targeted (testsession, swallowed bench,
+  import boundary, code shape): 249 passed.
+- Full suite `-n auto`: 4424 passed, 9 skipped, 3 failed, 1 error — budgets `test_sqlalchemy_lazy_relationship_hook_overhead_budget`,
+  `test_statement_overhead_budget`, `test_request_overhead_budget` and `test_osv.py::test_follows_pagination_until_token_absent`
+  (error). Run alone: statement + OSV passed; the other two failed once, then passed at head (2 passed) and on the untouched
+  base `3ea8201` (2 passed): load noise. Files and budgets untouched by this lane.
+  Log: `0.5.0-integration/.superpowers/sdd/0.5.0/logs/T-swallowed-2-fix1-pytest.log`.
 
 ## Gates (head 9503c40)
 - ruff check: all passed; ruff format --check: 497 files formatted; pyright: 0 errors.
