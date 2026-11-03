@@ -408,3 +408,19 @@ def test_route_two_mounts_deep_is_explained():
     app.mount("/a", middle)
     result = explain(FastApiIntrospector(app, "/sharpit").security_model(), "GET", "/a/b/c", "/sharpit")
     assert result["pattern"] == "/a/b/c"
+
+
+def test_mount_without_middleware_keeps_its_parent_chain():
+    # council round 2 (Claude #7): a mount adding no middleware took the chain appended last (a sibling's)
+    from starlette.staticfiles import StaticFiles  # noqa: PLC0415
+
+    api = FastAPI()
+    api.get("/ping")(lambda: "p")
+    app = FastAPI()
+    app.router.routes.append(Mount("/legacy", app=_legacy_asgi, middleware=[Middleware(GZipMiddleware)]))
+    app.mount("/api", api)
+    app.mount("/static", StaticFiles(directory="unused", check_dir=False))
+    model = FastApiIntrospector(app, "/sharpit").security_model()
+    rows = [(r.path, r.chain) for r in model.routes if not r.path.startswith("/legacy")]
+    assert rows == [("/api/ping", 0), ("/static/{path}", 0)]
+    assert explain(model, "GET", "/static/x", "/sharpit")["filters"] == []
