@@ -33,6 +33,12 @@ Measured on a workstation already at 60% CPU from other jobs, with five repetiti
 | 21 × 1,000 loads | 11.0, -37.9, -27.3, 58.0, 5.9 | 96 | 81.7, 55.2, 71.4, 67.6, 119.7 |
 | 1,001 × 20 loads | 12.4, 11.0, 11.7, 17.5, 15.2 | 6.5 | 69.3, 75.9, 74.8, 73.5, 63.5 |
 
+**Blind spot: costs rarer than once per round.** The minimum bounds only work that recurs in every 20-load round. A cost paid in bursts further apart passes, even if its amortised total is over budget. An independent review measured this: 4 ms of busy work every 100th lazy load (40 µs amortised) passed 4 runs out of 4, because the fastest "on" round was a clean one. The same 40 µs paid every load, every 4th load or every 20th load failed every time. Today's hook has no such periodic path: no bounded buffer, counter or flush in `_record_relationship` / `_lazy_seen`. If one is ever added, give it its own test: one long timed run of the whole workload on each side, checking total time divided by lazy loads, so a rare burst counts at its amortised weight.
+
+The reading is also not quite "per lazy load in steady state". `detach_session()` clears `_lazy_seen`, so in every round the first lazy load pays the full first-seen observation (1 load in 20, against 1 in 1,000 before). This over-reports, which is the safe direction.
+
+**Noise column.** For short rounds, `noise` (median minus min of one round) describes how much a single 5 ms round varies, not how stable the minimum is. It stays far above the overshoot even for a real regression, so the "suspect a busy machine" hint is not evidence for this test. Use the paired runs and the comparison against main from the checklist below.
+
 CPU time (`time.thread_time`) would not help. The variation is in how fast the CPU runs, not in time spent descheduled: QueryThreadCycleTime showed the same spread. On Windows, `thread_time` also only ticks every 15.6 ms. The harness (`tests/overhead.py`) is unchanged, so the other budget tests mean what they did. A budget test that flakes the same way should get shorter rounds before anything else.
 
 ## Reading a failure
