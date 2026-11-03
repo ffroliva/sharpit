@@ -7,12 +7,15 @@ import sys
 import tokenize
 import tracemalloc
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import test_safety_matrix as matrix
 from conftest import SideEffectGuard
+from sharpit.engine import mcp
 
 Change = Callable[[Path], Callable[[], None]]  # makes one change (given the app root), returns its undo
 
@@ -158,3 +161,66 @@ def test_side_effect_guard_ignores_reads_outside_the_app(tmp_path: Path, monkeyp
         guard.unwatch_sources()
 
     assert error is None
+
+
+# --- the shared sweeps watch the sample app's source (0.5.0 spec §4.4: every lane's no_side_effects test inherits it)
+
+SAMPLE_SOURCE = Path(__file__).resolve().parents[1] / "examples" / "fastapi_sample" / "app.py"
+
+
+def _read_sample_source() -> None:
+    SAMPLE_SOURCE.read_text(encoding="utf-8")
+
+
+def _sweep_error(
+    sweep: Callable[[SideEffectGuard], None], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> str | None:
+    """One case of a shared sweep under a fresh guard, set up and torn down as the no_side_effects fixture does."""
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)  # the guard snapshots the cwd: keep it small
+    (tmp_path / "state").mkdir()
+    guard = SideEffectGuard(tmp_path / "state")
+    guard.block_network()
+    try:
+        sweep(guard)
+    finally:
+        guard.unblock_network()
+        guard.unwatch_sources()
+    return _verify_error(guard)
+
+
+def test_get_sweep_reports_an_app_source_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # review F5a-harness #1: a GET that reads the app's source fails the shared GET sweep
+    tool_info = mcp.tool_info
+
+    def reading_tool_info(*args: Any) -> dict[str, Any]:  # what GET /mcp-server runs per listed tool
+        _read_sample_source()
+        return tool_info(*args)
+
+    monkeypatch.setattr(mcp, "tool_info", reading_tool_info)
+    path = "/sharpit/api/mcp-server"
+
+    error = _sweep_error(lambda g: matrix.test_every_get_no_side_effects(g, path, "plain"), tmp_path, monkeypatch)
+
+    assert error is not None, "the GET sweep did not report an app source read"
+    assert "app source read" in error
+
+
+def test_mcp_sweep_reports_an_app_source_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # review F5a-harness #1: an MCP read tool that reads the app's source fails the shared MCP sweep
+    def reading(tool: Any) -> Any:
+        def handler(call: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+            _read_sample_source()
+            return tool.handler(call, arguments)
+
+        return replace(tool, handler=handler)
+
+    monkeypatch.setattr(mcp, "TOOLS", [reading(t) if t.name == "get_loggers" else t for t in mcp.TOOLS])
+
+    error = _sweep_error(
+        lambda g: matrix.test_every_mcp_tool_no_side_effects(g, "get_loggers", "plain"), tmp_path, monkeypatch
+    )
+
+    assert error is not None, "the MCP sweep did not report an app source read"
+    assert "app source read" in error
