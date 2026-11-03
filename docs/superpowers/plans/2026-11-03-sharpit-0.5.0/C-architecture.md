@@ -26,14 +26,17 @@ read with `tomllib`, contracts never executed, no import-linter import (spec §5
 
 ## Must-cover
 
-`test_post_scan_golden_parity` (asserts `scanned.captured.json`/`violations.captured.json` with `assert_parity` and
+`test_post_scan_golden_parity_on_fixture_app` (scans a fixture app; asserts `scanned.captured.json`/`violations.captured.json` with `assert_parity` and
 `assert_enum_values`; skips with reason `post-scan golden absent` until G0 lands, which the gate reports as
 `unverified`),
-`test_report_golden_parity`, `test_package_root_from_factory_app`, `test_namespace_package_root`,
-`test_main_module_app_not_scanned_through_route`, `test_bounded_files_and_symlinks`, `test_pyproject_read_only_from_package_sys_path_entry`,
-`test_get_after_scan_opens_no_source_file`, `test_scan_reads_only_app_package`, `test_violation_never_contains_literal_secret`,
+`test_report_golden_parity`, `test_package_root_from_factory_app`, `test_loaded_namespace_package_root`,
+`test_main_module_app_not_scanned_through_route`, `test_real_scan_bounded_files_and_symlinks`, `test_max_files_setting_bounds_scan`, `test_pyproject_read_only_from_package_sys_path_entry`,
+`test_real_scan_then_get_opens_no_source_file`, `test_real_scan_reads_only_app_package`, `test_violation_never_contains_literal_secret`,
 `test_read_only_blocks_scan`, `test_inactive_architecture_paths_404`, `test_architecture_get_no_side_effects`,
-`test_mcp_tools_list_has_only_get`, `test_docs_table_matches_registry`.
+`test_mcp_tools_list_has_only_get`, `test_docs_table_matches_registry`, `test_architecture_uses_the_one_resolver`.
+
+Coordinator amendment 2026-11-03 (review round 1): real-scan tests replace three tests that passed without scanning,
+and the namespace test that needed an on-disk lookup the spec does not allow.
 
 ## Tasks
 
