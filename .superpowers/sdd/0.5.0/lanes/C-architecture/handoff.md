@@ -1,14 +1,14 @@
 # C-architecture handoff
 
 Implementer: Antigravity (Gemini 3.8 Flash)
-Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 1 done.
+Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 2 done.
 
 ## Commits
 
 | Task | Red | Fix |
 |---|---|---|
 | 1 contract first | 9abd8fd0647cbef2b7281b7b5b96bf57948641df | e4fb22382ed8adbe9087e935fdb5cafbf35f9f77 |
-| 2 graph | | |
+| 2 graph | 023a622544aa885e7e840d9f754b0045132dbedd | e2676287151c75aecda5f3a8385c0b9cc5952f5e |
 | 3 rules and contracts | | |
 | 4 adapter, routes, MCP, safety | | |
 | 5 view and live check | | |
@@ -37,3 +37,4 @@ Branch `lane/0.5.0-C-architecture` from `release/0.5.0` cd05632. Status: Task 1 
 
 1. Rules list ported from BootUI 2.2.0 ArchUnit hygiene catalog: ~20 ARCH-* rules covering package cycles, module isolation, coding practices, layering boundaries, and pyproject.toml importlinter contracts.
 2. ArchitectureService built on shared AdvisorScan core (`engine/advisors/scan.py`).
+3. Import graph uses AST visitor with TYPE_CHECKING filtering, relative import resolution against package base, and Tarjan SCC cycle detection.
