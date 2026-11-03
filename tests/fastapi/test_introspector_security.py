@@ -424,3 +424,17 @@ def test_mount_without_middleware_keeps_its_parent_chain():
     rows = [(r.path, r.chain) for r in model.routes if not r.path.startswith("/legacy")]
     assert rows == [("/api/ping", 0), ("/static/{path}", 0)]
     assert explain(model, "GET", "/static/x", "/sharpit")["filters"] == []
+
+
+def test_mount_nested_in_a_middleware_mount_keeps_that_middleware():
+    # council round 3 (Claude #9): the walk stopped at the mount's middleware wrapper, so nested mounts fell to chain 0
+    inner = FastAPI()
+    inner.get("/x")(lambda: "x")
+    outer = FastAPI()
+    outer.mount("/inner", inner)
+    app = FastAPI()
+    app.router.routes.append(Mount("/a", app=outer, middleware=[Middleware(GZipMiddleware)]))
+    model = FastApiIntrospector(app, "/sharpit").security_model()
+    [row] = [r for r in model.routes if r.path == "/a/inner/x"]
+    assert model.chains[row.chain].middleware == ("starlette.middleware.gzip.GZipMiddleware",)
+    assert explain(model, "GET", "/a/inner/x", "/sharpit")["filters"] == ["GZipMiddleware"]
