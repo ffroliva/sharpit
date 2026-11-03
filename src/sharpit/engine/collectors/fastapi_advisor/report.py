@@ -6,11 +6,12 @@ The shape (``inspected``/``componentsAnalyzed`` scope keys, ``analysisErrors``) 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, cast
 
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.advisors.rules import RuleDefinition
 from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope
+from sharpit.engine.collectors.fastapi_advisor import rules_app, rules_async, rules_models
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
 
@@ -25,13 +26,14 @@ NOT_SCANNED_MESSAGE = (
     "to inspect the application."
 )
 
-RULES: tuple[RuleDefinition, ...] = ()
+RULES: tuple[RuleDefinition, ...] = (*rules_async.RULES, *rules_models.RULES, *rules_app.RULES)
 
 SPEC = ScanSpec(ADVISOR, ANALYZER, DISCLAIMER, NOT_SCANNED_MESSAGE)
 
 
 def _scope(done: Evaluation | None) -> Scope:
-    detail: Mapping[str, Any] = done.detail if done is not None and isinstance(done.detail, Mapping) else {}
+    raw: object = done.detail if done is not None else None
+    detail: Mapping[str, Any] = cast("Mapping[str, Any]", raw) if isinstance(raw, Mapping) else {}
     return Scope({"inspected": list(detail.get("inspected", []))}, {"componentsAnalyzed": detail.get("components", 0)})
 
 
