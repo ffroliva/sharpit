@@ -45,7 +45,7 @@ def test_0_4_advisor_specs_are_registered_and_gated():
 
     assert advisor_ids <= set(by_id)
     assert all(by_id[advisor_id].implemented is IMPLEMENTED[advisor_id] for advisor_id in advisor_ids)
-    assert advisor_for("DB-TEST-001") is None
+    assert advisor_for("ZZ-TEST-001") is None
 
 
 @pytest.mark.parametrize(
