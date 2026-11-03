@@ -1099,24 +1099,26 @@ DEPENDENCY_PYPROJECT = (
 )
 
 
-def test_dependency_change_allowed_per_lane(tmp_path: Path) -> None:
-    lanes = {
-        "F5a-harness": True,
-        "F": True,
-        "U20-memory": True,
-        "W-workload": True,
-        "C-fastapi": False,
-        "F5a-core": False,
-    }
-    for lane, allowed in lanes.items():
-        fx = _lane_fixture(tmp_path, lane)
-        fx.commit({"pyproject.toml": DEPENDENCY_PYPROJECT}, "build: pymysql for the tests")
-        fx.review()
-        assert _refused(fx.evaluate(), "dependency list changed: pyproject.toml") is not allowed, lane
-        config = DEPENDENCY_PYPROJECT + "\n[tool.pytest.ini_options]\nx = 1\n"
-        fx.commit({"pyproject.toml": config}, "chore: pytest config")
-        fx.review()
-        assert _refused(fx.evaluate(), "gate config changed: pyproject.toml [tool.pytest]"), lane
+@pytest.mark.parametrize(  # one lane per test: six lanes in one test ran ~50 s against the 60 s pytest-timeout
+    ("lane", "allowed"),
+    [
+        ("F5a-harness", True),
+        ("F", True),
+        ("U20-memory", True),
+        ("W-workload", True),
+        ("C-fastapi", False),
+        ("F5a-core", False),
+    ],
+)
+def test_dependency_change_allowed_per_lane(tmp_path: Path, lane: str, allowed: bool) -> None:
+    fx = _lane_fixture(tmp_path, lane)
+    fx.commit({"pyproject.toml": DEPENDENCY_PYPROJECT}, "build: pymysql for the tests")
+    fx.review()
+    assert _refused(fx.evaluate(), "dependency list changed: pyproject.toml") is not allowed, lane
+    config = DEPENDENCY_PYPROJECT + "\n[tool.pytest.ini_options]\nx = 1\n"
+    fx.commit({"pyproject.toml": config}, "chore: pytest config")
+    fx.review()
+    assert _refused(fx.evaluate(), "gate config changed: pyproject.toml [tool.pytest]"), lane
 
 
 GETENV_SCAN = "src/sharpit/engine/collectors/config/getenv_scan.py"
