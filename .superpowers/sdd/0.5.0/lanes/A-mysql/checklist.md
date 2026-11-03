@@ -10,5 +10,5 @@
 | 6. MCP read-only | `tests/fastapi/test_mysql_api.py` (`test_mcp_tools_list_has_only_get`) |
 | 7. Svelte view | `ui/src/views/MySql.svelte`; `ui/tests/component/MySql.test.ts` |
 | 8. Four gates, lowest-direct, no-SQLAlchemy | N/A — coordinator gate logs; lane run in `.superpowers/sdd/0.5.0/lanes/A-mysql/handoff.md` |
-| 9. Live check | `.superpowers/sdd/0.5.0/lanes/A-mysql/handoff.md` (§Live check) |
+| 9. Live check | NOT RUN by the lane (no MySQL server here). The coordinator runs `tests/fastapi/test_mysql_leased.py` (both tests) on the leased MySQL 8.4; until then this item is open. Non-leased full-read coverage: `tests/fastapi/test_mysql_report_read.py` |
 | 10. Current handoff | `.superpowers/sdd/0.5.0/lanes/A-mysql/handoff.md` |

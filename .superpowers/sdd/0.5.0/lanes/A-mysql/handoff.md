@@ -74,3 +74,24 @@ The following acceptance tests in `tests/fastapi/test_mysql_leased.py` require a
 3. Every statement-text field (`digest_text`, `PROCESSLIST_INFO`, `events_statements_current.SQL_TEXT`, lock-wait query columns) is normalized, masked, and truncated at 400 chars.
 4. Leased tests (`tests/fastapi/test_mysql_leased.py`) require `SHARPIT_TEST_MYSQL_URL` and skip cleanly when unset.
 5. Task 5 Svelte view parity with BootUI MySql.vue, tested via Vitest component tests.
+
+## Fix round 1 (Claude subagent, after review VERDICT: CHANGES)
+
+Merged release/0.5.0 at d8e07a6 (no duplicated top-level defs). Head: see final commit.
+
+| Finding | Change |
+|---|---|
+| #1 blocker collect_all drops sections | red 9206080, fix 4eb182c: every section appended; truncation reaches the report |
+| #2 blocker leased name | never a recorded red: expectation fixed in place (4eb182c), name starts `mysql+pymysql://` |
+| #3 lock-wait SQL | red 747d6b0, fix 177a916: MySQL 8.0+ `performance_schema.data_lock_waits` and MariaDB `information_schema.INNODB_LOCK_WAITS`, each joined to `INNODB_TRX`; the fake now rejects undeclared aliases and tables the server lacks |
+| #4 errors as AVAILABLE | red 747d6b0, fix 177a916: lock waits/replication FAILED with masked reason; metrics failure is an ERROR diagnostic `<ds>/metrics`; MariaDB replication SKIPPED with a reason |
+| #5 unmasked reasons | red 747d6b0, fix 177a916: every reason via the masker (collectors default to a strict masker) |
+| #6 Task 3 pins | mutation table in findings.md; `test_mysql_get_no_side_effects` survived its mutation (no SQLAlchemy imported), so pin 8df7711 added |
+| #7 checklist live check | item 9 now says not run, coordinator's lease run |
+| #8 seven copies | one `_read_section` helper; per-section SQL and row mapping kept |
+| minors 9-13 | info/currentStatement own columns; one title table; SOURCE_UUID selected; sessions join `NESTING_EVENT_LEVEL = 0`; SECTION_IDS and RowLimits.to_dto deleted |
+
+Not done: ReadBudget dedup with PostgreSQL (would touch collectors/postgresql/, cross-lane). Replication now needs
+`SOURCE_UUID` (MySQL 8.0.22+); older 8.0 reports that section FAILED with the reason.
+Leased tests for the coordinator: `tests/fastapi/test_mysql_leased.py::test_read_only_wrapper_rejects_write`,
+`::test_full_read_against_mysql_84`.
