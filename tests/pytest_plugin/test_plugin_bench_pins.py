@@ -121,3 +121,28 @@ def test_n_plus_one_without_entity_names_location_and_generic_fix(pytester: pyte
 
     assert f"query_loop_app.py:{line}" in message
     assert "WHERE ... IN (...)" in message
+
+
+SERIALIZE_TEST = """
+from fastapi.testclient import TestClient
+from serialize_app import app
+
+def test_players():
+    assert len(TestClient(app).get("/v0/players/").json()) == 10
+"""
+
+
+def test_lazy_load_n_plus_one_names_the_first_app_frame(pytester: pytest.Pytester) -> None:
+    # bench: U6, D01/D02/D04-D06 printed "first lazy load at unknown": the loads run in response serialization
+    pytest.importorskip("fastapi")
+    _twin(pytester, "serialize_app", test_players=SERIALIZE_TEST)
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    finding = next(f for f in _report(pytester)["findings"] if f["ruleId"] == "sharpit.n-plus-one")
+    source = (TWINS / "serialize_app.py").read_text("utf-8").splitlines()
+    line = next(n for n, text in enumerate(source, 1) if text.endswith("# twin: declared"))
+
+    assert result.ret == 1
+    assert finding["message"].startswith("Player.performances lazy-loaded 10 times")
+    assert f"serialize_app.py:{line}" in finding["message"]
