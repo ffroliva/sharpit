@@ -20,6 +20,21 @@ Both rules exist to prevent machine noise from distorting the measurement:
 - **Alternating on and off.** A runner can slow down for seconds at a time. Timing all off rounds before all on rounds puts that slowdown on on, reporting 60 for a true cost of 10 in `tests/test_overhead_harness.py`.
 - **Swapping which side goes first.** The first round after a switch pays for a cold cache. Always running off first charges that penalty to off and hides overhead, reporting -40 for a true cost of 10 in `tests/test_overhead_harness.py`.
 
+### Round size: many short rounds beat a few long ones
+
+The minimum works only if some rounds of each side run without contention. On a shared runner (four vCPUs, `pytest -n auto` workers alongside) the machine slows down in waves lasting a fraction of a second. A round longer than a wave always overlaps one, so its minimum still carries contention and the on-minus-off difference swings by more than the budget.
+
+The SQLAlchemy lazy-load budget (`tests/engine/test_n_plus_one_overhead.py`, 35 µs per lazy load) hit this. A lazy load costs about 200 to 450 µs of wall time on a runner. With 21 rounds of 1,000 lazy loads (about 0.3 s per round), CI failed now and then on different jobs: for example "overhead 49.9 µs, noise 148 µs". The test now runs 1,001 rounds of 20 lazy loads (about 5 ms per round), for the same total work and wall time. It still measures real lazy loads through the production hooks that `sqla.attach_session()` attaches.
+
+Measured on a workstation already at 60% CPU from other jobs, with five repetitions per shape:
+
+| Shape | Overhead, no injected cost (µs) | Spread | With 50 µs busy work in the hook (µs) |
+|---|---|---|---|
+| 21 × 1,000 loads | 11.0, -37.9, -27.3, 58.0, 5.9 | 96 | 81.7, 55.2, 71.4, 67.6, 119.7 |
+| 1,001 × 20 loads | 12.4, 11.0, 11.7, 17.5, 15.2 | 6.5 | 69.3, 75.9, 74.8, 73.5, 63.5 |
+
+CPU time (`time.thread_time`) would not help. The variation is in how fast the CPU runs, not in time spent descheduled: QueryThreadCycleTime showed the same spread. On Windows, `thread_time` also only ticks every 15.6 ms. The harness (`tests/overhead.py`) is unchanged, so the other budget tests mean what they did. A budget test that flakes the same way should get shorter rounds before anything else.
+
 ## Reading a failure
 
 The failure message prints overhead, noise, and min/median/max per side.
