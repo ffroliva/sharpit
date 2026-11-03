@@ -21,9 +21,21 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import sqla
 from sharpit.engine.capture.sqltrace import REPORT_KEYS
+from sharpit.engine.collectors.pools import pools_report
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCAL = ("127.0.0.1", 50000)
+
+
+def test_pools_report_without_sqlalchemy_emits_pool_library_present_false(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(sqla, "sqlalchemy_module", lambda: None)
+    handle = install(FastAPI(), enabled="ON", show_banner=False)
+    try:
+        report = pools_report(handle.context)
+        assert "poolLibraryPresent" in report
+        assert report["poolLibraryPresent"] is False
+    finally:
+        handle.uninstall_capture()
 
 
 def _client(app: Any) -> TestClient:
@@ -142,7 +154,7 @@ def test_sqlalchemy_absent_empty_state():
     try:
         client = _client(app)
         report = client.get("/sharpit/api/database-connection-pools/pools").json()
-        assert report == {"hikariPresent": False, "total": 0, "pools": []}
+        assert report == {"poolLibraryPresent": False, "total": 0, "pools": []}
         panel = next(
             p for p in client.get("/sharpit/api/panels").json()["panels"] if p["id"] == "database-connection-pools"
         )

@@ -48,6 +48,7 @@ def _pool_dto(ctx: SharpitContext, name: str, engine: Any) -> dict[str, Any]:
     return {
         "beanName": name,
         "poolName": name,
+        "implementation": "SQLAlchemy",
         "jdbcUrl": name,  # the registry's display name: no userinfo, no query string (§6.2)
         "username": username,
         "driverClassName": f"{engine.url.get_backend_name()}+{engine.dialect.driver} ({kind})",
@@ -58,8 +59,8 @@ def _pool_dto(ctx: SharpitContext, name: str, engine: Any) -> dict[str, Any]:
         "maxLifetimeMs": _ms(pool._recycle),  # noqa: SLF001 - every Pool has it; -1 means never recycled
         "validationTimeoutMs": None,
         "keepaliveTimeMs": None,
-        "readOnly": False,
-        "autoCommit": isolation == "AUTOCOMMIT",
+        "readOnly": None,
+        "autoCommit": True if isolation == "AUTOCOMMIT" else None,
         "available": counted,
         "unavailableReason": None if counted else f"{kind} keeps no pool statistics",
         "snapshot": _snapshot(pool) if counted else None,
@@ -72,9 +73,9 @@ def _engines(ctx: SharpitContext) -> list[tuple[str, Any]]:
 
 
 def pools_report(ctx: SharpitContext) -> dict[str, Any]:
-    """``HikariPoolsReport {hikariPresent, total, pools}``; ``hikariPresent`` = SQLAlchemy 2.0+ imported."""
+    """``HikariPoolsReport {poolLibraryPresent, total, pools}``; SQLAlchemy is the supported pool library."""
     pools = [_pool_dto(ctx, name, engine) for name, engine in _engines(ctx)]
-    return {"hikariPresent": sqla.sqlalchemy_module() is not None, "total": len(pools), "pools": pools}
+    return {"poolLibraryPresent": sqla.sqlalchemy_module() is not None, "total": len(pools), "pools": pools}
 
 
 def pool_snapshot(ctx: SharpitContext, name: str) -> dict[str, Any] | None:

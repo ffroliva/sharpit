@@ -1,0 +1,4 @@
+{
+  "threads[].cpuTimeMillis": "Only the calling thread has a portable CPU timer; other thread values are unavailable",
+  "threads[].userTimeMillis": "Per-thread user time is available only when the platform exposes resource.RUSAGE_THREAD"
+}
