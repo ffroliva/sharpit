@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Generator, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
@@ -22,6 +23,7 @@ def kind_of(sql: str) -> str:
         ("information_schema.TABLES", "TABLES"),
         ("sys.innodb_lock_waits", "LOCK_WAITS"),
         ("performance_schema.data_lock_waits", "LOCK_WAITS"),
+        ("information_schema.INNODB_LOCK_WAITS", "LOCK_WAITS"),
         ("replication_connection_status", "REPLICATION"),
         ("SHOW REPLICA STATUS", "REPLICATION"),
         ("SHOW SLAVE STATUS", "REPLICATION"),
@@ -179,6 +181,7 @@ class FakeMySqlConnection:
         kind = kind_of(sql)
         if kind in self.failures:
             raise RuntimeError(self.failures[kind])
+        _check_shape(sql, mariadb=self.dialect.is_mariadb)
         rows = self.rows.get(kind, default_rows(kind))
         limit = _limit_of(sql)
         return _Result(rows if limit is None else rows[:limit])
@@ -241,3 +244,20 @@ def _limit_of(sql: str) -> int | None:
     if len(tail) == 3 and tail[1].lower() == "limit" and tail[2].isdigit():
         return int(tail[2])
     return None
+
+
+_SCHEMAS = {"performance_schema", "information_schema", "sys", "mysql"}
+_DECLARED = re.compile(r"\b(?:FROM|JOIN)\s+[\w.]+\s+(?:AS\s+)?(\w+)", re.IGNORECASE)
+_QUALIFIER = re.compile(r"\b([A-Za-z_]\w*)\.[A-Za-z_]")
+# MySQL 8.0 removed information_schema.INNODB_LOCK_WAITS; MariaDB has no performance_schema.data_lock_waits.
+_MISSING = {False: "information_schema.INNODB_LOCK_WAITS", True: "performance_schema.data_lock_waits"}
+
+
+def _check_shape(sql: str, *, mariadb: bool) -> None:
+    """Reject what a real server would: an undeclared table alias, or a table this server does not have."""
+    declared = {m.lower() for m in _DECLARED.findall(sql)}
+    unknown = {q for q in _QUALIFIER.findall(sql) if q.lower() not in _SCHEMAS | declared}
+    if unknown:
+        raise RuntimeError(f"Unknown table '{min(unknown)}'")
+    if _MISSING[mariadb].lower() in sql.lower():
+        raise RuntimeError(f"Table '{_MISSING[mariadb]}' doesn't exist")
