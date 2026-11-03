@@ -23,13 +23,14 @@ uv run python scripts/dev/lane_gate.py F --worktree C:\development\github\sharpi
 After it merges, every 0.5.0 lane:
 
 ```bash
-uv run python scripts/dev/lane_gate.py <lane id> --release 0.5.0 --worktree C:\development\github\sharpit-wt\0.5.0-<lane> \
-    --plan-index C:\development\github\sharpit-wt\0.5.0-plan\docs\superpowers\plans\2026-11-03-sharpit-0.5.0\PLAN.md
+uv run python scripts/dev/lane_gate.py <lane id> --release 0.5.0 --worktree C:\development\github\sharpit-wt\0.5.0-<lane>
 ```
 
-`--plan-index` is needed until the 0.5.0 plan commits are on `release/0.5.0` (they are not at `bf2fc42`); after that
-the gate finds `docs/superpowers/plans/*-sharpit-0.5.0/PLAN.md` itself. A non-fixture lane without a single PLAN.md is
-refused.
+The 0.5.0 plans are on `release/0.5.0` since `4be6723`, so the gate finds
+`docs/superpowers/plans/2026-11-03-sharpit-0.5.0/PLAN.md` in the integration worktree itself; no `--plan-index` (one
+outside the integration worktree is refused; council R2-1). A non-fixture lane without a single PLAN.md is refused.
+Coordinator, before gating this lane: PLAN.md's F5-gate Council cell `required (checked by hand: ...)` must read
+`required`; the strict cell rule refuses anything else (R2-1).
 
 ## Red tests
 
@@ -39,26 +40,26 @@ refused.
 | `tests/scripts/test_lane_gate.py::test_reviewer_owned_paths_follow_release` | `9512fbf2bb9d67f622d02dee67e39786377cabad` | `assert _refused(..., "reviewer-owned path changed: .superpowers/sdd/0.5.0/lanes/X/...")` |
 | `tests/scripts/test_lane_gate.py::test_lane_gate_refuses_unresolvable_release` | `32c16040231d6a955d06be130491c023c6ea555f` | `assert _refused(fx.evaluate(), "cannot resolve the release")` |
 | `tests/scripts/test_lane_gate.py::test_protected_allowed_per_lane` | `e6390d0e6c13415944758ba9e9dfbb2362e760f4` | `assert table == PROTECTED_ALLOWED_05` |
-| `tests/scripts/test_lane_gate.py::test_dependency_change_allowed_per_lane` | `e6390d0e6c13415944758ba9e9dfbb2362e760f4` | `AssertionError: F5a-harness` (dependency list refused) |
 | `tests/scripts/test_lane_gate.py::test_baseline_rekey_only_for_foundation_lanes` | `e6390d0e6c13415944758ba9e9dfbb2362e760f4` | `assert ['complexity baseline entry added: ...'] == []` |
 | `tests/scripts/test_lane_gate.py::test_leased_check_uses_full_node_ids` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | `assert {} == LEASED_05` |
 | `tests/scripts/test_lane_gate.py::test_council_required_read_per_lane_from_plan_table` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | `assert _refused(fx.evaluate(plan_index=plan), "council.md")` |
 | `tests/scripts/test_lane_gate.py::test_lane_gate_refuses_shallow_council_file` | `5fe96709b191d87ab35bf800ebbd21466506b228` | `assert _refused(fx.evaluate(plan_index=plan), "council.md: ")` |
-| `tests/scripts/test_lane_gate.py::test_must_cover_uses_full_node_ids_and_refuses_skips` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | `assert _refused(..., "must-cover test_absent: not defined")` |
 | `tests/scripts/test_lane_gate.py::test_findings_accept_pin_and_na_rows` | `4a4b4c81c5624af92ab1a9502dab8224711f194a` | `assert ['findings.md: unresolved finding: ...'] == []` |
 | `tests/scripts/test_lane_gate.py::test_council_md_in_the_lane_tree_is_refused` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_council_reads_the_final_verdict_and_only_reviewers_that_ran` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_council_accepts_a_later_approve_round_and_nits` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_council_head_must_be_followed_only_by_lane_evidence` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_council_cell_must_be_required_not_required_or_a_dash` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
-| `tests/scripts/test_lane_gate.py::test_golden_skip_of_a_must_cover_test_needs_accept_unverified` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_plan_files_are_protected_in_every_lane_diff` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_plan_index_and_plan_must_be_in_the_integration_worktree` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_f5b_leased_log_needs_both_leased_tests` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
-| `tests/scripts/test_lane_gate.py::test_dependency_lanes_change_only_the_test_extra` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_pin_and_na_rows_skip_reds_only_in_findings_md` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_release_name_is_validated` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
 | `tests/scripts/test_lane_gate.py::test_protected_and_reviewer_owned_paths_compare_case_insensitively` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 1 (council); see findings.md |
+| `tests/scripts/test_lane_gate.py::test_golden_skip_is_accepted_only_for_a_test_the_plan_marks` | `ea8a3e10c0545950b11af29d93c00b0a1564e164` | fix round 2 (R2-2); see findings.md |
+| `tests/scripts/test_lane_gate.py::test_argon_counts_as_the_google_family` | `ea8a3e10c0545950b11af29d93c00b0a1564e164` | `assert [] == ['google']` |
+| `tests/scripts/test_lane_gate.py::test_lane_diff_may_not_touch_another_sdd_lane_entry` | `d45eb5b9e5eeae540b2e0745f195312ebbc98ffb` | fix round 2 (R2-5); see findings.md |
+| `tests/scripts/test_lane_gate.py::test_plan_index_at_the_integration_root_protects_that_file` | `ea8a3e10c0545950b11af29d93c00b0a1564e164` | `assert _refused(result, "plan file changed: PLAN.md")` |
 
 Each was `RED (assertion under tests/)` by `scripts/dev/red_check.py` before its `test:` commit (fix round 1:
 `test_council_head_must_be_followed_only_by_lane_evidence` by the detached replay at `aa61040`, AssertionError at
@@ -72,6 +73,11 @@ Each was `RED (assertion under tests/)` by `scripts/dev/red_check.py` before its
 | `tests/scripts/test_lane_gate.py::test_leased_check_uses_full_node_ids` | `e6390d0e6c13415944758ba9e9dfbb2362e760f4` | fix round 1 tightened it (council 1, 2, 5a); re-red at `aa61040` |
 | `tests/scripts/test_lane_gate.py::test_council_required_read_per_lane_from_plan_table` | `5fe96709b191d87ab35bf800ebbd21466506b228` | fix round 1 tightened it (council 1, 2, 5a); re-red at `aa61040` |
 | `tests/scripts/test_lane_gate.py::test_must_cover_uses_full_node_ids_and_refuses_skips` | `5fe96709b191d87ab35bf800ebbd21466506b228` | fix round 1 tightened it (council 1, 2, 5a); re-red at `aa61040` |
+| `tests/scripts/test_lane_gate.py::test_dependency_change_allowed_per_lane` | `e6390d0e6c13415944758ba9e9dfbb2362e760f4` | fix round 2 split it by lane (`5dbd83c`, R2-3); now a pin (below) |
+| `tests/scripts/test_lane_gate.py::test_must_cover_uses_full_node_ids_and_refuses_skips` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 2 adds the plan's golden mark to its golden-skip cases (`ea8a3e1`, R2-2); now a pin (below) |
+| `tests/scripts/test_lane_gate.py::test_golden_skip_of_a_must_cover_test_needs_accept_unverified` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | as above; now a pin (below) |
+| `tests/scripts/test_lane_gate.py::test_lane_diff_may_not_touch_another_sdd_lane_entry` | `ea8a3e10c0545950b11af29d93c00b0a1564e164` | its first version also refused the lane's own folder under another release, which the unchanged `test_lane_gate_release_is_a_parameter` needs accepted; re-red at `d45eb5b` before the fix commit |
+| `tests/scripts/test_lane_gate.py::test_dependency_lanes_change_only_the_test_extra` | `aa61040caa74a1c311cd8917a12010acc5c3c0a7` | fix round 2 split it by lane (`eacaa35`, R2-3 cause); now a pin (below) |
 
 ## Pin (passes on first run, never a red)
 
@@ -82,6 +88,11 @@ Each was `RED (assertion under tests/)` by `scripts/dev/red_check.py` before its
 | `tests/scripts/test_lane_gate.py::test_bare_must_cover_name_resolves_only_in_the_lane_diff` | (c) bare names resolve among every test file at the head (`git ls-tree`) (scratch copy at `311fec1`) | 1 failed: `test_old` resolved outside the diff |
 | `tests/scripts/test_lane_gate.py::test_multi_lane_plan_counts_only_the_lanes_own_paragraphs` | (d) the `<lane id>:` owner filter off (`if owner:` becomes `if False:`) (scratch copy at `311fec1`) | 1 failed: `test_absent` from lane y counted |
 | `tests/scripts/test_lane_gate.py::test_main_refuses_a_real_lane_without_a_single_plan_index` | (e) `main`'s no-single-PLAN.md refusal off (scratch copy at `311fec1`) | 2 failed (0 and 2 PLAN.md) |
+| `tests/scripts/test_lane_gate.py::test_must_cover_uses_full_node_ids_and_refuses_skips` | (h) a failing must-cover test accepted (its refusal line becomes `pass`) (scratch copy at `f3b4fb9`) | 1 failed |
+| `tests/scripts/test_lane_gate.py::test_must_cover_refuses_skips_unless_leased_or_golden` | (f) golden skip accepted without `--accept-unverified` (`and opts.accept_unverified` dropped) (scratch copy at `f3b4fb9`) | 1 failed |
+| `tests/scripts/test_lane_gate.py::test_golden_skip_of_a_must_cover_test_needs_accept_unverified` | (f) as above | 1 failed |
+| `tests/scripts/test_lane_gate.py::test_dependency_change_allowed_per_lane` | (g) `if lane in DEPENDENCY_ALL:` becomes `if True:` (scratch copy at `5dbd83c`) | 2 failed: `[C-fastapi-False]`, `[F5a-core-False]` |
+| `tests/scripts/test_lane_gate.py::test_dependency_lanes_change_only_the_test_extra` | (i) `if lane in DEPENDENCY_ALL:` becomes `if lane in DEPENDENCY_ALL or lane in DEPENDENCY_ALLOWED:` (scratch copy at `eacaa35`) | 3 failed: the three `-False` lanes (a first mutant, `keep_test = False`, survived: it loosens only non-allowed lanes, which this test does not cover; `test_dependency_change_allowed_per_lane` does) |
 
 ## Commits
 
@@ -92,6 +103,10 @@ Each was `RED (assertion under tests/)` by `scripts/dev/red_check.py` before its
 | 3 council, must-cover | `5fe9670` | `4f348db` |
 | 4 findings pin/N-A (+ pin test, workflow.md) | `4a4b4c8` | `57903d5` |
 | fix round 1 (council findings 1-9, 11, 12) | `aa61040` | `311fec1` |
+| fix round 2 (council R2-2, R2-4, R2-5, R2-6) | `ea8a3e1`, `d45eb5b` | `7ceb0f7` |
+| fix round 2 (R2-3 flaky test split by lane) | none (a test change; pinned by mutant g) | `5dbd83c` |
+| fix round 2 (R2-3, same cause: must-cover test split in two) | none (pinned by mutants f, h) | `f3b4fb9` |
+| fix round 2 (R2-3, same cause: test-extra dependency test split by lane) | none (pinned by mutant i) | `eacaa35` |
 | complexity ratchet (see below) | caught by the existing `tests/test_code_shape.py::test_complexity_only_goes_down` | `7e68a1d` |
 
 ## Decisions (nobody to ask; recorded here)
@@ -169,3 +184,24 @@ format, pyright clean; full suite `-n auto` 4527 passed, 9 skipped, 1 failed:
 `tests/fastapi/test_capture_overhead.py::test_request_overhead_budget` (0.227 ms vs 0.200 ms under xdist load). Not
 this lane's: the diff from `bf2fc42` touches nothing under `src/`, `tests/fastapi/` or `tests/overhead.py`, and the
 test passes alone (`1 passed`). `tests/scripts`: 229 passed at `311fec1`.
+
+## Fix round 2 (council round 2, same `council.md`)
+
+Implementer (fix round 2): claude-flavio opus. Merged `release/0.5.0` first (`1eae8aa`, plans at `4be6723`).
+`test_lane_gate.py` stays one additive hunk against `bf2fc42`; the three tests this lane added in round 0/1 and changed
+in round 2 are listed under Superseded and pinned by mutants (f, g) above.
+
+| # | Finding | What changed |
+|---|---|---|
+| R2-1 | gate cannot run: plans not in the integration tree | coordinator merged them (`4be6723`); the command above drops `--plan-index`. The PLAN.md Council cell fix is coordinator work (plan files are refused in this lane) |
+| R2-2 | any must-cover test may skip `post-scan golden absent` under `--accept-unverified` | the skip is accepted only for a test whose own entry in the plan's `## Must-cover` (the text after its name, up to the next test name) says `post-scan golden absent`; any other golden skip is refused even with the flag. In the 0.5.0 plans that is `test_post_scan_golden_parity` alone (A-database-advisor A-dbadv-1, B-security, C-architecture, C-fastapi) |
+| R2-3 | `test_dependency_change_allowed_per_lane` flaky under load | root cause: `pytest-timeout = 60` per test (pyproject) and the test ran six lane fixtures, ten full gate evaluations (about 20 `git worktree add/remove`), in one test: 49.5 s measured with one other suite running. Under `-n 4` plus parallel suites it crossed 60 s. Fix: one lane per test (`parametrize`), same assertions; no retry, no sleep, no timeout change. The 30-run proof showed the same cause in `test_must_cover_uses_full_node_ids_and_refuses_skips` (53.5 s under load; it was a worker crash, the Windows form of the pytest-timeout kill, in a pre-fix loop), so its skip half moved to `test_must_cover_refuses_skips_unless_leased_or_golden` (`f3b4fb9`); the post-fix loops then lost `test_dependency_lanes_change_only_the_test_extra` (four lanes, 38 s under load) to the same kill, so it is split by lane too (`eacaa35`). The next-slowest gate test, `test_council_required_read_per_lane_from_plan_table`, peaked at 28.7 s; not split |
+| R2-4 | `argon` counts no family | `argon` added to google |
+| R2-5 | a file at a lane folder or another lane's folder accepted | a lane-diff path under `.superpowers/sdd/<x>/lanes/` is refused unless it is inside a folder named for the lane itself (any release, so `test_lane_gate_release_is_a_parameter` keeps passing); a file or symlink at `lanes/<id>` is refused |
+| R2-6 | `--plan-index` at the integration root protects nothing | at the root the file itself is protected |
+
+Not done, with reason:
+- R2-6's derived lane plan at the root (a plan file next to a root PLAN.md, not passed by `--plan`) stays unprotected:
+  Nit; the real plans live under `docs/superpowers/plans/`, which is always protected.
+- R2-5 for the lane's own id under another release folder: accepted on purpose (see above); that folder is read only when
+  the gate runs for that release.
