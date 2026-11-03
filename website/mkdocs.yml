@@ -66,6 +66,7 @@ nav:
       - Activation: activation.md
   - Using sharpit:
       - Panels: panels.md
+      - Screenshots: https://github.com/ffroliva/sharpit/blob/main/docs/screenshots.md
       - SQL sources: sql-sources.md
       - Pytest plugin: pytest-plugin.md
       - Test report: report.md

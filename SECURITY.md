@@ -8,7 +8,7 @@ Security updates are provided only for the latest release on PyPI:
 
 | Version | Supported | Notes |
 |---|---|---|
-| Latest release on PyPI (0.3.x) | Yes | Verifiable support boundary |
+| Latest release on PyPI (0.4.x) | Yes | Verifiable support boundary |
 | Prior versions | No | Unsupported |
 
 ## Reporting a Vulnerability
