@@ -4,6 +4,9 @@ on:
     branches: [main, mvp]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:
@@ -32,6 +35,18 @@ jobs:
       - run: uv run pyright
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' # lint is version-independent (pyright pins 3.12): once, still in a required job
       - run: uv run pytest -q -n auto
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+      - name: overhead budgets (also in the job summary, which needs a sign-in to read)
+        if: always()
+        shell: bash
+        env:
+          PYTHONUTF8: 1 # the units hold µ; Windows would print cp1252
+        run: |
+          uv run --no-sync python -c "import json,sys
+          for r in map(json.loads, open(sys.argv[1])):
+              s, u = r['scale'], r['unit']
+              print(f\"{r['verdict']:4} {r['name']}: overhead {r['overhead']/s:.3f} {u}, noise {r['noise']/s:.3f}, budget {r['budget']/s:.3f}\")" "$RUNNER_TEMP/overhead.jsonl" || true
 
   coverage:
     # Coverage for SonarCloud. Overhead budget tests time capture on vs off, which the coverage tracer distorts:
@@ -117,6 +132,18 @@ jobs:
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
       - run: uv run --no-sync pytest -q -n auto
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+      - name: overhead budgets (also in the job summary, which needs a sign-in to read)
+        if: always()
+        shell: bash
+        env:
+          PYTHONUTF8: 1 # the units hold µ; Windows would print cp1252
+        run: |
+          uv run --no-sync python -c "import json,sys
+          for r in map(json.loads, open(sys.argv[1])):
+              s, u = r['scale'], r['unit']
+              print(f\"{r['verdict']:4} {r['name']}: overhead {r['overhead']/s:.3f} {u}, noise {r['noise']/s:.3f}, budget {r['budget']/s:.3f}\")" "$RUNNER_TEMP/overhead.jsonl" || true
 
   no-sqlalchemy:
     # SQLAlchemy is optional: sharpit must install, import and serve every panel without it

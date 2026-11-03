@@ -54,3 +54,8 @@ export const REASONS = {
   readOnly: 'Panel is read-only via SHARPIT_PANELS_MCP_SERVER_READ_ONLY=true', // read_only_reason('mcp-server', False)
   disabled: 'Panel is disabled via SHARPIT_PANELS_CLI_ENABLED=false', // disabled_reason('cli'), mirrored by App.svelte
 };
+
+/** Escape every regex metacharacter (.*+?^${}()|[]\ and /) for safe interpolation into a RegExp. */
+export function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+}
