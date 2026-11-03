@@ -833,6 +833,7 @@ def test_relationship_loads_do_not_create_unbounded_findings(loader: str):
 def test_relationship_loads_do_not_create_unbounded_findings_current(loader: str):
     from sqlalchemy import ForeignKey
     from sqlalchemy.orm import Session, joinedload, relationship, selectinload
+
     from sharpit.engine.testsession.facts import TestFacts, TestKey
     from sharpit.engine.testsession.gates import Budget, evaluate_test
 
