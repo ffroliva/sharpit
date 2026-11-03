@@ -95,3 +95,9 @@ Not done: ReadBudget dedup with PostgreSQL (would touch collectors/postgresql/, 
 `SOURCE_UUID` (MySQL 8.0.22+); older 8.0 reports that section FAILED with the reason.
 Leased tests for the coordinator: `tests/fastapi/test_mysql_leased.py::test_read_only_wrapper_rejects_write`,
 `::test_full_read_against_mysql_84`.
+
+Gates at fix round 1: ruff, `ruff format --check`, pyright clean (0 errors); lane + safety matrix + test_tools +
+code shape + import boundary: 1178 passed, 2 skipped (leased); vitest MySql: 5 passed. Full suite `-n 4`: 4780
+passed, 13 skipped, 1 failed: `tests/engine/test_n_plus_one_overhead.py::test_sqlalchemy_lazy_relationship_hook_overhead_budget`
+(N+1 hook budget; this lane does not touch that code). Run alone it passes (1 passed), so it fails under parallel load.
+Logs: `0.5.0-integration/.superpowers/sdd/0.5.0/logs/A-mysql-fix1-*.log`.
