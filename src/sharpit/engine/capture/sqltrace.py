@@ -23,7 +23,7 @@ from typing import Any, NamedTuple, cast
 from sharpit.engine.capture.exchanges import _iso  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.streams import ChangeStream
-from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.masking import MASK, Masker, is_secret_value
 
 REPORT_KEYS = (
     "available", "unavailableReason", "capturing", "captureParameters", "bufferSize", "totalCaptured",
@@ -119,6 +119,25 @@ class _Out:
             return self.ends_with_in_list()
         return self.ends_with_keyword(cursor, "like") or self.ends_with_keyword(cursor, "ilike")
 
+    def value_position(self) -> bool:
+        """A predicate position or the inside of a ``VALUES (...)`` row (``values (`` or ``), (``)."""
+        if self.predicate_position():
+            return True
+        cursor = self.last_non_space()
+        if cursor < 0 or self.chars[cursor] not in ",(" or not self.opens:
+            return False
+        before = self.opens[-1] - 1
+        while before >= 0 and self.chars[before] == " ":
+            before -= 1
+        if self.ends_with_keyword(before, "values"):
+            return True
+        if before < 0 or self.chars[before] != ",":
+            return False
+        before -= 1
+        while before >= 0 and self.chars[before] == " ":
+            before -= 1
+        return before >= 0 and self.chars[before] == ")"
+
     def text(self) -> str:
         return "".join(self.chars)
 
@@ -162,6 +181,16 @@ def _identifier_like(sql: str, index: int, end: int) -> bool:
     if stop <= start:
         return False
     return all((c.isascii() and c.isalnum()) or c in "_$." for c in sql[start:stop])
+
+
+def _double_quoted_literal(sql: str, index: int, end: int, out: _Out) -> bool:
+    """sharpit deviation (0.4.0): MySQL reads ``"..."`` as a string, so an identifier-shaped run is a literal too in a
+    value position (unless it qualifies a name, ``"b"."id"``) or when it looks like a secret; identifiers elsewhere
+    stay readable."""
+    stop = end - 1 if end > index + 1 and sql[end - 1] == '"' else end
+    if not _identifier_like(sql, index, end) or is_secret_value(sql[index + 1 : stop]):
+        return True
+    return out.value_position() and not sql.startswith(".", end)
 
 
 def _matches_keyword(sql: str, index: int, keyword: str) -> bool:
@@ -254,7 +283,7 @@ def normalize(sql: str) -> Normalized:
             index, literal = dollar_end, True
         elif c in '"`[':
             end = _skip_quoted(source, index, "]" if c == "[" else c)
-            if c == '"' and not _identifier_like(source, index, end):
+            if c == '"' and _double_quoted_literal(source, index, end, out):
                 literal = True
             else:
                 out.append(source[index:end])
