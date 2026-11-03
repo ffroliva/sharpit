@@ -612,3 +612,24 @@ class _Library:
 
     def __init__(self, back: object) -> None:
         self.f_back = back
+
+
+def test_sql_trace_entry_includes_duration_micros_and_report_retention():
+    # ported: SqlTraceStoreTests.recordsDurationMicrosAndRetention (BootUI 2.2.0 SqlTraceEntryDto, CaptureRetentionDto)
+    recorder = _recorder(max_entries=2)
+    for _ in range(3):
+        _record(recorder, duration_ns=1_234_567)
+    report = recorder.report([])
+    entry = report["entries"][0]
+    assert entry.get("durationMicros") == 1_234, "durationMicros is the exact nanosecond timing, truncated"
+    assert entry["durationMillis"] == 1
+    assert report.get("retention") == {
+        "applicationManaged": False,
+        "capacity": 2,
+        "reservedCapacity": None,
+        "retained": 2,
+        "reserved": None,
+        "evicted": 1,
+        "slowThresholdMillis": 100,
+    }
+    assert sqltrace.unavailable_report("off").get("retention", "missing") is None, "unavailable: retention is null"

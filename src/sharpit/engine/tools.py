@@ -22,6 +22,7 @@ from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.capture import activity
 from sharpit.engine.capture.exceptions import unknown_group
 from sharpit.engine.capture.exchanges import unavailable_report
+from sharpit.engine.capture.routes import NOT_INSTALLED, summarize_http_routes
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.sqltrace import unavailable_report as sql_trace_unavailable
 from sharpit.engine.collectors.alembic import alembic_report
@@ -39,6 +40,7 @@ from sharpit.engine.collectors.vulns.inventory import inventory
 from sharpit.engine.collectors.vulns.osv import OsvClient
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.paging import paged
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.sources import sqlite
 from sharpit.engine.spi import ApiModel
@@ -219,6 +221,7 @@ def exceptions_report(ctx: SharpitContext) -> dict[str, Any]:
             "maxGroups": ctx.settings.exceptions_max_groups,
             "totalExceptions": 0,
             "groups": [],
+            "caughtInCode": None,
         }
     return store.report()
 
@@ -266,12 +269,27 @@ def http_exchanges_report(
     status_class: str | None,
     offset: int | None,
     limit: int | None,
+    route: str | None = None,
 ) -> dict[str, Any]:
     """``HttpExchangesReport``; unavailable when request capture is not installed for this context."""
     buffer = ctx.capture.exchanges
     if buffer is None:
-        return unavailable_report("Request capture is not installed")
-    return buffer.report(q, method, status_class, offset, limit)
+        return unavailable_report(NOT_INSTALLED)
+    return buffer.report(q, method, status_class, offset, limit, route)
+
+
+def _sql_traces_view(ctx: SharpitContext, query: str | None, limit: int) -> dict[str, Any]:
+    """``McpAgentViews.sqlTraces``: the report with its entries filtered by ``query`` and capped, plus ``page``."""
+    report = sql_trace_report(ctx)
+    entries, page = paged(report["entries"], query, None, limit, lambda e: (e["sql"], e["errorMessage"], e["callSite"]))
+    return {**report, "entries": entries, "page": page}
+
+
+def _log_tail_view(ctx: SharpitContext, query: str | None, limit: int) -> dict[str, Any]:
+    """``McpAgentViews.logTail``: the newest ``limit`` matching lines, oldest first, plus ``page``."""
+    newest = log_tail_lines(ctx)[::-1]
+    lines, page = paged(newest, query, None, limit, lambda line: (line["message"], line["logger"], line["level"]))
+    return {"entries": lines[::-1], "page": page}
 
 
 def log_tail_lines(ctx: SharpitContext) -> list[dict[str, Any]]:
@@ -350,10 +368,10 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "get_log_tail",
         "Return the latest buffered application log snapshot, oldest first. Messages are masked at capture, but logs "
         "are application-controlled and may contain sensitive data; use them only in the local diagnostic context.",
-        _NONE,
+        _QUERY_LIMIT,
         "log-tail",
         False,
-        lambda c, _a: {"entries": log_tail_lines(c.ctx)},
+        lambda c, a: _log_tail_view(c.ctx, a["query"], a["limit"]),
     ),
     Tool(
         "get_exceptions",
@@ -386,10 +404,10 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "get_sql_traces",
         "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain "
         "sensitive values; correlate it locally with request or trace identifiers.",
-        _NONE,
+        _QUERY_LIMIT,
         "sql-trace",
         False,
-        lambda c, _a: sql_trace_report(c.ctx),
+        lambda c, a: _sql_traces_view(c.ctx, a["query"], a["limit"]),
     ),
     Tool(
         "clear_sql_traces",
@@ -422,10 +440,10 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "get_live_activity",
         "Return a bounded, newest-first activity snapshot that merges HTTP requests, SQL statements and exceptions, "
         "correlated by request id. Use first when diagnosing one request.",
-        _LIMIT_ONLY,
+        _QUERY_LIMIT,
         "activity",
         False,
-        lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], None),
+        lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], a["query"]),
     ),
     Tool(
         "get_alembic_migrations",
@@ -525,6 +543,27 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         True,
         lambda c, _a: rest_api_service(c.ctx).scan(),
     ),
+    # BootUI 2.2.0 capture tools, after the 0.2.0 catalogue
+    Tool(
+        "get_http_routes",
+        "Return the HTTP routes this application served, grouped by method and route template, with request counts, "
+        "status classes, errors and duration percentiles over the retained exchanges, ranked by requests, total time "
+        "and p95 latency. A path no route matched is grouped by its masked path; query strings are never used.",
+        _LIMIT_ONLY,
+        "http-exchanges",
+        False,
+        lambda c, a: summarize_http_routes(c.ctx.capture.exchanges, limit=a["limit"]),
+    ),
+    Tool(
+        "get_request_profile",
+        "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the "
+        "request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL. "
+        "An id no longer in the buffer returns available false.",
+        _ID,
+        "activity",
+        False,
+        lambda c, a: activity.request_profile(c.ctx, a["id"]),
+    ),
 )
 
 _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
@@ -534,6 +573,7 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_loggers": "loggers",
     "get_beans": "beans",
     "get_http_exchanges": "http exchanges",
+    "get_http_routes": "http routes",
     "get_log_tail": "logs tail",
     "get_exceptions": "exceptions list",
     "get_exception_detail": "exceptions show",
@@ -543,6 +583,7 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "pause_sql_trace_recording": "sql pause",
     "resume_sql_trace_recording": "sql resume",
     "get_live_activity": "activity",
+    "get_request_profile": "activity profile",
     "get_alembic_migrations": "db alembic",
     "get_health": "health",
     "get_database_connection_pools": "db pools",

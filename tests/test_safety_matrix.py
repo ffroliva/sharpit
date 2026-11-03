@@ -85,6 +85,10 @@ ROWS = [
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),
     ("dismissed-findings", "GET", "/sharpit/api/dismissed-findings", 200, True),
     ("mcp", "POST", "/sharpit/api/mcp", 200, True),
+    ("http-exchanges-routes", "GET", "/sharpit/api/http-exchanges/routes", 200, True),
+    ("exceptions-caught", "GET", "/sharpit/api/exceptions/caught", 200, True),
+    ("activity-journal", "GET", "/sharpit/api/activity/journal", 200, True),
+    ("activity-resources", "GET", "/sharpit/api/activity/resources", 200, True),
 ]
 
 # (variant, peer, headers, remote access on?, outcome): "ok" = the row's status, "token" = 401 if the row needs a

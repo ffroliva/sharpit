@@ -1,0 +1,6 @@
+{
+  "runId": "null: sharpit keeps no runtime journal, so there is no journal run id (RuntimeJournalStatusDto)",
+  "oldestRetainedAt": "null: sharpit keeps no runtime journal, so no event is retained (RuntimeJournalStatusDto)",
+  "recorded": "null: sharpit keeps no runtime journal, so it records no per-family event counts (RuntimeJournalStatusDto)",
+  "totals": "null: sharpit records no resource track or CPU ledger yet; U20 fills the memory keys (RuntimeResourcesDto)"
+}

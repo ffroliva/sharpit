@@ -81,6 +81,14 @@ def _endpoint_name(endpoint: object) -> str | None:
     return f"{getattr(endpoint, '__module__', None) or '?'}:{qualname}"
 
 
+def _route_template(scope: Scope, root_path: str) -> str | None:
+    """The matched route's path template (FastAPI sets ``scope["route"]``), behind the mounts it was matched under."""
+    template = getattr(scope.get("route"), "path", None)
+    if not isinstance(template, str):
+        return None
+    return str(scope.get("root_path", ""))[len(root_path) :] + template
+
+
 def _wrapped_key(key: object) -> bool:
     """Handlers that see real failures: ``Exception`` classes and 500. HTTP errors and validation errors are
     answers, not failures (FastAPI's classes are found without importing FastAPI)."""
@@ -347,6 +355,7 @@ class CaptureMiddleware:
             ):  # only sharpit's probe may carry the header (spec §7.11)
                 scope = {**scope, "headers": [h for h in scope["headers"] if h[0] != PROBE_HEADER]}
             started_epoch_ns = time.time_ns()
+            root_path = scope.get("root_path", "")
             info = RequestInfo(
                 new_request_id(),
                 self.ctx.context_id,
@@ -448,6 +457,7 @@ class CaptureMiddleware:
                             error=error,
                             endpoint=info.endpoint,
                             finished_epoch_ns=started_epoch_ns + finished - info.started_ns,
+                            route=_route_template(scope, root_path),
                         )
                     )
             except Exception as exc:  # noqa: BLE001

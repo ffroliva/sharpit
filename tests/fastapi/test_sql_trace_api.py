@@ -219,7 +219,7 @@ def test_shape_keys_match_bootui():
     report = client.get(API).json()
     assert tuple(report) == REPORT_KEYS == (
         "available", "unavailableReason", "capturing", "captureParameters", "bufferSize", "totalCaptured",
-        "slowQueryThresholdMillis", "dataSources", "stats", "entries", "topStatements", "warnings",
+        "slowQueryThresholdMillis", "dataSources", "stats", "entries", "topStatements", "warnings", "retention",
     )  # fmt: skip
     assert tuple(report["stats"]) == STATS_KEYS == (
         "totalQueries", "totalDurationMillis", "maxDurationMillis", "avgDurationMillis", "slowQueries",
@@ -227,8 +227,9 @@ def test_shape_keys_match_bootui():
         "evicted",
     )  # fmt: skip
     assert tuple(report["entries"][0]) == ENTRY_KEYS == (
-        "id", "timestamp", "sql", "statementType", "category", "durationMillis", "success", "errorMessage",
-        "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId", "callSite",
+        "id", "timestamp", "sql", "statementType", "category", "durationMicros", "durationMillis", "success",
+        "errorMessage", "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId",
+        "callSite",
     )  # fmt: skip
     assert tuple(report["topStatements"][0]) == GROUP_KEYS == (
         "sql", "category", "executions", "totalDurationMillis", "maxDurationMillis", "potentialNPlusOne", "callSites",

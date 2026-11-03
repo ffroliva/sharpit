@@ -52,6 +52,8 @@ BASE_MCP_TOOL_NAMES = [
     "get_vulnerabilities_report",
     "get_rest_api_report",
     "get_rest_api_rule_violations",
+    "get_http_routes",
+    "get_request_profile",
 ]
 BASE_CLI_COMMANDS = {
     "get_overview": "overview",
@@ -78,6 +80,8 @@ BASE_CLI_COMMANDS = {
     "get_rest_api_report": "rest-api report",
     "get_rest_api_rule_violations": "rest-api violations",
     "rest_api_scan": "rest-api scan",
+    "get_http_routes": "http routes",
+    "get_request_profile": "activity profile",
 }
 
 

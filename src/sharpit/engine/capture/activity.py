@@ -30,7 +30,8 @@ KPI_KEYS = (
 REPORT_KEYS = ("available", "entries", "typeCounts", "kpis", "sources", "warnings", "pageInfo", "persistenceOption")
 PROFILE_KEYS = (
     "available", "unavailableReason", "request", "sql", "sqlGroups", "sqlCorrelationApproximate", "exceptions",
-    "security", "trace", "timing", "notes",
+    "security", "trace", "timing", "notes", "restCalls", "cacheAccesses", "sections", "correlationTiers",
+    "approximate",
 )  # fmt: skip
 EVICTED = "Request is no longer in the buffer"
 NO_SOURCE = "Live Activity has no source: request capture is not installed and no other source is available"
@@ -38,6 +39,13 @@ APPROXIMATE = (
     "Some statements finished after the response was sent (for example in BackgroundTasks); they are listed here "
     "because they ran under this request's id."
 )
+# JournalActivityReports: sharpit has no runtime journal, so its feed is always the panel buffers
+BUFFER_SOURCE_FILTERS = (
+    "The route, run, request id, and no-request filters apply to the feed rendered from the runtime journal "
+    "(source=journal); this feed comes from the panel buffers."
+)
+NO_JOURNAL = "sharpit keeps no runtime journal: Live Activity is rendered from the panel buffers."
+NO_RESOURCES = "sharpit records no resource track or CPU ledger; the memory figures stay empty until it samples them."
 MAX_SQL_SUMMARY = 160
 MAX_CALL_SITES = 5
 
@@ -136,7 +144,14 @@ def _entry(**fields: Any) -> dict[str, Any]:
 
 
 def activity_report(
-    ctx: SharpitContext, type: str | None, severity: str | None, since: int | None, limit: int | None, q: str | None
+    ctx: SharpitContext,
+    type: str | None,
+    severity: str | None,
+    since: int | None,
+    limit: int | None,
+    q: str | None,
+    *,
+    journal_filters: bool = False,
 ) -> dict[str, Any]:
     """``LiveActivityReport``, newest first; ``typeCounts`` and KPIs count every entry, before the filters."""
     settings = ctx.settings
@@ -265,7 +280,7 @@ def activity_report(
         "typeCounts": type_counts,
         "kpis": kpis,
         "sources": list(found),
-        "warnings": warnings,
+        "warnings": [*warnings, BUFFER_SOURCE_FILTERS] if journal_filters else warnings,
         "pageInfo": None,
         "persistenceOption": None,
     }
@@ -276,7 +291,8 @@ def _unavailable_profile(reason: str) -> dict[str, Any]:
     profile: dict[str, Any] = dict.fromkeys(PROFILE_KEYS)
     profile.update(
         available=False, unavailableReason=reason, sql=[], sqlGroups=[], sqlCorrelationApproximate=False,
-        exceptions=[], security=[], notes=[],
+        exceptions=[], security=[], notes=[], restCalls=[], cacheAccesses=[], sections=[], correlationTiers=[],
+        approximate=False,
     )  # fmt: skip
     return profile
 
@@ -311,4 +327,39 @@ def request_profile(ctx: SharpitContext, request_id: str) -> dict[str, Any]:
             "sqlPercent": round(10000 * sql_ms / total) / 100 if total > 0 else None,
         },
         "notes": [APPROXIMATE] if approximate else [],
+        "restCalls": [],  # no outbound-call or cache capture in sharpit: the 2.2.0 collections stay empty
+        "cacheAccesses": [],
+        "sections": [],
+        "correlationTiers": [],
+        "approximate": approximate,
     }
+
+
+def journal_status_dto() -> dict[str, Any]:
+    """``RuntimeJournalStatusDto`` of a journal that does not exist: disabled, empty, and saying why."""
+    return {
+        "enabled": False,
+        "runId": None,
+        "retainedEvents": 0,
+        "retainedBytes": 0,
+        "maxEvents": 0,
+        "maxBytes": 0,
+        "reservedEvents": 0,
+        "reservedCapacity": 0,
+        "evictedEvents": 0,
+        "bindingBound": None,
+        "oldestRetainedAt": None,
+        "queueDepth": 0,
+        "queueCapacity": 0,
+        "recorded": None,
+        "dropped": {},
+        "droppedEvents": 0,
+        "previousRuns": [],
+        "previousRunsUnavailable": NO_JOURNAL,
+        "agentEvidence": None,
+    }
+
+
+def resources_dto() -> dict[str, Any]:
+    """``RuntimeResourcesDto.unavailable``: memory and CPU keys stay null until a sampler fills them (U20)."""
+    return {"available": False, "unavailableReason": NO_RESOURCES, "families": [], "points": [], "totals": None}
