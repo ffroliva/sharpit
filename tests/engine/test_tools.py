@@ -110,6 +110,10 @@ RELEASE_TOOLS = (
 )  # each 0.2.0 task adds the tools it builds
 
 
+# BootUI 2.2.0 McpToolCatalog: these schemas moved on from the 0.2.0 fixture (contract 0.4 drift §§10, 13, 14)
+SCHEMAS_2_2_0 = {"get_log_tail": QUERY_LIMIT_SCHEMA, "get_sql_traces": QUERY_LIMIT_SCHEMA}
+
+
 class FakeIntrospector:
     def app_info(self) -> AppInfo:
         return AppInfo("demo", "FastAPI", "0.115.0", None)
@@ -238,7 +242,7 @@ def test_mcp_schema_matches_bootui(name: str):
     entry = next(t for t in BOOTUI_TOOLS["tools"] if t.get("sharpitName", t["name"]) == name)
     tool = next(t for t in TOOLS if t.name == name)
     expected = json.loads(json.dumps(entry["inputSchema"]).replace("bootui.mcp.max-results", "SHARPIT_MCP_MAX_RESULTS"))
-    assert tool.input_schema == expected
+    assert tool.input_schema == SCHEMAS_2_2_0.get(name, expected)
     assert (tool.panel, tool.action) == (entry.get("sharpitPanel", entry["panel"]), entry["action"])
     assert COMMANDS[name] == entry.get("sharpitCommand", entry["command"])
     assert "Spring" not in tool.description

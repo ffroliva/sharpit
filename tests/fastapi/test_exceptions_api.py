@@ -352,7 +352,7 @@ def test_shape_keys_match_bootui():
     # ported: ExceptionsReport, ExceptionGroupDto, ExceptionDetailDto, ExceptionFrameDto, ExceptionOccurrenceDto
     _, _, client, gid = _one_group()
     report = client.get(API).json()
-    assert tuple(report) == ("available", "unavailableReason", "maxGroups", "totalExceptions", "groups")
+    assert tuple(report) == ("available", "unavailableReason", "maxGroups", "totalExceptions", "groups", "caughtInCode")
     assert (report["available"], report["unavailableReason"], report["maxGroups"]) == (True, None, 100)
     assert tuple(report["groups"][0]) == GROUP_KEYS == (
         "id", "exceptionClassName", "message", "count", "firstSeen", "lastSeen", "location", "applicationException",

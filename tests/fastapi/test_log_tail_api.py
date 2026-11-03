@@ -140,7 +140,7 @@ def test_shape_keys_match_bootui():
         logging.getLogger("host.app").warning("hello %s", "log tail")
         lines = client.get(f"{API}/recent").json()
     line = next(line for line in lines if line["message"] == "hello log tail")
-    assert tuple(line) == LINE_KEYS == ("timestamp", "level", "logger", "message", "thread")
+    assert tuple(line) == LINE_KEYS == ("timestamp", "level", "logger", "message", "thread", "messageOmitted")
     assert (line["level"], line["logger"]) == ("WARNING", "host.app")
 
 

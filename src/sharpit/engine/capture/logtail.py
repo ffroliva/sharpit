@@ -18,7 +18,7 @@ from typing import Any
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
 
-LINE_KEYS = ("timestamp", "level", "logger", "message", "thread")  # BootUI LogLineDto, record order
+LINE_KEYS = ("timestamp", "level", "logger", "message", "thread", "messageOmitted")  # BootUI LogLineDto, record order
 MAX_MESSAGE = 4000
 _FAILED = "sharpit log capture failed (%s); log capture continues"
 
@@ -136,6 +136,7 @@ class SharpitLogHandler(logging.Handler):
             "logger": record.name,
             "message": masked,
             "thread": record.threadName,
+            "messageOmitted": masked is None,  # METADATA_ONLY withheld it: distinguishable from an empty message
         }
 
     def _forward_to_last_resort(self, record: logging.LogRecord) -> None:

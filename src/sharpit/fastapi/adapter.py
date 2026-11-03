@@ -265,9 +265,9 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
 def _with_drift_routes(routes: list[BaseRoute], ctx: SharpitContext) -> list[BaseRoute]:
     """The 2.2.0 capture routes (lane D2) go first: a literal path such as ``/exceptions/caught`` must win over
     ``/exceptions/{id}``, and a drift route with the same path and methods replaces the base one."""
-    from sharpit.fastapi.routes import http_exchanges
+    from sharpit.fastapi.routes import exceptions, http_exchanges
 
-    drift = [route for module in (http_exchanges,) for route in module.build_routes(ctx)]
+    drift = [route for module in (http_exchanges, exceptions) for route in module.build_routes(ctx)]
 
     def key(route: BaseRoute) -> tuple[object, frozenset[str]]:
         return getattr(route, "path", None), frozenset(getattr(route, "methods", None) or ())

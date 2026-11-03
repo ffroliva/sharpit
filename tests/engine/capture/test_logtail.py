@@ -107,7 +107,7 @@ def test_line_shape(isolated: logging.Logger):
     isolated.addHandler(handler)
     isolated.warning("hello %s", "world")
     (line,) = buffer.recent()
-    assert tuple(line) == LINE_KEYS == ("timestamp", "level", "logger", "message", "thread")
+    assert tuple(line) == LINE_KEYS == ("timestamp", "level", "logger", "message", "thread", "messageOmitted")
     assert (line["level"], line["logger"], line["message"]) == ("WARNING", isolated.name, "hello world")
     assert isinstance(line["timestamp"], int)
     assert line["timestamp"] > 1_600_000_000_000

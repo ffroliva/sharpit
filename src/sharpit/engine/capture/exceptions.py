@@ -198,9 +198,20 @@ class _Group:
         }
 
 
+CAUGHT_UNAVAILABLE = "Caught exceptions are recorded by the sharpit agent's caught-exceptions sensor."
+
+
 def caught_report() -> dict[str, Any]:
-    """``CaughtExceptionsReport``."""
-    return {}
+    """``CaughtExceptionsReport.unavailable``: no sensor in sharpit sees the exceptions application code caught."""
+    return {
+        "available": False,
+        "unavailableReason": CAUGHT_UNAVAILABLE,
+        "limitations": [],
+        "settling": 0,
+        "occurrences": 0,
+        "findings": 0,
+        "rows": [],
+    }
 
 
 class ExceptionStore:
@@ -315,6 +326,7 @@ class ExceptionStore:
             "maxGroups": self.max_groups,
             "totalExceptions": total,
             "groups": summaries,
+            "caughtInCode": None,  # CaughtExceptionsSummaryDto: null without the caught-exceptions sensor
         }
 
     def request_occurrences(self, request_id: str) -> list[dict[str, Any]]:

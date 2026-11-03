@@ -27,15 +27,15 @@ from sharpit.engine.masking import MASK, Masker, is_secret_value
 
 REPORT_KEYS = (
     "available", "unavailableReason", "capturing", "captureParameters", "bufferSize", "totalCaptured",
-    "slowQueryThresholdMillis", "dataSources", "stats", "entries", "topStatements", "warnings",
+    "slowQueryThresholdMillis", "dataSources", "stats", "entries", "topStatements", "warnings", "retention",
 )  # fmt: skip
 STATS_KEYS = (
     "totalQueries", "totalDurationMillis", "maxDurationMillis", "avgDurationMillis", "slowQueries", "failedQueries",
     "batchExecutions", "selectCount", "insertCount", "updateCount", "deleteCount", "otherCount", "evicted",
 )  # fmt: skip
 ENTRY_KEYS = (
-    "id", "timestamp", "sql", "statementType", "category", "durationMillis", "success", "errorMessage",
-    "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId", "callSite",
+    "id", "timestamp", "sql", "statementType", "category", "durationMicros", "durationMillis", "success",
+    "errorMessage", "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId", "callSite",
 )  # fmt: skip
 GROUP_KEYS = (
     "sql", "category", "executions", "totalDurationMillis", "maxDurationMillis", "potentialNPlusOne", "callSites",
@@ -389,6 +389,7 @@ def unavailable_report(reason: str) -> dict[str, Any]:
         "entries": [],
         "topStatements": [],
         "warnings": [],
+        "retention": None,
     }
 
 
@@ -528,6 +529,7 @@ class SqlTraceRecorder:
             "sql": _truncate(stored, self._max_sql_length),
             "statementType": "PREPARED" if has_parameters else "STATEMENT",
             "category": category,
+            "durationMicros": duration_ns // 1_000,
             "durationMillis": millis,
             "success": success and error is None,
             "errorMessage": error_message,
@@ -653,6 +655,15 @@ class SqlTraceRecorder:
             "entries": [entry_dto(row) for row in reversed(rows)],
             "topStatements": top,
             "warnings": warnings,
+            "retention": {  # CaptureRetentionDto: a plain ring, no share reserved for slow or failed statements
+                "applicationManaged": False,
+                "capacity": self.max_entries,
+                "reservedCapacity": None,
+                "retained": len(rows),
+                "reserved": None,
+                "evicted": evicted,
+                "slowThresholdMillis": self.slow_query_threshold_millis,
+            },
         }
 
 

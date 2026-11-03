@@ -40,6 +40,7 @@ from sharpit.engine.collectors.vulns.inventory import inventory
 from sharpit.engine.collectors.vulns.osv import OsvClient
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.paging import paged
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.sources import sqlite
 from sharpit.engine.spi import ApiModel
@@ -220,6 +221,7 @@ def exceptions_report(ctx: SharpitContext) -> dict[str, Any]:
             "maxGroups": ctx.settings.exceptions_max_groups,
             "totalExceptions": 0,
             "groups": [],
+            "caughtInCode": None,
         }
     return store.report()
 
@@ -274,6 +276,20 @@ def http_exchanges_report(
     if buffer is None:
         return unavailable_report(NOT_INSTALLED)
     return buffer.report(q, method, status_class, offset, limit, route)
+
+
+def _sql_traces_view(ctx: SharpitContext, query: str | None, limit: int) -> dict[str, Any]:
+    """``McpAgentViews.sqlTraces``: the report with its entries filtered by ``query`` and capped, plus ``page``."""
+    report = sql_trace_report(ctx)
+    entries, page = paged(report["entries"], query, None, limit, lambda e: (e["sql"], e["errorMessage"], e["callSite"]))
+    return {**report, "entries": entries, "page": page}
+
+
+def _log_tail_view(ctx: SharpitContext, query: str | None, limit: int) -> dict[str, Any]:
+    """``McpAgentViews.logTail``: the newest ``limit`` matching lines, oldest first, plus ``page``."""
+    newest = log_tail_lines(ctx)[::-1]
+    lines, page = paged(newest, query, None, limit, lambda line: (line["message"], line["logger"], line["level"]))
+    return {"entries": lines[::-1], "page": page}
 
 
 def log_tail_lines(ctx: SharpitContext) -> list[dict[str, Any]]:
@@ -365,7 +381,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         _QUERY_LIMIT,
         "log-tail",
         False,
-        lambda c, _a: {"entries": log_tail_lines(c.ctx)},
+        lambda c, a: _log_tail_view(c.ctx, a["query"], a["limit"]),
     ),
     Tool(
         "get_exceptions",
@@ -401,7 +417,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         _QUERY_LIMIT,
         "sql-trace",
         False,
-        lambda c, _a: sql_trace_report(c.ctx),
+        lambda c, a: _sql_traces_view(c.ctx, a["query"], a["limit"]),
     ),
     Tool(
         "clear_sql_traces",
