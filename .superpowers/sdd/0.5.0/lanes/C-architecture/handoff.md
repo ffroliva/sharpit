@@ -49,3 +49,40 @@ Live check executed against `examples/fastapi_sqla` with `create_app(app_package
 2. ArchitectureService built on shared AdvisorScan core (`engine/advisors/scan.py`).
 3. Import graph uses AST visitor with TYPE_CHECKING filtering, relative import resolution against package base, and Tarjan SCC cycle detection.
 4. View uses `AdvisorPanel` component with `title={panel.title}`, wired up to architecture API endpoints, scan action, dismiss/restore, and rule violation paging.
+
+## Fix round 1 (review @ 090fcb4, VERDICT: CHANGES)
+
+Implementer: Claude Code (claude-opus-5-5 subagent). Merged `release/0.5.0` (54f4718, no duplicated top-level defs).
+Red 4e8123845642daf96afed560eda3018b95a79866 (8 reds, replayed RED at that SHA in a detached worktree; 6 pins
+mutation-proven, findings.md §Pins). Fix bb968c94e627ce054700733fb27b1cdd66eadf7d.
+
+| # | Finding | Change |
+|---|---|---|
+| 1 | `GET /cli` 500, schema drift | `get_architecture_rule_violations` uses rest-api's `RULE_VIOLATIONS` (`id`,`scanId` required, `offset`, `limit`); handler reads `pageLimit`/`maxResults` as rest-api. `test_architecture_violations_tool_uses_rule_violations_schema` |
+| 2 | TOOL_ARGS/TOOL_SEEDS | added to `tests/safety/test_c_architecture_safety.py` (seeded service, as C-fastapi) |
+| 3 | vacuous safety tests | new real-scan tests in `tests/fastapi/test_architecture_source_reads.py` (dotted package on `sys.path` + `sys.modules`, assert status and opened files first) |
+| 4 | pyproject from an ancestor entry | `find_pyproject_path` takes only the entry that is the root's parent (or its parent for `src/`); no fallback; scan calls `read_contracts(root, sys.path)` once. `test_contracts.py` (3 reds, open spy on the real read) |
+| 5 | settings bounds ignored | `architecture_max_files` / `architecture_max_file_bytes` passed to `build_index`. 2 reds |
+| 6 | on-disk `sys.path` lookup | removed; `app_package` resolves through `sys.modules` only via the one resolver. `test_app_package_not_imported_is_not_scanned` |
+| 7 | C901 ratchet | `_tarjan_cycles` iterative (`_Tarjan`), `_eval_contracts` split; baseline untouched, ratchet green |
+| 8 | weak post-scan parity | `test_post_scan_golden_parity_on_fixture_app`: scans a cycle fixture, asserts `ARCH-PKG-001` and a page, then both goldens (path from `__file__`) or skips `post-scan golden absent` (both absent today) |
+| 9 | resolver use unasserted | `test_architecture_uses_the_one_resolver` (spy, as config's) |
+| 10 (minor) | recursive Tarjan | fixed by 7; `test_deep_import_chain_does_not_crash` |
+| 12 (minor) | dead path branches | removed (`Path(app_package)` branches, `lambda req: scan_application(req)`, double pyproject lookup) |
+
+Not done, with reason: 9 (MCP secret) - rules emit identifiers and `file:line` only and the core masks (reviewer
+found no leak); 11 (`find_package_cycles() or find_cycles()`) - reporting both changes the ARCH-PKG-001 count, a
+behaviour call for the owner; `analysis_errors`/`incomplete_message` kept (`analysisErrors` is a contract key);
+13 - the rule-mutation table's ids are as Gemini wrote them and were not re-run in this round (correct ids are
+`ARCH-CODE-*`, `ARCH-SPRING-*`, `ARCH-PY-001`); the red table's Task 4 SHA was a non-existent `83d85675...`,
+corrected to the real red commit 83d8567d24ff7afbd5bb0918dbe0f0b72108b6e3; 14 - the matrix sweep covers it.
+
+### Must-cover replacements for the plan (coordinator to amend)
+
+| Plan name | Status | Replaced by |
+|---|---|---|
+| `test_namespace_package_root` | deleted (required the forbidden on-disk lookup) | `test_loaded_namespace_package_root` |
+| `test_bounded_files_and_symlinks` | kept, vacuous | `test_real_scan_bounded_files_and_symlinks`, `test_max_files_setting_bounds_scan` |
+| `test_get_after_scan_opens_no_source_file` | kept, vacuous | `test_real_scan_then_get_opens_no_source_file` |
+| `test_scan_reads_only_app_package` | kept, vacuous | `test_real_scan_reads_only_app_package` |
+| `test_post_scan_golden_parity` | kept (skips) | `test_post_scan_golden_parity_on_fixture_app` |
