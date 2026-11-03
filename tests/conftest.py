@@ -67,6 +67,7 @@ TIMING_MODULES = (
     "test_sqlite_overhead.py",
     "test_swallowed_overhead.py",
     "test_traces_overhead.py",
+    "test_transactions_overhead.py",  # lane R-transactions
 )  # every module that times a budget (tests/test_overhead_harness.py keeps this complete)
 
 
