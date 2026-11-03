@@ -189,7 +189,7 @@ def test_mount_chain_deeper_than_cap_stops_with_a_row(no_side_effects: SideEffec
     assert paths[0].count("/n") == 33
 
 
-def test_failing_include_router_expansion_yields_fallback_row(
+def test_lazy_include_router_expansion_never_calls_candidates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_side_effects: SideEffectGuard
 ):
     app = _app(tmp_path)
@@ -197,14 +197,11 @@ def test_failing_include_router_expansion_yields_fallback_row(
     if included is None:
         pytest.skip("this FastAPI expands include_router eagerly")
 
-    def boom() -> None:
-        raise RuntimeError("drift")
-
-    monkeypatch.setattr(included, "effective_candidates", boom)
+    calls: list[str] = []
+    monkeypatch.setattr(included, "effective_candidates", lambda: calls.append("called") or [])
     rows = _by(FastApiIntrospector(app, "/sharpit").routes())
-    row = rows["ANY", "/v1/{path}"]
-    assert row.handler == "<unexpanded include_router>"
-    assert ("GET", "/items/{item_id}") in rows  # the rest of the listing survives
+    assert calls == []
+    assert ("GET", "/v1/ping") in rows
 
 
 @pytest.mark.parametrize("path", ["/dev-tools", "/dev-tools/"])
