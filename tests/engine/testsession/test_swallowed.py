@@ -318,3 +318,35 @@ def test_ast_cache_is_per_code_object(monkeypatch: pytest.MonkeyPatch) -> None:
         handler_swallows_code(_nested.__code__, outer, KeyError("x"))
 
     assert len(parses) == 1
+
+
+# --- 0.5.0 T-swallowed-2: the two suspected AST edges ----------------------------------------------------------------
+
+
+def test_helper_that_logs_is_not_a_swallow() -> None:
+    source = _src(
+        """
+        class Service:
+            def run(self):
+                try:
+                    pass
+                except Exception as e:
+                    self._report(e)
+                    return 0
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except Exception as e:")) is False
+
+
+def test_non_logger_error_call_is_not_logging() -> None:
+    source = _src(
+        """
+        def a(response):
+            try:
+                pass
+            except Exception:
+                response.error("x")
+                return 0
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except Exception:")) is True
