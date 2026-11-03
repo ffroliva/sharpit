@@ -160,7 +160,7 @@ class TransactionRecorder:
                 "id": entry_id,
                 "methodName": method or "unknown",
                 "propagation": "PARTICIPATING" if parent is not None else "NEW",
-                "isolation": None,
+                "isolation": "UNKNOWN",  # never queried; BootUI reports UNKNOWN when it cannot tell
                 "status": "OPEN",
                 "startTimestamp": now // 1_000_000,
                 "endTimestamp": None,
