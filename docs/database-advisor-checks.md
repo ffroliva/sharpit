@@ -47,14 +47,14 @@ BootUI registers 48 checks. `P` marks a check sharpit ports (33); the others are
 | DB-ORACLE-001 | Unusable Oracle indexes | Oracle | dropped | dropped | Oracle has no verified read-only path in sharpit (spec §5.0) |
 | DB-ORACLE-002 | Disabled or unvalidated Oracle constraints | Oracle | dropped | dropped | Oracle has no verified read-only path in sharpit (spec §5.0) |
 | DB-ORACLE-003 | Oracle sequence or identity generator nearing exhaustion | Oracle | dropped | dropped | Oracle has no verified read-only path in sharpit (spec §5.0) |
-| DB-HIB-002 | Declared entity relation name not found in the observed schema | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-003 | Declared column nullability differs from observed metadata | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-004 | Declared column length exceeds observed column size | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-005 | Declared uniqueness has no observed enforcing key | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-006 | Declared column name not found in the observed relation | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-007 | Declared association has no matching observed foreign key | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-009 | IDENTITY identifier column without database-side generation | ORM mapping | P | planned (A-dbadv-2) | |
-| DB-HIB-010 | Declared numeric precision or scale exceeds the observed column | ORM mapping | P | planned (A-dbadv-2) | |
+| DB-HIB-002 | Declared entity relation name not found in the observed schema | ORM mapping | P | implemented | |
+| DB-HIB-003 | Declared column nullability differs from observed metadata | ORM mapping | P | implemented | |
+| DB-HIB-004 | Declared column length exceeds observed column size | ORM mapping | P | implemented | |
+| DB-HIB-005 | Declared uniqueness has no observed enforcing key | ORM mapping | P | implemented | |
+| DB-HIB-006 | Declared column name not found in the observed relation | ORM mapping | P | implemented | |
+| DB-HIB-007 | Declared association has no matching observed foreign key | ORM mapping | P | implemented | |
+| DB-HIB-009 | IDENTITY identifier column without database-side generation | ORM mapping | P | implemented | |
+| DB-HIB-010 | Declared numeric precision or scale exceeds the observed column | ORM mapping | P | implemented | |
 | DB-RUNTIME-001 | SQL text variations with predicate literals | Runtime SQL | P | planned (A-dbadv-2) | |
 | DB-DRIVER-001 | PostgreSQL driver does not rewrite batched inserts | Driver | dropped | dropped | pgjdbc property; SQLAlchemy 2.0 batches inserts itself (insertmanyvalues) |
 | DB-DRIVER-002 | MySQL Connector/J does not rewrite batched statements | Driver | dropped | dropped | Connector/J property; SQLAlchemy 2.0 batches inserts itself (insertmanyvalues) |
