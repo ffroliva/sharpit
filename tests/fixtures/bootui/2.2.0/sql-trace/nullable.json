@@ -1,0 +1,6 @@
+{
+  "window.oldestTimestamp": "null when the SQL Trace ring retains no statement (SqlTraceWindowDto.empty and an empty window)",
+  "window.newestTimestamp": "null when the SQL Trace ring retains no statement (SqlTraceWindowDto.empty and an empty window)",
+  "attribution.unattributed.reason": "null while route attribution is unavailable (SqlAttributionBucketDto.empty(null))",
+  "attribution.ambiguous.reason": "null while route attribution is unavailable (SqlAttributionBucketDto.empty(null))"
+}

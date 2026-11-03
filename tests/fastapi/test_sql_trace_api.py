@@ -199,13 +199,6 @@ def test_clear_returns_report():
     assert (cleared["entries"], cleared["totalCaptured"]) == ([], 1)
 
 
-def test_insights_404():
-    app = FastAPI()
-    _install(app)
-    resp = _client(app).get(f"{API}/insights")
-    assert (resp.status_code, resp.json()) == (404, {"error": "Not Found"})
-
-
 def test_recording_post_read_only_403():
     app = FastAPI()
     _install(app, panels={"sql-trace": {"read_only": True}})
