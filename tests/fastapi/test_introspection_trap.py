@@ -25,6 +25,8 @@ from starlette.routing import BaseRoute, Match, Mount, Route
 from conftest import get_paths
 from fastapi import APIRouter, Depends, FastAPI
 from sharpit import install
+from sharpit.engine import sqla
+from sharpit.engine.sources import sqlite
 from sharpit.engine.tools import TOOLS
 from sharpit.fastapi.introspector import FastApiIntrospector
 
@@ -100,6 +102,10 @@ def _lane_surfaces(name: str) -> list[str]:
 
 
 GET_PATHS = sorted({p for p in get_paths() if "{" not in p} | set(_lane_surfaces("GET_PATHS")))
+# get_paths() installs the sample app at collection: undo its sqlite3/SQLAlchemy hooks now, or a module collected
+# later (test_sqlite_console's REAL_CONNECT) records the patched sqlite3.connect as the real one
+sqlite.detach_all()
+sqla.detach_all()
 MCP_TOOLS = sorted({t.name for t in TOOLS if not t.action} | set(_lane_surfaces("MCP_TOOLS")))
 CLI_TOOLS = sorted({"rest_api_scan"} | set(_lane_surfaces("CLI_TOOLS")))
 
