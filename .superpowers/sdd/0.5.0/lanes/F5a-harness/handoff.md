@@ -89,6 +89,9 @@ Fix-round gates at `78367d9`: `ruff check` clean, `ruff format --check` clean, `
 **4625 passed, 9 skipped, 4 errors** (exactly the 4 OPEN beans cases, teardown `app source read`) in 12.5 min
 (log `0.5.0-integration/.superpowers/sdd/0.5.0/logs/F5a-harness-fix1-pytest.log`).
 
+After the ruling, at `de98d39`: ruff and format clean, `pyright` 0 errors; full `pytest -q -n 4` **4626 passed, 9 skipped,
+0 failed, 0 errors** in 7.7 min (log `logs/F5a-harness-fix1b-pytest.log`).
+
 Not done, with reason:
 - #3 (`tests/test_settings.py` outside May-touch): coordinator plan amendment; the edit is add-only and required.
 - #5 / ponytail "should fix" (exemption walks the whole stack): stopping at the first `sharpit.` frame would break
