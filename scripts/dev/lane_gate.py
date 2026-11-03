@@ -456,6 +456,159 @@ def leased_problem(opts: Options, log_name: str, node_ids: Sequence[str]) -> str
     return None
 
 
+# --- council and must-cover (0.5.0 spec §4.0) -------------------------------------------------------------------------
+
+FAMILIES = {  # model family -> words that name it in council.md
+    "anthropic": ("claude", "opus", "sonnet", "haiku", "fable"),
+    "openai": ("codex", "gpt"),
+    "google": ("gemini", "agy", "argon"),
+}
+TEST_TOKEN = re.compile(r"^(?:[\w./-]+\.py::)?(?:\w+::)*test\w*(?:\[[^\]]*\])?$")
+GOLDEN_SKIP = "post-scan golden absent"  # a must-cover skip the gate reports as unverified, not refused
+
+
+def _lane_row(plan_index: Path, lane: str) -> tuple[dict[str, str] | None, set[str]]:
+    """(the lane's row, every lane id) of PLAN.md's Lanes table: the first table with Lane, Plan file and Council."""
+    for header, rows in _tables(plan_index.read_text(encoding="utf-8")):
+        if {"lane", "plan file", "council"} <= set(header):
+            lanes = {_code(row[0]): dict(zip(header, row, strict=False)) for row in rows}
+            return lanes.get(lane), set(lanes)
+    return None, set()
+
+
+def _council_names_head(opts: Options, token: str) -> bool:
+    """``token`` is a commit whose code is the head's: an ancestor followed only by changes to the lane's evidence."""
+    sha = _resolve(opts.worktree, token)
+    if sha is None or not _is_ancestor(opts.worktree, sha, opts.sha):
+        return False
+    return all(path.startswith(f"{_folder(opts)}/") for path in _diff_paths(opts.worktree, sha, opts.sha))
+
+
+def _council_refusals(opts: Options) -> list[str]:
+    text = _show(opts.worktree, opts.sha, f"{_folder(opts)}/council.md")
+    if text is None:
+        return [f"council.md missing: PLAN.md's Lanes table says Council: required for {opts.lane}"]
+    problems: list[str] = []
+    if not re.search(r"^VERDICT:\s*APPROVE\b", text, re.MULTILINE):
+        problems.append("council.md: no 'VERDICT: APPROVE' line")
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    families = [family for family, names in FAMILIES.items() if words & set(names)]
+    if len(families) < 2:
+        problems.append(f"council.md: fewer than two model families ({', '.join(families) or 'none named'})")
+    if not any(_council_names_head(opts, token) for token in re.findall(r"\b[0-9a-f]{7,40}\b", text)):
+        problems.append(f"council.md: does not name the head SHA {opts.sha} (or a commit followed only by evidence)")
+    return problems
+
+
+def must_cover_names(plan_text: str, lane: str, lanes: set[str]) -> list[str] | None:
+    """The tests named in the plan's ``## Must-cover`` section, or None without one. In a multi-lane plan file (a
+    paragraph starts ``<lane id>:``) only the lane's own paragraphs count."""
+    found = re.search(r"^## Must-cover[^\n]*\n(.*?)(?=^#{1,2} |\Z)", plan_text, re.MULTILINE | re.DOTALL)
+    if found is None:
+        return None
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", found.group(1)) if p.strip()]
+    owner = {p: m.group(1) for p in paragraphs if (m := re.match(r"([\w.-]+):\s", p)) and m.group(1) in lanes}
+    if owner:
+        paragraphs = [p for p in paragraphs if owner.get(p) == lane]
+    names = (token.strip() for p in paragraphs for token in re.findall(r"`([^`]+)`", p))
+    return list(dict.fromkeys(name for name in names if TEST_TOKEN.match(name)))
+
+
+def _defined_tests(source: str) -> list[tuple[str, ...]]:
+    """(enclosing class names..., function name) of every function in ``source``."""
+    try:
+        body = ast.parse(source).body
+    except SyntaxError:
+        return []
+    found: list[tuple[str, ...]] = []
+
+    def walk(nodes: list[ast.stmt], classes: tuple[str, ...]) -> None:
+        for node in nodes:
+            if isinstance(node, ast.ClassDef):
+                walk(node.body, (*classes, node.name))
+            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                found.append((*classes, node.name))
+
+    walk(body, ())
+    return found
+
+
+def must_cover_ids(opts: Options, base: str, names: Sequence[str]) -> tuple[list[str], list[str]]:
+    """(node ids, refusals): a full node id must exist at the head; a bare name resolves only among the test files
+    in the lane diff, and is refused when absent or ambiguous."""
+    files = [p for p in _diff_paths(opts.worktree, base, opts.sha) if p.startswith("tests/") and p.endswith(".py")]
+    ids: list[str] = []
+    problems: list[str] = []
+    for name in names:
+        if ".py::" in name:
+            if _test_node(_show(opts.worktree, opts.sha, name.split("::", 1)[0]) or "", name) is None:
+                problems.append(f"must-cover {name}: not at the lane head")
+            else:
+                ids.append(name)
+            continue
+        bare = name.split("[", 1)[0]
+        parts = tuple(bare.split("::"))
+        hits = [
+            "::".join((path, *found)) + name[len(bare) :]
+            for path in files
+            for found in _defined_tests(_show(opts.worktree, opts.sha, path) or "")
+            if found[-len(parts) :] == parts
+        ]
+        if not hits:
+            problems.append(f"must-cover {name}: not defined in a test file of the lane diff")
+        elif len(hits) > 1:
+            problems.append(f"must-cover {name}: ambiguous ({', '.join(hits)}); name it by full node id")
+        else:
+            ids.append(hits[0])
+    return ids, problems
+
+
+def plan_refusals(opts: Options, base: str) -> tuple[list[str], list[str]]:
+    """(refusals, must-cover node ids) from PLAN.md's Lanes table and the lane plan file."""
+    if opts.plan_index is None or not opts.plan_index.is_file():
+        return [f"PLAN.md not found: {opts.plan_index}"], []
+    row, lanes = _lane_row(opts.plan_index, opts.lane)
+    if row is None:
+        return [f"lane {opts.lane} is not in the Lanes table of {opts.plan_index}"], []
+    problems = _council_refusals(opts) if row.get("council", "").lower().startswith("required") else []
+    plan = opts.plan or opts.plan_index.parent / _code(row.get("plan file", ""))
+    if not plan.is_file():
+        return [*problems, f"lane plan not found: {plan}"], []
+    names = must_cover_names(plan.read_text(encoding="utf-8"), opts.lane, lanes)
+    if not names:
+        return [*problems, f"{plan.name}: no ## Must-cover tests for lane {opts.lane}"], []
+    ids, more = must_cover_ids(opts, base, names)
+    return problems + more, ids
+
+
+def _is_leased(nodeid: str, leased: Sequence[str]) -> bool:
+    """A must-cover id the leased log decides: the same test (or one of its parametrisations), or a 0.4.0 bare name."""
+    bare = nodeid.split("[", 1)[0]
+    return any(
+        nodeid == lid or lid.startswith(f"{nodeid}[") or ("::" not in lid and bare.endswith(f"::{lid}"))
+        for lid in leased
+    )
+
+
+def must_cover_refusals(opts: Options, ids: Sequence[str], run_pytest: PytestRunner) -> tuple[list[str], list[str]]:
+    """(refusals, unverified): every must-cover test passes at the head. A skip is refused unless the test is leased
+    (the leased log decides) or skipped as ``post-scan golden absent`` (reported unverified)."""
+    leased = [nodeid for _log, nodeids in LEASED.get(opts.lane, ()) for nodeid in nodeids]
+    problems: list[str] = []
+    unverified: list[str] = []
+    for nodeid, outcomes in _replay(opts, opts.sha, ids, run_pytest).items():
+        for outcome, detail in outcomes:
+            if outcome == "passed" or (outcome == "skipped" and _is_leased(nodeid, leased)):
+                continue
+            if outcome == "skipped" and detail.startswith(GOLDEN_SKIP):
+                unverified.append(f"must-cover {nodeid}: skipped ({detail})")
+            elif outcome == "skipped":
+                problems.append(f"must-cover {nodeid}: skipped ({detail})")
+            else:
+                problems.append(f"must-cover {nodeid}: {outcome} at the lane head")
+    return problems, unverified
+
+
 # --- red integrity and replay -----------------------------------------------------------------------------------------
 
 
@@ -849,6 +1002,10 @@ def evaluate(
         result.unverified = unverified
     else:
         result.refusals += [f"{line} (pass --accept-unverified to record it as unverified)" for line in unverified]
+    cover: list[str] = []
+    if opts.plan_index is not None:
+        plan_problems, cover = plan_refusals(opts, base)
+        result.refusals += plan_problems
     if result.refusals:
         result.refusals.append("red replay and gate re-run skipped: fix the refusals above first")
         return result
@@ -856,6 +1013,13 @@ def evaluate(
     if result.refusals:  # keep the last gate logs: a refused replay must not overwrite them
         result.refusals.append("gate re-run skipped: the red replay refused")
         return result
+    if cover:
+        cover_problems, cover_unverified = must_cover_refusals(opts, cover, run_pytest)
+        result.refusals += cover_problems
+        result.unverified += cover_unverified  # post-scan golden absent: reported, never refused
+        if result.refusals:
+            result.refusals.append("gate re-run skipped: a must-cover test refused")
+            return result
     if not opts.no_rerun:
         result.refusals += gate_refusals(opts, run_gate, prepare_env)
     return result
@@ -871,6 +1035,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--no-rerun", action="store_true", help="test fixture lanes only")
     parser.add_argument("--allow-path", action="append", default=[], help="protected path this lane may change")
     parser.add_argument("--release", help="default: the integration branch release/<x>, else refused")
+    parser.add_argument("--plan-index", type=Path, help="PLAN.md (Lanes table); default: the release's plan folder")
+    parser.add_argument("--plan", type=Path, help="the lane plan file; default: PLAN.md's Plan file column")
     args = parser.parse_args(argv)
     integration: Path = args.integration.resolve()
     release, how = (args.release, "") if args.release else resolve_release(integration)
@@ -878,10 +1044,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"REFUSED: {how}")
         return 1
     worktree: Path = args.worktree or WORKTREE_ROOT / f"{release}-{args.lane}"
+    plans = sorted(integration.glob(f"docs/superpowers/plans/*-sharpit-{release}/PLAN.md"))
+    plan_index: Path | None = args.plan_index or (plans[0] if len(plans) == 1 else None)
+    if plan_index is None and not args.lane.startswith(FIXTURE_PREFIX):  # council and must-cover need it
+        print(f"REFUSED: no single PLAN.md for release {release} under docs/superpowers/plans/; pass --plan-index")
+        return 1
     sha: str = args.sha or _git(worktree, "rev-parse", "HEAD").stdout.strip()
     allow = tuple(args.allow_path)
     opts = Options(
-        args.lane, worktree.resolve(), sha, integration, args.accept_unverified, args.no_rerun, allow, release
+        args.lane,
+        worktree.resolve(),
+        sha,
+        integration,
+        args.accept_unverified,
+        args.no_rerun,
+        allow,
+        release,
+        plan_index.resolve() if plan_index else None,
+        args.plan.resolve() if args.plan else None,
     )
     result = evaluate(
         opts,
