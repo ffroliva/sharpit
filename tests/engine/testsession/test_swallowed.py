@@ -350,3 +350,46 @@ def test_non_logger_error_call_is_not_logging() -> None:
         """
     )
     assert handler_swallows(source, _line_of(source, "except Exception:")) is True
+
+
+def test_logger_receivers_still_count_as_logging() -> None:
+    source = _src(
+        """
+        import logging
+        import structlog
+        _audit = logging.getLogger("audit")
+        events: structlog.BoundLogger = structlog.get_logger()
+
+        class Service:
+            def a(self):
+                try:
+                    pass
+                except Exception:
+                    self.logger.error("failed")
+            def b(self):
+                try:
+                    pass
+                except BaseException:
+                    _audit.error("failed")
+            def c(self):
+                try:
+                    pass
+                except:
+                    logging.getLogger(__name__).exception("failed")
+            def d(self):
+                try:
+                    pass
+                except (Exception, KeyError):
+                    events.warning("failed")
+            def e(self):
+                try:
+                    pass
+                except (KeyError, Exception):
+                    log.bind(order=1).warning("failed")
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except Exception:")) is False, "self.logger"
+    assert handler_swallows(source, _line_of(source, "except BaseException:")) is False, "module logger"
+    assert handler_swallows(source, _line_of(source, "except:")) is False, "getLogger(...) receiver"
+    assert handler_swallows(source, _line_of(source, "except (Exception, KeyError):")) is False, "annotated logger"
+    assert handler_swallows(source, _line_of(source, "except (KeyError, Exception):")) is False, "bound logger"

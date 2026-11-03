@@ -24,8 +24,13 @@ PROGRAMMING_ERRORS: tuple[type[BaseException], ...] = (
 _PUSH_EXC_INFO = dis.opmap["PUSH_EXC_INFO"]  # the first instruction of a try's handler block (CPython >= 3.11)
 _BROAD = frozenset({"Exception", "BaseException"})
 _LOG_CALLS = frozenset({"debug", "info", "warning", "warn", "error", "exception", "critical", "fatal", "log"})
+# a log call's receiver chain names one of these (``self.logger``, ``logging.getLogger(__name__)``, ``log.bind(x=1)``)
+_LOGGERS = frozenset(
+    {"log", "logger", "_log", "_logger", "LOG", "LOGGER", "logging", "warnings", "getLogger", "get_logger"}
+)
 
-type _Entry = tuple[tuple[ast.ExceptHandler, ...], int]  # a try's clauses and the clause at the given line
+# a try's clauses, the clause at the given line and the module-level names bound to a logger
+type _Entry = tuple[tuple[ast.ExceptHandler, ...], int, frozenset[str]]
 
 
 def is_programming_error(exc: BaseException) -> bool:
@@ -35,14 +40,27 @@ def is_programming_error(exc: BaseException) -> bool:
 def _index(tree: ast.AST) -> dict[int, _Entry]:
     """Every line of every ``except`` clause header -> (that try's clauses, the clause's position)."""
     index: dict[int, _Entry] = {}
+    loggers = _module_loggers(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Try):
             handlers = tuple(node.handlers)
             for position, handler in enumerate(handlers):
                 last = handler.type.end_lineno if handler.type is not None else None
                 for line in range(handler.lineno, (last or handler.lineno) + 1):
-                    index.setdefault(line, (handlers, position))
+                    index.setdefault(line, (handlers, position, loggers))
     return index
+
+
+def _module_loggers(tree: ast.AST) -> frozenset[str]:
+    """Module-level names assigned from a logger factory or ``loguru.logger`` (``_audit = logging.getLogger(...)``)."""
+    names: set[str] = set()
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Assign | ast.AnnAssign) and node.value is not None:
+            value = node.value.func if isinstance(node.value, ast.Call) else node.value
+            if _call_name(value) in {"getLogger", "get_logger", "logger"}:
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                names |= {target.id for target in targets if isinstance(target, ast.Name)}
+    return frozenset(names)
 
 
 def _elements(handler: ast.ExceptHandler) -> list[ast.expr]:
@@ -60,6 +78,20 @@ def _call_name(func: ast.expr) -> str | None:
     if isinstance(func, ast.Attribute):
         return func.attr
     return func.id if isinstance(func, ast.Name) else None
+
+
+def _logs(func: ast.expr, loggers: frozenset[str]) -> bool:
+    """A logging call: a log method on a logger (not ``response.error(...)``), or a bare ``warn(...)``-style name."""
+    if not isinstance(func, ast.Attribute):
+        return _call_name(func) in _LOG_CALLS
+    if func.attr not in _LOG_CALLS:
+        return False
+    receiver = func.value
+    while isinstance(receiver, ast.Attribute | ast.Call):
+        if isinstance(receiver, ast.Attribute) and receiver.attr in _LOGGERS:
+            return True
+        receiver = receiver.func if isinstance(receiver, ast.Call) else receiver.value
+    return isinstance(receiver, ast.Name) and (receiver.id in _LOGGERS or receiver.id in loggers)
 
 
 def _passes(call: ast.Call, bound: str | None) -> bool:
@@ -80,7 +112,7 @@ def _unreferenced(node: ast.AST, used: set[str]) -> bool:
     )
 
 
-def _silent(handler: ast.ExceptHandler) -> bool:
+def _silent(handler: ast.ExceptHandler, loggers: frozenset[str]) -> bool:
     nodes = list(ast.walk(handler))
     used = {n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
     used |= {n.attr for n in nodes if isinstance(n, ast.Attribute)}  # a class method called as obj.method()
@@ -89,7 +121,7 @@ def _silent(handler: ast.ExceptHandler) -> bool:
         node = pending.pop()
         if isinstance(node, ast.Raise):
             return False
-        if isinstance(node, ast.Call) and (_call_name(node.func) in _LOG_CALLS or _passes(node, handler.name)):
+        if isinstance(node, ast.Call) and (_logs(node.func, loggers) or _passes(node, handler.name)):
             return False
         if not _unreferenced(node, used):
             pending.extend(ast.iter_child_nodes(node))
@@ -112,7 +144,7 @@ def _catches(handler: ast.ExceptHandler, exc_type: type[BaseException]) -> bool 
 
 def _swallowing(entry: _Entry, exc_type: type[BaseException] | None) -> ast.ExceptHandler | None:
     """The clause that handled ``exc_type`` (the one at the entry's line without it) when it swallows, else None."""
-    handlers, position = entry
+    handlers, position, loggers = entry
     handler = handlers[position]
     if exc_type is not None:  # CPython tries the clauses in order: find the one that handled it
         for candidate in handlers:
@@ -124,7 +156,7 @@ def _swallowing(entry: _Entry, exc_type: type[BaseException] | None) -> ast.Exce
                 break
         else:
             return None
-    return handler if _broad(handler) and _silent(handler) else None
+    return handler if _broad(handler) and _silent(handler, loggers) else None
 
 
 def handler_swallows(source: str, handled_line: int, exc: BaseException | None = None) -> bool:
@@ -169,12 +201,14 @@ def handler_swallows_code(code: CodeType, offset: int, exc: BaseException | None
 
 def swallowing_lines(source: str) -> list[int]:
     """The header lines of every broad, silent ``except`` clause in a module's source (the static check)."""
+    tree = ast.parse(source)
+    loggers = _module_loggers(tree)
     found = {
         handler.lineno
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(tree)
         if isinstance(node, ast.Try)
         for handler in node.handlers
-        if _broad(handler) and _silent(handler)
+        if _broad(handler) and _silent(handler, loggers)
     }
     return sorted(found)
 
