@@ -21,9 +21,11 @@ from sharpit.engine.collectors.mysql.limits import (
 )
 from sharpit.engine.collectors.mysql.sections import (
     BUDGET_SKIPPED,
+    SECTIONS,
     DataSourceData,
     collect_all,
     compare_changes,
+    section_dto,
 )
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
@@ -57,16 +59,6 @@ _clock = time.monotonic  # test seam: the read budget's clock
 WALL_MARGIN = 1.0
 
 Dto = dict[str, Any]
-
-COLLECTOR_SECTIONS = (
-    ("sessions", "Active sessions"),
-    ("statements", "Top normalized statements"),
-    ("indexes", "Index usage and efficiency"),
-    ("tables", "Largest tables"),
-    ("lock-waits", "Lock waits"),
-    ("replication-channels", "Replication channels"),
-    ("settings", "Notable configuration"),
-)
 
 
 def _empty_previous() -> dict[str, dict[str, Any]]:
@@ -236,9 +228,9 @@ async def _read_engine(
 
 def _timed_out_data(partial: DataSourceData) -> DataSourceData:
     done = {s["id"] for s in partial.sections}
-    for section_id, title in COLLECTOR_SECTIONS:
+    for section_id, _title in SECTIONS:
         if section_id not in done:
-            partial.sections.append(_skipped(section_id, title))
+            partial.sections.append(section_dto(section_id, "SKIPPED", BUDGET_SKIPPED))
     return partial
 
 
@@ -251,18 +243,6 @@ def _collect_diagnostics(name: str, data: DataSourceData, diagnostics: list[Dto]
             diagnostics.append(_diagnostic(source, level, section["reason"]))
         elif section.get("reason") is not None:
             diagnostics.append(_diagnostic(source, "INFO", section["reason"]))
-
-
-def _skipped(section_id: str, title: str) -> Dto:
-    return {
-        "id": section_id,
-        "title": title,
-        "status": "SKIPPED",
-        "reason": BUDGET_SKIPPED,
-        "hint": None,
-        "rowCount": 0,
-        "truncated": False,
-    }
 
 
 def _diagnostic(source: str, level: str, message: str | None) -> Dto:

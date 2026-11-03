@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -12,6 +13,7 @@ from sharpit.engine.collectors.mysql.queries import (
     CURATED_SETTINGS,
     DATABASE_SQL,
     INDEXES_SQL,
+    LOCK_WAITS_MARIADB_SQL,
     LOCK_WAITS_SQL,
     REPLICATION_PFS_SQL,
     SESSIONS_FALLBACK_SQL,
@@ -22,19 +24,24 @@ from sharpit.engine.collectors.mysql.queries import (
     TABLES_SQL,
 )
 from sharpit.engine.collectors.mysql.querytext import mysql_query_text
-from sharpit.engine.masking import Masker
-
-SECTION_IDS = (
-    "sessions",
-    "statements",
-    "indexes",
-    "tables",
-    "lock-waits",
-    "replication-channels",
-    "settings",
-)
+from sharpit.engine.masking import Exposure, Masker
 
 Dto = dict[str, Any]
+Row = dict[str, Any]
+
+# One title per section, for read and skipped sections alike.
+SECTIONS = (
+    ("sessions", "Active sessions"),
+    ("statements", "Top normalized statements"),
+    ("indexes", "Index usage and efficiency"),
+    ("tables", "Largest tables"),
+    ("lock-waits", "Lock waits"),
+    ("replication-channels", "Replication channels"),
+    ("settings", "Notable configuration"),
+)
+_TITLES = dict(SECTIONS)
+# A collector called without the context's masker still masks (fails closed).
+_STRICT = Masker(Exposure.MASKED, True)
 
 
 @dataclass
@@ -55,8 +62,45 @@ class DataSourceData:
     truncated: bool = False
 
 
-def _diagnostic(source: str, level: str, message: str) -> Dto:
+def _diagnostic(source: str, level: str, message: str | None) -> Dto:
     return {"source": source, "level": level, "message": message}
+
+
+def section_dto(section_id: str, status: str, reason: str | None = None, rows: int = 0, truncated: bool = False) -> Dto:
+    return {"id": section_id, "title": _TITLES[section_id], "status": status, "reason": reason, "hint": None,
+            "rowCount": rows, "truncated": truncated}  # fmt: skip
+
+
+def _reason(masker: Masker, exc: Exception) -> str:
+    return masker.mask_text(str(exc).strip()) or type(exc).__name__
+
+
+def _rows(conn: Any, sql: str) -> list[Row]:
+    with conn.begin_nested():
+        return [dict(r) for r in conn.exec_driver_sql(sql).mappings()]
+
+
+def _read_section(
+    conn: Any,
+    masker: Masker,
+    data: DataSourceData,
+    section_id: str,
+    sql: str,
+    limit: int,
+    build: Callable[[list[Row]], list[Dto]],
+) -> Dto:
+    """Run one section's query; a failure is ``FAILED`` with the masked driver error, never an empty success."""
+    try:
+        retained, truncated = read_one_past(build(_rows(conn, sql)), limit)
+    except Exception as exc:  # noqa: BLE001 - every driver error becomes the section's reason
+        return section_dto(section_id, "FAILED", _reason(masker, exc))
+    setattr(data, section_id.replace("-", "_"), retained)
+    data.truncated = data.truncated or truncated
+    return section_dto(section_id, "AVAILABLE", rows=len(retained), truncated=truncated)
+
+
+def _bounded(sql: str, limit: int) -> str:
+    return f"{sql.strip()} LIMIT {limit + 1}"
 
 
 def collect_capabilities(conn: Any, data: DataSourceData) -> Dto:
@@ -115,123 +159,57 @@ def collect_capabilities(conn: Any, data: DataSourceData) -> Dto:
 
 
 def collect_sessions(conn: Any, masker: Masker, limits: RowLimits, data: DataSourceData) -> Dto:
-    pfs_enabled = data.capabilities.get("performanceSchema", True)
-    query_sql = SESSIONS_PFS_SQL if pfs_enabled else SESSIONS_FALLBACK_SQL
-    bound_sql = query_sql.strip() + f" LIMIT {limits.max_sessions + 1}"
-    try:
-        with conn.begin_nested():
-            rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(bound_sql).mappings()]
-        sessions: list[Dto] = []
-        for r in rows:
-            stmt = cast("str | None", r.get("current_statement") or r.get("info"))
-            masked_stmt = mysql_query_text(masker, stmt)
-            sessions.append(
-                {
-                    "id": r.get("id"),
-                    "user": r.get("user"),
-                    "host": r.get("host"),
-                    "db": r.get("db"),
-                    "command": r.get("command"),
-                    "time": r.get("time"),
-                    "state": r.get("state"),
-                    "info": masked_stmt,
-                    "currentStatement": masked_stmt,
-                }
-            )
-        retained, truncated = read_one_past(sessions, limits.max_sessions)
-        data.sessions = retained
-        if truncated:
-            data.truncated = True
-        return {
-            "id": "sessions",
-            "title": "Sessions",
-            "status": "AVAILABLE",
-            "reason": None,
-            "hint": None,
-            "rowCount": len(retained),
-            "truncated": truncated,
-        }
-    except Exception as exc:
-        data.sessions = []
-        reason = masker.mask_text(str(exc).strip()) or type(exc).__name__
-        return {
-            "id": "sessions",
-            "title": "Sessions",
-            "status": "FAILED",
-            "reason": reason,
-            "hint": None,
-            "rowCount": 0,
-            "truncated": False,
-        }
+    sql = SESSIONS_PFS_SQL if data.capabilities.get("performanceSchema", True) else SESSIONS_FALLBACK_SQL
+
+    def build(rows: list[Row]) -> list[Dto]:
+        return [
+            {
+                "id": r.get("id"),
+                "user": r.get("user"),
+                "host": r.get("host"),
+                "db": r.get("db"),
+                "command": r.get("command"),
+                "time": r.get("time"),
+                "state": r.get("state"),
+                "info": mysql_query_text(masker, r.get("info")),
+                "currentStatement": mysql_query_text(masker, r.get("current_statement")),
+            }
+            for r in rows
+        ]
+
+    return _read_section(conn, masker, data, "sessions", _bounded(sql, limits.max_sessions), limits.max_sessions,
+                         build)  # fmt: skip
 
 
 def collect_statements(conn: Any, masker: Masker, limits: RowLimits, data: DataSourceData) -> Dto:
     if not data.capabilities.get("performanceSchema", True):
-        data.statements = []
-        return {
-            "id": "statements",
-            "title": "Statements",
-            "status": "SKIPPED",
-            "reason": "performance_schema is disabled on this server.",
-            "hint": None,
-            "rowCount": 0,
-            "truncated": False,
-        }
-    bound_sql = STATEMENTS_SQL.strip() + f" LIMIT {limits.max_statements + 1}"
-    try:
-        with conn.begin_nested():
-            rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(bound_sql).mappings()]
-        statements: list[Dto] = []
-        for r in rows:
-            digest_text = mysql_query_text(masker, cast("str | None", r.get("digest_text")))
-            statements.append(
-                {
-                    "schema": r.get("schema_name"),
-                    "digest": r.get("digest"),
-                    "digestText": digest_text,
-                    "countStar": r.get("count_star"),
-                    "sumTimerWait": r.get("sum_timer_wait"),
-                    "avgTimerWait": r.get("avg_timer_wait"),
-                    "maxTimerWait": r.get("max_timer_wait"),
-                    "sumRowsAffected": r.get("sum_rows_affected"),
-                    "sumRowsSent": r.get("sum_rows_sent"),
-                    "sumRowsExamined": r.get("sum_rows_examined"),
-                    "sumNoIndexUsed": r.get("sum_no_index_used"),
-                }
-            )
-        retained, truncated = read_one_past(statements, limits.max_statements)
-        data.statements = retained
-        if truncated:
-            data.truncated = True
-        return {
-            "id": "statements",
-            "title": "Statements",
-            "status": "AVAILABLE",
-            "reason": None,
-            "hint": None,
-            "rowCount": len(retained),
-            "truncated": truncated,
-        }
-    except Exception as exc:
-        data.statements = []
-        reason = masker.mask_text(str(exc).strip()) or type(exc).__name__
-        return {
-            "id": "statements",
-            "title": "Statements",
-            "status": "FAILED",
-            "reason": reason,
-            "hint": None,
-            "rowCount": 0,
-            "truncated": False,
-        }
+        return section_dto("statements", "SKIPPED", "performance_schema is disabled on this server.")
+
+    def build(rows: list[Row]) -> list[Dto]:
+        return [
+            {
+                "schema": r.get("schema_name"),
+                "digest": r.get("digest"),
+                "digestText": mysql_query_text(masker, r.get("digest_text")),
+                "countStar": r.get("count_star"),
+                "sumTimerWait": r.get("sum_timer_wait"),
+                "avgTimerWait": r.get("avg_timer_wait"),
+                "maxTimerWait": r.get("max_timer_wait"),
+                "sumRowsAffected": r.get("sum_rows_affected"),
+                "sumRowsSent": r.get("sum_rows_sent"),
+                "sumRowsExamined": r.get("sum_rows_examined"),
+                "sumNoIndexUsed": r.get("sum_no_index_used"),
+            }
+            for r in rows
+        ]
+
+    limit = limits.max_statements
+    return _read_section(conn, masker, data, "statements", _bounded(STATEMENTS_SQL, limit), limit, build)
 
 
-def collect_indexes(conn: Any, limits: RowLimits, data: DataSourceData) -> Dto:
-    bound_sql = INDEXES_SQL.strip() + f" LIMIT {limits.max_indexes + 1}"
-    try:
-        with conn.begin_nested():
-            rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(bound_sql).mappings()]
-        indexes: list[Dto] = [
+def collect_indexes(conn: Any, limits: RowLimits, data: DataSourceData, masker: Masker = _STRICT) -> Dto:
+    def build(rows: list[Row]) -> list[Dto]:
+        return [
             {
                 "tableSchema": r.get("table_schema"),
                 "tableName": r.get("table_name"),
@@ -244,38 +222,14 @@ def collect_indexes(conn: Any, limits: RowLimits, data: DataSourceData) -> Dto:
             }
             for r in rows
         ]
-        retained, truncated = read_one_past(indexes, limits.max_indexes)
-        data.indexes = retained
-        if truncated:
-            data.truncated = True
-        return {
-            "id": "indexes",
-            "title": "Indexes",
-            "status": "AVAILABLE",
-            "reason": None,
-            "hint": None,
-            "rowCount": len(retained),
-            "truncated": truncated,
-        }
-    except Exception as exc:
-        data.indexes = []
-        return {
-            "id": "indexes",
-            "title": "Indexes",
-            "status": "FAILED",
-            "reason": str(exc).strip(),
-            "hint": None,
-            "rowCount": 0,
-            "truncated": False,
-        }
+
+    limit = limits.max_indexes
+    return _read_section(conn, masker, data, "indexes", _bounded(INDEXES_SQL, limit), limit, build)
 
 
-def collect_tables(conn: Any, limits: RowLimits, data: DataSourceData) -> Dto:
-    bound_sql = TABLES_SQL.strip() + f" LIMIT {limits.max_tables + 1}"
-    try:
-        with conn.begin_nested():
-            rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(bound_sql).mappings()]
-        tables: list[Dto] = [
+def collect_tables(conn: Any, limits: RowLimits, data: DataSourceData, masker: Masker = _STRICT) -> Dto:
+    def build(rows: list[Row]) -> list[Dto]:
+        return [
             {
                 "tableSchema": r.get("table_schema"),
                 "tableName": r.get("table_name"),
@@ -289,220 +243,109 @@ def collect_tables(conn: Any, limits: RowLimits, data: DataSourceData) -> Dto:
             }
             for r in rows
         ]
-        retained, truncated = read_one_past(tables, limits.max_tables)
-        data.tables = retained
-        if truncated:
-            data.truncated = True
-        return {
-            "id": "tables",
-            "title": "Tables",
-            "status": "AVAILABLE",
-            "reason": None,
-            "hint": None,
-            "rowCount": len(retained),
-            "truncated": truncated,
-        }
-    except Exception as exc:
-        data.tables = []
-        return {
-            "id": "tables",
-            "title": "Tables",
-            "status": "FAILED",
-            "reason": str(exc).strip(),
-            "hint": None,
-            "rowCount": 0,
-            "truncated": False,
-        }
+
+    limit = limits.max_tables
+    return _read_section(conn, masker, data, "tables", _bounded(TABLES_SQL, limit), limit, build)
 
 
 def collect_lock_waits(conn: Any, masker: Masker, limits: RowLimits, data: DataSourceData) -> Dto:
-    bound_sql = LOCK_WAITS_SQL.strip() + f" LIMIT {limits.max_lock_waits + 1}"
-    try:
-        with conn.begin_nested():
-            rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(bound_sql).mappings()]
-        lock_waits: list[Dto] = []
-        for r in rows:
-            waiting_q = mysql_query_text(masker, cast("str | None", r.get("waiting_query")))
-            blocking_q = mysql_query_text(masker, cast("str | None", r.get("blocking_query")))
-            lock_waits.append(
-                {
-                    "waitingTrxId": r.get("waiting_trx_id"),
-                    "waitingPid": r.get("waiting_pid"),
-                    "waitingQuery": waiting_q,
-                    "blockingTrxId": r.get("blocking_trx_id"),
-                    "blockingPid": r.get("blocking_pid"),
-                    "blockingQuery": blocking_q,
-                }
-            )
-        retained, truncated = read_one_past(lock_waits, limits.max_lock_waits)
-        data.lock_waits = retained
-        if truncated:
-            data.truncated = True
-        return {
-            "id": "lock-waits",
-            "title": "Lock Waits",
-            "status": "AVAILABLE",
-            "reason": None,
-            "hint": None,
-            "rowCount": len(retained),
-            "truncated": truncated,
-        }
-    except Exception:
-        # sys.innodb_lock_waits or pfs data_lock_waits may not exist on all versions
-        data.lock_waits = []
-        return {
-            "id": "lock-waits",
-            "title": "Lock Waits",
-            "status": "AVAILABLE",
-            "reason": None,
-            "hint": None,
-            "rowCount": 0,
-            "truncated": False,
-        }
+    sql = LOCK_WAITS_MARIADB_SQL if data.capabilities.get("isMariaDb") else LOCK_WAITS_SQL
+
+    def build(rows: list[Row]) -> list[Dto]:
+        return [
+            {
+                "waitingTrxId": r.get("waiting_trx_id"),
+                "waitingPid": r.get("waiting_pid"),
+                "waitingQuery": mysql_query_text(masker, r.get("waiting_query")),
+                "blockingTrxId": r.get("blocking_trx_id"),
+                "blockingPid": r.get("blocking_pid"),
+                "blockingQuery": mysql_query_text(masker, r.get("blocking_query")),
+            }
+            for r in rows
+        ]
+
+    limit = limits.max_lock_waits
+    return _read_section(conn, masker, data, "lock-waits", _bounded(sql, limit), limit, build)
 
 
-def collect_replication(conn: Any, limits: RowLimits, data: DataSourceData) -> Dto:
-    bound_sql = REPLICATION_PFS_SQL.strip() + f" LIMIT {limits.max_replication_channels + 1}"
-    try:
-        with conn.begin_nested():
-            rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(bound_sql).mappings()]
-        channels: list[Dto] = [
+def collect_replication(conn: Any, limits: RowLimits, data: DataSourceData, masker: Masker = _STRICT) -> Dto:
+    if data.capabilities.get("isMariaDb"):
+        return section_dto(
+            "replication-channels", "SKIPPED", "MariaDB has no performance_schema.replication_connection_status."
+        )
+
+    def build(rows: list[Row]) -> list[Dto]:
+        return [
             {
                 "channelName": r.get("channel_name"),
                 "serviceState": r.get("service_state"),
                 "sourceUuid": r.get("source_uuid"),
                 "lastErrorNumber": r.get("last_error_number"),
-                "lastErrorMessage": r.get("last_error_message"),
+                "lastErrorMessage": masker.mask_text(r.get("last_error_message")),
                 "lastErrorTimestamp": r.get("last_error_timestamp"),
             }
             for r in rows
         ]
-        retained, truncated = read_one_past(channels, limits.max_replication_channels)
-        data.replication_channels = retained
-        if truncated:
-            data.truncated = True
-        return {
-            "id": "replication-channels",
-            "title": "Replication Channels",
-            "status": "AVAILABLE",
-            "reason": None,
-            "hint": None,
-            "rowCount": len(retained),
-            "truncated": truncated,
-        }
-    except Exception:
-        data.replication_channels = []
-        return {
-            "id": "replication-channels",
-            "title": "Replication Channels",
-            "status": "AVAILABLE",
-            "reason": None,
-            "hint": None,
-            "rowCount": 0,
-            "truncated": False,
-        }
+
+    limit = limits.max_replication_channels
+    return _read_section(conn, masker, data, "replication-channels", _bounded(REPLICATION_PFS_SQL, limit), limit,
+                         build)  # fmt: skip
 
 
-def collect_settings(conn: Any, limits: RowLimits, data: DataSourceData) -> Dto:
-    try:
-        with conn.begin_nested():
-            rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(SETTINGS_SQL).mappings()]
+def collect_settings(conn: Any, limits: RowLimits, data: DataSourceData, masker: Masker = _STRICT) -> Dto:
+    def build(rows: list[Row]) -> list[Dto]:
         found = {
             str(r["Variable_name"]).lower(): str(r["Value"]) for r in rows if "Variable_name" in r and "Value" in r
         }
-        settings: list[Dto] = [
-            {
-                "name": name,
-                "value": found[name.lower()],
-                "scope": "GLOBAL",
-                "source": "SERVER",
-            }
+        return [
+            {"name": name, "value": found[name.lower()], "scope": "GLOBAL", "source": "SERVER"}
             for name in sorted(CURATED_SETTINGS)
             if name.lower() in found
         ]
-        retained, truncated = read_one_past(settings, limits.max_settings)
-        data.settings = retained
-        if truncated:
-            data.truncated = True
-        return {
-            "id": "settings",
-            "title": "Settings",
-            "status": "AVAILABLE",
-            "reason": None,
-            "hint": None,
-            "rowCount": len(retained),
-            "truncated": truncated,
-        }
-    except Exception as exc:
-        data.settings = []
-        return {
-            "id": "settings",
-            "title": "Settings",
-            "status": "FAILED",
-            "reason": str(exc).strip(),
-            "hint": None,
-            "rowCount": 0,
-            "truncated": False,
-        }
+
+    return _read_section(conn, masker, data, "settings", SETTINGS_SQL, limits.max_settings, build)
 
 
-def collect_metrics(conn: Any, data: DataSourceData) -> list[Dto]:
+_METRICS = (
+    ("Threads_connected", "Threads connected", None),
+    ("Uptime", "Uptime", "seconds"),
+    ("Queries", "Queries", None),
+    ("Slow_queries", "Slow queries", None),
+)
+
+
+def _number(raw: str | None) -> float | None:
     try:
-        with conn.begin_nested():
-            rows: list[dict[str, Any]] = [dict(r) for r in conn.exec_driver_sql(STATUS_SQL).mappings()]
-        status_map = {str(r["Variable_name"]): str(r["Value"]) for r in rows if "Variable_name" in r and "Value" in r}
-        metrics: list[Dto] = []
+        return None if raw is None else float(raw)
+    except ValueError:
+        return None
 
-        def add_metric(var_name: str, label: str, unit: str | None = None) -> None:
-            if var_name in status_map:
-                try:
-                    val = float(status_map[var_name])
-                    int_val = int(val) if val.is_integer() else val
-                    metrics.append(
-                        {
-                            "id": var_name,
-                            "label": label,
-                            "value": int_val,
-                            "unit": unit,
-                            "scope": "GLOBAL",
-                            "source": "STATUS",
-                        }
-                    )
-                except (ValueError, TypeError):
-                    pass
 
-        add_metric("Threads_connected", "Threads connected")
-        add_metric("Uptime", "Uptime", "seconds")
-        add_metric("Queries", "Queries")
-        add_metric("Slow_queries", "Slow queries")
+def _metric(metric_id: str, label: str, value: float, unit: str | None) -> Dto:
+    shown = int(value) if value.is_integer() else value
+    return {"id": metric_id, "label": label, "value": shown, "unit": unit, "scope": "GLOBAL", "source": "STATUS"}
 
-        # Buffer pool hit ratio
-        reads = status_map.get("Innodb_buffer_pool_reads")
-        requests = status_map.get("Innodb_buffer_pool_read_requests")
-        if reads is not None and requests is not None:
-            try:
-                r_val = float(reads)
-                req_val = float(requests)
-                if req_val > 0:
-                    ratio = round((1.0 - (r_val / req_val)) * 100, 1)
-                    metrics.append(
-                        {
-                            "id": "innodb_buffer_pool_hit_ratio",
-                            "label": "Buffer pool hit ratio",
-                            "value": ratio,
-                            "unit": "%",
-                            "scope": "GLOBAL",
-                            "source": "STATUS",
-                        }
-                    )
-            except (ValueError, TypeError):
-                pass
 
-        data.metrics = metrics
-        return metrics
-    except Exception:
-        data.metrics = []
+def collect_metrics(conn: Any, data: DataSourceData, masker: Masker = _STRICT) -> list[Dto]:
+    """SHOW GLOBAL STATUS counters; a failure is an ERROR diagnostic, never a silent empty list."""
+    try:
+        rows = _rows(conn, STATUS_SQL)
+    except Exception as exc:  # noqa: BLE001 - the driver error becomes the diagnostic
+        data.diagnostics.append(_diagnostic(f"{data.name}/metrics", "ERROR", _reason(masker, exc)))
         return []
+    status = {str(r["Variable_name"]): str(r["Value"]) for r in rows if "Variable_name" in r and "Value" in r}
+    metrics = [
+        _metric(var, label, value, unit)
+        for var, label, unit in _METRICS
+        if (value := _number(status.get(var))) is not None
+    ]
+    reads = _number(status.get("Innodb_buffer_pool_reads"))
+    requests = _number(status.get("Innodb_buffer_pool_read_requests"))
+    if reads is not None and requests is not None and requests > 0:
+        ratio = round((1.0 - reads / requests) * 100, 1)
+        metrics.append(_metric("innodb_buffer_pool_hit_ratio", "Buffer pool hit ratio", ratio, "%"))
+    data.metrics = metrics
+    return metrics
 
 
 def compare_changes(previous: dict[str, Any] | None, current: dict[str, Any]) -> list[Dto]:
@@ -540,33 +383,20 @@ def collect_all(
     data: DataSourceData,
 ) -> DataSourceData:
     collect_capabilities(conn, data)
-    collect_metrics(conn, data)
+    collect_metrics(conn, data, masker)
 
-    collectors = (
-        ("sessions", "Active sessions", lambda: collect_sessions(conn, masker, limits, data)),
-        ("statements", "Top normalized statements", lambda: collect_statements(conn, masker, limits, data)),
-        ("indexes", "Index usage and efficiency", lambda: collect_indexes(conn, limits, data)),
-        ("tables", "Largest tables", lambda: collect_tables(conn, limits, data)),
-        ("lock-waits", "Lock waits", lambda: collect_lock_waits(conn, masker, limits, data)),
-        ("replication-channels", "Replication channels", lambda: collect_replication(conn, limits, data)),
-        ("settings", "Notable configuration", lambda: collect_settings(conn, limits, data)),
-    )
-
-    for section_id, title, run_collector in collectors:
-        if budget.exhausted():
-            data.sections.append(
-                {
-                    "id": section_id,
-                    "title": title,
-                    "status": "SKIPPED",
-                    "reason": BUDGET_SKIPPED,
-                    "hint": None,
-                    "rowCount": 0,
-                    "truncated": False,
-                }
-            )
-        else:
-            data.sections.append(run_collector())
-
-    data.truncated = any(s.get("truncated", False) for s in data.sections)
+    collectors: dict[str, Callable[[], Dto]] = {
+        "sessions": lambda: collect_sessions(conn, masker, limits, data),
+        "statements": lambda: collect_statements(conn, masker, limits, data),
+        "indexes": lambda: collect_indexes(conn, limits, data, masker),
+        "tables": lambda: collect_tables(conn, limits, data, masker),
+        "lock-waits": lambda: collect_lock_waits(conn, masker, limits, data),
+        "replication-channels": lambda: collect_replication(conn, limits, data, masker),
+        "settings": lambda: collect_settings(conn, limits, data, masker),
+    }
+    for section_id, _title in SECTIONS:
+        exhausted = budget.exhausted()
+        data.sections.append(
+            section_dto(section_id, "SKIPPED", BUDGET_SKIPPED) if exhausted else collectors[section_id]()
+        )
     return data

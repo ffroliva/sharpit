@@ -58,7 +58,7 @@ SELECT t.PROCESSLIST_ID AS id,
        s.SQL_TEXT AS current_statement
 FROM performance_schema.threads t
 LEFT JOIN performance_schema.events_statements_current s
-  ON s.THREAD_ID = t.THREAD_ID
+  ON s.THREAD_ID = t.THREAD_ID AND s.NESTING_EVENT_LEVEL = 0
 WHERE t.PROCESSLIST_ID IS NOT NULL
 ORDER BY t.PROCESSLIST_TIME DESC
 """
@@ -122,19 +122,38 @@ WHERE TABLE_SCHEMA NOT IN ('information_schema', 'performance_schema', 'mysql', 
 ORDER BY (COALESCE(DATA_LENGTH, 0) + COALESCE(INDEX_LENGTH, 0)) DESC
 """
 
+# MySQL 8.0+: performance_schema.data_lock_waits (information_schema.INNODB_LOCK_WAITS was removed in 8.0).
 LOCK_WAITS_SQL = """
-SELECT r.TRX_ID AS waiting_trx_id,
-       r.TRX_MYSQL_THREAD_ID AS waiting_pid,
-       r.TRX_QUERY AS waiting_query,
-       b.TRX_ID AS blocking_trx_id,
-       b.TRX_MYSQL_THREAD_ID AS blocking_pid,
-       b.TRX_QUERY AS blocking_query
-FROM sys.innodb_lock_waits
+SELECT w.REQUESTING_ENGINE_TRANSACTION_ID AS waiting_trx_id,
+       rt.trx_mysql_thread_id AS waiting_pid,
+       rt.trx_query AS waiting_query,
+       w.BLOCKING_ENGINE_TRANSACTION_ID AS blocking_trx_id,
+       bt.trx_mysql_thread_id AS blocking_pid,
+       bt.trx_query AS blocking_query
+FROM performance_schema.data_lock_waits w
+JOIN information_schema.INNODB_TRX rt ON rt.trx_id = w.REQUESTING_ENGINE_TRANSACTION_ID
+JOIN information_schema.INNODB_TRX bt ON bt.trx_id = w.BLOCKING_ENGINE_TRANSACTION_ID
+ORDER BY rt.trx_wait_started
+"""
+
+# MariaDB has no performance_schema.data_lock_waits; it keeps information_schema.INNODB_LOCK_WAITS.
+LOCK_WAITS_MARIADB_SQL = """
+SELECT w.requesting_trx_id AS waiting_trx_id,
+       rt.trx_mysql_thread_id AS waiting_pid,
+       rt.trx_query AS waiting_query,
+       w.blocking_trx_id AS blocking_trx_id,
+       bt.trx_mysql_thread_id AS blocking_pid,
+       bt.trx_query AS blocking_query
+FROM information_schema.INNODB_LOCK_WAITS w
+JOIN information_schema.INNODB_TRX rt ON rt.trx_id = w.requesting_trx_id
+JOIN information_schema.INNODB_TRX bt ON bt.trx_id = w.blocking_trx_id
+ORDER BY rt.trx_wait_started
 """
 
 REPLICATION_PFS_SQL = """
 SELECT CHANNEL_NAME AS channel_name,
        SERVICE_STATE AS service_state,
+       SOURCE_UUID AS source_uuid,
        LAST_ERROR_NUMBER AS last_error_number,
        LAST_ERROR_MESSAGE AS last_error_message,
        LAST_ERROR_TIMESTAMP AS last_error_timestamp

@@ -67,17 +67,6 @@ class RowLimits:
             max_settings=settings.mysql_max_settings,
         )
 
-    def to_dto(self) -> dict[str, int]:
-        return {
-            "maxSessions": self.max_sessions,
-            "maxStatements": self.max_statements,
-            "maxIndexes": self.max_indexes,
-            "maxTables": self.max_tables,
-            "maxLockWaits": self.max_lock_waits,
-            "maxReplicationChannels": self.max_replication_channels,
-            "maxSettings": self.max_settings,
-        }
-
 
 def read_one_past[T](rows: Sequence[T], limit: int) -> tuple[list[T], bool]:
     if len(rows) > limit:
