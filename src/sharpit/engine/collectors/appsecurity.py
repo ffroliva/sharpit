@@ -148,13 +148,16 @@ def _accepts(route: SecuredRoute, method: str) -> bool:
 
 def _inside(route: SecuredRoute, captured: _Mounts, path: str) -> tuple[bool, bool, _Mounts]:
     """(reached, unreadable, captured): descend the route's mounts below ``captured`` the way Starlette does."""
-    for depth in range(len(captured), len(route.mounts)):
-        regex = route.mounts[depth][1]
+    remaining = path  # each mount's pattern sees only the path its parent mount left
+    for depth, (_, regex) in enumerate(route.mounts):
         if regex is None:  # a Host: the request's host is not part of the question
             return False, True, captured
-        if not re.match(regex, path):
+        match = re.match(regex, remaining)
+        if match is None:
             return False, False, captured
-        captured = route.mounts[: depth + 1]  # a mount takes every path under its prefix: no fall-through after it
+        remaining = "/" + (match.groupdict().get("path") or "")
+        if depth >= len(captured):
+            captured = route.mounts[: depth + 1]  # a mount takes every path under its prefix: no fall-through after it
     return True, False, captured
 
 
