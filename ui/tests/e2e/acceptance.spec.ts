@@ -1,6 +1,6 @@
 // Spec §10 acceptance checks 1-5, 7 and 9 against the real example app (6 and 8 have their own files).
 import { expect, test } from '@playwright/test';
-import { DATA_ROWS, dataRows, openPanel, PANELS, REASONS, settled, TOKEN } from './support';
+import { DATA_ROWS, dataRows, escapeRegex, openPanel, PANELS, REASONS, settled, TOKEN } from './support';
 
 const BULK = 'fastapi_sample.bulk.';
 
@@ -54,7 +54,7 @@ test('§10.2 Ctrl+K jumps to a panel, a logger and a config key; everything is r
   await page.keyboard.type(`${BULK}0007`);
   await expect(page.getByRole('dialog', { name: 'Go to' }).getByRole('option').first()).toHaveText(`${BULK}0007`);
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(new RegExp(`#/loggers\\?q=${BULK.replace(/\./g, '\\.')}0007$`));
+  await expect(page).toHaveURL(new RegExp(`#/loggers\\?q=${escapeRegex(BULK)}0007$`));
   await settled(page);
   await expect(dataRows(page)).toHaveCount(1);
   await expect(page.locator('.panel-filter')).toBeFocused();

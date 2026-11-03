@@ -45,12 +45,23 @@ jobs:
       - run: uv run pytest -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with: # per-file timings: pytest-speed's `rank` and the shard weights (tests/shard_weights.json) read these
           name: junit-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
           path: ${{ runner.temp }}/junit.xml
           retention-days: 7
+      - name: overhead budgets (also in the job summary, which needs a sign-in to read)
+        if: always()
+        shell: bash
+        env:
+          PYTHONUTF8: 1 # the units hold µ; Windows would print cp1252
+        run: |
+          uv run --no-sync python -c "import json,sys
+          for r in map(json.loads, open(sys.argv[1])):
+              s, u = r['scale'], r['unit']
+              print(f\"{r['verdict']:4} {r['name']}: overhead {r['overhead']/s:.3f} {u}, noise {r['noise']/s:.3f}, budget {r['budget']/s:.3f}\")" "$RUNNER_TEMP/overhead.jsonl" || true
 
   test:
     # The required checks keep their names: each passes only when every test shard passed (always(): a skipped
@@ -192,6 +203,17 @@ jobs:
       - run: uv run --no-sync pytest -q -n auto
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+      - name: overhead budgets (also in the job summary, which needs a sign-in to read)
+        if: always()
+        shell: bash
+        env:
+          PYTHONUTF8: 1 # the units hold µ; Windows would print cp1252
+        run: |
+          uv run --no-sync python -c "import json,sys
+          for r in map(json.loads, open(sys.argv[1])):
+              s, u = r['scale'], r['unit']
+              print(f\"{r['verdict']:4} {r['name']}: overhead {r['overhead']/s:.3f} {u}, noise {r['noise']/s:.3f}, budget {r['budget']/s:.3f}\")" "$RUNNER_TEMP/overhead.jsonl" || true
 
   lowest:
     # required check: passes only when every lowest shard passed (always(): a skipped required check counts as green)
