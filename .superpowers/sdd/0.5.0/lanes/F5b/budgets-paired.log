@@ -1,0 +1,15 @@
+== base run 1
+E       AssertionError: capture per request: overhead 0.247 ms, noise 0.014 ms; off min 0.097 median 0.126 max 0.280; on min 0.344 median 0.387 max 0.437; budget 0.200 ms. Never raise the budget to pass: docs/development/overhead-budgets.md
+E       AssertionError: SQL listener per statement: overhead 52.925 µs, noise 8.577 µs; off min 42.803 median 65.574 max 113.697; on min 95.728 median 145.077 max 219.703; budget 50.000 µs. The overshoot is within the noise: suspect a busy machine. Never raise the budget to pass: docs/development/overhead-budgets.md
+E       AssertionError: SQLAlchemy lazy relationship hooks: overhead 113.375 µs/lazy load, noise 78.390 µs/lazy load; off min 286.635 median 611.075 max 3375.990; on min 400.010 median 672.905 max 3606.235; budget 35.000 µs/lazy load. The overshoot is within the noise: suspect a busy machine. Never raise the budget to pass: docs/development/overhead-budgets.md
+3 failed in 39.47s
+== head run 1
+E       AssertionError: SQLAlchemy lazy relationship hooks: overhead 85.580 µs/lazy load, noise 54.475 µs/lazy load; off min 263.445 median 691.045 max 6814.205; on min 349.025 median 763.455 max 13124.145; budget 35.000 µs/lazy load. The overshoot is within the noise: suspect a busy machine. Never raise the budget to pass: docs/development/overhead-budgets.md
+1 failed, 2 passed in 50.74s
+== base run 2
+E       AssertionError: capture per request: overhead 0.268 ms, noise 0.024 ms; off min 0.093 median 0.139 max 0.177; on min 0.361 median 0.477 max 0.586; budget 0.200 ms. Never raise the budget to pass: docs/development/overhead-budgets.md
+E       AssertionError: SQLAlchemy lazy relationship hooks: overhead 75.510 µs/lazy load, noise 39.145 µs/lazy load; off min 298.670 median 643.895 max 5871.940; on min 374.180 median 720.090 max 5316.915; budget 35.000 µs/lazy load. Never raise the budget to pass: docs/development/overhead-budgets.md
+2 failed, 1 passed in 43.75s
+== head run 2
+E       AssertionError: SQLAlchemy lazy relationship hooks: overhead 42.530 µs/lazy load, noise 25.805 µs/lazy load; off min 255.005 median 598.505 max 3137.205; on min 297.535 median 653.910 max 3300.950; budget 35.000 µs/lazy load. The overshoot is within the noise: suspect a busy machine. Never raise the budget to pass: docs/development/overhead-budgets.md
+1 failed, 2 passed in 38.26s
