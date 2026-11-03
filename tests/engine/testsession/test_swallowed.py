@@ -393,3 +393,120 @@ def test_logger_receivers_still_count_as_logging() -> None:
     assert handler_swallows(source, _line_of(source, "except:")) is False, "getLogger(...) receiver"
     assert handler_swallows(source, _line_of(source, "except (Exception, KeyError):")) is False, "annotated logger"
     assert handler_swallows(source, _line_of(source, "except (KeyError, Exception):")) is False, "bound logger"
+
+
+# --- 0.5.0 T-swallowed-2 fix 1: a call handles the exception only when its target is a recognised sink --------------
+
+
+def _handler(body: str, prelude: str = "") -> tuple[str, int]:
+    source = _src(prelude) + _src(
+        f"""
+        class Service:
+            def run(self, errors, obj, name):
+                try:
+                    pass
+                except Exception as e:
+                    {body}
+                    return 200
+        """
+    )
+    return source, _line_of(source, "except Exception as e:")
+
+
+def test_appending_the_error_is_a_swallow() -> None:
+    assert handler_swallows(*_handler("errors.append(e)")) is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "str(e)",
+        "repr(e)",
+        "print(e)",
+        "isinstance(e, ValueError)",
+        'json.dumps({"err": str(e)})',
+        'setattr(obj, "err", e)',
+    ],
+)
+def test_builtin_use_of_the_error_is_a_swallow(body: str) -> None:
+    assert handler_swallows(*_handler(body, "import json\n")) is True
+
+
+def test_helper_that_logs_in_this_module_is_not_a_swallow() -> None:
+    prelude = """
+        import logging
+        log = logging.getLogger(__name__)
+
+        def _report(error):
+            log.warning("failed: %s", error)
+
+        """
+    assert handler_swallows(*_handler("_report(e)", prelude)) is False
+
+
+def test_method_that_logs_in_this_module_is_not_a_swallow() -> None:
+    source = _src(
+        """
+        class Service:
+            def run(self):
+                try:
+                    pass
+                except Exception as e:
+                    self._report(e)
+                    return 0
+
+            def _report(self, error):
+                self.logger.exception("failed")
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except Exception as e:")) is False
+
+
+def test_method_that_only_stores_is_a_swallow() -> None:
+    source = _src(
+        """
+        class Service:
+            def run(self):
+                try:
+                    pass
+                except Exception as e:
+                    self._report(e)
+                    return 0
+
+            def _report(self, error):
+                self.errors.append(error)
+        """
+    )
+    assert handler_swallows(source, _line_of(source, "except Exception as e:")) is True
+
+
+@pytest.mark.parametrize("body", ["sentry_sdk.capture_exception()", "rollbar.report_exc_info()", "capture_exception()"])
+def test_error_tracker_capture_is_not_a_swallow(body: str) -> None:
+    assert handler_swallows(*_handler(body)) is False
+
+
+def test_error_tracker_capture_of_the_error_is_not_a_swallow() -> None:
+    assert handler_swallows(*_handler("bugsnag.notify(e)")) is False
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'return JSONResponse({"detail": "failed"}, status_code=500)',
+        "return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)",
+    ],
+)
+def test_returning_an_http_error_response_is_not_a_swallow(body: str) -> None:
+    assert handler_swallows(*_handler(body)) is False
+
+
+def test_returning_a_success_response_is_a_swallow() -> None:
+    assert handler_swallows(*_handler('return JSONResponse({"ok": True}, status_code=200)')) is True
+
+
+def test_dynamic_target_is_not_reported() -> None:
+    assert handler_swallows(*_handler("getattr(self, name)(e)")) is False
+
+
+def test_imported_function_is_not_reported() -> None:
+    assert handler_swallows(*_handler("report(e)", "from app.errors import report\n")) is False
