@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+import ast
 import functools
 import inspect
+import linecache
 import operator
+import sys
 from types import CodeType
 from typing import Any, cast
 
@@ -17,6 +20,7 @@ from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqla import _lock
 from sharpit.engine.testsession.facts import PhaseFacts, UnboundedReadFact
+from sharpit.engine.testsession.gates import LAZY_LOAD_OUTSIDE_APP
 
 RELATIONSHIP_KEY = "sharpit_relationship"
 _EAGER_RELATIONSHIP_KEY = "sharpit_eager_relationship"
@@ -58,6 +62,33 @@ def _first_application_location() -> str | None:
         return None
     finally:
         del frame
+
+
+@functools.lru_cache(maxsize=256)
+def _declaration_line(cls: type, key: str) -> str | None:
+    """``path:line`` of ``key = relationship(...)`` in ``cls``'s body, when the class is application code."""
+    filename = getattr(sys.modules.get(cls.__module__), "__file__", None)
+    if not isinstance(filename, str) or not is_application_frame(filename):
+        return None
+    try:
+        tree = ast.parse("".join(linecache.getlines(filename)))
+    except (SyntaxError, ValueError):
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == cls.__name__:
+            for statement in node.body:
+                target = statement.target if isinstance(statement, ast.AnnAssign) else None
+                targets = statement.targets if isinstance(statement, ast.Assign) else [target]
+                if any(isinstance(t, ast.Name) and t.id == key for t in targets):
+                    return f"{filename}:{statement.lineno}"
+    return None
+
+
+def _declared_outside(prop: Any, identity: str) -> str | None:
+    """No application frame on the stack (the load ran in response serialization): name the relationship's own line."""
+    cls = getattr(getattr(prop, "parent", None), "class_", None)
+    line = _declaration_line(cls, prop.key) if isinstance(cls, type) else None
+    return None if line is None else f"{LAZY_LOAD_OUTSIDE_APP} ({identity} declared at {line})"
 
 
 @functools.lru_cache(maxsize=1)
@@ -115,7 +146,7 @@ def _relationship_observation(context: Any, tag: tuple[str, int, str]) -> Any:
         with _lock:
             sites = _relationship_sites.setdefault(tag, {})
             if identity not in sites:
-                sites[identity] = _first_application_location()
+                sites[identity] = _first_application_location() or _declared_outside(prop, identity)
     collection = direction in {"ONETOMANY", "MANYTOMANY"}
     return identity, collection
 
