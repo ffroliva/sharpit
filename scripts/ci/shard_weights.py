@@ -41,5 +41,6 @@ def weights(root: Path) -> dict[str, dict[str, float]]:
 
 
 if __name__ == "__main__":
-    OUT.write_text(json.dumps(weights(Path(sys.argv[1])), indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    text = json.dumps(weights(Path(sys.argv[1])), indent=1, sort_keys=True) + "\n"
+    OUT.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {OUT}")
