@@ -24,7 +24,7 @@ Pins and mutation proofs: `findings.md`.
 | Symbol | Where | Use |
 |---|---|---|
 | `SideEffectGuard.verify` | `tests/conftest.py` | now also fails on a change of `tracemalloc.is_tracing()`, `gc.callbacks`, `gc.isenabled()`, `gc.get_threshold()`, `sys.gettrace()`, `sys.getprofile()`, `sys.monitoring` tool ids 0-5 |
-| `SideEffectGuard.watch_sources(root)` / `unwatch_sources()` | `tests/conftest.py` | **opt-in**: a GET test names its app root; every `open`/`io.open`/`tokenize.open` of a file under it is reported, except from a frame in `sharpit.engine.collectors.config*` (`SOURCE_READ_EXEMPT`, spec §14). The `no_side_effects` fixture unwatches in teardown |
+| `SideEffectGuard.watch_sources(root)` / `unwatch_sources()` | `tests/conftest.py` | opt-in per test, **on in both shared sweeps** (root `examples/`): a test names its app root; every `open`/`io.open`/`tokenize.open` of a file under it is reported, except from a frame in `sharpit.engine.collectors.config*` (`SOURCE_READ_EXEMPT`, spec §14). The `no_side_effects` fixture unwatches in teardown |
 | `CLI_ACTIONS = ["<tool>", ...]` | a lane's `tests/safety/test_<lane>_safety.py` | `test_cli_action_tools_gated` checks each (403 when gated, never on MCP) while the lane's flag is on |
 | `INTERPRETER_STATE_CALLS`, `SESSION_MODULES` | `tests/engine/test_import_boundary.py` | rule 5: interpreter-state calls only in `sharpit/pytest_plugin/`, `sharpit/engine/testsession/` |
 | `registries(models)`, `mappers_configured(registry, mappers)` | `src/sharpit/engine/models.py` | the mapper walk and configured-gate (A-dbadv-2, V-unverified); never configures, no SQLAlchemy import |
@@ -33,9 +33,13 @@ Pins and mutation proofs: `findings.md`.
 
 ## Decisions (nobody to ask; recorded here)
 
-1. **Source-read spy is opt-in** (`watch_sources`). The guard cannot know an app root by itself, and a default root
-   (`examples/`) would flag the existing MCP sweep, whose seed runs a REST API scan that reads handler source
-   (`restapi/rules.py:783`) under the guard. Interpreter-state checks are always on.
+1. **Source-read spy: opt-in in the guard, on in the shared sweeps** (corrected in fix round 1). The guard cannot know
+   an app root by itself, so `watch_sources(root)` stays a call; the two shared sweeps (`test_every_get_no_side_effects`,
+   `test_every_mcp_tool_no_side_effects`) call `watch_sources(EXAMPLES)` right after the host request (`client.get("/owners")`, whose FastAPI routing reads the host endpoint's source itself) and before the seed and the swept call, so every lane's
+   `GET_ROWS` and MCP read tools inherit it. The earlier reason for leaving the sweeps unwatched ("the MCP seed runs a
+   REST API scan that reads handler source, `restapi/rules.py:783`") was wrong: `swallowed_handler_violations` is
+   called only by its unit test, never by the scan; the scan reads route metadata only. Interpreter-state checks are
+   always on.
 2. **`tests/test_settings.py` edited** (not in May-touch): `test_env_name_table_covers_every_field` requires a
    PROPERTIES row per settings field, so the 14 new fields got rows (additive). Not a protected file.
 3. **Mapper-walk tests not moved**: `tests/engine/test_data.py` is unchanged; its `data.registries` calls now reach
@@ -65,6 +69,29 @@ coordinator (not run here). Budgets untouched.
 | `tests/engine/test_models.py::test_mapper_walk_in_engine_never_configures` | yes | yes |
 | `tests/test_surface_05.py::test_unimplemented_panel_has_no_surface_05` | yes | yes (8 cases; pin) |
 | `tests/test_settings_05.py::test_05_settings_defaults_and_env` | yes | yes (14 cases) |
+
+## Fix round 1 (review VERDICT: CHANGES)
+
+| Review item | What changed | Test (red / pin) |
+|---|---|---|
+| #1 major, sweeps unwatched | `watch_sources(EXAMPLES)` in both sweeps (`tests/test_safety_matrix.py`) | red `c5618d9`: `test_get_sweep_reports_an_app_source_read`, `test_mcp_sweep_reports_an_app_source_read` (a planted read in `GET /mcp-server` and in `get_loggers`; in `tests/test_side_effect_guard.py`, which calls the sweeps through the module so the red does not freeze the sweep names); mutation M12 |
+| found while wiring #1 | `watch_sources` drops `linecache` entries under the root, so a source read served by a cache FastAPI warmed is still seen | red `a40b319`: `test_side_effect_guard_sees_a_read_through_a_warm_linecache` |
+| #2 major, CLI wiring unproven | new pin `test_cli_action_tools_gated_is_parametrised_from_the_lanes`: re-runs the module with a planted lane and reads `test_cli_action_tools_gated`'s parametrisation | pin, mutation M11 (`findings.md`). `CLI_ACTIONS == cli_action_cases(LANES)` alone would not bite while no lane declares `CLI_ACTIONS` |
+| #4 minor, decision 1 wrong | decision 1 rewritten above | N/A |
+| #6 minor, per-thread trace hooks | limit named in `_interpreter_state`'s docstring (`tests/conftest.py`) | N/A |
+
+**OPEN (blocks a green suite):** with the purge the sweeps report a real read: `GET /beans` and `get_beans` (4 cases)
+read app source through `introspector._resource` (`inspect.getsourcelines`). Needs a coordinator ruling: fix
+`introspector.py` (not May-touch) or a spec exemption. Details in `findings.md` (OPEN).
+
+Not done, with reason:
+- #3 (`tests/test_settings.py` outside May-touch): coordinator plan amendment; the edit is add-only and required.
+- #5 / ponytail "should fix" (exemption walks the whole stack): stopping at the first `sharpit.` frame would break
+  F5a-source, whose config scan moves into `engine/appsource.py` (called from config, so the first sharpit frame is
+  `appsource`, not config). Revisit after F5a-source lands, with its own red.
+- #7 (M10 failure line not inspected): M9 is the recorded pin mutation for that test; re-planting tools in
+  `tools04/mysql.py` for M10 was not repeated.
+- #8 (same-family reviewer): coordinator.
 
 ## How to resume
 

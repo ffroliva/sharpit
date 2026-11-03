@@ -6,6 +6,7 @@ import builtins
 import gc
 import io
 import json
+import linecache
 import logging
 import os
 import socket
@@ -125,7 +126,11 @@ def _levels() -> dict[str, int]:
 
 
 def _interpreter_state() -> dict[str, object]:
-    """What a read must not change (0.5.0 spec §4.4): tracing, gc hooks and tuning, trace/profile hooks, tool ids."""
+    """What a read must not change (0.5.0 spec §4.4): tracing, gc hooks and tuning, trace/profile hooks, tool ids.
+
+    Limit: ``sys.gettrace()``/``sys.getprofile()`` are per thread, so a hook set in a threadpool worker is not seen
+    here; the static call-site rule (``test_interpreter_state_call_sites_only_in_session_modules``) covers ``src/``.
+    """
     return {
         "tracemalloc tracing": tracemalloc.is_tracing(),
         "gc.callbacks": tuple(gc.callbacks),
@@ -206,6 +211,8 @@ class SideEffectGuard:
     def watch_sources(self, root: Path) -> None:
         """Report every file opened under ``root`` (the app's source tree) until ``unwatch_sources``."""
         self._source_roots.append(os.path.realpath(root))
+        for name in [n for n in linecache.cache if _under(os.path.realpath(n), self._source_roots)]:
+            del linecache.cache[name]  # a warm cache (FastAPI reads a host endpoint's source) would hide a later read
         if self._spies:
             return
         for owner, attr in _OPENERS:
