@@ -396,3 +396,15 @@ class _PosingAsFastAPI:
 def test_object_posing_as_fastapi_is_not_present():
     # council R-fastapi-security #5: isinstance() read a user ``__class__``
     assert FastApiIntrospector(_PosingAsFastAPI()).security_model().present is False
+
+
+def test_route_two_mounts_deep_is_explained():
+    # found in fix round 1: each mount's pattern is matched against the path its parent left, as Starlette does
+    inner = FastAPI()
+    inner.get("/c")(lambda: "c")
+    middle = FastAPI()
+    middle.mount("/b", inner)
+    app = FastAPI()
+    app.mount("/a", middle)
+    result = explain(FastApiIntrospector(app, "/sharpit").security_model(), "GET", "/a/b/c", "/sharpit")
+    assert result["pattern"] == "/a/b/c"
