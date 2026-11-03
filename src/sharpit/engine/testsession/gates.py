@@ -19,6 +19,22 @@ N_PLUS_ONE = "sharpit.n-plus-one"
 EXCEPTION = "sharpit.exception"
 SWALLOWED = "sharpit.swallowed-exception"
 UNBOUNDED_READ = "sharpit.unbounded-read"
+# PEP 249 error classes (sqlite3, the DB-API drivers and SQLAlchemy keep these names): a failed query swallowed into a
+# default value hides a broken schema or statement (bench D13). shortcut: matched by class name only, so a driver
+# subclass with its own name (psycopg's UndefinedTable, unwrapped) stays a note; upgrade: record the MRO in the fact.
+DATABASE_ERRORS = frozenset(
+    {
+        "DatabaseError",
+        "DBAPIError",
+        "OperationalError",
+        "ProgrammingError",
+        "IntegrityError",
+        "DataError",
+        "InternalError",
+        "InterfaceError",
+        "NotSupportedError",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -55,10 +71,12 @@ def _swallowed_findings(
     dismissed: Collection[str],
     dismissed_pairs: Collection[tuple[str, str]],
 ) -> list[Finding]:
-    """A programming error swallowed by a broad handler fails the test unless relaxed; any other swallow is a note."""
+    """A programming or database error swallowed by a broad handler fails the test unless relaxed; any other swallow is
+    a note."""
     found: list[Finding] = []
     for fact in call.swallowed:
-        severity: Severity = "HIGH" if fact.programming_error and not budget.allow_swallowed else "INFO"
+        gating = fact.programming_error or fact.type_name in DATABASE_ERRORS
+        severity: Severity = "HIGH" if gating and not budget.allow_swallowed else "INFO"
         message = (
             f"{fact.type_name} swallowed by a broad except clause at {fact.location} (neither re-raised nor logged)"
         )
