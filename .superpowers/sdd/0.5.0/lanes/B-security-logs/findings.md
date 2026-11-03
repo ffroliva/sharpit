@@ -44,6 +44,8 @@ Every red below was checked with `scripts/dev/red_check.py` before its `test:` c
 | tests/fastapi/test_security_logs_api.py::test_stream_guarded | b76a93228dd86ff55fd534d5eb693ffe8b1f70fc | a local caller gets the stream | Fixed in 191bbaad306ff671f833354689328e561f728b93 |
 | tests/fastapi/test_security_logs_api.py::test_mcp_tools_list_has_only_get | b76a93228dd86ff55fd534d5eb693ffe8b1f70fc | one read tool | Fixed in 191bbaad306ff671f833354689328e561f728b93 |
 | tests/safety/test_b_security_logs_safety.py::test_security_logs_get_no_side_effects | b76a93228dd86ff55fd534d5eb693ffe8b1f70fc | the security-logs GET route serves the buffered report | Fixed in 191bbaad306ff671f833354689328e561f728b93 |
+| tests/engine/capture/test_securitylogs.py::test_stored_event_strings_are_bounded | 37a005dcc939f2bd1ed3a7c4332c5507faa09191 | the stored principal is cut to 256 characters (council-claude medium: 1049 MiB in 500 events) | Fixed in 31e1500760ec4ab64ead0f4f49ba094befefe971 |
+| tests/engine/capture/test_securitylogs.py::test_long_values_are_masked_before_they_are_cut | 37a005dcc939f2bd1ed3a7c4332c5507faa09191 | a token straddling the cut is masked, never stored half (the same fix must not leak) | Fixed in 31e1500760ec4ab64ead0f4f49ba094befefe971 |
 
 ## UI reds
 

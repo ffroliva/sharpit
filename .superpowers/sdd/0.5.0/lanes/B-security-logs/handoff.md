@@ -65,6 +65,18 @@ n+1 lazy-load 36.9 vs 35 µs, noise 32; transactions) and `test_overhead_measure
 (transactions lane; passes alone, 2/2). The budget file alone: see findings §Overhead (4/5 ok, one OVER inside noise;
 the exact pin 5/5).
 
+## Fix round 1 (council-claude medium)
+
+The buffer was bounded by count only: every string was stored at full length. Now `SecurityEventBuffer.add` cuts the
+principal, type and key names to 256 characters and values to 256 + `"..."`, and stores at most 20 data entries
+(only those 20 values are stringified). A name or value longer than the limit is masked first with a strict policy
+(MASKED + mask-secrets + the sharpit token) on its full text, so a token straddling the cut, or a sensitive word past
+character 256 of a key name, is never stored half; the row stays reported `masked`. Short strings keep read-time
+masking with the live policy. Trade-off: under FULL exposure a value longer than 256 characters shows its strictly
+masked text. Red 37a005d (`test_stored_event_strings_are_bounded`, `test_long_values_are_masked_before_they_are_cut`), fix
+31e1500. Only `securitylogs.py` changed, so no full suite (lane tests 43 passed, code shape + boundary + exact pin
+passed, ruff/format/pyright clean).
+
 ## Coordinator rulings
 
 Q1 done on release (c63623b, merged in 1c4d1e2). Q2/Q3 approved and applied in cc700e5. Q4: perf audit; budget kept
