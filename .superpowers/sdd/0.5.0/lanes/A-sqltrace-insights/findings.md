@@ -34,7 +34,7 @@ fully keyed, empty, *available* report; Task 2's reds hit the absent route (404)
 
 ## UI reds (vitest)
 
-| Test | Commit | Assertion message | Disposition |
+| Test | Red SHA | Assertion message | Disposition |
 |---|---|---|---|
 | ui/tests/component/sqlTraceInsights.test.ts > Insights: notes and the window are shown | 4510cfa28bce06e45c0dd627bf47b2a2aba30338 | `expected undefined to be truthy` (no Insights tab) | Fixed in 6885ce7713edf6e428718ba4afac145b93d98d67 |
 | ui/tests/component/sqlTraceInsights.test.ts > Insights: the criterion switcher re-ranks the statements | 4510cfa28bce06e45c0dd627bf47b2a2aba30338 | `expected undefined to be truthy` | Fixed in 6885ce7713edf6e428718ba4afac145b93d98d67 |
