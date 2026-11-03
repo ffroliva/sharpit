@@ -38,6 +38,7 @@ APPROXIMATE = (
     "Some statements finished after the response was sent (for example in BackgroundTasks); they are listed here "
     "because they ran under this request's id."
 )
+BUFFER_SOURCE_FILTERS = ""
 MAX_SQL_SUMMARY = 160
 MAX_CALL_SITES = 5
 
@@ -136,7 +137,14 @@ def _entry(**fields: Any) -> dict[str, Any]:
 
 
 def activity_report(
-    ctx: SharpitContext, type: str | None, severity: str | None, since: int | None, limit: int | None, q: str | None
+    ctx: SharpitContext,
+    type: str | None,
+    severity: str | None,
+    since: int | None,
+    limit: int | None,
+    q: str | None,
+    *,
+    journal_filters: bool = False,
 ) -> dict[str, Any]:
     """``LiveActivityReport``, newest first; ``typeCounts`` and KPIs count every entry, before the filters."""
     settings = ctx.settings

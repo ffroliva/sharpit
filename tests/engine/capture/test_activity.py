@@ -400,3 +400,35 @@ def test_fan_in_forwards_source_ticks():
     target.signal = lambda: seen.append(1)  # type: ignore[method-assign]
     source.signal()  # nobody subscribes to the source: the tick still reaches the fan-in
     assert seen == [1]
+
+
+def test_request_profile_emits_2_2_0_keys_and_get_request_profile_tool():
+    # ported: LiveActivityServiceTests.requestProfileIncludes220Collections (BootUI 2.2.0 RequestProfileDto)
+    from sharpit.engine.tools import TOOLS
+
+    ctx = _ctx()
+    _request(ctx, "r1")
+    profile = request_profile(ctx, "r1")
+    added = {k: profile.get(k, "missing") for k in ("restCalls", "cacheAccesses", "sections", "correlationTiers")}
+    assert added == dict.fromkeys(added, []), "the 2.2.0 collections are empty lists"
+    assert profile.get("approximate") is False
+    assert request_profile(ctx, "gone").get("approximate") is False, "the unavailable profile has every key"
+    tools = {t.name: t for t in TOOLS}
+    assert "get_request_profile" in tools, "the 2.2.0 request profile tool"
+    tool = tools["get_request_profile"]
+    assert (tool.panel, tool.action, tool.input_schema["required"]) == ("activity", False, ["id"])
+
+
+def test_activity_buffer_source_emits_warning_on_journal_only_filters():
+    # ported: LiveActivityControllerTests.warnsWhenJournalFiltersUsedAgainstBuffers
+    from sharpit.engine.capture.activity import BUFFER_SOURCE_FILTERS
+
+    ctx = _ctx()
+    _request(ctx, "r1")
+    warned = _report(ctx, journal_filters=True)["warnings"]
+    assert BUFFER_SOURCE_FILTERS in warned, "journal-only filters on the buffer feed say they do not apply"
+    assert BUFFER_SOURCE_FILTERS not in _report(ctx)["warnings"]
+    assert BUFFER_SOURCE_FILTERS == (
+        "The route, run, request id, and no-request filters apply to the feed rendered from the runtime journal "
+        "(source=journal); this feed comes from the panel buffers."
+    )
