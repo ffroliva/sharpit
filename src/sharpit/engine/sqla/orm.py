@@ -1,6 +1,6 @@
 """ORM evidence for the test session: relationship loads (N+1), eager batches and unbounded reads."""
 
-# pyright: reportPrivateUsage=false, reportUnusedFunction=false
+# pyright: reportPrivateUsage=false
 # the package was one module until 0.5.0; its submodules share private state
 
 from __future__ import annotations
@@ -162,7 +162,7 @@ def _lazy_key(context: Any, statement: str) -> tuple[Any, Any, str] | None:
     return compiled, getattr(parent, "class_", None), statement
 
 
-def _record_relationship(context: Any) -> None:
+def _record_relationship(context: Any) -> None:  # pyright: ignore[reportUnusedFunction] - listeners calls it
     """Record relationship loads using SQLAlchemy's compiled execution context, without an ORM hook."""
     tag = TEST.get()
     if tag is None or tag[2] != "call":
@@ -304,7 +304,7 @@ def _record_unbounded_read_load(target: Any, context: Any, info: Any, tag: tuple
         _unbounded_read_facts.setdefault(tag, {})[row_key] = fact
 
 
-def _mapper_load(target: Any, context: Any) -> None:
+def _mapper_load(target: Any, context: Any) -> None:  # pyright: ignore[reportUnusedFunction] - listeners calls it
     global _unbounded_read_capture_missing  # noqa: PLW0603
     try:
         info = REQUEST.get()

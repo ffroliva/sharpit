@@ -96,6 +96,12 @@ def _version(text: str) -> tuple[int, ...]:
     return tuple(int(part) for part in match.group().split(".")) if match else (0,)
 
 
+def _is_mariadb(conn: Any, version: str = "") -> bool:
+    """MariaDB, also behind a ``mysql://`` URL: the dialect's own flag, or ``-MariaDB`` in ``@@version`` when read."""
+    dialect = conn.dialect
+    return dialect.name == "mariadb" or getattr(dialect, "is_mariadb", False) is True or "mariadb" in version.lower()
+
+
 def _number(value: Any) -> int | float:
     """A session value as a number, so it can only ever be written back as one (``float`` raises otherwise)."""
     number = float(value)
@@ -112,7 +118,7 @@ def _mysql_read_only[T](conn: Any, fn: Callable[[Any], T], statement_timeout: fl
     if str(options.get("isolation_level", "")).upper() == "AUTOCOMMIT":
         raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
     version = str(conn.exec_driver_sql("SELECT @@version").scalar())
-    mariadb = "mariadb" in version.lower() or conn.dialect.name == "mariadb"
+    mariadb = _is_mariadb(conn, version)
     modern = _version(version) >= ((11, 1) if mariadb else (5, 7, 20))
     read_only = "transaction_read_only" if modern else "tx_read_only"
     if mariadb:
@@ -146,7 +152,7 @@ def bounded[T](conn: Any, fn: Callable[[Any], T], timeout: float) -> T:
     if name == "postgresql":
         conn.exec_driver_sql(f"SET LOCAL statement_timeout = {max(1, int(timeout * 1000))}")
     elif name in ("mysql", "mariadb"):
-        if name == "mariadb" or getattr(conn.dialect, "is_mariadb", False):
+        if _is_mariadb(conn):
             variable, convert, value = "max_statement_time", float, round(max(timeout, 0.001), 3)
         else:
             variable, convert, value = "max_execution_time", int, max(1, int(timeout * 1000))
