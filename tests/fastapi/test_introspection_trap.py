@@ -8,17 +8,24 @@ Later lanes add a surface by adding ``tests/fastapi/trap_surfaces_<lane>.py`` wi
 
 from __future__ import annotations
 
+import builtins
 import importlib.util
+import io
+import linecache
+import os
+import tokenize
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from starlette.routing import BaseRoute, Match, Mount, Route
 
 from conftest import get_paths
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from sharpit import install
 from sharpit.engine.tools import TOOLS
+from sharpit.fastapi.introspector import FastApiIntrospector
 
 LOCAL = ("127.0.0.1", 50000)
 TOUCHED: list[str] = []
@@ -116,3 +123,36 @@ def test_trap_route_untouched_by_every_introspecting_surface():
         for tool in CLI_TOOLS:
             client.post(f"/sharpit/api/cli/tools/{tool}", json={})
     assert TOUCHED == []
+
+
+class _Provider:
+    """A class bean (its line is the class's, without reading the file)."""
+
+    def __call__(self) -> str:
+        raise AssertionError("a dependency was called")
+
+
+def _function_provider() -> str:
+    raise AssertionError("a dependency was called")
+
+
+def test_beans_resource_never_opens_the_source_file(monkeypatch: pytest.MonkeyPatch):
+    # spec §4.4 / §14 beans row (R-fastapi-security Task 3): ``resource`` comes from compiled metadata
+    app = FastAPI()
+    app.get("/a", dependencies=[Depends(_function_provider), Depends(_Provider())])(lambda: "a")
+    here = os.path.realpath(__file__)
+    opened: list[str] = []
+    for owner, attr in ((builtins, "open"), (io, "open"), (tokenize, "_builtin_open")):
+        original = getattr(owner, attr)
+
+        def spy(file: Any, *args: Any, _original: Any = original, _name: str = attr, **kwargs: Any) -> Any:
+            if isinstance(file, str) and os.path.realpath(file) == here:
+                opened.append(_name)
+            return _original(file, *args, **kwargs)
+
+        monkeypatch.setattr(owner, attr, spy)
+    linecache.checkcache()
+    monkeypatch.setattr(linecache, "cache", {})  # a warm cache would hide a read
+    beans = {p.name: p.resource for p in FastApiIntrospector(app, "/sharpit").providers()}
+    assert opened == []
+    assert beans[f"{__name__}:_function_provider"] == f"{__file__}:{_function_provider.__code__.co_firstlineno}"

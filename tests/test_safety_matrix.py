@@ -639,8 +639,8 @@ def test_get_route_table_is_complete():
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"  # the sample app's source root
-# spec §14: temporary, introspector._resource reads the provider's source; R-fastapi-security Task 3 removes it
-SWEEP_SOURCE_READ_EXEMPT = frozenset({("GET", "/beans"), ("mcp", "get_beans")})
+# spec §14: emptied by R-fastapi-security Task 3 (beans resource lines come from code objects, no source read)
+SWEEP_SOURCE_READ_EXEMPT: frozenset[tuple[str, str]] = frozenset()
 ALEMBIC_INI = Path(__file__).resolve().parent / "fixtures" / "alembic" / "linear" / "alembic.ini"
 # spec §7.6 / §7.8: with a registered engine, a health check and an Alembic config, a GET or an MCP tool still opens
 # no database connection and runs no check (the plain app has none of them, so it cannot catch that)
@@ -760,5 +760,5 @@ def test_cli_action_tools_gated_is_parametrised_from_the_lanes(tmp_path: Path, m
 
 
 def test_sweep_source_read_exemptions_only_shrink() -> None:
-    # spec §14: the two declared surfaces and nothing else; R-fastapi-security Task 3 empties it
-    assert {("GET", "/beans"), ("mcp", "get_beans")} == SWEEP_SOURCE_READ_EXEMPT
+    # spec §14: R-fastapi-security Task 3 emptied it; a new entry is a spec §14 deviation first
+    assert frozenset() == SWEEP_SOURCE_READ_EXEMPT
