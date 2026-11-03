@@ -144,3 +144,7 @@ def assert_parity(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> Non
         warnings.warn(message, UnverifiedParityWarning, stacklevel=2)
     if not captured:
         warnings.warn(f"{sharpit_id}/{name}: provisional fixture, unverified", UnverifiedParityWarning, stacklevel=2)
+
+
+def assert_enum_values(sharpit_id: str, name: str, payload: Mapping[str, Any]) -> None:
+    """Every value at a path ``<sharpit_id>/enums.json`` lists is one of its allowed values (skeleton)."""
