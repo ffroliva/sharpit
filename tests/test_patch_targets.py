@@ -206,9 +206,8 @@ def misses(patch: Patch) -> list[str]:
     ]
 
 
-@pytest.mark.timeout(
-    300
-)  # imports every module to resolve patch targets: 50-59 s alone, so 60 s killed its worker under load
+# imports every module to resolve patch targets: 50-59 s alone, so 60 s killed its worker under load
+@pytest.mark.timeout(300)
 def test_patch_targets_are_defined_where_called() -> None:
     patches = sqla_patches()
     problems = [problem for patch in patches for problem in misses(patch)]
