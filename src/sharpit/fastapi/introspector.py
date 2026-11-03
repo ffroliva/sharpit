@@ -656,14 +656,17 @@ class FastApiIntrospector:
         depth: int,
         inherited: tuple[str, ...] = (),
         mount_id: int | None = None,
+        parent_chain: int = 0,
     ) -> None:
         middleware, found = _middleware(app)
         stack = (*inherited, *middleware)
+        own_chain = parent_chain  # a mount that adds no middleware stays on its parent's chain, never a sibling's
         if prefix is None or stack:
             chains.append(SecurityChain(prefix, stack))
             backends.extend(found)
+            own_chain = len(chains) - 1
         if mount_id is not None:
-            self._chain_by_mount[mount_id] = len(chains) - 1 if chains else 0
+            self._chain_by_mount[mount_id] = own_chain
         routes: list[object] = list(_route_list(app)) if issubclass(type(app), Starlette) else []
         for route in routes:
             route_mro = type(route).__mro__
@@ -691,6 +694,7 @@ class FastApiIntrospector:
                     depth + 1,
                     (*stack, *mount_names),
                     id(route),
+                    own_chain,
                 )
 
     @staticmethod
