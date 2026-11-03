@@ -1,4 +1,4 @@
-"""Fix round 1 (council-claude, council-gemini, review-gemini-r1): cases where the advisor called an insecure app fine."""
+"""Fix round 1 (council and review findings): cases where the advisor called an insecure app fine."""
 
 from __future__ import annotations
 

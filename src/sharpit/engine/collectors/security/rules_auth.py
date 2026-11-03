@@ -64,7 +64,7 @@ def _unsecured_writes(inputs: Inputs) -> list[Violation]:
     return [
         Violation(route_label(r), f"{route_label(r)} changes state with no security dependency.")
         for r in routes
-        if _unsafe(r) and not r.schemes and not _secured(r) and not r.unchecked_dependency
+        if _unsafe(r) and not r.schemes and not _secured(r)  # an ordinary Depends (db session) guards nothing
     ]
 
 

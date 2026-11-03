@@ -69,13 +69,18 @@ def _default_scheme(node: ast.Call) -> str | None:
     return schemes[0] if schemes else None
 
 
+def _first_int(*nodes: ast.expr | None) -> int | None:
+    """The first integer literal; ``0`` counts (an ``or`` chain would skip it)."""
+    return next((value for value in map(_int, nodes) if value is not None), None)
+
+
 def _cheap_bcrypt(inputs: Inputs) -> list[Violation]:
     found: list[Violation] = []
     for at, node in _calls(inputs):
         if _called(node, "CryptContext"):
-            rounds = _int(_keyword(node, "bcrypt__rounds")) or _int(_keyword(node, "bcrypt__default_rounds"))
+            rounds = _first_int(_keyword(node, "bcrypt__rounds"), _keyword(node, "bcrypt__default_rounds"))
         elif _called(node, "gensalt"):
-            rounds = _int(_keyword(node, "rounds")) or (_int(node.args[0]) if node.args else None)
+            rounds = _first_int(_keyword(node, "rounds"), node.args[0] if node.args else None)
         else:
             continue
         if rounds is not None and rounds < _MIN_BCRYPT_ROUNDS:
@@ -89,19 +94,43 @@ def _target_names(node: ast.AST) -> list[str]:
     return [n for n in names if n]
 
 
+def _field_default(value: ast.expr | None) -> ast.expr | None:
+    """``Field(default=...)`` / ``Field(...)``'s default; any other value as is."""
+    if isinstance(value, ast.Call) and _called(value, "Field"):
+        return _keyword(value, "default") or (value.args[0] if value.args else None)
+    return value
+
+
+def _named_values(node: ast.AST) -> Iterator[tuple[str, ast.expr | None]]:
+    """(name, value) bindings: assignments, keyword arguments, string dict keys and parameter defaults."""
+    if isinstance(node, ast.Assign | ast.AnnAssign):
+        yield from ((name, _field_default(node.value)) for name in _target_names(node))
+    elif isinstance(node, ast.keyword) and node.arg is not None:
+        yield node.arg, node.value
+    elif isinstance(node, ast.Dict):
+        yield from (
+            (key.value, value)
+            for key, value in zip(node.keys, node.values, strict=True)
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        )
+    elif isinstance(node, ast.arguments):
+        positional = [*node.posonlyargs, *node.args]
+        yield from zip((a.arg for a in positional[len(positional) - len(node.defaults) :]), node.defaults, strict=True)
+        yield from zip((a.arg for a in node.kwonlyargs), node.kw_defaults, strict=True)
+
+
 def _literal_secrets(inputs: Inputs) -> list[Violation]:
     found: dict[str, Violation] = {}  # one finding per location
     for module in source_modules(inputs):
         where = source_file(module)
         for node in ast.walk(module.tree):
-            value = getattr(node, "value", None)
-            if isinstance(node, ast.Assign | ast.AnnAssign) and isinstance(value, ast.Constant):
-                literal = value.value
-                for name in _target_names(node):
-                    if isinstance(literal, str) and len(literal) >= _MIN_NAMED_SECRET and is_sensitive_key(name):
-                        at = f"{where}:{value.lineno}"
-                        found.setdefault(at, Violation(at, f"{at} assigns a literal to the secret-like name {name}."))
-            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and is_secret_value(node.value):
+            for name, value in _named_values(node):
+                if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+                    continue
+                if len(value.value) >= _MIN_NAMED_SECRET and is_sensitive_key(name):
+                    at = f"{where}:{value.lineno}"
+                    found.setdefault(at, Violation(at, f"{at} assigns a literal to the secret-like name {name}."))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and is_secret_value(node.value):
                 at = f"{where}:{node.lineno}"
                 found.setdefault(at, Violation(at, f"{at} holds a literal the secret detectors flag."))
     return sorted(found.values(), key=lambda v: (v.target.rpartition(":")[0], int(v.target.rpartition(":")[2])))

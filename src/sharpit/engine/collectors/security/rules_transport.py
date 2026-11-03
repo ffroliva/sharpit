@@ -17,11 +17,18 @@ def _of(inputs: Inputs, kind: str) -> list[MiddlewareFacts]:
     return [m for m in inputs.facts.middleware if simple(m.name) == kind]
 
 
+def _at(m: MiddlewareFacts, kind: str, message: str) -> Violation:
+    """The violation for one middleware; a mounted app's names its mount in the target and the message."""
+    if m.mount is None:
+        return Violation(kind, message)
+    return Violation(f"{kind} at {m.mount}", message.replace(kind, f"{kind} on the app mounted at {m.mount}", 1))
+
+
 def _flagged(kind: str, test: Callable[[tuple[str, ...]], bool], message: str) -> Callable[[Inputs], list[Violation]]:
     """One violation per ``kind`` middleware whose option facts pass ``test``; the message names facts, not values."""
 
     def check(inputs: Inputs) -> list[Violation]:
-        return [Violation(kind, message) for m in _of(inputs, kind) if test(m.flags)]
+        return [_at(m, kind, message) for m in _of(inputs, kind) if test(m.flags)]
 
     return check
 
@@ -58,7 +65,7 @@ def _cors_broad(inputs: Inputs) -> list[Violation]:
     for m in _of(inputs, "CORSMiddleware"):
         if "broad_origin_regex" in m.flags:
             extra = " with allow_credentials=True" if "credentials" in m.flags else ""
-            found.append(Violation("CORSMiddleware", f"CORSMiddleware allow_origin_regex matches any host{extra}."))
+            found.append(_at(m, "CORSMiddleware", f"CORSMiddleware allow_origin_regex matches any host{extra}."))
     return found
 
 
@@ -77,10 +84,10 @@ def _insecure_urls(fields: tuple[str, ...], kind: str | None) -> Callable[[Input
 
 def _host_header(inputs: Inputs) -> list[Violation]:
     trusted = _of(inputs, "TrustedHostMiddleware")
-    if not trusted:
+    if not any(m.mount is None for m in trusted):  # a mounted app's TrustedHostMiddleware does not cover the root
         return [Violation("ASGI middleware stack", "No TrustedHostMiddleware: any Host header is accepted.")]
     message = 'TrustedHostMiddleware allows any host (allowed_hosts includes "*").'
-    return [Violation("TrustedHostMiddleware", message) for m in trusted if "any_host" in m.flags]
+    return [_at(m, "TrustedHostMiddleware", message) for m in trusted if "any_host" in m.flags]
 
 
 _proxy_any = _flagged(

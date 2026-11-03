@@ -117,6 +117,7 @@ class MiddlewareFacts:
 
     name: str  # ``module.qualname`` of the middleware class
     flags: tuple[str, ...]  # sorted, e.g. ``any_origin``, ``credentials``, ``https_only``, ``short_secret``
+    mount: str | None = None  # the mount path of the sub-app whose own stack holds it; None: the root app
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,6 @@ class SecurityFacts:
 
     debug: bool  # ``FastAPI(debug=True)``: tracebacks reach the client
     openapi_url: str | None
-    middleware: tuple[MiddlewareFacts, ...]  # the app's own ``user_middleware``, outermost first
+    middleware: tuple[MiddlewareFacts, ...]  # the app's own ``user_middleware``, outermost first, then mounted apps'
     scheme_urls: tuple[SchemeUrl, ...]
     limitations: tuple[str, ...] = ()

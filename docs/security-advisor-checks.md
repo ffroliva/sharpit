@@ -4,8 +4,9 @@ The `security` panel (BootUI's Security advisor, `DOCS/SECURITY-CHECKS.md`) runs
 FastAPI application on an explicit scan (`POST /sharpit/api/security/scan`, CLI `sharpit security scan`). It reads:
 
 - the security model the `fastapi-security` panel shows: middleware stacks, each route's `fastapi.security` schemes;
-- the root application's middleware options and settings as facts ("allows any origin", "credentials on", "secret
-  shorter than 32 characters"), never as values;
+- the middleware options of the root application and of every mounted Starlette/FastAPI sub-app as facts ("allows
+  any origin", "credentials on", "secret shorter than 32 characters"), never as values; a middleware instance wrapping a
+  mount is reported as a limitation (its options are not read);
 - the application's own package source through `engine/appsource.py` (never imported, bounded, read once per scan).
 
 Nothing in the application is called: no dependency, endpoint, middleware or property runs. `GET /sharpit/api/security`
@@ -30,7 +31,7 @@ Titles of P rows are BootUI's, verbatim.
 | SEC-AUTH-008 | hideUserNotFoundExceptions should stay enabled | Authentication | MEDIUM | D | [JVM] a `DaoAuthenticationProvider` flag |
 | SEC-AUTH-009 | Do not run production on Spring Boot's auto-generated default user | Authentication | HIGH | D | [JVM] Spring Boot's generated user |
 | SEC-AUTH-010 | Form login should run only over HTTPS | Authentication | HIGH | P | a route requires `OAuth2PasswordBearer` (password form login) and its stack has no `HTTPSRedirectMiddleware` |
-| SEC-AUTHZ-001 | Every filter chain should enforce authorization | Authorization | INFO | P | an unsafe-method route (POST, PUT, PATCH, DELETE) with no security dependency in an app whose other routes are secured |
+| SEC-AUTHZ-001 | Every filter chain should enforce authorization | Authorization | INFO | P | an unsafe-method route (POST, PUT, PATCH, DELETE) with no security dependency in an app whose other routes are secured (an ordinary parameter dependency, such as a database session, does not count as one) |
 | SEC-AUTHZ-002 | Avoid blanket permitAll authorization | Authorization | HIGH | P | the app has routes and none is secured: no required scheme, no custom dependency, no `AuthenticationMiddleware` |
 | SEC-AUTHZ-003 | Application security should not be effectively disabled | Authorization | HIGH | D | merged into SEC-AUTHZ-002 (one Python signal) |
 | SEC-AUTHZ-004 | Catch-all filter chains should be ordered last | Authorization | INFO | D | [JVM] filter-chain ordering |
@@ -81,7 +82,7 @@ Titles of P rows are BootUI's, verbatim.
 | SEC-FAPI-003 | Proxy headers should be trusted only from known proxies | Transport and headers | MEDIUM | N | uvicorn's `ProxyHeadersMiddleware(trusted_hosts="*")` on the app's stack |
 | SEC-FAPI-004 | Optional security schemes should not be a route's only check | Authorization | INFO | N | a route whose every scheme has `auto_error=False` and which has no other dependency |
 | SEC-FAPI-005 | A route should not mix authentication schemes | Authentication | INFO | N | a route that requires schemes of more than one kind (e.g. `HTTPBasic` and `OAuth2PasswordBearer`) |
-| SEC-SRC-001 | Source code should not hold literal secret values | Configuration | HIGH | N | a string literal in the app source that the masker's value detectors flag (JWT, PEM key, AWS key, vendor token, URL credentials), or a literal assigned to a secret-like name |
+| SEC-SRC-001 | Source code should not hold literal secret values | Configuration | HIGH | N | a string literal in the app source that the masker's value detectors flag (JWT, PEM key, AWS key, vendor token, URL credentials), or a literal bound to a secret-like name (assignment, keyword argument, dict key, parameter default, `Field(default=...)`) |
 
 BootUI's 26 reactive rules (`SEC-RXF-*`) and the Quarkus rules (`QS-*`) are [JVM] twins of the servlet rules above and
 have no rows.

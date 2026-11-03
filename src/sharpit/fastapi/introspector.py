@@ -801,7 +801,7 @@ class FastApiIntrospector:
         values = _attrs(self.app)
         openapi_url = values.get("openapi_url")
         limitations: list[str] = []
-        middleware = _middleware_facts(self.app, limitations)
+        middleware = (*_middleware_facts(self.app, limitations), *self._mounted_middleware(limitations))
         schemes: dict[int, object] = {}
         for _info, route in self._entries():
             if route is not None and issubclass(type(route), APIRoute):
@@ -812,6 +812,38 @@ class FastApiIntrospector:
             debug, openapi_url if isinstance(openapi_url, str) else None, middleware, urls, tuple(limitations)
         )
 
+    def _mounted_middleware(self, limitations: list[str]) -> list[MiddlewareFacts]:
+        """Each mounted Starlette app's own ``user_middleware`` facts, read like the root's; a middleware instance
+        wrapping a mount keeps its options in derived attributes, so its options are a limitation, never a guess."""
+        found: list[MiddlewareFacts] = []
+        pending: list[tuple[object, str, int]] = [(self.app, "", 0)]
+        seen: set[int] = {id(self.app)}
+        while pending:
+            app, prefix, depth = pending.pop(0)
+            for route in _route_list(app) if issubclass(type(app), Starlette) else ():
+                route_mro = type(route).__mro__
+                is_mount = Mount in route_mro
+                values = _attrs(route)
+                path = values.get("path") if is_mount else ""
+                child = values.get("app")
+                if not (is_mount or Host in route_mro) or child is None or id(child) in seen or depth >= MAX_DEPTH:
+                    continue
+                if depth == 0 and is_mount and path == self.exclude_mount:
+                    continue
+                seen.add(id(child))
+                here = prefix + (path if isinstance(path, str) else "")
+                label = here or "/"
+                wrappers, inner = _wrapped_middleware(child)
+                limitations.extend(
+                    f"{simple} options on the app mounted at {label} were not read."
+                    for simple in (w.rpartition(".")[2] for w in wrappers)
+                    if simple in _FLAG_READERS
+                )
+                if issubclass(type(inner), Starlette):
+                    found.extend(_middleware_facts(inner, limitations, label))
+                    pending.append((inner, here, depth + 1))
+        return found
+
 
 # ---- security advisor facts (B-security): option values are read here and leave only as fact names ------------------
 
@@ -821,10 +853,10 @@ _FLOW_FIELDS = ("authorizationUrl", "tokenUrl", "refreshUrl")
 
 
 def _strings(value: object) -> tuple[str, ...]:
-    """Exact ``str``/``list``/``tuple`` only: a user subclass's ``__iter__`` or ``__contains__`` never runs."""
+    """Exact ``str``/``list``/``tuple``/``set``/``frozenset`` only: a user subclass's ``__iter__`` never runs."""
     if type(value) is str:
         return tuple(part.strip() for part in value.split(","))
-    if type(value) is list or type(value) is tuple:
+    if type(value) in (list, tuple, set, frozenset):
         return tuple(item for item in cast("tuple[object, ...]", tuple(cast("Any", value))) if type(item) is str)
     return ()
 
@@ -850,6 +882,15 @@ def _cors_flags(options: dict[str, object]) -> set[str]:
     return flags
 
 
+_SECRET_FIELDS = {("starlette.datastructures", "Secret"): "_value", ("pydantic.types", "SecretStr"): "_secret_value"}
+
+
+def _secret_text(value: object) -> object:
+    """A Starlette ``Secret`` or pydantic ``SecretStr`` unwrapped from its instance dict (no ``str()`` runs)."""
+    field = _SECRET_FIELDS.get((type(value).__module__, type(value).__qualname__))
+    return _attrs(value).get(field) if field is not None else value
+
+
 def _session_flags(options: dict[str, object]) -> set[str]:
     flags: set[str] = set()
     if options.get("https_only") is True:
@@ -857,7 +898,7 @@ def _session_flags(options: dict[str, object]) -> set[str]:
     same_site = options.get("same_site")
     if type(same_site) is str and same_site.lower() == "none":
         flags.add("same_site_none")
-    secret = options.get("secret_key")
+    secret = _secret_text(options.get("secret_key"))
     if type(secret) is str and len(secret) < 32:  # noqa: PLR2004 - the length is the fact, never the value
         flags.add("short_secret")
     return flags
@@ -885,7 +926,7 @@ def _option_flags(name: str, options: dict[str, object]) -> tuple[str, ...]:
     return tuple(sorted(reader(options))) if reader is not None else ()
 
 
-def _middleware_facts(app: object, limitations: list[str]) -> tuple[MiddlewareFacts, ...]:
+def _middleware_facts(app: object, limitations: list[str], mount: str | None = None) -> tuple[MiddlewareFacts, ...]:
     entries: Any = inspect.getattr_static(app, "user_middleware", None)
     listed: list[object] = list(cast(list[object], entries)) if type(entries) is list else []
     found: list[MiddlewareFacts] = []
@@ -900,7 +941,7 @@ def _middleware_facts(app: object, limitations: list[str]) -> tuple[MiddlewareFa
             limitations.append(f"{name.rpartition('.')[2]} options passed positionally were not read.")
         found.append(
             MiddlewareFacts(
-                name, _option_flags(name, cast(dict[str, object], options) if type(options) is dict else {})
+                name, _option_flags(name, cast(dict[str, object], options) if type(options) is dict else {}), mount
             )
         )
     return tuple(found)
