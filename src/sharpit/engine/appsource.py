@@ -53,7 +53,15 @@ def _holder(app: object, modules: Mapping[str, object]) -> str | None:
         and name.partition(".")[0] != "sharpit"
         and any(value is app for value in tuple(vars(module).values()))
     ]
-    return min(names, key=lambda n: (len(n), n), default=None)
+    real = [n for n in names if n != "__main__"]  # `python run.py` re-exporting myapp.main:app: __main__ is not the app
+    return min(real or names, key=lambda n: (len(n), n), default=None)
+
+
+def _main_package(modules: Mapping[str, object]) -> str | None:
+    """``python -m pkg``: ``__main__.__package__`` names the package (read with ``vars()``); a script has none."""
+    main = modules.get("__main__")
+    package = vars(main).get("__package__") if type(main) is ModuleType else None
+    return package if isinstance(package, str) and package else None
 
 
 def _loaded_location(module: ModuleType) -> Path | None:
@@ -95,19 +103,20 @@ def resolve_package_root(
 ) -> Path | None:
     """The app's top-level package directory, or its file for a single-module app; None with a reason appended.
 
-    The module holding ``app`` in its globals wins (``type(app).__module__`` would name the framework), else
-    ``app_package``. Both resolve through ``modules`` only, then through ``search_path`` on disk when the caller passes
-    one (config's explicit ``config_scan`` names); never ``find_spec``, which imports parents.
+    An explicit ``app_package`` wins; else the module holding ``app`` in its globals (``type(app).__module__`` would
+    name the framework; ``__main__`` only when nothing else holds it, then its ``__package__`` for ``python -m``).
+    Both resolve through ``modules`` only, then through ``search_path`` on disk when the caller passes one (config's
+    explicit ``config_scan`` names); never ``find_spec``, which imports parents.
     """
     notes = reasons if reasons is not None else []
-    name = (_holder(app, modules) if app is not None else None) or app_package
+    name = app_package or (_holder(app, modules) if app is not None else None)
     if not name:
         notes.append("no loaded module holds the application and app_package is not set")
         return None
-    top = name.partition(".")[0]
-    if top == "__main__":
+    if name.partition(".")[0] == "__main__" and (name := _main_package(modules)) is None:
         notes.append("the application is defined in __main__ (a script run directly): not scanned; set app_package")
         return None
+    top = name.partition(".")[0]
     module = modules.get(top)
     root = _loaded_location(module) if type(module) is ModuleType else _search(top, search_path)
     if root is None:
@@ -118,8 +127,9 @@ def resolve_package_root(
 # ---- the bounded index -----------------------------------------------------------------------------------------
 
 
-def _inside(path: str, real_root: str) -> bool:
-    real = os.path.normcase(os.path.realpath(path))
+def _inside(real: str, real_root: str) -> bool:
+    """``real`` (already a realpath) is under ``real_root`` (a normcased realpath)."""
+    real = os.path.normcase(real)
     try:
         return os.path.commonpath([real, real_root]) == real_root
     except ValueError:  # another drive
@@ -159,6 +169,8 @@ def _parse(path: str, max_file_bytes: int) -> ast.Module | str:
             return f"larger than {max_file_bytes} bytes"
         with open(path, "rb") as handle:
             data = handle.read(max_file_bytes + 1)
+        if len(data) > max_file_bytes:  # a pseudo-file stats as 0 bytes; a file can grow after the stat
+            return f"larger than {max_file_bytes} bytes"
         encoding, _ = tokenize.detect_encoding(io.BytesIO(data).readline)
         # undecodable bytes are replaced, as 0.3.0's getenv scan did: one bad comment must not hide a file
         return ast.parse(data.decode(encoding, errors="replace"), filename=path)
@@ -166,11 +178,9 @@ def _parse(path: str, max_file_bytes: int) -> ast.Module | str:
         return type(exc).__name__
 
 
-def _add(index: SourceIndex, root: Path, path: Path, real_root: str, max_file_bytes: int) -> None:
-    if not _inside(str(path), real_root):
-        index.limitations.append(f"{path}: outside the application root")
-        return
-    tree = _parse(os.path.realpath(path), max_file_bytes)
+def _add(index: SourceIndex, root: Path, path: Path, real: str, max_file_bytes: int) -> None:
+    """Parse ``path`` (``real`` is its realpath, already checked inside the root) into the index."""
+    tree = _parse(real, max_file_bytes)
     if isinstance(tree, str):
         index.limitations.append(f"{path}: {tree}")
         return
@@ -189,27 +199,36 @@ def _entries(index: SourceIndex, directory: Path) -> list[os.DirEntry[str]]:
         return []
 
 
+def _stop(index: SourceIndex, reason: str) -> None:
+    index.truncated = True
+    index.limitations.append(reason)
+
+
 def _fill(index: SourceIndex, root: Path, max_files: int, max_file_bytes: int, deadline: float) -> None:
     real_root = os.path.normcase(os.path.realpath(root))
     if not os.path.isdir(real_root):  # a single-module app: that file only
-        _add(index, root, root, real_root, max_file_bytes)
+        _add(index, root, root, os.path.realpath(root), max_file_bytes)
         return
+    attempted = 0  # every .py file opened or refused counts, parsed or not
     stack = [root]
     while stack:
         subdirs: list[Path] = []
         for entry in _entries(index, stack.pop()):
-            if entry.is_symlink() or entry.is_junction() or not _inside(entry.path, real_root):
+            if time.monotonic() >= deadline:  # per entry: a deep tree without .py files must stop too
+                return _stop(index, f"stopped by the wall budget after {attempted} files")
+            real = os.path.realpath(entry.path)
+            if entry.is_symlink() or entry.is_junction() or not _inside(real, real_root):
                 continue  # never followed; containment also catches a link the entry flags miss
             if entry.is_dir(follow_symlinks=False):
                 if entry.name not in _SKIP_DIRS:
                     subdirs.append(Path(entry.path))
             elif entry.name.endswith(".py"):
-                if len(index.modules) >= max_files or time.monotonic() > deadline:
-                    index.truncated = True
-                    index.limitations.append(f"stopped at {len(index.modules)} files (bounds: {max_files} files)")
-                    return
-                _add(index, root, Path(entry.path), real_root, max_file_bytes)
+                if attempted >= max_files:
+                    return _stop(index, f"stopped at {max_files} files (bounds: {max_files} files)")
+                attempted += 1
+                _add(index, root, Path(entry.path), real, max_file_bytes)
         stack += reversed(subdirs)  # pre-order, sorted: files of a directory before its subdirectories
+    return None
 
 
 def _guarded_fill(index: SourceIndex, root: Path, max_files: int, max_file_bytes: int, deadline: float) -> None:
