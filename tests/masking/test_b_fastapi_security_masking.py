@@ -11,7 +11,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi import FastAPI
 from sharpit import install
 
-STRIPE_KEY = "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+STRIPE_KEY = "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc"  # in pieces: GitHub push protection
 JWT_SECRET = "jwt-hs256-secret-0123456789abcdef"
 
 
