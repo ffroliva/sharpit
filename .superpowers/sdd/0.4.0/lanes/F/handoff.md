@@ -163,3 +163,9 @@ Not done, with reason:
 - 4 (note when `--plan` differs from the Lanes-table entry): the inside-the-integration-worktree check removes the
   forgery; the note is cosmetic.
 - 12 (report dropped must-cover tokens): Low; a dropped token fails closed when no test is left.
+
+Fix round 1 gates at `d1d9e77` (log `0.5.0-integration/.superpowers/sdd/0.5.0/logs/F5-gate-fix1-gates.log`): ruff,
+format, pyright clean; full suite `-n auto` 4527 passed, 9 skipped, 1 failed:
+`tests/fastapi/test_capture_overhead.py::test_request_overhead_budget` (0.227 ms vs 0.200 ms under xdist load). Not
+this lane's: the diff from `bf2fc42` touches nothing under `src/`, `tests/fastapi/` or `tests/overhead.py`, and the
+test passes alone (`1 passed`). `tests/scripts`: 229 passed at `311fec1`.
