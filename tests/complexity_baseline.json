@@ -4,7 +4,6 @@
   "src/sharpit/engine/capture/activity.py": 1,
   "src/sharpit/engine/capture/sqltrace.py": 1,
   "src/sharpit/engine/collectors/alembic.py": 2,
-  "src/sharpit/engine/collectors/config/getenv_scan.py": 1,
   "src/sharpit/engine/collectors/config/settings_source.py": 1,
   "src/sharpit/engine/mcp.py": 1,
   "src/sharpit/engine/probe.py": 2,
