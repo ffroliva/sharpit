@@ -653,20 +653,28 @@ def test_load_counts_keep_statement_identity_when_ids_are_reused(monkeypatch: py
     sqla._unbounded_read_facts.pop(("test-statement-identity", 1, "call"), None)
 
 
-def test_load_counts_keep_statement_identity_when_ids_are_reused_current(monkeypatch: pytest.MonkeyPatch):
-    info = _paging_request("request-statement-identity-current")
-    request_token = REQUEST.set(info)
-    test_token = TEST.set(("test-statement-identity-current", 1, "call"))
+def test_unbounded_read_facts_keep_request_identity_when_context_ids_are_reused_current(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    first = _paging_request("request-statement-identity-current-first")
+    second = _paging_request("request-statement-identity-current-second")
+    context = _load_context(sa.select(sa.literal(1)))
+    tag = ("test-statement-identity-current", 1, "call")
     monkeypatch.setattr(sqla, "id", lambda _context: 1, raising=False)
+    test_token = TEST.set(tag)
     try:
-        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
-        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(2))))
+        for info in (first, second):
+            request_token = REQUEST.set(info)
+            try:
+                for _ in range(4):
+                    sqla._mapper_load(types.SimpleNamespace(), context)
+            finally:
+                REQUEST.reset(request_token)
     finally:
         TEST.reset(test_token)
-        REQUEST.reset(request_token)
 
-    assert len(info.loads) == 2
-    sqla._unbounded_read_facts.pop(("test-statement-identity-current", 1, "call"), None)
+    facts = sqla._unbounded_read_facts.pop(tag, {})
+    assert len(facts) == 2
 
 
 def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch):
