@@ -2,12 +2,20 @@
 // the production build under sharpit's CSP, real requests made by the test, axe in light and dark.
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import path from 'node:path';
 import { openPanel, settled } from './support';
+
+// With SHOTS=1 the panels that need SQLAlchemy, a database or live requests are saved from this sample, after
+// a11y.spec.ts has saved every view from the plain example app: same screenshots/<view>-<scheme>.png names.
+const SHOTS = process.env.SHOTS === '1' ? path.join(import.meta.dirname, 'screenshots') : null;
 
 const NEW_PANELS = [
   'activity', 'health', 'threads', 'log-tail', 'exceptions', 'http-exchanges', 'http-probe',
   'sql-trace', 'database-connection-pools', 'alembic', 'rest-api',
 ];
+// 0.4.0 panels on this sample's engines (postgresql and traces still show their reason without a server or the OTel
+// SDK), and CLI, which playwright.config.ts disables on purpose
+const SHOT_PANELS = [...NEW_PANELS, 'data', 'sqlalchemy-statistics', 'postgresql', 'traces', 'cli'];
 const main = (page: Page) => page.locator('main');
 /** A request to the sample app itself (outside the /sharpit/ base URL). */
 const hit = async (page: Page, path: string) => (await page.request.get(path)).status();
@@ -150,6 +158,12 @@ for (const scheme of ['light', 'dark'] as const) {
       const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
       for (const v of violations.filter((x) => x.impact === 'serious' || x.impact === 'critical')) {
         found.push(`${id}: ${v.id} (${v.impact}) x${v.nodes.length}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`);
+      }
+    }
+    if (SHOTS) {
+      for (const id of SHOT_PANELS) {
+        await openPanel(page, id);
+        await page.screenshot({ path: path.join(SHOTS, `${id}-${scheme}.png`) });
       }
     }
     expect(found).toEqual([]);
