@@ -498,6 +498,11 @@ def _sql_inline_literal(sa: Any, conn: Any) -> None:
     conn.execute(sa.text(f"select '{SENTINEL}' as token, '{JWT}' as jwt"))
 
 
+def _sql_double_quoted_secret(sa: Any, conn: Any) -> None:
+    # SQLite, like MySQL, reads a double-quoted run that names no column as a string literal
+    conn.execute(sa.text(f'select k from (select 1 as k) where k = "sk_live_{SENTINEL}{SENTINEL}"'))
+
+
 def _sql_bind_values(sa: Any, conn: Any) -> None:
     conn.execute(sa.text("select :password as p, :jwt as j"), {"password": SENTINEL, "jwt": JWT})
 
@@ -542,6 +547,7 @@ SQL_CORPUS = [
     pytest.param("bind_values_on", {"sql_trace_capture_parameters": True}, False, _sql_bind_values,
                  marks=pytest.mark.needs_sqlalchemy),
     pytest.param("integrity_error", {}, False, _sql_integrity_error, marks=pytest.mark.needs_sqlalchemy),
+    pytest.param("double_quoted_secret", {}, False, _sql_double_quoted_secret, marks=pytest.mark.needs_sqlalchemy),
     pytest.param("echo_bind_values", {}, True, _sql_bind_values, marks=pytest.mark.needs_sqlalchemy),
     pytest.param("metadata_only_error", {"expose_values": "METADATA_ONLY", "sql_trace_capture_parameters": True},
                  False, _sql_integrity_error, marks=pytest.mark.needs_sqlalchemy),

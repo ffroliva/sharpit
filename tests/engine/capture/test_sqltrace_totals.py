@@ -73,6 +73,31 @@ def test_max_sql_masks_a_double_quoted_secret_with_parameter_capture():
     assert DOUBLE_QUOTED_SECRET not in (recorder.totals().max_sql or "")
 
 
+def test_ring_row_masks_a_double_quoted_secret_without_parameter_capture():
+    # 0.3.0 leak: normalize() kept an identifier-shaped double-quoted value (MySQL string literal) verbatim
+    recorder = SqlTraceRecorder(MASKED)
+    _record(recorder, f'select * from pay where key = "{DOUBLE_QUOTED_SECRET}"')
+    assert DOUBLE_QUOTED_SECRET not in recorder.report([])["entries"][0]["sql"]
+
+
+def test_top_statement_masks_a_double_quoted_secret_without_parameter_capture():
+    recorder = SqlTraceRecorder(MASKED)
+    _record(recorder, f'select * from pay where key = "{DOUBLE_QUOTED_SECRET}"')
+    assert DOUBLE_QUOTED_SECRET not in recorder.report([])["topStatements"][0]["sql"]
+
+
+def test_double_quoted_value_is_a_placeholder_without_parameter_capture():
+    recorder = SqlTraceRecorder(MASKED)
+    _record(recorder, 'select * from pay where name = "bob"')
+    assert recorder.report([])["entries"][0]["sql"] == "select * from pay where name = ?"
+
+
+def test_double_quoted_value_kept_with_parameter_capture():
+    recorder = SqlTraceRecorder(Masker(Exposure.MASKED, True, capture_parameters=True))
+    _record(recorder, 'select * from pay where name = "bob"')
+    assert recorder.report([])["entries"][0]["sql"] == 'select * from pay where name = "bob"'
+
+
 def test_max_time_counts_selects_only():
     # Hibernate's queryExecutionMaxTime covers queries only, not DML
     recorder = SqlTraceRecorder(MASKED)

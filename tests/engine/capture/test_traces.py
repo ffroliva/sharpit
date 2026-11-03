@@ -244,6 +244,15 @@ def test_sql_literals_in_db_statement_are_masked():
     assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
 
 
+def test_double_quoted_value_in_db_statement_is_a_placeholder():
+    # 0.3.0 leak: a double-quoted value (MySQL string literal) passed through normalize_sql verbatim
+    buf = buffer()
+    buf.add(span(attributes={"db.statement": 'select * from owners where pw = "hunter2"'}))
+    detail = buf.detail(f"{TRACE:032x}")
+    assert detail is not None
+    assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
+
+
 def first_span(buf: SpanBuffer) -> dict[str, Any]:
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None

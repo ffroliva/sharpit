@@ -111,6 +111,15 @@ def test_sql_literal_secret_is_folded_and_masked() -> None:
     assert SECRET not in json.dumps(sink.facts.to_json())
 
 
+def test_double_quoted_sql_value_is_folded() -> None:
+    """0.3.0 leak: a double-quoted value (MySQL string literal) survived normalize() into the report."""
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    run_phase(sink, NODE, attempt, "call", 'SELECT * FROM users WHERE note = "hunter2S3cret"')
+    sink.end_test()
+    assert "hunter2S3cret" not in json.dumps(sink.facts.to_json())
+
+
 def test_report_masker_ignores_full_exposure(monkeypatch: pytest.MonkeyPatch) -> None:
     """The console's FULL exposure or masking off never reaches a report."""
     monkeypatch.setenv("SHARPIT_EXPOSE_VALUES", "FULL")
