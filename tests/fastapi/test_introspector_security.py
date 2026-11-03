@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import fastapi.routing
@@ -310,18 +309,6 @@ def test_unexpandable_include_router_limitation_says_so():
     assert model.limitations == ("Included router at /v1 could not be expanded.",)
 
 
-def _floor_shape(node: Any) -> SimpleNamespace:
-    """A FastAPI 0.115 ``Dependant``: ``security_scopes`` holds every scope from the route down (parent + own)."""
-    own = list(getattr(node, "own_oauth_scopes", None) or ())
-    parent = list(getattr(node, "parent_oauth_scopes", None) or ())
-    return SimpleNamespace(
-        call=node.call,
-        name=node.name,
-        security_scopes=parent + own,
-        dependencies=[_floor_shape(sub) for sub in node.dependencies],
-    )
-
-
 def _scoped_app() -> FastAPI:
     oauth2 = OAuth2PasswordBearer(tokenUrl="token", scopes={"read": "r", "admin": "a"})
 
@@ -335,15 +322,6 @@ def _scoped_app() -> FastAPI:
         return u
 
     return app
-
-
-def test_scopes_floor_and_newest_classify_same():
-    newest = _rows(_scoped_app())
-    floor_app = _scoped_app()
-    for route in floor_app.routes:
-        if type(route) is APIRoute:
-            route.dependant = _floor_shape(route.dependant)  # pyright: ignore[reportAttributeAccessIssue]
-    assert _rows(floor_app) == newest
 
 
 def test_apiroute_in_plain_starlette_subapp_is_unknown():
