@@ -1292,6 +1292,14 @@ def test_must_cover_uses_full_node_ids_and_refuses_skips(tmp_path: Path) -> None
     assert (fx.head, (f"{COVER}::test_a", f"{COVER}::TestK::test_m", TEST_ID)) in fx.replays
     failing = _cover_check(fx, listed, {f"{COVER}::test_a": "failure"})
     assert _refused(failing, f"must-cover {COVER}::test_a: failure at the lane head")
+
+
+def test_must_cover_refuses_skips_unless_leased_or_golden(tmp_path: Path) -> None:
+    """Split from the test above: ten gate runs in one test neared the 60 s pytest-timeout under load."""
+    (tmp_path / "x").mkdir()
+    fx = _fixture(tmp_path / "x", review=False)
+    fx.commit({COVER: COVER_TESTS}, "test: cover")
+    fx.review()
     skipped = _cover_check(fx, "`test_skip`", {f"{COVER}::test_skip": "skip:needs a server"})
     assert _refused(skipped, f"must-cover {COVER}::test_skip: skipped (needs a server)")
     golden_skip = {f"{COVER}::test_skip": "skip:post-scan golden absent (G0)"}
