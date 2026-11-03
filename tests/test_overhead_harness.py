@@ -165,15 +165,44 @@ def test_timing_is_skipped_while_a_coverage_tracer_runs(monkeypatch: pytest.Monk
         paired(lambda: 1.0, lambda: 1.0, rounds=1)
 
 
+def _timing_modules() -> tuple[str, ...]:
+    """tests/conftest.py's TIMING_MODULES, read from source: sys.modules["conftest"] may be a pytester fixture app's."""
+    import ast
+
+    tree = ast.parse((Path(__file__).parent / "conftest.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "TIMING_MODULES" for t in node.targets):
+            return tuple(ast.literal_eval(node.value))
+    raise AssertionError("tests/conftest.py no longer defines TIMING_MODULES as a literal")
+
+
 def test_every_budget_module_runs_last() -> None:
     # a budget timed mid-suite meets every xdist worker busy; tests/conftest.py orders TIMING_MODULES last
-    from conftest import TIMING_MODULES
-
     timed = {
         p.name
         for p in Path(__file__).parent.rglob("test_*.py")
         if re.search(r"^from tests\.overhead import .*\bcheck_budget\b", p.read_text(encoding="utf-8"), re.MULTILINE)
     }
     assert "test_capture_overhead.py" in timed  # the scan sees a known budget module
-    missing = timed - set(TIMING_MODULES) - {Path(__file__).name}  # this file times a fake clock
+    missing = timed - set(_timing_modules()) - {Path(__file__).name}  # this file times a fake clock
     assert not missing, sorted(missing)
+
+
+def test_budget_order_check_survives_a_fixture_conftest(monkeypatch: pytest.MonkeyPatch) -> None:
+    # pytester runs fixture apps in-process, and a fixture app's own conftest.py then owns sys.modules["conftest"]
+    import types
+
+    monkeypatch.setitem(__import__("sys").modules, "conftest", types.ModuleType("conftest"))
+    try:
+        test_every_budget_module_runs_last()
+    except ImportError as error:
+        raise AssertionError(f"the budget-order check re-imports conftest at run time: {error}") from error
+
+
+def test_harness_never_imports_the_bare_conftest_module() -> None:
+    # sys.modules["conftest"] is whichever conftest.py pytester loaded last in this worker, at collection or run time
+    import ast
+
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    bare = [node.lineno for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module == "conftest"]
+    assert bare == [], f"test_overhead_harness.py imports the bare 'conftest' module at lines {bare}"
