@@ -1,4 +1,4 @@
-"""F6 ORM observer budget: paired 1,000-SELECT SQLAlchemy sessions; see overhead-budgets.md."""
+"""F6 ORM observer budget: paired SQLAlchemy lazy loads, many short rounds; see overhead-budgets.md."""
 
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ pytestmark = pytest.mark.needs_sqlalchemy
 
 STATEMENTS = 1_000
 ORM_HOOK_BUDGET = 35e-6
+# Many short rounds, not a few long ones: a 20-load round (~5 ms) often fits a quiet window on a shared runner, so the
+# fastest round per side is near the true cost. 1,000-load rounds always overlapped contention (overhead-budgets.md).
+LAZY_LOADS = 20
+LAZY_ROUNDS = 1_001
 
 
 def _workload(engine: object) -> float:
@@ -55,8 +59,8 @@ def test_sqlalchemy_lazy_relationship_hook_overhead_budget() -> None:
 
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
-        connection.execute(sa.insert(Parent.__table__), [{"id": i} for i in range(STATEMENTS)])
-        connection.execute(sa.insert(Child.__table__), [{"id": i, "parent_id": i} for i in range(STATEMENTS)])
+        connection.execute(sa.insert(Parent.__table__), [{"id": i} for i in range(LAZY_LOADS)])
+        connection.execute(sa.insert(Child.__table__), [{"id": i, "parent_id": i} for i in range(LAZY_LOADS)])
 
     def workload() -> float:
         completed = 0
@@ -75,7 +79,7 @@ def test_sqlalchemy_lazy_relationship_hook_overhead_budget() -> None:
             elapsed = time.perf_counter() - start
         finally:
             sa.event.remove(engine, "before_cursor_execute", count_lazy_load)
-        assert completed == STATEMENTS, f"expected {STATEMENTS} lazy loads, got {completed}"
+        assert completed == LAZY_LOADS, f"expected {LAZY_LOADS} lazy loads, got {completed}"
         return elapsed / completed
 
     try:
@@ -93,7 +97,7 @@ def test_sqlalchemy_lazy_relationship_hook_overhead_budget() -> None:
                 sqla.TEST.reset(token)
                 sqla.detach_session()
 
-        result = paired(off, on, rounds=21)  # 5 rounds flaked on CI runners (decisions doc, overhead budgets)
+        result = paired(off, on, rounds=LAZY_ROUNDS)
         check_budget("SQLAlchemy lazy relationship hooks", result, ORM_HOOK_BUDGET, "µs/lazy load", 1e-6)
     finally:
         sqla.detach_session()

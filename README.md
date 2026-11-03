@@ -131,6 +131,8 @@ the Spring Boot developer console. It ports BootUI's design goals, JSON contract
 
 ![sharpit overview](https://raw.githubusercontent.com/ffroliva/sharpit/main/ui/tests/e2e/screenshots/overview-light.png)
 
+Every panel in light and dark: [screenshot catalog](https://github.com/ffroliva/sharpit/blob/main/docs/screenshots.md).
+
 > **Status: alpha (0.4.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Installation and extras
