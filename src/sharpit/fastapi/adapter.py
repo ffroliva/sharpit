@@ -264,8 +264,8 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
 
 
 def _with_drift_routes(routes: list[BaseRoute], ctx: SharpitContext) -> list[BaseRoute]:
-    """The 2.2.0 capture routes (lane D2) go first: a literal path such as ``/exceptions/caught`` must win over
-    ``/exceptions/{id}``, and a drift route with the same path and methods replaces the base one."""
+    """The 2.2.0 capture routes (lane D2): one with the same path and methods replaces the base route in place; a new
+    one goes just before its panel's first route, so a literal ``/exceptions/caught`` wins over ``/exceptions/{id}``."""
     import sharpit.fastapi.routes as package
     from sharpit.fastapi.routes import exceptions, http_exchanges
 
@@ -279,5 +279,14 @@ def _with_drift_routes(routes: list[BaseRoute], ctx: SharpitContext) -> list[Bas
     def key(route: BaseRoute) -> tuple[object, frozenset[str]]:
         return getattr(route, "path", None), frozenset(getattr(route, "methods", None) or ())
 
-    replaced = {key(route) for route in drift}
-    return [*drift, *(route for route in routes if key(route) not in replaced)]
+    api = ctx.settings.api_path[len(ctx.settings.path) :]
+    spliced = list(routes)
+    for route in drift:
+        same = next((i for i, r in enumerate(spliced) if key(r) == key(route)), None)
+        if same is not None:
+            spliced[same] = route
+            continue
+        panel = f"{api}/{getattr(route, 'path', '')[len(api) + 1 :].split('/')[0]}"
+        first = (i for i, r in enumerate(spliced) if f"{getattr(r, 'path', '')}/".startswith(f"{panel}/"))
+        spliced.insert(next(first, len(spliced)), route)
+    return spliced
