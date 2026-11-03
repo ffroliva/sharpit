@@ -17,6 +17,7 @@ from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch
+from sharpit.engine.sqla.events import add_pool_listener
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -123,6 +124,7 @@ class TransactionRecorder:
         self.recording = recording
         self._entries: deque[dict[str, Any]] = deque()
         self._open: dict[int, dict[str, Any]] = {}
+        self._unsettled: dict[int, dict[str, Any]] = {}
         self._ids = itertools.count(1)
         self._total = 0
         self._evicted = 0
@@ -181,45 +183,46 @@ class TransactionRecorder:
             self._total += 1
         return entry_id
 
-    def end(self, entry_id: int, status: str, error: BaseException | None = None) -> None:
+    def end(self, entry_id: int, status: str, error: BaseException | None = None, *, settle: bool = False) -> None:
+        """Close an open row; ``settle=True`` lets ``settle`` re-close it once the DBAPI commit has returned."""
         if entry_id < 0:
             return
         with self._lock:
             row = self._open.pop(entry_id, None)
             if row is None:
                 return
-            now = time.time_ns()
-            duration = max(0, (now - row["_startedNs"]) // 1_000_000)
-            row["endTimestamp"] = now // 1_000_000
-            row["durationMillis"] = duration
-            row["status"] = status if status in {"COMMITTED", "ROLLED_BACK", "UNKNOWN"} else "UNKNOWN"
-            row["slow"] = self.slow_threshold_ms > 0 and duration >= self.slow_threshold_ms
-            row["connectionHeld"] = self.hold_threshold_ms > 0 and duration >= self.hold_threshold_ms
-            if error is not None:
-                row["errorMessage"] = self._masker.mask_text(str(error))
+            self._close_locked(row, status, error)
+            if settle:
+                self._unsettled[entry_id] = row
             while len(self._entries) > self.max_entries and self._evict_completed_locked():
                 pass
         self.changes.signal()
 
-    def fail_commit(self, entry_id: int, error: BaseException) -> None:
+    def settle(self, entry_id: int, error: BaseException | None = None) -> None:
+        """The DBAPI commit returned (``error`` None) or failed: re-close the row so its duration includes it."""
         with self._lock:
-            row = next((item for item in self._entries if item["id"] == entry_id), None)
+            row = self._unsettled.pop(entry_id, None)
             if row is None:
                 return
-            now = time.time_ns()
-            duration = max(0, (now - row["_startedNs"]) // 1_000_000)
-            row["endTimestamp"] = now // 1_000_000
-            row["durationMillis"] = duration
-            row["status"] = "UNKNOWN"
-            row["slow"] = self.slow_threshold_ms > 0 and duration >= self.slow_threshold_ms
-            row["connectionHeld"] = self.hold_threshold_ms > 0 and duration >= self.hold_threshold_ms
-            row["errorMessage"] = self._masker.mask_text(str(error))
+            self._close_locked(row, "COMMITTED" if error is None else "UNKNOWN", error)
         self.changes.signal()
+
+    def _close_locked(self, row: dict[str, Any], status: str, error: BaseException | None) -> None:
+        now = time.time_ns()
+        duration = max(0, (now - row["_startedNs"]) // 1_000_000)
+        row["endTimestamp"] = now // 1_000_000
+        row["durationMillis"] = duration
+        row["status"] = status if status in {"COMMITTED", "ROLLED_BACK", "UNKNOWN"} else "UNKNOWN"
+        row["slow"] = self.slow_threshold_ms > 0 and duration >= self.slow_threshold_ms
+        row["connectionHeld"] = self.hold_threshold_ms > 0 and duration >= self.hold_threshold_ms
+        if error is not None:
+            row["errorMessage"] = self._masker.mask_text(str(error))
 
     def _evict_completed_locked(self) -> bool:
         for row in self._entries:
             if row["endTimestamp"] is not None:
                 self._entries.remove(row)
+                self._unsettled.pop(row["id"], None)
                 self._evicted += 1
                 return True
         return False
@@ -228,6 +231,7 @@ class TransactionRecorder:
         with self._lock:
             self._entries.clear()
             self._open.clear()
+            self._unsettled.clear()
         self.changes.signal()
 
     def set_recording(self, enabled: bool) -> None:
@@ -322,11 +326,12 @@ def _targets(conn: Any) -> list[SharpitContext]:
     ]
     if held:
         return held
+    fallback: list[SharpitContext] = []
     try:
-        return dispatch._targets(engine)  # pyright: ignore[reportPrivateUsage]  # SQL Trace fallback for unregistered engines
+        fallback = dispatch._targets(engine)  # pyright: ignore[reportPrivateUsage]  # SQL Trace fallback for unregistered engines
     except Exception as exc:  # noqa: BLE001 - transaction listeners must not affect the host
         dispatch.routing_failed(exc)
-    return []
+    return fallback or (contexts if len(contexts) == 1 else [])
 
 
 def _connection_id(conn: Any) -> str | None:
@@ -336,26 +341,43 @@ def _connection_id(conn: Any) -> str | None:
         return None
 
 
-def _stack(conn: Any) -> list[tuple[SharpitContext, int]]:
-    return cast("list[tuple[SharpitContext, int]]", conn.info.setdefault("sharpit_tx", []))
+# conn.info outlives a context on a pooled connection, so it holds recorders weakly, never a context.
+Tracked = tuple["weakref.ref[TransactionRecorder]", int]
+PENDING_COMMIT = "sharpit_tx_pending_commit"
 
 
-def _savepoints(conn: Any) -> list[tuple[str | None, list[tuple[SharpitContext, int]]]]:
+def _stack(info: dict[str, Any]) -> list[Tracked]:
+    return cast("list[Tracked]", info.setdefault("sharpit_tx", []))
+
+
+def _savepoints(info: dict[str, Any]) -> list[tuple[str | None, list[Tracked]]]:
     """Open savepoints, innermost last; one frame per savepoint event, empty when nothing was recorded."""
-    return cast(
-        "list[tuple[str | None, list[tuple[SharpitContext, int]]]]", conn.info.setdefault("sharpit_tx_savepoints", [])
-    )
+    return cast("list[tuple[str | None, list[Tracked]]]", info.setdefault("sharpit_tx_savepoints", []))
 
 
-def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
-    stack = _stack(conn)
+def _close(items: list[Tracked], status: str) -> None:
+    for ref, entry_id in items:
+        recorder = ref()
+        if recorder is not None:
+            try:
+                recorder.end(entry_id, status, settle=status == "COMMITTED")
+            except Exception as exc:  # noqa: BLE001 - never alter the application's transaction
+                dispatch.routing_failed(exc)
+
+
+def _settle(info: dict[str, Any], error: BaseException | None = None) -> None:
+    for ref, entry_id in info.pop(PENDING_COMMIT, ()):
+        recorder = ref()
+        if recorder is not None:
+            recorder.settle(entry_id, error)
+
+
+def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
+    stack = _stack(conn.info)
     if parent_ids is None:
-        for ctx, entry_id in stack:
-            recorder = ctx.capture.transactions
-            if isinstance(recorder, TransactionRecorder):
-                recorder.end(entry_id, "UNKNOWN")
+        _close(stack, "UNKNOWN")
         stack.clear()
-        _savepoints(conn).clear()
+        _savepoints(conn.info).clear()
     info = REQUEST.get()
     connection_id = _connection_id(conn)
     for ctx in _targets(conn):
@@ -363,7 +385,7 @@ def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
         if recorder is None:
             continue
         try:
-            parent = parent_ids.get(ctx.context_id) if parent_ids else None
+            parent = parent_ids.get(id(recorder)) if parent_ids else None
             method = call_site(None) if ctx.settings.sql_trace_capture_call_site else "unknown"
             entry_id = recorder.begin(
                 id(conn),
@@ -374,50 +396,37 @@ def _begin(conn: Any, parent_ids: dict[str, int] | None = None) -> None:
                 connection_id=connection_id,
             )
             if entry_id >= 0:
-                stack.append((ctx, entry_id))
+                stack.append((weakref.ref(recorder), entry_id))
         except Exception as exc:  # noqa: BLE001 - never alter the application's transaction
             dispatch._context_failed(ctx, exc)  # pyright: ignore[reportPrivateUsage]
 
 
-def _end(conn: Any, status: str) -> None:
-    stack = _stack(conn)
+def _end(info: dict[str, Any], status: str) -> None:
+    stack = _stack(info)
     closing, stack[:] = stack[:], []
-    _savepoints(conn).clear()
-    for ctx, entry_id in closing:
-        recorder = ctx.capture.transactions
-        if isinstance(recorder, TransactionRecorder):
-            try:
-                recorder.end(entry_id, status)
-            except Exception as exc:  # noqa: BLE001 - never alter the application's transaction
-                dispatch._context_failed(ctx, exc)  # pyright: ignore[reportPrivateUsage]
+    _savepoints(info).clear()
+    _close(closing, status)
 
 
 def _end_savepoint(conn: Any, name: str, status: str) -> None:
-    stack = _stack(conn)
-    savepoints = _savepoints(conn)
+    stack = _stack(conn.info)
+    savepoints = _savepoints(conn.info)
     names = [frame_name for frame_name, _ in savepoints]
     # SQLAlchemy emits savepoint(name=None) before generating its sa_savepoint_N name: match the innermost unnamed.
     key = name if name in names else None
     if key not in names:
         return
     depth = len(names) - 1 - names[::-1].index(key)
-    tracked = [item for _, frame in savepoints[depth:] for item in frame]  # inner savepoints end with their outer
+    tracked = {id(item) for _, frame in savepoints[depth:] for item in frame}  # inner savepoints end with their outer
     del savepoints[depth:]
-    tracked_ids = {(ctx.context_id, entry_id) for ctx, entry_id in tracked}
-    closing = [(ctx, entry_id) for ctx, entry_id in stack if (ctx.context_id, entry_id) in tracked_ids]
-    stack[:] = [(ctx, entry_id) for ctx, entry_id in stack if (ctx.context_id, entry_id) not in tracked_ids]
-    for ctx, entry_id in closing:
-        recorder = ctx.capture.transactions
-        if isinstance(recorder, TransactionRecorder):
-            try:
-                recorder.end(entry_id, status)
-            except Exception as exc:  # noqa: BLE001 - never alter the application's transaction
-                dispatch._context_failed(ctx, exc)  # pyright: ignore[reportPrivateUsage]
+    closing = [item for item in stack if id(item) in tracked]
+    stack[:] = [item for item in stack if id(item) not in tracked]
+    _close(closing, status)
 
 
 def tx_begin(conn: Any) -> None:
     try:
-        conn.info.pop("sharpit_tx_pending_commit", None)
+        _settle(conn.info)
         _begin(conn)
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
@@ -425,46 +434,48 @@ def tx_begin(conn: Any) -> None:
 
 def tx_commit(conn: Any) -> None:
     try:
-        conn.info["sharpit_tx_pending_commit"] = [(ctx.context_id, entry_id) for ctx, entry_id in _stack(conn)]
-        _end(conn, "COMMITTED")
+        conn.info[PENDING_COMMIT] = list(_stack(conn.info))
+        _end(conn.info, "COMMITTED")
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
 
 
 def tx_rollback(conn: Any) -> None:
     try:
-        conn.info.pop("sharpit_tx_pending_commit", None)
-        _end(conn, "ROLLED_BACK")
+        _settle(conn.info)
+        _end(conn.info, "ROLLED_BACK")
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
 
 
 def tx_handle_error(exception_context: Any) -> None:
     try:
-        if exception_context.statement is not None or exception_context.connection is None:
-            return
         conn = exception_context.connection
-        pending = conn.info.pop("sharpit_tx_pending_commit", [])
+        if exception_context.statement is not None or conn is None or PENDING_COMMIT not in conn.info:
+            return
         error = exception_context.sqlalchemy_exception or exception_context.original_exception
-        targets = {ctx.context_id: ctx for ctx in _targets(conn)}
-        for context_id, entry_id in pending:
-            ctx = targets.get(context_id)
-            if ctx is None:
-                continue
-            recorder = ctx.capture.transactions
-            if isinstance(recorder, TransactionRecorder):
-                recorder.fail_commit(entry_id, error)
+        # Only an error raised while the committing transaction is still active is the DBAPI commit failing.
+        _settle(conn.info, error if conn.in_transaction() else None)
     except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
+        dispatch.routing_failed(exc)
+
+
+def tx_checkin(_dbapi_connection: Any, connection_record: Any) -> None:
+    """The connection went back to the pool, so its last commit has returned."""
+    try:
+        if connection_record is not None:
+            _settle(connection_record.info)
+    except Exception as exc:  # noqa: BLE001 - never affect the pool
         dispatch.routing_failed(exc)
 
 
 def tx_savepoint(conn: Any, name: str | None) -> None:
     try:
-        stack = _stack(conn)
-        parents = {ctx.context_id: entry_id for ctx, entry_id in stack}
+        stack = _stack(conn.info)
+        parents = {id(recorder): entry_id for ref, entry_id in stack if (recorder := ref()) is not None}
         before = len(stack)
         _begin(conn, parents)
-        _savepoints(conn).append((name, stack[before:]))
+        _savepoints(conn.info).append((name, stack[before:]))
     except Exception as exc:  # noqa: BLE001 - never affect the application's transaction
         dispatch.routing_failed(exc)
 
@@ -483,11 +494,21 @@ def tx_release_savepoint(conn: Any, name: str, context: object) -> None:
         dispatch.routing_failed(exc)
 
 
+CONNECTION_CALLBACKS: dict[str, Callable[..., None]] = {
+    "begin": tx_begin,
+    "commit": tx_commit,
+    "rollback": tx_rollback,
+    "savepoint": tx_savepoint,
+    "rollback_savepoint": tx_rollback_savepoint,
+    "release_savepoint": tx_release_savepoint,
+    "handle_error": tx_handle_error,
+}
 _attach_lock = threading.Lock()
 _attach_count = 0
 _attach_removers: list[Callable[[], None]] = []
 _contexts_lock = threading.Lock()
 _contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
+_context_attachments: dict[str, int] = {}  # live attachments per context id: one remove() must not unroute the rest
 
 
 def _release_attachment() -> None:
@@ -502,30 +523,25 @@ def _release_attachment() -> None:
 def attach(ctx: SharpitContext | None = None) -> Callable[[], None] | None:
     """Attach the shared class listeners once and return a per-context reference-counted remover."""
     global _attach_count, _attach_removers  # noqa: PLW0603
-    callbacks = {
-        "begin": tx_begin,
-        "commit": tx_commit,
-        "rollback": tx_rollback,
-        "savepoint": tx_savepoint,
-        "rollback_savepoint": tx_rollback_savepoint,
-        "release_savepoint": tx_release_savepoint,
-        "handle_error": tx_handle_error,
-    }
     with _attach_lock:
         if _attach_count == 0:
             removers: list[Callable[[], None]] = []
-            for event, callback in callbacks.items():
+            for event, callback in CONNECTION_CALLBACKS.items():
                 remover = sqla.add_connection_listener(cast(Any, event), callback)
                 if remover is None:
                     for attached in reversed(removers):
                         attached()
                     return None
                 removers.append(remover)
+            checkin = add_pool_listener("checkin", tx_checkin)
+            if checkin is not None:
+                removers.append(checkin)
             _attach_removers = removers
         _attach_count += 1
     if ctx is not None:
         with _contexts_lock:
             _contexts[ctx.context_id] = ctx
+            _context_attachments[ctx.context_id] = _context_attachments.get(ctx.context_id, 0) + 1
 
     released = False
 
@@ -538,6 +554,10 @@ def attach(ctx: SharpitContext | None = None) -> Callable[[], None] | None:
         _release_attachment()
         if ctx is not None:
             with _contexts_lock:
-                _contexts.pop(ctx.context_id, None)
+                left = _context_attachments.pop(ctx.context_id, 1) - 1
+                if left > 0:
+                    _context_attachments[ctx.context_id] = left
+                else:
+                    _contexts.pop(ctx.context_id, None)
 
     return remove

@@ -43,3 +43,23 @@ def add_connection_listener(event: ConnectionEvent, fn: Callable[..., None]) -> 
                 sa.event.remove(sa.engine.Engine, event, fn)
 
     return remove
+
+
+def add_pool_listener(event: Literal["checkin"], fn: Callable[..., None]) -> Callable[[], None] | None:
+    """Listen to the class-level ``Pool`` event ``event``; returns an idempotent remover, ``None`` without SQLAlchemy.
+
+    ``checkin`` is the transactions panel's post-commit point: SQLAlchemy has no event after the DBAPI commit returns.
+    """
+    sa = _sqla.sqlalchemy_module()
+    if sa is None:
+        return None
+    with _lock:
+        if not sa.event.contains(sa.pool.Pool, event, fn):
+            sa.event.listen(sa.pool.Pool, event, fn)
+
+    def remove() -> None:
+        with _lock:
+            if sa.event.contains(sa.pool.Pool, event, fn):
+                sa.event.remove(sa.pool.Pool, event, fn)
+
+    return remove
