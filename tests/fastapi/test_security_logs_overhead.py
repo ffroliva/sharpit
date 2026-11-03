@@ -7,8 +7,11 @@ How to read a failure: docs/development/overhead-budgets.md.
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
+import types
 
+from starlette.exceptions import HTTPException
 from starlette.responses import PlainTextResponse
 from starlette.types import Message
 from tests.overhead import check_budget, paired
@@ -20,7 +23,7 @@ from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import wiring_of
 
 BUDGET_NS = 2_000
-ROUNDS, REQUESTS = 40, 250  # many short rounds settle each minimum: on a 200 both sides run the same code
+ROUNDS, REQUESTS = 1000, 10  # rounds shorter than a load wave (PR #56): 40 x 250 swung 29 µs over 10 runs, this 3.4 µs
 SCOPE = {
     "type": "http",
     "asgi": {"version": "3.0"},
@@ -85,3 +88,44 @@ def test_security_logs_hook_overhead_budget() -> None:
     assert off_wiring.on_security_event is None, "the off side runs without the hook"
     assert isinstance(on_handle.context.capture.security_logs, SecurityEventBuffer), "the on side has the buffer"
     check_budget("security-logs hook per request", result, BUDGET_NS, "µs", 1000)
+
+
+def _lane_calls(app: FastAPI, loop: asyncio.AbstractEventLoop, path: str) -> list[str]:
+    """Every function entered in engine/capture/securitylogs.py during one round of requests to ``path``."""
+    seen: list[str] = []
+
+    def profile(frame: types.FrameType, event: str, _arg: object) -> None:
+        if event == "call" and frame.f_code.co_filename.endswith("securitylogs.py"):
+            seen.append(frame.f_code.co_name)
+
+    scope = {**SCOPE, "path": path, "raw_path": path.encode()}
+
+    async def one_round() -> None:
+        for _ in range(REQUESTS):
+            await app(dict(scope), _receive, _send)
+
+    sys.setprofile(profile)
+    try:
+        loop.run_until_complete(one_round())
+    finally:
+        sys.setprofile(None)
+    return seen
+
+
+def test_200_request_runs_no_security_logs_code() -> None:
+    app, handle = _app(True)
+
+    @app.get("/denied")
+    async def denied() -> None:  # pyright: ignore[reportUnusedFunction]
+        raise HTTPException(401)
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(app(dict(SCOPE), _receive, _send))  # builds the middleware stack first
+        on_200 = _lane_calls(app, loop, "/bare")
+        on_401 = _lane_calls(app, loop, "/denied")
+    finally:
+        loop.close()
+        handle.uninstall_capture()
+    assert on_200 == [], "a 200 runs no security-logs code (only the capture middleware's status compare)"
+    assert "hook" in on_401, "a 401 enters the security-logs hook, so the counter sees lane code"
