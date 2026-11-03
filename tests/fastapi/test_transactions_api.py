@@ -172,8 +172,6 @@ def test_transactions_mcp_exposes_only_the_read_tool() -> None:
 
 
 def test_uninstall_capture_removes_listeners() -> None:
-    import pytest
-
     from sharpit.engine.capture.transactions import (
         tx_begin,
         tx_commit,

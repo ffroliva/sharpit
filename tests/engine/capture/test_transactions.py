@@ -76,6 +76,16 @@ def test_paused_records_nothing() -> None:
     assert recorder.report([])["entries"] == [], "a paused recorder must not retain transactions"
 
 
+# ported: TransactionRecorderTests.clearEmptiesTheBufferWithoutResettingTotalCaptured
+def test_clear_empties_the_buffer_without_resetting_total_captured() -> None:
+    recorder = _recorder()
+    recorder.end(_begin(recorder), "COMMITTED")
+    recorder.clear()
+    report = recorder.report([])
+    assert report["entries"] == [], "clear must empty the transaction buffer"
+    assert report["totalCaptured"] == 1, "clear must not reset totalCaptured"
+
+
 # ported: TransactionRecorderTests.completeTransactionIgnoresSentinelAndUnknownIds
 def test_unknown_end_ignored() -> None:
     recorder = _recorder()
