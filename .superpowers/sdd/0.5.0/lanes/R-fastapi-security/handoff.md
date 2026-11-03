@@ -130,3 +130,11 @@ Not done, with reason: Gemini low (UI `matcherDescription` null renders `()`): t
 matched result (`_matcher` never returns null), so no output changes; left to the UI owner. `pytest_plugin/apps.py`
 `_discovered_models` has no try around `api_model()` (Claude #1 note): outside May-touch, and `api_model` no longer
 raises on a user hook.
+
+Gates at the head: ruff, `ruff format --check`, pyright 0 errors. Lane files (`tests/fastapi`, appsecurity, masking,
+safety, import boundary, code shape): green. Full suite (`-n auto`, busy machine): 4715 passed, 3 failed, 1 error, none
+in this round's files: `test_request_overhead_budget`, `test_statement_overhead_budget` (overshoot within noise),
+`test_detach_sql_sources_idempotent` (`sqlite3.connect` not restored, a cross-test leak under xdist) and a collection
+`ImportError` in `tests/test_overhead_harness.py` (`from conftest import TIMING_MODULES` resolved to
+`tests/fixtures/apps/unbounded_read/conftest.py`: the release/0.5.0 fix `1e5741d` still collides under xdist). Re-run
+alone at the head: all four files 33 passed. Question for the coordinator: the `TIMING_MODULES` import on release/0.5.0.
