@@ -16,12 +16,9 @@ Both current reds were checked with `uv run python scripts/dev/red_check.py <nod
 | Finding | Test | Red SHA | Red assertion |
 |---|---|---|---|
 | Core-only SQLAlchemy host must not break `--sharpit` | `tests/pytest_plugin/test_plugin_unbounded_read.py::test_core_only_sqlalchemy_host_does_not_break_sharpit` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | subprocess pytest exit code was 1 |
-| Statement keys must survive forced `id()` reuse | `tests/engine/test_sqla.py::test_load_counts_keep_statement_identity_when_ids_are_reused` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | expected two statement entries, found one |
-| SQL shape work must not scale with row count | `tests/engine/test_sqla.py::test_load_compiles_and_masks_statement_once` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | `normalize` called 50 times instead of once |
 | Eager/lazy child rows must not inflate the parent page count | `tests/engine/test_sqla.py::test_relationship_rows_are_not_counted_as_parent_page_rows` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | initial assertion saw zero facts after the test detached listeners; this was not sufficient proof and is supplemented by the gate-level red below |
 | Installed app request must suppress the missing-capture limitation | `tests/pytest_plugin/test_plugin_unbounded_read.py::test_installed_app_request_suppresses_missing_capture_limitation` | `c8b26a66208ca486f01c5f7ad0f94ed198686689` | limitation was present after a captured request |
 | Finding message includes first application location | `tests/engine/testsession/test_gates.py::test_unbounded_read_exact_threshold_boundary_flags` | `c8b26a66208ca486f01c5f7ad0f94ed198686689` | `app.py:12` absent from message |
-| Relationship loaders do not emit child-row findings | `tests/engine/test_sqla.py::test_relationship_loads_do_not_create_unbounded_findings` | `59cf19c9927cfb9eb17917cfb004785ce8a1d115` | child `Member` facts were present (all three loader cases) |
 
 All review red commits passed `red_check.py` for their listed tests and were replayed in detached worktrees with `PYTHONPATH=<red-tree>/src`; replays used `uv run --extra test` so SQLAlchemy and pytester dependencies were present. Review fixes landed in `65cc610`; the overhead-budget follow-up landed in `a2c9cc3`.
 
@@ -65,6 +62,9 @@ These adapted pre-existing tests are not valid red claims at `59cf19c9927cfb9eb1
 |---|---|---|
 | `tests/engine/test_sqla.py::test_multiple_entities_count_separately` | `59cf19c9927cfb9eb17917cfb004785ce8a1d115` | Failed with unrelated key-set mismatch at red SHA (expected `{'Team', 'Owner'}`, got `{'rows'}`); mutation-proven at `5c514bfd19cb1738ebdf8303e54b1c8256a4b5d0`: replace `type(target).__name__` with constant `"Entity"` → `AssertionError: assert {'Entity'} == {'Owner', 'Team'}` |
 | `tests/engine/test_sqla.py::test_identity_map_hits_are_not_counted` | `59cf19c9927cfb9eb17917cfb004785ce8a1d115` | Crashed with `TypeError` at red SHA (`list indices must be integers or slices, not str` while treating the load list as a dict); mutation-proven at `5c514bfd19cb1738ebdf8303e54b1c8256a4b5d0`: increment each load count by 2 → `AssertionError: assert 4 == 2` |
+| `tests/engine/test_sqla.py::test_load_counts_keep_statement_identity_when_ids_are_reused` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | The red body is intact, but its referenced `_load_context` was changed to a hashable class for the fixed context-key implementation. Superseded by `test_load_counts_keep_statement_identity_when_ids_are_reused_current`; replacing the context key with `id(context)` made the new test fail at `assert len(info.loads) == 2` (got 1). |
+| `tests/engine/test_sqla.py::test_load_compiles_and_masks_statement_once` | `5d99628bdd768495d19c396ff6b2e22b53d5a112` | The red body is intact, but its referenced `_load_context` changed for the fixed context-key implementation. Superseded by `test_load_compiles_and_masks_statement_once_current`; duplicate normalization in `_unbounded_read_statement_shape` made the new test fail at `assert calls == 1` (got 2). |
+| `tests/engine/test_sqla.py::test_relationship_loads_do_not_create_unbounded_findings` | `59cf19c9927cfb9eb17917cfb004785ce8a1d115` | Gate checks exact test source and formatter changed the import spacing. Superseded by `test_relationship_loads_do_not_create_unbounded_findings_current`; treating every mapper load as primary made the new selectin case fail because child `Member` facts appeared. |
 
 ## Mutation run notes
 

@@ -62,3 +62,9 @@ DONE_WITH_CONCERNS. Plan implementation and tests are complete at code head `208
 ## Reactivation prompt
 
 Resume sharpit 0.4.0 T-unbounded-read. Read `C:\development\github\sharpit-wt\0.4.0-T-unbounded-read\.superpowers\sdd\0.4.0\lanes\T-unbounded-read\handoff.md`, the lane plan and the spec. Review fixes and the final full suite are green at `a2c9cc346b258ba4a4577a6cbd4141f5626c8578`; the branch is not pushed. Next: coordinator review, lowest-direct and no-SQLAlchemy gates, then integrate only through `scripts/dev/lane_gate.py`. Do not re-ask decisions already in the lane brief; do not push.
+
+## Red-integrity follow-up
+
+- Superseded the three stale SQLAlchemy red rows in `findings.md` with new, independently named tests. The old test bodies/helpers remain unchanged; the fixed statement-count code now requires the hashable `_LoadContext` helper, so restoring the old `_load_context` would cause a `TypeError` instead of proving behavior. The relationship test was formatter-touched after its red commit, so its source was also left untouched and superseded.
+- Mutation proofs at the lane head: use `id(context)` as the statement-count key → identity test assertion failed (`len(info.loads) == 2`, got 1); duplicate SQL normalization → once-only test assertion failed (`calls == 1`, got 2); make every mapper load primary → selectin relationship assertion failed because child `Member` findings appeared. Restored `src/sharpit/engine/sqla.py` after each mutation.
+- All five new test cases passed before mutation. The first gate attempt was refused because the worktree had uncommitted changes; after this local commit, rerun the requested integration lane gate with `--no-rerun`, then the lane SQLAlchemy tests, Ruff check/format and Pyright. Never push.

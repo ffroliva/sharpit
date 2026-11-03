@@ -653,6 +653,22 @@ def test_load_counts_keep_statement_identity_when_ids_are_reused(monkeypatch: py
     sqla._unbounded_read_facts.pop(("test-statement-identity", 1, "call"), None)
 
 
+def test_load_counts_keep_statement_identity_when_ids_are_reused_current(monkeypatch: pytest.MonkeyPatch):
+    info = _paging_request("request-statement-identity-current")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-statement-identity-current", 1, "call"))
+    monkeypatch.setattr(sqla, "id", lambda _context: 1, raising=False)
+    try:
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(1))))
+        sqla._mapper_load(types.SimpleNamespace(), _load_context(sa.select(sa.literal(2))))
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    assert len(info.loads) == 2
+    sqla._unbounded_read_facts.pop(("test-statement-identity-current", 1, "call"), None)
+
+
 def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch):
     from sharpit.engine.capture import sqltrace
 
@@ -678,6 +694,33 @@ def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch)
 
     assert calls == 1
     sqla._unbounded_read_facts.pop(("test-statement-shape", 1, "call"), None)
+
+
+def test_load_compiles_and_masks_statement_once_current(monkeypatch: pytest.MonkeyPatch):
+    from sharpit.engine.capture import sqltrace
+
+    calls = 0
+    normalize = sqltrace.normalize
+
+    def counted_normalize(statement: str) -> Any:
+        nonlocal calls
+        calls += 1
+        return normalize(statement)
+
+    monkeypatch.setattr(sqltrace, "normalize", counted_normalize)
+    info = _paging_request("request-statement-shape-current")
+    context = _load_context(sa.select(sa.literal(1)))
+    request_token = REQUEST.set(info)
+    test_token = TEST.set(("test-statement-shape-current", 1, "call"))
+    try:
+        for _ in range(50):
+            sqla._mapper_load(types.SimpleNamespace(), context)
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    assert calls == 1
+    sqla._unbounded_read_facts.pop(("test-statement-shape-current", 1, "call"), None)
 
 
 @pytest.mark.parametrize("loader", ["selectin", "joined", "lazy"])
@@ -780,6 +823,61 @@ def test_relationship_loads_do_not_create_unbounded_findings(loader: str):
     missing_capture = sqla.apply_unbounded_read_facts(test)
     sqla.detach_session()
     facts = TestFacts(TestKey(f"test-relationship-gate-{loader}", "gw0", 1), test.phases)
+    assert missing_capture is False
+    assert len(teams) == 5
+    assert not any(fact.entity == "Member" for fact in facts.phases["call"].unbounded_reads)
+    assert evaluate_test(facts, Budget(None, False, 0), 5, ()) == []
+
+
+@pytest.mark.parametrize("loader", ["selectin", "joined", "lazy"])
+def test_relationship_loads_do_not_create_unbounded_findings_current(loader: str):
+    from sqlalchemy import ForeignKey
+    from sqlalchemy.orm import Session, joinedload, relationship, selectinload
+    from sharpit.engine.testsession.facts import TestFacts, TestKey
+    from sharpit.engine.testsession.gates import Budget, evaluate_test
+
+    class Base(sa.orm.DeclarativeBase):
+        pass
+
+    class Team(Base):
+        __tablename__ = f"teams_gate_current_{loader}"
+        id = sa.Column(sa.Integer, primary_key=True)
+        members = relationship("Member", back_populates="team")
+
+    class Member(Base):
+        __tablename__ = f"members_gate_current_{loader}"
+        id = sa.Column(sa.Integer, primary_key=True)
+        team_id = sa.Column(ForeignKey(f"teams_gate_current_{loader}.id"))
+        team = relationship(Team, back_populates="members")
+
+    engine = sa.create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(Team(members=[Member() for _ in range(4)]) for _ in range(5))
+        session.commit()
+
+    sqla.attach_session()
+    info = _paging_request(f"request-relationship-gate-current-{loader}")
+    request_token = REQUEST.set(info)
+    test_token = TEST.set((f"test-relationship-gate-current-{loader}", 1, "call"))
+    try:
+        with Session(engine) as session:
+            statement = sa.select(Team).limit(5)
+            if loader == "selectin":
+                statement = statement.options(selectinload(Team.members))
+            elif loader == "joined":
+                statement = statement.options(joinedload(Team.members))
+            teams = session.scalars(statement).unique().all()
+            if loader == "lazy":
+                _ = [member for team in teams for member in team.members]
+    finally:
+        TEST.reset(test_token)
+        REQUEST.reset(request_token)
+
+    test = _unbounded_test(f"test-relationship-gate-current-{loader}")
+    missing_capture = sqla.apply_unbounded_read_facts(test)
+    sqla.detach_session()
+    facts = TestFacts(TestKey(f"test-relationship-gate-current-{loader}", "gw0", 1), test.phases)
     assert missing_capture is False
     assert len(teams) == 5
     assert not any(fact.entity == "Member" for fact in facts.phases["call"].unbounded_reads)
