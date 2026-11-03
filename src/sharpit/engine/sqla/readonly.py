@@ -15,7 +15,7 @@ READ_ONLY_REFUSED = "The read-only transaction could not be established, so shar
 
 
 class ReadOnlyUnavailable(Exception):
-    """Raised when a PostgreSQL read-only transaction pin cannot be established."""
+    """Raised when a read-only session or transaction cannot be established and verified on the server."""
 
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
@@ -33,8 +33,15 @@ def bounded_read_only[T](
     statement_timeout: float,
     lock_timeout: float = 2.0,
 ) -> T:
-    """Run ``fn(conn)`` inside a verified PostgreSQL read-only transaction with statement and lock timeouts."""
-    if getattr(getattr(conn, "dialect", None), "name", None) != "postgresql":
+    """Run ``fn(conn)`` read-only as the server confirmed it, else raise ``ReadOnlyUnavailable`` without running it.
+
+    PostgreSQL: a verified read-only transaction with statement and lock timeouts. SQLite: ``PRAGMA query_only``,
+    verified and put back. Any other dialect is refused.
+    """
+    name = getattr(getattr(conn, "dialect", None), "name", None)
+    if name == "sqlite":
+        return _sqlite_read_only(conn, fn)
+    if name != "postgresql":
         raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
     stmt_ms = max(1, int(statement_timeout * 1000))
     lock_ms = max(1, int(lock_timeout * 1000))
@@ -54,6 +61,28 @@ def bounded_read_only[T](
     finally:
         with contextlib.suppress(Exception):
             conn.rollback()
+
+
+def _restore(conn: Any, statements: list[str]) -> None:
+    """End the read's transaction and put the session back; a connection that cannot be put back is invalidated."""
+    try:
+        conn.rollback()
+        for statement in statements:
+            conn.exec_driver_sql(statement)
+    except BaseException:
+        conn.invalidate()  # never hand the app's pool a connection that keeps sharpit's read-only session
+        raise
+
+
+def _sqlite_read_only[T](conn: Any, fn: Callable[[Any], T]) -> T:
+    saved = int(conn.exec_driver_sql("PRAGMA query_only").scalar() or 0)
+    try:
+        conn.exec_driver_sql("PRAGMA query_only = ON")
+        if conn.exec_driver_sql("PRAGMA query_only").scalar() != 1:
+            raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
+        return fn(conn)
+    finally:
+        _restore(conn, [f"PRAGMA query_only = {saved}"])
 
 
 def bounded[T](conn: Any, fn: Callable[[Any], T], timeout: float) -> T:
