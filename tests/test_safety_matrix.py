@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -662,11 +663,17 @@ def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, C
     return app, lambda: ran
 
 
+ADVISOR_VIOLATIONS = re.compile(r"/sharpit/api/[^/]+/rules/[^/]+/violations")
+NO_SCAN_ID = {"error": "Advisor scan ID must not be blank."}  # contract: the 400 of a violations read without scanId
+
+
 def _get_problem(path: str, resp: httpx.Response) -> str | None:
     """Why a swept GET's answer is wrong, or None."""
-    # the rest-api violations route needs a scanId: without one it answers 400 (and never scans)
-    expected = (400,) if path == "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations" else (200, 307, 404)
-    return None if resp.status_code in expected else f"{path}: {resp.status_code} {resp.text}"
+    if ADVISOR_VIOLATIONS.fullmatch(path):  # any advisor's violations route needs a scanId: without one, 400, no scan
+        ok = resp.status_code == 400 and resp.json() == NO_SCAN_ID
+    else:
+        ok = resp.status_code in (200, 307, 404)
+    return None if ok else f"{path}: {resp.status_code} {resp.text}"
 
 
 @pytest.mark.parametrize("variant", SWEEPS)
@@ -691,12 +698,10 @@ MCP_TOOLS = [t.name for t in TOOLS if not t.action]
 
 
 def _tool_arguments(tool: str, handle: SharpitHandle) -> dict[str, Any]:
-    """A tool's required arguments: get_exception_detail gets the id of an exception recorded here and
-    get_rest_api_rule_violations a rule of a REST API scan run here (the scan only reads route metadata)."""
-    if tool == "get_rest_api_rule_violations":
-        report = rest_api_service(handle.context).scan()
-        assert report["results"], report
-        return {"id": report["results"][0]["id"], "scanId": report["violationDetails"]["scanId"]}
+    """A tool's required arguments: built by its TOOL_ARGS (the base's or a lane's, tests/safety), or for
+    get_exception_detail the id of an exception recorded here."""
+    if (build := LANES.tool_args.get(tool)) is not None:
+        return build(handle)
     if tool != "get_exception_detail":
         return {}
     _seed_exceptions(handle)

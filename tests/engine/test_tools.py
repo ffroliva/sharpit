@@ -26,14 +26,12 @@ import pytest
 import safety
 from conftest import SideEffectGuard
 from sharpit.engine.activation import ActivationStatus
-from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.exceptions import ExceptionStore
 from sharpit.engine.collectors.config import config_report
-from sharpit.engine.collectors.restapi.service import RestApiService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
-from sharpit.engine.singleflight import ActionBusy, SingleFlight
-from sharpit.engine.spi import ApiModel, ApiRouteInfo, AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.singleflight import ActionBusy
+from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 from sharpit.engine.tools import (
     COMMANDS,
     INTERNAL_ERROR,
@@ -536,13 +534,8 @@ def _mcp_arguments(name: str, ctx: SharpitContext) -> dict[str, Any]:
         except RuntimeError as exc:
             store.record(exc, "log", None, "test")
         arguments = {"id": store.report()["groups"][0]["id"]}
-    if name == "get_rest_api_rule_violations":  # needs a cached scan: seeded with one violating route
-        route = ApiRouteInfo(("GET",), "/getPets", "app:read_pets", summary="s", tags=("t",))
-        model = ApiModel((route,), ("app:on_error",), ())
-        store = DismissalStore(Path(ctx.settings.state_dir))
-        service = ctx.lazy("rest-api", lambda: RestApiService(lambda: model, store, ctx.masker,
-                                                             SingleFlight(), max_retained=100))  # fmt: skip
-        arguments = {"id": "RAPI-NAME-001", "scanId": service.scan()["violationDetails"]["scanId"]}
+    if (seed := LANES.tool_seeds.get(name)) is not None:  # e.g. get_rest_api_rule_violations: a cached scan's id
+        arguments = seed(ctx)
     return arguments
 
 
