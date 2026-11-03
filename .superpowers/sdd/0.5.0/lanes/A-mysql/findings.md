@@ -13,14 +13,14 @@ Implementer: agy-flavio, Gemini 3.8
 | tests/engine/collectors/mysql/test_sections.py::test_mariadb_capabilities_differ | 9106ba29db4557e7f67d89289d2f171e030440b0 | `assert maria_data.capabilities["isMariaDb"] is True`: was False | Fixed in eb696f8f522d15940e6d0bb7c082456470c29a09 |
 | tests/engine/collectors/mysql/test_sections.py::test_performance_schema_off_is_a_diagnostic | 9106ba29db4557e7f67d89289d2f171e030440b0 | `assert len(data.diagnostics) >= 1`: no diagnostics returned | Fixed in eb696f8f522d15940e6d0bb7c082456470c29a09 |
 | tests/engine/collectors/mysql/test_sections.py::test_changes_between_reads | 9106ba29db4557e7f67d89289d2f171e030440b0 | `assert len(second_changes) == 1`: 0 changes returned | Fixed in eb696f8f522d15940e6d0bb7c082456470c29a09 |
-| tests/fastapi/test_mysql_api.py::test_mysql_read_uses_verified_read_only_path | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) | Fixed in 06806ab8ee43ec751cebe9a0ca8c5d26394beff5 |
-| tests/fastapi/test_mysql_api.py::test_autocommit_engine_is_unavailable | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) | Fixed in 06806ab8ee43ec751cebe9a0ca8c5d26394beff5 |
-| tests/fastapi/test_mysql_api.py::test_unknown_driver_unavailable | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) | Fixed in 06806ab8ee43ec751cebe9a0ca8c5d26394beff5 |
-| tests/fastapi/test_mysql_api.py::test_read_only_blocks_read | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) | Fixed in 06806ab8ee43ec751cebe9a0ca8c5d26394beff5 |
-| tests/fastapi/test_mysql_api.py::test_inactive_mysql_paths_404 | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) | Fixed in 06806ab8ee43ec751cebe9a0ca8c5d26394beff5 |
-| tests/fastapi/test_mysql_api.py::test_mcp_tools_list_has_only_get | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert [] == ['get_mysql_report', 'mysql_read']` | Fixed in 06806ab8ee43ec751cebe9a0ca8c5d26394beff5 |
-| tests/masking/test_a_mysql_masking.py::test_driver_error_dsn_password_masked | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 'could not connect to mysql' in shown` | Fixed in 06806ab8ee43ec751cebe9a0ca8c5d26394beff5 |
-| tests/safety/test_a_mysql_safety.py::test_mysql_get_no_side_effects | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) | Fixed in 06806ab8ee43ec751cebe9a0ca8c5d26394beff5 |
+| tests/fastapi/test_mysql_api.py::test_mysql_read_uses_verified_read_only_path | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) | Fixed in 06806ab1150326bdf754636237761c67619e1d2a |
+| tests/fastapi/test_mysql_api.py::test_autocommit_engine_is_unavailable | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) | Fixed in 06806ab1150326bdf754636237761c67619e1d2a |
+| tests/fastapi/test_mysql_api.py::test_unknown_driver_unavailable | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) | Fixed in 06806ab1150326bdf754636237761c67619e1d2a |
+| tests/fastapi/test_mysql_api.py::test_read_only_blocks_read | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) | Fixed in 06806ab1150326bdf754636237761c67619e1d2a |
+| tests/fastapi/test_mysql_api.py::test_inactive_mysql_paths_404 | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) | Fixed in 06806ab1150326bdf754636237761c67619e1d2a |
+| tests/fastapi/test_mysql_api.py::test_mcp_tools_list_has_only_get | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert [] == ['get_mysql_report', 'mysql_read']` | Fixed in 06806ab1150326bdf754636237761c67619e1d2a |
+| tests/masking/test_a_mysql_masking.py::test_driver_error_dsn_password_masked | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 'could not connect to mysql' in shown` | Fixed in 06806ab1150326bdf754636237761c67619e1d2a |
+| tests/safety/test_a_mysql_safety.py::test_mysql_get_no_side_effects | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) | Fixed in 06806ab1150326bdf754636237761c67619e1d2a |
 | tests/fastapi/test_mysql_report_read.py::test_full_read_reports_read_status | 9206080eca0ebdd87d7fdcf734304bd74a5cf978 | `assert 'ERROR' == 'READ'` (fix-1 #1: collect_all dropped sections) | Fixed in 4eb182c01dbd02658d75fbd29705ab5af120bdb4 |
 | tests/fastapi/test_mysql_report_read.py::test_full_read_reports_seven_sections | 9206080eca0ebdd87d7fdcf734304bd74a5cf978 | `assert 0 == 7` | Fixed in 4eb182c01dbd02658d75fbd29705ab5af120bdb4 |
 | tests/fastapi/test_mysql_report_read.py::test_row_cap_truncation_reaches_report | 9206080eca0ebdd87d7fdcf734304bd74a5cf978 | `assert False is True` | Fixed in 4eb182c01dbd02658d75fbd29705ab5af120bdb4 |
@@ -50,12 +50,12 @@ Implementer: agy-flavio, Gemini 3.8
 
 | Test | Historical SHA | Mutation | Assertion it then failed on |
 |---|---|---|---|
-| tests/fastapi/test_mysql_api.py::test_mysql_read_uses_verified_read_only_path | fcecb89547d7c66dc8b0933580e608070b471cb7 (red was only `404 == 200`) | service.py `read_only=True` -> `False` | `assert 1 == 0` (bounded() used) |
-| tests/fastapi/test_mysql_api.py::test_autocommit_engine_is_unavailable | fcecb89547d7c66dc8b0933580e608070b471cb7 (red was only `404 == 200`) | service.py `read_only=True` -> `False` | `assert 'READ' == 'ERROR'` |
-| tests/fastapi/test_mysql_api.py::test_unknown_driver_unavailable | fcecb89547d7c66dc8b0933580e608070b471cb7 (red was only `404 == 200`) | service.py dialect filter `if dialect not in (...)` -> `if False` | `assert 'ERROR' == 'DISABLED'` |
-| tests/fastapi/test_mysql_api.py::test_read_only_blocks_read | fcecb89547d7c66dc8b0933580e608070b471cb7 (red was only `404 == 200`) | panels.py mysql `action_capable` True -> False | `assert 200 == 403` |
-| tests/fastapi/test_mysql_api.py::test_inactive_mysql_paths_404 | fcecb89547d7c66dc8b0933580e608070b471cb7 (red was only `404 == 200`) | activation.py OFF branch returns enabled | `assert 200 == 404` |
-| tests/safety/test_a_mysql_safety.py::test_mysql_get_no_side_effects | fcecb89547d7c66dc8b0933580e608070b471cb7 (red was only `404 == 200`) | routes/mysql.py GET runs `refresh_mysql` | **still passed**: without SQLAlchemy imported the read refuses early (`DISABLED`). Not edited (red-recorded); replaced in strength by the pin below |
+| tests/fastapi/test_mysql_api.py::test_mysql_read_uses_verified_read_only_path | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f (red was only `404 == 200`) | service.py `read_only=True` -> `False` | `assert 1 == 0` (bounded() used) |
+| tests/fastapi/test_mysql_api.py::test_autocommit_engine_is_unavailable | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f (red was only `404 == 200`) | service.py `read_only=True` -> `False` | `assert 'READ' == 'ERROR'` |
+| tests/fastapi/test_mysql_api.py::test_unknown_driver_unavailable | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f (red was only `404 == 200`) | service.py dialect filter `if dialect not in (...)` -> `if False` | `assert 'ERROR' == 'DISABLED'` |
+| tests/fastapi/test_mysql_api.py::test_read_only_blocks_read | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f (red was only `404 == 200`) | panels.py mysql `action_capable` True -> False | `assert 200 == 403` |
+| tests/fastapi/test_mysql_api.py::test_inactive_mysql_paths_404 | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f (red was only `404 == 200`) | activation.py OFF branch returns enabled | `assert 200 == 404` |
+| tests/safety/test_a_mysql_safety.py::test_mysql_get_no_side_effects | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f (red was only `404 == 200`) | routes/mysql.py GET runs `refresh_mysql` | **still passed**: without SQLAlchemy imported the read refuses early (`DISABLED`). Not edited (red-recorded); replaced in strength by the pin below |
 | tests/fastapi/test_mysql_get_no_read.py::test_mysql_get_runs_no_sql_with_sqlalchemy_imported | 8df7711c43ef2bcbd9bef5d9e3a9899cc13bf53e (pin) | routes/mysql.py GET runs `refresh_mysql` | `assert ['SELECT @@version', ...] == []` |
 
 ## Rule mutations (each new rule removed in place, the named test run, the file restored with git checkout)

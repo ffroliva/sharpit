@@ -14,7 +14,7 @@ DONE (Tasks 1–5 complete: contract, sections, panel service/routes/MCP/safety,
 
 - Task 1: `0637bf5965d2f0ae18a081749f338829413b771b`
 - Task 2: `9106ba29db4557e7f67d89289d2f171e030440b0`
-- Task 3: `fcecb89547d7c66dc8b0933580e608070b471cb7`
+- Task 3: `fcecb897bbbbf2cebf84a95f58d49dfa7bff532f`
 - Task 5 (UI vitest): `e40506d3b8d5e6ad92ad5f9166c83b6b5e58e1e3`
 
 ## Tasks
@@ -25,9 +25,9 @@ DONE (Tasks 1–5 complete: contract, sections, panel service/routes/MCP/safety,
 | 1 fix | `465813a6b62ae251535f3a3419be79713d5e571a` (`feat:`) | `mysql_report` returns complete `NOT_READ` report matching `tests/fixtures/bootui/2.2.0/mysql/captured.json` |
 | 2 red | `9106ba29db4557e7f67d89289d2f171e030440b0` (`test:`) | 6 section/collector tests failed cleanly with AssertionErrors under tests/ |
 | 2 fix | `eb696f8f522d15940e6d0bb7c082456470c29a09` (`feat:`) | MySQL capability probe, sessions, statements, indexes, tables, lock-waits, replication, settings, metrics, and changes |
-| 3 red | `fcecb89547d7c66dc8b0933580e608070b471cb7` (`test:`) | 8 service/route/MCP/safety tests failed cleanly with AssertionErrors under tests/ |
-| 3 fix | `06806ab8ee43ec751cebe9a0ca8c5d26394beff5` (`feat:`) | MySQL panel service, verified read-only read execution, routes, MCP/CLI tools, panel flag on |
-| 4 test | `04f441fe51cb1f357599cb5e638da062f6b3cfc2` (`test:`) | MySQL leased acceptance tests: skip cleanly without `SHARPIT_TEST_MYSQL_URL` |
+| 3 red | `fcecb897bbbbf2cebf84a95f58d49dfa7bff532f` (`test:`) | 8 service/route/MCP/safety tests failed cleanly with AssertionErrors under tests/ |
+| 3 fix | `06806ab1150326bdf754636237761c67619e1d2a` (`feat:`) | MySQL panel service, verified read-only read execution, routes, MCP/CLI tools, panel flag on |
+| 4 test | `04f441fadbce230b69c578779787f8b142885ad9` (`test:`) | MySQL leased acceptance tests: skip cleanly without `SHARPIT_TEST_MYSQL_URL` |
 | 5 red | `e40506d3b8d5e6ad92ad5f9166c83b6b5e58e1e3` (`test:`) | 5 component tests failed cleanly with AssertionErrors on placeholder view |
 | 5 fix | `e9f89645467c6f7d72a991b8724705ac935d0220` (`feat:`) | MySQL Svelte view and rebuilt `src/sharpit/ui/static/` bundle |
 
@@ -42,14 +42,14 @@ DONE (Tasks 1–5 complete: contract, sections, panel service/routes/MCP/safety,
 | tests/engine/collectors/mysql/test_sections.py::test_mariadb_capabilities_differ | 9106ba29db4557e7f67d89289d2f171e030440b0 | `assert maria_data.capabilities["isMariaDb"] is True`: was False |
 | tests/engine/collectors/mysql/test_sections.py::test_performance_schema_off_is_a_diagnostic | 9106ba29db4557e7f67d89289d2f171e030440b0 | `assert len(data.diagnostics) >= 1`: no diagnostics returned |
 | tests/engine/collectors/mysql/test_sections.py::test_changes_between_reads | 9106ba29db4557e7f67d89289d2f171e030440b0 | `assert len(second_changes) == 1`: 0 changes returned |
-| tests/fastapi/test_mysql_api.py::test_mysql_read_uses_verified_read_only_path | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) |
-| tests/fastapi/test_mysql_api.py::test_autocommit_engine_is_unavailable | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) |
-| tests/fastapi/test_mysql_api.py::test_unknown_driver_unavailable | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) |
-| tests/fastapi/test_mysql_api.py::test_read_only_blocks_read | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) |
-| tests/fastapi/test_mysql_api.py::test_inactive_mysql_paths_404 | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) |
-| tests/fastapi/test_mysql_api.py::test_mcp_tools_list_has_only_get | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert [] == ['get_mysql_report', 'mysql_read']` |
-| tests/masking/test_a_mysql_masking.py::test_driver_error_dsn_password_masked | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 'could not connect to mysql' in shown` |
-| tests/safety/test_a_mysql_safety.py::test_mysql_get_no_side_effects | fcecb89547d7c66dc8b0933580e608070b471cb7 | `assert 404 == 200` (route not mounted) |
+| tests/fastapi/test_mysql_api.py::test_mysql_read_uses_verified_read_only_path | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) |
+| tests/fastapi/test_mysql_api.py::test_autocommit_engine_is_unavailable | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) |
+| tests/fastapi/test_mysql_api.py::test_unknown_driver_unavailable | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) |
+| tests/fastapi/test_mysql_api.py::test_read_only_blocks_read | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) |
+| tests/fastapi/test_mysql_api.py::test_inactive_mysql_paths_404 | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) |
+| tests/fastapi/test_mysql_api.py::test_mcp_tools_list_has_only_get | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert [] == ['get_mysql_report', 'mysql_read']` |
+| tests/masking/test_a_mysql_masking.py::test_driver_error_dsn_password_masked | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 'could not connect to mysql' in shown` |
+| tests/safety/test_a_mysql_safety.py::test_mysql_get_no_side_effects | fcecb897bbbbf2cebf84a95f58d49dfa7bff532f | `assert 404 == 200` (route not mounted) |
 
 ## UI red tests (vitest)
 
