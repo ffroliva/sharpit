@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from starlette.authentication import SimpleUser, UnauthenticatedUser
+
 from sharpit.engine.capture.securitylogs import (
     AUTHENTICATION_FAILURE,
     AUTHENTICATION_SUCCESS,
@@ -10,6 +12,7 @@ from sharpit.engine.capture.securitylogs import (
     clamp_max_logs,
     format_instant,
     parse_after,
+    principal_of,
     security_logs_report,
 )
 from sharpit.engine.masking import MASK, Exposure, Masker
@@ -202,3 +205,36 @@ def test_add_signals_the_change_stream() -> None:
     buffer.changes.signal = lambda: signals.append(1)  # type: ignore[method-assign]
     buffer.add(AUTHENTICATION_FAILURE, None, {}, None)
     assert signals == [1], "each event signals the update stream"
+
+
+class _HostileUser:
+    calls: list[str] = []  # noqa: RUF012 - a class-level probe the properties append to
+
+    @property
+    def identity(self) -> str:
+        self.calls.append("identity")
+        raise RuntimeError("identity ran")
+
+    @property
+    def display_name(self) -> str:
+        self.calls.append("display_name")
+        raise RuntimeError("display_name ran")
+
+    @property
+    def is_authenticated(self) -> bool:
+        self.calls.append("is_authenticated")
+        return True
+
+
+class _PlainUser:
+    def __init__(self) -> None:
+        self.identity = "u-7"
+
+
+def test_principal_never_runs_user_properties() -> None:
+    assert principal_of(_HostileUser()) == "_HostileUser", "a property identity falls back to the type name"
+    assert _HostileUser.calls == [], "no user property ever runs"
+    assert principal_of(SimpleUser("alice")) == "SimpleUser", "SimpleUser.identity is a property: type name"
+    assert principal_of(UnauthenticatedUser()) is None, "an unauthenticated user has no principal"
+    assert principal_of(None) is None, "no user, no principal"
+    assert principal_of(_PlainUser()) == "u-7", "a plain identity attribute is the principal"

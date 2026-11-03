@@ -6,13 +6,16 @@ import re
 import threading
 import time
 from collections import Counter, deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker
 from sharpit.engine.paging import paged
+
+if TYPE_CHECKING:
+    from sharpit.engine.context import SharpitContext
 
 AUTHENTICATION_SUCCESS = "AUTHENTICATION_SUCCESS"
 AUTHENTICATION_FAILURE = "AUTHENTICATION_FAILURE"
@@ -173,3 +176,19 @@ def security_logs_report(
         "events": [_event(e, masker, metadata_only, masks_keys) for e in kept],
         "page": page,
     }
+
+
+def principal_of(user: object) -> str | None:
+    return ""
+
+
+def on_security_event(buffer: SecurityEventBuffer, masker: Masker) -> Callable[[Mapping[str, Any], int], None]:
+    return lambda _scope, _status: None
+
+
+def attach(ctx: SharpitContext) -> Callable[[Mapping[str, Any], int], None] | None:
+    return None
+
+
+def record_security_event(type: str, principal: str | None = None, data: Mapping[str, object] | None = None) -> None:
+    return None
