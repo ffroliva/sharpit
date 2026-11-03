@@ -64,7 +64,10 @@ design), so `examples/fastapi_sample` literals show up.
 ## Gates (at `2f13fd1` + evidence)
 
 ruff 0, format 0 (591 files), pyright 0 errors; lane + safety matrix + test_tools + code shape + import boundary:
-1227 passed, 1 skipped; vitest 296 passed, `npm run check` 0. Full suite: see below.
+1227 passed, 1 skipped; vitest 296 passed, `npm run check` 0. Full suite (`-n 4`, at `0e65c6e`): 4895 passed,
+12 skipped, 3 failed, all overhead budgets outside the diff (n+1 hook, capture request, sql-trace statement). Re-run
+alone: n+1 and capture pass; sql-trace statement is flaky on both sides (base `bf43b1b`: 1 failed, 1 passed; head: 2
+passed). No hot-path file is in the lane diff; the budgets need the coordinator's quiet paired run.
 
 ## Open questions for the coordinator
 
