@@ -447,3 +447,24 @@ def test_threads_report_emits_user_time_when_resource_supports_it(monkeypatch: p
     report = threads_report(_ctx(), None, None, None, None)
     row = next(thread for thread in report["threads"] if thread["id"] == threading.get_ident())
     assert row["userTimeMillis"] == 1250
+
+
+def test_threads_report_has_no_cpu_time_when_the_platform_has_no_thread_clock(monkeypatch: pytest.MonkeyPatch):
+    def no_thread_clock() -> float:
+        raise NotImplementedError
+
+    monkeypatch.setattr("time.thread_time", no_thread_clock)
+    report = threads_report(_ctx(), None, None, None, None)
+    row = next(thread for thread in report["threads"] if thread["id"] == threading.get_ident())
+    assert row["cpuTimeMillis"] is None
+    assert report["cpuTimeSupported"] is False
+
+
+def test_threads_report_has_no_user_time_when_resource_has_no_per_thread_usage(monkeypatch: pytest.MonkeyPatch):
+    import sys
+
+    usage = SimpleNamespace(getrusage=lambda who: SimpleNamespace(ru_utime=1.25))  # no RUSAGE_THREAD, as on macOS
+    monkeypatch.setitem(sys.modules, "resource", usage)
+    report = threads_report(_ctx(), None, None, None, None)
+    row = next(thread for thread in report["threads"] if thread["id"] == threading.get_ident())
+    assert row["userTimeMillis"] is None

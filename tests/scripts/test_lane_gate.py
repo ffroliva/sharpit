@@ -5,6 +5,7 @@ and the pytest replays are injected fakes, so these tests never run the real sui
 """
 
 import json
+import shutil
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -150,7 +151,7 @@ def _base_files() -> dict[str, str]:
     }
 
 
-def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
+def _build_fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
     integration = tmp_path / "integration"
     integration.mkdir()
     _git(integration, "init", "-q", "-b", "release")
@@ -175,6 +176,44 @@ def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = Tru
     if review:
         fx.review()
     return fx
+
+
+_TEMPLATE_ROOT: Path | None = None
+_FIXTURE_TEMPLATES: dict[tuple[str, bool], Fixture] = {}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fixture_template_root(tmp_path_factory: pytest.TempPathFactory) -> None:
+    global _TEMPLATE_ROOT
+    _TEMPLATE_ROOT = tmp_path_factory.mktemp("lane-gate-templates")
+
+
+def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
+    if _TEMPLATE_ROOT is None:
+        raise RuntimeError("lane-gate fixture template root was not initialized")
+    key = (lane, review)
+    template = _FIXTURE_TEMPLATES.get(key)
+    if template is None:
+        template_root = _TEMPLATE_ROOT / f"{lane}-review-{review}"
+        template_root.mkdir()
+        template = _build_fixture(template_root, lane, review=review)
+        _FIXTURE_TEMPLATES[key] = template
+
+    copy_root = tmp_path
+    integration = copy_root / "integration"
+    worktree = copy_root / "lane"
+    shutil.copytree(template.integration, integration)
+    shutil.copytree(template.worktree, worktree)
+    _git(integration, "worktree", "repair", str(worktree))
+    return Fixture(
+        integration,
+        worktree,
+        lane,
+        red=template.red,
+        head=template.head,
+        outcomes=template.outcomes.copy(),
+        failing_gates=template.failing_gates.copy(),
+    )
 
 
 def _refusals(result: object) -> list[str]:
@@ -1629,3 +1668,23 @@ def test_plan_index_at_the_integration_root_protects_that_file(tmp_path: Path) -
     result = fx.evaluate(plan_index=fx.integration / "PLAN.md")
     assert _refused(result, "plan file changed: PLAN.md")
     assert not _refused(result, "plan file changed: README.md")
+
+
+def test_lane_fixture_copy_uses_at_most_one_git_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    warm_root = tmp_path / "warm"
+    warm_root.mkdir()
+    _fixture(warm_root)
+    calls: list[tuple[str, ...]] = []
+    original = subprocess.run
+
+    def count_git(args: Sequence[str], *positional: object, **keywords: object) -> subprocess.CompletedProcess[str]:
+        if args and args[0] == "git":
+            calls.append(tuple(args))
+        return original(args, *positional, **keywords)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(subprocess, "run", count_git)
+    copy_root = tmp_path / "copy"
+    copy_root.mkdir()
+    _fixture(copy_root)
+    git_calls = len(calls)
+    assert git_calls <= 1, f"copying a prepared lane fixture used {git_calls} git subprocesses; expected at most 1"

@@ -13,10 +13,10 @@ sharpit 0.3.0 passed the full local gate and still failed three of these jobs on
 
 | Job | Guards | Run it locally |
 |---|---|---|
-| `test` (Python 3.12, 3.13, 3.14; Windows 3.14) | the full suite on every leg; lint, format, pyright strict and the github.com link check on the Ubuntu 3.12 leg only (version-independent: pyright pins 3.12). uv's cache is on in every job | `uv sync --locked --extra test && uv run ruff check && uv run ruff format --check && uv run pyright && uv run pytest -q -n auto` (add `--python 3.12` / `3.14` to change interpreter) |
-| `coverage` | coverage for the code-scan, with the `sys.monitoring` tracer; every overhead budget test skips itself while a tracer runs (`tests/overhead.py::paired`) and the plain `test` legs enforce it | `COVERAGE_CORE=sysmon COVERAGE_FILE="$TEMP/.coverage" uv run pytest -q -n auto --cov=sharpit --cov-report=xml`. Subprocess runs (pytester) are measured through `[tool.coverage.run] patch = ["subprocess"]`. `COVERAGE_FILE` must stay outside the repo: `no_side_effects` treats files in the cwd as writes |
+| `test` (Python 3.12, 3.13, 3.14; Windows 3.14) | the full suite on every leg; lint, format, pyright strict and the github.com link check on the Ubuntu 3.12 leg only (version-independent: pyright pins 3.12). uv's cache is on in every job. The suite runs in `test shard (os, python, i/n)` jobs; each required `test (os, python)` check only reports whether every shard passed (see *Shards* below) | `uv sync --locked --extra test && uv run ruff check && uv run ruff format --check && uv run pyright && uv run pytest -q -n auto` (add `--python 3.12` / `3.14` to change interpreter; `SHARPIT_SHARD=2/4` runs one shard) |
+| `coverage` | coverage for the code-scan, with the `sys.monitoring` tracer, in three `coverage shard (i/3)` jobs; `coverage` fails unless every shard passed, then `coverage combine`s their data into the `coverage.xml` sonar reads. Every overhead budget test skips itself while a tracer runs (`tests/overhead.py::paired`) and the plain `test` legs enforce it | `COVERAGE_CORE=sysmon COVERAGE_FILE="$TEMP/.coverage" uv run pytest -q -n auto --cov=sharpit --cov-report=xml`. Subprocess runs (pytester) are measured through `[tool.coverage.run] patch = ["subprocess"]`. `COVERAGE_FILE` must stay outside the repo: `no_side_effects` treats files in the cwd as writes |
 | `sonar` (needs `coverage`) | the code-scan quality gate (new-code coverage ≥ 85%, no new issues) and the ratchet: open issues on `main` equal `sonar-baseline.txt` | not reproducible offline; read the PR's quality gate and issues on the code-scan dashboard. When a merged PR fixed issues, `main` goes red until `sonar-baseline.txt` is lowered in a one-line PR (`scripts/ci/sonar_ratchet.py` prints the number) |
-| `lowest` | the lowest direct dependency versions sharpit claims to support (Python 3.12) | `uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 && uv run --no-sync pytest -q -n auto` (`--no-sync`: a plain `uv run` re-locks and undoes the resolution). Restore `uv.lock` afterwards if the sync rewrote it |
+| `lowest` | the lowest direct dependency versions sharpit claims to support (Python 3.12), in two `lowest shard (i/2)` jobs | `uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 && uv run --no-sync pytest -q -n auto` (`--no-sync`: a plain `uv run` re-locks and undoes the resolution). Restore `uv.lock` afterwards if the sync rewrote it |
 | `no-sqlalchemy` | sharpit installs, imports and serves every panel without SQLAlchemy | `uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite --no-install-package alembic --no-install-package greenlet && uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy"`. A test that needs SQLAlchemy uses `pytest.importorskip` and the `needs_sqlalchemy` marker |
 | `sharpit-gate` | dogfood: the example's fixed route passes `pytest --sharpit`, its planted N+1 fails it; reports uploaded as an artifact | `uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml` (must pass) and `-k n_plus_one --sharpit` (must fail) |
 | `ui` | the committed build in `src/sharpit/ui/static` matches `ui/` | `cd ui && npm ci --ignore-scripts && npm run build && git diff --exit-code -- ../src/sharpit/ui/static`. Never build while the worktree's pytest runs: `no_side_effects` sees the new files |
@@ -26,6 +26,35 @@ sharpit 0.3.0 passed the full local gate and still failed three of these jobs on
 Not in `ci.yml`: the Playwright end-to-end suites (`ui/`, `npx playwright test` with `SHARPIT_E2E_PORT` set to an
 `agentctl`-leased port; `-c playwright.sqla.config.ts` for the SQLAlchemy sample) and the release workflow
 (`.github/workflows/release.yml`, run by a signed tag; see `skills/release/SKILL.md`).
+
+## Shards
+
+Where one runner would take well over two minutes, the suite is split by test file: `SHARPIT_SHARD=i/n` makes
+`tests/_shard.py` (a plugin loaded by `tests/conftest.py`) skip collecting every test file outside shard `i`. A file
+with a measured weight for the runner's platform in `tests/shard_weights.json` goes longest first onto the lightest
+shard; any other file goes by a hash of its path, so adding a file never moves the others. `tests/test_shard.py` proves
+the shards are disjoint, their union is the unsharded collection, no shard of the real suite is empty, and the weighted
+split stays within the longest-first bound. The weights come from the shards' JUnit artifacts (`junit-*`, kept 7 days):
+refresh them with `gh run download <run id> -p 'junit-*' -D <dir> && python scripts/ci/shard_weights.py <dir>` when a
+shard runs well past the others. They are not the pytest-speed baseline (`tests/test_durations.json`), which is never
+refreshed to balance shards.
+
+The floor on Windows is one file: `tests/scripts/test_lane_gate.py` takes about 376 s of test time there (0.17 s per
+test on Ubuntu, 2.9 s on Windows), because each test spawns about 63 `git` processes at roughly 0.1 s each on Windows.
+A file is never split, so that shard takes about 95 s of pytest on four workers however many shards the leg has.
+
+| Leg | Shards |
+|---|---|
+| Windows 3.14 | 3 |
+| Ubuntu 3.12 (also lint and pyright, in shard 1), 3.13, 3.14 | 2 each |
+| `lowest` | 2 |
+| `coverage` | 3 |
+
+Branch protection requires the job names in the first table, so each keeps a job that `needs:` its shards and runs
+`if: always()` (a skipped required check counts as green): it fails unless the whole shard matrix succeeded. `sonar` does the same with `coverage` (it
+fails, never skips, when coverage did not succeed; forks and Dependabot still skip it for want of a token). One red
+shard therefore turns all four `test` checks red; the shard job's own name says which leg failed. To add a shard,
+change the matrix only; never shard to hide a slow test (`skills/optimize/SKILL.md`).
 
 ## Reading a red job
 

@@ -4,16 +4,27 @@ on:
     branches: [main, mvp]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py) where one runner would take over ~2 min.
+  # Each leg's shards together run every test exactly once (tests/test_shard.py).
+  test-shard:
+    name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        python: ["3.12", "3.13", "3.14"]
         include:
-          - os: windows-latest
-            python: "3.14"
+          - { os: ubuntu-latest, python: "3.12", shard: 1/2 }
+          - { os: ubuntu-latest, python: "3.12", shard: 2/2 }
+          - { os: ubuntu-latest, python: "3.13", shard: 1/2 }
+          - { os: ubuntu-latest, python: "3.13", shard: 2/2 }
+          - { os: ubuntu-latest, python: "3.14", shard: 1/2 }
+          - { os: ubuntu-latest, python: "3.14", shard: 2/2 }
+          - { os: windows-latest, python: "3.14", shard: 1/3 }
+          - { os: windows-latest, python: "3.14", shard: 2/3 }
+          - { os: windows-latest, python: "3.14", shard: 3/3 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -23,19 +34,60 @@ jobs:
       - run: uv python install ${{ matrix.python }}
       - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
       - run: uv run ruff check
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' # lint is version-independent (pyright pins 3.12): once, still in a required job
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
       - run: "! git grep -n 'cloud[n]s' -- ." # links must point at github.com, never a mirror
         shell: bash
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' # lint is version-independent (pyright pins 3.12): once, still in a required job
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
       - run: uv run ruff format --check
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' # lint is version-independent (pyright pins 3.12): once, still in a required job
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
       - run: uv run pyright
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' # lint is version-independent (pyright pins 3.12): once, still in a required job
-      - run: uv run pytest -q -n auto
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
+      - run: uv run pytest -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+        env:
+          SHARPIT_SHARD: ${{ matrix.shard }}
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: # per-file timings: pytest-speed's `rank` and the shard weights (tests/shard_weights.json) read these
+          name: junit-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/junit.xml
+          retention-days: 7
+      - name: overhead budgets (also in the job summary, which needs a sign-in to read)
+        if: always()
+        shell: bash
+        env:
+          PYTHONUTF8: 1 # the units hold µ; Windows would print cp1252
+        run: |
+          uv run --no-sync python -c "import json,sys
+          for r in map(json.loads, open(sys.argv[1])):
+              s, u = r['scale'], r['unit']
+              print(f\"{r['verdict']:4} {r['name']}: overhead {r['overhead']/s:.3f} {u}, noise {r['noise']/s:.3f}, budget {r['budget']/s:.3f}\")" "$RUNNER_TEMP/overhead.jsonl" || true
 
-  coverage:
+  test:
+    # The required checks keep their names: each passes only when every test shard passed (always(): a skipped
+    # required check would count as green). Stricter than per leg: one failed shard fails all four.
+    needs: test-shard
+    if: always()
+    strategy:
+      fail-fast: false # each required check reports, none shows as cancelled
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.12", "3.13", "3.14"]
+        include:
+          - os: windows-latest
+            python: "3.14"
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.test-shard.result }}" = success
+
+  coverage-shard:
     # Coverage for SonarCloud. Overhead budget tests time capture on vs off, which the coverage tracer distorts:
     # tests/overhead.py::paired skips every one of them while a tracer runs; the plain test matrix above enforces them.
+    name: coverage shard (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/3, 2/3, 3/3]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,8 +99,32 @@ jobs:
       - env:
           COVERAGE_FILE: ${{ runner.temp }}/.coverage
           COVERAGE_CORE: sysmon # sys.monitoring tracer (Python 3.12+): same report, a fraction of the classic tracer's cost
-        run: >-
-          uv run pytest -q -n auto --cov=sharpit --cov-report=xml
+          SHARPIT_SHARD: ${{ matrix.shard }}
+        run: uv run pytest -q -n auto --cov=sharpit --cov-report=
+      - run: cp "$RUNNER_TEMP/.coverage" "coverage-${{ strategy.job-index }}.data" # a visible name: upload skips dotfiles
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-data-${{ strategy.job-index }}
+          path: coverage-${{ strategy.job-index }}.data
+          retention-days: 1
+
+  coverage:
+    # Combines the shards' data into the coverage.xml sonar reads; required check, fails unless every shard passed.
+    needs: coverage-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.coverage-shard.result }}" = success
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv sync --locked --extra test --python 3.13 # NOSONAR - the report reads sharpit's sources and coverage's config
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-data-*
+          merge-multiple: true
+      - run: uv run --no-sync coverage combine coverage-*.data && uv run --no-sync coverage xml
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-xml
@@ -59,13 +135,16 @@ jobs:
     needs: coverage
     runs-on: ubuntu-latest
     # Forked PRs and Dependabot runs get no SONAR_TOKEN; scan trusted pushes and internal PRs only.
+    # always(): when coverage fails, sonar must fail too, not skip (a skipped required check counts as green).
     if: >-
+      always() &&
       github.actor != 'dependabot[bot]' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
       pull-requests: read
     steps:
+      - run: test "${{ needs.coverage.result }}" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # blame and new-code detection need full history
@@ -107,7 +186,12 @@ jobs:
             python scripts/ci/sonar_ratchet.py --branch "$GITHUB_REF_NAME"
           fi
 
-  lowest:
+  lowest-shard:
+    name: lowest shard (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/2, 2/2]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,6 +201,27 @@ jobs:
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
       - run: uv run --no-sync pytest -q -n auto
+        env:
+          SHARPIT_SHARD: ${{ matrix.shard }}
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+      - name: overhead budgets (also in the job summary, which needs a sign-in to read)
+        if: always()
+        shell: bash
+        env:
+          PYTHONUTF8: 1 # the units hold µ; Windows would print cp1252
+        run: |
+          uv run --no-sync python -c "import json,sys
+          for r in map(json.loads, open(sys.argv[1])):
+              s, u = r['scale'], r['unit']
+              print(f\"{r['verdict']:4} {r['name']}: overhead {r['overhead']/s:.3f} {u}, noise {r['noise']/s:.3f}, budget {r['budget']/s:.3f}\")" "$RUNNER_TEMP/overhead.jsonl" || true
+
+  lowest:
+    # required check: passes only when every lowest shard passed (always(): a skipped required check counts as green)
+    needs: lowest-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.lowest-shard.result }}" = success
 
   no-sqlalchemy:
     # SQLAlchemy is optional: sharpit must install, import and serve every panel without it

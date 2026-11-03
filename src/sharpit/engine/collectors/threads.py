@@ -188,17 +188,13 @@ def _thread_name(ctx: SharpitContext, name: str) -> str:
     return shown if shown is not None else MASK if ctx.settings.mask_secrets and is_secret_value(name) else name
 
 
-def threads_report(
-    ctx: SharpitContext, q: str | None, state: str | None, offset: int | None, limit: int | None
-) -> dict[str, Any]:
-    """``ThreadDumpReport`` keys plus ``tasks``, ``taskCount`` and ``warnings``; ``limit`` also caps ``tasks``."""
-    names_only = not getattr(sys, "_is_gil_enabled", lambda: True)()  # 3.13+; free-threaded builds are unsupported
-    hide = names_only or ctx.settings.expose_values is Exposure.METADATA_ONLY  # BootUI: no stacks under METADATA_ONLY
-    max_frames = 0 if hide else ctx.settings.threads_max_stack_frames
+def _thread_rows(
+    ctx: SharpitContext, max_frames: int, names_only: bool, cpu_time_ms: int | None
+) -> list[dict[str, Any]]:
+    """One ``ThreadInfo`` per live thread, by id; CPU and user time are known only for the calling thread."""
     # the state is metadata, so frames are read under METADATA_ONLY too; max_frames 0 hides only the stack text
     current: dict[int, Any] = {} if names_only else sys._current_frames()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     current_thread_id = threading.get_ident()
-    cpu_time_ms = _thread_cpu_time_ms()
     user_time_ms = _thread_user_time_ms()
     rows: list[dict[str, Any]] = []
     for thread in threading.enumerate():
@@ -214,6 +210,18 @@ def threads_report(
         )  # fmt: skip
         rows.append(dict(zip(THREAD_KEYS, values, strict=True)))
     rows.sort(key=lambda r: r["id"])
+    return rows
+
+
+def threads_report(
+    ctx: SharpitContext, q: str | None, state: str | None, offset: int | None, limit: int | None
+) -> dict[str, Any]:
+    """``ThreadDumpReport`` keys plus ``tasks``, ``taskCount`` and ``warnings``; ``limit`` also caps ``tasks``."""
+    names_only = not getattr(sys, "_is_gil_enabled", lambda: True)()  # 3.13+; free-threaded builds are unsupported
+    hide = names_only or ctx.settings.expose_values is Exposure.METADATA_ONLY  # BootUI: no stacks under METADATA_ONLY
+    max_frames = 0 if hide else ctx.settings.threads_max_stack_frames
+    cpu_time_ms = _thread_cpu_time_ms()
+    rows = _thread_rows(ctx, max_frames, names_only, cpu_time_ms)
     tally: dict[str, int] = {}
     for row in rows:
         tally[row["state"]] = tally.get(row["state"], 0) + 1

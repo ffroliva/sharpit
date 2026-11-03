@@ -82,7 +82,7 @@ def test_write_baseline_refuses_unknown_even_when_status_fails(pytester: pytest.
         " c=sqlite3.connect(':memory:')\n"
         " for _ in range(5): c.execute('SELECT 1').fetchone()"
     )
-    result = pytester.runpytest_subprocess(
+    result = pytester.runpytest_inprocess(
         "--sharpit",
         "--sharpit-require-app",
         "--sharpit-report=report.json",
@@ -129,12 +129,12 @@ def _refused(pytester: pytest.Pytester, result: pytest.RunResult) -> None:
 
 def test_write_baseline_refused_on_single_process_deselection(pytester: pytest.Pytester) -> None:
     _two_tests(pytester, "addopts = -k x")
-    _refused(pytester, pytester.runpytest_subprocess(*_SINGLE, "--sharpit-write-baseline=b.json"))
+    _refused(pytester, pytester.runpytest_inprocess(*_SINGLE, "--sharpit-write-baseline=b.json"))
 
 
 def test_write_baseline_refused_on_single_process_marker_addopts(pytester: pytest.Pytester) -> None:
     _two_tests(pytester, 'addopts = -m "not slow"')
-    _refused(pytester, pytester.runpytest_subprocess(*_SINGLE, "--sharpit-write-baseline=b.json"))
+    _refused(pytester, pytester.runpytest_inprocess(*_SINGLE, "--sharpit-write-baseline=b.json"))
 
 
 def test_write_baseline_refused_on_conftest_deselection(pytester: pytest.Pytester) -> None:
@@ -145,7 +145,7 @@ def test_write_baseline_refused_on_conftest_deselection(pytester: pytest.Pyteste
         " items[:] = [i for i in items if i.name != 'test_y']\n"
         " config.hook.pytest_deselected(items=gone)"
     )
-    _refused(pytester, pytester.runpytest_subprocess(*_SINGLE, "--sharpit-write-baseline=b.json"))
+    _refused(pytester, pytester.runpytest_inprocess(*_SINGLE, "--sharpit-write-baseline=b.json"))
 
 
 @pytest.mark.parametrize("selection", [["-k", "x"], ["-m", "not slow"]])
@@ -154,7 +154,7 @@ def test_write_baseline_refused_on_single_process_command_line_selection(
 ) -> None:
     # characterisation: command-line -k/-m were already caught by the argument scan
     _two_tests(pytester)
-    _refused(pytester, pytester.runpytest_subprocess(*_SINGLE, *selection, "--sharpit-write-baseline=b.json"))
+    _refused(pytester, pytester.runpytest_inprocess(*_SINGLE, *selection, "--sharpit-write-baseline=b.json"))
 
 
 def test_single_process_keyword_addopts_keeps_fixed_null(pytester: pytest.Pytester) -> None:
@@ -166,7 +166,7 @@ def test_single_process_keyword_addopts_keeps_fixed_null(pytester: pytest.Pytest
         '"ruleId":"R","target":"t","message":"m","observed":null}]}',
         encoding="utf-8",
     )
-    pytester.runpytest_subprocess(*_SINGLE, "--sharpit-baseline=previous.json", "--sharpit-report=report.json")
+    pytester.runpytest_inprocess(*_SINGLE, "--sharpit-baseline=previous.json", "--sharpit-report=report.json")
     data = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
     assert data["baseline"]["fixed"] is None
     assert data["baseline"]["fixedReason"] == "partial run"
@@ -174,7 +174,7 @@ def test_single_process_keyword_addopts_keeps_fixed_null(pytester: pytest.Pytest
 
 def test_write_baseline_requires_path(pytester: pytest.Pytester) -> None:
     pytester.makepyfile("def test_a(): pass")
-    result = pytester.runpytest_subprocess(*_SINGLE, "--sharpit-write-baseline")
+    result = pytester.runpytest_inprocess(*_SINGLE, "--sharpit-write-baseline")
     assert result.ret == 4
     assert list(pytester.path.glob("*baseline*.json")) == []
 
@@ -183,7 +183,7 @@ def test_write_baseline_ini_option_writes_nothing(pytester: pytest.Pytester) -> 
     # spec: the flag is the only way to write a baseline
     pytester.makepyfile("def test_a(): pass")
     pytester.makeini("[pytest]\nsharpit_write_baseline = b.json")
-    pytester.runpytest_subprocess(*_SINGLE)
+    pytester.runpytest_inprocess(*_SINGLE)
     assert not (pytester.path / "b.json").exists()
 
 
