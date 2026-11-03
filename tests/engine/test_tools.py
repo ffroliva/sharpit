@@ -154,7 +154,6 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_loggers", "loggers", False, QUERY_LIMIT_SCHEMA),
         ("get_beans", "beans", False, QUERY_LIMIT_SCHEMA),
         ("get_http_exchanges", "http-exchanges", False, LIMIT_SCHEMA),
-        ("get_http_routes", "http-exchanges", False, LIMIT_SCHEMA),
         ("get_log_tail", "log-tail", False, QUERY_LIMIT_SCHEMA),
         ("get_exceptions", "exceptions", False, NONE_SCHEMA),
         ("get_exception_detail", "exceptions", False, ID_SCHEMA),
@@ -164,7 +163,6 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("pause_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
         ("resume_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
         ("get_live_activity", "activity", False, QUERY_LIMIT_SCHEMA),
-        ("get_request_profile", "activity", False, ID_SCHEMA),
         ("get_alembic_migrations", "alembic", False, NONE_SCHEMA),
         ("get_health", "health", False, NONE_SCHEMA),
         ("get_database_connection_pools", "database-connection-pools", False, NONE_SCHEMA),
@@ -174,6 +172,8 @@ def test_catalogue_names_panels_actions_and_schemas():
         ("get_rest_api_report", "rest-api", False, NONE_SCHEMA),
         ("get_rest_api_rule_violations", "rest-api", False, RULE_VIOLATIONS_SCHEMA),
         ("rest_api_scan", "rest-api", True, NONE_SCHEMA),
+        ("get_http_routes", "http-exchanges", False, LIMIT_SCHEMA),
+        ("get_request_profile", "activity", False, ID_SCHEMA),
     ]
 
 

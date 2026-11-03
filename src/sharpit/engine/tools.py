@@ -365,16 +365,6 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         lambda c, a: http_exchanges_report(c.ctx, None, None, None, None, a["limit"]),
     ),
     Tool(
-        "get_http_routes",
-        "Return the HTTP routes this application served, grouped by method and route template, with request counts, "
-        "status classes, errors and duration percentiles over the retained exchanges, ranked by requests, total time "
-        "and p95 latency. A path no route matched is grouped by its masked path; query strings are never used.",
-        _LIMIT_ONLY,
-        "http-exchanges",
-        False,
-        lambda c, a: summarize_http_routes(c.ctx.capture.exchanges, limit=a["limit"]),
-    ),
-    Tool(
         "get_log_tail",
         "Return the latest buffered application log snapshot, oldest first. Messages are masked at capture, but logs "
         "are application-controlled and may contain sensitive data; use them only in the local diagnostic context.",
@@ -454,16 +444,6 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "activity",
         False,
         lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], a["query"]),
-    ),
-    Tool(
-        "get_request_profile",
-        "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the "
-        "request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL. "
-        "An id no longer in the buffer returns available false.",
-        _ID,
-        "activity",
-        False,
-        lambda c, a: activity.request_profile(c.ctx, a["id"]),
     ),
     Tool(
         "get_alembic_migrations",
@@ -562,6 +542,27 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "rest-api",
         True,
         lambda c, _a: rest_api_service(c.ctx).scan(),
+    ),
+    # BootUI 2.2.0 capture tools, after the 0.2.0 catalogue
+    Tool(
+        "get_http_routes",
+        "Return the HTTP routes this application served, grouped by method and route template, with request counts, "
+        "status classes, errors and duration percentiles over the retained exchanges, ranked by requests, total time "
+        "and p95 latency. A path no route matched is grouped by its masked path; query strings are never used.",
+        _LIMIT_ONLY,
+        "http-exchanges",
+        False,
+        lambda c, a: summarize_http_routes(c.ctx.capture.exchanges, limit=a["limit"]),
+    ),
+    Tool(
+        "get_request_profile",
+        "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the "
+        "request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL. "
+        "An id no longer in the buffer returns available false.",
+        _ID,
+        "activity",
+        False,
+        lambda c, a: activity.request_profile(c.ctx, a["id"]),
     ),
 )
 
