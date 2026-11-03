@@ -87,6 +87,7 @@ def exchange_row(
     error: bool = False,
     endpoint: str | None = None,
     finished_epoch_ns: int | None = None,
+    route: str | None = None,
 ) -> dict[str, Any]:
     """One masked, capped row: the ``HttpExchangeDto`` keys plus ``error``, ``endpoint``, ``startNs`` and ``endNs``
     (epoch ns, for Live Activity's ordering and its after-the-response check)."""
@@ -163,7 +164,13 @@ class HttpExchangeBuffer:
             return next((r for r in reversed(self._rows) if r["id"] == request_id), None)
 
     def report(
-        self, q: str | None, method: str | None, status_class: str | None, offset: int | None, limit: int | None
+        self,
+        q: str | None,
+        method: str | None,
+        status_class: str | None,
+        offset: int | None,
+        limit: int | None,
+        route: str | None = None,
     ) -> dict[str, Any]:
         if self.unavailable_reason is not None:
             return unavailable_report(self.unavailable_reason)
