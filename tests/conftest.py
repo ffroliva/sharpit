@@ -2,10 +2,17 @@
 
 import ast
 import asyncio
+import builtins
+import gc
+import io
 import json
+import linecache
 import logging
 import os
 import socket
+import sys
+import tokenize
+import tracemalloc
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -118,14 +125,61 @@ def _levels() -> dict[str, int]:
     return {**loggers, "": logging.root.level}
 
 
+def _interpreter_state() -> dict[str, object]:
+    """What a read must not change (0.5.0 spec §4.4): tracing, gc hooks and tuning, trace/profile hooks, tool ids.
+
+    Limit: ``sys.gettrace()``/``sys.getprofile()`` are per thread, so a hook set in a threadpool worker is not seen
+    here; the static call-site rule (``test_interpreter_state_call_sites_only_in_session_modules``) covers ``src/``.
+    """
+    return {
+        "tracemalloc tracing": tracemalloc.is_tracing(),
+        "gc.callbacks": tuple(gc.callbacks),
+        "gc enabled": gc.isenabled(),
+        "gc threshold": gc.get_threshold(),
+        "sys.settrace": sys.gettrace(),
+        "sys.setprofile": sys.getprofile(),
+        "sys.monitoring tool ids": tuple(sys.monitoring.get_tool(i) for i in range(6)),
+    }
+
+
+# spec §14: config's lazy getenv scan on its first GET is the one module allowed to read app source on a read
+SOURCE_READ_EXEMPT = ("sharpit.engine.collectors.config",)
+# every way a reader opens a file by name: open(), io.open (pathlib), tokenize.open's own reference to open
+_OPENERS: tuple[tuple[Any, str], ...] = ((builtins, "open"), (io, "open"), (tokenize, "_builtin_open"))
+
+
+def _exempt_caller() -> bool:
+    frame = sys._getframe(2)  # noqa: SLF001 - the spy's caller and up
+    while frame is not None:
+        name = str(frame.f_globals.get("__name__", ""))
+        if any(name == e or name.startswith(e + ".") for e in SOURCE_READ_EXEMPT):
+            return True
+        frame = frame.f_back
+    return False
+
+
+def _under(path: str, roots: list[str]) -> bool:
+    for root in roots:
+        try:
+            if os.path.commonpath([path, root]) == root:
+                return True
+        except ValueError:  # another drive
+            continue
+    return False
+
+
 class SideEffectGuard:
-    """Blocks network access immediately; verify() reports filesystem, logger-level and environ changes."""
+    """Blocks network access immediately; verify() reports filesystem, logger-level, environ and interpreter-state
+    changes, and reads of watched app source (``watch_sources``)."""
 
     def __init__(self, state_dir: Path) -> None:
         self.state_dir = state_dir
         self.violations: list[str] = []
         self._originals: list[tuple[Any, str, Any]] = []
         self.cwd = Path.cwd()  # the test's cwd at setup; a later chdir does not move the snapshot
+        self._source_roots: list[str] = []
+        self._spies: list[tuple[Any, str, Any]] = []
+        self.source_reads: list[str] = []
         self.rebaseline()
 
     def rebaseline(self) -> None:
@@ -134,6 +188,8 @@ class SideEffectGuard:
         self._state_snap = _snapshot(self.state_dir)
         self._levels = _levels()
         self._environ = _environ()
+        self._interpreter = _interpreter_state()
+        self.source_reads.clear()
 
     def block_network(self) -> None:
         for owner, attr in ((socket.socket, "connect"), *((socket, n) for n in _BLOCKED[1:])):
@@ -152,6 +208,33 @@ class SideEffectGuard:
             setattr(owner, attr, original)
         self._originals.clear()
 
+    def watch_sources(self, root: Path) -> None:
+        """Report every file opened under ``root`` (the app's source tree) until ``unwatch_sources``."""
+        self._source_roots.append(os.path.realpath(root))
+        for name in [n for n in linecache.cache if _under(os.path.realpath(n), self._source_roots)]:
+            del linecache.cache[name]  # a warm cache (FastAPI reads a host endpoint's source) would hide a later read
+        if self._spies:
+            return
+        for owner, attr in _OPENERS:
+            original = getattr(owner, attr)
+            self._spies.append((owner, attr, original))
+            setattr(owner, attr, self._open_spy(original))
+
+    def _open_spy(self, original: Callable[..., Any]) -> Callable[..., Any]:
+        def spy(file: Any, *args: Any, **kwargs: Any) -> Any:
+            if isinstance(file, str | bytes | os.PathLike):
+                path = os.path.realpath(os.fsdecode(file))  # pyright: ignore[reportUnknownArgumentType]
+                if _under(path, self._source_roots) and not _exempt_caller():
+                    self.source_reads.append(path)
+            return original(file, *args, **kwargs)
+
+        return spy
+
+    def unwatch_sources(self) -> None:
+        for owner, attr, original in reversed(self._spies):
+            setattr(owner, attr, original)
+        self._spies.clear()
+
     def verify(self) -> None:
         problems = list(self.violations)
         for label, before, root in (("cwd", self._cwd_snap, self.cwd), ("state dir", self._state_snap, self.state_dir)):
@@ -166,6 +249,9 @@ class SideEffectGuard:
             problems.append("logger level changed")
         if _environ() != self._environ:
             problems.append("os.environ changed")
+        now_state = _interpreter_state()
+        problems.extend(f"interpreter state changed: {k}" for k, v in now_state.items() if v != self._interpreter[k])
+        problems.extend(f"app source read: {path}" for path in self.source_reads)
         assert not problems, "side effects detected: " + "; ".join(problems)
 
 
@@ -200,6 +286,7 @@ def no_side_effects(tmp_state_dir: Path) -> Iterator[SideEffectGuard]:
         yield guard
     finally:
         guard.unblock_network()
+        guard.unwatch_sources()
     guard.verify()
 
 

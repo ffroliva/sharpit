@@ -54,6 +54,7 @@ test = [
     "sqlalchemy[asyncio]>=2.0.38",
     "aiosqlite>=0.20",
     "psycopg[binary]>=3.2",  # A-postgresql: leased-database tests (spec §6.1 item 9)
+    "pymysql>=1.1",  # 0.5.0 F5b/A-mysql: leased MySQL tests (spec §4.5)
     "alembic>=1.13",
     "jsonschema>=4.21",
     "pytest-asyncio>=0.24",
