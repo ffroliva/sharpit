@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 from tests.overhead import Paired, check_budget, paired
 
+from conftest import TIMING_MODULES  # at collection: a pytester fixture app may own "conftest" by run time
+
 OFF, TRUE, NOISE, ROUNDS = 100.0, 10.0, 50.0, 6
 
 
@@ -167,8 +169,6 @@ def test_timing_is_skipped_while_a_coverage_tracer_runs(monkeypatch: pytest.Monk
 
 def test_every_budget_module_runs_last() -> None:
     # a budget timed mid-suite meets every xdist worker busy; tests/conftest.py orders TIMING_MODULES last
-    from conftest import TIMING_MODULES
-
     timed = {
         p.name
         for p in Path(__file__).parent.rglob("test_*.py")
@@ -177,3 +177,14 @@ def test_every_budget_module_runs_last() -> None:
     assert "test_capture_overhead.py" in timed  # the scan sees a known budget module
     missing = timed - set(TIMING_MODULES) - {Path(__file__).name}  # this file times a fake clock
     assert not missing, sorted(missing)
+
+
+def test_budget_order_check_survives_a_fixture_conftest(monkeypatch: pytest.MonkeyPatch) -> None:
+    # pytester runs fixture apps in-process, and a fixture app's own conftest.py then owns sys.modules["conftest"]
+    import types
+
+    monkeypatch.setitem(__import__("sys").modules, "conftest", types.ModuleType("conftest"))
+    try:
+        test_every_budget_module_runs_last()
+    except ImportError as error:
+        raise AssertionError(f"the budget-order check re-imports conftest at run time: {error}") from error
