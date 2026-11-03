@@ -110,6 +110,33 @@ def test_noise_is_taken_from_the_noisier_side():
     assert Paired(off=noisy, on=quiet).noise == 10.0
 
 
+# Many short rounds: each side's rounds spread widely, but the fastest round is the same in both halves of the run.
+WIDE_BUT_STABLE = [100.0, 300.0, 100.0, 300.0, 100.0, 300.0]
+
+
+def test_noise_is_small_when_the_minimum_is_stable_however_wide_the_rounds_spread():
+    """Median minus min read 100 here: a spread of single rounds, not how far the minimum could move."""
+    assert Paired(off=WIDE_BUT_STABLE, on=WIDE_BUT_STABLE).noise == 0.0
+
+
+def test_noise_is_how_far_the_minimum_moves_when_the_machine_slows_for_half_the_run():
+    """The second half ran 50 slower, so a minimum taken from either half alone would be 50 apart."""
+    slowed = [100.0, 101.0, 100.0, 150.0, 151.0, 150.0]
+    assert Paired(off=slowed, on=slowed).noise == 50.0
+
+
+def test_a_real_regression_measured_in_many_short_rounds_is_not_blamed_on_the_machine():
+    """The review of PR #56 found every injected regression printed "suspect a busy machine" (noise 124-274 us)."""
+    measured = Paired(off=WIDE_BUT_STABLE, on=[v + 40.0 for v in WIDE_BUT_STABLE])
+    with pytest.raises(AssertionError) as failure:
+        check_budget("hook", measured, BUDGET, "us", 1.0)
+    assert SUSPECT not in str(failure.value)
+
+
+def test_a_single_round_has_no_noise_estimate():
+    assert Paired(off=[100.0], on=[110.0]).noise == 0.0
+
+
 def test_nothing_is_written_when_neither_variable_is_set(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.delenv("SHARPIT_OVERHEAD_LOG", raising=False)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)

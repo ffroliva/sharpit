@@ -24,8 +24,12 @@ class Paired:
 
     @property
     def noise(self) -> float:
-        """How far a typical round sits above the fastest, on the noisier side: what contention cost this run."""
-        return max(statistics.median(side) - min(side) for side in (self.off, self.on))
+        """How far the fastest round moves between the first and second half of the run, on the less stable side.
+
+        The overhead is a difference of minimums, so its uncertainty is how much a minimum depends on which rounds were
+        timed: a busy stretch moves it, a wide but steady spread of single rounds (many short rounds) does not.
+        """
+        return max(_split_half_gap(side) for side in (self.off, self.on))
 
     def report(self, unit: str, scale: float) -> str:
         def side(rounds: list[float]) -> str:
@@ -36,6 +40,11 @@ class Paired:
             f"overhead {self.overhead / scale:.3f} {unit}, noise {self.noise / scale:.3f} {unit}; "
             f"off {side(self.off)}; on {side(self.on)}"
         )
+
+
+def _split_half_gap(rounds: list[float]) -> float:
+    half = len(rounds) // 2
+    return abs(min(rounds[:half]) - min(rounds[half:])) if half else 0.0
 
 
 def check_budget(name: str, result: Paired, budget: float, unit: str, scale: float) -> None:
