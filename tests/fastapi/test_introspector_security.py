@@ -21,6 +21,7 @@ from starlette.routing import BaseRoute, Match, Mount
 
 from fastapi import APIRouter, Depends, FastAPI, Security
 from sharpit import install
+from sharpit.engine.collectors.appsecurity import explain
 from sharpit.fastapi.introspector import FastApiIntrospector
 
 BEARER = "fastapi.security.oauth2.OAuth2PasswordBearer"
@@ -352,3 +353,46 @@ def test_apiroute_in_plain_starlette_subapp_is_unknown():
     app.mount("/sub", Starlette(routes=router.routes, middleware=[Middleware(GZipMiddleware)]))
     model = FastApiIntrospector(app, "/sharpit").security_model()
     assert [(r.path, r.opaque) for r in model.routes] == [("/sub/secret", True)]
+
+
+async def _legacy_asgi(scope: Any, receive: Any, send: Any) -> None:
+    pytest.fail("a mounted application was called")
+
+
+@pytest.mark.parametrize(
+    "mount",
+    [
+        lambda: Mount("/legacy", app=_legacy_asgi, middleware=[Middleware(GZipMiddleware)]),
+        lambda: Mount("/legacy", app=GZipMiddleware(Starlette())),
+    ],
+    ids=["mount-middleware", "wrapped-starlette-app"],
+)
+def test_opaque_sub_app_behind_middleware_is_unknown_on_its_own_chain(mount: Any):
+    # council R-fastapi-security (Gemini, high): the wrapper's ``starlette.`` name made the mount framework code
+    app = FastAPI()
+    app.router.routes.append(mount())
+    model = FastApiIntrospector(app, "/sharpit").security_model()
+    rows = [(r.path, r.opaque, r.chain) for r in model.routes if r.path.startswith("/legacy")]
+    assert rows == [("/legacy/{path}", True, 1)]
+    assert "Mounted application at /legacy has no inspectable routes." in model.limitations
+
+
+def test_opaque_mount_inside_sub_app_is_explained():
+    admin = FastAPI()
+    admin.get("/users")(lambda: "u")
+    admin.mount("/legacy", _legacy_asgi)
+    app = FastAPI()
+    app.mount("/admin", admin)
+    result = explain(FastApiIntrospector(app, "/sharpit").security_model(), "GET", "/admin/legacy/x", "/sharpit")
+    assert result["pattern"] == "/admin/legacy/{path}"
+
+
+class _PosingAsFastAPI:
+    @property
+    def __class__(self) -> type:  # pyright: ignore[reportIncompatibleMethodOverride]  # isinstance() reads it
+        return FastAPI
+
+
+def test_object_posing_as_fastapi_is_not_present():
+    # council R-fastapi-security #5: isinstance() read a user ``__class__``
+    assert FastApiIntrospector(_PosingAsFastAPI()).security_model().present is False

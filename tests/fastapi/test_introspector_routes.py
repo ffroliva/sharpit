@@ -11,7 +11,7 @@ from starlette.responses import PlainTextResponse as StarletteText
 from starlette.routing import BaseRoute, Host, Mount, Route, WebSocketRoute
 
 from conftest import SideEffectGuard
-from fastapi import APIRouter, FastAPI, Request, UploadFile, WebSocket
+from fastapi import APIRouter, Depends, FastAPI, Request, UploadFile, WebSocket
 from sharpit import install
 from sharpit.engine.collectors.restapi.rules import application_routes
 from sharpit.engine.spi import RouteInfo
@@ -277,3 +277,103 @@ def test_object_without_dict_has_no_routes():
     assert _read_or_error(intro.routes) == []
     assert _read_or_error(lambda: intro.api_model().routes) == ()
     assert _read_or_error(intro.providers) == []
+
+
+ARMED = [False]
+CALLS: list[str] = []
+
+
+class RecordingApp(FastAPI):
+    """An app subclass whose ``__getattribute__`` is user code: recorded while armed."""
+
+    def __getattribute__(self, name: str) -> Any:
+        if ARMED[0]:
+            CALLS.append(f"app.{name}")
+        return super().__getattribute__(name)
+
+
+class RecordingRoute(APIRoute):
+    def __getattribute__(self, name: str) -> Any:
+        if ARMED[0]:
+            CALLS.append(f"route.{name}")
+        return super().__getattribute__(name)
+
+
+class RaisingApp(FastAPI):
+    def __getattribute__(self, name: str) -> Any:
+        if ARMED[0]:
+            raise RuntimeError(name)
+        return super().__getattribute__(name)
+
+
+class RaisingRoute(APIRoute):
+    def __getattribute__(self, name: str) -> Any:
+        if ARMED[0]:
+            raise RuntimeError(name)
+        return super().__getattribute__(name)
+
+
+def _dep() -> str:
+    raise AssertionError("a dependency was called")
+
+
+def _outcome(read: Any) -> Any:
+    try:
+        return read()
+    except Exception as exc:  # noqa: BLE001 - the defect: a user hook's exception escapes the introspector
+        return f"raised {type(exc).__name__}: {exc}"
+
+
+def _hooked_app(app_type: type[FastAPI], route_type: type[APIRoute]) -> FastAPI:
+    app = app_type()
+    app.router.route_class = route_type
+    app.get("/a", dependencies=[Depends(_dep)])(lambda: "a")
+    return app
+
+
+def test_user_getattribute_never_runs_on_any_surface():
+    # council R-fastapi-security #1: vars() went through the type's __getattribute__
+    app = _hooked_app(RecordingApp, RecordingRoute)
+    CALLS.clear()
+    ARMED[0] = True
+    try:
+        intro = FastApiIntrospector(app, "/sharpit")
+        intro.app_info()
+        intro.routes()
+        intro.api_model()
+        intro.security_model()
+        intro.providers()
+    finally:
+        ARMED[0] = False
+    assert CALLS == []
+
+
+def test_user_getattribute_that_raises_degrades():
+    app = _hooked_app(RaisingApp, RaisingRoute)
+    ARMED[0] = True
+    try:
+        intro = _outcome(lambda: FastApiIntrospector(app, "/sharpit"))
+        paths = _outcome(lambda: [r.path for r in intro.routes()])
+        beans = _outcome(lambda: [p.name for p in intro.providers()])
+    finally:
+        ARMED[0] = False
+    assert isinstance(intro, FastApiIntrospector)
+    assert "/a" in paths
+    assert f"{__name__}:_dep" in beans
+
+
+class SlottedHook:
+    """No ``__dict__``, and a ``__getattr__`` that raises something other than ``AttributeError``."""
+
+    __slots__ = ()
+
+    def __getattr__(self, name: str) -> Any:
+        raise RuntimeError(name)
+
+
+def test_slotted_app_with_raising_getattr_has_no_routes():
+    intro = _outcome(lambda: FastApiIntrospector(SlottedHook()))
+    assert isinstance(intro, FastApiIntrospector)
+    assert _outcome(intro.routes) == []
+    assert _outcome(lambda: intro.api_model().routes) == ()
+    assert _outcome(intro.providers) == []

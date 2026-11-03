@@ -13,6 +13,7 @@ import importlib.util
 import io
 import linecache
 import os
+import sys
 import tokenize
 from pathlib import Path
 from typing import Any
@@ -156,3 +157,78 @@ def test_beans_resource_never_opens_the_source_file(monkeypatch: pytest.MonkeyPa
     beans = {p.name: p.resource for p in FastApiIntrospector(app, "/sharpit").providers()}
     assert opened == []
     assert beans[f"{__name__}:_function_provider"] == f"{__file__}:{_function_provider.__code__.co_firstlineno}"
+
+
+LAZY_TOUCHED: list[str] = []
+
+
+class _LazyProxy:
+    """A class-level lazy object (a settings proxy): any attribute read runs its own code."""
+
+    def __getattr__(self, name: str) -> Any:
+        LAZY_TOUCHED.append(name)
+        raise AttributeError(name)
+
+    @property
+    def __class__(self) -> type:  # pyright: ignore[reportIncompatibleMethodOverride]  # isinstance() reads it
+        LAZY_TOUCHED.append("__class__")
+        return _LazyProxy
+
+
+def _lazy_call(self: object) -> str:
+    raise AssertionError("a dependency was called")
+
+
+# type()-built: no ``__firstlineno__`` on any Python, so the 3.12 fallback runs on every interpreter
+_TypeBuilt = type("_TypeBuilt", (), {"settings": _LazyProxy(), "__call__": _lazy_call})
+
+
+def test_class_provider_line_never_touches_class_attributes():
+    # council R-fastapi-security #2: the 3.12 class-line fallback read ``__func__`` off every class attribute
+    app = FastAPI()
+    app.get("/l", dependencies=[Depends(_TypeBuilt())])(lambda: "l")
+    LAZY_TOUCHED.clear()
+    beans = {p.name: p.resource for p in FastApiIntrospector(app, "/sharpit").providers()}
+    assert LAZY_TOUCHED == []
+    assert beans[f"{__name__}:_TypeBuilt"] == f"{__file__}:{_lazy_call.__code__.co_firstlineno}"
+
+
+def test_class_provider_resource_is_its_definition_line():
+    # council R-fastapi-security #3: the class branch of ``_first_line`` (3.13+ class line, 3.12 first ``def``)
+    app = FastAPI()
+    app.get("/c", dependencies=[Depends(_Provider())])(lambda: "c")
+    beans = {p.name: p.resource for p in FastApiIntrospector(app, "/sharpit").providers()}
+    if sys.version_info >= (3, 13):
+        line = vars(_Provider)["__firstlineno__"]
+    else:
+        line = _Provider.__call__.__code__.co_firstlineno
+    assert beans[f"{__name__}:_Provider"] == f"{__file__}:{line}"
+
+
+HOOK_ARMED = [False]
+
+
+class _Checker:
+    """A callable-instance dependency whose ``__getattr__`` raises while armed."""
+
+    def __call__(self) -> None:
+        raise AssertionError("a dependency was called")
+
+    def __getattr__(self, name: str) -> Any:
+        if HOOK_ARMED[0]:
+            raise RuntimeError(name)
+        raise AttributeError(name)
+
+
+def test_callable_instance_provider_hook_never_runs():
+    # council R-fastapi-security #4: ``hasattr(obj, "__qualname__")`` ran the instance's ``__getattr__``
+    app = FastAPI()
+    app.get("/q", dependencies=[Depends(_Checker())])(lambda: "q")
+    HOOK_ARMED[0] = True
+    try:
+        names: Any = [p.name for p in FastApiIntrospector(app, "/sharpit").providers()]
+    except RuntimeError as exc:
+        names = f"raised RuntimeError: {exc}"
+    finally:
+        HOOK_ARMED[0] = False
+    assert f"{__name__}:_Checker" in names
