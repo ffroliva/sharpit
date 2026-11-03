@@ -7,14 +7,25 @@ paging and dismissals live there. Nothing is read before the first explicit scan
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass, fields
 from typing import Any
 
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.advisors.report import evidence
+from sharpit.engine.advisors.rules import RuleDefinition, RuleResult
 from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope
-from sharpit.engine.collectors.security import Inputs, SecurityRule, Violation
+from sharpit.engine.collectors.security import (
+    Inputs,
+    SecurityRule,
+    Violation,
+    rules_auth,
+    rules_config,
+    rules_source,
+    rules_transport,
+)
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
+from sharpit.engine.spi import SecurityChain
 
 ANALYZER = "sharpit FastAPI Security Advisor"
 DISCLAIMER = (
@@ -27,7 +38,7 @@ NOT_SCANNED_MESSAGE = (
     " scan), to inspect the middleware stacks."
 )
 
-RULES: tuple[SecurityRule, ...] = ()
+RULES: tuple[SecurityRule, ...] = (*rules_source.RULES, *rules_auth.RULES, *rules_transport.RULES, *rules_config.RULES)
 
 
 def check(rule_id: str, inputs: Inputs) -> list[Violation]:
@@ -36,16 +47,36 @@ def check(rule_id: str, inputs: Inputs) -> list[Violation]:
     return found.check(inputs) if found is not None else []
 
 
-def _scope(_done: Evaluation | None) -> Scope:
-    return Scope()
+@dataclass(frozen=True)
+class _Done:
+    """What the scope and extra-section hooks read from one scan."""
+
+    chains: tuple[str, ...]  # each middleware stack's matcher description
+    errors: tuple[RuleDefinition, ...] = ()  # rules whose evaluation raised
 
 
-def _extra(_done: Evaluation | None) -> Mapping[str, Any]:
-    return {}
+def _matcher(chain: SecurityChain) -> str:
+    return "any request" if chain.prefix is None else f"{chain.prefix}/**"
+
+
+def _scope(done: Evaluation | None) -> Scope:
+    chains: tuple[str, ...] = done.detail.chains if done is not None and isinstance(done.detail, _Done) else ()
+    return Scope({"filterChains": list(chains)}, {"filterChainsAnalyzed": len(chains)})
+
+
+def _error_result(definition: RuleDefinition) -> dict[str, Any]:
+    values = {f.name: getattr(definition, f.name) for f in fields(RuleDefinition)}
+    return RuleResult(**values, status="ERROR").to_dto()
+
+
+def _extra(done: Evaluation | None) -> Mapping[str, Any]:
+    errors = done.detail.errors if done is not None and isinstance(done.detail, _Done) else ()
+    return {"analysisErrors": [_error_result(d) for d in sorted(errors, key=lambda d: d.id)]}
 
 
 def scan_evaluation(inputs: Inputs) -> Evaluation:
-    return Evaluation("SCANNED", "", (), (), evidence(), inputs)
+    chains = tuple(_matcher(c) for c in inputs.model.chains)
+    return Evaluation("SCANNED", "", (), (), evidence(), _Done(chains))
 
 
 SPEC = ScanSpec("security", ANALYZER, DISCLAIMER, NOT_SCANNED_MESSAGE)
