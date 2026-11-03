@@ -14,8 +14,6 @@ from pathlib import Path
 import pytest
 from tests.overhead import Paired, check_budget, paired
 
-from conftest import TIMING_MODULES  # at collection: a pytester fixture app may own "conftest" by run time
-
 OFF, TRUE, NOISE, ROUNDS = 100.0, 10.0, 50.0, 6
 
 
@@ -167,6 +165,17 @@ def test_timing_is_skipped_while_a_coverage_tracer_runs(monkeypatch: pytest.Monk
         paired(lambda: 1.0, lambda: 1.0, rounds=1)
 
 
+def _timing_modules() -> tuple[str, ...]:
+    """tests/conftest.py's TIMING_MODULES, read from source: sys.modules["conftest"] may be a pytester fixture app's."""
+    import ast
+
+    tree = ast.parse((Path(__file__).parent / "conftest.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "TIMING_MODULES" for t in node.targets):
+            return tuple(ast.literal_eval(node.value))
+    raise AssertionError("tests/conftest.py no longer defines TIMING_MODULES as a literal")
+
+
 def test_every_budget_module_runs_last() -> None:
     # a budget timed mid-suite meets every xdist worker busy; tests/conftest.py orders TIMING_MODULES last
     timed = {
@@ -175,7 +184,7 @@ def test_every_budget_module_runs_last() -> None:
         if re.search(r"^from tests\.overhead import .*\bcheck_budget\b", p.read_text(encoding="utf-8"), re.MULTILINE)
     }
     assert "test_capture_overhead.py" in timed  # the scan sees a known budget module
-    missing = timed - set(TIMING_MODULES) - {Path(__file__).name}  # this file times a fake clock
+    missing = timed - set(_timing_modules()) - {Path(__file__).name}  # this file times a fake clock
     assert not missing, sorted(missing)
 
 
