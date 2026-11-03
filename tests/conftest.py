@@ -53,7 +53,14 @@ def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> None:
         pytest.fail(f"{module_path.name} {NEEDS_SQLALCHEMY_MISSING.format(', '.join(found))}", pytrace=False)
 
 
-TIMING_MODULES = ("test_capture_overhead.py", "test_sql_trace_overhead.py")
+TIMING_MODULES = (
+    "test_capture_overhead.py",
+    "test_n_plus_one_overhead.py",
+    "test_sql_trace_overhead.py",
+    "test_sqlite_overhead.py",
+    "test_swallowed_overhead.py",
+    "test_traces_overhead.py",
+)  # every module that times a budget (tests/test_overhead_harness.py keeps this complete)
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
