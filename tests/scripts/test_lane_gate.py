@@ -1559,7 +1559,9 @@ def test_multi_lane_plan_counts_only_the_lanes_own_paragraphs(tmp_path: Path) ->
     text = f"# x\n\n## Must-cover\n\ntest-fixture-x: `{TEST_ID}`.\n\ntest-fixture-y: `test_absent`.\n\n## Tasks\n"
     assert lane_gate.must_cover_names(text, "test-fixture-x", lanes) == [TEST_ID]
     fx = _fixture(tmp_path)
-    index = LANES_TABLE + "| test-fixture-x | `x.md` | not required | c |\n| test-fixture-y | `x.md` | not required | c |\n"
+    index = (
+        LANES_TABLE + "| test-fixture-x | `x.md` | not required | c |\n| test-fixture-y | `x.md` | not required | c |\n"
+    )
     assert _refusals(fx.evaluate(plan_index=_plan(fx, index, {"x.md": text}))) == []
 
 

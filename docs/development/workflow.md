@@ -76,18 +76,26 @@ uv run python scripts/dev/lane_gate.py <lane id> --release 0.5.0 --worktree <lan
 
 Without `--release` the gate takes `release/<x>` from the integration branch, else the only
 `.superpowers/sdd/<x>/lanes` folder there, else it refuses. Evidence is read from
-`.superpowers/sdd/<release>/lanes/<lane id>/`; a lane diff may never touch any release's `review.md`, `live-verify.md`
-or `gate/`. The rules live in the gate as tables: `PROTECTED_ALLOWED` (protected files per lane), `DEPENDENCY_ALLOWED`
-(`pyproject.toml` dependency lists; `[tool.*]` gate config stays refused for every lane), `FOUNDATION` (may re-key the
-complexity baseline, total never rising) and `LEASED` (lane → coordinator-written `gate/leased-*.log` and the full node
-ids that must be `PASSED` in it). From PLAN.md's Lanes table (`--plan-index`, default the release's plan folder) the
-gate reads the lane's plan file and `Council` column: `required` needs a committed `council.md` with a
-`VERDICT: APPROVE` line, two or more model families and the head SHA (or a commit followed only by evidence changes).
+`.superpowers/sdd/<release>/lanes/<lane id>/`; a lane diff may never touch any release's `review.md`, `live-verify.md`,
+`council.md` or `gate/`, nor a plan file under `docs/superpowers/plans/` (or the folder `--plan-index`/`--plan` point
+at; `--allow-path` for a deliberate amendment). Path checks ignore case. The release name must match
+`\w[\w.-]*`. The rules live in the gate as tables: `PROTECTED_ALLOWED` (protected files per lane), `DEPENDENCY_ALLOWED`
+(may change only `[project.optional-dependencies] test`; `DEPENDENCY_ALL`, lane `F`, may change every dependency list;
+`[tool.*]` gate config stays refused for every lane), `FOUNDATION` (may re-key the complexity baseline, total never
+rising) and `LEASED` (lane → coordinator-written `gate/leased-*.log` and the full node ids that must be `PASSED` in
+it). PLAN.md (`--plan-index`, default the release's plan folder) and the lane plan must be in the integration worktree.
+From its Lanes table the gate reads the lane's plan file and `Council` cell (`required`, `not required` or `—`;
+anything else is refused). `required` needs `council.md` in the integration worktree's lane folder, written by the
+coordinator: its last `Verdict:` line must be `APPROVE` or `APPROVE WITH NITS` (`APPROVE WITH CHANGES` needs a later
+round that says `APPROVE`), two or more model families must have run, each as a line
+`Reviewer: <harness> (<model id>): ran ...` (the family comes from the model id; `not run` never counts), and it must
+name the head SHA (or a commit followed only by evidence changes).
 Every test in the lane's `## Must-cover` section (its `<lane id>:` paragraphs in a multi-lane file) must exist at the
 head and pass there: a full node id is used as is, a bare name resolves only among the lane diff's test files. A skip
-is refused unless the test is leased (the leased log decides) or skipped as `post-scan golden absent` (reported
-`unverified`). `findings.md` rows take `fixed`, `parked: <reason>`, `pin: <mutation>` or `N/A — <reason>`; pin and
-N/A rows carry no red SHA and are never replayed.
+is refused unless the test is leased (the leased log decides) or skipped as `post-scan golden absent` with
+`--accept-unverified` (then reported `unverified`). `findings.md` rows take `fixed`, `parked: <reason>`,
+`pin: <mutation>` (with its test) or `N/A — <reason>`; pin and N/A rows carry no red SHA and are never replayed (in
+`findings.md` only).
 
 ## 5. Gate: `/sharpit:check`
 
