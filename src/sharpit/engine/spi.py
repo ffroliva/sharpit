@@ -109,3 +109,31 @@ class SecurityModel:
     auth_backends: tuple[str, ...]  # ``module.qualname`` of each ``AuthenticationMiddleware`` backend
     routes: tuple[SecuredRoute, ...]  # route-table order (the order Starlette matches in)
     limitations: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class MiddlewareFacts:
+    """One middleware on the app's own stack: its security-relevant options as fact names, never their values."""
+
+    name: str  # ``module.qualname`` of the middleware class
+    flags: tuple[str, ...]  # sorted, e.g. ``any_origin``, ``credentials``, ``https_only``, ``short_secret``
+
+
+@dataclass(frozen=True)
+class SchemeUrl:
+    """A URL a security scheme declares (OpenID Connect discovery, OAuth2 flow endpoints), as a fact only."""
+
+    scheme: str  # ``module.qualname`` of the scheme class
+    field: str  # ``openIdConnectUrl``, ``authorizationUrl``, ``tokenUrl`` or ``refreshUrl``
+    insecure: bool  # ``http://`` to a host that is not loopback
+
+
+@dataclass(frozen=True)
+class SecurityFacts:
+    """The security advisor's reads beyond ``SecurityModel`` (read statically on a scan; nothing is called)."""
+
+    debug: bool  # ``FastAPI(debug=True)``: tracebacks reach the client
+    openapi_url: str | None
+    middleware: tuple[MiddlewareFacts, ...]  # the app's own ``user_middleware``, outermost first
+    scheme_urls: tuple[SchemeUrl, ...]
+    limitations: tuple[str, ...] = ()

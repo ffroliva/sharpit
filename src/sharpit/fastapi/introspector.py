@@ -31,6 +31,7 @@ from sharpit.engine.spi import (
     RouteInfo,
     SecuredRoute,
     SecurityChain,
+    SecurityFacts,
     SecurityModel,
     SecurityScheme,
 )
@@ -785,3 +786,7 @@ class FastApiIntrospector:
             )
             for key, (obj, scope) in found.items()
         ]
+
+    def security_facts(self) -> SecurityFacts:
+        """The security advisor's option facts (``vars()``-style reads only; no option value leaves as a value)."""
+        return SecurityFacts(False, None, (), ())
