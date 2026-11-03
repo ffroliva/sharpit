@@ -110,7 +110,10 @@ def test_transactions_alone_does_not_install_capture_middleware() -> None:
     from sharpit.fastapi.capture import CaptureMiddleware
 
     app = FastAPI()
-    disabled = {panel: {"enabled": False} for panel in ("http-exchanges", "exceptions", "sql-trace", "activity")}
+    disabled = {
+        panel: {"enabled": False}
+        for panel in ("http-exchanges", "exceptions", "sql-trace", "activity", "security-logs")
+    }
     handle = install(app, enabled="ON", show_banner=False, panels=disabled)
     try:
         classes = {entry.cls for entry in app.user_middleware}
