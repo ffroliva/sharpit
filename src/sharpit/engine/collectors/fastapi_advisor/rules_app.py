@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 from collections.abc import Sequence
 
 from sharpit.engine.advisors.rules import RuleDefinition
-from sharpit.engine.appsource import SourceIndex
+from sharpit.engine.appsource import ModuleInfo, SourceIndex
 from sharpit.engine.collectors.fastapi_advisor.handlers import Handler, Hit
+from sharpit.engine.testsession.swallowed import swallowing_lines
 
 ON_EVENT = RuleDefinition(
     "FASTAPI-EVT-001",
@@ -48,17 +51,66 @@ DEFAULT_TITLE = RuleDefinition(
 RULES = (ON_EVENT, BROAD_EXCEPT, DEBUG, DEFAULT_TITLE)
 
 
+_EVENT_HOOKS = frozenset({"on_event", "add_event_handler"})
+
+
 def on_event(index: SourceIndex) -> list[Hit]:
-    return []
+    hits: list[Hit] = []
+    for module in index.modules.values():
+        calls = sorted(
+            (node.lineno, node.func.attr)
+            for node in ast.walk(module.tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in _EVENT_HOOKS
+        )
+        if calls:
+            listed = ", ".join(f"{name} (line {line})" for line, name in calls)
+            hits.append((module.name, f"{module.name}: {listed}"))
+    return hits
+
+
+def _functions(tree: ast.AST) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
+    return [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
+
+
+def _swallowing_spans(module: ModuleInfo) -> list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, list[int]]]:
+    """Each function of the module with the swallowing ``except`` lines inside it.
+
+    ``swallowing_lines`` reads source text and the index keeps trees only, so the module is unparsed once and both
+    the check and the function spans read that same text; ``ast.walk`` order matches between the two trees.
+    """
+    text = ast.unparse(module.tree)
+    lines = swallowing_lines(text)
+    twins = _functions(ast.parse(text))
+    return [
+        (original, [line for line in lines if twin.lineno <= line <= (twin.end_lineno or twin.lineno)])
+        for original, twin in zip(_functions(module.tree), twins, strict=True)
+    ]
 
 
 def broad_except(handlers: Sequence[Handler]) -> list[Hit]:
-    return []
+    spans: dict[str, list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, list[int]]]] = {}
+    hits: list[Hit] = []
+    for handler in handlers:
+        module = handler.module
+        if module.name not in spans:
+            spans[module.name] = _swallowing_spans(module)
+        if any(node is handler.node and lines for node, lines in spans[module.name]):
+            hits.append((handler.qualname, f"{handler.where} catches Exception and discards it"))
+    return hits
+
+
+def _static(app: object, name: str) -> object:
+    """An attribute of the app object without running a descriptor or ``__getattr__`` (``getattr_static``)."""
+    return inspect.getattr_static(app, name, None)
 
 
 def debug(app: object) -> list[Hit]:
-    return []
+    value = _static(app, "debug")
+    if not isinstance(value, bool):  # Starlette versions that keep it behind a property store ``_debug``
+        value = _static(app, "_debug")
+    return [("app", "the application runs with debug=True")] if value is True else []
 
 
 def default_title(app: object) -> list[Hit]:
-    return []
+    title = _static(app, "title")
+    return [("app", "the application keeps the default title 'FastAPI'")] if title == "FastAPI" else []
