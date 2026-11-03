@@ -1,7 +1,7 @@
 # A-sqltrace-insights handoff
 
 Implementer: Claude subagent (claude-opus-5-5)
-Branch `lane/0.5.0-A-sqltrace-insights` from `release/0.5.0` 836d3fd. Status: all three tasks done; one open question.
+Branch `lane/0.5.0-A-sqltrace-insights` from `release/0.5.0` 836d3fd. Status: all three tasks done; the open question is resolved (see below).
 
 ## Commits
 
@@ -22,7 +22,13 @@ Red tables, the pin and rule mutations: `findings.md`.
 | `tests/masking/test_a_sqltrace_insights_masking.py::test_insights_statement_text_masked` | yes | yes |
 | `tests/fastapi/test_sql_trace_insights_api.py::test_mcp_tools_list_has_only_get` | yes | yes |
 
-## OPEN QUESTION for the coordinator (file outside May-touch, not edited)
+## RESOLVED: stub-era 404 test (coordinator ruling: delete)
+
+Merged `release/0.5.0` (6913ea2, plan amendment; no duplicated top-level defs), then deleted
+`test_insights_404` in a099a19680f537f37f5494fa2138cbd17f8c60b6; superseded by
+`tests/fastapi/test_sql_trace_insights_api.py::test_insights_golden_parity` (red 7c8a165).
+`pytest -n 4 tests/fastapi/test_sql_trace_api.py tests/fastapi/test_sql_trace_insights_api.py`: 27 passed; ruff and
+format clean. Head before this evidence commit: a099a19. Original question, kept for the record:
 
 `tests/fastapi/test_sql_trace_api.py::test_insights_404` (0.3.0) pins `GET /sql-trace/insights` -> 404 and now fails
 (200), as this lane's goal requires. It is outside May-touch, so it is not edited here. Proposed resolution: delete
@@ -73,4 +79,4 @@ window 10 retained of 200, 4 distinct statements, routes `GET /owners` (1 reques
 
 ## How to resume
 
-Nothing left but the coordinator's answer above, review, and the merge gate.
+Nothing left but review and the merge gate.
