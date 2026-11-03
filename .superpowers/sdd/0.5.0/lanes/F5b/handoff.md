@@ -88,7 +88,7 @@ the server version and variable values from it.
 
 Base: coordinator merge `2281ad2`. The leased MySQL tests passed there (coordinator, MySQL 8.4).
 
-| Finding (`council-claude.md`) | Disposition |
+| Finding (`council-claude.md`) | Resolution |
 |---|---|
 | 1 medium: SQLite read-back check untested | `6a2d8cf` (`test:`): `test_sqlite_read_back_not_on_refuses` (read-back answers 0 → refused, `fn` not run, `query_only` still restored) and `test_sqlite_read_back_failure_refuses` (read-back raises → the error, `fn` not run, restored). Both pass at head, so they are pins: M8 deleted the check and both failed (`mutations-fix1.log`, `findings.md`) |
 | 2 low: two MariaDB rules | `47ed801` (`refactor:`): `_is_mariadb(conn, version="")` (dialect name, `dialect.is_mariadb`, or `-MariaDB` in `@@version` when read), used by `bounded()` and `_mysql_read_only`. `bounded()` behaviour unchanged; the read-only path now also honours `is_mariadb` |
