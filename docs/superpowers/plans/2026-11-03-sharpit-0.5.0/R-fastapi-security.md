@@ -79,6 +79,23 @@ Red rule: PLAN.md §Red rule.
 - [ ] **Step 2:** `IMPLEMENTED = True` (both flag files). Commit `feat: fastapi-security panel enabled`.
 - [ ] **Step 3:** `/sharpit:live-verify` on `examples/fastapi_sqla`; requests in `handoff.md`.
 
+## Task 3: beans `resource` without opening a source file (coordinator addition, 2026-11-03)
+
+F5a-harness wired the source-read spy into the GET and MCP sweeps; `GET /beans` and `get_beans` trip it through
+`fastapi/introspector.py:_resource` (`inspect.getsourcelines`). Spec §14 logs a temporary exemption for exactly those two
+surfaces. This task removes it:
+
+- [ ] Red: the sweeps' beans exemption removed (in `tests/` exemption list from F5a-harness) makes the beans cases fail
+      today; commit that red with the exemption deleted.
+- [ ] Fix: `file:line` without reading the file: functions via the unwrapped `__code__.co_firstlineno`; classes via
+      `__firstlineno__` (Python 3.13+), else the lowest `co_firstlineno` among the class's own functions, else `file`
+      alone with no line (record the 3.12 class fallback in §14 if the contract shape changes). `inspect.getsourcefile`
+      only maps the code object's filename (no read); verify with the spy.
+- [ ] The beans golden/contract tests still pass; the spec §14 beans row is deleted in the same commit.
+
+May touch (addition): `src/sharpit/fastapi/introspector.py` (`_resource` only), the F5a-harness exemption list in
+`tests/` (delete the beans entries only), spec §14 beans row (coordinator applies on `release/0.5.0`).
+
 ## Interface for B-security and C-fastapi
 
 `FastApiIntrospector.security_model() -> SecurityModel` and the `SecurityModel` dataclasses in `engine/spi.py` are
