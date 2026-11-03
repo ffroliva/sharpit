@@ -39,23 +39,24 @@ Per-test reds, pins and their mutation proofs, and the paired overhead runs: `fi
   `tests/fastapi/test_security_api.py::test_mcp_tools_list_has_only_get` already fails at base 78706ac
   (`get_security_logs` from B-security-logs matches its "security" filter).
 
-## Questions for the coordinator (files outside May-touch)
+## Coordinator rulings applied (after merging release/0.5.0, merge commit on this branch)
 
-1. `tests/test_safety_matrix.py::ROWS`: add the four new base-panel GET routes (fixes `test_get_route_table_is_complete`;
-   the GET no-side-effect sweep already covers them):
-   `("http-exchanges-routes", "GET", "/sharpit/api/http-exchanges/routes", 200, True)`,
-   `("exceptions-caught", "GET", "/sharpit/api/exceptions/caught", 200, True)`,
-   `("activity-journal", "GET", "/sharpit/api/activity/journal", 200, True)`,
-   `("activity-resources", "GET", "/sharpit/api/activity/resources", 200, True)`.
-2. `tests/surface.py`: `BASE_MCP_TOOL_NAMES` gets `"get_http_routes"` after `"get_http_exchanges"` and
-   `"get_request_profile"` after `"get_live_activity"`; `BASE_CLI_COMMANDS` gets `"get_http_routes": "http routes"` and
-   `"get_request_profile": "activity profile"` (fixes `test_tools_list_has_no_action_tool`,
-   `test_mcp_server_status_shape`, `test_cli_status_shape_matches_contract`).
-3. `fastapi/routes/activity.py` (the May-touch name) shadows the `activity` global of `fastapi/routes/__init__.py` when
-   imported; `adapter.py` restores it (commented `shortcut:`). Rename the module, or move the drift routes into
-   `routes/__init__.py`, when that file may change.
-4. MCP compacted default limits (sql 20, logs 50, activity 25, exchanges 25) need the raw "limit was given" fact, which
-   `engine/tool_dispatch.py` (not May-touch) normalises away; not built.
+- Q1: `tests/safety/test_d2_safety.py` declares `GET_ROWS` for the four new base GET routes (no `PANEL`), commit
+  09c46dbec18b075fa917818df7468f912dea002e. `tests/test_safety_matrix.py::test_get_route_table_is_complete` STILL
+  FAILS: `tests/safety/__init__.py::load` (line 157) adds rows only for files with a `PANEL`
+  ("a PANEL-less file ... adds tests and tool arguments, no rows"), so these rows never reach the matrix. Fixing it
+  needs `tests/safety/__init__.py` (outside May-touch) to feed PANEL-less `GET_ROWS` into `LANE_GETS`.
+- Q2: `tests/surface.py` lists `get_http_routes` and `get_request_profile` at the end of the tool and CLI lists; the two
+  tools moved to the end of `_BASE_TOOLS` in `engine/tools.py` so the catalogue order matches the appended names.
+- Follow-ups (left as ruled): (a) `fastapi/routes/activity.py` overwrites the `activity` name in
+  `routes/__init__.py`; `adapter.py` puts it back (commented `shortcut:`). Rename or move it when that file may change.
+  (b) MCP compacted default limits need the "limit was given" fact that `engine/tool_dispatch.py` drops.
+
+## Full suite after the rulings
+
+5295 passed, 5 failed, 24 skipped (log: integration logs/D2-pytest2.log, a 10-minute run under machine load). The
+four budget failures (capture, security-logs, n+1, sql-trace overhead) pass when re-run alone (5 passed, 31 s); the
+remaining failure is `test_get_route_table_is_complete` (Q1 above).
 
 ## Decisions
 
