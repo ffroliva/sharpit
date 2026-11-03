@@ -45,3 +45,14 @@ def test_get_no_side_effects(no_side_effects: SideEffectGuard):
     assert statuses == [200, 200, 200]
     assert calls == []
     assert no_side_effects.violations == []
+
+
+def test_inactive_fastapi_security_paths_404():
+    # AGENTS.md safety model 1: an inactive sharpit answers the host's 404 on every path of this panel and its tool
+    app = FastAPI()
+    install(app, enabled="OFF", show_banner=False, config_scan=False, mcp_enabled="ON")
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_fastapi_security"}}
+    statuses = [client.get(path).status_code for path in GET_ROWS]
+    statuses.append(client.post("/sharpit/api/mcp", json=call).status_code)
+    assert statuses == [404, 404, 404, 404]
