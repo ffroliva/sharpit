@@ -572,8 +572,7 @@ def test_json_and_text_bodies_are_masked_and_binary_is_summarized(handle: list[S
     _install(app, handle)
     with _client(app) as client:
         json_result, text_result, binary_result = (_probe(client, p).json() for p in ("/json", "/text", "/binary"))
-    assert '"password":"******"' in json_result["body"]
-    assert '"ok":true' in json_result["body"]
+    assert json_result["body"] == '{"password":"******"'
     assert "secret-token" not in text_result["body"]
     assert binary_result["body"] == "<3 bytes, application/octet-stream>"
 

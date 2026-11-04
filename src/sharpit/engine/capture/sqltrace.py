@@ -604,7 +604,7 @@ class SqlTraceRecorder:
                 text = _driver_values_dropped(text)
                 if sql:
                     text = text.replace(sql.strip(), normalized.sql)  # SQLAlchemy repeats the statement in [SQL: ...]
-                text = _sql_blocks_normalized(text, mysql)  # an error raised for another statement than ``sql``
+                text = _sql_block_normalized(text, mysql)  # an error raised for another statement than ``sql``
             masked = masker.mask_text(text)
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
@@ -757,11 +757,6 @@ class SqlTraceRecorder:
 
 
 _SQL_BLOCK = "[SQL: "
-# what follows a statement in SQLAlchemy's message or a chained traceback
-_SQL_BLOCK_END = re.compile(
-    r"\n(?:\[parameters: |\[SQL parameters hidden|\[SQL: |\(Background on this error"
-    r"|The above exception|During handling of|Traceback \()"
-)
 _SQL_ERROR_SHAPE = re.compile(
     r"^(?:sqlalchemy\.(?:exc|engine)\.|(?:psycopg2?|sqlite3|pymysql|MySQLdb|mysql(?:\.connector)?|asyncpg)\.)"
     r"[\w.]+:"
@@ -794,28 +789,20 @@ def _traceback_prefix(text: str) -> tuple[str, str]:
     return "\n".join(lines[:frame_count]), "\n".join(lines[frame_count:])
 
 
-def _sql_blocks_normalized(text: str, mysql: bool) -> str:
-    """Each ``[SQL: ...]`` block normalised. A statement holds brackets of its own, so it runs to the last ``]`` before
-    what follows a block, or to that point with no ``]`` at all: an open block is still a statement. Each pass consumes
-    up to there, so the scan is linear."""
-    parts: list[str] = []
-    cursor = 0
-    while (start := text.find(_SQL_BLOCK, cursor)) >= 0:
-        body = start + len(_SQL_BLOCK)
-        following = _SQL_BLOCK_END.search(text, body)
-        stop = following.start() if following else len(text)
-        close = text.rfind("]", body, stop)
-        end = close if close >= 0 else stop
-        parts += (text[cursor:start], f"{_SQL_BLOCK}{normalize(text[body:end], mysql).sql}]")
-        cursor = close + 1 if close >= 0 else stop
-    parts.append(text[cursor:])
-    return "".join(parts)
+def _sql_block_normalized(text: str, mysql: bool) -> str:
+    """Everything after the first ``[SQL: `` goes through the scan: where a statement ends is a guess, and a wrong guess
+    shows a literal. What follows the block is normalised too."""
+    start = text.find(_SQL_BLOCK)
+    if start < 0:
+        return text
+    body = start + len(_SQL_BLOCK)
+    return text[:body] + normalize(text[body:], mysql).sql
 
 
 def _redact_sql_errors(text: str, mysql: bool) -> str:
     frames, remainder = _traceback_prefix(text)
     cleaned = _driver_values_dropped(remainder or text)
-    return _sql_blocks_normalized(f"{frames}\n{cleaned}" if frames else cleaned, mysql)
+    return _sql_block_normalized(f"{frames}\n{cleaned}" if frames else cleaned, mysql)
 
 
 def mask_error(masker: Masker, text: str | None, mysql: bool = False) -> str | None:

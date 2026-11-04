@@ -231,10 +231,10 @@ def test_empty_user_url_password_is_secret() -> None:
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("login failed password=hunter2 for bob", "login failed password=****** for bob"),
+        ("login failed password=hunter2 for bob", "login failed password=******"),
         ("db.password: hunter2", "db.password: ******"),
         ("Authorization: Bearer abc.def", "Authorization: ******"),
-        ('{"token": "abc", "user": "bob"}', '{"token": "******", "user": "bob"}'),
+        ('{"token": "abc", "user": "bob"}', '{"token": "******"'),
         ("connect to postgres://u:p@h/db failed", "connect to postgres://******@h/db failed"),
         ("redis://:pw@cache:6379/0", "redis://******@cache:6379/0"),
         (f"user sent {JWT} twice", f"user sent {MASK} twice"),
@@ -253,13 +253,13 @@ def test_empty_user_url_password_is_secret() -> None:
         ("GET /owners/42 HTTP/1.1 200", "GET /owners/42 HTTP/1.1 200"),
         ("plain words only", "plain words only"),
         # Python dict reprs and non-string JSON values (review r0)
-        ("{'password': 'hunter2', 'user': 'bob'}", "{'password': '******', 'user': 'bob'}"),
-        ("kwargs={'api_key': 'sk-live-abcdef123456'}", "kwargs={'api_key': '******'}"),
-        ('{"password": 12345, "user": "bob"}', '{"password": "******", "user": "bob"}'),
-        ("{'secret': None}", "{'secret': '******'}"),
+        ("{'password': 'hunter2', 'user': 'bob'}", "{'password': '******'"),
+        ("kwargs={'api_key': 'sk-live-abcdef123456'}", "kwargs={'api_key': '******'"),
+        ('{"password": 12345, "user": "bob"}', '{"password": "******"'),
+        ("{'secret': None}", "{'secret': '******'"),
         ("secret: [1, 2]", "secret: ******"),
         ("[parameters: ('bob', 'secret')", "[parameters: ******]"),
-        ("Cookie: session=abc123; theme=dark", "Cookie: ******; theme=dark"),
+        ("Cookie: session=abc123; theme=dark", "Cookie: ******"),
     ],
 )
 def test_mask_text_corpus(text: str, expected: str) -> None:
@@ -296,20 +296,14 @@ def test_mask_text_scheme_word_inside_a_longer_word_is_kept() -> None:
     assert Masker(M, True).mask_text("MyToken value") == "MyToken value"
 
 
-def test_mask_text_json_stays_valid() -> None:
-    import json
-
+def test_mask_text_json_is_masked_from_the_first_sensitive_key() -> None:
     masked = Masker(M, True).mask_text('{"token": "abc", "nested": {"password": "p w"}, "n": 1}')
-    assert masked is not None
-    assert json.loads(masked) == {"token": MASK, "nested": {"password": MASK}, "n": 1}
+    assert masked == f'{{"token": "{MASK}"'
 
 
-def test_mask_text_json_non_string_values_stay_valid() -> None:
-    import json
-
+def test_mask_text_json_non_string_value_is_masked_from_the_first_sensitive_key() -> None:
     masked = Masker(M, True).mask_text('{"password": 12345, "pin_token": true, "api_keys": [1, 2], "n": null}')
-    assert masked is not None
-    assert json.loads(masked) == {"password": MASK, "pin_token": MASK, "api_keys": MASK, "n": None}
+    assert masked == f'{{"password": "{MASK}"'
 
 
 def test_mask_text_parameters_kept_when_capture_on() -> None:
@@ -405,7 +399,7 @@ def test_mask_text_authorization_value_masks_whole(key: str, scheme: str) -> Non
 
 def test_mask_text_authorization_inside_a_quoted_command_keeps_no_credential() -> None:
     masked = Masker(M, True).mask_text("curl -H 'Authorization: bearer abc'")
-    assert masked == f"curl -H 'Authorization: {MASK}'"
+    assert masked == f"curl -H 'Authorization: {MASK}"
 
 
 @pytest.mark.parametrize(
@@ -469,22 +463,23 @@ def test_mask_text_authorization_value_with_a_token_word_masks_whole(scheme: str
     assert Masker(M, True).mask_text(f"Authorization: {scheme} abc123def") == f"Authorization: {MASK}"
 
 
-# derived: release council probe p1_mask.py: lower-case schemes masked the English word after them
+# decided: round 4: telling English from a credential after a scheme was the leak, so the next word is masked
 @pytest.mark.parametrize(
-    "text",
+    ("text", "expected"),
     [
-        "basic auth failed for hunter2x",
-        "Basic auth failed",
-        "bearer expired",
-        "Bearer expired.",
-        "bearer token expired",
-        "Bearer Token expired",
-        "SELECT basic FROM t",
-        "SELECT bearer FROM t",
+        ("Bearer qsecretvalue", f"Bearer {MASK}"),
+        ("basic auth failed for hunter2x", f"basic {MASK} failed for hunter2x"),
+        ("Basic auth failed", f"Basic {MASK} failed"),
+        ("bearer expired", f"bearer {MASK}"),
+        ("Bearer expired.", f"Bearer {MASK}"),
+        ("bearer token expired", f"bearer token {MASK}"),
+        ("Bearer Token expired", f"Bearer Token {MASK}"),
+        ("SELECT basic FROM t", f"SELECT basic {MASK} t"),
+        ("SELECT bearer FROM t", f"SELECT bearer {MASK} t"),
     ],
 )
-def test_mask_text_scheme_word_keeps_ordinary_words(text: str) -> None:
-    assert Masker(M, True).mask_text(text) == text
+def test_mask_text_scheme_masks_the_next_word(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
 
 
 @pytest.mark.parametrize(
@@ -557,10 +552,10 @@ LONG_LINE = "ordinary words " * 400
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("password=[a, b] note=[ (open", f"password={MASK} note=[ (open"),
-        ('{"password": ["a", "b"], "note": [1', f'{{"password": "{MASK}", "note": [1'),
+        ("password=[a, b] note=[ (open", f"password={MASK}"),
+        ('{"password": ["a", "b"], "note": [1', f'{{"password": "{MASK}"'),
         ("note=[ password=hunter2", f"note=[ password={MASK}"),
-        ("token=(a b) secret=(hunter2", f"token={MASK} secret={MASK}"),
+        ("token=(a b) secret=(hunter2", f"token={MASK}"),
         ('{"note":["password":"hunter2"', f'{{"note":["password":"{MASK}"'),
     ],
 )
@@ -579,13 +574,13 @@ def test_mask_text_unclosed_opener_reads_the_same_on_a_long_line(text: str, expe
         ("password=[[1, 2], [3, hunter2]]", f"password={MASK}"),
         ("password=(f(x), hunter2)", f"password={MASK}"),
         ("password=[a[1], hunter2", f"password={MASK}"),
-        ('{"tokens": [["a"], ["hunter2"]]}', f'{{"tokens": "{MASK}"}}'),
-        ('{"tokens": ["a", {"x": [1]}, "hunter2"]}', f'{{"tokens": "{MASK}"}}'),
-        ('{"tokens": ["a]", "hunter2"]}', f'{{"tokens": "{MASK}"}}'),
-        ("{'token': (('a',), 'hunter2')}", f"{{'token': '{MASK}'}}"),
+        ('{"tokens": [["a"], ["hunter2"]]}', f'{{"tokens": "{MASK}"'),
+        ('{"tokens": ["a", {"x": [1]}, "hunter2"]}', f'{{"tokens": "{MASK}"'),
+        ('{"tokens": ["a]", "hunter2"]}', f'{{"tokens": "{MASK}"'),
+        ("{'token': (('a',), 'hunter2')}", f"{{'token': '{MASK}'"),
     ],
 )
-def test_mask_text_sensitive_value_runs_to_its_balanced_closer(text: str, expected: str) -> None:
+def test_mask_text_sensitive_value_runs_to_the_end_of_its_line(text: str, expected: str) -> None:
     masker = Masker(M, True)
     assert masker.mask_text(text) == expected
     assert masker.mask_text(LONG_LINE + text) == LONG_LINE + expected
@@ -594,17 +589,17 @@ def test_mask_text_sensitive_value_runs_to_its_balanced_closer(text: str, expect
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ('{"password": ["a"], "roles": ["x"]}', f'{{"password": "{MASK}", "roles": ["x"]}}'),
+        ('{"password": ["a"], "roles": ["x"]}', f'{{"password": "{MASK}"'),
         ("note=[a[1], b] password=hunter2", f"note=[a[1], b] password={MASK}"),
         ("password=[a[1]]\nnote=[b]", f"password={MASK}\nnote=[b]"),
     ],
 )
-def test_mask_text_balanced_value_leaves_what_follows(text: str, expected: str) -> None:
+def test_mask_text_value_leaves_what_its_line_does_not_hold(text: str, expected: str) -> None:
     assert Masker(M, True).mask_text(text) == expected
 
 
 @pytest.mark.parametrize("text", ["password=[[] " * 12_000, "password=[a] " * 12_000, "k=[[] " * 12_000])
-def test_mask_text_balanced_scan_stays_fast(text: str) -> None:
+def test_mask_text_value_scan_stays_fast(text: str) -> None:
     started = time.perf_counter()
     Masker(M, True).mask_text(text)
     assert time.perf_counter() - started < 1

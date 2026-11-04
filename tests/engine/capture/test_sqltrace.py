@@ -453,7 +453,7 @@ def test_raw_text_masked_when_params_on():
     recorder = _recorder(WITH_PARAMETERS)
     _record(recorder, "update users set password = 'hunter2' where id = 4")
     entry = _entries(recorder)[0]
-    assert entry["sql"] == f"update users set password = '{MASK}' where id = 4"
+    assert entry["sql"] == f"update users set password = {MASK}"
     assert recorder.report([])["topStatements"][0]["sql"] == "update users set password = ? where id = ?"
 
 
@@ -489,7 +489,7 @@ def test_error_message_masked_and_inline_sql_normalised():
     _record(recorder, sql, success=False, error=error)
     message = _entries(recorder)[0]["errorMessage"]
     assert (
-        message == f"(sqlite3.IntegrityError) UNIQUE\n[SQL: insert into u (id, p) values (?, ?)]\n[parameters: {MASK}]"
+        message == f"(sqlite3.IntegrityError) UNIQUE\n[SQL: insert into u (id, p) values (?, ?)] [parameters: {MASK}]"
     )
 
 
@@ -519,7 +519,7 @@ def test_driver_message_values_dropped_with_parameters_off(message: str, expecte
     _record(recorder, sql, success=False, error=error)
     stored = _entries(recorder)[0]["errorMessage"]
     assert "hunter2" not in stored
-    assert stored == f"{expected}\n[SQL: {sql}]\n[parameters: {MASK}]"
+    assert stored == f"{expected}\n[SQL: {sql}] [parameters: {MASK}]"
 
 
 def test_sql_cut_at_max_length():

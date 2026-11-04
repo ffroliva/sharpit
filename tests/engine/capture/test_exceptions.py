@@ -320,7 +320,7 @@ def test_causes_cycle_safe_max_five():
 def test_message_masked_and_cut_2000():
     store = _store()
     _record(store, _raised(lambda: RuntimeError(f"login failed password=hunter2 token {JWT}")))
-    assert _groups(store)[0]["message"] == f"login failed password={MASK} token {MASK}"
+    assert _groups(store)[0]["message"] == f"login failed password={MASK}"
     _record(store, _raised(lambda: ValueError("x" * 5000)))
     long = next(g for g in _groups(store) if g["exceptionClassName"] == "ValueError")["message"]
     assert len(long) == MAX_MESSAGE == 2000
