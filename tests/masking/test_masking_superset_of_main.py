@@ -102,12 +102,12 @@ def test_a_statement_is_masked_before_the_scan_changes_its_shape(path: str, valu
     ("text", "secret"),
     [
         (
-            f'(pymysql.err.OperationalError) (1045, pwd:"a\n{TAIL}")\n[SQL: SELECT 1]\n[parameters: (pwd:"a\n{TAIL}")]',
+            f'(a.Error) (1045, pwd:"a\n{TAIL}")\n[SQL: SELECT 1]\n[parameters: (pwd:"a\n{TAIL}")]',
             TAIL,
         ),
-        (f"(pymysql.err.OperationalError) (1045, pwd='{PEM}')\n[SQL: SELECT 1]\n[parameters: (pwd='{PEM}')]", PEM_BODY),
+        (f"(a.Error) (1045, pwd='{PEM}')\n[SQL: SELECT 1]\n[parameters: (pwd='{PEM}')]", PEM_BODY),
         (
-            f'(pymysql.err.OperationalError) (1045, pwd: "a\r\n{TAIL}")\n[SQL: SELECT 1]\n[parameters: (pwd: "a\r\n{TAIL}")]',
+            f'(a.Error) (1045, pwd: "a\r\n{TAIL}")\n[SQL: SELECT 1]\n[parameters: (pwd: "a\r\n{TAIL}")]',
             TAIL,
         ),
         (f'Token expired&"auth"="first {TAIL}"', TAIL),
