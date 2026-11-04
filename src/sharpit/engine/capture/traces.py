@@ -39,7 +39,12 @@ _URL_KEYS = frozenset({"url.full", "http.url"})
 _PLAIN_PATH_KEYS = frozenset({"http.route", "url.path", "http.target"})
 _SQL_KEYS = frozenset({"db.statement", "db.query.text"})
 _HEADER_PREFIXES = ("http.request.header.", "http.response.header.")
-_SQL_ERROR = re.compile(r"\[SQL: (.*?)\]", re.DOTALL)
+_SQL_BLOCK = "[SQL: "
+# what follows a statement in SQLAlchemy's message or a chained traceback
+_SQL_BLOCK_END = re.compile(
+    r"\n(?:\[parameters: |\[SQL parameters hidden|\[SQL: |\(Background on this error"
+    r"|The above exception|During handling of|Traceback \()"
+)
 _SQL_ERROR_SHAPE = re.compile(
     r"^(?:sqlalchemy\.(?:exc|engine)\.|(?:psycopg2?|sqlite3|pymysql|MySQLdb|mysql(?:\.connector)?|asyncpg)\.)"
     r"[\w.]+:"
@@ -171,19 +176,34 @@ def _traceback_prefix(text: str) -> tuple[str, str]:
     return "\n".join(lines[:frame_count]), "\n".join(lines[frame_count:])
 
 
+def _sql_blocks_normalized(text: str, mysql: bool) -> str:
+    """Each ``[SQL: ...]`` block normalised. A statement holds brackets of its own, so it runs to the last ``]`` before
+    what follows a block, or to that point with no ``]`` at all: an open block is still a statement. Each pass consumes
+    up to there, so the scan is linear."""
+    parts: list[str] = []
+    cursor = 0
+    while (start := text.find(_SQL_BLOCK, cursor)) >= 0:
+        body = start + len(_SQL_BLOCK)
+        following = _SQL_BLOCK_END.search(text, body)
+        stop = following.start() if following else len(text)
+        close = text.rfind("]", body, stop)
+        end = close if close >= 0 else stop
+        parts += (text[cursor:start], f"{_SQL_BLOCK}{normalize(text[body:end], mysql).sql}]")
+        cursor = close + 1 if close >= 0 else stop
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
 def _redact_sql_errors(text: str, mysql: bool) -> str:
     frames, remainder = _traceback_prefix(text)
     cleaned = _driver_values_dropped(remainder or text)
-    text = f"{frames}\n{cleaned}" if frames else cleaned
-    end = text.rfind("]") + 1  # past it no ``[SQL: `` can close, and each would scan to the end of the text
-    return _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1), mysql).sql}]", text[:end]) + text[end:]
+    return _sql_blocks_normalized(f"{frames}\n{cleaned}" if frames else cleaned, mysql)
 
 
 def _sql_message(masker: Masker, text: str | None, mysql: bool = False) -> str | None:
     if text is None:
         return None
-    closed = text.rfind("]") + 1
-    if not masker.capture_parameters and (_SQL_ERROR.search(text, 0, closed) or _SQL_ERROR_SHAPE.match(text)):
+    if not masker.capture_parameters and (_SQL_BLOCK in text or _SQL_ERROR_SHAPE.match(text)):
         text = _redact_sql_errors(text, mysql or _MYSQL_DRIVER.search(text) is not None)
     return masker.mask_text(text)
 
