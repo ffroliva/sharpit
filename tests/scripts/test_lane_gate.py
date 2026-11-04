@@ -1711,6 +1711,22 @@ def test_plan_index_at_the_integration_root_protects_that_file(tmp_path: Path) -
     assert not _refused(result, "plan file changed: README.md")
 
 
+def test_lane_fixture_copy_leaves_the_objects_in_the_template(tmp_path: Path) -> None:
+    """Copied read-only objects were 10k of a full run's 27k temp files, and pytest later deletes them one by one."""
+    fx = _fixture(tmp_path)
+    objects = fx.integration / ".git" / "objects"
+    assert [path for path in objects.rglob("*") if path.is_file() and path.name != "alternates"] == []
+
+
+def test_lane_fixture_commit_stays_in_its_own_copy(tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first, second = _fixture(tmp_path / "a"), _fixture(tmp_path / "b")
+    sha = first.commit({"src/only_a.py": "x = 1\n"}, "feat: only in a")
+    assert lane_gate._resolve(first.worktree, sha) == sha
+    assert lane_gate._resolve(second.worktree, sha) is None
+
+
 def test_lane_fixture_copy_uses_at_most_one_git_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     warm_root = tmp_path / "warm"
     warm_root.mkdir()
