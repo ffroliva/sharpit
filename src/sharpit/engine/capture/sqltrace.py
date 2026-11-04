@@ -56,6 +56,7 @@ PARAMETERS_SHOWN = (
 # --- SqlStatementNormalizer (verbatim port) -------------------------------------------------------------------------
 
 _MAX_SCAN_LENGTH = 20_000
+_MYSQL_RADIX_LITERAL = re.compile(r"0[xX][0-9a-fA-F]+|0[bB][01]+")
 
 
 class Normalized(NamedTuple):
@@ -142,11 +143,12 @@ class _Out:
         return "".join(self.chars)
 
 
-def _skip_quoted(sql: str, index: int, closing: str) -> int:
+def _skip_quoted(sql: str, index: int, closing: str, mysql: bool = False) -> int:
     cursor, length = index + 1, len(sql)
+    escaped_in = "'\"" if mysql else "'"
     while cursor < length:
         c = sql[cursor]
-        if c == "\\" and closing == "'" and cursor + 1 < length:
+        if c == "\\" and closing in escaped_in and cursor + 1 < length:
             cursor += 2
             continue
         if c == closing:
@@ -183,12 +185,12 @@ def _identifier_like(sql: str, index: int, end: int) -> bool:
     return all((c.isascii() and c.isalnum()) or c in "_$." for c in sql[start:stop])
 
 
-def _double_quoted_literal(sql: str, index: int, end: int, out: _Out) -> bool:
+def _double_quoted_literal(sql: str, index: int, end: int, out: _Out, mysql: bool = False) -> bool:
     """sharpit deviation (0.4.0): MySQL reads ``"..."`` as a string, so an identifier-shaped run is a literal too in a
     value position (unless it qualifies a name, ``"b"."id"``) or when it looks like a secret; identifiers elsewhere
-    stay readable."""
+    stay readable. Text known to be MySQL's has every run a literal: ``ANSI_QUOTES`` only masks an identifier."""
     stop = end - 1 if end > index + 1 and sql[end - 1] == '"' else end
-    if not _identifier_like(sql, index, end) or is_secret_value(sql[index + 1 : stop]):
+    if mysql or not _identifier_like(sql, index, end) or is_secret_value(sql[index + 1 : stop]):
         return True
     return out.value_position() and not sql.startswith(".", end)
 
@@ -210,7 +212,13 @@ def _keyword_literal_start(sql: str, index: int, out: _Out) -> bool:
     return _matches_keyword(sql, index, "true") or _matches_keyword(sql, index, "false")
 
 
-def _skip_number(sql: str, index: int) -> int:
+def _line_comment(sql: str, index: int, mysql: bool) -> bool:
+    return sql.startswith("--", index) or (mysql and sql[index] == "#")
+
+
+def _skip_number(sql: str, index: int, mysql: bool = False) -> int:
+    if mysql and (radix := _MYSQL_RADIX_LITERAL.match(sql, index)):
+        return radix.end()
     cursor, length = index, len(sql)
     while cursor < length and (sql[cursor].isdigit() or sql[cursor] == "."):
         cursor += 1
@@ -257,8 +265,12 @@ def _collapse_placeholder_lists(normalized: str) -> str:
 
 
 @functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text
-def normalize(sql: str) -> Normalized:
-    """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``."""
+def normalize(sql: str, mysql: bool = False) -> Normalized:
+    """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``.
+
+    ``mysql`` is for text known to be MySQL's: ``"..."`` is a string with backslash escapes, ``#`` starts a comment and
+    ``0x``/``0b`` numbers are literals. Elsewhere those mean an identifier, an operator and (mostly) a syntax error.
+    """
     if not sql or sql.isspace():
         return Normalized("", "", 0, 0)
     source = sql[:_MAX_SCAN_LENGTH]
@@ -269,8 +281,8 @@ def normalize(sql: str) -> Normalized:
         c = source[index]
         dollar_end = _dollar_quote_end(source, index) if c == "$" else -1
         literal = False
-        if c == "-" and source.startswith("-", index + 1):
-            newline = source.find("\n", index + 2)
+        if c in "-#" and _line_comment(source, index, mysql):
+            newline = source.find("\n", index + 1)
             index = length if newline < 0 else newline
             out.space()
         elif c == "/" and source.startswith("*", index + 1):
@@ -282,8 +294,8 @@ def normalize(sql: str) -> Normalized:
         elif dollar_end > 0:
             index, literal = dollar_end, True
         elif c in '"`[':
-            end = _skip_quoted(source, index, "]" if c == "[" else c)
-            if c == '"' and _double_quoted_literal(source, index, end, out):
+            end = _skip_quoted(source, index, "]" if c == "[" else c, mysql)
+            if c == '"' and _double_quoted_literal(source, index, end, out, mysql):
                 literal = True
             else:
                 out.append(source[index:end])
@@ -294,7 +306,7 @@ def normalize(sql: str) -> Normalized:
             out.space()
             index += 1
         elif c.isdigit() and not _identifier_char_before(out):
-            index, literal = _skip_number(source, index), True
+            index, literal = _skip_number(source, index, mysql), True
         else:
             out.append(c)
             index += 1
@@ -306,8 +318,8 @@ def normalize(sql: str) -> Normalized:
     return Normalized(collapsed, collapsed.lower(), literals, predicate_literals)
 
 
-def normalize_sql(sql: str) -> str:
-    return normalize(sql).sql
+def normalize_sql(sql: str, mysql: bool = False) -> str:
+    return normalize(sql, mysql).sql
 
 
 # --- SqlTracingProxies.categoryOf -----------------------------------------------------------------------------------
