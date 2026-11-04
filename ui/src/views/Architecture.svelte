@@ -32,6 +32,7 @@
   title={panel.title}
   {report}
   {loadError}
+  onretry={load}
   readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
   scanLabel={(phase) =>
     phase === 'scanning'

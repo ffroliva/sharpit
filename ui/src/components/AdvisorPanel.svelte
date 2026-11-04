@@ -191,14 +191,14 @@
     <button class="primary" onclick={scan} disabled={scanning || !!scanBlocked} aria-busy={scanning}>{label}</button>
   </header>
 
-  <div class="panel-body" use:scrollable role="region" aria-label={title}>
+  <div class="panel-body" use:scrollable role="region" aria-label={title} tabindex="-1">
     {#if scanBlocked}<p class="notice warn">{scanBlocked}</p>{/if}
     {#if actionError}<p class="notice danger" role="alert">{actionError}</p>{/if}
 
     {#if phase === 'loading'}
       <table aria-hidden="true"><tbody>{#each { length: 6 } as _}<tr class="skeleton"><td></td><td></td></tr>{/each}</tbody></table>
     {:else if phase === 'load-failed'}
-      <div class="empty" role="alert"><p class="lead danger">Could not load {title}</p><p>{loadError}</p>{#if onretry}<button onclick={onretry}>Retry</button>{/if}</div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load {title}</p><p>{loadError}</p>{#if onretry}<button onclick={(event) => { const region = (event.currentTarget as HTMLElement).closest<HTMLElement>('.panel-body'); if (region) { region.tabIndex = -1; region.focus(); } onretry(); }}>Retry</button>{/if}</div>
     {:else}
       {#if phase === 'failed'}
         <div class="empty" role="alert">

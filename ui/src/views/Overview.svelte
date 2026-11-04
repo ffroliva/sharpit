@@ -25,9 +25,9 @@
     <h1>Scorecard</h1>
     {#if data}<span class="muted">{data.applicationName ?? 'Unnamed application'}</span>{/if}
   </header>
-  <div class="panel-body" use:scrollable role="region" aria-label="Scorecard">
+  <div class="panel-body" use:scrollable role="region" aria-label="Scorecard" tabindex="-1">
     {#if error}
-      <div class="empty" role="alert"><p class="lead danger">Could not load the overview</p><p>{error}</p><button onclick={load}>Retry</button></div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load the overview</p><p>{error}</p><button onclick={(event) => { const region = (event.currentTarget as HTMLElement).closest<HTMLElement>('.panel-body'); if (region) { region.tabIndex = -1; region.focus(); } void load(); }}>Retry</button></div>
     {:else if !data}
       <table aria-hidden="true"><tbody>{#each { length: 8 } as _}<tr class="skeleton"><td></td><td></td></tr>{/each}</tbody></table>
     {:else}

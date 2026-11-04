@@ -84,6 +84,39 @@ for (const scheme of ['light', 'dark'] as const) {
       });
     }
 
+    test('panel content starts level with its heading', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      for (const [id, selector] of [['fastapi-security', '.chain'], ['sqlalchemy-statistics', 'dl.facts dt']] as const) {
+        await openPanel(page, id);
+        const heading = page.locator('main h2').first();
+        const content = page.locator(`main ${selector}`).first();
+        await expect(content).toBeVisible();
+        const headingLeft = (await heading.boundingBox())!.x;
+        const contentLeft = (await content.boundingBox())!.x;
+        expect(contentLeft).toBe(headingLeft);
+      }
+    });
+
+    for (const id of ['alembic', 'mysql', 'postgresql', 'database-connection-pools']) {
+      test(`${id} monospace headings retain panel-title size`, async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await openPanel(page, id);
+        if (id === 'alembic') await page.getByRole('button', { name: 'Read database version' }).click();
+        let heading = page.locator('main h2.mono').first();
+        if (!(await heading.count())) {
+          await page.locator('main .panel-body').evaluate((body) => {
+            const heading = document.createElement('h2');
+            heading.className = 'mono';
+            heading.textContent = 'panel value';
+            body.append(heading);
+          });
+          heading = page.locator('main h2.mono').last();
+        }
+        await expect(heading).toBeVisible();
+        await expect(heading).toHaveCSS('font-size', '13px');
+      });
+    }
+
     test('SQLAlchemy statistics numbers are right aligned and tabular', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       await page.request.get(new URL('/owners/n-plus-one', page.url()).href);
@@ -92,6 +125,24 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(value).toHaveCSS('text-align', 'right');
       await expect(value).toHaveCSS('font-variant-numeric', 'tabular-nums');
       await expect(page.locator('td.num').first()).toHaveCSS('text-align', 'right');
+      const [label, number] = await Promise.all([
+        page.locator('dl.facts.statistics dt').first().boundingBox(),
+        page.locator('dl.facts.statistics dd.num').first().boundingBox(),
+      ]);
+      expect(label).not.toBeNull();
+      expect(number).not.toBeNull();
+      expect(number!.x - (label!.x + label!.width)).toBeLessThanOrEqual(24);
+      await expect(page.locator('dl.facts dd.status').first()).toHaveCSS('text-align', 'left');
+    });
+
+    test('probe response heading does not add padding to the result inset', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await openPanel(page, 'http-probe');
+      await page.getByRole('combobox', { name: 'Path' }).fill('/owners');
+      await page.getByRole('button', { name: 'Send' }).click();
+      const heading = page.getByRole('region', { name: 'Response' }).locator('h2');
+      await expect(heading).toHaveCSS('margin-top', '0px');
+      await expect(heading).toHaveCSS('margin-left', '0px');
     });
 
     test('SQLAlchemy section paragraphs are inset', async ({ page }) => {
@@ -104,25 +155,47 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 1280, height: 800 });
       await openPanel(page, 'mcp-server');
       const block = page.locator('.panel-body section.block');
-      await expect(block).toHaveCSS('padding-top', '16px');
-      await expect(block).toHaveCSS('padding-bottom', '16px');
+      await expect(block.locator('dl.facts')).toHaveCSS('padding-top', '16px');
+      await expect(block.locator('dl.facts')).toHaveCSS('padding-bottom', '16px');
     });
 
-    for (const id of ['health', 'exceptions', 'sql-trace', 'transactions', 'security-logs', 'alembic']) {
+    test('the vulnerability summary uses its own 12px inset without section padding', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await openPanel(page, 'vulnerabilities');
+      await page.locator('main .panel-body').evaluate((body) => {
+        const scope = body.querySelector('p[class*="svelte-"]')?.className.match(/svelte-[\w-]+/)?.[0];
+        const section = document.createElement('section');
+        section.className = `block summary ${scope ?? ''}`;
+        const paragraph = document.createElement('p');
+        if (scope) paragraph.className = scope;
+        section.append(paragraph);
+        body.append(section);
+      });
+      await expect(page.locator('section.block.summary')).toHaveCSS('padding-top', '0px');
+      await expect(page.locator('section.block.summary p').last()).toHaveCSS('padding-top', '12px');
+    });
+
+    for (const id of ['health', 'exceptions', 'sql-trace', 'transactions', 'security-logs', 'alembic', 'mysql', 'postgresql']) {
       test(`${id} header actions sit right`, async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 800 });
         await openPanel(page, id);
         const header = page.locator('.panel-head');
+        if (id === 'mysql' || id === 'postgresql') await expect(header.locator('.count')).toHaveCount(0);
         const control = header.locator('button, input, select').last();
         await expect(control).toBeVisible();
-        const [headerBox, controlBox, padding] = await Promise.all([
+        const count = header.locator('.count');
+        const rightmost = await count.count() ? count : control;
+        const [headerBox, controlBox, rightmostBox, padding] = await Promise.all([
           header.boundingBox(),
           control.boundingBox(),
+          rightmost.boundingBox(),
           header.evaluate((el) => parseFloat(getComputedStyle(el).paddingRight)),
         ]);
         expect(controlBox).not.toBeNull();
         expect(headerBox).not.toBeNull();
-        expect(headerBox!.x + headerBox!.width - padding - (controlBox!.x + controlBox!.width)).toBeLessThanOrEqual(1);
+        expect(rightmostBox).not.toBeNull();
+        expect(headerBox!.x + headerBox!.width - padding - (rightmostBox!.x + rightmostBox!.width)).toBeLessThanOrEqual(1);
+        if (await count.count()) expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(rightmostBox!.x);
       });
     }
 

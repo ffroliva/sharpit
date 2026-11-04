@@ -78,10 +78,7 @@
 
   /** Re-fetch the rows on screen (as many as are loaded), e.g. after a change that affects other rows. */
   export async function reload() {
-    if (!page || error) {
-      retryVersion++;
-      return;
-    }
+    if (!page || error) return;
     const mine = seq;
     loading = true;
     try {
@@ -92,6 +89,11 @@
     } finally {
       if (mine === seq) loading = false;
     }
+  }
+
+  function retry() {
+    filter?.focus();
+    retryVersion++;
   }
 
   async function more(event: MouseEvent) {
@@ -140,7 +142,7 @@
   <div class="panel-body" use:scrollable role="region" aria-label={title} aria-busy={loading}>
     {#if notice}<p class="notice warn">{notice}</p>{/if}
     {#if error}
-      <div class="empty" role="alert"><p class="lead danger">Could not load {noun}</p><p>{error}</p><button onclick={reload}>Retry</button></div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load {noun}</p><p>{error}</p><button onclick={retry}>Retry</button></div>
     {:else}
       <table bind:this={table} aria-label={title} class:fixed={!!cols}>
         {#if cols}<colgroup>{#each cols as width}<col style:width={width || null} />{/each}</colgroup>{/if}

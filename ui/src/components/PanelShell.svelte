@@ -20,16 +20,16 @@
 <div class="panel">
   <header class="panel-head">
     <h1>{title}</h1>
-    {#if count}<span class="muted count">{count}</span>{/if}
     {@render controls?.()}
+    {#if count}<span class="muted count">{count}</span>{/if}
   </header>
-  <div class="panel-body" use:scrollable role="region" aria-label={title} aria-busy={loading}>
+  <div class="panel-body" use:scrollable role="region" aria-label={title} aria-busy={loading} tabindex="-1">
     {#if notice}<p class="notice warn">{notice}</p>{/if}
     {#if error}
       <div class="empty" role="alert">
         <p class="lead danger">Could not load {title}</p>
         <p>{error}</p>
-        {#if onretry}<button onclick={onretry}>Retry</button>{/if}
+        {#if onretry}<button onclick={(event) => { const region = (event.currentTarget as HTMLElement).closest<HTMLElement>('.panel-body'); if (region) { region.tabIndex = -1; region.focus(); } onretry(); }}>Retry</button>{/if}
       </div>
     {:else if loading}
       <div class="empty" role="status"><p class="muted">Loading…</p></div>
@@ -40,5 +40,6 @@
 </div>
 
 <style>
+  .panel-head h1 { margin-right: auto; }
   .count { margin-left: auto; white-space: nowrap; }
 </style>

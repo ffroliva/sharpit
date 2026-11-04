@@ -121,7 +121,9 @@ it('Retry reloads a failed filter query instead of the previous page', async () 
   await vi.waitFor(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('Could not load'), { timeout: 1000, interval: 5 });
 
   failFilter = false;
+  fetchMock.mockClear();
   target.querySelector<HTMLButtonElement>('button')!.click();
+  expect(document.activeElement).toBe(filter);
   await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).toBeNull(), { timeout: 1000, interval: 5 });
   expect(fetchMock.mock.calls.some(([url]) => String(url).includes('q=sql'))).toBe(true);
 });

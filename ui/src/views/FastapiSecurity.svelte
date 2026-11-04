@@ -58,6 +58,7 @@
     {:else}
       {#each report.data.limitations as why, i (`${i}:${why}`)}<p class="warn">{why}</p>{/each}
       <h2>Middleware stacks</h2>
+      <div class="inset">
       {#each report.data.chains as chain (chain.order)}
         <section class="chain">
           <p><strong>{chain.order}</strong> <span class="mono">{chain.requestMatcher}</span> <span class="muted">{chain.requestMatcherType}</span>
@@ -72,6 +73,7 @@
           {/if}
         </section>
       {/each}
+      </div>
       {#if report.data.auth}
         <section class="block">
           <h2>Authentication</h2>
@@ -134,3 +136,7 @@
     {/if}
   {/if}
 </PanelShell>
+
+<style>
+  .inset { padding: 0 var(--s4); }
+</style>

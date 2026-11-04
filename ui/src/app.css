@@ -84,12 +84,15 @@ tr.group th { position: static; background: var(--bg); color: var(--ink); paddin
 .empty .lead { font-size: 16.5px; line-height: 24px; font-weight: 600; }
 .empty h1 { margin: 0 0 var(--s2); font-size: 16.5px; line-height: 24px; font-weight: 600; }
 
-dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--s1) var(--s6); margin: 0; padding: 0 var(--s4); }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--s1) var(--s6); margin: 0; padding: var(--s4); }
+h2 + dl.facts { padding-top: 0; }
+dl.facts.statistics { grid-template-columns: max-content max-content; }
+dl.facts.statistics dd.status { text-align: left; }
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; }
 section.block { border-bottom: 1px solid var(--line); }
-section.block:not(:has(> h2)) { padding-block: var(--s4); }
 h2 { margin: var(--s3) var(--s4) var(--s1); font-size: 13px; line-height: 20px; font-weight: 600; }
+h2.mono { font-size: 13px; line-height: 20px; }
 section.block h2 { padding: 0; }
 
 @media (max-width: 720px) {

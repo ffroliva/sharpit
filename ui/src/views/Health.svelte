@@ -61,7 +61,7 @@
   count={Number.isFinite(checkedAt) ? `last run ${clock(checkedAt)}` : 'never run'}
 >
   {#snippet controls()}
-    <button class="primary run" onclick={refresh} disabled={panel.readOnly || running} title={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : undefined}>Run checks</button>
+    <button class="primary" onclick={refresh} disabled={panel.readOnly || running} title={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : undefined}>Run checks</button>
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
   {#if tree.data}

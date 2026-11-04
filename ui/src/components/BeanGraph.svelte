@@ -21,13 +21,15 @@
   let showExternal = $state(false);
   let hover = $state<string | null>(null);
 
-  (async () => {
+  async function load() {
     try {
       full = buildGraph(await ServerPage.loadAll<BeanRow>('beans', 'beans', MAX_BEANS));
+      error = null;
     } catch (e) {
       error = e instanceof ApiError ? `HTTP ${e.status}` : 'The application is not responding.';
     }
-  })();
+  }
+  void load();
 
   const classifications = $derived(
     full ? [...new Set(full.nodes.filter((n) => !n.external).map((n) => n.classification!))].sort() : [],
@@ -183,9 +185,9 @@
       {#if view}{view.shown} of {view.eligible}{/if}
     </span>
   </header>
-  <div class="panel-body graph-body" use:scrollable role="region" aria-label="Providers">
+  <div class="panel-body graph-body" use:scrollable role="region" aria-label="Providers" tabindex="-1">
     {#if error}
-      <div class="empty" role="alert"><p class="lead danger">Could not load providers</p><p>{error}</p></div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load providers</p><p>{error}</p><button onclick={(event) => { const region = (event.currentTarget as HTMLElement).closest<HTMLElement>('.panel-body'); if (region) { region.tabIndex = -1; region.focus(); } void load(); }}>Retry</button></div>
     {:else if !view}
       <p class="empty muted">Loading the dependency graph…</p>
     {:else}

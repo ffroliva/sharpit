@@ -33,6 +33,7 @@
   title={panel.title}
   {report}
   {loadError}
+  onretry={load}
   readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
   scanLabel={(phase) => (phase === 'scanning' ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Run Database checks')}
   onScan={async () => void (report = await post<DatabaseAdvisorReport>('database-advisor/scan'))}

@@ -41,13 +41,13 @@
       {#each s.warnings ?? [] as warning (warning)}<p class="warn">{warning}</p>{/each}
       <section class="block">
         <h2>Statistics</h2>
-        <dl class="facts">
+        <dl class="facts statistics">
           {#each MEASURED as [key, label] (key)}
             <dt>{label}</dt><dd class="num"><strong>{s[key]}</strong></dd>
           {/each}
           {#each UNMEASURED as [key, label] (key)}
             <dt>{label}</dt>
-            <dd class="num muted" title={NOT_MEASURED}>{s[key] === null ? 'not measured' : s[key]}</dd>
+            <dd class="num muted status" title={NOT_MEASURED}>{s[key] === null ? 'not measured' : s[key]}</dd>
           {/each}
         </dl>
       </section>
