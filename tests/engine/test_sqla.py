@@ -226,9 +226,9 @@ def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(monkeypat
         calls["path"] += 1
         return path(context)
 
-    def count_fingerprint(statement: str) -> str:
+    def count_fingerprint(statement: str, mysql: bool = False) -> str:
         calls["fingerprint"] += 1
-        return fingerprint(statement)
+        return fingerprint(statement, mysql)
 
     monkeypatch.setattr(sqla_orm, "_relationship_path", count_path)
     monkeypatch.setattr(sqla_orm, "_masked_fingerprint", count_fingerprint)
@@ -350,6 +350,41 @@ def test_relationship_facts_use_masked_statement_fingerprint() -> None:
         sqla_orm._relationship_groups.pop(tag, None)
         sqla_orm._relationship_sites.pop(tag, None)
         TEST.reset(token)
+
+
+# derived: release council fix round 2: the group key must equal the sink's, which reads the text as MySQL's
+def test_relationship_facts_on_mysql_use_the_mysql_fingerprint() -> None:
+    from sharpit.engine.capture.sqltrace import normalize
+    from sharpit.engine.testsession.sink import report_masker
+
+    statement = "SELECT * FROM payments # password hunter2"
+    tag = ("test_relationship_facts_on_mysql_use_the_mysql_fingerprint", 1, "call")
+    context = types.SimpleNamespace(
+        execution_options={sqla.RELATIONSHIP_KEY: ("Payment.refunds", True)},
+        statement=statement,
+        dialect=types.SimpleNamespace(name="mysql"),
+    )
+    token = TEST.set(tag)
+    try:
+        sqla_orm._record_relationship(context)
+        masked_fingerprint = report_masker().mask_text(normalize(statement, True).fingerprint)
+        assert sqla_orm._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
+    finally:
+        sqla_orm._relationship_loads.pop(tag, None)
+        sqla_orm._relationship_groups.pop(tag, None)
+        sqla_orm._relationship_sites.pop(tag, None)
+        sqla_orm._statement_sites.pop(tag, None)
+        TEST.reset(token)
+
+
+# derived: release council fix round 2: the unbounded-read shape is shown in the report
+def test_unbounded_read_shape_on_mysql_folds_the_comment() -> None:
+    dialect = types.SimpleNamespace(name="mysql")
+    context = types.SimpleNamespace(session=types.SimpleNamespace(bind=types.SimpleNamespace(dialect=dialect)))
+
+    statement, _has_limit = sqla_orm._unbounded_read_statement_shape(context, "SELECT 1 # password hunter2")
+
+    assert "hunter2" not in statement
 
 
 def test_relationship_facts_tolerate_missing_call_phase() -> None:

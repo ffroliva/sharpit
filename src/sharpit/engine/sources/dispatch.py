@@ -27,6 +27,7 @@ class SqlEvent(NamedTuple):
     error: BaseException | None
     connection_id: str | None
     engine: object | None  # SQLAlchemy only, for the "held by" routing rule
+    mysql: bool = False  # the text is MySQL's: ``normalize`` reads ``#``, ``"..."`` and ``0x`` as MySQL does
 
 
 logger = logging.getLogger("sharpit")
