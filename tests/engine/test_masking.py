@@ -608,3 +608,8 @@ def test_mask_text_balanced_scan_stays_fast(text: str) -> None:
     started = time.perf_counter()
     Masker(M, True).mask_text(text)
     assert time.perf_counter() - started < 1
+
+
+# derived: delete-the-control on the line bound: an open value stops at its line, the next line stays
+def test_mask_text_open_bracket_value_stops_at_its_line() -> None:
+    assert Masker(M, True).mask_text("password=[a[1], hunter2\nnote=[b]") == f"password={MASK}\nnote=[b]"
