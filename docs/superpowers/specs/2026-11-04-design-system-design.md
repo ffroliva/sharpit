@@ -162,24 +162,28 @@ keeps its layout. The docs do not imitate the console's density, because they ar
 
 ### Launch and social
 
-`design/social/slide.css` holds the console's patterns at slide size: the rail row, the 36px header line, tables, the `.tag`
-outline, `.notice`, `dl.facts`, code blocks. Spacing is the console's ×3. Type uses the slide steps in the rules above.
+`design/social/slide.css` is based on the approved `social-publisher/media/sharpit-v0.4.0/deck.html` `<style>`, not the
+0.5.0 deck. Slides use 1080×1350 format, 72px equal margins and one wordmark line (`sharpit` at left, position or version
+at right). The cover has a real hook; each slide carries one idea centred vertically. Spacing uses `--s2` 24px, `--s3` 36px,
+`--s4` 48px and `--s6` 72px. Type uses `--t-sm` 34px, `--t-base` 42px, `--t-lg` 84px and `--t-xl` 112px; nothing is under
+34px. The template pins dark on `<html>` and links `../tokens.css` before `slide.css`; the fit script reads
+`document.documentElement.clientWidth`. The kit defines no colour tokens.
 
 Rules, proven by the 0.5.0 deck:
 
-- **Format:** 1080×1350, exported as PNG. A slide is a console panel at its below-720px layout: rail row, one header line,
-  hairlines.
+- **Format:** 1080×1350, exported as PNG.
 - **Theme:** dark for exports, the console's dark tokens unchanged.
-- **Filled element:** one per deck at most, on the cover command.
+- **Filled element:** `.cmd` only, at most one per slide.
 - **Show the product:** use real commands, real findings and real screenshots with fake secrets.
-- **Banned:** big-number hero stats, cards, gradients, literal font sizes in `slide.css`.
+- **Banned:** big-number hero stats, cards and gradients. `.hit` findings and `.code` output are the only blocks; both show
+  real output. Font sizes use the kit's type steps.
 - **Claims:** every claim traces to a Facts block in the campaign file.
 - **Images:** alt text with each post.
 
 A campaign copies `tokens.css`, `slide.css` and the template into its own folder and records the commit it copied from. A deck is a dated
 snapshot, so it should not change when the tokens later do. This is why no check reaches into `social-publisher`.
 
-The 0.5.0 deck's CSS becomes the base of `slide.css`. `template.html` is two of its slides.
+`template.html` is a two-slide starter based on the approved 0.4.0 deck.
 
 ### Brand basics
 

@@ -188,6 +188,40 @@ The command palette (Ctrl/Cmd+K). It is the fastest way to reach any panel, logg
 quiet so the palette can carry the personality: a wide 16.5px input, results grouped by kind, and the matched prefix in
 `--accent`.
 
+## Launch and social
+
+Slides use the 1080×1350 format with 72px margins. Each slide has one wordmark line: `sharpit` at left and its position or
+version at right. The cover opens with a real hook; each slide carries one idea, centred vertically. The template links
+`../tokens.css` before `slide.css`, pins the dark theme on `<html>`, and exports dark.
+
+`slide.css` contains no colour tokens. It scales spacing to `--s2` 24px, `--s3` 36px, `--s4` 48px and `--s6` 72px; type
+steps are `--t-sm` 34px, `--t-base` 42px, `--t-lg` 84px and `--t-xl` 112px. Text never drops below 34px. The fit script
+uses `document.documentElement.clientWidth`.
+
+Cards are banned. A slide may show one `.cmd`, and the kit permits only the `.hit` finding and `.code` output blocks. Use
+real commands, findings and screenshots with fake secrets. Claims trace to a Facts block in the campaign file; images have
+alt text. Credit BootUI by Julien Dubois on launch material. Campaigns copy both CSS files and the template into a dated
+snapshot and record the source commit; later token changes do not rewrite published decks.
+
+## Brand
+
+- **One line:** “sharpit is a local developer console and pytest gate for FastAPI apps, a Python port of BootUI by Julien
+  Dubois.” Use it or a shorter form in README, docs, PyPI and GitHub descriptions.
+- **Name:** `sharpit`, always lower case, including at the start of a sentence.
+- **Wordmark:** the word in `--ui` at weight 600. There is no logo.
+- **Versions:** `0.5.0` in prose; `v0.5.0` for tags and launch headlines.
+- **Credit:** “a Python port of BootUI by Julien Dubois” on the README, docs footer and launch material; include Apache-2.0
+  where licences are listed.
+- **Status:** alpha appears on launch material until the owner changes it.
+
+## Principles
+
+- **Three pillars:** in your tests, in your app, in CI.
+- **Glossary:** console, panel, advisor (scans code or app), gate (fails a test or build), finding.
+- **Personality:** precise, candid, quiet.
+- **Voice:** give numbers their scope (“22 of 31 verified”, not “full parity”); distinguish verified from built; state limits
+  as plainly as strengths; make no unsupported claims; use no hype or AI attribution.
+
 ## Docs site
 
 The MkDocs site keeps Material's layout and syntax highlighting while using the shared `tokens.css` copy in

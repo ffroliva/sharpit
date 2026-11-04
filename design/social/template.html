@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sharpit launch slides</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="slide.css">
+</head>
+<body>
+<section class="slide" id="s1" aria-label="Cover">
+  <div class="top"><b>sharpit</b><span>v0.5.0</span></div>
+  <div class="body">
+    <h1>A green test can still hide a bug.</h1>
+    <p class="lead">See what your FastAPI app really does while your tests run.</p>
+    <div class="cmd">pytest --sharpit</div>
+  </div>
+  <p class="foot">Open source. Alpha. A Python port of BootUI by Julien Dubois.</p>
+</section>
+<section class="slide" id="s2" aria-label="Finding">
+  <div class="top"><b>sharpit</b><span>2 of 2</span></div>
+  <div class="body">
+    <h2>A finding says what to fix.</h2>
+    <div class="hit"><p class="msg">Player.performances<br>lazy-loaded <span class="accent">1018 times</span></p></div>
+    <p class="lead">It names the relationship and suggests <code class="ink">selectinload</code> or <code class="ink">joinedload</code>.</p>
+  </div>
+  <p class="foot">A Python port of BootUI by Julien Dubois.</p>
+</section>
+<script>
+const fit = () => document.documentElement.style.setProperty('--fit', Math.min(1, document.documentElement.clientWidth / 1080));
+addEventListener('resize', fit); fit();
+</script>
+</body>
+</html>

@@ -275,7 +275,7 @@ Serve `website/site/` under `/sharpit/` on a leased port, so assets resolve. For
 - Create: `design/social/slide.css`, `design/social/template.html`
 - Modify: `tests/design/test_tokens.py`, `design/DESIGN.md`
 
-**Interfaces:** Source: `social-publisher/media/sharpit-v0.5.0/deck.html`, its `<style>` minus the token blocks.
+**Interfaces:** Source: approved `social-publisher/media/sharpit-v0.4.0/deck.html`, its `<style>`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -294,11 +294,11 @@ Also `test_template_links_tokens_then_kit` (order of the two links) and `test_sl
 
 - [ ] **Step 3: Implement**
 
-`slide.css` overrides `--s1` 12px through `--s6` 72px, `--row` 88px, `--head` 112px, `--radius` 10px, and defines `--t-sm` 34px, `--t-base` 40px, `--t-md` 46px, `--t-lg` 66px, `--hair` 2px. Code uses `--t-sm`. Heading spacing is 36 above, 12 below. `template.html` is the deck's cover and proof slides with bracketed placeholders. Its fit script reads `document.documentElement.clientWidth`, not `innerWidth`.
+`slide.css` derives from the approved deck style, defines spacing `--s2` 24px, `--s3` 36px, `--s4` 48px, `--s6` 72px and type `--t-sm` 34px, `--t-base` 42px, `--t-lg` 84px, `--t-xl` 112px. It declares no colour tokens and has no literal font sizes. `template.html` is a two-slide starter with equal 72px margins, a real hook cover, one idea per slide, vertically centred content and one wordmark line. It links `../tokens.css` before `slide.css`, pins the dark theme, and its fit script reads `document.documentElement.clientWidth`.
 
-- [ ] **Step 4: Rebuild the 0.5.0 deck on the kit**
+- [ ] **Step 4: Rebuild the deck on the kit**
 
-In `social-publisher/media/sharpit-v0.5.0/`, link copies of both files. Render at 1080×1350, dark, and at 390px emulated mobile. Expected: no `.panel-body` overflow, no horizontal overflow on mobile, no text under 12px when scaled to 390. Move lines between slides if needed; do not shrink below the floor. Re-export the PNGs. That repo is gitignored here, so nothing is committed.
+Skip this step; the coordinating Claude Code session will rebuild the deck in social-publisher.
 
 - [ ] **Step 5: Add `## Launch and social` to `design/DESIGN.md`, run `uv run pytest -q tests/design`, commit** `feat: slide kit from the console's patterns`.
 
@@ -337,7 +337,6 @@ Run `/sharpit:check` and `/sharpit:branch-review`. With the owner's go, push and
 
 ## Owner actions, outward
 
-- GitHub repo description says "(FastAPI, Django, Flask)", which is false. Change it with `gh repo edit --description` on the owner's go.
 
 ## Definition of done
 
