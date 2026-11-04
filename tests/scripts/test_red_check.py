@@ -20,6 +20,7 @@ red_check = load_script("scripts/dev/red_check.py")
 
 RED = "RED (assertion under tests/)"
 WAIT_FOR_BUILD = 120  # seconds a worker waits for another's verdicts before building its own
+pytestmark = pytest.mark.timeout(300)  # the wait, then a build of 24 pytest subprocesses
 
 SRC = """\
 def widget():
@@ -160,8 +161,11 @@ def _built_once(shared: Path, build: Callable[[], dict[str, str]]) -> dict[str, 
         claim.unlink()
         raise
     scratch = result.with_suffix(".tmp")
-    scratch.write_text(json.dumps(value), encoding="utf-8")
-    scratch.replace(result)  # atomic: a waiter never reads a half-written file
+    try:
+        scratch.write_text(json.dumps(value), encoding="utf-8")
+        scratch.replace(result)  # atomic: a waiter never reads a half-written file
+    except OSError:  # Windows can hold the file; these verdicts are good, and the waiters build their own
+        claim.unlink(missing_ok=True)
     return value
 
 
