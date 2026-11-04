@@ -1,4 +1,4 @@
-"""design/tokens.css is the one source of the console's colour and spacing tokens; design/DESIGN.md documents it."""
+"""design/tokens.css is the one source of the shared design tokens; design/DESIGN.md documents it."""
 
 import math
 import re
@@ -213,6 +213,40 @@ def test_docs_theme_maps_material_colour_variants() -> None:
         "--md-accent-bg-color--dark",
     ):
         assert re.search(rf"{re.escape(name)}\s*:\s*var\(--[a-z-]+\);", text), name
+
+
+def test_docs_accent_background_uses_the_selection_surface() -> None:
+    text = (ROOT / "website/docs/stylesheets/sharpit.css").read_text(encoding="utf-8")
+    assert re.search(r"--md-accent-bg-color\s*:\s*var\(--sel\);", text)
+
+
+def test_slide_kit_has_no_colour_or_font_size_literals() -> None:
+    kit = ROOT / "design/social/slide.css"
+    assert kit.is_file()
+    text = kit.read_text(encoding="utf-8")
+    assert "oklch(" not in text
+    assert not re.search(r"font-size:\s*\d", text)
+
+
+def test_slide_template_links_tokens_before_kit_and_pins_dark_theme() -> None:
+    template = ROOT / "design/social/template.html"
+    assert template.is_file()
+    text = template.read_text(encoding="utf-8")
+    assert text.index("../tokens.css") < text.index("slide.css")
+    assert '<html lang="en" data-theme="dark">' in text
+    assert "document.documentElement.clientWidth" in text
+
+
+def test_slide_type_floor_is_34px() -> None:
+    kit = ROOT / "design/social/slide.css"
+    assert kit.is_file()
+    text = kit.read_text(encoding="utf-8")
+    sizes = {name: int(value) for name, value in re.findall(r"(--t-[a-z]+):\s*(\d+)px", text)}
+    assert sizes
+    assert min(sizes.values()) >= 34
+    assert sizes["--t-base"] == 42
+    assert sizes["--t-lg"] == 84
+    assert sizes["--t-xl"] == 112
 
 
 def test_docs_theme_defines_no_colour_token() -> None:
