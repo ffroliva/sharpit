@@ -54,6 +54,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Literals inside square brackets (`ARRAY['x']`, `ARRAY [lower($$x$$)]`, `doc['x']`, `items[3]`, `a[1][2]`) are normalised in SQL Trace and everywhere else the statement scan runs. A bracket that opens with a letter or underscore, holds only word characters and spaces and is no subscript stays readable (`[col name]`). Any other bracket is scanned as a value: `[2024 sales]` shows `[? sales]`, and the apostrophe in `[it's]` opens a string, so the statement reads `[it?` from there on.
 - `mask_text` matches `Bearer`, `Basic` and `Token` in any case, takes the word `token` after a scheme (`bearer token abc123`), and masks the whole value after an `Authorization` key.
 - Masking and the trace error scan no longer take quadratic time on a crafted value (runs of quotes after `token`, closing punctuation at a word's end, repeated `eyJ`, `BEGIN` or `[SQL: `, unclosed `[` or `(` after a key), so a logged client value cannot freeze the host.
+- A `[SQL: ...]` block in a trace error runs past the statement's own brackets, and an open block is normalised too, so `[SQL: SELECT a[1], 'x']` no longer shows `'x'`. In `mask_text` a sensitive `[...]` or `(...)` value runs to its balanced closer past nesting and strings, or to the end of the line, instead of the first closer.
 
 ### Known limitations
 
