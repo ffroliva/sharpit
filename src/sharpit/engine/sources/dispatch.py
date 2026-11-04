@@ -115,6 +115,7 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
                 request_id=info.id if info is not None else None,
                 call_site=site,
                 batch_size=event.batch_size,
+                mysql=event.mysql,
             )
         except Exception as exc:  # noqa: BLE001
             _context_failed(ctx, exc)

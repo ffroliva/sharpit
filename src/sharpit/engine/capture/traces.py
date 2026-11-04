@@ -17,7 +17,12 @@ from urllib.parse import urlsplit
 from sharpit.engine import otel
 from sharpit.engine.capture import under
 from sharpit.engine.capture.correlation import INTERNAL
-from sharpit.engine.capture.sqltrace import _driver_values_dropped, normalize, normalize_sql  # pyright: ignore[reportPrivateUsage]
+from sharpit.engine.capture.sqltrace import (
+    MYSQL_DIALECTS,
+    _driver_values_dropped,  # pyright: ignore[reportPrivateUsage]
+    normalize,
+    normalize_sql,
+)
 from sharpit.engine.capture.streams import SSE_TASK
 from sharpit.engine.masking import MASK, Masker, is_sensitive_key
 
@@ -121,16 +126,16 @@ def _header_attribute(masker: Masker, key: str, value: object) -> str | None:
     return _text([masker.mask_text(v) or "" for v in shown]) if shown else None
 
 
-def _sql_attribute(masker: Masker, key: str, value: object) -> str | None:
+def _sql_attribute(masker: Masker, key: str, value: object, mysql: bool) -> str | None:
     if _SQL_PARAMETER_KEYS.search(key):
         return _text(value) if masker.capture_parameters else MASK
     text = _text(value)
-    return masker.mask_text(text if masker.capture_parameters else normalize_sql(text))
+    return masker.mask_text(text if masker.capture_parameters else normalize_sql(text, mysql))
 
 
-def _url_attribute(masker: Masker, key: str, value: object) -> str | None:
+def _url_attribute(masker: Masker, key: str, value: object, mysql: bool) -> str | None:
     if key in {"exception.message", "exception.stacktrace"}:
-        return _sql_message(masker, _text(value))
+        return _sql_message(masker, _text(value), mysql)
     if key == "url.query":
         return masker.mask_query(str(value))
     if key in _URL_KEYS or key in _PLAIN_PATH_KEYS:
@@ -138,13 +143,13 @@ def _url_attribute(masker: Masker, key: str, value: object) -> str | None:
     return None
 
 
-def _attribute_value(masker: Masker, key: str, value: object) -> str | None:
+def _attribute_value(masker: Masker, key: str, value: object, mysql: bool) -> str | None:
     if key.startswith(_HEADER_PREFIXES):
         return _header_attribute(masker, key, value)
     if _SQL_PARAMETER_KEYS.search(key) or key in _SQL_KEYS:
-        return _sql_attribute(masker, key, value)
+        return _sql_attribute(masker, key, value, mysql)
     if key in {"exception.message", "exception.stacktrace", "url.query", *_URL_KEYS, *_PLAIN_PATH_KEYS}:
-        return _url_attribute(masker, key, value)
+        return _url_attribute(masker, key, value, mysql)
     shown, masked = masker.mask(key, value)
     if shown is None or masked:
         return None if shown is None else str(shown)
@@ -164,24 +169,30 @@ def _traceback_prefix(text: str) -> tuple[str, str]:
     return "\n".join(lines[:frame_count]), "\n".join(lines[frame_count:])
 
 
-def _redact_sql_errors(text: str) -> str:
+def _redact_sql_errors(text: str, mysql: bool) -> str:
     frames, remainder = _traceback_prefix(text)
     cleaned = _driver_values_dropped(remainder or text)
     text = f"{frames}\n{cleaned}" if frames else cleaned
-    return _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1)).sql}]", text)
+    return _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1), mysql).sql}]", text)
 
 
-def _sql_message(masker: Masker, text: str | None) -> str | None:
+def _sql_message(masker: Masker, text: str | None, mysql: bool = False) -> str | None:
     if text is None:
         return None
     if not masker.capture_parameters and (_SQL_ERROR.search(text) or _SQL_ERROR_SHAPE.match(text)):
-        text = _redact_sql_errors(text)
+        text = _redact_sql_errors(text, mysql)
     return masker.mask_text(text)
 
 
-def _attributes(masker: Masker, attributes: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+def _span_is_mysql(attributes: Mapping[str, Any] | None) -> bool:
+    """OTel names the database in ``db.system``, or ``db.system.name`` in the newer conventions."""
+    found = attributes or {}
+    return found.get("db.system") in MYSQL_DIALECTS or found.get("db.system.name") in MYSQL_DIALECTS
+
+
+def _attributes(masker: Masker, attributes: Mapping[str, Any] | None, mysql: bool = False) -> list[dict[str, Any]]:
     return [
-        {"key": key, "type": _attribute_type(value), "value": _attribute_value(masker, key, value)}
+        {"key": key, "type": _attribute_type(value), "value": _attribute_value(masker, key, value, mysql)}
         for key, value in (attributes or {}).items()
     ]
 
@@ -386,6 +397,7 @@ class SpanBuffer:
         parent = _parent_id(span)
         end = span.end_time or span.start_time
         scope = getattr(span, "instrumentation_scope", None)
+        mysql = _span_is_mysql(span.attributes)
         return {
             "traceId": _trace_id(span),
             "spanId": _hex(span.context.span_id, 16),
@@ -398,13 +410,13 @@ class SpanBuffer:
             "endEpochNanos": end,
             "durationNanos": end - span.start_time,
             "statusCode": _status_code(span),
-            "statusMessage": _sql_message(self.masker, span.status.description),
-            "attributes": _attributes(self.masker, span.attributes),
+            "statusMessage": _sql_message(self.masker, span.status.description, mysql),
+            "attributes": _attributes(self.masker, span.attributes, mysql),
             "events": [
                 {
                     "name": self.masker.mask_text(e.name),
                     "timeOffsetNanos": e.timestamp - span.start_time,
-                    "attributes": _attributes(self.masker, e.attributes),
+                    "attributes": _attributes(self.masker, e.attributes, mysql),
                 }
                 for e in span.events or ()
             ],

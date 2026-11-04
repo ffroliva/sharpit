@@ -117,7 +117,7 @@ def _groups(rows: Iterable[dict[str, Any]], threshold: int) -> list[dict[str, An
     """``SqlTraceGrouping.group`` over normalised SQL: executions first, N+1 = a SELECT run ``threshold`` times."""
     by_sql: dict[str, dict[str, Any]] = {}
     for row in rows:
-        key = normalize_sql(row["sql"])
+        key = normalize_sql(row["sql"], row.get("mysql", False))
         group = by_sql.get(key)
         if group is None:
             group = by_sql[key] = {

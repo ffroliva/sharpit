@@ -10,6 +10,7 @@ import gc
 import json
 import logging
 import types
+from pathlib import Path
 from collections.abc import Iterator
 from typing import Any
 
@@ -460,9 +461,10 @@ def test_detach_removes_listeners_only_when_last_context_leaves():
     assert not any(sqla.attached().values())
 
 
-def test_run_db_read_sync_and_async_not_traced():
-    engine = sa.create_engine("sqlite://")
-    async_engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine("sqlite+aiosqlite://")
+def test_run_db_read_sync_and_async_not_traced(tmp_path: Path):
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'sync.db'}")
+    asyncio_ext = pytest.importorskip("sqlalchemy.ext.asyncio")
+    async_engine = asyncio_ext.create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'async.db'}")
     handle = _install(engines=[engine, async_engine])
 
     def read(conn: Any) -> int:
@@ -479,8 +481,8 @@ def test_run_db_read_sync_and_async_not_traced():
     assert _entries(handle) == []
 
 
-def test_run_db_read_times_out():
-    engine = sa.create_engine("sqlite://")
+def test_run_db_read_times_out(tmp_path: Path):
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'app.db'}")
 
     def slow(_conn: Any) -> None:
         import time
@@ -494,12 +496,12 @@ def test_run_db_read_times_out():
         asyncio.run(main())
 
 
-def test_run_db_read_done_once_the_worker_thread_really_returns():
+def test_run_db_read_done_once_the_worker_thread_really_returns(tmp_path: Path):
     # spec §7.6 / §7.8: single-flight is held until the read actually returns, not when the caller gives up
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
-    engine = sa.create_engine("sqlite://")
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'app.db'}")
     gate, done = threading.Event(), threading.Event()
 
     def slow(_conn: Any) -> None:
@@ -516,8 +518,9 @@ def test_run_db_read_done_once_the_worker_thread_really_returns():
     asyncio.run(main())
 
 
-def test_run_db_read_done_on_the_async_path():
-    async_engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine("sqlite+aiosqlite://")
+def test_run_db_read_done_on_the_async_path(tmp_path: Path):
+    asyncio_ext = pytest.importorskip("sqlalchemy.ext.asyncio")
+    async_engine = asyncio_ext.create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'app.db'}")
     calls: list[int] = []
 
     async def main() -> int:
@@ -719,10 +722,10 @@ def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch)
     calls = 0
     normalize = sqltrace.normalize
 
-    def counted_normalize(statement: str) -> Any:
+    def counted_normalize(statement: str, mysql: bool = False) -> Any:
         nonlocal calls
         calls += 1
-        return normalize(statement)
+        return normalize(statement, mysql)
 
     monkeypatch.setattr(sqltrace, "normalize", counted_normalize)
     info = _paging_request("request-statement-shape")
@@ -746,10 +749,10 @@ def test_load_compiles_and_masks_statement_once_current(monkeypatch: pytest.Monk
     calls = 0
     normalize = sqltrace.normalize
 
-    def counted_normalize(statement: str) -> Any:
+    def counted_normalize(statement: str, mysql: bool = False) -> Any:
         nonlocal calls
         calls += 1
-        return normalize(statement)
+        return normalize(statement, mysql)
 
     monkeypatch.setattr(sqltrace, "normalize", counted_normalize)
     info = _paging_request("request-statement-shape-current")

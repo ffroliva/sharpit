@@ -133,7 +133,7 @@ class TestSessionSink:
     def on_sql(self, event: SqlEvent, test: TestTag | None) -> None:
         try:
             rule = filtered_rule(event.sql)
-            normalized = None if rule else normalize(event.sql)
+            normalized = None if rule else normalize(event.sql, event.mysql)
             with self._lock:
                 phase = self._phase_of(test)
                 if normalized is None:

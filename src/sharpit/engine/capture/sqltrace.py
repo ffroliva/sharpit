@@ -56,6 +56,7 @@ PARAMETERS_SHOWN = (
 # --- SqlStatementNormalizer (verbatim port) -------------------------------------------------------------------------
 
 _MAX_SCAN_LENGTH = 20_000
+MYSQL_DIALECTS = ("mysql", "mariadb")
 _MYSQL_RADIX_LITERAL = re.compile(r"0[xX][0-9a-fA-F]+|0[bB][01]+")
 # a square-bracket identifier starts like a name and holds no quote, comma or second bracket: anything else in
 # brackets is a value (``ARRAY['x']``, ``ARRAY [1, 2]``) and stays in the scan
@@ -331,6 +332,11 @@ def normalize(sql: str, mysql: bool = False) -> Normalized:
     return Normalized(collapsed, collapsed.lower(), literals, predicate_literals)
 
 
+def is_mysql(owner: object) -> bool:
+    """Whether a connection, engine or execution context talks to MySQL or MariaDB (also behind a ``mysql://`` URL)."""
+    return getattr(getattr(owner, "dialect", None), "name", None) in MYSQL_DIALECTS
+
+
 def normalize_sql(sql: str, mysql: bool = False) -> str:
     return normalize(sql, mysql).sql
 
@@ -429,6 +435,7 @@ def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
         "requestPhase": None,
     }
     dto.pop("shape", None)  # internal: the recorder's Normalized, kept for grouping without re-normalising
+    dto.pop("mysql", None)  # internal: how the grouping re-reads a stored text
     return dto
 
 
@@ -535,12 +542,13 @@ class SqlTraceRecorder:
         request_id: str | None = None,
         call_site: str | None = None,
         batch_size: int | None = None,
+        mysql: bool = False,
     ) -> None:
         """Build the masked row once, at capture time; a paused recorder returns before any work."""
         if not self.recording:
             return
         masker = self._masker
-        normalized = normalize(sql)
+        normalized = normalize(sql, mysql)
         stored = normalized.sql if not masker.capture_parameters else (masker.mask_text(sql) or "")
         error_message: str | None = None
         if error is not None:
@@ -578,6 +586,7 @@ class SqlTraceRecorder:
             "traceId": request_id,
             "callSite": site,
             "shape": normalized,
+            "mysql": mysql,
         }
         with self._lock:
             row["id"] = next(self._ids)
