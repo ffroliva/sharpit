@@ -14,6 +14,7 @@ from typing import Any
 from sharpit.engine.capture.correlation import INTERNAL, internal
 
 READ_ONLY_REFUSED = "The read-only transaction could not be established, so sharpit skipped this read"
+SHARED_CONNECTION_REFUSED = "This engine's pool shares its connection with the app, so sharpit skipped this read"
 # Pools that hand the app and sharpit one connection, by class name (SQLAlchemy is not imported here): sharpit's session
 # state and rollback would land on the app's own work. AssertionPool has one too, and raises on the app's checkout.
 _SHARING_POOLS = frozenset({"StaticPool", "SingletonThreadPool", "AssertionPool"})

@@ -304,9 +304,9 @@ def test_executor_created_on_first_check_only():
 
 
 @pytest.mark.needs_sqlalchemy
-def test_engine_ping_not_traced():
+def test_engine_ping_not_traced(tmp_path: Any):
     sa = pytest.importorskip("sqlalchemy")
-    engine = sa.create_engine("sqlite://")
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'app.db'}")
     service = _service(engines=[engine], health_checks={"ok": lambda: True})
     report = _check(service)
     db = _components(report)["db"]
@@ -319,9 +319,10 @@ def test_engine_ping_not_traced():
 
 
 @pytest.mark.needs_sqlalchemy
-def test_engine_ping_aiosqlite_up():
+def test_engine_ping_aiosqlite_up(tmp_path: Any):
     pytest.importorskip("aiosqlite")
-    engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine("sqlite+aiosqlite://")
+    url = f"sqlite+aiosqlite:///{tmp_path / 'app.db'}"
+    engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine(url)
 
     async def main(service: HealthService) -> dict[str, Any]:
         try:
@@ -345,9 +346,9 @@ def test_engine_ping_failure_down_masked(tmp_path: Any):
 
 
 @pytest.mark.needs_sqlalchemy
-def test_engines_only_guidance():
+def test_engines_only_guidance(tmp_path: Any):
     sa = pytest.importorskip("sqlalchemy")
-    service = _service(engines=[sa.create_engine("sqlite://")])
+    service = _service(engines=[sa.create_engine(f"sqlite:///{tmp_path / 'app.db'}")])
     assert service.report()["guidanceReason"] == ENGINES_ONLY_REASON  # UNKNOWN counts as healthy (BootUI)
     assert service.report(for_mcp=True)["guidanceReason"] == NEVER_CHECKED
     report = _check(service)

@@ -97,6 +97,7 @@ from sharpit.engine.sqla.orm import (  # noqa: E402
 )
 from sharpit.engine.sqla.readonly import (  # noqa: E402
     READ_ONLY_REFUSED,
+    SHARED_CONNECTION_REFUSED,
     ReadOnlyUnavailable,
     bounded,
     bounded_read_only,
@@ -114,6 +115,7 @@ __all__ = [
     "GENERIC_BATCH",
     "MAX_STATEMENT_SITES",
     "READ_ONLY_REFUSED",
+    "SHARED_CONNECTION_REFUSED",
     "RELATIONSHIP_KEY",
     "ReadOnlyUnavailable",
     "START_KEY",

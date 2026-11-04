@@ -138,7 +138,7 @@ def test_a_scan_of_a_pool_sharing_its_connection_is_reported_failed() -> None:
 
     report = _ok(client.post(SCAN))
 
-    assert [(d["status"], d["message"]) for d in report["dataSources"]] == [("FAILED", sqla.READ_ONLY_REFUSED)]
+    assert [(d["status"], d["message"]) for d in report["dataSources"]] == [("FAILED", sqla.SHARED_CONNECTION_REFUSED)]
 
 
 @pytest.mark.parametrize("options", [{"read_only": True}, {"panels": {"database-advisor": {"read_only": True}}}])
