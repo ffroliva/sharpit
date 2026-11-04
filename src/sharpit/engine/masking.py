@@ -25,6 +25,7 @@ class Exposure(StrEnum):
 # ---- SecretValueDetector -------------------------------------------------------------------------------------------
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+")  # used with fullmatch
 _PEM_LABEL = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
+_PEM_MARKER = "PRIVATE KEY"
 _AWS_ACCESS_KEY = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", re.ASCII)
 # sharpit widening: the user part may be empty (redis://:pw@host), so `*` where BootUI has `+`
 _URL_USERINFO = re.compile(r"://[^/?#\s:@]*:[^/?#\s@]+@", re.ASCII)
@@ -63,7 +64,7 @@ _VENDOR_PREFIXES = (
     "sk-ant-",
     "sk-proj-",
 )  # fmt: skip: keep in step with _VENDOR_TOKEN
-_SECRET_MARKERS = ("=", "://", "eyJ", "PRIVATE KEY", "AKIA", "ASIA")
+_SECRET_MARKERS = ("=", "://", "eyJ", _PEM_MARKER, "AKIA", "ASIA")
 
 
 def _has_vendor_token(value: str) -> bool:
@@ -73,11 +74,11 @@ def _has_vendor_token(value: str) -> bool:
 def _has_pem_private_key(value: str) -> bool:
     """``BEGIN[A-Z0-9 ]*PRIVATE KEY``, by finds: each search starts past the last match, so it stays linear."""
     start = 0
-    while (key := value.find("PRIVATE KEY", start)) >= 0:
+    while (key := value.find(_PEM_MARKER, start)) >= 0:
         begin = value.rfind("BEGIN", start, key)
         if begin >= 0 and not value[begin + len("BEGIN") : key].strip(_PEM_LABEL):
             return True
-        start = key + len("PRIVATE KEY")
+        start = key + len(_PEM_MARKER)
     return False
 
 
