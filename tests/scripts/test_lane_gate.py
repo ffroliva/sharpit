@@ -193,6 +193,9 @@ def _kept_in_template(folder: str, names: list[str]) -> set[str]:
     return {"objects", "hooks"} & set(names) if Path(folder).name == ".git" else set()
 
 
+READS = (("ls-tree", "-r"), ("cat-file", "blob"))  # `git show` is the third way to read a file
+
+
 def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
     if _TEMPLATE_ROOT is None:
         raise RuntimeError("lane-gate fixture template root was not initialized")
@@ -238,13 +241,14 @@ def _refused(result: object, needle: str) -> bool:
 
 def test_lane_gate_reads_a_file_at_a_commit_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A `git show` per read made `git show` half of this file's time: 515 of ~1000 spawns (T-suite-speed)."""
+    monkeypatch.setattr(lane_gate, "_READS", {})  # reads are shared across repos: start cold, or this counts nothing
     fx = _fixture(tmp_path)
     real = lane_gate._git
     shows: list[str] = []
 
     def counting(cwd: Path, *args: str, **kwargs: bool) -> object:
-        if args[0] == "show":
-            shows.append(args[1])
+        if args[:2] in READS or args[0] == "show":
+            shows.append(" ".join(args))
         return real(cwd, *args, **kwargs)
 
     monkeypatch.setattr(lane_gate, "_git", counting)
@@ -253,6 +257,65 @@ def test_lane_gate_reads_a_file_at_a_commit_once(tmp_path: Path, monkeypatch: py
     first = len(shows)
     assert _refusals(fx.evaluate()) == []
     assert shows[first:] == []  # same repo, same commits: nothing to re-read
+
+
+def test_lane_gate_reads_only_what_a_new_commit_changed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Most tests add a commit on the template, and a `git show` per file re-read all of it (T-suite-speed)."""
+    monkeypatch.setattr(lane_gate, "_READS", {})
+    fx = _fixture(tmp_path)
+    assert _refusals(fx.evaluate()) == []
+    fx.commit({"src/widget.py": "def widget():\n    return 2  # same\n"}, "feat: widget again")
+    fx.review()
+    real = lane_gate._git
+    reads: list[str] = []
+
+    def counting(cwd: Path, *args: str, **kwargs: bool) -> object:
+        if args[:2] in READS or args[0] == "show":
+            reads.append(" ".join(args))
+        return real(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(lane_gate, "_git", counting)
+    assert _refusals(fx.evaluate()) == []
+    changed = _git(fx.worktree, "rev-parse", f"{fx.head}:src/widget.py")
+    assert reads == [f"ls-tree -r -z {fx.head}", f"cat-file blob {changed}"]
+
+
+def test_lane_gate_shares_reads_across_copies_of_a_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test copies one template, so a key with the repo path in it never hit across tests (T-suite-speed)."""
+    monkeypatch.setattr(lane_gate, "_READS", {})  # a warm cache from an earlier test would make this pass vacuously
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first, second = _fixture(tmp_path / "a"), _fixture(tmp_path / "b")
+    assert _refusals(first.evaluate()) == []
+    real = lane_gate._git
+    shows: list[str] = []
+
+    def counting(cwd: Path, *args: str, **kwargs: bool) -> object:
+        if args[:2] in READS or args[0] == "show":
+            shows.append(" ".join(args))
+        return real(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(lane_gate, "_git", counting)
+    assert _refusals(second.evaluate()) == []
+    assert shows == []
+
+
+def test_lane_gate_sha_read_in_one_repo_stays_absent_in_another(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The repo-free read cache must not answer for a commit this repo does not have: `_resolve` stays per repo."""
+    monkeypatch.setattr(lane_gate, "_READS", {})
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first, second = _fixture(tmp_path / "a"), _fixture(tmp_path / "b")
+    only_in_first = first.commit({"src/only_a.py": "x = 1\n"}, "feat: only in a")
+    assert lane_gate._show(first.worktree, only_in_first, "src/only_a.py") == "x = 1\n"
+    assert lane_gate._resolve(second.worktree, only_in_first) is None
+    assert lane_gate._sha_problem(second.options(), second.head, lane_gate.Red(TEST_ID, only_in_first))[0] == (
+        f"red SHA {only_in_first} is unknown"
+    )
+    with pytest.raises(subprocess.CalledProcessError):  # a head this repo lacks: merge-base stops first
+        second.evaluate(sha=only_in_first)
 
 
 def test_lane_gate_prunes_only_a_replay_tree_it_could_not_remove(
