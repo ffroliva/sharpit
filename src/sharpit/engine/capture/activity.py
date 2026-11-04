@@ -23,11 +23,12 @@ ENTRY_KEYS = (
     "status", "thread", "profileable", "parentId", "securedPrincipal", "sqlNPlusOneSuspected", "badges",
     "exceptionGroupId",
 )  # fmt: skip
+ROUTE_KPI_KEYS = ("slowestEndpointRoute", "slowestEndpointRouteId", "slowestEndpointRouteSource")
 KPI_KEYS = (
     "requestsPerMinute", "errorRatePercent", "p50LatencyMs", "p95LatencyMs", "slowestEndpoint", "slowestEndpointMs",
     "activeExceptionCount", "sqlPerMinute", "slowestQueryMs", "healthStatus", "heapUsedBytes", "heapMaxBytes",
     "cacheHitRatioPercent", "scheduledTaskFailureCount", "restCallErrorRatePercent", "restCallP95LatencyMs",
-    "latencySampleCount", "slowestEndpointRoute", "slowestEndpointRouteId", "slowestEndpointRouteSource",
+    "latencySampleCount", *ROUTE_KPI_KEYS,
 )  # fmt: skip
 REPORT_KEYS = ("available", "entries", "typeCounts", "kpis", "sources", "warnings", "pageInfo", "persistenceOption")
 PROFILE_KEYS = (
@@ -148,12 +149,9 @@ def _entry(**fields: Any) -> dict[str, Any]:
 def _slowest_route(row: dict[str, Any] | None) -> dict[str, Any]:
     """The route KPIs of the slowest exchange; a row's route is the template or the masked path, never a raw path."""
     if row is None:
-        return dict.fromkeys(("slowestEndpointRoute", "slowestEndpointRouteId", "slowestEndpointRouteSource"))
-    return {
-        "slowestEndpointRoute": row["route"],
-        "slowestEndpointRouteId": f"{row['method']} {row['route']}",
-        "slowestEndpointRouteSource": row["routeSource"],
-    }
+        return dict.fromkeys(ROUTE_KPI_KEYS)
+    values = (row["route"], f"{row['method']} {row['route']}", row["routeSource"])
+    return dict(zip(ROUTE_KPI_KEYS, values, strict=True))
 
 
 def activity_report(
