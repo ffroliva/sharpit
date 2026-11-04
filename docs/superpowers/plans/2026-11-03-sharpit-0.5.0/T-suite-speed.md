@@ -15,7 +15,13 @@
 
 ## Must-cover
 
-None: a speed lane adds no behaviour. Every existing test still runs.
+`tests/scripts/test_lane_gate.py::test_lane_gate_shares_reads_across_copies_of_a_repo`,
+`tests/scripts/test_lane_gate.py::test_lane_gate_reads_only_what_a_new_commit_changed`,
+`tests/scripts/test_lane_gate.py::test_lane_gate_sha_read_in_one_repo_stays_absent_in_another`,
+`tests/scripts/test_red_check.py::test_workers_share_one_verdicts_build`,
+`tests/test_patch_targets.py::test_uses_walks_each_source_file_once`.
+
+A speed lane adds no behaviour: every existing test still runs.
 
 ## Tasks
 
