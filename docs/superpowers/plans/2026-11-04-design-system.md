@@ -277,7 +277,7 @@ Serve `website/site/` under `/sharpit/` on a leased port, so assets resolve. For
 
 **Interfaces:** Source: approved `social-publisher/media/sharpit-v0.4.0/deck.html`, its `<style>`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_slide_kit_has_no_colour_or_size_literals():
@@ -290,26 +290,26 @@ def test_slide_kit_has_no_colour_or_size_literals():
 
 Also `test_template_links_tokens_then_kit` (order of the two links) and `test_slide_type_floor` (`--t-sm` is 34px or more).
 
-- [ ] **Step 2: Run `red_check.py`, then commit** `test: slide kit reads tokens and keeps its type floor`.
+- [x] **Step 2: Run `red_check.py`, then commit** `test: slide kit reads tokens and keeps its type floor`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `slide.css` derives from the approved deck style, defines spacing `--s2` 24px, `--s3` 36px, `--s4` 48px, `--s6` 72px and type `--t-sm` 34px, `--t-base` 42px, `--t-lg` 84px, `--t-xl` 112px. It declares no colour tokens and has no literal font sizes. `template.html` is a two-slide starter with equal 72px margins, a real hook cover, one idea per slide, vertically centred content and one wordmark line. It links `../tokens.css` before `slide.css`, pins the dark theme, and its fit script reads `document.documentElement.clientWidth`.
 
-- [ ] **Step 4: Rebuild the deck on the kit**
+- [x] **Step 4: Rebuild the deck on the kit**
 
-Skip this step; the coordinating Claude Code session will rebuild the deck in social-publisher.
+Skipped per coordination; the coordinating Claude Code session will rebuild the deck in social-publisher.
 
-- [ ] **Step 5: Add `## Launch and social` to `design/DESIGN.md`, run `uv run pytest -q tests/design`, commit** `feat: slide kit from the console's patterns`.
+- [x] **Step 5: Add `## Launch and social` to `design/DESIGN.md`, run `uv run pytest -q tests/design`, commit** `feat: slide kit from the console's patterns`.
 
 ### Task 5: Brand, copy and pointers
 
 **Files:**
 - Modify: `design/DESIGN.md`, `README.md`, `website/docs/index.md`, `pyproject.toml:8`, `action.yml:2`, `ui/src/views/Exceptions.svelte:80`, `ui/src/views/DatabaseAdvisor.svelte:37`, `AGENTS.md` (Layout), `docs/README.md`, `CHANGELOG.md`, `src/sharpit/ui/static/`
 
-- [ ] **Step 1: Add `## Brand` and `## Principles` to `design/DESIGN.md`** from the spec, including the one line, pillars, glossary and version rule.
+- [x] **Step 1: Add `## Brand` and `## Principles` to `design/DESIGN.md`** from the spec, including the one line, pillars, glossary and version rule.
 
-- [ ] **Step 2: Fix the copy**
+- [x] **Step 2: Fix the copy**
 
 | Where | Change |
 |---|---|
@@ -323,17 +323,17 @@ Skip this step; the coordinating Claude Code session will rebuild the deck in so
 | `DatabaseAdvisor.svelte:37` | "Run database checks" |
 | README:15 and :197 | "Licence" in prose |
 
-- [ ] **Step 3: Update the pointers**
+- [x] **Step 3: Update the pointers**
 
 Add `design/` to the `AGENTS.md` Layout block. Link `design/DESIGN.md` in `docs/README.md`. Under `## [0.5.0]`, `### Changed` in `CHANGELOG.md`: "The docs site uses the console's neutral palette and ochre accent; `design/` holds the tokens and rules every surface shares." Under `### Fixed`: phone layout of the rail and fluid tables, heading styles, and Retry on load errors. Confirm with `git grep -n 'ui/DESIGN.md'` that only the spec, the plan and dated reports still say it.
 
-- [ ] **Step 4: Rebuild `ui`, run** `uv run pytest -q tests/design tests/test_agent_workflow.py tests/docs`, `uv run ruff check`, `uv run ruff format --check`. Expected: pass.
+- [x] **Step 4: Rebuild `ui`, run** `uv run pytest -q tests/design tests/test_agent_workflow.py tests/docs`, `uv run ruff check`, `uv run ruff format --check`. Expected: pass.
 
-- [ ] **Step 5: Commit** `docs: brand basics, one description, pointers to design/`.
+- [x] **Step 5: Commit** `docs: brand basics, one description, pointers to design/`.
 
 - [ ] **Step 6: Finish**
 
-Run `/sharpit:check` and `/sharpit:branch-review`. With the owner's go, push and open one draft PR into `release/0.5.0`. CI runs the full suite. A merge revert restores the static build, so the PR is the rollback unit. Merge only with the owner's go, and tell the masking session that `release/0.5.0` moved; `AGENTS.md` may need a small conflict fix there.
+Run `/sharpit:check` and `/sharpit:branch-review` before PR preparation. Push and open a draft PR only with the owner's go.
 
 ## Owner actions, outward
 
