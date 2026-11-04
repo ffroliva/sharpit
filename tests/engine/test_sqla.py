@@ -10,8 +10,8 @@ import gc
 import json
 import logging
 import types
-from pathlib import Path
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest

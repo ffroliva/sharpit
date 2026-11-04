@@ -440,3 +440,9 @@ def test_mask_text_word_after_token_does_not_hide_the_next_credential() -> None:
 
 def test_mask_text_token_between_runs_of_spaces_stays_linear() -> None:
     assert Masker(M, True).mask_text("token" + " " * 200_000 + "expired") == "token" + " " * 200_000 + "expired"
+
+
+# derived: review of this fix: the suite caught ``token = '...'``, an operator taken for the credential
+@pytest.mark.parametrize("text", ["WHERE token >= 5", "Token -> next", "sent token ... upstream"])
+def test_mask_text_token_keeps_an_operator(text: str) -> None:
+    assert Masker(M, True).mask_text(text) == text
