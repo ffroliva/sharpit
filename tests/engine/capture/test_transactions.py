@@ -608,11 +608,12 @@ def test_savepoint_depth_reset_after_error_and_checkin(monkeypatch) -> None:
         raise RuntimeError("savepoint failed")
 
     try:
-        with pytest.raises(RuntimeError), engine.connect() as connection:
+        with engine.connect() as connection:
             connection.begin()
             with monkeypatch.context() as patch:
                 patch.setattr(engine.dialect, "do_savepoint", failing_savepoint)
-                connection.begin_nested()
+                with pytest.raises(RuntimeError):
+                    connection.begin_nested()
         with engine.connect() as connection:
             connection.begin()
             connection.begin_nested()
