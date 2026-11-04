@@ -701,3 +701,16 @@ def test_a_value_inside_brackets_is_scanned(sql: str, expected: str) -> None:
 # decided: a digit opens no name in brackets, so ``[2024 sales]`` is read as a value: readable less, leaks nothing
 def test_a_bracket_starting_with_a_digit_is_a_value() -> None:
     assert normalize("SELECT [2024 sales] FROM t").sql == "SELECT [? sales] FROM t"
+
+
+# derived: delete-the-control on the identifier body: only the subscript check was proved, here no subscript helps
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT [lower($$hunter2$$)]", "SELECT [lower(?)]"),
+        ("SELECT [abs(4111111111111111)]", "SELECT [abs(?)]"),
+        ("SELECT [x /* password hunter2 */]", "SELECT [x ]"),
+    ],
+)
+def test_a_bracket_that_holds_more_than_a_name_is_scanned_anywhere(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected

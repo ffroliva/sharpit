@@ -586,3 +586,15 @@ def test_sql_error_scan_stays_fast_without_a_closer(text: str):
 
     assert time.perf_counter() - started < 1
     assert detail is not None
+
+
+# derived: delete-the-control on the substitution: a closed ``[SQL: `` lets the unclosed ones after it reach the sub
+def test_sql_error_scan_stays_fast_after_a_closed_statement():
+    buf = buffer()
+    buf.add(span(attributes={"exception.message": "[SQL: select 1] " + "[SQL: " * 15_000}))
+
+    started = time.perf_counter()
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert time.perf_counter() - started < 1
+    assert detail is not None
