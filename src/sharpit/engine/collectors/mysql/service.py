@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from sharpit.engine import sqla
+from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.collectors.mysql.limits import (
     LOCK_TIMEOUT,
     READ_BUDGET,
@@ -214,7 +215,7 @@ async def _read_engine(
     except Exception as exc:  # noqa: BLE001
         return _error_datasource(
             name,
-            ctx.masker.mask_text(str(exc).strip()) or type(exc).__name__,
+            mask_error(ctx.masker, str(exc).strip(), mysql=True) or type(exc).__name__,
             diagnostics,
         )
 

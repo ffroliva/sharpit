@@ -55,6 +55,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `mask_text` matches `Bearer`, `Basic` and `Token` in any case, takes the word `token` after a scheme (`bearer token abc123`), and masks the whole value after an `Authorization` key.
 - Masking and the trace error scan no longer take quadratic time on a crafted value (runs of quotes after `token`, closing punctuation at a word's end, repeated `eyJ`, `BEGIN` or `[SQL: `, unclosed `[` or `(` after a key), so a logged client value cannot freeze the host.
 - A `[SQL: ...]` block in a trace error runs past the statement's own brackets, and an open block is normalised too, so `[SQL: SELECT a[1], 'x']` no longer shows `'x'`. In `mask_text` a sensitive `[...]` or `(...)` value runs to its balanced closer past nesting and strings, or to the end of the line, instead of the first closer.
+- With parameter capture off, the `[SQL: ...]` block of a SQLAlchemy error is normalised on every surface that shows the error: `exceptions`, `log-tail`, `transactions`, `http-probe`, `health`, `alembic`, `postgresql`, `mysql`, SQL Trace (also for an error raised for another statement) and the test-session report. They kept its literals before. Quoted values on the message's first line and the lines between it and the block (a `DETAIL:` line) are dropped there too.
 
 ### Known limitations
 

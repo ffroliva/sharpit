@@ -19,8 +19,7 @@ from sharpit.engine.capture import under
 from sharpit.engine.capture.correlation import INTERNAL
 from sharpit.engine.capture.sqltrace import (
     MYSQL_DIALECTS,
-    _driver_values_dropped,  # pyright: ignore[reportPrivateUsage]
-    normalize,
+    mask_error,
     normalize_sql,
 )
 from sharpit.engine.capture.streams import SSE_TASK
@@ -39,18 +38,6 @@ _URL_KEYS = frozenset({"url.full", "http.url"})
 _PLAIN_PATH_KEYS = frozenset({"http.route", "url.path", "http.target"})
 _SQL_KEYS = frozenset({"db.statement", "db.query.text"})
 _HEADER_PREFIXES = ("http.request.header.", "http.response.header.")
-_SQL_BLOCK = "[SQL: "
-# what follows a statement in SQLAlchemy's message or a chained traceback
-_SQL_BLOCK_END = re.compile(
-    r"\n(?:\[parameters: |\[SQL parameters hidden|\[SQL: |\(Background on this error"
-    r"|The above exception|During handling of|Traceback \()"
-)
-_SQL_ERROR_SHAPE = re.compile(
-    r"^(?:sqlalchemy\.(?:exc|engine)\.|(?:psycopg2?|sqlite3|pymysql|MySQLdb|mysql(?:\.connector)?|asyncpg)\.)"
-    r"[\w.]+:"
-)
-# no anchor: SQLAlchemy opens with ``(pymysql.err.X)``, a stack trace names the driver further down
-_MYSQL_DRIVER = re.compile(r"\b(?:pymysql|MySQLdb|asyncmy|mariadb|mysql\.connector)\.")
 _SQL_PARAMETER_KEYS = re.compile(r"(?:^|[._])(?:parameters?|bind_?params?)(?:[._]|$)", re.IGNORECASE)
 
 
@@ -142,7 +129,7 @@ def _sql_attribute(masker: Masker, key: str, value: object, mysql: bool) -> str 
 
 def _url_attribute(masker: Masker, key: str, value: object, mysql: bool) -> str | None:
     if key in {"exception.message", "exception.stacktrace"}:
-        return _sql_message(masker, _text(value), mysql)
+        return mask_error(masker, _text(value), mysql)
     if key == "url.query":
         return masker.mask_query(str(value))
     if key in _URL_KEYS or key in _PLAIN_PATH_KEYS:
@@ -161,51 +148,6 @@ def _attribute_value(masker: Masker, key: str, value: object, mysql: bool) -> st
     if shown is None or masked:
         return None if shown is None else str(shown)
     return masker.mask_text(_text(shown))
-
-
-def _traceback_prefix(text: str) -> tuple[str, str]:
-    lines = text.splitlines()
-    if not lines or not lines[0].startswith("Traceback (most recent call last):"):
-        return "", "\n".join(lines)
-    frame_count = 1
-    for line in lines[1:]:
-        if line.startswith("  File ") or (line.startswith("    ") and line.strip()):
-            frame_count += 1
-        else:
-            break
-    return "\n".join(lines[:frame_count]), "\n".join(lines[frame_count:])
-
-
-def _sql_blocks_normalized(text: str, mysql: bool) -> str:
-    """Each ``[SQL: ...]`` block normalised. A statement holds brackets of its own, so it runs to the last ``]`` before
-    what follows a block, or to that point with no ``]`` at all: an open block is still a statement. Each pass consumes
-    up to there, so the scan is linear."""
-    parts: list[str] = []
-    cursor = 0
-    while (start := text.find(_SQL_BLOCK, cursor)) >= 0:
-        body = start + len(_SQL_BLOCK)
-        following = _SQL_BLOCK_END.search(text, body)
-        stop = following.start() if following else len(text)
-        close = text.rfind("]", body, stop)
-        end = close if close >= 0 else stop
-        parts += (text[cursor:start], f"{_SQL_BLOCK}{normalize(text[body:end], mysql).sql}]")
-        cursor = close + 1 if close >= 0 else stop
-    parts.append(text[cursor:])
-    return "".join(parts)
-
-
-def _redact_sql_errors(text: str, mysql: bool) -> str:
-    frames, remainder = _traceback_prefix(text)
-    cleaned = _driver_values_dropped(remainder or text)
-    return _sql_blocks_normalized(f"{frames}\n{cleaned}" if frames else cleaned, mysql)
-
-
-def _sql_message(masker: Masker, text: str | None, mysql: bool = False) -> str | None:
-    if text is None:
-        return None
-    if not masker.capture_parameters and (_SQL_BLOCK in text or _SQL_ERROR_SHAPE.match(text)):
-        text = _redact_sql_errors(text, mysql or _MYSQL_DRIVER.search(text) is not None)
-    return masker.mask_text(text)
 
 
 def _span_is_mysql(attributes: Mapping[str, Any] | None) -> bool:
@@ -434,7 +376,7 @@ class SpanBuffer:
             "endEpochNanos": end,
             "durationNanos": end - span.start_time,
             "statusCode": _status_code(span),
-            "statusMessage": _sql_message(self.masker, span.status.description, mysql),
+            "statusMessage": mask_error(self.masker, span.status.description, mysql),
             "attributes": _attributes(self.masker, span.attributes, mysql),
             "events": [
                 {
