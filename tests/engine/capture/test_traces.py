@@ -503,3 +503,37 @@ def test_reason_when_the_provider_was_set_late(monkeypatch: pytest.MonkeyPatch):
     trace._TRACER_PROVIDER = provider  # type: ignore[attr-defined]
     trace.get_tracer_provider = lambda: provider  # type: ignore[attr-defined]
     assert buf.list(100)["unavailableReason"] == traces.NOT_ARMED
+
+
+# derived: release council fix round 2: an OTel span names its database, so its text is read as that database's
+@pytest.mark.parametrize("key", ["db.system", "db.system.name"])
+@pytest.mark.parametrize("system", ["mysql", "mariadb"])
+def test_mysql_span_statement_uses_the_mysql_scan(key: str, system: str):
+    buf = buffer()
+    buf.add(span(attributes={key: system, "db.statement": "select 1 # password hunter2"}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert attribute(detail["spans"][0], "db.statement") == "select ?"
+
+
+def test_mysql_span_sql_error_uses_the_mysql_scan():
+    buf = buffer()
+    message = "(pymysql.err.ProgrammingError) (1064, 'x')\n[SQL: select 0xDEADBEEF]"
+    buf.add(span(attributes={"db.system": "mysql", "exception.message": message}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert "DEADBEEF" not in attribute(detail["spans"][0], "exception.message")
+
+
+def test_a_span_of_another_database_keeps_the_generic_scan():
+    buf = buffer()
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select a # b from t"}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert attribute(detail["spans"][0], "db.statement") == "select a # b from t"

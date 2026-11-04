@@ -25,7 +25,12 @@ from conftest import SideEffectGuard  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
-from sharpit.engine.capture.sqltrace import ENTRY_KEYS, GROUP_KEYS, REPORT_KEYS, STATS_KEYS  # noqa: E402
+from sharpit.engine.capture.sqltrace import (  # noqa: E402
+    ENTRY_KEYS,
+    GROUP_KEYS,
+    REPORT_KEYS,
+    STATS_KEYS,
+)
 from sharpit.engine.masking import MASK  # noqa: E402
 from sharpit.engine.panels import panel_is_implemented  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
@@ -383,3 +388,63 @@ def test_sql_cli_tools_cli_only():
     assert client.post("/sharpit/api/cli/tools/resume_sql_trace_recording", json={}).json()["capturing"] is True
     cleared = client.post("/sharpit/api/cli/tools/clear_sql_traces", json={}).json()
     assert (cleared["entries"], cleared["capturing"]) == ([], True)
+
+
+_MYSQL_LEAKS = ("SELECT 1 # password hunter2", "SELECT 0xDEADBEEF", 'SELECT "hunter2"')
+
+
+def _statements_on_engine(monkeypatch: pytest.MonkeyPatch, dialect: str, **options: Any) -> TestClient:
+    """The real listener on a real engine: only the dialect's name says MySQL, since no server runs here."""
+    engine = sa.create_engine("sqlite://")
+    monkeypatch.setattr(engine.dialect, "name", dialect)
+    app = FastAPI()
+
+    @app.get("/q")
+    def run() -> dict[str, bool]:  # pyright: ignore[reportUnusedFunction]
+        with engine.connect() as conn:
+            for statement in _MYSQL_LEAKS:
+                try:
+                    conn.exec_driver_sql(statement)
+                except sa.exc.OperationalError:
+                    conn.rollback()
+        return {"ok": True}
+
+    _install(app, sql_trace_sqlite3_enabled=False, **options)
+    client = _client(app)
+    client.get("/q")
+    return client
+
+
+# derived: release council probe p11_trace.py: MySQL mode never reached the recorder
+@pytest.mark.parametrize("dialect", ["mysql", "mariadb"])
+def test_mysql_engine_statements_reach_the_trace_normalised(monkeypatch: pytest.MonkeyPatch, dialect: str):
+    client = _statements_on_engine(monkeypatch, dialect)
+
+    shown = [entry["sql"] for entry in client.get(API).json()["entries"]]
+
+    assert shown == ["SELECT ?", "SELECT ?", "SELECT ?"]
+
+
+# derived: release council probe p11_trace.py, the second surface of the same statements
+def test_mysql_engine_statements_reach_the_activity_normalised(monkeypatch: pytest.MonkeyPatch):
+    body = _statements_on_engine(monkeypatch, "mysql").get("/sharpit/api/activity").text
+
+    assert "hunter2" not in body
+    assert "DEADBEEF" not in body
+
+
+# derived: with parameter capture on the insights re-normalise the stored text, which is not yet folded
+def test_mysql_engine_statements_reach_the_insights_normalised(monkeypatch: pytest.MonkeyPatch):
+    body = _statements_on_engine(monkeypatch, "mysql", sql_trace_capture_parameters=True).get(f"{API}/insights").text
+
+    assert "hunter2" not in body
+    assert "DEADBEEF" not in body
+
+
+# derived: every other dialect keeps the generic scan, where ``#`` is an operator
+def test_a_sqlite_engine_keeps_the_generic_scan(monkeypatch: pytest.MonkeyPatch):
+    client = _statements_on_engine(monkeypatch, "sqlite")
+
+    shown = [entry["sql"] for entry in client.get(API).json()["entries"]]
+
+    assert "SELECT ?xDEADBEEF" in shown

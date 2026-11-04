@@ -121,11 +121,19 @@ _TEXT_QUOTED_PAIR = re.compile(
 # a bracketed value ([1, 2]) is one value
 _TEXT_PAIR = re.compile(
     r"(?<![\w.-])([\w.-]+)(\s*[=:]\s*)"
-    r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]*\]|\([^)\n]*\)|(?:(?:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
+    r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]*\]|\([^)\n]*\)|(?:(?i:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
     re.ASCII,
 )
-# sharpit widening: a scheme's credential with no key before it; no nested quantifier, so a long input stays linear
-_TEXT_AUTH_SCHEME = re.compile(r"(?<![\w-])(Bearer|Basic|Token)\s+\S+", re.ASCII)
+# no credential after ``token``: an ordinary word (``Token expired``, ``FROM Token WHERE``), a plain, Capitalised or
+# UPPER run of 16 letters at most between punctuation, or an ASCII operator (``token >= 5``). Anything else is masked
+_ENGLISH_AFTER_TOKEN = (
+    r"""(?:[(\["'{<]*(?:[A-Za-z]?[a-z]{0,15}|[A-Z]{1,16})[)\]"'}>,;.:!?]*|[!-/:-@\[-`{-~]+)(?:\s|$)"""
+)
+# sharpit widening: a scheme's credential with no key before it; schemes match in any case (RFC 9110). No nested
+# quantifier, so a long input stays linear; the word after ``token`` is not consumed, so it can open the next match
+_TEXT_AUTH_SCHEME = re.compile(
+    rf"(?<![\w-])((?i:Bearer|Basic)|(?i:Token)(?=\s++(?!{_ENGLISH_AFTER_TOKEN})))\s+\S+", re.ASCII
+)
 _TEXT_TOKEN = re.compile(r"\S+")
 _TOKEN_EDGES = re.compile(r"^([\"'(\[{<]*)(.*?)([\"')\]}>,;.:!?]*)$", re.DOTALL)
 # SQLAlchemy StatementError: "[parameters: ...]" runs to the last "]" on its line (bind tuples nest brackets), or to

@@ -14,13 +14,14 @@ from typing import Any
 from sharpit.engine.capture.correlation import INTERNAL, internal
 
 READ_ONLY_REFUSED = "The read-only transaction could not be established, so sharpit skipped this read"
+SHARED_CONNECTION_REFUSED = "This engine's pool shares its connection with the app, so sharpit skipped this read"
 # Pools that hand the app and sharpit one connection, by class name (SQLAlchemy is not imported here): sharpit's session
 # state and rollback would land on the app's own work. AssertionPool has one too, and raises on the app's checkout.
 _SHARING_POOLS = frozenset({"StaticPool", "SingletonThreadPool", "AssertionPool"})
 
 
 class ReadOnlyUnavailable(Exception):
-    """Raised when a read-only session or transaction cannot be established and verified on the server."""
+    """A read-only session could not be verified on the server, or the engine's pool shares its connection."""
 
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
@@ -49,7 +50,7 @@ def bounded_read_only[T](
     other dialect is refused, and so is any pool that shares its connection with the app.
     """
     if _shares_its_connection(getattr(conn, "engine", None)):
-        raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
+        raise ReadOnlyUnavailable(SHARED_CONNECTION_REFUSED)
     name = getattr(getattr(conn, "dialect", None), "name", None)
     if name == "sqlite":
         return _sqlite_read_only(conn, fn)
@@ -196,7 +197,8 @@ async def run_db_read[T](
     """Run ``fn(connection)`` for sharpit's own read, off the event loop and invisible to SQL Trace.
 
     An async dialect runs through ``AsyncEngine.run_sync`` (the driver needs the loop); a sync one in a thread, on
-    ``executor`` when given. The statement timeout is set inside the read (``bounded``). The connect wait is the
+    ``executor`` when given. A pool that shares its connection with the app refuses every read, ``read_only`` or not
+    (``ReadOnlyUnavailable``). The statement timeout is set inside the read (``bounded``). The connect wait is the
     driver's own connect timeout: setting one would need a hook on every app connection or a copy of the app's engine.
     ``done`` runs once the read really ended: a sync read that timed out keeps its thread (Python cannot stop it), so
     ``done`` waits for that thread when it runs on ``executor``; single-flight callers release on it.
@@ -207,8 +209,8 @@ async def run_db_read[T](
     sync = getattr(engine, "sync_engine", engine)
     with internal():  # the thread and the greenlet copy this context, so the listeners see the marker
         try:
-            if read_only and _shares_its_connection(sync):  # before the checkout: its return rolls the app's work back
-                raise ReadOnlyUnavailable(READ_ONLY_REFUSED)
+            if _shares_its_connection(sync):  # before the checkout: its return rolls the app's work back
+                raise ReadOnlyUnavailable(SHARED_CONNECTION_REFUSED)
             async with asyncio.timeout(wall):
                 if sync.dialect.is_async:
                     from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: PLC0415 - only once the app imported it

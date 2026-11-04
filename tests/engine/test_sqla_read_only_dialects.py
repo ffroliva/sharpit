@@ -91,6 +91,22 @@ def test_a_pool_sharing_its_connection_is_refused_before_the_read_runs(pool: Any
 
     assert isinstance(outcome, sqla.ReadOnlyUnavailable)
     assert ran == []
+    assert outcome.reason == sqla.SHARED_CONNECTION_REFUSED
+
+
+# derived: release council probe p1b_e2e.py: refusing only read_only reads left bounded() rolling the host back
+@pytest.mark.parametrize("pool", [StaticPool, SingletonThreadPool, AssertionPool])
+def test_a_plain_read_on_a_sharing_pool_is_refused_before_the_checkout(pool: Any) -> None:
+    engine = sa.create_engine("sqlite://", poolclass=pool, connect_args={"check_same_thread": False})
+    ran: list[bool] = []
+
+    try:
+        outcome: Any = asyncio.run(sqla.run_db_read(engine, lambda _c: ran.append(True), 5.0))
+    except sqla.ReadOnlyUnavailable as exc:
+        outcome = exc.reason
+
+    assert outcome == sqla.SHARED_CONNECTION_REFUSED
+    assert ran == []
 
 
 def test_a_refused_read_keeps_the_hosts_open_transaction() -> None:
@@ -144,6 +160,7 @@ def test_a_sharing_pool_is_refused_on_every_dialect(dialect: str) -> None:
         outcome = exc
 
     assert isinstance(outcome, sqla.ReadOnlyUnavailable)
+    assert outcome.reason == sqla.SHARED_CONNECTION_REFUSED
 
 
 def test_sqlite_read_only_keeps_an_app_query_only_session() -> None:

@@ -395,6 +395,8 @@ async def _read(
         heads = await sqla.run_db_read(engine, read, timeout, executor=executor, done=flight.worker())
     except TimeoutError:
         return DatabaseRead(name, None, f"Reading the database version timed out after {timeout:g}s", checked)
+    except sqla.ReadOnlyUnavailable as exc:
+        return DatabaseRead(name, None, exc.reason, checked)
     except Exception as exc:  # noqa: BLE001 - a failed read is reported for that database, never raised
         reason = ctx.masker.mask_text(f"{type(exc).__name__}: {exc}") or type(exc).__name__
         return DatabaseRead(name, None, reason, checked)

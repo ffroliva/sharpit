@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
+from sharpit.engine.capture.sqltrace import MYSQL_DIALECTS
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sources.dispatch import SqlEvent
 from sharpit.engine.sqla import _lock
@@ -143,6 +144,7 @@ def _emit(
             error,
             connection_id,
             conn.engine,
+            conn.dialect.name in MYSQL_DIALECTS,  # the engine's dialect holds it: no lookup table, nothing allocated
         ),  # fmt: skip
         targets,
     )

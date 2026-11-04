@@ -504,3 +504,18 @@ def test_masked_fingerprint_memo_keys_on_masker_settings() -> None:
     assert "ghp_" in json.dumps(loose.facts.to_json())
     assert "ghp_" not in json.dumps(strict.facts.to_json())
     assert "ghp_" in json.dumps(later_loose.facts.to_json())
+
+
+# derived: release council fix round 2: the session sink used the generic scan on MySQL text
+def test_mysql_comment_and_hex_literal_are_folded() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    tag = (NODE, attempt, "call")
+    sink.on_sql(event("SELECT 1 # password hunter2")._replace(mysql=True), tag)
+    sink.on_sql(event("SELECT 0xDEADBEEF")._replace(mysql=True), tag)
+    sink.end_test()
+
+    report = json.dumps(sink.facts.to_json())
+
+    assert "hunter2" not in report
+    assert "DEADBEEF" not in report

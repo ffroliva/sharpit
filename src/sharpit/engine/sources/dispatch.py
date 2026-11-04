@@ -27,6 +27,7 @@ class SqlEvent(NamedTuple):
     error: BaseException | None
     connection_id: str | None
     engine: object | None  # SQLAlchemy only, for the "held by" routing rule
+    mysql: bool = False  # the text is MySQL's: ``normalize`` reads ``#``, ``"..."`` and ``0x`` as MySQL does
 
 
 logger = logging.getLogger("sharpit")
@@ -114,6 +115,7 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
                 request_id=info.id if info is not None else None,
                 call_site=site,
                 batch_size=event.batch_size,
+                mysql=event.mysql,
             )
         except Exception as exc:  # noqa: BLE001
             _context_failed(ctx, exc)

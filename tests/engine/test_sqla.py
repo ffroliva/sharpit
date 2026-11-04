@@ -11,6 +11,7 @@ import json
 import logging
 import types
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -226,9 +227,9 @@ def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(monkeypat
         calls["path"] += 1
         return path(context)
 
-    def count_fingerprint(statement: str) -> str:
+    def count_fingerprint(statement: str, mysql: bool = False) -> str:
         calls["fingerprint"] += 1
-        return fingerprint(statement)
+        return fingerprint(statement, mysql)
 
     monkeypatch.setattr(sqla_orm, "_relationship_path", count_path)
     monkeypatch.setattr(sqla_orm, "_masked_fingerprint", count_fingerprint)
@@ -352,6 +353,41 @@ def test_relationship_facts_use_masked_statement_fingerprint() -> None:
         TEST.reset(token)
 
 
+# derived: release council fix round 2: the group key must equal the sink's, which reads the text as MySQL's
+def test_relationship_facts_on_mysql_use_the_mysql_fingerprint() -> None:
+    from sharpit.engine.capture.sqltrace import normalize
+    from sharpit.engine.testsession.sink import report_masker
+
+    statement = "SELECT * FROM payments # password hunter2"
+    tag = ("test_relationship_facts_on_mysql_use_the_mysql_fingerprint", 1, "call")
+    context = types.SimpleNamespace(
+        execution_options={sqla.RELATIONSHIP_KEY: ("Payment.refunds", True)},
+        statement=statement,
+        dialect=types.SimpleNamespace(name="mysql"),
+    )
+    token = TEST.set(tag)
+    try:
+        sqla_orm._record_relationship(context)
+        masked_fingerprint = report_masker().mask_text(normalize(statement, True).fingerprint)
+        assert sqla_orm._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
+    finally:
+        sqla_orm._relationship_loads.pop(tag, None)
+        sqla_orm._relationship_groups.pop(tag, None)
+        sqla_orm._relationship_sites.pop(tag, None)
+        sqla_orm._statement_sites.pop(tag, None)
+        TEST.reset(token)
+
+
+# derived: release council fix round 2: the unbounded-read shape is shown in the report
+def test_unbounded_read_shape_on_mysql_folds_the_comment() -> None:
+    dialect = types.SimpleNamespace(name="mysql")
+    context = types.SimpleNamespace(session=types.SimpleNamespace(bind=types.SimpleNamespace(dialect=dialect)))
+
+    statement, _has_limit = sqla_orm._unbounded_read_statement_shape(context, "SELECT 1 # password hunter2")
+
+    assert "hunter2" not in statement
+
+
 def test_relationship_facts_tolerate_missing_call_phase() -> None:
     tag = ("test_relationship_facts_tolerate_missing_call_phase", 1, "call")
     sqla_orm._relationship_groups[tag] = {"statement-fingerprint": ("Player.performances", True)}
@@ -425,9 +461,10 @@ def test_detach_removes_listeners_only_when_last_context_leaves():
     assert not any(sqla.attached().values())
 
 
-def test_run_db_read_sync_and_async_not_traced():
-    engine = sa.create_engine("sqlite://")
-    async_engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine("sqlite+aiosqlite://")
+def test_run_db_read_sync_and_async_not_traced(tmp_path: Path):
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'sync.db'}")
+    asyncio_ext = pytest.importorskip("sqlalchemy.ext.asyncio")
+    async_engine = asyncio_ext.create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'async.db'}")
     handle = _install(engines=[engine, async_engine])
 
     def read(conn: Any) -> int:
@@ -444,8 +481,8 @@ def test_run_db_read_sync_and_async_not_traced():
     assert _entries(handle) == []
 
 
-def test_run_db_read_times_out():
-    engine = sa.create_engine("sqlite://")
+def test_run_db_read_times_out(tmp_path: Path):
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'app.db'}")
 
     def slow(_conn: Any) -> None:
         import time
@@ -459,12 +496,12 @@ def test_run_db_read_times_out():
         asyncio.run(main())
 
 
-def test_run_db_read_done_once_the_worker_thread_really_returns():
+def test_run_db_read_done_once_the_worker_thread_really_returns(tmp_path: Path):
     # spec §7.6 / §7.8: single-flight is held until the read actually returns, not when the caller gives up
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
-    engine = sa.create_engine("sqlite://")
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'app.db'}")
     gate, done = threading.Event(), threading.Event()
 
     def slow(_conn: Any) -> None:
@@ -481,8 +518,9 @@ def test_run_db_read_done_once_the_worker_thread_really_returns():
     asyncio.run(main())
 
 
-def test_run_db_read_done_on_the_async_path():
-    async_engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine("sqlite+aiosqlite://")
+def test_run_db_read_done_on_the_async_path(tmp_path: Path):
+    asyncio_ext = pytest.importorskip("sqlalchemy.ext.asyncio")
+    async_engine = asyncio_ext.create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'app.db'}")
     calls: list[int] = []
 
     async def main() -> int:
@@ -684,10 +722,10 @@ def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch)
     calls = 0
     normalize = sqltrace.normalize
 
-    def counted_normalize(statement: str) -> Any:
+    def counted_normalize(statement: str, mysql: bool = False) -> Any:
         nonlocal calls
         calls += 1
-        return normalize(statement)
+        return normalize(statement, mysql)
 
     monkeypatch.setattr(sqltrace, "normalize", counted_normalize)
     info = _paging_request("request-statement-shape")
@@ -711,10 +749,10 @@ def test_load_compiles_and_masks_statement_once_current(monkeypatch: pytest.Monk
     calls = 0
     normalize = sqltrace.normalize
 
-    def counted_normalize(statement: str) -> Any:
+    def counted_normalize(statement: str, mysql: bool = False) -> Any:
         nonlocal calls
         calls += 1
-        return normalize(statement)
+        return normalize(statement, mysql)
 
     monkeypatch.setattr(sqltrace, "normalize", counted_normalize)
     info = _paging_request("request-statement-shape-current")
