@@ -77,7 +77,7 @@
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
   {#if report.data && report.data.groups.length === 0}
-    <div class="empty"><p class="lead">No exceptions captured. That is good news.</p></div>
+    <div class="empty"><p class="lead">No exceptions captured.</p></div>
   {:else if report.data}
     <ul class="groups">
       {#each report.data.groups as g (g.id)}

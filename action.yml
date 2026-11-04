@@ -1,5 +1,5 @@
 name: sharpit
-description: Run pytest with sharpit (SQL and exception advisors) and publish a findings summary to the job summary.
+description: Run pytest with sharpit (SQL and exception gates) and publish a findings summary to the job summary.
 inputs:
   pytest-args:
     description: Extra pytest arguments, split with Python shlex (quote values with spaces).
