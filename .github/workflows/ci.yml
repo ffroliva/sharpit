@@ -24,7 +24,8 @@ jobs:
       - run: uv run --no-sync ruff format --check
       - run: uv run --no-sync pyright
 
-  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py) where one runner would take over ~2 min.
+  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards a leg, because the costliest shard
+  # sets the leg's wall (the ceiling is pinned in tests/test_ci_layout.py).
   # Each leg's shards together run every test exactly once (tests/test_shard.py).
   test-shard:
     name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
@@ -32,15 +33,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, python: "3.12", shard: 1/2 }
-          - { os: ubuntu-latest, python: "3.12", shard: 2/2 }
-          - { os: ubuntu-latest, python: "3.13", shard: 1/2 }
-          - { os: ubuntu-latest, python: "3.13", shard: 2/2 }
-          - { os: ubuntu-latest, python: "3.14", shard: 1/2 }
-          - { os: ubuntu-latest, python: "3.14", shard: 2/2 }
-          - { os: windows-latest, python: "3.14", shard: 1/3 }
-          - { os: windows-latest, python: "3.14", shard: 2/3 }
-          - { os: windows-latest, python: "3.14", shard: 3/3 }
+          - { os: ubuntu-latest, python: "3.12", shard: 1/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 2/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 3/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 4/4 }
+          - { os: ubuntu-latest, python: "3.13", shard: 1/4 }
+          - { os: ubuntu-latest, python: "3.13", shard: 2/4 }
+          - { os: ubuntu-latest, python: "3.13", shard: 3/4 }
+          - { os: ubuntu-latest, python: "3.13", shard: 4/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 1/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 2/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 3/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 4/4 }
+          - { os: windows-latest, python: "3.14", shard: 1/4 }
+          - { os: windows-latest, python: "3.14", shard: 2/4 }
+          - { os: windows-latest, python: "3.14", shard: 3/4 }
+          - { os: windows-latest, python: "3.14", shard: 4/4 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -94,7 +102,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/3, 2/3, 3/3]
+        shard: [1/4, 2/4, 3/4, 4/4]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -198,7 +206,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/2, 2/2]
+        shard: [1/4, 2/4, 3/4, 4/4]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -236,7 +244,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/2, 2/2]
+        shard: [1/3, 2/3, 3/3]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

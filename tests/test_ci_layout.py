@@ -1,5 +1,6 @@
 """CI layout costs, pinned by count, never by wall clock: where lint runs, how a leg is sharded, the tracer."""
 
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -61,3 +62,21 @@ def test_no_sqlalchemy_is_sharded_behind_the_required_check_name() -> None:
 
 def test_the_coverage_shards_use_the_sys_monitoring_tracer() -> None:
     assert "COVERAGE_CORE: sysmon" in JOBS["coverage-shard"]
+
+
+LOAD_CEILING = {"ubuntu-latest": 170.0, "windows-latest": 305.0}  # weighted test-seconds: ~0.3 s of wall per second
+
+
+@pytest.mark.parametrize("leg", [leg for leg in _legs("test-shard") if leg])
+def test_no_test_shard_carries_more_weighted_test_time_than_the_ceiling(leg: str) -> None:
+    """The costliest shard sets the leg's wall; the ceiling is what a shard count must keep it under."""
+    from _shard import shard_of
+
+    platform = "win32" if leg.startswith("windows") else "linux"
+    weights: dict[str, float] = json.loads((Path(__file__).parent / "shard_weights.json").read_text("utf-8"))[platform]
+    n = _legs("test-shard")[leg][0][1]
+    loads = [0.0] * n
+    for rel, seconds in weights.items():
+        loads[shard_of(rel, n, platform) - 1] += seconds
+    ceiling = LOAD_CEILING["windows-latest" if platform == "win32" else "ubuntu-latest"]
+    assert max(loads) <= ceiling, f"{leg}: {n} shards, loads {loads}"
