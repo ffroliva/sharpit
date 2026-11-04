@@ -5,7 +5,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.5.0] - Unreleased
+## [0.5.0] - 2026-11-04
 
 ### Added
 
@@ -69,6 +69,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `activity` merges requests, SQL and exceptions only, so `typeCounts` never has `TRANSACTION`, `SECURITY`, `MESSAGING` or `MARKER` keys.
 - `fastapi-security` reports a route guarded by `HTTPBearer(auto_error=False)` plus a check in a dependency as `secured: false` / `permitAll` with `bestEffort: true`, and drops its scopes: an anonymous request passes the scheme, and sharpit does not read the dependency's body.
 - The 2.2.0 capture drift reports `activity` journal and resources, caught exceptions and the reserved retention share as unavailable (null with a reason).
+- Reads through a pool that shares one connection (`StaticPool`, `SingletonThreadPool`, `AssertionPool`) are refused, so an in-memory SQLite host gets `READ_ONLY_REFUSED` and advisor scans that read the database report an error. A connection shared through `creator=` on an ordinary pool cannot be detected.
+- MySQL-aware statement normalisation applies to the `mysql` panel only. SQL Trace does not know the dialect, so it keeps the generic scan, and its text still goes through the masker.
+- `mask_text` masks `Bearer`, `Basic` and `Token` credentials but not `Digest` parameter lists.
+- On FastAPI 0.16x an `include_router` prefix cannot be recovered from the route, so those routes report `MASKED_PATH` instead of a template.
 
 ## [0.4.0] - 2026-11-02
 
