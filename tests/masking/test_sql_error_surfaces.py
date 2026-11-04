@@ -182,3 +182,23 @@ def test_mysql_failed_section(message: str) -> None:
     engine = FakeMySqlEngine()
     engine.conn.fail("STATUS", message)
     _assert_scanned(repr(asyncio.run(refresh_mysql(_mysql_context(engine)))))
+
+
+# derived: delete-the-control on the MySQL mode: the digit in LITERAL normalised away in either mode, so the first
+# hash-comment case proved nothing. Letters only stay in the generic scan and go in the MySQL one
+HASH_LITERAL = "hash-comment-letters"
+HASH_ERROR = f"(driver.Error) {REASON}\n[SQL: SELECT 1 # {HASH_LITERAL}]"
+
+
+def test_mysql_refused_engine_reads_the_block_as_mysql() -> None:
+    shown = repr(asyncio.run(refresh_mysql(_mysql_context(FakeMySqlEngine(refuse=HASH_ERROR)))))
+    assert REASON in shown
+    assert HASH_LITERAL not in shown
+
+
+def test_mysql_failed_section_reads_the_block_as_mysql() -> None:
+    engine = FakeMySqlEngine()
+    engine.conn.fail("STATUS", HASH_ERROR)
+    shown = repr(asyncio.run(refresh_mysql(_mysql_context(engine))))
+    assert REASON in shown
+    assert HASH_LITERAL not in shown
