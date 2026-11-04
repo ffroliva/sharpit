@@ -7,6 +7,8 @@ from collections.abc import Callable
 import pytest
 
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder, mask_error
+from sharpit.engine.capture.traces import _attributes  # pyright: ignore[reportPrivateUsage]
+from sharpit.engine.collectors.mysql.querytext import mysql_query_text
 from sharpit.engine.masking import Exposure, Masker
 
 MASKER = Masker(Exposure.MASKED, True)
@@ -99,9 +101,15 @@ def test_a_statement_is_masked_before_the_scan_changes_its_shape(path: str, valu
 @pytest.mark.parametrize(
     ("text", "secret"),
     [
-        (f'(pymysql.err.OperationalError) (1045, pwd:"first\n{TAIL}")\n[SQL: SELECT 1]\n[parameters: (1,)]', TAIL),
-        (f"(pymysql.err.OperationalError) (1045, pwd='{PEM}')\n[SQL: SELECT 1]\n[parameters: (1,)]", PEM_BODY),
-        (f'(pymysql.err.OperationalError) (1045, pwd: "first\r\n{TAIL}")\n[SQL: SELECT 1]', TAIL),
+        (
+            f'(pymysql.err.OperationalError) (1045, pwd:"a\n{TAIL}")\n[SQL: SELECT 1]\n[parameters: (pwd:"a\n{TAIL}")]',
+            TAIL,
+        ),
+        (f"(pymysql.err.OperationalError) (1045, pwd='{PEM}')\n[SQL: SELECT 1]\n[parameters: (pwd='{PEM}')]", PEM_BODY),
+        (
+            f'(pymysql.err.OperationalError) (1045, pwd: "a\r\n{TAIL}")\n[SQL: SELECT 1]\n[parameters: (pwd: "a\r\n{TAIL}")]',
+            TAIL,
+        ),
         (f'Token expired&"auth"="first {TAIL}"', TAIL),
         (f"chaij3cgvam82vcboinj', '{AWS_KEY}", "chaij3cgvam82vcboinj"),
     ],
@@ -111,3 +119,12 @@ def test_record_drops_driver_values_before_it_masks(text: str, secret: str) -> N
     shown = _recorded(text)
     assert shown is not None
     assert secret not in shown
+
+
+def test_a_span_statement_is_masked_before_the_scan() -> None:
+    attributes = _attributes(MASKER, {"db.statement": f"UPDATE t SET {VENDOR_TOKEN}"})
+    assert VENDOR_TOKEN[6:] not in str(attributes)
+
+
+def test_a_mysql_query_text_is_masked_before_the_scan() -> None:
+    assert VENDOR_TOKEN[6:] not in (mysql_query_text(MASKER, f"UPDATE t SET {VENDOR_TOKEN}") or "")

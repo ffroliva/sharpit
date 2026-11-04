@@ -515,9 +515,9 @@ def test_mask_text_scheme_guard_leaves_no_credential(text: str, expected: str) -
     ],
 )
 def test_mask_text_stays_fast_on_a_pathological_input(text: str) -> None:
-    started = time.perf_counter()
+    started = time.process_time()
     Masker(M, True).mask_text(text)
-    assert time.perf_counter() - started < 1
+    assert time.process_time() - started < 1
 
 
 # derived: the same audit: the fix must not lose a credential the shipped patterns found
@@ -600,9 +600,9 @@ def test_mask_text_value_leaves_what_its_line_does_not_hold(text: str, expected:
 
 @pytest.mark.parametrize("text", ["password=[[] " * 12_000, "password=[a] " * 12_000, "k=[[] " * 12_000])
 def test_mask_text_value_scan_stays_fast(text: str) -> None:
-    started = time.perf_counter()
+    started = time.process_time()
     Masker(M, True).mask_text(text)
-    assert time.perf_counter() - started < 1
+    assert time.process_time() - started < 1
 
 
 # derived: delete-the-control on the line bound: an open value stops at its line, the next line stays

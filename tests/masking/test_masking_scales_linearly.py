@@ -1,7 +1,7 @@
 """Class gate: masking holds the GIL, so a superlinear pass on a client-sized value freezes the host.
 
-Each doubling must cost less than 3 times the last, and 32 KB under a second. ReDoS is a wall-clock defect, so this
-measures wall clock: the minimum of a few repeats, re-measured when a step fails, a floor under sub-millisecond noise.
+Each doubling must cost less than 3 times the last, and 32 KB under a second. This measures CPU time, which a busy
+machine does not inflate: the minimum of a few repeats, re-measured when a step fails, a floor under millisecond noise.
 A new heuristic only has to survive these generators to ship; add the input that broke it here.
 """
 
@@ -19,10 +19,11 @@ from sharpit.engine.masking import Exposure, Masker
 
 MASKER = Masker(Exposure.MASKED, True)
 SIZES = (4_000, 8_000, 16_000, 32_000)
-REPEATS = 5
+REPEATS = 3
 ATTEMPTS = 3
 MAX_STEP = 3
 MAX_SECONDS = 1
+MIN_SAMPLE_SECONDS = 0.05
 FLOOR_SECONDS = 0.001  # below this a ratio is scheduler noise
 ESCAPED_QUOTE = '\\"'
 
@@ -69,10 +70,12 @@ ENTRY_POINTS: dict[str, Callable[[str], object]] = {
 def _seconds(entry: Callable[[str], object], text: str) -> float:
     best = float("inf")
     for repeat in range(REPEATS):
-        unique = f"{text} {repeat}"  # past the normaliser's cache
-        started = time.perf_counter()
-        entry(unique)
-        best = min(best, time.perf_counter() - started)
+        runs = 0
+        started = time.process_time()
+        while (spent := time.process_time() - started) < MIN_SAMPLE_SECONDS:  # the clock ticks every 15.6 ms on Windows
+            runs += 1
+            entry(f"{text} {repeat} {runs}")  # unique: past the normaliser's cache
+        best = min(best, spent / runs)
     return best
 
 

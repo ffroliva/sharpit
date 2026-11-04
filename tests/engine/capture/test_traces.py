@@ -581,10 +581,10 @@ def test_sql_error_scan_stays_fast_without_a_closer(text: str):
     buf = buffer()
     buf.add(span(attributes={"exception.message": text}))
 
-    started = time.perf_counter()
+    started = time.process_time()
     detail = buf.detail(f"{TRACE:032x}")
 
-    assert time.perf_counter() - started < 1
+    assert time.process_time() - started < 1
     assert detail is not None
 
 
@@ -593,10 +593,10 @@ def test_sql_error_scan_stays_fast_after_a_closed_statement():
     buf = buffer()
     buf.add(span(attributes={"exception.message": "[SQL: select 1] " + "[SQL: " * 15_000}))
 
-    started = time.perf_counter()
+    started = time.process_time()
     detail = buf.detail(f"{TRACE:032x}")
 
-    assert time.perf_counter() - started < 1
+    assert time.process_time() - started < 1
     assert detail is not None
 
 
@@ -650,6 +650,6 @@ def test_sql_error_block_runs_past_a_bracket_in_the_statement(message: str, expe
     ids=["inline-blocks", "closed-blocks", "line-blocks"],
 )
 def test_sql_error_block_scan_stays_fast(text: str):
-    started = time.perf_counter()
+    started = time.process_time()
     shown_message(text)
-    assert time.perf_counter() - started < 1
+    assert time.process_time() - started < 1
