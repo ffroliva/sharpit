@@ -248,9 +248,7 @@ class TransactionRecorder:
                 row["sqlStatementCount"] = (
                     sum(
                         sql.get("connectionId") == row["_connectionId"]
-                        and row["startTimestamp"]
-                        <= sql["timestamp"]
-                        <= (row["endTimestamp"] or row["startTimestamp"])
+                        and row["startTimestamp"] <= sql["timestamp"] <= (row["endTimestamp"] or row["startTimestamp"])
                         for sql in sql_rows
                     )
                     if row["_connectionId"] is not None
