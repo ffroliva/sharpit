@@ -106,7 +106,7 @@ def evaluate(request: Sequence[Source] | str) -> Evaluation:
         rule_id = rule.definition.id
         try:
             outcomes = [rule.check(s) for s in readable]
-        except Exception as exc:  # noqa: BLE001 - one failing rule is an analysis error, never a failed scan
+        except Exception as exc:  # noqa: BLE001 - one failing rule is an analysis error; never a failed scan
             errored += 1
             diagnostics.append(_diagnostic(rule_id, "ERROR", f"The rule failed to evaluate ({type(exc).__name__})."))
             continue

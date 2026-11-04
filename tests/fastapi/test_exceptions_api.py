@@ -357,7 +357,7 @@ def test_shape_keys_match_bootui():
     assert tuple(report["groups"][0]) == GROUP_KEYS == (
         "id", "exceptionClassName", "message", "count", "firstSeen", "lastSeen", "location", "applicationException",
         "lastThread", "lastRequestMethod", "lastRequestPath", "lastHandler", "lastSource", "lastTraceId", "status",
-        "regressionCount", "errorContract",
+        "regressionCount", "errorContract", "lastRequestId", "lastExecutionId",
     )  # fmt: skip
     detail = client.get(f"{API}/{gid}").json()
     assert tuple(detail) == ("group", "frames", "causes", "occurrences")

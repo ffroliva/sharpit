@@ -84,3 +84,17 @@ def test_post_scan_golden_parity_on_fixture_app(tmp_path: Path, monkeypatch: pyt
         assert_parity("architecture", "violations.captured", page)
     if not ((goldens / "scanned.captured.json").is_file() and (goldens / "violations.captured.json").is_file()):
         pytest.skip("post-scan golden absent")
+
+
+def test_report_speaks_sharpit_not_bootui(tmp_path: Path) -> None:
+    service = ArchitectureService(
+        base_packages=lambda: ["pkg"],
+        dismissals=DismissalStore(tmp_path),
+        masker=Masker(Exposure.MASKED, True),
+        single_flight=SingleFlight(),
+        max_retained=1000,
+    )
+    scan = service.report()["scan"]
+    assert scan["analyzer"] == "sharpit architecture hygiene"
+    assert "bootui" not in scan["message"].lower()
+    assert "sharpit architecture scan" in scan["message"]

@@ -117,6 +117,26 @@ def _duplicate_index(source: Source) -> Outcome:
     return hits
 
 
+def _fk_mismatches(
+    source: Source, t: dict[str, Any], fk: dict[str, Any], position: int, own: dict[str, Any], referred: dict[str, Any]
+) -> list[Hit]:
+    hits: list[Hit] = []
+    for child, target in zip(fk["columns"], fk["referredColumns"], strict=False):
+        if child not in own or target not in referred:  # an unread side is unknown, never a mismatch
+            continue
+        child_type, target_type = own[child]["type"].upper(), referred[target]["type"].upper()
+        if child_type != target_type:
+            hits.append(
+                (
+                    _where(source, t, f".{child}"),
+                    f"Datasource `{source.name}`: `{t['name']}.{child}` is {child_type} but references "
+                    f"`{fk['referredTable']}.{target}`, which is {target_type}.",
+                    _identity(source, t, f"fk={_fk_label(fk, position)}", f"column={child}"),
+                )
+            )
+    return hits
+
+
 def _foreign_key_type_mismatch(source: Source) -> Outcome:
     if (reason := unreadable(source)) is not None:
         return reason
@@ -127,19 +147,7 @@ def _foreign_key_type_mismatch(source: Source) -> Outcome:
         for position, fk in enumerate(t["foreignKeys"]):
             parent = by_name.get(fk["referredTable"]) if fk["referredSchema"] is None else None
             referred = {c["name"]: c for c in parent["columns"]} if parent else {}
-            for child, target in zip(fk["columns"], fk["referredColumns"], strict=False):
-                if child not in own or target not in referred:  # an unread side is unknown, never a mismatch
-                    continue
-                child_type, target_type = own[child]["type"].upper(), referred[target]["type"].upper()
-                if child_type != target_type:
-                    hits.append(
-                        (
-                            _where(source, t, f".{child}"),
-                            f"Datasource `{source.name}`: `{t['name']}.{child}` is {child_type} but references "
-                            f"`{fk['referredTable']}.{target}`, which is {target_type}.",
-                            _identity(source, t, f"fk={_fk_label(fk, position)}", f"column={child}"),
-                        )
-                    )
+            hits += _fk_mismatches(source, t, fk, position, own, referred)
     return hits
 
 

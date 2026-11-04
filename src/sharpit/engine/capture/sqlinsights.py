@@ -39,7 +39,7 @@ AMBIGUOUS = (
     "More than one captured request was an equally plausible source, so sharpit refused to pick one. Concurrent "
     "identical requests and a reused inbound trace id both produce this."
 )
-_ROUTE_WORD = re.compile(r"[A-Za-z_-]*\.?[A-Za-z_-]*")
+_ROUTE_WORD = re.compile(r"[A-Za-z_-]*(?:\.[A-Za-z_-]*)?")
 _MAX_SEGMENT_LENGTH = 40
 _MAX_SEGMENTS = 12
 

@@ -148,6 +148,43 @@ def _find_module_target(candidate: str, known_modules: dict[str, ModuleInfo]) ->
     return None
 
 
+def _import_targets(
+    node: ast.Import | ast.ImportFrom, package: str, known: dict[str, ModuleInfo]
+) -> Iterator[str | None]:
+    """The known module each name of an import statement resolves to."""
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            yield _find_module_target(alias.name, known)
+        return
+    base_target = _resolve_relative(package, node.level, node.module)
+    if not base_target:
+        return
+    for alias in node.names:
+        combined = f"{base_target}.{alias.name}" if base_target else alias.name
+        yield _find_module_target(combined, known) or _find_module_target(base_target, known)
+
+
+def _module_edges(
+    mod_name: str, mod_info: ModuleInfo, known: dict[str, ModuleInfo], base_pkgs: set[str]
+) -> list[ImportEdge]:
+    package = _package_of(mod_name, mod_info.path)
+    edges: list[ImportEdge] = []
+    seen: set[str] = set()
+    for node in _walk_ast(mod_info.tree):
+        if not isinstance(node, ast.Import | ast.ImportFrom):
+            continue
+        for target in _import_targets(node, package, known):
+            if (
+                target
+                and target != mod_name
+                and target not in seen
+                and any(target == p or target.startswith(f"{p}.") for p in base_pkgs)
+            ):
+                seen.add(target)
+                edges.append(ImportEdge(mod_name, target, node.lineno, mod_info.path))
+    return edges
+
+
 def build_graph(index: SourceIndex, app_package: str | None = None) -> ImportGraph:
     """Build application internal module import graph from SourceIndex."""
     graph = ImportGraph()
@@ -157,38 +194,6 @@ def build_graph(index: SourceIndex, app_package: str | None = None) -> ImportGra
     base_pkgs = {app_package} if app_package else {m.partition(".")[0] for m in known if m}
 
     for mod_name, mod_info in known.items():
-        package = _package_of(mod_name, mod_info.path)
-        edges: list[ImportEdge] = []
-        seen: set[str] = set()
-
-        for node in _walk_ast(mod_info.tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    target = _find_module_target(alias.name, known)
-                    if (
-                        target
-                        and target != mod_name
-                        and target not in seen
-                        and any(target == p or target.startswith(f"{p}.") for p in base_pkgs)
-                    ):
-                        seen.add(target)
-                        edges.append(ImportEdge(mod_name, target, node.lineno, mod_info.path))
-            elif isinstance(node, ast.ImportFrom):
-                base_target = _resolve_relative(package, node.level, node.module)
-                if not base_target:
-                    continue
-                for alias in node.names:
-                    combined = f"{base_target}.{alias.name}" if base_target else alias.name
-                    target = _find_module_target(combined, known) or _find_module_target(base_target, known)
-                    if (
-                        target
-                        and target != mod_name
-                        and target not in seen
-                        and any(target == p or target.startswith(f"{p}.") for p in base_pkgs)
-                    ):
-                        seen.add(target)
-                        edges.append(ImportEdge(mod_name, target, node.lineno, mod_info.path))
-
-        graph.edges[mod_name] = edges
+        graph.edges[mod_name] = _module_edges(mod_name, mod_info, known, base_pkgs)
 
     return graph

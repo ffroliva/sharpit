@@ -53,7 +53,7 @@ def facts(models: tuple[object, ...]) -> dict[str, Any]:
                 table = mapper.local_table  # a configured mapper: reading it configures nothing
                 if type(table).__name__ == "Table" and id(table) not in tables:
                     tables[id(table)] = _declared(table)
-    except Exception as exc:  # noqa: BLE001 - unreadable models skip the ORM rules, never fail the scan
+    except Exception as exc:  # noqa: BLE001 - unreadable models skip the ORM rules; never fail the scan
         return {"skipped": f"The models could not be read ({type(exc).__name__})."}
     return {"tables": list(tables.values())}
 

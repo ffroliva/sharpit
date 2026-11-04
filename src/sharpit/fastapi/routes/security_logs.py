@@ -20,7 +20,7 @@ from sharpit.fastapi.http import error, json_response
 from sharpit.fastapi.sse import sse_response
 
 
-def build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]:
+def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
     api = ctx.settings.api_path[len(ctx.settings.path) :]
 
     def report(request: Request) -> Response:

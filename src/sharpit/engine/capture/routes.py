@@ -119,7 +119,7 @@ def summarize_http_routes(
         grouped.setdefault((row["method"], row["route"]), []).append(row)
     dtos = [_route_dto(group, window["totalDurationMs"]) for group in grouped.values()]
     for criterion, key in _CRITERIA:
-        ranked = sorted(dtos, key=lambda d: (-(d[key] or 0), d["id"]))
+        ranked = sorted(dtos, key=lambda d, key=key: (-(d[key] or 0), d["id"]))
         for dto in ranked[:top]:
             dto["topFor"].append(criterion)
     pinned = (route or "").strip().lower()

@@ -4,7 +4,7 @@ import SqlTrace from '../../src/views/SqlTrace.svelte';
 import { FakeEventSource, harness, json, panel, readOnly, until } from './support';
 
 const entry = (over: object = {}) => ({
-  id: 1, timestamp: '2026-10-31T12:00:00.000Z', sql: 'SELECT id FROM pets WHERE owner_id = ?', statementType: 'PREPARED',
+  id: 1, timestamp: 1793448000000, sql: 'SELECT id FROM pets WHERE owner_id = ?', statementType: 'PREPARED',
   category: 'SELECT', durationMillis: 3, success: true, errorMessage: null, affectedRows: null, batchSize: 1,
   connectionId: '0x1', thread: 'MainThread', slow: false, parameters: [], traceId: 'req1', callSite: 'app:owners:42', ...over,
 });

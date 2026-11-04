@@ -24,13 +24,13 @@ if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
 ADVISOR = "architecture"
-ANALYZER = "BootUI ArchUnit hygiene"
+ANALYZER = "sharpit architecture hygiene"
 DISCLAIMER = (
     "Heuristic, project-agnostic architecture rules run against the host application's own classes only. These checks "
     "complement, but do not replace, a project-specific ArchUnit test suite or an architecture review."
 )
-NOT_SCANNED_MESSAGE = (
-    "Architecture rules have not run yet. Run architecture checks in the panel, or call architecture_scan (bootui "
+NOT_SCANNED_MESSAGE = (  # BootUI's text with BootUI -> sharpit (AGENTS.md)
+    "Architecture rules have not run yet. Run architecture checks in the panel, or call architecture_scan (sharpit "
     "architecture scan), to analyse the application classes."
 )
 NO_BASE_PACKAGES_MESSAGE = "No application base package was detected, so there were no classes to analyse."
@@ -160,12 +160,12 @@ def architecture_service(ctx: SharpitContext, host_app: Any = None) -> Architect
 
     def default_base_packages() -> Sequence[str]:
         if ctx.settings.app_package:
-            return (ctx.settings.app_package,)
+            return [ctx.settings.app_package]
         reasons: list[str] = []
         root = appsource.resolve_package_root(app, sys.modules, reasons=reasons)
         if root is not None:
-            return (root.stem if root.is_file() else root.name,)
-        return ()
+            return [root.stem if root.is_file() else root.name]
+        return []
 
     return ctx.lazy(
         "architecture",

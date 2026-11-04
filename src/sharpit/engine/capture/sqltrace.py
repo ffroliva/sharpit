@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from types import FrameType
 from typing import Any, NamedTuple, cast
 
-from sharpit.engine.capture.exchanges import _iso  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker, is_secret_value
@@ -36,6 +35,7 @@ STATS_KEYS = (
 ENTRY_KEYS = (
     "id", "timestamp", "sql", "statementType", "category", "durationMicros", "durationMillis", "success",
     "errorMessage", "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId", "callSite",
+    "requestId", "executionId", "threadKind", "requestPhase",
 )  # fmt: skip
 GROUP_KEYS = (
     "sql", "category", "executions", "totalDurationMillis", "maxDurationMillis", "potentialNPlusOne", "callSites",
@@ -406,8 +406,15 @@ def unavailable_report(reason: str) -> dict[str, Any]:
 
 
 def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
-    """``SqlTraceEntryDto`` from a stored row."""
-    dto = {**row, "timestamp": _iso(row["timestamp"])}
+    """``SqlTraceEntryDto`` from a stored row: epoch ms; sharpit's ``traceId`` is the request id, so both carry it."""
+    dto = {
+        **row,
+        "timestamp": row["timestamp"] // 1_000_000,
+        "requestId": row["traceId"],
+        "executionId": None,
+        "threadKind": None,
+        "requestPhase": None,
+    }
     dto.pop("shape", None)  # internal: the recorder's Normalized, kept for grouping without re-normalising
     return dto
 
@@ -537,7 +544,7 @@ class SqlTraceRecorder:
         site = call_site if self.capture_call_site else None
         row = {
             "id": 0,
-            "timestamp": time.time_ns(),  # formatted by report(): strftime costs more than the rest of the row
+            "timestamp": time.time_ns(),  # epoch ns, for ordering; entry_dto converts to the contract's epoch ms
             "sql": _truncate(stored, self._max_sql_length),
             "statementType": "PREPARED" if has_parameters else "STATEMENT",
             "category": category,
@@ -602,7 +609,7 @@ class SqlTraceRecorder:
             self.changes.signal()
 
     def rows(self) -> list[dict[str, Any]]:
-        """The ring as stored, oldest first (``timestamp`` in epoch ns); ``entry_dto`` formats one row."""
+        """The ring as stored, oldest first (``timestamp`` in epoch ns); ``entry_dto`` builds one DTO."""
         with self._lock:
             return list(self._entries)
 

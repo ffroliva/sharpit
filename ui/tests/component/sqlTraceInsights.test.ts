@@ -63,7 +63,7 @@ it('Insights: the criterion switcher re-ranks the statements', async () => {
   const select = h.target.querySelector('select[aria-label="Rank by"]') as HTMLSelectElement;
   select.value = 'EXECUTIONS';
   select.dispatchEvent(new Event('change'));
-  await until(() => expect(h.target.querySelectorAll('[data-testid="insight-statement"]').length).toBe(1));
+  await until(() => expect(h.target.querySelectorAll('[data-testid="insight-statement"]')).toHaveLength(1));
   expect(text()).toContain('select * from many_runs');
 });
 

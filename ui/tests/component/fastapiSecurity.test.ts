@@ -44,18 +44,18 @@ it('lists the middleware stack outermost first with its CORS tag', async () => {
 it('filters the endpoint table by rule', async () => {
   h.route(routes);
   mount();
-  await until(() => expect(document.querySelectorAll('tbody tr').length).toBe(3));
+  await until(() => expect(document.querySelectorAll('tbody tr')).toHaveLength(3));
   const select = document.querySelector('select[aria-label="Rule"]') as HTMLSelectElement;
   select.value = 'authenticated';
   select.dispatchEvent(new Event('change'));
-  await until(() => expect(document.querySelectorAll('tbody tr').length).toBe(1));
+  await until(() => expect(document.querySelectorAll('tbody tr')).toHaveLength(1));
   expect(document.querySelector('tbody tr')?.textContent).toContain('/items');
 });
 
 it('marks a best-effort endpoint', async () => {
   h.route(routes);
   mount();
-  await until(() => expect(document.querySelectorAll('tbody tr').length).toBe(3));
+  await until(() => expect(document.querySelectorAll('tbody tr')).toHaveLength(3));
   const legacy = [...document.querySelectorAll('tbody tr')].find((tr) => tr.textContent?.includes('/legacy'));
   expect(legacy?.textContent).toContain('best effort');
 });
@@ -76,7 +76,7 @@ it('lists two endpoint rows with the same method and pattern', async () => {
   const twice = { ...endpoints, total: 2, endpoints: [row('GET', '/dup', 'unknown'), row('GET', '/dup', 'unknown')] };
   h.route((url) => (url === 'api/fastapi-security/endpoints' ? json(200, twice) : routes(url)));
   mount();
-  await until(() => expect(document.querySelectorAll('tbody tr').length).toBe(2));
+  await until(() => expect(document.querySelectorAll('tbody tr')).toHaveLength(2));
 });
 
 it('shows a repeated limitation once per occurrence', async () => {
@@ -84,7 +84,7 @@ it('shows a repeated limitation once per occurrence', async () => {
   const repeated = { ...report, limitations: [why, why] };
   h.route((url) => (url === 'api/fastapi-security' ? json(200, repeated) : routes(url)));
   mount();
-  await until(() => expect(document.querySelectorAll('p.warn').length).toBe(2));
+  await until(() => expect(document.querySelectorAll('p.warn')).toHaveLength(2));
 });
 
 it('an app without FastAPI security shows the reason', async () => {

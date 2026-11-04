@@ -2,7 +2,8 @@
 
 The `database-advisor` panel is sharpit's port of BootUI 2.2.0's Database Advisor (`docs/DATABASE-ADVISOR-CHECKS.md`
 upstream; contract `docs/reference/BOOTUI-CONTRACT-0.4-WAVE-A.md` §4). It runs on demand only: `POST
-{api}/database-advisor/scan`, or `sharpit db scan` from the CLI (the scan is not an MCP tool). `GET
+{api}/database-advisor/scan`, or the HTTP CLI tool `POST {api}/cli/tools/database_advisor_scan` (the scan is not an
+MCP tool). `GET
 {api}/database-advisor` returns the last scan and never connects.
 
 ## How a scan reads the database
@@ -85,4 +86,4 @@ BootUI registers 48 checks. `P` marks a check sharpit ports (33); the others are
 - `dataSources[].identifierCase` is always `null`: the inspector does not report the server's identifier folding.
 - Rule results carry the shared advisor core's `sampleLocations` and no `suppressedCount`; `suppression` is always the
   empty `AdvisorSuppressionDto.none()`.
-- The scan is a CLI action (`sharpit db scan`), not an MCP tool (spec §14).
+- The scan is an HTTP CLI action (`POST {api}/cli/tools/database_advisor_scan`), not an MCP tool (spec §14).

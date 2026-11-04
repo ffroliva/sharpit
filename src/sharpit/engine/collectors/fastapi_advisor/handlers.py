@@ -25,7 +25,7 @@ class Endpoint:
     """One route as the adapter hands it over (read with ``getattr_static``, never called)."""
 
     label: str  # "GET /items"
-    endpoint: object
+    target: object
     response_model: object = None
 
 
@@ -77,7 +77,7 @@ def index_handlers(endpoints: Sequence[Endpoint], index: SourceIndex) -> tuple[l
     handlers: list[Handler] = []
     limitations: list[str] = []
     for route in endpoints:
-        fn = resolve_handler(route.endpoint)
+        fn = resolve_handler(route.target)
         if fn is None:
             limitations.append(f"{route.label}: the endpoint is not a plain function (not analysed).")
             continue
@@ -100,14 +100,18 @@ type Hit = tuple[str, str]  # (target, message): one finding before it becomes a
 _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
+def _bound_name(alias: ast.alias) -> tuple[str, str]:
+    """``import a.b`` binds ``a``; ``import a.b as c`` binds ``c`` to ``a.b``."""
+    local = alias.asname or alias.name.partition(".")[0]
+    return local, alias.name if alias.asname else local
+
+
 def import_aliases(tree: ast.Module) -> dict[str, str]:
     """Local name -> dotted origin for every absolute import (``from time import sleep as s``: ``s`` -> time.sleep)."""
     aliases: dict[str, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                local = alias.asname or alias.name.partition(".")[0]
-                aliases[local] = alias.name if alias.asname else local
+            aliases.update(_bound_name(alias) for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
             for alias in node.names:
                 aliases[alias.asname or alias.name] = f"{node.module}.{alias.name}"
