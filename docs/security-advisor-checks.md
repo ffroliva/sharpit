@@ -1,7 +1,7 @@
 # Security advisor checks
 
 The `security` panel (BootUI's Security advisor, `DOCS/SECURITY-CHECKS.md`) runs a fixed ruleset against the host
-FastAPI application on an explicit scan (`POST /sharpit/api/security/scan`, CLI `sharpit security scan`). It reads:
+FastAPI application on an explicit scan (`POST /sharpit/api/security/scan`, or the HTTP CLI tool `POST /sharpit/api/cli/tools/security_scan`). It reads:
 
 - the security model the `fastapi-security` panel shows: middleware stacks, each route's `fastapi.security` schemes;
 - the middleware options of the root application and of every mounted Starlette/FastAPI sub-app as facts ("allows
