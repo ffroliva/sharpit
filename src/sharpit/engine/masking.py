@@ -127,9 +127,9 @@ _TEXT_PAIR = re.compile(
 )
 # no credential after a scheme word: an ordinary word (``Token expired``, ``FROM Token WHERE``), a plain, Capitalised or
 # UPPER run of 16 letters at most between punctuation, or an ASCII operator (``token >= 5``). Anything else is masked.
-# The runs are possessive: the two punctuation classes share quotes, so backtracking between them is quadratic
+# The opening run is possessive: both punctuation classes hold quotes, so backtracking between them is quadratic
 _ENGLISH_AFTER_SCHEME = (
-    r"""(?:[(\["'{<]*+(?:[A-Za-z]?[a-z]{0,15}|[A-Z]{1,16})[)\]"'}>,;.:!?]*+|[!-/:-@\[-`{-~]++)(?:\s|$)"""
+    r"""(?:[(\["'{<]*+(?:[A-Za-z]?[a-z]{0,15}|[A-Z]{1,16})[)\]"'}>,;.:!?]*|[!-/:-@\[-`{-~]+)(?:\s|$)"""
 )
 _CREDENTIAL_FOLLOWS = rf"(?=\s++(?!{_ENGLISH_AFTER_SCHEME}))"
 # sharpit widening: a scheme's credential with no key before it; schemes match in any case (RFC 9110) and may name the
