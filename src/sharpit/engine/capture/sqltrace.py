@@ -601,7 +601,7 @@ class SqlTraceRecorder:
         if error is not None:
             text = str(error)
             if not masker.capture_parameters:
-                text = _driver_values_dropped(masker.mask_text(text) or "")  # the scan hides what the masker reads
+                text = masker.mask_text(_driver_values_dropped(text)) or ""  # the scan hides what the masker reads
                 if sql:
                     text = text.replace(sql.strip(), normalized.sql)  # SQLAlchemy repeats the statement in [SQL: ...]
                 text = _sql_block_normalized(text, mysql)  # an error raised for another statement than ``sql``
