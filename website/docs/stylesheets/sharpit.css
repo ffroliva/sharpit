@@ -1,7 +1,15 @@
 [data-md-color-scheme] {
   --md-primary-fg-color: var(--rail);
+  --md-primary-fg-color--light: var(--rail);
+  --md-primary-fg-color--dark: var(--rail);
   --md-primary-bg-color: var(--ink);
+  --md-primary-bg-color--light: var(--muted);
   --md-accent-fg-color: var(--accent);
+  --md-accent-fg-color--light: var(--accent);
+  --md-accent-fg-color--dark: var(--accent);
+  --md-accent-bg-color: var(--accent);
+  --md-accent-bg-color--light: var(--sel);
+  --md-accent-bg-color--dark: var(--accent);
   --md-default-bg-color: var(--bg);
   --md-default-fg-color: var(--ink);
   --md-default-fg-color--light: var(--ink);

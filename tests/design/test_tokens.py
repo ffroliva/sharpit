@@ -54,13 +54,6 @@ def _luminance(value: str) -> float:
     r, g, b = _oklch_to_linear_srgb(value)
 
     # WCAG 2 relative luminance is defined on gamma-encoded sRGB, so encode then decode with the WCAG curve
-    def encode(c: float) -> float:
-        return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
-
-    def decode(c: float) -> float:
-        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-    r, g, b = (decode(encode(c)) for c in (r, g, b))
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
@@ -154,6 +147,24 @@ def test_doc_lists_every_token() -> None:
     assert documented == names
 
 
+def test_type_scale_does_not_reference_nonexistent_tokens() -> None:
+    text = DOC.read_text(encoding="utf-8")
+    assert "`--t-sm`" not in text
+    assert "`--t-lg`" not in text
+
+
+def test_doc_theme_values_match_tokens() -> None:
+    tables = _doc_tables()
+    colour_table = next(table for table in tables if table[0][:2] == ["Token", "Light"])
+    documented = {
+        cells[0].strip("`").removeprefix("--"): [value.strip("`") for value in cells[1:3]] for cells in colour_table[1:]
+    }
+    for theme_index, theme in enumerate(("light", "dark")):
+        values = tokens(theme)
+        for name, pair in documented.items():
+            assert values[name] == pair[theme_index], (theme, name, pair[theme_index], values[name])
+
+
 def test_theme_blocks_survive() -> None:
     text = _text()
     for selector in SELECTORS:
@@ -187,6 +198,21 @@ def test_docs_theme_maps_on_the_scheme() -> None:
     text = theme.read_text(encoding="utf-8")
     assert "[data-md-color-scheme]" in text
     assert ":root" not in text
+
+
+def test_docs_theme_maps_material_colour_variants() -> None:
+    text = (ROOT / "website/docs/stylesheets/sharpit.css").read_text(encoding="utf-8")
+    for name in (
+        "--md-primary-fg-color--light",
+        "--md-primary-fg-color--dark",
+        "--md-primary-bg-color--light",
+        "--md-accent-fg-color--light",
+        "--md-accent-fg-color--dark",
+        "--md-accent-bg-color",
+        "--md-accent-bg-color--light",
+        "--md-accent-bg-color--dark",
+    ):
+        assert re.search(rf"{re.escape(name)}\s*:\s*var\(--[a-z-]+\);", text), name
 
 
 def test_docs_theme_defines_no_colour_token() -> None:
