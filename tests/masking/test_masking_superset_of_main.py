@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from sharpit.engine.capture.sqltrace import mask_error
+from sharpit.engine.capture.sqltrace import SqlTraceRecorder, mask_error
 from sharpit.engine.masking import Exposure, Masker
 
 MASKER = Masker(Exposure.MASKED, True)
@@ -58,3 +58,38 @@ def test_a_secret_inside_a_token_is_masked(entry: str, text: str, secret: str) -
     shown = ENTRY_POINTS[entry](text)
     assert shown is not None
     assert secret not in shown
+
+
+def _recorded(text: str) -> str | None:
+    recorder = SqlTraceRecorder(MASKER, max_sql_length=10**6)
+    recorder.record("SELECT 2", duration_ns=1, thread="t", connection_id=None, success=False, error=Exception(text))
+    return recorder.rows()[-1]["errorMessage"]
+
+
+ERROR_PATHS: dict[str, Callable[[str], str | None]] = {
+    "mask_error": ENTRY_POINTS["mask_error"],
+    "mask_error_mysql": lambda text: mask_error(MASKER, text, mysql=True),
+    "record": _recorded,
+}
+VENDOR_TOKEN = "xoxb-" + "2qgq5Te2iKkFVekJrsBAT2"
+TAIL = "8cr6qmZr5nNRvrYKqvPi"
+SQLALCHEMY_ERROR = "sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) x\n[SQL: UPDATE t SET {}]"
+
+
+# derived: release probe6 fuzz, 16,975 hits: the scan turned a key or a token into ``?`` before the masker read it
+@pytest.mark.parametrize("path", ERROR_PATHS)
+@pytest.mark.parametrize(
+    ("value", "secret"),
+    [
+        (f"'auth':[FGpmEzFAsxOqeor3Wn52, {TAIL}]", TAIL),
+        (f'"pwd":[jkRRpeVtVkPe0qpsyYma, {TAIL}]', TAIL),
+        (VENDOR_TOKEN, VENDOR_TOKEN[6:]),
+        (f"'pwd': FVZ3JF6P0bJtuGtLqFcg;{TAIL}", TAIL),
+        (f"""'token':"KnZy2AQKVS0LSb3MM13n\\"{TAIL}\"""", TAIL),
+    ],
+    ids=["quoted-key-list", "double-quoted-key-list", "vendor-token", "quoted-pwd", "escaped-quote"],
+)
+def test_a_statement_is_masked_before_the_scan_changes_its_shape(path: str, value: str, secret: str) -> None:
+    shown = ERROR_PATHS[path](SQLALCHEMY_ERROR.format(value))
+    assert shown is not None
+    assert secret[1:] not in shown
