@@ -633,3 +633,40 @@ def test_sql_trace_entry_includes_duration_micros_and_report_retention():
         "slowThresholdMillis": 100,
     }
     assert sqltrace.unavailable_report("off").get("retention", "missing") is None, "unavailable: retention is null"
+
+
+# derived: release council probe p8_pg.py: ``[`` opened an identifier, so what sat inside it was never scanned
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT ARRAY['hunter2']", "SELECT ARRAY[?]"),
+        ("SELECT * FROM t WHERE a = ANY(ARRAY['hunter2','x'])", "SELECT * FROM t WHERE a = ANY(ARRAY[?,?])"),
+        ("SELECT ARRAY [ 'hunter2' ]", "SELECT ARRAY [ ? ]"),
+        ("SELECT [ 'hunter2' ]", "SELECT [ ? ]"),
+        ("SELECT ARRAY[1234, 5678]", "SELECT ARRAY[?, ?]"),
+        ("SELECT ARRAY [1234]", "SELECT ARRAY [?]"),
+        ("SELECT doc['hunter2'] FROM t", "SELECT doc[?] FROM t"),
+        ("SELECT items[3] FROM t", "SELECT items[?] FROM t"),
+        ("SELECT ARRAY['hunter2", "SELECT ARRAY[?"),
+    ],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+def test_literals_inside_brackets_are_normalised(sql: str, expected: str, mysql: bool) -> None:
+    assert normalize(sql, mysql).sql == expected
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT [col name] FROM t",
+        "SELECT t.[col name] FROM [my table] t",
+        "SELECT ([a b]) FROM t",
+        "SELECT [col1] FROM t",
+    ],
+)
+def test_bracket_identifiers_stay_verbatim(sql: str) -> None:
+    assert normalize(sql).sql == sql
+
+
+def test_a_long_run_of_open_brackets_stays_linear() -> None:
+    assert normalize("[a" * 10_000).sql == "[a" * 10_000
