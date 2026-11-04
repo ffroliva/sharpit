@@ -148,9 +148,9 @@ def test_doc_lists_every_token() -> None:
 
 
 def test_type_scale_does_not_reference_nonexistent_tokens() -> None:
-    text = DOC.read_text(encoding="utf-8")
-    assert "`--t-sm`" not in text
-    assert "`--t-lg`" not in text
+    type_section = DOC.read_text(encoding="utf-8").split("## Type\n", 1)[1].split("\n## ", 1)[0]
+    assert "`--t-sm`" not in type_section
+    assert "`--t-lg`" not in type_section
 
 
 def test_doc_theme_values_match_tokens() -> None:

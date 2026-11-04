@@ -73,9 +73,9 @@ def test_readme_gate_and_gflow_proof_precede_details() -> None:
     assert "5,662" in readme_text or "5662" in readme_text, "gflow-cli proof must mention test count (5,662)"
     assert "N+1" in readme_text, "gflow-cli proof must mention findings (N+1 queries caught)"
 
-    proof_header = "### Outside proof: gflow-cli"
+    proof_header = "### On the author's own project: gflow-cli"
     proof_start = readme_text.find(proof_header)
-    assert proof_start != -1, "README.md must contain '### Outside proof: gflow-cli'"
+    assert proof_start != -1, "README.md must contain the author's gflow-cli proof"
     proof_end = readme_text.find("## 60 seconds", proof_start)
     assert proof_end != -1, "README.md must contain '## 60 seconds' after gflow proof"
     proof_section = readme_text[proof_start:proof_end]
