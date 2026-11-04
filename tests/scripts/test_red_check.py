@@ -20,6 +20,7 @@ red_check = load_script("scripts/dev/red_check.py")
 
 RED = "RED (assertion under tests/)"
 WAIT_FOR_BUILD = 120  # seconds a worker waits for another's verdicts before building its own
+pytestmark = pytest.mark.timeout(300)  # the wait, then a build of 24 pytest subprocesses
 
 SRC = """\
 def widget():
@@ -160,8 +161,11 @@ def _built_once(shared: Path, build: Callable[[], dict[str, str]]) -> dict[str, 
         claim.unlink()
         raise
     scratch = result.with_suffix(".tmp")
-    scratch.write_text(json.dumps(value), encoding="utf-8")
-    scratch.replace(result)  # atomic: a waiter never reads a half-written file
+    try:
+        scratch.write_text(json.dumps(value), encoding="utf-8")
+        scratch.replace(result)  # atomic: a waiter never reads a half-written file
+    except OSError:  # Windows can hold the file; these verdicts are good, and the waiters build their own
+        claim.unlink(missing_ok=True)
     return value
 
 
@@ -211,6 +215,27 @@ def test_a_waiter_retries_a_verdicts_file_windows_still_holds(tmp_path: Path, mo
     with contextlib.suppress(PermissionError):  # a waiter that lets it escape fails this assert, not with a crash
         found = _built_once(tmp_path, lambda: {"id": "rebuilt"})
     assert found == {"id": "verdict"}
+
+
+def test_a_waiter_gives_up_before_its_test_times_out(request: pytest.FixtureRequest) -> None:
+    """A timeout under the wait kills every waiting worker when the build is slow (code review, T-suite-speed)."""
+    marker = request.node.get_closest_marker("timeout")
+    limit = marker.args[0] if marker else float(request.config.getini("timeout"))
+    assert limit > WAIT_FOR_BUILD
+
+
+def test_a_verdicts_file_that_cannot_be_published_frees_the_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def held(self: Path, target: Path) -> Path:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "replace", held)
+    found: dict[str, str] = {}
+    with contextlib.suppress(PermissionError):  # a builder that lets it escape fails this assert, not with a crash
+        found = _built_once(tmp_path, lambda: {"id": "verdict"})
+    assert found == {"id": "verdict"}
+    assert not (tmp_path / "red-check-verdicts.claim").exists()
 
 
 def test_a_failed_verdicts_build_leaves_the_next_worker_to_build(tmp_path: Path) -> None:
