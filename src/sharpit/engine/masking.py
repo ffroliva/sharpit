@@ -124,9 +124,9 @@ _TEXT_PAIR = re.compile(
     r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]*\]|\([^)\n]*\)|(?:(?i:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
     re.ASCII,
 )
-# an ordinary word (or none) after ``token``, as in ``Token expired`` or ``FROM Token WHERE``: a plain, Capitalised or
-# UPPER run of 16 letters at most, between punctuation. Anything else after ``token`` is treated as its credential
-_ENGLISH_AFTER_TOKEN = r"""[(\["'{<]*(?:[A-Za-z]?[a-z]{0,15}|[A-Z]{1,16})[)\]"'}>,;.:!?]*(?:\s|$)"""
+# no credential after ``token``: an ordinary word (``Token expired``, ``FROM Token WHERE``), a plain, Capitalised or
+# UPPER run of 16 letters at most between punctuation, or an ASCII operator (``token >= 5``). Anything else is masked
+_ENGLISH_AFTER_TOKEN = r"""(?:[(\["'{<]*(?:[A-Za-z]?[a-z]{0,15}|[A-Z]{1,16})[)\]"'}>,;.:!?]*|[!-/:-@\[-`{-~]+)(?:\s|$)"""
 # sharpit widening: a scheme's credential with no key before it; schemes match in any case (RFC 9110). No nested
 # quantifier, so a long input stays linear; the word after ``token`` is not consumed, so it can open the next match
 _TEXT_AUTH_SCHEME = re.compile(
