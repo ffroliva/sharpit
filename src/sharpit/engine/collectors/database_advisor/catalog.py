@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
@@ -129,7 +129,7 @@ def bounds_of(ctx: SharpitContext) -> CatalogBounds:
 
 
 def _with_budget(bounds: CatalogBounds, budget: float) -> CatalogBounds:
-    return replace(bounds, budget=budget)
+    return CatalogBounds(bounds.tables, bounds.columns, bounds.indexes, bounds.vendor_rows, budget)
 
 
 async def read_sources(ctx: SharpitContext, flight: Flight) -> list[Source]:
