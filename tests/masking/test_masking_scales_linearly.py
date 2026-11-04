@@ -15,12 +15,13 @@ import pytest
 
 from sharpit.engine import masking
 from sharpit.engine.capture import sqlscan
-from sharpit.engine.capture.sqlscan import shown
+from sharpit.engine.capture.sqlscan import normalize, shown
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.masking import Exposure, Masker
 
 MASKER = Masker(Exposure.MASKED, True)
 SIZES = (4_000, 8_000, 16_000, 32_000)
+SCAN_SIZES = (5_000, 10_000, 19_900)  # past the scan's limit of 20,000 a step is flat by construction
 REPEATS = 3
 ATTEMPTS = 3
 MAX_STEP = 3
@@ -54,6 +55,10 @@ GENERATORS: dict[str, Callable[[int], str]] = {
     "jwt-prefix": _repeat("eyJ"),
     "pem-prefix": _repeat("=BEGIN "),
     "mixed": _repeat('"k":[ \\" [SQL: eyJ BEGIN token "1 '),
+    # a quoted name is the one place the scan's output keeps a run of spaces
+    "quoted-name-spaces": lambda size: "SELECT 1, `" + " " * size + "`",
+    "quoted-name-list": lambda size: "SELECT ?, `" + " " * (size // 2) + "(" + "," * (size // 2) + "`",
+    "quoted-name-row": lambda size: "VALUES `)" + " " * (size // 2) + ",(`" + ', "a"' * (size // 10),
 }
 
 
@@ -62,15 +67,32 @@ def _pair_substitution(text: str) -> str:
     return masking._mask_pairs(masking._TEXT_PAIR, masking._PAIR_MASKED, masked)  # noqa: SLF001
 
 
-ENTRY_POINTS: dict[str, Callable[[str], object]] = {
+Entry = Callable[[str], object]
+ENTRY_POINTS: dict[str, Entry] = {
     "mask_text": MASKER.mask_text,
     "mask_error": lambda text: mask_error(MASKER, text),
     "pair_substitution": _pair_substitution,
-    "shown_overlapping_spans": lambda text: shown(text, [(start, len(text)) for start in range(len(text))]),
 }
 
 
-def _seconds(entry: Callable[[str], object], text: str) -> float:
+def _overlapping(size: int) -> list[tuple[int, int]]:
+    return [(start, size) for start in range(size)]
+
+
+def _shown_at(size: int) -> Entry:
+    spans = _overlapping(size)  # outside the timer: the entry is measured, not the list a caller already holds
+    return lambda text: shown(text, spans)
+
+
+def _flags_at(size: int) -> Entry:
+    spans = _overlapping(size)
+    return lambda text: sqlscan._hidden_flags(spans, len(text))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+
+
+SCAN_ENTRY_POINTS: dict[str, Callable[[int], Entry]] = {"normalize": lambda _size: normalize, "shown": _shown_at}
+
+
+def _seconds(entry: Entry, text: str) -> float:
     best = float("inf")
     for repeat in range(REPEATS):
         runs = 0
@@ -82,42 +104,46 @@ def _seconds(entry: Callable[[str], object], text: str) -> float:
     return best
 
 
-def _step(entry: Callable[[str], object], make: Callable[[int], str], size: int) -> float:
+def _step(entry_at: Callable[[int], Entry], make: Callable[[int], str], size: int) -> float:
     """How many times the half size ``size`` costs: a busy machine can fail a step, a quadratic pass fails every one."""
+    half_entry, full_entry = entry_at(size // 2), entry_at(size)
     step = float("inf")
     for _ in range(ATTEMPTS):
-        half = _seconds(entry, make(size // 2))
-        full = _seconds(entry, make(size))
+        half = _seconds(half_entry, make(size // 2))
+        full = _seconds(full_entry, make(size))
         step = min(step, (full + FLOOR_SECONDS) / (half + FLOOR_SECONDS))
         if step < MAX_STEP:
             break
     return step
 
 
-def _flags_of_overlapping_spans(text: str) -> bytearray:
-    spans = [(start, len(text)) for start in range(len(text))]
-    return sqlscan._hidden_flags(spans, len(text))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+def _assert_linear(entry_at: Callable[[int], Entry], make: Callable[[int], str], sizes: tuple[int, ...]) -> None:
+    gc_was_on = gc.isenabled()
+    gc.disable()
+    try:
+        for size in sizes:  # smallest first: a quadratic pass fails before it runs into the test timeout
+            step = _step(entry_at, make, size)
+            assert step < MAX_STEP, f"{size} chars cost {step:.1f}x the half size"
+        largest = _seconds(entry_at(sizes[-1]), make(sizes[-1]))
+    finally:
+        if gc_was_on:
+            gc.enable()
+    assert largest < MAX_SECONDS
 
 
 def test_overlapping_hidden_spans_are_written_once() -> None:
     """Direct, and far past ``SIZES``: writing a span again is a ``memset``, too cheap to see under the scan's cost."""
-    size = 200_000
-    step = _step(_flags_of_overlapping_spans, GENERATORS["closers"], size)
-    assert step < MAX_STEP, f"{size} chars cost {step:.1f}x the half size"
+    _assert_linear(_flags_at, GENERATORS["closers"], (200_000,))
 
 
 @pytest.mark.parametrize("entry", ENTRY_POINTS)
 @pytest.mark.parametrize("generator", GENERATORS)
 def test_masking_scales_linearly(entry: str, generator: str) -> None:
-    run, make = ENTRY_POINTS[entry], GENERATORS[generator]
-    gc_was_on = gc.isenabled()
-    gc.disable()
-    try:
-        for size in SIZES[1:]:  # smallest first: a quadratic pass fails before it runs into the test timeout
-            step = _step(run, make, size)
-            assert step < MAX_STEP, f"{size} chars cost {step:.1f}x the half size"
-        largest = _seconds(run, make(SIZES[-1]))
-    finally:
-        if gc_was_on:
-            gc.enable()
-    assert largest < MAX_SECONDS
+    run = ENTRY_POINTS[entry]
+    _assert_linear(lambda _size: run, GENERATORS[generator], SIZES[1:])
+
+
+@pytest.mark.parametrize("entry", SCAN_ENTRY_POINTS)
+@pytest.mark.parametrize("generator", GENERATORS)
+def test_the_scan_scales_linearly(entry: str, generator: str) -> None:
+    _assert_linear(SCAN_ENTRY_POINTS[entry], GENERATORS[generator], SCAN_SIZES)

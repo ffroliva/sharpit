@@ -38,11 +38,14 @@ class Range(NamedTuple):
 
 class _Out:
     """The output builder; ``opens`` holds the unmatched ``(`` positions so the IN-list check is O(1), not a
-    backward scan per literal (BootUI's scan is quadratic on a long list, too slow in Python)."""
+    backward scan per literal (BootUI's scan is quadratic on a long list, too slow in Python). A quoted name keeps a run
+    of spaces, the only run the output has: ``past_spaces`` holds where each such run began, so a look past it is O(1).
+    """
 
     def __init__(self) -> None:
         self.chars: list[str] = []
         self.opens: list[int] = []
+        self.past_spaces: dict[int, int] = {}  # a space after a space -> the last position before the run
         self.runs: list[tuple[int, int, int]] = []  # (start, end, kind) in the raw text, in order
 
     def append(self, text: str) -> None:
@@ -51,26 +54,32 @@ class _Out:
                 self.opens.append(len(self.chars))
             elif c == ")" and self.opens:
                 self.opens.pop()
+            elif c == " " and self.chars and self.chars[-1] == " ":
+                self.past_spaces[len(self.chars)] = self.non_space_at(len(self.chars) - 1)
             self.chars.append(c)
 
     def space(self) -> None:
         if self.chars and self.chars[-1] != " ":
             self.chars.append(" ")
 
-    def last_non_space(self) -> int:
-        cursor = len(self.chars) - 1
-        while cursor >= 0 and self.chars[cursor] == " ":
-            cursor -= 1
+    def non_space_at(self, cursor: int) -> int:
+        """``cursor``, or the last position before it when it is a space; -1 when there is none."""
+        if cursor >= 0 and self.chars[cursor] == " ":
+            return self.past_spaces.get(cursor, cursor - 1)
         return cursor
+
+    def last_non_space(self) -> int:
+        return self.non_space_at(len(self.chars) - 1)
 
     def ends_with_in_list(self) -> bool:
         """The innermost unmatched ``(`` is preceded by the keyword ``in`` (only called at the end of the output)."""
         if not self.opens:
             return False
-        before = self.opens[-1] - 1
-        while before >= 0 and self.chars[before] == " ":
-            before -= 1
-        return self.ends_with_keyword(before, "in")
+        return self.ends_with_keyword(self.non_space_at(self.opens[-1] - 1), "in")
+
+    def inside_in_list(self) -> bool:
+        cursor = self.last_non_space()
+        return cursor >= 0 and self.chars[cursor] in "(," and self.ends_with_in_list()
 
     def ends_with_keyword(self, end_inclusive: int, keyword: str) -> bool:
         start = end_inclusive - len(keyword) + 1
@@ -98,16 +107,12 @@ class _Out:
         cursor = self.last_non_space()
         if cursor < 0 or self.chars[cursor] not in ",(" or not self.opens:
             return False
-        before = self.opens[-1] - 1
-        while before >= 0 and self.chars[before] == " ":
-            before -= 1
+        before = self.non_space_at(self.opens[-1] - 1)
         if self.ends_with_keyword(before, "values"):
             return True
         if before < 0 or self.chars[before] != ",":
             return False
-        before -= 1
-        while before >= 0 and self.chars[before] == " ":
-            before -= 1
+        before = self.non_space_at(before - 1)
         return before >= 0 and self.chars[before] == ")"
 
     def text(self) -> str:
@@ -216,16 +221,16 @@ def _skip_number(sql: str, index: int, mysql: bool = False) -> int:
     return cursor
 
 
-def _collapse_placeholder_lists(normalized: str) -> str:
+def _collapse_placeholder_lists(normalized: str) -> tuple[str, list[tuple[int, int]]]:
+    """``normalized`` with each ``IN (?, ?)`` list folded, and what was cut, as positions in ``normalized``."""
+    cuts: list[tuple[int, int]] = []
     if "?" not in normalized:
-        return normalized
+        return normalized, cuts
     out = _Out()
     index, length = 0, len(normalized)
     while index < length:
         c = normalized[index]
-        cursor = out.last_non_space()
-        inside = cursor >= 0 and out.chars[cursor] in "(," and out.ends_with_in_list()
-        if c != "?" or not inside:
+        if c != "?" or not out.inside_in_list():
             out.append(c)
             index += 1
             continue
@@ -243,8 +248,10 @@ def _collapse_placeholder_lists(normalized: str) -> str:
                     continue
             break
         out.append("?")
+        if last_placeholder > index:
+            cuts.append((index + 1, last_placeholder + 1))
         index = last_placeholder + 1
-    return out.text()
+    return out.text(), cuts
 
 
 # A scanner reads the construct that may open at ``index`` and returns where the scan goes on and whether that construct
@@ -323,9 +330,7 @@ class _Scan(NamedTuple):
     predicate_literals: int
 
 
-def _scan(sql: str, mysql: bool) -> _Scan:
-    """The one read of a statement: ``normalize`` keeps its output, ``shown`` and ``scan_ranges`` its runs."""
-    source = sql[:_MAX_SCAN_LENGTH]
+def _read(source: str, mysql: bool) -> _Scan:
     out = _Out()
     literals = predicate_literals = 0
     index, length = 0, len(source)
@@ -352,8 +357,9 @@ def _scan(sql: str, mysql: bool) -> _Scan:
     return _Scan(source, out, literals, predicate_literals)
 
 
-def _finish(out: _Out) -> str:
-    return _collapse_placeholder_lists(out.text().strip())
+def _scan(sql: str, mysql: bool) -> _Scan:
+    """The one entry to the read: ``normalize`` keeps its output, ``shown`` and ``scan_ranges`` its runs."""
+    return _read(sql[:_MAX_SCAN_LENGTH], mysql)
 
 
 @functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text
@@ -366,7 +372,7 @@ def normalize(sql: str, mysql: bool = False) -> Normalized:
     if not sql or sql.isspace():
         return Normalized("", "", 0, 0)
     scan = _scan(sql, mysql)
-    collapsed = _finish(scan.out)
+    collapsed, _ = _collapse_placeholder_lists(scan.out.text().strip())
     return Normalized(collapsed, collapsed.lower(), scan.literals, scan.predicate_literals)
 
 
@@ -386,20 +392,24 @@ def _hidden_flags(hidden: Sequence[tuple[int, int]], length: int) -> bytearray:
     return flags
 
 
-def _copy(source: str, span: tuple[int, int], flags: bytearray, out: _Out, collapse: bool) -> None:
+def _space(pieces: list[str]) -> None:
+    if pieces and pieces[-1] != " ":
+        pieces.append(" ")
+
+
+def _copy(source: str, span: tuple[int, int], flags: bytearray, pieces: list[str], collapse: bool) -> None:
     """Code or a quoted name, character by character: a hidden run is one mask, whitespace is never a hit."""
     masked = False
     for index in range(*span):
         c = source[index]
         if c.isspace() and collapse:
-            out.space()
+            _space(pieces)
             masked = False
         elif flags[index] and not c.isspace() and c not in _STRUCTURAL:
-            if not masked:
-                out.append(MASK)
+            pieces.append("" if masked else MASK)
             masked = True
         else:
-            out.append(c)
+            pieces.append(c)
             masked = False
 
 
@@ -407,23 +417,31 @@ def shown(sql: str, hidden: Sequence[tuple[int, int]], mysql: bool = False) -> s
     """``sql`` as ``normalize`` shows it, with the ``hidden`` raw spans masked (ported from ``SqlSinkText.mask``).
 
     Each character is classified once, from the raw scan, and emitted from that alone, so a hidden ``=`` cannot change
-    what the scan decided about the ``"x"`` after it. The output is never scanned. A hidden character in a literal or a
-    comment needs nothing: neither is copied.
+    what the scan decided about the ``"x"`` after it. A hidden character in a literal or a comment needs nothing:
+    neither is copied. ``pieces`` has one entry per character of the scan's output, so the scan's list cuts apply to it
+    by position, and nothing reads what was emitted.
     """
     scan = _scan(sql, mysql)
-    source, flags, out = scan.source, _hidden_flags(hidden, len(scan.source)), _Out()
+    source, flags = scan.source, _hidden_flags(hidden, len(scan.source))
+    pieces: list[str] = []
     index = 0
     for start, end, kind in scan.out.runs:
-        _copy(source, (index, start), flags, out, True)
+        _copy(source, (index, start), flags, pieces, True)
         if kind == _LITERAL:
-            out.append("?")
+            pieces.append("?")
         elif kind == _COMMENT:
-            out.space()
+            _space(pieces)
         else:
-            _copy(source, (start, end), flags, out, False)
+            _copy(source, (start, end), flags, pieces, False)
         index = end
-    _copy(source, (index, len(source)), flags, out, True)
-    return _finish(out)
+    _copy(source, (index, len(source)), flags, pieces, True)
+    kept: list[str] = []
+    index = 0
+    for start, end in _collapse_placeholder_lists(scan.out.text().strip())[1]:
+        kept += pieces[index:start]
+        index = end
+    kept += pieces[index:]
+    return "".join(kept).strip()
 
 
 def is_mysql(owner: object) -> bool:

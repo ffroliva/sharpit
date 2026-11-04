@@ -50,9 +50,46 @@ def test_shown_with_nothing_hidden_equals_normalize_on_the_edges(sql: str) -> No
     assert shown(sql, []) == normalize(sql).sql
 
 
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ('`in   (`, "x"', "`in   (`, ?"),  # the list check looks past the spaces a quoted name keeps
+        ('`)   ,(`, "x"', "`)   ,(`, ?"),  # and so does the second row of a ``VALUES``
+    ],
+)
+def test_a_value_position_is_read_past_a_run_of_spaces(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
 def test_a_hidden_equals_sign_does_not_change_a_literal() -> None:
     sql = 'basic = "x"'
     assert shown(sql, [_span(sql, "=")]) == "basic = ?"
+
+
+@pytest.mark.parametrize(
+    ("sql", "part", "expected"),
+    [
+        ('name like "x"', "like", f"name {MASK} ?"),
+        ('insert into t values ("x", "y")', "values", f"insert into t {MASK} (?, ?)"),
+        ('a in ("x")', "in", f"a {MASK} (?)"),
+    ],
+)
+def test_a_hidden_keyword_does_not_change_a_literal(sql: str, part: str, expected: str) -> None:
+    """``=`` is structural, so a scan of the masked text still reads it: a second scan loses these words instead."""
+    assert shown(sql, [_span(sql, part)]) == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "parts", "expected"),
+    [
+        ("pin (1,2,3)", ["p"], f"{MASK}in (?,?,?)"),  # the mask must not make ``in`` a keyword
+        ("a in (1,2,3)", ["in"], f"a {MASK} (?)"),  # and hiding the keyword must not undo the collapse
+        ("ab IN (1, 2) AND cd", ["ab", "cd"], f"{MASK} IN (?) AND {MASK}"),
+        ("abc def IN (1, 2) AND gh", ["abc def"], f"{MASK} {MASK} IN (?) AND gh"),
+    ],
+)
+def test_a_list_collapses_as_the_raw_scan_read_it(sql: str, parts: list[str], expected: str) -> None:
+    assert shown(sql, [_span(sql, part) for part in parts]) == expected
 
 
 def test_a_hidden_run_in_code_is_one_mask_and_keeps_its_structure() -> None:
