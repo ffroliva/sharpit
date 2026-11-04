@@ -163,8 +163,13 @@ _READS: dict[tuple[object, ...], object] = {}
 _OBJECT_ID = re.compile(r"[0-9a-f]{40}")
 
 
-def _read_once[T](key: tuple[Path, str, str, str], revs: Sequence[str], read: Callable[[], T]) -> T:
-    """``read()``, kept per repo when every rev is a full object id: a ref can move, what an object id names cannot."""
+def _read_once[T](key: tuple[str, str, str], revs: Sequence[str], read: Callable[[], T]) -> T:
+    """``read()``, kept when every rev is a full object id: a ref can move, what an object id names cannot, in any repo.
+
+    The key has no repo: identical copies share their reads, and that is safe only because a rev reaches here already
+    proven present in the repo at hand. ``opts.sha`` and ``base`` by ``evaluate``'s checked ``merge-base``, a red or
+    council sha by ``_resolve``. So ``_resolve`` is never cached here: it is what tells two repos apart.
+    """
     if key in _READS:
         return _READS[key]  # type: ignore[return-value]
     value = read()
@@ -173,12 +178,32 @@ def _read_once[T](key: tuple[Path, str, str, str], revs: Sequence[str], read: Ca
     return value
 
 
-def _show(repo: Path, sha: str, path: str) -> str | None:
+def _tree(repo: Path, sha: str) -> dict[str, str]:
+    """path -> object id of every file at ``sha``."""
+
+    def read() -> dict[str, str]:
+        entries = _git(repo, "ls-tree", "-r", "-z", sha).stdout.split("\0")  # raises, so no empty listing is ever kept
+        return {path: meta.split()[2] for meta, path in (entry.split("\t", 1) for entry in entries if entry)}
+
+    return _read_once(("tree", sha, ""), [sha], read)
+
+
+def _blob(repo: Path, blob: str) -> str | None:
     def read() -> str | None:
-        done = _git(repo, "show", f"{sha}:{path}", check=False)
+        done = _git(repo, "cat-file", "blob", blob, check=False)
         return done.stdout if done.returncode == 0 else None
 
-    return _read_once((repo, "show", sha, path), [sha], read)
+    return _read_once(("blob", blob, ""), [blob], read)
+
+
+def _show(repo: Path, sha: str, path: str) -> str | None:
+    """The file at ``sha``. A commit's unchanged files are read once across its children: a tree listing, then a read
+    per blob not seen yet. ``path`` must be repo-relative: ``./x`` reads as absent, which refuses rather than passes."""
+    if not _OBJECT_ID.fullmatch(sha):
+        done = _git(repo, "show", f"{sha}:{path}", check=False)
+        return done.stdout if done.returncode == 0 else None
+    blob = _tree(repo, sha).get(path)
+    return _blob(repo, blob) if blob else None
 
 
 def _resolve(repo: Path, ref: str) -> str | None:
@@ -190,7 +215,7 @@ def _is_ancestor(repo: Path, older: str, newer: str) -> bool:
     def read() -> bool:
         return _git(repo, "merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
 
-    return _read_once((repo, "is-ancestor", older, newer), [older, newer], read)
+    return _read_once(("is-ancestor", older, newer), [older, newer], read)
 
 
 def resolve_release(integration: Path) -> tuple[str | None, str]:
@@ -307,7 +332,7 @@ def _diff_paths(repo: Path, base: str, head: str) -> list[str]:
     def read() -> tuple[str, ...]:
         return tuple(_git(repo, "diff", "--name-only", "--no-renames", base, head).stdout.splitlines())
 
-    return list(_read_once((repo, "diff", base, head), [base, head], read))
+    return list(_read_once(("diff", base, head), [base, head], read))
 
 
 def _dependency_lists(text: str | None, *, test_extra: bool = True) -> object:
