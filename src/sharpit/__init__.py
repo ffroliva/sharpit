@@ -6,4 +6,4 @@ from sharpit.engine.capture.securitylogs import record_security_event as record_
 from sharpit.fastapi.adapter import install  # noqa: E402 - after __version__, which the adapter's modules read
 from sharpit.fastapi.sources import attach_sql_sources, detach_sql_sources  # noqa: E402
 
-__all__ = ["__version__", "attach_sql_sources", "detach_sql_sources", "install"]
+__all__ = ["__version__", "attach_sql_sources", "detach_sql_sources", "install", "record_security_event"]
