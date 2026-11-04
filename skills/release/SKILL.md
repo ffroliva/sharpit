@@ -62,7 +62,8 @@ cd ../sharpit-release-<version>
 Tell every live sharpit agent: "Cutting v<version> from main@<sha>; hold merges to main until the tag is pushed."
 A worktree keeps another session's `git switch` from moving the branch under you.
 
-**4. Bump the version.** There is one declaration site: `__version__` in `src/sharpit/__init__.py` (hatch reads it;
+**4. Bump the version.** `tests/test_packaging.py::test_version_is_<x>` pins it by name and value: update both, or the suite
+fails. There is one declaration site: `__version__` in `src/sharpit/__init__.py` (hatch reads it;
 `uv.lock` carries no version for the editable package). Then
 `git grep -n "<old version>" -- ':!CHANGELOG.md'` and update only *declarations* that name the current release
 (for example "the current release is …" in `AGENTS.md` or `skills/sharpit/SKILL.md`). Leave records of what was
