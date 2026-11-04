@@ -100,6 +100,7 @@ class Mutant(NamedTuple):
 
 
 KEEP = "return _keep(source, index, out)"
+DIGIT = "elif c.isdigit() and not _identifier_char_before(out):"
 QUOTES = "**dict.fromkeys('\"`[', _scan_quoted),"  # the scanners of the three quoting characters
 MUTANTS: dict[str, Mutant] = {
     "true": Mutant("return index + 4, True", KEEP, SURFACE, "visible"),
@@ -111,7 +112,15 @@ MUTANTS: dict[str, Mutant] = {
     "backtick": Mutant(QUOTES, QUOTES.replace("`", ""), SURFACE, "visible"),
     "bracket": Mutant(QUOTES, QUOTES.replace("[", ""), SURFACE, "shape"),
     "hash": Mutant('(mysql and sql[index] == "#")', "False", "db_statement-mysql", "visible"),
-    "dollar": Mutant("return (end, True) if end > 0 else _keep(source, index, out)", KEEP, SURFACE, "visible"),
+    "dollar": Mutant("return (end, True) if end > 0 else " + KEEP[7:], KEEP, SURFACE, "visible"),
+    # a digit or a keyword after a name character belongs to the name: over-masking ``col1`` lowers A1: A3 must catch it
+    "digit_in_name": Mutant(DIGIT, DIGIT.replace(" and not _identifier_char_before(out)", ""), SURFACE, "shape"),
+    "keyword_in_name": Mutant(
+        "if _identifier_char_before(out):\n        return _keep(source, index, out)",
+        "if False:\n        return _keep(source, index, out)",
+        SURFACE,
+        "shape",
+    ),
     "in_collapse": Mutant('if "?" not in normalized:', "if True:", SURFACE, "shape"),
     # db.statement masks the text before it scans, which hides a vendor token anyway; the recorder scans first
     "double_quote_secret": Mutant(

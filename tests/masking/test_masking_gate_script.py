@@ -93,3 +93,79 @@ def test_each_gate_names_its_baseline(mode: str) -> None:
 def test_a_checkout_is_used_in_place(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     assert gate.export(str(tmp_path), tmp_path / "unused") == tmp_path.resolve() / "src"
+
+
+def test_a_composite_secret_comes_back_though_the_baseline_showed_its_host() -> None:
+    """C1: ``https://host/<a>?password=<b>`` with ``<b>`` hidden before and shown now is a hit."""
+    secret = "https://api.x.io/" + "Qx7LmN2pRs9TvWy4ZaB6" + "?password=" + "Hk3Jd8Fg5Ls1Zp0Wm2Xc"
+    old = {"trace": secret.replace("Hk3Jd8Fg5Ls1Zp0Wm2Xc", "******")}
+    assert +gate.a2_hits([secret], old, {"trace": secret}) == {"trace": 1}
+
+
+def test_a_secret_shown_in_part_before_and_whole_now_is_a_hit() -> None:
+    old = {"trace": f"x {SECRET[:8]} y"}
+    assert +gate.a2_hits([SECRET], old, {"trace": f"x {SECRET} y"}) == {"trace": 1}
+
+
+def test_a_window_the_baseline_also_showed_is_no_regression() -> None:
+    assert not +gate.a2_hits([SECRET], {"trace": f"x{SECRET[3:11]}"}, {"trace": f"y{SECRET[3:11]}"})
+
+
+BASELINE_NAMES = ["traces._sql_message"]
+CANDIDATE_NAMES = ["sqltrace.mask_error"]
+
+
+def test_the_baseline_resolves_to_what_0_4_0_ran() -> None:
+    assert gate.resolve("baseline", [*BASELINE_NAMES, "sqltrace.mask_error"]) == {
+        "logs": "masker.mask_text",
+        "trace": "traces._sql_message",
+    }
+
+
+def test_a_baseline_without_sql_message_is_an_error_not_mask_text() -> None:
+    with pytest.raises(LookupError, match="_sql_message"):
+        gate.resolve("baseline", ["sqltrace.mask_error"])
+
+
+def test_a_candidate_without_mask_error_is_an_error_not_mask_text() -> None:
+    with pytest.raises(LookupError, match="mask_error"):
+        gate.resolve("candidate", ["traces._sql_message", "sqltrace.trace_message"])
+
+
+def test_a_candidate_resolves_its_own_trace_function() -> None:
+    assert gate.resolve("candidate", CANDIDATE_NAMES) == {"logs": "sqltrace.mask_error", "trace": "sqltrace.mask_error"}
+
+
+def _a7(old: list[str], new: list[str], **kwargs: object) -> int:
+    data = [{"t": text, "s": [SECRET]} for text in old]
+    before = [{"text_off": text, "text_on": text} for text in old]
+    after = [{"text_off": text, "text_on": text} for text in new]
+    return gate.a7_report(data, before, after, **kwargs)  # type: ignore[arg-type]
+
+
+HIDDEN = ["a ******", "b ******", "c ******"]
+
+
+def test_a7_passes_an_identical_tree() -> None:
+    assert _a7(HIDDEN, HIDDEN) == 0
+
+
+def test_a7_fails_a_planted_leak() -> None:
+    assert _a7(HIDDEN, [f"a {SECRET}", "b ******", "c ******"]) == 1
+
+
+def test_a7_fails_a_planted_blank() -> None:
+    """I3: every output blanked differs, no secret is shown, and the gate must still fail."""
+    assert _a7(HIDDEN, ["?", "?", "?"]) == 1
+
+
+def test_a7_passes_a_difference_a_named_rule_covers() -> None:
+    assert _a7(HIDDEN, ["a ******", "b *****", "c ******"], allowed=2, rule="an example rule") == 0
+
+
+def test_a7_fails_more_differences_than_the_rule_covers() -> None:
+    assert _a7(HIDDEN, ["?", "?", "c ******"], allowed=2, rule="an example rule") == 1
+
+
+def test_a7_fails_an_allowance_with_no_rule_named() -> None:
+    assert _a7(HIDDEN, ["a *****", "b ******", "c ******"], allowed=2) == 1

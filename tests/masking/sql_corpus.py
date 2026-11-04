@@ -34,7 +34,7 @@ SCAN_LIMIT = 20_000  # the scanner's limit, restated: past it nothing is scanned
 LONG_EVERY = 100  # one row in this many is a statement over the limit
 MASKED = "******"
 
-_COLUMNS = ("name", "note", "title", "bio", "label", "descr", "status", "city")
+_COLUMNS = ("name", "note", "title", "bio", "label", "descr", "status", "city", "col1", "x2", "is_True", "not_False")
 _SENSITIVE_NAMES = ("basic", "bearer", "token", "password", "pwd", "api_key", "secret", "auth")
 # the separator beside a sensitive name, as written and as shown
 _SEPARATORS = ((" = ", " = "), ("=", "="), ("=\n", "= "), (" =\n  ", " = "))
@@ -117,7 +117,7 @@ def _exponent(rng: random.Random) -> _Literal:
 
 
 def _boolean(rng: random.Random) -> _Literal:  # PostgreSQL's text keeps ``true`` readable, so it has no such literal
-    word = rng.choice(("true", "TRUE", "True", "false", "FALSE", "False"))
+    word = rng.choice(("true", "FALSE"))  # not a spelling a column below carries: its marker must not match a name
     return _Literal(word, word, "?", "")
 
 

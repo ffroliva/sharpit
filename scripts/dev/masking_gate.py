@@ -35,7 +35,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 WINDOW = 8  # a substring of a long secret counts (spec A2 r2, r3): every window of 8, stepping by 1
 BASELINES = {"a2": "v0.4.0", "a7": "fa2d51e"}
-A2_SURFACES = ("text_off", "text_on", "err_off", "err_on", "err_mysql", "rec_off", "rec_on", "trace", "statement")
+A2_SURFACES = (
+    "text_off", "text_on", "err_off", "err_on", "err_mysql", "rec_off", "rec_on",
+    "trace", "trace_on", "statement", "statement_on",
+)  # fmt: skip
+NEEDS_RESOLVING = frozenset({"err_off", "err_on", "err_mysql", "trace", "trace_on"})
 A7_SURFACES = ("text_off", "text_on")
 # the corpus's own fixed text: a window made of it is no part of a secret, whatever a masker does with the rest
 FIXED = (
@@ -167,9 +171,20 @@ def shown(secret: str, text: str | None) -> str | None:
 
 
 def leaked(secret: str, old: str | None, new: str | None) -> str | None:
-    """What ``new`` shows of ``secret`` that ``old`` hid: the regression A2 counts."""
-    found = shown(secret, new)
-    return found if found is not None and shown(secret, old) is None else None
+    """What ``new`` shows of ``secret`` that ``old`` hid: the regression A2 counts.
+
+    Judged piece by piece, as ``probe8/cmp.py`` did: the whole secret, then each window. A baseline that showed one
+    window of a composite secret (``https://host/<a>?password=<b>`` with ``<b>`` hidden) hid the others.
+    """
+    if not new:
+        return None
+    if secret in new and secret not in (old or ""):
+        return secret
+    for start in range(len(secret) - WINDOW + 1):
+        window = secret[start : start + WINDOW]
+        if window in new and window not in (old or "") and not any(window in fixed for fixed in FIXED):
+            return window
+    return None
 
 
 def a2_hits(
@@ -208,6 +223,7 @@ def start(label: str, src: Path, path: Path, out: Path, fields: tuple[str, ...])
         "-I",
         str(Path(__file__).resolve()),
         "--worker",
+        label,
         str(src),
         str(path),
         str(out),
@@ -216,14 +232,27 @@ def start(label: str, src: Path, path: Path, out: Path, fields: tuple[str, ...])
     return subprocess.Popen(command, cwd=out.parent)  # noqa: S603  # cwd: the temporary directory, never the repo
 
 
-def _first(owner: Any, *names: str) -> tuple[Callable[..., Any] | None, str]:
-    for name in names:
-        if (found := getattr(owner, name, None)) is not None:
-            return found, f"{owner.__name__.rsplit('.', 1)[-1]}.{name}"
-    return None, "none"
+def resolve(role: str, available: Iterable[str]) -> dict[str, str]:
+    """The production functions behind the logs and trace surfaces. A missing one is an error, never a fallback.
+
+    The baseline's logs are ``mask_text`` and its traces ``traces._sql_message``: what 0.4.0 ran. A candidate must have
+    ``sqltrace.mask_error``; its traces go through ``_sql_message``, ``trace_message`` or ``mask_error``. Falling back
+    to ``mask_text`` for traces is the mistake that hid 2,270 regressions.
+    """
+    names = set(available)
+    if role == "baseline":
+        if "traces._sql_message" not in names:
+            raise LookupError("baseline tree has no traces._sql_message: the trace baseline cannot be measured")
+        return {"logs": "masker.mask_text", "trace": "traces._sql_message"}
+    if "sqltrace.mask_error" not in names:
+        raise LookupError("candidate tree has no sqltrace.mask_error: logs and traces would be measured as mask_text")
+    trace = next(
+        (n for n in ("traces._sql_message", "sqltrace.trace_message", "sqltrace.mask_error") if n in names), ""
+    )
+    return {"logs": "sqltrace.mask_error", "trace": trace}
 
 
-def work(src: str, corpus_path: str, out_path: str, fields: list[str]) -> None:
+def work(role: str, src: str, corpus_path: str, out_path: str, fields: list[str]) -> None:
     """In the tree: every field through the tree's own production function. ``sharpit`` must be the tree's."""
     sys.dont_write_bytecode = True
     sys.path.insert(0, src)
@@ -235,13 +264,21 @@ def work(src: str, corpus_path: str, out_path: str, fields: list[str]) -> None:
 
     assert Path(sharpit.__file__).resolve().is_relative_to(Path(src).resolve()), sharpit.__file__
     off, on = Masker(Exposure.MASKED, True), Masker(Exposure.MASKED, True, capture_parameters=True)
-    error_mask, error_name = _first(sqltrace, "mask_error")
-    trace_mask, trace_name = _first(traces, "_sql_message")
-    trace_mask, trace_name = (trace_mask, trace_name) if trace_mask else _first(sqltrace, "trace_message", "mask_error")
+    owners = {"traces": traces, "sqltrace": sqltrace}
+    found = [
+        f"{o}.{n}" for o, m in owners.items() for n in ("_sql_message", "trace_message", "mask_error") if hasattr(m, n)
+    ]
+    names = resolve(role, found) if NEEDS_RESOLVING & set(fields) else {"logs": "none", "trace": "none"}
+    error_mask = None if names["logs"] in ("none", "masker.mask_text") else sqltrace.mask_error
+    trace_mask = (
+        None
+        if names["trace"] == "none"
+        else getattr(owners[names["trace"].split(".")[0]], names["trace"].split(".")[1])
+    )
     parameters = len(inspect.signature(traces._sql_attribute).parameters)  # noqa: SLF001
 
-    def statement(text: str) -> str | None:
-        args = (off, "db.statement", text) + ((False,) if parameters > 3 else ())
+    def statement(text: str, masker: Masker) -> str | None:
+        args = (masker, "db.statement", text) + ((False,) if parameters > 3 else ())
         return traces._sql_attribute(*args)  # noqa: SLF001
 
     def recorded(masker: Masker, text: str, sql: str | None) -> str | None:
@@ -262,10 +299,12 @@ def work(src: str, corpus_path: str, out_path: str, fields: list[str]) -> None:
         "err_mysql": lambda t, q: logs(off, t, mysql=True) if error_mask else off.mask_text(t),
         "rec_off": lambda t, q: recorded(off, t, q),
         "rec_on": lambda t, q: recorded(on, t, q),
-        "trace": lambda t, q: trace_mask(off, t) if trace_mask else off.mask_text(t),
-        "statement": lambda t, q: statement(t),
+        "trace": lambda t, q: trace_mask(off, t),
+        "trace_on": lambda t, q: trace_mask(on, t),
+        "statement": lambda t, q: statement(t, off),
+        "statement_on": lambda t, q: statement(t, on),
     }
-    meta = {"sharpit": sharpit.__file__, "version": sharpit.__version__, "logs": error_name, "trace": trace_name}
+    meta = {"sharpit": sharpit.__file__, "version": sharpit.__version__, **names}
     with open(corpus_path, encoding="utf-8") as source, open(out_path, "w", encoding="utf-8") as out:
         print(json.dumps({"meta": meta}), file=out)
         for line in source:
@@ -281,7 +320,7 @@ def read(path: Path) -> tuple[dict[str, str], Iterable[dict[str, str | None]]]:
 # --- the gates --------------------------------------------------------------------------------------------------------
 
 
-def run(mode: str, rows: int, seed: int, candidate: str, baseline: str) -> int:
+def run(mode: str, rows: int, seed: int, candidate: str, baseline: str, allowed: int = 0, rule: str = "") -> int:
     fields = A2_SURFACES if mode == "a2" else A7_SURFACES
     with tempfile.TemporaryDirectory(prefix="masking-gate-") as tmp:
         work_dir = Path(tmp)
@@ -302,7 +341,9 @@ def run(mode: str, rows: int, seed: int, candidate: str, baseline: str) -> int:
         (old_meta, old_rows), (new_meta, new_rows) = (read(path) for path, _ in jobs.values())
         print(f"baseline  {baseline}: {old_meta}\ncandidate {candidate}: {new_meta}")
         print(f"{mode} on {len(data)} rows, seed {seed}")
-        return a2_report(data, old_rows, new_rows) if mode == "a2" else a7_report(data, old_rows, new_rows)
+        if mode == "a2":
+            return a2_report(data, old_rows, new_rows)
+        return a7_report(data, old_rows, new_rows, allowed, rule)
 
 
 def a2_report(
@@ -327,21 +368,33 @@ def a2_report(
 
 
 def a7_report(
-    data: list[dict[str, Any]], old_rows: Iterable[dict[str, Any]], new_rows: Iterable[dict[str, Any]]
+    data: list[dict[str, Any]],
+    old_rows: Iterable[dict[str, Any]],
+    new_rows: Iterable[dict[str, Any]],
+    allowed: int = 0,
+    rule: str = "",
 ) -> int:
+    """A difference fails unless ``allowed`` names how many a reviewed ``rule`` covers; a secret shown always fails."""
     differ = newly = 0
+    sample: tuple[str, str | None, str | None] | None = None
     for row, old, new in zip(data, old_rows, new_rows, strict=True):
         for field in A7_SURFACES:
             changed, worse = a7_row(row["s"], old[field], new[field])
             differ += changed
             newly += worse
-    print(f"A7 {'PASS' if not newly else 'FAIL'}: {differ} outputs differ, {newly} secrets newly shown")
-    return int(bool(newly))
+            if changed and sample is None:
+                sample = (row["t"], old[field], new[field])
+    if sample:
+        print(f"  first difference: in {sample[0][:150]!r}\n    was {sample[1]!r:.150}\n    now {sample[2]!r:.150}")
+    covered = f" ({allowed} allowed by rule {rule!r})" if allowed else ""
+    failed = bool(newly) or differ > allowed or (allowed > 0 and not rule)
+    print(f"A7 {'FAIL' if failed else 'PASS'}: {differ} outputs differ{covered}, {newly} secrets newly shown")
+    return int(failed)
 
 
 def main(argv: list[str]) -> int:
     if argv[:1] == ["--worker"]:
-        work(argv[1], argv[2], argv[3], argv[4].split(","))
+        work(argv[1], argv[2], argv[3], argv[4], argv[5].split(","))
         return 0
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("mode", choices=("a2", "a7"))
@@ -349,8 +402,23 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument("--candidate", default="HEAD", help="a commit, tag or tree-ish, or a checkout's directory")
     parser.add_argument("--baseline", help="default: v0.4.0 for a2, fa2d51e for a7")
+    parser.add_argument("--allowed-diff", type=int, default=0, help="a7: outputs a named, reviewed rule may change")
+    parser.add_argument("--rule", default="", help="a7: the rule that covers --allowed-diff")
     args = parser.parse_args(argv)
-    return run(args.mode, args.rows, args.seed, args.candidate, args.baseline or BASELINES[args.mode])
+    if args.baseline and args.baseline != BASELINES[args.mode]:
+        print(f"baseline overridden: {args.baseline} (the gate's is {BASELINES[args.mode]})")
+    for label, rev in (("baseline", args.baseline), ("candidate", args.candidate)):
+        if rev and Path(rev).is_dir():
+            print(f"{label} {rev} is a directory: unpinned, whatever it holds right now")
+    return run(
+        args.mode,
+        args.rows,
+        args.seed,
+        args.candidate,
+        args.baseline or BASELINES[args.mode],
+        args.allowed_diff,
+        args.rule,
+    )
 
 
 if __name__ == "__main__":
