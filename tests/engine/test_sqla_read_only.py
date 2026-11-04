@@ -73,7 +73,8 @@ class _FakePgEngine:
 
 
 def test_default_path_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    engine = sa.create_engine("sqlite://")
+    # an ordinary pool: the default for ``sqlite://`` shares its connection, so every read on it is refused
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.QueuePool, connect_args={"check_same_thread": False})
     calls: list[float] = []
     original = sqla.bounded
 
