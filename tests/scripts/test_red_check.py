@@ -18,6 +18,7 @@ from _load import load_script
 red_check = load_script("scripts/dev/red_check.py")
 
 RED = "RED (assertion under tests/)"
+WAIT_FOR_BUILD = 120  # seconds a worker waits for another's verdicts before building its own
 
 SRC = """\
 def widget():
@@ -140,7 +141,25 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def _built_once(shared: Path, build: Callable[[], dict[str, str]]) -> dict[str, str]:
-    return build()
+    """``build()``'s result: the first xdist worker to claim ``shared`` builds it, the others wait and read it."""
+    claim, result = shared / "red-check-verdicts.claim", shared / "red-check-verdicts.json"
+    try:
+        claim.touch(exist_ok=False)
+    except FileExistsError:
+        deadline = time.monotonic() + WAIT_FOR_BUILD
+        while claim.exists() and not result.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        # no result: the claimant failed or died, and the verdicts are the same built here
+        return json.loads(result.read_text(encoding="utf-8")) if result.exists() else build()
+    try:
+        value = build()
+    except BaseException:
+        claim.unlink()
+        raise
+    scratch = result.with_suffix(".tmp")
+    scratch.write_text(json.dumps(value), encoding="utf-8")
+    scratch.replace(result)  # atomic: a waiter never reads a half-written file
+    return value
 
 
 @pytest.fixture(scope="module")
