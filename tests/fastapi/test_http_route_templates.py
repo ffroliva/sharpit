@@ -41,7 +41,7 @@ def _route_row(client: TestClient) -> dict[str, Any]:
 
 
 def _behind_asgi(mount: Mount) -> Any:
-    """A Mount no route table leads to: the app holding it sits behind a plain ASGI callable, which has no ``routes``."""
+    """A Mount no route table leads to: its app sits behind a plain ASGI callable, which has no ``routes``."""
     inner = Starlette(routes=[mount])
 
     async def wrapper(scope: Any, receive: Any, send: Any) -> None:
