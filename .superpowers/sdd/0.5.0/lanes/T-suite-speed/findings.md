@@ -40,6 +40,10 @@ or a helper it references, so the gate's replay cannot use them. Each has a muta
 | tests/scripts/test_lane_gate.py::test_lane_fixture_copy_leaves_the_objects_in_the_template | 48d00fb6aa64bd4ba619fbafd569791ba5e2eead | red_check RED (`C:\t\speed\round2\red-lg-objects.txt`) | helper `_fixture` changed | `_fixture` returning the template: `test_lane_fixture_commit_stays_in_its_own_copy` FAILED (`C:\t\speed\round2\mut-lg-copy.txt`) |
 | tests/scripts/test_lane_gate.py::test_lane_gate_sha_read_in_one_repo_stays_absent_in_another | pin, passes at 9f5b4fa | n/a: a guard on the repo-free key | n/a | caching `_resolve` across repos: FAILED (`C:\t\speed\round2\mut-p2-resolve.txt`); making an absent path read as empty fails 5 tests (`mut-p3-absent.txt`) |
 
+Review finding (Gemini, minor): `test_uses_walks_each_source_file_once` could pass 0 == 0 on a worker whose index was
+warm. Fixed in 9371b36 (`_source.cache_clear()`, `assert after_first > 0`). Mutation: `@functools.cache` removed from
+`_source`: the test FAILED (`C:	\speed\mut-pt-cache.txt`).
+
 ## Causes
 
 | File | Measured cause | Id | Resolution |
