@@ -598,3 +598,57 @@ def test_sql_error_scan_stays_fast_after_a_closed_statement():
 
     assert time.perf_counter() - started < 1
     assert detail is not None
+
+
+def shown_message(message: str) -> str:
+    buf = buffer()
+    buf.add(span(attributes={"exception.message": message}))
+    detail = buf.detail(f"{TRACE:032x}")
+    assert detail is not None
+    return attribute(detail["spans"][0], "exception.message")
+
+
+BACKGROUND = "(Background on this error at: https://sqlalche.me/e/20/f405)"
+
+
+# derived: release council fix round 3, p_first_bracket.py: the block ended at the first ``]``, a subscript's, and the
+# literals after it were neither normalised nor masked
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("(a.Error) x\n[SQL: SELECT a[1], 'hunter2' FROM t]", "(a.Error) x\n[SQL: SELECT a[?], ? FROM t]"),
+        ("(a.Error) x\n[SQL: SELECT ARRAY[1], 4111111111111111]", "(a.Error) x\n[SQL: SELECT ARRAY[?], ?]"),
+        ("(a.Error) x\n[SQL: SELECT a[1]\n, 'hunter2' FROM t]", "(a.Error) x\n[SQL: SELECT a[?] , ? FROM t]"),
+        (
+            f"(a.Error) x\n[SQL: SELECT a[1], 'hunter2']\n[parameters: ('p4ss', [1])]\n{BACKGROUND}",
+            f"(a.Error) x\n[SQL: SELECT a[?], ?]\n[parameters: {MASK}]\n{BACKGROUND}",
+        ),
+        (
+            "(a.Error) x\n[SQL: SELECT a[1], 'hunter2']\n[SQL parameters hidden due to hide_parameters=True]",
+            "(a.Error) x\n[SQL: SELECT a[?], ?]\n[SQL parameters hidden due to hide_parameters=True]",
+        ),
+        (
+            "(a.Error) x\n[SQL: SELECT a[1], 'one']\n(b.Error) y\n[SQL: SELECT b[2], 'two']",
+            "(a.Error) x\n[SQL: SELECT a[?], ?]\n(b.Error) y\n[SQL: SELECT b[?], ?]",
+        ),
+        (
+            "(a.Error) x\n[SQL: SELECT a[1], 'one']\nThe above exception was the direct cause of [this]",
+            "(a.Error) x\n[SQL: SELECT a[?], ?]\nThe above exception was the direct cause of [this]",
+        ),
+        ("(a.Error) x\n[SQL: SELECT 'hunter2'", "(a.Error) x\n[SQL: SELECT ?]"),
+    ],
+    ids=["subscript", "array", "multi-line", "parameters", "hidden", "two-blocks", "text-after", "no-closer"],
+)
+def test_sql_error_block_runs_past_a_bracket_in_the_statement(message: str, expected: str):
+    assert shown_message(message) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["[SQL: a[1] " * 15_000, "[SQL: x]\n[parameters: y]\n" * 4_000, "\n[SQL: " * 15_000],
+    ids=["inline-blocks", "closed-blocks", "line-blocks"],
+)
+def test_sql_error_block_scan_stays_fast(text: str):
+    started = time.perf_counter()
+    shown_message(text)
+    assert time.perf_counter() - started < 1

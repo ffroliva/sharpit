@@ -568,3 +568,43 @@ def test_mask_text_unclosed_opener_reads_the_same_on_a_long_line(text: str, expe
     masker = Masker(M, True)
     assert masker.mask_text(text) == expected
     assert masker.mask_text(LONG_LINE + text) == LONG_LINE + expected
+
+
+# derived: release council fix round 3: the same first-closer shape as ``[SQL: ...]``: a sensitive value ended at the
+# first closer, so what followed a nested bracket or a closer inside a string was shown
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("password=[a[1], hunter2]", f"password={MASK}"),
+        ("password=[[1, 2], [3, hunter2]]", f"password={MASK}"),
+        ("password=(f(x), hunter2)", f"password={MASK}"),
+        ("password=[a[1], hunter2", f"password={MASK}"),
+        ('{"tokens": [["a"], ["hunter2"]]}', f'{{"tokens": "{MASK}"}}'),
+        ('{"tokens": ["a", {"x": [1]}, "hunter2"]}', f'{{"tokens": "{MASK}"}}'),
+        ('{"tokens": ["a]", "hunter2"]}', f'{{"tokens": "{MASK}"}}'),
+        ("{'token': (('a',), 'hunter2')}", f"{{'token': '{MASK}'}}"),
+    ],
+)
+def test_mask_text_sensitive_value_runs_to_its_balanced_closer(text: str, expected: str) -> None:
+    masker = Masker(M, True)
+    assert masker.mask_text(text) == expected
+    assert masker.mask_text(LONG_LINE + text) == LONG_LINE + expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('{"password": ["a"], "roles": ["x"]}', f'{{"password": "{MASK}", "roles": ["x"]}}'),
+        ("note=[a[1], b] password=hunter2", f"note=[a[1], b] password={MASK}"),
+        ("password=[a[1]]\nnote=[b]", f"password={MASK}\nnote=[b]"),
+    ],
+)
+def test_mask_text_balanced_value_leaves_what_follows(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
+
+
+@pytest.mark.parametrize("text", ["password=[[] " * 12_000, "password=[a] " * 12_000, "k=[[] " * 12_000])
+def test_mask_text_balanced_scan_stays_fast(text: str) -> None:
+    started = time.perf_counter()
+    Masker(M, True).mask_text(text)
+    assert time.perf_counter() - started < 1
