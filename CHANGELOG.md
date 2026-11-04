@@ -71,7 +71,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - The 2.2.0 capture drift reports `activity` journal and resources, caught exceptions and the reserved retention share as unavailable (null with a reason).
 - Every sharpit read through a pool that shares one connection (`StaticPool`, `SingletonThreadPool`, `AssertionPool`) is refused before the checkout, because returning that connection would roll back the host's open transaction. An in-memory SQLite host gets `SHARED_CONNECTION_REFUSED`: its health ping is `UNKNOWN`, Alembic reports the database unavailable, and the `postgresql` and `mysql` panels and advisor scans that read the database report it as an error. A connection shared through `creator=` on an ordinary pool cannot be detected.
 - MySQL-aware statement normalisation applies where the dialect is known: the `mysql` panel, SQLAlchemy statements in SQL Trace, activity, insights and the test-session report (from the engine's dialect), and OpenTelemetry spans that carry `db.system` or `db.system.name`. Raw `sqlite3` statements, spans without either attribute and the unbounded-read shape of a `Session` built on a binds map keep the generic scan, and their text still goes through the masker.
-- `mask_text` masks `Bearer`, `Basic` and `Token` credentials but not `Digest` parameter lists.
+- `mask_text` masks `Bearer`, `Basic` and `Token` credentials in any case but not `Digest` parameter lists. An ordinary word after `Token` with no key before it (`Token expired`, `FROM Token WHERE`) stays readable; after an `Authorization` key every value is masked.
 - On FastAPI 0.16x an `include_router` prefix cannot be recovered from the route, so those routes report `MASKED_PATH` instead of a template.
 
 ## [0.4.0] - 2026-11-02
