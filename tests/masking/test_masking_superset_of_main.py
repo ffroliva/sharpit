@@ -93,3 +93,21 @@ def test_a_statement_is_masked_before_the_scan_changes_its_shape(path: str, valu
     shown = ERROR_PATHS[path](SQLALCHEMY_ERROR.format(value))
     assert shown is not None
     assert secret[1:] not in shown
+
+
+# derived: release probe6 fuzz, rec_off, 2,248 hits: masking first kept a line the driver-value drop would have removed
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        (f'(pymysql.err.OperationalError) (1045, pwd:"first\n{TAIL}")\n[SQL: SELECT 1]\n[parameters: (1,)]', TAIL),
+        (f"(pymysql.err.OperationalError) (1045, pwd='{PEM}')\n[SQL: SELECT 1]\n[parameters: (1,)]", PEM_BODY),
+        (f'(pymysql.err.OperationalError) (1045, pwd: "first\r\n{TAIL}")\n[SQL: SELECT 1]', TAIL),
+        (f'Token expired&"auth"="first {TAIL}"', TAIL),
+        (f"chaij3cgvam82vcboinj', '{AWS_KEY}", "chaij3cgvam82vcboinj"),
+    ],
+    ids=["multi-line", "pem", "crlf", "space-in-value", "before-a-token"],
+)
+def test_record_drops_driver_values_before_it_masks(text: str, secret: str) -> None:
+    shown = _recorded(text)
+    assert shown is not None
+    assert secret not in shown
