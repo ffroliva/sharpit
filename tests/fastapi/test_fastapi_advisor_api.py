@@ -22,6 +22,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import SideEffectGuard
+from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import appsource
 
@@ -212,3 +213,12 @@ def test_cli_scan_runs_the_advisor(app_pkg: tuple[Any, Path], tmp_path: Path) ->
     response = client.post("/sharpit/api/cli/tools/fastapi_scan", content=b"{}")
     assert response.status_code == 200
     assert client.get(URL).json()["scan"]["status"] == "SCANNED"
+
+
+def test_scan_without_the_apps_source_is_partial(tmp_path: Path) -> None:
+    app = FastAPI()
+    client = _client(app, tmp_path / "state", app_package="no_such_package_for_sharpit")
+    report = client.post(SCAN).json()
+    assert report["componentsAnalyzed"] == 0
+    assert report["evidence"]["limitations"] != []
+    assert report["scan"]["status"] == "PARTIAL"
