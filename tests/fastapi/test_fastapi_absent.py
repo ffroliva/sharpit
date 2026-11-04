@@ -16,7 +16,7 @@ ABSENT = """
     for name in ("fastapi", "pydantic"):  # pydantic only ever arrives with FastAPI
         sys.modules[name] = None
 """
-PANELS = ("overview", "mappings", "beans", "fastapi", "fastapi-security", "security", "rest-api", "http-exchanges")
+PANELS = ("overview", "mappings/flat", "beans", "fastapi", "fastapi-security", "security", "rest-api", "http-exchanges")
 
 
 def _run(script: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
