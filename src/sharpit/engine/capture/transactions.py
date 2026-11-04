@@ -303,8 +303,8 @@ def _enabled(ctx: SharpitContext) -> TransactionRecorder | None:
 def _targets(conn: Any) -> list[SharpitContext]:
     if INTERNAL.get():
         return []
-    with _contexts_lock:
-        contexts = list(_contexts.values())
+    # valuerefs, not values: once per begin, and values is a generator under an iteration guard; read lock-free
+    contexts = [ctx for ref in _contexts.valuerefs() if (ctx := ref()) is not None]
     info = REQUEST.get()
     if info is not None:
         return [ctx for ctx in contexts if ctx.context_id == info.context_id]
@@ -335,12 +335,12 @@ PENDING_COMMIT = "sharpit_tx_pending_commit"
 
 
 def _stack(info: dict[str, Any]) -> list[Tracked]:
-    return cast("list[Tracked]", info.setdefault("sharpit_tx", []))
+    return info.setdefault("sharpit_tx", [])
 
 
 def _savepoints(info: dict[str, Any]) -> list[tuple[str | None, list[Tracked]]]:
     """Open savepoints, innermost last; one frame per savepoint event, empty when nothing was recorded."""
-    return cast("list[tuple[str | None, list[Tracked]]]", info.setdefault("sharpit_tx_savepoints", []))
+    return info.setdefault("sharpit_tx_savepoints", [])
 
 
 def _close(items: list[Tracked], status: str) -> None:
@@ -361,11 +361,12 @@ def _settle(info: dict[str, Any], error: BaseException | None = None) -> None:
 
 
 def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
-    stack = _stack(conn.info)
+    conn_info = conn.info  # a property chain: one read per listener
+    stack = _stack(conn_info)
     if parent_ids is None:
         _close(stack, "UNKNOWN")
         stack.clear()
-        _savepoints(conn.info).clear()
+        _savepoints(conn_info).clear()
     parents = parent_ids or {}
     info = REQUEST.get()
     connection_id = _connection_id(conn)
@@ -423,8 +424,9 @@ def tx_begin(conn: Any) -> None:
 
 def tx_commit(conn: Any) -> None:
     try:
-        conn.info[PENDING_COMMIT] = list(_stack(conn.info))
-        _end(conn.info, "COMMITTED")
+        info = conn.info  # a property chain: one read per listener
+        info[PENDING_COMMIT] = list(_stack(info))
+        _end(info, "COMMITTED")
     except Exception as exc:  # noqa: BLE001
         dispatch.routing_failed(exc)
 

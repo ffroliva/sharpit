@@ -76,3 +76,37 @@ def test_a_pair_reads_the_connection_info_at_most_three_times(
     _pairs(engine)
     assert _captured(installed) == PAIRS, "the listeners must have run for the count to mean anything"
     assert len(reads) <= INFO_READS_PER_PAIR * PAIRS, f"{len(reads) / PAIRS} reads of conn.info per pair"
+
+
+def test_routing_follows_attach_and_detach_at_once(handle: tuple[SharpitHandle, Any]) -> None:
+    other_engine = sa.create_engine("sqlite://")
+    other = install(FastAPI(), enabled="ON", show_banner=False, engines=[other_engine])
+    try:
+        _pairs(other_engine)
+        attached = _captured(other)
+        other.uninstall_capture()
+        _pairs(other_engine)
+        detached = _captured(other)
+    finally:
+        other.uninstall_capture()
+        other_engine.dispose()
+    assert attached == PAIRS, "a context must be routed from the moment it attaches"
+    assert detached == PAIRS, "a detached context must receive nothing more"
+
+
+def test_a_dead_context_in_the_table_is_skipped(handle: tuple[SharpitHandle, Any]) -> None:
+    installed, engine = handle
+
+    class Gone:
+        """Dies below while the table still lists it, as between the referent's death and the weak callback."""
+
+    gone = Gone()
+    dead = weakref.ref(gone)
+    del gone
+    table: dict[str, Any] = getattr(transactions._contexts, "data")  # noqa: B009, SLF001  # pyright: ignore[reportPrivateUsage]
+    table["gone"] = dead
+    try:
+        _pairs(engine)
+    finally:
+        del table["gone"]
+    assert _captured(installed) == PAIRS, "a dead entry must not stop the live context from receiving transactions"
