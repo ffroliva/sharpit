@@ -601,7 +601,7 @@ class SqlTraceRecorder:
         if error is not None:
             text = str(error)
             if not masker.capture_parameters:
-                text = _driver_values_dropped(text)
+                text = masker.mask_text(_driver_values_dropped(text)) or ""  # the scan hides what the masker reads
                 if sql:
                     text = text.replace(sql.strip(), normalized.sql)  # SQLAlchemy repeats the statement in [SQL: ...]
                 text = _sql_block_normalized(text, mysql)  # an error raised for another statement than ``sql``
@@ -809,13 +809,16 @@ def mask_error(masker: Masker, text: str | None, mysql: bool = False) -> str | N
     """An error text for display: every path from an exception to output comes here.
 
     ``Masker.mask_text`` masks secrets by shape, so a literal in the ``[SQL: ...]`` block SQLAlchemy appends passes it.
-    With parameter capture off that block is normalised first; ``mysql`` is for text known to be MySQL's, and a MySQL
-    driver named in the text counts as known. Text with no block pays one substring check and one anchored match.
+    With parameter capture off that block is masked, normalised and masked again: the scan turns a key or a token into
+    ``?``, which hides it from the masker, so the masker reads the raw text first. ``mysql`` is for text known to be
+    MySQL's, and a MySQL driver named in the text counts as known. Text with no block pays one substring check and one
+    anchored match.
     """
     if text is None:
         return None
     if not masker.capture_parameters and (_SQL_BLOCK in text or _SQL_ERROR_SHAPE.match(text)):
-        text = _redact_sql_errors(text, mysql or _MYSQL_DRIVER.search(text) is not None)
+        known_mysql = mysql or _MYSQL_DRIVER.search(text) is not None
+        text = _redact_sql_errors(masker.mask_text(text) or "", known_mysql)
     return masker.mask_text(text)
 
 

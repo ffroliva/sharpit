@@ -124,7 +124,7 @@ def _sql_attribute(masker: Masker, key: str, value: object, mysql: bool) -> str 
     if _SQL_PARAMETER_KEYS.search(key):
         return _text(value) if masker.capture_parameters else MASK
     text = _text(value)
-    return masker.mask_text(text if masker.capture_parameters else normalize_sql(text, mysql))
+    return masker.mask_text(text if masker.capture_parameters else normalize_sql(masker.mask_text(text) or "", mysql))
 
 
 def _url_attribute(masker: Masker, key: str, value: object, mysql: bool) -> str | None:

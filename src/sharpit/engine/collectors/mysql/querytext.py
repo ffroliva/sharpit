@@ -31,7 +31,7 @@ def mysql_query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUER
     if is_metadata_only(masker):
         return MASK
     try:
-        normalized = normalize_sql(sql, mysql=True)
+        normalized = normalize_sql(masker.mask_text(sql) or "", mysql=True)
     except Exception:
         normalized = _WHITESPACE.sub(" ", sql).strip()
     masked = masker.mask_text(normalized) or normalized
