@@ -40,6 +40,16 @@ def _route_row(client: TestClient) -> dict[str, Any]:
     return rows[0]
 
 
+def _behind_asgi(mount: Mount) -> Any:
+    """A Mount no route table leads to: the app holding it sits behind a plain ASGI callable, which has no ``routes``."""
+    inner = Starlette(routes=[mount])
+
+    async def wrapper(scope: Any, receive: Any, send: Any) -> None:
+        await inner(scope, receive, send)
+
+    return wrapper
+
+
 @pytest.mark.parametrize("value", [JWT, ALPHABETIC], ids=["jwt", "alphabetic"])
 def test_a_mount_parameter_is_its_template_in_the_row(value: str) -> None:
     _, client = _mounted("/share/{tok}", _sub_app())
@@ -90,33 +100,20 @@ def test_a_literal_mount_keeps_its_prefix() -> None:
 
 
 def test_a_mount_the_walk_cannot_reach_falls_back_to_the_masked_path() -> None:
-    # wrapped in plain ASGI, the sub-app's routes are out of the table: the prefix cannot be shown to be a template
-    sub = _sub_app()
+    _, client = _mounted("/wrapped", _behind_asgi(Mount("/deep/{tok}", app=_sub_app())))
 
-    async def wrapper(scope: Any, receive: Any, send: Any) -> None:
-        await sub(scope, receive, send)
-
-    hidden = Starlette(routes=[Mount("/deep/{tok}", app=wrapper)])
-    _, client = _mounted("/share", hidden)
-
-    client.get(f"/share/deep/{JWT}/items/1")
+    client.get(f"/wrapped/deep/{JWT}/items/1")
 
     assert JWT not in _route_row(client)["route"]
 
 
 def test_a_mount_the_walk_cannot_reach_is_labelled_as_the_masked_path() -> None:
-    sub = _sub_app()
+    _, client = _mounted("/wrapped", _behind_asgi(Mount("/deep", app=_sub_app())))
 
-    async def wrapper(scope: Any, receive: Any, send: Any) -> None:
-        await sub(scope, receive, send)
-
-    hidden = Starlette(routes=[Mount("/deep", app=wrapper)])
-    _, client = _mounted("/share", hidden)
-
-    client.get("/share/deep/items/1")
+    client.get("/wrapped/deep/items/1")
 
     row = _route_row(client)
-    assert (row["route"], row["routeSource"]) == ("/share/deep/items/{value}", "MASKED_PATH")
+    assert (row["route"], row["routeSource"]) == ("/wrapped/deep/items/{value}", "MASKED_PATH")
 
 
 def test_a_root_path_from_the_server_is_not_part_of_the_route() -> None:
