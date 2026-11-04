@@ -160,24 +160,49 @@ def _top_level_names(tree: ast.Module) -> set[str]:
     return names
 
 
+@dataclass(frozen=True)
+class _Source:
+    """One ``src/sharpit`` file, walked once: every patch's ``uses`` reads these indexes instead of the tree."""
+
+    module: str
+    where: str
+    aliases: dict[str, str]
+    top_level: frozenset[str]
+    names: dict[str, list[tuple[ast.Name, bool]]]  # loaded bare name -> (node, at_import)
+    attributes: dict[str, list[tuple[ast.Attribute, bool]]]  # loaded attribute name -> (node, at_import)
+
+
+@functools.cache
+def _source(path: Path) -> _Source:
+    module = _module_name(path)
+    tree = _tree(path)
+    found = _Source(
+        module, path.relative_to(ROOT).as_posix(), _aliases(tree, module, path.name == "__init__.py"),
+        frozenset(_top_level_names(tree)), {}, {},
+    )  # fmt: skip
+    for node, at_import in _scoped(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            found.names.setdefault(node.id, []).append((node, at_import))
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            found.attributes.setdefault(node.attr, []).append((node, at_import))
+    return found
+
+
 def uses(name: str, original: object) -> list[Use]:
     """Every load of ``original`` under ``name`` in ``src/sharpit``, with the module it is looked up through."""
     found: list[Use] = []
     for path in sorted((SRC / "sharpit").rglob("*.py")):
-        module = _module_name(path)
-        tree = _tree(path)
-        aliases = _aliases(tree, module, path.name == "__init__.py")
+        source = _source(path)
+        module, aliases, where = source.module, source.aliases, source.where
         bound_here = name in aliases and _load(aliases[name]) is original
-        defined_here = name in _top_level_names(tree) and module.startswith(PACKAGE)
+        defined_here = name in source.top_level and module.startswith(PACKAGE)
         bound_here = bound_here or (defined_here and getattr(_load(module), name, None) is original)
-        where = path.relative_to(ROOT).as_posix()
-        for node, at_import in _scoped(tree):
-            if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Load) and bound_here:
-                found.append(Use(f"{where}:{node.lineno}", module, at_import))
-            elif isinstance(node, ast.Attribute) and node.attr == name and isinstance(node.ctx, ast.Load):
-                owner = _resolve(node.value, aliases)
-                if isinstance(owner, ModuleType) and getattr(owner, name, _MISSING) is original:
-                    found.append(Use(f"{where}:{node.lineno}", owner.__name__, at_import))
+        for node, at_import in source.names.get(name, []) if bound_here else []:
+            found.append(Use(f"{where}:{node.lineno}", module, at_import))
+        for node, at_import in source.attributes.get(name, []):
+            owner = _resolve(node.value, aliases)
+            if isinstance(owner, ModuleType) and getattr(owner, name, _MISSING) is original:
+                found.append(Use(f"{where}:{node.lineno}", owner.__name__, at_import))
     return found
 
 
@@ -204,6 +229,24 @@ def misses(patch: Patch) -> list[str]:
         for use in found
         if use.namespace != target or use.at_import
     ]
+
+
+def test_uses_walks_each_source_file_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The scan asks ``uses`` once per patch; re-walking every src tree per patch made it 150 s (T-suite-speed)."""
+    real = _scoped
+    walks: list[ast.Module] = []
+
+    def counting(tree: ast.Module) -> Iterator[tuple[ast.AST, bool]]:
+        walks.append(tree)
+        return real(tree)
+
+    monkeypatch.setitem(globals(), "_scoped", counting)
+    _source.cache_clear()  # warm from the scan on this xdist worker: nothing would be counted
+    uses("first_name_nobody_uses", object())
+    after_first = len(walks)
+    assert after_first > 0
+    uses("second_name_nobody_uses", object())
+    assert len(walks) == after_first, "uses() walked the src trees again for a second name"
 
 
 # imports every module to resolve patch targets: 50-59 s alone, so 60 s killed its worker under load

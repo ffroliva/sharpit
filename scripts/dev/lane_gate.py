@@ -159,9 +159,51 @@ def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProce
     return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True, encoding="utf-8")
 
 
+_READS: dict[tuple[object, ...], object] = {}
+_OBJECT_ID = re.compile(r"[0-9a-f]{40}")
+
+
+def _read_once[T](key: tuple[str, str, str], revs: Sequence[str], read: Callable[[], T]) -> T:
+    """``read()``, kept when every rev is a full object id: a ref can move, what an object id names cannot, in any repo.
+
+    The key has no repo: identical copies share their reads, and that is safe only because a rev reaches here already
+    proven present in the repo at hand. ``opts.sha`` and ``base`` by ``evaluate``'s checked ``merge-base``, a red or
+    council sha by ``_resolve``. So ``_resolve`` is never cached here: it is what tells two repos apart.
+    """
+    if key in _READS:
+        return _READS[key]  # type: ignore[return-value]
+    value = read()
+    if all(_OBJECT_ID.fullmatch(rev) for rev in revs):
+        _READS[key] = value
+    return value
+
+
+def _tree(repo: Path, sha: str) -> dict[str, str]:
+    """path -> object id of every file at ``sha``."""
+
+    def read() -> dict[str, str]:
+        entries = _git(repo, "ls-tree", "-r", "-z", sha).stdout.split("\0")  # raises, so no empty listing is ever kept
+        return {path: meta.split()[2] for meta, path in (entry.split("\t", 1) for entry in entries if entry)}
+
+    return _read_once(("tree", sha, ""), [sha], read)
+
+
+def _blob(repo: Path, blob: str) -> str | None:
+    def read() -> str | None:
+        done = _git(repo, "cat-file", "blob", blob, check=False)
+        return done.stdout if done.returncode == 0 else None
+
+    return _read_once(("blob", blob, ""), [blob], read)
+
+
 def _show(repo: Path, sha: str, path: str) -> str | None:
-    done = _git(repo, "show", f"{sha}:{path}", check=False)
-    return done.stdout if done.returncode == 0 else None
+    """The file at ``sha``. A commit's unchanged files are read once across its children: a tree listing, then a read
+    per blob not seen yet. ``path`` must be repo-relative: ``./x`` reads as absent, which refuses rather than passes."""
+    if not _OBJECT_ID.fullmatch(sha):
+        done = _git(repo, "show", f"{sha}:{path}", check=False)
+        return done.stdout if done.returncode == 0 else None
+    blob = _tree(repo, sha).get(path)
+    return _blob(repo, blob) if blob else None
 
 
 def _resolve(repo: Path, ref: str) -> str | None:
@@ -170,7 +212,10 @@ def _resolve(repo: Path, ref: str) -> str | None:
 
 
 def _is_ancestor(repo: Path, older: str, newer: str) -> bool:
-    return _git(repo, "merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
+    def read() -> bool:
+        return _git(repo, "merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
+
+    return _read_once(("is-ancestor", older, newer), [older, newer], read)
 
 
 def resolve_release(integration: Path) -> tuple[str | None, str]:
@@ -284,7 +329,10 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
 
 
 def _diff_paths(repo: Path, base: str, head: str) -> list[str]:
-    return _git(repo, "diff", "--name-only", "--no-renames", base, head).stdout.splitlines()
+    def read() -> tuple[str, ...]:
+        return tuple(_git(repo, "diff", "--name-only", "--no-renames", base, head).stdout.splitlines())
+
+    return list(_read_once(("diff", base, head), [base, head], read))
 
 
 def _dependency_lists(text: str | None, *, test_extra: bool = True) -> object:
@@ -976,9 +1024,10 @@ def _temp_tree(opts: Options, sha: str) -> Generator[Path]:
         _git(opts.worktree, "worktree", "add", "--detach", "--quiet", str(tree), sha)
         yield tree
     finally:
-        _git(opts.worktree, "worktree", "remove", "--force", str(tree), check=False)
+        removed = _git(opts.worktree, "worktree", "remove", "--force", str(tree), check=False).returncode == 0
         shutil.rmtree(scratch, ignore_errors=True)
-        _git(opts.worktree, "worktree", "prune", check=False)
+        if not removed:  # a removed worktree leaves no admin entry to prune
+            _git(opts.worktree, "worktree", "prune", check=False)
 
 
 def _replay(opts: Options, sha: str, nodeids: Sequence[str], run_pytest: PytestRunner) -> dict[str, list[Outcome]]:
