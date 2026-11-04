@@ -227,6 +227,47 @@ def _refused(result: object, needle: str) -> bool:
 # --- controls ---------------------------------------------------------------------------------------------------------
 
 
+def test_lane_gate_reads_a_file_at_a_commit_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `git show` per read made `git show` half of this file's time: 515 of ~1000 spawns (T-suite-speed)."""
+    fx = _fixture(tmp_path)
+    real = lane_gate._git
+    shows: list[str] = []
+
+    def counting(cwd: Path, *args: str, **kwargs: bool) -> object:
+        if args[0] == "show":
+            shows.append(args[1])
+        return real(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(lane_gate, "_git", counting)
+    assert _refusals(fx.evaluate()) == []
+    assert len(shows) == len(set(shows)), sorted(shows)
+    first = len(shows)
+    assert _refusals(fx.evaluate()) == []
+    assert shows[first:] == []  # same repo, same commits: nothing to re-read
+
+
+def test_lane_gate_prunes_only_a_replay_tree_it_could_not_remove(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `worktree prune` after every successful `worktree remove` was a third of the replay spawns (T-suite-speed)."""
+    fx = _fixture(tmp_path)
+    real = lane_gate._git
+    worktree_calls: list[str] = []
+
+    def recording(cwd: Path, *args: str, **kwargs: bool) -> object:
+        if args[0] == "worktree":
+            worktree_calls.append(args[1])
+        return real(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(lane_gate, "_git", recording)
+    assert _refusals(fx.evaluate()) == []
+    assert "remove" in worktree_calls
+    assert "prune" not in worktree_calls
+    listed = _git(fx.integration, "worktree", "list", "--porcelain").splitlines()
+    assert [line for line in listed if line.startswith("worktree ")] == [
+        f"worktree {fx.integration.as_posix()}",
+        f"worktree {fx.worktree.as_posix()}",
+    ]  # the replay trees are gone
+
+
 def test_lane_gate_accepts_complete_evidence(tmp_path: Path) -> None:
     fx = _fixture(tmp_path)
     result = fx.evaluate()
