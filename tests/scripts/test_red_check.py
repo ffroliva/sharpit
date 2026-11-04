@@ -148,10 +148,12 @@ def _built_once(shared: Path, build: Callable[[], dict[str, str]]) -> dict[str, 
         claim.touch(exist_ok=False)
     except FileExistsError:
         deadline = time.monotonic() + WAIT_FOR_BUILD
-        while claim.exists() and not result.exists() and time.monotonic() < deadline:
+        while claim.exists() and time.monotonic() < deadline:
+            # Windows can refuse a read while a file is renamed into place or scanned
+            with contextlib.suppress(FileNotFoundError, PermissionError):
+                return json.loads(result.read_text(encoding="utf-8"))
             time.sleep(0.05)
-        # no result: the claimant failed or died, and the verdicts are the same built here
-        return json.loads(result.read_text(encoding="utf-8")) if result.exists() else build()
+        return build()  # the claimant failed or died, and the verdicts are the same built here
     try:
         value = build()
     except BaseException:
