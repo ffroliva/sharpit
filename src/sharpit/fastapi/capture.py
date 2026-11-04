@@ -8,16 +8,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import os
+import re
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from starlette._utils import is_async_callable  # pyright: ignore[reportPrivateUsage]  # Starlette's own dispatch test
 from starlette.exceptions import HTTPException
+from starlette.routing import Mount, compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import sqla
@@ -60,6 +63,7 @@ SEVERAL_WORKERS = (
 )
 PROBE_HEADER = b"x-sharpit-probe"
 PROBE_EXTENSION = "sharpit.probe"
+MAX_MOUNT_DEPTH = 32  # a sub-app mounted inside itself must not loop the walk
 
 
 def several_workers(environ: Mapping[str, str], argv: Sequence[str]) -> bool:
@@ -81,12 +85,48 @@ def _endpoint_name(endpoint: object) -> str | None:
     return f"{getattr(endpoint, '__module__', None) or '?'}:{qualname}"
 
 
-def _route_template(scope: Scope, root_path: str) -> str | None:
-    """The matched route's path template (FastAPI sets ``scope["route"]``), behind the mounts it was matched under."""
+@functools.lru_cache(maxsize=1024)  # templates come from the host's code, never from a request
+def _template_regex(template: str) -> re.Pattern[str]:
+    return compile_path(template)[0]
+
+
+def _mount_of(routes: Iterable[object], path: str) -> tuple[Mount, str] | None:
+    """The first ``Mount`` that takes ``path``, the router's own pick (a Mount matches fully), and what it leaves."""
+    for route in routes:
+        if isinstance(route, Mount) and (match := route.path_regex.match(path)):
+            return route, "/" + match["path"]
+    return None
+
+
+def _mount_prefix(routes: Iterable[object], path: str, below: str) -> str | None:
+    """The Mounts' own templates from ``path`` down to ``below``, read from the route table: ``root_path`` only has the
+    request's values. ``None`` when the table does not lead there (an ASGI wrapper hides the sub-app's routes)."""
+    prefix = ""
+    for _ in range(MAX_MOUNT_DEPTH):
+        if path == below:
+            return prefix
+        step = _mount_of(routes, path)
+        if step is None:
+            return None
+        mount, path = step
+        prefix, routes = prefix + mount.path, mount.routes
+    return None
+
+
+def _route_template(scope: Scope, root_path: str, app: object) -> str | None:
+    """The matched route's template behind the templates of its mounts, only when it matches the real path; ``None``
+    (the masked path) otherwise: FastAPI 0.16x's ``route.path`` has no ``include_router`` prefix."""
     template = getattr(scope.get("route"), "path", None)
     if not isinstance(template, str):
         return None
-    return str(scope.get("root_path", ""))[len(root_path) :] + template
+    below = route_path(scope)
+    try:
+        prefix = _mount_prefix(
+            getattr(app, "routes", ()), route_path({"path": scope["path"], "root_path": root_path}), below
+        )
+        return None if prefix is None or _template_regex(template).match(below) is None else prefix + template
+    except Exception:  # noqa: BLE001 - a drifted router or a custom route degrades to the masked path, keeping the row
+        return None
 
 
 def _wrapped_key(key: object) -> bool:
@@ -457,7 +497,7 @@ class CaptureMiddleware:
                             error=error,
                             endpoint=info.endpoint,
                             finished_epoch_ns=started_epoch_ns + finished - info.started_ns,
-                            route=_route_template(scope, root_path),
+                            route=_route_template(scope, root_path, wiring.app),
                         )
                     )
             except Exception as exc:  # noqa: BLE001
