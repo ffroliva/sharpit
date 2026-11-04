@@ -125,7 +125,7 @@ def _route_template(scope: Scope, root_path: str, app: object) -> str | None:
             getattr(app, "routes", ()), route_path({"path": scope["path"], "root_path": root_path}), below
         )
         return None if prefix is None or _template_regex(template).match(below) is None else prefix + template
-    except Exception:  # noqa: BLE001 - a drifted router or a custom route degrades to the masked path, keeping the row
+    except Exception:  # noqa: BLE001 - a drifted router or a custom route degrades to the masked path; the row stays
         return None
 
 
