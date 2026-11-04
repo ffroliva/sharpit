@@ -171,3 +171,180 @@ def test_ranges_count_what_normalize_counts(dialect: str, mysql: bool) -> None:
         if sum(found.literal for found in scan_ranges(row.text, mysql)) != normalize(row.text, mysql).literal_count
     ]
     assert differing == []
+
+
+# --- statements that read two ways (spec §3, part 4) ------------------------------------------------------------------
+
+
+AMBIGUOUS = [
+    # ported: JournalTextExposureTests.sqlWhoseBackslashesReadDifferentlyByDialectShowsNothingAfterItsFirstQuote
+    ("path='C:\\', note='x'", "path= ?"),
+    ("select * from t where a = 'it\\'s x' and b = 1", "select * from t where a = ?"),
+    ('select * from t where a = "x\\"y"', "select * from t where a = ?"),
+    ('k="a\\" x "', "k= ?"),  # both readings give the same text; MySQL's is one literal, and only the ``"`` run says so
+    # ported: JournalTextExposureTests.sqlThatCannotBeToldApartFromAValueIsNeverShownMasked
+    ("SELECT q'[it's x]' FROM dual", "SELECT q ?"),
+    ("SELECT Q'[it's x]'", "SELECT Q ?"),
+    ("SELECT nq'[it's x]'", "SELECT nq ?"),
+    ("SELECT /* outer /* inner */ ' */ 'x'", "SELECT ?"),
+    ("/* /* n */ it's */ SELECT 'x'", "it ?"),
+    ("SELECT # it's\n 'x'", "SELECT # it ?"),
+    ("data #>> '{a}'", "data #>> ?"),  # an accepted limit: read as an operator it could show a literal on MySQL
+    ("-- c\r, 'a\nS', 'b'", "?"),
+    ("SELECT ['a]', 'x']", "SELECT [ ?"),
+    ("SELECT ['a b] c', 'x']", "SELECT [ ?"),
+]
+
+
+@pytest.mark.parametrize(("sql", "expected"), AMBIGUOUS)
+def test_a_statement_that_reads_two_ways_stops_at_its_first_quote(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+@pytest.mark.parametrize(("sql", "expected"), AMBIGUOUS)
+def test_shown_stops_where_normalize_stops(sql: str, expected: str) -> None:
+    assert shown(sql, []) == expected
+
+
+@pytest.mark.parametrize(("sql", "_expected"), AMBIGUOUS)
+def test_a_cut_counts_as_one_literal_in_the_ranges(sql: str, _expected: str) -> None:
+    assert sum(found.literal for found in scan_ranges(sql)) == normalize(sql).literal_count
+
+
+def test_what_a_cut_drops_is_one_literal_range_to_the_end() -> None:
+    sql = "path='C:\\', note='x'"
+    assert scan_ranges(sql)[-1] == Range(sql.index("'"), len(sql), True)
+
+
+def test_a_cut_is_a_predicate_literal_where_the_text_stops_at_one() -> None:
+    assert normalize("path='C:\\', note='x'").predicate_literal_count == 1
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 'C:\\dir', 'y'", "SELECT ?, ?"),  # the backslash reads the same both ways
+        ("SELECT a # b", "SELECT a # b"),  # no quote after the operator
+        ("SELECT 'a' # b", "SELECT ? # b"),
+        ("color='#fff', note='x'", "color=?, note=?"),  # a trigger inside a literal is text
+        ("SELECT '/* /* */', 'x'", "SELECT ?, ?"),
+        ("SELECT 'q''x', 'y'", "SELECT ?, ?"),
+        ("SELECT seq'x', 'y'", "SELECT seq?, ?"),  # the end of a name is no alternative quote
+        ("/* a */ SELECT 'x' /* b */", "SELECT ?"),
+        ("-- c\r\nSELECT 'x'", "SELECT ?"),  # a Windows line end, not a lone CR
+        ("SELECT [ 'x' ]", "SELECT [ ? ]"),
+    ],
+)
+def test_a_statement_that_reads_one_way_is_not_cut(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("path='C:\\', note='x'", "path= ?"),  # D7: under NO_BACKSLASH_ESCAPES the first string ends at the backslash
+        ("SELECT 'it\\'s', 'x'", "SELECT ?"),
+        ('UPDATE u SET pw="a\\"x" WHERE id=1', "UPDATE u SET pw= ?"),
+        ("/* /* n */ it's */ SELECT 'x'", "it ?"),
+    ],
+)
+def test_a_nested_comment_and_a_differing_backslash_cut_on_mysql(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT q'a', 'b'", "SELECT q?, ?"),  # no alternative quoting on MySQL
+        ("SELECT # it's\n 'x'", "SELECT ?"),  # a comment there, and one reading
+        ("SELECT 'C:\\\\', 'x'", "SELECT ?, ?"),  # an escaped backslash reads the same both ways
+    ],
+)
+def test_what_mysql_reads_one_way_is_not_cut(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+def test_a_lone_cr_in_a_line_comment_cuts() -> None:
+    """PostgreSQL ends the comment at the CR, MySQL and SQLite at the newline: ``S`` is in a literal for one of them."""
+    assert "S" not in normalize("-- c\r, 'a\nS', 'b'").sql
+
+
+# --- literals the scan read as something else -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT .5", "SELECT ?"),
+        ("SELECT .123456 FROM t", "SELECT ? FROM t"),
+        ("SELECT .5e3, (.5)", "SELECT ?, (?)"),
+        ("SELECT 0xFF", "SELECT ?"),
+        ("SELECT 0b101", "SELECT ?"),
+        ("SELECT 1_000", "SELECT ?"),
+        ("SELECT 1_000_000.5", "SELECT ?"),
+        ("SELECT t.c1, t0x1, a_1 FROM s.t", "SELECT t.c1, t0x1, a_1 FROM s.t"),
+    ],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+# ported: JournalTextExposureTests.sqlThatCannotBeToldApartFromAValueIsNeverShownMasked
+def test_a_number_is_a_literal_however_it_is_spelled(sql: str, expected: str, mysql: bool) -> None:
+    assert normalize(sql, mysql).sql == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT $$x", "SELECT ?"),
+        ("SELECT $tag$x", "SELECT ?"),
+        ("SELECT $$it's", "SELECT ?"),
+        ("select a$b$c from t", "select a$b$c from t"),
+        ("select a$b$c$b$ from t", "select a$b$c$b$ from t"),  # a ``$`` inside a name opens nothing, closed or not
+        ("SELECT 1$$x$$", "SELECT ??"),  # a number is no name
+        ("select * from t where id = $1", "select * from t where id = $1"),
+    ],
+)
+# ported: JournalTextExposureTests.sqlThatCannotBeToldApartFromAValueIsNeverShownMasked
+def test_an_open_dollar_quote_runs_to_the_end(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+def test_a_non_ascii_dollar_tag_is_one_literal() -> None:
+    assert normalize("$€$it's$€$, 'S'").sql == "?, ?"
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 5--'a\nb', 'x'", "SELECT ?--?, ?"),  # without a space MySQL reads two minus signs
+        ("SELECT 1 -- 'c\n, 2", "SELECT ? , ?"),
+        ("SELECT 1 --", "SELECT ?"),
+    ],
+)
+def test_two_dashes_open_a_mysql_comment_only_before_a_space_or_the_end(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+def test_two_dashes_open_a_comment_elsewhere_without_a_space() -> None:
+    assert normalize("SELECT 5--'c\n, 2").sql == "SELECT ? , ?"
+
+
+# derived: spec §3 (r4), ``e6a07c8`` read inside every such bracket and showed a value 0.4.0 hid
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT [it's], 'x'", "SELECT ?, ?"),
+        ("SELECT ['a], 'x'", "SELECT ?, ?"),
+        ("SELECT [it's], 'x' -- don't", "SELECT ?, ?"),
+        ("SELECT ARRAY['x']", "SELECT ARRAY[?]"),
+        ("SELECT arr[1]", "SELECT arr[?]"),
+        ("SELECT a [b] FROM t", "SELECT a [b] FROM t"),
+    ],
+)
+def test_a_bracket_with_an_odd_quote_is_one_literal(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+def test_a_double_quote_cut_open_at_the_scan_limit_is_a_literal() -> None:
+    sql = f'SELECT {"name, " * 3330}"{"y" * 300}" FROM t'
+    assert '"' in sql[: sql_corpus.SCAN_LIMIT]
+    assert normalize(sql).sql.endswith(", ?")

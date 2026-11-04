@@ -1,10 +1,12 @@
 """SHARPIT_SHARD=i/n splits the suite by test file: every test runs in exactly one shard."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
+import _shard
 from _shard import shard_of
 
 TESTS = Path(__file__).parent
@@ -62,3 +64,45 @@ def test_measured_weights_balance_the_shards_within_the_longest_first_bound(plat
         loads[shard_of(rel, n, platform) - 1] += seconds
     floor = max(max(weights.values()), sum(weights.values()) / n)  # no split by file beats this
     assert max(loads) <= floor * 4 / 3, f"shard loads {[round(x) for x in loads]}, floor {floor:.0f}"
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_almost_every_real_test_file_has_a_measured_weight(platform: str) -> None:
+    """A file with no weight is placed by hash, blind to its cost; one 66 s file landing on a loaded shard is a tail."""
+    unmeasured = [f for f in FILES if f not in WEIGHTS[platform]]
+    assert len(unmeasured) <= len(FILES) // 20, (
+        f"{len(unmeasured)} of {len(FILES)} files unmeasured: refresh the weights"
+    )
+
+
+# A CPU-heavy file competes with a paired on/off timing test for the same cores; the budget tests then fail on the
+# shard that holds both (security-logs hook, 2.624 µs against 2.000 µs with noise 0.661 µs, run 41889040828).
+HEAVY_SECONDS = 30.0  # measured test seconds; the two masking gates below are not measured yet
+UNMEASURED_HEAVY = (
+    "tests/masking/test_statement_surfaces.py",
+    "tests/masking/test_gates_bite.py",
+)
+TIMING_FILES = sorted(
+    p.relative_to(TESTS.parent).as_posix()
+    for p in TESTS.rglob("test_*.py")
+    if re.search(r"^\s+check_budget\(", p.read_text(encoding="utf-8"), re.MULTILINE)
+)
+
+
+def test_the_overhead_budget_files_are_found() -> None:
+    assert "tests/fastapi/test_capture_overhead.py" in TIMING_FILES
+    assert "tests/test_shard.py" not in TIMING_FILES
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+@pytest.mark.parametrize("n", [2, 3, 4, 5])
+def test_no_shard_holds_both_a_heavy_file_and_an_overhead_budget_file(platform: str, n: int) -> None:
+    heavy = {f for f, seconds in WEIGHTS[platform].items() if seconds >= HEAVY_SECONDS} | set(UNMEASURED_HEAVY)
+    heavy_shards = {shard_of(f, n, platform) for f in heavy}
+    timing_shards = {shard_of(f, n, platform) for f in TIMING_FILES}
+    assert not heavy_shards & timing_shards, f"shards {sorted(heavy_shards & timing_shards)} hold both"
+
+
+def test_the_unmeasured_heavy_masking_gates_are_named_in_the_shard_code() -> None:
+    assert set(UNMEASURED_HEAVY) <= set(_shard.HEAVY_PATHS)
+    assert _shard.timing_files() == set(TIMING_FILES)

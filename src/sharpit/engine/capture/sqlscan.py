@@ -1,4 +1,4 @@
-"""The SQL statement scanner (``SqlStatementNormalizer``, verbatim port), kept apart from the recorder that uses it."""
+"""The SQL statement scanner (``SqlStatementNormalizer``, deviations in MVP spec §14), apart from its recorder."""
 
 from __future__ import annotations
 
@@ -11,10 +11,16 @@ from sharpit.engine.masking import MASK, is_secret_value
 
 _MAX_SCAN_LENGTH = 20_000
 MYSQL_DIALECTS = ("mysql", "mariadb")
-_MYSQL_RADIX_LITERAL = re.compile(r"0[xX][0-9a-fA-F]+|0[bB][01]+")
+_RADIX_LITERAL = re.compile(r"0[xX][0-9a-fA-F]+|0[bB][01]+")
 # a square-bracket identifier is a name, words and spaces only: anything else in brackets is a value and stays in the
-# scan (``ARRAY['x']``, ``ARRAY [lower($$x$$)]``, ``[2024 sales]``, ``[it's]``); showing a value is the worse mistake
+# scan (``ARRAY['x']``, ``ARRAY [lower($$x$$)]``, ``[2024 sales]``); showing a value is the worse mistake
 _BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d][\w ]*\]")
+# stops at the next ``[``, so a run of open brackets stays linear
+_BRACKET_RUN = re.compile(r"\[[^\[\]]*\]")
+# what can make a statement read two ways, so that a statement with none of it pays one search
+_AMBIGUITY_TRIGGER = re.compile(r"[\\#\r]|/\*|q'", re.IGNORECASE)
+_ALTERNATIVE_QUOTE = re.compile(r"(?<![\w$])n?q'", re.IGNORECASE)
+_QUOTE = re.compile("['\"]")
 # never hidden in code: the statement keeps its shape, and the last masker pass still sees ``password=`` in the render
 _STRUCTURAL = frozenset('"`[],;()=<>')
 # the runs a scan reads as one: replaced by ``?``, replaced by a space, and copied with their whitespace (a quoted name)
@@ -137,20 +143,22 @@ def _skip_quoted(sql: str, index: int, closing: str, mysql: bool = False) -> int
 
 
 def _dollar_quote_end(sql: str, index: int) -> int:
+    """Where the dollar quote at ``index`` ends, the end of the text when it is open; -1 when none opens there."""
     cursor, length, body_start = index + 1, len(sql), -1
     while cursor < length:
         c = sql[cursor]
         if c == "$":
             body_start = cursor + 1
             break
-        if not (c.isalpha() or c == "_" or (cursor > index + 1 and c.isdigit())):
+        # PostgreSQL's tag: any non-ASCII character counts, ``€`` too, though no Unicode class calls it a letter
+        if not (c.isalpha() or c == "_" or not c.isascii() or (cursor > index + 1 and c.isdigit())):
             return -1
         cursor += 1
     if body_start < 0:
         return -1
     tag = sql[index:body_start]
     end = sql.find(tag, body_start)
-    return -1 if end < 0 else end + len(tag)
+    return length if end < 0 else end + len(tag)
 
 
 def _identifier_like(sql: str, index: int, end: int) -> bool:
@@ -166,7 +174,9 @@ def _double_quoted_literal(sql: str, index: int, end: int, out: _Out, mysql: boo
     value position (unless it qualifies a name, ``"b"."id"``) or when it looks like a secret; identifiers elsewhere
     stay readable. Text known to be MySQL's has every run a literal: ``ANSI_QUOTES`` only masks an identifier."""
     stop = end - 1 if end > index + 1 and sql[end - 1] == '"' else end
-    if mysql or not _identifier_like(sql, index, end) or is_secret_value(sql[index + 1 : stop]):
+    if mysql or end >= _MAX_SCAN_LENGTH:  # a run the scan limit cut open has no shape to read
+        return True
+    if not _identifier_like(sql, index, end) or is_secret_value(sql[index + 1 : stop]):
         return True
     return out.value_position() and not sql.startswith(".", end)
 
@@ -182,6 +192,12 @@ def _identifier_char_before(out: _Out) -> bool:
     return bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$.")
 
 
+def _name_goes_on(out: _Out) -> bool:
+    """The output ends inside a name, so a ``$`` here is part of it (``?`` is a literal: ``1$$x$$`` opens a quote)."""
+    last = out.chars[-1] if out.chars else " "
+    return last.isalnum() or last in "_$" or not last.isascii()
+
+
 def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
     """Where the run opened at ``index`` ends; ``[`` that opens no identifier ends at once, so the scan reads inside."""
     c = sql[index]
@@ -190,12 +206,19 @@ def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
     # ``ARRAY[``, ``items[``, ``(ARRAY[1])[``, ``a[1][``, ``ARRAY [``; a space alone proves nothing: ``SELECT [col]``
     subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$)]")
     subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")
-    found = None if subscript else _BRACKET_IDENTIFIER.match(sql, index)
+    found = None if subscript else _BRACKET_IDENTIFIER.match(sql, index) or _odd_quote_bracket(sql, index)
     return found.end() if found else index + 1
 
 
+def _odd_quote_bracket(sql: str, index: int) -> re.Match[str] | None:
+    """A ``[`` holding an odd number of ``'`` before its ``]``: read inside, that quote would swallow the next one."""
+    found = _BRACKET_RUN.match(sql, index)
+    return found if found and found.group().count("'") % 2 else None
+
+
 def _line_comment(sql: str, index: int, mysql: bool) -> bool:
-    return sql.startswith("--", index) or (mysql and sql[index] == "#")
+    dashes = sql.startswith("--", index) and (not mysql or not sql[index + 2 : index + 3].strip())
+    return dashes or (mysql and sql[index] == "#")
 
 
 def _skip_exponent(sql: str, index: int) -> int:
@@ -210,11 +233,13 @@ def _skip_exponent(sql: str, index: int) -> int:
     return cursor
 
 
-def _skip_number(sql: str, index: int, mysql: bool = False) -> int:
-    if mysql and (radix := _MYSQL_RADIX_LITERAL.match(sql, index)):
+def _skip_number(sql: str, index: int) -> int:
+    if sql[index] == "0" and (radix := _RADIX_LITERAL.match(sql, index)):
         return radix.end()
     cursor, length = index, len(sql)
-    while cursor < length and (sql[cursor].isdigit() or sql[cursor] == "."):
+    while cursor < length and (
+        sql[cursor].isdigit() or sql[cursor] == "." or (sql[cursor] == "_" and sql[cursor + 1 : cursor + 2].isdigit())
+    ):
         cursor += 1
     if cursor < length and sql[cursor] in "eE":
         return _skip_exponent(sql, cursor)
@@ -290,13 +315,21 @@ def _scan_string(source: str, index: int, _out: _Out, _mysql: bool) -> _Scanned:
 
 
 def _scan_dollar(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
-    end = _dollar_quote_end(source, index)
+    end = -1 if _name_goes_on(out) else _dollar_quote_end(source, index)
     return (end, True) if end > 0 else _keep(source, index, out)
+
+
+def _scan_dot(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
+    if _identifier_char_before(out) or not source[index + 1 : index + 2].isdigit():
+        return _keep(source, index, out)
+    return _skip_number(source, index), True
 
 
 def _scan_quoted(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
     end = _quoted_end(source, index, out, mysql)
     if source[index] == '"' and _double_quoted_literal(source, index, end, out, mysql):
+        return end, True
+    if source[index] == "[" and source.count("'", index, end):  # a bracket that holds a quote ends past ``[`` only here
         return end, True
     out.append(source[index:end])
     out.runs.append((index, end, _VERBATIM))
@@ -318,6 +351,7 @@ _SCANNERS = {
     "/": _scan_block_comment,
     "'": _scan_string,
     "$": _scan_dollar,
+    ".": _scan_dot,
     **dict.fromkeys('"`[', _scan_quoted),
     **dict.fromkeys("tTfF", _scan_keyword),
 }
@@ -345,7 +379,7 @@ def _read(source: str, mysql: bool) -> _Scan:
             out.space()
             index += 1
         elif c.isdigit() and not _identifier_char_before(out):
-            index, literal = _skip_number(source, index, mysql), True
+            index, literal = _skip_number(source, index), True
         else:
             out.append(c)
             index += 1
@@ -357,9 +391,92 @@ def _read(source: str, mysql: bool) -> _Scan:
     return _Scan(source, out, literals, predicate_literals)
 
 
+def _bracket_left_a_quote_open(source: str, runs: list[tuple[int, int, int]]) -> bool:
+    """A bracket read as one literal, then a ``'`` that never closes: it was ``['a]', 'x']``, a string in brackets."""
+    if not runs or runs[-1][2] != _LITERAL or source[runs[-1][0]] != "'":
+        return False
+    if source.count("'", runs[-1][0], runs[-1][1]) % 2 == 0:
+        return False
+    return any(kind == _LITERAL and source[start] == "[" for start, _, kind in runs)
+
+
+def _outside_literals(source: str, runs: list[tuple[int, int, int]]) -> str:
+    """``source`` with each literal down to its first character, so a ``q'`` keeps the quote that opens its literal."""
+    kept: list[str] = []
+    index = 0
+    for start, end, kind in runs:
+        if kind == _LITERAL:
+            kept.append(source[index : start + 1])
+            index = end
+    kept.append(source[index:])
+    return "".join(kept)
+
+
+def _comment_nests(source: str, start: int, end: int) -> bool:
+    return source.startswith("/*", start) and source.find("/*", start + 2, end) >= 0
+
+
+def _comment_ends_two_ways(source: str, start: int, end: int) -> bool:
+    """A lone CR ends a line comment on PostgreSQL, not on MySQL or SQLite. A CR before the newline is one line end."""
+    return source.startswith("--", start) and "\r" in source[start:end].rstrip("\r")
+
+
+def _backslash_reads_two_ways(scan: _Scan, mysql: bool) -> bool:
+    """Ported from ``isAmbiguous``. ``MySQL`` escapes in ``"..."`` and the generic scan does not, so such a run always
+    counts there. The text without its backslashes is the one derived text the scan reads (spec §3, r4)."""
+    source, runs = scan.source, scan.out.runs
+    if "\\" not in source:
+        return False
+    if not mysql and any(source[start] == '"' and source.find("\\", start, end) >= 0 for start, end, _ in runs):
+        return True
+    return _read(source.replace("\\", ""), mysql).out.text() != scan.out.text()
+
+
+def _reads_two_ways(scan: _Scan, mysql: bool) -> bool:
+    source, runs = scan.source, scan.out.runs
+    if _bracket_left_a_quote_open(source, runs):
+        return True
+    if not _AMBIGUITY_TRIGGER.search(source):
+        return False
+    comments = [(start, end) for start, end, kind in runs if kind == _COMMENT]
+    if any(_comment_nests(source, *comment) for comment in comments) or _backslash_reads_two_ways(scan, mysql):
+        return True
+    if mysql:  # the dialect is known: ``#`` is a comment, ``q'`` is nothing and a line comment ends at the newline
+        return False
+    if any(_comment_ends_two_ways(source, *comment) for comment in comments):
+        return True
+    text = _outside_literals(source, runs)
+    hash_at = text.find("#")
+    return _ALTERNATIVE_QUOTE.search(text) is not None or (hash_at >= 0 and _QUOTE.search(text, hash_at) is not None)
+
+
+def _ambiguous_cut(scan: _Scan, mysql: bool) -> int:
+    """Where a statement that reads two ways stops, its first quote; -1 when it reads one way or holds no quote.
+
+    Ported from ``JournalTextExposure.isAmbiguous``, which runs on the journal; here a trigger inside a literal is text
+    (MVP spec §14), and the nested and backslash checks also run on MySQL (decision D7).
+    """
+    if not _reads_two_ways(scan, mysql):
+        return -1
+    found = _QUOTE.search(scan.source)
+    return found.start() if found else -1
+
+
 def _scan(sql: str, mysql: bool) -> _Scan:
     """The one entry to the read: ``normalize`` keeps its output, ``shown`` and ``scan_ranges`` its runs."""
-    return _read(sql[:_MAX_SCAN_LENGTH], mysql)
+    source = sql[:_MAX_SCAN_LENGTH]
+    scan = _read(source, mysql)
+    cut = _ambiguous_cut(scan, mysql)
+    if cut < 0:
+        return scan
+    head = _read(source[:cut], mysql)
+    out = head.out
+    out.space()
+    out.runs.append((cut, cut, _COMMENT))  # the space, so that ``shown`` replays it
+    predicate = out.predicate_position()
+    out.append("?")
+    out.runs.append((cut, len(source), _LITERAL))
+    return _Scan(source, out, head.literals + 1, head.predicate_literals + predicate)
 
 
 @functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text
@@ -367,7 +484,8 @@ def normalize(sql: str, mysql: bool = False) -> Normalized:
     """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``.
 
     ``mysql`` is for text known to be MySQL's: ``"..."`` is a string with backslash escapes, ``#`` starts a comment and
-    ``0x``/``0b`` numbers are literals. Elsewhere those mean an identifier, an operator and (mostly) a syntax error.
+    ``--`` needs a space after it. Elsewhere those mean an identifier, an operator and a comment. A statement that reads
+    two ways stops at its first quote (``_ambiguous_cut``).
     """
     if not sql or sql.isspace():
         return Normalized("", "", 0, 0)

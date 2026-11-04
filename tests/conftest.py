@@ -69,7 +69,6 @@ TIMING_MODULES = (
     "test_swallowed_overhead.py",
     "test_traces_overhead.py",
     "test_transactions_overhead.py",  # lane R-transactions
-    "test_security_logs_overhead.py",  # lane B-security-logs
     "test_sink_overhead.py",  # lane P-sink-mask-memo
 )  # every module that times a budget (tests/test_overhead_harness.py keeps this complete)
 

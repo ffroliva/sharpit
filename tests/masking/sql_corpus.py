@@ -127,12 +127,6 @@ def _double_secret(rng: random.Random) -> _Literal:
     return _Literal(secret, f'"{secret}"', "?", "")
 
 
-def _mysql_escaped(rng: random.Random) -> _Literal:
-    """A backslash escapes the quote in MySQL, so the run goes on past it; elsewhere that is ambiguous."""
-    m = _mark(rng)
-    return _Literal(m, rng.choice((f"'a\\'{m}'", f'"a\\"{m}"')), "?", "")
-
-
 def _underscored(rng: random.Random) -> _Literal:
     d = _digits(rng)
     return _Literal(d[3:], f"{d[:3]}_{d[3:]}", "?", MASKED)
@@ -162,7 +156,7 @@ _NOT_MYSQL = (_dollar, _dollar_tag, _escape_string)  # text a MySQL server reads
 _COMMON = (_hex, _leading_dot, _exponent, _underscored, _multi_line, _string, _string, _string)
 _LITERALS = {
     GENERIC: (*_DOUBLE_QUOTED, *_NOT_MYSQL, *_COMMON),
-    MYSQL: (*_DOUBLE_QUOTED, _mysql_escaped, *_COMMON),
+    MYSQL: (*_DOUBLE_QUOTED, *_COMMON),
     POSTGRESQL: (*_NOT_MYSQL, *_COMMON),  # PostgreSQL reads ``"..."`` as an identifier, so it holds no literal
 }
 

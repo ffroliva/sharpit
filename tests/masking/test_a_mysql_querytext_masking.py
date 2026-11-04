@@ -19,7 +19,7 @@ MASKER = Masker(Exposure.MASKED, True)
         (f'SELECT * FROM u WHERE "{SECRET}"=pw', "SELECT * FROM u WHERE ?=pw"),
         (f'CALL login("bob","{SECRET}")', "CALL login(?,?)"),
         (f'SELECT MD5("{SECRET}")', "SELECT MD5(?)"),
-        (f'UPDATE u SET pw="a\\"{SECRET}" WHERE id=1', "UPDATE u SET pw=? WHERE id=?"),
+        (f'UPDATE u SET pw="a\\"{SECRET}" WHERE id=1', "UPDATE u SET pw= ?"),  # D7: the readings differ, so it stops
         (f"SELECT 1 # {SECRET}\n, 2", "SELECT ? , ?"),
         (f"UPDATE u SET k=0x{HEX}", "UPDATE u SET k=?"),
         ("UPDATE u SET k=0b1011", "UPDATE u SET k=?"),
@@ -61,8 +61,8 @@ def test_a_digit_inside_an_identifier_is_not_a_hex_literal() -> None:
     [
         ('SELECT "firstName" FROM "user"', 'SELECT "firstName" FROM "user"'),
         ("SELECT a # b", "SELECT a # b"),
-        ("SELECT 0xFF", "SELECT ?xFF"),
-        ('SELECT "a\\"b', "SELECT ?b"),
+        ("SELECT 0xFF", "SELECT ?"),
+        ('SELECT "a\\"b', "SELECT ?"),
     ],
     ids=["identifiers", "xor-operator", "hex", "backslash"],
 )

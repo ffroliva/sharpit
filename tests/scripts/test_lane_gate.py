@@ -159,6 +159,8 @@ def _build_fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool
     _git(integration, "config", "user.email", "t@example.com")
     _git(integration, "config", "user.name", "t")
     _git(integration, "config", "core.hooksPath", str(tmp_path / "no-hooks"))  # the owner's global hooks are slow
+    _git(integration, "config", "maintenance.auto", "false")  # every `git commit` started a `git maintenance run` child
+    _git(integration, "config", "gc.auto", "0")
     _write(integration, _base_files())
     _git(integration, "add", ".")
     _git(integration, "commit", "-q", "-m", "base")
@@ -1890,3 +1892,14 @@ def test_lane_fixture_copy_uses_at_most_one_git_call(tmp_path: Path, monkeypatch
     _fixture(copy_root)
     git_calls = len(calls)
     assert git_calls <= 1, f"copying a prepared lane fixture used {git_calls} git subprocesses; expected at most 1"
+
+
+def test_a_fixture_commit_spawns_no_maintenance_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`git commit` ran `git maintenance run --auto` as a child: 52 of 691 git starts in a two-test run (T-spawns)."""
+    fx = _fixture(tmp_path)
+    trace = tmp_path / "git-trace.txt"
+    monkeypatch.setenv("GIT_TRACE", str(trace))
+    fx.commit({"src/other.py": "x = 1\n"}, "feat: other")
+    started = [line for line in trace.read_text(encoding="utf-8").splitlines() if "trace: built-in" in line]
+    assert [line for line in started if "maintenance" in line] == []
+    assert len(started) == 3  # add, commit, rev-parse: the fixture's own three

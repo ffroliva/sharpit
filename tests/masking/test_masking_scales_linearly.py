@@ -59,6 +59,15 @@ GENERATORS: dict[str, Callable[[int], str]] = {
     "quoted-name-spaces": lambda size: "SELECT 1, `" + " " * size + "`",
     "quoted-name-list": lambda size: "SELECT ?, `" + " " * (size // 2) + "(" + "," * (size // 2) + "`",
     "quoted-name-row": lambda size: "VALUES `)" + " " * (size // 2) + ",(`" + ', "a"' * (size // 10),
+    # what the ambiguity check reads: a run for each, and a trigger that is checked at every position
+    "odd-quote-brackets": _repeat("['] "),
+    "open-odd-quote-brackets": _repeat("[' "),
+    "escaped-quotes": _repeat("a\\'b "),
+    "nested-comments": _repeat("/* /* */ '' "),
+    "alternative-quotes": _repeat("q'a' "),
+    "hash-quotes": _repeat("# 'a' "),
+    "lone-crs": _repeat("-- a\r'\n"),
+    "open-double-quote": lambda size: "SELECT " + "a, " * (size // 3) + '"' + "y" * 30_000,
 }
 
 

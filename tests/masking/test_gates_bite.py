@@ -108,11 +108,27 @@ MUTANTS: dict[str, Mutant] = {
     "exponent": Mutant("return _skip_exponent(sql, cursor)", "return cursor", SURFACE, "shape"),
     "exponent_sign": Mutant('if cursor < length and sql[cursor] in "+-":', "if False:", SURFACE, "shape"),
     "doubled_quote": Mutant("if cursor + 1 < length and sql[cursor + 1] == closing:", "if False:", SURFACE, "shape"),
-    "backslash": Mutant('if c == "\\\\" and closing in', "if False and closing in", "db_statement-mysql", "visible"),
+    # without the escape a run tokenises as if the backslash were deleted, so the two readings agree: only a row the
+    # build cuts can tell, and those are generic (D7's MySQL cut has named tests)
+    "backslash": Mutant('if c == "\\\\" and closing in', "if False and closing in", "recorder_sql-generic", "shape"),
     "backtick": Mutant(QUOTES, QUOTES.replace("`", ""), SURFACE, "visible"),
     "bracket": Mutant(QUOTES, QUOTES.replace("[", ""), SURFACE, "shape"),
     "hash": Mutant('(mysql and sql[index] == "#")', "False", "db_statement-mysql", "visible"),
     "dollar": Mutant("return (end, True) if end > 0 else " + KEEP[7:], KEEP, SURFACE, "visible"),
+    "unclosed_dollar": Mutant("return length if end < 0 else end + len(tag)",
+                              "return -1 if end < 0 else end + len(tag)", SURFACE, "visible"),
+    "leading_dot": Mutant('".": _scan_dot,', "", SURFACE, "visible"),
+    "radix": Mutant('if sql[index] == "0" and (radix', "if False and (radix", SURFACE, "visible"),
+    "underscore": Mutant('or (sql[cursor] == "_" and sql[cursor + 1 : cursor + 2].isdigit())', "",
+                         SURFACE, "visible"),
+    "odd_quote_bracket": Mutant(" or _odd_quote_bracket(sql, index)", "", SURFACE, "visible"),
+    "cut_open_double_quote": Mutant("if mysql or end >= _MAX_SCAN_LENGTH:", "if mysql:", SURFACE, "visible"),
+    "two_readings": Mutant("return _read(source.replace(", "return False and _read(source.replace(",
+                           SURFACE, "visible"),
+    "nested_comment": Mutant('return source.startswith("/*", start) and', "return False and", SURFACE, "visible"),
+    "alternative_quote": Mutant("return _ALTERNATIVE_QUOTE.search(text) is not None or (",
+                                "return (", SURFACE, "visible"),
+    "hash_quote": Mutant("(hash_at >= 0 and _QUOTE.search(text, hash_at) is not None)", "False", SURFACE, "visible"),
     # a digit or a keyword after a name character belongs to the name: over-masking ``col1`` lowers A1: A3 must catch it
     "digit_in_name": Mutant(DIGIT, DIGIT.replace(" and not _identifier_char_before(out)", ""), SURFACE, "shape"),
     "keyword_in_name": Mutant(
@@ -127,19 +143,6 @@ MUTANTS: dict[str, Mutant] = {
         "or is_secret_value(sql[index + 1 : stop])", "or False", "recorder_sql-generic", "visible"
     ),
 }  # fmt: skip
-
-
-def test_the_unclosed_dollar_branch_has_no_mutant_until_it_exists() -> None:
-    """Head has no run-to-the-end branch: every ``unclosed_dollar`` row already leaks, so a mutant has no row to raise.
-
-    When Task 2 adds the branch these rows pass, this test fails, and the mutant that deletes it goes into ``MUTANTS``.
-    """
-    rows = [row for row in sql_corpus.rows(7, 2000) if row.shape == "unclosed_dollar"]
-    assert rows
-    failing = gates.failures_visible(gates.SURFACES[SURFACE], rows)
-    assert len(failing) == len(rows), (
-        f"{len(rows) - len(failing)} of {len(rows)} unclosed dollar rows pass: add the mutant"
-    )
 
 
 def _scratch_copy(tmp: Path) -> Path:

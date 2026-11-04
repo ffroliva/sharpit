@@ -381,6 +381,13 @@ Internal module structure, caching details, UI component structure and visuals w
 | `activation.localhostOnly` = `!allow-non-localhost` | `localhostOnly` is false whenever remote access is configured: `allow_non_localhost`, `trusted_proxies` or container gateway trust | the Overview's "This machine only" must not show while proxies or the gateway are admitted; the key is unchanged |
 | `bootui.path` taken as configured | `path="/"` and a trailing slash are refused with `ValueError` at install | `/` would mount over every host route even while inactive; a trailing slash produced `/sharpit//api` |
 | sharpit's own token follows the exposure policy | sharpit's own token value is masked under every exposure except `METADATA_ONLY` (which shows no values), even with `mask_secrets=false` or `FULL` | the token grants the whole console; an MCP client would pass it to an LLM provider |
+| The panel stores statement and error raw | the panel shows literal-free text and scans error text | a panel value is an output; fail closed |
+| No masker on statements | relaxed masker passes on statements | a statement's `password=` name beside a value still masks; literals are already gone, so no value's end is guessed |
+| `"..."` is a quoted identifier | `"..."` is a literal in a value position (0.4.0) | MySQL reads it as a string |
+| `.5`, `0x...`, `1_000` shown by the normalizer | literals in every mode | BootUI hardens them only in the journal; sharpit's hot path shows the normalizer's text |
+| Ambiguity check in the journal only, triggers anywhere | ambiguity cut in the scan, a trigger inside a literal is text; the nested and backslash checks also run on MySQL (D7) | `normalize` is the hot path, and `color='#fff'` merged fingerprints in the journal's form |
+| `[...]` is an identifier run to `]` | a non-subscript `[...]` is read inside (`e6a07c8`), and with an odd quote is one literal | a value in brackets must be scanned; `[it's]` must not swallow the next quote |
+| No driver-line rule | the driver line's first-to-last-quote rule | a driver line echoes values |
 
 ## 15. Coordinator's calls (owner to check)
 
