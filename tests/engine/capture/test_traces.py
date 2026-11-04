@@ -609,6 +609,7 @@ def shown_message(message: str) -> str:
 
 
 BACKGROUND = "(Background on this error at: https://sqlalche.me/e/20/f405)"
+BACKGROUND_NORMALISED = "(Background on this error at: https://sqlalche.me/e/?/f405)"
 
 
 # derived: release council fix round 3, p_first_bracket.py: the block ended at the first ``]``, a subscript's, and the
@@ -621,21 +622,21 @@ BACKGROUND = "(Background on this error at: https://sqlalche.me/e/20/f405)"
         ("(a.Error) x\n[SQL: SELECT a[1]\n, 'hunter2' FROM t]", "(a.Error) x\n[SQL: SELECT a[?] , ? FROM t]"),
         (
             f"(a.Error) x\n[SQL: SELECT a[1], 'hunter2']\n[parameters: ('p4ss', [1])]\n{BACKGROUND}",
-            f"(a.Error) x\n[SQL: SELECT a[?], ?]\n[parameters: {MASK}]\n{BACKGROUND}",
+            f"(a.Error) x\n[SQL: SELECT a[?], ?] [parameters: {MASK}] {BACKGROUND_NORMALISED}",
         ),
         (
             "(a.Error) x\n[SQL: SELECT a[1], 'hunter2']\n[SQL parameters hidden due to hide_parameters=True]",
-            "(a.Error) x\n[SQL: SELECT a[?], ?]\n[SQL parameters hidden due to hide_parameters=True]",
+            "(a.Error) x\n[SQL: SELECT a[?], ?] [SQL parameters hidden due to hide_parameters=?]",
         ),
         (
             "(a.Error) x\n[SQL: SELECT a[1], 'one']\n(b.Error) y\n[SQL: SELECT b[2], 'two']",
-            "(a.Error) x\n[SQL: SELECT a[?], ?]\n(b.Error) y\n[SQL: SELECT b[?], ?]",
+            "(a.Error) x\n[SQL: SELECT a[?], ?] (b.Error) y [SQL: SELECT b[?], ?]",
         ),
         (
             "(a.Error) x\n[SQL: SELECT a[1], 'one']\nThe above exception was the direct cause of [this]",
-            "(a.Error) x\n[SQL: SELECT a[?], ?]\nThe above exception was the direct cause of [this]",
+            "(a.Error) x\n[SQL: SELECT a[?], ?] The above exception was the direct cause of [this]",
         ),
-        ("(a.Error) x\n[SQL: SELECT 'hunter2'", "(a.Error) x\n[SQL: SELECT ?]"),
+        ("(a.Error) x\n[SQL: SELECT 'hunter2'", "(a.Error) x\n[SQL: SELECT ?"),
     ],
     ids=["subscript", "array", "multi-line", "parameters", "hidden", "two-blocks", "text-after", "no-closer"],
 )

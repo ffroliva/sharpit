@@ -55,8 +55,8 @@ GENERATORS: dict[str, Callable[[int], str]] = {
 
 
 def _pair_substitution(text: str) -> str:
-    masked = masking._sub_pairs(masking._TEXT_QUOTED_PAIR, masking._mask_quoted_pair, text, 3)  # noqa: SLF001
-    return masking._sub_pairs(masking._TEXT_PAIR, masking._mask_pair, masked, 2)  # noqa: SLF001
+    masked = masking._mask_pairs(masking._TEXT_QUOTED_PAIR, masking._QUOTED_PAIR_MASKED, text)  # noqa: SLF001
+    return masking._mask_pairs(masking._TEXT_PAIR, masking._PAIR_MASKED, masked)  # noqa: SLF001
 
 
 ENTRY_POINTS: dict[str, Callable[[str], object]] = {

@@ -131,7 +131,7 @@ def test_message_masked_and_cut(isolated: logging.Logger):
     isolated.warning("login password=%s token %s", "hunter2", JWT)
     isolated.warning("x" * 10_000 + " password=hunter2")
     first, second = _messages(buffer)
-    assert first == f"login password={MASK} token {MASK}"
+    assert first == f"login password={MASK}"
     assert second is not None
     assert len(second) == MAX_MESSAGE == 4000
     assert "hunter2" not in second
@@ -152,9 +152,7 @@ def test_mask_work_is_bounded_on_huge_message(isolated: logging.Logger):
     assert seen
     assert max(seen) <= 4 * MAX_MESSAGE
     (message,) = _messages(buffer)
-    assert message is not None
-    assert len(message) == MAX_MESSAGE
-    assert "hunter2" not in message
+    assert message == f"password={MASK}"
 
 
 def test_resume_point_rejects_non_ascii_digits():

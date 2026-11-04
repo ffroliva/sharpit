@@ -23,7 +23,7 @@ def test_query_text_masks_single_quoted_escape_and_dollar_quoted_literals() -> N
 def test_query_text_masks_unterminated_string_literals() -> None:
     # ported: PostgresHelpersTests.queryTextMasksUnterminatedStringLiterals
     assert query_text(MASKED, "SELECT * FROM users WHERE token = 'sk-live-truncated") == (
-        "SELECT * FROM users WHERE token = '******'"
+        "SELECT * FROM users WHERE token = ******"
     )
     assert query_text(MASKED, "DO $$BEGIN PERFORM 'secret") == "DO $$******$$"
 

@@ -11,6 +11,7 @@ import json
 import logging
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -25,6 +26,7 @@ from sharpit import install
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.transactions import TransactionRecorder
+from sharpit.engine.collectors import data
 from sharpit.engine.collectors.mysql.service import refresh_mysql
 from sharpit.engine.collectors.postgresql.service import refresh_postgresql
 from sharpit.engine.context import SharpitContext
@@ -202,3 +204,8 @@ def test_mysql_failed_section_reads_the_block_as_mysql() -> None:
     shown = repr(asyncio.run(refresh_mysql(_mysql_context(engine))))
     assert REASON in shown
     assert HASH_LITERAL not in shown
+
+
+def test_data_panel_warning() -> None:
+    ctx = SimpleNamespace(masker=Masker(Exposure.MASKED, True, None))
+    _assert_scanned(data._masked(ctx, f"Could not read a mapper (RuntimeError: {ERROR})"))  # type: ignore[arg-type]  # noqa: SLF001

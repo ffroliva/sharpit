@@ -13,6 +13,7 @@ from collections.abc import Callable
 from typing import Any, NamedTuple, cast
 
 from sharpit.engine import sqla
+from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.models import mappers_configured, registries
 
@@ -61,7 +62,7 @@ def _field(ctx: SharpitContext, warnings: list[str], label: str, read: Callable[
 
 
 def _masked(ctx: SharpitContext, text: str) -> str:
-    return ctx.masker.mask_text(text) or text.split(" (", 1)[0]
+    return mask_error(ctx.masker, text) or text.split(" (", 1)[0]
 
 
 def _table(mapper: Any) -> str | None:
