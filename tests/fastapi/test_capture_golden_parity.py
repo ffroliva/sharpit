@@ -12,13 +12,15 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-import sqlalchemy as sa
-from fastapi.testclient import TestClient
-from sqlalchemy.pool import StaticPool
 
-from fastapi import FastAPI
-from golden import ROOT, assert_parity
-from sharpit import install
+sa = pytest.importorskip("sqlalchemy")
+
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from fastapi import FastAPI  # noqa: E402
+from golden import ROOT, assert_parity  # noqa: E402
+from sharpit import install  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
