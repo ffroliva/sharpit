@@ -13,13 +13,15 @@ from sharpit import install
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
 orm = pytest.importorskip("sqlalchemy.orm")
-StaticPool = pytest.importorskip("sqlalchemy.pool").StaticPool
+QueuePool = pytest.importorskip("sqlalchemy.pool").QueuePool
 
 SCAN = "/sharpit/api/database-advisor/scan"
 
 
 def test_live_scan_runs_orm_runtime_and_vendor_rules() -> None:
-    engine = sa.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    engine = sa.create_engine(
+        "sqlite://", poolclass=QueuePool, pool_size=1, max_overflow=0, connect_args={"check_same_thread": False}
+    )
     with engine.begin() as conn:
         conn.exec_driver_sql("CREATE TABLE users (id INTEGER PRIMARY KEY)")
     reg = orm.registry()

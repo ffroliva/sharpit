@@ -15,6 +15,10 @@ def test_version_is_0_5_0() -> None:
     assert sharpit.__version__ == "0.5.0"
 
 
+def test_record_security_event_is_public_api() -> None:
+    assert "record_security_event" in sharpit.__all__
+
+
 def test_runtime_dependencies_are_exactly_starlette_and_packaging() -> None:
     assert sorted(d.split(">")[0] for d in PROJECT["dependencies"]) == ["packaging", "starlette"]
 

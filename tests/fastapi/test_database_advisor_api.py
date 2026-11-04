@@ -23,7 +23,8 @@ from sharpit.engine.singleflight import SingleFlight
 
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
-StaticPool = pytest.importorskip("sqlalchemy.pool").StaticPool
+pools = pytest.importorskip("sqlalchemy.pool")
+QueuePool, StaticPool = pools.QueuePool, pools.StaticPool
 
 LOCAL = ("127.0.0.1", 50000)
 URL = "/sharpit/api/database-advisor"
@@ -31,7 +32,9 @@ SCAN = f"{URL}/scan"
 
 
 def _sqlite(*ddl: str) -> Any:
-    engine = sa.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    engine = sa.create_engine(
+        "sqlite://", poolclass=QueuePool, pool_size=1, max_overflow=0, connect_args={"check_same_thread": False}
+    )
     with engine.begin() as conn:
         for statement in ddl:
             conn.exec_driver_sql(statement)
@@ -127,6 +130,15 @@ def test_autocommit_engine_is_unavailable() -> None:
     assert [(d["status"], d["message"]) for d in report["dataSources"]] == [("FAILED", sqla.READ_ONLY_REFUSED)]
     assert report["scan"]["status"] == "ERROR"
     assert [s for s in engine.conn.sql if not s.startswith(("SET ", "SELECT current_setting"))] == []
+
+
+def test_a_scan_of_a_pool_sharing_its_connection_is_reported_failed() -> None:
+    engine = sa.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    client, _ = _client(("primary", engine))
+
+    report = _ok(client.post(SCAN))
+
+    assert [(d["status"], d["message"]) for d in report["dataSources"]] == [("FAILED", sqla.READ_ONLY_REFUSED)]
 
 
 @pytest.mark.parametrize("options", [{"read_only": True}, {"panels": {"database-advisor": {"read_only": True}}}])

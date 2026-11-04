@@ -1,4 +1,5 @@
-"""``security-logs`` (BootUI ``SecurityLogsService``): a bounded audit ring, masked at read."""
+"""``security-logs`` (BootUI ``SecurityLogsService``): a bounded audit ring; the principal is masked at store time, the
+data at read."""
 
 from __future__ import annotations
 
@@ -60,9 +61,10 @@ class SecurityEventBuffer:
     read never runs host code. A string longer than the output limit is masked strictly before it is cut, so no secret
     is ever stored half (the read masks the short ones with the live policy)."""
 
-    def __init__(self, max_logs: int, token: str | None = None) -> None:
+    def __init__(self, max_logs: int, token: str | None = None, masker: Masker | None = None) -> None:
         self.max_logs = clamp_max_logs(max_logs)
         self._strict = Masker(Exposure.MASKED, True, token)
+        self._masker = masker or self._strict
         self.changes = ChangeStream()
         self._events: deque[SecurityEvent] = deque(maxlen=self.max_logs)
         self._lock = threading.Lock()
@@ -80,7 +82,7 @@ class SecurityEventBuffer:
         kept = tuple(self._stored(str(k), None if data[k] is None else str(data[k])) for k in keys[:MAX_DATA_ENTRIES])
         event = SecurityEvent(
             time.time_ns() if timestamp_ns is None else timestamp_ns,
-            None if principal is None else principal[:MAX_VALUE_LENGTH],
+            self._principal(principal),
             type[:MAX_VALUE_LENGTH],
             kept,
             max(len(keys) - MAX_DATA_ENTRIES, 0),
@@ -89,6 +91,11 @@ class SecurityEventBuffer:
         with self._lock:
             self._events.append(event)
         self.changes.signal()
+
+    def _principal(self, principal: str | None) -> str | None:
+        """Masked whole, before the cut, as an exchange's principal is: the filter only ever sees this value."""
+        shown = self._masker.mask("principal", principal)[0]
+        return None if shown is None else str(shown)[:MAX_VALUE_LENGTH]
 
     def _stored(self, name: str, value: str | None) -> tuple[str, str | None, bool]:
         if len(name) <= MAX_VALUE_LENGTH and (value is None or len(value) <= MAX_VALUE_LENGTH):
@@ -257,7 +264,7 @@ def attach(ctx: SharpitContext) -> Callable[[Mapping[str, Any], int], None] | No
     """Give an enabled panel its buffer and its context registration; return the 401/403 hook, or None."""
     if not (panel_is_implemented(PANEL) and ctx.settings.panels[PANEL].enabled):
         return None
-    buffer = ctx.capture.security_logs = SecurityEventBuffer(ctx.settings.security_logs_max_logs, ctx.token)
+    buffer = ctx.capture.security_logs = SecurityEventBuffer(ctx.settings.security_logs_max_logs, ctx.token, ctx.masker)
     _contexts[ctx.context_id] = ctx
     return on_security_event(buffer, ctx.masker)
 

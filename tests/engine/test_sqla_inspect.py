@@ -18,11 +18,13 @@ from sharpit.engine.sqla import inspect as sqla_inspect
 
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
-StaticPool = pytest.importorskip("sqlalchemy.pool").StaticPool
+QueuePool = pytest.importorskip("sqlalchemy.pool").QueuePool
 
 
 def _engine(*ddl: str) -> Any:
-    engine = sa.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    engine = sa.create_engine(
+        "sqlite://", poolclass=QueuePool, pool_size=1, max_overflow=0, connect_args={"check_same_thread": False}
+    )
     with engine.begin() as conn:
         for statement in ddl:
             conn.exec_driver_sql(statement)

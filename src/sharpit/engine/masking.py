@@ -124,12 +124,15 @@ _TEXT_PAIR = re.compile(
     r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]*\]|\([^)\n]*\)|(?:(?:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
     re.ASCII,
 )
+# sharpit widening: a scheme's credential with no key before it; no nested quantifier, so a long input stays linear
+_TEXT_AUTH_SCHEME = re.compile(r"(?<![\w-])(Bearer|Basic|Token)\s+\S+", re.ASCII)
 _TEXT_TOKEN = re.compile(r"\S+")
 _TOKEN_EDGES = re.compile(r"^([\"'(\[{<]*)(.*?)([\"')\]}>,;.:!?]*)$", re.DOTALL)
 # SQLAlchemy StatementError: "[parameters: ...]" runs to the last "]" on its line (bind tuples nest brackets), or to
 # the end of the line when a length cap cut the closing "]" off (the class stops at the newline: no "$" anchor)
 _SQL_PARAMETERS = re.compile(r"\[parameters: (?:[^\n]*\]|[^\n]*)", re.MULTILINE)
 _SQL_PARAMETERS_MASKED = f"[parameters: {MASK}]"
+_AUTH_SCHEME_MASKED = rf"\1 {MASK}"
 
 
 def _mask_segments(path: str) -> str:
@@ -220,6 +223,7 @@ class Masker:
         text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
         text = _TEXT_QUOTED_PAIR.sub(_mask_quoted_pair, text)
         text = _TEXT_PAIR.sub(_mask_pair, text)
+        text = _TEXT_AUTH_SCHEME.sub(_AUTH_SCHEME_MASKED, text)
         text = _JWT.sub(MASK, text)
         return _TEXT_TOKEN.sub(_mask_token, text)
 
