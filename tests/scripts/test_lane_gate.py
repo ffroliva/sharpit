@@ -278,7 +278,7 @@ def test_lane_gate_reads_only_what_a_new_commit_changed(tmp_path: Path, monkeypa
     monkeypatch.setattr(lane_gate, "_git", counting)
     assert _refusals(fx.evaluate()) == []
     changed = _git(fx.worktree, "rev-parse", f"{fx.head}:src/widget.py")
-    assert reads == [f"ls-tree -r -z {fx.head}", f"cat-file blob {changed}"]
+    assert reads == [f"ls-tree -r -z --full-tree {fx.head}", f"cat-file blob {changed}"]
 
 
 def test_lane_gate_shares_reads_across_copies_of_a_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

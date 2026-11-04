@@ -156,7 +156,9 @@ class Red:
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape")
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=check, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape"
+    )
 
 
 _READS: dict[tuple[object, ...], object] = {}
@@ -182,7 +184,9 @@ def _tree(repo: Path, sha: str) -> dict[str, str]:
     """path -> object id of every file at ``sha``."""
 
     def read() -> dict[str, str]:
-        entries = _git(repo, "ls-tree", "-r", "-z", "--full-tree", sha).stdout.split("\0")  # raises, so no empty listing is ever kept
+        entries = _git(repo, "ls-tree", "-r", "-z", "--full-tree", sha).stdout.split(
+            "\0"
+        )  # raises, so no empty listing is ever kept
         return {path: meta.split()[2] for meta, path in (entry.split("\t", 1) for entry in entries if entry)}
 
     return _read_once(("tree", sha, ""), [sha], read)
@@ -1018,7 +1022,7 @@ def red_verdicts(junit: Path, nodeids: Sequence[str], root: Path | None = None) 
 
 @contextlib.contextmanager
 def _temp_tree(opts: Options, sha: str) -> Generator[Path]:
-    """A detached worktree at ``sha`` in a temp folder: only committed files, removed afterwards (pruned if that failed)."""
+    """A detached worktree at ``sha`` in a temp folder: only committed files, removed (pruned if that failed)."""
     scratch = Path(tempfile.mkdtemp(prefix="lane-gate-"))
     tree = scratch / "tree"
     try:
