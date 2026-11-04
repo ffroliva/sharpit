@@ -503,7 +503,7 @@ def test_mask_text_scheme_guard_leaves_no_credential(text: str, expected: str) -
     assert Masker(M, True).mask_text(text) == expected
 
 
-# derived: release council probe p2_redos.py: a quadratic regex holds the GIL, so the host freezes while a line is masked.
+# derived: release council probe p2_redos.py: a quadratic regex holds the GIL, so the host freezes on one masked line.
 # ReDoS is a wall-clock defect: each size takes seconds on the quadratic pattern, within the 60 s test timeout
 @pytest.mark.parametrize(
     "text",

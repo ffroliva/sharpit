@@ -175,13 +175,15 @@ def _redact_sql_errors(text: str, mysql: bool) -> str:
     frames, remainder = _traceback_prefix(text)
     cleaned = _driver_values_dropped(remainder or text)
     text = f"{frames}\n{cleaned}" if frames else cleaned
-    return _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1), mysql).sql}]", text)
+    end = text.rfind("]") + 1  # past it no ``[SQL: `` can close, and each would scan to the end of the text
+    return _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1), mysql).sql}]", text[:end]) + text[end:]
 
 
 def _sql_message(masker: Masker, text: str | None, mysql: bool = False) -> str | None:
     if text is None:
         return None
-    if not masker.capture_parameters and (_SQL_ERROR.search(text) or _SQL_ERROR_SHAPE.match(text)):
+    closed = text.rfind("]") + 1
+    if not masker.capture_parameters and (_SQL_ERROR.search(text, 0, closed) or _SQL_ERROR_SHAPE.match(text)):
         text = _redact_sql_errors(text, mysql or _MYSQL_DRIVER.search(text) is not None)
     return masker.mask_text(text)
 
