@@ -1,6 +1,6 @@
 # sharpit design system
 
-Status: draft for the owner's review, 2026-11-04. Nothing is built.
+Status: approved by the owner, 2026-11-04. The owner then folded it into release 0.5.0. Nothing is built.
 
 The owner chose the home (the sharpit repo) and the scope (console, docs site, launch and social, brand basics). The owner
 skipped the questions, so every other decision here is the author's call. They are listed in "Calls to check" at the end.
@@ -41,7 +41,7 @@ This fails, even if every check passes, when:
 - sharpit gains a runtime dependency or a web font;
 - the system adds decoration: a second accent, cards, filled status badges, uppercase labels;
 - it starts to look like BootUI, whose look the owner rejected (table in `ui/DESIGN.md`);
-- it delays the 0.5.0 release.
+- it conflicts with the masking work: it stays out of `src/sharpit/engine/`, `tests/masking/` and everything else that work touches.
 
 ## Constraints
 
@@ -49,8 +49,9 @@ This fails, even if every check passes, when:
 - The console's CSP allows `font-src 'self' data:` and no inline script, so there are no web fonts. The docs already set
   `font: false`, and slides use the same system stacks.
 - The built UI in `src/sharpit/ui/static/` is committed, and CI checks it matches `ui/`, so any token move needs a rebuild.
-- Work happens in a worktree from current `origin/main`, after the v0.5.0 tag. On 2026-11-04 `ui/DESIGN.md`, `ui/src/app.css`
-  and `website/mkdocs.yml` were identical on `release/0.5.0` and `origin/main`, so no conflict is expected.
+- Owner's decision, 2026-11-04: this ships in 0.5.0. Work happens on `feat/0.5.0-design-system` from `release/0.5.0`. On
+  2026-11-04 the masking branch had changed nothing under `ui/`, `website/` or `src/sharpit/ui/`, and neither branch needs the other.
+- The 0.5.0 changelog records the docs site's new look.
 
 ## Structure
 
@@ -112,9 +113,10 @@ Four colour literals exist in `ui/src` outside `app.css`. The builder moves each
 
 Proof of no visual change, as a one-off in the PR rather than a lasting CI gate:
 
-- At the same commit, run the Playwright suites with `SHOTS=1` before and after the move, in both themes, into a temporary
-  folder, and compare the two sets. Nothing compares them today, so the PR adds a small compare script. It masks live values such
-  as clock times, request rates and temp paths (for example on `activity` and `health`).
+- Run the Playwright suites with `SHOTS=1` twice before the move and once after it, in both themes, and keep each set in a
+  temporary folder. A small compare script in the PR finds the panels that differ between the two before runs: those hold live
+  values such as clock times and request rates, so they are left out and checked by eye. Every other panel must match byte for
+  byte after the move.
 - Diff the built CSS as well: only the source order of the token blocks may change, and the resolved values may not.
 
 The committed PNGs under `ui/tests/e2e/screenshots/` stay untouched. They are the 0.4.0 catalog, so they are not a valid baseline,
@@ -197,12 +199,12 @@ Each step lands and can be reviewed alone:
 3. `slide.css` and the template.
 4. Brand section, then update `AGENTS.md` (Layout), `docs/README.md` and references to `ui/DESIGN.md`.
 
-The chain from `AGENTS.md` applies: `/sharpit:plan`, `/sharpit:check` before commits, a draft PR. No safety model item is touched,
+The chain from `AGENTS.md` applies: `/sharpit:plan`, `/sharpit:check` before commits, a draft PR into `release/0.5.0`. No safety model item is touched,
 so `/sharpit:llm-council` is not required.
 
 ## Done
 
-- The before and after screenshots match in both themes, with live values masked, and the resolved CSS values are unchanged.
+- The before and after screenshots match in both themes, panels with live values are checked by eye, and the resolved CSS values are unchanged.
 - The docs site shows the ochre accent and neutrals in light and dark, with the toggle working under both OS themes.
 - All four checks pass, and each was seen red.
 - A new slide can be started from `template.html` with no copied colour values.
@@ -226,6 +228,6 @@ These are the author's, not the owner's:
 6. Decks keep a dated copy of the tokens and are not checked by CI.
 7. No logo in this version.
 8. Lower-case `sharpit` even at the start of a sentence.
-9. Starts after the v0.5.0 tag.
-10. The no-visual-change proof is a one-off before and after run with masking, plus a CSS diff, with the committed PNGs untouched.
+9. (Superseded: the owner folded this into 0.5.0.)
+10. The no-visual-change proof is a one-off before and after run, plus a CSS diff, with the committed PNGs untouched. Live panels are found by comparing two before runs, which needs no image library.
 11. Type sizes stay plain sizes in the doc, and `slide.css` owns its `--t-*`.
