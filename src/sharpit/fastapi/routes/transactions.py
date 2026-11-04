@@ -16,7 +16,7 @@ from sharpit.fastapi.sse import sse_response
 _INVALID_RECORDING_BODY = "Request body must be a JSON object with a boolean or null 'enabled'"
 
 
-def build_routes(ctx: Any, host_app: Any) -> list[BaseRoute]:
+def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
     api = ctx.settings.api_path[len(ctx.settings.path) :]
     max_bytes = ctx.settings.mcp_max_payload_bytes
 
