@@ -4,7 +4,12 @@ A throwaway project in a temp folder is checked with the real pytest, so the ver
 accept rule. The project has no ``pythonpath`` for ``src``: red_check puts the tree's ``src`` on ``PYTHONPATH``.
 """
 
+import json
+import os
 import subprocess
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -134,9 +139,47 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return _project(tmp_path_factory.mktemp("red-check"))
 
 
+def _built_once(shared: Path, build: Callable[[], dict[str, str]]) -> dict[str, str]:
+    return build()
+
+
 @pytest.fixture(scope="module")
-def verdicts(project: Path) -> dict[str, str]:
-    return red_check.check([f"tests/test_mod.py::{name}" for name in IDS], cwd=project)
+def verdicts(project: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+    def build() -> dict[str, str]:
+        return red_check.check([f"tests/test_mod.py::{name}" for name in IDS], cwd=project)
+
+    if "PYTEST_XDIST_WORKER" not in os.environ:
+        return build()
+    return _built_once(tmp_path_factory.getbasetemp().parent, build)  # the run's folder, above each worker's own
+
+
+def test_workers_share_one_verdicts_build(tmp_path: Path) -> None:
+    """Each worker that drew a verdict test re-ran all 12 pytest subprocesses: 48 s + 21 s at -n 22 (T-suite-speed)."""
+    builds: list[int] = []
+    results: list[dict[str, str]] = []
+
+    def build() -> dict[str, str]:
+        builds.append(1)
+        time.sleep(0.2)  # long enough that every worker arrives while the first is still building
+        return {"id": "verdict"}
+
+    workers = [threading.Thread(target=lambda: results.append(_built_once(tmp_path, build))) for _ in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert len(builds) == 1
+    assert results == [{"id": "verdict"}] * 4
+
+
+def test_a_failed_verdicts_build_leaves_the_next_worker_to_build(tmp_path: Path) -> None:
+    def broken() -> dict[str, str]:
+        raise RuntimeError("build broke")
+
+    with pytest.raises(RuntimeError, match="build broke"):
+        _built_once(tmp_path, broken)
+    assert list(tmp_path.iterdir()) == []  # a claim left behind would keep every other worker waiting
+    assert _built_once(tmp_path, lambda: {"id": "verdict"}) == {"id": "verdict"}
 
 
 def _of(verdicts: dict[str, str], name: str) -> str:
