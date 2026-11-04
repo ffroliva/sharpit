@@ -8,8 +8,10 @@ the app's pool never gets a read-only connection.
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -18,7 +20,13 @@ from sharpit.engine import sqla
 
 pytestmark = pytest.mark.needs_sqlalchemy
 sa = pytest.importorskip("sqlalchemy")
-StaticPool = pytest.importorskip("sqlalchemy.pool").StaticPool
+pools = pytest.importorskip("sqlalchemy.pool")
+AssertionPool, QueuePool, SingletonThreadPool, StaticPool = (
+    pools.AssertionPool,
+    pools.QueuePool,
+    pools.SingletonThreadPool,
+    pools.StaticPool,
+)
 
 
 def _outcome(engine: Any, fn: Callable[[Any], Any]) -> Any:
@@ -30,8 +38,10 @@ def _outcome(engine: Any, fn: Callable[[Any], Any]) -> Any:
 
 
 def _sqlite_engine(query_only: int = 0) -> Any:
-    # one connection, shared with the read's worker thread: the tests see what the read left on it
-    engine = sa.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    # one pooled connection, checked out by one reader at a time: the tests see what the read left on it
+    engine = sa.create_engine(
+        "sqlite://", poolclass=QueuePool, pool_size=1, max_overflow=0, connect_args={"check_same_thread": False}
+    )
     with engine.begin() as conn:
         conn.exec_driver_sql("CREATE TABLE probe (id INTEGER)")
         conn.exec_driver_sql(f"PRAGMA query_only = {query_only}")
@@ -70,6 +80,70 @@ def test_read_only_restores_session_state() -> None:
     assert after_success == 0
     assert isinstance(failed, RuntimeError)
     assert after_failure == 0
+
+
+@pytest.mark.parametrize("pool", [StaticPool, SingletonThreadPool, AssertionPool])
+def test_a_pool_sharing_its_connection_is_refused_before_the_read_runs(pool: Any) -> None:
+    engine = sa.create_engine("sqlite://", poolclass=pool, connect_args={"check_same_thread": False})
+    ran: list[bool] = []
+
+    outcome = _outcome(engine, lambda _c: ran.append(True))
+
+    assert isinstance(outcome, sqla.ReadOnlyUnavailable)
+    assert ran == []
+
+
+def test_a_refused_read_keeps_the_hosts_open_transaction() -> None:
+    engine = sa.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE probe (id INTEGER)")
+    host = engine.raw_connection()
+    host.cursor().execute("INSERT INTO probe VALUES (1)")
+
+    _outcome(engine, lambda c: c.exec_driver_sql("SELECT 1").scalar())
+
+    assert host.driver_connection.in_transaction is True
+
+
+def test_a_host_write_during_a_read_on_a_sharing_pool_succeeds() -> None:
+    engine = sa.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE probe (id INTEGER)")
+    reading, finish = threading.Event(), threading.Event()
+
+    def slow_read(_conn: Any) -> None:
+        reading.set()
+        finish.wait(5)
+
+    def scan() -> None:
+        _outcome(engine, slow_read)
+        reading.set()  # a refused read never starts: the host need not wait for it
+
+    reader = threading.Thread(target=scan)
+    reader.start()
+    reading.wait(5)
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("INSERT INTO probe VALUES (1)")
+        written: Any = True
+    except sa.exc.OperationalError as exc:
+        written = exc
+    finish.set()
+    reader.join(5)
+
+    assert written is True
+
+
+@pytest.mark.parametrize("dialect", ["postgresql", "mysql", "mariadb"])
+def test_a_sharing_pool_is_refused_on_every_dialect(dialect: str) -> None:
+    conn = SimpleNamespace(dialect=SimpleNamespace(name=dialect), engine=SimpleNamespace(pool=StaticPool(lambda: None)))
+
+    try:
+        outcome: Any = sqla.bounded_read_only(conn, lambda _c: None, 5.0)
+    except Exception as exc:  # noqa: BLE001 - the assertion below names what came back
+        outcome = exc
+
+    assert isinstance(outcome, sqla.ReadOnlyUnavailable)
 
 
 def test_sqlite_read_only_keeps_an_app_query_only_session() -> None:
