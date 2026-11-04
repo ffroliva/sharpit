@@ -20,12 +20,14 @@ if TYPE_CHECKING:
 
 ENTRY_KEYS = (
     "id", "type", "timestamp", "severity", "summary", "detail", "durationMs", "correlationId", "method", "path",
-    "status", "thread", "profileable", "parentId", "securedPrincipal", "sqlNPlusOneSuspected",
+    "status", "thread", "profileable", "parentId", "securedPrincipal", "sqlNPlusOneSuspected", "badges",
+    "exceptionGroupId",
 )  # fmt: skip
 KPI_KEYS = (
     "requestsPerMinute", "errorRatePercent", "p50LatencyMs", "p95LatencyMs", "slowestEndpoint", "slowestEndpointMs",
     "activeExceptionCount", "sqlPerMinute", "slowestQueryMs", "healthStatus", "heapUsedBytes", "heapMaxBytes",
     "cacheHitRatioPercent", "scheduledTaskFailureCount", "restCallErrorRatePercent", "restCallP95LatencyMs",
+    "latencySampleCount", "slowestEndpointRoute", "slowestEndpointRouteId", "slowestEndpointRouteSource",
 )  # fmt: skip
 REPORT_KEYS = ("available", "entries", "typeCounts", "kpis", "sources", "warnings", "pageInfo", "persistenceOption")
 PROFILE_KEYS = (
@@ -140,7 +142,18 @@ def _groups(rows: Iterable[dict[str, Any]], threshold: int) -> list[dict[str, An
 
 def _entry(**fields: Any) -> dict[str, Any]:
     entry: dict[str, Any] = dict.fromkeys(ENTRY_KEYS)
-    return {**entry, "profileable": False, "sqlNPlusOneSuspected": False, **fields}
+    return {**entry, "profileable": False, "sqlNPlusOneSuspected": False, "badges": [], **fields}
+
+
+def _slowest_route(row: dict[str, Any] | None) -> dict[str, Any]:
+    """The route KPIs of the slowest exchange; a row's route is the template or the masked path, never a raw path."""
+    if row is None:
+        return dict.fromkeys(("slowestEndpointRoute", "slowestEndpointRouteId", "slowestEndpointRouteSource"))
+    return {
+        "slowestEndpointRoute": row["route"],
+        "slowestEndpointRouteId": f"{row['method']} {row['route']}",
+        "slowestEndpointRouteSource": row["routeSource"],
+    }
 
 
 def activity_report(
@@ -217,6 +230,7 @@ def activity_report(
             _entry(
                 id=f"exc-{g['id']}",
                 type="EXCEPTION",
+                exceptionGroupId=g["id"],
                 timestamp=g["lastSeen"],
                 severity="ERROR",
                 summary=g["exceptionClassName"] + (f": {g['message']}" if g["message"] is not None else ""),
@@ -273,6 +287,8 @@ def activity_report(
         "scheduledTaskFailureCount": 0,
         "restCallErrorRatePercent": None,
         "restCallP95LatencyMs": None,
+        "latencySampleCount": len(durations),
+        **_slowest_route(slowest),
     }
     return {
         "available": bool(found),

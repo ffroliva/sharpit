@@ -252,7 +252,7 @@ export interface ProbeResult {
 
 export interface SqlTraceEntry {
   id: number;
-  timestamp: string;
+  timestamp: number;
   sql: string;
   statementType: string;
   category: string;
