@@ -233,7 +233,7 @@ async def _bad_request(_request: Request, exc: Exception) -> Response:  # NOSONA
 
 async def _json_http_error(_request: Request, exc: Exception) -> Response:  # NOSONAR - Starlette coroutine handler
     """404/405 inside the active sub-app answer in the API's JSON error shape (405 keeps its ``Allow`` header)."""
-    assert isinstance(exc, HTTPException)
+    assert isinstance(exc, HTTPException)  # noqa: S101 - narrows the type; the handler is registered for this class
     response = error(exc.status_code, "Not Found" if exc.status_code == 404 else "Method Not Allowed")
     response.headers.update(exc.headers or {})
     return response

@@ -29,9 +29,9 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | where dismissed rules and findings are stored (`sharpit.yml`, created on first write) |
 | `SHARPIT_CONFIG_SCAN` | `config_scan` | `true` | `true` scans your top-level package for `os.getenv` keys, `false` disables, or a list of package names |
 | `SHARPIT_VULNERABILITIES_OSV_ENABLED` | `vulnerabilities_osv_enabled` | `true` | allow the OSV scan |
-| `SHARPIT_VULNERABILITIES_OSV_BASE_URI` | `vulnerabilities_osv_base_uri` | `https://api.osv.dev` | OSV endpoint |
+| `SHARPIT_VULNERABILITIES_OSV_BASE_URI` | `vulnerabilities_osv_base_uri` | `https://api.osv.dev` | OSV endpoint, `http` or `https` only |
 | `SHARPIT_VULNERABILITIES_EPSS_ENABLED` | `vulnerabilities_epss_enabled` | `true` | enrich findings with EPSS scores |
-| `SHARPIT_VULNERABILITIES_EPSS_BASE_URI` | `vulnerabilities_epss_base_uri` | `https://api.first.org` | EPSS endpoint |
+| `SHARPIT_VULNERABILITIES_EPSS_BASE_URI` | `vulnerabilities_epss_base_uri` | `https://api.first.org` | EPSS endpoint, `http` or `https` only |
 | `SHARPIT_VULNERABILITIES_REQUEST_TIMEOUT` | `vulnerabilities_request_timeout` | `10s` | per-request timeout |
 | `SHARPIT_VULNERABILITIES_MAX_PACKAGES` | `vulnerabilities_max_packages` | `500` | packages sent to OSV |
 | `SHARPIT_VULNERABILITIES_MAX_ADVISORIES` | `vulnerabilities_max_advisories` | `200` | advisories kept per scan |
