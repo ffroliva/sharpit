@@ -44,6 +44,8 @@ _SQL_ERROR_SHAPE = re.compile(
     r"^(?:sqlalchemy\.(?:exc|engine)\.|(?:psycopg2?|sqlite3|pymysql|MySQLdb|mysql(?:\.connector)?|asyncpg)\.)"
     r"[\w.]+:"
 )
+# no anchor: SQLAlchemy opens with ``(pymysql.err.X)``, a stack trace names the driver further down
+_MYSQL_DRIVER = re.compile(r"\b(?:pymysql|MySQLdb|asyncmy|mariadb|mysql\.connector)\.")
 _SQL_PARAMETER_KEYS = re.compile(r"(?:^|[._])(?:parameters?|bind_?params?)(?:[._]|$)", re.IGNORECASE)
 
 
@@ -180,7 +182,7 @@ def _sql_message(masker: Masker, text: str | None, mysql: bool = False) -> str |
     if text is None:
         return None
     if not masker.capture_parameters and (_SQL_ERROR.search(text) or _SQL_ERROR_SHAPE.match(text)):
-        text = _redact_sql_errors(text, mysql)
+        text = _redact_sql_errors(text, mysql or _MYSQL_DRIVER.search(text) is not None)
     return masker.mask_text(text)
 
 
