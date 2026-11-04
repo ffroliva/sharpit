@@ -104,6 +104,21 @@ def test_a_mount_the_walk_cannot_reach_falls_back_to_the_masked_path() -> None:
     assert JWT not in _route_row(client)["route"]
 
 
+def test_a_mount_the_walk_cannot_reach_is_labelled_as_the_masked_path() -> None:
+    sub = _sub_app()
+
+    async def wrapper(scope: Any, receive: Any, send: Any) -> None:
+        await sub(scope, receive, send)
+
+    hidden = Starlette(routes=[Mount("/deep", app=wrapper)])
+    _, client = _mounted("/share", hidden)
+
+    client.get("/share/deep/items/1")
+
+    row = _route_row(client)
+    assert (row["route"], row["routeSource"]) == ("/share/deep/items/{value}", "MASKED_PATH")
+
+
 def test_a_root_path_from_the_server_is_not_part_of_the_route() -> None:
     app = FastAPI(root_path="/behind-proxy")
     app.get("/pets/{pet_id}")(lambda pet_id: {})
