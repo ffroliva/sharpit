@@ -90,7 +90,7 @@ TIMING_FILES = sorted(
 
 
 def test_the_overhead_budget_files_are_found() -> None:
-    assert "tests/fastapi/test_security_logs_overhead.py" in TIMING_FILES
+    assert "tests/fastapi/test_capture_overhead.py" in TIMING_FILES
     assert "tests/test_shard.py" not in TIMING_FILES
 
 
