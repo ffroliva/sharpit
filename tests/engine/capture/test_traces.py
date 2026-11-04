@@ -6,6 +6,7 @@ Spans are SDK-``ReadableSpan``-shaped fakes: the SDK is not a test dependency an
 from __future__ import annotations
 
 import sys
+import time
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
@@ -572,3 +573,16 @@ def test_a_postgres_driver_error_on_a_span_without_a_database_keeps_the_generic_
 
     assert detail is not None
     assert "[SQL: select a # b from t]" in attribute(detail["spans"][0], "exception.message")
+
+
+# derived: this round's regex audit: ``[SQL: `` with no ``]`` after it scanned to the end from every occurrence
+@pytest.mark.parametrize("text", ["[SQL: " * 15_000, "] " + "[SQL: " * 15_000], ids=["no-closer", "closer-first"])
+def test_sql_error_scan_stays_fast_without_a_closer(text: str):
+    buf = buffer()
+    buf.add(span(attributes={"exception.message": text}))
+
+    started = time.perf_counter()
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert time.perf_counter() - started < 1
+    assert detail is not None
