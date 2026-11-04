@@ -64,6 +64,12 @@ def _first_application_location() -> str | None:
         del frame
 
 
+def _binds(statement: ast.stmt, key: str) -> bool:
+    target = statement.target if isinstance(statement, ast.AnnAssign) else None
+    targets = statement.targets if isinstance(statement, ast.Assign) else [target]
+    return any(isinstance(t, ast.Name) and t.id == key for t in targets)
+
+
 @functools.lru_cache(maxsize=256)
 def _declaration_line(cls: type, key: str) -> str | None:
     """``path:line`` of ``key = relationship(...)`` in ``cls``'s body, when the class is application code."""
@@ -77,9 +83,7 @@ def _declaration_line(cls: type, key: str) -> str | None:
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == cls.__name__:
             for statement in node.body:
-                target = statement.target if isinstance(statement, ast.AnnAssign) else None
-                targets = statement.targets if isinstance(statement, ast.Assign) else [target]
-                if any(isinstance(t, ast.Name) and t.id == key for t in targets):
+                if _binds(statement, key):
                     return f"{filename}:{statement.lineno}"
     return None
 

@@ -147,8 +147,9 @@ class TransactionRecorder:
         now = time.time_ns()
         with self._lock:
             entry_id = next(self._ids)
-            while len(self._entries) >= self.max_entries and self._evict_completed_locked():
-                pass
+            while len(self._entries) >= self.max_entries:
+                if not self._evict_completed_locked():
+                    break
             if len(self._entries) >= 2 * self.max_entries:
                 # Open rows may outlive capacity (a long transaction) but never twice it: a connection dropped
                 # without an end event would otherwise grow the ring forever.
@@ -194,8 +195,9 @@ class TransactionRecorder:
             self._close_locked(row, status, error)
             if settle:
                 self._unsettled[entry_id] = row
-            while len(self._entries) > self.max_entries and self._evict_completed_locked():
-                pass
+            while len(self._entries) > self.max_entries:
+                if not self._evict_completed_locked():
+                    break
         self.changes.signal()
 
     def settle(self, entry_id: int, error: BaseException | None = None) -> None:
@@ -378,6 +380,7 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
         _close(stack, "UNKNOWN")
         stack.clear()
         _savepoints(conn.info).clear()
+    parents = parent_ids or {}
     info = REQUEST.get()
     connection_id = _connection_id(conn)
     for ctx in _targets(conn):
@@ -385,7 +388,7 @@ def _begin(conn: Any, parent_ids: dict[int, int] | None = None) -> None:
         if recorder is None:
             continue
         try:
-            parent = parent_ids.get(id(recorder)) if parent_ids else None
+            parent = parents.get(id(recorder))
             method = call_site(None) if ctx.settings.sql_trace_capture_call_site else "unknown"
             entry_id = recorder.begin(
                 id(conn),
