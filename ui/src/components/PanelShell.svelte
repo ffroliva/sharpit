@@ -41,5 +41,5 @@
 
 <style>
   .panel-head h1 { margin-right: auto; }
-  .count { margin-left: auto; white-space: nowrap; }
+  .count { white-space: nowrap; }
 </style>
