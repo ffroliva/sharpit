@@ -265,6 +265,36 @@ def test_mask_text_corpus(text: str, expected: str) -> None:
     assert Masker(M, True).mask_text(text) == expected
 
 
+HEX_TOKEN = "0123456789abcdef" * 2
+VENDOR_TOKEN = "sk-" + "abc123" * 4
+OPAQUE_TOKEN = "AAAA" * 8
+BASIC_CREDENTIALS = "dXNlcjpw" + "YXNzd29yZA=="
+
+
+@pytest.mark.parametrize(
+    ("scheme", "credential"),
+    [
+        ("Bearer", HEX_TOKEN),
+        ("Bearer", VENDOR_TOKEN),
+        ("Bearer", OPAQUE_TOKEN),
+        ("Basic", BASIC_CREDENTIALS),
+        ("Token", HEX_TOKEN),
+    ],
+    ids=["bearer-hex", "bearer-vendor", "bearer-opaque", "basic", "token"],
+)
+def test_mask_text_masks_any_auth_scheme_credential(scheme: str, credential: str) -> None:
+    masked = Masker(M, True).mask_text(f"sent {scheme} {credential} upstream")
+    assert masked == f"sent {scheme} {MASK} upstream"
+
+
+def test_mask_text_auth_scheme_is_linear() -> None:
+    assert Masker(M, True).mask_text("Bearer " * 20_000 + " " * 20_000)
+
+
+def test_mask_text_scheme_word_inside_a_longer_word_is_kept() -> None:
+    assert Masker(M, True).mask_text("MyToken value") == "MyToken value"
+
+
 def test_mask_text_json_stays_valid() -> None:
     import json
 
