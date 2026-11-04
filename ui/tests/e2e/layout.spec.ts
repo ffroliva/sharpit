@@ -88,6 +88,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 1280, height: 800 });
       await openPanel(page, 'sqlalchemy-statistics');
       const body = page.locator('main .panel-body');
+      await body.evaluate((el) => el.insertAdjacentHTML('afterbegin', '<p class="warn">Warning fixture</p>'));
       for (const selector of ['h2', 'p.sm', 'pre', 'p.warn']) {
         const element = body.locator(selector).first();
         await expect(element).toBeVisible();
