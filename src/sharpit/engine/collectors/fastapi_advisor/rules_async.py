@@ -9,6 +9,7 @@ from sharpit.engine.advisors.rules import RuleDefinition
 from sharpit.engine.appsource import SourceIndex
 from sharpit.engine.collectors.fastapi_advisor.handlers import Handler, Hit, call_name, import_aliases, own_nodes
 
+_PERFORMANCE = "Performance and concurrency"
 _CONCURRENCY = "https://fastapi.tiangolo.com/async/"
 _BACKGROUND = "https://fastapi.tiangolo.com/tutorial/background-tasks/"
 _TIMEOUTS = "https://requests.readthedocs.io/en/latest/user/advanced/#timeouts"
@@ -16,7 +17,7 @@ _TIMEOUTS = "https://requests.readthedocs.io/en/latest/user/advanced/#timeouts"
 SYNC_IO = RuleDefinition(
     "FASTAPI-ASYNC-001",
     "Review blocking work in sync endpoints",
-    "Performance and concurrency",
+    _PERFORMANCE,
     "INFO",
     "A sync def endpoint that blocks on I/O holds one of the threadpool's worker threads (40 by default) for the "
     "whole call.",
@@ -26,7 +27,7 @@ SYNC_IO = RuleDefinition(
 ASYNC_BLOCKING = RuleDefinition(
     "FASTAPI-ASYNC-002",
     "Blocking call inside an async endpoint",
-    "Performance and concurrency",
+    _PERFORMANCE,
     "HIGH",
     "A blocking call (time.sleep, requests, subprocess, file or socket I/O) inside an async def endpoint stops the "
     "event loop: every other request waits until it returns.",
@@ -46,7 +47,7 @@ HTTP_TIMEOUT = RuleDefinition(
 HEAVY_BACKGROUND = RuleDefinition(
     "FASTAPI-BG-001",
     "Review heavy work in BackgroundTasks",
-    "Performance and concurrency",
+    _PERFORMANCE,
     "LOW",
     "BackgroundTasks run in the same process after the response, with no retry or persistence; a task that loops "
     "or blocks competes with requests and is lost on restart.",

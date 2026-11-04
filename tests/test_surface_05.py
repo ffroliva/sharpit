@@ -52,5 +52,6 @@ def test_unimplemented_panel_has_no_surface_05(panel: str, monkeypatch: pytest.M
     assert [p for p in lane_paths if p == f"/api/{panel}" or p.startswith(f"/api/{panel}/")] == []
     assert own_tools & mcp_names == set()
     assert own_tools & cli_names == set()
+    fresh = FastAPI()
     with pytest.raises(ValueError, match="Unknown sharpit panel"):
-        install(FastAPI(), enabled="ON", show_banner=False, panels={panel: {"enabled": True}})
+        install(fresh, enabled="ON", show_banner=False, panels={panel: {"enabled": True}})

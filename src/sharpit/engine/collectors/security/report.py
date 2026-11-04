@@ -118,7 +118,7 @@ def scan_evaluation(inputs: Inputs) -> Evaluation:
             continue  # unknown, never a pass: the limitation says why
         try:
             found = rule.check(inputs)
-        except Exception:  # noqa: BLE001 - one rule's failure is an analysis error, never a failed scan
+        except Exception:  # noqa: BLE001 - one rule's failure is an analysis error; never a failed scan
             errors.append(definition)
             continue
         evaluated.append(definition.id)

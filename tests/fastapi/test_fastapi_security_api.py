@@ -335,8 +335,8 @@ class CountingRoute(BaseRoute):
         return Match.NONE, {}
 
 
-def test_introspection_never_reads_or_calls_custom_route_attributes():
-    CountingRoute.calls = 0
+def test_introspection_never_reads_or_calls_custom_route_attributes(monkeypatch):
+    monkeypatch.setattr(CountingRoute, "calls", 0)
     app = FastAPI()
     app.router.routes.append(CountingRoute())
     client = client_for(app)

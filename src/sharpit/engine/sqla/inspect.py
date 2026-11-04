@@ -62,7 +62,7 @@ def catalog(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
             break
         try:
             table, cut = _table(conn, inspector, name, bounds)
-        except Exception as exc:  # noqa: BLE001 - one unreadable table is a diagnostic, never a failed scan
+        except Exception as exc:  # noqa: BLE001 - one unreadable table is a diagnostic; never a failed scan
             complete = False
             diagnostics.append(_warning(f"Table {name} could not be read: {error_text(exc)}"))
             continue

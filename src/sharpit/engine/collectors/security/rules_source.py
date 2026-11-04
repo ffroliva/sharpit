@@ -89,7 +89,11 @@ def _cheap_bcrypt(inputs: Inputs) -> list[Violation]:
 
 
 def _target_names(node: ast.AST) -> list[str]:
-    targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+    targets: list[ast.expr] = []
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+    elif isinstance(node, ast.AnnAssign):
+        targets = [node.target]
     names = [t.id if isinstance(t, ast.Name) else t.attr if isinstance(t, ast.Attribute) else "" for t in targets]
     return [n for n in names if n]
 
@@ -119,20 +123,25 @@ def _named_values(node: ast.AST) -> Iterator[tuple[str, ast.expr | None]]:
         yield from zip((a.arg for a in node.kwonlyargs), node.kw_defaults, strict=True)
 
 
+def _node_secrets(node: ast.AST, where: str) -> Iterator[Violation]:
+    for name, value in _named_values(node):
+        if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+            continue
+        if len(value.value) >= _MIN_NAMED_SECRET and is_sensitive_key(name):
+            at = f"{where}:{value.lineno}"
+            yield Violation(at, f"{at} assigns a literal to the secret-like name {name}.")
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and is_secret_value(node.value):
+        at = f"{where}:{node.lineno}"
+        yield Violation(at, f"{at} holds a literal the secret detectors flag.")
+
+
 def _literal_secrets(inputs: Inputs) -> list[Violation]:
     found: dict[str, Violation] = {}  # one finding per location
     for module in source_modules(inputs):
         where = source_file(module)
         for node in ast.walk(module.tree):
-            for name, value in _named_values(node):
-                if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
-                    continue
-                if len(value.value) >= _MIN_NAMED_SECRET and is_sensitive_key(name):
-                    at = f"{where}:{value.lineno}"
-                    found.setdefault(at, Violation(at, f"{at} assigns a literal to the secret-like name {name}."))
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and is_secret_value(node.value):
-                at = f"{where}:{node.lineno}"
-                found.setdefault(at, Violation(at, f"{at} holds a literal the secret detectors flag."))
+            for violation in _node_secrets(node, where):
+                found.setdefault(violation.target, violation)
     return sorted(found.values(), key=lambda v: (v.target.rpartition(":")[0], int(v.target.rpartition(":")[2])))
 
 

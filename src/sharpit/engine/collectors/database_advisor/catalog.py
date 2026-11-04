@@ -128,6 +128,10 @@ def bounds_of(ctx: SharpitContext) -> CatalogBounds:
     )
 
 
+def _with_budget(bounds: CatalogBounds, budget: float) -> CatalogBounds:
+    return replace(bounds, budget=budget)
+
+
 async def read_sources(ctx: SharpitContext, flight: Flight) -> list[Source]:
     """Every registered engine's facts, one engine after another, inside one cooperative scan budget."""
     registry = ctx.capture.engine_registry
@@ -141,7 +145,7 @@ async def read_sources(ctx: SharpitContext, flight: Flight) -> list[Source]:
         if remaining <= 0:
             sources.append(Source(name, dialect, driver, "FAILED", BUDGET_RAN_OUT, {}, pool, keys, echo))
             continue
-        status, message, found = await _read(ctx, flight, engine, replace(bounds, budget=remaining))
+        status, message, found = await _read(ctx, flight, engine, _with_budget(bounds, remaining))
         sources.append(Source(name, dialect, driver, status, message, found, pool, keys, echo))
     return sources
 
@@ -171,7 +175,7 @@ async def _read(
         return "FAILED", exc.reason, {}
     except TimeoutError:
         return "FAILED", BUDGET_RAN_OUT, {}
-    except Exception as exc:  # noqa: BLE001 - a failed engine is reported for that engine, never raised
+    except Exception as exc:  # noqa: BLE001 - a failed engine is reported for that engine; never raised
         return "FAILED", error_text(exc), {}
     partial = found["truncated"] or not found["complete"]
     return ("PARTIAL" if partial else "AVAILABLE"), None, found

@@ -247,8 +247,8 @@ class CountingMount(Mount):
         return []
 
 
-def test_mount_property_never_evaluated(no_side_effects: SideEffectGuard):
-    CountingMount.reads = 0
+def test_mount_property_never_evaluated(no_side_effects: SideEffectGuard, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(CountingMount, "reads", 0)
     app = FastAPI()
     app.router.routes.append(CountingMount("/m", routes=[Route("/a", plain)]))
     intro = FastApiIntrospector(app, "/sharpit")

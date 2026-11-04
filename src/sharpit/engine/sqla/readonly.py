@@ -175,7 +175,7 @@ def bounded[T](conn: Any, fn: Callable[[Any], T], timeout: float) -> T:
 async def run_db_read[T](
     engine: Any,
     fn: Callable[[Any], T],
-    timeout: float,
+    budget: float,
     *,
     executor: Executor | None = None,
     done: Callable[[], None] | None = None,
@@ -192,8 +192,8 @@ async def run_db_read[T](
     ``done`` runs once the read really ended: a sync read that timed out keeps its thread (Python cannot stop it), so
     ``done`` waits for that thread when it runs on ``executor``; single-flight callers release on it.
     """
-    wall = timeout if wall_timeout is None else wall_timeout
-    stmt = timeout if statement_timeout is None else statement_timeout
+    wall = budget if wall_timeout is None else wall_timeout
+    stmt = budget if statement_timeout is None else statement_timeout
     lock = () if lock_timeout is None else (lock_timeout,)  # bounded_read_only's own default otherwise
     sync = getattr(engine, "sync_engine", engine)
     with internal():  # the thread and the greenlet copy this context, so the listeners see the marker
