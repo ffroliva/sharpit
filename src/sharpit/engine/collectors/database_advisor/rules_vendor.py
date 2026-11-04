@@ -93,7 +93,7 @@ def read_vendor(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
                     keys, rows = _fetch(conn, sql, bounds.vendor_rows)
             else:
                 keys, rows = _fetch(conn, sql, bounds.vendor_rows)
-        except Exception as exc:  # noqa: BLE001 - one denied view skips its rules, never the scan
+        except Exception as exc:  # noqa: BLE001 - one denied view skips its rules; never the scan
             facts[name] = {"error": error_text(exc)}
             continue
         kept = [dict(zip(keys, row, strict=True)) for row in rows[: bounds.vendor_rows]]
@@ -130,7 +130,8 @@ def _listed(dialects: tuple[str, ...], fact: str, text: str) -> Callable[[Source
             return rows
         hits: list[Hit] = []
         for row in rows:
-            where = row["tbl"] + (f".{row[k]}" if (k := "idx" if "idx" in row else "name") in row else "")
+            k = "idx" if "idx" in row else "name"
+            where = row["tbl"] + (f".{row[k]}" if k in row else "")
             hits.append(_hit(source, where, text.format(**row), f"table={row['tbl']}", f"object={where}"))
         return hits
 
@@ -178,7 +179,9 @@ def _replica_identity(source: Source) -> Outcome:
 def _capacity(column_type: str) -> int | None:
     base = re.match(r"\s*([a-z]+)", column_type.lower())
     top = _INT_MAX.get(base.group(1)) if base else None
-    return None if top is None else top * 2 + 1 if "unsigned" in column_type.lower() else top
+    if top is None:
+        return None
+    return top * 2 + 1 if "unsigned" in column_type.lower() else top
 
 
 def _auto_increment(source: Source) -> Outcome:

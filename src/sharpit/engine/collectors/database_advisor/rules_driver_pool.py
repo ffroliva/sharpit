@@ -69,6 +69,13 @@ def _usable(source: Source) -> int | None:
     return None if reserved is None or extra is None else total - reserved - extra
 
 
+def _seconds(value: int | None, per_second: int) -> float | None:
+    """``value`` in seconds; ``NO_LIMIT`` at zero or below, None when unread."""
+    if value is None:
+        return None
+    return NO_LIMIT if value <= 0 else value / per_second
+
+
 def _idle_limit_seconds(source: Source) -> float | None:
     """The server's idle-session limit in seconds, ``NO_LIMIT``, or None when unknown."""
     server = source.server
@@ -77,10 +84,8 @@ def _idle_limit_seconds(source: Source) -> float | None:
             return None
         if "idle_session_timeout" not in server:  # before PostgreSQL 14 there is no such limit
             return NO_LIMIT
-        millis = _int(server["idle_session_timeout"])
-        return None if millis is None else NO_LIMIT if millis <= 0 else millis / 1000
-    seconds = _int(server.get("wait_timeout"))
-    return None if seconds is None else NO_LIMIT if seconds <= 0 else float(seconds)
+        return _seconds(_int(server["idle_session_timeout"]), 1000)
+    return _seconds(_int(server.get("wait_timeout")), 1)
 
 
 def _idle_fires(source: Source, pool: Pool) -> bool | str:
