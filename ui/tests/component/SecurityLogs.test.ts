@@ -35,7 +35,7 @@ it('renders type summaries, the masked badge, and refetches on a stream update',
   expect(h.text()).toContain('r-42');
   const before = h.calls('GET').length;
   FakeEventSource.last.emit('update');
-  await until(() => expect(h.calls('GET').length).toBe(before + 1));
+  await until(() => expect(h.calls('GET')).toHaveLength(before + 1));
 });
 
 it('filters by a type summary', async () => {
