@@ -241,8 +241,10 @@ def test_uses_walks_each_source_file_once(monkeypatch: pytest.MonkeyPatch) -> No
         return real(tree)
 
     monkeypatch.setitem(globals(), "_scoped", counting)
+    _source.cache_clear()  # warm from the scan on this xdist worker: nothing would be counted
     uses("first_name_nobody_uses", object())
     after_first = len(walks)
+    assert after_first > 0
     uses("second_name_nobody_uses", object())
     assert len(walks) == after_first, "uses() walked the src trees again for a second name"
 
