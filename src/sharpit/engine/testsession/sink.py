@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from sharpit.engine.capture.exceptions import fingerprint
-from sharpit.engine.capture.sqltrace import category_of, normalize
+from sharpit.engine.capture.sqltrace import category_of, mask_error, normalize
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources.dispatch import SqlEvent, TestTag
 from sharpit.engine.spi import ApiModel
@@ -180,7 +180,7 @@ class TestSessionSink:
                     return
                 group = fingerprint(exc)
                 try:
-                    message = self._mask(str(exc))
+                    message = mask_error(self._masker, str(exc)) or ""
                 except Exception:
                     message = f"<unprintable {type(exc).__name__}>"
                 phase.exception_groups.setdefault(group, (type(exc).__name__, message))

@@ -15,6 +15,7 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
 
@@ -127,7 +128,7 @@ class SharpitLogHandler(logging.Handler):
         except Exception:  # noqa: BLE001 - a bad format string
             message = str(record.msg)
         # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
-        masked = self.masker.mask_text(message[: 4 * MAX_MESSAGE])
+        masked = mask_error(self.masker, message[: 4 * MAX_MESSAGE])
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return {

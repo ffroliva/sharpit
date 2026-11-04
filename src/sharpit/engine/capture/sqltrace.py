@@ -58,9 +58,9 @@ PARAMETERS_SHOWN = (
 _MAX_SCAN_LENGTH = 20_000
 MYSQL_DIALECTS = ("mysql", "mariadb")
 _MYSQL_RADIX_LITERAL = re.compile(r"0[xX][0-9a-fA-F]+|0[bB][01]+")
-# a square-bracket identifier starts like a name and holds no quote, comma or second bracket: anything else in
-# brackets is a value (``ARRAY['x']``, ``ARRAY [1, 2]``) and stays in the scan
-_BRACKET_IDENTIFIER = re.compile(r"""\[[^\W\d][^\]\['",\n]*\]""")
+# a square-bracket identifier is a name, words and spaces only: anything else in brackets is a value and stays in the
+# scan (``ARRAY['x']``, ``ARRAY [lower($$x$$)]``, ``[2024 sales]``, ``[it's]``); showing a value is the worse mistake
+_BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d][\w ]*\]")
 
 
 class Normalized(NamedTuple):
@@ -215,7 +215,9 @@ def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
     c = sql[index]
     if c != "[":
         return _skip_quoted(sql, index, c, mysql)
-    subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$")  # ``ARRAY[``, ``items[``
+    # ``ARRAY[``, ``items[``, ``(ARRAY[1])[``, ``a[1][``, ``ARRAY [``; a space alone proves nothing: ``SELECT [col]``
+    subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$)]")
+    subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")
     found = None if subscript else _BRACKET_IDENTIFIER.match(sql, index)
     return found.end() if found else index + 1
 
@@ -602,6 +604,7 @@ class SqlTraceRecorder:
                 text = _driver_values_dropped(text)
                 if sql:
                     text = text.replace(sql.strip(), normalized.sql)  # SQLAlchemy repeats the statement in [SQL: ...]
+                text = _sql_blocks_normalized(text, mysql)  # an error raised for another statement than ``sql``
             masked = masker.mask_text(text)
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
@@ -753,6 +756,18 @@ class SqlTraceRecorder:
         }
 
 
+_SQL_BLOCK = "[SQL: "
+# what follows a statement in SQLAlchemy's message or a chained traceback
+_SQL_BLOCK_END = re.compile(
+    r"\n(?:\[parameters: |\[SQL parameters hidden|\[SQL: |\(Background on this error"
+    r"|The above exception|During handling of|Traceback \()"
+)
+_SQL_ERROR_SHAPE = re.compile(
+    r"^(?:sqlalchemy\.(?:exc|engine)\.|(?:psycopg2?|sqlite3|pymysql|MySQLdb|mysql(?:\.connector)?|asyncpg)\.)"
+    r"[\w.]+:"
+)
+# no anchor: SQLAlchemy opens with ``(pymysql.err.X)``, a stack trace names the driver further down
+_MYSQL_DRIVER = re.compile(r"\b(?:pymysql|MySQLdb|asyncmy|mariadb|mysql\.connector)\.")
 _QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
 
 
@@ -764,6 +779,57 @@ def _driver_values_dropped(text: str) -> str:
     """
     head, sep, tail = text.partition("\n[SQL: ")
     return _QUOTED.sub("?", head.split("\n", 1)[0]) + sep + tail
+
+
+def _traceback_prefix(text: str) -> tuple[str, str]:
+    lines = text.splitlines()
+    if not lines or not lines[0].startswith("Traceback (most recent call last):"):
+        return "", "\n".join(lines)
+    frame_count = 1
+    for line in lines[1:]:
+        if line.startswith("  File ") or (line.startswith("    ") and line.strip()):
+            frame_count += 1
+        else:
+            break
+    return "\n".join(lines[:frame_count]), "\n".join(lines[frame_count:])
+
+
+def _sql_blocks_normalized(text: str, mysql: bool) -> str:
+    """Each ``[SQL: ...]`` block normalised. A statement holds brackets of its own, so it runs to the last ``]`` before
+    what follows a block, or to that point with no ``]`` at all: an open block is still a statement. Each pass consumes
+    up to there, so the scan is linear."""
+    parts: list[str] = []
+    cursor = 0
+    while (start := text.find(_SQL_BLOCK, cursor)) >= 0:
+        body = start + len(_SQL_BLOCK)
+        following = _SQL_BLOCK_END.search(text, body)
+        stop = following.start() if following else len(text)
+        close = text.rfind("]", body, stop)
+        end = close if close >= 0 else stop
+        parts += (text[cursor:start], f"{_SQL_BLOCK}{normalize(text[body:end], mysql).sql}]")
+        cursor = close + 1 if close >= 0 else stop
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _redact_sql_errors(text: str, mysql: bool) -> str:
+    frames, remainder = _traceback_prefix(text)
+    cleaned = _driver_values_dropped(remainder or text)
+    return _sql_blocks_normalized(f"{frames}\n{cleaned}" if frames else cleaned, mysql)
+
+
+def mask_error(masker: Masker, text: str | None, mysql: bool = False) -> str | None:
+    """An error text for display: every path from an exception to output comes here.
+
+    ``Masker.mask_text`` masks secrets by shape, so a literal in the ``[SQL: ...]`` block SQLAlchemy appends passes it.
+    With parameter capture off that block is normalised first; ``mysql`` is for text known to be MySQL's, and a MySQL
+    driver named in the text counts as known. Text with no block pays one substring check and one anchored match.
+    """
+    if text is None:
+        return None
+    if not masker.capture_parameters and (_SQL_BLOCK in text or _SQL_ERROR_SHAPE.match(text)):
+        text = _redact_sql_errors(text, mysql or _MYSQL_DRIVER.search(text) is not None)
+    return masker.mask_text(text)
 
 
 def cast_sets(parameters: object, executemany: bool) -> Sequence[object]:

@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 import pytest
@@ -446,3 +447,169 @@ def test_mask_text_token_between_runs_of_spaces_stays_linear() -> None:
 @pytest.mark.parametrize("text", ["WHERE token >= 5", "Token -> next", "sent token ... upstream"])
 def test_mask_text_token_keeps_an_operator(text: str) -> None:
     assert Masker(M, True).mask_text(text) == text
+
+
+# derived: release council probe p8_uncapped.py: ``\S+`` took the word ``token`` for the credential
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Invalid bearer token abc123def", f"Invalid bearer token {MASK}"),
+        ("rejected Bearer Token s3cr3tvalue", f"rejected Bearer Token {MASK}"),
+        ("rejected BEARER TOKEN s3cr3tvalue", f"rejected BEARER TOKEN {MASK}"),
+        ("sent basic token abc123def", f"sent basic token {MASK}"),
+    ],
+)
+def test_mask_text_credential_after_bearer_token_is_masked(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
+
+
+# derived: review of the fix above: the key's value stopped at ``Token``, so the credential followed the mask
+@pytest.mark.parametrize("scheme", ["Bearer Token", "bearer token", "Basic Token", "Digest Token"])
+def test_mask_text_authorization_value_with_a_token_word_masks_whole(scheme: str) -> None:
+    assert Masker(M, True).mask_text(f"Authorization: {scheme} abc123def") == f"Authorization: {MASK}"
+
+
+# derived: release council probe p1_mask.py: lower-case schemes masked the English word after them
+@pytest.mark.parametrize(
+    "text",
+    [
+        "basic auth failed for hunter2x",
+        "Basic auth failed",
+        "bearer expired",
+        "Bearer expired.",
+        "bearer token expired",
+        "Bearer Token expired",
+        "SELECT basic FROM t",
+        "SELECT bearer FROM t",
+    ],
+)
+def test_mask_text_scheme_word_keeps_ordinary_words(text: str) -> None:
+    assert Masker(M, True).mask_text(text) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("BEARER expired", f"BEARER {MASK}"),
+        ("BASIC expired", f"BASIC {MASK}"),
+        ("bEaReR expired", f"bEaReR {MASK}"),
+        ("Authorization: Bearer expired", f"Authorization: {MASK}"),
+        ("Authorization: Basic expired", f"Authorization: {MASK}"),
+        (f"Basic {BASIC_CREDENTIALS}", f"Basic {MASK}"),
+        ("bearer abc123def", f"bearer {MASK}"),
+    ],
+)
+def test_mask_text_scheme_guard_leaves_no_credential(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
+
+
+# derived: release council probe p2_redos.py: a quadratic regex holds the GIL, so the host freezes on one masked line.
+# ReDoS is a wall-clock defect: each size takes seconds on the quadratic pattern, within the 60 s test timeout
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("token " + '"' * 16_000 + "1", id="token-quotes"),
+        pytest.param(")" * 16_000 + "a", id="token-edges-suffix"),
+        pytest.param(".)" * 8_000 + "a", id="token-edges-mixed"),
+        pytest.param("eyJ" * 66_000, id="jwt-prefix-run"),
+        pytest.param("=" + "BEGIN" * 40_000, id="pem-prefix-run"),
+        pytest.param("k=[ " * 16_000, id="pair-unclosed-bracket"),
+        pytest.param("k=( " * 16_000, id="pair-unclosed-paren"),
+        pytest.param('"k":[ ' * 11_000, id="quoted-pair-unclosed-bracket"),
+        pytest.param('"k":( ' * 11_000, id="quoted-pair-unclosed-paren"),
+    ],
+)
+def test_mask_text_stays_fast_on_a_pathological_input(text: str) -> None:
+    started = time.perf_counter()
+    Masker(M, True).mask_text(text)
+    assert time.perf_counter() - started < 1
+
+
+# derived: the same audit: the fix must not lose a credential the shipped patterns found
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(f"x-{JWT}", id="jwt-glued-to-a-word"),
+        pytest.param(f"(jwt_{JWT})", id="jwt-glued-in-parens"),
+        pytest.param(f"eyJshort{JWT}", id="jwt-after-a-failed-start"),
+    ],
+)
+def test_mask_text_masks_a_jwt_glued_to_a_word(text: str) -> None:
+    assert JWT not in (Masker(M, True).mask_text(text) or "")
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["A BEGIN RSA PRIVATE KEY", "XBEGIN PRIVATE KEY", "BEGIN BEGIN PRIVATE KEY", "a BEGIN x BEGIN EC PRIVATE KEY"],
+)
+def test_pem_marker_is_found_anywhere_in_its_run(value: str) -> None:
+    assert is_secret_value(value)
+
+
+def test_pem_marker_needs_begin_in_the_same_run() -> None:
+    assert not is_secret_value("BEGIN x PRIVATE KEY")
+
+
+LONG_LINE = "ordinary words " * 400
+
+
+# derived: the same audit: on a long line an opener with no closer must read exactly as on a short one
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("password=[a, b] note=[ (open", f"password={MASK} note=[ (open"),
+        ('{"password": ["a", "b"], "note": [1', f'{{"password": "{MASK}", "note": [1'),
+        ("note=[ password=hunter2", f"note=[ password={MASK}"),
+        ("token=(a b) secret=(hunter2", f"token={MASK} secret={MASK}"),
+        ('{"note":["password":"hunter2"', f'{{"note":["password":"{MASK}"'),
+    ],
+)
+def test_mask_text_unclosed_opener_reads_the_same_on_a_long_line(text: str, expected: str) -> None:
+    masker = Masker(M, True)
+    assert masker.mask_text(text) == expected
+    assert masker.mask_text(LONG_LINE + text) == LONG_LINE + expected
+
+
+# derived: release council fix round 3: the same first-closer shape as ``[SQL: ...]``: a sensitive value ended at the
+# first closer, so what followed a nested bracket or a closer inside a string was shown
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("password=[a[1], hunter2]", f"password={MASK}"),
+        ("password=[[1, 2], [3, hunter2]]", f"password={MASK}"),
+        ("password=(f(x), hunter2)", f"password={MASK}"),
+        ("password=[a[1], hunter2", f"password={MASK}"),
+        ('{"tokens": [["a"], ["hunter2"]]}', f'{{"tokens": "{MASK}"}}'),
+        ('{"tokens": ["a", {"x": [1]}, "hunter2"]}', f'{{"tokens": "{MASK}"}}'),
+        ('{"tokens": ["a]", "hunter2"]}', f'{{"tokens": "{MASK}"}}'),
+        ("{'token': (('a',), 'hunter2')}", f"{{'token': '{MASK}'}}"),
+    ],
+)
+def test_mask_text_sensitive_value_runs_to_its_balanced_closer(text: str, expected: str) -> None:
+    masker = Masker(M, True)
+    assert masker.mask_text(text) == expected
+    assert masker.mask_text(LONG_LINE + text) == LONG_LINE + expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('{"password": ["a"], "roles": ["x"]}', f'{{"password": "{MASK}", "roles": ["x"]}}'),
+        ("note=[a[1], b] password=hunter2", f"note=[a[1], b] password={MASK}"),
+        ("password=[a[1]]\nnote=[b]", f"password={MASK}\nnote=[b]"),
+    ],
+)
+def test_mask_text_balanced_value_leaves_what_follows(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
+
+
+@pytest.mark.parametrize("text", ["password=[[] " * 12_000, "password=[a] " * 12_000, "k=[[] " * 12_000])
+def test_mask_text_balanced_scan_stays_fast(text: str) -> None:
+    started = time.perf_counter()
+    Masker(M, True).mask_text(text)
+    assert time.perf_counter() - started < 1
+
+
+# derived: delete-the-control on the line bound: an open value stops at its line, the next line stays
+def test_mask_text_open_bracket_value_stops_at_its_line() -> None:
+    assert Masker(M, True).mask_text("password=[a[1], hunter2\nnote=[b]") == f"password={MASK}\nnote=[b]"

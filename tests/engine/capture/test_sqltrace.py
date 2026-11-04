@@ -675,3 +675,42 @@ def test_a_long_run_of_open_brackets_stays_linear() -> None:
 # derived: a qualified bracket identifier is no subscript, so its digits are part of the name
 def test_a_qualified_bracket_identifier_keeps_its_digits() -> None:
     assert normalize("SELECT t.[col 1] FROM t").sql == "SELECT t.[col 1] FROM t"
+
+
+# derived: release council probe p3_sql.py: the bracket identifier admitted ``$ ( / - *`` and the subscript check
+# missed ``)``, ``]`` and a space, so a value inside the bracket was never scanned
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT ARRAY [lower($$hunter2$$)]", "SELECT ARRAY [lower(?)]"),
+        ("SELECT ARRAY [lower($tag$hunter2$tag$)]", "SELECT ARRAY [lower(?)]"),
+        ("SELECT (ARRAY[1])[lower($$hunter2$$)]", "SELECT (ARRAY[?])[lower(?)]"),
+        ("SELECT a[1][md5($$hunter2$$)]", "SELECT a[?][md5(?)]"),
+        ("SELECT ARRAY [abs(4111111111111111)]", "SELECT ARRAY [abs(?)]"),
+        ("SELECT ARRAY [x /* password hunter2 */]", "SELECT ARRAY [x ]"),
+        ("SELECT (ARRAY[TRUE])[TRUE]", "SELECT (ARRAY[?])[?]"),
+        ("SELECT a[1][TRUE]", "SELECT a[?][?]"),
+        ("SELECT ARRAY [TRUE]", "SELECT ARRAY [?]"),
+        ("SELECT ARRAY [NOT 4111111111111111]", "SELECT ARRAY [NOT ?]"),
+    ],
+)
+def test_a_value_inside_brackets_is_scanned(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+# decided: a digit opens no name in brackets, so ``[2024 sales]`` is read as a value: readable less, leaks nothing
+def test_a_bracket_starting_with_a_digit_is_a_value() -> None:
+    assert normalize("SELECT [2024 sales] FROM t").sql == "SELECT [? sales] FROM t"
+
+
+# derived: delete-the-control on the identifier body: only the subscript check was proved, here no subscript helps
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT [lower($$hunter2$$)]", "SELECT [lower(?)]"),
+        ("SELECT [abs(4111111111111111)]", "SELECT [abs(?)]"),
+        ("SELECT [x /* password hunter2 */]", "SELECT [x ]"),
+    ],
+)
+def test_a_bracket_that_holds_more_than_a_name_is_scanned_anywhere(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected

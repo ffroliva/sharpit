@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.collectors.mysql.limits import ReadBudget, RowLimits, read_one_past
 from sharpit.engine.collectors.mysql.queries import (
     CAPABILITIES_SQL,
@@ -72,7 +73,7 @@ def section_dto(section_id: str, status: str, reason: str | None = None, rows: i
 
 
 def _reason(masker: Masker, exc: Exception) -> str:
-    return masker.mask_text(str(exc).strip()) or type(exc).__name__
+    return mask_error(masker, str(exc).strip(), mysql=True) or type(exc).__name__
 
 
 def _rows(conn: Any, sql: str) -> list[Row]:

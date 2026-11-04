@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import functools
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import StrEnum
 from urllib.parse import unquote_plus
 
@@ -24,7 +24,8 @@ class Exposure(StrEnum):
 
 # ---- SecretValueDetector -------------------------------------------------------------------------------------------
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+")  # used with fullmatch
-_PEM_PRIVATE_KEY = re.compile(r"BEGIN[A-Z0-9 ]*PRIVATE KEY")
+# sharpit deviation: the matches of BEGIN[A-Z0-9 ]*PRIVATE KEY, tried once per run: a restart at each BEGIN is quadratic
+_PEM_PRIVATE_KEY = re.compile(r"(?<![A-Z0-9 ])(?>[A-Z0-9 ]*?BEGIN)[A-Z0-9 ]*PRIVATE KEY")
 _AWS_ACCESS_KEY = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", re.ASCII)
 # sharpit widening: the user part may be empty (redis://:pw@host), so `*` where BootUI has `+`
 _URL_USERINFO = re.compile(r"://[^/?#\s:@]*:[^/?#\s@]+@", re.ASCII)
@@ -121,30 +122,98 @@ _TEXT_QUOTED_PAIR = re.compile(
 # a bracketed value ([1, 2]) is one value
 _TEXT_PAIR = re.compile(
     r"(?<![\w.-])([\w.-]+)(\s*[=:]\s*)"
-    r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]*\]|\([^)\n]*\)|(?:(?i:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
+    r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]*\]|\([^)\n]*\)|(?:(?i:Bearer|Basic|Digest|Token)\s+)?(?:(?i:Token)\s+)?[^\s,;&'\"]+)",
     re.ASCII,
 )
-# no credential after ``token``: an ordinary word (``Token expired``, ``FROM Token WHERE``), a plain, Capitalised or
-# UPPER run of 16 letters at most between punctuation, or an ASCII operator (``token >= 5``). Anything else is masked
-_ENGLISH_AFTER_TOKEN = (
-    r"""(?:[(\["'{<]*(?:[A-Za-z]?[a-z]{0,15}|[A-Z]{1,16})[)\]"'}>,;.:!?]*|[!-/:-@\[-`{-~]+)(?:\s|$)"""
+# no credential after a scheme word: an ordinary word (``Token expired``, ``FROM Token WHERE``), a plain, Capitalised or
+# UPPER run of 16 letters at most between punctuation, or an ASCII operator (``token >= 5``). Anything else is masked.
+# The opening run is possessive: both punctuation classes hold quotes, so backtracking between them is quadratic
+_ENGLISH_AFTER_SCHEME = (
+    r"""(?:[(\["'{<]*+(?:[A-Za-z]?[a-z]{0,15}|[A-Z]{1,16})[)\]"'}>,;.:!?]*|[!-/:-@\[-`{-~]+)(?:\s|$)"""
 )
-# sharpit widening: a scheme's credential with no key before it; schemes match in any case (RFC 9110). No nested
-# quantifier, so a long input stays linear; the word after ``token`` is not consumed, so it can open the next match
+_CREDENTIAL_FOLLOWS = rf"(?=\s++(?!{_ENGLISH_AFTER_SCHEME}))"
+# sharpit widening: a scheme's credential with no key before it; schemes match in any case (RFC 9110) and may name the
+# word ``token`` (``bearer token abc``). The plain spellings double as English (``basic auth``), so they need a
+# credential after them; ``BEARER`` or ``bEaReR`` is no word. The word checked is not consumed: it can open the next
+# match
 _TEXT_AUTH_SCHEME = re.compile(
-    rf"(?<![\w-])((?i:Bearer|Basic)|(?i:Token)(?=\s++(?!{_ENGLISH_AFTER_TOKEN})))\s+\S+", re.ASCII
+    r"(?<![\w-])("
+    rf"(?:(?i:Bearer|Basic)\s++)?(?i:Token){_CREDENTIAL_FOLLOWS}"
+    rf"|(?:[Bb]earer|[Bb]asic){_CREDENTIAL_FOLLOWS}"
+    r"|(?![Bb]earer|[Bb]asic)(?i:Bearer|Basic)"
+    r")\s+\S+",
+    re.ASCII,
 )
+# the JWT segments in free text. A run with no later segment is consumed too and left as it is: a restart at each
+# ``eyJ`` inside it is quadratic and would fail on the same segments
+_TEXT_JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}+(\.[A-Za-z0-9_-]{8,}+\.[A-Za-z0-9_-]++)?")
 _TEXT_TOKEN = re.compile(r"\S+")
-_TOKEN_EDGES = re.compile(r"^([\"'(\[{<]*)(.*?)([\"')\]}>,;.:!?]*)$", re.DOTALL)
+_TOKEN_LEAD = "\"'([{<"
+_TOKEN_TRAIL = "\"')]}>,;.:!?"
 # SQLAlchemy StatementError: "[parameters: ...]" runs to the last "]" on its line (bind tuples nest brackets), or to
 # the end of the line when a length cap cut the closing "]" off (the class stops at the newline: no "$" anchor)
 _SQL_PARAMETERS = re.compile(r"\[parameters: (?:[^\n]*\]|[^\n]*)", re.MULTILINE)
 _SQL_PARAMETERS_MASKED = f"[parameters: {MASK}]"
 _AUTH_SCHEME_MASKED = rf"\1 {MASK}"
+_LONG_TEXT = 4096  # below it the quadratic case costs milliseconds and a log line pays nothing extra; see _sub_pairs
+_BRACKET_RUN = re.compile(r"\[[^\]\n]*+(\]?)")
+_PAREN_RUN = re.compile(r"\([^)\n]*+(\)?)")
+_QUOTED_RUN = r""""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'"""
+_VALUE_BRACKETS = {"[": re.compile(rf"{_QUOTED_RUN}|[\[\]\n]"), "(": re.compile(rf"{_QUOTED_RUN}|[()\n]")}
 
 
 def _mask_segments(path: str) -> str:
     return "/".join(MASK if is_secret_value(seg) else seg for seg in path.split("/"))
+
+
+def _unclosed_openers_hidden(text: str) -> str:
+    """``text`` with each ``[`` or ``(`` that has no closer later on its line as ``{`` or ``<``, same length.
+
+    The pair patterns treat those characters exactly as an unclosed opener: no value alternative starts there, and
+    each bare value class takes or refuses both alike.
+    """
+    text = _BRACKET_RUN.sub(lambda m: m.group(0) if m.group(1) else m.group(0).replace("[", "{"), text)
+    return _PAREN_RUN.sub(lambda m: m.group(0) if m.group(1) else m.group(0).replace("(", "<"), text)
+
+
+def _value_end(text: str, start: int, end: int) -> int:
+    """Where a masked value ends: ``end``, or for a bracket its balanced closer past nesting and strings, else the end
+    of its line, because a regex closes at the first ``]`` and would show the rest."""
+    tokens = _VALUE_BRACKETS.get(text[start : start + 1])
+    if tokens is None:
+        return end
+    depth = 0
+    for token in tokens.finditer(text, start):
+        found = token.group()
+        if found == "\n":
+            return token.start()
+        depth += (found in "[(") - (found in "])")
+        if depth == 0 and found in "])":
+            return token.end()
+    return len(text)
+
+
+def _sub_pairs(pattern: re.Pattern[str], repl: Callable[[re.Match[str]], str], text: str, separator: int) -> str:
+    """``pattern.sub(repl, text)``, but a masked bracket value runs to its balanced closer; a long text stays linear.
+
+    ``separator`` is the group that ends where the value starts. Each unclosed opener would otherwise scan to the end
+    of its line, so on a long text matching runs on a copy without them; what no rule changes is taken from the
+    original. shortcut: a masked quoted key that holds an unclosed opener shows the stand-in, on a long text only; pass
+    the original spans to ``repl`` if a real key ever does.
+    """
+    if "[" not in text and "(" not in text:
+        return pattern.sub(repl, text)
+    view = text if len(text) < _LONG_TEXT else _unclosed_openers_hidden(text)
+    parts: list[str] = []
+    cursor = position = 0
+    while found := pattern.search(view, position):
+        position = found.end()
+        masked = repl(found)
+        if masked != found.group(0):
+            parts += (text[cursor : found.start()], masked)
+            cursor = position = _value_end(view, found.end(separator), position)
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 def _mask_pair(m: re.Match[str]) -> str:
@@ -162,17 +231,22 @@ def _mask_quoted_pair(m: re.Match[str]) -> str:
     return f"{m.group(1)}{m.group(2)}{m.group(1)}{m.group(3)}{quote}{MASK}{quote}"
 
 
+def _mask_jwt(m: re.Match[str]) -> str:
+    return MASK if m.group(1) else m.group(0)
+
+
 def _mask_token(m: re.Match[str]) -> str:
-    edges = _TOKEN_EDGES.match(m.group(0))
-    assert edges is not None  # the pattern matches any string
-    lead, core, trail = edges.groups()
+    token = m.group(0)
+    stripped = token.lstrip(_TOKEN_LEAD)
+    core = stripped.rstrip(_TOKEN_TRAIL)
+    lead, trail = token[: len(token) - len(stripped)], stripped[len(core) :]
     if not core or MASK in core:  # already masked by an earlier rule (userinfo, key=value)
-        return m.group(0)
+        return token
     if is_secret_value(core):
         return f"{lead}{MASK}{trail}"
     if "/" in core:  # a path such as an access-log "GET /reset/<jwt>"
         return f"{lead}{_mask_segments(core)}{trail}"
-    return m.group(0)
+    return token
 
 
 _SECRET_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key"})
@@ -229,10 +303,10 @@ class Masker:
         if not self._mask_secrets:
             return text
         text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
-        text = _TEXT_QUOTED_PAIR.sub(_mask_quoted_pair, text)
-        text = _TEXT_PAIR.sub(_mask_pair, text)
+        text = _sub_pairs(_TEXT_QUOTED_PAIR, _mask_quoted_pair, text, 3)
+        text = _sub_pairs(_TEXT_PAIR, _mask_pair, text, 2)
         text = _TEXT_AUTH_SCHEME.sub(_AUTH_SCHEME_MASKED, text)
-        text = _JWT.sub(MASK, text)
+        text = _TEXT_JWT.sub(_mask_jwt, text)
         return _TEXT_TOKEN.sub(_mask_token, text)
 
     def mask_path(self, path: str) -> str:
