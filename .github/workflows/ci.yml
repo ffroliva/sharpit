@@ -80,8 +80,8 @@ jobs:
 
   test:
     # The required checks keep their names: each passes only when every test shard passed (always(): a skipped
-    # required check would count as green). Stricter than per leg: one failed shard fails all four.
-    needs: test-shard
+    # required check would count as green). Stricter than per leg: one failed shard, or lint, fails all four.
+    needs: [test-shard, lint]
     if: always()
     strategy:
       fail-fast: false # each required check reports, none shows as cancelled
@@ -93,7 +93,7 @@ jobs:
             python: "3.14"
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.test-shard.result }}" = success
+      - run: test "${{ needs.test-shard.result }}" = success && test "${{ needs.lint.result }}" = success
 
   coverage-shard:
     # Coverage for SonarCloud. Overhead budget tests time capture on vs off, which the coverage tracer distorts:

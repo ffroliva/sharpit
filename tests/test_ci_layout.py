@@ -80,3 +80,9 @@ def test_no_test_shard_carries_more_weighted_test_time_than_the_ceiling(leg: str
         loads[shard_of(rel, n, platform) - 1] += seconds
     ceiling = LOAD_CEILING["windows-latest" if platform == "win32" else "ubuntu-latest"]
     assert max(loads) <= ceiling, f"{leg}: {n} shards, loads {loads}"
+
+
+def test_the_required_test_check_still_fails_when_lint_fails() -> None:
+    """Lint left the shards, so the required `test` checks must wait for it or a lint failure would merge."""
+    assert "needs: [test-shard, lint]" in JOBS["test"]
+    assert 'needs.lint.result }}" = success' in JOBS["test"]
