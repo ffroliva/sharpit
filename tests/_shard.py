@@ -10,6 +10,7 @@ Unset, nothing is filtered.
 import hashlib
 import json
 import os
+import re
 import sys
 from functools import cache
 from pathlib import Path
@@ -20,14 +21,43 @@ WEIGHTS = Path(__file__).with_name("shard_weights.json")
 _SPEC = pytest.StashKey[tuple[int, int]]()
 
 
+HEAVY_SECONDS = 30.0  # a file this costly (measured test seconds) competes with a timing test for the runner's cores
+HEAVY_PATHS = (  # CPU-heavy files not measured yet (about 720 CPU-s, and a bite gate): heavy from day one
+    "tests/masking/test_statement_surfaces.py",
+    "tests/masking/test_gates_bite.py",
+)
+_TIMING_CALL = re.compile(r"^\s+check_budget\(", re.MULTILINE)
+
+
+@cache
+def timing_files() -> frozenset[str]:
+    """The files holding an overhead budget test (a paired on/off timing): a busy runner fails them."""
+    tests = Path(__file__).parent
+    return frozenset(
+        p.relative_to(tests.parent).as_posix()
+        for p in tests.rglob("test_*.py")
+        if _TIMING_CALL.search(p.read_text(encoding="utf-8"))
+    )
+
+
 @cache
 def _balanced(n: int, platform: str) -> dict[str, int]:
+    """Longest first onto the lightest shard. Heavy files never go on the last shard, and timing files go only there,
+    so a budget test never shares a runner with a CPU-heavy file (with n == 1 there is nothing to separate)."""
     table: dict[str, dict[str, float]] = json.loads(WEIGHTS.read_text(encoding="utf-8"))
-    durations = table.get(platform) or table["linux"]  # macOS and others: the nearest measured platform
+    durations = dict(table.get(platform) or table["linux"])  # macOS and others: the nearest measured platform
+    for rel in HEAVY_PATHS:
+        durations.setdefault(rel, 0.0)  # placed (and kept off the timing shard) before the weights know them
+    timing = timing_files()
     loads = [0.0] * n
     owners: dict[str, int] = {}
     for rel, seconds in sorted(durations.items(), key=lambda kv: (-kv[1], kv[0])):
-        lightest = loads.index(min(loads))
+        allowed = range(n)
+        if n > 1 and (rel in HEAVY_PATHS or seconds >= HEAVY_SECONDS):
+            allowed = range(n - 1)
+        elif n > 1 and rel in timing:
+            allowed = range(n - 1, n)
+        lightest = min(allowed, key=lambda i: (loads[i], i))
         loads[lightest] += seconds
         owners[rel] = lightest + 1
     return owners
@@ -35,7 +65,11 @@ def _balanced(n: int, platform: str) -> dict[str, int]:
 
 def shard_of(rel: str, n: int, platform: str = sys.platform) -> int:
     """The shard (1..n) that runs the test file at ``rel``, a POSIX path relative to the rootdir."""
-    return _balanced(n, platform).get(rel) or int(hashlib.sha256(rel.encode()).hexdigest(), 16) % n + 1
+    if owner := _balanced(n, platform).get(rel):
+        return owner
+    if n > 1 and rel in timing_files():  # a new timing file nobody measured yet: still away from the heavy ones
+        return n
+    return int(hashlib.sha256(rel.encode()).hexdigest(), 16) % n + 1
 
 
 def pytest_configure(config: pytest.Config) -> None:
