@@ -88,8 +88,9 @@ SQLALCHEMY_ERROR = "sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) 
         (VENDOR_TOKEN, VENDOR_TOKEN[6:]),
         (f"'pwd': FVZ3JF6P0bJtuGtLqFcg;{TAIL}", TAIL),
         (f"""'token':"KnZy2AQKVS0LSb3MM13n\\"{TAIL}\"""", TAIL),
+        (f'"set-cookie": "oOqGp2losuTPWHeVpnz9\n{TAIL}"', TAIL),  # derived: the A2 differential, seed 11, shortest hit
     ],
-    ids=["quoted-key-list", "double-quoted-key-list", "vendor-token", "quoted-pwd", "escaped-quote"],
+    ids=["quoted-key-list", "double-quoted-key-list", "vendor-token", "quoted-pwd", "escaped-quote", "newline-pair"],
 )
 def test_a_statement_is_masked_before_the_scan_changes_its_shape(path: str, value: str, secret: str) -> None:
     shown = ERROR_PATHS[path](SQLALCHEMY_ERROR.format(value))
@@ -124,6 +125,12 @@ def test_record_drops_driver_values_before_it_masks(text: str, secret: str) -> N
 def test_a_span_statement_is_masked_before_the_scan() -> None:
     attributes = _attributes(MASKER, {"db.statement": f"UPDATE t SET {VENDOR_TOKEN}"})
     assert VENDOR_TOKEN[6:] not in str(attributes)
+
+
+def test_a_span_statement_keeps_a_quoted_value_hidden_across_a_newline() -> None:
+    """Derived: the A2 differential (``masking_gate.py a2``): 0.4.0 hid the second line, ``fa2d51e`` showed it."""
+    value = f'"set-cookie": "oOqGp2losuTPWHeVpnz9\n{TAIL}"'
+    assert TAIL[1:] not in str(_attributes(MASKER, {"db.statement": value}))  # the scan takes a leading digit
 
 
 def test_a_mysql_query_text_is_masked_before_the_scan() -> None:
