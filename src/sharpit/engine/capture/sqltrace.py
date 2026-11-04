@@ -220,14 +220,20 @@ def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
     return found.end() if found else index + 1
 
 
-def _keyword_literal_start(sql: str, index: int, out: _Out) -> bool:
-    if sql[index] not in "tTfF" or _identifier_char_before(out):
-        return False
-    return _matches_keyword(sql, index, "true") or _matches_keyword(sql, index, "false")
-
-
 def _line_comment(sql: str, index: int, mysql: bool) -> bool:
     return sql.startswith("--", index) or (mysql and sql[index] == "#")
+
+
+def _skip_exponent(sql: str, index: int) -> int:
+    """Past the exponent whose ``e`` is at ``index``; at ``index`` when no digit follows: that ``e`` is a name."""
+    cursor, length = index + 1, len(sql)
+    if cursor < length and sql[cursor] in "+-":
+        cursor += 1
+    if cursor >= length or not sql[cursor].isdigit():
+        return index
+    while cursor < length and sql[cursor].isdigit():
+        cursor += 1
+    return cursor
 
 
 def _skip_number(sql: str, index: int, mysql: bool = False) -> int:
@@ -237,13 +243,7 @@ def _skip_number(sql: str, index: int, mysql: bool = False) -> int:
     while cursor < length and (sql[cursor].isdigit() or sql[cursor] == "."):
         cursor += 1
     if cursor < length and sql[cursor] in "eE":
-        exponent = cursor + 1
-        if exponent < length and sql[exponent] in "+-":
-            exponent += 1
-        if exponent < length and sql[exponent].isdigit():
-            cursor = exponent
-            while cursor < length and sql[cursor].isdigit():
-                cursor += 1
+        return _skip_exponent(sql, cursor)
     return cursor
 
 
@@ -278,6 +278,70 @@ def _collapse_placeholder_lists(normalized: str) -> str:
     return out.text()
 
 
+# A scanner reads the construct that may open at ``index`` and returns where the scan goes on and whether that construct
+# was a literal. Only these first characters cost a Python call; none of them is a space or a digit.
+_Scanned = tuple[int, bool]
+
+
+def _keep(source: str, index: int, out: _Out) -> _Scanned:
+    """The character opened nothing after all."""
+    out.append(source[index])
+    return index + 1, False
+
+
+def _scan_line_comment(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
+    if not _line_comment(source, index, mysql):
+        return _keep(source, index, out)
+    out.space()
+    newline = source.find("\n", index + 1)
+    return (len(source) if newline < 0 else newline), False
+
+
+def _scan_block_comment(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
+    if not source.startswith("*", index + 1):
+        return _keep(source, index, out)
+    out.space()
+    end = source.find("*/", index + 2)
+    return (len(source) if end < 0 else end + 2), False
+
+
+def _scan_string(source: str, index: int, _out: _Out, _mysql: bool) -> _Scanned:
+    return _skip_quoted(source, index, "'"), True
+
+
+def _scan_dollar(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
+    end = _dollar_quote_end(source, index)
+    return (end, True) if end > 0 else _keep(source, index, out)
+
+
+def _scan_quoted(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
+    end = _quoted_end(source, index, out, mysql)
+    if source[index] == '"' and _double_quoted_literal(source, index, end, out, mysql):
+        return end, True
+    out.append(source[index:end])
+    return end, False
+
+
+def _scan_keyword(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
+    if _identifier_char_before(out):
+        return _keep(source, index, out)
+    if _matches_keyword(source, index, "true"):
+        return index + 4, True
+    if _matches_keyword(source, index, "false"):
+        return index + 5, True
+    return _keep(source, index, out)
+
+
+_SCANNERS = {
+    **dict.fromkeys("-#", _scan_line_comment),
+    "/": _scan_block_comment,
+    "'": _scan_string,
+    "$": _scan_dollar,
+    **dict.fromkeys('"`[', _scan_quoted),
+    **dict.fromkeys("tTfF", _scan_keyword),
+}
+
+
 @functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text
 def normalize(sql: str, mysql: bool = False) -> Normalized:
     """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``.
@@ -293,29 +357,10 @@ def normalize(sql: str, mysql: bool = False) -> Normalized:
     index, length = 0, len(source)
     while index < length:
         c = source[index]
-        dollar_end = _dollar_quote_end(source, index) if c == "$" else -1
+        scanner = _SCANNERS.get(c)
         literal = False
-        if c in "-#" and _line_comment(source, index, mysql):
-            newline = source.find("\n", index + 1)
-            index = length if newline < 0 else newline
-            out.space()
-        elif c == "/" and source.startswith("*", index + 1):
-            end = source.find("*/", index + 2)
-            index = length if end < 0 else end + 2
-            out.space()
-        elif c == "'":
-            index, literal = _skip_quoted(source, index, "'"), True
-        elif dollar_end > 0:
-            index, literal = dollar_end, True
-        elif c in '"`[':
-            end = _quoted_end(source, index, out, mysql)
-            if c == '"' and _double_quoted_literal(source, index, end, out, mysql):
-                literal = True
-            else:
-                out.append(source[index:end])
-            index = end
-        elif _keyword_literal_start(source, index, out):
-            index, literal = index + (4 if _matches_keyword(source, index, "true") else 5), True
+        if scanner is not None:
+            index, literal = scanner(source, index, out, mysql)
         elif c.isspace():
             out.space()
             index += 1
