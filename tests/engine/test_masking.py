@@ -513,6 +513,10 @@ def test_mask_text_scheme_guard_leaves_no_credential(text: str, expected: str) -
         pytest.param(".)" * 8_000 + "a", id="token-edges-mixed"),
         pytest.param("eyJ" * 66_000, id="jwt-prefix-run"),
         pytest.param("=" + "BEGIN" * 40_000, id="pem-prefix-run"),
+        pytest.param("k=[ " * 16_000, id="pair-unclosed-bracket"),
+        pytest.param("k=( " * 16_000, id="pair-unclosed-paren"),
+        pytest.param('"k":[ ' * 11_000, id="quoted-pair-unclosed-bracket"),
+        pytest.param('"k":( ' * 11_000, id="quoted-pair-unclosed-paren"),
     ],
 )
 def test_mask_text_stays_fast_on_a_pathological_input(text: str) -> None:
@@ -544,3 +548,23 @@ def test_pem_marker_is_found_anywhere_in_its_run(value: str) -> None:
 
 def test_pem_marker_needs_begin_in_the_same_run() -> None:
     assert not is_secret_value("BEGIN x PRIVATE KEY")
+
+
+LONG_LINE = "ordinary words " * 400
+
+
+# derived: the same audit: on a long line an opener with no closer must read exactly as on a short one
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("password=[a, b] note=[ (open", f"password={MASK} note=[ (open"),
+        ('{"password": ["a", "b"], "note": [1', f'{{"password": "{MASK}", "note": [1'),
+        ("note=[ password=hunter2", f"note=[ password={MASK}"),
+        ("token=(a b) secret=(hunter2", f"token={MASK} secret={MASK}"),
+        ('{"note":["password":"hunter2"', f'{{"note":["password":"{MASK}"'),
+    ],
+)
+def test_mask_text_unclosed_opener_reads_the_same_on_a_long_line(text: str, expected: str) -> None:
+    masker = Masker(M, True)
+    assert masker.mask_text(text) == expected
+    assert masker.mask_text(LONG_LINE + text) == LONG_LINE + expected
