@@ -108,9 +108,11 @@ MUTANTS: dict[str, Mutant] = {
     "exponent": Mutant("return _skip_exponent(sql, cursor)", "return cursor", SURFACE, "shape"),
     "exponent_sign": Mutant('if cursor < length and sql[cursor] in "+-":', "if False:", SURFACE, "shape"),
     "doubled_quote": Mutant("if cursor + 1 < length and sql[cursor + 1] == closing:", "if False:", SURFACE, "shape"),
-    # without the escape a run tokenises as if the backslash were deleted, so the two readings agree: only a row the
-    # build cuts can tell, and those are generic (D7's MySQL cut has named tests)
-    "backslash": Mutant('if c == "\\\\" and closing in', "if False and closing in", "recorder_sql-generic", "shape"),
+    # without the escape a run tokenises as if the backslash were deleted, so the readings agree and nothing cuts; the
+    # recorder scans in MySQL mode, ``db_statement`` does not
+    "backslash": Mutant('if c == "\\\\" and closing in', "if False and closing in", "recorder_sql-mysql", "visible"),
+    "array_space": Mutant('subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")',
+                          "subscript = subscript or False", "recorder_sql-generic", "shape"),
     "backtick": Mutant(QUOTES, QUOTES.replace("`", ""), SURFACE, "visible"),
     "bracket": Mutant(QUOTES, QUOTES.replace("[", ""), SURFACE, "shape"),
     "hash": Mutant('(mysql and sql[index] == "#")', "False", "db_statement-mysql", "visible"),
@@ -119,16 +121,15 @@ MUTANTS: dict[str, Mutant] = {
                               "return -1 if end < 0 else end + len(tag)", SURFACE, "visible"),
     "leading_dot": Mutant('".": _scan_dot,', "", SURFACE, "visible"),
     "radix": Mutant('if sql[index] == "0" and (radix', "if False and (radix", SURFACE, "visible"),
-    "underscore": Mutant('or (sql[cursor] == "_" and sql[cursor + 1 : cursor + 2].isdigit())', "",
-                         SURFACE, "visible"),
+    "underscore": Mutant('or (sql[cursor] == "_" and sql[cursor + 1 : cursor + 2].isdigit())', "", SURFACE, "visible"),
     "odd_quote_bracket": Mutant(" or _odd_quote_bracket(sql, index)", "", SURFACE, "visible"),
     "cut_open_double_quote": Mutant("if mysql or end >= _MAX_SCAN_LENGTH:", "if mysql:", SURFACE, "visible"),
     "two_readings": Mutant("return _read(source.replace(", "return False and _read(source.replace(",
                            SURFACE, "visible"),
-    "nested_comment": Mutant('return source.startswith("/*", start) and', "return False and", SURFACE, "visible"),
-    "alternative_quote": Mutant("return _ALTERNATIVE_QUOTE.search(text) is not None or (",
-                                "return (", SURFACE, "visible"),
-    "hash_quote": Mutant("(hash_at >= 0 and _QUOTE.search(text, hash_at) is not None)", "False", SURFACE, "visible"),
+    "nested_comment": Mutant('if source.find("/*", start + 2, end) >= 0:', "if False:", SURFACE, "visible"),
+    "alternative_quote": Mutant("if _ALTERNATIVE_QUOTE.search(source, start, end + 1):", "if False:",
+                                SURFACE, "visible"),
+    "hash_quote": Mutant('if 0 <= source.find("#", start, end) < last_quote:', "if False:", SURFACE, "visible"),
     # a digit or a keyword after a name character belongs to the name: over-masking ``col1`` lowers A1: A3 must catch it
     "digit_in_name": Mutant(DIGIT, DIGIT.replace(" and not _identifier_char_before(out)", ""), SURFACE, "shape"),
     "keyword_in_name": Mutant(

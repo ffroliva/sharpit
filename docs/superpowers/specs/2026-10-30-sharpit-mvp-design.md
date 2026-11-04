@@ -384,9 +384,10 @@ Internal module structure, caching details, UI component structure and visuals w
 | The panel stores statement and error raw | the panel shows literal-free text and scans error text | a panel value is an output; fail closed |
 | No masker on statements | relaxed masker passes on statements | a statement's `password=` name beside a value still masks; literals are already gone, so no value's end is guessed |
 | `"..."` is a quoted identifier | `"..."` is a literal in a value position (0.4.0) | MySQL reads it as a string |
-| `.5`, `0x...`, `1_000` shown by the normalizer | literals in every mode | BootUI hardens them only in the journal; sharpit's hot path shows the normalizer's text |
+| `.5`, `0x...`, `0b...`, `0o...`, `1_000` shown by the normalizer | literals in every mode | BootUI hardens them only in the journal; sharpit's hot path shows the normalizer's text |
+| A `/*!` comment, a tight `--` and a lone CR in a `--` comment are not read | each cuts at the first quote: `/*!` holding a quote in both modes; a tight `--` holding one and a lone CR with the dialect unknown | MySQL runs `/*!`; on MySQL a tight `--` is two minus signs; PostgreSQL ends a comment at a CR |
 | Ambiguity check in the journal only, triggers anywhere | ambiguity cut in the scan, a trigger inside a literal is text; the nested and backslash checks also run on MySQL (D7) | `normalize` is the hot path, and `color='#fff'` merged fingerprints in the journal's form |
-| `[...]` is an identifier run to `]` | a non-subscript `[...]` is read inside (`e6a07c8`), and with an odd quote is one literal | a value in brackets must be scanned; `[it's]` must not swallow the next quote |
+| `[...]` is an identifier run to `]` | a non-subscript `[...]` is read inside (`e6a07c8`), and with an odd quote stops the statement at its first quote | a value in brackets must be scanned; `[it's]` read inside and `['a]', 'x']` read whole each show a value |
 | No driver-line rule | the driver line's first-to-last-quote rule | a driver line echoes values |
 
 ## 15. Coordinator's calls (owner to check)

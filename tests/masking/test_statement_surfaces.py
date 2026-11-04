@@ -60,7 +60,7 @@ NO_CAP = 10**6
 # decision D6, issue #59: the share of the generic corpus that holds a quoted identifier; a rise must be noticed
 QUOTED_IDENTIFIER_SHARE = 0.013
 # spec A3: how often the fallback that loses statement text fires, per mode; a rise must be noticed
-FALLBACK_SHARE = {"generic": 0.35, "mysql": 0.0, "pg_valid": 0.11}
+FALLBACK_SHARE = {"generic": 0.35, "mysql": 0.15, "pg_valid": 0.11}
 NODE = "tests/test_x.py::test_x"
 BOUND = "bound-value-7"
 DETAIL = "detail-value-7"
@@ -491,9 +491,9 @@ def test_every_row_holds_its_markers_and_expected_shows_none(dialect: str, seed:
     [
         (sql_corpus.GENERIC, {"shapes", "sensitive_name", "sensitive_table", "comments", "names", "trailing_backslash",
                               "nested_comment", "oracle_quote", "hash", "unclosed_dollar", "long_literal",
-                              "long_identifier"}),
+                              "long_identifier", "odd_bracket", "quiet_trigger"}),
         (sql_corpus.MYSQL, {"shapes", "sensitive_name", "sensitive_table", "comments", "names", "hash", "long_literal",
-                            "long_identifier"}),
+                            "long_identifier", "mysql_escaped", "quiet_trigger"}),
         (sql_corpus.POSTGRESQL, {"shapes", "sensitive_name", "sensitive_table", "comments", "names",
                                  "trailing_backslash", "nested_comment", "unclosed_dollar", "long_literal"}),
     ],
@@ -521,8 +521,8 @@ def test_a_cut_identifier_opens_before_the_limit_and_closes_after_it() -> None:
 @pytest.mark.parametrize(
     ("mode", "shapes"),
     [
-        ("generic", {"trailing_backslash", "nested_comment", "oracle_quote", "hash"}),
-        ("mysql", set[str]()),
+        ("generic", {"trailing_backslash", "nested_comment", "oracle_quote", "hash", "odd_bracket"}),
+        ("mysql", {"mysql_escaped"}),
         ("pg_valid", {"trailing_backslash"}),
     ],
 )

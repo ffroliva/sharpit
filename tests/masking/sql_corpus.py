@@ -10,10 +10,10 @@ quote, under the same conventions, followed by `` ?``. ``postgresql`` is ``postg
 ``'******'``, ``$$******$$`` and ``******``, which drops comments, collapses whitespace, keeps ``IN`` lists and reads
 every run to its end.
 
-Ambiguous classes: ``trailing_backslash``, ``nested_comment``, ``oracle_quote`` and ``hash`` in ``generic``;
-``trailing_backslash`` in ``postgresql``, where the scan has no PostgreSQL mode, so the statement takes the generic cut
-and loses its tail (spec A3 allows that on a row marked ambiguous); none in ``mysql``, whose corpus is unambiguous
-statements only (D7's cut is proven by named tests).
+Ambiguous classes: ``trailing_backslash``, ``nested_comment``, ``oracle_quote``, ``hash`` and ``odd_bracket`` in
+``generic``; ``trailing_backslash`` in ``postgresql``, where the scan has no PostgreSQL mode, so the statement takes the
+generic cut and loses its tail (spec A3 allows that on a row marked ambiguous); ``mysql_escaped`` in ``mysql`` (D7).
+``quiet_trigger`` rows read one way and are never marked: a statement that loses its tail there fails A3.
 
 ``expected`` is exact on ``plain`` rows. Elsewhere a hit may render ``******``, so ``tail`` carries the part of the
 statement that must survive it (spec A3: a statement on a sensitive column keeps its other clauses).
@@ -38,8 +38,8 @@ _COLUMNS = ("name", "note", "title", "bio", "label", "descr", "status", "city", 
 _SENSITIVE_NAMES = ("basic", "bearer", "token", "password", "pwd", "api_key", "secret", "auth")
 # the separator beside a sensitive name, as written and as shown
 _SEPARATORS = ((" = ", " = "), ("=", "="), ("=\n", "= "), (" =\n  ", " = "))
-_PLAIN_OPENERS = ("", "plan", "note: x", "x;y", "x, y", "[1", "(a", "{b", "it''s", "100%", "#tag", "-- not a comment",
-                  "/* nope", "$1", "a]", "]\n(Background on x", "tail\\")  # fmt: skip
+_PLAIN_OPENERS = ("", "plan", "note: x", "x;y", "x, y", "[1", "(a", "{b", "it''s", "o''clock", "a''b", "100%", "#tag",
+                  "-- not a comment", "/* nope", "$1", "a]", "]\n(Background on x", "tail\\")  # fmt: skip
 _SENSITIVE_OPENERS = ("Basic plan", "Bearer of bad news", "Token ring", "password: x", "key=value", "secret sauce",
                       "http://a:b@c/d", "see http://x.io/?token=1", "Authorization: x", "Cookie: a=b")  # fmt: skip
 _OPENERS = _PLAIN_OPENERS + _SENSITIVE_OPENERS
@@ -271,6 +271,27 @@ class _Statements:
             return self._single("hash", _Shown(text, "SELECT ?", ""), m)
         return self._single("hash", _Shown(text, "SELECT # it ?", ""), m, ambiguous=True)
 
+    def mysql_escaped(self) -> Row:  # D7: under NO_BACKSLASH_ESCAPES the run ends at the backslash
+        m = _mark(self.rng)
+        column = self.rng.choice(_COLUMNS)
+        quote = self.rng.choice("'\"")
+        text = f"UPDATE t SET {column}={quote}a\\{quote}{m}{quote} WHERE id=1"
+        return self._single("mysql_escaped", _Shown(text, f"UPDATE t SET {column}= ?", ""), m, ambiguous=True)
+
+    def quiet_trigger(self) -> Row:  # reads one way: a comment or a closed name holds a trigger as text (spec A3)
+        m = _mark(self.rng)
+        text, scan = self.rng.choice(
+            (
+                (f"-- ticket #12\nSELECT '{m}', 'y'", "SELECT ?, ?"),
+                (f"SELECT 1 /* # q' */, '{m}'", "SELECT ? , ?"),
+                (f"SELECT `a#b`, '{m}', 'y'", "SELECT `a#b`, ?, ?"),
+                (f"SELECT `q'a`, '{m}', 'y'", "SELECT `q'a`, ?, ?"),
+                (f"SELECT `a\\b`, '{m}', 'y'", "SELECT `a\\b`, ?, ?"),
+                (f"SELECT \"C:\\dir\", '{m}'", "SELECT ?, ?"),
+            )
+        )
+        return self._single("quiet_trigger", _Shown(text, scan, ""), m)
+
     def names(self) -> Row:  # quoted names and arrays beside a literal
         m = _mark(self.rng)
         if self.pg:
@@ -282,13 +303,19 @@ class _Statements:
         if self.rng.random() < 0.2:  # a name-shaped secret outside a value position: only a secret check hides it
             secret = _double_secret(self.rng).marker
             return Row(f"SELECT \"{secret}\", '{m}' FROM t", (secret, m), "names", True, "SELECT ?, ? FROM t")
+        if self.rng.random() < 0.25:  # (r5) a name or a string in brackets: nothing here can tell, so it stops
+            return self._single(
+                "odd_bracket", _Shown(f"SELECT [it's], '{m}' FROM t", "SELECT [it ?", ""), m, ambiguous=True
+            )
+        if self.rng.random() < 0.25:  # a subscript past the space: the string may hold the ``]``
+            text = f"SELECT ARRAY ['a]', '{m}'] FROM t"
+            return self._single("names", _Shown(text, "SELECT ARRAY [?, ?] FROM t", ""), m)
         text, scan = self.rng.choice(
             (
                 (f"SELECT `a b`, '{m}' FROM t", "SELECT `a b`, ? FROM t"),
                 (f"SELECT `it's`, '{m}' FROM t", "SELECT `it's`, ? FROM t"),
                 (f"SELECT [a b], '{m}' FROM t", "SELECT [a b], ? FROM t"),
                 (f"SELECT [a 1], '{m}' FROM t", "SELECT [a 1], ? FROM t"),  # a digit in a name is not a number
-                (f"SELECT [it's], '{m}' FROM t", "SELECT ?, ? FROM t"),  # a third regression (spec r4)
                 (f"SELECT ARRAY['{m}', 'z'] FROM t", "SELECT ARRAY[?, ?] FROM t"),
             )
         )
@@ -321,11 +348,11 @@ class _Statements:
         common = (self.update, self.insert, self.select, self.sensitive_name, self.sensitive_table, self.comments,
                   self.names)  # fmt: skip
         if self.dialect == MYSQL:
-            return (*common, self.hash_comment)
+            return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger)
         if self.pg:
             return (*common, self.trailing_backslash, self.nested_comment, self.unclosed_dollar)
         return (*common, self.trailing_backslash, self.nested_comment, self.oracle_quote, self.hash_comment,
-                self.unclosed_dollar)  # fmt: skip
+                self.unclosed_dollar, self.quiet_trigger)  # fmt: skip
 
     def long_templates(self) -> tuple[Callable[[], Row], ...]:
         return (self.long_literal,) if self.pg else (self.long_literal, self.long_identifier)

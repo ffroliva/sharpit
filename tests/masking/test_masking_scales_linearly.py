@@ -66,6 +66,7 @@ GENERATORS: dict[str, Callable[[int], str]] = {
     "nested-comments": _repeat("/* /* */ '' "),
     "alternative-quotes": _repeat("q'a' "),
     "hash-quotes": _repeat("# 'a' "),
+    "hash-numbers": _repeat("# 1 "),  # a span for each number, and no quote to find after any ``#``
     "lone-crs": _repeat("-- a\r'\n"),
     "open-double-quote": lambda size: "SELECT " + "a, " * (size // 3) + '"' + "y" * 30_000,
 }
