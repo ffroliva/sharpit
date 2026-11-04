@@ -54,6 +54,10 @@ class Finding:
     epss_score: float | None = None
     epss_percentile: float | None = None
     dismissed: bool = False
+    # BootUI 2.2.0: PyPI OSV records name no symbols and sharpit has no Code Inventory, so these stay empty
+    advisory_symbols: tuple[str, ...] = ()
+    advisory_symbol_source: str | None = "NONE"
+    runtime_reach: dict[str, Any] | None = None
     unresolved: bool = field(default=False, kw_only=True)
 
     def to_dto(self) -> dict[str, Any]:
@@ -70,6 +74,9 @@ class Finding:
             "epssScore": self.epss_score,
             "epssPercentile": self.epss_percentile,
             "dismissed": self.dismissed,
+            "advisorySymbols": list(self.advisory_symbols),
+            "advisorySymbolSource": self.advisory_symbol_source,
+            "runtimeReach": self.runtime_reach,
         }
 
 

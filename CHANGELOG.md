@@ -5,6 +5,66 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - Unreleased
+
+### Added
+
+- `transactions` panel: SQLAlchemy transactions per request (status, duration, savepoint depth, connection hold time) in a bounded ring, with slow-transaction and connection-hold thresholds; error messages masked; MCP read tool. Settings `transactions_*`.
+- `mysql` panel: MySQL and MariaDB vital signs, sessions, statements, indexes, tables, lock waits, replication and settings, read on an explicit `POST {api}/mysql/read` through a verified read-only session with statement and lock timeouts and row limits; statement text normalised, masked and truncated at 400 characters. Settings `mysql_max_*`. `asyncmy` and `mysqlclient` are untested.
+- `security-logs` panel: 401 and 403 responses recorded as `AUTHENTICATION_FAILURE` / `AUTHORIZATION_FAILURE`, filterable by principal, type and time, with a stream and MCP `get_security_logs`. Needs the capture middleware.
+- `sharpit.record_security_event(type, principal=None, data=None)`: records an audit event (for example `AUTHENTICATION_SUCCESS`) for the current request. It never raises and does nothing outside a request, with sharpit inactive or with the panel disabled.
+- `fastapi-security` panel (BootUI's `spring-security`): routes, their security dependencies and scopes, and an explain view for a path.
+- `security` advisor: 27 rules (21 ported, 6 sharpit-only) over CORS, trusted hosts, auth dependencies, configuration and source literals; the catalogue and the 33 dropped BootUI rules with reasons are in `docs/security-advisor-checks.md`.
+- `database-advisor`: 33 checks over the bounded schema catalog, SQLAlchemy engine and pool settings, mapped models (`install(models=...)`), the SQL Trace window and PostgreSQL/MySQL vendor catalogs; read in one read-only transaction; the 15 dropped BootUI checks are listed with reasons in `docs/database-advisor-checks.md`. Settings `database_advisor_max_*`.
+- `architecture` advisor: 20 `ARCH-*` rules over the application's import graph (package cycles, module isolation, layering, coding practices, `pyproject.toml` import-linter contracts). Settings `architecture_max_files`, `architecture_max_file_bytes`.
+- `fastapi` advisor (BootUI's `spring`): 10 rules over route handlers and the app (blocking calls in async handlers, background tasks, Pydantic models, response models, events, exception handlers); catalogue in `docs/fastapi-advisor-checks.md`.
+- Each advisor scans on `POST {api}/<advisor>/scan` (CLI `<advisor> scan`); `GET` returns the last scan, violations page per rule; MCP tools are read-only.
+- SQL Trace insights: `GET {api}/sql-trace/insights`, statement rankings and per-route attribution (top 20 routes, by masked path, joined on the request id); MCP `get_sql_trace_insights` and CLI `sql-trace insights` (sharpit-only). With HTTP exchange capture off, route attribution is unavailable and the rankings stay.
+- `install(app_package=...)` (env `SHARPIT_APP_PACKAGE`): the dotted package the advisors and config scan read, resolved through `sys.modules` only, never imported. Source reads go through one bounded index (file count, size and time limits, no symlinks followed).
+- `sharpit.unbounded-read` gate: during a test, an ORM read that loads at least twice the bound page size in a request to an endpoint with paging parameters is a finding; marker `@pytest.mark.sharpit(allow_unbounded_read=True)` relaxes it. Needs `sharpit.install`.
+- BootUI 2.2.0 capture drift: `http-exchanges` rows carry `route`, `routeSource` (`FRAMEWORK_TEMPLATE` or `MASKED_PATH`) and `requestId`, the report carries `retention`, `GET {api}/http-exchanges?route=` filters by route and `GET {api}/http-exchanges/routes` rolls up per-route counts, errors and p50/p95/p99 (MCP `get_http_routes`, CLI `http routes`); `sql-trace` entries carry `durationMicros` and the report `retention`; `log-tail` lines carry `messageOmitted`; `GET {api}/exceptions/caught` answers `available: false` (sharpit has no caught-exception sensor); `activity` gains the 2.2.0 profile keys, `GET {api}/activity/journal` and `GET {api}/activity/resources` (both report unavailable: sharpit keeps no runtime journal and samples no memory or CPU) and MCP `get_request_profile` (CLI `activity profile`); `get_live_activity`, `get_sql_traces` and `get_log_tail` take a query and a limit. Memory keys, the journal clear route and compacted default limits for these tools are not built.
+- BootUI 2.2.0 drift for `vulnerabilities`, `mcp-server` and `rest-api`: the vulnerabilities report and its dependencies carry `runtimeReach`, `advisorySymbols` and `advisorySymbolSource` (reported unavailable, empty and `NONE`), and `get_vulnerabilities_report` returns a compacted view (default limit 10); the `mcp-server` status lists protocol `2026-07-28` ahead of `2025-06-18` and gains `cancellations` (counts `notifications/cancelled`; calls are synchronous, so a cancel cannot stop one) and `progressDropped` (always 0, sharpit sends no progress notifications); the `rest-api` advisor ports `RAPI-RESP-011` (a GET whose declared response is `X | None` with the default status) and reports `RAPI-RESP-010`, `RAPI-VALID-006` and `RAPI-VER-007` as skipped, with reasons. CVSS v4.0 score selection and `sampleLocations` are not done: the score falls back to the database label and `sampleLocations` stays `[]`.
+- N+1 findings on a repeated statement that is not a relationship lazy load now give the application line of the repeat.
+- `database-connection-pools` gains `poolLibraryPresent` and `implementation`; `readOnly`/`autoCommit` are nullable; `get_threads` defaults to 25 entries (BootUI 2.2.0).
+
+### Changed
+
+- Advisor rule results use BootUI's status values: `VIOLATION`, `PASS`, `SKIPPED`, `ERROR` (were `FAILED` and `PASSED` in the `rest-api` panel). A rule whose every finding is dismissed reports `PASS`. `sharpit-report/1` (`PASSED/FAILED/UNKNOWN/SKIPPED`) is unchanged.
+- `pytest --sharpit` is about 1.24x the plain run on a query-heavy suite (was about 1.48x): the test-session sink memoises the masked SQL fingerprint of each repeated statement per sink, which halved the suite overhead (2.05 s to 1.02 s on a 12,343-statement suite) and cut the per-statement hook cost from about 50 µs to about 11 µs. Masked output is unchanged, and the memo is never shared across sinks or masker settings.
+- `sharpit.swallowed-exception` gate: a PEP 249 database error (`DatabaseError`, `OperationalError`, `IntegrityError`, `DataError`, `InternalError`, `ProgrammingError`, matched by class name) handled by a broad `except` that neither re-raises nor logs now fails the test, as programming errors already did; it was an INFO note in 0.4.0. `programmingError` in the report stays `false` for these. **Pending owner sign-off:** this widens the 0.4.0 rule.
+- `sharpit.swallowed-exception` gate: a method call counts as logging only on a logger receiver (`log`, `logger`, `logging`, `warnings`, a `getLogger(...)` result, chained structlog loggers, and similar); passing the caught exception to a recognised sink or to a one-level helper in the same module counts as handled. Bare `log(...)`/`warn(...)` calls still count.
+- `beans`: a provider class's `resource` comes from the class object (`__firstlineno__` on Python 3.13+, the first method's line on 3.12) instead of reading the source file; on 3.12 the line can differ by a few lines.
+- `fastapi-security`: scopes are de-duplicated (FastAPI 0.115 accumulates `security_scopes` down the tree).
+- `config`: explicit `config_scan` module names are also found on `sys.path` without importing them; undecodable bytes in a source file are replaced instead of being recorded as a limitation.
+
+### Fixed
+
+- Route introspection (mappings, rest-api, fastapi-security, beans) no longer drops routes of an `APIRoute` subclass set through `route_class`, no longer raises on an app object without `__dict__`, and classifies an `APIRoute` inside a plain Starlette sub-app as `unknown` instead of inspectable.
+- `sharpit.swallowed-exception`: a handler that passes the exception to a helper that logs it is no longer a finding; an `error(...)` call on a non-logger object no longer counts as logging.
+- A lazy load with no application frame on the stack (for example during FastAPI response serialisation) names the relationship's declaration line instead of "unknown".
+
+### Security
+
+- Introspection reads route, mount and router attributes from the instance `__dict__` and matches route types with `issubclass(type(route), ...)`, so a property or `__class__` defined by the application is never evaluated by a GET or MCP read.
+- MySQL/MariaDB and SQLite reads run only after the session is verified read-only, and are refused on an `AUTOCOMMIT` connection.
+- The database advisor reads only URL key names from an allow-list (`connect_timeout`, `charset`, `sslmode`), never a value and never the password.
+- `security-logs` masks event values at record time (keys, secret values, bearer tokens and `token=` text) and caps stored strings, so long values stay masked under `FULL` exposure.
+- In the compacted `get_vulnerabilities_report` view, the scan message and advisory summaries and details are masked, because an OSV failure message can carry proxy credentials.
+
+### Known limitations
+
+- Post-scan or post-read goldens are absent (they need captures only the owner can make), so the parity test for each of these panels checks the pre-scan golden and skips the post-scan one: `security`, `database-advisor`, `architecture`, `fastapi`, `mysql` (a post-read golden needs a MySQL datasource on the reference app) and `vulnerabilities` (its golden is a failed-scan capture, so items are unchecked). `data` and `sqlalchemy-statistics` stay unverified: BootUI's golden list for `data` is empty and the reference app has no Hibernate statistics. `docs/reference/PARITY.md` has the per-panel table.
+- `fastapi` advisor: six rules are not built (`docs/fastapi-advisor-checks.md`, "Not yet"): FASTAPI-ASYNC-003, FASTAPI-ASYNC-004, FASTAPI-DEP-001, SPRING-WEB-001, SPRING-CONFIG-002, SPRING-DATA-001. `functools.partial` and library handlers are skipped.
+- `security` advisor: the masker turns `allow_credentials=True` into `******` in the CORS message; any `key="..."` keyword argument of 8 or more characters is a HIGH SEC-SRC-001 false positive.
+- `sharpit.swallowed-exception` matches a database error by class name: a non-database exception named `DataError` or `InternalError` can fail a test, and a driver exception with another name that is not wrapped is missed.
+- `transactions`: a connection held idle after `commit()` adds the idle time to the transaction until the next pool check-in, `begin` or `rollback`.
+- `database-advisor`: models mapped to a view are reported by DB-HIB-002 (the catalog lists no views); tables outside the default schema are not compared; DB-HIB-005 is skipped on SQLite.
+- `app_package` widens a dotted name to its top-level package, so the advisors scan sibling subpackages; only the first directory of a namespace package is scanned; `config` may pick a different root than the advisors when `install()` runs outside the package and `app_package` is unset.
+- MariaDB read-only verification is tested with fakes only; the leased test checks MySQL 8.4.
+- SQL Trace insights groups routes by masked path, not by route template; thread and time-window correlation are not offered.
+- `pytest --sharpit` still adds about 11 µs per repeated statement (rule filtering, normalisation and counters), about 1.24x the plain run on a query-heavy suite.
+- The 2.2.0 capture drift reports `activity` journal and resources, caught exceptions and the reserved retention share as unavailable (null with a reason).
+
 ## [0.4.0] - 2026-11-02
 
 ### Added
@@ -142,7 +202,8 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.2.0

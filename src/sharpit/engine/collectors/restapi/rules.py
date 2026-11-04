@@ -1,4 +1,4 @@
-"""The 20 ported REST API rules (port of BootUI ``RestApiRules`` heuristics and ``docs/REST-API-CHECKS.md`` names).
+"""The 21 ported REST API rules (port of BootUI ``RestApiRules`` heuristics and ``docs/REST-API-CHECKS.md`` names).
 
 Rules read ``ApiRouteInfo`` metadata only. Spring/JAX-RS wording is rewritten for FastAPI; severities and categories
 keep BootUI's calibration. sharpit adaptations: a "controller" is the endpoint's module, a handler is described as
@@ -167,6 +167,16 @@ RULES: tuple[RuleDefinition, ...] = (
         "Annotate 204 handlers with -> None (or return a Response), or use 200 OK when a body is required.",
         REST_GUIDELINES,
     ),
+    RuleDefinition(  # BootUI 2.2.0
+        "RAPI-RESP-011",
+        "Map an empty Optional read to an explicit status",
+        RESPONSES,
+        "LOW",
+        "A GET handler whose declared response is Optional (X | None) with the default status serializes a missing"
+        " resource as 200 with a null body instead of a not-found status.",
+        "Raise HTTPException(status_code=404) when the resource is absent and declare the non-Optional type.",
+        _FASTAPI + "handling-errors/",
+    ),
     RuleDefinition(
         "RAPI-DTO-001",
         "Avoid persistence entities in responses",
@@ -278,6 +288,11 @@ SKIPPED_RULES: Mapping[str, str] = {
     "RAPI-ERR-010": _DEEP,
     "RAPI-ERR-011": "Needs exception-handler bodies; sharpit never calls or decompiles handlers.",
     "RAPI-DOC-003": _DEEP,
+    # BootUI 2.2.0
+    "RAPI-RESP-010": "Spring's @ResponseStatus reason discards the body; FastAPI has no such attribute.",
+    "RAPI-VALID-006": "FastAPI embeds several body parameters in one JSON object; a second body binds normally.",
+    "RAPI-VER-007": "FastAPI routes declare no consumes condition, so a bodyless route never answers 415 for a missing"
+    " Content-Type (a body on GET/HEAD/DELETE is RAPI-MAP-007).",
 }
 RULE_IDS = frozenset(r.id for r in RULES)
 
@@ -636,6 +651,17 @@ def _resp006(route: ApiRouteInfo) -> str | None:
     return "204 declared with a content-capable return type" if _has_body_type(route) else None
 
 
+def _resp011(route: ApiRouteInfo) -> str | None:
+    if "GET" not in route.methods or route.status_code not in (None, 200) or route.dynamic_response:
+        return None
+    tp = _response_type(route)
+    while typing.get_origin(tp) is typing.Annotated:
+        tp = typing.get_args(tp)[0]
+    args = typing.get_args(tp)
+    optional = typing.get_origin(tp) in (typing.Union, types.UnionType) and _NONE in args and len(args) > 1
+    return "Optional return served as 200 with a null body" if optional else None
+
+
 def _dto001(route: ApiRouteInfo) -> str | None:
     cls = _persistence_class(route)
     return f"returns persistence class {cls.__name__}" if cls is not None else None
@@ -716,6 +742,7 @@ _CHECKS: dict[str, Check] = {
     "RAPI-RESP-001": _each(_resp001),
     "RAPI-RESP-002": _each(_resp002),
     "RAPI-RESP-006": _each(_resp006),
+    "RAPI-RESP-011": _each(_resp011),
     "RAPI-DTO-001": _each(_dto001),
     "RAPI-DTO-002": _each(_dto002),
     "RAPI-PAGE-001": _each(_page001),

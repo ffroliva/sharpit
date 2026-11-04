@@ -9,7 +9,7 @@ description: >
 
 # sharpit: the local developer console for FastAPI apps
 
-> **0.4.0.** APIs, panels and settings can still change before 1.0.
+> **0.5.0.** APIs, panels and settings can still change before 1.0.
 > The design source is `docs/superpowers/specs/2026-10-30-sharpit-mvp-design.md`; when this file and the code
 > disagree, the code wins.
 
@@ -206,7 +206,7 @@ A skipped advisor does not make the session `unknown`; a database driver sharpit
   reason (including a broken baseline) still exits 1 unless `--sharpit-allow-unknown`.
 - With `--sharpit-baseline=PATH` each finding gets `baselineState`: `existing` (listed; never fails), `new` (unlisted;
   gates as usual) or `fixed` (listed, not seen). A count gate above its baselined `observed` count is `new`. On a
-  partial run `fixed` is `null` with `fixedReason: "partial run"`. Vulnerability findings are not baselined in 0.4.0.
+  partial run `fixed` is `null` with `fixedReason: "partial run"`. Vulnerability findings are not baselined.
 - `--sharpit-write-baseline=PATH` refuses (file not written) a partial run (`-k`, `-m`, node ids, `--lf`, `--deselect`,
   `-x` stopping early, an interrupt, under xdist too) and a run with any unknown reason.
 - A missing or malformed baseline is an unknown reason, never sharpit off. Renaming a test makes its findings `new`.

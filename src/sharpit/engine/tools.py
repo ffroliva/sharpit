@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Final, Literal, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.advisors.dismissals import DismissalStore
@@ -97,6 +97,7 @@ class Tool:
     panel: str
     action: bool
     handler: Callable[[CallContext, dict[str, Any]], dict[str, Any]]
+    default_limit: int | None = None  # an absent ``limit`` (None: the via's max results); still capped by it
 
 
 # --- Schemas (BootUiMcpService.schema) ------------------------------------------------------------------------------
@@ -292,6 +293,50 @@ def _log_tail_view(ctx: SharpitContext, query: str | None, limit: int) -> dict[s
     return {"entries": lines[::-1], "page": page}
 
 
+VULNERABILITIES_DEFAULT_LIMIT: Final[int] = 10  # McpAgentViews constants
+ADVISORIES_PER_DEPENDENCY: Final[int] = 5
+ADVISORY_LIST_ITEMS: Final[int] = 3
+INVENTORY_DEFAULT_LIMIT: Final[int] = 25
+
+
+def _vulnerabilities_view(ctx: SharpitContext, query: str | None, limit: int) -> dict[str, Any]:
+    """``McpAgentViews.vulnerabilities``: vulnerable dependencies only (any dependency under a ``query``), capped,
+    each with at most 5 advisories and 3 items per advisory list, plus ``page`` and per-dependency ``advisories``.
+    Free text is masked; the cached report is never mutated."""
+    report = vulnerability_service(ctx).report()
+    deps = report["dependencies"] if query else [d for d in report["dependencies"] if d["vulnerabilityCount"] > 0]
+    page_deps, page = paged(deps, query, None, limit, _dependency_text)
+    mask = ctx.masker.mask_text
+    return {
+        **report,
+        "scan": {**report["scan"], "message": mask(report["scan"]["message"])},
+        "dependencies": [_compact_dependency(d, mask) for d in page_deps],
+        "page": page,
+    }
+
+
+def _dependency_text(dep: dict[str, Any]) -> list[str | None]:
+    vulns = dep["vulnerabilities"]
+    aliases = (a for v in vulns for a in v["aliases"])
+    return [dep["packageName"], dep.get("version"), *(v["id"] for v in vulns), *aliases]
+
+
+def _compact_dependency(dep: dict[str, Any], mask: Callable[[str | None], str | None]) -> dict[str, Any]:
+    vulns = dep["vulnerabilities"]
+    kept = vulns[:ADVISORIES_PER_DEPENDENCY]
+    advisories = [
+        {
+            **v,
+            "summary": mask(v["summary"]),
+            "details": mask(v["details"]),
+            **{key: v[key][:ADVISORY_LIST_ITEMS] for key in ("aliases", "references", "fixedVersions")},
+        }
+        for v in kept
+    ]
+    summary = {"total": len(vulns), "returned": len(kept), "truncated": len(kept) < len(vulns)}
+    return {**dep, "vulnerabilities": advisories, "advisories": summary}
+
+
 def log_tail_lines(ctx: SharpitContext) -> list[dict[str, Any]]:
     """``LogLineDto[]``, oldest first; empty when the panel is disabled (no buffer)."""
     buffer = ctx.capture.log_tail
@@ -483,6 +528,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "threads",
         False,
         lambda c, a: threads_report(c.ctx, a["query"], None, None, a["limit"]),
+        INVENTORY_DEFAULT_LIMIT,
     ),
     Tool(
         "get_vulnerabilities_report",
@@ -490,11 +536,13 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
         "`coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results "
         "retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the "
-        "inventory provider's accounting, not shaded-library discovery or exploitability.",
-        _NONE,
+        "inventory provider's accounting, not shaded-library discovery or exploitability. Lists vulnerable "
+        "dependencies only unless `query` is given (default limit 10), at most 5 advisories each.",
+        _QUERY_LIMIT,
         "vulnerabilities",
         False,
-        lambda c, _a: vulnerability_service(c.ctx).report(),
+        lambda c, a: _vulnerabilities_view(c.ctx, a["query"], a["limit"]),
+        VULNERABILITIES_DEFAULT_LIMIT,
     ),
     Tool(
         "vulnerabilities_scan",

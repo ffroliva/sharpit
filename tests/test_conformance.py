@@ -48,6 +48,21 @@ NEWER_THAN_GOLDEN: dict[str, dict[str, str]] = {
         ("run", "run.instanceId", "run.runId", "run.ordinal", "run.startedAt"),
         "BootUI 2.2.0 OverviewDto.run; the 1.17.0 golden predates it",
     ),
+    "vulnerabilities": dict.fromkeys(
+        (
+            "runtimeReach",
+            "runtimeReach.available",
+            "runtimeReach.unavailableReason",
+            "runtimeReach.generation",
+            "runtimeReach.note",
+            "runtimeReach.incompleteReason",
+            "dependencies[].runtimeReach",
+            "coverage.archivesFirstParty",
+            "coverage.firstPartyArchives",
+            "coverage.firstPartyArchivesTruncated",
+        ),
+        "BootUI 2.2.0 runtime reach and first-party coverage (contract 0.4 drift §7, lane D4)",
+    ),
 }
 # fixture -> {recursive key path: reason}. Paths are excluded from both sides; value-only deviations are listed so
 # the record stays complete, and their keys must exist on both sides.

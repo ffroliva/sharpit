@@ -1,6 +1,6 @@
 """sharpit: embedded, local-only developer console for Python apps."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from sharpit.engine.capture.securitylogs import record_security_event as record_security_event  # noqa: E402
 from sharpit.fastapi.adapter import install  # noqa: E402 - after __version__, which the adapter's modules read
