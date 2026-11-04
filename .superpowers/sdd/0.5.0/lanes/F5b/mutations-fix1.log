@@ -1,5 +1,0 @@
-== M8: sqlite read-back check deleted from _sqlite_read_only
-E       AssertionError: assert False
-FAILED tests/engine/test_sqla_read_only_dialects.py::test_sqlite_read_back_not_on_refuses
-FAILED tests/engine/test_sqla_read_only_dialects.py::test_sqlite_read_back_failure_refuses
-2 failed, 20 passed, 3 skipped in 7.53s

@@ -1,6 +1,0 @@
-== M6: execution-options AUTOCOMMIT check removed
-E       AssertionError: assert False
-1 failed in 1.19s
-== M7: every non-sqlite, non-postgresql dialect takes the MySQL branch
-E       AssertionError: assert ['SELECT @@ve...OLLBACK', ...] == []
-1 failed in 0.90s
