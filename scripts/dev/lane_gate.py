@@ -159,9 +159,26 @@ def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProce
     return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True, encoding="utf-8")
 
 
+_READS: dict[tuple[object, ...], object] = {}
+_OBJECT_ID = re.compile(r"[0-9a-f]{40}")
+
+
+def _read_once[T](key: tuple[Path, str, str, str], revs: Sequence[str], read: Callable[[], T]) -> T:
+    """``read()``, kept per repo when every rev is a full object id: a ref can move, what an object id names cannot."""
+    if key in _READS:
+        return _READS[key]  # type: ignore[return-value]
+    value = read()
+    if all(_OBJECT_ID.fullmatch(rev) for rev in revs):
+        _READS[key] = value
+    return value
+
+
 def _show(repo: Path, sha: str, path: str) -> str | None:
-    done = _git(repo, "show", f"{sha}:{path}", check=False)
-    return done.stdout if done.returncode == 0 else None
+    def read() -> str | None:
+        done = _git(repo, "show", f"{sha}:{path}", check=False)
+        return done.stdout if done.returncode == 0 else None
+
+    return _read_once((repo, "show", sha, path), [sha], read)
 
 
 def _resolve(repo: Path, ref: str) -> str | None:
@@ -170,7 +187,10 @@ def _resolve(repo: Path, ref: str) -> str | None:
 
 
 def _is_ancestor(repo: Path, older: str, newer: str) -> bool:
-    return _git(repo, "merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
+    def read() -> bool:
+        return _git(repo, "merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
+
+    return _read_once((repo, "is-ancestor", older, newer), [older, newer], read)
 
 
 def resolve_release(integration: Path) -> tuple[str | None, str]:
@@ -284,7 +304,10 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
 
 
 def _diff_paths(repo: Path, base: str, head: str) -> list[str]:
-    return _git(repo, "diff", "--name-only", "--no-renames", base, head).stdout.splitlines()
+    def read() -> tuple[str, ...]:
+        return tuple(_git(repo, "diff", "--name-only", "--no-renames", base, head).stdout.splitlines())
+
+    return list(_read_once((repo, "diff", base, head), [base, head], read))
 
 
 def _dependency_lists(text: str | None, *, test_extra: bool = True) -> object:
@@ -976,9 +999,10 @@ def _temp_tree(opts: Options, sha: str) -> Generator[Path]:
         _git(opts.worktree, "worktree", "add", "--detach", "--quiet", str(tree), sha)
         yield tree
     finally:
-        _git(opts.worktree, "worktree", "remove", "--force", str(tree), check=False)
+        removed = _git(opts.worktree, "worktree", "remove", "--force", str(tree), check=False).returncode == 0
         shutil.rmtree(scratch, ignore_errors=True)
-        _git(opts.worktree, "worktree", "prune", check=False)
+        if not removed:  # a removed worktree leaves no admin entry to prune
+            _git(opts.worktree, "worktree", "prune", check=False)
 
 
 def _replay(opts: Options, sha: str, nodeids: Sequence[str], run_pytest: PytestRunner) -> dict[str, list[Outcome]]:
