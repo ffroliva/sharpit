@@ -201,7 +201,10 @@ for (const scheme of ['light', 'dark'] as const) {
         expect(headerBox).not.toBeNull();
         expect(rightmostBox).not.toBeNull();
         expect(headerBox!.x + headerBox!.width - padding - (rightmostBox!.x + rightmostBox!.width)).toBeLessThanOrEqual(1);
-        if (await count.count()) expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(rightmostBox!.x);
+        if (await count.count()) {
+          expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(rightmostBox!.x);
+          expect(rightmostBox!.x - (controlBox!.x + controlBox!.width)).toBeLessThanOrEqual(16);
+        }
       });
     }
 
