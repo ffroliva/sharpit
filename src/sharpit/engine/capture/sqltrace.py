@@ -58,9 +58,9 @@ PARAMETERS_SHOWN = (
 _MAX_SCAN_LENGTH = 20_000
 MYSQL_DIALECTS = ("mysql", "mariadb")
 _MYSQL_RADIX_LITERAL = re.compile(r"0[xX][0-9a-fA-F]+|0[bB][01]+")
-# a square-bracket identifier starts like a name and holds no quote, comma or second bracket: anything else in
-# brackets is a value (``ARRAY['x']``, ``ARRAY [1, 2]``) and stays in the scan
-_BRACKET_IDENTIFIER = re.compile(r"""\[[^\W\d][^\]\['",\n]*\]""")
+# a square-bracket identifier is a name, words and spaces only: anything else in brackets is a value and stays in the
+# scan (``ARRAY['x']``, ``ARRAY [lower($$x$$)]``, ``[2024 sales]``, ``[it's]``); showing a value is the worse mistake
+_BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d][\w ]*\]")
 
 
 class Normalized(NamedTuple):
@@ -215,7 +215,9 @@ def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
     c = sql[index]
     if c != "[":
         return _skip_quoted(sql, index, c, mysql)
-    subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$")  # ``ARRAY[``, ``items[``
+    # ``ARRAY[``, ``items[``, ``(ARRAY[1])[``, ``a[1][``, ``ARRAY [``; a space alone proves nothing: ``SELECT [col]``
+    subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$)]")
+    subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")
     found = None if subscript else _BRACKET_IDENTIFIER.match(sql, index)
     return found.end() if found else index + 1
 

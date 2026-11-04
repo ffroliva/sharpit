@@ -51,7 +51,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - The database advisor reads only URL key names from an allow-list (`connect_timeout`, `charset`, `sslmode`), never a value and never the password.
 - `security-logs` masks event values when they are read (keys, secret values, `Bearer`, `Basic` and `Token` credentials, `token=` text) and caps stored strings. A value over the length cap is masked at record time, before the cut, so it stays masked under `FULL` exposure; a shorter one follows the exposure setting.
 - In the compacted `get_vulnerabilities_report` view, the scan message and advisory summaries and details are masked, because an OSV failure message can carry proxy credentials.
-- Literals inside square brackets (`ARRAY['x']`, `doc['x']`, `items[3]`) are normalised in SQL Trace and everywhere else the statement scan runs; a bracket identifier such as `[col name]` stays readable.
+- Literals inside square brackets (`ARRAY['x']`, `ARRAY [lower($$x$$)]`, `doc['x']`, `items[3]`, `a[1][2]`) are normalised in SQL Trace and everywhere else the statement scan runs. A bracket that opens with a letter or underscore, holds only word characters and spaces and is no subscript stays readable (`[col name]`). Any other bracket is scanned as a value: `[2024 sales]` shows `[? sales]`, and the apostrophe in `[it's]` opens a string, so the statement reads `[it?` from there on.
 - `mask_text` matches `Bearer`, `Basic` and `Token` in any case, and masks the whole value after an `Authorization` key.
 
 ### Known limitations
