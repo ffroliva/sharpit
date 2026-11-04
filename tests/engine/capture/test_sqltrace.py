@@ -670,3 +670,8 @@ def test_bracket_identifiers_stay_verbatim(sql: str) -> None:
 
 def test_a_long_run_of_open_brackets_stays_linear() -> None:
     assert normalize("[a" * 10_000).sql == "[a" * 10_000
+
+
+# derived: a qualified bracket identifier is no subscript, so its digits are part of the name
+def test_a_qualified_bracket_identifier_keeps_its_digits() -> None:
+    assert normalize("SELECT t.[col 1] FROM t").sql == "SELECT t.[col 1] FROM t"

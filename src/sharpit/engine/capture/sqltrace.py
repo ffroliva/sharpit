@@ -57,6 +57,9 @@ PARAMETERS_SHOWN = (
 
 _MAX_SCAN_LENGTH = 20_000
 _MYSQL_RADIX_LITERAL = re.compile(r"0[xX][0-9a-fA-F]+|0[bB][01]+")
+# a square-bracket identifier starts like a name and holds no quote, comma or second bracket: anything else in
+# brackets is a value (``ARRAY['x']``, ``ARRAY [1, 2]``) and stays in the scan
+_BRACKET_IDENTIFIER = re.compile(r"""\[[^\W\d][^\]\['",\n]*\]""")
 
 
 class Normalized(NamedTuple):
@@ -206,6 +209,16 @@ def _identifier_char_before(out: _Out) -> bool:
     return bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$.")
 
 
+def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
+    """Where the run opened at ``index`` ends; ``[`` that opens no identifier ends at once, so the scan reads inside."""
+    c = sql[index]
+    if c != "[":
+        return _skip_quoted(sql, index, c, mysql)
+    subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$")  # ``ARRAY[``, ``items[``
+    found = None if subscript else _BRACKET_IDENTIFIER.match(sql, index)
+    return found.end() if found else index + 1
+
+
 def _keyword_literal_start(sql: str, index: int, out: _Out) -> bool:
     if sql[index] not in "tTfF" or _identifier_char_before(out):
         return False
@@ -294,7 +307,7 @@ def normalize(sql: str, mysql: bool = False) -> Normalized:
         elif dollar_end > 0:
             index, literal = dollar_end, True
         elif c in '"`[':
-            end = _skip_quoted(source, index, "]" if c == "[" else c, mysql)
+            end = _quoted_end(source, index, out, mysql)
             if c == '"' and _double_quoted_literal(source, index, end, out, mysql):
                 literal = True
             else:
