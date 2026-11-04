@@ -61,6 +61,7 @@ def test_broad_except_in_handler(tmp_path: Path) -> None:
 
 
 def test_debug_mode_flagged(tmp_path: Path) -> None:
+    # ported: SpringRules SPRING-WEB-004
     on = messages(run_rules(tmp_path, "X = 1\n", {}, app=FastAPI(title="shop", debug=True)), "SPRING-WEB-004")
     off = messages(run_rules(tmp_path, "X = 1\n", {}, app=FastAPI(title="shop")), "SPRING-WEB-004")
     assert len(on) == 1
@@ -68,6 +69,7 @@ def test_debug_mode_flagged(tmp_path: Path) -> None:
 
 
 def test_default_title_flagged(tmp_path: Path) -> None:
+    # ported: SpringRules SPRING-CONFIG-004
     default = messages(run_rules(tmp_path, "X = 1\n", {}, app=FastAPI()), "SPRING-CONFIG-004")
     named = messages(run_rules(tmp_path, "X = 1\n", {}, app=FastAPI(title="shop")), "SPRING-CONFIG-004")
     assert len(default) == 1
