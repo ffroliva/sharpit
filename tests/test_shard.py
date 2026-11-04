@@ -62,3 +62,12 @@ def test_measured_weights_balance_the_shards_within_the_longest_first_bound(plat
         loads[shard_of(rel, n, platform) - 1] += seconds
     floor = max(max(weights.values()), sum(weights.values()) / n)  # no split by file beats this
     assert max(loads) <= floor * 4 / 3, f"shard loads {[round(x) for x in loads]}, floor {floor:.0f}"
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_almost_every_real_test_file_has_a_measured_weight(platform: str) -> None:
+    """A file with no weight is placed by hash, blind to its cost; one 66 s file landing on a loaded shard is a tail."""
+    unmeasured = [f for f in FILES if f not in WEIGHTS[platform]]
+    assert len(unmeasured) <= len(FILES) // 20, (
+        f"{len(unmeasured)} of {len(FILES)} files unmeasured: refresh the weights"
+    )
