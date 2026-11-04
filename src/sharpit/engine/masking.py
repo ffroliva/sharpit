@@ -122,19 +122,27 @@ _TEXT_QUOTED_PAIR = re.compile(
 # a bracketed value ([1, 2]) is one value
 _TEXT_PAIR = re.compile(
     r"(?<![\w.-])([\w.-]+)(\s*[=:]\s*)"
-    r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]*\]|\([^)\n]*\)|(?:(?i:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
+    r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]*\]|\([^)\n]*\)|(?:(?i:Bearer|Basic|Digest|Token)\s+)?(?:(?i:Token)\s+)?[^\s,;&'\"]+)",
     re.ASCII,
 )
-# no credential after ``token``: an ordinary word (``Token expired``, ``FROM Token WHERE``), a plain, Capitalised or
+# no credential after a scheme word: an ordinary word (``Token expired``, ``FROM Token WHERE``), a plain, Capitalised or
 # UPPER run of 16 letters at most between punctuation, or an ASCII operator (``token >= 5``). Anything else is masked.
 # The runs are possessive: the two punctuation classes share quotes, so backtracking between them is quadratic
-_ENGLISH_AFTER_TOKEN = (
+_ENGLISH_AFTER_SCHEME = (
     r"""(?:[(\["'{<]*+(?:[A-Za-z]?[a-z]{0,15}|[A-Z]{1,16})[)\]"'}>,;.:!?]*+|[!-/:-@\[-`{-~]++)(?:\s|$)"""
 )
-# sharpit widening: a scheme's credential with no key before it; schemes match in any case (RFC 9110). The word after
-# ``token`` is not consumed, so it can open the next match
+_CREDENTIAL_FOLLOWS = rf"(?=\s++(?!{_ENGLISH_AFTER_SCHEME}))"
+# sharpit widening: a scheme's credential with no key before it; schemes match in any case (RFC 9110) and may name the
+# word ``token`` (``bearer token abc``). The plain spellings double as English (``basic auth``), so they need a
+# credential after them; ``BEARER`` or ``bEaReR`` is no word. The word checked is not consumed: it can open the next
+# match
 _TEXT_AUTH_SCHEME = re.compile(
-    rf"(?<![\w-])((?i:Bearer|Basic)|(?i:Token)(?=\s++(?!{_ENGLISH_AFTER_TOKEN})))\s+\S+", re.ASCII
+    r"(?<![\w-])("
+    rf"(?:(?i:Bearer|Basic)\s++)?(?i:Token){_CREDENTIAL_FOLLOWS}"
+    rf"|(?:[Bb]earer|[Bb]asic){_CREDENTIAL_FOLLOWS}"
+    r"|(?![Bb]earer|[Bb]asic)(?i:Bearer|Basic)"
+    r")\s+\S+",
+    re.ASCII,
 )
 # the JWT segments in free text. A run with no later segment is consumed too and left as it is: a restart at each
 # ``eyJ`` inside it is quadratic and would fail on the same segments
