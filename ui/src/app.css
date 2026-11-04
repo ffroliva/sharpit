@@ -72,7 +72,7 @@ th:first-child, td:first-child { padding-left: var(--s4); }
 th:last-child, td:last-child { padding-right: var(--s4); }
 tbody tr { transition: background-color var(--dur) var(--ease); }
 tbody tr:hover { background: var(--sel); }
-td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+td.num, th.num, dd.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 td.wrap { overflow-wrap: break-word; } /* names keep their width */
 td.shrink { overflow-wrap: anywhere; } /* long values give way first */
 tr.group th { position: static; background: var(--bg); color: var(--ink); padding-top: var(--s3); }
@@ -88,6 +88,7 @@ dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--s1)
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; }
 section.block { border-bottom: 1px solid var(--line); }
+section.block:not(:has(> h2)) { padding-block: var(--s4); }
 h2 { margin: var(--s3) var(--s4) var(--s1); font-size: 13px; line-height: 20px; font-weight: 600; }
 section.block h2 { padding: 0; }
 

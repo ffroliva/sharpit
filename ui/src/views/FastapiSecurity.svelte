@@ -73,13 +73,15 @@
         </section>
       {/each}
       {#if report.data.auth}
-        <h2>Authentication</h2>
-        <dl>
-          <dt>Security schemes</dt>
-          <dd class="mono">{report.data.auth.authenticationProviderTypes.join(', ') || 'none'}</dd>
-          <dt>Authentication backends</dt>
-          <dd class="mono">{report.data.auth.userDetailsServiceTypes.join(', ') || 'none'}</dd>
-        </dl>
+        <section class="block">
+          <h2>Authentication</h2>
+          <dl class="facts">
+            <dt>Security schemes</dt>
+            <dd class="mono">{report.data.auth.authenticationProviderTypes.join(', ') || 'none'}</dd>
+            <dt>Authentication backends</dt>
+            <dd class="mono">{report.data.auth.userDetailsServiceTypes.join(', ') || 'none'}</dd>
+          </dl>
+        </section>
       {/if}
 
       <h2>Explain a request</h2>

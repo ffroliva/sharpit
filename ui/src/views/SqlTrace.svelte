@@ -82,7 +82,7 @@
 >
   {#snippet controls()}
     {#if report.data?.available}
-      <button class="push" onclick={() => act('sql-trace/recording', { enabled: !report.data!.capturing })} disabled={!!readOnly || acting} title={readOnly ?? undefined}>
+      <button onclick={() => act('sql-trace/recording', { enabled: !report.data!.capturing })} disabled={!!readOnly || acting} title={readOnly ?? undefined}>
         {report.data.capturing ? 'Pause' : 'Resume'}
       </button>
       <button onclick={() => act('sql-trace/clear')} disabled={!!readOnly || acting} title={readOnly ?? undefined}>Clear</button>

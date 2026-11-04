@@ -38,17 +38,30 @@ def css_font_sizes() -> set[str]:
     return sizes
 
 
+def spacing_declarations(text: str):
+    return re.finditer(r"(?<![\w-])(?:margin|padding|gap|top|right|bottom|left)(?:-[a-z]+)?\s*:[^;}]*", text)
+
+
+def off_scale_spacing(declaration: str, comment: str) -> bool:
+    sizes = [
+        (abs(float(size)), unit) for size, unit in re.findall(r"(?<![\w.])(-?\d+(?:\.\d+)?)(px|rem|em)\b", declaration)
+    ]
+    return any(
+        unit != "px" or size > 3 or 0 < size < 1 or 1 <= size <= 3 and not comment.strip().endswith("*/")
+        for size, unit in sizes
+    )
+
+
 def uncommented_off_scale_spacing() -> list[str]:
     failures = []
     for path in css_files():
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             code, _, comment = line.partition("/*")
-            for match in re.finditer(r"(?:margin|padding|gap)(?:-[a-z]+)?\s*:[^;}]*", code):
-                sizes = [abs(float(size)) for size in re.findall(r"(?<![\w.])(-?\d+(?:\.\d+)?)px", match.group())]
-                if any(
-                    size > 3 or 0 < size < 1 or 1 <= size <= 3 and not comment.strip().endswith("*/") for size in sizes
-                ):
-                    failures.append(f"{path.relative_to(ROOT)}:{line_number}: {match.group().strip()}")
+            failures.extend(
+                f"{path.relative_to(ROOT)}:{line_number}: {match.group().strip()}"
+                for match in spacing_declarations(code)
+                if off_scale_spacing(match.group(), comment)
+            )
     return failures
 
 
@@ -66,3 +79,9 @@ def test_font_sizes_are_published():
 
 def test_spacing_literals_are_commented():
     assert uncommented_off_scale_spacing() == []
+
+
+def test_spacing_scan_covers_offsets_and_relative_units():
+    declarations = list(spacing_declarations("top: 4px; left: 1rem; right: 1em; bottom: 2px; border-bottom: 1px;"))
+    assert [match.group().split(":")[0] for match in declarations] == ["top", "left", "right", "bottom"]
+    assert [off_scale_spacing(match.group(), "") for match in declarations] == [True, True, True, True]

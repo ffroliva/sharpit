@@ -73,7 +73,7 @@
 >
   {#snippet controls()}
     {#if report.data?.available && !readOnly}
-      <button class="push" onclick={() => act('transactions/recording', { enabled: !report.data!.capturing })} disabled={acting}>
+      <button onclick={() => act('transactions/recording', { enabled: !report.data!.capturing })} disabled={acting}>
         {report.data.capturing ? 'Pause' : 'Resume'}
       </button>
       <button onclick={() => act('transactions/clear')} disabled={acting}>Clear</button>

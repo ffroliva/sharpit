@@ -21,7 +21,7 @@
   <header class="panel-head">
     <h1>{title}</h1>
     {#if count}<span class="muted count">{count}</span>{/if}
-    <div class="panel-controls">{@render controls?.()}</div>
+    {@render controls?.()}
   </header>
   <div class="panel-body" use:scrollable role="region" aria-label={title} aria-busy={loading}>
     {#if notice}<p class="notice warn">{notice}</p>{/if}
@@ -40,6 +40,5 @@
 </div>
 
 <style>
-  .count { white-space: nowrap; }
-  .panel-controls { display: flex; align-items: center; gap: var(--s3); margin-left: auto; }
+  .count { margin-left: auto; white-space: nowrap; }
 </style>

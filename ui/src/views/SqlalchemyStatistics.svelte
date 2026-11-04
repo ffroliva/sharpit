@@ -73,8 +73,8 @@
                       <span class="muted" title={n.routeReason}>unknown route</span>
                     {/if}
                   </td>
-                  <td>{n.executionsPerRequest}</td>
-                  <td>{n.requests}</td>
+                  <td class="num">{n.executionsPerRequest}</td>
+                  <td class="num">{n.requests}</td>
                   <td class="mono">{n.sql}</td>
                 </tr>
               {/each}
@@ -85,3 +85,7 @@
     {/if}
   {/if}
 </PanelShell>
+
+<style>
+  section.block > p { margin: 0; padding: 0 var(--s4) var(--s2); }
+</style>

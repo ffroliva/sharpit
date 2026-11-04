@@ -78,7 +78,7 @@
 
   /** Re-fetch the rows on screen (as many as are loaded), e.g. after a change that affects other rows. */
   export async function reload() {
-    if (!page) {
+    if (!page || error) {
       retryVersion++;
       return;
     }

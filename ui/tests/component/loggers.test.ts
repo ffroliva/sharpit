@@ -100,3 +100,28 @@ it('the filter goes into the URL hash, and the count is not announced while it l
   await vi.waitFor(() => expect(location.hash).toBe('#/loggers?q=app.db'), { timeout: 1000, interval: 5 });
   await vi.waitFor(() => expect(count().getAttribute('aria-busy')).toBe('false'), { timeout: 1000, interval: 5 });
 });
+
+it('Retry reloads a failed filter query instead of the previous page', async () => {
+  let failFilter = false;
+  fetchMock.mockImplementation((input) => {
+    const url = String(input);
+    if (failFilter && url.includes('q=sql')) return Promise.resolve(json(503, { error: 'offline' }));
+    return Promise.resolve(json(200, {
+      loggers: rows, availableLevels: ['ERROR', 'WARNING', 'DEBUG'],
+      page: { total: 1, matched: 1, offset: 0, limit: 200, returned: 1, hasMore: false },
+    }));
+  });
+  component = mount(Loggers, { target, props: { panel } });
+  flushSync();
+  const filter = target.querySelector<HTMLInputElement>('.panel-filter')!;
+  await vi.waitFor(() => expect(target.querySelector('.count')?.textContent).toContain('1 of 1'), { timeout: 1000, interval: 5 });
+  failFilter = true;
+  filter.value = 'sql';
+  filter.dispatchEvent(new Event('input', { bubbles: true }));
+  await vi.waitFor(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('Could not load'), { timeout: 1000, interval: 5 });
+
+  failFilter = false;
+  target.querySelector<HTMLButtonElement>('button')!.click();
+  await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).toBeNull(), { timeout: 1000, interval: 5 });
+  expect(fetchMock.mock.calls.some(([url]) => String(url).includes('q=sql'))).toBe(true);
+});

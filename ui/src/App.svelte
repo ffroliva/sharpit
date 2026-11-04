@@ -104,8 +104,7 @@
     tick().then(() => {
       const currentLink = document.querySelector<HTMLElement>('nav.rail a[aria-current="page"]');
       if (currentLink) {
-        const behavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'auto';
-        currentLink.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior });
+        currentLink.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       }
     });
   });
@@ -252,8 +251,8 @@
   kbd { font: 12px var(--ui); color: var(--muted); }
   main { min-width: 0; min-height: 0; overflow: hidden; }
   main:focus { outline: none; }
-  .skip { position: absolute; left: var(--s2); top: -40px; z-index: var(--z-palette); background: var(--bg); padding: var(--s1) var(--s2); }
-  .skip:focus { top: var(--s2); }
+  .skip { position: absolute; left: var(--s2); top: 0; transform: translateY(-100%); z-index: var(--z-palette); background: var(--bg); padding: var(--s1) var(--s2); }
+  .skip:focus { transform: none; }
 
   /* Below 720px the rail is one scrolling row above the panel (DESIGN.md) */
   @media (max-width: 720px) {

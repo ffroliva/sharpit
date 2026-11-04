@@ -42,7 +42,7 @@
   count={report.data?.alembicPresent ? `${report.data.total} revisions` : null}
 >
   {#snippet controls()}
-    <button class="primary push" onclick={readVersion} disabled={!!readOnly || reading} aria-busy={reading} title={readOnly ?? undefined}>
+    <button class="primary" onclick={readVersion} disabled={!!readOnly || reading} aria-busy={reading} title={readOnly ?? undefined}>
       {reading ? 'Reading…' : 'Read database version'}
     </button>
   {/snippet}

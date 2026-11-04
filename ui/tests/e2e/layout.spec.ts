@@ -54,10 +54,23 @@ for (const scheme of ['light', 'dark'] as const) {
       test(`${id} panel header is one line`, async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 800 });
         await openPanel(page, id);
-        await expect(page.locator('.panel-head')).toHaveCSS('height', /./);
         expect(await page.locator('.panel-head').evaluate((el) => el.getBoundingClientRect().height)).toBeLessThanOrEqual(36);
       });
     }
+
+    test('Log Tail controls fit at 390px and filters grow on desktop', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 800 });
+      await openPanel(page, 'log-tail');
+      for (const control of await page.locator('.panel-head select, .panel-head input, .panel-head button').all()) {
+        const box = await control.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+      }
+      await page.setViewportSize({ width: 1280, height: 800 });
+      const filterWidth = await page.locator('.panel-head .grow').first().evaluate((el) => el.getBoundingClientRect().width);
+      expect(filterWidth).toBeGreaterThan(160);
+    });
 
     for (const id of ['sqlalchemy-statistics', 'fastapi-security']) {
       test(`${id} headings are styled`, async ({ page }) => {
@@ -70,6 +83,30 @@ for (const scheme of ['light', 'dark'] as const) {
         expect(await heading.evaluate((el) => el.getBoundingClientRect().left - el.closest('.panel-body')!.getBoundingClientRect().left)).toBe(16);
       });
     }
+
+    test('SQLAlchemy statistics numbers are right aligned and tabular', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.request.get(new URL('/owners/n-plus-one', page.url()).href);
+      await openPanel(page, 'sqlalchemy-statistics');
+      const value = page.locator('dl.facts dd.num').first();
+      await expect(value).toHaveCSS('text-align', 'right');
+      await expect(value).toHaveCSS('font-variant-numeric', 'tabular-nums');
+      await expect(page.locator('td.num').first()).toHaveCSS('text-align', 'right');
+    });
+
+    test('SQLAlchemy section paragraphs are inset', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await openPanel(page, 'sqlalchemy-statistics');
+      await expect(page.locator('section.block > p').first()).toHaveCSS('padding-left', '16px');
+    });
+
+    test('headingless server status facts have space above and below', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await openPanel(page, 'mcp-server');
+      const block = page.locator('.panel-body section.block');
+      await expect(block).toHaveCSS('padding-top', '16px');
+      await expect(block).toHaveCSS('padding-bottom', '16px');
+    });
 
     for (const id of ['health', 'exceptions', 'sql-trace', 'transactions', 'security-logs', 'alembic']) {
       test(`${id} header actions sit right`, async ({ page }) => {

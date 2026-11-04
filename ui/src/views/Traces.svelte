@@ -69,7 +69,7 @@
   count={report.data?.enabled ? `${report.data.retained} traces (capacity ${report.data.capacity} spans)` : null}
 >
   {#snippet controls()}
-    <button class="clear" onclick={clear} disabled={panel.readOnly} title={why}>Clear</button>
+    <button onclick={clear} disabled={panel.readOnly} title={why}>Clear</button>
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
   {#if report.data}

@@ -73,7 +73,7 @@
   count={report.data ? `${report.data.groups.length} groups, ${report.data.totalExceptions} total` : null}
 >
   {#snippet controls()}
-    <button class="clear" onclick={clear} disabled={panel.readOnly} title={why}>Clear all</button>
+    <button onclick={clear} disabled={panel.readOnly} title={why}>Clear all</button>
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
   {#if report.data && report.data.groups.length === 0}

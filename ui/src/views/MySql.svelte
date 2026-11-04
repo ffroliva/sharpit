@@ -62,7 +62,7 @@
 <PanelShell title={panel.title} loading={report.loading} error={report.error} onretry={report.reload} notice={readOnly}>
   {#snippet controls()}
     {#if !readOnly}
-      <button class="primary push" onclick={read} disabled={reading} aria-busy={reading}>
+      <button class="primary" onclick={read} disabled={reading} aria-busy={reading}>
         {reading ? 'Reading…' : 'Read MySQL'}
       </button>
     {/if}
