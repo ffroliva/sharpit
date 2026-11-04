@@ -406,11 +406,10 @@ def test_listener_never_executes_sql() -> None:
 
 def test_sql_counts_correlate_at_report_time() -> None:
     import time
-    from datetime import UTC, datetime
 
     recorder = _recorder()
     entry_id = _begin(recorder, "db-1")
-    midpoint = datetime.fromtimestamp(time.time_ns() / 1_000_000_000, UTC).isoformat().replace("+00:00", "Z")
+    midpoint = time.time_ns() // 1_000_000
     recorder.end(entry_id, "COMMITTED")
     report = recorder.report([{"connectionId": "db-1", "timestamp": midpoint}])
     assert report["entries"][0]["sqlStatementCount"] == 1, "matching SQL Trace rows must be correlated when reporting"

@@ -2,5 +2,10 @@
   "window.oldestTimestamp": "null when the SQL Trace ring retains no statement (SqlTraceWindowDto.empty and an empty window)",
   "window.newestTimestamp": "null when the SQL Trace ring retains no statement (SqlTraceWindowDto.empty and an empty window)",
   "attribution.unattributed.reason": "null while route attribution is unavailable (SqlAttributionBucketDto.empty(null))",
-  "attribution.ambiguous.reason": "null while route attribution is unavailable (SqlAttributionBucketDto.empty(null))"
+  "attribution.ambiguous.reason": "null while route attribution is unavailable (SqlAttributionBucketDto.empty(null))",
+  "retention.reservedCapacity": "null: sharpit's SQL ring is a plain bounded deque with no share reserved for slow or failed statements",
+  "retention.reserved": "null: sharpit's SQL ring is a plain bounded deque with no share reserved for slow or failed statements",
+  "entries[].executionId": "null: sharpit has no execution id; a statement is correlated by its request id only",
+  "entries[].threadKind": "null: sharpit records the thread name only and does not classify it",
+  "entries[].requestPhase": "null: sharpit records no request phase for a statement"
 }

@@ -4,6 +4,8 @@ Every panel id in BootUI 2.2.0 (`tests/fixtures/bootui/2.2.0/ids.json`) and wher
 
 The D2 and D4 drift lanes (capture panels; `vulnerabilities`, `mcp-server`, `rest-api`) added no new golden captures. The goldens in `tests/fixtures/bootui/2.2.0/` are the 2026-11-02 captures; the drift lanes added `nullable.json` key reasons and parity or key-presence tests against those captures, so the counts below did not move. "Drift done" means every key and route in the drift plans that sharpit can fill; what it cannot (memory keys and the journal on `activity`, CVSS v4.0 score selection and `sampleLocations` on `vulnerabilities` and `rest-api`) is in the 0.5.0 changelog.
 
+Not built on panels counted `shipped`: `GET /activity/service-map`, `GET /activity/request/{id}/journal` and `GET /rest-api/error-contract`. `service-map.captured.json` and `error-contract.captured.json` are the only captured goldens with no live parity call, named in `tests/test_conformance.py::NOT_LIVE_2_2_0`. `activity` is checked with `typeCounts` completed from the golden, because that map's keys are the types seen; sharpit's feed has no `TRANSACTION`, `SECURITY`, `MESSAGING` or `MARKER` entries.
+
 | Status | Meaning |
 |---|---|
 | `shipped` | implemented; a golden `captured.json` covers what the panel returns and the panel's parity test passes |
@@ -20,10 +22,10 @@ The D2 and D4 drift lanes (capture panels; `vulnerabilities`, `mcp-server`, `res
 | `vulnerabilities` | `vulnerabilities` | shipped (unverified golden) | 0.3.0 | golden is a failed-scan capture, so items are unchecked (`tests/engine/vulns/test_service.py::test_vulnerabilities_golden_parity_after_drift`); post-scan recapture is G0 (owner); 2.2.0 drift done (D4) |
 | `mcp-server` | `mcp-server` | shipped | 0.3.0; drift D4 | `tests/fastapi/test_mcp_api.py::test_mcp_server_golden_parity_after_drift`; 2.2.0 drift done |
 | `cli` | `cli` | shipped | 0.3.0 | |
-| `activity` | `activity` | shipped | 0.3.0 | `journal.captured.json`, `resources.captured.json`; `tests/fastapi/test_activity_api.py::test_activity_journal_golden_parity`, `::test_activity_resources_golden_parity`; 2.2.0 drift done (D2) |
+| `activity` | `activity` | shipped | 0.3.0 | `captured.json` populated (`test_capture_golden_parity.py`), `journal.captured.json`, `resources.captured.json`; `tests/fastapi/test_activity_api.py::test_activity_journal_golden_parity`, `::test_activity_resources_golden_parity`; 2.2.0 drift done (D2) |
 | `http-exchanges` | `http-exchanges` | shipped | 0.3.0 | `routes.captured.json`; `tests/fastapi/test_http_exchanges_api.py::test_http_routes_golden_parity`; 2.2.0 drift done (D2) |
-| `exceptions` | `exceptions` | shipped | 0.3.0 | `caught.captured.json`; `tests/fastapi/test_exceptions_api.py::test_exceptions_caught_golden_parity`; 2.2.0 drift done (D2) |
-| `sql-trace` | `sql-trace` | shipped | 0.3.0; insights A-sqltrace-insights | `insights.captured.json`; `tests/fastapi/test_sql_trace_insights_api.py::test_insights_golden_parity`; other 2.2.0 drift done (D2) |
+| `exceptions` | `exceptions` | shipped | 0.3.0 | `captured.json` populated (`test_capture_golden_parity.py`), `caught.captured.json`; `tests/fastapi/test_exceptions_api.py::test_exceptions_caught_golden_parity`; 2.2.0 drift done (D2) |
+| `sql-trace` | `sql-trace` | shipped | 0.3.0; insights A-sqltrace-insights | `captured.json` populated (`test_capture_golden_parity.py`), `insights.captured.json`; `tests/fastapi/test_sql_trace_insights_api.py::test_insights_golden_parity`; other 2.2.0 drift done (D2) |
 | `log-tail` | `log-tail` | shipped | 0.3.0 | `recent.captured.json`; `tests/fastapi/test_log_tail_api.py::test_log_tail_recent_golden_parity`; 2.2.0 drift done (D2) |
 | `flyway` | `alembic` | shipped (unverified golden) | 0.3.0; drift D3 | no 2.2.0 golden: BootUI's capture app runs Liquibase (`meta.json` `uncaptured`) |
 | `database-connection-pools` | `database-connection-pools` | shipped | 0.3.0; drift D3 | `pools.captured.json` |
@@ -56,6 +58,8 @@ Check: 22 + 9 + 0 = 31.
 
 Parity (panels shipped of 31): (22 + 9) / 31 = 31 / 31 = **100%**.
 Verified parity (shipped with a checked golden): 22 / 31 = **71.0%** (22 ÷ 31 = 0.7097).
+
+The 0.5.0 release fix round did not move this count. `activity`, `exceptions` and `sql-trace` were already counted as verified, but only their `journal`, `resources`, `caught` and `insights` goldens were checked: their main reports failed once populated. They now pass populated (`tests/fastapi/test_capture_golden_parity.py`), so those three rows earn the status they already had. `beans`, `cli`, `config`, `dismissed-*`, `http-probe`, `loggers`, `mappings` and `panels` gained their first 2.2.0 live check (`tests/fastapi/test_panel_golden_parity.py`).
 
 For comparison, 0.4.0: implemented 19 + 2 + 2 = 23 of 31 (74.2%); verified 19 + 2 = 21 of 31 (67.7%) as that file
 counted the 0.3.0 rows. Under this file's stricter rule (vulnerabilities and alembic unverified), 0.4.0 verified would

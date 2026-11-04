@@ -2,5 +2,9 @@
   "runId": "null: sharpit keeps no runtime journal, so there is no journal run id (RuntimeJournalStatusDto)",
   "oldestRetainedAt": "null: sharpit keeps no runtime journal, so no event is retained (RuntimeJournalStatusDto)",
   "recorded": "null: sharpit keeps no runtime journal, so it records no per-family event counts (RuntimeJournalStatusDto)",
-  "totals": "null: sharpit records no resource track or CPU ledger yet; U20 fills the memory keys (RuntimeResourcesDto)"
+  "totals": "null: sharpit records no resource track or CPU ledger yet; U20 fills the memory keys (RuntimeResourcesDto)",
+  "persistenceOption": "null: sharpit has no activity persistence option; Live Activity reads the in-memory panel buffers",
+  "kpis.heapUsedBytes": "null: sharpit samples no process memory for Live Activity (RuntimeResourcesDto is unavailable too)",
+  "kpis.heapMaxBytes": "null: sharpit samples no process memory for Live Activity (RuntimeResourcesDto is unavailable too)",
+  "kpis.healthStatus": "null until the health panel has run: a read never runs a check, so only a cached status shows"
 }

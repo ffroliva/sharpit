@@ -30,7 +30,7 @@ STATUSES = ("OPEN", "ACKNOWLEDGED", "RESOLVED")
 GROUP_KEYS = (
     "id", "exceptionClassName", "message", "count", "firstSeen", "lastSeen", "location", "applicationException",
     "lastThread", "lastRequestMethod", "lastRequestPath", "lastHandler", "lastSource", "lastTraceId", "status",
-    "regressionCount", "errorContract",
+    "regressionCount", "errorContract", "lastRequestId", "lastExecutionId",
 )  # fmt: skip
 
 _FALLBACK_MAX = 64
@@ -195,6 +195,8 @@ class _Group:
             "status": self.status,
             "regressionCount": self.regressions,
             "errorContract": None,  # BootUI's Problem Details check is not ported
+            "lastRequestId": last.get("traceId"),  # an occurrence's traceId is sharpit's request id
+            "lastExecutionId": None,
         }
 
 

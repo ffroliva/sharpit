@@ -8,7 +8,6 @@ import time
 import weakref
 from collections import deque
 from collections.abc import Callable
-from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
@@ -251,9 +250,7 @@ class TransactionRecorder:
                 row["sqlStatementCount"] = (
                     sum(
                         sql.get("connectionId") == row["_connectionId"]
-                        and row["startTimestamp"]
-                        <= _sql_timestamp(sql.get("timestamp"))
-                        <= (row["endTimestamp"] or row["startTimestamp"])
+                        and row["startTimestamp"] <= sql["timestamp"] <= (row["endTimestamp"] or row["startTimestamp"])
                         for sql in sql_rows
                     )
                     if row["_connectionId"] is not None
@@ -289,17 +286,6 @@ class TransactionRecorder:
             "entries": [{key: row[key] for key in ENTRY_KEYS} for row in reversed(rows)],
             "warnings": warnings,
         }
-
-
-def _sql_timestamp(value: object) -> int:
-    if isinstance(value, int | float):
-        return int(value // 1_000_000 if value > 10**14 else value)
-    if isinstance(value, str):
-        try:
-            return int(datetime.fromisoformat(value).timestamp() * 1000)
-        except ValueError:
-            return 0
-    return 0
 
 
 def _enabled(ctx: SharpitContext) -> TransactionRecorder | None:

@@ -83,7 +83,8 @@ def evaluate(
         "analysis errors."
     )
     detail = {"inspected": inspected, "components": len(handlers)}
-    return Evaluation("SCANNED", message, tuple(hits), findings, evidence(True, not notes, notes), detail)
+    status = "SCANNED" if index is not None else "PARTIAL"  # without the source, the source rules never ran
+    return Evaluation(status, message, tuple(hits), findings, evidence(True, not notes, notes), detail)
 
 
 def _scope(done: Evaluation | None) -> Scope:

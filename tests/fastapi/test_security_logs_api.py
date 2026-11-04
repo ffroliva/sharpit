@@ -384,3 +384,15 @@ def test_panel_disabled_drops_events() -> None:
         assert _client(app).get(API).status_code == 403, "a disabled panel's route is refused"
     finally:
         handle.uninstall_capture()
+
+
+def test_report_golden_parity_with_an_anonymous_401() -> None:
+    app, handle = _panel_app()
+    try:
+        client = _client(app)
+        assert client.get("/denied").status_code == 401
+        body = client.get(API).json()
+        assert [event["principal"] for event in body["events"]] == [None]
+        assert_parity("security-logs", "report", body)
+    finally:
+        handle.uninstall_capture()

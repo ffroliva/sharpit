@@ -371,13 +371,15 @@ def test_shape_keys_match_bootui():
     # ported: ActivityEntryDto, ActivityKpiDto, LiveActivityReport, RequestProfileDto
     assert ENTRY_KEYS == (
         "id", "type", "timestamp", "severity", "summary", "detail", "durationMs", "correlationId", "method", "path",
-        "status", "thread", "profileable", "parentId", "securedPrincipal", "sqlNPlusOneSuspected",
+        "status", "thread", "profileable", "parentId", "securedPrincipal", "sqlNPlusOneSuspected", "badges",
+        "exceptionGroupId",
     )  # fmt: skip
     assert KPI_KEYS == (
         "requestsPerMinute", "errorRatePercent", "p50LatencyMs", "p95LatencyMs", "slowestEndpoint",
         "slowestEndpointMs", "activeExceptionCount", "sqlPerMinute", "slowestQueryMs", "healthStatus",
         "heapUsedBytes", "heapMaxBytes", "cacheHitRatioPercent", "scheduledTaskFailureCount",
-        "restCallErrorRatePercent", "restCallP95LatencyMs",
+        "restCallErrorRatePercent", "restCallP95LatencyMs", "latencySampleCount", "slowestEndpointRoute",
+        "slowestEndpointRouteId", "slowestEndpointRouteSource",
     )  # fmt: skip
     assert REPORT_KEYS == (
         "available", "entries", "typeCounts", "kpis", "sources", "warnings", "pageInfo", "persistenceOption",
