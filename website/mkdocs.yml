@@ -10,6 +10,9 @@ copyright: >-
   Apache-2.0 · a Python port of BootUI by Julien Dubois
 docs_dir: docs
 site_dir: site
+extra_css:
+  - stylesheets/tokens.css
+  - stylesheets/sharpit.css
 
 theme:
   name: material
@@ -21,15 +24,15 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: teal
-      accent: teal
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: teal
-      accent: teal
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light

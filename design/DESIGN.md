@@ -186,3 +186,12 @@ New pieces only; everything else reuses the tokens and patterns above.
 The command palette (Ctrl/Cmd+K). It is the fastest way to reach any panel, logger or config key. The rest of the console stays
 quiet so the palette can carry the personality: a wide input in `--t-lg`, results grouped by kind, and the matched prefix in
 `--accent`.
+
+## Docs site
+
+The MkDocs site keeps Material's layout and syntax highlighting while using the shared `tokens.css` copy in
+`website/docs/stylesheets/`. `sharpit.css` maps Material's header and tab surfaces to `--rail`, page surfaces to `--bg`,
+text to `--ink` or `--muted`, and links, focus and active navigation to `--accent`. The header has a 1px `--line` bottom
+edge, table headers use `--rail`, and admonitions use status-token 1px outlines. Palette headings use weights 400 and 600.
+All mappings live under `[data-md-color-scheme]`, so the user's palette toggle controls the tokens even when it differs
+from the operating system theme.
