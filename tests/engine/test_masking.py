@@ -378,3 +378,65 @@ def test_vendor_regex_skipped_without_a_prefix(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(masking, "_VENDOR_TOKEN", Spy())
     assert not is_secret_value("an ordinary word")
     assert searched == []
+
+
+# derived: release council probe p2_mask.py: HTTP auth schemes are case-insensitive, the rule was not
+@pytest.mark.parametrize(
+    "text",
+    [
+        "bearer abc123def",
+        "BEARER abc123def",
+        "bEaReR abc",
+        f"basic {BASIC_CREDENTIALS}",
+        f"BASIC {BASIC_CREDENTIALS}",
+    ],
+)
+def test_mask_text_scheme_credential_survives_in_no_case(text: str) -> None:
+    assert Masker(M, True).mask_text(text) == f"{text.split()[0]} {MASK}"
+
+
+@pytest.mark.parametrize("scheme", ["bearer", "basic", "digest", "token", "Token", "BEARER"])
+@pytest.mark.parametrize("key", ["Authorization", "authorization", "Proxy-Authorization"])
+def test_mask_text_authorization_value_masks_whole(key: str, scheme: str) -> None:
+    masked = Masker(M, True).mask_text(f"{key}: {scheme} expired")
+    assert masked == f"{key}: {MASK}"
+
+
+def test_mask_text_authorization_inside_a_quoted_command_keeps_no_credential() -> None:
+    masked = Masker(M, True).mask_text("curl -H 'Authorization: bearer abc'")
+    assert masked == f"curl -H 'Authorization: {MASK}'"
+
+
+@pytest.mark.parametrize(
+    "credential",
+    ["abc123def", "abc123", "0123456789abcdef", "a+b/c==", "AbCdEfGhIj", "abcdefghijklmnopqrstuvwxyz", HEX_TOKEN],
+)
+@pytest.mark.parametrize("scheme", ["Token", "token", "TOKEN"])
+def test_mask_text_token_scheme_masks_a_credential_shape(scheme: str, credential: str) -> None:
+    masked = Masker(M, True).mask_text(f"sent {scheme} {credential} upstream")
+    assert masked == f"sent {scheme} {MASK} upstream"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Token expired",
+        "token expired.",
+        "Token is invalid",
+        "the Token, then",
+        "SELECT * FROM Token WHERE id = ?",
+        "SELECT * FROM token JOIN users",
+        "UPDATE Token SET used",
+        "Token ?",
+    ],
+)
+def test_mask_text_token_keeps_ordinary_words(text: str) -> None:
+    assert Masker(M, True).mask_text(text) == text
+
+
+def test_mask_text_word_after_token_does_not_hide_the_next_credential() -> None:
+    assert Masker(M, True).mask_text("Token Token abc123def") == f"Token Token {MASK}"
+
+
+def test_mask_text_token_between_runs_of_spaces_stays_linear() -> None:
+    assert Masker(M, True).mask_text("token" + " " * 200_000 + "expired") == "token" + " " * 200_000 + "expired"
