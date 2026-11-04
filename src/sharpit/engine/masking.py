@@ -24,8 +24,7 @@ class Exposure(StrEnum):
 
 # ---- SecretValueDetector -------------------------------------------------------------------------------------------
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+")  # used with fullmatch
-# sharpit deviation: the matches of BEGIN[A-Z0-9 ]*PRIVATE KEY, tried once per run: a restart at each BEGIN is quadratic
-_PEM_PRIVATE_KEY = re.compile(r"(?<![A-Z0-9 ])(?>[A-Z0-9 ]*?BEGIN)[A-Z0-9 ]*PRIVATE KEY")
+_PEM_LABEL = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
 _AWS_ACCESS_KEY = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", re.ASCII)
 # sharpit widening: the user part may be empty (redis://:pw@host), so `*` where BootUI has `+`
 _URL_USERINFO = re.compile(r"://[^/?#\s:@]*:[^/?#\s@]+@", re.ASCII)
@@ -71,6 +70,17 @@ def _has_vendor_token(value: str) -> bool:
     return any(prefix in value for prefix in _VENDOR_PREFIXES) and _VENDOR_TOKEN.search(value) is not None
 
 
+def _has_pem_private_key(value: str) -> bool:
+    """``BEGIN[A-Z0-9 ]*PRIVATE KEY``, by finds: each search starts past the last match, so it stays linear."""
+    start = 0
+    while (key := value.find("PRIVATE KEY", start)) >= 0:
+        begin = value.rfind("BEGIN", start, key)
+        if begin >= 0 and not value[begin + len("BEGIN") : key].strip(_PEM_LABEL):
+            return True
+        start = key + len("PRIVATE KEY")
+    return False
+
+
 def is_secret_value(value: str) -> bool:
     """True when the value matches a high-confidence secret pattern (SecretValueDetector)."""
     if not value.strip():
@@ -80,7 +90,7 @@ def is_secret_value(value: str) -> bool:
         return _has_vendor_token(value)
     return bool(
         _JWT.fullmatch(value.strip())
-        or _PEM_PRIVATE_KEY.search(value)
+        or _has_pem_private_key(value)
         or _AWS_ACCESS_KEY.search(value)
         or _URL_USERINFO.search(value)
         or _URL_USER_ONLY.search(value)
