@@ -173,3 +173,38 @@ def test_sdist_excludes_design() -> None:
     ]["exclude"]
     assert "/design" in exclude
     assert "/tests/design" in exclude
+
+
+def test_docs_copy_matches_tokens() -> None:
+    copy = ROOT / "website/docs/stylesheets/tokens.css"
+    assert copy.is_file()
+    assert copy.read_bytes() == (ROOT / "design/tokens.css").read_bytes()
+
+
+def test_docs_theme_maps_on_the_scheme() -> None:
+    theme = ROOT / "website/docs/stylesheets/sharpit.css"
+    assert theme.is_file()
+    text = theme.read_text(encoding="utf-8")
+    assert "[data-md-color-scheme]" in text
+    assert ":root" not in text
+
+
+def test_docs_theme_defines_no_colour_token() -> None:
+    theme = ROOT / "website/docs/stylesheets/sharpit.css"
+    assert theme.is_file()
+    text = theme.read_text(encoding="utf-8")
+    names = {n for n, _ in DECL.findall(_text())}
+    declared = {n for n, _ in DECL.findall(text)}
+    assert not names & declared
+    assert "oklch(" not in text
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b", text)
+
+
+def test_docs_palette_is_custom() -> None:
+    mkdocs = (ROOT / "website/mkdocs.yml").read_text(encoding="utf-8")
+    assert "teal" not in mkdocs
+    assert mkdocs.count("primary: custom") == 2
+    assert mkdocs.count("accent: custom") == 2
+    assert "stylesheets/tokens.css" in mkdocs
+    assert "stylesheets/sharpit.css" in mkdocs
+    assert mkdocs.index("stylesheets/tokens.css") < mkdocs.index("stylesheets/sharpit.css")
