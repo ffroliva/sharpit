@@ -97,9 +97,10 @@ def test_mcp_server_status_shape():
     body = _client(mcp_enabled="ON").get("/sharpit/api/mcp-server").json()
     assert list(body) == [
         "enabled", "configuredMode", "overridden", "serverName", "serverVersion", "transport", "endpoint",
-        "protocolVersion", "maxResults", "callCount", "totalLatencyMillis", "capacityRefusals", "timeouts",
-        "responseLimitRefusals", "toolCount", "tools",
-    ]  # fmt: skip
+        "protocolVersion", "supportedProtocolVersions", "maxResults", "callCount", "totalLatencyMillis",
+        "capacityRefusals", "timeouts", "responseLimitRefusals", "cancellations", "progressDropped", "toolCount",
+        "tools",
+    ]  # fmt: skip  # BootUI 2.2.0 key order (lane D4)
     assert (body["enabled"], body["configuredMode"], body["overridden"]) == (True, "ON", False)
     assert (body["serverName"], body["serverVersion"], body["transport"]) == ("sharpit", __version__, "http")
     assert (body["endpoint"], body["protocolVersion"], body["maxResults"]) == ("/sharpit/api/mcp", "2025-06-18", 200)
@@ -183,3 +184,13 @@ def test_deeply_nested_json_is_a_parse_error_not_a_500():
     ):
         resp = client.post(path, content=body, headers=headers)
         assert (resp.status_code, "error" in resp.json()) == (400, True), path
+
+
+def test_mcp_server_golden_parity_after_drift(tmp_path: Path):
+    # lane D4: McpServerStatus against the BootUI 2.2.0 capture (supportedProtocolVersions, cancellations,
+    # progressDropped)
+    from golden import assert_parity
+
+    client = _client(tmp_path, mcp_enabled="ON")
+    client.post(MCP, json={"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}})
+    assert_parity("mcp-server", "captured", client.get("/sharpit/api/mcp-server").json())

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
@@ -39,6 +40,7 @@ from sharpit.engine.tools import (
 logger = logging.getLogger("sharpit")
 
 PROTOCOL_VERSION = "2025-06-18"
+SUPPORTED_PROTOCOL_VERSIONS = ("2026-07-28", PROTOCOL_VERSION)  # newest first (McpServerStatus)
 DISABLED_MESSAGE = "sharpit MCP server is disabled. Enable it from the MCP Server panel or set SHARPIT_MCP_ENABLED=ON."
 _FRAMEWORK = "FastAPI"
 BATCH_MESSAGE = "JSON-RPC batch requests are not supported by MCP Streamable HTTP transport"
@@ -209,6 +211,8 @@ class McpServer:
         self.ctx = ctx
         self.tools: Sequence[Tool] = TOOLS if tools is None else tools
         self.enabled = ctx.settings.mcp_enabled == "ON"  # AUTO is off: never silently exposed
+        self._lock = threading.Lock()
+        self.cancellations = 0
 
     def handle(self, body: bytes, headers: Mapping[str, str], scope: Mapping[str, object]) -> _Response:
         """``(status, body or None for an empty 202, extra headers)``."""
@@ -216,7 +220,7 @@ class McpServer:
         if lower.get("content-type", "").partition(";")[0].strip().lower() != "application/json":
             return 415, {"error": "Unsupported Media Type"}, []
         version = lower.get("mcp-protocol-version")
-        if version is not None and version != PROTOCOL_VERSION:
+        if version is not None and version not in SUPPORTED_PROTOCOL_VERSIONS:
             return 400, _error(None, INVALID_REQUEST, "Unsupported MCP-Protocol-Version"), []
         if len(body) > self.ctx.settings.mcp_max_payload_bytes:
             return 413, payload_too_large(), []
@@ -255,8 +259,11 @@ class McpServer:
             "transport": "http",
             "endpoint": (api_path or settings.api_path) + "/mcp",
             "protocolVersion": PROTOCOL_VERSION,
+            "supportedProtocolVersions": list(SUPPORTED_PROTOCOL_VERSIONS),
             "maxResults": settings.mcp_max_results,
             **tool_gate(self.ctx, "mcp").snapshot(),
+            "cancellations": self.cancellations,
+            "progressDropped": 0,  # no progress notification is ever sent: calls answer in one JSON response
             "toolCount": len(infos),
             "tools": infos,
         }
@@ -299,14 +306,20 @@ class McpServer:
         return response
 
     def _dispatch(self, method: str, params: dict[str, object], scope: Mapping[str, object]) -> dict[str, Any]:
-        if method == "initialize":  # one known version: a request for it is echoed, anything else gets it too
+        if method == "initialize":  # a supported revision is echoed, anything else gets the default
+            requested = params.get("protocolVersion")
             return {
-                "protocolVersion": PROTOCOL_VERSION,
+                "protocolVersion": requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}, "prompts": {"listChanged": False}},
                 "serverInfo": {"name": SERVER_NAME, "version": __version__},
                 "instructions": INSTRUCTIONS,
             }
         if method == "ping":
+            return {}
+        if method == "notifications/cancelled":
+            # shortcut: calls run synchronously, so the cancel cannot stop one; it is counted, as BootUI's status does
+            with self._lock:
+                self.cancellations += 1
             return {}
         if method == "tools/list":
             return {"tools": [_describe(t) for t in self.tools if not t.action]}
@@ -324,15 +337,18 @@ class McpServer:
         if method == "prompts/list":
             return {"prompts": [{"name": p.name, "description": p.description, "arguments": []} for p in PROMPTS]}
         if method == "prompts/get":
-            name = params.get("name")
-            if not isinstance(name, str) or not name:
-                raise RpcError(INVALID_PARAMS, "Missing prompt name")
-            prompt = next((p for p in PROMPTS if p.name == name), None)
-            if prompt is None:
-                raise RpcError(INVALID_PARAMS, f"Unknown prompt: {name}")
-            message = {"role": "user", "content": {"type": "text", "text": prompt.text}}
-            return {"description": prompt.description, "messages": [message]}
+            return _get_prompt(params.get("name"))
         raise RpcError(METHOD_NOT_FOUND, f"Unknown method: {method}")
+
+
+def _get_prompt(name: object) -> dict[str, Any]:
+    if not isinstance(name, str) or not name:
+        raise RpcError(INVALID_PARAMS, "Missing prompt name")
+    prompt = next((p for p in PROMPTS if p.name == name), None)
+    if prompt is None:
+        raise RpcError(INVALID_PARAMS, f"Unknown prompt: {name}")
+    message = {"role": "user", "content": {"type": "text", "text": prompt.text}}
+    return {"description": prompt.description, "messages": [message]}
 
 
 def _describe(tool: Tool) -> dict[str, Any]:
