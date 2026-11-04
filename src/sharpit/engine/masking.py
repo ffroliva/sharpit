@@ -158,6 +158,8 @@ _AUTH_SCHEME_MASKED = rf"\1 {MASK}"
 _LONG_TEXT = 4096  # below it the quadratic case costs milliseconds and a log line pays nothing extra; see _sub_pairs
 _BRACKET_RUN = re.compile(r"\[[^\]\n]*+(\]?)")
 _PAREN_RUN = re.compile(r"\([^)\n]*+(\)?)")
+_QUOTED_RUN = r""""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'"""
+_VALUE_BRACKETS = {"[": re.compile(rf"{_QUOTED_RUN}|[\[\]\n]"), "(": re.compile(rf"{_QUOTED_RUN}|[()\n]")}
 
 
 def _mask_segments(path: str) -> str:
@@ -174,22 +176,42 @@ def _unclosed_openers_hidden(text: str) -> str:
     return _PAREN_RUN.sub(lambda m: m.group(0) if m.group(1) else m.group(0).replace("(", "<"), text)
 
 
-def _sub_pairs(pattern: re.Pattern[str], repl: Callable[[re.Match[str]], str], text: str) -> str:
-    """``pattern.sub(repl, text)``, linear on a long text.
+def _value_end(text: str, start: int, end: int) -> int:
+    """Where a masked value ends: ``end``, or for a bracket its balanced closer past nesting and strings, else the end
+    of its line, because a regex closes at the first ``]`` and would show the rest."""
+    tokens = _VALUE_BRACKETS.get(text[start : start + 1])
+    if tokens is None:
+        return end
+    depth = 0
+    for token in tokens.finditer(text, start):
+        found = token.group()
+        if found == "\n":
+            return token.start()
+        depth += (found in "[(") - (found in "])")
+        if depth == 0 and found in "])":
+            return token.end()
+    return len(text)
 
-    Each unclosed opener would otherwise scan to the end of its line. Matching runs on a copy without them; what no
-    rule changes is taken from the original. shortcut: a masked quoted key that holds an unclosed opener shows the
-    stand-in, on a long text only; pass the original spans to ``repl`` if a real key ever does.
+
+def _sub_pairs(pattern: re.Pattern[str], repl: Callable[[re.Match[str]], str], text: str, separator: int) -> str:
+    """``pattern.sub(repl, text)``, but a masked bracket value runs to its balanced closer; a long text stays linear.
+
+    ``separator`` is the group that ends where the value starts. Each unclosed opener would otherwise scan to the end
+    of its line, so on a long text matching runs on a copy without them; what no rule changes is taken from the
+    original. shortcut: a masked quoted key that holds an unclosed opener shows the stand-in, on a long text only; pass
+    the original spans to ``repl`` if a real key ever does.
     """
-    if len(text) < _LONG_TEXT:
+    if "[" not in text and "(" not in text:
         return pattern.sub(repl, text)
+    view = text if len(text) < _LONG_TEXT else _unclosed_openers_hidden(text)
     parts: list[str] = []
-    cursor = 0
-    for m in pattern.finditer(_unclosed_openers_hidden(text)):
-        masked = repl(m)
-        if masked != m.group(0):
-            parts += (text[cursor : m.start()], masked)
-            cursor = m.end()
+    cursor = position = 0
+    while found := pattern.search(view, position):
+        position = found.end()
+        masked = repl(found)
+        if masked != found.group(0):
+            parts += (text[cursor : found.start()], masked)
+            cursor = position = _value_end(view, found.end(separator), position)
     parts.append(text[cursor:])
     return "".join(parts)
 
@@ -281,8 +303,8 @@ class Masker:
         if not self._mask_secrets:
             return text
         text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
-        text = _sub_pairs(_TEXT_QUOTED_PAIR, _mask_quoted_pair, text)
-        text = _sub_pairs(_TEXT_PAIR, _mask_pair, text)
+        text = _sub_pairs(_TEXT_QUOTED_PAIR, _mask_quoted_pair, text, 3)
+        text = _sub_pairs(_TEXT_PAIR, _mask_pair, text, 2)
         text = _TEXT_AUTH_SCHEME.sub(_AUTH_SCHEME_MASKED, text)
         text = _TEXT_JWT.sub(_mask_jwt, text)
         return _TEXT_TOKEN.sub(_mask_token, text)
