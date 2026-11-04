@@ -19,7 +19,7 @@ def model_of(ctx: Any) -> SecurityModel | None:
         return None
     try:
         return read()
-    except Exception as exc:  # noqa: BLE001 - introspection degrades, never crashes the host (safety 5)
+    except Exception as exc:  # noqa: BLE001 - introspection degrades; never crashes the host (safety 5)
         return SecurityModel(False, (), (), (), (f"FastAPI security could not be read ({type(exc).__name__}).",))
 
 

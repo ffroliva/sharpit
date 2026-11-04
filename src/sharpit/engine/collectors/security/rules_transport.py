@@ -7,6 +7,7 @@ from collections.abc import Callable
 from sharpit.engine.collectors.security import Inputs, SecurityRule, Violation, rule, simple
 from sharpit.engine.spi import MiddlewareFacts
 
+_SESSION_MANAGEMENT = "Session management"
 _CORS = "https://fastapi.tiangolo.com/tutorial/cors/"
 _SESSIONS = "https://www.starlette.io/middleware/#sessionmiddleware"
 _OAUTH = "https://fastapi.tiangolo.com/advanced/security/oauth2-scopes/"
@@ -102,7 +103,7 @@ RULES: tuple[SecurityRule, ...] = (
         rule(
             "SEC-SESSION-002",
             "Session cookie should set the Secure flag",
-            "Session management",
+            _SESSION_MANAGEMENT,
             "MEDIUM",
             "SessionMiddleware without https_only=True sends the signed session cookie over plain HTTP too.",
             "Pass https_only=True to SessionMiddleware when the app is served over HTTPS.",
@@ -114,7 +115,7 @@ RULES: tuple[SecurityRule, ...] = (
         rule(
             "SEC-SESSION-004",
             "Review SameSite=None on the session cookie",
-            "Session management",
+            _SESSION_MANAGEMENT,
             "LOW",
             'same_site="none" makes browsers send the session cookie on cross-site requests.',
             'Keep the default same_site="lax" (or "strict") unless a cross-site flow needs the session.',
@@ -126,7 +127,7 @@ RULES: tuple[SecurityRule, ...] = (
         rule(
             "SEC-SESSION-008",
             "Remember-me signing key should be sufficiently long",
-            "Session management",
+            _SESSION_MANAGEMENT,
             "MEDIUM",
             "The SessionMiddleware secret_key signs every session cookie; a key shorter than 32 characters is easier"
             " to brute-force. Only its length is read.",

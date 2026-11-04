@@ -35,7 +35,7 @@ def _facts(ctx: SharpitContext) -> SecurityFacts:
         return SecurityFacts(False, None, (), (), (_NO_ADAPTER,))
     try:
         facts = read()
-    except Exception as exc:  # noqa: BLE001 - introspection degrades, never crashes the host (safety 5)
+    except Exception as exc:  # noqa: BLE001 - introspection degrades; never crashes the host (safety 5)
         return SecurityFacts(False, None, (), (), (f"Middleware options could not be read ({type(exc).__name__}).",))
     return facts if isinstance(facts, SecurityFacts) else SecurityFacts(False, None, (), (), (_NO_ADAPTER,))
 
