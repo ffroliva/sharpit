@@ -14,7 +14,7 @@ import stat
 import threading
 import time
 import tokenize
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -69,8 +69,8 @@ def _loaded_location(module: ModuleType) -> Path | None:
     paths = namespace.get("__path__")
     if paths is not None:
         try:
-            first = next((p for p in list(paths) if isinstance(p, str)), None)
-        except Exception:  # noqa: BLE001 - a custom __path__ object: degrade, never crash the host
+            first = next((p for p in paths if isinstance(p, str)), None)
+        except Exception:  # noqa: BLE001 - a custom __path__ object: degrade; never crash the host
             return None
         return Path(first) if first else None
     file = namespace.get("__file__")
@@ -141,6 +141,15 @@ def _module_name(root: Path, path: Path) -> str:
     return ".".join(parts[:-1] if len(parts) > 1 and parts[-1] == "__init__" else parts)
 
 
+def _from_target(node: ast.ImportFrom, parts: list[str]) -> str | None:
+    """The absolute module of a ``from`` import, None if it climbs out of ``parts``."""
+    keep = len(parts) - node.level + 1
+    if node.level and keep <= 0:
+        return None
+    base = parts[:keep] if node.level else []
+    return ".".join([*base, node.module] if node.module else base)
+
+
 def _imports(tree: ast.Module, package: str) -> tuple[str, ...]:
     """Absolute names of every import; a relative one is resolved against ``package``, dropped if it climbs out."""
     parts = package.split(".") if package else []
@@ -148,14 +157,8 @@ def _imports(tree: ast.Module, package: str) -> tuple[str, ...]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             found += [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom):
-            keep = len(parts) - node.level + 1
-            if node.level and keep <= 0:
-                continue
-            base = parts[:keep] if node.level else []
-            target = ".".join([*base, node.module] if node.module else base)
-            if target:
-                found.append(target)
+        elif isinstance(node, ast.ImportFrom) and (target := _from_target(node, parts)):
+            found.append(target)
     return tuple(dict.fromkeys(found))
 
 
@@ -204,6 +207,24 @@ def _stop(index: SourceIndex, reason: str) -> None:
     index.limitations.append(reason)
 
 
+def _python_files(
+    index: SourceIndex, directory: Path, real_root: str, deadline: float, subdirs: list[Path]
+) -> Iterator[tuple[Path, str] | None]:
+    """Each ``.py`` file of ``directory`` with its realpath, its subdirectories into ``subdirs``; None: out of time."""
+    for entry in _entries(index, directory):
+        if time.monotonic() >= deadline:  # per entry: a deep tree without .py files must stop too
+            yield None
+            return
+        real = os.path.realpath(entry.path)
+        if entry.is_symlink() or entry.is_junction() or not _inside(real, real_root):
+            continue  # never followed; containment also catches a link the entry flags miss
+        if entry.is_dir(follow_symlinks=False):
+            if entry.name not in _SKIP_DIRS:
+                subdirs.append(Path(entry.path))
+        elif entry.name.endswith(".py"):
+            yield Path(entry.path), real
+
+
 def _fill(index: SourceIndex, root: Path, max_files: int, max_file_bytes: int, deadline: float) -> None:
     real_root = os.path.normcase(os.path.realpath(root))
     if not os.path.isdir(real_root):  # a single-module app: that file only
@@ -213,20 +234,13 @@ def _fill(index: SourceIndex, root: Path, max_files: int, max_file_bytes: int, d
     stack = [root]
     while stack:
         subdirs: list[Path] = []
-        for entry in _entries(index, stack.pop()):
-            if time.monotonic() >= deadline:  # per entry: a deep tree without .py files must stop too
+        for found in _python_files(index, stack.pop(), real_root, deadline, subdirs):
+            if found is None:
                 return _stop(index, f"stopped by the wall budget after {attempted} files")
-            real = os.path.realpath(entry.path)
-            if entry.is_symlink() or entry.is_junction() or not _inside(real, real_root):
-                continue  # never followed; containment also catches a link the entry flags miss
-            if entry.is_dir(follow_symlinks=False):
-                if entry.name not in _SKIP_DIRS:
-                    subdirs.append(Path(entry.path))
-            elif entry.name.endswith(".py"):
-                if attempted >= max_files:
-                    return _stop(index, f"stopped at {max_files} files (bounds: {max_files} files)")
-                attempted += 1
-                _add(index, root, Path(entry.path), real, max_file_bytes)
+            if attempted >= max_files:
+                return _stop(index, f"stopped at {max_files} files (bounds: {max_files} files)")
+            attempted += 1
+            _add(index, root, *found, max_file_bytes)
         stack += reversed(subdirs)  # pre-order, sorted: files of a directory before its subdirectories
     return None
 
@@ -234,7 +248,7 @@ def _fill(index: SourceIndex, root: Path, max_files: int, max_file_bytes: int, d
 def _guarded_fill(index: SourceIndex, root: Path, max_files: int, max_file_bytes: int, deadline: float) -> None:
     try:
         _fill(index, root, max_files, max_file_bytes, deadline)
-    except Exception as exc:  # noqa: BLE001 - defensive: a scan failure is a limitation, never a crash
+    except Exception as exc:  # noqa: BLE001 - defensive: a scan failure is a limitation; never a crash
         index.limitations.append(f"source scan failed: {type(exc).__name__}")
 
 
@@ -310,6 +324,14 @@ def _os_aliases(tree: ast.Module) -> tuple[set[str], set[str]]:
     return environ_names, getenv_names
 
 
+def _is_getenv(func: ast.expr, getenv_names: set[str], is_environ: Callable[[ast.expr], bool]) -> bool:
+    return (
+        _is_os_attr(func, "getenv")
+        or (isinstance(func, ast.Name) and func.id in getenv_names)
+        or (isinstance(func, ast.Attribute) and func.attr == "get" and is_environ(func.value))
+    )
+
+
 def getenv_findings(tree: ast.Module, location: str) -> list[GetenvFinding]:
     """Literal-key ``os.getenv``/``os.environ`` reads in one parsed module; ``location`` prefixes each line."""
     environ_names, getenv_names = _os_aliases(tree)
@@ -323,12 +345,7 @@ def getenv_findings(tree: ast.Module, location: str) -> list[GetenvFinding]:
         default: str | None = None
         line = 0
         if isinstance(node, ast.Call) and node.args:
-            f = node.func
-            if (
-                _is_os_attr(f, "getenv")
-                or (isinstance(f, ast.Name) and f.id in getenv_names)
-                or (isinstance(f, ast.Attribute) and f.attr == "get" and is_environ(f.value))
-            ):
+            if _is_getenv(node.func, getenv_names, is_environ):
                 key, default, line = _literal_key(node.args[0]), _literal_default(node), node.lineno
         elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) and is_environ(node.value):
             key, line = _literal_key(node.slice), node.lineno

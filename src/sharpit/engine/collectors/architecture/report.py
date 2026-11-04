@@ -160,12 +160,12 @@ def architecture_service(ctx: SharpitContext, host_app: Any = None) -> Architect
 
     def default_base_packages() -> Sequence[str]:
         if ctx.settings.app_package:
-            return (ctx.settings.app_package,)
+            return [ctx.settings.app_package]
         reasons: list[str] = []
         root = appsource.resolve_package_root(app, sys.modules, reasons=reasons)
         if root is not None:
-            return (root.stem if root.is_file() else root.name,)
-        return ()
+            return [root.stem if root.is_file() else root.name]
+        return []
 
     return ctx.lazy(
         "architecture",
