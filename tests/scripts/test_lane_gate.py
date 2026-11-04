@@ -4,6 +4,7 @@ Each test builds a throwaway integration repo plus a lane worktree in ``tmp_path
 and the pytest replays are injected fakes, so these tests never run the real suite.
 """
 
+import contextlib
 import json
 import shutil
 import subprocess
@@ -316,6 +317,76 @@ def test_lane_gate_sha_read_in_one_repo_stays_absent_in_another(
     )
     with pytest.raises(subprocess.CalledProcessError):  # a head this repo lacks: merge-base stops first
         second.evaluate(sha=only_in_first)
+
+
+def test_lane_gate_reads_a_commit_the_same_from_a_subfolder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`git ls-tree` lists relative to the cwd where `git show sha:path` never did (code review, T-suite-speed)."""
+    monkeypatch.setattr(lane_gate, "_READS", {})
+    fx = _fixture(tmp_path)
+    assert lane_gate._show(fx.worktree / "src", fx.head, "src/widget.py") == lane_gate._show(
+        fx.worktree, "HEAD", "src/widget.py"
+    )
+
+
+def test_lane_gate_reads_past_a_filename_that_is_not_utf8(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One such name in a tree crashed every read at that commit; `git show` read one path (code review)."""
+    monkeypatch.setattr(lane_gate, "_READS", {})
+    fx = _fixture(tmp_path)
+
+    def git_bytes(*args: str, stdin: bytes) -> str:
+        done = subprocess.run(["git", *args], cwd=fx.worktree, input=stdin, capture_output=True, check=True)
+        return done.stdout.decode().strip()
+
+    blob = git_bytes("hash-object", "-w", "--stdin", stdin=b"x\n")
+    tree = git_bytes(
+        "mktree",
+        "-z",
+        stdin=f"100644 blob {blob}\ttop.txt\0".encode() + f"100644 blob {blob}\tbad".encode() + b"\xe9.txt\0",
+    )
+    commit = git_bytes("commit-tree", tree, "-m", "non-utf8 name", stdin=b"")
+    found = None
+    with contextlib.suppress(AttributeError, UnicodeDecodeError):  # the crash fails the assert below
+        found = lane_gate._show(fx.worktree, commit, "top.txt")
+    assert found == "x\n"
+
+
+def test_lane_gate_does_not_keep_a_failed_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A git failure is not "absent" or "not an ancestor", and caching one made it permanent (code review)."""
+    monkeypatch.setattr(lane_gate, "_READS", {})
+    fx = _fixture(tmp_path)
+    blob = _git(fx.worktree, "rev-parse", f"{fx.head}:src/widget.py")
+    real = lane_gate._git
+    failing = [True]
+
+    def broken_once(cwd: Path, *args: str, **kwargs: bool) -> object:
+        if failing[0]:
+            return subprocess.CompletedProcess(args, 128, "", "fatal: temporary failure")
+        return real(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(lane_gate, "_git", broken_once)
+    assert lane_gate._blob(fx.worktree, blob) is None
+    assert lane_gate._is_ancestor(fx.worktree, fx.head, fx.head) is False
+    failing[0] = False
+    assert lane_gate._blob(fx.worktree, blob) is not None
+    assert lane_gate._is_ancestor(fx.worktree, fx.head, fx.head) is True
+
+
+def test_lane_gate_prunes_a_replay_tree_it_could_not_remove(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fx = _fixture(tmp_path)
+    real = lane_gate._git
+    calls: list[str] = []
+
+    def remove_fails(cwd: Path, *args: str, **kwargs: bool) -> object:
+        if args[0] == "worktree":
+            calls.append(args[1])
+        if args[:2] == ("worktree", "remove"):
+            return subprocess.CompletedProcess(args, 1, "", "error: cannot remove")
+        return real(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(lane_gate, "_git", remove_fails)
+    with lane_gate._temp_tree(fx.options(), fx.head):
+        pass
+    assert calls[-1] == "prune"
 
 
 def test_lane_gate_prunes_only_a_replay_tree_it_could_not_remove(
