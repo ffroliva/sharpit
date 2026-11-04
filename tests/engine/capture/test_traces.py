@@ -537,3 +537,38 @@ def test_a_span_of_another_database_keeps_the_generic_scan():
 
     assert detail is not None
     assert attribute(detail["spans"][0], "db.statement") == "select a # b from t"
+
+
+# derived: release council probe p3_sql.py: an HTTP span has no ``db.system``, its error still names the driver
+@pytest.mark.parametrize(
+    "driver",
+    [
+        "pymysql.err.ProgrammingError",
+        "MySQLdb.ProgrammingError",
+        "MySQLdb._exceptions.ProgrammingError",
+        "mysql.connector.errors.ProgrammingError",
+        "asyncmy.errors.ProgrammingError",
+        "mariadb.ProgrammingError",
+    ],
+)
+@pytest.mark.parametrize("key", ["exception.message", "exception.stacktrace"])
+def test_a_mysql_driver_error_on_a_span_without_a_database_uses_the_mysql_scan(driver: str, key: str):
+    buf = buffer()
+    message = f"({driver}) (1064, 'x')\n[SQL: select 0xDEADBEEF # password hunter2\nfrom t]"
+    buf.add(span(attributes={"http.route": "/x", key: message}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert "hunter2" not in attribute(detail["spans"][0], key)
+
+
+def test_a_postgres_driver_error_on_a_span_without_a_database_keeps_the_generic_scan():
+    buf = buffer()
+    message = "(psycopg.errors.SyntaxError) x\n[SQL: select a # b from t]"
+    buf.add(span(attributes={"http.route": "/x", "exception.message": message}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert "[SQL: select a # b from t]" in attribute(detail["spans"][0], "exception.message")
