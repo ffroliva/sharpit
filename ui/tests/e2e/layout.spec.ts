@@ -84,6 +84,17 @@ for (const scheme of ['light', 'dark'] as const) {
       });
     }
 
+    test('SQLAlchemy slowest statement output and warnings share the 16px inset', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await openPanel(page, 'sqlalchemy-statistics');
+      const body = page.locator('main .panel-body');
+      for (const selector of ['h2', 'p.sm', 'pre', 'p.warn']) {
+        const element = body.locator(selector).first();
+        await expect(element).toBeVisible();
+        expect(await element.evaluate((el) => el.getBoundingClientRect().left - el.closest('.panel-body')!.getBoundingClientRect().left)).toBe(16);
+      }
+    });
+
     test('panel content starts level with its heading', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       for (const [id, selector] of [['fastapi-security', '.chain'], ['sqlalchemy-statistics', 'dl.facts dt']] as const) {
@@ -170,7 +181,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(page.locator('section.block.summary')).toHaveCSS('padding-top', '0px');
     });
 
-    for (const id of ['health', 'exceptions', 'sql-trace', 'transactions', 'security-logs', 'alembic', 'mysql', 'postgresql']) {
+    for (const id of ['health', 'exceptions', 'traces', 'sql-trace', 'transactions', 'security-logs', 'alembic', 'mysql', 'postgresql']) {
       test(`${id} header actions sit right`, async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 800 });
         await openPanel(page, id);
