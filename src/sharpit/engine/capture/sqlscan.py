@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import functools
 import re
+from collections.abc import Sequence
 from typing import NamedTuple
 
-from sharpit.engine.masking import is_secret_value
+from sharpit.engine.masking import MASK, is_secret_value
 
 _MAX_SCAN_LENGTH = 20_000
 MYSQL_DIALECTS = ("mysql", "mariadb")
@@ -14,6 +15,10 @@ _MYSQL_RADIX_LITERAL = re.compile(r"0[xX][0-9a-fA-F]+|0[bB][01]+")
 # a square-bracket identifier is a name, words and spaces only: anything else in brackets is a value and stays in the
 # scan (``ARRAY['x']``, ``ARRAY [lower($$x$$)]``, ``[2024 sales]``, ``[it's]``); showing a value is the worse mistake
 _BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d][\w ]*\]")
+# never hidden in code: the statement keeps its shape, and the last masker pass still sees ``password=`` in the render
+_STRUCTURAL = frozenset('"`[],;()=<>')
+# the runs a scan reads as one: replaced by ``?``, replaced by a space, and copied with their whitespace (a quoted name)
+_LITERAL, _COMMENT, _VERBATIM = range(3)
 
 
 class Normalized(NamedTuple):
@@ -23,6 +28,14 @@ class Normalized(NamedTuple):
     predicate_literal_count: int
 
 
+class Range(NamedTuple):
+    """Raw positions of a literal or, when ``literal`` is false, of a comment."""
+
+    start: int
+    end: int
+    literal: bool
+
+
 class _Out:
     """The output builder; ``opens`` holds the unmatched ``(`` positions so the IN-list check is O(1), not a
     backward scan per literal (BootUI's scan is quadratic on a long list, too slow in Python)."""
@@ -30,6 +43,7 @@ class _Out:
     def __init__(self) -> None:
         self.chars: list[str] = []
         self.opens: list[int] = []
+        self.runs: list[tuple[int, int, int]] = []  # (start, end, kind) in the raw text, in order
 
     def append(self, text: str) -> None:
         for c in text:
@@ -249,15 +263,19 @@ def _scan_line_comment(source: str, index: int, out: _Out, mysql: bool) -> _Scan
         return _keep(source, index, out)
     out.space()
     newline = source.find("\n", index + 1)
-    return (len(source) if newline < 0 else newline), False
+    end = len(source) if newline < 0 else newline
+    out.runs.append((index, end, _COMMENT))
+    return end, False
 
 
 def _scan_block_comment(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
     if not source.startswith("*", index + 1):
         return _keep(source, index, out)
     out.space()
-    end = source.find("*/", index + 2)
-    return (len(source) if end < 0 else end + 2), False
+    close = source.find("*/", index + 2)
+    end = len(source) if close < 0 else close + 2
+    out.runs.append((index, end, _COMMENT))
+    return end, False
 
 
 def _scan_string(source: str, index: int, _out: _Out, _mysql: bool) -> _Scanned:
@@ -274,6 +292,7 @@ def _scan_quoted(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
     if source[index] == '"' and _double_quoted_literal(source, index, end, out, mysql):
         return end, True
     out.append(source[index:end])
+    out.runs.append((index, end, _VERBATIM))
     return end, False
 
 
@@ -297,20 +316,21 @@ _SCANNERS = {
 }
 
 
-@functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text
-def normalize(sql: str, mysql: bool = False) -> Normalized:
-    """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``.
+class _Scan(NamedTuple):
+    source: str
+    out: _Out  # built from raw text alone, so what is hidden later cannot change a decision the scan made
+    literals: int
+    predicate_literals: int
 
-    ``mysql`` is for text known to be MySQL's: ``"..."`` is a string with backslash escapes, ``#`` starts a comment and
-    ``0x``/``0b`` numbers are literals. Elsewhere those mean an identifier, an operator and (mostly) a syntax error.
-    """
-    if not sql or sql.isspace():
-        return Normalized("", "", 0, 0)
+
+def _scan(sql: str, mysql: bool) -> _Scan:
+    """The one read of a statement: ``normalize`` keeps its output, ``shown`` and ``scan_ranges`` its runs."""
     source = sql[:_MAX_SCAN_LENGTH]
     out = _Out()
     literals = predicate_literals = 0
     index, length = 0, len(source)
     while index < length:
+        start = index
         c = source[index]
         scanner = _SCANNERS.get(c)
         literal = False
@@ -328,8 +348,82 @@ def normalize(sql: str, mysql: bool = False) -> Normalized:
             literals += 1
             predicate_literals += out.predicate_position()
             out.append("?")
-    collapsed = _collapse_placeholder_lists(out.text().strip())
-    return Normalized(collapsed, collapsed.lower(), literals, predicate_literals)
+            out.runs.append((start, index, _LITERAL))
+    return _Scan(source, out, literals, predicate_literals)
+
+
+def _finish(out: _Out) -> str:
+    return _collapse_placeholder_lists(out.text().strip())
+
+
+@functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text
+def normalize(sql: str, mysql: bool = False) -> Normalized:
+    """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``.
+
+    ``mysql`` is for text known to be MySQL's: ``"..."`` is a string with backslash escapes, ``#`` starts a comment and
+    ``0x``/``0b`` numbers are literals. Elsewhere those mean an identifier, an operator and (mostly) a syntax error.
+    """
+    if not sql or sql.isspace():
+        return Normalized("", "", 0, 0)
+    scan = _scan(sql, mysql)
+    collapsed = _finish(scan.out)
+    return Normalized(collapsed, collapsed.lower(), scan.literals, scan.predicate_literals)
+
+
+def scan_ranges(sql: str, mysql: bool = False) -> list[Range]:
+    """The literals and comments of ``sql``, in order, as the scan read them (``SqlStatementNormalizer.ranges``)."""
+    return [Range(start, end, kind == _LITERAL) for start, end, kind in _scan(sql, mysql).out.runs if kind != _VERBATIM]
+
+
+def _hidden_flags(hidden: Sequence[tuple[int, int]], length: int) -> bytearray:
+    """One flag per character. Sorted first, so each character is written once however many spans overlap it."""
+    flags, reach = bytearray(length), 0
+    for start, end in sorted(hidden):
+        first, last = max(start, reach), min(end, length)
+        if first < last:
+            flags[first:last] = b"\x01" * (last - first)
+            reach = last
+    return flags
+
+
+def _copy(source: str, span: tuple[int, int], flags: bytearray, out: _Out, collapse: bool) -> None:
+    """Code or a quoted name, character by character: a hidden run is one mask, whitespace is never a hit."""
+    masked = False
+    for index in range(*span):
+        c = source[index]
+        if c.isspace() and collapse:
+            out.space()
+            masked = False
+        elif flags[index] and not c.isspace() and c not in _STRUCTURAL:
+            if not masked:
+                out.append(MASK)
+            masked = True
+        else:
+            out.append(c)
+            masked = False
+
+
+def shown(sql: str, hidden: Sequence[tuple[int, int]], mysql: bool = False) -> str:
+    """``sql`` as ``normalize`` shows it, with the ``hidden`` raw spans masked (ported from ``SqlSinkText.mask``).
+
+    Each character is classified once, from the raw scan, and emitted from that alone, so a hidden ``=`` cannot change
+    what the scan decided about the ``"x"`` after it. The output is never scanned. A hidden character in a literal or a
+    comment needs nothing: neither is copied.
+    """
+    scan = _scan(sql, mysql)
+    source, flags, out = scan.source, _hidden_flags(hidden, len(scan.source)), _Out()
+    index = 0
+    for start, end, kind in scan.out.runs:
+        _copy(source, (index, start), flags, out, True)
+        if kind == _LITERAL:
+            out.append("?")
+        elif kind == _COMMENT:
+            out.space()
+        else:
+            _copy(source, (start, end), flags, out, False)
+        index = end
+    _copy(source, (index, len(source)), flags, out, True)
+    return _finish(out)
 
 
 def is_mysql(owner: object) -> bool:

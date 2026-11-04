@@ -14,6 +14,8 @@ from collections.abc import Callable
 import pytest
 
 from sharpit.engine import masking
+from sharpit.engine.capture import sqlscan
+from sharpit.engine.capture.sqlscan import shown
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.masking import Exposure, Masker
 
@@ -64,6 +66,7 @@ ENTRY_POINTS: dict[str, Callable[[str], object]] = {
     "mask_text": MASKER.mask_text,
     "mask_error": lambda text: mask_error(MASKER, text),
     "pair_substitution": _pair_substitution,
+    "shown_overlapping_spans": lambda text: shown(text, [(start, len(text)) for start in range(len(text))]),
 }
 
 
@@ -89,6 +92,18 @@ def _step(entry: Callable[[str], object], make: Callable[[int], str], size: int)
         if step < MAX_STEP:
             break
     return step
+
+
+def _flags_of_overlapping_spans(text: str) -> bytearray:
+    spans = [(start, len(text)) for start in range(len(text))]
+    return sqlscan._hidden_flags(spans, len(text))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+
+
+def test_overlapping_hidden_spans_are_written_once() -> None:
+    """Direct, and far past ``SIZES``: writing a span again is a ``memset``, too cheap to see under the scan's cost."""
+    size = 200_000
+    step = _step(_flags_of_overlapping_spans, GENERATORS["closers"], size)
+    assert step < MAX_STEP, f"{size} chars cost {step:.1f}x the half size"
 
 
 @pytest.mark.parametrize("entry", ENTRY_POINTS)
