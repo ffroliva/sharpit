@@ -266,3 +266,48 @@ def test_long_values_are_masked_before_they_are_cut() -> None:
     assert "hunter2" not in values, "a long sensitive key name masks its value before the name is cut"
     shown = _report(buffer)["events"][0]["data"]
     assert [r["masked"] for r in shown] == [True, True], "both rows are reported masked"
+
+
+def test_a_secret_principal_is_masked_when_stored() -> None:
+    buffer = SecurityEventBuffer(500, masker=_masked())
+    buffer.add(AUTHENTICATION_SUCCESS, JWT, {}, None, timestamp_ns=T0)
+    assert buffer.snapshot()[0].principal == MASK
+
+
+def test_a_secret_principal_is_masked_in_a_buffer_without_a_masker() -> None:
+    buffer = SecurityEventBuffer(500)
+    buffer.add(AUTHENTICATION_SUCCESS, JWT, {}, None, timestamp_ns=T0)
+    assert buffer.snapshot()[0].principal == MASK
+
+
+def test_a_plain_principal_stays_readable() -> None:
+    buffer = SecurityEventBuffer(500, masker=_masked())
+    buffer.add(AUTHENTICATION_SUCCESS, "alice", {}, None, timestamp_ns=T0)
+    assert _report(buffer)["events"][0]["principal"] == "alice"
+
+
+def test_the_filter_cannot_confirm_a_raw_secret_principal() -> None:
+    buffer = SecurityEventBuffer(500, masker=_masked())
+    buffer.add(AUTHENTICATION_SUCCESS, JWT, {}, None, timestamp_ns=T0)
+    assert _report(buffer, principal=JWT)["events"] == []
+
+
+def test_a_principal_is_masked_before_it_is_cut() -> None:
+    # past 256 characters the header alone is left: cut first, half a token is stored unmasked
+    long_jwt = "eyJ" + "a" * 300 + ".eyJzdWIiOiJhbGljZSJ9.c2lnbmF0dXJl"
+    buffer = SecurityEventBuffer(500, masker=_masked())
+    buffer.add(AUTHENTICATION_SUCCESS, long_jwt, {}, None, timestamp_ns=T0)
+    assert buffer.snapshot()[0].principal == MASK
+
+
+def test_a_principal_under_full_exposure_is_shown_as_exchanges_show_it() -> None:
+    buffer = SecurityEventBuffer(500, masker=Masker(Exposure.FULL, True, None))
+    buffer.add(AUTHENTICATION_SUCCESS, JWT, {}, None, timestamp_ns=T0)
+    assert buffer.snapshot()[0].principal == JWT
+
+
+def test_metadata_only_stores_no_principal_for_the_filter_to_confirm() -> None:
+    masker = Masker(Exposure.METADATA_ONLY, True, None)
+    buffer = SecurityEventBuffer(500, masker=masker)
+    buffer.add(AUTHENTICATION_SUCCESS, "alice", {}, None, timestamp_ns=T0)
+    assert _report(buffer, masker, principal="alice")["events"] == []

@@ -60,9 +60,10 @@ class SecurityEventBuffer:
     read never runs host code. A string longer than the output limit is masked strictly before it is cut, so no secret
     is ever stored half (the read masks the short ones with the live policy)."""
 
-    def __init__(self, max_logs: int, token: str | None = None) -> None:
+    def __init__(self, max_logs: int, token: str | None = None, masker: Masker | None = None) -> None:
         self.max_logs = clamp_max_logs(max_logs)
         self._strict = Masker(Exposure.MASKED, True, token)
+        self._masker = masker or self._strict
         self.changes = ChangeStream()
         self._events: deque[SecurityEvent] = deque(maxlen=self.max_logs)
         self._lock = threading.Lock()
