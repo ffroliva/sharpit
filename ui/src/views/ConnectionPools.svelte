@@ -54,10 +54,10 @@
         <pre class="mono">sharpit.install(app, engines=[engine])</pre>
       </div>
     {/if}
-    <div class="cards">
+    <div>
       {#each report.data.pools as p (p.poolName)}
         {@const s = latest(p.poolName, p.snapshot)}
-        <section class="card" aria-label={p.poolName}>
+        <section class="block" aria-label={p.poolName}>
           <h2 class="mono">{p.poolName}</h2>
           <p class="sm muted">{p.driverClassName}{#if p.username} · user {p.username}{/if}</p>
           {#if !p.available}
@@ -89,12 +89,11 @@
 </PanelShell>
 
 <style>
-  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--s4); padding: var(--s4); }
-  .card { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s3) var(--s4); }
-  .card h2 { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
-  .card p { margin: var(--s1) 0; }
+  .block { padding: var(--s3) var(--s4); }
+  .block h2 { margin: 0 0 var(--s1); padding: 0; overflow-wrap: anywhere; }
+  .block p { margin: var(--s1) 0; }
   .gauge { display: flex; gap: var(--s4); align-items: baseline; }
-  .gauge strong { font-size: 18px; }
+  .gauge strong { font-size: 20px; }
   meter { width: 100%; }
   .spark { width: 100%; height: 24px; }
   .spark polyline { fill: none; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }

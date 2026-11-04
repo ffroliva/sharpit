@@ -100,9 +100,7 @@
 </PanelShell>
 
 <style>
-  .push { margin-left: auto; }
   .meta { margin: 0; padding: var(--s2) var(--s4); }
-  section.block h2 { padding-bottom: var(--s1); }
   section.block > p, pre { margin: 0; padding: 0 var(--s4) var(--s2); }
   tr.pending td { background: var(--sel); }
 </style>

@@ -52,7 +52,7 @@
 
 {#if report?.dataSources.length}
   <section aria-label="Datasources">
-    <h3>Datasources</h3>
+    <h2>Datasources</h2>
     <ul>
       {#each report.dataSources as source (source.name)}
         <li>{source.name} {source.product ?? ''} {source.status} {source.tablesAnalyzed} tables{source.message ? `: ${source.message}` : ''}</li>
@@ -63,7 +63,7 @@
 
 {#if problems.length}
   <section aria-label="Diagnostics">
-    <h3>Diagnostics</h3>
+    <h2>Diagnostics</h2>
     <ul>
       {#each problems as d, i (i)}
         <li>{d.level} {d.source}: {d.message}</li>

@@ -49,8 +49,8 @@
 >
   {#snippet controls()}
     <form class="filters" onsubmit={(e) => { e.preventDefault(); void report.reload(); }}>
-      <input aria-label="Principal" placeholder="Principal" bind:value={principal} />
-      <input aria-label="Type" placeholder="Type" bind:value={type} />
+      <input type="text" aria-label="Principal" placeholder="Principal" bind:value={principal} />
+      <input type="text" aria-label="Type" placeholder="Type" bind:value={type} />
       <button type="submit">Filter</button>
     </form>
   {/snippet}
@@ -94,7 +94,7 @@
 </PanelShell>
 
 <style>
-  .filters { display: flex; gap: var(--s2); margin-left: auto; }
+  .filters { display: flex; gap: var(--s2); }
   .summaries { display: flex; flex-wrap: wrap; gap: var(--s2); }
   .active { outline: 2px solid var(--rail); }
   td { height: auto; vertical-align: top; }

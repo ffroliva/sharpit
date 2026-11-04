@@ -7,10 +7,15 @@
   let data = $state<Overview | null>(null);
   let error = $state<string | null>(null);
 
-  get<Overview>('overview').then(
-    (d) => (data = d),
-    (e: unknown) => (error = e instanceof ApiError ? `HTTP ${e.status}` : 'The application is not responding.'),
-  );
+  async function load() {
+    error = null;
+    try {
+      data = await get<Overview>('overview');
+    } catch (e) {
+      error = e instanceof ApiError ? `HTTP ${e.status}` : 'The application is not responding.';
+    }
+  }
+  load();
 
   const list = (xs: string[]) => (xs.length ? xs.join(', ') : 'none');
 </script>
@@ -22,7 +27,7 @@
   </header>
   <div class="panel-body" use:scrollable role="region" aria-label="Scorecard">
     {#if error}
-      <div class="empty" role="alert"><p class="lead danger">Could not load the overview</p><p>{error}</p></div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load the overview</p><p>{error}</p><button onclick={load}>Retry</button></div>
     {:else if !data}
       <table aria-hidden="true"><tbody>{#each { length: 8 } as _}<tr class="skeleton"><td></td><td></td></tr>{/each}</tbody></table>
     {:else}

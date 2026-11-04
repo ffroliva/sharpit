@@ -65,7 +65,7 @@
     {#if report.data.unavailableReason}
       <p class="muted note">{report.data.unavailableReason}</p>
     {/if}
-    {#each report.data.warnings ?? [] as warning, w (w)}
+    {#each (report.data.warnings ?? []).filter((warning) => warning !== report.data.unavailableReason) as warning, w (w)}
       <p class="muted note">{warning}</p>
     {/each}
     {#if report.data.repositories.length === 0}

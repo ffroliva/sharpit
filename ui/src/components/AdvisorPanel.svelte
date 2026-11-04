@@ -16,7 +16,7 @@
    */
   let {
     title, report, loadError = null, onScan, onDismiss, onRestore, onDismissFinding, loadViolations, readOnlyReason = null,
-    scanDisabledReason = null, vulnerabilities = false, loadDismissed, scanLabel, status, children,
+    scanDisabledReason = null, vulnerabilities = false, loadDismissed, scanLabel, status, onretry, children,
   }: {
     title: string;
     report: AdvisorReport | null;
@@ -35,6 +35,7 @@
     readOnlyReason?: string | null;
     /** Disables Scan only (e.g. scanning switched off by configuration). */
     scanDisabledReason?: string | null;
+    onretry?: () => void;
     vulnerabilities?: boolean;
     scanLabel?: (phase: Phase) => string;
     status?: Snippet<[Phase]>;
@@ -197,7 +198,7 @@
     {#if phase === 'loading'}
       <table aria-hidden="true"><tbody>{#each { length: 6 } as _}<tr class="skeleton"><td></td><td></td></tr>{/each}</tbody></table>
     {:else if phase === 'load-failed'}
-      <div class="empty" role="alert"><p class="lead danger">Could not load {title}</p><p>{loadError}</p></div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load {title}</p><p>{loadError}</p>{#if onretry}<button onclick={onretry}>Retry</button>{/if}</div>
     {:else}
       {#if phase === 'failed'}
         <div class="empty" role="alert">

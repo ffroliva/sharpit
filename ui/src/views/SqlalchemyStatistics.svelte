@@ -39,46 +39,49 @@
     {:else}
       {@const s = report.data.statistics}
       {#each s.warnings ?? [] as warning (warning)}<p class="warn">{warning}</p>{/each}
-      <dl class="cards">
-        {#each MEASURED as [key, label] (key)}
-          <div class="card"><dt>{label}</dt><dd><strong>{s[key]}</strong></dd></div>
-        {/each}
-        {#each UNMEASURED as [key, label] (key)}
-          <div class="card">
+      <section class="block">
+        <h2>Statistics</h2>
+        <dl class="facts">
+          {#each MEASURED as [key, label] (key)}
+            <dt>{label}</dt><dd class="num"><strong>{s[key]}</strong></dd>
+          {/each}
+          {#each UNMEASURED as [key, label] (key)}
             <dt>{label}</dt>
-            <dd class="muted" title={NOT_MEASURED}>{s[key] === null ? 'not measured' : s[key]}</dd>
-          </div>
-        {/each}
-      </dl>
+            <dd class="num muted" title={NOT_MEASURED}>{s[key] === null ? 'not measured' : s[key]}</dd>
+          {/each}
+        </dl>
+      </section>
       {#if s.queryExecutionMaxTimeQueryString}
         <p class="sm muted">Slowest statement</p>
         <pre class="mono">{s.queryExecutionMaxTimeQueryString}</pre>
       {/if}
-      <h2>N+1 candidates</h2>
-      <p class="sm muted">{s.nPlusOneWindow}</p>
-      {#if s.nPlusOne.length === 0}
-        <p class="muted">None: no request ran one SELECT shape repeatedly.</p>
-      {:else}
-        <table>
-          <thead><tr><th>Route</th><th>Executions per request</th><th>Requests</th><th>Statement</th></tr></thead>
-          <tbody>
-            {#each s.nPlusOne as n (n.method + ':' + n.route + ':' + n.sql)}
-              <tr>
-                <td>
-                  {#if n.route}
-                    <a href={href('http-exchanges', n.routePath ?? '')}>{n.method} {n.route}</a>
-                  {:else}
-                    <span class="muted" title={n.routeReason}>unknown route</span>
-                  {/if}
-                </td>
-                <td>{n.executionsPerRequest}</td>
-                <td>{n.requests}</td>
-                <td class="mono">{n.sql}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      {/if}
+      <section class="block">
+        <h2>N+1 candidates</h2>
+        <p class="sm muted">{s.nPlusOneWindow}</p>
+        {#if s.nPlusOne.length === 0}
+          <p class="muted">None: no request ran one SELECT shape repeatedly.</p>
+        {:else}
+          <table>
+            <thead><tr><th>Route</th><th>Executions per request</th><th>Requests</th><th>Statement</th></tr></thead>
+            <tbody>
+              {#each s.nPlusOne as n (n.method + ':' + n.route + ':' + n.sql)}
+                <tr>
+                  <td>
+                    {#if n.route}
+                      <a href={href('http-exchanges', n.routePath ?? '')}>{n.method} {n.route}</a>
+                    {:else}
+                      <span class="muted" title={n.routeReason}>unknown route</span>
+                    {/if}
+                  </td>
+                  <td>{n.executionsPerRequest}</td>
+                  <td>{n.requests}</td>
+                  <td class="mono">{n.sql}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      </section>
     {/if}
   {/if}
 </PanelShell>

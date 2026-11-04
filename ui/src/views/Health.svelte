@@ -87,7 +87,6 @@
   .tree { padding: var(--s3) var(--s4); }
   .tree li { padding: var(--s1) 0; }
   .wrap { overflow-wrap: anywhere; }
-  .run { margin-left: auto; }
   .step { margin: 0; padding: var(--s1) var(--s4); }
   pre { overflow: auto; }
 </style>

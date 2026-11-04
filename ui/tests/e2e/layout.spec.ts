@@ -33,10 +33,10 @@ for (const scheme of ['light', 'dark'] as const) {
         const [itemBox, railBox] = await Promise.all([item.boundingBox(), rail.boundingBox()]);
         expect(itemBox).not.toBeNull();
         expect(railBox).not.toBeNull();
-        expect(itemBox!.right).toBeGreaterThan(railBox!.left);
-        expect(itemBox!.left).toBeLessThan(railBox!.right);
-        expect(itemBox!.bottom).toBeGreaterThan(railBox!.top);
-        expect(itemBox!.top).toBeLessThan(railBox!.bottom);
+        expect(itemBox!.x + itemBox!.width).toBeGreaterThan(railBox!.x);
+        expect(itemBox!.x).toBeLessThan(railBox!.x + railBox!.width);
+        expect(itemBox!.y + itemBox!.height).toBeGreaterThan(railBox!.y);
+        expect(itemBox!.y).toBeLessThan(railBox!.y + railBox!.height);
       });
     }
 
@@ -67,7 +67,7 @@ for (const scheme of ['light', 'dark'] as const) {
         await expect(heading).toBeVisible();
         await expect(heading).toHaveCSS('font-size', '13px');
         await expect(heading).toHaveCSS('font-weight', '600');
-        expect(await heading.evaluate((el) => el.getBoundingClientRect().left)).toBe(16);
+        expect(await heading.evaluate((el) => el.getBoundingClientRect().left - el.closest('.panel-body')!.getBoundingClientRect().left)).toBe(16);
       });
     }
 
@@ -85,12 +85,13 @@ for (const scheme of ['light', 'dark'] as const) {
         ]);
         expect(controlBox).not.toBeNull();
         expect(headerBox).not.toBeNull();
-        expect(headerBox!.right - padding - (controlBox!.x + controlBox!.width)).toBeLessThanOrEqual(1);
+        expect(headerBox!.x + headerBox!.width - padding - (controlBox!.x + controlBox!.width)).toBeLessThanOrEqual(1);
       });
     }
 
     test('details and link buttons meet the 24px target at 390px', async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 800 });
+      await page.request.get(new URL('/owners', page.url()).href);
       await openPanel(page, 'http-exchanges');
       const buttons = page.locator('main button.link');
       await expect(buttons.first()).toBeVisible();

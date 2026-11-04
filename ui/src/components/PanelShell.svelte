@@ -20,8 +20,8 @@
 <div class="panel">
   <header class="panel-head">
     <h1>{title}</h1>
-    {@render controls?.()}
     {#if count}<span class="muted count">{count}</span>{/if}
+    <div class="panel-controls">{@render controls?.()}</div>
   </header>
   <div class="panel-body" use:scrollable role="region" aria-label={title} aria-busy={loading}>
     {#if notice}<p class="notice warn">{notice}</p>{/if}
@@ -40,5 +40,6 @@
 </div>
 
 <style>
-  .count { margin-left: auto; white-space: nowrap; }
+  .count { white-space: nowrap; }
+  .panel-controls { display: flex; align-items: center; gap: var(--s3); margin-left: auto; }
 </style>

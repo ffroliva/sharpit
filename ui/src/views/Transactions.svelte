@@ -116,7 +116,6 @@
 </PanelShell>
 
 <style>
-  .push { margin-left: auto; }
   td { height: auto; vertical-align: top; }
   .method { display: block; }
   .child .method { padding-left: var(--s3); border-left: 2px solid var(--rail); }

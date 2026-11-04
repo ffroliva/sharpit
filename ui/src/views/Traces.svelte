@@ -140,12 +140,11 @@
 </PanelShell>
 
 <style>
-  .clear { margin-left: auto; }
   tr.error td:first-child { color: var(--danger); }
   .lane { position: relative; min-width: 12rem; }
   .bar { position: absolute; top: 30%; height: 40%; background: var(--accent); border-radius: 2px; }
-  .attrs { display: grid; grid-template-columns: max-content 1fr; gap: 0 1rem; margin: 0; }
+  .attrs { display: grid; grid-template-columns: max-content 1fr; gap: 0 var(--s4); margin: 0; }
   .attrs dd { margin: 0; overflow-wrap: anywhere; }
-  .status-message { margin: 0.25rem 0 0; }
+  .status-message { margin: var(--s1) 0 0; }
   .link { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; }
 </style>

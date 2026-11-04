@@ -15,7 +15,9 @@ def svelte_files() -> list[Path]:
 
 
 def svelte_matches(pattern: str) -> list[str]:
-    matches = [str(path.relative_to(UI_SRC)) for path in svelte_files() if re.search(pattern, path.read_text(encoding="utf-8"))]
+    matches = [
+        str(path.relative_to(UI_SRC)) for path in svelte_files() if re.search(pattern, path.read_text(encoding="utf-8"))
+    ]
     return matches
 
 
@@ -30,7 +32,10 @@ def css_text() -> str:
 
 
 def css_font_sizes() -> set[str]:
-    return set(re.findall(r"font-size\s*:\s*([\d.]+px)", css_text()))
+    declarations = re.findall(r"\bfont(?:-size)?\s*:\s*([^;}]+)", css_text())
+    sizes = {match.group(1) for declaration in declarations if (match := re.search(r"\b([\d.]+px)", declaration))}
+    assert sizes, "no font sizes found under ui/src"
+    return sizes
 
 
 def uncommented_off_scale_spacing() -> list[str]:
@@ -38,12 +43,12 @@ def uncommented_off_scale_spacing() -> list[str]:
     for path in css_files():
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             code, _, comment = line.partition("/*")
-            for match in re.finditer(r"(?:margin|padding|gap|inset|top|right|bottom|left)(?:-[a-z]+)?\s*:[^;}]*", code):
-                for size in re.findall(r"(?<![\w.-])(\d+(?:\.\d+)?)px", match.group()):
-                    if 1 <= float(size) <= 3 and not comment.strip().endswith("*/"):
-                        failures.append(f"{path.relative_to(ROOT)}:{line_number}: {match.group().strip()}")
-                    elif float(size) > 3:
-                        failures.append(f"{path.relative_to(ROOT)}:{line_number}: {match.group().strip()}")
+            for match in re.finditer(r"(?:margin|padding|gap)(?:-[a-z]+)?\s*:[^;}]*", code):
+                sizes = [abs(float(size)) for size in re.findall(r"(?<![\w.])(-?\d+(?:\.\d+)?)px", match.group())]
+                if any(
+                    size > 3 or 0 < size < 1 or 1 <= size <= 3 and not comment.strip().endswith("*/") for size in sizes
+                ):
+                    failures.append(f"{path.relative_to(ROOT)}:{line_number}: {match.group().strip()}")
     return failures
 
 
@@ -61,4 +66,3 @@ def test_font_sizes_are_published():
 
 def test_spacing_literals_are_commented():
     assert uncommented_off_scale_spacing() == []
-

@@ -42,11 +42,13 @@
   let loadingMore = $state(false);
   let error = $state<string | null>(null);
   let seq = 0;
+  let retryVersion = $state(0);
   let filter = $state<HTMLInputElement>();
   let table = $state<HTMLTableElement>();
 
   // Filter as you type: debounce, then reload from offset 0; a stale answer is dropped.
   $effect(() => {
+    retryVersion;
     const query = { ...params, q };
     const mine = ++seq;
     const delay = untrack(() => page) ? 150 : 0; // first load at once; typing waits for a pause
@@ -76,7 +78,10 @@
 
   /** Re-fetch the rows on screen (as many as are loaded), e.g. after a change that affects other rows. */
   export async function reload() {
-    if (!page) return;
+    if (!page) {
+      retryVersion++;
+      return;
+    }
     const mine = seq;
     loading = true;
     try {
@@ -135,7 +140,7 @@
   <div class="panel-body" use:scrollable role="region" aria-label={title} aria-busy={loading}>
     {#if notice}<p class="notice warn">{notice}</p>{/if}
     {#if error}
-      <div class="empty" role="alert"><p class="lead danger">Could not load {noun}</p><p>{error}</p></div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load {noun}</p><p>{error}</p><button onclick={reload}>Retry</button></div>
     {:else}
       <table bind:this={table} aria-label={title} class:fixed={!!cols}>
         {#if cols}<colgroup>{#each cols as width}<col style:width={width || null} />{/each}</colgroup>{/if}
@@ -172,6 +177,7 @@
 <style>
   .count { white-space: nowrap; }
   table.fixed { table-layout: fixed; }
+  @media (max-width: 720px) { table.fixed { table-layout: auto; } }
   tbody { transition: opacity var(--dur) var(--ease); }
   tbody.stale { opacity: 0.6; }
 </style>
