@@ -126,6 +126,19 @@ _TEXT_USERINFO = re.compile(r"://[^/?#\s@]+@", re.ASCII)
 # value ends is a guess (quotes, brackets, spaces in a password), so a sensitive value is masked to the end of its line
 _TEXT_QUOTED_PAIR = re.compile(r"""(["'])([^"'\\\n]*)\1\s*:\s*""")
 _TEXT_PAIR = re.compile(r"(?<![\w.-])([\w.-]+)\s*[=:]\s*", re.ASCII)
+# 0.4.0's pair patterns, kept as they shipped so masking stays a superset of 0.4.0 by construction: the quoted values
+# span lines, and a value is consumed whole, so a pair inside a secret token cannot split it. The one edit is the bound
+# on a bracketed value: an unclosed ``[`` would scan to the end of its line from every key. Past the bound the value
+# falls to the bare alternative, and the strict pass masks a sensitive one to the end of its line anyway
+_TEXT_QUOTED_PAIR_V04 = re.compile(
+    r"""(["'])([^"'\\\n]*)\1(\s*:\s*)"""
+    r"""(?:(["'])(?:(?!\4)[^\\]|\\.)*\4|\[[^\]\n]{0,256}+\]|\([^)\n]{0,256}+\)|[^\s,}\]{\[]+)"""
+)
+_TEXT_PAIR_V04 = re.compile(
+    r"(?<![\w.-])([\w.-]+)(\s*[=:]\s*)"
+    r"(\"[^\"]*\"|'[^']*'|\[[^\]\n]{0,256}+\]|\([^)\n]{0,256}+\)|(?:(?:Bearer|Basic|Digest|Token)\s+)?[^\s,;&'\"]+)",
+    re.ASCII,
+)
 # no credential after ``token``: an ordinary word (``Token expired``, ``FROM Token WHERE``), a plain, Capitalised or
 # UPPER run of 16 letters at most between punctuation, or an ASCII operator (``token >= 5``). Anything else is masked.
 # The opening run is possessive: both punctuation classes hold quotes, so backtracking between them is quadratic
@@ -171,6 +184,21 @@ def _mask_pairs(pattern: re.Pattern[str], masked: str, text: str) -> str:
             cursor = position = len(text) if line_end < 0 else line_end
     parts.append(text[cursor:])
     return "".join(parts)
+
+
+def _mask_pair_v04(m: re.Match[str]) -> str:
+    if not (is_sensitive_key(m.group(1)) or m.group(1).lower() in _SECRET_HEADERS):  # Cookie: session=abc
+        return m.group(0)
+    value = m.group(3)
+    quote = value[0] if value[:1] in ("'", '"') else ""
+    return f"{m.group(1)}{m.group(2)}{quote}{MASK}{quote}"
+
+
+def _mask_quoted_pair_v04(m: re.Match[str]) -> str:
+    if not is_sensitive_key(m.group(2)):
+        return m.group(0)
+    quote = m.group(4) or m.group(1)  # a bare value takes the key's quote
+    return f"{m.group(1)}{m.group(2)}{m.group(1)}{m.group(3)}{quote}{MASK}{quote}"
 
 
 def _mask_jwt(m: re.Match[str]) -> str:
@@ -244,6 +272,13 @@ class Masker:
             text = _SQL_PARAMETERS.sub(_SQL_PARAMETERS_MASKED, text)
         if not self._mask_secrets:
             return text
+        text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
+        # 0.4.0's text pipeline, in its order; its JWT and token passes are the linear forms below, same output
+        text = _TEXT_QUOTED_PAIR_V04.sub(_mask_quoted_pair_v04, text)
+        text = _TEXT_PAIR_V04.sub(_mask_pair_v04, text)
+        text = _TEXT_JWT.sub(_mask_jwt, text)
+        text = _TEXT_TOKEN.sub(_mask_token, text)
+        # the strict pass over that output: whatever either masks stays masked
         text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
         text = _mask_pairs(_TEXT_QUOTED_PAIR, _QUOTED_PAIR_MASKED, text)
         text = _mask_pairs(_TEXT_PAIR, _PAIR_MASKED, text)
