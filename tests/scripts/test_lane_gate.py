@@ -188,6 +188,11 @@ def _fixture_template_root(tmp_path_factory: pytest.TempPathFactory) -> None:
     _TEMPLATE_ROOT = tmp_path_factory.mktemp("lane-gate-templates")
 
 
+def _kept_in_template(folder: str, names: list[str]) -> set[str]:
+    """A copy reads the objects through ``alternates``; hooks never run (``core.hooksPath``)."""
+    return {"objects", "hooks"} & set(names) if Path(folder).name == ".git" else set()
+
+
 def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
     if _TEMPLATE_ROOT is None:
         raise RuntimeError("lane-gate fixture template root was not initialized")
@@ -202,8 +207,12 @@ def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = Tru
     copy_root = tmp_path
     integration = copy_root / "integration"
     worktree = copy_root / "lane"
-    shutil.copytree(template.integration, integration)
+    shutil.copytree(template.integration, integration, ignore=_kept_in_template)
     shutil.copytree(template.worktree, worktree)
+    objects = integration / ".git" / "objects"
+    (objects / "info").mkdir(parents=True)
+    shared = template.integration / ".git" / "objects"
+    (objects / "info" / "alternates").write_bytes(f"{shared.as_posix()}\n".encode())  # bytes: git reads a \r as a path
     _git(integration, "worktree", "repair", str(worktree))
     return Fixture(
         integration,
@@ -246,7 +255,9 @@ def test_lane_gate_reads_a_file_at_a_commit_once(tmp_path: Path, monkeypatch: py
     assert shows[first:] == []  # same repo, same commits: nothing to re-read
 
 
-def test_lane_gate_prunes_only_a_replay_tree_it_could_not_remove(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lane_gate_prunes_only_a_replay_tree_it_could_not_remove(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A `worktree prune` after every successful `worktree remove` was a third of the replay spawns (T-suite-speed)."""
     fx = _fixture(tmp_path)
     real = lane_gate._git
