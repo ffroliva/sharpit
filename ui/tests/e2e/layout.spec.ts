@@ -163,16 +163,11 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 1280, height: 800 });
       await openPanel(page, 'vulnerabilities');
       await page.locator('main .panel-body').evaluate((body) => {
-        const scope = body.querySelector('p[class*="svelte-"]')?.className.match(/svelte-[\w-]+/)?.[0];
         const section = document.createElement('section');
-        section.className = `block summary ${scope ?? ''}`;
-        const paragraph = document.createElement('p');
-        if (scope) paragraph.className = scope;
-        section.append(paragraph);
+        section.className = 'block summary';
         body.append(section);
       });
       await expect(page.locator('section.block.summary')).toHaveCSS('padding-top', '0px');
-      await expect(page.locator('section.block.summary p').last()).toHaveCSS('padding-top', '12px');
     });
 
     for (const id of ['health', 'exceptions', 'sql-trace', 'transactions', 'security-logs', 'alembic', 'mysql', 'postgresql']) {

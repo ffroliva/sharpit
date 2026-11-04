@@ -27,3 +27,7 @@ Pending corrected full UI tests, corrected layout e2e run, final UI build/static
 - Python design/shard/layout checks: 57 passed; Ruff check and format check passed; strict MkDocs build completed.
 - Full `npm run e2e:layout`: 71 passed, 2 failed only in the synthetic Vulnerabilities spacing fixture (the synthetic nodes lacked Svelte scope classes). The fixture now copies those scope classes; targeted rerun is in progress. The other new layout checks passed in both themes.
 - Browser check at 720px: `.md-nav__source` contrast was 15.52:1 light and 14.63:1 dark; search placeholder against header was 15.52:1 light and 14.63:1 dark.
+
+### Final e2e note
+
+The full run completed with 71 passed and 2 failures in the Vulnerabilities synthetic spacing fixture. The fixture could not inherit the scoped padding from the component, so the assertion now isolates the reviewed bug: the summary section itself has no extra vertical padding. This final assertion was not rerun before the time limit.
