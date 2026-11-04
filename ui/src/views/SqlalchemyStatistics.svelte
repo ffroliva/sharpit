@@ -88,4 +88,5 @@
 
 <style>
   section.block > p { margin: 0; padding: 0 var(--s4) var(--s2); }
+  .panel-body > p.sm, .panel-body > p.warn, .panel-body > pre { margin-inline: var(--s4); }
 </style>
