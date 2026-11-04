@@ -4,6 +4,7 @@ A throwaway project in a temp folder is checked with the real pytest, so the ver
 accept rule. The project has no ``pythonpath`` for ``src``: red_check puts the tree's ``src`` on ``PYTHONPATH``.
 """
 
+import contextlib
 import json
 import os
 import subprocess
@@ -189,6 +190,25 @@ def test_workers_share_one_verdicts_build(tmp_path: Path) -> None:
         worker.join()
     assert len(builds) == 1
     assert results == [{"id": "verdict"}] * 4
+
+
+def test_a_waiter_retries_a_verdicts_file_windows_still_holds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """At -n 12 a waiter read the file as it was renamed into place: PermissionError on Windows (T-suite-speed)."""
+    (tmp_path / "red-check-verdicts.claim").touch()
+    (tmp_path / "red-check-verdicts.json").write_text('{"id": "verdict"}', encoding="utf-8")
+    real = Path.read_text
+    refusals = [PermissionError(13, "Permission denied")]
+
+    def held_once(self: Path, *args: object, **kwargs: object) -> str:
+        if refusals:
+            raise refusals.pop()
+        return real(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", held_once)
+    found: dict[str, str] = {}
+    with contextlib.suppress(PermissionError):  # a waiter that lets it escape fails this assert, not with a crash
+        found = _built_once(tmp_path, lambda: {"id": "rebuilt"})
+    assert found == {"id": "verdict"}
 
 
 def test_a_failed_verdicts_build_leaves_the_next_worker_to_build(tmp_path: Path) -> None:
