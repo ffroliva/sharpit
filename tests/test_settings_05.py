@@ -43,3 +43,35 @@ def test_05_settings_defaults_and_env(name: str, default: object, raw: str, pars
     bad = load_settings({}, {env: invalid})
     assert getattr(bad, name) == default
     assert f"Ignoring invalid {env} value '{invalid}'" in bad.warnings
+
+
+_BASE_URIS = ("vulnerabilities_osv_base_uri", "vulnerabilities_epss_base_uri")
+
+
+@pytest.mark.parametrize("name", _BASE_URIS)
+@pytest.mark.parametrize("raw", ["file:///etc/passwd", "ftp://mirror.example/osv", "localhost:8000", "https://"])
+def test_a_base_uri_that_is_not_http_takes_the_default(name: str, raw: str) -> None:
+    env = "SHARPIT_" + name.upper()
+
+    bad = load_settings({}, {env: raw})
+
+    assert getattr(bad, name) == getattr(load_settings({}, {}), name)
+    assert f"Ignoring invalid {env} value" in bad.warnings
+
+
+@pytest.mark.parametrize("name", _BASE_URIS)
+def test_a_rejected_base_uri_is_not_echoed(name: str) -> None:
+    env = "SHARPIT_" + name.upper()
+
+    bad = load_settings({}, {env: "ftp://mirror-user:hunter2@mirror.example/"})
+
+    assert not any("hunter2" in warning for warning in bad.warnings)
+
+
+@pytest.mark.parametrize("name", _BASE_URIS)
+@pytest.mark.parametrize("raw", ["http://127.0.0.1:9", "https://osv.internal/mirror", "HTTPS://OSV.INTERNAL"])
+def test_an_http_base_uri_is_kept(name: str, raw: str) -> None:
+    settings = load_settings({}, {"SHARPIT_" + name.upper(): raw})
+
+    assert getattr(settings, name) == raw
+    assert not settings.warnings
