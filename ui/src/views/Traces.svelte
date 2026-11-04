@@ -141,9 +141,9 @@
 
 <style>
   .clear { margin-left: auto; }
-  tr.error td:first-child { color: var(--danger, #c0392b); }
+  tr.error td:first-child { color: var(--danger); }
   .lane { position: relative; min-width: 12rem; }
-  .bar { position: absolute; top: 30%; height: 40%; background: var(--accent, #3b82f6); border-radius: 2px; }
+  .bar { position: absolute; top: 30%; height: 40%; background: var(--accent); border-radius: 2px; }
   .attrs { display: grid; grid-template-columns: max-content 1fr; gap: 0 1rem; margin: 0; }
   .attrs dd { margin: 0; overflow-wrap: anywhere; }
   .status-message { margin: 0.25rem 0 0; }

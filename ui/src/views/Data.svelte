@@ -129,7 +129,7 @@
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line); }
   .row { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
-  .detail td { background: var(--surface, transparent); }
+  .detail td { background: transparent; }
   ul { margin: 0; padding-left: var(--s4); }
   pre { margin: 0; }
 </style>

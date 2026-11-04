@@ -81,6 +81,8 @@ exclude = [
     "/skills",
     "/docs/superpowers",
     "/ui",
+    "/design",
+    "/tests/design",
     "/scripts",
     "/pytest-speed.toml",
     "/uv.lock",

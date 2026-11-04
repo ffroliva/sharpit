@@ -1,6 +1,6 @@
 # sharpit UI design
 
-The single source of the console's look. Task 15b builds the views from these tokens and nothing else.
+The single source of the console's look. The views are built from these tokens and nothing else.
 
 ## Who and where
 
@@ -51,27 +51,46 @@ Rules:
   screen is the primary action.
 - The accent never decorates: it marks focus, selection, the primary action, and links.
 
-```css
-:root {
-  color-scheme: light dark;
-  --bg: oklch(1 0 0); --rail: oklch(0.965 0 0); --line: oklch(0.89 0 0);
-  --ink: oklch(0.22 0 0); --muted: oklch(0.48 0 0);
-  --accent: oklch(0.53 0.124 60); --on-accent: oklch(1 0 0); --sel: oklch(0.95 0.03 60);
-  --ok: oklch(0.50 0.12 150); --warn: oklch(0.52 0.12 75); --danger: oklch(0.52 0.18 27);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: oklch(0.17 0 0); --rail: oklch(0.205 0 0); --line: oklch(0.30 0 0);
-    --ink: oklch(0.93 0 0); --muted: oklch(0.72 0 0);
-    --accent: oklch(0.78 0.13 65); --on-accent: oklch(0.17 0 0); --sel: oklch(0.26 0.04 60);
-    --ok: oklch(0.76 0.13 150); --warn: oklch(0.82 0.13 85); --danger: oklch(0.72 0.16 27);
-  }
-}
-:root[data-theme="dark"] { /* same values as the dark block above */ }
-```
+The values live in [`tokens.css`](tokens.css), the one source. This table documents them, and `tests/design` fails if the
+two disagree.
 
 The theme toggle sets `data-theme` on `<html>` from a module script, never from an inline one, because the CSP forbids inline
 scripts.
+
+## Other tokens
+
+The rest of `tokens.css`. Names are the same on every surface.
+
+| Token | Value | Role |
+|---|---|---|
+| `--ui` | `system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` | UI text family |
+| `--mono` | `ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace` | Values: config, beans, loggers, routes, CVE ids |
+| `--s1` | `4px` | Space step 1 |
+| `--s2` | `8px` | Space step 2 |
+| `--s3` | `12px` | Space step 3 |
+| `--s4` | `16px` | Space step 4 |
+| `--s6` | `24px` | Space step 6 |
+| `--row` | `28px` | Table and rail row height |
+| `--head` | `36px` | Panel header height |
+| `--rail-w` | `208px` | Rail width |
+| `--radius` | `4px` | Inputs, buttons, palette |
+| `--ease` | `cubic-bezier(0.25, 1, 0.5, 1)` | Easing for the only two transitions |
+| `--dur` | `150ms` (`0ms` under reduced motion) | Transition duration |
+| `--z-sticky` | `10` | Sticky table header |
+| `--z-palette` | `100` | Command palette |
+
+## Spacing and type rules
+
+These apply on every surface unless a surface says otherwise.
+
+- **Spacing:** `--s` tokens only. Exceptions: 1 to 3px optical offsets, each with a comment.
+- **Containers:** left padding equals right, top equals bottom.
+- **Headings:** space above is at least twice the space below. Console 12 and 4, slides 36 and 12, docs keep Material's 40 and 16.
+- **Levels:** one h1 per panel or page, then h2. Levels are never skipped, and the console uses h1 and h2 only.
+- **Weights:** 400 and 600, on every surface.
+- **Slides:** spacing is the console's x3. Type is four steps of its own, with no text under 34px, so it stays at 12px or more at phone width.
+- **Touch targets:** at least 24px, the WCAG 2.2 AA minimum. 44px does not apply to this dense desktop tool.
+- **Numbers:** right aligned, tabular. Status words left aligned.
 
 ## Type
 
@@ -80,14 +99,18 @@ scripts.
 - Values: `ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace`. Values are config values, bean names and types,
   logger names, routes, package coordinates, CVE ids. The brief requires mono here. It is a choice about content (values are
   copied into code), not a small-label decoration, so labels stay in the UI family.
-- The scale is a fixed rem scale with ratio 1.125 and a 13px base:
+- The sizes are a fixed set of plain sizes, not tokens: nothing in `ui/src` defines a `--t-*` variable. They are not a
+  ratio scale.
 
-| Token | Size / line height | Use |
+| Name | Size / line height | Use |
 |---|---|---|
-| `--t-sm` | 12px / 16px | Counts, hints, keyboard hints |
-| `--t-base` | 13px / 20px | Body, table cells, rail |
-| `--t-md` | 14.5px / 20px, weight 600 | Panel title |
-| `--t-lg` | 16.5px / 24px, weight 600 | Palette input, empty-state lead |
+| sm | 12px / 16px | Counts, hints, keyboard hints |
+| base | 13px / 20px | Body, table cells, rail |
+| md | 14.5px / 20px, weight 600 | Panel title |
+| lg | 16.5px / 24px, weight 600 | Palette input, empty-state lead |
+| metric | 20px / 24px | One large number per panel |
+| mono | 12.5px | Values in `--mono` |
+| graph | 11px | Graph labels |
 
 - Weights are 400 and 600 only. Labels are sentence case and never uppercase. Numbers use `font-variant-numeric: tabular-nums`.
 

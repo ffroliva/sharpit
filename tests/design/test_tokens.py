@@ -31,9 +31,9 @@ def _text() -> str:
 def tokens(theme: str) -> dict[str, str]:
     """The token values of a theme, read from design/tokens.css."""
     selector = {"light": LIGHT, "dark": DARK}[theme]
-    block = re.search(re.escape(selector) + r"\s*\{(.*?)\}", _text(), re.S)
+    block = re.search(re.escape(selector) + r"\s*\{(.*?)\}", _text(), re.DOTALL)
     assert block, f"no block for {selector}"
-    return {name: value.strip() for name, value in DECL.findall(block.group(1))}
+    return {name.removeprefix("--"): value.strip() for name, value in DECL.findall(block.group(1))}
 
 
 def _oklch_to_linear_srgb(value: str) -> tuple[float, float, float]:
@@ -52,6 +52,7 @@ def _oklch_to_linear_srgb(value: str) -> tuple[float, float, float]:
 
 def _luminance(value: str) -> float:
     r, g, b = _oklch_to_linear_srgb(value)
+
     # WCAG 2 relative luminance is defined on gamma-encoded sRGB, so encode then decode with the WCAG curve
     def encode(c: float) -> float:
         return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
@@ -148,10 +149,7 @@ def test_no_colour_fallbacks_in_ui() -> None:
 def test_doc_lists_every_token() -> None:
     names = {n for n, _ in DECL.findall(_text())}
     documented = {
-        cells[0].strip("`")
-        for table in _doc_tables()
-        for cells in table[1:]
-        if cells[0].strip("`").startswith("--")
+        cells[0].strip("`") for table in _doc_tables() for cells in table[1:] if cells[0].strip("`").startswith("--")
     }
     assert documented == names
 
