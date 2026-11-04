@@ -229,7 +229,7 @@ def test_shape_keys_match_bootui():
     assert tuple(report["entries"][0]) == ENTRY_KEYS == (
         "id", "timestamp", "sql", "statementType", "category", "durationMicros", "durationMillis", "success",
         "errorMessage", "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId",
-        "callSite",
+        "callSite", "requestId", "executionId", "threadKind", "requestPhase",
     )  # fmt: skip
     assert tuple(report["topStatements"][0]) == GROUP_KEYS == (
         "sql", "category", "executions", "totalDurationMillis", "maxDurationMillis", "potentialNPlusOne", "callSites",
