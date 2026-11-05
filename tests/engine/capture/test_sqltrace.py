@@ -677,6 +677,11 @@ def test_a_qualified_bracket_identifier_reads_a_word_led_by_a_digit_inside() -> 
     assert normalize("SELECT t.[col 1] FROM t").sql == "SELECT t.[col ?] FROM t"
 
 
+# a name of SQLite's: read as a subscript, it would give ``t.[? x]``
+def test_a_qualified_bracket_identifier_is_no_subscript() -> None:
+    assert normalize("SELECT t.[true x] FROM t").sql == "SELECT t.[true x] FROM t"
+
+
 # derived: release council probe p3_sql.py: the bracket identifier admitted ``$ ( / - *`` and the subscript check
 # missed ``)``, ``]`` and a space, so a value inside the bracket was never scanned
 @pytest.mark.parametrize(

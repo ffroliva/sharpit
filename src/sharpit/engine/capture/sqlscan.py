@@ -427,7 +427,8 @@ def _read(source: str, mysql: bool) -> _Scan:
         elif c.isspace():
             out.space()
             index += 1
-        elif c.isdigit() and not _identifier_char_before(out):
+        # after a ``.`` a digit starts a literal: ``THEN.5`` is a number, and no keyword list can tell it from ``t.5``
+        elif c.isdigit() and (not _identifier_char_before(out) or out.chars[-1] == "."):
             index, literal = _skip_number(source, index), True
         else:
             out.append(c)
@@ -474,16 +475,26 @@ def _trigger_spans(source: str, runs: list[tuple[int, int, int]]) -> list[tuple[
     return spans
 
 
+def _opener_beside_dollar_quote(source: str, start: int) -> bool:
+    """An opener in the body of the dollar quote at ``start`` or past its closer: with none, nothing can flip."""
+    tag = source.index("$", start + 1) + 1 - start
+    end = _dollar_quote_end(source, start, False)
+    return bool(_OPENER.search(source, start + tag, end - tag) or _OPENER.search(source, end))
+
+
 def _generic_trigger(source: str, runs: list[tuple[int, int, int]]) -> bool:
-    """A ``q'`` (the span's end takes in the quote that opens a literal), a ``#`` with an opener after it anywhere, or a
-    dollar quote after ``@`` or ``.``, a value or a syntax error on PostgreSQL and a name on MySQL."""
+    """A ``q'`` (the span's end takes in the quote that opens a literal), a ``#`` with an opener after it anywhere, a
+    dollar quote after ``@``, a value on PostgreSQL and a name on MySQL, or one after ``.`` beside another opener, a
+    syntax error on PostgreSQL and a name on MySQL."""
     last_opener = max((found.start() for found in _RUN_OPENER.finditer(source)), default=-1)
     for start, end in _trigger_spans(source, runs):
         if _ALTERNATIVE_QUOTE.search(source, start, end + 1):
             return True
         if 0 <= source.find("#", start, end) < last_opener:
             return True
-        if source.startswith(("@$", ".$"), end - 1):
+        if source.startswith("@$", end - 1):
+            return True
+        if source.startswith(".$", end - 1) and _opener_beside_dollar_quote(source, end):
             return True
     return False
 

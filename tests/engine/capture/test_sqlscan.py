@@ -377,13 +377,42 @@ def test_a_dollar_after_a_dot_is_a_name_on_mysql(sql: str, expected: str) -> Non
 @pytest.mark.parametrize(
     ("sql", "expected"),
     [
-        ("SELECT x.$$SECRET$$ FROM (SELECT 1 AS x) x", "SELECT x. ?"),
         ("SELECT t.$$ = 'a $$ SECRET '", "SELECT t. ?"),
         ("SELECT 1 FROM (SELECT 1 AS `$a$`) t WHERE t.$a$ = 'a $a$ SECRET '", "SELECT ? FROM (SELECT ? AS ?"),
         ("SELECT t.$$ FROM (SELECT 1 AS `$$`) t WHERE t.$$ = 'a $$ SECRET '", "SELECT t. ?"),
     ],
 )
 def test_a_dollar_after_a_dot_stops_the_statement_with_the_dialect_unknown(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+# (r8) re-review 4: a syntax error on all three engines, or a name on MySQL when a column has it: one reading, so it
+# took a cut it did not need. With nothing else to open, there is nothing for a second reading to flip
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT x.$$SECRET$$ FROM (SELECT 1 AS x) x", "SELECT x.? FROM (SELECT ? AS x) x"),
+        ("SELECT x.$a$SECRET$a$ FROM t WHERE id = 1", "SELECT x.? FROM t WHERE id = ?"),
+        ("SELECT x.$$SECRET", "SELECT x.?"),
+    ],
+)
+def test_a_dollar_quote_after_a_dot_with_no_other_opener_reads_one_way(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+# (r8) an opener anywhere else keeps the cut: past the closer (the second dollar quote holds a string on MySQL, whose
+# ``x$$$$`` is one name) or in the body (a comment on MySQL)
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT x.$$a$$, 'SECRET'", "SELECT x. ?"),
+        ("SELECT t.$$ + x$$$$, ' $$ SECRET ' FROM t", "SELECT t. ?"),
+        ("SELECT t.$$ /* $$ SECRET */ FROM t", "SELECT t. ?"),
+        ("SELECT t.$$ -- $$ SECRET\n FROM t", "SELECT t. ?"),
+        ("SELECT t.$$ # $$ SECRET\n FROM t", "SELECT t. ?"),
+    ],
+)
+def test_a_dollar_quote_after_a_dot_beside_another_opener_still_stops(sql: str, expected: str) -> None:
     assert normalize(sql).sql == expected
 
 
@@ -1000,3 +1029,74 @@ def test_a_double_quote_cut_open_at_the_scan_limit_is_a_literal() -> None:
     sql = f'SELECT {"name, " * 3330}"{"y" * 300}" FROM t'
     assert '"' in sql[: sql_corpus.SCAN_LIMIT]
     assert normalize(sql).sql.endswith(", ?")
+
+
+# (r8) re-review 4: a keyword is a word, and PostgreSQL and SQLite read ``THEN.1234567`` as ``THEN 0.1234567``. No list
+# of keywords can be complete, so after a word the ``.`` is copied and the digits are a literal; it reads inside, no cut
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT.1234567", "SELECT.?"),
+        ("SELECT CASE WHEN 1=1 THEN.1234567 END", "SELECT CASE WHEN ?=? THEN.? END"),
+        ("SELECT 1 WHERE 1=1 AND.1234567>0", "SELECT ? WHERE ?=? AND.?>?"),
+        ("SELECT /* /* */ */ CASE WHEN TRUE THEN.1234567 END", "SELECT */ CASE WHEN ? THEN.? END"),
+        ("SELECT.1234567e3", "SELECT.?"),
+        ("SELECT.1_234_567", "SELECT.?"),
+        ("SELECT t.123 FROM t", "SELECT t.? FROM t"),
+        ("SELECT a1.5, _b.5, c$.5", "SELECT a1.?, _b.?, c$.?"),
+        ("SELECT t..123", "SELECT t..?"),
+        ("SELECT ..123", "SELECT ..?"),
+    ],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+def test_digits_after_a_word_and_a_dot_are_a_literal(sql: str, expected: str, mysql: bool) -> None:
+    assert normalize(sql, mysql).sql == expected
+
+
+# (r8) the rule's cost, toward hiding: MySQL reads both as names, and they lose their digits
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [("SELECT t.1col FROM t", "SELECT t.?col FROM t"), ("SELECT * FROM db.2020_sales", "SELECT * FROM db.?_sales")],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+def test_a_name_led_by_a_digit_after_a_dot_loses_its_digits(sql: str, expected: str, mysql: bool) -> None:
+    assert normalize(sql, mysql).sql == expected
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT.1234567",
+        "SELECT DISTINCT.1234567",
+        "SELECT ALL.1234567",
+        "SELECT CASE WHEN.1234567>0 THEN 1 END",
+        "SELECT CASE WHEN 1=0 THEN 1 ELSE.1234567 END",
+        "SELECT 1 WHERE.1234567>0",
+        "SELECT 1 WHERE 1=1 OR.1234567>0",
+        "SELECT 1 WHERE NOT.1234567>0",
+        "SELECT 1 GROUP BY 1 HAVING.1234567>0",
+        "SELECT 1 ORDER BY.1234567",
+        "SELECT 1 LIMIT.1234567",
+        "SELECT 1 LIMIT 1 OFFSET.1234567",
+        "SELECT 1 WHERE 1 IN(SELECT.1234567)",
+        "SELECT 2 BETWEEN.1234567 AND 3",
+        "SELECT 1 BETWEEN 0 AND.1234567",
+        "SELECT 1 LIKE.1234567",
+        "SELECT 1 IS.1234567",
+        "VALUES(1) UNION SELECT.1234567",
+        "SELECT 1 UNION ALL SELECT.1234567",
+        "SELECT 1 FROM (SELECT 1 AS a) t JOIN (SELECT 1 AS b) u ON.1234567>0",
+    ],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+def test_no_keyword_keeps_the_digits_after_a_dot(sql: str, mysql: bool) -> None:
+    assert "1234567" not in normalize(sql, mysql).sql
+    assert shown(sql, [], mysql) == normalize(sql, mysql).sql
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [("SELECT (1).5", "SELECT (?)?"), ("SELECT ?.5", "SELECT ??"), ('SELECT "a".5', 'SELECT "a"?')],
+)
+def test_a_dot_after_no_word_keeps_its_read(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected

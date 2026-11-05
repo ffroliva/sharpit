@@ -258,7 +258,7 @@ class _Statements:
 
     def nested_comment(self) -> Row:  # PostgreSQL nests comments, so there it reads one way
         m = _mark(self.rng)
-        if self.dialect == GENERIC and self.rng.random() < 0.8:  # ambiguous either way, so the fallback share holds
+        if self.dialect == GENERIC and self.rng.random() < 0.4:  # ambiguous either way, so the fallback share holds
             return self._two_way(m)
         shown = _Shown(f"/* /* nested */ it's */ SELECT '{m}'", "it ?", f"SELECT '{MASKED}'")
         return self._single("nested_comment", shown, m, ambiguous=not self.pg)
@@ -273,9 +273,12 @@ class _Statements:
         text = f"SELECT # it's\n '{m}'"
         if self.dialect == MYSQL:  # a comment there, and the statement reads one way
             return self._single("hash", _Shown(text, "SELECT ?", ""), m)
-        if self.rng.random() < 0.8:  # each row of the rotation must land in a mutant's 300 rows
+        if self.rng.random() < 0.4:  # each row of the rotation must land in a mutant's 300 rows
             return self._two_way(m)
         return self._single("hash", _Shown(text, "SELECT # it ?", ""), m, ambiguous=True)
+
+    def two_way(self) -> Row:  # its own template, so ``nested_comment`` and ``hash`` keep rows of their own
+        return self._two_way(_mark(self.rng))
 
     def _two_way(self, m: str) -> Row:
         """Statements of (r5), each valid on the engine named in ``test_sqlscan.py``: nothing tells a reading here."""
@@ -290,16 +293,28 @@ class _Statements:
             ("odd_bracket", m, f"SELECT [it's[b], '{m}' FROM (SELECT 1 AS [it's[b])", "SELECT [it ?"),
             ("odd_bracket", m, f"SELECT [`'`'], '{m}', [`'`'] FROM (SELECT 1 AS [`'`'])", "SELECT [ ?"),
             ("odd_bracket", m, f"SELECT ARRAY[$$a]$$, $${m}$$]", "SELECT ARRAY[ ?"),  # PostgreSQL's value
-            ("odd_bracket", m, f"SELECT ARRAY[/*] {m} */1]", "SELECT ARRAY[ ?"),  # the comment opened in it is the stop
+            # the comment opened in it is the stop: PostgreSQL hides the value, SQLite's alias ``[/*]`` returns it (r8)
+            ("odd_bracket", m, f"SELECT ARRAY[/*], ' {m} */1] -- '\n FROM (SELECT 1 AS ARRAY)", "SELECT ARRAY[ ?"),
+            # no run opener at all: a comment there and a column here, so only the bracket has a place to stop (r8)
+            (
+                "odd_bracket",
+                m,
+                f"SELECT ARRAY[/*], {m} -- */1]\n FROM (SELECT 1 AS ARRAY, 2 AS {m})",
+                "SELECT ARRAY[ ?",
+            ),
             ("executable_comment", m, f"SELECT 1 /*! # */ don't\n, '{m}' */", "SELECT ? don ?"),
             ("executable_comment", d, f"SELECT 1 /*!50000 AS `*/`, {d} */", "SELECT ? ?"),  # no quote to stop at
             ("tight_dash", m, f"SELECT 5--`a\nb`, '{m}' FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),
             ("tight_dash", d, f"SELECT 5--`a\nb`, {d} FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),  # no quote in a run
             ("tight_dash", m, f"SELECT 5--/*\n don't */1, '{m}'", "SELECT ? don ?"),
+            # the backtick is the only opener the scan sees: MySQL reads a name ``\n'a`` from table dt, then the value
+            ("tight_dash", m, f"SELECT 5--`\n'a`b,' {m} ' FROM dt", "SELECT ? ?"),
             ("hash", d, f"SELECT 1 # `\n, {d} # `\n", "SELECT ? # ?"),  # a name on MySQL
             ("at_dollar", m, f"SELECT @$$ := 'a $$ {m} '", "SELECT @ ?"),
             ("at_dollar", m, f"SELECT t.$$ = 'a $$ {m} '", "SELECT t. ?"),  # a name on MySQL, as after ``@``
-            ("at_dollar", m, f"SELECT x.$${m}$$ FROM (SELECT 1 AS x) x", "SELECT x. ?"),
+            # a name on MySQL with ``$$`` and ``x$$$$`` columns, and the opener is past the closer (r8)
+            ("at_dollar", m, f"SELECT t.$$ + x$$$$, ' $$ {m} ' FROM t", "SELECT t. ?"),
+            ("at_dollar", m, f"SELECT t.$$ /* $$ {m} */ FROM t", "SELECT t. ?"),  # a comment on MySQL, in the body (r8)
             # a dollar quote is a stop too (r7): PostgreSQL's value past a comment the scan ends early
             ("nested_comment", m, f"SELECT /* /* */ $$ */ $${m}$$", "SELECT ?"),
             ("nested_comment", m, f"SELECT 1, -- x\r $$\n {m} $$", "SELECT ?, ?"),  # a lone CR ends it there
@@ -352,6 +367,16 @@ class _Statements:
         text = f"SELECT 1$a$, 'a $a$ {m} ' FROM (SELECT 1 AS `1$a$`) t"
         return self._single("dollar_names", _Shown(text, "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t", ""), m)
 
+    def dot_dollar(self) -> Row:  # reads one way: an error on all three engines, with no other opener to flip (r8)
+        m = _mark(self.rng)
+        text, scan = self.rng.choice(
+            (
+                (f"SELECT x.$${m}$$ FROM (SELECT 1 AS x) x", "SELECT x.? FROM (SELECT ? AS x) x"),
+                (f"SELECT y.$a${m}$a$ FROM t WHERE id = 1", "SELECT y.? FROM t WHERE id = ?"),
+            )
+        )
+        return self._single("dollar_names", _Shown(text, scan, ""), m)
+
     def mysql_routine(self) -> Row:  # the one place MySQL takes a dollar quote: it stores the body (r7)
         m = _mark(self.rng)
         head = "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS "
@@ -362,6 +387,23 @@ class _Statements:
         d = _digits(self.rng)
         text = f"SELECT (ARRAY[1,2]) [CASE WHEN FALSE THEN {d} ELSE 1 END]"
         return self._single("digit_bracket", _Shown(text, "SELECT (ARRAY[?,?]) [CASE WHEN ? THEN ? ELSE ? END]", ""), d)
+
+    def doubled_quote(self) -> Row:  # read as two strings it is ``??``: the shape gate's own row
+        m = _mark(self.rng)
+        return self._single("doubled_quote", _Shown(f"SELECT 'it''s {m}', 1 FROM t", "SELECT ?, ? FROM t", ""), m)
+
+    def dot_digit(self) -> Row:  # a keyword is a word, and PostgreSQL and SQLite return the fraction (r8); reads inside
+        d = _digits(self.rng)
+        text, scan = self.rng.choice(
+            (
+                (f"SELECT.{d}", "SELECT.?"),
+                (f"SELECT CASE WHEN 1=1 THEN.{d} END", "SELECT CASE WHEN ?=? THEN.? END"),
+                (f"SELECT 1 WHERE 1=1 AND.{d}>0", "SELECT ? WHERE ?=? AND.?>?"),
+                (f"SELECT 1 FROM (SELECT 1 AS a) t JOIN (SELECT 1 AS b) u ON.{d}>0",
+                 "SELECT ? FROM (SELECT ? AS a) t JOIN (SELECT ? AS b) u ON.?>?"),
+            )
+        )  # fmt: skip
+        return self._single("dot_digit", _Shown(text, scan, ""), d)
 
     def mysql_escaped(self) -> Row:  # D7: under NO_BACKSLASH_ESCAPES the run ends at the backslash
         m = _mark(self.rng)
@@ -448,11 +490,12 @@ class _Statements:
                   self.names)  # fmt: skip
         if self.dialect == MYSQL:
             return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger, self.mysql_name,
-                    self.mysql_routine)  # fmt: skip
+                    self.mysql_routine, self.dot_digit)  # fmt: skip
         if self.pg:
             return (*common, self.trailing_backslash, self.nested_comment, self.unclosed_dollar)
         return (*common, self.trailing_backslash, self.nested_comment, self.oracle_quote, self.hash_comment,
-                self.unclosed_dollar, self.quiet_trigger, self.dollar_names, self.digit_bracket)  # fmt: skip
+                self.unclosed_dollar, self.quiet_trigger, self.dollar_names, self.digit_bracket,
+                self.dot_digit, self.dot_dollar, self.two_way, self.two_way, self.doubled_quote)  # fmt: skip
 
     def long_templates(self) -> tuple[Callable[[], Row], ...]:
         return (self.long_literal,) if self.pg else (self.long_literal, self.long_identifier)
