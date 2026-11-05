@@ -274,6 +274,7 @@ RAW_FINGERPRINT = Mutant(", fingerprint=text.lower())", ")", "", "", "engine/cap
 
 def test_an_id_only_leak_fails_the_gate(tmp_path: Path) -> None:
     """The plant keeps ``sql`` safe and leaks only the fingerprint, which no gate over one text can see."""
+    pytest.importorskip("sqlalchemy")  # the two target files skip without it, and pytest then finds no such test
     _mutate(_scratch_copy(tmp_path), RAW_FINGERPRINT)
     env = {**os.environ, "PYTHONPATH": str(tmp_path / "src"), "PYTHONDONTWRITEBYTECODE": "1"}
     done = subprocess.run(
@@ -283,7 +284,7 @@ def test_an_id_only_leak_fails_the_gate(tmp_path: Path) -> None:
         cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=100,
     )  # fmt: skip
     assert done.returncode == 1, done.stdout[-2000:]
-    failed = {line.split("::")[-1].split(" - ")[0] for line in done.stdout.splitlines() if line.startswith("FAILED")}
+    failed = {line.split("::", 1)[1].split(" - ")[0] for line in done.stdout.splitlines() if line.startswith("FAILED")}
     assert "test_no_secret_in_test_session_facts[unquoted_alias-attributed]" in failed, done.stdout[-2000:]
     assert "test_no_secret_in_a_relationship_group[upper_case_alias]" in failed, done.stdout[-2000:]
     assert "AssertionError" in done.stdout, done.stdout[-2000:]  # the gate's own assertion, no crash
