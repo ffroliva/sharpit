@@ -76,6 +76,9 @@ GENERATORS: dict[str, Callable[[int], str]] = {
     "comment-brackets": _repeat("[/*] "),
     "dash-brackets": _repeat("[-- ] "),
     "open-run-brackets": _repeat("[/* ["),
+    "open-word-bracket": lambda size: "k=[" + "a " * (size // 2),  # the name read fails only at the end, once
+    "word-brackets": _repeat("[a 1 "),
+    "dollar-openers": _repeat("# $a$ $1 "),  # the last opener is found once, not per ``#``
     "closed-run-brackets": _repeat("['a'] "),
     "subscripts": _repeat("a['] "),
     "at-dollars": _repeat("@$$ $$ "),

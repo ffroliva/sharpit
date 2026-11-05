@@ -258,7 +258,7 @@ class _Statements:
 
     def nested_comment(self) -> Row:  # PostgreSQL nests comments, so there it reads one way
         m = _mark(self.rng)
-        if self.dialect == GENERIC and self.rng.random() < 0.5:  # ambiguous either way, so the fallback share holds
+        if self.dialect == GENERIC and self.rng.random() < 0.8:  # ambiguous either way, so the fallback share holds
             return self._two_way(m)
         shown = _Shown(f"/* /* nested */ it's */ SELECT '{m}'", "it ?", f"SELECT '{MASKED}'")
         return self._single("nested_comment", shown, m, ambiguous=not self.pg)
@@ -273,7 +273,7 @@ class _Statements:
         text = f"SELECT # it's\n '{m}'"
         if self.dialect == MYSQL:  # a comment there, and the statement reads one way
             return self._single("hash", _Shown(text, "SELECT ?", ""), m)
-        if self.rng.random() < 0.5:
+        if self.rng.random() < 0.8:  # each row of the rotation must land in a mutant's 300 rows
             return self._two_way(m)
         return self._single("hash", _Shown(text, "SELECT # it ?", ""), m, ambiguous=True)
 
@@ -290,17 +290,36 @@ class _Statements:
             ("odd_bracket", m, f"SELECT [it's[b], '{m}' FROM (SELECT 1 AS [it's[b])", "SELECT [it ?"),
             ("odd_bracket", m, f"SELECT [`'`'], '{m}', [`'`'] FROM (SELECT 1 AS [`'`'])", "SELECT [ ?"),
             ("odd_bracket", m, f"SELECT ARRAY[$$a]$$, $${m}$$]", "SELECT ARRAY[ ?"),  # PostgreSQL's value
+            ("odd_bracket", m, f"SELECT ARRAY[/*] {m} */1]", "SELECT ARRAY[ ?"),  # the comment opened in it is the stop
             ("executable_comment", m, f"SELECT 1 /*! # */ don't\n, '{m}' */", "SELECT ? don ?"),
             ("executable_comment", d, f"SELECT 1 /*!50000 AS `*/`, {d} */", "SELECT ? ?"),  # no quote to stop at
             ("tight_dash", m, f"SELECT 5--`a\nb`, '{m}' FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),
             ("tight_dash", d, f"SELECT 5--`a\nb`, {d} FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),  # no quote in a run
             ("tight_dash", m, f"SELECT 5--/*\n don't */1, '{m}'", "SELECT ? don ?"),
             ("hash", d, f"SELECT 1 # `\n, {d} # `\n", "SELECT ? # ?"),  # a name on MySQL
-            ("at_dollar", m, f"SELECT @$$ := 'a $$ {m} '", "SELECT @? ?"),
-            ("at_dollar", m, f"SELECT t.$$ = 'a $$ {m} '", "SELECT t.? ?"),  # a name on MySQL, as after ``@``
+            ("at_dollar", m, f"SELECT @$$ := 'a $$ {m} '", "SELECT @ ?"),
+            ("at_dollar", m, f"SELECT t.$$ = 'a $$ {m} '", "SELECT t. ?"),  # a name on MySQL, as after ``@``
+            ("at_dollar", m, f"SELECT x.$${m}$$ FROM (SELECT 1 AS x) x", "SELECT x. ?"),
+            # a dollar quote is a stop too (r7): PostgreSQL's value past a comment the scan ends early
+            ("nested_comment", m, f"SELECT /* /* */ $$ */ $${m}$$", "SELECT ?"),
+            ("nested_comment", m, f"SELECT 1, -- x\r $$\n {m} $$", "SELECT ?, ?"),  # a lone CR ends it there
+            (
+                "hash",
+                m,
+                f"CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS # $$\n $$ {m} $$",
+                "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS # ?",
+            ),  # MySQL stores the body
+            (
+                "executable_comment",
+                m,
+                f"CREATE PROCEDURE p() LANGUAGE JAVASCRIPT /*! AS $$ */ {m} $$ */",
+                "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT ?",
+            ),
             # a name on MySQL, an operator on PostgreSQL after ``CREATE OPERATOR`` (N5)
             ("backtick_quote", m, f"SELECT `it's`, '{m}' FROM t", "SELECT ?"),
             ("backtick_quote", m, f"SELECT 1 ` '{m}'", "SELECT ? ?"),
+            ("backtick_quote", d, f"SELECT 1 ` {d}", "SELECT ? ?"),  # open: what follows is code there (r7)
+            ("backtick_quote", m, f"SELECT 1 ` $${m}$$::text", "SELECT ? ?"),
         )
         shape, marker, text, scan = rows[
             self.turn % len(rows)
@@ -328,18 +347,21 @@ class _Statements:
         )
         return self._single("mysql_name", _Shown(text, scan, ""), m)
 
-    def dollar_names(self) -> Row:  # read one way with the dialect unknown: a digit-led name, and 0.4.0's ``.``
+    def dollar_names(self) -> Row:  # reads one way with the dialect unknown: a digit-led name
         m = _mark(self.rng)
-        text, scan = self.rng.choice(
-            (
-                (
-                    f"SELECT 1$a$, 'a $a$ {m} ' FROM (SELECT 1 AS `1$a$`) t",
-                    "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t",
-                ),
-                (f"SELECT x.$${m}$$ FROM (SELECT 1 AS x) x", "SELECT x.? FROM (SELECT ? AS x) x"),
-            )
-        )
-        return self._single("dollar_names", _Shown(text, scan, ""), m)
+        text = f"SELECT 1$a$, 'a $a$ {m} ' FROM (SELECT 1 AS `1$a$`) t"
+        return self._single("dollar_names", _Shown(text, "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t", ""), m)
+
+    def mysql_routine(self) -> Row:  # the one place MySQL takes a dollar quote: it stores the body (r7)
+        m = _mark(self.rng)
+        head = "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS "
+        body = self.rng.choice((f"$$ {m} $$", f"$a$ {m} $a$", f"$1$ {m} $1$", f"$$ it's {m} $$", f"$a$x$$a$ {m} $a$"))
+        return self._single("mysql_routine", _Shown(head + body, f"{head}?", ""), m)
+
+    def digit_bracket(self) -> Row:  # after a space a ``[`` is no subscript, and this number is PostgreSQL's value (r7)
+        d = _digits(self.rng)
+        text = f"SELECT (ARRAY[1,2]) [CASE WHEN FALSE THEN {d} ELSE 1 END]"
+        return self._single("digit_bracket", _Shown(text, "SELECT (ARRAY[?,?]) [CASE WHEN ? THEN ? ELSE ? END]", ""), d)
 
     def mysql_escaped(self) -> Row:  # D7: under NO_BACKSLASH_ESCAPES the run ends at the backslash
         m = _mark(self.rng)
@@ -392,7 +414,7 @@ class _Statements:
             (
                 (f"SELECT `a b`, '{m}' FROM t", "SELECT `a b`, ? FROM t"),
                 (f"SELECT [a b], '{m}' FROM t", "SELECT [a b], ? FROM t"),
-                (f"SELECT [a 1], '{m}' FROM t", "SELECT [a 1], ? FROM t"),  # a digit in a name is not a number
+                (f"SELECT [a 1], '{m}' FROM t", "SELECT [a ?], ? FROM t"),  # a word led by a digit is read inside (r7)
                 (f"SELECT ARRAY['{m}', 'z'] FROM t", "SELECT ARRAY[?, ?] FROM t"),
             )
         )
@@ -425,11 +447,12 @@ class _Statements:
         common = (self.update, self.insert, self.select, self.sensitive_name, self.sensitive_table, self.comments,
                   self.names)  # fmt: skip
         if self.dialect == MYSQL:
-            return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger, self.mysql_name)
+            return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger, self.mysql_name,
+                    self.mysql_routine)  # fmt: skip
         if self.pg:
             return (*common, self.trailing_backslash, self.nested_comment, self.unclosed_dollar)
         return (*common, self.trailing_backslash, self.nested_comment, self.oracle_quote, self.hash_comment,
-                self.unclosed_dollar, self.quiet_trigger, self.dollar_names)  # fmt: skip
+                self.unclosed_dollar, self.quiet_trigger, self.dollar_names, self.digit_bracket)  # fmt: skip
 
     def long_templates(self) -> tuple[Callable[[], Row], ...]:
         return (self.long_literal,) if self.pg else (self.long_literal, self.long_identifier)
@@ -442,4 +465,10 @@ def rows(seed: int, n: int, dialect: str = GENERIC) -> list[Row]:
     rng = random.Random(seed)
     statements = _Statements(rng, dialect)
     templates, long_templates = statements.templates(), statements.long_templates()
-    return [rng.choice(long_templates if index % LONG_EVERY == LONG_EVERY - 1 else templates)() for index in range(n)]
+
+    def pick(index: int) -> Callable[[], Row]:
+        if index % LONG_EVERY != LONG_EVERY - 1:
+            return rng.choice(templates)
+        return long_templates[index // LONG_EVERY % len(long_templates)]  # in turn: each must land in a mutant's rows
+
+    return [pick(index)() for index in range(n)]

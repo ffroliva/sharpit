@@ -377,27 +377,111 @@ def test_a_dollar_after_a_dot_is_a_name_on_mysql(sql: str, expected: str) -> Non
 @pytest.mark.parametrize(
     ("sql", "expected"),
     [
-        ("SELECT x.$$SECRET$$ FROM (SELECT 1 AS x) x", "SELECT x.? FROM (SELECT ? AS x) x"),
-        ("SELECT t.$$ = 'a $$ SECRET '", "SELECT t.? ?"),
+        ("SELECT x.$$SECRET$$ FROM (SELECT 1 AS x) x", "SELECT x. ?"),
+        ("SELECT t.$$ = 'a $$ SECRET '", "SELECT t. ?"),
         ("SELECT 1 FROM (SELECT 1 AS `$a$`) t WHERE t.$a$ = 'a $a$ SECRET '", "SELECT ? FROM (SELECT ? AS ?"),
-        ("SELECT t.$$ FROM (SELECT 1 AS `$$`) t WHERE t.$$ = 'a $$ SECRET '", "SELECT t.? ?"),
+        ("SELECT t.$$ FROM (SELECT 1 AS `$$`) t WHERE t.$$ = 'a $$ SECRET '", "SELECT t. ?"),
     ],
 )
 def test_a_dollar_after_a_dot_stops_the_statement_with_the_dialect_unknown(sql: str, expected: str) -> None:
     assert normalize(sql).sql == expected
 
 
-# (r6) MySQL 8.4.10 answers 1064 to ``SELECT $$SECRET$$`` under both sql modes: no dollar quote exists there
+# (r7) re-review 3 NB1: ``SELECT`` refuses a dollar quote, but MySQL 8.4.10's lexer has one and its grammar takes it as
+# a routine body: each of these is stored under both sql modes and ``routine_definition`` returns the body
+ROUTINE = "CREATE PROCEDURE p1() LANGUAGE JAVASCRIPT AS "
+
+
 @pytest.mark.parametrize(
     ("sql", "expected"),
     [
-        ("SELECT $$x$$", "SELECT $$x$$"),
-        ("SELECT $a$x$a$", "SELECT $a$x$a$"),
-        ("SELECT 'a', $$, 'b'", "SELECT ?, $$, ?"),
+        (f"{ROUTINE}$$ const k = SECRET; $$", f"{ROUTINE}?"),
+        (f"{ROUTINE}$a$ SECRET $a$", f"{ROUTINE}?"),
+        (
+            "CREATE FUNCTION f1() RETURNS INT DETERMINISTIC LANGUAGE JAVASCRIPT AS $$ return SECRET; $$",
+            "CREATE FUNCTION f1() RETURNS INT DETERMINISTIC LANGUAGE JAVASCRIPT AS ?",
+        ),
+        (
+            "CREATE FUNCTION f2() RETURNS INT NO SQL LANGUAGE JAVASCRIPT AS $js$ return SECRET; $js$",
+            "CREATE FUNCTION f2() RETURNS INT NO SQL LANGUAGE JAVASCRIPT AS ?",
+        ),
+        (f"{ROUTINE}$$ it's SECRET $$", f"{ROUTINE}?"),
+        (f"{ROUTINE}$1$ SECRET $1$", f"{ROUTINE}?"),
+        (f"{ROUTINE}$1a$ SECRET $1a$", f"{ROUTINE}?"),
+        (f"{ROUTINE}$1_b$ SECRET $1_b$", f"{ROUTINE}?"),
+        (f"{ROUTINE}$_$ SECRET $_$", f"{ROUTINE}?"),
+        (f"{ROUTINE}$é$ SECRET $é$", f"{ROUTINE}?"),
+        (f"{ROUTINE}$€$ SECRET $€$", f"{ROUTINE}?"),
+        (f"{ROUTINE}$a$b$ SECRET $a$", f"{ROUTINE}?"),
+        (f"{ROUTINE}/* c */ $$ SECRET $$", f"{ROUTINE}?"),
+        (f"{ROUTINE}# $$\n $$ SECRET $$", f"{ROUTINE}?"),
+        ("SELECT $$x$$", "SELECT ?"),
+        ("SELECT $a$x$a$", "SELECT ?"),
+        ("SELECT 'a', $$, 'b'", "SELECT ?, ?"),
     ],
 )
-def test_a_dollar_never_opens_a_quote_on_mysql(sql: str, expected: str) -> None:
+def test_a_dollar_quote_opens_where_a_token_starts_on_mysql(sql: str, expected: str) -> None:
     assert normalize(sql, True).sql == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT @$$ := 'a $$ SECRET '", "SELECT @$$ := ?"),
+        ("SET @$a$ = 'a $a$ SECRET '", "SET @$a$ = ?"),
+        ("SELECT t.$a$ = 'a $a$ SECRET '", "SELECT t.$a$ = ?"),
+        (
+            "SELECT 1$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `1$a$`) t",
+            "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t",
+        ),
+        ("SELECT a$b$, 'a $b$ SECRET '", "SELECT a$b$, ?"),
+        ("SELECT $a, 'a $a SECRET '", "SELECT $a, ?"),
+        (
+            "CREATE PROCEDURE p12() LANGUAGE JAVASCRIPT AS$$ x $$",
+            "CREATE PROCEDURE p12() LANGUAGE JAVASCRIPT AS$$ x ?",
+        ),
+    ],
+)
+def test_a_dollar_stays_a_name_after_a_name_on_mysql(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+# (r7) found by the fuzz: MySQL 8.4.10's closing match does not step back. A failed match skips what it read, the
+# failing character too, so a closer straight after a ``$`` or a part of the tag closes nothing. Each body was read back
+@pytest.mark.parametrize(
+    "body",
+    [
+        "$js$$1$$js$ SECRET $js$",
+        "$a$x$$a$ SECRET $a$",
+        "$a$$$a$ SECRET $a$",
+        "$a$$b$$a$ SECRET $a$",
+        "$a$b$$a$ SECRET $a$",
+        "$ab$x$a$ab$ SECRET $ab$",
+        "$ab$x$$ab$ SECRET $ab$",
+        "$$$ SECRET $$",
+    ],
+)
+def test_a_dollar_quote_closes_where_mysql_closes_it(body: str) -> None:
+    assert normalize(f"{ROUTINE}{body}", True).sql == f"{ROUTINE}?"
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("$a$x$a$", "?"),
+        ("$$x$$", "?"),
+        ("$ab$x$aab$y$ab$", "?"),
+        ("$a$ $ $a$, 1", "?, ?"),  # a lone ``$`` then the closer: closed there, 1064 on what follows
+        ("$a$x$$$a$, 1", "?, ?"),
+    ],
+)
+def test_a_dollar_quote_still_closes_on_mysql(body: str, expected: str) -> None:
+    assert normalize(f"{ROUTINE}{body}", True).sql == f"{ROUTINE}{expected}"
+
+
+def test_a_digit_led_tag_opens_nothing_with_the_dialect_unknown() -> None:
+    """PostgreSQL's tag rule. SQLite reads ``$1$`` as a variable, so opening there would show what follows it."""
+    assert normalize("SELECT $1$, 'a $1$ SECRET '").sql == "SELECT $1$, ?"
 
 
 # derived: re-review 2 B1, MySQL 8.4.10 reads a digit-led name for each, under both sql modes; PostgreSQL and SQLite
@@ -441,11 +525,11 @@ def test_a_dollar_after_anything_else_that_is_no_name_still_opens(sql: str, expe
 
 def test_a_dollar_quote_after_at_reads_two_ways_with_the_dialect_unknown() -> None:
     """``SELECT @$$5$$::int`` is ``5`` on PostgreSQL, a variable on MySQL."""
-    assert normalize("SELECT @$$ := 'a $$ SECRET '").sql == "SELECT @? ?"
+    assert normalize("SELECT @$$ := 'a $$ SECRET '").sql == "SELECT @ ?"
 
 
-def test_a_dollar_quote_after_at_stays_a_literal_without_a_quote_to_stop_at() -> None:
-    assert normalize("SELECT @$$5$$::int").sql == "SELECT @?::int"
+def test_a_dollar_quote_after_at_stops_the_statement_with_no_quote_to_stop_at() -> None:
+    assert normalize("SELECT @$$5$$::int").sql == "SELECT @ ?"
 
 
 # derived: re-review N3, MySQL 8.4.10 returns (6, 'SECRET'): the tight ``--`` hides the backtick that opens the name
@@ -532,6 +616,45 @@ def test_a_backtick_run_is_a_name_on_mysql() -> None:
 
 def test_a_backtick_run_with_no_quote_keeps_the_statement() -> None:
     assert normalize("SELECT `a b`, 'x'").sql == "SELECT `a b`, ?"
+
+
+# (r7) re-review 3 NB3: with CREATE OPERATOR what follows a backtick is code on PostgreSQL 18.2, and an unclosed run is
+# invalid on MySQL and SQLite, so nothing readable is lost
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1 ` 1234567", "SELECT ? ?"),
+        ("SELECT 1`1234567", "SELECT ? ?"),
+        ("SELECT 1 ` /* c */ 1234567", "SELECT ? ?"),
+        ("SELECT 1 ` 1234567 FROM (SELECT 1) t", "SELECT ? ?"),
+        ("SELECT 1 ` $$SECRET$$::text", "SELECT ? ?"),
+        ("SELECT 1 ` $a$SECRET$a$::text", "SELECT ? ?"),
+        ("SELECT 1 ``` 1234567", "SELECT ? ?"),  # a doubled backtick does not close it
+        ("SELECT `a`` 1234567", "SELECT ?"),
+        ("SELECT `a``", "SELECT ?"),  # ends on a backtick, still open
+        ("SELECT `a` ` 1234567", "SELECT ?"),  # a closed name before it: the first opener is the stop
+    ],
+)
+def test_an_unclosed_backtick_stops_the_statement_with_the_dialect_unknown(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT `a`", "SELECT `a`"),
+        ("SELECT `a```", "SELECT `a```"),  # a doubled backtick, then the closing one
+        ("SELECT ````, 1", "SELECT ````, ?"),
+        ("SELECT `a b` FROM t", "SELECT `a b` FROM t"),
+        ("SELECT 1 ` 1234567 ` 2", "SELECT ? ` 1234567 ` ?"),  # a closed pair is every backticked name: for the owner
+    ],
+)
+def test_a_closed_backtick_run_keeps_the_statement_with_the_dialect_unknown(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+def test_an_unclosed_backtick_is_a_name_on_mysql() -> None:
+    assert normalize("SELECT 1 ` 1234567", True).sql == "SELECT ? ` 1234567"
 
 
 def test_a_lone_cr_in_a_line_comment_cuts() -> None:
@@ -660,7 +783,7 @@ def test_a_subscript_with_balanced_quotes_keeps_its_reading(sql: str, expected: 
         ("SELECT ARRAY['x']", "SELECT ARRAY[?]"),
         ("SELECT arr[1]", "SELECT arr[?]"),
         ("SELECT a [b] FROM t", "SELECT a [b] FROM t"),
-        ("SELECT [a 1], 'x'", "SELECT [a 1], ?"),
+        ("SELECT [a 1], 'x'", "SELECT [a ?], ?"),
     ],
 )
 def test_a_bracket_without_a_quote_keeps_its_reading(sql: str, expected: str) -> None:
@@ -719,7 +842,7 @@ def test_a_bracket_stops_at_the_opener_it_leaves_open(sql: str, expected: str) -
         ("SELECT ARRAY['a', 'b']", "SELECT ARRAY[?, ?]"),
         ("SELECT a['it''s']", "SELECT a[?]"),
         ("SELECT arr[1], 'x'", "SELECT arr[?], ?"),
-        ("SELECT [a 1], 'x'", "SELECT [a 1], ?"),
+        ("SELECT [a 1], 'x'", "SELECT [a ?], ?"),
         ("SELECT ARRAY[1,2], 'x'", "SELECT ARRAY[?,?], ?"),
         ("SELECT (ARRAY[1])[1], 'x'", "SELECT (ARRAY[?])[?], ?"),
         ("SELECT ARRAY[['a','b']], 'x'", "SELECT ARRAY[[?,?]], ?"),
@@ -782,6 +905,95 @@ def test_a_probed_value_stays_hidden(sql: str) -> None:
 @pytest.mark.parametrize("sql", PROBED_ON_MYSQL)
 def test_a_probed_value_stays_hidden_on_mysql(sql: str) -> None:
     assert "SECRET" not in normalize(sql, True).sql
+
+
+# (r7) re-review 3 NB2: a nested comment or a lone CR flips the state and no quote stops it. PostgreSQL 18.2 returned
+# the value of each of these, MySQL 8.4.10 stored the body of each ``CREATE`` row
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT /* /* */ $$ */ $$SECRET$$", "SELECT ?"),
+        ("SELECT /*/**/$$*/$$SECRET$$", "SELECT ?"),
+        ("SELECT /* /* */ $$ */ $$ SECRET $$, 2", "SELECT ?"),
+        ("SELECT /* /* */ $a$ */ $a$ SECRET $a$", "SELECT ?"),
+        ("SELECT /* /* */ $$ */ $$SECRET$$, 'x'", "SELECT ?"),
+        ("SELECT /* /* */ $$ */ $$SECRET$$ AS a, 2 AS b FROM (SELECT 1) t", "SELECT ?"),
+        ("SELECT 1, -- x\r $$\n SECRET $$", "SELECT ?, ?"),
+        ("SELECT -- x\r $a$\n SECRET $a$", "SELECT ?"),
+        ("SELECT 1 --\r, $$\n SECRET $$", "SELECT ? ?"),
+        ("SELECT 1, -- x\r $$\n SECRET $$, 'x'", "SELECT ?, ?"),
+        (
+            "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS # $$\n $$ SECRET $$",
+            "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS # ?",
+        ),
+        ("SELECT 1 # x $$\n$$SECRET$$", "SELECT ? # x ?"),
+        ("SELECT 5--$$\n SECRET $$", "SELECT ? ?"),
+        (
+            "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT /*! AS $$ */ SECRET $$ */",
+            "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT ?",
+        ),
+        (
+            "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT /*!50000 AS $€$ */ SECRET $€$ */",
+            "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT ?",
+        ),
+    ],
+)
+def test_a_cut_stops_at_a_dollar_quote(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT /* /* */ $$ */ $$SECRET$$",
+        "SELECT /* /* */ $a$ */ $a$ SECRET $a$",
+        "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT /*! AS $$ */ SECRET $$ */",
+        "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT /*!50000 AS $$ */ x SECRET $$ */",
+    ],
+)
+def test_a_cut_stops_at_a_dollar_quote_on_mysql(sql: str) -> None:
+    assert normalize(sql, True).sql.endswith(" ?")
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT /* /* */ a FROM t WHERE id = $1, 'x'", "SELECT a FROM t WHERE id = $1, ?"),
+        ("SELECT /* /* */ 1234567", "SELECT ?"),
+        ("SELECT /* /* */ */ 1234567", "SELECT */ ?"),
+        ("SELECT /*!50000 a */ FROM t", "SELECT FROM t"),
+        ("SELECT 1 # $1", "SELECT ? # $1"),
+        ("SELECT $$x$$, 'y'", "SELECT ?, ?"),
+    ],
+)
+def test_a_parameter_or_a_comment_is_not_where_a_cut_stops(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+# (r7) re-review 3 NB4: after a space a ``[`` is no subscript, and PostgreSQL 18.2 ran the first two and read the number
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        (
+            "SELECT (ARRAY[1,2]) [CASE WHEN FALSE THEN 1234567 ELSE 1 END]",
+            "SELECT (ARRAY[?,?]) [CASE WHEN ? THEN ? ELSE ? END]",
+        ),
+        (
+            "SELECT a [CASE WHEN TRUE THEN 1234567 END] FROM (SELECT ARRAY[1] AS a) t",
+            "SELECT a [CASE WHEN ? THEN ? END] FROM (SELECT ARRAY[?] AS a) t",
+        ),
+        ("SELECT [a 1b]", "SELECT [a ?b]"),
+        ("SELECT [a 0x10 b]", "SELECT [a ? b]"),
+    ],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+def test_a_bracket_holding_a_word_led_by_a_digit_is_read_inside(sql: str, expected: str, mysql: bool) -> None:
+    assert normalize(sql, mysql).sql == expected
+
+
+@pytest.mark.parametrize("sql", ["SELECT [a b]", "SELECT [col_1]", "SELECT [a b2]", "SELECT [_1 x]", "SELECT [a  b ]"])
+def test_a_bracket_of_words_stays_a_name(sql: str) -> None:
+    assert normalize(sql).sql == sql
 
 
 def test_a_double_quote_cut_open_at_the_scan_limit_is_a_literal() -> None:

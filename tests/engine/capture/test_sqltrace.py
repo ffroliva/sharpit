@@ -647,7 +647,7 @@ def test_sql_trace_entry_includes_duration_micros_and_report_retention():
         ("SELECT ARRAY [1234]", "SELECT ARRAY [?]"),
         ("SELECT doc['hunter2'] FROM t", "SELECT doc[?] FROM t"),
         ("SELECT items[3] FROM t", "SELECT items[?] FROM t"),
-        ("SELECT ARRAY['hunter2", "SELECT ARRAY[?"),
+        ("SELECT ARRAY['hunter2", "SELECT ARRAY[ ?"),
     ],
 )
 @pytest.mark.parametrize("mysql", [False, True])
@@ -672,9 +672,9 @@ def test_a_long_run_of_open_brackets_stays_linear() -> None:
     assert normalize("[a" * 10_000).sql == "[a" * 10_000
 
 
-# derived: a qualified bracket identifier is no subscript, so its digits are part of the name
-def test_a_qualified_bracket_identifier_keeps_its_digits() -> None:
-    assert normalize("SELECT t.[col 1] FROM t").sql == "SELECT t.[col 1] FROM t"
+# derived: a qualified bracket identifier is no subscript; (r7) a word led by a digit is read inside there too, NB4
+def test_a_qualified_bracket_identifier_reads_a_word_led_by_a_digit_inside() -> None:
+    assert normalize("SELECT t.[col 1] FROM t").sql == "SELECT t.[col ?] FROM t"
 
 
 # derived: release council probe p3_sql.py: the bracket identifier admitted ``$ ( / - *`` and the subscript check

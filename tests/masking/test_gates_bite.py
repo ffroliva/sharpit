@@ -102,6 +102,10 @@ class Mutant(NamedTuple):
 KEEP = "return _keep(source, index, out)"
 DIGIT = "elif c.isdigit() and not _identifier_char_before(out):"
 QUOTES = "**dict.fromkeys('\"`[', _scan_quoted),"  # the scanners of the three quoting characters
+CUT = "found = _RUN_OPENER.search(scan.source)"
+LAST = "in _RUN_OPENER.finditer(source)"
+TIGHT = '_TIGHT_DASH_OPENER = re.compile(rf"{_RUN_OPENER.pattern}|/\\*")'
+NO_DOLLAR = 're.compile("[\'\\"`]")'  # the opener set without its dollar quote
 MUTANTS: dict[str, Mutant] = {
     "true": Mutant("return index + 4, True", KEEP, SURFACE, "visible"),
     "false": Mutant("return index + 5, True", KEEP, SURFACE, "visible"),
@@ -128,33 +132,39 @@ MUTANTS: dict[str, Mutant] = {
                              "recorder_sql-generic", "visible"),
     "executable_comment": Mutant("return source.startswith(_EXECUTABLE_COMMENT, start)", "return False",
                                  "recorder_sql-mysql", "visible"),
-    "tight_backtick": Mutant("_TIGHT_DASH_OPENER = re.compile(\"['\\\"`]|/\\\\*\")",
-                             "_TIGHT_DASH_OPENER = re.compile(\"['\\\"]|/\\\\*\")", "recorder_sql-generic", "visible"),
-    "tight_block_comment": Mutant("_TIGHT_DASH_OPENER = re.compile(\"['\\\"`]|/\\\\*\")",
-                                  "_TIGHT_DASH_OPENER = re.compile(\"['\\\"`]\")", "recorder_sql-generic", "visible"),
-    "backtick_cut": Mutant("found = _QUOTE_OR_BACKTICK.search(scan.source)", "found = _QUOTE.search(scan.source)",
-                           "recorder_sql-generic", "visible"),
-    "backtick_cut_mysql": Mutant("found = _QUOTE_OR_BACKTICK.search(scan.source)", "found = _QUOTE.search(scan.source)",
-                                 "recorder_sql-mysql", "visible"),
-    "hash_backtick": Mutant(', source.rfind("`"))', ")", "recorder_sql-generic", "visible"),
-    "mysql_dollar": Mutant("end = -1 if mysql or _name_goes_on(", "end = -1 if _name_goes_on(",
-                           "recorder_sql-mysql", "visible"),
+    # no tight_backtick since r7: a backtick that a tight ``--`` hides and MySQL closes leaves an odd count after the
+    # newline, so the scan holds an unclosed run and cuts anyway; a named test keeps the row
+    "tight_block_comment": Mutant(TIGHT, "_TIGHT_DASH_OPENER = _RUN_OPENER", "recorder_sql-generic", "visible"),
+    "backtick_cut": Mutant(CUT, "found = _QUOTE.search(scan.source)", "recorder_sql-generic", "visible"),
+    "backtick_cut_mysql": Mutant(CUT, "found = _QUOTE.search(scan.source)", "recorder_sql-mysql", "visible"),
+    "dollar_cut": Mutant(CUT, f"found = {NO_DOLLAR}.search(scan.source)", "recorder_sql-generic", "visible"),
+    "hash_backtick": Mutant(LAST, "in _QUOTE.finditer(source)", "recorder_sql-generic", "visible"),
+    "hash_dollar": Mutant(LAST, f"in {NO_DOLLAR}.finditer(source)", "recorder_sql-generic", "visible"),
+    "mysql_dollar": Mutant("end = -1 if _name_goes_on(source, index, out, mysql)",
+                           "end = -1 if mysql or _name_goes_on(source, index, out, mysql)", "recorder_sql-mysql",
+                           "visible"),
+    "mysql_dollar_name": Mutant(' or (mysql and last in ".@")', "", "recorder_sql-mysql", "visible"),
+    "mysql_closer": Mutant("end = _mysql_closer(sql, tag, body_start) if mysql else sql.find(tag, body_start)",
+                           "end = sql.find(tag, body_start)", "recorder_sql-mysql", "visible"),
+    "mysql_digit_tag": Mutant("(mysql or cursor > index + 1)", "(cursor > index + 1)", "recorder_sql-mysql", "visible"),
     "number_dollar": Mutant('last == "?" and source[index - 1].isalnum()', "False", "recorder_sql-generic", "visible"),
     "dot_opens": Mutant('or last in "_$" or', 'or last in "_$." or', "recorder_sql-generic", "visible"),
     "backtick_quote": Mutant("if not mysql and _backtick_reads_two_ways(source, runs):", "if False:",
                              "recorder_sql-generic", "visible"),
+    "unclosed_backtick": Mutant(' or source.count("`", start, end) % 2', "", "recorder_sql-generic", "visible"),
     "at_dollar_cut": Mutant('source.startswith(("@$", ".$"), end - 1)', 'source.startswith(".$", end - 1)',
                             "recorder_sql-generic", "visible"),
     "dot_dollar_cut": Mutant('source.startswith(("@$", ".$"), end - 1)', 'source.startswith("@$", end - 1)',
                              "recorder_sql-generic", "visible"),
     "dot_dollar_holds": Mutant(' or ".$" in source', "", "recorder_sql-generic", "visible"),
+    "bracket_digit_word": Mutant(r'(?: +[^\W\d]\w*)* *\]")', r'[\w ]*\]")', SURFACE, "visible"),
     "cut_open_double_quote": Mutant("if mysql or end >= _MAX_SCAN_LENGTH:", "if mysql:", SURFACE, "visible"),
     "two_readings": Mutant("return _read(source.replace(", "return False and _read(source.replace(",
                            SURFACE, "visible"),
     "nested_comment": Mutant('if source.find("/*", start + 2, end) >= 0:', "if False:", SURFACE, "visible"),
     "alternative_quote": Mutant("if _ALTERNATIVE_QUOTE.search(source, start, end + 1):", "if False:",
                                 SURFACE, "visible"),
-    "hash_quote": Mutant('if 0 <= source.find("#", start, end) < last_quote:', "if False:", SURFACE, "visible"),
+    "hash_quote": Mutant('if 0 <= source.find("#", start, end) < last_opener:', "if False:", SURFACE, "visible"),
     # a digit or a keyword after a name character belongs to the name: over-masking ``col1`` lowers A1: A3 must catch it
     "digit_in_name": Mutant(DIGIT, DIGIT.replace(" and not _identifier_char_before(out)", ""), SURFACE, "shape"),
     "keyword_in_name": Mutant(
