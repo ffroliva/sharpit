@@ -7,7 +7,7 @@
   --md-accent-fg-color: var(--accent);
   --md-accent-fg-color--light: var(--accent);
   --md-accent-fg-color--dark: var(--accent);
-  --md-accent-fg-color--transparent: var(--accent);
+  --md-accent-fg-color--transparent: var(--sel);
   --md-accent-bg-color: var(--sel);
   --md-accent-bg-color--light: var(--sel);
   --md-accent-bg-color--dark: var(--accent);
@@ -66,42 +66,4 @@
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-
-.md-typeset .admonition,
-.md-typeset details {
-  color: var(--ink);
-  border: 1px solid var(--md-admonition-fg-color, var(--line));
-}
-
-.md-typeset .admonition-title,
-.md-typeset summary {
-  color: var(--ink);
-  border-left: 0;
-}
-
-.md-typeset .admonition.note,
-.md-typeset .admonition.info,
-.md-typeset details.note,
-.md-typeset details.info {
-  --md-admonition-fg-color: var(--accent);
-}
-
-.md-typeset .admonition.success,
-.md-typeset details.success {
-  --md-admonition-fg-color: var(--ok);
-}
-
-.md-typeset .admonition.warning,
-.md-typeset details.warning {
-  --md-admonition-fg-color: var(--warn);
-}
-
-.md-typeset .admonition.failure,
-.md-typeset .admonition.danger,
-.md-typeset .admonition.bug,
-.md-typeset details.failure,
-.md-typeset details.danger,
-.md-typeset details.bug {
-  --md-admonition-fg-color: var(--danger);
 }

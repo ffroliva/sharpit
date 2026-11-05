@@ -227,6 +227,6 @@ into a dated snapshot and record the source commit; later token changes do not r
 The MkDocs site keeps Material's layout and syntax highlighting while using the shared `tokens.css` copy in
 `website/docs/stylesheets/`. `sharpit.css` maps Material's header and tab surfaces to `--rail`, page surfaces to `--bg`,
 text to `--ink` or `--muted`, and links, focus and active navigation to `--accent`. The header has a 1px `--line` bottom
-edge, table headers use `--rail`, and admonitions use status-token 1px outlines. Palette headings use weights 400 and 600.
+edge and table headers use `--rail`. Palette headings use weights 400 and 600.
 All mappings live under `[data-md-color-scheme]`, so the user's palette toggle controls the tokens even when it differs
 from the operating system theme.

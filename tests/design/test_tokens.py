@@ -298,3 +298,10 @@ def test_docs_palette_is_custom() -> None:
     assert "stylesheets/tokens.css" in mkdocs
     assert "stylesheets/sharpit.css" in mkdocs
     assert mkdocs.index("stylesheets/tokens.css") < mkdocs.index("stylesheets/sharpit.css")
+
+
+def test_docs_accent_transparent_is_a_background_tint_not_the_text_colour() -> None:
+    text = (ROOT / "website/docs/stylesheets/sharpit.css").read_text(encoding="utf-8")
+    assert re.search(r"--md-accent-fg-color--transparent\s*:\s*var\(--sel\);", text)
+    for name, value in re.findall(r"(--md-[a-z-]+--transparent)\s*:\s*([^;]+);", text):
+        assert value.strip() == "var(--sel)", name
