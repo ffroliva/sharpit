@@ -2,7 +2,8 @@
 
 # derived: the oracle is new in the architecture plan; BootUI's ``mysql-live`` profile is the shape it follows.
 Each row runs on a live server and that server's own answer decides whether the row counts: the corpus's ``returned`` is
-not read here. So PostgreSQL, which has no readings in the corpus, runs its 128 real-leak statements on both settings.
+not read here. So PostgreSQL, which has no readings in the corpus, runs its 128 real-leak statements and its 10 hand
+rows on both settings.
 That leg proves no more than those statements: nothing seeded on PostgreSQL ever ran through it.
 
 Red on today's code by design: Tasks 16 to 19 turn those rows green, and nothing is fixed or skipped here. The legs and
@@ -16,7 +17,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from pathlib import Path
 
@@ -50,8 +51,8 @@ PINNED: dict[tuple[str, str], int] = {
     ("mariadb", "ANSI_QUOTES"): 1233,
     ("mariadb", "MSSQL"): 1403,
     ("mariadb", "ORACLE"): 1233,
-    ("postgresql", "on"): 128,
-    ("postgresql", "off"): 128,
+    ("postgresql", "on"): 138,
+    ("postgresql", "off"): 138,
     ("sqlite", ""): 2813,
 }
 ROW_ID = re.compile(r"test_oracle_row\[(\w+)-(\w+)-\d+\]$")
@@ -75,9 +76,13 @@ def _closed_legs() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
     oracle.close()
 
 
-@pytest.mark.parametrize(("server", "session", "row"), _rows(), indirect=["server"])
-def test_oracle_row(server: LiveServer, session: str, row: ServerRow, request: pytest.FixtureRequest) -> None:
-    observed = oracle.drive(server, session, row.text)
+@pytest.mark.parametrize(
+    ("key", "session", "row"), _rows()
+)  # ``key`` direct: an indirect one here is a container a row
+def test_oracle_row(
+    key: str, live_servers: Callable[[str], LiveServer], session: str, row: ServerRow, request: pytest.FixtureRequest
+) -> None:
+    observed = oracle.drive(live_servers(key), session, row.text)
     request.node.user_properties.append(("returned", observed.returns(row.marker)))
     shown = observed.holding(row.marker) if observed.returns(row.marker) else []
     assert not shown, f"the server returned {row.marker!r} and these show it"
@@ -97,7 +102,24 @@ def test_a_refused_statement_keeps_its_value_hidden(server: LiveServer) -> None:
 
 
 WRONG_WIRED = Mutant("conn.dialect.name in MYSQL_DIALECTS,", "False,", "", "", "engine/sqla/listeners.py")
+# The scanner never reads ``\`` as an escape inside a quote (field log F16, probes pg-plant and b2).
+NEVER_ESCAPES = Mutant(
+    'if c == "\\\\" and closing in escaped_in and cursor + 1 < length:',
+    "if False and closing in escaped_in and cursor + 1 < length:",
+    "",
+    "",
+)
+# The hand rows ``standard_conforming_strings = off`` reads with ``\`` as a plain character, and the plant then shows.
+FIVE_ON_OFF = {
+    "SELECT 'a\\'', 'BSVONE', 'b'",
+    "SELECT 'a\\'' AS x, 'BSVTHREE' AS y -- '",
+    "SELECT E'a\\'', 'BSVSIX', 'b'",
+    "SELECT 'a\\'' || 'BSVSEVEN' /* ' */",
+    "SELECT 'a\\'b', 'BSVNINE'",
+}
 CONTROLS: dict[str, tuple[str, str, Mutant]] = {
+    "backslash-postgresql-on": ("postgresql", "on", NEVER_ESCAPES),
+    "backslash-postgresql-off": ("postgresql", "off", NEVER_ESCAPES),
     "backslash-mysql": (
         "mysql84",
         "NO_BACKSLASH_ESCAPES",
@@ -133,12 +155,23 @@ def test_a_wrong_wired_dialect_fails_the_oracle(server: LiveServer, tmp_path: Pa
 
 @pytest.mark.timeout(2 * PLANT_SECONDS)
 @pytest.mark.parametrize(
-    ("server", "session", "mutant"),
-    [pytest.param(*control, id=name) for name, control in CONTROLS.items()],
-    indirect=["server"],
+    ("key", "session", "mutant"), [pytest.param(*control, id=name) for name, control in CONTROLS.items()]
 )
-def test_oracle_control(server: LiveServer, session: str, mutant: Mutant, tmp_path: Path) -> None:
-    assert _gained(server, session, mutant, tmp_path)
+def test_oracle_control(
+    key: str, live_servers: Callable[[str], LiveServer], session: str, mutant: Mutant, tmp_path: Path
+) -> None:
+    assert _gained(live_servers(key), session, mutant, tmp_path)
+
+
+@pytest.mark.timeout(2 * PLANT_SECONDS)
+def test_the_inverse_plant_shows_five_rows_on_off(live_servers: Callable[[str], LiveServer], tmp_path: Path) -> None:
+    """A scanner that never reads ``\\`` as an escape is right on ``off`` only where ``\\`` is a plain character.
+
+    The plant keeps the quote open on ``'a\\''``, which ``off`` closes: five hand rows show their value there (field
+    log F16, probe run b2). On ``on`` the same plant shows one (``E'a\\''``), the other direction.
+    """
+    gained = _gained(live_servers("postgresql"), "off", NEVER_ESCAPES, tmp_path)
+    assert gained == FIVE_ON_OFF
 
 
 # --- every leg ran: a skip of a row is this failing, so the live job cannot pass on a server that never answered ------

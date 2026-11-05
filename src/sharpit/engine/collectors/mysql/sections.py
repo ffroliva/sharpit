@@ -73,7 +73,7 @@ def section_dto(section_id: str, status: str, reason: str | None = None, rows: i
 
 
 def _reason(masker: Masker, exc: Exception) -> str:
-    return mask_error(masker, str(exc).strip(), mysql=True) or type(exc).__name__
+    return mask_error(masker, str(exc).strip(), mysql=True, known=True) or type(exc).__name__
 
 
 def _rows(conn: Any, sql: str) -> list[Row]:
@@ -282,7 +282,7 @@ def collect_replication(conn: Any, limits: RowLimits, data: DataSourceData, mask
                 "serviceState": r.get("service_state"),
                 "sourceUuid": r.get("source_uuid"),
                 "lastErrorNumber": r.get("last_error_number"),
-                "lastErrorMessage": masker.mask_text(r.get("last_error_message")),
+                "lastErrorMessage": mask_error(masker, r.get("last_error_message"), mysql=True, known=True),
                 "lastErrorTimestamp": r.get("last_error_timestamp"),
             }
             for r in rows

@@ -490,9 +490,8 @@ def test_error_message_masked_and_inline_sql_normalised():
     error = RuntimeError(f"(sqlite3.IntegrityError) UNIQUE\n[SQL: {sql}]\n[parameters: ('{JWT}',)]")
     _record(recorder, sql, success=False, error=error)
     message = _entries(recorder)[0]["errorMessage"]
-    assert (
-        message == f"(sqlite3.IntegrityError) UNIQUE\n[SQL: insert into u (id, p) values (?, ?)] [parameters: {MASK}]"
-    )
+    statement = "insert into u (id, p) values (?, ?)"
+    assert message == f"(sqlite3.IntegrityError) UNIQUE\n[SQL: {statement}]\n[parameters: {MASK}]"
 
 
 @pytest.mark.parametrize(
@@ -509,7 +508,7 @@ def test_error_message_masked_and_inline_sql_normalised():
         ),
         (
             "(pymysql.err.IntegrityError) (1062, \"Duplicate entry 'hunter2-xyz' for key 'secret'\")",
-            "(pymysql.err.IntegrityError) (1062, ?)",
+            '(pymysql.err.IntegrityError) (1062, "Duplicate entry ?")',
         ),
     ],
 )
@@ -521,7 +520,7 @@ def test_driver_message_values_dropped_with_parameters_off(message: str, expecte
     _record(recorder, sql, success=False, error=error)
     stored = _entries(recorder)[0]["errorMessage"]
     assert "hunter2" not in stored
-    assert stored == f"{expected}\n[SQL: {sql}] [parameters: {MASK}]"
+    assert stored == f"{expected}\n[SQL: {sql}]\n[parameters: {MASK}]"
 
 
 def test_sql_cut_at_max_length():

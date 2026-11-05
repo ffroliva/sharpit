@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from enum import StrEnum
 from urllib.parse import unquote_plus
 
-MASK = "******"
+from sharpit.engine.sqltext import MASK
 
 
 class Exposure(StrEnum):

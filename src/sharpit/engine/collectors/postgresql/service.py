@@ -195,7 +195,9 @@ async def _read_engine(
         data, version, timed_out = replace(partial, sections=sections), None, True
         diagnostics.append(_diagnostic(name, "WARNING", BUDGET_RAN_OUT))
     except Exception as exc:  # noqa: BLE001  # a failed engine is reported for that engine, never raised
-        return _error_database(name, mask_error(ctx.masker, str(exc).strip()) or type(exc).__name__, diagnostics)
+        return _error_database(
+            name, mask_error(ctx.masker, str(exc).strip(), known=True) or type(exc).__name__, diagnostics
+        )
     data.name = name
     for section in data.sections:
         source = f"{name}/{section['id']}"

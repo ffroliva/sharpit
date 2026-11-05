@@ -34,7 +34,20 @@ from .conftest import LiveServer
 API = "/sharpit/api"
 MYSQL_FAMILY = ("mysql", "mariadb")
 _NO_BACKSLASH = "SELECT 'a\\', 'BACKSLASHVALUE', 'b'"  # no corpus row needs the backslash cut: this one does
+_BSV = (  # a backslash before a quote: an escape in E'' on, in every '' off (standard_conforming_strings)
+    ("SELECT 'it''s', 'BSVCONTROL'", "BSVCONTROL"),
+    ("SELECT 'a\\'', 'BSVONE', 'b'", "BSVONE"),
+    ("SELECT 'a\\' -- ', 'BSVTWO'", "BSVTWO"),
+    ("SELECT 'a\\'' AS x, 'BSVTHREE' AS y -- '", "BSVTHREE"),
+    ("SELECT '\\', 'BSVFOUR'", "BSVFOUR"),
+    ("SELECT 'a\\\\', 'BSVFIVE'", "BSVFIVE"),
+    ("SELECT E'a\\'', 'BSVSIX', 'b'", "BSVSIX"),
+    ("SELECT 'a\\'' || 'BSVSEVEN' /* ' */", "BSVSEVEN"),
+    ("SELECT $$a'$$, 'BSVEIGHT'", "BSVEIGHT"),
+    ("SELECT 'a\\'b', 'BSVNINE'", "BSVNINE"),
+)
 HAND_ROWS = (  # no seed made these. The server's answer decides each, as with every other row
+    *(ServerRow(text, "postgresql", s, marker, None, 0) for s in ("on", "off") for text, marker in _BSV),
     *(
         ServerRow(_NO_BACKSLASH, s, "NO_BACKSLASH_ESCAPES", "BACKSLASHVALUE", None, 0)
         for s in ("my84", "my80", "maria")

@@ -347,56 +347,56 @@ def fail_sqlalchemy(d: Driver, ctx: Ctx, c: Case) -> tuple[BaseException, list[s
         logger.setLevel(logging.NOTSET)
 
 
+async def _raw_aiosqlite(ctx: Ctx, mod: Any, sql: str, params: tuple[str, ...]) -> None:
+    async with mod.connect(ctx.sqlite_path) as db:
+        await db.execute(sql, params)
+
+
+async def _raw_asyncpg(ctx: Ctx, mod: Any, sql: str, params: tuple[str, ...]) -> None:
+    conn = await mod.connect(user="postgres", database="sqlerr", host="127.0.0.1", port=ctx.pg_port)
+    try:
+        await conn.execute(sql, *params)
+    finally:
+        await conn.close()
+
+
+async def _raw_aiomysql(ctx: Ctx, mod: Any, sql: str, params: tuple[str, ...]) -> None:
+    conn = await mod.connect(db="sqlerr", host="127.0.0.1", port=ctx.mysql_port, user="root")
+    try:
+        cur = await conn.cursor()
+        await cur.execute(sql, params)
+    finally:
+        conn.close()
+
+
+def _raw_connect(d: Driver, ctx: Ctx, mod: Any) -> Any:
+    """A sync DBAPI connection to the driver's server."""
+    if d.name == "sqlite3":
+        return mod.connect(ctx.sqlite_path)
+    if d.flavor == "postgresql":
+        return mod.connect(user="postgres", dbname="sqlerr", host="127.0.0.1", port=ctx.pg_port)
+    return mod.connect(database="sqlerr", host="127.0.0.1", port=ctx.mysql_port, user="root")
+
+
+def _raw_sync(d: Driver, ctx: Ctx, mod: Any, sql: str, params: tuple[str, ...]) -> None:
+    conn = _raw_connect(d, ctx, mod)
+    try:
+        conn.cursor().execute(sql, params)
+    finally:
+        conn.close()
+
+
+_RAW_ASYNC = {"aiosqlite": _raw_aiosqlite, "asyncpg": _raw_asyncpg, "aiomysql": _raw_aiomysql}
+
+
 def raw_run(d: Driver, ctx: Ctx, sql: str, params: tuple[str, ...]) -> BaseException:
     """The same failure without SQLAlchemy: the exception a bare DBAPI raises."""
-    host = {"host": "127.0.0.1"}
-    pg = {**host, "port": ctx.pg_port}
-    my = {**host, "port": ctx.mysql_port, "user": "root"}
     mod = importlib.import_module(d.module)
-
-    async def a_sqlite() -> None:
-        async with mod.connect(ctx.sqlite_path) as db:
-            await db.execute(sql, params)
-
-    async def a_pg() -> None:
-        conn = await mod.connect(user="postgres", database="sqlerr", **pg)
-        try:
-            await conn.execute(sql, *params)
-        finally:
-            await conn.close()
-
-    async def a_my() -> None:
-        conn = await mod.connect(db="sqlerr", **my)
-        try:
-            cur = await conn.cursor()
-            await cur.execute(sql, params)
-        finally:
-            conn.close()
-
-    def sync() -> None:
-        if d.name == "sqlite3":
-            conn = mod.connect(ctx.sqlite_path)
-        elif d.name in ("psycopg2", "psycopg"):
-            conn = mod.connect(user="postgres", dbname="sqlerr", **pg)
-        elif d.name == "pymysql":
-            conn = mod.connect(database="sqlerr", **my)
-        else:
-            conn = mod.connect(database="sqlerr", **my)
-        try:
-            cur = conn.cursor()
-            cur.execute(sql, params)
-        finally:
-            conn.close()
-
     try:
-        if d.name == "aiosqlite":
-            asyncio.run(a_sqlite())
-        elif d.name == "asyncpg":
-            asyncio.run(a_pg())
-        elif d.name == "aiomysql":
-            asyncio.run(a_my())
+        if d.name in _RAW_ASYNC:
+            asyncio.run(_RAW_ASYNC[d.name](ctx, mod, sql, params))
         else:
-            sync()
+            _raw_sync(d, ctx, mod, sql, params)
     except Exception as exc:  # noqa: BLE001 - the error text is the product
         return exc
     raise SystemExit(f"{d.name} raw: the statement did not fail")

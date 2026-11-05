@@ -14,11 +14,11 @@ from collections.abc import Callable
 import pytest
 
 from sharpit.engine import masking
-from sharpit.engine.capture import sqlscan
 from sharpit.engine.capture.sqlscan import normalize, shown
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import render
 
 MASKER = Masker(Exposure.MASKED, True)
 SIZES = (4_000, 8_000, 16_000, 32_000)
@@ -118,7 +118,7 @@ def _shown_at(size: int) -> Entry:
 
 def _flags_at(size: int) -> Entry:
     spans = _overlapping(size)
-    return lambda text: sqlscan._hidden_flags(spans, len(text))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    return lambda text: render._hidden_flags(spans, len(text))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
 
 SCAN_ENTRY_POINTS: dict[str, Callable[[int], Entry]] = {"normalize": lambda _size: normalize, "shown": _shown_at}

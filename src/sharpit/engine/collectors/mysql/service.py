@@ -215,7 +215,7 @@ async def _read_engine(
     except Exception as exc:  # noqa: BLE001
         return _error_datasource(
             name,
-            mask_error(ctx.masker, str(exc).strip(), mysql=True) or type(exc).__name__,
+            mask_error(ctx.masker, str(exc).strip(), mysql=True, known=True) or type(exc).__name__,
             diagnostics,
         )
 

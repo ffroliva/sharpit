@@ -303,6 +303,9 @@ jobs:
     # The live profile (tests/live, --live): real MySQL, MariaDB and PostgreSQL servers started by Testcontainers. Linux
     # only: GitHub's Windows runners cannot run Linux containers. A skip is a failure: the check reads the report.
     runs-on: ubuntu-latest
+    # A container per row once ran this job 2 h 38 min with no verdict (field log F16). The gate takes about 9 minutes
+    # on one container per server; 30 makes a regression of that kind fail in half an hour, not hold the runner.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5

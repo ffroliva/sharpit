@@ -165,7 +165,7 @@ def append_sentence(reason: str | None, sentence: str) -> str:
 
 def _describe(ctx: ReadContext, label: str, exc: Exception) -> str:
     message = str(exc).strip() or type(exc).__name__
-    return f"{label} could not be read: {mask_error(ctx.masker, message) or type(exc).__name__}"
+    return f"{label} could not be read: {mask_error(ctx.masker, message, known=True) or type(exc).__name__}"
 
 
 def _sqlstate(exc: Exception) -> str | None:

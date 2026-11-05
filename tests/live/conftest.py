@@ -11,7 +11,8 @@ BootUI's ``mysql-live`` profile with ``-Dbootui.mysql.image``. Per server key, i
 
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,10 +108,9 @@ def _docker_answers() -> bool:
     return True
 
 
-@pytest.fixture(scope="session")
-def server(request: pytest.FixtureRequest) -> Iterator[LiveServer]:
-    """The live server for ``request.param`` (a key of ``SERVERS``), via ``parametrize(..., indirect=True)``."""
-    key: str = request.param
+@contextmanager
+def _boot(key: str) -> Iterator[LiveServer]:
+    """Start the server for ``key`` (or find it by URL) and stop it on exit. The one place a container is started."""
     if key == "sqlite":  # in process: no server to start, so it is not in ``SERVERS``
         yield LiveServer("sqlite://", key, "in-process", key)
         return
@@ -134,3 +134,27 @@ def server(request: pytest.FixtureRequest) -> Iterator[LiveServer]:
         url = f"{driver}://{user}:{PASSWORD}@{host}:{mapped}/{DATABASE}"
         _wait_until_it_answers(url)
         yield LiveServer(url, family, image, key)
+
+
+@pytest.fixture(scope="session")
+def live_servers() -> Iterator[Callable[[str], LiveServer]]:
+    """``live_servers(key)``: the one server of a session for ``key``, started on first ask and stopped at the end.
+
+    A test that mixes direct and indirect ``parametrize`` arguments cannot use ``server``: pytest gives such a parameter
+    function scope and starts a container per row (field log F16). It takes ``key`` directly and asks here instead.
+    """
+    with ExitStack() as stack:
+        started: dict[str, LiveServer] = {}
+
+        def get(key: str) -> LiveServer:
+            if key not in started:
+                started[key] = stack.enter_context(_boot(key))
+            return started[key]
+
+        yield get
+
+
+@pytest.fixture(scope="session")
+def server(request: pytest.FixtureRequest, live_servers: Callable[[str], LiveServer]) -> LiveServer:
+    """The live server for ``request.param`` (a key of ``SERVERS``), via ``parametrize(..., indirect=True)``."""
+    return live_servers(request.param)

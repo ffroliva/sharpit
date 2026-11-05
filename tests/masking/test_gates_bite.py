@@ -11,11 +11,14 @@ without a failure, and an earlier generator scored 0 on builds leaking 17,000 of
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import types
+from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
@@ -23,8 +26,9 @@ import pytest
 from tests.masking import mutant_worker, sql_corpus
 from tests.masking import test_statement_surfaces as gates
 
-from sharpit.engine.capture import sqltrace
-from sharpit.engine.masking import Masker
+from sharpit.engine.capture import sqlscan, sqltrace
+from sharpit.engine.capture.statement import statement_text
+from sharpit.engine.masking import Exposure, Masker
 
 ROOT = Path(__file__).resolve().parents[2]
 ROWS = 300  # a few hundred rows keep each mutant to seconds; the reds at 60,000 rows are Task 11's
@@ -97,9 +101,12 @@ class Mutant(NamedTuple):
     replacement: str
     surface: str  # the surface the mutant is driven through
     gate: str  # the gate it must raise: ``visible`` (a literal shown) or ``shape`` (the statement lost its shape)
-    module: str = ""  # a path under the package, when the mutant is not in the scanner
+    module: str = ""  # a path under the package, when the mutant is not in the lexer
 
 
+LEXER_MODULE = "sharpit.engine.sqltext.lexer"  # where a mutant lands unless it names a module
+RENDER = "engine/sqltext/render.py"
+FACADE = "engine/capture/sqlscan.py"
 KEEP = "return _keep(source, index, out)"
 DOT_DIGIT = ' or out.chars[-1] == "."'
 DIGIT = f"elif c.isdigit() and (not _identifier_char_before(out){DOT_DIGIT}):"
@@ -184,7 +191,7 @@ MUTANTS: dict[str, Mutant] = {
     "at_token": Mutant("if not mysql or found is None:", "if True:", "recorder_sql-mysql", "shape"),
     "at_number": Mutant("if _AT_NUMBER.search(found[0]):", "if False:", "db_statement-mysql", "shape"),
     "release_name": Mutant('if flags[literal] and literal > start and source[literal - 1] == "=":', "if False:",
-                           "db_statement-mysql", "shape"),
+                           "db_statement-mysql", "shape", RENDER),
     "verb_lookahead": Mutant(r"(?=[^\w$-]|$)", r"(?=[\s(;]|$)", "db_statement-generic", "shape",
                              "engine/capture/statement.py"),
     "keyword_in_name": Mutant(
@@ -194,13 +201,16 @@ MUTANTS: dict[str, Mutant] = {
         "shape",
     ),
     "ascii_space": Mutant("elif c in _SPACE:", "elif c.isspace():", SURFACE, "visible"),
-    "ascii_space_collapse": Mutant("if c in _SPACE and collapse:", "if c.isspace() and collapse:", SURFACE, "shape"),
-    "in_collapse": Mutant("if _PLACEHOLDER_RUN.search(normalized) is None:", "if True:", SURFACE, "shape"),
+    "ascii_space_collapse": Mutant("if c in _SPACE and collapse:", "if c.isspace() and collapse:", SURFACE, "shape",
+                                   RENDER),
+    "in_collapse": Mutant("if _PLACEHOLDER_RUN.search(normalized) is None:", "if True:", SURFACE, "shape", RENDER),
     # also dies on every surface's ``shape``: a masker hides the token as a mask where the scan left ``?``, so only the
     # scan alone shows it as ``visible``. Its one visible job in production is METADATA_ONLY, where no masker reads
-    "double_quote_secret": Mutant(
-        "or is_secret_value(sql[index + 1 : stop])", "or False", "scan_alone-generic", "visible"
-    ),
+    "double_quote_secret": Mutant("return is_secret_value(body)", "return False", "scan_alone-generic", "visible",
+                                  FACADE),
+    # the lexer's hand-over: a ``"`` run it cannot place is a name to the renderer to judge, not code to copy at once
+    "double_quoted_kind": Mutant("        return True\n    return None\n", "        return True\n    return False\n",
+                                 "scan_alone-generic", "visible"),
 }  # fmt: skip
 
 
@@ -212,15 +222,20 @@ def _scratch_copy(tmp: Path) -> Path:
     return copy
 
 
-def _mutate(copy: Path, mutant: Mutant) -> None:
-    """``normalize``'s own module is the one that moves (``sqlscan.py`` from Task 2): find it, never name it."""
+def _mutate(copy: Path, mutant: Mutant) -> Path:
+    """Apply ``mutant`` to ``copy``: the lexer unless it names a module, which is found by name, never by path.
+
+    ``sqlscan.py`` forwards since Task 11, so ``sqltrace.normalize.__module__`` is no longer the lexer's address.
+    Returns the file written, so a test can tell it is a module the entry points run.
+    """
     package = Path(sqltrace.__file__).resolve().parents[2]
-    scanner = Path(sys.modules[sqltrace.normalize.__module__].__file__ or "").resolve().relative_to(package)
-    relative = Path(mutant.module) if mutant.module else scanner
+    lexer = Path(importlib.import_module(LEXER_MODULE).__file__ or "").resolve().relative_to(package)
+    relative = Path(mutant.module) if mutant.module else lexer
     target = copy / relative
     source = target.read_text(encoding="utf-8")
     assert source.count(mutant.anchor) == 1, f"anchor not found exactly once in {relative}: {mutant.anchor!r}"
     target.write_text(source.replace(mutant.anchor, mutant.replacement), encoding="utf-8")
+    return target
 
 
 def _run_worker(src: Path, surface: str) -> dict[str, int]:
@@ -252,9 +267,22 @@ NEVER_CLOSES = Mutant(
     "recorder_sql-mysql",
     "shape",
 )  # the gates at seeds 7, 8 and 9 let it live: the family cut hides everything past an opener
-NAMED_MUTANTS = {"mysql_closer_never": NEVER_CLOSES, "mysql_closer": MUTANTS["mysql_closer"]}
+CANDIDATE_PREDICATE = Mutant(
+    "Candidate(len(out.chars), out.predicate_position())",
+    "Candidate(len(out.chars), False)",
+    "scan_alone-generic",
+    "shape",
+)  # the predicate count is no gate's row: only the lexer's own test sees it
+NAMED_MUTANTS = {
+    "mysql_closer_never": NEVER_CLOSES,
+    "mysql_closer": MUTANTS["mysql_closer"],
+    "candidate_predicate": CANDIDATE_PREDICATE,
+}
 CLOSED_QUOTE = "tests/engine/capture/test_sqlscan.py::test_a_closed_dollar_quote_on_mysql_keeps_what_the_cut_would_hide"
-NAMED_TESTS = {"mysql_closer_never": CLOSED_QUOTE, "mysql_closer": CLOSED_QUOTE}
+PREDICATE = (
+    "tests/engine/sqltext/test_lexer.py::test_a_candidate_remembers_whether_a_literal_there_would_sit_in_a_predicate"
+)
+NAMED_TESTS = {"mysql_closer_never": CLOSED_QUOTE, "mysql_closer": CLOSED_QUOTE, "candidate_predicate": PREDICATE}
 
 
 @pytest.mark.parametrize("name", NAMED_TESTS)
@@ -297,3 +325,42 @@ def test_every_lexer_branch_is_killed(name: str, tmp_path: Path) -> None:
     print(f"mutant {name}: {mutant.gate} gate, {base} failing rows unmutated, {mutated} mutated")
     if mutated <= base:
         raise SurvivedMutant(f"{name} survives: {mutant.gate} gate {base} rows unmutated, {mutated} mutated")
+
+
+def _files_run_by(*calls: Callable[[], object]) -> set[Path]:
+    """The source files whose code runs during ``calls``: what the entry points really execute."""
+    package = Path(sqltrace.__file__).resolve().parents[2]
+    seen: set[str] = set()
+
+    def profile(frame: types.FrameType, event: str, _arg: object) -> None:
+        if event == "call":
+            seen.add(frame.f_code.co_filename)
+
+    sys.setprofile(profile)
+    try:
+        for call in calls:
+            call()
+    finally:
+        sys.setprofile(None)
+    return {Path(name).resolve().relative_to(package) for name in seen if Path(name).resolve().is_relative_to(package)}
+
+
+ALL_MUTANTS = {**MUTANTS, **NAMED_MUTANTS, "raw_fingerprint": RAW_FINGERPRINT}
+
+
+@pytest.mark.parametrize("name", ALL_MUTANTS)
+def test_every_mutant_targets_the_module_in_use(name: str, tmp_path: Path) -> None:
+    """A mutant applied to a file the entry points never run proves nothing: ``sqlscan.py`` forwards since Task 11."""
+    masker = Masker(Exposure.MASKED, True)
+    text = "select \"a\", 'b' from t where c in (?, ?) -- d"  # a closed name, a literal, an IN list and a comment
+    package = Path(sqltrace.__file__).resolve().parents[2]
+    ran = _files_run_by(
+        lambda: sqltrace.normalize.__wrapped__(text, False),  # type: ignore[attr-defined]  # pyright: ignore[reportFunctionMemberAccess]
+        lambda: sqlscan.shown(text, [(7, 10)]),
+        lambda: statement_text(masker, text),
+    )  # fmt: skip
+
+    written = _mutate(_scratch_copy(tmp_path), ALL_MUTANTS[name])
+
+    assert written.relative_to(tmp_path / "src" / "sharpit") in ran, f"{name} writes {written}: no entry point runs it"
+    assert (package / written.relative_to(tmp_path / "src" / "sharpit")).is_file()

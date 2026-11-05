@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import functools
 import itertools
-import re
 import sys
 import threading
 import time
@@ -20,13 +19,14 @@ from dataclasses import dataclass, field
 from types import FrameType
 from typing import Any, NamedTuple, cast
 
+from sharpit.engine.capture.errortext import mask_error, render_error
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.sqlscan import MYSQL_DIALECTS, Normalized, is_mysql, normalize, normalize_sql
 from sharpit.engine.capture.statement import masked_shape
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker
 
-__all__ = ["MYSQL_DIALECTS", "Normalized", "is_mysql", "normalize", "normalize_sql"]
+__all__ = ["MYSQL_DIALECTS", "Normalized", "is_mysql", "mask_error", "normalize", "normalize_sql"]
 
 REPORT_KEYS = (
     "available", "unavailableReason", "capturing", "captureParameters", "bufferSize", "totalCaptured",
@@ -271,14 +271,11 @@ class SqlTraceRecorder:
         error_message: str | None = None
         if error is not None:
             text = str(error)
-            if not masker.capture_parameters:
-                if sql:  # before the masker, whose edit would make this miss: SQLAlchemy repeats it in [SQL: ...]
-                    text = text.replace(sql.strip(), shape.sql)
-                # interim: for another statement than ``sql`` the scan below still reads masked text; ``error_text``
-                # replaces all of this at Task 22
-                text = masker.mask_text(_driver_values_dropped(text)) or ""  # the scan hides what the masker reads
-                text = _sql_block_normalized(text, mysql)
-            masked = masker.mask_text(text)
+            masked = (
+                masker.mask_text(text)
+                if masker.capture_parameters
+                else render_error(masker, text, mysql, keep_frames=False) or masker.mask_text("")
+            )
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
         millis = duration_ns // 1_000_000
@@ -427,72 +424,6 @@ class SqlTraceRecorder:
                 "slowThresholdMillis": self.slow_query_threshold_millis,
             },
         }
-
-
-_SQL_BLOCK = "[SQL: "
-_SQL_ERROR_SHAPE = re.compile(
-    r"^(?:sqlalchemy\.(?:exc|engine)\.|(?:psycopg2?|sqlite3|pymysql|MySQLdb|mysql(?:\.connector)?|asyncpg)\.)"
-    r"[\w.]+:"
-)
-# no anchor: SQLAlchemy opens with ``(pymysql.err.X)``, a stack trace names the driver further down
-_MYSQL_DRIVER = re.compile(r"\b(?:pymysql|MySQLdb|asyncmy|mariadb|mysql\.connector)\.")
-_QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
-
-
-def _driver_values_dropped(text: str) -> str:
-    """The driver's message without the row values it echoes: PostgreSQL's ``DETAIL:`` lines and quoted values.
-
-    Only the message's first line is kept, with quoted runs as ``?``. SQLAlchemy's ``[SQL: ...]`` and
-    ``[parameters: ...]`` lines that follow are kept for the caller to normalise and mask.
-    """
-    head, sep, tail = text.partition("\n[SQL: ")
-    return _QUOTED.sub("?", head.split("\n", 1)[0]) + sep + tail
-
-
-def _traceback_prefix(text: str) -> tuple[str, str]:
-    lines = text.splitlines()
-    if not lines or not lines[0].startswith("Traceback (most recent call last):"):
-        return "", "\n".join(lines)
-    frame_count = 1
-    for line in lines[1:]:
-        if line.startswith("  File ") or (line.startswith("    ") and line.strip()):
-            frame_count += 1
-        else:
-            break
-    return "\n".join(lines[:frame_count]), "\n".join(lines[frame_count:])
-
-
-def _sql_block_normalized(text: str, mysql: bool) -> str:
-    """Everything after the first ``[SQL: `` goes through the scan: where a statement ends is a guess, and a wrong guess
-    shows a literal. What follows the block is normalised too."""
-    start = text.find(_SQL_BLOCK)
-    if start < 0:
-        return text
-    body = start + len(_SQL_BLOCK)
-    return text[:body] + normalize(text[body:], mysql).sql
-
-
-def _redact_sql_errors(text: str, mysql: bool) -> str:
-    frames, remainder = _traceback_prefix(text)
-    cleaned = _driver_values_dropped(remainder or text)
-    return _sql_block_normalized(f"{frames}\n{cleaned}" if frames else cleaned, mysql)
-
-
-def mask_error(masker: Masker, text: str | None, mysql: bool = False) -> str | None:
-    """An error text for display: every path from an exception to output comes here.
-
-    ``Masker.mask_text`` masks secrets by shape, so a literal in the ``[SQL: ...]`` block SQLAlchemy appends passes it.
-    With parameter capture off that block is masked, normalised and masked again: the scan turns a key or a token into
-    ``?``, which hides it from the masker, so the masker reads the raw text first. ``mysql`` is for text known to be
-    MySQL's, and a MySQL driver named in the text counts as known. Text with no block pays one substring check and one
-    anchored match.
-    """
-    if text is None:
-        return None
-    if not masker.capture_parameters and (_SQL_BLOCK in text or _SQL_ERROR_SHAPE.match(text)):
-        known_mysql = mysql or _MYSQL_DRIVER.search(text) is not None
-        text = _redact_sql_errors(masker.mask_text(text) or "", known_mysql)
-    return masker.mask_text(text)
 
 
 def cast_sets(parameters: object, executemany: bool) -> Sequence[object]:
