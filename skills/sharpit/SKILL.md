@@ -4,7 +4,7 @@ version: "0.1"
 description: >
   Use when adding sharpit to a FastAPI app, configuring it with SHARPIT_* environment variables, working out why
   /sharpit answers 404, reading the sharpit JSON API, or connecting an AI agent to sharpit's read-only MCP endpoint.
-  sharpit is a pre-release MVP: an embedded, local-only developer console for Python apps, ported from BootUI.
+  sharpit is a local developer console and pytest gate for FastAPI apps, a Python port of BootUI by Julien Dubois.
 ---
 
 # sharpit: the local developer console for FastAPI apps

@@ -1,4 +1,4 @@
-"""sharpit: embedded, local-only developer console for Python apps."""
+"""sharpit is a local developer console and pytest gate for FastAPI apps, a Python port of BootUI by Julien Dubois."""
 
 __version__ = "0.5.0"
 

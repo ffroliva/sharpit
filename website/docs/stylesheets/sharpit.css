@@ -27,6 +27,12 @@
   opacity: 1;
 }
 
+@media screen and (min-width: 60em) {
+  .md-search__form {
+    background-color: var(--bg);
+  }
+}
+
 .md-header,
 .md-tabs {
   border-bottom: 1px solid var(--line);

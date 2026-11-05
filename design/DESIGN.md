@@ -200,8 +200,8 @@ uses `document.documentElement.clientWidth`.
 
 Cards are banned. A slide may show one `.cmd`, and the kit permits only the `.hit` finding and `.code` output blocks. Use
 real commands, findings and screenshots with fake secrets. Claims trace to a Facts block in the campaign file; images have
-alt text. Credit BootUI by Julien Dubois on launch material. Campaigns copy both CSS files and the template into a dated
-snapshot and record the source commit; later token changes do not rewrite published decks.
+alt text. Credit BootUI by Julien Dubois on launch material. Campaigns copy the `design/` folder, keeping its layout,
+into a dated snapshot and record the source commit; later token changes do not rewrite published decks.
 
 ## Brand
 

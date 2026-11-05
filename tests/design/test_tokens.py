@@ -2,6 +2,7 @@
 
 import math
 import re
+import shutil
 import tomllib
 from pathlib import Path
 
@@ -229,6 +230,14 @@ def test_dark_search_placeholder_uses_muted_with_aa_contrast_on_header() -> None
     assert contrast(values["muted"], values["rail"]) >= 4.5
 
 
+def test_desktop_search_form_uses_the_theme_background() -> None:
+    text = (ROOT / "website/docs/stylesheets/sharpit.css").read_text(encoding="utf-8")
+    assert re.search(
+        r"@media[^{}]*min-width:\s*60em[^{}]*\{\s*\.md-search__form\s*\{\s*background-color:\s*var\(--bg\);",
+        text,
+    )
+
+
 def test_slide_kit_has_no_colour_or_font_size_literals() -> None:
     kit = ROOT / "design/social/slide.css"
     assert kit.is_file()
@@ -244,6 +253,18 @@ def test_slide_template_links_tokens_before_kit_and_pins_dark_theme() -> None:
     assert text.index("../tokens.css") < text.index("slide.css")
     assert '<html lang="en" data-theme="dark">' in text
     assert "document.documentElement.clientWidth" in text
+
+
+def test_documented_design_folder_layout_resolves_template_stylesheets(tmp_path: Path) -> None:
+    design = tmp_path / "design"
+    shutil.copytree(ROOT / "design", design)
+    template = design / "social/template.html"
+    text = template.read_text(encoding="utf-8")
+    links = re.findall(r'<link rel="stylesheet" href="([^"]+)"', text)
+    guidance = (ROOT / "design/DESIGN.md").read_text(encoding="utf-8")
+    assert "copy the `design/` folder, keeping its layout" in guidance
+    assert links
+    assert all((template.parent / link).resolve().is_file() for link in links)
 
 
 def test_slide_type_floor_is_34px() -> None:
