@@ -112,7 +112,7 @@ These apply on every surface unless a surface says otherwise.
 | mono | 12.5px | Values in `--mono` |
 | graph | 11px | Graph labels |
 
-- Weights are 400 and 600 only. Labels are sentence case and never uppercase. Numbers use `font-variant-numeric: tabular-nums`.
+- Weights are 400 and 600 only. Labels are sentence case and never uppercase. A label matching BootUI's contract text stays verbatim for compatibility. Numbers use `font-variant-numeric: tabular-nums`.
 
 ## Density and space
 

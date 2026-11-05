@@ -320,7 +320,6 @@ Skipped per coordination; the coordinating Claude Code session will rebuild the 
 | `index.md:17` | "from git" becomes "from PyPI" |
 | `action.yml:2` | "SQL and exception gates" |
 | `Exceptions.svelte:80` | Delete "That is good news." |
-| `DatabaseAdvisor.svelte:37` | "Run database checks" |
 | README:15 and :197 | "Licence" in prose |
 
 - [x] **Step 3: Update the pointers**

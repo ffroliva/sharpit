@@ -53,7 +53,7 @@ def _oklch_to_linear_srgb(value: str) -> tuple[float, float, float]:
 def _luminance(value: str) -> float:
     r, g, b = _oklch_to_linear_srgb(value)
 
-    # WCAG 2 relative luminance is defined on gamma-encoded sRGB, so encode then decode with the WCAG curve
+    # WCAG relative luminance is the weighted sum of linear sRGB channels.
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
@@ -208,6 +208,7 @@ def test_docs_theme_maps_material_colour_variants() -> None:
         "--md-primary-bg-color--light",
         "--md-accent-fg-color--light",
         "--md-accent-fg-color--dark",
+        "--md-accent-fg-color--transparent",
         "--md-accent-bg-color",
         "--md-accent-bg-color--light",
         "--md-accent-bg-color--dark",
@@ -218,6 +219,14 @@ def test_docs_theme_maps_material_colour_variants() -> None:
 def test_docs_accent_background_uses_the_selection_surface() -> None:
     text = (ROOT / "website/docs/stylesheets/sharpit.css").read_text(encoding="utf-8")
     assert re.search(r"--md-accent-bg-color\s*:\s*var\(--sel\);", text)
+
+
+def test_dark_search_placeholder_uses_muted_with_aa_contrast_on_header() -> None:
+    text = (ROOT / "website/docs/stylesheets/sharpit.css").read_text(encoding="utf-8")
+    assert re.search(r"\.md-search__input::placeholder\s*\{\s*color:\s*var\(--muted\);", text)
+    assert re.search(r"--md-primary-fg-color\s*:\s*var\(--rail\);", text)
+    values = tokens("dark")
+    assert contrast(values["muted"], values["rail"]) >= 4.5
 
 
 def test_slide_kit_has_no_colour_or_font_size_literals() -> None:
