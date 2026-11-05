@@ -67,6 +67,9 @@ GENERATORS: dict[str, Callable[[int], str]] = {
     "alternative-quotes": _repeat("q'a' "),
     "hash-quotes": _repeat("# 'a' "),
     "hash-numbers": _repeat("# 1 "),  # a span for each number, and no quote to find after any ``#``
+    "backtick-brackets": _repeat("[`] "),
+    "subscripts": _repeat("a['] "),
+    "at-dollars": _repeat("@$$ $$ "),
     "lone-crs": _repeat("-- a\r'\n"),
     "open-double-quote": lambda size: "SELECT " + "a, " * (size // 3) + '"' + "y" * 30_000,
 }

@@ -29,6 +29,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The docs site uses the console's neutral palette and ochre accent; `design/` holds the tokens and rules every surface shares.
+
 - `sql-trace` entry `timestamp` is epoch milliseconds, as the contract says; it was an ISO-8601 string. This also applies to the `sql` rows of a request profile.
 - Advisor rule results use BootUI's status values: `VIOLATION`, `PASS`, `SKIPPED`, `ERROR` (were `FAILED` and `PASSED` in the `rest-api` panel). A rule whose every finding is dismissed reports `PASS`. `sharpit-report/1` (`PASSED/FAILED/UNKNOWN/SKIPPED`) is unchanged.
 - `pytest --sharpit` is about 1.24x the plain run on a query-heavy suite (was about 1.48x): the test-session sink memoises the masked SQL fingerprint of each repeated statement per sink, which halved the suite overhead (2.05 s to 1.02 s on a 12,343-statement suite) and cut the per-statement hook cost from about 50 µs to about 11 µs. Masked output is unchanged, and the memo is never shared across sinks or masker settings.
@@ -39,6 +41,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `config`: explicit `config_scan` module names are also found on `sys.path` without importing them; undecodable bytes in a source file are replaced instead of being recorded as a limitation.
 
 ### Fixed
+
+- Phone layout of the rail and fluid tables, heading styles, and Retry on load errors.
 
 - Route introspection (mappings, rest-api, fastapi-security, beans) no longer drops routes of an `APIRoute` subclass set through `route_class`, no longer raises on an app object without `__dict__`, and classifies an `APIRoute` inside a plain Starlette sub-app as `unknown` instead of inspectable.
 - `sharpit.swallowed-exception`: a handler that passes the exception to a helper that logs it is no longer a finding; an `error(...)` call on a non-logger object no longer counts as logging.
@@ -56,6 +60,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Masking and the trace error scan no longer take quadratic time on a crafted value (runs of quotes after `token`, closing punctuation at a word's end, repeated `eyJ`, `BEGIN` or `[SQL: `, unclosed `[` or `(` after a key), so a logged client value cannot freeze the host.
 - With parameter capture off, an error with an `[SQL: ` marker is masked, normalised from the marker on and masked again on every surface that shows it: `exceptions`, `log-tail`, `transactions`, `http-probe`, `health`, `alembic`, `postgresql`, `mysql`, `data`, traces, SQL Trace (also for an error raised for another statement) and the test-session report, so `[SQL: SELECT a[1], 'x']` no longer shows `'x'`. The first mask reads the raw text, because the scan turns a key or a token into `?`. They kept its literals before. Quoted values on the message's first line and the lines between it and the block (a `DETAIL:` line) are dropped there too; SQL Trace drops them before the first mask, as 0.4.0 did. An OpenTelemetry statement and the `mysql` panel's query text are masked, normalised and masked the same way.
 - `mask_text` runs the 0.4.0 text pipeline first and a stricter pass over its output, so whatever either masks stays masked: a quoted value spanning lines and a secret inside a token as in 0.4.0, and a sensitive value to the end of its line, so a value with a space, a nested bracket or a closer inside a string no longer shows its tail.
+- `SHARPIT_VULNERABILITIES_OSV_BASE_URI` and `SHARPIT_VULNERABILITIES_EPSS_BASE_URI` accept only `http` and `https`, because the default opener also reads `file:` and `ftp:`. Any other value takes the default and adds a warning that does not repeat the value, as a URI can carry credentials.
+- ruff's `S` (security) rules run on `src/` in CI.
 
 ### Known limitations
 

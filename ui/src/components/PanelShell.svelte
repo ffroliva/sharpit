@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { scrollable } from '../lib/scrollable';
+  import { focusRegion, scrollable } from '../lib/scrollable';
 
   let {
     title, loading = false, error = null, notice = null, count = null, onretry, controls, children,
@@ -29,7 +29,7 @@
       <div class="empty" role="alert">
         <p class="lead danger">Could not load {title}</p>
         <p>{error}</p>
-        {#if onretry}<button onclick={onretry}>Retry</button>{/if}
+        {#if onretry}<button onclick={(event) => { focusRegion(event); onretry(); }}>Retry</button>{/if}
       </div>
     {:else if loading}
       <div class="empty" role="status"><p class="muted">Loading…</p></div>
@@ -40,5 +40,6 @@
 </div>
 
 <style>
-  .count { margin-left: auto; white-space: nowrap; }
+  .panel-head h1 { margin-right: auto; }
+  .count { white-space: nowrap; }
 </style>

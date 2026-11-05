@@ -73,11 +73,11 @@
   count={report.data ? `${report.data.groups.length} groups, ${report.data.totalExceptions} total` : null}
 >
   {#snippet controls()}
-    <button class="clear" onclick={clear} disabled={panel.readOnly} title={why}>Clear all</button>
+    <button onclick={clear} disabled={panel.readOnly} title={why}>Clear all</button>
   {/snippet}
   {#if failure}<p class="notice danger" role="alert">{failure}</p>{/if}
   {#if report.data && report.data.groups.length === 0}
-    <div class="empty"><p class="lead">No exceptions captured. That is good news.</p></div>
+    <div class="empty"><p class="lead">No exceptions captured.</p></div>
   {:else if report.data}
     <ul class="groups">
       {#each report.data.groups as g (g.id)}
@@ -133,6 +133,5 @@
   .actions { display: flex; gap: var(--s2); margin-top: var(--s1); }
   .frames { margin: 0; padding-left: var(--s6); color: var(--muted); }
   .frames li.app { color: var(--ink); font-weight: 600; }
-  .detail h2 { margin: var(--s3) 0 var(--s1); padding: 0; font-size: 13px; }
-  .clear { margin-left: auto; }
+  .detail h2 { margin: var(--s3) 0 var(--s1); }
 </style>

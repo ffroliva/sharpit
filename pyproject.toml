@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sharpit"
 dynamic = ["version"]
-description = "Embedded, local-only developer console for Python apps (a port of BootUI)."
+description = "Local developer console and pytest gate for FastAPI apps, a Python port of BootUI by Julien Dubois."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -81,6 +81,8 @@ exclude = [
     "/skills",
     "/docs/superpowers",
     "/ui",
+    "/design",
+    "/tests/design",
     "/scripts",
     "/pytest-speed.toml",
     "/uv.lock",
@@ -99,7 +101,17 @@ src = ["src", "tests"]
 extend-exclude = ["scripts/pytest_speed"]  # vendored verbatim; its VERSION hash catches local edits
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "PERF", "C4", "FURB", "PT018"]  # PERF/C4/FURB: performance; PT018: one condition per assert
+select = ["E", "F", "I", "UP", "B", "S", "SIM", "PERF", "C4", "FURB", "PT018"]  # PERF/C4/FURB: performance; PT018: one condition per assert
+
+[tool.ruff.lint.per-file-ignores]
+# S (security) guards what ships. Tests assert and use fake secrets by design; scripts and examples are not shipped.
+"tests/**" = ["S"]
+"scripts/**" = ["S"]
+"examples/**" = ["S"]
+"src/sharpit/engine/masking.py" = ["S105"]  # regex fragments named *_TOKEN_*, not passwords
+"src/sharpit/engine/collectors/postgresql/queries.py" = ["S608"]  # constants; relation must match _RELATION_NAME
+"src/sharpit/engine/collectors/vulns/osv.py" = ["S310"]  # settings allow only http and https base URIs
+"src/sharpit/engine/collectors/vulns/epss.py" = ["S310"]  # as osv.py
 
 [tool.pyright]
 include = ["src/sharpit"]

@@ -41,6 +41,13 @@ it('lists the middleware stack outermost first with its CORS tag', async () => {
   expect(text()).toContain('CORS');
 });
 
+it('renders authentication facts in a headed facts block', async () => {
+  h.route(routes);
+  mount();
+  await until(() => expect(text()).toContain('Security schemes'));
+  expect(document.querySelector('section.block dl.facts')).not.toBeNull();
+});
+
 it('filters the endpoint table by rule', async () => {
   h.route(routes);
   mount();

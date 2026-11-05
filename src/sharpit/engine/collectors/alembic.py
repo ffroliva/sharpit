@@ -381,7 +381,8 @@ def _versions(table: str, schema: str | None, conn: Any) -> list[str] | None:
         return None
     prep = conn.dialect.identifier_preparer
     name = prep.quote(table) if schema is None else f"{prep.quote_schema(schema)}.{prep.quote(table)}"
-    return [str(row[0]) for row in conn.exec_driver_sql(f"SELECT version_num FROM {name}")]
+    # name comes from the dialect's identifier preparer, so it is quoted
+    return [str(row[0]) for row in conn.exec_driver_sql(f"SELECT version_num FROM {name}")]  # noqa: S608
 
 
 async def _read(

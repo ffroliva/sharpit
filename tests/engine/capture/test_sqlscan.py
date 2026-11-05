@@ -206,6 +206,18 @@ AMBIGUOUS = [
     ("SELECT /*! 'a */ secret' */", "SELECT ?"),  # MySQL runs what such a comment holds
     ('SELECT /*!50000 "a */ secret" */', "SELECT ?"),
     ("SELECT /*M! 'a */ secret' */", "SELECT ?"),
+    # derived: re-review N4, each runs on SQLite; 0.4.0 hid the value: a bracket reads as a name after a name too
+    ("SELECT a[it's], 'SECRET' FROM (SELECT 1 AS a)", "SELECT a[it ?"),
+    ("SELECT (1)[it's], 'SECRET'", "SELECT (?)[it ?"),
+    ("SELECT[it's], 'SECRET' FROM (SELECT 1 AS [it's])", "SELECT[it ?"),
+    ("SELECT ARRAY[it's], 'SECRET'", "SELECT ARRAY[it ?"),  # ``ARRAY`` is a name there
+    ("SELECT [a`b], 'SECRET' FROM (SELECT 1 AS [a`b])", "SELECT ?, ?"),
+    ("SELECT a[b`c], 'SECRET'", "SELECT a?, ?"),
+    ("SELECT [a\"b], 'SECRET'", "SELECT [a ?"),
+    # the price, each valid on PostgreSQL and each hiding more than it must: nothing tells them from the rows above
+    ("SELECT d['a]']", "SELECT d[ ?"),
+    ("SELECT ARRAY['a]', 'x']", "SELECT ARRAY[ ?"),
+    ("SELECT ARRAY ['a]', 'x']", "SELECT ARRAY [ ?"),
 ]
 
 
@@ -313,6 +325,74 @@ def test_a_statement_that_reads_two_ways_still_cuts(sql: str) -> None:
     assert "SECRET" not in normalize(sql).sql
 
 
+# derived: re-review N1, MySQL 8.4.10 returns (1, 'SECRET') for each: it skips a comment or a name inside ``/*!``, so
+# the run ends later than the scan's first ``*/``
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1 /*! -- */ don't\n, 'SECRET' */", "SELECT ? don ?"),
+        ("SELECT 1 /*! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
+        ("SELECT 1 /*M! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
+        ("SELECT /*!50000 1 AS `*/`, 'SECRET' */", "SELECT `, ?"),
+    ],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+def test_an_executable_comment_ends_later_than_the_scan_reads(sql: str, expected: str, mysql: bool) -> None:
+    assert normalize(sql, mysql).sql == expected
+
+
+# derived: re-review N2, MySQL 8.4.10 reads a name after ``@`` or ``.``, under both sql modes; ``t.$$`` is a syntax
+# error on PostgreSQL, so ``.`` holds in both modes
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT @$$ := 'a $$ SECRET '", "SELECT @$$ := ?"),
+        ("SET @$$ = 'a $$ SECRET '", "SET @$$ = ?"),
+        ("SELECT @$a$ := 'q $a$ SECRET '", "SELECT @$a$ := ?"),
+    ],
+)
+def test_a_dollar_after_at_is_a_name_on_mysql(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        (
+            "SELECT 1 FROM (SELECT 1 AS `$a$`) t WHERE t.$a$ = 'a $a$ SECRET '",
+            "SELECT ? FROM (SELECT ? AS `$a$`) t WHERE t.$a$ = ?",
+        ),
+        (
+            "SELECT t.$$ FROM (SELECT 1 AS `$$`) t WHERE t.$$ = 'a $$ SECRET '",
+            "SELECT t.$$ FROM (SELECT ? AS `$$`) t WHERE t.$$ = ?",
+        ),
+    ],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+def test_a_dollar_after_a_dot_is_a_name(sql: str, expected: str, mysql: bool) -> None:
+    assert normalize(sql, mysql).sql == expected
+
+
+def test_a_dollar_quote_after_at_reads_two_ways_with_the_dialect_unknown() -> None:
+    """``SELECT @$$5$$::int`` is ``5`` on PostgreSQL, a variable on MySQL."""
+    assert normalize("SELECT @$$ := 'a $$ SECRET '").sql == "SELECT @? ?"
+
+
+def test_a_dollar_quote_after_at_stays_a_literal_without_a_quote_to_stop_at() -> None:
+    assert normalize("SELECT @$$5$$::int").sql == "SELECT @?::int"
+
+
+# derived: re-review N3, MySQL 8.4.10 returns (6, 'SECRET'): the tight ``--`` hides the backtick that opens the name
+def test_a_tight_double_dash_holding_a_backtick_cuts() -> None:
+    sql = "SELECT 5--`a\nb`, 'SECRET' FROM (SELECT 1 AS `a\nb`) t"
+    assert normalize(sql).sql == "SELECT ? b`, ?"
+
+
+def test_mysql_reads_two_minus_signs_and_a_name_there() -> None:
+    sql = "SELECT 5--`a\nb`, 'SECRET' FROM (SELECT 1 AS `a\nb`) t"
+    assert normalize(sql, True).sql == "SELECT ?--`a\nb`, ? FROM (SELECT ? AS `a\nb`) t"
+
+
 def test_a_lone_cr_in_a_line_comment_cuts() -> None:
     """PostgreSQL ends the comment at the CR, MySQL and SQLite at the newline: ``S`` is in a literal for one of them."""
     assert "S" not in normalize("-- c\r, 'a\nS', 'b'").sql
@@ -395,17 +475,42 @@ def test_an_unknown_dialect_tight_double_dash_cuts() -> None:
 @pytest.mark.parametrize(
     ("sql", "expected"),
     [
-        ("/*!40101 SET x=1 */ SELECT 'y'", "SELECT ?"),  # no quote inside: a dump header keeps the statement
-        ("SELECT /*! 1 */ 'y', 'z'", "SELECT ?, ?"),
+        ("/*!40101 SET x=1 */ SELECT 'y', 'z'", "SELECT ?"),  # the price: a dump header takes the tail
+        ("SELECT /*! 1 */ 'y', 'z'", "SELECT ?"),
+        ("SELECT /*! 1 */ 2", "SELECT ?"),  # nothing to stop at, and no literal to lose
     ],
 )
-def test_an_executable_comment_without_a_quote_does_not_cut(sql: str, expected: str) -> None:
+def test_an_executable_comment_stops_a_statement_with_a_quote_anywhere(sql: str, expected: str) -> None:
     assert normalize(sql, True).sql == expected
 
 
-# derived: review M1: ``ARRAY [`` decides this now, the planted removal passed both named files
+# derived: review M1: ``ARRAY [`` decides this, the planted removal passed both named files
 def test_an_array_with_a_space_before_its_bracket_is_a_subscript() -> None:
-    assert normalize("SELECT ARRAY ['a]', 'x']").sql == "SELECT ARRAY [?, ?]"
+    assert normalize("SELECT ARRAY [TRUE], [TRUE]").sql == "SELECT ARRAY [?], [TRUE]"
+
+
+# derived: re-review N4: with no quote there is nothing to cut at, and a run read whole keeps the number hidden
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT [a`b], 123456", "SELECT ?, ?"),
+        ("SELECT a[b`c], 123456", "SELECT a?, ?"),
+    ],
+)
+def test_a_bracket_holding_a_backtick_is_one_literal(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT a['it''s']", "SELECT a[?]"),  # even: the quotes stay balanced, so it reads one way
+        ("SELECT doc['x']['y'], 'z'", "SELECT doc[?][?], ?"),
+        ("SELECT a[`b`], 'z'", "SELECT a[`b`], ?"),
+    ],
+)
+def test_a_subscript_with_balanced_quotes_keeps_its_reading(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
 
 
 @pytest.mark.parametrize(

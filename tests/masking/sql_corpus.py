@@ -10,9 +10,10 @@ quote, under the same conventions, followed by `` ?``. ``postgresql`` is ``postg
 ``'******'``, ``$$******$$`` and ``******``, which drops comments, collapses whitespace, keeps ``IN`` lists and reads
 every run to its end.
 
-Ambiguous classes: ``trailing_backslash``, ``nested_comment``, ``oracle_quote``, ``hash`` and ``odd_bracket`` in
-``generic``; ``trailing_backslash`` in ``postgresql``, where the scan has no PostgreSQL mode, so the statement takes the
-generic cut and loses its tail (spec A3 allows that on a row marked ambiguous); ``mysql_escaped`` in ``mysql`` (D7).
+Ambiguous classes: ``trailing_backslash``, ``nested_comment``, ``oracle_quote``, ``hash``, ``odd_bracket``,
+``executable_comment``, ``tight_dash`` and ``at_dollar`` in ``generic``; ``trailing_backslash`` in ``postgresql``, where
+the scan has no PostgreSQL mode, so the statement takes the generic cut and loses its tail (spec A3 allows that on a row
+marked ambiguous); ``mysql_escaped`` (D7) and ``executable_comment`` in ``mysql``.
 ``quiet_trigger`` rows read one way and are never marked: a statement that loses its tail there fails A3.
 
 ``expected`` is exact on ``plain`` rows. Elsewhere a hit may render ``******``, so ``tail`` carries the part of the
@@ -271,8 +272,41 @@ class _Statements:
             return self._single("hash", _Shown(text, "SELECT ?", ""), m)
         return self._single("hash", _Shown(text, "SELECT # it ?", ""), m, ambiguous=True)
 
+    def _two_way(self, m: str) -> Row:
+        """Statements of (r5), each valid on the engine named in ``test_sqlscan.py``: nothing tells a reading here."""
+        shape, text, scan = self.rng.choice(
+            (
+                ("odd_bracket", f"SELECT [it's], '{m}' FROM t", "SELECT [it ?"),
+                ("odd_bracket", f"SELECT a[it's], '{m}' FROM (SELECT 1 AS a)", "SELECT a[it ?"),
+                ("odd_bracket", f"SELECT [a`b], '{m}' FROM (SELECT 1 AS [a`b])", "SELECT ?, ?"),
+                ("executable_comment", f"SELECT 1 /*! # */ don't\n, '{m}' */", "SELECT ? don ?"),
+                ("tight_dash", f"SELECT 5--`a\nb`, '{m}' FROM (SELECT 1 AS `a\nb`) t", "SELECT ? b`, ?"),
+                ("at_dollar", f"SELECT @$$ := 'a $$ {m} '", "SELECT @? ?"),
+            )
+        )
+        return self._single(shape, _Shown(text, scan, ""), m, ambiguous=True)
+
+    def mysql_name(
+        self,
+    ) -> Row:  # a ``$`` after ``@`` or ``.`` is a name on MySQL, so the string after it is one string
+        m = _mark(self.rng)
+        text, scan = self.rng.choice(
+            (
+                (f"SET @$$ = 'a $$ {m} '", "SET @$$ = ?"),
+                (f"SELECT @$a$ := 'q $a$ {m} '", "SELECT @$a$ := ?"),
+                (
+                    f"SELECT 1 FROM (SELECT 1 AS `$a$`) t WHERE t.$a$ = 'a $a$ {m} '",
+                    "SELECT ? FROM (SELECT ? AS `$a$`) t WHERE t.$a$ = ?",
+                ),
+            )
+        )
+        return self._single("mysql_name", _Shown(text, scan, ""), m)
+
     def mysql_escaped(self) -> Row:  # D7: under NO_BACKSLASH_ESCAPES the run ends at the backslash
         m = _mark(self.rng)
+        if self.rng.random() < 0.25:  # MySQL ends the comment past the scan's ``*/``
+            text = f"SELECT 1 /*! # */ don't\n, '{m}' */"
+            return self._single("executable_comment", _Shown(text, "SELECT ? don ?", ""), m, ambiguous=True)
         column = self.rng.choice(_COLUMNS)
         quote = self.rng.choice("'\"")
         text = f"UPDATE t SET {column}={quote}a\\{quote}{m}{quote} WHERE id=1"
@@ -303,13 +337,12 @@ class _Statements:
         if self.rng.random() < 0.2:  # a name-shaped secret outside a value position: only a secret check hides it
             secret = _double_secret(self.rng).marker
             return Row(f"SELECT \"{secret}\", '{m}' FROM t", (secret, m), "names", True, "SELECT ?, ? FROM t")
-        if self.rng.random() < 0.25:  # (r5) a name or a string in brackets: nothing here can tell, so it stops
+        if self.rng.random() < 0.5:
+            return self._two_way(m)
+        if self.rng.random() < 0.25:  # a subscript past the space: the value in it is scanned
             return self._single(
-                "odd_bracket", _Shown(f"SELECT [it's], '{m}' FROM t", "SELECT [it ?", ""), m, ambiguous=True
+                "names", _Shown(f"SELECT ARRAY [TRUE], '{m}' FROM t", "SELECT ARRAY [?], ? FROM t", ""), m
             )
-        if self.rng.random() < 0.25:  # a subscript past the space: the string may hold the ``]``
-            text = f"SELECT ARRAY ['a]', '{m}'] FROM t"
-            return self._single("names", _Shown(text, "SELECT ARRAY [?, ?] FROM t", ""), m)
         text, scan = self.rng.choice(
             (
                 (f"SELECT `a b`, '{m}' FROM t", "SELECT `a b`, ? FROM t"),
@@ -348,7 +381,7 @@ class _Statements:
         common = (self.update, self.insert, self.select, self.sensitive_name, self.sensitive_table, self.comments,
                   self.names)  # fmt: skip
         if self.dialect == MYSQL:
-            return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger)
+            return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger, self.mysql_name)
         if self.pg:
             return (*common, self.trailing_backslash, self.nested_comment, self.unclosed_dollar)
         return (*common, self.trailing_backslash, self.nested_comment, self.oracle_quote, self.hash_comment,

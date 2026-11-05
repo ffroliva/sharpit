@@ -19,6 +19,7 @@ _BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d][\w ]*\]")
 _BRACKET_RUN = re.compile(r"\[[^\[\]]*\]")
 _ALTERNATIVE_QUOTE = re.compile(r"(?<![\w$])n?q'", re.IGNORECASE)
 _QUOTE = re.compile("['\"]")
+_QUOTE_OR_BACKTICK = re.compile("['\"`]")
 _EXECUTABLE_COMMENT = ("/*!", "/*M!")  # MySQL and MariaDB run what these hold
 # never hidden in code: the statement keeps its shape, and the last masker pass still sees ``password=`` in the render
 _STRUCTURAL = frozenset('"`[],;()=<>')
@@ -194,10 +195,14 @@ def _identifier_char_before(out: _Out) -> bool:
     return bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$.")
 
 
-def _name_goes_on(out: _Out) -> bool:
-    """The output ends inside a name, so a ``$`` here is part of it (``?`` is a literal: ``1$$x$$`` opens a quote)."""
+def _name_goes_on(out: _Out, mysql: bool) -> bool:
+    """The output ends inside a name, so a ``$`` here is part of it (``?`` is a literal: ``1$$x$$`` opens a quote).
+
+    ``t.$$`` is a syntax error on PostgreSQL, so ``.`` holds everywhere. ``@$$5$$`` is a value there, so ``@`` holds on
+    known MySQL text alone, and with the dialect unknown the statement stops (``_generic_trigger``).
+    """
     last = out.chars[-1] if out.chars else " "
-    return last.isalnum() or last in "_$" or not last.isascii()
+    return last.isalnum() or last in ("_$.@" if mysql else "_$.") or not last.isascii()
 
 
 def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
@@ -208,16 +213,18 @@ def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
     # ``ARRAY[``, ``items[``, ``(ARRAY[1])[``, ``a[1][``, ``ARRAY [``; a space alone proves nothing: ``SELECT [col]``
     subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$)]")
     subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")
-    found = None if subscript else _BRACKET_IDENTIFIER.match(sql, index) or _odd_quote_bracket(sql, index)
+    found = None if subscript else _BRACKET_IDENTIFIER.match(sql, index)
+    found = found or _odd_quote_bracket(sql, index)
     return found.end() if found else index + 1
 
 
 def _odd_quote_bracket(sql: str, index: int) -> re.Match[str] | None:
-    """A ``[`` holding an odd number of ``'`` before its ``]``: a name or a string, and the two read apart, so the
+    """A ``[`` holding an odd number of a quote before its ``]``: a name or a string, and the two read apart, so the
     statement stops (``_reads_two_ways``). Read inside, ``[it's]`` swallows the next quote; read whole, ``['a]', 'x']``
-    inverts every quote after it."""
+    inverts every quote after it. A subscript position proves nothing: on SQLite ``a[it's]`` is ``a`` with an alias, and
+    an even count, ``a['it''s']``, keeps the quotes balanced on every reading."""
     found = _BRACKET_RUN.match(sql, index)
-    return found if found and found.group().count("'") % 2 else None
+    return found if found and any(found.group().count(quote) % 2 for quote in "'\"`") else None
 
 
 def _mysql_dashes(sql: str, index: int) -> bool:
@@ -326,8 +333,8 @@ def _scan_string(source: str, index: int, _out: _Out, _mysql: bool) -> _Scanned:
     return _skip_quoted(source, index, "'"), True
 
 
-def _scan_dollar(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
-    end = -1 if _name_goes_on(out) else _dollar_quote_end(source, index)
+def _scan_dollar(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
+    end = -1 if _name_goes_on(out, mysql) else _dollar_quote_end(source, index)
     return (end, True) if end > 0 else _keep(source, index, out)
 
 
@@ -341,7 +348,7 @@ def _scan_quoted(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
     end = _quoted_end(source, index, out, mysql)
     if source[index] == '"' and _double_quoted_literal(source, index, end, out, mysql):
         return end, True
-    if source[index] == "[" and source.count("'", index, end):  # a bracket that holds a quote ends past ``[`` only here
+    if source[index] == "[" and _QUOTE_OR_BACKTICK.search(source, index, end):  # past ``[`` with a quote only here
         return end, True
     out.append(source[index:end])
     out.runs.append((index, end, _VERBATIM))
@@ -407,6 +414,7 @@ def _holds_a_trigger(source: str) -> bool:
     """A statement with none of these reads one way, and pays only these tests. A lone CR needs a ``--`` to matter."""
     return (
         "\\" in source or "#" in source or "/*" in source or "--" in source or "q'" in source or "Q'" in source
+        or "@$" in source
     )  # fmt: skip
 
 
@@ -414,13 +422,14 @@ def _comment_reads_two_ways(source: str, start: int, end: int, mysql: bool) -> b
     if source.startswith("/*", start):
         if source.find("/*", start + 2, end) >= 0:  # PostgreSQL nests, the scan closes at the first ``*/``
             return True
-        return source.startswith(_EXECUTABLE_COMMENT, start) and _QUOTE.search(source, start, end) is not None
+        # MySQL skips a comment or a name inside one, so it ends past the first ``*/``, and only MySQL knows where
+        return source.startswith(_EXECUTABLE_COMMENT, start)
     if mysql:  # a line comment of known MySQL text ends at its newline
         return False
     if "\r" in source[start:end].rstrip("\r"):  # a lone CR ends it on PostgreSQL, not on MySQL or SQLite
         return True
-    # a ``--`` tight against text is two minus signs on MySQL, so a quote in it opens a literal there
-    return not _mysql_dashes(source, start) and _QUOTE.search(source, start, end) is not None
+    # a ``--`` tight against text is two minus signs on MySQL, so a quote in it opens a literal or a name there
+    return not _mysql_dashes(source, start) and _QUOTE_OR_BACKTICK.search(source, start, end) is not None
 
 
 def _trigger_spans(source: str, runs: list[tuple[int, int, int]]) -> list[tuple[int, int]]:
@@ -436,12 +445,15 @@ def _trigger_spans(source: str, runs: list[tuple[int, int, int]]) -> list[tuple[
 
 
 def _generic_trigger(source: str, runs: list[tuple[int, int, int]]) -> bool:
-    """A ``q'`` (the span's end takes in the quote that opens a literal) or a ``#`` with a quote after it anywhere."""
+    """A ``q'`` (the span's end takes in the quote that opens a literal), a ``#`` with a quote after it anywhere, or a
+    dollar quote after ``@``, a value on PostgreSQL and a variable's name on MySQL."""
     last_quote = max(source.rfind("'"), source.rfind('"'))
     for start, end in _trigger_spans(source, runs):
         if _ALTERNATIVE_QUOTE.search(source, start, end + 1):
             return True
         if 0 <= source.find("#", start, end) < last_quote:
+            return True
+        if source.startswith("@$", end - 1):
             return True
     return False
 

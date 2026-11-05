@@ -60,7 +60,7 @@ NO_CAP = 10**6
 # decision D6, issue #59: the share of the generic corpus that holds a quoted identifier; a rise must be noticed
 QUOTED_IDENTIFIER_SHARE = 0.013
 # spec A3: how often the fallback that loses statement text fires, per mode; a rise must be noticed
-FALLBACK_SHARE = {"generic": 0.35, "mysql": 0.15, "pg_valid": 0.11}
+FALLBACK_SHARE = {"generic": 0.35, "mysql": 0.11, "pg_valid": 0.11}
 NODE = "tests/test_x.py::test_x"
 BOUND = "bound-value-7"
 DETAIL = "detail-value-7"
@@ -491,9 +491,10 @@ def test_every_row_holds_its_markers_and_expected_shows_none(dialect: str, seed:
     [
         (sql_corpus.GENERIC, {"shapes", "sensitive_name", "sensitive_table", "comments", "names", "trailing_backslash",
                               "nested_comment", "oracle_quote", "hash", "unclosed_dollar", "long_literal",
-                              "long_identifier", "odd_bracket", "quiet_trigger"}),
+                              "long_identifier", "odd_bracket", "quiet_trigger", "executable_comment", "tight_dash",
+                              "at_dollar"}),
         (sql_corpus.MYSQL, {"shapes", "sensitive_name", "sensitive_table", "comments", "names", "hash", "long_literal",
-                            "long_identifier", "mysql_escaped", "quiet_trigger"}),
+                            "long_identifier", "mysql_escaped", "quiet_trigger", "mysql_name", "executable_comment"}),
         (sql_corpus.POSTGRESQL, {"shapes", "sensitive_name", "sensitive_table", "comments", "names",
                                  "trailing_backslash", "nested_comment", "unclosed_dollar", "long_literal"}),
     ],
@@ -521,8 +522,20 @@ def test_a_cut_identifier_opens_before_the_limit_and_closes_after_it() -> None:
 @pytest.mark.parametrize(
     ("mode", "shapes"),
     [
-        ("generic", {"trailing_backslash", "nested_comment", "oracle_quote", "hash", "odd_bracket"}),
-        ("mysql", {"mysql_escaped"}),
+        (
+            "generic",
+            {
+                "trailing_backslash",
+                "nested_comment",
+                "oracle_quote",
+                "hash",
+                "odd_bracket",
+                "executable_comment",
+                "tight_dash",
+                "at_dollar",
+            },
+        ),
+        ("mysql", {"mysql_escaped", "executable_comment"}),
         ("pg_valid", {"trailing_backslash"}),
     ],
 )
@@ -567,7 +580,9 @@ def test_no_literal_is_visible(name: str) -> None:
 
 
 def test_the_corpus_holds_its_share_of_quoted_identifiers() -> None:
-    rows = gate_rows("generic")
+    """Reads the corpus, not a build. The population share is 0.010, so at 2,000 rows a seed pair can land over the cap
+    on noise alone; at 20,000 it would take six standard deviations."""
+    rows = [row for seed in SEEDS for row in sql_corpus.rows(seed, max(ROWS, 20_000))]
     in_corpus = sum(bool(row.quoted_identifier) for row in rows)
     assert in_corpus > 0
     assert in_corpus <= QUOTED_IDENTIFIER_SHARE * len(rows)

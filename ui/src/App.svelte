@@ -99,6 +99,16 @@
     applyTheme(theme);
   }
 
+  $effect(() => {
+    if (!panels?.some((panel) => panel.id === $route.panel)) return;
+    tick().then(() => {
+      const currentLink = document.querySelector<HTMLElement>('nav.rail a[aria-current="page"]');
+      if (currentLink) {
+        currentLink.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    });
+  });
+
   function onkeydown(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
@@ -166,12 +176,12 @@
     {:else if panels}
       {#if !current}
         <div class="empty">
-          <p class="lead">No panel called <code>{$route.panel}</code></p>
+          <h1>No panel called <code>{$route.panel}</code></h1>
           <p><a href={href('overview')}>Open the overview</a> or press {isMac ? '⌘' : 'Ctrl'} K to search.</p>
         </div>
       {:else if !usable(current)}
         <div class="empty">
-          <p class="lead">{current.title} is unavailable</p>
+          <h1>{current.title} is unavailable</h1>
           <p>{reason(current)}</p>
         </div>
       {:else}
@@ -207,7 +217,7 @@
           {:else if current.id === 'fastapi-security' && panelImplemented('fastapi-security')}<FastapiSecurity panel={current} />
           {:else if current.id === 'fastapi' && panelImplemented('fastapi')}<Fastapi panel={current} />
           {:else}
-            <div class="empty"><p class="lead">{current.title}</p><p>This version of the console has no view for this panel yet.</p></div>
+            <div class="empty"><h1>{current.title}</h1><p>This version of the console has no view for this panel yet.</p></div>
           {/if}
         {/key}
       {/if}
@@ -221,7 +231,7 @@
   .shell { display: grid; grid-template-columns: var(--rail-w) 1fr; height: 100%; }
   .rail {
     display: flex; flex-direction: column; background: var(--rail); border-right: 1px solid var(--line);
-    overflow: auto; min-height: 0;
+    overflow: auto; min-height: 0; min-width: 0;
   }
   .brand { height: var(--head); display: flex; align-items: center; padding: 0 var(--s4); font-weight: 600; font-size: 14.5px; }
   ul { list-style: none; margin: 0; padding: 0 0 var(--s3); }
@@ -241,15 +251,15 @@
   kbd { font: 12px var(--ui); color: var(--muted); }
   main { min-width: 0; min-height: 0; overflow: hidden; }
   main:focus { outline: none; }
-  .skip { position: absolute; left: var(--s2); top: -40px; z-index: var(--z-palette); background: var(--bg); padding: var(--s1) var(--s2); }
-  .skip:focus { top: var(--s2); }
+  .skip { position: absolute; left: var(--s2); top: 0; transform: translateY(-100%); z-index: var(--z-palette); background: var(--bg); padding: var(--s1) var(--s2); }
+  .skip:focus { transform: none; }
 
   /* Below 720px the rail is one scrolling row above the panel (DESIGN.md) */
   @media (max-width: 720px) {
     .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     .rail { flex-direction: row; align-items: stretch; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
     .brand { flex: none; }
-    ul { display: flex; padding: 0; }
+    ul { display: flex; flex: none; padding: 0; }
     .group { display: none; }
     li { flex: none; }
     li a { height: 100%; }
