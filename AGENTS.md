@@ -21,6 +21,7 @@ Implementation plan: `docs/superpowers/plans/2026-10-30-sharpit-mvp.md`. BootUI 
 ## Layout
 
 ```
+design/                        shared tokens, cross-surface design rules and slide kit
 src/sharpit/__init__.py        install, __version__ (the only version site)
 src/sharpit/settings.py        SharpitSettings, load_settings (SHARPIT_* env + kwargs)
 src/sharpit/engine/            framework-free core: activation, guard, masking, panels, collectors, paging

@@ -29,6 +29,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The docs site uses the console's neutral palette and ochre accent; `design/` holds the tokens and rules every surface shares.
+
 - `sql-trace` entry `timestamp` is epoch milliseconds, as the contract says; it was an ISO-8601 string. This also applies to the `sql` rows of a request profile.
 - Advisor rule results use BootUI's status values: `VIOLATION`, `PASS`, `SKIPPED`, `ERROR` (were `FAILED` and `PASSED` in the `rest-api` panel). A rule whose every finding is dismissed reports `PASS`. `sharpit-report/1` (`PASSED/FAILED/UNKNOWN/SKIPPED`) is unchanged.
 - `pytest --sharpit` is about 1.24x the plain run on a query-heavy suite (was about 1.48x): the test-session sink memoises the masked SQL fingerprint of each repeated statement per sink, which halved the suite overhead (2.05 s to 1.02 s on a 12,343-statement suite) and cut the per-statement hook cost from about 50 µs to about 11 µs. Masked output is unchanged, and the memo is never shared across sinks or masker settings.
@@ -39,6 +41,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `config`: explicit `config_scan` module names are also found on `sys.path` without importing them; undecodable bytes in a source file are replaced instead of being recorded as a limitation.
 
 ### Fixed
+
+- Phone layout of the rail and fluid tables, heading styles, and Retry on load errors.
 
 - Route introspection (mappings, rest-api, fastapi-security, beans) no longer drops routes of an `APIRoute` subclass set through `route_class`, no longer raises on an app object without `__dict__`, and classifies an `APIRoute` inside a plain Starlette sub-app as `unknown` instead of inspectable.
 - `sharpit.swallowed-exception`: a handler that passes the exception to a helper that logs it is no longer a finding; an `error(...)` call on a non-logger object no longer counts as logging.

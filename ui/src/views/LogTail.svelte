@@ -70,7 +70,7 @@
       <option value="">All levels</option>
       {#each ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] as l}<option value={l}>{l} and above</option>{/each}
     </select>
-    <input type="search" aria-label="Logger" placeholder="Logger" bind:value={logger} autocomplete="off" spellcheck="false" />
+    <div class="grow"><input type="search" aria-label="Logger" placeholder="Logger" bind:value={logger} autocomplete="off" spellcheck="false" /></div>
     <div class="grow">
       <input class="panel-filter" type="search" aria-label="Search" placeholder="Search the buffer" bind:value={search} autocomplete="off" spellcheck="false" />
     </div>
@@ -100,5 +100,5 @@
 
 <style>
   .tail { list-style: none; margin: 0; padding: var(--s2) var(--s4); }
-  .line { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 18px; }
+  .line { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 20px; }
 </style>

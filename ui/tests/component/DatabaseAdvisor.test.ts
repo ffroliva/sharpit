@@ -58,6 +58,9 @@ it('lists warning diagnostics and leaves informational ones out of the list', as
   h.mount(DatabaseAdvisor, { panel: panel('database-advisor') });
   await until(() => expect(text()).toContain('A scan bound was reached'));
   expect(text()).not.toContain('Skipped: no server.');
+  const diagnostics = h.target.querySelector('section[aria-label="Diagnostics"]');
+  expect(diagnostics).not.toBeNull();
+  expect(diagnostics!.closest('.panel-body')).not.toBeNull();
 });
 
 it('View violations reads the paged endpoint with the scan id', async () => {

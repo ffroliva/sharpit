@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sharpit"
 dynamic = ["version"]
-description = "Embedded, local-only developer console for Python apps (a port of BootUI)."
+description = "Local developer console and pytest gate for FastAPI apps, a Python port of BootUI by Julien Dubois."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -81,6 +81,8 @@ exclude = [
     "/skills",
     "/docs/superpowers",
     "/ui",
+    "/design",
+    "/tests/design",
     "/scripts",
     "/pytest-speed.toml",
     "/uv.lock",

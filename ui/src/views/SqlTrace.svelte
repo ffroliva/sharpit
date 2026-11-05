@@ -82,7 +82,7 @@
 >
   {#snippet controls()}
     {#if report.data?.available}
-      <button class="push" onclick={() => act('sql-trace/recording', { enabled: !report.data!.capturing })} disabled={!!readOnly || acting} title={readOnly ?? undefined}>
+      <button onclick={() => act('sql-trace/recording', { enabled: !report.data!.capturing })} disabled={!!readOnly || acting} title={readOnly ?? undefined}>
         {report.data.capturing ? 'Pause' : 'Resume'}
       </button>
       <button onclick={() => act('sql-trace/clear')} disabled={!!readOnly || acting} title={readOnly ?? undefined}>Clear</button>
@@ -220,7 +220,6 @@
 </PanelShell>
 
 <style>
-  .push { margin-left: auto; }
   .tabs { display: flex; gap: var(--s1); padding: var(--s2) var(--s4) 0; }
   .tabs button[aria-selected='true'] { border-color: var(--accent); }
   td { height: auto; vertical-align: top; }
@@ -228,7 +227,7 @@
   .line { display: block; }
   .rank { display: flex; gap: var(--s1); align-items: center; padding: var(--s2) var(--s4); }
   .note { padding: 0 var(--s4); }
-  .bar { display: block; height: 4px; margin-top: 2px; background: var(--rail); border-radius: 2px; }
+  .bar { display: block; height: 4px; margin-top: var(--s1); background: var(--rail); border-radius: 2px; }
   .bar span { display: block; height: 100%; background: var(--muted); border-radius: 2px; }
   .bar span.slow { background: var(--warn); }
 </style>
