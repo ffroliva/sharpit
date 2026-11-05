@@ -17,6 +17,7 @@ from sharpit.engine import masking
 from sharpit.engine.capture import sqlscan
 from sharpit.engine.capture.sqlscan import normalize, shown
 from sharpit.engine.capture.sqltrace import mask_error
+from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import Exposure, Masker
 
 MASKER = Masker(Exposure.MASKED, True)
@@ -88,8 +89,10 @@ GENERATORS: dict[str, Callable[[int], str]] = {
 
 
 def _pair_substitution(text: str) -> str:
-    masked = masking._mask_pairs(masking._TEXT_QUOTED_PAIR, masking._QUOTED_PAIR_MASKED, text)  # noqa: SLF001
-    return masking._mask_pairs(masking._TEXT_PAIR, masking._PAIR_MASKED, masked)  # noqa: SLF001
+    tracked = masking.Tracked(text)
+    masking._mask_pairs(masking._TEXT_QUOTED_PAIR, masking._QUOTED_PAIR_MASKED, tracked)  # noqa: SLF001
+    masking._mask_pairs(masking._TEXT_PAIR, masking._PAIR_MASKED, tracked)  # noqa: SLF001
+    return tracked.text
 
 
 Entry = Callable[[str], object]
@@ -97,6 +100,10 @@ ENTRY_POINTS: dict[str, Entry] = {
     "mask_text": MASKER.mask_text,
     "mask_error": lambda text: mask_error(MASKER, text),
     "pair_substitution": _pair_substitution,
+    "mask_spans": MASKER.mask_spans,
+    "mask_spans_relaxed": lambda text: MASKER.mask_spans(text, strict=False),
+    "mask_statement": MASKER.mask_statement,
+    "statement_text": lambda text: statement_text(MASKER, text),
 }
 
 

@@ -172,6 +172,11 @@ MUTANTS: dict[str, Mutant] = {
     "digit_in_name": Mutant(DIGIT, "elif c.isdigit():", SURFACE, "shape"),
     "dot_digit": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), SURFACE, "visible"),
     "dot_digit_mysql": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), "recorder_sql-mysql", "visible"),
+    "name_part": Mutant("_skip_number(source, index, _name_part(out, mysql))", "_skip_number(source, index)",
+                        "recorder_sql-mysql", "visible"),
+    "name_part_variable": Mutant(' or (mysql and last == "@")', "", "recorder_sql-mysql", "visible"),
+    "release_name": Mutant('if flags[literal] and literal > start and source[literal - 1] == "=":', "if False:",
+                           "db_statement-mysql", "shape"),
     "keyword_in_name": Mutant(
         "if _identifier_char_before(out):\n        return _keep(source, index, out)",
         "if False:\n        return _keep(source, index, out)",

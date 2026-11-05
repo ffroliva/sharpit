@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from sharpit.engine.capture import sqlscan
 from sharpit.engine.capture.sqltrace import normalize_sql
 from sharpit.engine.collectors.mysql.querytext import mysql_query_text
-from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.masking import MASK, Exposure, Masker
 
 SECRET = "Hunter2Value"
 HEX = "DEADBEEFCAFE"
@@ -54,6 +55,14 @@ def test_a_hash_inside_a_string_is_not_a_comment() -> None:
 
 def test_a_digit_inside_an_identifier_is_not_a_hex_literal() -> None:
     assert mysql_query_text(MASKER, "SELECT t0x1 FROM t") == "SELECT t0x1 FROM t"
+
+
+def test_mysql_query_text_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(_sql: str, _mysql: bool) -> None:
+        raise RuntimeError
+
+    monkeypatch.setattr(sqlscan, "_scan", broken)
+    assert mysql_query_text(MASKER, f"UPDATE fails_closed SET note='{SECRET}'") == MASK
 
 
 @pytest.mark.parametrize(

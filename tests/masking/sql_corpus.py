@@ -358,6 +358,8 @@ class _Statements:
                     f"SELECT 1$a$, 'a $a$ {m} ' FROM (SELECT 1 AS `1$a$`) t",
                     "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t",
                 ),
+                (f"SELECT rv.1.$$, ' $$ {m} ' FROM rv.1", "SELECT rv.?.$$, ? FROM rv.?"),  # r9, read on 8.4.10
+                (f"SELECT @1.$$, ' $$ {m} '", "SELECT @?.$$, ?"),
             )
         )
         return self._single("mysql_name", _Shown(text, scan, ""), m)

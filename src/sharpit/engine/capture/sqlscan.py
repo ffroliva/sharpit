@@ -283,11 +283,17 @@ def _skip_exponent(sql: str, index: int) -> int:
     return cursor
 
 
-def _skip_number(sql: str, index: int) -> int:
+def _name_part(out: _Out, mysql: bool) -> bool:
+    """Digits here are a part of a name: the ``.`` after them separates, ``rv.1.$$`` and MySQL's variable ``@1.$$``."""
+    last = out.chars[-1] if out.chars else " "
+    return last == "." or (mysql and last == "@")
+
+
+def _skip_number(sql: str, index: int, name_part: bool = False) -> int:
     if sql[index] == "0" and (radix := _RADIX_LITERAL.match(sql, index)):
         return radix.end()
     cursor, length = index, len(sql)
-    while cursor < length and (sql[cursor] == "." or _digit_goes_on(sql, cursor)):
+    while cursor < length and ((sql[cursor] == "." and not name_part) or _digit_goes_on(sql, cursor)):
         cursor += 1
     if cursor < length and sql[cursor] in "eE":
         return _skip_exponent(sql, cursor)
@@ -429,7 +435,7 @@ def _read(source: str, mysql: bool) -> _Scan:
             index += 1
         # after a ``.`` a digit starts a literal: ``THEN.5`` is a number, and no keyword list can tell it from ``t.5``
         elif c.isdigit() and (not _identifier_char_before(out) or out.chars[-1] == "."):
-            index, literal = _skip_number(source, index), True
+            index, literal = _skip_number(source, index, _name_part(out, mysql)), True
         else:
             out.append(c)
             index += 1
@@ -613,6 +619,16 @@ def _space(pieces: list[str]) -> None:
         pieces.append(" ")
 
 
+def _release_name(source: str, flags: bytearray, start: int, literal: int) -> None:
+    """A hit running from ``name=`` into the literal at ``literal`` was one token to the masker, ``bio="sk_live_..."``:
+    the literal hides the value, so the name stays. The masker's last read still sees a secret left in the name."""
+    if flags[literal] and literal > start and source[literal - 1] == "=":
+        cursor = literal - 2
+        while cursor >= start and flags[cursor] and (source[cursor].isalnum() or source[cursor] in "_.-"):
+            cursor -= 1
+        flags[cursor + 1 : literal - 1] = bytes(literal - cursor - 2)
+
+
 def _copy(source: str, span: tuple[int, int], flags: bytearray, pieces: list[str], collapse: bool) -> None:
     """Code or a quoted name, character by character: a hidden run is one mask, whitespace is never a hit."""
     masked = False
@@ -642,6 +658,8 @@ def shown(sql: str, hidden: Sequence[tuple[int, int]], mysql: bool = False) -> s
     pieces: list[str] = []
     index = 0
     for start, end, kind in scan.out.runs:
+        if kind == _LITERAL and start < len(flags):
+            _release_name(source, flags, index, start)
         _copy(source, (index, start), flags, pieces, True)
         if kind == _LITERAL:
             pieces.append("?")

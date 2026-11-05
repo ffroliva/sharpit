@@ -394,6 +394,7 @@ def test_a_dollar_after_a_dot_stops_the_statement_with_the_dialect_unknown(sql: 
         ("SELECT x.$$SECRET$$ FROM (SELECT 1 AS x) x", "SELECT x.? FROM (SELECT ? AS x) x"),
         ("SELECT x.$a$SECRET$a$ FROM t WHERE id = 1", "SELECT x.? FROM t WHERE id = ?"),
         ("SELECT x.$$SECRET", "SELECT x.?"),
+        ("SELECT 'a', t.$$ x$$ FROM t", "SELECT ?, t.? FROM t"),  # (r9) an opener before the dot does not count
     ],
 )
 def test_a_dollar_quote_after_a_dot_with_no_other_opener_reads_one_way(sql: str, expected: str) -> None:
@@ -1092,6 +1093,26 @@ def test_a_name_led_by_a_digit_after_a_dot_loses_its_digits(sql: str, expected: 
 def test_no_keyword_keeps_the_digits_after_a_dot(sql: str, mysql: bool) -> None:
     assert "1234567" not in normalize(sql, mysql).sql
     assert shown(sql, [], mysql) == normalize(sql, mysql).sql
+
+
+# (r9) a digit run reached through a word and a ``.`` is a name part on MySQL 8.4.10, so the ``.`` after it stays apart
+# and the ``$`` after that opens nothing. Each row but the last was read on 8.4.10; its fraction reads on as a literal
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT rv.1.$$, ' $$ SECRET ' FROM rv.1", "SELECT rv.?.$$, ? FROM rv.?"),
+        ("SELECT rv.1.$1$, ' $1$ SECRET ' FROM rv.1", "SELECT rv.?.$1$, ? FROM rv.?"),
+        ("SELECT rv.1.$a$, ' $a$ SECRET ' FROM rv.1", "SELECT rv.?.$a$, ? FROM rv.?"),
+        ("SELECT 1 FROM rv.1 WHERE rv.1.$$ = ' $$ SECRET '", "SELECT ? FROM rv.? WHERE rv.?.$$ = ?"),
+        ("SELECT rv.1.$$ # $$ SECRET\n FROM rv.1", "SELECT rv.?.$$ FROM rv.?"),
+        ("SELECT rv.1.$$ /* $$ SECRET */ FROM rv.1", "SELECT rv.?.$$ FROM rv.?"),
+        ("SELECT @1.$$, ' $$ SECRET '", "SELECT @?.$$, ?"),  # a user variable holds a ``.`` and a ``$``
+        ("SELECT @a.1.$$, ' $$ SECRET '", "SELECT @a.?.$$, ?"),
+        ("SELECT.1.2345678", "SELECT.??"),
+    ],
+)
+def test_a_digit_run_through_a_word_and_a_dot_is_a_name_part_on_mysql(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
 
 
 @pytest.mark.parametrize(

@@ -4,10 +4,11 @@ How sharpit measures its performance impact, how to read a budget failure, and h
 
 ## What the budget tests guard
 
-sharpit runs inside someone else's app, so what counts is the time it adds. Two budget tests guard the hot paths:
+sharpit runs inside someone else's app, so what counts is the time it adds. Three budget tests guard the hot paths:
 
 - `tests/fastapi/test_capture_overhead.py`: capture middleware, 0.2 ms per request.
 - `tests/fastapi/test_sql_trace_overhead.py`: SQL listener, 50 µs per statement.
+- `tests/fastapi/test_mask_error_overhead.py`: `mask_error` on a log line, 350 µs per line. That is about 2x `fa2d51e`, the tree the masking redesign started from: a line with no SQL marker takes the path of `mask_text`.
 
 CI's coverage job deselects them because coverage tracing distorts timing. Every other test job runs them.
 
