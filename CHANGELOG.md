@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Test-session group keys are built from masked text, so a key changes for a statement the masker edits (`password = ?` reads `password = ****** where id = ?`). N+1 baselines and dismissals on those groups re-flag after an upgrade: 1,396 of 20,000 generic rows and 2,048 of 20,000 MySQL rows in the corpus change.
+
 ## [0.5.0] - 2026-11-04
 
 ### Added

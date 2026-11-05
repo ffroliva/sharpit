@@ -15,6 +15,17 @@ from tests.masking import sql_corpus
 from tests.masking import test_statement_surfaces as gates
 from tests.masking.sql_corpus import Row
 
+from sharpit.engine.capture.sqlscan import normalize
+from sharpit.engine.masking import Masker
+
+
+def _scan_alone(_masker: Masker, statement: str) -> str:
+    """The scan with no masker before it: elsewhere a masker hides the token, so a scan-only branch moves ``shape``."""
+    return normalize(statement).sql
+
+
+SURFACES: dict[str, gates.Surface] = {**gates.SURFACES, "scan_alone-generic": _scan_alone}
+
 
 def rows_for(surface: str, rows: int, seeds: Sequence[int]) -> list[Row]:
     """The corpus a surface is read against: its mode's dialect, the same rows in every process."""
@@ -23,7 +34,7 @@ def rows_for(surface: str, rows: int, seeds: Sequence[int]) -> list[Row]:
 
 
 def counts(surface: str, rows: Sequence[Row]) -> dict[str, int]:
-    found = gates.SURFACES[surface]
+    found = SURFACES[surface]
     return {
         "visible": len(gates.failures_visible(found, rows)),
         "shape": len(gates.failures_shape(found, rows)),

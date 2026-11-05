@@ -19,7 +19,8 @@ from typing import Any
 
 import pytest
 
-from sharpit.engine.capture import sqltrace
+from sharpit.engine.capture import sqltrace, statement
+from sharpit.engine.capture.sqlscan import Reading
 from sharpit.engine.capture.sqltrace import (
     ENTRY_KEYS,
     GROUP_KEYS,
@@ -454,7 +455,8 @@ def test_raw_text_masked_when_params_on():
     _record(recorder, "update users set password = 'hunter2' where id = 4")
     entry = _entries(recorder)[0]
     assert entry["sql"] == f"update users set password = {MASK}"
-    assert recorder.report([])["topStatements"][0]["sql"] == "update users set password = ? where id = ?"
+    # the aggregate takes the masker pass: a sensitive key's value reads ``******`` even where it was a ``?``
+    assert recorder.report([])["topStatements"][0]["sql"] == f"update users set password = {MASK} where id = ?"
 
 
 def test_parameter_caps_and_masking():
@@ -555,6 +557,49 @@ def test_call_site_off_ignores_given_call_site():
     recorder = _recorder(capture_call_site=False)
     _record(recorder, call_site="app:f:3")
     assert _entries(recorder)[0]["callSite"] is None
+
+
+def test_recorder_sql_takes_the_masker_pass():
+    # derived: 2026-11-05 design section 10 step 1, a secret in code position is no literal, so the scan keeps it
+    token = "ghp_" + "a1B2" * 9
+    recorder = _recorder()
+    _record(recorder, f"SELECT * FROM t WHERE u = 'x' AND note = https://h/?token={token}")
+    assert token not in _entries(recorder)[0]["sql"]
+    assert token not in recorder.report([])["topStatements"][0]["sql"]
+    assert token not in recorder.rows()[0]["shape"].sql
+
+
+def test_recorder_under_metadata_only_keeps_its_text():
+    # derived: pinned on the commit before the masker pass, which must change nothing here
+    recorder = _recorder(Masker(Exposure.METADATA_ONLY, True))
+    _record(recorder, "SELECT * FROM users WHERE name = 'bob' AND id IN (1, 2)")
+    assert _entries(recorder)[0]["sql"] == "SELECT * FROM users WHERE name = ? AND id IN (?)"
+    assert recorder.report([])["topStatements"][0]["sql"] == "SELECT * FROM users WHERE name = ? AND id IN (?)"
+    assert recorder.rows()[0]["shape"] == normalize("SELECT * FROM users WHERE name = 'bob' AND id IN (1, 2)")
+
+
+def test_with_parameters_the_stored_text_stays_the_masked_raw_text():
+    # derived: Task 3 changes the shape; with capture on the ring keeps ``mask_text(sql)``, as before it
+    recorder = _recorder(WITH_PARAMETERS)
+    _record(recorder, "select * from t where name = 'bob'")
+    assert recorder.rows()[0]["sql"] == "select * from t where name = 'bob'"
+    assert recorder.rows()[0]["shape"].sql == "select * from t where name = ?"
+
+
+def test_a_repeated_statement_is_masked_once(monkeypatch: pytest.MonkeyPatch):
+    # derived: plan risk "125 us uncached": the pass runs per distinct statement, per recorder
+    calls: list[str] = []
+    real = statement.statement_text
+
+    def counted(masker: Masker, sql: str, mysql: bool, reading: Reading) -> str | None:
+        calls.append(sql)
+        return real(masker, sql, mysql, reading)
+
+    monkeypatch.setattr(statement, "statement_text", counted)
+    first, second = _recorder(), _recorder()
+    for recorder in (first, first, second):
+        _record(recorder, "select 1")
+    assert calls == ["select 1", "select 1"]
 
 
 # --- call site (frame walk) ------------------------------------------------------------------------------------------

@@ -104,9 +104,9 @@ def _relationship_masker() -> Masker:
 
 @functools.lru_cache(maxsize=1024)
 def _masked_fingerprint(statement: str, mysql: bool = False) -> str:
-    from sharpit.engine.capture.sqltrace import normalize
+    from sharpit.engine.capture.statement import masked_shape
 
-    return _relationship_masker().mask_text(normalize(statement, mysql).fingerprint) or ""
+    return masked_shape(_relationship_masker(), statement, mysql).fingerprint
 
 
 def _relationship_path(context: Any) -> tuple[Any, str, str, int] | None:
@@ -300,12 +300,12 @@ def _unbounded_read_statement_shape(context: Any, statement_obj: Any) -> tuple[s
         )
     except Exception:
         has_limit = True
-    from sharpit.engine.capture.sqltrace import is_mysql, normalize
+    from sharpit.engine.capture.sqltrace import is_mysql
+    from sharpit.engine.capture.statement import masked_shape
 
     # shortcut: a Session with a binds map has no ``bind``, so that text keeps the generic scan and the masker
     mysql = is_mysql(getattr(getattr(context, "session", None), "bind", None))
-    statement = _relationship_masker().mask_text(normalize(str(statement_obj), mysql).sql) or ""
-    return statement, has_limit
+    return masked_shape(_relationship_masker(), str(statement_obj), mysql).sql, has_limit
 
 
 def _record_unbounded_read_load(target: Any, context: Any, info: Any, tag: tuple[str, int, str]) -> None:

@@ -22,6 +22,7 @@ from typing import Any, NamedTuple, cast
 
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.sqlscan import MYSQL_DIALECTS, Normalized, is_mysql, normalize, normalize_sql
+from sharpit.engine.capture.statement import masked_shape
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker
 
@@ -194,6 +195,8 @@ class SqlTraceRecorder:
         recording: bool = True,
     ) -> None:
         self._masker = masker
+        # the same statements repeat: per recorder, so one masker's results never reach another's
+        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(masked_shape, masker))
         self.max_entries = max_entries
         self.slow_query_threshold_millis = slow_query_threshold_millis
         self._max_sql_length = max_sql_length
@@ -263,16 +266,18 @@ class SqlTraceRecorder:
         if not self.recording:
             return
         masker = self._masker
-        normalized = normalize(sql, mysql)
-        stored = normalized.sql if not masker.capture_parameters else (masker.mask_text(sql) or "")
+        shape = self._shape(sql, mysql)
+        stored = shape.sql if not masker.capture_parameters else (masker.mask_text(sql) or "")
         error_message: str | None = None
         if error is not None:
             text = str(error)
             if not masker.capture_parameters:
+                if sql:  # before the masker, whose edit would make this miss: SQLAlchemy repeats it in [SQL: ...]
+                    text = text.replace(sql.strip(), shape.sql)
+                # interim: for another statement than ``sql`` the scan below still reads masked text; ``error_text``
+                # replaces all of this at Task 22
                 text = masker.mask_text(_driver_values_dropped(text)) or ""  # the scan hides what the masker reads
-                if sql:
-                    text = text.replace(sql.strip(), normalized.sql)  # SQLAlchemy repeats the statement in [SQL: ...]
-                text = _sql_block_normalized(text, mysql)  # an error raised for another statement than ``sql``
+                text = _sql_block_normalized(text, mysql)
             masked = masker.mask_text(text)
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
@@ -301,7 +306,7 @@ class SqlTraceRecorder:
             else [],
             "traceId": request_id,
             "callSite": site,
-            "shape": normalized,
+            "shape": shape,
             "mysql": mysql,
         }
         with self._lock:
@@ -312,11 +317,11 @@ class SqlTraceRecorder:
             self._total += 1
             self._selects += category == "SELECT"
             if category == "SELECT" and millis > self._max_millis:  # rare: only a new slowest SELECT pays to mask
-                self._new_max(millis, normalized.sql)
-            key = normalized.fingerprint
+                self._new_max(millis, shape.sql)
+            key = shape.fingerprint
             aggregate = self._aggregates.get(key)
             if aggregate is None:
-                aggregate = self._aggregates[key] = _Aggregate(normalized.sql, category)
+                aggregate = self._aggregates[key] = _Aggregate(shape.sql, category)
                 if len(self._aggregates) > MAX_AGGREGATES:
                     self._aggregates.popitem(last=False)
             else:

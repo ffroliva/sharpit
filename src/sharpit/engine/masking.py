@@ -224,6 +224,8 @@ class Tracked:
 
     def apply(self, edits: Sequence[tuple[int, int, str]]) -> None:
         """Replace each ``(start, end, replacement)``, ascending and disjoint, in the current text."""
+        if not edits:
+            return
         text = self.text
         if self._track:
             self._kept = _kept_in(self._kept, _unedited(text, edits))
@@ -240,12 +242,12 @@ class Tracked:
         if not self._track:
             self.text = pattern.sub(repl, self.text)
             return
-        self.apply(
-            [
-                (found.start(), found.end(), repl(found) if callable(repl) else found.expand(repl))
-                for found in pattern.finditer(self.text)
-            ]
-        )
+        edits: list[tuple[int, int, str]] = []
+        for found in pattern.finditer(self.text):
+            replacement = repl(found) if callable(repl) else found.expand(repl)
+            if replacement != found[0]:  # most tokens: a pass that changes nothing costs its read alone
+                edits.append((found.start(), found.end(), replacement))
+        self.apply(edits)
 
     def hidden(self) -> list[tuple[int, int]]:
         """The raw ``(start, end)`` runs that did not survive, ascending. With no positions, all of it: fail closed."""

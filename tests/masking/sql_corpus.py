@@ -13,7 +13,8 @@ every run to its end.
 Ambiguous classes: ``trailing_backslash``, ``nested_comment``, ``oracle_quote``, ``hash``, ``odd_bracket``,
 ``executable_comment``, ``tight_dash``, ``at_dollar`` and ``backtick_quote`` in ``generic``; ``trailing_backslash`` in
 ``postgresql``, where the scan has no PostgreSQL mode, so the statement takes the generic cut and loses its tail (spec
-A3 allows that on a row marked ambiguous); ``mysql_escaped`` (D7) and ``executable_comment`` in ``mysql``.
+A3 allows that on a row marked ambiguous); ``mysql_escaped`` (D7), ``executable_comment`` and
+``family_dollar`` in ``mysql``.
 ``quiet_trigger`` rows read one way and are never marked: a statement that loses its tail there fails A3.
 
 ``expected`` is exact on ``plain`` rows. Elsewhere a hit may render ``******``, so ``tail`` carries the part of the
@@ -153,6 +154,8 @@ def _string(rng: random.Random) -> _Literal:
 
 
 _DOUBLE_QUOTED = (_double_word, _double_spaced, _double_secret, _boolean)  # not PostgreSQL's: no literal there
+# non-ASCII spaces `str.isspace` accepts and no server reads as whitespace
+_UNICODE_SPACES = tuple(map(chr, (0x85, 0xA0, 0x1680, 0x2000, 0x2009, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000)))
 _NOT_MYSQL = (_dollar, _dollar_tag, _escape_string)  # text a MySQL server reads differently or refuses
 _COMMON = (_hex, _leading_dot, _exponent, _underscored, _multi_line, _string, _string, _string)
 _LITERALS = {
@@ -375,6 +378,13 @@ class _Statements:
         shown = f"{head} WHERE {name}={a.pg if self.pg else a.scan} {tail}"
         return self._row("tight_verb", _Shown(text, shown, shown), (a,), tail, plain=False)
 
+    def unicode_space(self) -> Row:  # ``$$`` after a non-ASCII space is part of a name, not a quote
+        m, space = _mark(self.rng), self.rng.choice(_UNICODE_SPACES)
+        lead = self.rng.choice(("x", ""))
+        text = f"SELECT {lead}{space}$$, 'a $$ {m} '"
+        shown = _Shown(text, f"SELECT {lead}{space}$$, ?", f"SELECT {lead}{space}$$, {self.string}")
+        return self._single("unicode_space", shown, m)
+
     def unlisted_verb(self) -> Row:  # a verb ``statement.py`` lacks: with no hit its render still shows
         m = _mark(self.rng)
         return self._single(
@@ -426,7 +436,8 @@ class _Statements:
 
     def mysql_escaped(self) -> Row:  # D7: under NO_BACKSLASH_ESCAPES the run ends at the backslash
         m = _mark(self.rng)
-        if self.rng.random() < 0.25:  # MySQL ends the comment past the scan's ``*/``
+        roll = self.rng.random()
+        if roll < 0.25:  # MySQL ends the comment past the scan's ``*/``
             d = _digits(self.rng)
             marker, text, scan = self.rng.choice(
                 (
@@ -436,7 +447,17 @@ class _Statements:
             )
             return self._single("executable_comment", _Shown(text, scan, ""), marker, ambiguous=True)
         column = self.rng.choice(_COLUMNS)
-        quote = self.rng.choice("'\"")
+        quote = self.rng.choice("'\"")  # drawn on every row below, so no other row of the seed moves
+        if roll < 0.4:  # no dollar quote on MariaDB or MySQL 8.0: ``$$`` is a name, the string holds the value
+            family_rows = (
+                (f"SELECT 'x', [$a$x$$a$ {m}]", "SELECT ?"),  # MySQL's closer leaves this open: the one place it shows
+                (f"SELECT $$, 'a $$ {m} ' FROM (SELECT 1 AS $$) t", "SELECT ?"),
+                (f"SELECT 1 AS $$, 'x $$ {m} '", "SELECT ? AS ?"),
+                (f"SELECT $a$, 'a $a$ {m} ' FROM (SELECT 1 AS `$a$`) t", "SELECT ?"),
+            )
+            text, scan = family_rows[self.turn % len(family_rows)]  # in turn, as ``two_way``: each must land
+            self.turn += 1
+            return self._single("family_dollar", _Shown(text, scan, ""), m, ambiguous=True)
         text = f"UPDATE t SET {column}={quote}a\\{quote}{m}{quote} WHERE id=1"
         return self._single("mysql_escaped", _Shown(text, f"UPDATE t SET {column}= ?", ""), m, ambiguous=True)
 
@@ -506,7 +527,7 @@ class _Statements:
 
     def templates(self) -> tuple[Callable[[], Row], ...]:
         common = (self.update, self.insert, self.select, self.sensitive_name, self.sensitive_table, self.comments,
-                  self.names, self.tight_verb)  # fmt: skip
+                  self.names, self.tight_verb, self.unicode_space)  # fmt: skip
         if self.dialect == MYSQL:
             return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger, self.mysql_name,
                     self.mysql_routine, self.dot_digit, self.unlisted_verb)  # fmt: skip

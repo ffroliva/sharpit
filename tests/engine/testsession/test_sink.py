@@ -506,6 +506,15 @@ def test_masked_fingerprint_memo_keys_on_masker_settings() -> None:
     assert "ghp_" in json.dumps(later_loose.facts.to_json())
 
 
+def test_a_metadata_only_sink_keeps_the_scans_shape() -> None:
+    # derived: ``masked_shape`` gives no text under METADATA_ONLY, so the key and the text are the scan's, not ""
+    statement = "SELECT * FROM pets WHERE pets.id = 1"
+    sink = TestSessionSink("gw0", Masker(Exposure.METADATA_ONLY, True))
+    run_phase(sink, NODE, sink.begin_test(NODE), "call", statement)
+    assert dict(_call(sink).selects) == {"select * from pets where pets.id = ?": 1}
+    assert _call(sink).sql_of == {"select * from pets where pets.id = ?": "SELECT * FROM pets WHERE pets.id = ?"}
+
+
 # derived: release council fix round 2: the session sink used the generic scan on MySQL text
 def test_mysql_comment_and_hex_literal_are_folded() -> None:
     sink = _sink()

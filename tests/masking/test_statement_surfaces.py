@@ -496,7 +496,7 @@ def test_every_row_holds_its_markers_and_expected_shows_none(dialect: str, seed:
                               "doubled_quote", "tight_verb", "unlisted_verb"}),
         (sql_corpus.MYSQL, {"shapes", "sensitive_name", "sensitive_table", "comments", "names", "hash", "long_literal",
                             "long_identifier", "mysql_escaped", "quiet_trigger", "mysql_name", "executable_comment",
-                            "mysql_routine", "dot_digit", "tight_verb", "unlisted_verb"}),
+                            "mysql_routine", "family_dollar", "dot_digit", "tight_verb", "unlisted_verb"}),
         (sql_corpus.POSTGRESQL, {"shapes", "sensitive_name", "sensitive_table", "comments", "names",
                                  "trailing_backslash", "nested_comment", "unclosed_dollar", "long_literal",
                                  "tight_verb"}),
@@ -539,7 +539,7 @@ def test_a_cut_identifier_opens_before_the_limit_and_closes_after_it() -> None:
                 "backtick_quote",
             },
         ),
-        ("mysql", {"mysql_escaped", "executable_comment"}),
+        ("mysql", {"mysql_escaped", "executable_comment", "family_dollar"}),
         ("pg_valid", {"trailing_backslash"}),
     ],
 )
@@ -652,6 +652,22 @@ def test_a_live_error_stays_readable(name: str, live_error: str) -> None:
     shown = ERROR_DRIVERS[name](_MASKER, live_error, False)
     carrier = Carrier(driver_line, driver_line, link.group())
     assert broken_regions(shown, carrier, statement="INSERT INTO u VALUES (?, ?, ?)") == []
+
+
+# --- the masker reads the recorder's statement, 2026-11-05 design section 10 step 1 ---------------------------------
+
+CODE_TOKEN = "ghp_" + "a1B2" * 9
+CODE_POSITIONS = {
+    "url_query": f"SELECT * FROM t WHERE u = 'x' AND note = https://h/?token={CODE_TOKEN}",
+    "alias": f"SELECT 1 AS {CODE_TOKEN}",
+    "pair": f"SELECT * FROM t WHERE api_key={CODE_TOKEN}",
+}
+
+
+@pytest.mark.parametrize("name", ["recorder_sql-generic", "recorder_sql-mysql"])
+@pytest.mark.parametrize("statement", CODE_POSITIONS.values(), ids=CODE_POSITIONS)
+def test_the_masker_reads_the_recorders_statement(name: str, statement: str) -> None:
+    assert CODE_TOKEN not in _shown_by(name, statement)
 
 
 # --- A4: each trigger survives every other job ---------------------------------------------------------------------

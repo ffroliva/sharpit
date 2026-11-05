@@ -59,6 +59,8 @@ test = [
     "jsonschema>=4.21",
     "pytest-asyncio>=0.24",
     "pytest-rerunfailures>=14",
+    "hypothesis>=6.100",  # the property tests of the SQL output architecture
+    "testcontainers>=4.8",  # the live profile (tests/live): the generic DockerContainer, so no sqlalchemy extras
 ]
 
 [dependency-groups]
@@ -124,6 +126,7 @@ pythonpath = ["."]  # examples/ (the sample app) imports as a package
 timeout = 60
 markers = [
     "needs_sqlalchemy: needs SQLAlchemy, aiosqlite or greenlet installed (the no-sqlalchemy CI job deselects it)",
+    "live: runs against a real database server (tests/live, collected only with --live)",
 ]
 
 [tool.coverage.run]

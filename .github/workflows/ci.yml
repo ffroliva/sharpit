@@ -266,6 +266,61 @@ jobs:
     steps:
       - run: test "${{ needs.no-sqlalchemy-shard.result }}" = success
 
+  masking-gates:
+    # The two masking gates that outweigh any shard ceiling alone, every row: test_masking_scales_linearly.py (487 s of
+    # CPU time on Linux) and test_statement_surfaces.py (386 s on Windows). The shards leave them out (tests/_shard.py
+    # OWN_JOB) and this job runs them whole. No job timeout is set, so GitHub's 6 h default covers both.
+    name: masking gates (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv python install 3.14
+      - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the gate
+      - run: uv run --no-sync pytest tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: # ci_review.py globs junit-*
+          name: junit-gates-${{ matrix.os }}
+          path: ${{ runner.temp }}/junit.xml
+          retention-days: 7
+
+  masking-gates-check:
+    # required check, as `test` is for the shards (always(): a skipped required check counts as green)
+    needs: masking-gates
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.masking-gates.result }}" = success
+
+  live:
+    # The live profile (tests/live, --live): real MySQL, MariaDB and PostgreSQL servers started by Testcontainers. Linux
+    # only: GitHub's Windows runners cannot run Linux containers. A skip is a failure: the check reads the report.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv python install 3.14
+      - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the live tests
+      - run: uv run --no-sync pytest tests/live --live -n 0 --junitxml=live.xml
+      - name: Require executed live tests, without skips
+        if: always()
+        run: uv run --no-sync python scripts/ci/check_live_tests.py live.xml --require test_a_server_answers=4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: # ci_review.py globs junit-*
+          name: junit-live
+          path: live.xml
+          retention-days: 7
+
   sharpit-gate:
     # Dogfood: the example's fixed route must pass `pytest --sharpit`, its planted N+1 must fail it.
     runs-on: ubuntu-latest

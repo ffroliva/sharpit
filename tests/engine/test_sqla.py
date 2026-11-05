@@ -332,7 +332,7 @@ def test_first_application_location_is_cached_per_relationship(monkeypatch: pyte
 
 
 def test_relationship_facts_use_masked_statement_fingerprint() -> None:
-    from sharpit.engine.capture.sqltrace import normalize
+    from sharpit.engine.capture.statement import masked_shape
     from sharpit.engine.testsession.sink import report_masker
 
     statement = "SELECT * FROM payments WHERE api_key = ?"
@@ -344,7 +344,7 @@ def test_relationship_facts_use_masked_statement_fingerprint() -> None:
     token = TEST.set(tag)
     try:
         sqla_orm._record_relationship(context)
-        masked_fingerprint = report_masker().mask_text(normalize(statement).fingerprint)
+        masked_fingerprint = masked_shape(report_masker(), statement, False).fingerprint
         assert sqla_orm._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
     finally:
         sqla_orm._relationship_loads.pop(tag, None)
@@ -355,7 +355,7 @@ def test_relationship_facts_use_masked_statement_fingerprint() -> None:
 
 # derived: release council fix round 2: the group key must equal the sink's, which reads the text as MySQL's
 def test_relationship_facts_on_mysql_use_the_mysql_fingerprint() -> None:
-    from sharpit.engine.capture.sqltrace import normalize
+    from sharpit.engine.capture.statement import masked_shape
     from sharpit.engine.testsession.sink import report_masker
 
     statement = "SELECT * FROM payments # password hunter2"
@@ -368,7 +368,7 @@ def test_relationship_facts_on_mysql_use_the_mysql_fingerprint() -> None:
     token = TEST.set(tag)
     try:
         sqla_orm._record_relationship(context)
-        masked_fingerprint = report_masker().mask_text(normalize(statement, True).fingerprint)
+        masked_fingerprint = masked_shape(report_masker(), statement, True).fingerprint
         assert sqla_orm._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
     finally:
         sqla_orm._relationship_loads.pop(tag, None)
@@ -717,17 +717,17 @@ def test_unbounded_read_facts_keep_request_identity_when_context_ids_are_reused_
 
 
 def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch):
-    from sharpit.engine.capture import sqltrace
+    from sharpit.engine.capture import statement
 
     calls = 0
-    normalize = sqltrace.normalize
+    read_statement = statement.read_statement
 
-    def counted_normalize(statement: str, mysql: bool = False) -> Any:
+    def counted_read(statement: str, mysql: bool = False) -> Any:
         nonlocal calls
         calls += 1
-        return normalize(statement, mysql)
+        return read_statement(statement, mysql)
 
-    monkeypatch.setattr(sqltrace, "normalize", counted_normalize)
+    monkeypatch.setattr(statement, "read_statement", counted_read)
     info = _paging_request("request-statement-shape")
     context = _load_context(sa.select(sa.literal(1)))
     request_token = REQUEST.set(info)
@@ -744,17 +744,17 @@ def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_load_compiles_and_masks_statement_once_current(monkeypatch: pytest.MonkeyPatch):
-    from sharpit.engine.capture import sqltrace
+    from sharpit.engine.capture import statement
 
     calls = 0
-    normalize = sqltrace.normalize
+    read_statement = statement.read_statement
 
-    def counted_normalize(statement: str, mysql: bool = False) -> Any:
+    def counted_read(statement: str, mysql: bool = False) -> Any:
         nonlocal calls
         calls += 1
-        return normalize(statement, mysql)
+        return read_statement(statement, mysql)
 
-    monkeypatch.setattr(sqltrace, "normalize", counted_normalize)
+    monkeypatch.setattr(statement, "read_statement", counted_read)
     info = _paging_request("request-statement-shape-current")
     context = _load_context(sa.select(sa.literal(1)))
     request_token = REQUEST.set(info)

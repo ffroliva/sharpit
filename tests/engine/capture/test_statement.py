@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sharpit.engine.capture import sqlscan
-from sharpit.engine.capture.statement import statement_text
+from sharpit.engine.capture.statement import masked_shape, statement_text
 from sharpit.engine.capture.traces import _sql_attribute  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.masking import MASK, Exposure, Masker
 
@@ -130,3 +130,18 @@ def test_capture_on_shows_the_masked_statement() -> None:
 def test_a_key_nested_in_a_bare_value_reads_as_code(sql: str) -> None:
     # ``x = password = abc`` is valid SQL over three columns, and 0.4.0 shows the same: no value is in it
     assert "abc" in (statement_text(MASKER, sql) or "")
+
+
+def test_a_shape_and_its_text_come_from_one_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    # derived: 2026-11-05 design, "classified once and emitted once": the miss budget pays for one read of raw text
+    calls: list[str] = []
+    real = sqlscan._scan  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+
+    def counted(sql: str, mysql: bool) -> object:
+        calls.append(sql)
+        return real(sql, mysql)
+
+    monkeypatch.setattr(sqlscan, "_scan", counted)
+    sql = "SELECT * FROM one_scan WHERE id = 7"
+    assert masked_shape(MASKER, sql, False).sql == "SELECT * FROM one_scan WHERE id = ?"
+    assert calls == [sql]

@@ -46,6 +46,8 @@ FA2D51E = {
 }
 OFF = MASKERS["parameters_off"]
 GITHUB_TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2"
+STRIPE_KEY = "sk_" + "live_4eC39HqLyjWDarjtT1zdp7dc"
+JWT_VALUE = "eyJhbGciOiJIUzI1NiJ9." + "eyJzdWIiOiIxMjM0NTYifQ." + "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9P"
 
 
 def _kept(text: str, spans: list[tuple[int, int]]) -> str:
@@ -239,13 +241,21 @@ def test_the_fast_path_lets_every_secret_shape_through(value: str) -> None:
 
 @pytest.mark.parametrize(
     "text",
-    [f"x://u@{GITHUB_TOKEN}", f"x://u@{GITHUB_TOKEN}.", f"password=a;{GITHUB_TOKEN}", f"x://u@h/{GITHUB_TOKEN}"],
-    ids=["after-userinfo", "before-punctuation", "after-a-value", "in-a-path"],
+    [
+        f"x://u@{GITHUB_TOKEN}",
+        f"x://u@{GITHUB_TOKEN}.",
+        f"password=a;{GITHUB_TOKEN}",
+        f"x://u@h/{GITHUB_TOKEN}",
+        f"{JWT_VALUE}&{STRIPE_KEY}",
+    ],
+    ids=["after-userinfo", "before-punctuation", "after-a-value", "in-a-path", "jwt-then-key"],
 )
 def test_a_token_glued_to_a_mask_is_hidden(text: str) -> None:
     for output in (OFF.mask_text(text), OFF.mask_statement(text), _kept(text, _spans(OFF, text))):
         assert output is not None
         assert GITHUB_TOKEN not in output
+        assert STRIPE_KEY not in output
+        assert JWT_VALUE not in output
 
 
 def test_the_glued_check_cannot_hide_a_key() -> None:

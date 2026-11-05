@@ -74,8 +74,22 @@ TIMING_MODULES = (
 )  # every module that times a budget (tests/test_overhead_harness.py keeps this complete)
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--live", action="store_true", help="collect tests/live: real database servers (the CI live job)")
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    """Without ``--live`` the live profile is not collected, so a default run has no live test and nothing to skip."""
+    live = collection_path.name == "live" and collection_path.parent.name == "tests"
+    return True if live and not config.getoption("--live") else None
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Timing budgets run last: xdist hands out tests in this order, so they meet a draining pool, not 22 busy ones."""
+    if not config.getoption("--live"):  # pytest does not ask pytest_ignore_collect for a path named on the command line
+        live = [i for i in items if "live" in i.path.parts[-2:-1] and i.path.parent.parent.name == "tests"]
+        config.hook.pytest_deselected(items=live)
+        items[:] = [i for i in items if i not in live]
     items.sort(key=lambda item: item.path.name in TIMING_MODULES)  # stable: everything else keeps its order
 
 

@@ -503,12 +503,99 @@ def test_a_dollar_quote_closes_where_mysql_closes_it(body: str) -> None:
         ("$a$x$a$", "?"),
         ("$$x$$", "?"),
         ("$ab$x$aab$y$ab$", "?"),
-        ("$a$ $ $a$, 1", "?, ?"),  # a lone ``$`` then the closer: closed there, 1064 on what follows
-        ("$a$x$$$a$, 1", "?, ?"),
+        # derived: Task 2, the family stops at the quote, so what follows the closer goes with it. It was ``?, ?``
+        ("$a$ $ $a$, 1", "?"),  # a lone ``$`` then the closer: closed there, 1064 on what follows
+        ("$a$x$$$a$, 1", "?"),
     ],
 )
 def test_a_dollar_quote_still_closes_on_mysql(body: str, expected: str) -> None:
     assert normalize(f"{ROUTINE}{body}", True).sql == f"{ROUTINE}{expected}"
+
+
+# (r7) the ROUTINE rows above cut everything past the opener, so they cannot tell a quote that closes from one that
+# never does. These two keep text past the closer: a bracket that stays, and a ``/*!`` comment it lets through
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 'x', [$a$x$a$]", "SELECT ?, [ ?"),
+        ("SELECT 'a', $a$x$$a$ /*! 1 */", "SELECT ?, ?"),
+    ],
+)
+def test_a_closed_dollar_quote_on_mysql_keeps_what_the_cut_would_hide(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+# derived: spike 2 Q2 and Q3. MariaDB 12.3.3 and MySQL 8.0.44 have no dollar quote and return each marker: ``$$`` is a
+# name there, so the first ``'`` opens a string; MySQL 8.4.10 refuses these. One bit cannot tell them apart
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT $$, 'a $$ SECRET ' FROM (SELECT 1 AS $$) t", "SELECT ?"),
+        ("SELECT 1 AS $$, 'x $$ SECRET '", "SELECT ? AS ?"),
+        ("SELECT 1 $$, 'x $$ SECRET '", "SELECT ? ?"),
+        ("SELECT $a$, 'x $a$ SECRET ' FROM (SELECT 1 AS $a$) t", "SELECT ?"),
+        ("SELECT $a$, 'a $a$ ZQXJKV ' FROM (SELECT 1 AS `$a$`) t", "SELECT ?"),
+        ("SELECT ($a$), 'a $a$ ZQXJKV ' FROM (SELECT 1 AS `$a$`) t", "SELECT ( ?"),
+        ("SELECT 1,$a$, 'a $a$ ZQXJKV ' FROM (SELECT 1 AS `$a$`) t", "SELECT ?, ?"),
+        ("SELECT $a$=1, 'a $a$ ZQXJKV ' FROM (SELECT 1 AS `$a$`) t", "SELECT ?"),
+        ("SELECT 'a' AS $b$, 'c $b$ SECRET '", "SELECT ? AS ?"),
+        ("SELECT 'a' AS $$, 'b $$ SECRET ' FROM DUAL", "SELECT ? AS ?"),
+        ("SELECT $a$x$a$$b$, 'a $b$ ZQXJKV '", "SELECT ?"),
+        ("SELECT `$$`, $$, 'a $$ SECRET ' FROM t", "SELECT `$$`, ?"),
+        ("SELECT $$ x $$ + b", "SELECT ?"),  # the other read has no run left: it goes on to the end of the text
+        ("CREATE PROCEDURE zp() BEGIN SELECT $$, 'a $$ SECRET ' FROM (SELECT 1 AS $$) t; END",
+         "CREATE PROCEDURE zp() BEGIN SELECT ?"),
+    ],
+)  # fmt: skip
+def test_a_dollar_tag_cuts_where_the_family_disagrees(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+def test_shown_and_the_ranges_cut_where_the_family_disagrees() -> None:
+    sql = "SELECT $$, 'a $$ SECRET ' FROM (SELECT 1 AS $$) t"
+    assert shown(sql, [], True) == "SELECT ?"
+    assert scan_ranges(sql, True)[-1] == Range(7, len(sql), True)
+
+
+# derived: spike 2 q3c, the rows with a ``$`` the two readings place alike: a cut at the first opener fails each
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT @$a$ := 'q $a$ ZQXJKV '", "SELECT @$a$ := ?"),
+        ("SET @$$ = 'a $$ ZQXJKV '", "SET @$$ = ?"),
+        ("SELECT @$$, 'a $$ ZQXJKV '", "SELECT @$$, ?"),
+        ("SELECT 1$a$, 'a $a$ ZQXJKV ' FROM (SELECT 1 AS `1$a$`) t", "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t"),
+        ("SELECT 0xAB$a$, 'a $a$ ZQXJKV ' FROM (SELECT 1 AS `0xAB$a$`) t",
+         "SELECT ?$a$, ? FROM (SELECT ? AS `0xAB$a$`) t"),
+        ("SELECT rv.1.$$, ' $$ ZQXJKV ' FROM rv.1", "SELECT rv.?.$$, ? FROM rv.?"),
+        ("SELECT 1 FROM (SELECT 1 AS `$a$`) t WHERE t.$a$ = 'a $a$ ZQXJKV '",
+         "SELECT ? FROM (SELECT ? AS `$a$`) t WHERE t.$a$ = ?"),
+        ("SELECT a$b, 'ZQXJKV' FROM t", "SELECT a$b, ? FROM t"),
+        ("SELECT $, 'ZQXJKV' FROM t", "SELECT $, ? FROM t"),
+        ("SELECT `$$`, 'ZQXJKV' FROM t", "SELECT `$$`, ? FROM t"),
+        ("SELECT 'a $$ b', 'ZQXJKV' FROM t", "SELECT ?, ? FROM t"),
+        ("SELECT 'a', $$, 'b'", "SELECT ?, ?"),
+        ("CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS $$ ZQXJKV $$", "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS ?"),
+    ],
+)  # fmt: skip
+def test_a_mysql_dollar_quote_with_no_disagreement_is_unchanged(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+# derived: spec section 6: a gate on ``$`` once dropped the backslash cut. ``sql_mode`` is session state no text shows
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 'a\\', 'SECRET $$'", "SELECT ?"),
+        ("SELECT 'a\\', $$, 'SECRET'", "SELECT ?"),
+        ("SELECT 1 /*! -- */ don't\n, '$$ SECRET' */", "SELECT ? don ?"),
+        ("SELECT 1 AS [it's], '$$ SECRET'", "SELECT ? AS [it ?"),
+        ("SELECT 1 AS [a$$], 'b $$ SECRET '", "SELECT ? AS [a$$], ?"),
+        ("SELECT 'x', [$a$x$$a$ SECRET]", "SELECT ?"),  # MySQL's closer leaves the body open: a cut at the first opener
+    ],
+)
+def test_the_other_cuts_stand_on_a_text_holding_a_dollar(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
 
 
 def test_a_digit_led_tag_opens_nothing_with_the_dialect_unknown() -> None:
@@ -1157,3 +1244,59 @@ def test_a_name_after_at_stays_on_mysql(sql: str, expected: str) -> None:
 )
 def test_a_dot_after_no_word_keeps_its_read(sql: str, expected: str) -> None:
     assert normalize(sql).sql == expected
+
+
+# the 19 non-ASCII spaces ``str.isspace`` accepts and no server reads as whitespace
+_UNICODE_SPACES = [
+    "\u0085",
+    "\u00a0",
+    "\u1680",
+    *(chr(c) for c in range(0x2000, 0x200B)),
+    "\u2028",
+    "\u2029",
+    "\u202f",
+    "\u205f",
+    "\u3000",
+]
+
+
+@pytest.mark.parametrize("space", _UNICODE_SPACES, ids=[f"U+{ord(c):04X}" for c in _UNICODE_SPACES])
+def test_a_unicode_space_opens_nothing(space: str) -> None:
+    for sql in ("SELECT x{c}$$, 'a $$ SECRET '", "SELECT {c}$$, 'a $$ SECRET '"):
+        for mysql in (False, True):
+            assert "SECRET" not in normalize(sql.format(c=space), mysql).sql, (sql, mysql)
+
+
+def test_a_zero_width_space_is_a_name_character() -> None:
+    """A guard, not a defect: U+200B is not ``isspace`` and no server reads it as whitespace, so it joins the name."""
+    assert "SECRET" not in normalize("SELECT x\u200b$$, 'a $$ SECRET '").sql
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "  x IN (1, 2, 3",
+        "x IN (1, 2, 3)  ",
+        "SELECT a  b FROM t WHERE c IN (1, 2, 3) AND pw = 'x'",
+        "SELECT a  b FROM t WHERE c IN (1, 2, 3",
+    ],
+)
+def test_shown_equals_normalize_around_adjacent_unicode_spaces(sql: str) -> None:
+    """A Unicode space is a name character: the list cuts of the scan text must fit ``pieces`` position for position."""
+    assert shown(sql, []) == normalize(sql).sql
+
+
+def test_a_hidden_unicode_space_is_masked_with_its_run() -> None:
+    """A Unicode space is not whitespace: a hidden run holding one is a single mask, not two around a copied space."""
+    sql = "SELECT id FROM t WHERE k=aa bb"
+    start = sql.index("aa")
+    assert shown(sql, [(start, len(sql))]) == f"SELECT id FROM t WHERE k={MASK}"
+
+
+@pytest.mark.parametrize("space", _UNICODE_SPACES, ids=[f"U+{ord(c):04X}" for c in _UNICODE_SPACES])
+@pytest.mark.parametrize("pad", ["", " ", "\t"])
+@pytest.mark.parametrize("mysql", [False, True])
+def test_a_statement_of_only_unicode_spaces_is_a_name_in_both_outputs(space: str, pad: str, mysql: bool) -> None:
+    """A Unicode space is no whitespace to a server: the statement is a name, so both outputs keep it."""
+    sql = space + pad
+    assert shown(sql, [], mysql) == normalize(sql, mysql).sql

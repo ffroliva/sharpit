@@ -145,10 +145,15 @@ MUTANTS: dict[str, Mutant] = {
     "mysql_dollar": Mutant("end = -1 if _name_goes_on(source, index, out, mysql)",
                            "end = -1 if mysql or _name_goes_on(source, index, out, mysql)", "recorder_sql-mysql",
                            "visible"),
-    "mysql_dollar_name": Mutant(' or (mysql and last == ".")', "", "recorder_sql-mysql", "visible"),
+    # the family cut stops at a dollar quote, so these two only move the stop: the value stays hidden, the shape changes
+    "mysql_dollar_name": Mutant(' or (mysql and last == ".")', "", "recorder_sql-mysql", "shape"),
     "mysql_closer": Mutant("end = _mysql_closer(sql, tag, body_start) if mysql else sql.find(tag, body_start)",
-                           "end = sql.find(tag, body_start)", "recorder_sql-mysql", "visible"),
+                           "end = sql.find(tag, body_start)", "recorder_sql-mysql", "shape"),
     "mysql_digit_tag": Mutant("(mysql or cursor > index + 1)", "(cursor > index + 1)", "recorder_sql-mysql", "visible"),
+    # the MySQL family: a statement that reads one way still stops where the two reads part
+    "family_cut": Mutant("return _family_cut(scan) if mysql else -1", "return -1", "recorder_sql-mysql", "visible"),
+    "family_second_read": Mutant("scanners = _SCANNERS if dollar else _NO_DOLLAR_SCANNERS", "scanners = _SCANNERS",
+                                 "recorder_sql-mysql", "visible"),
     "number_dollar": Mutant('last == "?" and source[index - 1].isalnum()', "False", "recorder_sql-generic", "visible"),
     "dot_opens": Mutant('or last in "_$" or', 'or last in "_$." or', "recorder_sql-generic", "visible"),
     "backtick_quote": Mutant("if not mysql and _backtick_reads_two_ways(source, runs):", "if False:",
@@ -173,9 +178,10 @@ MUTANTS: dict[str, Mutant] = {
     "digit_in_name": Mutant(DIGIT, "elif c.isdigit():", SURFACE, "shape"),
     "dot_digit": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), SURFACE, "visible"),
     "dot_digit_mysql": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), "recorder_sql-mysql", "visible"),
+    # as ``mysql_dollar_name``: the ``$`` they free opens a quote, and the family cut stops there
     "name_part": Mutant("_skip_number(source, index, _name_part(out))", "_skip_number(source, index)",
-                        "recorder_sql-mysql", "visible"),
-    "at_token": Mutant("if not mysql or found is None:", "if True:", "recorder_sql-mysql", "visible"),
+                        "recorder_sql-mysql", "shape"),
+    "at_token": Mutant("if not mysql or found is None:", "if True:", "recorder_sql-mysql", "shape"),
     "at_number": Mutant("if _AT_NUMBER.search(found[0]):", "if False:", "db_statement-mysql", "shape"),
     "release_name": Mutant('if flags[literal] and literal > start and source[literal - 1] == "=":', "if False:",
                            "db_statement-mysql", "shape"),
@@ -187,10 +193,13 @@ MUTANTS: dict[str, Mutant] = {
         SURFACE,
         "shape",
     ),
-    "in_collapse": Mutant('if "?" not in normalized:', "if True:", SURFACE, "shape"),
-    # db.statement masks the text before it scans, which hides a vendor token anyway; the recorder scans first
+    "ascii_space": Mutant("elif c in _SPACE:", "elif c.isspace():", SURFACE, "visible"),
+    "ascii_space_collapse": Mutant("if c in _SPACE and collapse:", "if c.isspace() and collapse:", SURFACE, "shape"),
+    "in_collapse": Mutant("if _PLACEHOLDER_RUN.search(normalized) is None:", "if True:", SURFACE, "shape"),
+    # also dies on every surface's ``shape``: a masker hides the token as a mask where the scan left ``?``, so only the
+    # scan alone shows it as ``visible``. Its one visible job in production is METADATA_ONLY, where no masker reads
     "double_quote_secret": Mutant(
-        "or is_secret_value(sql[index + 1 : stop])", "or False", "recorder_sql-generic", "visible"
+        "or is_secret_value(sql[index + 1 : stop])", "or False", "scan_alone-generic", "visible"
     ),
 }  # fmt: skip
 
@@ -234,6 +243,50 @@ def _kill(mutant: Mutant, tmp: Path) -> tuple[int, int]:
     copy = _scratch_copy(tmp)
     _mutate(copy, mutant)
     return _base(mutant.surface)[mutant.gate], _run_worker(tmp / "src", mutant.surface)[mutant.gate]
+
+
+# mutants the seeded rows cannot reach (the cut hides what they change): a named unit test must fail on the mutated copy
+NEVER_CLOSES = Mutant(
+    "end = _mysql_closer(sql, tag, body_start) if mysql else sql.find(tag, body_start)",
+    "end = -1 if mysql else sql.find(tag, body_start)",
+    "recorder_sql-mysql",
+    "shape",
+)  # the gates at seeds 7, 8 and 9 let it live: the family cut hides everything past an opener
+NAMED_MUTANTS = {"mysql_closer_never": NEVER_CLOSES, "mysql_closer": MUTANTS["mysql_closer"]}
+CLOSED_QUOTE = "tests/engine/capture/test_sqlscan.py::test_a_closed_dollar_quote_on_mysql_keeps_what_the_cut_would_hide"
+NAMED_TESTS = {"mysql_closer_never": CLOSED_QUOTE, "mysql_closer": CLOSED_QUOTE}
+
+
+@pytest.mark.parametrize("name", NAMED_TESTS)
+def test_a_mutant_fails_its_named_test(name: str, tmp_path: Path) -> None:
+    copy = _scratch_copy(tmp_path)
+    _mutate(copy, NAMED_MUTANTS[name])
+    env = {**os.environ, "PYTHONPATH": str(tmp_path / "src"), "PYTHONDONTWRITEBYTECODE": "1"}
+    done = subprocess.run(
+        [sys.executable, "-m", "pytest", NAMED_TESTS[name], "-q", "-p", "no:cacheprovider", "-p", "no:xdist"],
+        cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=100,
+    )  # fmt: skip
+    assert done.returncode == 1, f"{name} survives its named test: {done.stdout[-1500:]}"
+
+
+RAW_FINGERPRINT = Mutant(", fingerprint=text.lower())", ")", "", "", "engine/capture/statement.py")
+
+
+def test_an_id_only_leak_fails_the_gate(tmp_path: Path) -> None:
+    """The plant keeps ``sql`` safe and leaks only the fingerprint, which no gate over one text can see."""
+    _mutate(_scratch_copy(tmp_path), RAW_FINGERPRINT)
+    env = {**os.environ, "PYTHONPATH": str(tmp_path / "src"), "PYTHONDONTWRITEBYTECODE": "1"}
+    done = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider", "--tb=line",
+         "tests/masking/test_serialized_reports.py::test_no_secret_in_test_session_facts",
+         "tests/masking/test_serialized_reports.py::test_no_secret_in_a_relationship_group"],
+        cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=100,
+    )  # fmt: skip
+    assert done.returncode == 1, done.stdout[-2000:]
+    failed = {line.split("::")[-1].split(" - ")[0] for line in done.stdout.splitlines() if line.startswith("FAILED")}
+    assert "test_no_secret_in_test_session_facts[unquoted_alias-attributed]" in failed, done.stdout[-2000:]
+    assert "test_no_secret_in_a_relationship_group[upper_case_alias]" in failed, done.stdout[-2000:]
+    assert "AssertionError" in done.stdout, done.stdout[-2000:]  # the gate's own assertion, no crash
 
 
 @pytest.mark.parametrize("name", MUTANTS)

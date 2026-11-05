@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import re
 from collections.abc import Sequence
+from itertools import zip_longest
 from typing import NamedTuple
 
 from sharpit.engine.masking import MASK, is_secret_value
@@ -18,6 +19,7 @@ _RADIX_LITERAL = re.compile(r"0[xX]_?[0-9a-fA-F]+(?:_[0-9a-fA-F]+)*|0[bB]_?[01]+
 _BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d]\w*(?: +[^\W\d]\w*)* *\]")
 # a bracket's body also ends at the next ``[``, so bodies never overlap and a run of open brackets stays linear
 _BRACKET_STOP = re.compile(r"[\[\]]")
+_PLACEHOLDER_RUN = re.compile(r"\? *, *\?")  # what a folded list needs
 _OPENER = re.compile("['\"`$#]|--|/\\*")  # what can open a run: a body without one reads one way and pays this search
 _ALTERNATIVE_QUOTE = re.compile(r"(?<![\w$])n?q'", re.IGNORECASE)
 _QUOTE = re.compile("['\"]")
@@ -28,6 +30,8 @@ _TIGHT_DASH_OPENER = re.compile(rf"{_RUN_OPENER.pattern}|/\*")
 _AT_TOKEN = re.compile(r"@[\w.$\x80-\U0010ffff]+")
 _AT_NUMBER = re.compile(r"[@.]\d")
 _EXECUTABLE_COMMENT = ("/*!", "/*M!")  # MySQL and MariaDB run what these hold
+_SPACE_CHARS = " \t\n\v\f\r"
+_SPACE = frozenset(_SPACE_CHARS)  # ASCII only: no server reads U+00A0 or U+2028 as whitespace, `isspace` does
 # never hidden in code: the statement keeps its shape, and the last masker pass still sees ``password=`` in the render
 _STRUCTURAL = frozenset('"`[],;()=<>')
 # the runs a scan reads as one: replaced by ``?``, replaced by a space, and copied with their whitespace (a quoted name)
@@ -304,7 +308,7 @@ def _skip_number(sql: str, index: int, name_part: bool = False) -> int:
 def _collapse_placeholder_lists(normalized: str) -> tuple[str, list[tuple[int, int]]]:
     """``normalized`` with each ``IN (?, ?)`` list folded, and what was cut, as positions in ``normalized``."""
     cuts: list[tuple[int, int]] = []
-    if "?" not in normalized:
+    if _PLACEHOLDER_RUN.search(normalized) is None:
         return normalized, cuts
     out = _Out()
     index, length = 0, len(normalized)
@@ -424,6 +428,7 @@ _SCANNERS = {
     **dict.fromkeys('"`[', _scan_quoted),
     **dict.fromkeys("tTfF", _scan_keyword),
 }
+_NO_DOLLAR_SCANNERS = {c: scanner for c, scanner in _SCANNERS.items() if c != "$"}  # ``$`` is then a name's character
 
 
 class _Scan(NamedTuple):
@@ -433,25 +438,32 @@ class _Scan(NamedTuple):
     predicate_literals: int
 
 
-def _read(source: str, mysql: bool) -> _Scan:
+def _read(source: str, mysql: bool, dollar: bool = True) -> _Scan:
+    """``dollar`` off reads as MariaDB and MySQL before 8.1 do: no dollar quote, which is all they differ in here. A
+    bracket's body keeps its own read: a dollar quote that opens in it reads two ways, and that cut comes first."""
+    scanners = _SCANNERS if dollar else _NO_DOLLAR_SCANNERS
     out = _Out()
+    chars = out.chars
     literals = predicate_literals = 0
     index, length = 0, len(source)
     while index < length:
         start = index
         c = source[index]
-        scanner = _SCANNERS.get(c)
+        scanner = scanners.get(c)
         literal = False
         if scanner is not None:
             index, literal = scanner(source, index, out, mysql)
-        elif c.isspace():
+        elif c in _SPACE:
             out.space()
             index += 1
         # after a ``.`` a digit starts a literal: ``THEN.5`` is a number, and no keyword list can tell it from ``t.5``
         elif c.isdigit() and (not _identifier_char_before(out) or out.chars[-1] == "."):
             index, literal = _skip_number(source, index, _name_part(out)), True
-        else:
+        elif c in "()":
             out.append(c)
+            index += 1
+        else:  # no paren and no space, so ``out.append`` would only append: most of a statement comes here
+            chars.append(c)
             index += 1
         if literal:
             literals += 1
@@ -566,16 +578,27 @@ def _bracket_opener(scan: _Scan) -> re.Match[str] | None:
     return None
 
 
+def _family_cut(scan: _Scan) -> int:
+    """The first run the MySQL family's two reads place apart; -1 when a ``$`` opens no dollar quote on either."""
+    source = scan.source
+    if "$" not in source:
+        return -1
+    other = _read(source, True, dollar=False).out.runs
+    end = (len(source), len(source), _LITERAL)  # the read with fewer runs goes on to the end of the text
+    return next((min(a[0], b[0]) for a, b in zip_longest(scan.out.runs, other, fillvalue=end) if a != b), -1)
+
+
 def _ambiguous_cut(scan: _Scan, mysql: bool) -> int:
     """Where a statement that reads two ways stops, its first opener; -1 when it reads one way or holds none.
 
-    An opener is one of ``_RUN_OPENER``, or what opened a run left open in a bracket.
+    An opener is one of ``_RUN_OPENER``, or what opened a run left open in a bracket. On MySQL a statement that reads
+    one way can still stop, where the family's reads part: never before that first opener, so the cuts need no merge.
 
     Ported from ``JournalTextExposure.isAmbiguous``, which runs on the journal; here a trigger inside a literal is text
     (MVP spec §14), and the nested and backslash checks also run on MySQL (decision D7).
     """
     if not _reads_two_ways(scan, mysql):
-        return -1
+        return _family_cut(scan) if mysql else -1
     found = _RUN_OPENER.search(scan.source)
     return min((stop.start() for stop in (found, _bracket_opener(scan)) if stop), default=-1)
 
@@ -597,6 +620,21 @@ def _scan(sql: str, mysql: bool) -> _Scan:
     return _Scan(source, out, head.literals + 1, head.predicate_literals + predicate)
 
 
+class Reading(NamedTuple):
+    """One read of raw text: its shape, and what ``shown`` emits from."""
+
+    shape: Normalized
+    scan: _Scan
+    cuts: list[tuple[int, int]]
+
+
+def read_statement(sql: str, mysql: bool = False) -> Reading:
+    """The one read of ``sql``: ``normalize`` keeps the shape, ``shown`` takes the rest, so neither scans again."""
+    scan = _scan(sql, mysql)
+    collapsed, cuts = _collapse_placeholder_lists(scan.out.text().strip(_SPACE_CHARS))
+    return Reading(Normalized(collapsed, collapsed.lower(), scan.literals, scan.predicate_literals), scan, cuts)
+
+
 @functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text
 def normalize(sql: str, mysql: bool = False) -> Normalized:
     """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``.
@@ -605,11 +643,9 @@ def normalize(sql: str, mysql: bool = False) -> Normalized:
     ``--`` needs a space after it. Elsewhere those mean an identifier, an operator and a comment. A statement that reads
     two ways stops at its first opener (``_ambiguous_cut``).
     """
-    if not sql or sql.isspace():
+    if not sql.strip(_SPACE_CHARS):
         return Normalized("", "", 0, 0)
-    scan = _scan(sql, mysql)
-    collapsed, _ = _collapse_placeholder_lists(scan.out.text().strip())
-    return Normalized(collapsed, collapsed.lower(), scan.literals, scan.predicate_literals)
+    return read_statement(sql, mysql).shape
 
 
 def scan_ranges(sql: str, mysql: bool = False) -> list[Range]:
@@ -650,10 +686,10 @@ def _copy(source: str, span: tuple[int, int], flags: bytearray, pieces: list[str
     masked = False
     for index in range(*span):
         c = source[index]
-        if c.isspace() and collapse:
+        if c in _SPACE and collapse:
             _space(pieces)
             masked = False
-        elif flags[index] and not c.isspace() and c not in _STRUCTURAL:
+        elif flags[index] and c not in _SPACE and c not in _STRUCTURAL:
             pieces.append("" if masked else MASK)
             masked = True
         else:
@@ -661,15 +697,16 @@ def _copy(source: str, span: tuple[int, int], flags: bytearray, pieces: list[str
             masked = False
 
 
-def shown(sql: str, hidden: Sequence[tuple[int, int]], mysql: bool = False) -> str:
+def shown(sql: str, hidden: Sequence[tuple[int, int]], mysql: bool = False, reading: Reading | None = None) -> str:
     """``sql`` as ``normalize`` shows it, with the ``hidden`` raw spans masked (ported from ``SqlSinkText.mask``).
 
     Each character is classified once, from the raw scan, and emitted from that alone, so a hidden ``=`` cannot change
     what the scan decided about the ``"x"`` after it. A hidden character in a literal or a comment needs nothing:
     neither is copied. ``pieces`` has one entry per character of the scan's output, so the scan's list cuts apply to it
-    by position, and nothing reads what was emitted.
+    by position, and nothing reads what was emitted. ``reading`` is ``read_statement``'s, when the caller holds it.
     """
-    scan = _scan(sql, mysql)
+    reading = reading or read_statement(sql, mysql)
+    scan = reading.scan
     source, flags = scan.source, _hidden_flags(hidden, len(scan.source))
     pieces: list[str] = []
     index = 0
@@ -687,11 +724,11 @@ def shown(sql: str, hidden: Sequence[tuple[int, int]], mysql: bool = False) -> s
     _copy(source, (index, len(source)), flags, pieces, True)
     kept: list[str] = []
     index = 0
-    for start, end in _collapse_placeholder_lists(scan.out.text().strip())[1]:
+    for start, end in reading.cuts:
         kept += pieces[index:start]
         index = end
     kept += pieces[index:]
-    return "".join(kept).strip()
+    return "".join(kept).strip(_SPACE_CHARS)
 
 
 def is_mysql(owner: object) -> bool:
