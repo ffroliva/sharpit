@@ -6,14 +6,14 @@ by sharing its code (spec A3, revision 2's oracle compared ``normalize`` with it
 
 Statement conventions for ``generic`` and ``mysql``: a literal is ``?``, a comment and a whitespace run are one space,
 an ``IN`` list of bare literals is ``IN (?)``, the ends are stripped. An ambiguous statement is its text up to the first
-quote, under the same conventions, followed by `` ?``. ``postgresql`` is ``postgresql/querytext.py``'s shape:
+opener, under the same conventions, followed by `` ?``. ``postgresql`` is ``postgresql/querytext.py``'s shape:
 ``'******'``, ``$$******$$`` and ``******``, which drops comments, collapses whitespace, keeps ``IN`` lists and reads
 every run to its end.
 
 Ambiguous classes: ``trailing_backslash``, ``nested_comment``, ``oracle_quote``, ``hash``, ``odd_bracket``,
-``executable_comment``, ``tight_dash`` and ``at_dollar`` in ``generic``; ``trailing_backslash`` in ``postgresql``, where
-the scan has no PostgreSQL mode, so the statement takes the generic cut and loses its tail (spec A3 allows that on a row
-marked ambiguous); ``mysql_escaped`` (D7) and ``executable_comment`` in ``mysql``.
+``executable_comment``, ``tight_dash``, ``at_dollar`` and ``backtick_quote`` in ``generic``; ``trailing_backslash`` in
+``postgresql``, where the scan has no PostgreSQL mode, so the statement takes the generic cut and loses its tail (spec
+A3 allows that on a row marked ambiguous); ``mysql_escaped`` (D7) and ``executable_comment`` in ``mysql``.
 ``quiet_trigger`` rows read one way and are never marked: a statement that loses its tail there fails A3.
 
 ``expected`` is exact on ``plain`` rows. Elsewhere a hit may render ``******``, so ``tail`` carries the part of the
@@ -54,7 +54,7 @@ class Row:
     plain: bool  # no name or literal opener in it is sensitive: the output must equal ``expected``
     expected: str  # what the statement surface shows, from the template
     quoted_identifier: tuple[str, ...] = ()  # decision D6, issue #59: shown as identifiers, counted and not failed
-    ambiguous: bool = False  # reads two ways: stops at its first quote
+    ambiguous: bool = False  # reads two ways: stops at its first opener
     tail: str = ""  # what follows the literals in the statement: a row that is not ambiguous keeps it
 
 
@@ -175,6 +175,7 @@ class _Statements:
         self.pg = dialect == POSTGRESQL
         self.number = MASKED if self.pg else "?"
         self.string = f"'{MASKED}'" if self.pg else "?"
+        self.turn = 0
 
     def _literal(self) -> _Literal:
         return self.rng.choice(_LITERALS[self.dialect])(self.rng)
@@ -257,6 +258,8 @@ class _Statements:
 
     def nested_comment(self) -> Row:  # PostgreSQL nests comments, so there it reads one way
         m = _mark(self.rng)
+        if self.dialect == GENERIC and self.rng.random() < 0.5:  # ambiguous either way, so the fallback share holds
+            return self._two_way(m)
         shown = _Shown(f"/* /* nested */ it's */ SELECT '{m}'", "it ?", f"SELECT '{MASKED}'")
         return self._single("nested_comment", shown, m, ambiguous=not self.pg)
 
@@ -270,21 +273,40 @@ class _Statements:
         text = f"SELECT # it's\n '{m}'"
         if self.dialect == MYSQL:  # a comment there, and the statement reads one way
             return self._single("hash", _Shown(text, "SELECT ?", ""), m)
+        if self.rng.random() < 0.5:
+            return self._two_way(m)
         return self._single("hash", _Shown(text, "SELECT # it ?", ""), m, ambiguous=True)
 
     def _two_way(self, m: str) -> Row:
         """Statements of (r5), each valid on the engine named in ``test_sqlscan.py``: nothing tells a reading here."""
-        shape, text, scan = self.rng.choice(
-            (
-                ("odd_bracket", f"SELECT [it's], '{m}' FROM t", "SELECT [it ?"),
-                ("odd_bracket", f"SELECT a[it's], '{m}' FROM (SELECT 1 AS a)", "SELECT a[it ?"),
-                ("odd_bracket", f"SELECT [a`b], '{m}' FROM (SELECT 1 AS [a`b])", "SELECT ?, ?"),
-                ("executable_comment", f"SELECT 1 /*! # */ don't\n, '{m}' */", "SELECT ? don ?"),
-                ("tight_dash", f"SELECT 5--`a\nb`, '{m}' FROM (SELECT 1 AS `a\nb`) t", "SELECT ? b`, ?"),
-                ("at_dollar", f"SELECT @$$ := 'a $$ {m} '", "SELECT @? ?"),
-            )
+        d = _digits(self.rng)
+        rows = (
+            ("odd_bracket", m, f"SELECT [it's], '{m}' FROM t", "SELECT [it ?"),
+            ("odd_bracket", m, f"SELECT a[it's], '{m}' FROM (SELECT 1 AS a)", "SELECT a[it ?"),
+            ("odd_bracket", m, f"SELECT [a`b], '{m}' FROM (SELECT 1 AS [a`b])", "SELECT [a ?"),
+            ("odd_bracket", m, f"SELECT [$$], 'a $$ {m} ' FROM (SELECT 1 AS [$$])", "SELECT [ ?"),
+            ("odd_bracket", m, f"SELECT a[-- ], 'a\n', '{m}' FROM (SELECT 1 AS a)", "SELECT a[ ?"),
+            ("odd_bracket", m, f"SELECT [/*], 'a*/', '{m}' FROM (SELECT 1 AS [/*])", "SELECT [ ?"),
+            ("odd_bracket", m, f"SELECT [it's[b], '{m}' FROM (SELECT 1 AS [it's[b])", "SELECT [it ?"),
+            ("odd_bracket", m, f"SELECT [`'`'], '{m}', [`'`'] FROM (SELECT 1 AS [`'`'])", "SELECT [ ?"),
+            ("odd_bracket", m, f"SELECT ARRAY[$$a]$$, $${m}$$]", "SELECT ARRAY[ ?"),  # PostgreSQL's value
+            ("executable_comment", m, f"SELECT 1 /*! # */ don't\n, '{m}' */", "SELECT ? don ?"),
+            ("executable_comment", d, f"SELECT 1 /*!50000 AS `*/`, {d} */", "SELECT ? ?"),  # no quote to stop at
+            ("tight_dash", m, f"SELECT 5--`a\nb`, '{m}' FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),
+            ("tight_dash", d, f"SELECT 5--`a\nb`, {d} FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),  # no quote in a run
+            ("tight_dash", m, f"SELECT 5--/*\n don't */1, '{m}'", "SELECT ? don ?"),
+            ("hash", d, f"SELECT 1 # `\n, {d} # `\n", "SELECT ? # ?"),  # a name on MySQL
+            ("at_dollar", m, f"SELECT @$$ := 'a $$ {m} '", "SELECT @? ?"),
+            ("at_dollar", m, f"SELECT t.$$ = 'a $$ {m} '", "SELECT t.? ?"),  # a name on MySQL, as after ``@``
+            # a name on MySQL, an operator on PostgreSQL after ``CREATE OPERATOR`` (N5)
+            ("backtick_quote", m, f"SELECT `it's`, '{m}' FROM t", "SELECT ?"),
+            ("backtick_quote", m, f"SELECT 1 ` '{m}'", "SELECT ? ?"),
         )
-        return self._single(shape, _Shown(text, scan, ""), m, ambiguous=True)
+        shape, marker, text, scan = rows[
+            self.turn % len(rows)
+        ]  # in turn: each must land in a mutant's few hundred rows
+        self.turn += 1
+        return self._single(shape, _Shown(text, scan, ""), marker, ambiguous=True)
 
     def mysql_name(
         self,
@@ -298,15 +320,38 @@ class _Statements:
                     f"SELECT 1 FROM (SELECT 1 AS `$a$`) t WHERE t.$a$ = 'a $a$ {m} '",
                     "SELECT ? FROM (SELECT ? AS `$a$`) t WHERE t.$a$ = ?",
                 ),
+                (
+                    f"SELECT 1$a$, 'a $a$ {m} ' FROM (SELECT 1 AS `1$a$`) t",
+                    "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t",
+                ),
             )
         )
         return self._single("mysql_name", _Shown(text, scan, ""), m)
 
+    def dollar_names(self) -> Row:  # read one way with the dialect unknown: a digit-led name, and 0.4.0's ``.``
+        m = _mark(self.rng)
+        text, scan = self.rng.choice(
+            (
+                (
+                    f"SELECT 1$a$, 'a $a$ {m} ' FROM (SELECT 1 AS `1$a$`) t",
+                    "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t",
+                ),
+                (f"SELECT x.$${m}$$ FROM (SELECT 1 AS x) x", "SELECT x.? FROM (SELECT ? AS x) x"),
+            )
+        )
+        return self._single("dollar_names", _Shown(text, scan, ""), m)
+
     def mysql_escaped(self) -> Row:  # D7: under NO_BACKSLASH_ESCAPES the run ends at the backslash
         m = _mark(self.rng)
         if self.rng.random() < 0.25:  # MySQL ends the comment past the scan's ``*/``
-            text = f"SELECT 1 /*! # */ don't\n, '{m}' */"
-            return self._single("executable_comment", _Shown(text, "SELECT ? don ?", ""), m, ambiguous=True)
+            d = _digits(self.rng)
+            marker, text, scan = self.rng.choice(
+                (
+                    (m, f"SELECT 1 /*! # */ don't\n, '{m}' */", "SELECT ? don ?"),
+                    (d, f"SELECT 1 /*!50000 AS `*/`, {d} */", "SELECT ? ?"),  # no quote to stop at
+                )
+            )
+            return self._single("executable_comment", _Shown(text, scan, ""), marker, ambiguous=True)
         column = self.rng.choice(_COLUMNS)
         quote = self.rng.choice("'\"")
         text = f"UPDATE t SET {column}={quote}a\\{quote}{m}{quote} WHERE id=1"
@@ -346,7 +391,6 @@ class _Statements:
         text, scan = self.rng.choice(
             (
                 (f"SELECT `a b`, '{m}' FROM t", "SELECT `a b`, ? FROM t"),
-                (f"SELECT `it's`, '{m}' FROM t", "SELECT `it's`, ? FROM t"),
                 (f"SELECT [a b], '{m}' FROM t", "SELECT [a b], ? FROM t"),
                 (f"SELECT [a 1], '{m}' FROM t", "SELECT [a 1], ? FROM t"),  # a digit in a name is not a number
                 (f"SELECT ARRAY['{m}', 'z'] FROM t", "SELECT ARRAY[?, ?] FROM t"),
@@ -385,7 +429,7 @@ class _Statements:
         if self.pg:
             return (*common, self.trailing_backslash, self.nested_comment, self.unclosed_dollar)
         return (*common, self.trailing_backslash, self.nested_comment, self.oracle_quote, self.hash_comment,
-                self.unclosed_dollar, self.quiet_trigger)  # fmt: skip
+                self.unclosed_dollar, self.quiet_trigger, self.dollar_names)  # fmt: skip
 
     def long_templates(self) -> tuple[Callable[[], Row], ...]:
         return (self.long_literal,) if self.pg else (self.long_literal, self.long_identifier)

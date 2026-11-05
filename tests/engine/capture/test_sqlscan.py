@@ -211,8 +211,8 @@ AMBIGUOUS = [
     ("SELECT (1)[it's], 'SECRET'", "SELECT (?)[it ?"),
     ("SELECT[it's], 'SECRET' FROM (SELECT 1 AS [it's])", "SELECT[it ?"),
     ("SELECT ARRAY[it's], 'SECRET'", "SELECT ARRAY[it ?"),  # ``ARRAY`` is a name there
-    ("SELECT [a`b], 'SECRET' FROM (SELECT 1 AS [a`b])", "SELECT ?, ?"),
-    ("SELECT a[b`c], 'SECRET'", "SELECT a?, ?"),
+    ("SELECT [a`b], 'SECRET' FROM (SELECT 1 AS [a`b])", "SELECT [a ?"),
+    ("SELECT a[b`c], 'SECRET'", "SELECT a[b ?"),
     ("SELECT [a\"b], 'SECRET'", "SELECT [a ?"),
     # the price, each valid on PostgreSQL and each hiding more than it must: nothing tells them from the rows above
     ("SELECT d['a]']", "SELECT d[ ?"),
@@ -333,7 +333,7 @@ def test_a_statement_that_reads_two_ways_still_cuts(sql: str) -> None:
         ("SELECT 1 /*! -- */ don't\n, 'SECRET' */", "SELECT ? don ?"),
         ("SELECT 1 /*! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
         ("SELECT 1 /*M! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
-        ("SELECT /*!50000 1 AS `*/`, 'SECRET' */", "SELECT `, ?"),
+        ("SELECT /*!50000 1 AS `*/`, 'SECRET' */", "SELECT ?"),
     ],
 )
 @pytest.mark.parametrize("mysql", [False, True])
@@ -368,9 +368,75 @@ def test_a_dollar_after_at_is_a_name_on_mysql(sql: str, expected: str) -> None:
         ),
     ],
 )
+def test_a_dollar_after_a_dot_is_a_name_on_mysql(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+# (r6) re-review 2 D1: ``t.$$`` is a name on MySQL and a syntax error elsewhere, and 0.4.0 hid what follows it, so with
+# the dialect unknown a ``.`` keeps its reading and the statement stops at its first opener, as after ``@``
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT x.$$SECRET$$ FROM (SELECT 1 AS x) x", "SELECT x.? FROM (SELECT ? AS x) x"),
+        ("SELECT t.$$ = 'a $$ SECRET '", "SELECT t.? ?"),
+        ("SELECT 1 FROM (SELECT 1 AS `$a$`) t WHERE t.$a$ = 'a $a$ SECRET '", "SELECT ? FROM (SELECT ? AS ?"),
+        ("SELECT t.$$ FROM (SELECT 1 AS `$$`) t WHERE t.$$ = 'a $$ SECRET '", "SELECT t.? ?"),
+    ],
+)
+def test_a_dollar_after_a_dot_stops_the_statement_with_the_dialect_unknown(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+# (r6) MySQL 8.4.10 answers 1064 to ``SELECT $$SECRET$$`` under both sql modes: no dollar quote exists there
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT $$x$$", "SELECT $$x$$"),
+        ("SELECT $a$x$a$", "SELECT $a$x$a$"),
+        ("SELECT 'a', $$, 'b'", "SELECT ?, $$, ?"),
+    ],
+)
+def test_a_dollar_never_opens_a_quote_on_mysql(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+# derived: re-review 2 B1, MySQL 8.4.10 reads a digit-led name for each, under both sql modes; PostgreSQL and SQLite
+# answer a syntax error to ``1$$x$$``, so a ``$`` tight after a number opens nothing anywhere
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `1$a$`) t", "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t"),
+        ("SELECT 1$$, 'a $$ SECRET ' FROM (SELECT 1 AS `1$$`) t", "SELECT ?$$, ? FROM (SELECT ? AS `1$$`) t"),
+        (
+            "SELECT 0xAB$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `0xAB$a$`) t",
+            "SELECT ?$a$, ? FROM (SELECT ? AS `0xAB$a$`) t",
+        ),
+        (
+            "SELECT 1_2$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `1_2$a$`) t",
+            "SELECT ?$a$, ? FROM (SELECT ? AS `1_2$a$`) t",
+        ),
+        ("SELECT 1 AS 1$a$, 'a $a$ SECRET '", "SELECT ? AS ?$a$, ?"),
+        (
+            "SELECT 'SECRET' FROM (SELECT 1 AS `1$a$`) t WHERE 1$a$ = 1 OR 'a $a$ SECRET' = ''",
+            "SELECT ? FROM (SELECT ? AS `1$a$`) t WHERE ?$a$ = ? OR ? = ?",
+        ),
+    ],
+)
 @pytest.mark.parametrize("mysql", [False, True])
-def test_a_dollar_after_a_dot_is_a_name(sql: str, expected: str, mysql: bool) -> None:
+def test_a_dollar_after_a_number_opens_nothing(sql: str, expected: str, mysql: bool) -> None:
     assert normalize(sql, mysql).sql == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT a ?$$SECRET$$", "SELECT a ??"),  # a raw ``?`` is PostgreSQL's operator, not a just-read literal
+        ("SELECT 'a'$$SECRET$$", "SELECT ??"),  # a syntax error everywhere: only a number goes on as a name
+        ("SELECT $$a$$$$SECRET$$", "SELECT ??"),
+    ],
+)
+def test_a_dollar_after_anything_else_that_is_no_name_still_opens(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
 
 
 def test_a_dollar_quote_after_at_reads_two_ways_with_the_dialect_unknown() -> None:
@@ -385,12 +451,87 @@ def test_a_dollar_quote_after_at_stays_a_literal_without_a_quote_to_stop_at() ->
 # derived: re-review N3, MySQL 8.4.10 returns (6, 'SECRET'): the tight ``--`` hides the backtick that opens the name
 def test_a_tight_double_dash_holding_a_backtick_cuts() -> None:
     sql = "SELECT 5--`a\nb`, 'SECRET' FROM (SELECT 1 AS `a\nb`) t"
-    assert normalize(sql).sql == "SELECT ? b`, ?"
+    assert normalize(sql).sql == "SELECT ? ?"
 
 
 def test_mysql_reads_two_minus_signs_and_a_name_there() -> None:
     sql = "SELECT 5--`a\nb`, 'SECRET' FROM (SELECT 1 AS `a\nb`) t"
     assert normalize(sql, True).sql == "SELECT ?--`a\nb`, ? FROM (SELECT ? AS `a\nb`) t"
+
+
+# derived: re-review 2 A1, MySQL 8.4.10 returns 1234567 for each, under both sql modes: the statement holds no quote or
+# the number is before it, so only a backtick is there to stop at
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1 /*!50000 AS `*/`, 1234567 */", "SELECT ? ?"),
+        ("SELECT /*! 1 AS `*/`, 1234567 */", "SELECT ?"),
+        ("SELECT /*! 1 AS `*/`, 1234567, 'x' */", "SELECT ?"),
+        ("SELECT 1 /*! # */ `\n, 1234567 # `\n */", "SELECT ? ?"),
+    ],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+def test_a_backtick_stops_the_cut(sql: str, expected: str, mysql: bool) -> None:
+    assert normalize(sql, mysql).sql == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 5--`a\nb`, 1234567 FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),
+        ("SELECT 5--`a\nb`, 1234567, 'x' FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),
+        ("SELECT 1 # `\n, 1234567 # `\n", "SELECT ? # ?"),  # a backtick after a ``#`` is a quote after it
+    ],
+)
+def test_a_backtick_stops_the_cut_with_the_dialect_unknown(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+# derived: re-review 2 B2, MySQL 8.4.10 returns the value for each, under both sql modes: two minus signs and a block
+# comment over the newline, so a quote or a backtick inside it opens a run for the scan alone
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 5--/*\n don't */1, 'SECRET'", "SELECT ? don ?"),
+        ("SELECT 5--1 /*\n don't */, 'SECRET'", "SELECT ? don ?"),
+        ("SELECT 5--/*\n ` */1, 'SECRET'", "SELECT ? ?"),
+    ],
+)
+def test_a_tight_double_dash_holding_a_block_comment_cuts(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+def test_mysql_reads_two_minus_signs_and_a_block_comment_there() -> None:
+    assert normalize("SELECT 5--/*\n don't */1, 'SECRET'", True).sql == "SELECT ?-- ?, ?"
+
+
+def test_a_tight_double_dash_with_no_opener_after_it_has_nothing_to_stop_at() -> None:
+    assert normalize("SELECT 5--/* c\n, 2").sql == "SELECT ? , ?"
+
+
+# derived: re-review 1 N5, ruled: with CREATE OPERATOR a backtick is an operator on PostgreSQL 18.2, and
+# ``SELECT 1 ` 'SECRET'`` returns the value, while the scan reads a name and copies it
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1 ` 'SECRET'", "SELECT ? ?"),
+        ("SELECT `a 'x', SECRET' ", "SELECT ?"),
+        ('SELECT 1 ` "SECRET"', "SELECT ? ?"),
+        ("SELECT `a'b`, 'SECRET' FROM (SELECT 1 AS `a'b`) t", "SELECT ?"),
+        ('SELECT `a"b`, 1234567', "SELECT ?"),
+    ],
+)
+def test_a_backtick_run_holding_a_quote_reads_two_ways_with_the_dialect_unknown(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+def test_a_backtick_run_is_a_name_on_mysql() -> None:
+    sql = "SELECT `a'b`, 'SECRET' FROM (SELECT 1 AS `a'b`) t"
+    assert normalize(sql, True).sql == "SELECT `a'b`, ? FROM (SELECT ? AS `a'b`) t"
+
+
+def test_a_backtick_run_with_no_quote_keeps_the_statement() -> None:
+    assert normalize("SELECT `a b`, 'x'").sql == "SELECT `a b`, ?"
 
 
 def test_a_lone_cr_in_a_line_comment_cuts() -> None:
@@ -435,7 +576,7 @@ def test_a_number_is_a_literal_however_it_is_spelled(sql: str, expected: str, my
         ("SELECT $$it's", "SELECT ?"),
         ("select a$b$c from t", "select a$b$c from t"),
         ("select a$b$c$b$ from t", "select a$b$c$b$ from t"),  # a ``$`` inside a name opens nothing, closed or not
-        ("SELECT 1$$x$$", "SELECT ??"),  # a number is no name
+        ("SELECT 1$$x$$", "SELECT ?$$x$$"),  # (r6) a syntax error on PostgreSQL and SQLite, a name on MySQL
         ("select * from t where id = $1", "select * from t where id = $1"),
     ],
 )
@@ -489,12 +630,12 @@ def test_an_array_with_a_space_before_its_bracket_is_a_subscript() -> None:
     assert normalize("SELECT ARRAY [TRUE], [TRUE]").sql == "SELECT ARRAY [?], [TRUE]"
 
 
-# derived: re-review N4: with no quote there is nothing to cut at, and a run read whole keeps the number hidden
+# derived: re-review N4 and A1: a backtick stops the cut, so a number after it never reaches a head with an open run
 @pytest.mark.parametrize(
     ("sql", "expected"),
     [
-        ("SELECT [a`b], 123456", "SELECT ?, ?"),
-        ("SELECT a[b`c], 123456", "SELECT a?, ?"),
+        ("SELECT [a`b], 123456", "SELECT [a ?"),
+        ("SELECT a[b`c], 123456", "SELECT a[b ?"),
     ],
 )
 def test_a_bracket_holding_a_backtick_is_one_literal(sql: str, expected: str) -> None:
@@ -524,6 +665,123 @@ def test_a_subscript_with_balanced_quotes_keeps_its_reading(sql: str, expected: 
 )
 def test_a_bracket_without_a_quote_keeps_its_reading(sql: str, expected: str) -> None:
     assert normalize(sql).sql == expected
+
+
+# derived: re-review 2 A2, each runs on SQLite, where a bracket closes at its first ``]`` whatever is in it; 0.4.0 hid
+# the value but on the last row (D6): a run opened in the body and open at its end flips the reading of what follows
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT [$$], 'a $$ SECRET ' FROM (SELECT 1 AS [$$])", "SELECT [ ?"),
+        ("SELECT a[$$], 'a $$ SECRET ' FROM (SELECT 1 AS a)", "SELECT a[ ?"),
+        ("SELECT [$a$], 'a $a$ SECRET ' FROM (SELECT 1 AS [$a$])", "SELECT [ ?"),
+        ("SELECT [-- ], 'a\n', 'SECRET' FROM (SELECT 1 AS [-- ])", "SELECT [ ?"),
+        ("SELECT a[-- ], 'a\n', 'SECRET' FROM (SELECT 1 AS a)", "SELECT a[ ?"),
+        ("SELECT [x-- y], 'a\n', 'SECRET' FROM (SELECT 1 AS [x-- y])", "SELECT [x ?"),
+        ("SELECT [/*], 'a*/', 'SECRET' FROM (SELECT 1 AS [/*])", "SELECT [ ?"),
+        ("SELECT a[/*], 'a*/', 'SECRET' FROM (SELECT 1 AS a)", "SELECT a[ ?"),
+        ("SELECT [/*], 2 AS `*/`, 'SECRET' FROM (SELECT 1 AS [/*])", "SELECT [ ?"),
+        ("SELECT [it's[b], 'SECRET' FROM (SELECT 1 AS [it's[b])", "SELECT [it ?"),
+        ("SELECT a[it's[b], 'SECRET' FROM (SELECT 1 AS a)", "SELECT a[it ?"),
+        ("SELECT 1['[x], 'SECRET'", "SELECT ?[ ?"),
+        ("SELECT ['[x], 'SECRET' FROM (SELECT 1 AS ['[x])", "SELECT [ ?"),
+        ("SELECT [a`[b], 'SECRET' FROM (SELECT 1 AS [a`[b])", "SELECT [a ?"),
+        ("SELECT @a[`[x], 1234567", "SELECT @a[ ?"),
+        ("SELECT [`'`'], 'SECRET', [`'`'] FROM (SELECT 1 AS [`'`'])", "SELECT [ ?"),
+        ("SELECT ['`'`], 2 AS `x`, 'SECRET' FROM (SELECT 1 AS ['`'`])", "SELECT [ ?"),
+        ("SELECT a[`'`'], 'SECRET'", "SELECT a[ ?"),
+        ('SELECT [\'"\'"], "SECRET" FROM (SELECT 1 AS [\'"\'"])', "SELECT [ ?"),
+        ('SELECT a[\'"\'"], "SECRET" FROM (SELECT 1 AS a)', "SELECT a[ ?"),
+    ],
+)
+def test_a_run_left_open_in_a_bracket_stops_the_statement(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+# each returns the value on PostgreSQL 18.2 and e8210e8 hid it: read as one literal, the bracket inverts what follows,
+# so a dollar quote or a comment left open in a bracket is itself a place to stop
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT ARRAY[$$a]$$, $$SECRET$$]", "SELECT ARRAY[ ?"),
+        ("SELECT ARRAY[$$a]$$, $$SECRET$$], 'x'", "SELECT ARRAY[ ?"),
+        ("SELECT ARRAY[/*]$$*/$$SECRET$$]", "SELECT ARRAY[ ?"),
+    ],
+)
+def test_a_bracket_stops_at_the_opener_it_leaves_open(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+# a further ``[`` with no run open is read by the scan when it gets there: each is valid on PostgreSQL or SQLite
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT ARRAY['a', 'b']", "SELECT ARRAY[?, ?]"),
+        ("SELECT a['it''s']", "SELECT a[?]"),
+        ("SELECT arr[1], 'x'", "SELECT arr[?], ?"),
+        ("SELECT [a 1], 'x'", "SELECT [a 1], ?"),
+        ("SELECT ARRAY[1,2], 'x'", "SELECT ARRAY[?,?], ?"),
+        ("SELECT (ARRAY[1])[1], 'x'", "SELECT (ARRAY[?])[?], ?"),
+        ("SELECT ARRAY[['a','b']], 'x'", "SELECT ARRAY[[?,?]], ?"),
+        ("SELECT ARRAY[ARRAY['a']], 'x'", "SELECT ARRAY[ARRAY[?]], ?"),
+        ("SELECT ARRAY[$$x$$], 'y'", "SELECT ARRAY[?], ?"),
+        ("SELECT ARRAY[/* c */ 1], 'y'", "SELECT ARRAY[ ?], ?"),
+        ("SELECT [a[b], 'SECRET' FROM (SELECT 1 AS [a[b])", "SELECT [a[b], ? FROM (SELECT ? AS [a[b])"),
+        ("SELECT [a[b], 1234567 FROM (SELECT 1 AS [a[b])", "SELECT [a[b], ? FROM (SELECT ? AS [a[b])"),
+        ("SELECT [-- \n], 'x'", "SELECT [ ], ?"),  # the run closes inside: the first ``]`` reads the same both ways
+    ],
+)
+def test_a_run_closed_in_a_bracket_keeps_the_statement(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+def test_a_bracket_is_read_by_the_rules_of_its_mode() -> None:
+    assert "SECRET" not in normalize("SELECT [#], 'a\n', 'SECRET'", True).sql
+
+
+# derived: re-review 2's probes, a server returned the value for each and head hides it: pins, each already green
+PROBED_ON_MYSQL = [
+    "SELECT 'SECRET', t.$$ FROM (SELECT 1 AS `$$`) t WHERE t.$$ <> 'a $$ SECRET '",
+    "SELECT /*! `*/`, 'SECRET' */ FROM (SELECT 1 AS `*/`) t",
+    "SELECT 5--/*!\n1 AS `*/`, 'SECRET' */",
+    "SELECT 'a $a$ SECRET ' FROM (SELECT 1) 1$a$",
+    "SELECT /*+ QB_NAME(`a`) */ 1, 'SECRET'",
+    "SELECT /*+ QB_NAME(`a*b`) */ 1, 'SECRET'",
+]
+PROBED_ELSEWHERE = [
+    "SELECT 5--$$\n, 'a $$ SECRET '",
+    "SELECT 5--[\n, 'SECRET'",
+    "SELECT 5--x\r, 'SECRET'\n",
+    "SELECT ['\"'\"], 1 AS \"x\", 'SECRET' FROM (SELECT 1 AS ['\"'\"])",
+    "SELECT ['\"'\"], \"x\", 'SECRET' FROM (SELECT 1 AS ['\"'\"], 2 AS x)",
+    "SELECT [[it's], 'SECRET' FROM (SELECT 1 AS [[it's])",
+    "SELECT [a\nb's], 'SECRET' FROM (SELECT 1 AS [a\nb's])",
+    "SELECT [a\\], 'SECRET' FROM (SELECT 1 AS [a\\])",
+    "SELECT [a#b], 'SECRET' FROM (SELECT 1 AS [a#b])",
+    "SELECT [q'x'], 'SECRET' FROM (SELECT 1 AS [q'x'])",
+    "SELECT [e], 'SECRET' FROM (SELECT 1 AS [e])",
+    "SELECT [`], 1234567, [`] FROM (SELECT 1 AS [`])",
+    "SELECT [a b], 1234567 FROM (SELECT 1 AS [a b])",
+    "SELECT 1::int || $$SECRET$$",
+    "SELECT $$SECRET$$",
+    "SELECT $a$SECRET$a$",
+    'SELECT [\'"\'"], 1234567, "x" FROM (SELECT 1 AS [\'"\'"])',
+    "SELECT @$$-5$$::int, 'SECRET'",
+    "SELECT @ $$-5$$::int, 1234567",
+    "SELECT ARRAY[1] @> $$ {1} $$::int[], 'SECRET'",
+]
+
+
+@pytest.mark.parametrize("sql", PROBED_ON_MYSQL + PROBED_ELSEWHERE)
+def test_a_probed_value_stays_hidden(sql: str) -> None:
+    shown_text = normalize(sql).sql
+    assert "SECRET" not in shown_text
+    assert "1234567" not in shown_text
+
+
+@pytest.mark.parametrize("sql", PROBED_ON_MYSQL)
+def test_a_probed_value_stays_hidden_on_mysql(sql: str) -> None:
+    assert "SECRET" not in normalize(sql, True).sql
 
 
 def test_a_double_quote_cut_open_at_the_scan_limit_is_a_literal() -> None:

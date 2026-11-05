@@ -15,11 +15,13 @@ _RADIX_LITERAL = re.compile(r"0[xX]_?[0-9a-fA-F]+(?:_[0-9a-fA-F]+)*|0[bB]_?[01]+
 # a square-bracket identifier is a name, words and spaces only: anything else in brackets is a value and stays in the
 # scan (``ARRAY['x']``, ``ARRAY [lower($$x$$)]``, ``[2024 sales]``); showing a value is the worse mistake
 _BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d][\w ]*\]")
-# stops at the next ``[``, so a run of open brackets stays linear
-_BRACKET_RUN = re.compile(r"\[[^\[\]]*\]")
+# a bracket's body also ends at the next ``[``, so bodies never overlap and a run of open brackets stays linear
+_BRACKET_STOP = re.compile(r"[\[\]]")
+_OPENER = re.compile("['\"`$#]|--|/\\*")  # what can open a run: a body without one reads one way and pays this search
 _ALTERNATIVE_QUOTE = re.compile(r"(?<![\w$])n?q'", re.IGNORECASE)
 _QUOTE = re.compile("['\"]")
 _QUOTE_OR_BACKTICK = re.compile("['\"`]")
+_TIGHT_DASH_OPENER = re.compile("['\"`]|/\\*")
 _EXECUTABLE_COMMENT = ("/*!", "/*M!")  # MySQL and MariaDB run what these hold
 # never hidden in code: the statement keeps its shape, and the last masker pass still sees ``password=`` in the render
 _STRUCTURAL = frozenset('"`[],;()=<>')
@@ -195,14 +197,14 @@ def _identifier_char_before(out: _Out) -> bool:
     return bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$.")
 
 
-def _name_goes_on(out: _Out, mysql: bool) -> bool:
-    """The output ends inside a name, so a ``$`` here is part of it (``?`` is a literal: ``1$$x$$`` opens a quote).
-
-    ``t.$$`` is a syntax error on PostgreSQL, so ``.`` holds everywhere. ``@$$5$$`` is a value there, so ``@`` holds on
-    known MySQL text alone, and with the dialect unknown the statement stops (``_generic_trigger``).
+def _name_goes_on(source: str, index: int, out: _Out) -> bool:
+    """The output ends inside a name, so the ``$`` at ``index`` is part of it. A number goes on too: ``1$a$`` is a name
+    on MySQL and a syntax error on PostgreSQL and SQLite. A ``.`` or ``@`` does not hold: ``@$$5$$`` is a value on
+    PostgreSQL and 0.4.0 hid what follows ``t.$$``, so the statement stops there instead (``_generic_trigger``).
     """
     last = out.chars[-1] if out.chars else " "
-    return last.isalnum() or last in ("_$.@" if mysql else "_$.") or not last.isascii()
+    number = last == "?" and source[index - 1].isalnum()  # a raw ``?`` is an operator, and a string ends in a quote
+    return last.isalnum() or last in "_$" or not last.isascii() or number
 
 
 def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
@@ -214,17 +216,26 @@ def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
     subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$)]")
     subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")
     found = None if subscript else _BRACKET_IDENTIFIER.match(sql, index)
-    found = found or _odd_quote_bracket(sql, index)
     return found.end() if found else index + 1
 
 
-def _odd_quote_bracket(sql: str, index: int) -> re.Match[str] | None:
-    """A ``[`` holding an odd number of a quote before its ``]``: a name or a string, and the two read apart, so the
-    statement stops (``_reads_two_ways``). Read inside, ``[it's]`` swallows the next quote; read whole, ``['a]', 'x']``
-    inverts every quote after it. A subscript position proves nothing: on SQLite ``a[it's]`` is ``a`` with an alias, and
-    an even count, ``a['it''s']``, keeps the quotes balanced on every reading."""
-    found = _BRACKET_RUN.match(sql, index)
-    return found if found and any(found.group().count(quote) % 2 for quote in "'\"`") else None
+def _two_way_bracket_end(sql: str, index: int, mysql: bool) -> int:
+    """Where the body of the ``[`` at ``index`` ends when a run opened in it is still open there, otherwise -1.
+
+    SQLite closes a bracket at its first ``]`` whatever it holds, so such a body reads apart and the statement stops
+    (``_reads_two_ways``): read inside, ``[it's]`` swallows the next quote; read whole, ``['a]', 'x']`` inverts every
+    quote after it. A subscript position proves nothing: on SQLite ``a[it's]`` is ``a`` with an alias. A run closed in
+    the body, ``a['it''s']``, leaves every reading in the same state, and so does a further ``[`` with no run open:
+    the scan reads that one when it gets there. The sentinel ``]`` is swallowed exactly when a run is open at the end.
+    """
+    stop = _BRACKET_STOP.search(sql, index + 1)
+    end = stop.start() if stop else len(sql)
+    if not _OPENER.search(sql, index + 1, end):
+        return -1
+    runs = _read(sql[index + 1 : end] + "]", mysql).out.runs
+    if not runs or runs[-1][1] != end - index:
+        return -1
+    return end + 1 if stop and stop[0] == "]" else end
 
 
 def _mysql_dashes(sql: str, index: int) -> bool:
@@ -334,7 +345,8 @@ def _scan_string(source: str, index: int, _out: _Out, _mysql: bool) -> _Scanned:
 
 
 def _scan_dollar(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
-    end = -1 if _name_goes_on(out, mysql) else _dollar_quote_end(source, index)
+    # MySQL has no dollar quote: ``SELECT $$SECRET$$`` is 1064 on 8.4.10
+    end = -1 if mysql or _name_goes_on(source, index, out) else _dollar_quote_end(source, index)
     return (end, True) if end > 0 else _keep(source, index, out)
 
 
@@ -345,10 +357,10 @@ def _scan_dot(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
 
 
 def _scan_quoted(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
+    if source[index] == "[" and (two_way_end := _two_way_bracket_end(source, index, mysql)) > 0:
+        return two_way_end, True
     end = _quoted_end(source, index, out, mysql)
     if source[index] == '"' and _double_quoted_literal(source, index, end, out, mysql):
-        return end, True
-    if source[index] == "[" and _QUOTE_OR_BACKTICK.search(source, index, end):  # past ``[`` with a quote only here
         return end, True
     out.append(source[index:end])
     out.runs.append((index, end, _VERBATIM))
@@ -414,7 +426,7 @@ def _holds_a_trigger(source: str) -> bool:
     """A statement with none of these reads one way, and pays only these tests. A lone CR needs a ``--`` to matter."""
     return (
         "\\" in source or "#" in source or "/*" in source or "--" in source or "q'" in source or "Q'" in source
-        or "@$" in source
+        or "@$" in source or ".$" in source
     )  # fmt: skip
 
 
@@ -428,8 +440,8 @@ def _comment_reads_two_ways(source: str, start: int, end: int, mysql: bool) -> b
         return False
     if "\r" in source[start:end].rstrip("\r"):  # a lone CR ends it on PostgreSQL, not on MySQL or SQLite
         return True
-    # a ``--`` tight against text is two minus signs on MySQL, so a quote in it opens a literal or a name there
-    return not _mysql_dashes(source, start) and _QUOTE_OR_BACKTICK.search(source, start, end) is not None
+    # a ``--`` tight against text is two minus signs on MySQL, so what it holds opens a run there
+    return not _mysql_dashes(source, start) and _TIGHT_DASH_OPENER.search(source, start, end) is not None
 
 
 def _trigger_spans(source: str, runs: list[tuple[int, int, int]]) -> list[tuple[int, int]]:
@@ -445,15 +457,15 @@ def _trigger_spans(source: str, runs: list[tuple[int, int, int]]) -> list[tuple[
 
 
 def _generic_trigger(source: str, runs: list[tuple[int, int, int]]) -> bool:
-    """A ``q'`` (the span's end takes in the quote that opens a literal), a ``#`` with a quote after it anywhere, or a
-    dollar quote after ``@``, a value on PostgreSQL and a variable's name on MySQL."""
-    last_quote = max(source.rfind("'"), source.rfind('"'))
+    """A ``q'`` (the span's end takes in the quote that opens a literal), a ``#`` with a quote or a backtick after it
+    anywhere, or a dollar quote after ``@`` or ``.``, a value or a syntax error on PostgreSQL and a name on MySQL."""
+    last_quote = max(source.rfind("'"), source.rfind('"'), source.rfind("`"))
     for start, end in _trigger_spans(source, runs):
         if _ALTERNATIVE_QUOTE.search(source, start, end + 1):
             return True
         if 0 <= source.find("#", start, end) < last_quote:
             return True
-        if source.startswith("@$", end - 1):
+        if source.startswith(("@$", ".$"), end - 1):
             return True
     return False
 
@@ -469,9 +481,20 @@ def _backslash_reads_two_ways(scan: _Scan, mysql: bool) -> bool:
     return _read(source.replace("\\", ""), mysql).out.text() != scan.out.text()
 
 
+def _backtick_reads_two_ways(source: str, runs: list[tuple[int, int, int]]) -> bool:
+    """A name on MySQL and SQLite, an operator on PostgreSQL after ``CREATE OPERATOR``: a quote in it opens a string."""
+    if "`" not in source:
+        return False
+    return any(
+        kind == _VERBATIM and source[start] == "`" and _QUOTE.search(source, start, end) for start, end, kind in runs
+    )
+
+
 def _reads_two_ways(scan: _Scan, mysql: bool) -> bool:
     source, runs = scan.source, scan.out.runs
     if "[" in source and any(kind == _LITERAL and source[start] == "[" for start, _, kind in runs):
+        return True
+    if not mysql and _backtick_reads_two_ways(source, runs):
         return True
     if not _holds_a_trigger(source):
         return False
@@ -482,16 +505,27 @@ def _reads_two_ways(scan: _Scan, mysql: bool) -> bool:
     return not mysql and _generic_trigger(source, runs)  # on MySQL ``#`` is a comment and ``q'`` is nothing
 
 
+def _bracket_opener(scan: _Scan) -> re.Match[str] | None:
+    """The first opener of the first bracket that reads two ways: past it a dollar quote or a comment is read apart."""
+    source = scan.source
+    for start, end, kind in scan.out.runs:
+        if kind == _LITERAL and source[start] == "[":
+            return _OPENER.search(source, start, end)
+    return None
+
+
 def _ambiguous_cut(scan: _Scan, mysql: bool) -> int:
-    """Where a statement that reads two ways stops, its first quote; -1 when it reads one way or holds no quote.
+    """Where a statement that reads two ways stops, its first opener; -1 when it reads one way or holds none.
+
+    An opener is a quote or a backtick, or what opened a run left open in a bracket.
 
     Ported from ``JournalTextExposure.isAmbiguous``, which runs on the journal; here a trigger inside a literal is text
     (MVP spec §14), and the nested and backslash checks also run on MySQL (decision D7).
     """
     if not _reads_two_ways(scan, mysql):
         return -1
-    found = _QUOTE.search(scan.source)
-    return found.start() if found else -1
+    found = _QUOTE_OR_BACKTICK.search(scan.source)
+    return min((stop.start() for stop in (found, _bracket_opener(scan)) if stop), default=-1)
 
 
 def _scan(sql: str, mysql: bool) -> _Scan:
@@ -517,7 +551,7 @@ def normalize(sql: str, mysql: bool = False) -> Normalized:
 
     ``mysql`` is for text known to be MySQL's: ``"..."`` is a string with backslash escapes, ``#`` starts a comment and
     ``--`` needs a space after it. Elsewhere those mean an identifier, an operator and a comment. A statement that reads
-    two ways stops at its first quote (``_ambiguous_cut``).
+    two ways stops at its first quote or backtick (``_ambiguous_cut``).
     """
     if not sql or sql.isspace():
         return Normalized("", "", 0, 0)

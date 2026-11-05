@@ -38,7 +38,10 @@ def _repeat(unit: str) -> Callable[[int], str]:
 GENERATORS: dict[str, Callable[[int], str]] = {
     "quote-run": lambda size: "token " + '"' * size + "1",
     "quote-pairs": _repeat("\"' "),
-    "escaped-quote-run": lambda size: "password=[" + ESCAPED_QUOTE * (size // 2) + "]",
+    # the count is fixed even or odd: the body read cuts on an open run, so a parity that flips between sizes compares
+    # a full read with a cut, and that step is not the scan's growth
+    "escaped-quote-run": lambda size: "password=[" + ESCAPED_QUOTE * (size // 4 * 2) + "]",
+    "escaped-quote-run-odd": lambda size: "password=[" + ESCAPED_QUOTE * (size // 4 * 2 + 1) + "]",
     "escaped-quote-pairs": _repeat(f'"k":"{ESCAPED_QUOTE}'),
     "bracket-run": lambda size: "password=" + "[" * size,
     "unclosed-brackets": _repeat("k=[ "),
@@ -68,6 +71,12 @@ GENERATORS: dict[str, Callable[[int], str]] = {
     "hash-quotes": _repeat("# 'a' "),
     "hash-numbers": _repeat("# 1 "),  # a span for each number, and no quote to find after any ``#``
     "backtick-brackets": _repeat("[`] "),
+    # each body opens a run with no closer in the text: only the bound on the body keeps these linear
+    "dollar-brackets": _repeat("[$a$] "),
+    "comment-brackets": _repeat("[/*] "),
+    "dash-brackets": _repeat("[-- ] "),
+    "open-run-brackets": _repeat("[/* ["),
+    "closed-run-brackets": _repeat("['a'] "),
     "subscripts": _repeat("a['] "),
     "at-dollars": _repeat("@$$ $$ "),
     "lone-crs": _repeat("-- a\r'\n"),
