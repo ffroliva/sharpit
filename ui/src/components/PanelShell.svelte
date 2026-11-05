@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { scrollable } from '../lib/scrollable';
+  import { focusRegion, scrollable } from '../lib/scrollable';
 
   let {
     title, loading = false, error = null, notice = null, count = null, onretry, controls, children,
@@ -23,13 +23,13 @@
     {@render controls?.()}
     {#if count}<span class="muted count">{count}</span>{/if}
   </header>
-  <div class="panel-body" use:scrollable role="region" aria-label={title} aria-busy={loading} tabindex="-1">
+  <div class="panel-body" use:scrollable role="region" aria-label={title} aria-busy={loading}>
     {#if notice}<p class="notice warn">{notice}</p>{/if}
     {#if error}
       <div class="empty" role="alert">
         <p class="lead danger">Could not load {title}</p>
         <p>{error}</p>
-        {#if onretry}<button onclick={(event) => { const region = (event.currentTarget as HTMLElement).closest<HTMLElement>('.panel-body'); if (region) { region.tabIndex = -1; region.focus(); } onretry(); }}>Retry</button>{/if}
+        {#if onretry}<button onclick={(event) => { focusRegion(event); onretry(); }}>Retry</button>{/if}
       </div>
     {:else if loading}
       <div class="empty" role="status"><p class="muted">Loading…</p></div>

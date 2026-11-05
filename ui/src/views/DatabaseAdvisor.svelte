@@ -49,26 +49,27 @@
     {:else if phase === 'results' && report?.scan.scannedAt}{report.tablesAnalyzed} tables across {report.dataSources.length} datasources scanned {scannedWhen(report.scan.scannedAt)}
     {/if}
   {/snippet}
+  {#snippet after()}
+    {#if report?.dataSources.length}
+      <section aria-label="Datasources">
+        <h2>Datasources</h2>
+        <ul>
+          {#each report.dataSources as source (source.name)}
+            <li>{source.name} {source.product ?? ''} {source.status} {source.tablesAnalyzed} tables{source.message ? `: ${source.message}` : ''}</li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    {#if problems.length}
+      <section aria-label="Diagnostics">
+        <h2>Diagnostics</h2>
+        <ul>
+          {#each problems as d, i (i)}
+            <li>{d.level} {d.source}: {d.message}</li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+  {/snippet}
 </AdvisorPanel>
-
-{#if report?.dataSources.length}
-  <section aria-label="Datasources">
-    <h2>Datasources</h2>
-    <ul>
-      {#each report.dataSources as source (source.name)}
-        <li>{source.name} {source.product ?? ''} {source.status} {source.tablesAnalyzed} tables{source.message ? `: ${source.message}` : ''}</li>
-      {/each}
-    </ul>
-  </section>
-{/if}
-
-{#if problems.length}
-  <section aria-label="Diagnostics">
-    <h2>Diagnostics</h2>
-    <ul>
-      {#each problems as d, i (i)}
-        <li>{d.level} {d.source}: {d.message}</li>
-      {/each}
-    </ul>
-  </section>
-{/if}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { errorText, get, post } from '../lib/api';
   import { firstSentence } from '../lib/format';
-  import { scrollable } from '../lib/scrollable';
+  import { focusRegion, scrollable } from '../lib/scrollable';
   import type { Panel, ServerStatus } from '../lib/types';
 
   /** MCP server and CLI share one status shape; only MCP has an on/off toggle. */
@@ -65,10 +65,10 @@
       </button>
     {/if}
   </header>
-  <div class="panel-body" use:scrollable role="region" aria-label={title} tabindex="-1">
+  <div class="panel-body" use:scrollable role="region" aria-label={title}>
     {#if panel.readOnly}<p class="notice warn">{panel.readOnlyReason}</p>{/if}
     {#if error}
-      <div class="empty" role="alert"><p class="lead danger">Could not load the {title} status</p><p>{error}</p><button onclick={(event) => { const region = (event.currentTarget as HTMLElement).closest<HTMLElement>('.panel-body'); if (region) { region.tabIndex = -1; region.focus(); } void load(); }}>Retry</button></div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load the {title} status</p><p>{error}</p><button onclick={(event) => { focusRegion(event); void load(); }}>Retry</button></div>
     {:else if !data}
       <table aria-hidden="true"><tbody>{#each { length: 6 } as _}<tr class="skeleton"><td></td><td></td></tr>{/each}</tbody></table>
     {:else}

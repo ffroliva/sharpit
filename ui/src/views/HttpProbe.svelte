@@ -131,6 +131,6 @@
   label { display: flex; flex-direction: column; gap: var(--s1); }
   textarea { font: 12.5px var(--mono); color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s2); }
   .history { display: flex; flex-wrap: wrap; gap: var(--s3); margin: 0; }
-  .result h2 { padding: 0; margin: 0 0 var(--s2); }
+  .result h2 { margin: var(--s6) 0 var(--s3); }
   pre.body { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--rail); padding: var(--s2); margin: var(--s2) 0 0; }
 </style>

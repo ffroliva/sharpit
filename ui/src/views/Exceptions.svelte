@@ -133,5 +133,5 @@
   .actions { display: flex; gap: var(--s2); margin-top: var(--s1); }
   .frames { margin: 0; padding-left: var(--s6); color: var(--muted); }
   .frames li.app { color: var(--ink); font-weight: 600; }
-  .detail h2 { margin: var(--s3) 0 var(--s1); padding: 0; }
+  .detail h2 { margin: var(--s3) 0 var(--s1); }
 </style>

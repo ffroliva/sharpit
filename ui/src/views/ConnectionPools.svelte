@@ -90,7 +90,7 @@
 
 <style>
   .block { padding: var(--s3) var(--s4); }
-  .block h2 { margin: 0 0 var(--s1); padding: 0; overflow-wrap: anywhere; }
+  .block h2 { margin: 0 0 var(--s1); overflow-wrap: anywhere; }
   .block p { margin: var(--s1) 0; }
   .gauge { display: flex; gap: var(--s4); align-items: baseline; }
   .gauge strong { font-size: 20px; }

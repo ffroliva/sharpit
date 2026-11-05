@@ -58,7 +58,7 @@ input::placeholder { color: var(--muted); }
 .panel-head input[type="search"] { width: 100%; }
 .panel-body { flex: 1; overflow: auto; min-height: 0; }
 .panel-body:focus-visible { outline-offset: -2px; } /* a scroll region is a tab stop (axe scrollable-region-focusable) */
-.panel-body :focus-visible, .rail :focus-visible, [role='listbox'] :focus-visible { outline-offset: -2px; }
+.panel-body table a:focus-visible, .rail :focus-visible, [role='listbox'] :focus-visible { outline-offset: -2px; }
 .notice { margin: 0; padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line); }
 
 /* Tables */
@@ -93,8 +93,6 @@ dl.facts dd { margin: 0; }
 section.block { border-bottom: 1px solid var(--line); }
 h2 { margin: var(--s3) var(--s4) var(--s1); font-size: 13px; line-height: 20px; font-weight: 600; }
 h2.mono { font-size: 13px; line-height: 20px; }
-section.block h2 { padding: 0; }
-
 @media (max-width: 720px) {
   button.link { min-height: 24px; }
   table.fixed th { min-width: 3.25rem; }

@@ -38,7 +38,7 @@
       <div class="empty"><p class="lead">Statistics unavailable</p><p>{report.data.unavailableReason}</p></div>
     {:else}
       {@const s = report.data.statistics}
-      {#each s.warnings ?? [] as warning (warning)}<p class="warn">{warning}</p>{/each}
+      {#each s.warnings ?? [] as warning (warning)}<p class="warn sql-inset">{warning}</p>{/each}
       <section class="block">
         <h2>Statistics</h2>
         <dl class="facts statistics">
@@ -52,8 +52,8 @@
         </dl>
       </section>
       {#if s.queryExecutionMaxTimeQueryString}
-        <p class="sm muted">Slowest statement</p>
-        <pre class="mono">{s.queryExecutionMaxTimeQueryString}</pre>
+        <p class="sm muted sql-inset">Slowest statement</p>
+        <pre class="mono sql-inset">{s.queryExecutionMaxTimeQueryString}</pre>
       {/if}
       <section class="block">
         <h2>N+1 candidates</h2>
@@ -62,7 +62,7 @@
           <p class="muted">None: no request ran one SELECT shape repeatedly.</p>
         {:else}
           <table>
-            <thead><tr><th>Route</th><th>Executions per request</th><th>Requests</th><th>Statement</th></tr></thead>
+            <thead><tr><th>Route</th><th class="num">Executions per request</th><th class="num">Requests</th><th>Statement</th></tr></thead>
             <tbody>
               {#each s.nPlusOne as n (n.method + ':' + n.route + ':' + n.sql)}
                 <tr>
@@ -88,5 +88,5 @@
 
 <style>
   section.block > p { margin: 0; padding: 0 var(--s4) var(--s2); }
-  :global(.panel-body > p.sm), :global(.panel-body > p.warn), :global(.panel-body > pre) { margin-inline: var(--s4); }
+  .sql-inset { margin-inline: var(--s4); }
 </style>

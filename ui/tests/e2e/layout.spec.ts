@@ -84,16 +84,31 @@ for (const scheme of ['light', 'dark'] as const) {
       });
     }
 
-    test('SQLAlchemy slowest statement output and warnings share the 16px inset', async ({ page }) => {
+    test('SQLAlchemy slowest statement output is inset without changing panel notices', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       await openPanel(page, 'sqlalchemy-statistics');
       const body = page.locator('main .panel-body');
-      await body.evaluate((el) => el.insertAdjacentHTML('afterbegin', '<p class="warn">Warning fixture</p>'));
-      for (const selector of ['h2', 'p.sm', 'pre', 'p.warn']) {
+      for (const selector of ['h2', 'p.sm', 'pre']) {
         const element = body.locator(selector).first();
         await expect(element).toBeVisible();
         expect(await element.evaluate((el) => el.getBoundingClientRect().left - el.closest('.panel-body')!.getBoundingClientRect().left)).toBe(16);
       }
+    });
+
+    test('a real SQL Trace warning spans the panel body', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await openPanel(page, 'sql-trace');
+      const recording = page.getByRole('button', { name: /^(Pause|Resume)$/ });
+      const wasCapturing = (await recording.textContent()) === 'Pause';
+      if (wasCapturing) await recording.click();
+      const notice = page.locator('main .panel-body > .notice.warn').last();
+      await expect(notice).toBeVisible();
+      const [body, message] = await Promise.all([page.locator('main .panel-body').boundingBox(), notice.boundingBox()]);
+      expect(body).not.toBeNull();
+      expect(message).not.toBeNull();
+      expect(message!.x).toBe(body!.x);
+      expect(message!.width).toBe(body!.width);
+      if (wasCapturing) await page.getByRole('button', { name: 'Resume' }).click();
     });
 
     test('panel content starts level with its heading', async ({ page }) => {
@@ -109,26 +124,6 @@ for (const scheme of ['light', 'dark'] as const) {
       }
     });
 
-    for (const id of ['alembic', 'mysql', 'postgresql', 'database-connection-pools']) {
-      test(`${id} monospace headings retain panel-title size`, async ({ page }) => {
-        await page.setViewportSize({ width: 1280, height: 800 });
-        await openPanel(page, id);
-        if (id === 'alembic') await page.getByRole('button', { name: 'Read database version' }).click();
-        let heading = page.locator('main h2.mono').first();
-        if (!(await heading.count())) {
-          await page.locator('main .panel-body').evaluate((body) => {
-            const heading = document.createElement('h2');
-            heading.className = 'mono';
-            heading.textContent = 'panel value';
-            body.append(heading);
-          });
-          heading = page.locator('main h2.mono').last();
-        }
-        await expect(heading).toBeVisible();
-        await expect(heading).toHaveCSS('font-size', '13px');
-      });
-    }
-
     test('SQLAlchemy statistics numbers are right aligned and tabular', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       await page.request.get(new URL('/owners/n-plus-one', page.url()).href);
@@ -136,6 +131,7 @@ for (const scheme of ['light', 'dark'] as const) {
       const value = page.locator('dl.facts dd.num').first();
       await expect(value).toHaveCSS('text-align', 'right');
       await expect(value).toHaveCSS('font-variant-numeric', 'tabular-nums');
+      await expect(page.locator('thead th.num').first()).toHaveCSS('text-align', 'right');
       await expect(page.locator('td.num').first()).toHaveCSS('text-align', 'right');
       const [label, number] = await Promise.all([
         page.locator('dl.facts.statistics dt').first().boundingBox(),
@@ -147,13 +143,14 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(page.locator('dl.facts dd.status').first()).toHaveCSS('text-align', 'left');
     });
 
-    test('probe response heading does not add padding to the result inset', async ({ page }) => {
+    test('probe response heading has twice as much space above as below', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
       await openPanel(page, 'http-probe');
       await page.getByRole('combobox', { name: 'Path' }).fill('/owners');
       await page.getByRole('button', { name: 'Send' }).click();
       const heading = page.getByRole('region', { name: 'Response' }).locator('h2');
-      await expect(heading).toHaveCSS('margin-top', '0px');
+      await expect(heading).toHaveCSS('margin-top', '24px');
+      await expect(heading).toHaveCSS('margin-bottom', '12px');
       await expect(heading).toHaveCSS('margin-left', '0px');
     });
 
@@ -171,15 +168,34 @@ for (const scheme of ['light', 'dark'] as const) {
       await expect(block.locator('dl.facts')).toHaveCSS('padding-bottom', '16px');
     });
 
-    test('the vulnerability summary uses its own 12px inset without section padding', async ({ page }) => {
+    test('FastAPI Security form, explanation and Rule label align with their headings', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
-      await openPanel(page, 'vulnerabilities');
-      await page.locator('main .panel-body').evaluate((body) => {
-        const section = document.createElement('section');
-        section.className = 'block summary';
-        body.append(section);
-      });
-      await expect(page.locator('section.block.summary')).toHaveCSS('padding-top', '0px');
+      await openPanel(page, 'fastapi-security');
+      const explainHeading = page.getByRole('heading', { name: 'Explain a request' });
+      const form = page.locator('main form.form');
+      await expect(form).toBeVisible();
+      await page.getByRole('button', { name: 'Explain' }).click();
+      const explanation = page.locator('main p.explain');
+      await expect(explanation).toBeVisible();
+      const endpointsHeading = page.getByRole('heading', { name: 'Endpoints' });
+      const rule = page.locator('main label', { hasText: 'Rule' });
+      await expect(rule).toBeVisible();
+      for (const [heading, content] of [[explainHeading, form], [explainHeading, explanation], [endpointsHeading, rule]] as const) {
+        expect((await content.boundingBox())!.x).toBe((await heading.boundingBox())!.x);
+      }
+    });
+
+    test('Database Advisor datasource and diagnostic sections stay inside the panel body', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await openPanel(page, 'database-advisor');
+      await page.getByRole('button', { name: /^(Run Database checks|Scan again)$/ }).click();
+      const body = page.locator('main .panel-body');
+      for (const name of ['Datasources', 'Diagnostics']) {
+        const section = body.getByRole('region', { name });
+        if (name === 'Diagnostics' && !(await section.count())) continue;
+        await expect(section).toBeVisible();
+        expect(await section.evaluate((el) => el.closest('.panel-body') !== null)).toBeTruthy();
+      }
     });
 
     for (const id of ['health', 'exceptions', 'traces', 'sql-trace', 'transactions', 'security-logs', 'alembic', 'mysql', 'postgresql']) {

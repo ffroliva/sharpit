@@ -87,33 +87,37 @@
       {/if}
 
       <h2>Explain a request</h2>
-      <form class="form" onsubmit={(e) => (e.preventDefault(), void runExplain())}>
-        <input type="text" aria-label="Method" bind:value={method} size="7" autocomplete="off" spellcheck="false" />
-        <input type="text" aria-label="Path" bind:value={path} autocomplete="off" spellcheck="false" />
-        <button type="submit" class="primary">Explain</button>
-      </form>
-      {#if explainError}<p class="warn">{explainError}</p>{/if}
-      {#if result}
-        <p class="explain">
-          {#if result.matched}
-            Matched <span class="mono">{result.pattern}</span>: <strong>{result.rule}</strong>
-            {#if result.roles.length}<span class="mono">{result.roles.join(', ')}</span>{/if}
-            via stack {result.chainIndex} ({result.matcherDescription})
-          {:else}
-            Not matched{#if result.matcherDescription}: {result.matcherDescription}{/if}
-          {/if}
-          {#if result.bestEffort}<span class="tag warn" title="Read statically; part of the route could not be inspected">best effort</span>{/if}
-        </p>
-      {/if}
+      <div class="inset">
+        <form class="form" onsubmit={(e) => (e.preventDefault(), void runExplain())}>
+          <input type="text" aria-label="Method" bind:value={method} size="7" autocomplete="off" spellcheck="false" />
+          <input type="text" aria-label="Path" bind:value={path} autocomplete="off" spellcheck="false" />
+          <button type="submit" class="primary">Explain</button>
+        </form>
+        {#if explainError}<p class="warn">{explainError}</p>{/if}
+        {#if result}
+          <p class="explain">
+            {#if result.matched}
+              Matched <span class="mono">{result.pattern}</span>: <strong>{result.rule}</strong>
+              {#if result.roles.length}<span class="mono">{result.roles.join(', ')}</span>{/if}
+              via stack {result.chainIndex} ({result.matcherDescription})
+            {:else}
+              Not matched{#if result.matcherDescription}: {result.matcherDescription}{/if}
+            {/if}
+            {#if result.bestEffort}<span class="tag warn" title="Read statically; part of the route could not be inspected">best effort</span>{/if}
+          </p>
+        {/if}
+      </div>
 
       <h2>Endpoints</h2>
       {#if endpoints.data}
-        <label class="sm">Rule
-          <select aria-label="Rule" bind:value={rule}>
-            <option value="">all ({endpoints.data.total})</option>
-            {#each rules as r (r)}<option value={r}>{r}</option>{/each}
-          </select>
-        </label>
+        <div class="inset">
+          <label class="sm">Rule
+            <select aria-label="Rule" bind:value={rule}>
+              <option value="">all ({endpoints.data.total})</option>
+              {#each rules as r (r)}<option value={r}>{r}</option>{/each}
+            </select>
+          </label>
+        </div>
         <table>
           <thead><tr><th>Method</th><th>Path</th><th>Rule</th><th>Roles</th><th>Handler</th><th>Notes</th></tr></thead>
           <tbody>
