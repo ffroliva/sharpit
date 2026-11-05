@@ -13,9 +13,9 @@ from types import ModuleType
 from typing import Any, cast
 
 from sharpit.engine.advisors.findings import AdvisorRun
+from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.collectors.restapi.rules import application_routes
-from sharpit.engine.collectors.restapi.service import assess
 from sharpit.engine.spi import ApiModel
 from sharpit.engine.testsession.sink import report_masker
 from sharpit.fastapi.introspector import FastApiIntrospector
@@ -23,6 +23,7 @@ from sharpit.fastapi.introspector import FastApiIntrospector
 __all__ = [
     "AUTODETECT",
     "TEST_FILES",
+    "advisor_assessors",
     "autodetect_apps",
     "bare_app_run",
     "no_app_run",
@@ -211,6 +212,21 @@ def _models_to_assess(
     return models or _discovered_models(state)
 
 
+def _assessor(module: str) -> Callable[..., AdvisorRun] | None:
+    try:
+        return importlib.import_module(module).assess
+    except ModuleNotFoundError as exc:
+        if exc.name and f"{module}.".startswith(f"{exc.name}."):
+            return None  # the advisor ships no pytest assessment (yet); any other missing module is a real error
+        raise
+
+
+def advisor_assessors() -> list[tuple[str, Callable[..., AdvisorRun]]]:
+    """Each implemented advisor's pytest assessment: the ``assess`` of the module its registry row names."""
+    found = ((spec.id, _assessor(spec.assess)) for spec in ADVISORS if spec.implemented and spec.assess)
+    return [(advisor, assess) for advisor, assess in found if assess is not None]
+
+
 def run_advisors(
     state: Any,
     *,
@@ -228,16 +244,17 @@ def run_advisors(
                 AdvisorRun("rest-api", "UNKNOWN", (), {}, "no routes seen after install", name)
             )
         else:
-            state.sink.facts.advisor_runs.append(
-                (assess_fn or assess)(
-                    model,
-                    report_masker(),
-                    fail_on=cast("Severity", state.options.fail_on),
-                    app=name,
-                    dismissed=state.dismissed,
-                    **_assessment_options(state),
+            for advisor, discovered in advisor_assessors():
+                state.sink.facts.advisor_runs.append(
+                    (assess_fn if assess_fn and advisor == "rest-api" else discovered)(
+                        model,
+                        report_masker(),
+                        fail_on=cast("Severity", state.options.fail_on),
+                        app=name,
+                        dismissed=state.dismissed,
+                        **_assessment_options(state),
+                    )
                 )
-            )
 
 
 def _assessment_options(state: Any) -> dict[str, Any]:

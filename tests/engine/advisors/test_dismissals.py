@@ -191,7 +191,7 @@ def test_rapi_id_accepted_quote_space_slash_refused(tmp_path: Path):
         ("RAPI-NOPE-1", None),
         (A, "vulnerabilities"),
         ("PYSEC-2017-9999::pypi:zope.interface", "vulnerabilities"),
-        ("SPRING-WEB-001", None),
+        ("QUARKUS-WEB-001", None),
         ("rapi-map-001", None),
         ("GHSA-1::pypi:Jinja2", None),
         ("::pypi:jinja2", None),
@@ -206,7 +206,7 @@ def test_owning_panel(rule_id: str, panel: str | None):
 def test_unknown_owner_refused_before_the_file_is_touched(tmp_path: Path):
     store = DismissalStore(tmp_path)
     with pytest.raises(BadRequest):
-        store.add("SPRING-WEB-001")
+        store.add("QUARKUS-WEB-001")
     assert list(tmp_path.iterdir()) == []
 
 
@@ -240,7 +240,7 @@ def _occurrence_report() -> dict[str, Any]:
     result = {
         "id": "RAPI-004",
         "severity": "HIGH",
-        "status": "FAILED",
+        "status": "VIOLATION",
         "violationCount": 3,
         "sampleViolations": ["one", "two", "three"],
         "dismissed": False,
@@ -279,7 +279,7 @@ def test_all_occurrences_dismissed_keeps_rule_restorable():
     assert result["dismissed"] is False
     assert result["violationCount"] == 0
     assert result["sampleViolations"] == []
-    assert result["status"] == "PASSED"
+    assert result["status"] == "PASS"
     assert out["violationsFound"] == 0
     assert {c["severity"]: c["count"] for c in out["severityCounts"]}["HIGH"] == 0
 

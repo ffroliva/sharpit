@@ -1,34 +1,30 @@
 """REST API advisor service (port of BootUI ``RestApiScanner.scan``/``lastReport`` and ``RestApiController``).
 
-``report()`` never scans: it renders the last completed scan, or ``NOT_SCANNED``. ``scan()`` is the only way to run the
-rules; it runs on its own single-flight lock. ``assess()`` is the same scan as an ``AdvisorRun`` (0.3.0 spec §5.5),
-pure, for callers with no console (the pytest plugin). Violation strings, targets and limitations are masked before
-they are kept. The report and the retained details are replaced together, so a report's
-``scanId`` always pages its own details. Dismissals (rule ids and finding fingerprints) are re-read and applied on every
-render; the cache is never changed by them.
+``RestApiService`` is the shared advisor scan core (``engine/advisors/scan.py``) over the REST API rules: single-flight
+scans, the cached report, paging and dismissals live there. ``assess()`` is the same evaluation as an ``AdvisorRun``
+(0.3.0 spec §5.5), pure, for callers with no console (the pytest plugin). Violation strings, targets and limitations
+are masked before they are kept.
 """
 
 from __future__ import annotations
 
-import threading
-import time
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
-from sharpit.engine.advisors.report import apply_dismissals, evidence
-from sharpit.engine.advisors.retention import ViolationRetention
-from sharpit.engine.advisors.rules import RuleResult, Severity
+from sharpit.engine.advisors.report import evidence
+from sharpit.engine.advisors.rules import Severity
+from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope, mask
 from sharpit.engine.collectors.restapi import report
 from sharpit.engine.collectors.restapi.rules import RULES, application_routes, evaluate
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.spi import ApiModel
 
-OPERATION = "rest-api-scan"
 ADVISOR = "rest-api"
+OPERATION = f"{ADVISOR}-scan"
 DEFAULT_FAIL_ON: Severity = "HIGH"
 
 
@@ -45,14 +41,9 @@ class _Evaluation:
     evidence: dict[str, Any]
 
 
-def _mask(masker: Masker, text: str) -> str:
-    masked = masker.mask_text(text)
-    return masked if masked is not None else masker.mask_path(text)  # METADATA_ONLY: paths stay visible
-
-
 def _evaluate(model: ApiModel, masker: Masker) -> _Evaluation:
     routes = application_routes(model.routes)
-    limitations = [_mask(masker, item) for item in model.limitations]
+    limitations = [mask(masker, item) for item in model.limitations]
     modules = sorted({r.handler.partition(":")[0] for r in routes})
     findings: list[Finding] = []
     evaluated: list[str] = []
@@ -64,7 +55,7 @@ def _evaluate(model: ApiModel, masker: Masker) -> _Evaluation:
                 continue
             evaluated.append(rule.id)
             findings.extend(
-                Finding(rule.id, ADVISOR, rule.severity, _mask(masker, v.target), _mask(masker, v.message))
+                Finding(rule.id, ADVISOR, rule.severity, mask(masker, v.target), mask(masker, v.message))
                 for v in raw.get(rule.id, ())
             )
     if errored:  # BootUI: a rule that throws is skipped and the report is PARTIAL
@@ -128,14 +119,32 @@ def assess(
     return _run(_evaluate(model, masker), dismissed, fail_on, app, dismissed_pairs, baseline)
 
 
-@dataclass(frozen=True)
-class _Scan:
-    report: dict[str, Any]  # as built, before dismissals
-    done: _Evaluation
-    occurrences: dict[str, list[tuple[str, str, str]]]  # (fingerprint, text, identity or target)
+def _scope(done: Evaluation | None) -> Scope:
+    rest: _Evaluation | None = done.detail if done else None
+    modules = rest.modules if rest else []
+    return Scope(
+        {"basePackages": sorted({m.partition(".")[0] for m in modules})},
+        {"controllersAnalyzed": len(modules), "handlersAnalyzed": rest.routes if rest else 0},
+    )
 
 
-class RestApiService:
+def _scan_evaluation(model: ApiModel, masker: Masker) -> Evaluation:
+    done = _evaluate(model, masker)
+    if done.limitations:
+        message = report.incomplete_message(done.limitations)
+    elif done.routes:
+        message = report.scanned_message(len(done.modules), done.routes)
+    else:
+        message = report.NO_ROUTES_MESSAGE
+    return Evaluation(done.status, message, done.evaluated, done.findings, done.evidence, done)
+
+
+SPEC = ScanSpec(ADVISOR, report.ANALYZER, report.DISCLAIMER, report.NOT_SCANNED_MESSAGE)
+
+
+class RestApiService(AdvisorScan):
+    """The REST API advisor on the shared scan core."""
+
     def __init__(
         self,
         model: Callable[[], ApiModel],
@@ -145,71 +154,13 @@ class RestApiService:
         *,
         max_retained: int,
     ) -> None:
-        self._model = model
-        self.dismissals = dismissals
-        self._masker = masker
-        self.single_flight = single_flight
-        self._retention = ViolationRetention(max_retained)
-        self._cached: _Scan | None = None
-        self._swap = threading.Lock()  # retention and cache are replaced (and read) together
-
-    def report(self) -> dict[str, Any]:
-        """The last completed scan, else ``NOT_SCANNED``; dismissals applied. Never scans."""
-        with self._swap:
-            cached = self._cached
-            base = cached.report if cached else report.not_scanned(self._retention.details())
-        return apply_dismissals(
-            base,
-            set(self.dismissals.list()),
-            cached.occurrences if cached else None,
-            self.dismissals.dismissed_pairs(),
+        super().__init__(
+            SPEC,
+            RULES,
+            lambda _request: _scan_evaluation(model(), masker),
+            scope=_scope,
+            dismissals=dismissals,
+            masker=masker,
+            single_flight=single_flight,
+            max_retained=max_retained,
         )
-
-    def scan(self) -> dict[str, Any]:
-        """Run the rules (single-flight ``ActionBusy``) and cache the result."""
-        scanned = self.single_flight.run(OPERATION, self._scan)
-        return apply_dismissals(
-            scanned.report, set(self.dismissals.list()), scanned.occurrences, self.dismissals.dismissed_pairs()
-        )
-
-    def violations(
-        self, rule_id: str | None, scan_id: str | None, offset: int | None, limit: int | None, max_results: int
-    ) -> dict[str, Any]:
-        """One page of the cached scan's retained violations for ``rule_id``. Never scans."""
-        return self._retention.page(scan_id, rule_id, offset, limit, max_results)
-
-    def _scan(self) -> _Scan:
-        scanned_at = int(time.time() * 1000)
-        done = _evaluate(self._model(), self._masker)
-        found: dict[str, list[str]] = {rule_id: [] for rule_id in done.evaluated}
-        occurrences: dict[str, list[tuple[str, str, str]]] = {}
-        for finding in done.findings:
-            found[finding.rule_id].append(finding.message)
-            occurrences.setdefault(finding.rule_id, []).append(
-                (finding.fingerprint, finding.message, finding.identity or finding.target)
-            )
-        results = [RuleResult.evaluate(rule, found[rule.id]) for rule in RULES if rule.id in found]
-        if done.limitations:
-            status, message = "PARTIAL", report.incomplete_message(done.limitations)
-        elif done.routes:
-            status, message = "SCANNED", report.scanned_message(len(done.modules), done.routes)
-        else:
-            status, message = "SCANNED", report.NO_ROUTES_MESSAGE
-        result = report.build(
-            status,
-            message,
-            scanned_at,
-            sorted({m.partition(".")[0] for m in done.modules}),
-            len(done.modules),
-            done.routes,
-            len(results),
-            results,
-            done.evidence,
-            {},
-        )
-        scan = _Scan(result, done, occurrences)
-        with self._swap:  # build first: a failed build must leave retention and cache as they were
-            self._retention.store(found, {rule: [fp for fp, _, _ in pairs] for rule, pairs in occurrences.items()})
-            result["violationDetails"] = self._retention.details()
-            self._cached = scan
-        return scan

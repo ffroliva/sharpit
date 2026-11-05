@@ -1,0 +1,21 @@
+{
+  "message": "null on a complete READ, as BootUI",
+  "readStartedAt": "null before the first read (NOT_READ), as BootUI",
+  "readAt": "null before the first read (NOT_READ), as BootUI",
+  "dataSources[].databaseName": "null when no default schema is selected, as BootUI",
+  "dataSources[].serverVersion": "from the server or dialect; null when unknown",
+  "dataSources[].message": "null when datasource read succeeded without errors",
+  "dataSources[].sections[].reason": "null for a completely read section, as BootUI",
+  "dataSources[].sections[].hint": "null unless the section carries a methodology caveat or hint, as BootUI",
+  "dataSources[].sessions[].db": "null when session has no default schema, as BootUI",
+  "dataSources[].sessions[].info": "null when session is not executing a statement, as BootUI",
+  "dataSources[].sessions[].currentStatement": "null when session statement text is unavailable",
+  "dataSources[].statements[].digest": "null when statement has no digest",
+  "dataSources[].statements[].digestText": "null when statement has no digest text",
+  "dataSources[].lockWaits[].waitingQuery": "null when waiting query text is unavailable",
+  "dataSources[].lockWaits[].blockingQuery": "null when blocking query text is unavailable",
+  "dataSources[].replicationChannels[].lastErrorMessage": "null when replication channel has no error",
+  "dataSources[].replicationChannels[].lastErrorTimestamp": "null when replication channel has no error",
+  "dataSources[].metrics[].unit": "null for unitless metrics",
+  "dataSources[].settings[].value": "null for unset or empty variable"
+}

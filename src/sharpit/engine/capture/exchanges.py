@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from sharpit.engine.capture.routes import route_of
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.paging import paged
@@ -25,7 +26,8 @@ MAX_VALUE = 1024
 # HttpExchangeDto, in BootUI's record order; rows carry two more keys (``error``, ``endpoint``) for later panels
 DTO_KEYS = (
     "id", "timestamp", "method", "path", "query", "uri", "status", "statusFamily", "durationMs", "responseSizeBytes",
-    "remoteAddress", "principal", "sessionId", "traceId", "requestHeaders", "responseHeaders",
+    "remoteAddress", "principal", "sessionId", "traceId", "requestHeaders", "responseHeaders", "route", "routeSource",
+    "requestId",
 )  # fmt: skip
 _TRACEPARENT = re.compile(r"00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}", re.IGNORECASE)
 _EMPTY_PAGE = {"total": 0, "matched": 0, "offset": 0, "limit": 0, "returned": 0, "hasMore": False}
@@ -87,10 +89,12 @@ def exchange_row(
     error: bool = False,
     endpoint: str | None = None,
     finished_epoch_ns: int | None = None,
+    route: str | None = None,
 ) -> dict[str, Any]:
     """One masked, capped row: the ``HttpExchangeDto`` keys plus ``error``, ``endpoint``, ``startNs`` and ``endNs``
-    (epoch ns, for Live Activity's ordering and its after-the-response check)."""
+    (epoch ns, for Live Activity's ordering and its after-the-response check). ``route`` is the matched template."""
     shown_path = _cut(masker.mask_path(path), MAX_PATH)
+    route_label, route_source = route_of(route, shown_path)
     raw_query = query_string.decode("latin-1")
     query = masker.mask_query(raw_query) if raw_query else None
     query = None if query is None else _cut(query, MAX_QUERY)
@@ -114,6 +118,9 @@ def exchange_row(
         "traceId": trace_id(request_headers, request_id),
         "requestHeaders": _headers(masker, request_headers),
         "responseHeaders": _headers(masker, response_headers),
+        "route": route_label,
+        "routeSource": route_source,
+        "requestId": request_id,
         "error": error,
         "endpoint": endpoint,
         "startNs": started_epoch_ns,
@@ -130,6 +137,7 @@ def unavailable_report(reason: str) -> dict[str, Any]:
         "exchanges": [],
         "page": dict(_EMPTY_PAGE),
         "unavailableReason": reason,
+        "retention": None,
     }
 
 
@@ -140,11 +148,14 @@ class HttpExchangeBuffer:
         self._rows: deque[dict[str, Any]] = deque(maxlen=max_exchanges)
         self._lock = threading.Lock()
         self.hidden_self = 0
+        self.evicted = 0
         self.unavailable_reason: str | None = None  # set by the wiring when the middleware could not be added
         self.changes = ChangeStream()
 
     def add(self, row: dict[str, Any]) -> None:
         with self._lock:
+            if len(self._rows) == self._rows.maxlen:
+                self.evicted += 1
             self._rows.append(row)
         self.changes.signal()
 
@@ -157,26 +168,50 @@ class HttpExchangeBuffer:
         with self._lock:
             return list(self._rows)
 
+    def _retention(self) -> dict[str, Any]:
+        """``CaptureRetentionDto``, under the lock: a plain ring, no reserved share and no slow threshold."""
+        return {
+            "applicationManaged": False,
+            "capacity": self._rows.maxlen,
+            "reservedCapacity": None,
+            "retained": len(self._rows),
+            "reserved": None,
+            "evicted": self.evicted,
+            "slowThresholdMillis": None,
+        }
+
+    def snapshot(self) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
+        """The stored rows (oldest first), the hidden self count and the retention, read together."""
+        with self._lock:
+            return list(self._rows), self.hidden_self, self._retention()
+
     def get(self, request_id: str) -> dict[str, Any] | None:
         """The stored row (``error`` and ``endpoint`` included), or ``None`` once evicted."""
         with self._lock:
             return next((r for r in reversed(self._rows) if r["id"] == request_id), None)
 
     def report(
-        self, q: str | None, method: str | None, status_class: str | None, offset: int | None, limit: int | None
+        self,
+        q: str | None,
+        method: str | None,
+        status_class: str | None,
+        offset: int | None,
+        limit: int | None,
+        route: str | None = None,
     ) -> dict[str, Any]:
         if self.unavailable_reason is not None:
             return unavailable_report(self.unavailable_reason)
-        with self._lock:
-            rows = list(reversed(self._rows))  # newest first
-            hidden = self.hidden_self
+        stored, hidden, retention = self.snapshot()
+        rows = stored[::-1]  # newest first
         wanted_method = (method or "").strip().upper()
         wanted_family = (status_class or "").strip()
+        wanted_route = (route or "").strip()
         filtered = [
             r
             for r in rows
             if (not wanted_method or r["method"].upper() == wanted_method)
             and (not wanted_family or r["statusFamily"] == wanted_family)
+            and (not wanted_route or r["route"] == wanted_route)
         ]
         # HttpExchangesService.matchesQuery: path, query, uri and traceId; the method has its own filter
         page_rows, page = paged(filtered, q, offset, limit, lambda r: (r["path"], r["query"], r["uri"], r["traceId"]))
@@ -188,4 +223,5 @@ class HttpExchangeBuffer:
             "exchanges": [{k: r[k] for k in DTO_KEYS} for r in page_rows],
             "page": page,
             "unavailableReason": None,
+            "retention": retention,
         }

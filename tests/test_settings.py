@@ -295,6 +295,21 @@ PROPERTIES = {
     "bootui.transactions.max-entries": ("transactions_max_entries", "45"),
     "bootui.transactions.slow-transaction-threshold-millis": ("transactions_slow_transaction_threshold_millis", "46"),
     "bootui.transactions.connection-hold-threshold-millis": ("transactions_connection_hold_threshold_millis", "47"),
+    # 0.5.0 (spec §4.5; F5a-harness): BootUI's bootui.mysql.*, plus sharpit-only bounds under the same naming rule
+    "bootui.mysql.max-sessions": ("mysql_max_sessions", "47"),
+    "bootui.mysql.max-statements": ("mysql_max_statements", "47"),
+    "bootui.mysql.max-indexes": ("mysql_max_indexes", "47"),
+    "bootui.mysql.max-tables": ("mysql_max_tables", "47"),
+    "bootui.mysql.max-lock-waits": ("mysql_max_lock_waits", "47"),
+    "bootui.mysql.max-replication-channels": ("mysql_max_replication_channels", "47"),
+    "bootui.mysql.max-settings": ("mysql_max_settings", "47"),
+    "bootui.database-advisor.max-tables": ("database_advisor_max_tables", "47"),
+    "bootui.database-advisor.max-columns": ("database_advisor_max_columns", "47"),
+    "bootui.database-advisor.max-indexes-per-table": ("database_advisor_max_indexes_per_table", "47"),
+    "bootui.database-advisor.max-vendor-rows": ("database_advisor_max_vendor_rows", "47"),
+    "bootui.architecture.max-files": ("architecture_max_files", "47"),
+    "bootui.architecture.max-file-bytes": ("architecture_max_file_bytes", "47"),
+    "bootui.app-package": ("app_package", "myapp"),
 }
 
 NEW_DEFAULTS_0_2_0: dict[str, Any] = {

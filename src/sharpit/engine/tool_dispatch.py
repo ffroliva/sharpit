@@ -173,7 +173,7 @@ def _normalized_arguments(tool: Tool, checked: dict[str, Any], max_results: int,
     query = checked.get("query")
     query = query.strip() or None if isinstance(query, str) else None
     raw_limit = checked.get("limit")
-    limit = min(raw_limit, max_results) if isinstance(raw_limit, int) else max_results
+    limit = min(raw_limit if isinstance(raw_limit, int) else tool.default_limit or max_results, max_results)
     raw_id = checked.get("id")
     gid = raw_id.strip() if isinstance(raw_id, str) else ""
     if "id" in tool.input_schema["properties"] and not gid:  # BootUI: after the panel gates

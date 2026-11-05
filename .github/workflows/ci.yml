@@ -8,7 +8,24 @@ permissions:
   contents: read
 
 jobs:
-  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py) where one runner would take over ~2 min.
+  lint:
+    # ruff, format, pyright and the mirror-link grep are version-independent (pyright pins 3.12): one job, in parallel
+    # with the test shards, so no shard carries lint on its critical path.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv sync --locked --extra test --python 3.12 # NOSONAR - installs sharpit from source; pyright resolves it
+      - run: uv run --no-sync ruff check
+      - run: "! git grep -n 'cloud[n]s' -- ." # links must point at github.com, never a mirror
+        shell: bash
+      - run: uv run --no-sync ruff format --check
+      - run: uv run --no-sync pyright
+
+  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards a leg, because the costliest shard
+  # sets the leg's wall (the ceiling is pinned in tests/test_ci_layout.py).
   # Each leg's shards together run every test exactly once (tests/test_shard.py).
   test-shard:
     name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
@@ -16,15 +33,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, python: "3.12", shard: 1/2 }
-          - { os: ubuntu-latest, python: "3.12", shard: 2/2 }
-          - { os: ubuntu-latest, python: "3.13", shard: 1/2 }
-          - { os: ubuntu-latest, python: "3.13", shard: 2/2 }
-          - { os: ubuntu-latest, python: "3.14", shard: 1/2 }
-          - { os: ubuntu-latest, python: "3.14", shard: 2/2 }
-          - { os: windows-latest, python: "3.14", shard: 1/3 }
-          - { os: windows-latest, python: "3.14", shard: 2/3 }
-          - { os: windows-latest, python: "3.14", shard: 3/3 }
+          - { os: ubuntu-latest, python: "3.12", shard: 1/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 2/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 3/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 4/4 }
+          - { os: ubuntu-latest, python: "3.13", shard: 1/4 }
+          - { os: ubuntu-latest, python: "3.13", shard: 2/4 }
+          - { os: ubuntu-latest, python: "3.13", shard: 3/4 }
+          - { os: ubuntu-latest, python: "3.13", shard: 4/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 1/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 2/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 3/4 }
+          - { os: ubuntu-latest, python: "3.14", shard: 4/4 }
+          - { os: windows-latest, python: "3.14", shard: 1/4 }
+          - { os: windows-latest, python: "3.14", shard: 2/4 }
+          - { os: windows-latest, python: "3.14", shard: 3/4 }
+          - { os: windows-latest, python: "3.14", shard: 4/4 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,15 +57,6 @@ jobs:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
       - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
-      - run: uv run ruff check
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
-      - run: "! git grep -n 'cloud[n]s' -- ." # links must point at github.com, never a mirror
-        shell: bash
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
-      - run: uv run ruff format --check
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
-      - run: uv run pyright
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
       - run: uv run pytest -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
@@ -65,8 +80,8 @@ jobs:
 
   test:
     # The required checks keep their names: each passes only when every test shard passed (always(): a skipped
-    # required check would count as green). Stricter than per leg: one failed shard fails all four.
-    needs: test-shard
+    # required check would count as green). Stricter than per leg: one failed shard, or lint, fails all four.
+    needs: [test-shard, lint]
     if: always()
     strategy:
       fail-fast: false # each required check reports, none shows as cancelled
@@ -78,7 +93,7 @@ jobs:
             python: "3.14"
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.test-shard.result }}" = success
+      - run: test "${{ needs.test-shard.result }}" = success && test "${{ needs.lint.result }}" = success
 
   coverage-shard:
     # Coverage for SonarCloud. Overhead budget tests time capture on vs off, which the coverage tracer distorts:
@@ -87,7 +102,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/3, 2/3, 3/3]
+        shard: [1/4, 2/4, 3/4, 4/4]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -191,7 +206,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/2, 2/2]
+        shard: [1/4, 2/4, 3/4, 4/4]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -223,8 +238,13 @@ jobs:
     steps:
       - run: test "${{ needs.lowest-shard.result }}" = success
 
-  no-sqlalchemy:
+  no-sqlalchemy-shard:
     # SQLAlchemy is optional: sharpit must install, import and serve every panel without it
+    name: no-sqlalchemy shard (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/3, 2/3, 3/3]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -235,6 +255,16 @@ jobs:
           uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
           --no-install-package alembic --no-install-package greenlet # NOSONAR - this job installs sharpit from source and excludes optional dependencies
       - run: uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy"
+        env:
+          SHARPIT_SHARD: ${{ matrix.shard }}
+
+  no-sqlalchemy:
+    # required check: passes only when every no-sqlalchemy shard passed (always(): a skipped required check counts as green)
+    needs: no-sqlalchemy-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.no-sqlalchemy-shard.result }}" = success
 
   sharpit-gate:
     # Dogfood: the example's fixed route must pass `pytest --sharpit`, its planted N+1 must fail it.

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
+from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.collectors.postgresql.limits import LOCK_TIMEOUT, READ_BUDGET, STATEMENT_TIMEOUT, RowLimits
 from sharpit.engine.collectors.postgresql.sections import (
     BUDGET_SKIPPED,
@@ -194,7 +195,7 @@ async def _read_engine(
         data, version, timed_out = replace(partial, sections=sections), None, True
         diagnostics.append(_diagnostic(name, "WARNING", BUDGET_RAN_OUT))
     except Exception as exc:  # noqa: BLE001  # a failed engine is reported for that engine, never raised
-        return _error_database(name, ctx.masker.mask_text(str(exc).strip()) or type(exc).__name__, diagnostics)
+        return _error_database(name, mask_error(ctx.masker, str(exc).strip()) or type(exc).__name__, diagnostics)
     data.name = name
     for section in data.sections:
         source = f"{name}/{section['id']}"

@@ -4,7 +4,13 @@ A throwaway project in a temp folder is checked with the real pytest, so the ver
 accept rule. The project has no ``pythonpath`` for ``src``: red_check puts the tree's ``src`` on ``PYTHONPATH``.
 """
 
+import contextlib
+import json
+import os
 import subprocess
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -13,6 +19,8 @@ from _load import load_script
 red_check = load_script("scripts/dev/red_check.py")
 
 RED = "RED (assertion under tests/)"
+WAIT_FOR_BUILD = 120  # seconds a worker waits for another's verdicts before building its own
+pytestmark = pytest.mark.timeout(300)  # the wait, then a build of 24 pytest subprocesses
 
 SRC = """\
 def widget():
@@ -134,9 +142,110 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return _project(tmp_path_factory.mktemp("red-check"))
 
 
+def _built_once(shared: Path, build: Callable[[], dict[str, str]]) -> dict[str, str]:
+    """``build()``'s result: the first xdist worker to claim ``shared`` builds it, the others wait and read it."""
+    claim, result = shared / "red-check-verdicts.claim", shared / "red-check-verdicts.json"
+    try:
+        claim.touch(exist_ok=False)
+    except FileExistsError:
+        deadline = time.monotonic() + WAIT_FOR_BUILD
+        while claim.exists() and time.monotonic() < deadline:
+            # Windows can refuse a read while a file is renamed into place or scanned
+            with contextlib.suppress(FileNotFoundError, PermissionError):
+                return json.loads(result.read_text(encoding="utf-8"))
+            time.sleep(0.05)
+        return build()  # the claimant failed or died, and the verdicts are the same built here
+    try:
+        value = build()
+    except BaseException:
+        claim.unlink()
+        raise
+    scratch = result.with_suffix(".tmp")
+    try:
+        scratch.write_text(json.dumps(value), encoding="utf-8")
+        scratch.replace(result)  # atomic: a waiter never reads a half-written file
+    except OSError:  # Windows can hold the file; these verdicts are good, and the waiters build their own
+        claim.unlink(missing_ok=True)
+    return value
+
+
 @pytest.fixture(scope="module")
-def verdicts(project: Path) -> dict[str, str]:
-    return red_check.check([f"tests/test_mod.py::{name}" for name in IDS], cwd=project)
+def verdicts(project: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+    def build() -> dict[str, str]:
+        return red_check.check([f"tests/test_mod.py::{name}" for name in IDS], cwd=project)
+
+    if "PYTEST_XDIST_WORKER" not in os.environ:
+        return build()
+    return _built_once(tmp_path_factory.getbasetemp().parent, build)  # the run's folder, above each worker's own
+
+
+def test_workers_share_one_verdicts_build(tmp_path: Path) -> None:
+    """Each worker that drew a verdict test re-ran all 12 pytest subprocesses: 48 s + 21 s at -n 22 (T-suite-speed)."""
+    builds: list[int] = []
+    results: list[dict[str, str]] = []
+
+    def build() -> dict[str, str]:
+        builds.append(1)
+        time.sleep(0.2)  # long enough that every worker arrives while the first is still building
+        return {"id": "verdict"}
+
+    workers = [threading.Thread(target=lambda: results.append(_built_once(tmp_path, build))) for _ in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert len(builds) == 1
+    assert results == [{"id": "verdict"}] * 4
+
+
+def test_a_waiter_retries_a_verdicts_file_windows_still_holds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """At -n 12 a waiter read the file as it was renamed into place: PermissionError on Windows (T-suite-speed)."""
+    (tmp_path / "red-check-verdicts.claim").touch()
+    (tmp_path / "red-check-verdicts.json").write_text('{"id": "verdict"}', encoding="utf-8")
+    real = Path.read_text
+    refusals = [PermissionError(13, "Permission denied")]
+
+    def held_once(self: Path, *args: object, **kwargs: object) -> str:
+        if refusals:
+            raise refusals.pop()
+        return real(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", held_once)
+    found: dict[str, str] = {}
+    with contextlib.suppress(PermissionError):  # a waiter that lets it escape fails this assert, not with a crash
+        found = _built_once(tmp_path, lambda: {"id": "rebuilt"})
+    assert found == {"id": "verdict"}
+
+
+def test_a_waiter_gives_up_before_its_test_times_out(request: pytest.FixtureRequest) -> None:
+    """A timeout under the wait kills every waiting worker when the build is slow (code review, T-suite-speed)."""
+    marker = request.node.get_closest_marker("timeout")
+    limit = marker.args[0] if marker else float(request.config.getini("timeout"))
+    assert limit > WAIT_FOR_BUILD
+
+
+def test_a_verdicts_file_that_cannot_be_published_frees_the_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def held(self: Path, target: Path) -> Path:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "replace", held)
+    found: dict[str, str] = {}
+    with contextlib.suppress(PermissionError):  # a builder that lets it escape fails this assert, not with a crash
+        found = _built_once(tmp_path, lambda: {"id": "verdict"})
+    assert found == {"id": "verdict"}
+    assert not (tmp_path / "red-check-verdicts.claim").exists()
+
+
+def test_a_failed_verdicts_build_leaves_the_next_worker_to_build(tmp_path: Path) -> None:
+    def broken() -> dict[str, str]:
+        raise RuntimeError("build broke")
+
+    with pytest.raises(RuntimeError, match="build broke"):
+        _built_once(tmp_path, broken)
+    assert list(tmp_path.iterdir()) == []  # a claim left behind would keep every other worker waiting
+    assert _built_once(tmp_path, lambda: {"id": "verdict"}) == {"id": "verdict"}
 
 
 def _of(verdicts: dict[str, str], name: str) -> str:

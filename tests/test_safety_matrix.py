@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -84,6 +85,10 @@ ROWS = [
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),
     ("dismissed-findings", "GET", "/sharpit/api/dismissed-findings", 200, True),
     ("mcp", "POST", "/sharpit/api/mcp", 200, True),
+    ("http-exchanges-routes", "GET", "/sharpit/api/http-exchanges/routes", 200, True),
+    ("exceptions-caught", "GET", "/sharpit/api/exceptions/caught", 200, True),
+    ("activity-journal", "GET", "/sharpit/api/activity/journal", 200, True),
+    ("activity-resources", "GET", "/sharpit/api/activity/resources", 200, True),
 ]
 
 # (variant, peer, headers, remote access on?, outcome): "ok" = the row's status, "token" = 401 if the row needs a
@@ -196,7 +201,7 @@ def _panel_routes(prefix: str) -> list[tuple[str, str]]:
     return sorted({("GET", base), *((m, p) for m, p in known if p == base or p.startswith(base + "/"))})
 
 
-# an unimplemented 0.4 panel has no routes at all (404): test_unimplemented_panel_has_no_surface covers it
+# an unimplemented 0.4 panel has no routes at all (404): tests/test_surface_05.py covers it
 GATED = [(p.id, p.api_prefix) for p in PANELS if p.api_prefix and p.implemented]
 
 
@@ -384,14 +389,30 @@ def _seed_sql_trace(handle: SharpitHandle) -> Callable[[], object]:
     return lambda: (recorder.report([])["totalCaptured"], len(recorder.report([])["entries"]), recorder.recording)
 
 
-# CLI-only action tools (never on MCP): (tool, panel, seed returning a state probe); Tasks 5 and 10 add theirs
-CLI_ACTIONS: list[tuple[str, str, Callable[[SharpitHandle], Callable[[], object]]]] = [
+def _no_seed(_handle: SharpitHandle) -> Callable[[], object]:
+    """A lane-declared action: no state to seed; the 403 and the MCP listing are what is checked."""
+    return lambda: None
+
+
+Seed = Callable[[SharpitHandle], Callable[[], object]]
+# CLI-only action tools (never on MCP): (tool, panel, seed returning a state probe). A lane declares its own in its
+# safety file (CLI_ACTIONS = ["<tool>", ...]); cli_action_cases adds them while the lane's flag is on.
+BASE_CLI_ACTIONS: list[tuple[str, str, Seed]] = [
     ("clear_exceptions", "exceptions", _seed_exceptions),
     ("clear_sql_traces", "sql-trace", _seed_sql_trace),
     ("pause_sql_trace_recording", "sql-trace", _seed_sql_trace),
     ("resume_sql_trace_recording", "sql-trace", _seed_sql_trace),
     ("rest_api_scan", "rest-api", _seed_rest_api),
+    ("postgresql_read", "postgresql", _no_seed),  # its lane file predates CLI_ACTIONS
 ]
+
+
+def cli_action_cases(lanes: safety.Lanes) -> list[tuple[str, str, Seed]]:
+    lane_cases = [(tool, lane.panel, _no_seed) for lane in lanes.implemented for tool in lane.cli_actions]
+    return [*BASE_CLI_ACTIONS, *lane_cases]
+
+
+CLI_ACTIONS = cli_action_cases(LANES)
 GATES: dict[str, Callable[[str], dict[str, Any]]] = {
     "panel-disabled": lambda panel: {"panels": {panel: {"enabled": False}}},
     "panel-read-only": lambda panel: {"panels": {panel: {"read_only": True}}},
@@ -622,6 +643,9 @@ def test_get_route_table_is_complete():
     assert set(GET_PATHS) == {"/sharpit"} | {r[2] for r in ROWS if r[1] == "GET"} | LANE_GETS, LANES.unimportable
 
 
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"  # the sample app's source root
+# spec §14: emptied by R-fastapi-security Task 3 (beans resource lines come from code objects, no source read)
+SWEEP_SOURCE_READ_EXEMPT: frozenset[tuple[str, str]] = frozenset()
 ALEMBIC_INI = Path(__file__).resolve().parent / "fixtures" / "alembic" / "linear" / "alembic.ini"
 # spec §7.6 / §7.8: with a registered engine, a health check and an Alembic config, a GET or an MCP tool still opens
 # no database connection and runs no check (the plain app has none of them, so it cannot catch that)
@@ -643,6 +667,19 @@ def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, C
     return app, lambda: ran
 
 
+ADVISOR_VIOLATIONS = re.compile(r"/sharpit/api/[^/]+/rules/[^/]+/violations")
+NO_SCAN_ID = {"error": "Advisor scan ID must not be blank."}  # contract: the 400 of a violations read without scanId
+
+
+def _get_problem(path: str, resp: httpx.Response) -> str | None:
+    """Why a swept GET's answer is wrong, or None."""
+    if ADVISOR_VIOLATIONS.fullmatch(path):  # any advisor's violations route needs a scanId: without one, 400, no scan
+        ok = resp.status_code == 400 and resp.json() == NO_SCAN_ID
+    else:
+        ok = resp.status_code in (200, 307, 404)
+    return None if ok else f"{path}: {resp.status_code} {resp.text}"
+
+
 @pytest.mark.parametrize("variant", SWEEPS)
 @pytest.mark.parametrize("path", GET_PATHS)
 def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, variant: str):
@@ -653,11 +690,10 @@ def test_every_get_no_side_effects(no_side_effects: SideEffectGuard, path: str, 
     with _client(app) as client:
         client.get("/owners")  # one host request first: the capture wiring that attaches on it is swept too
         no_side_effects.block_network()
-        # the rest-api violations route needs a scanId: without one it answers 400 (and never scans)
-        expected = (400,) if path == "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations" else (200, 307, 404)
+        if ("GET", path.removeprefix("/sharpit/api")) not in SWEEP_SOURCE_READ_EXEMPT:
+            no_side_effects.watch_sources(EXAMPLES)  # spec §4.4: a sharpit GET never opens the app's source
         for query in ("", "?q=sharpit&offset=0&limit=5"):
-            resp = client.get(path + query)
-            assert resp.status_code in expected, resp.text
+            assert _get_problem(path, client.get(path + query)) is None
     assert no_side_effects.violations == []
     assert ran() == []
 
@@ -666,12 +702,10 @@ MCP_TOOLS = [t.name for t in TOOLS if not t.action]
 
 
 def _tool_arguments(tool: str, handle: SharpitHandle) -> dict[str, Any]:
-    """A tool's required arguments: get_exception_detail gets the id of an exception recorded here and
-    get_rest_api_rule_violations a rule of a REST API scan run here (the scan only reads route metadata)."""
-    if tool == "get_rest_api_rule_violations":
-        report = rest_api_service(handle.context).scan()
-        assert report["results"], report
-        return {"id": report["results"][0]["id"], "scanId": report["violationDetails"]["scanId"]}
+    """A tool's required arguments: built by its TOOL_ARGS (the base's or a lane's, tests/safety), or for
+    get_exception_detail the id of an exception recorded here."""
+    if (build := LANES.tool_args.get(tool)) is not None:
+        return build(handle)
     if tool != "get_exception_detail":
         return {}
     _seed_exceptions(handle)
@@ -689,9 +723,74 @@ def test_every_mcp_tool_no_side_effects(no_side_effects: SideEffectGuard, tool: 
     with _client(app) as client:
         client.get("/owners")
         no_side_effects.block_network()
+        if ("mcp", tool) not in SWEEP_SOURCE_READ_EXEMPT:
+            no_side_effects.watch_sources(EXAMPLES)  # spec §4.4: a sharpit MCP read never opens the app's source
         arguments = _tool_arguments(tool, app.state.sharpit)
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
         result = client.post("/sharpit/api/mcp", json=call).json()["result"]
     assert result["isError"] is False, result
     assert no_side_effects.violations == []
     assert ran() == []
+
+
+CLI_LANE = """PANEL = "postgresql"
+GET_ROWS = ["/sharpit/api/postgresql"]
+CLI_ACTIONS = ["probe_action"]
+"""
+
+
+def test_cli_actions_declared_per_lane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 0.5.0 spec §4.4: a lane's safety file declares its CLI-only actions; test_cli_action_tools_gated picks them up
+    package = tmp_path / "cli_lane_pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "test_probe_safety.py").write_text(CLI_LANE, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    cases = {tool: panel for tool, panel, _seed in cli_action_cases(safety.load("cli_lane_pkg"))}
+
+    assert cases.get("probe_action") == "postgresql"
+    assert cases.get("postgresql_read") == "postgresql"
+
+
+def test_cli_action_tools_gated_is_parametrised_from_the_lanes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # review F5a-harness #2: a lane's CLI_ACTIONS reach test_cli_action_tools_gated itself, not only the helper.
+    # No lane declares one yet, so this module is re-run with a planted lane and its parametrisation read back.
+    package = tmp_path / "cli_wiring_pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "test_probe_safety.py").write_text(CLI_LANE, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    planted = safety.load("cli_wiring_pkg")
+    monkeypatch.setattr(safety, "load", lambda _package="safety": planted)
+    fresh: dict[str, Any] = {"__name__": "safety_matrix_replica", "__file__": __file__}
+
+    exec(compile(Path(__file__).read_text(encoding="utf-8"), __file__, "exec"), fresh)  # noqa: S102
+
+    marks = fresh["test_cli_action_tools_gated"].pytestmark
+    cases = next(m.args[1] for m in marks if m.name == "parametrize" and m.args[0] == ("tool", "panel", "seed"))
+    assert "probe_action" in [tool for tool, _panel, _seed in cases]
+
+
+def test_sweep_source_read_exemptions_only_shrink() -> None:
+    # spec §14: R-fastapi-security Task 3 emptied it; a new entry is a spec §14 deviation first
+    assert frozenset() == SWEEP_SOURCE_READ_EXEMPT
+
+
+def test_any_advisor_violations_route_may_answer_400_without_a_scan_id() -> None:
+    # coordinator fix 0.5.0: every advisor panel's rule violations route needs a scanId, not only rest-api's
+    resp = httpx.Response(400, json={"error": "Advisor scan ID must not be blank."})
+
+    assert _get_problem("/sharpit/api/architecture/rules/ARCH-001/violations", resp) is None
+
+
+def test_violations_400_for_another_reason_fails_the_sweep() -> None:
+    resp = httpx.Response(400, json={"error": "Advisor rule ID must not be blank."})
+
+    assert _get_problem("/sharpit/api/rest-api/rules/RAPI-MAP-001/violations", resp) is not None
+
+
+def test_400_off_a_violations_route_fails_the_sweep() -> None:
+    resp = httpx.Response(400, json={"error": "Advisor scan ID must not be blank."})
+
+    assert _get_problem("/sharpit/api/architecture/rules/ARCH-001", resp) is not None

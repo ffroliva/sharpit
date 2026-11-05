@@ -15,6 +15,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
+from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.masking import MASK, is_sensitive_key
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
@@ -157,7 +158,7 @@ class HealthService:
         return f"timed out after {self._ctx.settings.health_timeout:g}s; still running"
 
     def _failure(self, exc: BaseException) -> str | None:
-        return self._ctx.masker.mask_text(f"{type(exc).__name__}: {exc}")
+        return mask_error(self._ctx.masker, f"{type(exc).__name__}: {exc}")
 
     async def _ping(self, name: str, engine: Any, flight: Flight, executor: DaemonExecutor) -> dict[str, Any]:
         details: dict[str, Any] = {"database": engine.dialect.name, "validationQuery": "dialect ping"}
@@ -172,6 +173,8 @@ class HealthService:
             status = "UP" if ok is not False else "DOWN"
         except TimeoutError:
             status, details["error"] = "DOWN", self._timed_out()
+        except sqla.ReadOnlyUnavailable as exc:  # skipped: nothing is known about the database, so never DOWN
+            status, details["error"] = "UNKNOWN", exc.reason
         except Exception as exc:  # noqa: BLE001 - a failed ping is this engine's DOWN, never the request's 500
             status, details["error"] = "DOWN", self._failure(exc)
         return node(name, status, {**details, "checkedAt": _now_ms()})

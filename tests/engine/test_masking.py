@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 import pytest
@@ -230,10 +231,10 @@ def test_empty_user_url_password_is_secret() -> None:
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("login failed password=hunter2 for bob", "login failed password=****** for bob"),
+        ("login failed password=hunter2 for bob", "login failed password=******"),
         ("db.password: hunter2", "db.password: ******"),
         ("Authorization: Bearer abc.def", "Authorization: ******"),
-        ('{"token": "abc", "user": "bob"}', '{"token": "******", "user": "bob"}'),
+        ('{"token": "abc", "user": "bob"}', '{"token": "******"'),
         ("connect to postgres://u:p@h/db failed", "connect to postgres://******@h/db failed"),
         ("redis://:pw@cache:6379/0", "redis://******@cache:6379/0"),
         (f"user sent {JWT} twice", f"user sent {MASK} twice"),
@@ -252,33 +253,57 @@ def test_empty_user_url_password_is_secret() -> None:
         ("GET /owners/42 HTTP/1.1 200", "GET /owners/42 HTTP/1.1 200"),
         ("plain words only", "plain words only"),
         # Python dict reprs and non-string JSON values (review r0)
-        ("{'password': 'hunter2', 'user': 'bob'}", "{'password': '******', 'user': 'bob'}"),
-        ("kwargs={'api_key': 'sk-live-abcdef123456'}", "kwargs={'api_key': '******'}"),
-        ('{"password": 12345, "user": "bob"}', '{"password": "******", "user": "bob"}'),
-        ("{'secret': None}", "{'secret': '******'}"),
+        ("{'password': 'hunter2', 'user': 'bob'}", "{'password': '******'"),
+        ("kwargs={'api_key': 'sk-live-abcdef123456'}", "kwargs={'api_key': '******'"),
+        ('{"password": 12345, "user": "bob"}', '{"password": "******"'),
+        ("{'secret': None}", "{'secret': '******'"),
         ("secret: [1, 2]", "secret: ******"),
         ("[parameters: ('bob', 'secret')", "[parameters: ******]"),
-        ("Cookie: session=abc123; theme=dark", "Cookie: ******; theme=dark"),
+        ("Cookie: session=abc123; theme=dark", "Cookie: ******"),
     ],
 )
 def test_mask_text_corpus(text: str, expected: str) -> None:
     assert Masker(M, True).mask_text(text) == expected
 
 
-def test_mask_text_json_stays_valid() -> None:
-    import json
+HEX_TOKEN = "0123456789abcdef" * 2
+VENDOR_TOKEN = "sk-" + "abc123" * 4
+OPAQUE_TOKEN = "AAAA" * 8
+BASIC_CREDENTIALS = "dXNlcjpw" + "YXNzd29yZA=="
 
+
+@pytest.mark.parametrize(
+    ("scheme", "credential"),
+    [
+        ("Bearer", HEX_TOKEN),
+        ("Bearer", VENDOR_TOKEN),
+        ("Bearer", OPAQUE_TOKEN),
+        ("Basic", BASIC_CREDENTIALS),
+        ("Token", HEX_TOKEN),
+    ],
+    ids=["bearer-hex", "bearer-vendor", "bearer-opaque", "basic", "token"],
+)
+def test_mask_text_masks_any_auth_scheme_credential(scheme: str, credential: str) -> None:
+    masked = Masker(M, True).mask_text(f"sent {scheme} {credential} upstream")
+    assert masked == f"sent {scheme} {MASK} upstream"
+
+
+def test_mask_text_auth_scheme_is_linear() -> None:
+    assert Masker(M, True).mask_text("Bearer " * 20_000 + " " * 20_000)
+
+
+def test_mask_text_scheme_word_inside_a_longer_word_is_kept() -> None:
+    assert Masker(M, True).mask_text("MyToken value") == "MyToken value"
+
+
+def test_mask_text_json_is_masked_from_the_first_sensitive_key() -> None:
     masked = Masker(M, True).mask_text('{"token": "abc", "nested": {"password": "p w"}, "n": 1}')
-    assert masked is not None
-    assert json.loads(masked) == {"token": MASK, "nested": {"password": MASK}, "n": 1}
+    assert masked == f'{{"token": "{MASK}"'
 
 
-def test_mask_text_json_non_string_values_stay_valid() -> None:
-    import json
-
+def test_mask_text_json_non_string_value_is_masked_from_the_first_sensitive_key() -> None:
     masked = Masker(M, True).mask_text('{"password": 12345, "pin_token": true, "api_keys": [1, 2], "n": null}')
-    assert masked is not None
-    assert json.loads(masked) == {"password": MASK, "pin_token": MASK, "api_keys": MASK, "n": None}
+    assert masked == f'{{"password": "{MASK}"'
 
 
 def test_mask_text_parameters_kept_when_capture_on() -> None:
@@ -348,3 +373,238 @@ def test_vendor_regex_skipped_without_a_prefix(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(masking, "_VENDOR_TOKEN", Spy())
     assert not is_secret_value("an ordinary word")
     assert searched == []
+
+
+# derived: release council probe p2_mask.py: HTTP auth schemes are case-insensitive, the rule was not
+@pytest.mark.parametrize(
+    "text",
+    [
+        "bearer abc123def",
+        "BEARER abc123def",
+        "bEaReR abc",
+        f"basic {BASIC_CREDENTIALS}",
+        f"BASIC {BASIC_CREDENTIALS}",
+    ],
+)
+def test_mask_text_scheme_credential_survives_in_no_case(text: str) -> None:
+    assert Masker(M, True).mask_text(text) == f"{text.split()[0]} {MASK}"
+
+
+@pytest.mark.parametrize("scheme", ["bearer", "basic", "digest", "token", "Token", "BEARER"])
+@pytest.mark.parametrize("key", ["Authorization", "authorization", "Proxy-Authorization"])
+def test_mask_text_authorization_value_masks_whole(key: str, scheme: str) -> None:
+    masked = Masker(M, True).mask_text(f"{key}: {scheme} expired")
+    assert masked == f"{key}: {MASK}"
+
+
+def test_mask_text_authorization_inside_a_quoted_command_keeps_no_credential() -> None:
+    masked = Masker(M, True).mask_text("curl -H 'Authorization: bearer abc'")
+    assert masked == f"curl -H 'Authorization: {MASK}"
+
+
+@pytest.mark.parametrize(
+    "credential",
+    ["abc123def", "abc123", "0123456789abcdef", "a+b/c==", "AbCdEfGhIj", "abcdefghijklmnopqrstuvwxyz", HEX_TOKEN],
+)
+@pytest.mark.parametrize("scheme", ["Token", "token", "TOKEN"])
+def test_mask_text_token_scheme_masks_a_credential_shape(scheme: str, credential: str) -> None:
+    masked = Masker(M, True).mask_text(f"sent {scheme} {credential} upstream")
+    assert masked == f"sent {scheme} {MASK} upstream"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Token expired",
+        "token expired.",
+        "Token is invalid",
+        "the Token, then",
+        "SELECT * FROM Token WHERE id = ?",
+        "SELECT * FROM token JOIN users",
+        "UPDATE Token SET used",
+        "Token ?",
+    ],
+)
+def test_mask_text_token_keeps_ordinary_words(text: str) -> None:
+    assert Masker(M, True).mask_text(text) == text
+
+
+def test_mask_text_word_after_token_does_not_hide_the_next_credential() -> None:
+    assert Masker(M, True).mask_text("Token Token abc123def") == f"Token Token {MASK}"
+
+
+def test_mask_text_token_between_runs_of_spaces_stays_linear() -> None:
+    assert Masker(M, True).mask_text("token" + " " * 200_000 + "expired") == "token" + " " * 200_000 + "expired"
+
+
+# derived: review of this fix: the suite caught ``token = '...'``, an operator taken for the credential
+@pytest.mark.parametrize("text", ["WHERE token >= 5", "Token -> next", "sent token ... upstream"])
+def test_mask_text_token_keeps_an_operator(text: str) -> None:
+    assert Masker(M, True).mask_text(text) == text
+
+
+# derived: release council probe p8_uncapped.py: ``\S+`` took the word ``token`` for the credential
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Invalid bearer token abc123def", f"Invalid bearer token {MASK}"),
+        ("rejected Bearer Token s3cr3tvalue", f"rejected Bearer Token {MASK}"),
+        ("rejected BEARER TOKEN s3cr3tvalue", f"rejected BEARER TOKEN {MASK}"),
+        ("sent basic token abc123def", f"sent basic token {MASK}"),
+    ],
+)
+def test_mask_text_credential_after_bearer_token_is_masked(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
+
+
+# derived: review of the fix above: the key's value stopped at ``Token``, so the credential followed the mask
+@pytest.mark.parametrize("scheme", ["Bearer Token", "bearer token", "Basic Token", "Digest Token"])
+def test_mask_text_authorization_value_with_a_token_word_masks_whole(scheme: str) -> None:
+    assert Masker(M, True).mask_text(f"Authorization: {scheme} abc123def") == f"Authorization: {MASK}"
+
+
+# decided: round 4: telling English from a credential after a scheme was the leak, so the next word is masked
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Bearer qsecretvalue", f"Bearer {MASK}"),
+        ("basic auth failed for hunter2x", f"basic {MASK} failed for hunter2x"),
+        ("Basic auth failed", f"Basic {MASK} failed"),
+        ("bearer expired", f"bearer {MASK}"),
+        ("Bearer expired.", f"Bearer {MASK}"),
+        ("bearer token expired", f"bearer token {MASK}"),
+        ("Bearer Token expired", f"Bearer Token {MASK}"),
+        ("SELECT basic FROM t", f"SELECT basic {MASK} t"),
+        ("SELECT bearer FROM t", f"SELECT bearer {MASK} t"),
+    ],
+)
+def test_mask_text_scheme_masks_the_next_word(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("BEARER expired", f"BEARER {MASK}"),
+        ("BASIC expired", f"BASIC {MASK}"),
+        ("bEaReR expired", f"bEaReR {MASK}"),
+        ("Authorization: Bearer expired", f"Authorization: {MASK}"),
+        ("Authorization: Basic expired", f"Authorization: {MASK}"),
+        (f"Basic {BASIC_CREDENTIALS}", f"Basic {MASK}"),
+        ("bearer abc123def", f"bearer {MASK}"),
+    ],
+)
+def test_mask_text_scheme_guard_leaves_no_credential(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
+
+
+# derived: release council probe p2_redos.py: a quadratic regex holds the GIL, so the host freezes on one masked line.
+# ReDoS is a wall-clock defect: each size takes seconds on the quadratic pattern, within the 60 s test timeout
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("token " + '"' * 16_000 + "1", id="token-quotes"),
+        pytest.param(")" * 16_000 + "a", id="token-edges-suffix"),
+        pytest.param(".)" * 8_000 + "a", id="token-edges-mixed"),
+        pytest.param("eyJ" * 66_000, id="jwt-prefix-run"),
+        pytest.param("=" + "BEGIN" * 40_000, id="pem-prefix-run"),
+        pytest.param("k=[ " * 16_000, id="pair-unclosed-bracket"),
+        pytest.param("k=( " * 16_000, id="pair-unclosed-paren"),
+        pytest.param('"k":[ ' * 11_000, id="quoted-pair-unclosed-bracket"),
+        pytest.param('"k":( ' * 11_000, id="quoted-pair-unclosed-paren"),
+    ],
+)
+def test_mask_text_stays_fast_on_a_pathological_input(text: str) -> None:
+    started = time.process_time()
+    Masker(M, True).mask_text(text)
+    assert time.process_time() - started < 1
+
+
+# derived: the same audit: the fix must not lose a credential the shipped patterns found
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(f"x-{JWT}", id="jwt-glued-to-a-word"),
+        pytest.param(f"(jwt_{JWT})", id="jwt-glued-in-parens"),
+        pytest.param(f"eyJshort{JWT}", id="jwt-after-a-failed-start"),
+    ],
+)
+def test_mask_text_masks_a_jwt_glued_to_a_word(text: str) -> None:
+    assert JWT not in (Masker(M, True).mask_text(text) or "")
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["A BEGIN RSA PRIVATE KEY", "XBEGIN PRIVATE KEY", "BEGIN BEGIN PRIVATE KEY", "a BEGIN x BEGIN EC PRIVATE KEY"],
+)
+def test_pem_marker_is_found_anywhere_in_its_run(value: str) -> None:
+    assert is_secret_value(value)
+
+
+def test_pem_marker_needs_begin_in_the_same_run() -> None:
+    assert not is_secret_value("BEGIN x PRIVATE KEY")
+
+
+LONG_LINE = "ordinary words " * 400
+
+
+# derived: the same audit: on a long line an opener with no closer must read exactly as on a short one
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("password=[a, b] note=[ (open", f"password={MASK}"),
+        ('{"password": ["a", "b"], "note": [1', f'{{"password": "{MASK}"'),
+        ("note=[ password=hunter2", f"note=[ password={MASK}"),
+        ("token=(a b) secret=(hunter2", f"token={MASK}"),
+        ('{"note":["password":"hunter2"', f'{{"note":["password":"{MASK}"'),
+    ],
+)
+def test_mask_text_unclosed_opener_reads_the_same_on_a_long_line(text: str, expected: str) -> None:
+    masker = Masker(M, True)
+    assert masker.mask_text(text) == expected
+    assert masker.mask_text(LONG_LINE + text) == LONG_LINE + expected
+
+
+# derived: release council fix round 3: the same first-closer shape as ``[SQL: ...]``: a sensitive value ended at the
+# first closer, so what followed a nested bracket or a closer inside a string was shown
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("password=[a[1], hunter2]", f"password={MASK}"),
+        ("password=[[1, 2], [3, hunter2]]", f"password={MASK}"),
+        ("password=(f(x), hunter2)", f"password={MASK}"),
+        ("password=[a[1], hunter2", f"password={MASK}"),
+        ('{"tokens": [["a"], ["hunter2"]]}', f'{{"tokens": "{MASK}"'),
+        ('{"tokens": ["a", {"x": [1]}, "hunter2"]}', f'{{"tokens": "{MASK}"'),
+        ('{"tokens": ["a]", "hunter2"]}', f'{{"tokens": "{MASK}"'),
+        ("{'token': (('a',), 'hunter2')}", f"{{'token': '{MASK}'"),
+    ],
+)
+def test_mask_text_sensitive_value_runs_to_the_end_of_its_line(text: str, expected: str) -> None:
+    masker = Masker(M, True)
+    assert masker.mask_text(text) == expected
+    assert masker.mask_text(LONG_LINE + text) == LONG_LINE + expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('{"password": ["a"], "roles": ["x"]}', f'{{"password": "{MASK}"'),
+        ("note=[a[1], b] password=hunter2", f"note=[a[1], b] password={MASK}"),
+        ("password=[a[1]]\nnote=[b]", f"password={MASK}\nnote=[b]"),
+    ],
+)
+def test_mask_text_value_leaves_what_its_line_does_not_hold(text: str, expected: str) -> None:
+    assert Masker(M, True).mask_text(text) == expected
+
+
+@pytest.mark.parametrize("text", ["password=[[] " * 12_000, "password=[a] " * 12_000, "k=[[] " * 12_000])
+def test_mask_text_value_scan_stays_fast(text: str) -> None:
+    started = time.process_time()
+    Masker(M, True).mask_text(text)
+    assert time.process_time() - started < 1
+
+
+# derived: delete-the-control on the line bound: an open value stops at its line, the next line stays
+def test_mask_text_open_bracket_value_stops_at_its_line() -> None:
+    assert Masker(M, True).mask_text("password=[a[1], hunter2\nnote=[b]") == f"password={MASK}\nnote=[b]"

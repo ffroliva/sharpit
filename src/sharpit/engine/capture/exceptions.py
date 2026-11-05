@@ -21,6 +21,7 @@ from typing import Any, cast
 
 from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.frames import is_application_frame
+from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
 
@@ -30,7 +31,7 @@ STATUSES = ("OPEN", "ACKNOWLEDGED", "RESOLVED")
 GROUP_KEYS = (
     "id", "exceptionClassName", "message", "count", "firstSeen", "lastSeen", "location", "applicationException",
     "lastThread", "lastRequestMethod", "lastRequestPath", "lastHandler", "lastSource", "lastTraceId", "status",
-    "regressionCount", "errorContract",
+    "regressionCount", "errorContract", "lastRequestId", "lastExecutionId",
 )  # fmt: skip
 
 _FALLBACK_MAX = 64
@@ -195,7 +196,25 @@ class _Group:
             "status": self.status,
             "regressionCount": self.regressions,
             "errorContract": None,  # BootUI's Problem Details check is not ported
+            "lastRequestId": last.get("traceId"),  # an occurrence's traceId is sharpit's request id
+            "lastExecutionId": None,
         }
+
+
+CAUGHT_UNAVAILABLE = "Caught exceptions are recorded by the sharpit agent's caught-exceptions sensor."
+
+
+def caught_report() -> dict[str, Any]:
+    """``CaughtExceptionsReport.unavailable``: no sensor in sharpit sees the exceptions application code caught."""
+    return {
+        "available": False,
+        "unavailableReason": CAUGHT_UNAVAILABLE,
+        "limitations": [],
+        "settling": 0,
+        "occurrences": 0,
+        "findings": 0,
+        "rows": [],
+    }
 
 
 class ExceptionStore:
@@ -214,7 +233,7 @@ class ExceptionStore:
         self._slot = f"_{next(_SLOTS)}"  # marks are per store: two installed apps each record an exception once
 
     def _message(self, text: str | None) -> str | None:
-        masked = self.masker.mask_text(text[: 4 * MAX_MESSAGE] if text else None)
+        masked = mask_error(self.masker, text[: 4 * MAX_MESSAGE] if text else None)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return masked
@@ -310,6 +329,7 @@ class ExceptionStore:
             "maxGroups": self.max_groups,
             "totalExceptions": total,
             "groups": summaries,
+            "caughtInCode": None,  # CaughtExceptionsSummaryDto: null without the caught-exceptions sensor
         }
 
     def request_occurrences(self, request_id: str) -> list[dict[str, Any]]:

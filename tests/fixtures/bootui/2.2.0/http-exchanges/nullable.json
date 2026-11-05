@@ -1,0 +1,8 @@
+{
+  "retention": "null while request capture is unavailable (HttpExchangesReport.unavailable)",
+  "retention.reservedCapacity": "null: sharpit's exchange ring is a plain bounded deque with no share reserved for 5xx or slow requests",
+  "retention.reserved": "null: sharpit's exchange ring is a plain bounded deque with no share reserved for 5xx or slow requests",
+  "retention.slowThresholdMillis": "null: sharpit has no slow-request threshold for HTTP exchanges",
+  "window.oldestTimestamp": "null when the exchange ring retains no request (an empty window)",
+  "window.newestTimestamp": "null when the exchange ring retains no request (an empty window)"
+}

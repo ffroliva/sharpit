@@ -16,22 +16,22 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import safety
 from conftest import SideEffectGuard
 from sharpit.engine.activation import ActivationStatus
-from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.exceptions import ExceptionStore
 from sharpit.engine.collectors.config import config_report
-from sharpit.engine.collectors.restapi.service import RestApiService
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
-from sharpit.engine.singleflight import ActionBusy, SingleFlight
-from sharpit.engine.spi import ApiModel, ApiRouteInfo, AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.singleflight import ActionBusy
+from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
 from sharpit.engine.tools import (
     COMMANDS,
     INTERNAL_ERROR,
@@ -50,6 +50,7 @@ from sharpit.settings import PanelSettings, SharpitSettings, load_settings
 from surface import lane_tools
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
+LANES = safety.load()  # lane TOOL_SEEDS: arguments for tools this file's bare context cannot answer alone
 NONE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
 LIMIT_DESCRIPTION = "Optional maximum number of items to return. Capped by the SHARPIT_MCP_MAX_RESULTS server limit."
 QUERY_LIMIT_SCHEMA: dict[str, Any] = {
@@ -109,6 +110,15 @@ RELEASE_TOOLS = (
 )  # each 0.2.0 task adds the tools it builds
 
 
+# BootUI 2.2.0 McpToolCatalog: these schemas moved on from the 0.2.0 fixture (contract 0.4 drift §§10, 13, 14)
+SCHEMAS_2_2_0 = {
+    "get_log_tail": QUERY_LIMIT_SCHEMA,
+    "get_sql_traces": QUERY_LIMIT_SCHEMA,
+    "get_live_activity": QUERY_LIMIT_SCHEMA,
+    "get_vulnerabilities_report": QUERY_LIMIT_SCHEMA,  # contract 0.4 drift §7 (lane D4)
+}
+
+
 class FakeIntrospector:
     def app_info(self) -> AppInfo:
         return AppInfo("demo", "FastAPI", "0.115.0", None)
@@ -135,34 +145,36 @@ def _tool(name: str, handler: Callable[[CallContext, dict[str, Any]], dict[str, 
 
 
 def test_catalogue_names_panels_actions_and_schemas():
-    # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows, panel and action names)
+    # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows plus the 2.2.0 capture tools, panel and action names)
     rows = [(t.name, t.panel, t.action, t.input_schema) for t in TOOLS]
-    assert rows[24:] == [(t.name, t.panel, t.action, t.input_schema) for t in lane_tools()]
-    assert rows[:24] == [
+    assert rows[26:] == [(t.name, t.panel, t.action, t.input_schema) for t in lane_tools()]
+    assert rows[:26] == [
         ("get_overview", "overview", False, NONE_SCHEMA),
         ("get_config", "config", False, QUERY_LIMIT_SCHEMA),
         ("get_mappings", "mappings", False, QUERY_LIMIT_SCHEMA),
         ("get_loggers", "loggers", False, QUERY_LIMIT_SCHEMA),
         ("get_beans", "beans", False, QUERY_LIMIT_SCHEMA),
         ("get_http_exchanges", "http-exchanges", False, LIMIT_SCHEMA),
-        ("get_log_tail", "log-tail", False, NONE_SCHEMA),
+        ("get_log_tail", "log-tail", False, QUERY_LIMIT_SCHEMA),
         ("get_exceptions", "exceptions", False, NONE_SCHEMA),
         ("get_exception_detail", "exceptions", False, ID_SCHEMA),
         ("clear_exceptions", "exceptions", True, NONE_SCHEMA),
-        ("get_sql_traces", "sql-trace", False, NONE_SCHEMA),
+        ("get_sql_traces", "sql-trace", False, QUERY_LIMIT_SCHEMA),
         ("clear_sql_traces", "sql-trace", True, NONE_SCHEMA),
         ("pause_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
         ("resume_sql_trace_recording", "sql-trace", True, NONE_SCHEMA),
-        ("get_live_activity", "activity", False, LIMIT_SCHEMA),
+        ("get_live_activity", "activity", False, QUERY_LIMIT_SCHEMA),
         ("get_alembic_migrations", "alembic", False, NONE_SCHEMA),
         ("get_health", "health", False, NONE_SCHEMA),
         ("get_database_connection_pools", "database-connection-pools", False, NONE_SCHEMA),
         ("get_threads", "threads", False, QUERY_LIMIT_SCHEMA),
-        ("get_vulnerabilities_report", "vulnerabilities", False, NONE_SCHEMA),
+        ("get_vulnerabilities_report", "vulnerabilities", False, QUERY_LIMIT_SCHEMA),
         ("vulnerabilities_scan", "vulnerabilities", True, NONE_SCHEMA),
         ("get_rest_api_report", "rest-api", False, NONE_SCHEMA),
         ("get_rest_api_rule_violations", "rest-api", False, RULE_VIOLATIONS_SCHEMA),
         ("rest_api_scan", "rest-api", True, NONE_SCHEMA),
+        ("get_http_routes", "http-exchanges", False, LIMIT_SCHEMA),
+        ("get_request_profile", "activity", False, ID_SCHEMA),
     ]
 
 
@@ -236,7 +248,7 @@ def test_mcp_schema_matches_bootui(name: str):
     entry = next(t for t in BOOTUI_TOOLS["tools"] if t.get("sharpitName", t["name"]) == name)
     tool = next(t for t in TOOLS if t.name == name)
     expected = json.loads(json.dumps(entry["inputSchema"]).replace("bootui.mcp.max-results", "SHARPIT_MCP_MAX_RESULTS"))
-    assert tool.input_schema == expected
+    assert tool.input_schema == SCHEMAS_2_2_0.get(name, expected)
     assert (tool.panel, tool.action) == (entry.get("sharpitPanel", entry["panel"]), entry["action"])
     assert COMMANDS[name] == entry.get("sharpitCommand", entry["command"])
     assert "Spring" not in tool.description
@@ -517,6 +529,14 @@ def test_cap_counts_running_and_abandoned_together():
 def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, tmp_state_dir: Path):
     # new: brief ruling (no socket, file, logger level or os.environ change)
     ctx = _ctx(state_dir=str(tmp_state_dir))
+    arguments = _mcp_arguments(name, ctx)
+    no_side_effects.rebaseline()
+    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")
+    assert isinstance(result, dict)
+
+
+def _mcp_arguments(name: str, ctx: SharpitContext) -> dict[str, Any]:
+    """A tool's required arguments, seeded into ``ctx``."""
     arguments: dict[str, Any] = {}
     if name == "get_exception_detail":  # the one tool with a required argument: the id of a recorded exception
         store = ctx.capture.exceptions = ExceptionStore(10, 5, 20, ctx.masker)
@@ -525,15 +545,9 @@ def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, 
         except RuntimeError as exc:
             store.record(exc, "log", None, "test")
         arguments = {"id": store.report()["groups"][0]["id"]}
-    if name == "get_rest_api_rule_violations":  # needs a cached scan: seeded with one violating route
-        route = ApiRouteInfo(("GET",), "/getPets", "app:read_pets", summary="s", tags=("t",))
-        model = ApiModel((route,), ("app:on_error",), ())
-        service = ctx.lazy("rest-api", lambda: RestApiService(lambda: model, DismissalStore(tmp_state_dir), ctx.masker,
-                                                             SingleFlight(), max_retained=100))  # fmt: skip
-        arguments = {"id": "RAPI-NAME-001", "scanId": service.scan()["violationDetails"]["scanId"]}
-    no_side_effects.rebaseline()
-    result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")
-    assert isinstance(result, dict)
+    if (seed := LANES.tool_seeds.get(name)) is not None:  # e.g. get_rest_api_rule_violations: a cached scan's id
+        arguments = seed(ctx)
+    return arguments
 
 
 def test_settings_default_mcp_off():
@@ -561,3 +575,140 @@ def test_mcp_config_drops_only_the_property_suggestions():
     assert view["page"]["total"] == http["page"]["total"]
     cli = call_tool(_call(ctx), "get_config", {}, via="cli")
     assert cli["propertySuggestions"] == []  # BootUI's CLI shares the MCP dispatcher and tool handlers
+
+
+def test_lane_tool_seeds_reach_the_mcp_sweep(
+    tmp_path: Path, tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # coordinator fix 0.5.0: a lane's TOOL_SEEDS build a tool's arguments over this file's bare context
+    name = f"seedpkg_{uuid.uuid4().hex[:8]}"
+    (tmp_path / name).mkdir()
+    (tmp_path / name / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / name / "test_c_probe_safety.py").write_text(
+        'TOOL_SEEDS = {"get_overview": lambda ctx: {"ctx": ctx}}\n', encoding="utf-8"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setitem(globals(), "LANES", safety.load(name))
+    ctx = _ctx(state_dir=str(tmp_state_dir))
+
+    assert _mcp_arguments("get_overview", ctx) == {"ctx": ctx}
+
+
+def test_mcp_sql_traces_and_log_tail_accept_query_and_limit_with_page_metadata(monkeypatch: pytest.MonkeyPatch):
+    # ported: McpAgentViewsTests.sqlTracesAndLogTailFilterAndPage
+    from sharpit.engine import tools as facade
+    from sharpit.engine.capture.logtail import LogTailBuffer
+    from sharpit.engine.capture.sqltrace import SqlTraceRecorder
+
+    ctx = _ctx()
+    recorder = SqlTraceRecorder(ctx.masker)
+    for sql in ("select * from orders", "select * from pets", "select id from orders"):
+        recorder.record(sql, duration_ns=1_000, thread="main", connection_id="c1")
+    ctx.capture.sql_trace = recorder
+    monkeypatch.setattr(facade, "sql_trace_unavailable_reason", lambda _ctx: None)
+    traces = call_tool(_call(ctx), "get_sql_traces", {"query": "orders", "limit": 1}, via="mcp")
+    assert traces.get("page") == {"total": 3, "matched": 2, "offset": 0, "limit": 1, "returned": 1, "hasMore": True}
+    assert [e["sql"] for e in traces["entries"]] == ["select id from orders"], "newest first, filtered, limited"
+    buffer = LogTailBuffer(10, 1 << 20)
+    for n in range(3):
+        line = {"timestamp": n, "level": "INFO", "logger": "app", "message": f"line {n}", "thread": "main"}
+        buffer.append({**line, "messageOmitted": False})
+    ctx.capture.log_tail = buffer
+    tail = call_tool(_call(ctx), "get_log_tail", {"query": "line", "limit": 2}, via="mcp")
+    assert [entry["message"] for entry in tail["entries"]] == ["line 1", "line 2"], "the newest lines, oldest first"
+    assert tail.get("page", {}).get("matched") == 3
+
+
+# --- lane D4: get_vulnerabilities_report compaction, get_threads default limit -----------------------------------
+
+
+def _vuln(i: int) -> dict[str, Any]:
+    many = [f"item-{i}-{n}" for n in range(5)]
+    return {
+        "id": f"GHSA-{i}",
+        "summary": "s",
+        "details": "d",
+        "aliases": many,
+        "references": many,
+        "fixedVersions": many,
+        "severity": "HIGH",
+        "dismissed": False,
+    }
+
+
+def _vuln_report(vulnerable: int = 12, clean: int = 3) -> dict[str, Any]:
+    deps = [
+        {
+            "packageName": f"pkg-{i}",
+            "version": "1.0",
+            "vulnerabilityCount": 7 if i == 0 else 1,
+            "vulnerabilities": [_vuln(n) for n in range(7 if i == 0 else 1)],
+        }
+        for i in range(vulnerable)
+    ]
+    deps += [
+        {"packageName": f"clean-{i}", "version": "1.0", "vulnerabilityCount": 0, "vulnerabilities": []}
+        for i in range(clean)
+    ]
+    return {"scan": {"status": "SCANNED", "message": "Scan completed against OSV.dev."}, "dependencies": deps}
+
+
+class _FakeVulnService:
+    def __init__(self, report: dict[str, Any]) -> None:
+        self.cached = report
+
+    def report(self) -> dict[str, Any]:
+        return self.cached
+
+
+def _call_or_error(ctx: SharpitContext, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return call_tool(_call(ctx), name, args, via="mcp")
+    except RpcError as exc:
+        return {"rpcError": exc.message}
+
+
+def test_mcp_vulnerabilities_compacts_dependencies_and_advisories(monkeypatch: pytest.MonkeyPatch):
+    # ported: McpAgentViewsTests.vulnerabilitiesCompactsDependenciesAndAdvisories
+    from sharpit.engine import tools
+
+    cached = _vuln_report()
+    monkeypatch.setattr(tools, "vulnerability_service", lambda _ctx: _FakeVulnService(cached))
+    out = _call_or_error(_ctx(), "get_vulnerabilities_report", {})
+    names = [d["packageName"] for d in out.get("dependencies", [])]
+    assert names == [f"pkg-{i}" for i in range(10)], "default limit 10, vulnerable dependencies only"
+    assert out.get("page", {}).get("hasMore") is True
+    first = out["dependencies"][0]
+    assert len(first["vulnerabilities"]) == 5, "ADVISORIES_PER_DEPENDENCY = 5"
+    assert first.get("advisories") == {"total": 7, "returned": 5, "truncated": True}
+    advisory = first["vulnerabilities"][0]
+    assert [len(advisory[k]) for k in ("aliases", "references", "fixedVersions")] == [3, 3, 3]
+    assert len(cached["dependencies"][0]["vulnerabilities"]) == 7, "the cached report is never mutated"
+    assert len(cached["dependencies"][0]["vulnerabilities"][0]["aliases"]) == 5
+
+
+def test_mcp_vulnerabilities_query_includes_clean_dependencies(monkeypatch: pytest.MonkeyPatch):
+    # ported: McpAgentViewsTests.vulnerabilitiesQueryMatchesAnyDependency
+    from sharpit.engine import tools
+
+    monkeypatch.setattr(tools, "vulnerability_service", lambda _ctx: _FakeVulnService(_vuln_report()))
+    out = _call_or_error(_ctx(), "get_vulnerabilities_report", {"query": "clean-1", "limit": 3})
+    assert [d["packageName"] for d in out.get("dependencies", [])] == ["clean-1"]
+
+
+def test_get_threads_default_limit_is_25(monkeypatch: pytest.MonkeyPatch):
+    # ported: McpAgentViews.INVENTORY_DEFAULT_LIMIT (get_threads without a limit returns 25 entries)
+    from sharpit.engine import tools
+
+    seen: list[int | None] = []
+
+    def fake(_ctx: SharpitContext, _q: str | None, _s: str | None, _o: int | None, limit: int | None) -> dict[str, Any]:
+        seen.append(limit)
+        return {}
+
+    monkeypatch.setattr(tools, "threads_report", fake)
+    ctx = _ctx(mcp_max_results=200, cli_max_results=10)
+    call_tool(_call(ctx), "get_threads", {}, via="mcp")
+    call_tool(_call(ctx), "get_threads", {"limit": 50}, via="mcp")
+    call_tool(_call(ctx), "get_threads", {}, via="cli")
+    assert seen == [25, 50, 10], "absent limit: 25, capped by the via's max results; an explicit limit is kept"

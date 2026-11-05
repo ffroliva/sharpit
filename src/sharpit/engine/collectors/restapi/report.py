@@ -1,12 +1,8 @@
-"""``RestApiReport`` (port of BootUI ``RestApiScanner.report``, ``violationResults`` and its messages)."""
+"""``RestApiReport`` texts (port of BootUI ``RestApiScanner`` messages); the shape is built by the advisor scan core."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from typing import Any
-
-from sharpit.engine.advisors.report import evidence, severity_counts
-from sharpit.engine.advisors.rules import SEVERITIES, RuleResult, severity_rank
+from collections.abc import Sequence
 
 ANALYZER = "sharpit rest-api"
 DISCLAIMER = (
@@ -31,51 +27,3 @@ def incomplete_message(limitations: Sequence[str]) -> str:
         f"REST API analysis is incomplete: {len(limitations)} part(s) of the application could not be inspected."
         " Reliable findings are retained; missing findings do not establish a clean API."
     )
-
-
-def failing(results: Iterable[RuleResult]) -> list[RuleResult]:
-    """Only the FAILED rules, most severe first, then the most violations, then by id (``violationResults``)."""
-    found = [r for r in results if r.status == "FAILED"]
-    return sorted(found, key=lambda r: (severity_rank(r.severity), -r.violation_count, r.id))
-
-
-def build(
-    status: str,
-    message: str,
-    scanned_at: int | None,
-    base_packages: Sequence[str],
-    modules: int,
-    handlers: int,
-    rules_evaluated: int,
-    results: Sequence[RuleResult],
-    report_evidence: dict[str, Any],
-    violation_details: dict[str, Any],
-) -> dict[str, Any]:
-    violations = failing(results)
-    return {
-        "localOnly": True,
-        "disclaimer": DISCLAIMER,
-        "basePackages": list(base_packages),
-        "controllersAnalyzed": modules,
-        "handlersAnalyzed": handlers,
-        "rulesEvaluated": rules_evaluated,
-        "violationsFound": len(violations),
-        "severityCounts": severity_counts(((r.severity, r.violation_count) for r in violations), SEVERITIES),
-        "scan": {
-            "analyzer": ANALYZER,
-            "status": status,
-            "message": message,
-            "scannedAt": scanned_at,
-            "rulesEvaluated": rules_evaluated,
-            "controllersAnalyzed": modules,
-            "handlersAnalyzed": handlers,
-            "violationsFound": len(violations),
-        },
-        "results": [r.to_dto() for r in violations],
-        "evidence": report_evidence,
-        "violationDetails": violation_details,
-    }
-
-
-def not_scanned(violation_details: dict[str, Any]) -> dict[str, Any]:
-    return build("NOT_SCANNED", NOT_SCANNED_MESSAGE, None, [], 0, 0, 0, [], evidence(), violation_details)

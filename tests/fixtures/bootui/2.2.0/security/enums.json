@@ -1,0 +1,37 @@
+{
+  "scan.status": [
+    "NOT_SCANNED",
+    "SCANNED",
+    "PARTIAL",
+    "ERROR",
+    "DISABLED"
+  ],
+  "severityCounts[].severity": [
+    "CRITICAL",
+    "HIGH",
+    "MEDIUM",
+    "LOW",
+    "INFO"
+  ],
+  "results[].severity": [
+    "CRITICAL",
+    "HIGH",
+    "MEDIUM",
+    "LOW",
+    "INFO"
+  ],
+  "results[].status": [
+    "VIOLATION",
+    "PASS"
+  ],
+  "analysisErrors[].status": [
+    "ERROR"
+  ],
+  "analysisErrors[].severity": [
+    "CRITICAL",
+    "HIGH",
+    "MEDIUM",
+    "LOW",
+    "INFO"
+  ]
+}

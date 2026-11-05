@@ -6,6 +6,7 @@ Spans are SDK-``ReadableSpan``-shaped fakes: the SDK is not a test dependency an
 from __future__ import annotations
 
 import sys
+import time
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
@@ -503,3 +504,152 @@ def test_reason_when_the_provider_was_set_late(monkeypatch: pytest.MonkeyPatch):
     trace._TRACER_PROVIDER = provider  # type: ignore[attr-defined]
     trace.get_tracer_provider = lambda: provider  # type: ignore[attr-defined]
     assert buf.list(100)["unavailableReason"] == traces.NOT_ARMED
+
+
+# derived: release council fix round 2: an OTel span names its database, so its text is read as that database's
+@pytest.mark.parametrize("key", ["db.system", "db.system.name"])
+@pytest.mark.parametrize("system", ["mysql", "mariadb"])
+def test_mysql_span_statement_uses_the_mysql_scan(key: str, system: str):
+    buf = buffer()
+    buf.add(span(attributes={key: system, "db.statement": "select 1 # password hunter2"}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert attribute(detail["spans"][0], "db.statement") == "select ?"
+
+
+def test_mysql_span_sql_error_uses_the_mysql_scan():
+    buf = buffer()
+    message = "(pymysql.err.ProgrammingError) (1064, 'x')\n[SQL: select 0xDEADBEEF]"
+    buf.add(span(attributes={"db.system": "mysql", "exception.message": message}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert "DEADBEEF" not in attribute(detail["spans"][0], "exception.message")
+
+
+def test_a_span_of_another_database_keeps_the_generic_scan():
+    buf = buffer()
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select a # b from t"}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert attribute(detail["spans"][0], "db.statement") == "select a # b from t"
+
+
+# derived: release council probe p3_sql.py: an HTTP span has no ``db.system``, its error still names the driver
+@pytest.mark.parametrize(
+    "driver",
+    [
+        "pymysql.err.ProgrammingError",
+        "MySQLdb.ProgrammingError",
+        "MySQLdb._exceptions.ProgrammingError",
+        "mysql.connector.errors.ProgrammingError",
+        "asyncmy.errors.ProgrammingError",
+        "mariadb.ProgrammingError",
+    ],
+)
+@pytest.mark.parametrize("key", ["exception.message", "exception.stacktrace"])
+def test_a_mysql_driver_error_on_a_span_without_a_database_uses_the_mysql_scan(driver: str, key: str):
+    buf = buffer()
+    message = f"({driver}) (1064, 'x')\n[SQL: select 0xDEADBEEF # password hunter2\nfrom t]"
+    buf.add(span(attributes={"http.route": "/x", key: message}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert "hunter2" not in attribute(detail["spans"][0], key)
+
+
+def test_a_postgres_driver_error_on_a_span_without_a_database_keeps_the_generic_scan():
+    buf = buffer()
+    message = "(psycopg.errors.SyntaxError) x\n[SQL: select a # b from t]"
+    buf.add(span(attributes={"http.route": "/x", "exception.message": message}))
+
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert detail is not None
+    assert "[SQL: select a # b from t]" in attribute(detail["spans"][0], "exception.message")
+
+
+# derived: this round's regex audit: ``[SQL: `` with no ``]`` after it scanned to the end from every occurrence
+@pytest.mark.parametrize("text", ["[SQL: " * 15_000, "] " + "[SQL: " * 15_000], ids=["no-closer", "closer-first"])
+def test_sql_error_scan_stays_fast_without_a_closer(text: str):
+    buf = buffer()
+    buf.add(span(attributes={"exception.message": text}))
+
+    started = time.process_time()
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert time.process_time() - started < 1
+    assert detail is not None
+
+
+# derived: delete-the-control on the substitution: a closed ``[SQL: `` lets the unclosed ones after it reach the sub
+def test_sql_error_scan_stays_fast_after_a_closed_statement():
+    buf = buffer()
+    buf.add(span(attributes={"exception.message": "[SQL: select 1] " + "[SQL: " * 15_000}))
+
+    started = time.process_time()
+    detail = buf.detail(f"{TRACE:032x}")
+
+    assert time.process_time() - started < 1
+    assert detail is not None
+
+
+def shown_message(message: str) -> str:
+    buf = buffer()
+    buf.add(span(attributes={"exception.message": message}))
+    detail = buf.detail(f"{TRACE:032x}")
+    assert detail is not None
+    return attribute(detail["spans"][0], "exception.message")
+
+
+BACKGROUND = "(Background on this error at: https://sqlalche.me/e/20/f405)"
+BACKGROUND_NORMALISED = "(Background on this error at: https://sqlalche.me/e/?/f405)"
+
+
+# derived: release council fix round 3, p_first_bracket.py: the block ended at the first ``]``, a subscript's, and the
+# literals after it were neither normalised nor masked
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("(a.Error) x\n[SQL: SELECT a[1], 'hunter2' FROM t]", "(a.Error) x\n[SQL: SELECT a[?], ? FROM t]"),
+        ("(a.Error) x\n[SQL: SELECT ARRAY[1], 4111111111111111]", "(a.Error) x\n[SQL: SELECT ARRAY[?], ?]"),
+        ("(a.Error) x\n[SQL: SELECT a[1]\n, 'hunter2' FROM t]", "(a.Error) x\n[SQL: SELECT a[?] , ? FROM t]"),
+        (
+            f"(a.Error) x\n[SQL: SELECT a[1], 'hunter2']\n[parameters: ('p4ss', [1])]\n{BACKGROUND}",
+            f"(a.Error) x\n[SQL: SELECT a[?], ?] [parameters: {MASK}] {BACKGROUND_NORMALISED}",
+        ),
+        (
+            "(a.Error) x\n[SQL: SELECT a[1], 'hunter2']\n[SQL parameters hidden due to hide_parameters=True]",
+            "(a.Error) x\n[SQL: SELECT a[?], ?] [SQL parameters hidden due to hide_parameters=?]",
+        ),
+        (
+            "(a.Error) x\n[SQL: SELECT a[1], 'one']\n(b.Error) y\n[SQL: SELECT b[2], 'two']",
+            "(a.Error) x\n[SQL: SELECT a[?], ?] (b.Error) y [SQL: SELECT b[?], ?]",
+        ),
+        (
+            "(a.Error) x\n[SQL: SELECT a[1], 'one']\nThe above exception was the direct cause of [this]",
+            "(a.Error) x\n[SQL: SELECT a[?], ?] The above exception was the direct cause of [this]",
+        ),
+        ("(a.Error) x\n[SQL: SELECT 'hunter2'", "(a.Error) x\n[SQL: SELECT ?"),
+    ],
+    ids=["subscript", "array", "multi-line", "parameters", "hidden", "two-blocks", "text-after", "no-closer"],
+)
+def test_sql_error_block_runs_past_a_bracket_in_the_statement(message: str, expected: str):
+    assert shown_message(message) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["[SQL: a[1] " * 15_000, "[SQL: x]\n[parameters: y]\n" * 4_000, "\n[SQL: " * 15_000],
+    ids=["inline-blocks", "closed-blocks", "line-blocks"],
+)
+def test_sql_error_block_scan_stays_fast(text: str):
+    started = time.process_time()
+    shown_message(text)
+    assert time.process_time() - started < 1

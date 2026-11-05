@@ -69,7 +69,7 @@ def test_dismiss_rest_api_rule_refused_when_rest_api_disabled(tmp_state_dir: Pat
     )
 
 
-@pytest.mark.parametrize("rule", ["SPRING-WEB-001", "V-1::widget", "V-1::pypi:Widget", "rapi-map-001"])
+@pytest.mark.parametrize("rule", ["QUARKUS-WEB-001", "V-1::widget", "V-1::pypi:Widget", "rapi-map-001"])
 def test_unknown_owner_400(tmp_state_dir: Path, rule: str):
     client = _client(tmp_state_dir)
     for method in ("POST", "DELETE"):
@@ -81,7 +81,7 @@ def test_unknown_owner_400(tmp_state_dir: Path, rule: str):
 
 def test_global_read_only_checked_before_owner(tmp_state_dir: Path):
     client = _client(tmp_state_dir, read_only=True)
-    for rule in (RAPI, "SPRING-WEB-001"):
+    for rule in (RAPI, "QUARKUS-WEB-001"):
         resp = client.post(f"{API}/{rule}")
         assert (resp.status_code, resp.json()) == (403, _denied("sharpit is read-only via SHARPIT_READ_ONLY=true"))
 

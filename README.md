@@ -52,7 +52,7 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI: only 
   `--sharpit-allow-unknown`: report-only relaxes findings, never blindness.
 - **Baselines** match findings by fingerprint. A listed finding is `existing` and never fails, an unlisted one is `new`
   and gates as usual, a listed one not seen is `fixed`. A count gate that grows past its baselined count is `new`.
-  Vulnerability findings are not baselined in 0.4.0, and INFO findings never fail.
+  Vulnerability findings are not baselined, and INFO findings never fail.
 - `--sharpit-write-baseline=PATH` is the only way a baseline is written. It refuses a partial run (`-k`, `-m`, node ids,
   `--lf`, `--deselect`, `-x` stopping early, an interrupt) and a run with any unknown reason.
 - A missing or malformed baseline never switches sharpit off: the session runs and the baseline becomes an unknown
@@ -133,7 +133,7 @@ the Spring Boot developer console. It ports BootUI's design goals, JSON contract
 
 Every panel in light and dark: [screenshot catalog](https://github.com/ffroliva/sharpit/blob/main/docs/screenshots.md).
 
-> **Status: alpha (0.4.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+> **Status: alpha (0.5.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Installation and extras
 

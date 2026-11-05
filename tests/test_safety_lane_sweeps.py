@@ -192,3 +192,36 @@ def test_lane_path_params_apply_only_to_that_lanes_rows(
 
     assert base_path == "/sharpit/api/database-connection-pools/pools/nope/snapshot"
     assert lane_path == "/sharpit/api/data/x"
+
+
+def test_lane_tool_args_reach_the_matrix_tool_sweep(
+    lane_pkg: tuple[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # coordinator fix 0.5.0: an advisor lane's MCP tool that needs arguments (a scan's id) declares how to build them
+    import test_safety_matrix as matrix
+
+    name, package = lane_pkg
+    (package / "test_c_probe_safety.py").write_text(
+        'TOOL_ARGS = {"get_overview": lambda handle: {"handle": handle}}\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(matrix, "LANES", safety.load(name))
+    handle: Any = object()
+
+    assert matrix._tool_arguments("get_overview", handle) == {"handle": handle}  # noqa: SLF001
+
+
+def test_malformed_tool_args_are_refused(lane_pkg: tuple[str, Path]) -> None:
+    name, package = lane_pkg
+    (package / "test_a_shape_safety.py").write_text('TOOL_ARGS = {"get_overview": 1}\n', encoding="utf-8")
+    (package / "test_b_unknown_safety.py").write_text(
+        'TOOL_ARGS = {"get_no_such_tool": lambda handle: {}}\n', encoding="utf-8"
+    )
+    (package / "test_c_seeds_safety.py").write_text('TOOL_SEEDS = ["get_overview"]\n', encoding="utf-8")
+
+    lanes = safety.load(name)
+
+    assert [line.split(":")[0] for line in lanes.invalid] == [
+        "test_a_shape_safety.py",
+        "test_b_unknown_safety.py",
+        "test_c_seeds_safety.py",
+    ]

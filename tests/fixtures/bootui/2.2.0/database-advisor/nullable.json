@@ -1,0 +1,3 @@
+{
+  "dataSources[].identifierCase": "the SQLAlchemy inspector does not report the server's identifier folding: always null"
+}

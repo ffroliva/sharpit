@@ -60,7 +60,7 @@ def settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[list
     """Never raises: on unexpected failure falls back to default/init attribution per field."""
     try:
         return _settings_entries(instance, environ)
-    except Exception:
+    except Exception:  # noqa: S110 - the docstring's promise: falls back below
         pass
     try:
         from pydantic_settings import BaseSettings

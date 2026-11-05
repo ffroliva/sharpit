@@ -107,7 +107,7 @@ def test_line_shape(isolated: logging.Logger):
     isolated.addHandler(handler)
     isolated.warning("hello %s", "world")
     (line,) = buffer.recent()
-    assert tuple(line) == LINE_KEYS == ("timestamp", "level", "logger", "message", "thread")
+    assert tuple(line) == LINE_KEYS == ("timestamp", "level", "logger", "message", "thread", "messageOmitted")
     assert (line["level"], line["logger"], line["message"]) == ("WARNING", isolated.name, "hello world")
     assert isinstance(line["timestamp"], int)
     assert line["timestamp"] > 1_600_000_000_000
@@ -131,7 +131,7 @@ def test_message_masked_and_cut(isolated: logging.Logger):
     isolated.warning("login password=%s token %s", "hunter2", JWT)
     isolated.warning("x" * 10_000 + " password=hunter2")
     first, second = _messages(buffer)
-    assert first == f"login password={MASK} token {MASK}"
+    assert first == f"login password={MASK}"
     assert second is not None
     assert len(second) == MAX_MESSAGE == 4000
     assert "hunter2" not in second
@@ -152,9 +152,7 @@ def test_mask_work_is_bounded_on_huge_message(isolated: logging.Logger):
     assert seen
     assert max(seen) <= 4 * MAX_MESSAGE
     (message,) = _messages(buffer)
-    assert message is not None
-    assert len(message) == MAX_MESSAGE
-    assert "hunter2" not in message
+    assert message == f"password={MASK}"
 
 
 def test_resume_point_rejects_non_ascii_digits():
@@ -265,3 +263,16 @@ def test_log_handler_failure_silent(
     assert "store failed" not in err
     assert err.count("sharpit") == 1, err
     assert "RuntimeError" in err, err
+
+
+def test_log_tail_line_sets_message_omitted_in_metadata_only_mode():
+    # ported: LogTailStoreTests.setsMessageOmittedWhenMetadataOnly (BootUI 2.2.0 LogLineDto.messageOmitted)
+    record = logging.LogRecord("app", logging.INFO, __file__, 1, "token=%s", ("abc",), None)
+    hidden = _handler(Masker(Exposure.METADATA_ONLY, True))[0].line(record)
+    assert hidden is not None
+    assert hidden["message"] is None
+    assert hidden.get("messageOmitted") is True, "a withheld message says so"
+    for exposure in (Exposure.MASKED, Exposure.FULL):
+        shown = _handler(Masker(exposure, True))[0].line(record)
+        assert shown is not None
+        assert shown.get("messageOmitted") is False, exposure

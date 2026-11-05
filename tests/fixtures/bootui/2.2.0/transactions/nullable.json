@@ -1,0 +1,1 @@
+{"entries[].readOnly":"SQLAlchemy does not expose read-only intent and the hot path never queries."}

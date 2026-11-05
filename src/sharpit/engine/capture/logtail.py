@@ -15,10 +15,11 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
 
-LINE_KEYS = ("timestamp", "level", "logger", "message", "thread")  # BootUI LogLineDto, record order
+LINE_KEYS = ("timestamp", "level", "logger", "message", "thread", "messageOmitted")  # BootUI LogLineDto, record order
 MAX_MESSAGE = 4000
 _FAILED = "sharpit log capture failed (%s); log capture continues"
 
@@ -127,7 +128,7 @@ class SharpitLogHandler(logging.Handler):
         except Exception:  # noqa: BLE001 - a bad format string
             message = str(record.msg)
         # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
-        masked = self.masker.mask_text(message[: 4 * MAX_MESSAGE])
+        masked = mask_error(self.masker, message[: 4 * MAX_MESSAGE])
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return {
@@ -136,6 +137,7 @@ class SharpitLogHandler(logging.Handler):
             "logger": record.name,
             "message": masked,
             "thread": record.threadName,
+            "messageOmitted": masked is None,  # METADATA_ONLY withheld it: distinguishable from an empty message
         }
 
     def _forward_to_last_resort(self, record: logging.LogRecord) -> None:

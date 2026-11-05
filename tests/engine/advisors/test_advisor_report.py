@@ -37,12 +37,12 @@ def test_dismissed_pair_matches_identity_with_spaces() -> None:
     assert row["sampleViolations"] == ["two", "three", "four"]
 
 
-def _result(rule_id: str, severity: str, count: int, status: str = "FAILED") -> dict[str, Any]:
+def _result(rule_id: str, severity: str, count: int, status: str = "VIOLATION") -> dict[str, Any]:
     return {"id": rule_id, "severity": severity, "status": status, "violationCount": count, "dismissed": False}
 
 
 def _report() -> dict[str, Any]:
-    results = [_result("RAPI-A", "HIGH", 4), _result("RAPI-B", "LOW", 2), _result("RAPI-C", "INFO", 0, "PASSED")]
+    results = [_result("RAPI-A", "HIGH", 4), _result("RAPI-B", "LOW", 2), _result("RAPI-C", "INFO", 0, "PASS")]
     return {
         "violationsFound": 2,
         "severityCounts": severity_counts([("HIGH", 4), ("LOW", 2)], SEVERITIES),

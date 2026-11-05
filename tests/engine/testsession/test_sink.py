@@ -9,6 +9,7 @@ import pytest
 
 from engine.testsession.tsfakes import NODE, event, run_phase
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
+from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.spi import ApiModel
 from sharpit.engine.testsession.facts import PhaseFacts, SessionFacts, TestFacts, TestKey
 from sharpit.engine.testsession.gates import Budget
@@ -470,3 +471,51 @@ def test_shaped_secret_absent_from_facts_json() -> None:
         f"SELECT * FROM t WHERE token = {secret}",
     )
     assert "ghp_" not in json.dumps(sink.facts.to_json())
+
+
+SURVIVOR = "ghp_" + "Zy9Xw8Vu7T" * 3  # a token-shaped identifier: normalisation folds literals, not identifiers
+
+
+def test_masked_fingerprint_memo_never_returns_an_unmasked_value() -> None:
+    """P-sink-mask-memo: a secret that survives normalisation is masked on the first sight and on every repeat."""
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    statement = f"SELECT {SURVIVOR} FROM pets WHERE pets.id = ?"
+    run_phase(sink, NODE, attempt, "call", statement)
+    assert "ghp_" not in json.dumps(sink.facts.to_json())
+    run_phase(sink, NODE, attempt, "call", statement, statement, statement)
+    sink.on_sql(event(statement), None)
+    sink.on_sql(event(statement), None)
+    facts = json.dumps(sink.facts.to_json())
+    assert "ghp_" not in facts
+    assert sum(_call(sink).selects.values()) == 4
+    assert sink.facts.unattributed == 2
+
+
+def test_masked_fingerprint_memo_keys_on_masker_settings() -> None:
+    """P-sink-mask-memo: one fingerprint under two maskers never shares a masked result, in either order."""
+    statement = f"SELECT {SURVIVOR} FROM pets WHERE pets.id = ?"
+    loose = TestSessionSink("gw0", Masker(Exposure.MASKED, mask_secrets=False))
+    strict = TestSessionSink("gw0", Masker(Exposure.MASKED, mask_secrets=True))
+    later_loose = TestSessionSink("gw0", Masker(Exposure.MASKED, mask_secrets=False))
+    for sink in (loose, strict, later_loose):
+        attempt = sink.begin_test(NODE)
+        run_phase(sink, NODE, attempt, "call", statement, statement)
+    assert "ghp_" in json.dumps(loose.facts.to_json())
+    assert "ghp_" not in json.dumps(strict.facts.to_json())
+    assert "ghp_" in json.dumps(later_loose.facts.to_json())
+
+
+# derived: release council fix round 2: the session sink used the generic scan on MySQL text
+def test_mysql_comment_and_hex_literal_are_folded() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    tag = (NODE, attempt, "call")
+    sink.on_sql(event("SELECT 1 # password hunter2")._replace(mysql=True), tag)
+    sink.on_sql(event("SELECT 0xDEADBEEF")._replace(mysql=True), tag)
+    sink.end_test()
+
+    report = json.dumps(sink.facts.to_json())
+
+    assert "hunter2" not in report
+    assert "DEADBEEF" not in report

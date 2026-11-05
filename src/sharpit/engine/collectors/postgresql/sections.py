@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, NamedTuple
 
+from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.collectors.postgresql import queries
 from sharpit.engine.collectors.postgresql.limits import RowLimits, read_one_past
 from sharpit.engine.collectors.postgresql.queries import checkpoint_sql, statement_sql
@@ -164,7 +165,7 @@ def append_sentence(reason: str | None, sentence: str) -> str:
 
 def _describe(ctx: ReadContext, label: str, exc: Exception) -> str:
     message = str(exc).strip() or type(exc).__name__
-    return f"{label} could not be read: {ctx.masker.mask_text(message) or type(exc).__name__}"
+    return f"{label} could not be read: {mask_error(ctx.masker, message) or type(exc).__name__}"
 
 
 def _sqlstate(exc: Exception) -> str | None:

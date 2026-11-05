@@ -182,3 +182,49 @@ def test_get_live_activity_mcp_no_side_effects(no_side_effects: SideEffectGuard)
     assert result["isError"] is False
     assert [e["path"] for e in result["structuredContent"]["entries"] if e["type"] == "REQUEST"] == ["/owners"]
     assert no_side_effects.violations == []
+
+
+def test_activity_journal_golden_parity():
+    from golden import assert_parity
+
+    app, _ = _app()
+    resp = _client(app).get(f"{API}/journal")
+    assert resp.status_code == 200, "GET /activity/journal is served"
+    assert_parity("activity", "journal", resp.json())
+    assert resp.json()["enabled"] is False, "sharpit keeps no runtime journal"
+
+
+def test_activity_resources_golden_parity():
+    from golden import assert_parity
+
+    app, _ = _app()
+    resp = _client(app).get(f"{API}/resources")
+    assert resp.status_code == 200, "GET /activity/resources is served"
+    assert_parity("activity", "resources", resp.json())
+    assert resp.json()["available"] is False, "no resource track: memory keys stay null until U20"
+
+
+def test_activity_journal_filters_warn_only_when_given():
+    # supersedes test_activity_journal_filters_warn_on_the_buffer_feed, which assumed SQLAlchemy is installed
+    from sharpit.engine.capture.activity import BUFFER_SOURCE_FILTERS
+
+    app, _ = _app()
+    client = _client(app)
+    client.get("/pets")
+    for params in ({"route": "/pets"}, {"run": "r"}, {"requestId": "x"}, {"noRequest": "true"}):
+        assert BUFFER_SOURCE_FILTERS in client.get(API, params=params).json()["warnings"], params
+    for params in ({}, {"noRequest": "false"}):
+        assert BUFFER_SOURCE_FILTERS not in client.get(API, params=params).json()["warnings"], params
+
+
+def test_get_request_profile_mcp_tool():
+    app, _ = _app(mcp_enabled="ON")
+    client = _client(app)
+    client.get("/pets")
+    rid = next(e["id"] for e in client.get(API).json()["entries"] if e["type"] == "REQUEST")
+    call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_request_profile"}}
+    call["params"]["arguments"] = {"id": rid}
+    body = client.post("/sharpit/api/mcp", json=call).json()
+    assert "result" in body, body
+    profile = body["result"]["structuredContent"]
+    assert (profile["available"], profile["request"]["path"]) == (True, "/pets")

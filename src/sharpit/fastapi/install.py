@@ -21,6 +21,8 @@ from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.logtail import LogTailBuffer
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import ChangeStream, StreamSlots
+from sharpit.engine.capture.transactions import TransactionRecorder
+from sharpit.engine.capture.transactions import attach as attach_transactions
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
@@ -63,6 +65,15 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             capture_call_site=settings.sql_trace_capture_call_site,
             recording=settings.sql_trace_recording,
         )
+    if panels["transactions"].enabled and settings.transactions_enabled:
+        capture.transactions = TransactionRecorder(
+            ctx.masker,
+            max_entries=settings.transactions_max_entries,
+            slow_threshold_ms=settings.transactions_slow_transaction_threshold_millis,
+            hold_threshold_ms=settings.transactions_connection_hold_threshold_millis,
+            recording=settings.transactions_recording,
+        )
+        capture.attachers.append(lambda: attach_transactions(ctx))
     if panels["activity"].enabled:
         capture.activity_changes = ChangeStream()
         for source in (capture.exchanges, capture.exceptions, capture.sql_trace):

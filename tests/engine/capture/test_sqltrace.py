@@ -453,7 +453,7 @@ def test_raw_text_masked_when_params_on():
     recorder = _recorder(WITH_PARAMETERS)
     _record(recorder, "update users set password = 'hunter2' where id = 4")
     entry = _entries(recorder)[0]
-    assert entry["sql"] == f"update users set password = '{MASK}' where id = 4"
+    assert entry["sql"] == f"update users set password = {MASK}"
     assert recorder.report([])["topStatements"][0]["sql"] == "update users set password = ? where id = ?"
 
 
@@ -489,7 +489,7 @@ def test_error_message_masked_and_inline_sql_normalised():
     _record(recorder, sql, success=False, error=error)
     message = _entries(recorder)[0]["errorMessage"]
     assert (
-        message == f"(sqlite3.IntegrityError) UNIQUE\n[SQL: insert into u (id, p) values (?, ?)]\n[parameters: {MASK}]"
+        message == f"(sqlite3.IntegrityError) UNIQUE\n[SQL: insert into u (id, p) values (?, ?)] [parameters: {MASK}]"
     )
 
 
@@ -519,7 +519,7 @@ def test_driver_message_values_dropped_with_parameters_off(message: str, expecte
     _record(recorder, sql, success=False, error=error)
     stored = _entries(recorder)[0]["errorMessage"]
     assert "hunter2" not in stored
-    assert stored == f"{expected}\n[SQL: {sql}]\n[parameters: {MASK}]"
+    assert stored == f"{expected}\n[SQL: {sql}] [parameters: {MASK}]"
 
 
 def test_sql_cut_at_max_length():
@@ -612,3 +612,105 @@ class _Library:
 
     def __init__(self, back: object) -> None:
         self.f_back = back
+
+
+def test_sql_trace_entry_includes_duration_micros_and_report_retention():
+    # ported: SqlTraceStoreTests.recordsDurationMicrosAndRetention (BootUI 2.2.0 SqlTraceEntryDto, CaptureRetentionDto)
+    recorder = _recorder(max_entries=2)
+    for _ in range(3):
+        _record(recorder, duration_ns=1_234_567)
+    report = recorder.report([])
+    entry = report["entries"][0]
+    assert entry.get("durationMicros") == 1_234, "durationMicros is the exact nanosecond timing, truncated"
+    assert entry["durationMillis"] == 1
+    assert report.get("retention") == {
+        "applicationManaged": False,
+        "capacity": 2,
+        "reservedCapacity": None,
+        "retained": 2,
+        "reserved": None,
+        "evicted": 1,
+        "slowThresholdMillis": 100,
+    }
+    assert sqltrace.unavailable_report("off").get("retention", "missing") is None, "unavailable: retention is null"
+
+
+# derived: release council probe p8_pg.py: ``[`` opened an identifier, so what sat inside it was never scanned
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT ARRAY['hunter2']", "SELECT ARRAY[?]"),
+        ("SELECT * FROM t WHERE a = ANY(ARRAY['hunter2','x'])", "SELECT * FROM t WHERE a = ANY(ARRAY[?,?])"),
+        ("SELECT ARRAY [ 'hunter2' ]", "SELECT ARRAY [ ? ]"),
+        ("SELECT [ 'hunter2' ]", "SELECT [ ? ]"),
+        ("SELECT ARRAY[1234, 5678]", "SELECT ARRAY[?, ?]"),
+        ("SELECT ARRAY [1234]", "SELECT ARRAY [?]"),
+        ("SELECT doc['hunter2'] FROM t", "SELECT doc[?] FROM t"),
+        ("SELECT items[3] FROM t", "SELECT items[?] FROM t"),
+        ("SELECT ARRAY['hunter2", "SELECT ARRAY[?"),
+    ],
+)
+@pytest.mark.parametrize("mysql", [False, True])
+def test_literals_inside_brackets_are_normalised(sql: str, expected: str, mysql: bool) -> None:
+    assert normalize(sql, mysql).sql == expected
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT [col name] FROM t",
+        "SELECT t.[col name] FROM [my table] t",
+        "SELECT ([a b]) FROM t",
+        "SELECT [col1] FROM t",
+    ],
+)
+def test_bracket_identifiers_stay_verbatim(sql: str) -> None:
+    assert normalize(sql).sql == sql
+
+
+def test_a_long_run_of_open_brackets_stays_linear() -> None:
+    assert normalize("[a" * 10_000).sql == "[a" * 10_000
+
+
+# derived: a qualified bracket identifier is no subscript, so its digits are part of the name
+def test_a_qualified_bracket_identifier_keeps_its_digits() -> None:
+    assert normalize("SELECT t.[col 1] FROM t").sql == "SELECT t.[col 1] FROM t"
+
+
+# derived: release council probe p3_sql.py: the bracket identifier admitted ``$ ( / - *`` and the subscript check
+# missed ``)``, ``]`` and a space, so a value inside the bracket was never scanned
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT ARRAY [lower($$hunter2$$)]", "SELECT ARRAY [lower(?)]"),
+        ("SELECT ARRAY [lower($tag$hunter2$tag$)]", "SELECT ARRAY [lower(?)]"),
+        ("SELECT (ARRAY[1])[lower($$hunter2$$)]", "SELECT (ARRAY[?])[lower(?)]"),
+        ("SELECT a[1][md5($$hunter2$$)]", "SELECT a[?][md5(?)]"),
+        ("SELECT ARRAY [abs(4111111111111111)]", "SELECT ARRAY [abs(?)]"),
+        ("SELECT ARRAY [x /* password hunter2 */]", "SELECT ARRAY [x ]"),
+        ("SELECT (ARRAY[TRUE])[TRUE]", "SELECT (ARRAY[?])[?]"),
+        ("SELECT a[1][TRUE]", "SELECT a[?][?]"),
+        ("SELECT ARRAY [TRUE]", "SELECT ARRAY [?]"),
+        ("SELECT ARRAY [NOT 4111111111111111]", "SELECT ARRAY [NOT ?]"),
+    ],
+)
+def test_a_value_inside_brackets_is_scanned(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected
+
+
+# decided: a digit opens no name in brackets, so ``[2024 sales]`` is read as a value: readable less, leaks nothing
+def test_a_bracket_starting_with_a_digit_is_a_value() -> None:
+    assert normalize("SELECT [2024 sales] FROM t").sql == "SELECT [? sales] FROM t"
+
+
+# derived: delete-the-control on the identifier body: only the subscript check was proved, here no subscript helps
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT [lower($$hunter2$$)]", "SELECT [lower(?)]"),
+        ("SELECT [abs(4111111111111111)]", "SELECT [abs(?)]"),
+        ("SELECT [x /* password hunter2 */]", "SELECT [x ]"),
+    ],
+)
+def test_a_bracket_that_holds_more_than_a_name_is_scanned_anywhere(sql: str, expected: str) -> None:
+    assert normalize(sql).sql == expected

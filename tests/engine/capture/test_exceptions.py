@@ -320,7 +320,7 @@ def test_causes_cycle_safe_max_five():
 def test_message_masked_and_cut_2000():
     store = _store()
     _record(store, _raised(lambda: RuntimeError(f"login failed password=hunter2 token {JWT}")))
-    assert _groups(store)[0]["message"] == f"login failed password={MASK} token {MASK}"
+    assert _groups(store)[0]["message"] == f"login failed password={MASK}"
     _record(store, _raised(lambda: ValueError("x" * 5000)))
     long = next(g for g in _groups(store) if g["exceptionClassName"] == "ValueError")["message"]
     assert len(long) == MAX_MESSAGE == 2000
@@ -563,3 +563,21 @@ def test_marks_are_per_store():
     for store in (first, second):
         _record(store, slots, _request("r2"))
     assert [s.report()["totalExceptions"] for s in (first, second)] == [2, 2]
+
+
+def test_exceptions_report_includes_caught_in_code_null():
+    # ported: ExceptionsControllerTests.reportCarriesNullCaughtInCodeWithoutSensor (BootUI 2.2.0 ExceptionsReport)
+    from sharpit.engine.capture.exceptions import caught_report
+
+    report = _store().report()
+    assert "caughtInCode" in report, "the 2.2.0 report carries caughtInCode"
+    assert report["caughtInCode"] is None
+    assert caught_report() == {
+        "available": False,
+        "unavailableReason": "Caught exceptions are recorded by the sharpit agent's caught-exceptions sensor.",
+        "limitations": [],
+        "settling": 0,
+        "occurrences": 0,
+        "findings": 0,
+        "rows": [],
+    }

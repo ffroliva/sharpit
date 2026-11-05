@@ -31,7 +31,7 @@ runs:
         INSTALL: ${{ inputs.install }}
       run: |
         if [ "$INSTALL" = "pip" ]; then
-          python -m pip install "sharpit==0.4.0"
+          python -m pip install "sharpit==0.5.0"
         elif [ "$INSTALL" != "none" ]; then
           echo "::error::install must be pip or none"
           exit 1

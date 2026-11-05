@@ -20,22 +20,22 @@ from dataclasses import dataclass, field
 from types import FrameType
 from typing import Any, NamedTuple, cast
 
-from sharpit.engine.capture.exchanges import _iso  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker, is_secret_value
 
 REPORT_KEYS = (
     "available", "unavailableReason", "capturing", "captureParameters", "bufferSize", "totalCaptured",
-    "slowQueryThresholdMillis", "dataSources", "stats", "entries", "topStatements", "warnings",
+    "slowQueryThresholdMillis", "dataSources", "stats", "entries", "topStatements", "warnings", "retention",
 )  # fmt: skip
 STATS_KEYS = (
     "totalQueries", "totalDurationMillis", "maxDurationMillis", "avgDurationMillis", "slowQueries", "failedQueries",
     "batchExecutions", "selectCount", "insertCount", "updateCount", "deleteCount", "otherCount", "evicted",
 )  # fmt: skip
 ENTRY_KEYS = (
-    "id", "timestamp", "sql", "statementType", "category", "durationMillis", "success", "errorMessage",
-    "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId", "callSite",
+    "id", "timestamp", "sql", "statementType", "category", "durationMicros", "durationMillis", "success",
+    "errorMessage", "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId", "callSite",
+    "requestId", "executionId", "threadKind", "requestPhase",
 )  # fmt: skip
 GROUP_KEYS = (
     "sql", "category", "executions", "totalDurationMillis", "maxDurationMillis", "potentialNPlusOne", "callSites",
@@ -56,6 +56,11 @@ PARAMETERS_SHOWN = (
 # --- SqlStatementNormalizer (verbatim port) -------------------------------------------------------------------------
 
 _MAX_SCAN_LENGTH = 20_000
+MYSQL_DIALECTS = ("mysql", "mariadb")
+_MYSQL_RADIX_LITERAL = re.compile(r"0[xX][0-9a-fA-F]+|0[bB][01]+")
+# a square-bracket identifier is a name, words and spaces only: anything else in brackets is a value and stays in the
+# scan (``ARRAY['x']``, ``ARRAY [lower($$x$$)]``, ``[2024 sales]``, ``[it's]``); showing a value is the worse mistake
+_BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d][\w ]*\]")
 
 
 class Normalized(NamedTuple):
@@ -142,11 +147,12 @@ class _Out:
         return "".join(self.chars)
 
 
-def _skip_quoted(sql: str, index: int, closing: str) -> int:
+def _skip_quoted(sql: str, index: int, closing: str, mysql: bool = False) -> int:
     cursor, length = index + 1, len(sql)
+    escaped_in = "'\"" if mysql else "'"
     while cursor < length:
         c = sql[cursor]
-        if c == "\\" and closing == "'" and cursor + 1 < length:
+        if c == "\\" and closing in escaped_in and cursor + 1 < length:
             cursor += 2
             continue
         if c == closing:
@@ -183,12 +189,12 @@ def _identifier_like(sql: str, index: int, end: int) -> bool:
     return all((c.isascii() and c.isalnum()) or c in "_$." for c in sql[start:stop])
 
 
-def _double_quoted_literal(sql: str, index: int, end: int, out: _Out) -> bool:
+def _double_quoted_literal(sql: str, index: int, end: int, out: _Out, mysql: bool = False) -> bool:
     """sharpit deviation (0.4.0): MySQL reads ``"..."`` as a string, so an identifier-shaped run is a literal too in a
     value position (unless it qualifies a name, ``"b"."id"``) or when it looks like a secret; identifiers elsewhere
-    stay readable."""
+    stay readable. Text known to be MySQL's has every run a literal: ``ANSI_QUOTES`` only masks an identifier."""
     stop = end - 1 if end > index + 1 and sql[end - 1] == '"' else end
-    if not _identifier_like(sql, index, end) or is_secret_value(sql[index + 1 : stop]):
+    if mysql or not _identifier_like(sql, index, end) or is_secret_value(sql[index + 1 : stop]):
         return True
     return out.value_position() and not sql.startswith(".", end)
 
@@ -204,24 +210,42 @@ def _identifier_char_before(out: _Out) -> bool:
     return bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$.")
 
 
-def _keyword_literal_start(sql: str, index: int, out: _Out) -> bool:
-    if sql[index] not in "tTfF" or _identifier_char_before(out):
-        return False
-    return _matches_keyword(sql, index, "true") or _matches_keyword(sql, index, "false")
+def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
+    """Where the run opened at ``index`` ends; ``[`` that opens no identifier ends at once, so the scan reads inside."""
+    c = sql[index]
+    if c != "[":
+        return _skip_quoted(sql, index, c, mysql)
+    # ``ARRAY[``, ``items[``, ``(ARRAY[1])[``, ``a[1][``, ``ARRAY [``; a space alone proves nothing: ``SELECT [col]``
+    subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$)]")
+    subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")
+    found = None if subscript else _BRACKET_IDENTIFIER.match(sql, index)
+    return found.end() if found else index + 1
 
 
-def _skip_number(sql: str, index: int) -> int:
+def _line_comment(sql: str, index: int, mysql: bool) -> bool:
+    return sql.startswith("--", index) or (mysql and sql[index] == "#")
+
+
+def _skip_exponent(sql: str, index: int) -> int:
+    """Past the exponent whose ``e`` is at ``index``; at ``index`` when no digit follows: that ``e`` is a name."""
+    cursor, length = index + 1, len(sql)
+    if cursor < length and sql[cursor] in "+-":
+        cursor += 1
+    if cursor >= length or not sql[cursor].isdigit():
+        return index
+    while cursor < length and sql[cursor].isdigit():
+        cursor += 1
+    return cursor
+
+
+def _skip_number(sql: str, index: int, mysql: bool = False) -> int:
+    if mysql and (radix := _MYSQL_RADIX_LITERAL.match(sql, index)):
+        return radix.end()
     cursor, length = index, len(sql)
     while cursor < length and (sql[cursor].isdigit() or sql[cursor] == "."):
         cursor += 1
     if cursor < length and sql[cursor] in "eE":
-        exponent = cursor + 1
-        if exponent < length and sql[exponent] in "+-":
-            exponent += 1
-        if exponent < length and sql[exponent].isdigit():
-            cursor = exponent
-            while cursor < length and sql[cursor].isdigit():
-                cursor += 1
+        return _skip_exponent(sql, cursor)
     return cursor
 
 
@@ -256,9 +280,77 @@ def _collapse_placeholder_lists(normalized: str) -> str:
     return out.text()
 
 
+# A scanner reads the construct that may open at ``index`` and returns where the scan goes on and whether that construct
+# was a literal. Only these first characters cost a Python call; none of them is a space or a digit.
+_Scanned = tuple[int, bool]
+
+
+def _keep(source: str, index: int, out: _Out) -> _Scanned:
+    """The character opened nothing after all."""
+    out.append(source[index])
+    return index + 1, False
+
+
+def _scan_line_comment(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
+    if not _line_comment(source, index, mysql):
+        return _keep(source, index, out)
+    out.space()
+    newline = source.find("\n", index + 1)
+    return (len(source) if newline < 0 else newline), False
+
+
+def _scan_block_comment(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
+    if not source.startswith("*", index + 1):
+        return _keep(source, index, out)
+    out.space()
+    end = source.find("*/", index + 2)
+    return (len(source) if end < 0 else end + 2), False
+
+
+def _scan_string(source: str, index: int, _out: _Out, _mysql: bool) -> _Scanned:
+    return _skip_quoted(source, index, "'"), True
+
+
+def _scan_dollar(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
+    end = _dollar_quote_end(source, index)
+    return (end, True) if end > 0 else _keep(source, index, out)
+
+
+def _scan_quoted(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
+    end = _quoted_end(source, index, out, mysql)
+    if source[index] == '"' and _double_quoted_literal(source, index, end, out, mysql):
+        return end, True
+    out.append(source[index:end])
+    return end, False
+
+
+def _scan_keyword(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
+    if _identifier_char_before(out):
+        return _keep(source, index, out)
+    if _matches_keyword(source, index, "true"):
+        return index + 4, True
+    if _matches_keyword(source, index, "false"):
+        return index + 5, True
+    return _keep(source, index, out)
+
+
+_SCANNERS = {
+    **dict.fromkeys("-#", _scan_line_comment),
+    "/": _scan_block_comment,
+    "'": _scan_string,
+    "$": _scan_dollar,
+    **dict.fromkeys('"`[', _scan_quoted),
+    **dict.fromkeys("tTfF", _scan_keyword),
+}
+
+
 @functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text
-def normalize(sql: str) -> Normalized:
-    """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``."""
+def normalize(sql: str, mysql: bool = False) -> Normalized:
+    """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``.
+
+    ``mysql`` is for text known to be MySQL's: ``"..."`` is a string with backslash escapes, ``#`` starts a comment and
+    ``0x``/``0b`` numbers are literals. Elsewhere those mean an identifier, an operator and (mostly) a syntax error.
+    """
     if not sql or sql.isspace():
         return Normalized("", "", 0, 0)
     source = sql[:_MAX_SCAN_LENGTH]
@@ -267,34 +359,15 @@ def normalize(sql: str) -> Normalized:
     index, length = 0, len(source)
     while index < length:
         c = source[index]
-        dollar_end = _dollar_quote_end(source, index) if c == "$" else -1
+        scanner = _SCANNERS.get(c)
         literal = False
-        if c == "-" and source.startswith("-", index + 1):
-            newline = source.find("\n", index + 2)
-            index = length if newline < 0 else newline
-            out.space()
-        elif c == "/" and source.startswith("*", index + 1):
-            end = source.find("*/", index + 2)
-            index = length if end < 0 else end + 2
-            out.space()
-        elif c == "'":
-            index, literal = _skip_quoted(source, index, "'"), True
-        elif dollar_end > 0:
-            index, literal = dollar_end, True
-        elif c in '"`[':
-            end = _skip_quoted(source, index, "]" if c == "[" else c)
-            if c == '"' and _double_quoted_literal(source, index, end, out):
-                literal = True
-            else:
-                out.append(source[index:end])
-            index = end
-        elif _keyword_literal_start(source, index, out):
-            index, literal = index + (4 if _matches_keyword(source, index, "true") else 5), True
+        if scanner is not None:
+            index, literal = scanner(source, index, out, mysql)
         elif c.isspace():
             out.space()
             index += 1
         elif c.isdigit() and not _identifier_char_before(out):
-            index, literal = _skip_number(source, index), True
+            index, literal = _skip_number(source, index, mysql), True
         else:
             out.append(c)
             index += 1
@@ -306,8 +379,13 @@ def normalize(sql: str) -> Normalized:
     return Normalized(collapsed, collapsed.lower(), literals, predicate_literals)
 
 
-def normalize_sql(sql: str) -> str:
-    return normalize(sql).sql
+def is_mysql(owner: object) -> bool:
+    """Whether a connection, engine or execution context talks to MySQL or MariaDB (also behind a ``mysql://`` URL)."""
+    return getattr(getattr(owner, "dialect", None), "name", None) in MYSQL_DIALECTS
+
+
+def normalize_sql(sql: str, mysql: bool = False) -> str:
+    return normalize(sql, mysql).sql
 
 
 # --- SqlTracingProxies.categoryOf -----------------------------------------------------------------------------------
@@ -389,13 +467,22 @@ def unavailable_report(reason: str) -> dict[str, Any]:
         "entries": [],
         "topStatements": [],
         "warnings": [],
+        "retention": None,
     }
 
 
 def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
-    """``SqlTraceEntryDto`` from a stored row."""
-    dto = {**row, "timestamp": _iso(row["timestamp"])}
+    """``SqlTraceEntryDto`` from a stored row: epoch ms; sharpit's ``traceId`` is the request id, so both carry it."""
+    dto = {
+        **row,
+        "timestamp": row["timestamp"] // 1_000_000,
+        "requestId": row["traceId"],
+        "executionId": None,
+        "threadKind": None,
+        "requestPhase": None,
+    }
     dto.pop("shape", None)  # internal: the recorder's Normalized, kept for grouping without re-normalising
+    dto.pop("mysql", None)  # internal: how the grouping re-reads a stored text
     return dto
 
 
@@ -502,20 +589,22 @@ class SqlTraceRecorder:
         request_id: str | None = None,
         call_site: str | None = None,
         batch_size: int | None = None,
+        mysql: bool = False,
     ) -> None:
         """Build the masked row once, at capture time; a paused recorder returns before any work."""
         if not self.recording:
             return
         masker = self._masker
-        normalized = normalize(sql)
+        normalized = normalize(sql, mysql)
         stored = normalized.sql if not masker.capture_parameters else (masker.mask_text(sql) or "")
         error_message: str | None = None
         if error is not None:
             text = str(error)
             if not masker.capture_parameters:
-                text = _driver_values_dropped(text)
+                text = masker.mask_text(_driver_values_dropped(text)) or ""  # the scan hides what the masker reads
                 if sql:
                     text = text.replace(sql.strip(), normalized.sql)  # SQLAlchemy repeats the statement in [SQL: ...]
+                text = _sql_block_normalized(text, mysql)  # an error raised for another statement than ``sql``
             masked = masker.mask_text(text)
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
@@ -524,10 +613,11 @@ class SqlTraceRecorder:
         site = call_site if self.capture_call_site else None
         row = {
             "id": 0,
-            "timestamp": time.time_ns(),  # formatted by report(): strftime costs more than the rest of the row
+            "timestamp": time.time_ns(),  # epoch ns, for ordering; entry_dto converts to the contract's epoch ms
             "sql": _truncate(stored, self._max_sql_length),
             "statementType": "PREPARED" if has_parameters else "STATEMENT",
             "category": category,
+            "durationMicros": duration_ns // 1_000,
             "durationMillis": millis,
             "success": success and error is None,
             "errorMessage": error_message,
@@ -544,6 +634,7 @@ class SqlTraceRecorder:
             "traceId": request_id,
             "callSite": site,
             "shape": normalized,
+            "mysql": mysql,
         }
         with self._lock:
             row["id"] = next(self._ids)
@@ -588,7 +679,7 @@ class SqlTraceRecorder:
             self.changes.signal()
 
     def rows(self) -> list[dict[str, Any]]:
-        """The ring as stored, oldest first (``timestamp`` in epoch ns); ``entry_dto`` formats one row."""
+        """The ring as stored, oldest first (``timestamp`` in epoch ns); ``entry_dto`` builds one DTO."""
         with self._lock:
             return list(self._entries)
 
@@ -653,9 +744,25 @@ class SqlTraceRecorder:
             "entries": [entry_dto(row) for row in reversed(rows)],
             "topStatements": top,
             "warnings": warnings,
+            "retention": {  # CaptureRetentionDto: a plain ring, no share reserved for slow or failed statements
+                "applicationManaged": False,
+                "capacity": self.max_entries,
+                "reservedCapacity": None,
+                "retained": len(rows),
+                "reserved": None,
+                "evicted": evicted,
+                "slowThresholdMillis": self.slow_query_threshold_millis,
+            },
         }
 
 
+_SQL_BLOCK = "[SQL: "
+_SQL_ERROR_SHAPE = re.compile(
+    r"^(?:sqlalchemy\.(?:exc|engine)\.|(?:psycopg2?|sqlite3|pymysql|MySQLdb|mysql(?:\.connector)?|asyncpg)\.)"
+    r"[\w.]+:"
+)
+# no anchor: SQLAlchemy opens with ``(pymysql.err.X)``, a stack trace names the driver further down
+_MYSQL_DRIVER = re.compile(r"\b(?:pymysql|MySQLdb|asyncmy|mariadb|mysql\.connector)\.")
 _QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
 
 
@@ -667,6 +774,52 @@ def _driver_values_dropped(text: str) -> str:
     """
     head, sep, tail = text.partition("\n[SQL: ")
     return _QUOTED.sub("?", head.split("\n", 1)[0]) + sep + tail
+
+
+def _traceback_prefix(text: str) -> tuple[str, str]:
+    lines = text.splitlines()
+    if not lines or not lines[0].startswith("Traceback (most recent call last):"):
+        return "", "\n".join(lines)
+    frame_count = 1
+    for line in lines[1:]:
+        if line.startswith("  File ") or (line.startswith("    ") and line.strip()):
+            frame_count += 1
+        else:
+            break
+    return "\n".join(lines[:frame_count]), "\n".join(lines[frame_count:])
+
+
+def _sql_block_normalized(text: str, mysql: bool) -> str:
+    """Everything after the first ``[SQL: `` goes through the scan: where a statement ends is a guess, and a wrong guess
+    shows a literal. What follows the block is normalised too."""
+    start = text.find(_SQL_BLOCK)
+    if start < 0:
+        return text
+    body = start + len(_SQL_BLOCK)
+    return text[:body] + normalize(text[body:], mysql).sql
+
+
+def _redact_sql_errors(text: str, mysql: bool) -> str:
+    frames, remainder = _traceback_prefix(text)
+    cleaned = _driver_values_dropped(remainder or text)
+    return _sql_block_normalized(f"{frames}\n{cleaned}" if frames else cleaned, mysql)
+
+
+def mask_error(masker: Masker, text: str | None, mysql: bool = False) -> str | None:
+    """An error text for display: every path from an exception to output comes here.
+
+    ``Masker.mask_text`` masks secrets by shape, so a literal in the ``[SQL: ...]`` block SQLAlchemy appends passes it.
+    With parameter capture off that block is masked, normalised and masked again: the scan turns a key or a token into
+    ``?``, which hides it from the masker, so the masker reads the raw text first. ``mysql`` is for text known to be
+    MySQL's, and a MySQL driver named in the text counts as known. Text with no block pays one substring check and one
+    anchored match.
+    """
+    if text is None:
+        return None
+    if not masker.capture_parameters and (_SQL_BLOCK in text or _SQL_ERROR_SHAPE.match(text)):
+        known_mysql = mysql or _MYSQL_DRIVER.search(text) is not None
+        text = _redact_sql_errors(masker.mask_text(text) or "", known_mysql)
+    return masker.mask_text(text)
 
 
 def cast_sets(parameters: object, executemany: bool) -> Sequence[object]:
