@@ -327,7 +327,7 @@ class CaptureWiring:
         return self.log_handler is not None and self.log_handler in logging.root.handlers
 
     def _attach(self, target: logging.Logger) -> None:
-        assert self.log_handler is not None
+        assert self.log_handler is not None  # noqa: S101 - narrows the type; set before any attach
         if self.log_handler not in target.handlers:
             target.addHandler(self.log_handler)
         if target not in self.log_attached:

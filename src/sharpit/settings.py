@@ -14,6 +14,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from sharpit.engine.masking import Exposure
 from sharpit.engine.panels import PANELS
@@ -218,6 +219,15 @@ def _str(raw: object) -> str:
     raise ValueError(raw)
 
 
+def _http_uri(raw: object) -> str:
+    value = _str(raw)
+    parts = urlsplit(value)
+    # urllib's default opener also reads file: and ftp:
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        raise ValueError(raw)
+    return value
+
+
 def _items(raw: object) -> tuple[str, ...]:
     shown = str(raw)
     if isinstance(raw, str):
@@ -274,9 +284,9 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "vulnerabilities_request_timeout": (_duration, None),
     "vulnerabilities_max_packages": (_int, None),
     "vulnerabilities_max_advisories": (_int, None),
-    "vulnerabilities_osv_base_uri": (_str, None),
+    "vulnerabilities_osv_base_uri": (_http_uri, None),
     "vulnerabilities_epss_enabled": (_bool, False),
-    "vulnerabilities_epss_base_uri": (_str, None),
+    "vulnerabilities_epss_base_uri": (_http_uri, None),
     "mcp_enabled": (_mode, "OFF"),
     "mcp_max_results": (_int, None),
     "mcp_max_payload_bytes": (_int, None),
@@ -342,6 +352,7 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "app_package": (_module_name, None),
 }
 _DEFAULTS = SharpitSettings()
+_NEVER_ECHOED = {"authentication_token", "vulnerabilities_osv_base_uri", "vulnerabilities_epss_base_uri"}
 _FIELDS = {f.name for f in dataclasses.fields(SharpitSettings)} - {"warnings"}
 
 
@@ -425,8 +436,8 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
         try:
             value = parse(raw)
         except ValueError:
-            # install() logs warnings: never echo a token, however malformed
-            shown = "" if name == "authentication_token" else f" '{raw}'"
+            # install() logs warnings: never echo a token, however malformed, or a URI that can carry credentials
+            shown = "" if name in _NEVER_ECHOED else f" '{raw}'"
             warnings.append(f"Ignoring invalid {env} value{shown}")
             # `enabled` keeps the raw text so decide() reports it; other fields take their fail-safe (or default).
             if name == "enabled":
