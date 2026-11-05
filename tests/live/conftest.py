@@ -64,11 +64,18 @@ class LiveServer:
     key: str
 
 
+@pytest.hookimpl(trylast=True)  # after pytest groups items by fixture param, which puts an unparametrized test first
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if item.path.is_relative_to(HERE):
             item.add_marker(pytest.mark.live)
             item.add_marker(pytest.mark.needs_sqlalchemy)
+    items.sort(key=lambda item: item.name.startswith("test_every_session_leg_ran"))  # it counts the rows that ran
+
+
+@pytest.fixture(autouse=True)
+def _no_sqlite3_patch_leak() -> None:  # pyright: ignore[reportUnusedFunction]
+    """Overrides the suite's: that one detaches every context before each test, and an oracle leg outlives a row."""
 
 
 def _wait_until_it_answers(url: str) -> None:
@@ -104,6 +111,9 @@ def _docker_answers() -> bool:
 def server(request: pytest.FixtureRequest) -> Iterator[LiveServer]:
     """The live server for ``request.param`` (a key of ``SERVERS``), via ``parametrize(..., indirect=True)``."""
     key: str = request.param
+    if key == "sqlite":  # in process: no server to start, so it is not in ``SERVERS``
+        yield LiveServer("sqlite://", key, "in-process", key)
+        return
     family, default_image, port, driver, environment = SERVERS[key]
     image = os.environ.get(f"SHARPIT_LIVE_IMAGE_{key.upper()}") or default_image
     url = os.environ.get(f"SHARPIT_LIVE_{key.upper()}_URL")
