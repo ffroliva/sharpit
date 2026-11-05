@@ -63,6 +63,7 @@ def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> None:
 
 TIMING_MODULES = (
     "test_capture_overhead.py",
+    "test_mask_error_overhead.py",  # masking redesign, Task 5
     "test_n_plus_one_overhead.py",
     "test_sql_trace_overhead.py",
     "test_sqlite_overhead.py",

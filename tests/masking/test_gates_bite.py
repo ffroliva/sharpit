@@ -97,6 +97,7 @@ class Mutant(NamedTuple):
     replacement: str
     surface: str  # the surface the mutant is driven through
     gate: str  # the gate it must raise: ``visible`` (a literal shown) or ``shape`` (the statement lost its shape)
+    module: str = ""  # a path under the package, when the mutant is not in the scanner
 
 
 KEEP = "return _keep(source, index, out)"
@@ -144,7 +145,7 @@ MUTANTS: dict[str, Mutant] = {
     "mysql_dollar": Mutant("end = -1 if _name_goes_on(source, index, out, mysql)",
                            "end = -1 if mysql or _name_goes_on(source, index, out, mysql)", "recorder_sql-mysql",
                            "visible"),
-    "mysql_dollar_name": Mutant(' or (mysql and last in ".@")', "", "recorder_sql-mysql", "visible"),
+    "mysql_dollar_name": Mutant(' or (mysql and last == ".")', "", "recorder_sql-mysql", "visible"),
     "mysql_closer": Mutant("end = _mysql_closer(sql, tag, body_start) if mysql else sql.find(tag, body_start)",
                            "end = sql.find(tag, body_start)", "recorder_sql-mysql", "visible"),
     "mysql_digit_tag": Mutant("(mysql or cursor > index + 1)", "(cursor > index + 1)", "recorder_sql-mysql", "visible"),
@@ -172,11 +173,14 @@ MUTANTS: dict[str, Mutant] = {
     "digit_in_name": Mutant(DIGIT, "elif c.isdigit():", SURFACE, "shape"),
     "dot_digit": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), SURFACE, "visible"),
     "dot_digit_mysql": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), "recorder_sql-mysql", "visible"),
-    "name_part": Mutant("_skip_number(source, index, _name_part(out, mysql))", "_skip_number(source, index)",
+    "name_part": Mutant("_skip_number(source, index, _name_part(out))", "_skip_number(source, index)",
                         "recorder_sql-mysql", "visible"),
-    "name_part_variable": Mutant(' or (mysql and last == "@")', "", "recorder_sql-mysql", "visible"),
+    "at_token": Mutant("if not mysql or found is None:", "if True:", "recorder_sql-mysql", "visible"),
+    "at_number": Mutant("if _AT_NUMBER.search(found[0]):", "if False:", "db_statement-mysql", "shape"),
     "release_name": Mutant('if flags[literal] and literal > start and source[literal - 1] == "=":', "if False:",
                            "db_statement-mysql", "shape"),
+    "verb_lookahead": Mutant(r"(?=[^\w$-]|$)", r"(?=[\s(;]|$)", "db_statement-generic", "shape",
+                             "engine/capture/statement.py"),
     "keyword_in_name": Mutant(
         "if _identifier_char_before(out):\n        return _keep(source, index, out)",
         "if False:\n        return _keep(source, index, out)",
@@ -202,7 +206,8 @@ def _scratch_copy(tmp: Path) -> Path:
 def _mutate(copy: Path, mutant: Mutant) -> None:
     """``normalize``'s own module is the one that moves (``sqlscan.py`` from Task 2): find it, never name it."""
     package = Path(sqltrace.__file__).resolve().parents[2]
-    relative = Path(sys.modules[sqltrace.normalize.__module__].__file__ or "").resolve().relative_to(package)
+    scanner = Path(sys.modules[sqltrace.normalize.__module__].__file__ or "").resolve().relative_to(package)
+    relative = Path(mutant.module) if mutant.module else scanner
     target = copy / relative
     source = target.read_text(encoding="utf-8")
     assert source.count(mutant.anchor) == 1, f"anchor not found exactly once in {relative}: {mutant.anchor!r}"

@@ -25,6 +25,8 @@ _QUOTE = re.compile("['\"]")
 # a tag's shape, and a tag can start with a digit on MySQL. No comment: a cut there would take every ``/*!`` statement
 _RUN_OPENER = re.compile("['\"`]|\\$[\\w\\x80-\\U0010ffff]*\\$")
 _TIGHT_DASH_OPENER = re.compile(rf"{_RUN_OPENER.pattern}|/\*")
+_AT_TOKEN = re.compile(r"@[\w.$\x80-\U0010ffff]+")
+_AT_NUMBER = re.compile(r"[@.]\d")
 _EXECUTABLE_COMMENT = ("/*!", "/*M!")  # MySQL and MariaDB run what these hold
 # never hidden in code: the statement keeps its shape, and the last masker pass still sees ``password=`` in the render
 _STRUCTURAL = frozenset('"`[],;()=<>')
@@ -217,12 +219,12 @@ def _identifier_char_before(out: _Out) -> bool:
 
 def _name_goes_on(source: str, index: int, out: _Out, mysql: bool) -> bool:
     """The output ends inside a name, so the ``$`` at ``index`` is part of it. A number goes on too: ``1$a$`` is a name
-    on MySQL and a syntax error on PostgreSQL and SQLite. A ``.`` or ``@`` holds on MySQL only: ``@$$5$$`` is a value on
-    PostgreSQL and 0.4.0 hid what follows ``t.$$``, so elsewhere the statement stops there (``_generic_trigger``).
+    on MySQL and a syntax error on PostgreSQL and SQLite. A ``.`` holds on MySQL only: 0.4.0 hid what follows ``t.$$``,
+    so elsewhere the statement stops there (``_generic_trigger``), as it does at ``@$$``, a value on PostgreSQL.
     """
     last = out.chars[-1] if out.chars else " "
     number = last == "?" and source[index - 1].isalnum()  # a raw ``?`` is an operator, and a string ends in a quote
-    return last.isalnum() or last in "_$" or not last.isascii() or number or (mysql and last in ".@")
+    return last.isalnum() or last in "_$" or not last.isascii() or number or (mysql and last == ".")
 
 
 def _quoted_end(sql: str, index: int, out: _Out, mysql: bool) -> int:
@@ -283,10 +285,9 @@ def _skip_exponent(sql: str, index: int) -> int:
     return cursor
 
 
-def _name_part(out: _Out, mysql: bool) -> bool:
-    """Digits here are a part of a name: the ``.`` after them separates, ``rv.1.$$`` and MySQL's variable ``@1.$$``."""
-    last = out.chars[-1] if out.chars else " "
-    return last == "." or (mysql and last == "@")
+def _name_part(out: _Out) -> bool:
+    """Digits here are a part of a name: the ``.`` after them separates, ``rv.1.$$``."""
+    return bool(out.chars) and out.chars[-1] == "."
 
 
 def _skip_number(sql: str, index: int, name_part: bool = False) -> int:
@@ -380,6 +381,18 @@ def _scan_dot(source: str, index: int, out: _Out, _mysql: bool) -> _Scanned:
     return _skip_number(source, index), True
 
 
+def _scan_at(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
+    """MySQL's lexer reads what follows ``@`` as one token, a user variable or an account's host: nothing in it opens a
+    run. A number in it hides all of it, so what a digit run hid before stays hidden. ``@@`` is two of these."""
+    found = _AT_TOKEN.match(source, index)
+    if not mysql or found is None:
+        return _keep(source, index, out)
+    if _AT_NUMBER.search(found[0]):
+        return found.end(), True
+    out.append(found[0])
+    return found.end(), False
+
+
 def _scan_quoted(source: str, index: int, out: _Out, mysql: bool) -> _Scanned:
     if source[index] == "[" and (two_way_end := _two_way_bracket_end(source, index, mysql)) > 0:
         return two_way_end, True
@@ -407,6 +420,7 @@ _SCANNERS = {
     "'": _scan_string,
     "$": _scan_dollar,
     ".": _scan_dot,
+    "@": _scan_at,
     **dict.fromkeys('"`[', _scan_quoted),
     **dict.fromkeys("tTfF", _scan_keyword),
 }
@@ -435,7 +449,7 @@ def _read(source: str, mysql: bool) -> _Scan:
             index += 1
         # after a ``.`` a digit starts a literal: ``THEN.5`` is a number, and no keyword list can tell it from ``t.5``
         elif c.isdigit() and (not _identifier_char_before(out) or out.chars[-1] == "."):
-            index, literal = _skip_number(source, index, _name_part(out, mysql)), True
+            index, literal = _skip_number(source, index, _name_part(out)), True
         else:
             out.append(c)
             index += 1
@@ -621,12 +635,14 @@ def _space(pieces: list[str]) -> None:
 
 def _release_name(source: str, flags: bytearray, start: int, literal: int) -> None:
     """A hit running from ``name=`` into the literal at ``literal`` was one token to the masker, ``bio="sk_live_..."``:
-    the literal hides the value, so the name stays. The masker's last read still sees a secret left in the name."""
+    the literal hides the value, so the name stays. A hit that starts before the name, a url's ``?token=abc="v"``, stays
+    whole: ``abc`` is its value. The masker's last read still sees a secret left in the name."""
     if flags[literal] and literal > start and source[literal - 1] == "=":
         cursor = literal - 2
         while cursor >= start and flags[cursor] and (source[cursor].isalnum() or source[cursor] in "_.-"):
             cursor -= 1
-        flags[cursor + 1 : literal - 1] = bytes(literal - cursor - 2)
+        if cursor < start or not flags[cursor]:
+            flags[cursor + 1 : literal - 1] = bytes(literal - cursor - 2)
 
 
 def _copy(source: str, span: tuple[int, int], flags: bytearray, pieces: list[str], collapse: bool) -> None:

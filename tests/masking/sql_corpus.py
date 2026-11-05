@@ -359,10 +359,27 @@ class _Statements:
                     "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t",
                 ),
                 (f"SELECT rv.1.$$, ' $$ {m} ' FROM rv.1", "SELECT rv.?.$$, ? FROM rv.?"),  # r9, read on 8.4.10
-                (f"SELECT @1.$$, ' $$ {m} '", "SELECT @?.$$, ?"),
+                (f"SELECT @1.$$, ' $$ {m} '", "SELECT ?, ?"),
+                (f"SELECT @1.5.$$, ' $$ {m} '", "SELECT ?, ?"),  # r10: ``@`` and what follows are one token
+                (f"SET @.5.$a$ = ' $a$ {m} '", "SET ? = ?"),
             )
         )
         return self._single("mysql_name", _Shown(text, scan, ""), m)
+
+    def tight_verb(self) -> Row:  # no space after the verb, so the statement path must still read it as a verb
+        a = self._literal()
+        name = self.rng.choice(_SENSITIVE_NAMES)
+        head = self.rng.choice(("SELECT*FROM t", "SELECT(id)FROM t", "SELECT(id)FROM(t)"))
+        text = f"{head} WHERE {name}={a.raw} AND id=1"
+        tail = f"AND id={self.number}"
+        shown = f"{head} WHERE {name}={a.pg if self.pg else a.scan} {tail}"
+        return self._row("tight_verb", _Shown(text, shown, shown), (a,), tail, plain=False)
+
+    def unlisted_verb(self) -> Row:  # a verb ``statement.py`` lacks: with no hit its render still shows
+        m = _mark(self.rng)
+        return self._single(
+            "unlisted_verb", _Shown(f"PURGE BINARY LOGS BEFORE '{m}'", "PURGE BINARY LOGS BEFORE ?", ""), m
+        )
 
     def dollar_names(self) -> Row:  # reads one way with the dialect unknown: a digit-led name
         m = _mark(self.rng)
@@ -489,15 +506,16 @@ class _Statements:
 
     def templates(self) -> tuple[Callable[[], Row], ...]:
         common = (self.update, self.insert, self.select, self.sensitive_name, self.sensitive_table, self.comments,
-                  self.names)  # fmt: skip
+                  self.names, self.tight_verb)  # fmt: skip
         if self.dialect == MYSQL:
             return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger, self.mysql_name,
-                    self.mysql_routine, self.dot_digit)  # fmt: skip
+                    self.mysql_routine, self.dot_digit, self.unlisted_verb)  # fmt: skip
         if self.pg:
             return (*common, self.trailing_backslash, self.nested_comment, self.unclosed_dollar)
         return (*common, self.trailing_backslash, self.nested_comment, self.oracle_quote, self.hash_comment,
                 self.unclosed_dollar, self.quiet_trigger, self.dollar_names, self.digit_bracket,
-                self.dot_digit, self.dot_dollar, self.two_way, self.two_way, self.doubled_quote)  # fmt: skip
+                self.dot_digit, self.dot_dollar, self.two_way, self.two_way, self.doubled_quote,
+                self.unlisted_verb)  # fmt: skip
 
     def long_templates(self) -> tuple[Callable[[], Row], ...]:
         return (self.long_literal,) if self.pg else (self.long_literal, self.long_identifier)

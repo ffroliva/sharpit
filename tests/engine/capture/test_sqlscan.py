@@ -7,6 +7,8 @@ through its agent, so the ``shown`` cases are sharpit's own.
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 from tests.masking import sql_corpus
 
@@ -1106,12 +1108,46 @@ def test_no_keyword_keeps_the_digits_after_a_dot(sql: str, mysql: bool) -> None:
         ("SELECT 1 FROM rv.1 WHERE rv.1.$$ = ' $$ SECRET '", "SELECT ? FROM rv.? WHERE rv.?.$$ = ?"),
         ("SELECT rv.1.$$ # $$ SECRET\n FROM rv.1", "SELECT rv.?.$$ FROM rv.?"),
         ("SELECT rv.1.$$ /* $$ SECRET */ FROM rv.1", "SELECT rv.?.$$ FROM rv.?"),
-        ("SELECT @1.$$, ' $$ SECRET '", "SELECT @?.$$, ?"),  # a user variable holds a ``.`` and a ``$``
-        ("SELECT @a.1.$$, ' $$ SECRET '", "SELECT @a.?.$$, ?"),
         ("SELECT.1.2345678", "SELECT.??"),
     ],
 )
 def test_a_digit_run_through_a_word_and_a_dot_is_a_name_part_on_mysql(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+# derived: MySQL 8.4.10 accepts each of these, its lexer reads ``[\w.$]*`` after ``@`` as one token, a user variable or
+# an account's host. A number in that token hides all of it, as a digit run hides anywhere else
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT @1.$$, ' $$ SECRET '", "SELECT ?, ?"),
+        ("SELECT @a.1.$$, ' $$ SECRET '", "SELECT ?, ?"),
+        ("SELECT @1.5.$$, ' $$ SECRET '", "SELECT ?, ?"),
+        ("SELECT @a.1.2.$$, ' $$ SECRET '", "SELECT ?, ?"),
+        ("SELECT @.5.$$, ' $$ SECRET '", "SELECT ?, ?"),
+        ("SELECT @.1.$$, ' $$ SECRET '", "SELECT ?, ?"),
+        ("SELECT @1.5.$1$, ' $1$ SECRET '", "SELECT ?, ?"),
+        ("SELECT @1.5.$a$, ' $a$ SECRET '", "SELECT ?, ?"),
+        ("SET @1.5.$$ = ' $$ SECRET '", "SET ? = ?"),
+        ("SELECT 1 WHERE @1.5.$$ = ' $$ SECRET '", "SELECT ? WHERE ? = ?"),
+        ("CREATE USER u@1.5.$$ IDENTIFIED BY ' $$ SECRET '", "CREATE USER u? IDENTIFIED BY ?"),
+    ],
+)
+def test_what_follows_at_is_one_token_on_mysql(sql: str, expected: str) -> None:
+    assert normalize(sql, True).sql == expected
+
+
+@pytest.mark.parametrize("length", range(1, 6))
+def test_no_spelling_after_at_opens_a_dollar_quote_on_mysql(length: int) -> None:
+    names = map("".join, itertools.product("15.$_a", repeat=length))
+    shown = [name for name in names if "SECRET" in normalize(f"SELECT @{name}$$, ' $$ SECRET '", True).sql]
+    assert shown == []
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"), [("SELECT @a.b.$$", "SELECT @a.b.$$"), ("SELECT @a1, @_2", "SELECT @a1, @_2")]
+)
+def test_a_name_after_at_stays_on_mysql(sql: str, expected: str) -> None:
     assert normalize(sql, True).sql == expected
 
 

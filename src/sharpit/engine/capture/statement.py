@@ -7,12 +7,14 @@ import re
 from sharpit.engine.capture.sqlscan import shown
 from sharpit.engine.masking import MASK, Masker
 
-# The words a statement starts with on PostgreSQL, MySQL or SQLite. A first word outside this list only hides more.
+# Words a statement starts with on PostgreSQL, MySQL or SQLite. The list is partial, ``REPAIR`` and ``ABORT`` are not in
+# it: a first word outside it only hides more. A ``-`` after a word makes it no verb: ``set-cookie``.
 _VERB = re.compile(
-    r"[(\s]*(?:alter|analyze|attach|begin|call|checkpoint|commit|copy|create|deallocate|declare|delete|desc|describe"
-    r"|detach|do|drop|exec|execute|explain|fetch|flush|grant|handler|insert|kill|listen|load|lock|merge|notify|optimize"
-    r"|pragma|prepare|refresh|reindex|release|rename|replace|reset|revoke|rollback|savepoint|select|set|show|start"
-    r"|table|truncate|unlock|update|use|vacuum|values|with)(?=[\s(;]|$)",
+    r"[(\s]*(?:alter|analyze|attach|begin|binlog|call|change|checkpoint|clone|cluster|comment|commit|copy|create"
+    r"|deallocate|declare|delete|desc|describe|detach|do|drop|exec|execute|explain|fetch|flush|grant|handler|insert|kill"
+    r"|listen|load|lock|merge|notify|optimize|pragma|prepare|refresh|reindex|release|rename|replace|reset|resignal"
+    r"|revoke|rollback|savepoint|select|set|show|signal|start|table|truncate|unlock|update|use|vacuum|values|with)"
+    r"(?=[^\w$-]|$)",
     re.IGNORECASE,
 )
 

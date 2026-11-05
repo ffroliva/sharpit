@@ -31,6 +31,20 @@ def test_a_sensitive_column_keeps_its_clauses(sql: str, expected: str) -> None:
     assert _statement(sql) == expected
 
 
+# finding I2: punctuation tight against the verb is still a statement, ``-`` is not: ``set-cookie: password=...``
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT*FROM u WHERE password=? AND id=?", f"SELECT*FROM u WHERE password={MASK} AND id=?"),
+        ("SELECT`a`FROM t WHERE token='x'", f"SELECT`a`FROM t WHERE token={MASK}"),
+        ("UPDATE`u`SET password='x' WHERE id=1", f"UPDATE`u`SET password={MASK} WHERE id=?"),
+        ("SET@password='x'", f"SET@password={MASK}"),
+    ],
+)
+def test_punctuation_tight_against_the_verb_keeps_the_statement(sql: str, expected: str) -> None:
+    assert _statement(sql) == expected
+
+
 # no statement starts this way, so a hit hides the whole text: a value's end is a guess here, and the scan has split
 # what it read. The first has a token ahead of the first quote; ``mask_text`` of the render showed the tail of the last
 @pytest.mark.parametrize(
@@ -40,11 +54,18 @@ def test_a_sensitive_column_keeps_its_clauses(sql: str, expected: str) -> None:
         "password=hunter2 and the rest of the line",
         "failed for key=abc: 'still here'",
         "failed to update password=hunter2 and the rest",  # a verb counts only as the first word
-        "CLUSTER u USING password='x'",  # a verb the list lacks: it costs the statement, toward hiding
+        "set-cookie: password=hunter2 and the rest",
+        "x=password=abc",  # only the strict read sees the key nested in a value
+        "REPAIR u USING password='x'",  # a verb the list lacks: it costs the statement, toward hiding
     ],
 )
 def test_text_with_no_verb_and_a_hit_is_hidden_whole(text: str) -> None:
     assert _statement(text) == MASK
+
+
+@pytest.mark.parametrize("verb", ["BINLOG", "CHANGE", "CLONE", "CLUSTER", "COMMENT", "RESIGNAL", "SIGNAL"])
+def test_a_rarer_verb_keeps_the_statement(verb: str) -> None:
+    assert _statement(f"{verb} t WHERE password='x' AND id=1") == f"{verb} t WHERE password={MASK} AND id=?"
 
 
 # the token pass reads ``bio="sk_live_..."`` as one token and hides all of it, but the value is a literal: spec A3
@@ -60,6 +81,11 @@ def test_text_with_no_verb_and_a_hit_is_hidden_whole(text: str) -> None:
 )
 def test_a_name_beside_a_secret_literal_stays(sql: str, expected: str) -> None:
     assert _statement(sql) == expected
+
+
+def test_a_hit_that_starts_before_the_name_stays_hidden() -> None:
+    # finding I1: the name is the tail of a url the masker hid whole, so releasing it shows ``abc123def``
+    assert _statement('update x https://h/?token=abc123def="v"') == f"update x {MASK}={MASK}=?"
 
 
 def test_a_secret_beside_a_secret_literal_stays_hidden() -> None:
