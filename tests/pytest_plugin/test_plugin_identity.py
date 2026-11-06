@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -56,6 +57,64 @@ def test_a_session_with_no_key_warns_once_in_its_report(
     assert result.ret == 0
     warnings = json.loads((pytester.path / "report.json").read_text())["warnings"]
     assert len([warning for warning in warnings if "SQLite statement identities are unavailable" in warning]) == 1
+
+
+def test_local_key_baseline_warns_after_sqlite_was_seen(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SHARPIT_IDENTITY_KEY", raising=False)
+    monkeypatch.setenv("SHARPIT_STATE_DIR", str(pytester.path / "state"))
+    (pytester.path / "baseline.json").write_text('{"schema":"sharpit-baseline/1","findings":[]}')
+    pytester.makepyfile(
+        "import sqlite3\ndef test_query():\n c=sqlite3.connect(':memory:')\n c.execute('select 1').fetchone()"
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit",
+        "--sharpit-no-advisors",
+        "--sharpit-allow-unknown",
+        "--sharpit-baseline=baseline.json",
+        "--sharpit-report=report.json",
+        "-q",
+    )
+
+    assert result.ret == 0
+    report = json.loads((pytester.path / "report.json").read_text())
+    assert any("local identity key" in warning and "SHARPIT_IDENTITY_KEY" in warning for warning in report["warnings"])
+
+
+@pytest.mark.parametrize("broken_state", ["file", "read-only", "unreadable-config"])
+def test_broken_state_still_writes_a_report_with_a_reason(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, broken_state: str
+) -> None:
+    state_dir = pytester.path / "state"
+    if broken_state == "file":
+        state_dir.write_text("not a directory")
+    else:
+        state_dir.mkdir()
+        if broken_state == "read-only":
+            if os.name == "nt":
+                pytest.skip("Windows chmod does not make a directory read-only")
+            state_dir.chmod(0o555)
+        else:
+            if os.name == "nt":
+                pytest.skip("Windows chmod does not make a file unreadable")
+            config = state_dir / "sharpit.yml"
+            config.write_text("dismissedRules:\n")
+            config.chmod(0)
+    monkeypatch.setenv("SHARPIT_STATE_DIR", str(state_dir))
+    pytester.makepyfile("def test_pass(): pass")
+
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+
+    assert result.ret == 0
+    report = json.loads((pytester.path / "report.json").read_text())
+    if broken_state == "unreadable-config":
+        assert any(source["name"] == "dismissals" and not source["attached"] for source in report["sources"])
+    else:
+        assert any("SQLite statement identities are unavailable" in warning for warning in report["warnings"])
 
 
 def test_a_repeating_group_on_sqlite_keeps_its_fingerprint(

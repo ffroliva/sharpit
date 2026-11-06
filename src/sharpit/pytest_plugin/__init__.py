@@ -256,12 +256,21 @@ def _attach(config: Any) -> None:
     sink.facts.warnings.extend(settings.warnings)
     handler = _ExceptionHandler(sink)
     dismissals = DismissalStore(Path(settings.state_dir))
+    try:
+        dismissed = dismissals.list()
+        dismissed_pairs = dismissals.dismissed_pairs()
+    except (OSError, ValueError) as exc:
+        dismissed = []
+        dismissed_pairs = set[tuple[str, str]]()
+        sink.facts.sources.append(
+            {"name": "dismissals", "attached": False, "reason": f"dismissals unusable: {exc}", "limitations": []}
+        )
     state = _State(
         options,
         sink,
         settings,
-        dismissals.list(),
-        dismissals.dismissed_pairs(),
+        dismissed,
+        dismissed_pairs,
         {key: entry.observed for key, entry in loaded_baseline.entries.items()} if loaded_baseline else None,
         loaded_baseline,
         False,

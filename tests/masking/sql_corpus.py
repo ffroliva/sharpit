@@ -289,8 +289,11 @@ class _Statements:
         text = f"SELECT # it's\n '{m}'"
         if self.dialect == MYSQL:  # a comment there, and the statement reads one way
             return self._single("hash", _Shown(text, "SELECT ?", ""), m)
-        if self.rng.random() < 0.4:  # each row of the rotation must land in a mutant's 300 rows
+        roll = self.rng.random()
+        if roll < 0.4:  # each row of the rotation must land in a mutant's 300 rows
             return self._two_way(m)
+        if self.dialect == GENERIC and roll < 0.7:
+            return self._single("hash", _Shown(f'SELECT "{m}" # x', "SELECT ?", ""), m, ambiguous=True)
         return self._single("hash", _Shown(text, "SELECT # it ?", ""), m, ambiguous=True)
 
     def two_way(self) -> Row:  # its own template, so ``nested_comment`` and ``hash`` keep rows of their own

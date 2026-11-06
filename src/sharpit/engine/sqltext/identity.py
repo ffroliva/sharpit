@@ -24,7 +24,7 @@ else:
 
 KEY_NAME = "identity.key"
 KEY_BYTES = 32
-IGNORED = "identity.key\nidentity.key.*\n"  # the temporary file holds a whole key until its rename
+IGNORED = ("identity.key", "identity.key.lock", "identity.key.*")  # a temporary file holds a whole key until rename
 WAIT_SECONDS = 10.0  # for the lock, and on Windows for a reader holding a bad file open
 
 
@@ -51,7 +51,10 @@ def _read_or_create(state_dir: Path, path: Path) -> bytes | None:
         key = _read(path)
     except PermissionError:  # on Windows, while another creator's rename lands: its lock waits that out
         key = None
-    return key if key is not None else _create(state_dir, path)
+    if key is not None:
+        _ignore_the_key(state_dir)
+        return key
+    return _create(state_dir, path)
 
 
 def _read(path: Path) -> bytes | None:
@@ -69,23 +72,25 @@ def _read(path: Path) -> bytes | None:
 
 def _create(state_dir: Path, path: Path) -> bytes | None:
     state_dir.mkdir(parents=True, exist_ok=True)
+    _ignore_the_key(state_dir)
     with _exclusive(path):
         key = _read(path)
         if key is not None:
             return key
-        _ignore_the_key(state_dir)
         _publish(path)
         return _read(path)
 
 
 def _ignore_the_key(state_dir: Path) -> None:
-    """Before the key exists, so no crash can leave one a ``git add`` would take (ruling 5)."""
-    try:
-        fd = os.open(state_dir / ".gitignore", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-    except FileExistsError:
+    """Keep both key paths ignored before returning or publishing one (owner's ruling)."""
+    ignore = state_dir / ".gitignore"
+    content = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
+    missing = [name for name in IGNORED if name not in content.splitlines()]
+    if not missing:
         return
-    with os.fdopen(fd, "w", encoding="ascii", newline="\n") as stream:
-        stream.write(IGNORED)
+    prefix = "" if not content or content.endswith(("\n", "\r")) else "\n"
+    with ignore.open("a", encoding="utf-8", newline="\n") as stream:
+        stream.write(prefix + "".join(f"{name}\n" for name in missing))
 
 
 def _publish(path: Path) -> None:
@@ -102,7 +107,7 @@ def _publish(path: Path) -> None:
 @contextmanager
 def _exclusive(path: Path) -> Generator[None]:
     """One creator at a time: two that each replaced a bad file would hand their workers two keys."""
-    fd = os.open(path.with_name(f"{path.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    fd = os.open(path.with_name(f"{path.name}.lock"), os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         _patiently(lambda: _lock(fd))
         yield

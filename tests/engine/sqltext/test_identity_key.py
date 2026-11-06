@@ -99,10 +99,11 @@ def test_a_key_longer_than_a_key_is_bad(tmp_path: Path) -> None:
     assert load_key(tmp_path, create=False) is None
 
 
-def test_a_good_key_is_read_and_nothing_is_written(tmp_path: Path) -> None:
+def test_a_good_key_is_read_and_ignored(tmp_path: Path) -> None:
     (tmp_path / "identity.key").write_bytes(b"k" * 32)
     assert load_key(tmp_path, create=True) == b"k" * 32
-    assert [path.name for path in tmp_path.iterdir()] == ["identity.key"]
+    assert sorted(path.name for path in tmp_path.iterdir()) == [".gitignore", "identity.key"]
+    assert "identity.key" in (tmp_path / ".gitignore").read_text().splitlines()
 
 
 def test_the_key_is_created_owner_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,6 +119,19 @@ def test_the_key_is_created_owner_only(tmp_path: Path, monkeypatch: pytest.Monke
     written = [name for name in modes if name.startswith("identity.key.") and name.endswith(".tmp")]
     assert len(written) == 1
     assert modes[written[0]] == 0o600
+
+
+def test_key_and_lock_are_not_created_when_gitignore_cannot_be_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unwritable(_state_dir: Path) -> None:
+        raise PermissionError("ignore is read-only")
+
+    monkeypatch.setattr(identity, "_ignore_the_key", unwritable)
+
+    assert load_key(tmp_path, create=True) is None
+    assert not (tmp_path / "identity.key").exists()
+    assert not (tmp_path / "identity.key.lock").exists()
 
 
 def test_the_key_lands_beside_a_gitignore_that_names_it(tmp_path: Path) -> None:
@@ -138,10 +152,40 @@ def test_the_gitignore_is_there_before_the_key_is(tmp_path: Path, monkeypatch: p
     assert seen == [True]
 
 
-def test_a_gitignore_already_there_is_left_alone(tmp_path: Path) -> None:
-    (tmp_path / ".gitignore").write_text("mine\n")
-    load_key(tmp_path, create=True)
-    assert (tmp_path / ".gitignore").read_text() == "mine\n"
+@pytest.mark.parametrize("existing_key", [False, True], ids=["new-key", "existing-key"])
+def test_git_add_does_not_commit_key_when_gitignore_exists(tmp_path: Path, existing_key: bool) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    state_dir = tmp_path / ".sharpit"
+    state_dir.mkdir()
+    ignore = state_dir / ".gitignore"
+    ignore.write_text("mine\n")
+    if existing_key:
+        (state_dir / "identity.key").write_bytes(b"k" * 32)
+
+    assert load_key(state_dir, create=True) is not None
+
+    assert ignore.read_text() == "mine\nidentity.key\nidentity.key.lock\nidentity.key.*\n"
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    tracked = subprocess.run(
+        ["git", "-C", str(tmp_path), "ls-files"], check=True, capture_output=True, text=True
+    ).stdout.splitlines()
+    assert tracked == [".sharpit/.gitignore"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_git_add_does_not_commit_key_when_gitignore_was_deleted(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    state_dir = tmp_path / ".sharpit"
+    load_key(state_dir, create=True)
+    (state_dir / ".gitignore").unlink()
+
+    assert load_key(state_dir, create=True) is not None
+
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    tracked = subprocess.run(
+        ["git", "-C", str(tmp_path), "ls-files"], check=True, capture_output=True, text=True
+    ).stdout.splitlines()
+    assert tracked == [".sharpit/.gitignore"]
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
@@ -199,6 +243,20 @@ def test_the_read_asks_not_to_follow_a_link_where_it_can(tmp_path: Path, monkeyp
     monkeypatch.setattr(identity.os, "open", spy)
     assert load_key(tmp_path, create=False) == b"k" * 32
     assert [flags for flags in flags_seen if flags & no_follow] != []
+
+
+def test_the_lock_open_asks_not_to_follow_a_link_where_it_can(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    no_follow, real, lock_flags = 1 << 30, os.open, []
+
+    def spy(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        if Path(path).name == "identity.key.lock":
+            lock_flags.append(flags)
+        return real(path, flags & ~no_follow, *args, **kwargs)
+
+    monkeypatch.setattr(os, "O_NOFOLLOW", no_follow, raising=False)
+    monkeypatch.setattr(identity.os, "open", spy)
+    assert load_key(tmp_path, create=True) is not None
+    assert [flags for flags in lock_flags if flags & no_follow] != []
 
 
 def test_no_key_gives_no_identity(tmp_path: Path) -> None:

@@ -146,8 +146,10 @@ class TestSessionSink:
             rule = filtered_rule(event.sql)
             # The test-session sink resolves with no application fallback (`lambda: None`),
             # so it does not share the recorder's fallback behavior (owner ruling, 2026-11-06).
-            shape = None if rule else self._shape(event.sql, event_dialect(event, lambda: None))
+            dialect = event_dialect(event, lambda: None)
+            shape = None if rule else self._shape(event.sql, dialect)
             with self._lock:
+                self.facts.sqlite_seen |= dialect is Dialect.SQLITE
                 phase = self._phase_of(test)
                 if shape is None:
                     self.facts.filtered += 1
