@@ -129,6 +129,12 @@ def _double_secret(rng: random.Random) -> _Literal:
     return _Literal(secret, f'"{secret}"', "?", "")
 
 
+def _double_value(rng: random.Random) -> _Literal:
+    """A ``"..."`` literal in a value position (e.g. email = "alice@example.com", spec A1)."""
+    m = _mark(rng)
+    return _Literal(m, f'"{m}@example.com"', "?", f"'{MASKED}'")
+
+
 def _underscored(rng: random.Random) -> _Literal:
     d = _digits(rng)
     return _Literal(d[3:], f"{d[:3]}_{d[3:]}", "?", MASKED)
@@ -153,7 +159,7 @@ def _string(rng: random.Random) -> _Literal:
     return _Literal(m, f"'{head}{opener} {m}'", "?", f"'{MASKED}'", sensitive, before=before)
 
 
-_DOUBLE_QUOTED = (_double_word, _double_spaced, _double_secret, _boolean)  # not PostgreSQL's: no literal there
+_DOUBLE_QUOTED = (_double_word, _double_spaced, _double_secret, _double_value, _boolean)
 # non-ASCII spaces `str.isspace` accepts and no server reads as whitespace
 _UNICODE_SPACES = tuple(map(chr, (0x85, 0xA0, 0x1680, 0x2000, 0x2009, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000)))
 _NOT_MYSQL = (_dollar, _dollar_tag, _escape_string)  # text a MySQL server reads differently or refuses
@@ -161,7 +167,7 @@ _COMMON = (_hex, _leading_dot, _exponent, _underscored, _multi_line, _string, _s
 _LITERALS = {
     GENERIC: (*_DOUBLE_QUOTED, *_NOT_MYSQL, *_COMMON),
     MYSQL: (*_DOUBLE_QUOTED, *_COMMON),
-    POSTGRESQL: (*_NOT_MYSQL, *_COMMON),  # PostgreSQL reads ``"..."`` as an identifier, so it holds no literal
+    POSTGRESQL: (_double_value, *_NOT_MYSQL, *_COMMON),
 }
 
 
@@ -260,6 +266,13 @@ class _Statements:
         return self._single("trailing_backslash", shown, m, ambiguous=True)
 
     def nested_comment(self) -> Row:  # PostgreSQL nests comments, so there it reads one way
+        if self.pg:
+            m = _mark(self.rng)
+            return self._single(
+                "nested_comment",
+                _Shown(f"SELECT /* /* x */ */ '{m}', '{m}x'", "", f"SELECT '{MASKED}', '{MASKED}'"),
+                m,
+            )
         m = _mark(self.rng)
         if self.dialect == GENERIC and self.rng.random() < 0.4:  # ambiguous either way, so the fallback share holds
             return self._two_way(m)

@@ -73,9 +73,7 @@ def read_statement(sql: str, dialect: Dialect) -> Reading:
 
 @functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text and lexer
 def _normalized(lexer: sqltext.SqlLexer, sql: str, dialect: Dialect) -> Normalized:
-    if not sql.strip(sqltext.SPACE_CHARS):
-        return Normalized("", "", 0, 0, dialect)
-    return read_statement(sql, dialect).shape
+    return read_statement(sql, dialect).shape  # blank text too: the scan is what refuses a dialect that is not one
 
 
 def normalize(sql: str, dialect: Dialect) -> Normalized:

@@ -540,7 +540,7 @@ def _mcp_arguments(name: str, ctx: SharpitContext) -> dict[str, Any]:
     """A tool's required arguments, seeded into ``ctx``."""
     arguments: dict[str, Any] = {}
     if name == "get_exception_detail":  # the one tool with a required argument: the id of a recorded exception
-        store = ctx.capture.exceptions = ExceptionStore(10, 5, 20, ctx.masker)
+        store = ctx.capture.exceptions = ExceptionStore(10, 5, 20, ctx.masker, application=lambda: None)
         try:
             raise RuntimeError("for the detail")
         except RuntimeError as exc:

@@ -3,7 +3,16 @@
 from __future__ import annotations
 
 from sharpit.engine.sqltext.constants import MASK
-from sharpit.engine.sqltext.dialect import Dialect, dialect_of_name
+from sharpit.engine.sqltext.dialect import (
+    ChainReading,
+    Dialect,
+    DialectContext,
+    DialectSource,
+    dialect_of_name,
+    exception_leaves,
+    read_chain,
+    resolve,
+)
 from sharpit.engine.sqltext.lexer import (
     SPACE_CHARS,
     Candidate,
@@ -24,7 +33,10 @@ __all__ = [
     "MASK",
     "SPACE_CHARS",
     "Candidate",
+    "ChainReading",
     "Dialect",
+    "DialectContext",
+    "DialectSource",
     "HandLexer",
     "Kind",
     "Range",
@@ -32,7 +44,10 @@ __all__ = [
     "SqlLexer",
     "collapse_placeholder_lists",
     "dialect_of_name",
+    "exception_leaves",
     "quoted_body",
+    "read_chain",
+    "resolve",
     "secrets",
     "shape",
     "shown",

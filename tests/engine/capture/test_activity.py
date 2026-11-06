@@ -62,7 +62,7 @@ def _ctx(*, sql: bool = True, exceptions: bool = True, **options: Any) -> Sharpi
     capture = ctx.capture
     capture.exchanges = HttpExchangeBuffer(200)
     if exceptions:
-        capture.exceptions = ExceptionStore(100, 25, 50, ctx.masker)
+        capture.exceptions = ExceptionStore(100, 25, 50, ctx.masker, application=lambda: None)
     if sql:
         capture.sql_trace = SqlTraceRecorder(ctx.masker, slow_query_threshold_millis=100)
     return ctx
@@ -182,6 +182,19 @@ def test_n_plus_one_flags_request_and_group():
         ("UPDATE", 3, False),
         ("SELECT", 2, False),
     ]
+
+
+def test_request_profile_groups_by_the_row_dialect():
+    """MySQL's ``#`` opens a comment: the group drops it, read as the row's dialect says, not as the generic scan.
+
+    Captured parameters keep the row's text raw, so the grouping is the first read of it.
+    """
+    ctx = _ctx(activity_n_plus_one_threshold=3, sql_trace_capture_parameters=True)
+    _request(ctx, "r1")
+    for n in range(3):
+        _sql(ctx, "r1", f"select * from owners # by name\nwhere id = {n}", dialect=Dialect.MYSQL_FAMILY)
+    groups = request_profile(ctx, "r1")["sqlGroups"]
+    assert [(g["sql"], g["executions"]) for g in groups] == [("select * from owners where id = ?", 3)]
 
 
 @pytest.mark.parametrize(

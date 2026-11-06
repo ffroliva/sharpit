@@ -112,7 +112,8 @@ def _masked_fingerprint(statement: str, dialect: Dialect) -> str:
 
 def _dialect_of(owner: object) -> Dialect:
     """What a connection, engine or execution context talks to."""
-    return dialect_of_name(getattr(getattr(owner, "dialect", None), "name", None)) or Dialect.UNSUPPORTED
+    found = dialect_of_name(getattr(getattr(owner, "dialect", None), "name", None))
+    return Dialect.UNSUPPORTED if found is None else found
 
 
 def _relationship_path(context: Any) -> tuple[Any, str, str, int] | None:

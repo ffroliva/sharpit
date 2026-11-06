@@ -15,6 +15,7 @@ from sharpit.engine.capture import CaptureState
 from sharpit.engine.masking import Masker
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.spi import AppIntrospector
+from sharpit.engine.sqltext import Dialect
 from sharpit.settings import SharpitSettings
 
 _INSTANCE_ID: Final[str] = secrets.token_hex(4)
@@ -70,3 +71,16 @@ class SharpitContext:
             if key not in self._cache:
                 self._cache[key] = factory()
             return cast("T", self._cache[key])
+
+
+def application_family(ctx: SharpitContext) -> Dialect | None:
+    """The family's evidence is this install's engines plus raw SQLite statements it has seen."""
+    registry = ctx.capture.engine_registry
+    family = registry.family() if registry is not None else None
+    if ctx.capture.raw_sqlite_seen:
+        if family is Dialect.SQLITE:
+            return family
+        if registry is None or not registry.has_engines():
+            return Dialect.SQLITE
+        return None
+    return family

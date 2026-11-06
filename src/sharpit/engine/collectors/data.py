@@ -10,12 +10,14 @@ configures mappers, runs SQL or calls user code (spec §4).
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from typing import Any, NamedTuple, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.capture.sqltrace import mask_error
-from sharpit.engine.context import SharpitContext
+from sharpit.engine.context import SharpitContext, application_family
 from sharpit.engine.models import mappers_configured, registries
+from sharpit.engine.sqla.dialect_source import exception_dialect
 from sharpit.engine.sqltext import Dialect
 
 NO_MODELS = "pass models= to sharpit.install"
@@ -58,12 +60,15 @@ def _field(ctx: SharpitContext, warnings: list[str], label: str, read: Callable[
     try:
         return read()
     except Exception as error:  # noqa: BLE001 - user mapping code must not fail the GET
-        warnings.append(_masked(ctx, f"Could not read {label} ({type(error).__name__}: {error})"))
+        warnings.append(_masked(ctx, f"Could not read {label} ({type(error).__name__}: {error})", error))
         return None
 
 
-def _masked(ctx: SharpitContext, text: str) -> str:
-    return mask_error(ctx.masker, text, Dialect.UNSUPPORTED) or text.split(" (", 1)[0]
+def _masked(ctx: SharpitContext, text: str, error: BaseException | None = None) -> str:
+    application = partial(application_family, ctx)
+    family = exception_dialect(error, application) if error is not None else application()
+    dialect = Dialect.UNSUPPORTED if family is None else family
+    return mask_error(ctx.masker, text, dialect) or text.split(" (", 1)[0]
 
 
 def _table(mapper: Any) -> str | None:

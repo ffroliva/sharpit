@@ -11,6 +11,7 @@ import logging
 import os
 import socket
 import sys
+import tempfile
 import tokenize
 import tracemalloc
 from collections.abc import Callable, Iterator
@@ -18,7 +19,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import settings
+
+# Hypothesis caches constants under the working directory, and `no_side_effects` reads a file written there as a read
+# that wrote one. Set before its import, so no run writes into the tree.
+os.environ.setdefault("HYPOTHESIS_STORAGE_DIRECTORY", str(Path(tempfile.gettempdir()) / "sharpit-hypothesis"))
+
+from hypothesis import settings  # noqa: E402
 
 from sharpit.engine import sqla
 from sharpit.engine.capture import transactions

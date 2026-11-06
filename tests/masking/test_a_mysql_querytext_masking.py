@@ -59,7 +59,7 @@ def test_a_digit_inside_an_identifier_is_not_a_hex_literal() -> None:
 
 
 def test_mysql_query_text_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken(_sql: str, _mysql: bool) -> None:
+    def broken(_sql: str, _dialect: Dialect) -> None:
         raise RuntimeError
 
     monkeypatch.setattr(sqlscan, "_scan", broken)

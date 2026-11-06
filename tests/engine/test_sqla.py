@@ -379,6 +379,69 @@ def test_relationship_facts_on_mysql_use_the_mysql_fingerprint() -> None:
         TEST.reset(token)
 
 
+MYSQL_STATEMENT = "SELECT * FROM payments # password hunter2"
+
+
+def _mysql_fingerprint() -> str:
+    from sharpit.engine.capture.statement import masked_shape
+    from sharpit.engine.testsession.sink import report_masker
+
+    return masked_shape(report_masker(), MYSQL_STATEMENT, Dialect.MYSQL_FAMILY).fingerprint
+
+
+def _mysql_context(options: dict[str, Any]) -> Any:
+    return types.SimpleNamespace(
+        execution_options=options, statement=MYSQL_STATEMENT, dialect=types.SimpleNamespace(name="mysql")
+    )
+
+
+def _pop_facts(tag: tuple[str, int, str]) -> None:
+    for store in (
+        sqla_orm._relationship_groups,
+        sqla_orm._relationship_sites,
+        sqla_orm._eager_relationship_batches,
+        sqla_orm._statement_sites,
+        sqla_orm._lazy_seen,
+    ):
+        store.pop(tag, None)
+
+
+# derived: Task 12 review: the statement-site key carries the dialect the phase's select counts were read with
+def test_repeated_mysql_statement_site_lands_on_the_mysql_group() -> None:
+    tag = ("test_repeated_mysql_statement_site_lands_on_the_mysql_group", 1, "call")
+    group = _mysql_fingerprint()
+    phase = types.SimpleNamespace(
+        selects={group: 2},
+        sql_of={},
+        relationship_of={},
+        relationship_sites={},
+        relationship_loads={},
+        statement_sites={},
+    )
+    test = types.SimpleNamespace(key=types.SimpleNamespace(node_id=tag[0], attempt=tag[1]), phases={"call": phase})
+    token = TEST.set(tag)
+    try:
+        for _ in range(2):  # the first run names the statement, its first repeat records the site
+            sqla_orm._record_relationship(_mysql_context({}))
+        sqla.apply_relationship_facts(test)
+        assert list(phase.statement_sites) == [group]
+    finally:
+        _pop_facts(tag)
+        TEST.reset(token)
+
+
+# derived: Task 12 review: an eager batch is subtracted from the group the sink counted, read as MySQL
+def test_mysql_eager_batch_counts_on_the_mysql_group() -> None:
+    tag = ("test_mysql_eager_batch_counts_on_the_mysql_group", 1, "call")
+    token = TEST.set(tag)
+    try:
+        sqla_orm._record_relationship(_mysql_context({sqla.RELATIONSHIP_KEY: sqla_orm._EAGER_RELATIONSHIP_KEY}))
+        assert sqla_orm._eager_relationship_batches[tag] == {_mysql_fingerprint(): 1}
+    finally:
+        _pop_facts(tag)
+        TEST.reset(token)
+
+
 # derived: release council fix round 2: the unbounded-read shape is shown in the report
 def test_unbounded_read_shape_on_mysql_folds_the_comment() -> None:
     dialect = types.SimpleNamespace(name="mysql")

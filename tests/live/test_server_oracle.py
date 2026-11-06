@@ -22,6 +22,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pytest
+from tests.masking import sql_corpus
 from tests.masking.server_corpus import ServerRow
 from tests.masking.test_gates_bite import (
     Mutant,
@@ -53,7 +54,7 @@ PINNED: dict[tuple[str, str], int] = {
     ("mariadb", "ORACLE"): 1233,
     ("postgresql", "on"): 138,
     ("postgresql", "off"): 138,
-    ("sqlite", ""): 2813,
+    ("sqlite", ""): 2817,
 }
 ROW_ID = re.compile(r"test_oracle_row\[(\w+)-(\w+)-\d+\]$")
 
@@ -98,6 +99,56 @@ def test_a_refused_statement_keeps_its_value_hidden(server: LiveServer) -> None:
     assert not observed.holding(value)
 
 
+def test_a_postgresql_row_of_the_corpus_keeps_its_words(live_servers: Callable[[str], LiveServer]) -> None:
+    """Anti-blanking: a row of the corpus keeps its words / non-literal structure on PostgreSQL."""
+    row = next(r for r in sql_corpus.rows(7, 20, sql_corpus.POSTGRESQL) if r.plain and r.tail)
+    statement = row.text.replace("FROM t", "FROM pg_catalog.pg_class LIMIT 1")
+    observed = oracle.drive(live_servers("postgresql"), "on", statement)
+    assert not observed.refused, f"the control row was refused: {observed.returned!r}"
+    assert any("pg_catalog.pg_class" in text for text in observed.shown.values())
+
+
+def test_a_sqlite_row_of_the_corpus_keeps_its_words(live_servers: Callable[[str], LiveServer]) -> None:
+    """Anti-blanking, as on PostgreSQL: a row the server takes keeps its words on SQLite."""
+    rows = sql_corpus.rows(7, 200, sql_corpus.POSTGRESQL)
+    row = next(r for r in rows if r.plain and r.tail and "FROM t" in r.text and not set("$\\") & set(r.text))
+    statement = row.text.replace("FROM t", "FROM sqlite_master LIMIT 1")
+    observed = oracle.drive(live_servers("sqlite"), "", statement)
+    assert not observed.refused, f"the control row was refused: {observed.returned!r}"
+    assert any("sqlite_master" in text for text in observed.shown.values())
+
+
+# Every surface the row reads comes from ``statement_text``: blanking ``normalize`` alone leaves them all showing.
+BLANK_RENDER = Mutant(
+    "render = shown(sql, relaxed, dialect, reading)", 'render = "?"', "", "", "engine/capture/statement.py"
+)
+
+
+@pytest.mark.parametrize("family", ["postgresql", "sqlite"])
+def test_a_planted_blanking_build_fails_the_keep_row(family: str, tmp_path: Path) -> None:
+    keep_row = f"test_a_{family}_row_of_the_corpus_keeps_its_words"
+    copy = _scratch_copy(tmp_path)
+    _mutate(copy, BLANK_RENDER)
+    env = {**os.environ, "PYTHONPATH": str(tmp_path / "src"), "PYTHONDONTWRITEBYTECODE": "1"}
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--live",
+            f"tests/live/test_server_oracle.py::{keep_row}",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-p",
+            "no:xdist",
+        ],
+        cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=2 * PLANT_SECONDS,
+    )  # fmt: skip
+    assert done.returncode == 1, done.stdout[-1500:]
+    assert keep_row in done.stdout
+
+
 # --- the planted builds: each must raise what the oracle finds, on rows the real build hides ----------------------
 
 
@@ -111,8 +162,8 @@ WRONG_WIRED = Mutant(
 )
 # The scanner never reads ``\`` as an escape inside a quote (field log F16, probes pg-plant and b2).
 NEVER_ESCAPES = Mutant(
-    'if c == "\\\\" and closing in escaped_in and cursor + 1 < length:',
-    "if False and closing in escaped_in and cursor + 1 < length:",
+    'if c == "\\\\" and escaped and cursor + 1 < length:',
+    "if False and cursor + 1 < length:",
     "",
     "",
 )
@@ -125,12 +176,17 @@ FIVE_ON_OFF = {
     "SELECT 'a\\'b', 'BSVNINE'",
 }
 CONTROLS: dict[str, tuple[str, str, Mutant]] = {
+    "scs_off_no_cut": (
+        "postgresql",
+        "off",
+        Mutant("if rules.cut_backslash and _backslash_reads_two_ways(scan, rules):", "if False:", "", ""),
+    ),
     "backslash-postgresql-on": ("postgresql", "on", NEVER_ESCAPES),
     "backslash-postgresql-off": ("postgresql", "off", NEVER_ESCAPES),
     "backslash-mysql": (
         "mysql84",
         "NO_BACKSLASH_ESCAPES",
-        Mutant("if _backslash_reads_two_ways(scan, rules):", "if False:", "", ""),
+        Mutant("if rules.cut_backslash and _backslash_reads_two_ways(scan, rules):", "if False:", "", ""),
     ),
     "dollar-mariadb": (
         "mariadb",
@@ -140,7 +196,7 @@ CONTROLS: dict[str, tuple[str, str, Mutant]] = {
     "bracket-mssql": (
         "mariadb",
         "MSSQL",
-        Mutant('if "[" in source and any(kind == _LITERAL', "if False and any(kind == _LITERAL", "", ""),
+        Mutant('rules.cut_bracket\n        and "[" in source', 'False and "[" in source', "", ""),
     ),
 }
 

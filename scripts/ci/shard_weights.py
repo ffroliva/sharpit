@@ -28,8 +28,11 @@ def weights(root: Path) -> dict[str, dict[str, float]]:
     # artifact dirs are junit-<os>-<python>-<job index>: one leg is <os>-<python>
     per_leg: dict[str, dict[str, defaultdict[str, float]]] = defaultdict(dict)
     for report in sorted(root.glob("junit-*/junit.xml")):
-        os_name, python = report.parent.name.split("-")[1], report.parent.name.split("-")[3]
-        platform = next(p for key, p in PLATFORMS.items() if os_name.startswith(key))
+        parts = report.parent.name.split("-")
+        if len(parts) != 5 or parts[1] not in PLATFORMS:
+            continue  # junit-gates-<os> (masking-gates job) is no shard leg
+        os_name, python = parts[1], parts[3]
+        platform = PLATFORMS[os_name]
         leg = per_leg[platform].setdefault(python, defaultdict(float))
         for case in ET.parse(report).iter("testcase"):
             leg[test_file(case.get("classname", ""))] += float(case.get("time", 0))

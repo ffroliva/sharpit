@@ -26,7 +26,7 @@ from tests.engine.collectors.mysql.fakes import FakeMySqlConnection, FakeMySqlEn
 from tests.engine.collectors.mysql.fakes import FakeRegistry as MySqlRegistry
 from tests.engine.postgresql.fakes import FakePgEngine
 from tests.engine.postgresql.fakes import FakeRegistry as PgRegistry
-from tests.masking import sql_corpus
+from tests.masking import server_corpus, sql_corpus
 from tests.masking.sql_corpus import Row
 
 from sharpit.engine.activation import ActivationStatus
@@ -53,11 +53,6 @@ from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.sink import TestSessionSink
 from sharpit.settings import load_settings
 
-
-def dialect_of(mysql: bool) -> Dialect:
-    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
-
-
 ROWS = int(os.environ.get("MASKING_GATE_ROWS", "2000"))  # Task 11 runs the same gates at 60,000
 pytestmark = pytest.mark.timeout(max(300, ROWS // 5))  # the time of a surface grows with the rows, not with a bug
 SEEDS = (7, 8)
@@ -74,7 +69,7 @@ VALUE = "hunter2plain"
 ALWAYS_HIDDEN = (BOUND, DETAIL)  # what an error carries beside its statement: on no row, whatever its class
 
 type Surface = Callable[[Masker, str], str | None]
-type Driver = Callable[[Masker, str, bool], str | None]
+type Driver = Callable[[Masker, str, Dialect], str | None]
 
 
 class Carrier(NamedTuple):
@@ -124,45 +119,47 @@ _PROBE_RUNNER = asyncio.Runner()  # one loop for the whole gate: a new loop per 
 atexit.register(_PROBE_RUNNER.close)
 
 
-def _attribute(key: str, masker: Masker, value: str, mysql: bool) -> str | None:
-    return _attributes(masker, {key: value}, dialect_of(mysql))[0]["value"]  # noqa: SLF001
+def _attribute(key: str, masker: Masker, value: str, dialect: Dialect) -> str | None:
+    return _attributes(masker, {key: value}, dialect)[0]["value"]  # noqa: SLF001
 
 
-def _recorded(masker: Masker, sql: str, mysql: bool, error: BaseException | None = None) -> dict[str, Any]:
+def _recorded(masker: Masker, sql: str, dialect: Dialect, error: BaseException | None = None) -> dict[str, Any]:
     recorder = SqlTraceRecorder(masker, max_sql_length=NO_CAP)
-    recorder.record(sql, duration_ns=1, thread="t", connection_id=None, error=error, dialect=dialect_of(mysql))
+    recorder.record(sql, duration_ns=1, thread="t", connection_id=None, error=error, dialect=dialect)
     return recorder.rows()[-1]
 
 
-def _recorder_sql(masker: Masker, statement: str, mysql: bool) -> str | None:
-    return _recorded(masker, statement, mysql)["sql"]
+def _recorder_sql(masker: Masker, statement: str, dialect: Dialect) -> str | None:
+    return _recorded(masker, statement, dialect)["sql"]
 
 
-def _recorder_error_of_another_statement(masker: Masker, text: str, mysql: bool) -> str | None:
-    return _recorded(masker, "SELECT 2", mysql, RuntimeError(text))["errorMessage"]
+def _recorder_error_of_another_statement(masker: Masker, text: str, dialect: Dialect) -> str | None:
+    return _recorded(masker, "SELECT 2", dialect, RuntimeError(text))["errorMessage"]
 
 
-def _recorder_error(carrier: Carrier, mysql: bool, masker: Masker, statement: str) -> str | None:
+def _recorder_error(carrier: Carrier, dialect: Dialect, masker: Masker, statement: str) -> str | None:
     """The error names the statement the recorder holds, so the recorder's own replace runs."""
-    return _recorded(masker, statement, mysql, RuntimeError(error_text(statement, carrier)))["errorMessage"]
+    return _recorded(masker, statement, dialect, RuntimeError(error_text(statement, carrier)))["errorMessage"]
 
 
-def _orm_statement(_masker: Masker, statement: str, mysql: bool) -> str | None:
+# the name each wiring reads a dialect from: a generic row reaches these surfaces with no server the lexer knows
+SERVER_NAMES = {Dialect.MYSQL_FAMILY: "mysql", Dialect.SQLITE: "sqlite", Dialect.UNSUPPORTED: "mssql"}
+
+
+def _orm_statement(_masker: Masker, statement: str, dialect: Dialect) -> str | None:
     """``sqla/orm.py`` masks with ``report_masker()``, whatever the caller's masker, so the argument goes unused."""
-    bind = SimpleNamespace(dialect=SimpleNamespace(name="mysql" if mysql else "sqlite"))
+    bind = SimpleNamespace(dialect=SimpleNamespace(name=SERVER_NAMES[dialect]))
     return _unbounded_read_statement_shape(SimpleNamespace(session=SimpleNamespace(bind=bind)), statement)[0]  # noqa: SLF001
 
 
-def _test_session_sql(masker: Masker, statement: str, mysql: bool) -> str | None:
+def _test_session_sql(masker: Masker, statement: str, dialect: Dialect) -> str | None:
     """Unattributed, because only a test's SELECTs reach ``sql_of``; a fresh sink, as its top list keeps 500."""
     sink = TestSessionSink("gw0", masker)
-    sink.on_sql(
-        SqlEvent("sqlalchemy", statement, None, False, None, 0, 1, -1, None, None, None, dialect_of(mysql)), None
-    )
+    sink.on_sql(SqlEvent("sqlalchemy", statement, None, False, None, 0, 1, -1, None, None, None, dialect), None)
     return next(iter(sink.facts.top_unattributed), None)
 
 
-def _test_session_exception(masker: Masker, text: str, _mysql: bool) -> str | None:
+def _test_session_exception(masker: Masker, text: str, _dialect: Dialect) -> str | None:
     sink = TestSessionSink("gw0", masker)
     attempt = sink.begin_test(NODE)
     sink.on_exception(RuntimeError(text), "logging", (NODE, attempt, "call"))
@@ -171,26 +168,26 @@ def _test_session_exception(masker: Masker, text: str, _mysql: bool) -> str | No
     return next(iter(groups.values()))[1] if groups else None
 
 
-def _log_line(logger: str, masker: Masker, message: str, _mysql: bool = False) -> str | None:
+def _log_line(logger: str, masker: Masker, message: str, _dialect: Dialect = Dialect.UNSUPPORTED) -> str | None:
     record = logging.LogRecord(logger, logging.INFO, __file__, 1, message, None, None)
-    line = SharpitLogHandler(masker, None).line(record)
+    line = SharpitLogHandler(masker, None, application=lambda: None).line(record)
     return None if line is None else line["message"]
 
 
 def _stored_exception(masker: Masker, exc: Exception) -> tuple[ExceptionStore, str]:
-    store = ExceptionStore(5, 5, 5, masker)
+    store = ExceptionStore(5, 5, 5, masker, application=lambda: None)
     store.record(exc, "logging", None, None)
     return store, store.report()["groups"][0]["id"]
 
 
-def _exception_message(masker: Masker, text: str, _mysql: bool) -> str | None:
+def _exception_message(masker: Masker, text: str, _dialect: Dialect) -> str | None:
     store, gid = _stored_exception(masker, RuntimeError(text))
     detail = store.detail(gid)
     assert detail is not None
     return detail["group"]["message"]
 
 
-def _cause_message(masker: Masker, text: str, _mysql: bool) -> str | None:
+def _cause_message(masker: Masker, text: str, _dialect: Dialect) -> str | None:
     outer = RuntimeError("the read failed")
     outer.__cause__ = RuntimeError(text)
     store, gid = _stored_exception(masker, outer)
@@ -199,7 +196,7 @@ def _cause_message(masker: Masker, text: str, _mysql: bool) -> str | None:
     return detail["causes"][0]["message"]
 
 
-def _trace_status(masker: Masker, text: str, mysql: bool) -> str | None:
+def _trace_status(masker: Masker, text: str, dialect: Dialect) -> str | None:
     span = SimpleNamespace(
         context=SimpleNamespace(trace_id=1, span_id=1),
         parent=None,
@@ -210,34 +207,61 @@ def _trace_status(masker: Masker, text: str, mysql: bool) -> str | None:
         start_time=1,
         end_time=2,
         status=SimpleNamespace(status_code=SimpleNamespace(name="ERROR"), description=text),
-        attributes={"db.system": "mysql" if mysql else "sqlite"},
+        attributes={"db.system": SERVER_NAMES[dialect]},
         events=[],
     )
-    return SpanBuffer(masker)._span(span)["statusMessage"]  # noqa: SLF001
+    return SpanBuffer(masker, application=lambda: None)._span(span)["statusMessage"]  # noqa: SLF001
 
 
-def _transaction_error(masker: Masker, text: str, _mysql: bool) -> str | None:
-    recorder = TransactionRecorder(masker)
+def _transaction_error(masker: Masker, text: str, _dialect: Dialect) -> str | None:
+    recorder = TransactionRecorder(masker, application=lambda: None)
     entry = recorder.begin(1, parent=None, method="a:b", thread="MainThread", trace_id=None, connection_id="db-1")
     recorder.end(entry, "UNKNOWN", RuntimeError(text))
     return recorder.report([])["entries"][0]["errorMessage"]
 
 
-def _data_warning(masker: Masker, text: str, _mysql: bool) -> str | None:
-    ctx: Any = SimpleNamespace(masker=masker)
+def test_exception_transaction_and_log_surfaces_call_the_application_family() -> None:
+    called: list[str] = []
+
+    def application() -> Dialect:
+        called.append("application")
+        return Dialect.POSTGRESQL
+
+    store = ExceptionStore(5, 5, 5, Masker(Exposure.MASKED, True), application=application)
+    store.record(RuntimeError("failure"), "logging", None, None)
+    recorder = TransactionRecorder(Masker(Exposure.MASKED, True), application=application)
+    entry = recorder.begin(1, parent=None, method="a:b", thread="MainThread", trace_id=None, connection_id="db-1")
+    recorder.end(entry, "UNKNOWN", RuntimeError("failure"))
+    handler = SharpitLogHandler(Masker(Exposure.MASKED, True), None, application=application)
+    handler.line(logging.LogRecord("sqlalchemy.engine.Engine", logging.INFO, __file__, 1, "select 1", None, None))
+    assert called == ["application", "application", "application"]
+
+
+def _data_warning(masker: Masker, text: str, _dialect: Dialect) -> str | None:
+    ctx: Any = SimpleNamespace(
+        masker=masker,
+        capture=SimpleNamespace(raw_sqlite_seen=False, engine_registry=None),
+    )
     return data._masked(ctx, f"Could not read a mapper (RuntimeError: {text})").removesuffix(")")  # noqa: SLF001
 
 
-def _health_failure(masker: Masker, text: str, _mysql: bool) -> str | None:
-    service: Any = SimpleNamespace(_ctx=SimpleNamespace(masker=masker))
+def _health_failure(masker: Masker, text: str, _dialect: Dialect) -> str | None:
+    service: Any = SimpleNamespace(
+        _ctx=SimpleNamespace(
+            masker=masker,
+            capture=SimpleNamespace(raw_sqlite_seen=False, engine_registry=None),
+        )
+    )
     return HealthService._failure(service, RuntimeError(text))  # noqa: SLF001
 
 
-def _probe_error(masker: Masker, text: str, _mysql: bool) -> str | None:
+def _probe_error(masker: Masker, text: str, _dialect: Dialect) -> str | None:
     async def app(_scope: Any, _receive: Any, _send: Any) -> None:
         raise RuntimeError(text)
 
-    return _PROBE_RUNNER.run(run_probe(app, ProbeRequest("GET", "/fail", "", {}), {}, "", masker))["error"]
+    return _PROBE_RUNNER.run(
+        run_probe(app, ProbeRequest("GET", "/fail", "", {}), {}, "", masker, application=lambda: None)
+    )["error"]
 
 
 def _postgresql_failure(masker: Masker, statement: str) -> str | None:
@@ -326,27 +350,27 @@ ERROR_DRIVERS: dict[str, Driver] = {
     "probe": _probe_error,
     "test_session_exception": _test_session_exception,
 }
-MODES = (("generic", False, SQLITE), ("mysql", True, PYMYSQL))
+MODES = (("generic", Dialect.UNSUPPORTED, SQLITE), ("mysql", Dialect.MYSQL_FAMILY, PYMYSQL))
 
 
-def _driven(driver: Driver, mysql: bool, masker: Masker, statement: str) -> str | None:
-    return driver(masker, statement, mysql)
+def _driven(driver: Driver, dialect: Dialect, masker: Masker, statement: str) -> str | None:
+    return driver(masker, statement, dialect)
 
 
-def _driven_error(driver: Driver, mysql: bool, carrier: Carrier, masker: Masker, statement: str) -> str | None:
-    return driver(masker, error_text(statement, carrier), mysql)
+def _driven_error(driver: Driver, dialect: Dialect, carrier: Carrier, masker: Masker, statement: str) -> str | None:
+    return driver(masker, error_text(statement, carrier), dialect)
 
 
-def _stacktrace(mysql: bool, carrier: Carrier, masker: Masker, statement: str) -> str | None:
+def _stacktrace(dialect: Dialect, carrier: Carrier, masker: Masker, statement: str) -> str | None:
     text = stacktrace_text(error_text(statement, carrier), statement)
-    return _attribute("exception.stacktrace", masker, text, mysql)
+    return _attribute("exception.stacktrace", masker, text, dialect)
 
 
 def _statement_surfaces() -> dict[str, Surface]:
     surfaces: dict[str, Surface] = {
-        f"{name}-{mode}": partial(_driven, driver, mysql)
+        f"{name}-{mode}": partial(_driven, driver, dialect)
         for name, driver in STATEMENT_DRIVERS.items()
-        for mode, mysql, _ in MODES
+        for mode, dialect, _ in MODES
     }
     # generic only: a log record names no driver, so nothing tells the handler the text is MySQL's
     surfaces["log_handler_statement-generic"] = partial(_log_line, "sqlalchemy.engine.Engine")
@@ -357,11 +381,11 @@ def _statement_surfaces() -> dict[str, Surface]:
 
 def _error_surfaces() -> dict[str, tuple[Surface, Carrier]]:
     surfaces: dict[str, tuple[Surface, Carrier]] = {}
-    for mode, mysql, carrier in MODES:
+    for mode, dialect, carrier in MODES:
         for name, driver in ERROR_DRIVERS.items():
-            surfaces[f"{name}-{mode}"] = (partial(_driven_error, driver, mysql, carrier), carrier)
-        surfaces[f"recorder_error-{mode}"] = (partial(_recorder_error, carrier, mysql), carrier)
-        surfaces[f"exception_stacktrace-{mode}"] = (partial(_stacktrace, mysql, carrier), carrier)
+            surfaces[f"{name}-{mode}"] = (partial(_driven_error, driver, dialect, carrier), carrier)
+        surfaces[f"recorder_error-{mode}"] = (partial(_recorder_error, carrier, dialect), carrier)
+        surfaces[f"exception_stacktrace-{mode}"] = (partial(_stacktrace, dialect, carrier), carrier)
     surfaces["postgresql_error-generic"] = (_postgresql_failure, PSYCOPG)
     surfaces["mysql_error-mysql"] = (_mysql_failure, PYMYSQL)
     surfaces["postgresql_refused-generic"] = (_postgresql_refused, PSYCOPG)
@@ -603,12 +627,31 @@ def test_the_corpus_holds_its_share_of_quoted_identifiers() -> None:
 
 @pytest.mark.parametrize("name", _params(name for name in SURFACES if name.endswith("-generic")))
 def test_a_quoted_identifier_is_counted_not_failed(name: str) -> None:
-    """D6 keeps a name readable, and the count is what the template says: fewer means a name was lost to a cut."""
-    rows = gate_rows("generic")
+    """D6 keeps generic names readable; a count of 0 of 0 would prove nothing, so the rows must exist."""
+    rows = gate_rows(_mode(name))
     in_corpus = sum(bool(row.quoted_identifier) for row in rows)
     shown = quoted_identifiers_shown(SURFACES[name], rows)
     print(f"D6 {name}: {len(shown)} of {in_corpus} rows")
+    assert in_corpus > 0
     assert len(shown) == in_corpus, f"{len(shown)} of {in_corpus} rows show their quoted identifier"
+
+
+D6_ROWS = 1475  # tests/masking/test_server_corpus.py pins the same count on the corpus itself
+D6_SURFACES: dict[str, Surface] = {
+    **{name: partial(_driven, driver, Dialect.SQLITE) for name, driver in STATEMENT_DRIVERS.items()},
+    "trace_status": partial(_driven_error, _trace_status, Dialect.SQLITE, SQLITE),
+}
+
+
+@pytest.mark.parametrize("name", _params(D6_SURFACES))
+def test_every_sqlite_d6_row_is_hidden(name: str) -> None:
+    """The owner's ruling: SQLite hides every ``"`` run, so on SQLite a D6 row shows nothing. These rows hold no generic
+    expectation: the corpus's 1,475 real rows decide it, and a count of 0 would be the gate that proves nothing."""
+    rows = [row for row in server_corpus.rows("real_leak") if row.d6]
+    assert len(rows) == D6_ROWS
+    assert {row.server for row in rows} == {"sqlite"}
+    shown = [row.text for row in rows if row.marker in (D6_SURFACES[name](_MASKER, row.text) or "")]
+    assert not shown, f"{len(shown)} of {D6_ROWS}; first: {shown[0][:200]!r}"
 
 
 # --- A3 --------------------------------------------------------------------------------------------------------------
@@ -658,7 +701,7 @@ def test_a_live_error_stays_readable(name: str, live_error: str) -> None:
     driver_line = live_error.split("\n", 1)[0]
     link = re.search(r"https://sqlalche\.me/\S+?(?=\))", live_error)
     assert link is not None
-    shown = ERROR_DRIVERS[name](_MASKER, live_error, False)
+    shown = ERROR_DRIVERS[name](_MASKER, live_error, Dialect.UNSUPPORTED)
     carrier = Carrier(driver_line, driver_line, link.group())
     assert broken_regions(shown, carrier, statement="INSERT INTO u VALUES (?, ?, ?)") == []
 

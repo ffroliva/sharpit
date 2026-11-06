@@ -14,6 +14,8 @@ from typing import Any
 
 import pymysql
 import pytest
+
+pytest.importorskip("sqlalchemy")
 import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.types import String, TypeDecorator
@@ -25,11 +27,6 @@ from sharpit.engine.capture.sqltrace import SqlTraceRecorder, mask_error
 from sharpit.engine.collectors.mysql.sections import DataSourceData, RowLimits, collect_replication
 from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
-
-
-def dialect_of(mysql: bool) -> Dialect:
-    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
-
 
 pytestmark = pytest.mark.needs_sqlalchemy
 ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "sql_errors"
@@ -76,8 +73,8 @@ def sections(entry: dict[str, Any]) -> dict[str, str]:
     return {parts[i]: parts[i + 1][:-1] for i in range(1, len(parts), 2)}
 
 
-def shown(text: str, mysql: bool = False) -> str:
-    masked = mask_error(MASKER, text, dialect_of(mysql))
+def shown(text: str, dialect: Dialect = Dialect.UNSUPPORTED) -> str:
+    masked = mask_error(MASKER, text, dialect)
     assert masked is not None
     return masked
 
@@ -93,6 +90,7 @@ def recorded(text: str, sql: str = "SELECT 2", masker: Masker = MASKER) -> str |
 def logged(name: str, message: str, masker: Masker = MASKER) -> str | None:
     handler = SharpitLogHandler.__new__(SharpitLogHandler)
     handler.masker = masker
+    handler.application = lambda: None
     record = logging.LogRecord(name, logging.INFO, __file__, 1, "%s", (message,), None)
     line = handler.line(record)
     assert line is not None
@@ -531,7 +529,7 @@ def test_a_driver_line_with_no_quote_shows_no_value(case: str) -> None:
 def test_a_cause_in_the_exception_store_shows_no_value(case: str) -> None:
     sql = f"SELECT 'a' 'b' '{SECRET}' FROM" if case == "near_literal" else f"ATTACH DATABASE '/no/dir/{SECRET}' AS x"
     exc = raised(sql)
-    store = ExceptionStore(10, 5, 20, MASKER)
+    store = ExceptionStore(10, 5, 20, MASKER, application=lambda: None)
     store.record(exc, "t", None, None)
     group = next(iter(store._groups.values()))  # pyright: ignore[reportPrivateUsage]
     assert exc.__cause__ is not None

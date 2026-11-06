@@ -226,7 +226,8 @@ def _render(masker: Masker, text: str, dialect: Dialect, keep_frames: bool) -> s
     block = _BLOCK_LINE.search(text, 0, end)
     head = _Lines(masker, text[: block.start() if block else end], _DRIVER, keep_frames)
     shown = head.walk()
-    resume = _block(masker, text, block.end(), end, head.driver or dialect, shown) if block else end
+    read_as = dialect if head.driver is None else head.driver
+    resume = _block(masker, text, block.end(), end, read_as, shown) if block else end
     shown += _Lines(masker, text[resume:end], _TRAILER, keep_frames).walk()
     if link:
         shown.append(link[0])
@@ -260,10 +261,10 @@ def mask_error(masker: Masker, text: str | None, dialect: Dialect, known: bool =
     return render_error(masker, text, dialect) or masker.mask_text("")
 
 
-def log_statement(masker: Masker, text: str) -> str | None:
-    """A record from ``sqlalchemy.engine``: a statement. It names no driver, so it is read with the dialect unknown.
+def log_statement(masker: Masker, text: str, dialect: Dialect) -> str | None:
+    """A record from ``sqlalchemy.engine``: a statement, read with the application's family.
 
     SQLAlchemy's cut can take a quote and flip every quote after it, so nothing past it is read.
     """
     cut = _TRUNCATED.search(text)
-    return statement_text(masker, text[: cut.start()] if cut else text, Dialect.UNSUPPORTED)
+    return statement_text(masker, text[: cut.start()] if cut else text, dialect)

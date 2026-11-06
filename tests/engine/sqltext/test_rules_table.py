@@ -57,19 +57,20 @@ ROWS: dict[str, dict[str, dict[str, Any]]] = {
         "generic": {"backslash_in_single": Backslash.ALWAYS, "cut_backslash": True},
     },
     # `\` in `"`: pg 294-298 (none), my 1043-1054 (escape; ANSI_QUOTES is session state), sl 396-420 (none). generic is
-    # today's `mysql=False` (sqlscan `_skip_quoted`): no escape here, a cut on a backslash run instead.
+    # Generic text has no double-quote escape, but the backslash run remains ambiguous.
     "backslash_in_double": {
         "postgresql": {"backslash_in_double": Backslash.NONE},
         "mysql": {"backslash_in_double": Backslash.ALWAYS},
         "sqlite": {"backslash_in_double": Backslash.NONE},
         "generic": {"backslash_in_double": Backslash.NONE},
     },
-    # `"`: pg 294-298 name, my literal, sl 413-415 name with the value-position rule (DQS), generic as today.
+    # `"`: pg 294-298 name, my literal, sl 413-415 name (DQS); generic keeps its value-position rule.
+    # On SQLite, whether a name shows is a separate field: `hide_double_quoted=True`, read by the renderer.
     "double_quote": {
-        "postgresql": {"double_quote": DoubleQuote.NAME},
-        "mysql": {"double_quote": DoubleQuote.STRING},
-        "sqlite": {"double_quote": DoubleQuote.VALUE_POSITION},
-        "generic": {"double_quote": DoubleQuote.VALUE_POSITION},
+        "postgresql": {"double_quote": DoubleQuote.NAME, "hide_double_quoted": False},
+        "mysql": {"double_quote": DoubleQuote.STRING, "hide_double_quoted": False},
+        "sqlite": {"double_quote": DoubleQuote.NAME, "hide_double_quoted": True},
+        "generic": {"double_quote": DoubleQuote.VALUE_POSITION, "hide_double_quoted": False},
     },
     # Backtick: pg 367 an operator, my 1765-1804 and sl 396-420 a name; generic cuts a run with a quote or left open.
     "backtick": {
@@ -100,18 +101,17 @@ ROWS: dict[str, dict[str, dict[str, Any]]] = {
         "sqlite": {"dollar_closer": DollarCloser.NONE},
         "generic": {"dollar_closer": DollarCloser.FIRST_IDENTICAL},
     },
-    # Nested `/*`: pg 447-485 counts depth, my 1315-1351 and sl 321-330 none, generic cuts.
+    # Nested `/*`: pg 447-485 counts depth; the family keeps the safety cut from spec §14 D7.
     "nested_comment": {
         "postgresql": {"nested_comments": Reading.YES},
-        "mysql": {"nested_comments": Reading.NO},
+        "mysql": {"nested_comments": Reading.CUT},
         "sqlite": {"nested_comments": Reading.NO},
         "generic": {"nested_comments": Reading.CUT},
     },
-    # `/*!`, `/*M!`: pg 328 and sl 321-330 plain, my 1993-1998 executable (read as tokens is not built: a cut),
-    # generic cuts both. `/*M!` is MariaDB's alone (mdb 2450-2453), asserted in the MariaDB test.
+    # `/*!`, `/*M!`: the family conservatively cuts both (MariaDB also executes `/*M!`, mdb 2450-2453).
     "executable_comment": {
         "postgresql": {"executable_prefixes": frozenset()},
-        "mysql": {"executable_prefixes": frozenset({"/*!"})},
+        "mysql": {"executable_prefixes": frozenset({"/*!", "/*M!"})},
         "sqlite": {"executable_prefixes": frozenset()},
         "generic": {"executable_prefixes": frozenset({"/*!", "/*M!"})},
     },
@@ -206,10 +206,10 @@ def test_the_frozenset_fields_hold_strings() -> None:
         assert all(isinstance(item, str) for item in rules.radix | rules.executable_prefixes)
 
 
-def test_mariadb_is_mysql_with_three_fields_changed() -> None:
-    # study section 5: no dollar quote (mdb charset.c:85) takes two fields, `/*M!` executes (mdb 2450-2453) the third
+def test_mariadb_is_mysql_with_two_reading_fields_changed() -> None:
+    # study section 5: the conservative `/*M!` cut is shared; MariaDB differs on dollar quotes.
     differs = {f.name for f in fields(MARIADB) if getattr(MARIADB, f.name) != getattr(MYSQL_84, f.name)}
-    assert differs == {"dollar", "dollar_closer", "executable_prefixes"}
+    assert differs == {"dollar", "dollar_closer"}
 
 
 def test_mariadb_opens_no_dollar_quote() -> None:
@@ -220,8 +220,8 @@ def test_mariadb_runs_m_bang() -> None:
     assert "/*M!" in MARIADB.executable_prefixes
 
 
-def test_mysql_does_not_run_m_bang() -> None:
-    assert "/*M!" not in MYSQL_84.executable_prefixes
+def test_mysql_m_bang_is_cut_conservatively() -> None:
+    assert "/*M!" in MYSQL_84.executable_prefixes
 
 
 def test_the_family_keeps_the_bracket_cut_on_both_readings() -> None:

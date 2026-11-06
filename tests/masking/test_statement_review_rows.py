@@ -14,11 +14,6 @@ from sharpit.engine.collectors.postgresql.querytext import query_text
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
-
-def dialect_of(mysql: bool) -> Dialect:
-    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
-
-
 MASKER = Masker(Exposure.MASKED, True)
 TOKEN = "9f8e7d6c" + "5b4a3f2e1d0c"
 KEY = "AKIA" + "IOSFODNN7EXAMPLE"
@@ -27,8 +22,8 @@ SECOND = "hunter2xyz2"
 NO_CAP = 10**6
 
 
-def text(sql: str, mysql: bool = False) -> str:
-    out = statement_text(MASKER, sql, dialect_of(mysql))
+def text(sql: str, dialect: Dialect = Dialect.UNSUPPORTED) -> str:
+    out = statement_text(MASKER, sql, dialect)
     assert out is not None
     return out
 
@@ -54,12 +49,12 @@ def test_a_token_in_a_url_query_shows_no_part_of_it(sql: str) -> None:
 
 # T23, review r8a Critical (owner of the MySQL-family row: T17): a double-quoted name and a value, on MySQL
 def test_a_double_quoted_name_before_a_value_shows_no_value_on_mysql() -> None:
-    assert VALUE not in text(f'select "password":{VALUE}="v"', mysql=True)
+    assert VALUE not in text(f'select "password":{VALUE}="v"', Dialect.MYSQL_FAMILY)
 
 
 # T23, review r8a: NOT a regression, 0.4.0 showed this too; it is red on head and on the base
 def test_a_single_quoted_name_before_a_value_shows_no_value_on_mysql() -> None:
-    assert VALUE not in text(f"select 'password':{VALUE}=1", mysql=True)
+    assert VALUE not in text(f"select 'password':{VALUE}=1", Dialect.MYSQL_FAMILY)
 
 
 # T28, review r8a Important: free text taken down the relaxed path by the verb branch keeps what follows the name
@@ -97,11 +92,11 @@ def test_query_text_after_a_unicode_space_before_dollars_shows_no_literal() -> N
 # guard, review r8a Important (T17): kills the mutant that drops the non-ASCII class of ``_RUN_OPENER``. The review's
 # ``SELECT @a\xa0$$, ' $$ M '`` survives that mutant (``$$`` needs no class); a tag holding U+00A0 does not
 def test_a_dollar_tag_holding_a_non_ascii_space_opens_a_cut_on_mysql() -> None:
-    assert text("SELECT \\$\xa0$ ' M '", mysql=True) == "SELECT \\ ?"
+    assert text("SELECT \\$\xa0$ ' M '", Dialect.MYSQL_FAMILY) == "SELECT \\ ?"
 
 
 def test_a_dollar_tag_after_a_non_ascii_name_is_no_quote_on_mysql() -> None:
-    assert text("SELECT @a\xa0$$, ' $$ M '", mysql=True) == "SELECT @a\xa0$$, ?"
+    assert text("SELECT @a\xa0$$, ' $$ M '", Dialect.MYSQL_FAMILY) == "SELECT @a\xa0$$, ?"
 
 
 # guard, review r8a Minor (T23): kills the mutant that drops ``cursor < start`` in ``_release_name``: a hit that begins

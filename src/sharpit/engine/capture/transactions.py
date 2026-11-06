@@ -16,6 +16,7 @@ from sharpit.engine.capture.sqltrace import call_site, mask_error
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch
+from sharpit.engine.sqla.dialect_source import exception_dialect
 from sharpit.engine.sqla.events import add_pool_listener
 from sharpit.engine.sqltext import Dialect
 
@@ -112,12 +113,14 @@ class TransactionRecorder:
         self,
         masker: Masker,
         *,
+        application: Callable[[], Dialect | None],
         max_entries: int = 200,
         slow_threshold_ms: int = 200,
         hold_threshold_ms: int = 500,
         recording: bool = True,
     ) -> None:
         self._masker = masker
+        self._application = application
         self.max_entries = max(1, max_entries)
         self.slow_threshold_ms = slow_threshold_ms
         self.hold_threshold_ms = hold_threshold_ms
@@ -218,7 +221,7 @@ class TransactionRecorder:
         row["slow"] = self.slow_threshold_ms > 0 and duration >= self.slow_threshold_ms
         row["connectionHeld"] = self.hold_threshold_ms > 0 and duration >= self.hold_threshold_ms
         if error is not None:
-            row["errorMessage"] = mask_error(self._masker, str(error), Dialect.UNSUPPORTED)
+            row["errorMessage"] = mask_error(self._masker, str(error), exception_dialect(error, self._application))
 
     def _evict_completed_locked(self) -> bool:
         for row in self._entries:

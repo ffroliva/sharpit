@@ -107,9 +107,15 @@ def test_no_shard_holds_both_a_heavy_file_and_an_overhead_budget_file(platform: 
 
 
 def test_the_shard_counts_are_read_from_ci_yml() -> None:
-    assert CI_COUNTS == [3, 4]
+    assert CI_COUNTS == [3, 4, 5]
 
 
 def test_the_unmeasured_heavy_files_are_named_in_the_shard_code() -> None:
     assert set(UNMEASURED_HEAVY) <= set(_shard.HEAVY_PATHS)
     assert _shard.timing_files() == set(TIMING_FILES)
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_the_weights_hold_no_file_that_runs_in_its_own_job(platform: str) -> None:
+    """An own-job file is no shard's cost: a weight for it would be charged to a shard that never runs it."""
+    assert not set(_shard.OWN_JOB) & set(WEIGHTS[platform])

@@ -10,6 +10,7 @@ from __future__ import annotations
 import itertools
 
 import pytest
+from tests.dialect_ids import dialect_id
 from tests.masking import sql_corpus
 
 from sharpit.engine.capture import sqlscan
@@ -17,13 +18,12 @@ from sharpit.engine.capture.sqlscan import Range, normalize, scan_ranges, shown
 from sharpit.engine.masking import MASK
 from sharpit.engine.sqltext import Dialect
 
-
-def dialect_of(mysql: bool) -> Dialect:
-    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
-
-
 CORPUS_ROWS = 2000
-DIALECTS = ((sql_corpus.GENERIC, False), (sql_corpus.MYSQL, True), (sql_corpus.POSTGRESQL, False))
+DIALECTS = (
+    (sql_corpus.GENERIC, Dialect.UNSUPPORTED),
+    (sql_corpus.MYSQL, Dialect.MYSQL_FAMILY),
+    (sql_corpus.POSTGRESQL, Dialect.UNSUPPORTED),
+)
 
 
 def _span(sql: str, part: str) -> tuple[int, int]:
@@ -31,14 +31,10 @@ def _span(sql: str, part: str) -> tuple[int, int]:
     return start, start + len(part)
 
 
-@pytest.mark.parametrize(("dialect", "mysql"), DIALECTS)
-def test_shown_with_nothing_hidden_equals_normalize(dialect: str, mysql: bool) -> None:
-    rows = sql_corpus.rows(7, CORPUS_ROWS, dialect)
-    differing = [
-        row.text[:80]
-        for row in rows
-        if shown(row.text, [], dialect_of(mysql)) != normalize(row.text, dialect_of(mysql)).sql
-    ]
+@pytest.mark.parametrize(("corpus", "dialect"), DIALECTS, ids=dialect_id)
+def test_shown_with_nothing_hidden_equals_normalize(corpus: str, dialect: Dialect) -> None:
+    rows = sql_corpus.rows(7, CORPUS_ROWS, corpus)
+    differing = [row.text[:80] for row in rows if shown(row.text, [], dialect) != normalize(row.text, dialect).sql]
     assert differing == []
 
 
@@ -136,9 +132,9 @@ def test_hidden_spans_may_overlap_and_run_off_the_text() -> None:
 def test_shown_scans_the_raw_text_once(monkeypatch: pytest.MonkeyPatch) -> None:
     real, seen = sqlscan._scan, []  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
-    def spy(sql: str, mysql: bool) -> object:
+    def spy(sql: str, dialect: Dialect) -> object:
         seen.append(sql)
-        return real(sql, mysql)
+        return real(sql, dialect)
 
     monkeypatch.setattr(sqlscan, "_scan", spy)
     sql = 'basic = "x"'
@@ -174,14 +170,13 @@ def test_ranges_stop_at_the_scan_limit() -> None:
     assert scan_ranges(sql, Dialect.UNSUPPORTED) == [Range(0, 3, True)]
 
 
-@pytest.mark.parametrize(("dialect", "mysql"), DIALECTS)
-def test_ranges_count_what_normalize_counts(dialect: str, mysql: bool) -> None:
-    rows = sql_corpus.rows(7, CORPUS_ROWS, dialect)
+@pytest.mark.parametrize(("corpus", "dialect"), DIALECTS, ids=dialect_id)
+def test_ranges_count_what_normalize_counts(corpus: str, dialect: Dialect) -> None:
+    rows = sql_corpus.rows(7, CORPUS_ROWS, corpus)
     differing = [
         row.text[:80]
         for row in rows
-        if sum(found.literal for found in scan_ranges(row.text, dialect_of(mysql)))
-        != normalize(row.text, dialect_of(mysql)).literal_count
+        if sum(found.literal for found in scan_ranges(row.text, dialect)) != normalize(row.text, dialect).literal_count
     ]
     assert differing == []
 
@@ -308,20 +303,21 @@ def test_what_mysql_reads_one_way_is_not_cut(sql: str, expected: str) -> None:
 
 # derived: review I2, each read as written on the server named there; spec A3: 0 on statements that read one way
 @pytest.mark.parametrize(
-    ("sql", "mysql", "expected"),
+    ("sql", "dialect", "expected"),
     [
-        ("-- ticket #12\nSELECT 'x', 'y'", False, "SELECT ?, ?"),
-        ("SELECT 1 /* # 'a */, 'b'", False, "SELECT ? , ?"),
-        ("SELECT `a#b`, 'x', 'y'", False, "SELECT `a#b`, ?, ?"),
-        ("SELECT 1 AS `q'a`, 'x', 'y'", False, "SELECT ? AS `q'a`, ?, ?"),
-        ("SELECT `a\\b`, 'x', 'y'", False, "SELECT `a\\b`, ?, ?"),
-        ("SELECT `a\\b`, 'x', 'y'", True, "SELECT `a\\b`, ?, ?"),
-        ("SELECT 1 AS \"a\\b\", 'y'", False, "SELECT ? AS ?, ?"),
-        ("SELECT \"C:\\dir\", 'y'", False, "SELECT ?, ?"),
+        ("-- ticket #12\nSELECT 'x', 'y'", Dialect.UNSUPPORTED, "SELECT ?, ?"),
+        ("SELECT 1 /* # 'a */, 'b'", Dialect.UNSUPPORTED, "SELECT ? , ?"),
+        ("SELECT `a#b`, 'x', 'y'", Dialect.UNSUPPORTED, "SELECT `a#b`, ?, ?"),
+        ("SELECT 1 AS `q'a`, 'x', 'y'", Dialect.UNSUPPORTED, "SELECT ? AS `q'a`, ?, ?"),
+        ("SELECT `a\\b`, 'x', 'y'", Dialect.UNSUPPORTED, "SELECT `a\\b`, ?, ?"),
+        ("SELECT `a\\b`, 'x', 'y'", Dialect.MYSQL_FAMILY, "SELECT `a\\b`, ?, ?"),
+        ("SELECT 1 AS \"a\\b\", 'y'", Dialect.UNSUPPORTED, "SELECT ? AS ?, ?"),
+        ("SELECT \"C:\\dir\", 'y'", Dialect.UNSUPPORTED, "SELECT ?, ?"),
     ],
+    ids=dialect_id,
 )
-def test_a_trigger_in_a_comment_or_a_closed_name_is_text(sql: str, mysql: bool, expected: str) -> None:
-    assert normalize(sql, dialect_of(mysql)).sql == expected
+def test_a_trigger_in_a_comment_or_a_closed_name_is_text(sql: str, dialect: Dialect, expected: str) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 TWO_WAY = [
@@ -349,12 +345,13 @@ def test_a_statement_that_reads_two_ways_still_cuts(sql: str) -> None:
         ("SELECT 1 /*! -- */ don't\n, 'SECRET' */", "SELECT ? don ?"),
         ("SELECT 1 /*! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
         ("SELECT 1 /*M! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
+        ("SELECT /*M! '*/', 'MARK' */", "SELECT ?"),
         ("SELECT /*!50000 1 AS `*/`, 'SECRET' */", "SELECT ?"),
     ],
 )
-@pytest.mark.parametrize("mysql", [False, True])
-def test_an_executable_comment_ends_later_than_the_scan_reads(sql: str, expected: str, mysql: bool) -> None:
-    assert normalize(sql, dialect_of(mysql)).sql == expected
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_an_executable_comment_ends_later_than_the_scan_reads(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 # derived: re-review N2, MySQL 8.4.10 reads a name after ``@`` or ``.``, under both sql modes; ``t.$$`` is a syntax
@@ -639,9 +636,9 @@ def test_a_digit_led_tag_opens_nothing_with_the_dialect_unknown() -> None:
         ),
     ],
 )
-@pytest.mark.parametrize("mysql", [False, True])
-def test_a_dollar_after_a_number_opens_nothing(sql: str, expected: str, mysql: bool) -> None:
-    assert normalize(sql, dialect_of(mysql)).sql == expected
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_a_dollar_after_a_number_opens_nothing(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 @pytest.mark.parametrize(
@@ -687,9 +684,9 @@ def test_mysql_reads_two_minus_signs_and_a_name_there() -> None:
         ("SELECT 1 /*! # */ `\n, 1234567 # `\n */", "SELECT ? ?"),
     ],
 )
-@pytest.mark.parametrize("mysql", [False, True])
-def test_a_backtick_stops_the_cut(sql: str, expected: str, mysql: bool) -> None:
-    assert normalize(sql, dialect_of(mysql)).sql == expected
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_a_backtick_stops_the_cut(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 @pytest.mark.parametrize(
@@ -818,10 +815,10 @@ def test_a_lone_cr_in_a_line_comment_cuts() -> None:
         ("SELECT t.c1, t0x1, a_1 FROM s.t", "SELECT t.c1, t0x1, a_1 FROM s.t"),
     ],
 )
-@pytest.mark.parametrize("mysql", [False, True])
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
 # ported: JournalTextExposureTests.sqlThatCannotBeToldApartFromAValueIsNeverShownMasked
-def test_a_number_is_a_literal_however_it_is_spelled(sql: str, expected: str, mysql: bool) -> None:
-    assert normalize(sql, dialect_of(mysql)).sql == expected
+def test_a_number_is_a_literal_however_it_is_spelled(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 @pytest.mark.parametrize(
@@ -1119,9 +1116,9 @@ def test_a_parameter_or_a_comment_is_not_where_a_cut_stops(sql: str, expected: s
         ("SELECT [a 0x10 b]", "SELECT [a ? b]"),
     ],
 )
-@pytest.mark.parametrize("mysql", [False, True])
-def test_a_bracket_holding_a_word_led_by_a_digit_is_read_inside(sql: str, expected: str, mysql: bool) -> None:
-    assert normalize(sql, dialect_of(mysql)).sql == expected
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_a_bracket_holding_a_word_led_by_a_digit_is_read_inside(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 @pytest.mark.parametrize("sql", ["SELECT [a b]", "SELECT [col_1]", "SELECT [a b2]", "SELECT [_1 x]", "SELECT [a  b ]"])
@@ -1152,9 +1149,9 @@ def test_a_double_quote_cut_open_at_the_scan_limit_is_a_literal() -> None:
         ("SELECT ..123", "SELECT ..?"),
     ],
 )
-@pytest.mark.parametrize("mysql", [False, True])
-def test_digits_after_a_word_and_a_dot_are_a_literal(sql: str, expected: str, mysql: bool) -> None:
-    assert normalize(sql, dialect_of(mysql)).sql == expected
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_digits_after_a_word_and_a_dot_are_a_literal(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 # (r8) the rule's cost, toward hiding: MySQL reads both as names, and they lose their digits
@@ -1162,9 +1159,9 @@ def test_digits_after_a_word_and_a_dot_are_a_literal(sql: str, expected: str, my
     ("sql", "expected"),
     [("SELECT t.1col FROM t", "SELECT t.?col FROM t"), ("SELECT * FROM db.2020_sales", "SELECT * FROM db.?_sales")],
 )
-@pytest.mark.parametrize("mysql", [False, True])
-def test_a_name_led_by_a_digit_after_a_dot_loses_its_digits(sql: str, expected: str, mysql: bool) -> None:
-    assert normalize(sql, dialect_of(mysql)).sql == expected
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_a_name_led_by_a_digit_after_a_dot_loses_its_digits(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 @pytest.mark.parametrize(
@@ -1192,10 +1189,10 @@ def test_a_name_led_by_a_digit_after_a_dot_loses_its_digits(sql: str, expected: 
         "SELECT 1 FROM (SELECT 1 AS a) t JOIN (SELECT 1 AS b) u ON.1234567>0",
     ],
 )
-@pytest.mark.parametrize("mysql", [False, True])
-def test_no_keyword_keeps_the_digits_after_a_dot(sql: str, mysql: bool) -> None:
-    assert "1234567" not in normalize(sql, dialect_of(mysql)).sql
-    assert shown(sql, [], dialect_of(mysql)) == normalize(sql, dialect_of(mysql)).sql
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_no_keyword_keeps_the_digits_after_a_dot(sql: str, dialect: Dialect) -> None:
+    assert "1234567" not in normalize(sql, dialect).sql
+    assert shown(sql, [], dialect) == normalize(sql, dialect).sql
 
 
 # (r9) a digit run reached through a word and a ``.`` is a name part on MySQL 8.4.10, so the ``.`` after it stays apart
@@ -1279,8 +1276,8 @@ _UNICODE_SPACES = [
 @pytest.mark.parametrize("space", _UNICODE_SPACES, ids=[f"U+{ord(c):04X}" for c in _UNICODE_SPACES])
 def test_a_unicode_space_opens_nothing(space: str) -> None:
     for sql in ("SELECT x{c}$$, 'a $$ SECRET '", "SELECT {c}$$, 'a $$ SECRET '"):
-        for mysql in (False, True):
-            assert "SECRET" not in normalize(sql.format(c=space), dialect_of(mysql)).sql, (sql, mysql)
+        for dialect in (Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY):
+            assert "SECRET" not in normalize(sql.format(c=space), dialect).sql, (sql, dialect)
 
 
 def test_a_zero_width_space_is_a_name_character() -> None:
@@ -1311,8 +1308,8 @@ def test_a_hidden_unicode_space_is_masked_with_its_run() -> None:
 
 @pytest.mark.parametrize("space", _UNICODE_SPACES, ids=[f"U+{ord(c):04X}" for c in _UNICODE_SPACES])
 @pytest.mark.parametrize("pad", ["", " ", "\t"])
-@pytest.mark.parametrize("mysql", [False, True])
-def test_a_statement_of_only_unicode_spaces_is_a_name_in_both_outputs(space: str, pad: str, mysql: bool) -> None:
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_a_statement_of_only_unicode_spaces_is_a_name_in_both_outputs(space: str, pad: str, dialect: Dialect) -> None:
     """A Unicode space is no whitespace to a server: the statement is a name, so both outputs keep it."""
     sql = space + pad
-    assert shown(sql, [], dialect_of(mysql)) == normalize(sql, dialect_of(mysql)).sql
+    assert shown(sql, [], dialect) == normalize(sql, dialect).sql

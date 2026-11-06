@@ -16,9 +16,10 @@ from sharpit.engine import otel
 from sharpit.engine.capture import traces
 from sharpit.engine.capture.correlation import INTERNAL
 from sharpit.engine.capture.streams import SSE_TASK
-from sharpit.engine.capture.traces import SpanBuffer
+from sharpit.engine.capture.traces import SpanBuffer, SpanDialectSource
 from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext.dialect import DialectContext
 
 MASKED = Masker(Exposure.MASKED, True)
 FULL = Masker(Exposure.FULL, True)
@@ -60,7 +61,7 @@ def event(name: str, timestamp: int, attributes: dict[str, Any]) -> Any:
 
 
 def buffer(masker: Masker = MASKED) -> SpanBuffer:
-    return SpanBuffer(masker, capacity=1000, self_path="/sharpit")
+    return SpanBuffer(masker, application=lambda: None, capacity=1000, self_path="/sharpit")
 
 
 def summary(buf: SpanBuffer) -> dict[str, Any]:
@@ -197,7 +198,7 @@ def test_list_is_newest_first_and_limited():
 
 
 def test_capacity_bounds_retained_spans():
-    buf = SpanBuffer(MASKED, capacity=2, self_path="/sharpit")
+    buf = SpanBuffer(MASKED, application=lambda: None, capacity=2, self_path="/sharpit")
     for i in range(5):
         buf.add(span(trace_id=i + 1, start=i))
     assert buf.list(100)["retained"] == 2
@@ -441,20 +442,20 @@ def test_spans_of_sharpit_event_streams_never_reach_the_buffer():
 
 
 def test_a_sharpit_server_span_takes_no_capacity():
-    buf = SpanBuffer(MASKED, capacity=1, self_path="/sharpit")
+    buf = SpanBuffer(MASKED, application=lambda: None, capacity=1, self_path="/sharpit")
     buf.add(span(attributes={"url.path": "/owners"}))
     buf.add(span(trace_id=OTHER, attributes=SELF_SERVER))
     assert [t["traceId"] for t in buf.list(100)["traces"]] == [f"{TRACE:032x}"]
 
 
 def test_the_self_path_check_strips_the_root_path():
-    buf = SpanBuffer(MASKED, capacity=10, self_path="/sharpit", root_path="/proxy")
+    buf = SpanBuffer(MASKED, application=lambda: None, capacity=10, self_path="/sharpit", root_path="/proxy")
     buf.add(span(attributes={"url.path": "/proxy/sharpit/api/traces"}))
     assert buf.list(100)["traces"] == []
 
 
 def test_children_of_a_sharpit_request_take_no_capacity():
-    buf = SpanBuffer(MASKED, capacity=1, self_path="/sharpit")
+    buf = SpanBuffer(MASKED, application=lambda: None, capacity=1, self_path="/sharpit")
     processor = otel.SharpitSpanProcessor()
     processor.sinks = (buf,)
     processor.on_end(span(attributes={"url.path": "/owners"}))
@@ -523,16 +524,16 @@ def test_mysql_span_statement_uses_the_mysql_scan(key: str, system: str):
 @pytest.mark.parametrize(
     ("attributes", "expected"),
     [
-        (None, Dialect.UNSUPPORTED),
+        (None, None),
         ({"db.system": "postgresql"}, Dialect.POSTGRESQL),
         ({"db.system.name": "sqlite"}, Dialect.SQLITE),
         ({"db.system": "oracle"}, Dialect.UNSUPPORTED),
-        ({"db.system": "postgresql", "db.system.name": "mysql"}, Dialect.MYSQL_FAMILY),  # either name, as the flag read
-        ({"db.system": ["a", "list"]}, Dialect.UNSUPPORTED),  # an attribute can hold anything: unhashable never raises
+        ({"db.system": "postgresql", "db.system.name": "mysql"}, Dialect.UNSUPPORTED),
+        ({"db.system": ["a", "list"]}, None),
     ],
 )
-def test_a_span_names_its_dialect(attributes: dict[str, Any] | None, expected: Dialect) -> None:
-    assert traces._span_dialect(attributes) is expected
+def test_a_span_names_its_dialect(attributes: dict[str, Any] | None, expected: Dialect | None) -> None:
+    assert SpanDialectSource().dialect_of(attributes or {}, DialectContext(lambda: None)) is expected
 
 
 def test_mysql_span_sql_error_uses_the_mysql_scan():
@@ -544,6 +545,34 @@ def test_mysql_span_sql_error_uses_the_mysql_scan():
 
     assert detail is not None
     assert "DEADBEEF" not in attribute(detail["spans"][0], "exception.message")
+
+
+NO_DRIVER_ERROR = "(sqlalchemy.exc.ProgrammingError) x\n[SQL: select 1 # password hunter2\nfrom t]"
+
+
+def test_mysql_span_status_message_reads_as_the_span_dialect():
+    """The message names no MySQL driver: only the span's ``db.system`` says ``#`` opens a comment."""
+    raw = span(status="ERROR", attributes={"db.system": "mysql"})
+    raw.status.description = NO_DRIVER_ERROR
+    buf = buffer()
+    buf.add(raw)
+    assert "hunter2" not in first_span(buf)["statusMessage"]
+
+
+def test_span_surface_resolves_its_application_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[Dialect] = []
+    monkeypatch.setattr(traces, "mask_error", lambda _masker, text, dialect: (seen.append(dialect), text)[1])
+    buf = SpanBuffer(MASKED, application=lambda: Dialect.POSTGRESQL, capacity=10, self_path="/sharpit")
+    raw = span(kind="CLIENT", attributes={"db.system": "mysql"})
+    buf._span(raw)  # noqa: SLF001
+    assert seen == [Dialect.UNSUPPORTED]
+
+
+def test_mysql_span_event_attributes_read_as_the_span_dialect():
+    buf = buffer()
+    events = [event("exception", 2_000, {"exception.message": NO_DRIVER_ERROR})]
+    buf.add(span(attributes={"db.system": "mysql"}, events=events))
+    assert "hunter2" not in first_span(buf)["events"][0]["attributes"][0]["value"]
 
 
 def test_a_span_of_another_database_keeps_the_generic_scan():

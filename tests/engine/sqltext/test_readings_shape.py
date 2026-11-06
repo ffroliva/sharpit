@@ -9,7 +9,7 @@ import pytest
 
 from sharpit.engine.sqltext.dialect import Dialect
 from sharpit.engine.sqltext.lexer import readings
-from sharpit.engine.sqltext.rules import GENERIC, MYSQL_84, READINGS
+from sharpit.engine.sqltext.rules import GENERIC, MYSQL_84, POSTGRESQL, READINGS, SQLITE
 
 
 def test_readings_is_not_empty() -> None:
@@ -29,9 +29,16 @@ def test_the_family_reads_todays_mysql() -> None:
     assert READINGS.get(Dialect.MYSQL_FAMILY) == (MYSQL_84,)
 
 
-@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.SQLITE, Dialect.UNSUPPORTED])
-def test_every_other_dialect_reads_generic(dialect: Dialect) -> None:
-    assert readings(dialect) == (GENERIC,)
+def test_sqlite_reads_its_own_rules() -> None:
+    assert READINGS.get(Dialect.SQLITE) == (SQLITE,)
+
+
+def test_postgresql_reads_postgresql() -> None:
+    assert READINGS.get(Dialect.POSTGRESQL) == (POSTGRESQL,)
+
+
+def test_unsupported_reads_generic() -> None:
+    assert readings(Dialect.UNSUPPORTED) == (GENERIC,)
 
 
 def test_a_leftover_flag_is_no_dialect() -> None:

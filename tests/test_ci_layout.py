@@ -88,9 +88,10 @@ def test_the_required_test_check_still_fails_when_lint_fails() -> None:
     assert 'needs.lint.result }}" = success' in JOBS["test"]
 
 
-OWN_JOB_FILES = (  # each alone outweighs a shard's ceiling (487 s and 386 s): one job runs them whole, every row
+OWN_JOB_FILES = (  # each alone outweighs a shard ceiling (487, 386, 418 s): one job runs them whole, every row
     "tests/masking/test_masking_scales_linearly.py",
     "tests/masking/test_statement_surfaces.py",
+    "tests/scripts/test_lane_gate.py",
 )
 
 

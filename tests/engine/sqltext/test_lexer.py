@@ -6,6 +6,8 @@ import pytest
 
 from sharpit.engine import sqltext
 from sharpit.engine.sqltext import Dialect, Kind, Range
+from sharpit.engine.sqltext.lexer import _dollar_quote_end
+from sharpit.engine.sqltext.rules import MYSQL_84
 
 GENERIC = Dialect.UNSUPPORTED
 
@@ -118,6 +120,11 @@ def test_reads_two_ways_reads_the_dialect_it_is_given() -> None:
 
     assert not sqltext.LEXER.reads_two_ways(sql, MYSQL)
     assert sqltext.LEXER.reads_two_ways(sql, GENERIC)
+
+
+def test_mysql_dollar_closer_does_not_step_back_after_a_partial_match() -> None:
+    sql = "$a$body$$a$tail$a$ after"
+    assert _dollar_quote_end(sql, 0, MYSQL_84) == sql.rindex("$a$") + 3
 
 
 def test_a_lone_cr_in_a_comment_cuts_only_generic_text() -> None:

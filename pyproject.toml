@@ -61,6 +61,7 @@ test = [
     "pytest-rerunfailures>=14",
     "hypothesis>=6.100",  # the property tests of the SQL output architecture
     "testcontainers>=4.8",  # the live profile (tests/live): the generic DockerContainer, so no sqlalchemy extras
+    "opentelemetry-sdk>=1.26",  # A12 resolver rows use the real ReadableSpan shape
 ]
 
 [dependency-groups]

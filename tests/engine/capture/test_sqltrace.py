@@ -18,6 +18,7 @@ import threading
 from typing import Any
 
 import pytest
+from tests.dialect_ids import dialect_id
 
 from sharpit.engine.capture import sqltrace, statement
 from sharpit.engine.capture.sqlscan import Reading
@@ -34,11 +35,6 @@ from sharpit.engine.capture.sqltrace import (
 )
 from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
-
-
-def dialect_of(mysql: bool) -> Dialect:
-    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
-
 
 MASKED = Masker(Exposure.MASKED, True)
 WITH_PARAMETERS = Masker(Exposure.MASKED, True, capture_parameters=True)
@@ -627,9 +623,9 @@ def test_a_repeated_statement_is_masked_once(monkeypatch: pytest.MonkeyPatch):
     calls: list[str] = []
     real = statement.statement_text
 
-    def counted(masker: Masker, sql: str, mysql: bool, reading: Reading) -> str | None:
+    def counted(masker: Masker, sql: str, dialect: Dialect, reading: Reading) -> str | None:
         calls.append(sql)
-        return real(masker, sql, mysql, reading)
+        return real(masker, sql, dialect, reading)
 
     monkeypatch.setattr(statement, "statement_text", counted)
     first, second = _recorder(), _recorder()
@@ -731,9 +727,9 @@ def test_sql_trace_entry_includes_duration_micros_and_report_retention():
         ("SELECT ARRAY['hunter2", "SELECT ARRAY[ ?"),
     ],
 )
-@pytest.mark.parametrize("mysql", [False, True])
-def test_literals_inside_brackets_are_normalised(sql: str, expected: str, mysql: bool) -> None:
-    assert normalize(sql, dialect_of(mysql)).sql == expected
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_literals_inside_brackets_are_normalised(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 @pytest.mark.parametrize(

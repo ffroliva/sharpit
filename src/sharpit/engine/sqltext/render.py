@@ -21,6 +21,8 @@ def secrets(scan: Scan, double_quoted: Callable[[str], bool]) -> frozenset[int]:
     about, so ``shape`` and ``shown`` cannot disagree. Such a run reads as the literal it would have been."""
     if not scan.candidates:
         return frozenset()
+    if scan.hide_double_quoted:
+        return frozenset(start for start, _, kind in scan.runs if kind is Kind.DOUBLE_QUOTED)
     source = scan.source
     return frozenset(
         start

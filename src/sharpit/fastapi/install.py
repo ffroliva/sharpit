@@ -23,7 +23,7 @@ from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import ChangeStream, StreamSlots
 from sharpit.engine.capture.transactions import TransactionRecorder
 from sharpit.engine.capture.transactions import attach as attach_transactions
-from sharpit.engine.context import SharpitContext
+from sharpit.engine.context import SharpitContext, application_family
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
 from sharpit.fastapi.adapter import SharpitHandle
@@ -52,8 +52,11 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             settings.exceptions_max_occurrences_per_group,
             settings.exceptions_max_stack_frames,
             ctx.masker,
+            application=lambda: application_family(ctx),
         )
     capture.engine_registry = sqla.EngineRegistry(ctx.masker)
+    for engine in ctx.engines:
+        capture.engine_registry.add(engine)
     if panels["sql-trace"].enabled and settings.sql_trace_enabled:
         capture.sql_trace = SqlTraceRecorder(
             ctx.masker,
@@ -72,6 +75,7 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             slow_threshold_ms=settings.transactions_slow_transaction_threshold_millis,
             hold_threshold_ms=settings.transactions_connection_hold_threshold_millis,
             recording=settings.transactions_recording,
+            application=lambda: application_family(ctx),
         )
         capture.attachers.append(lambda: attach_transactions(ctx))
     if panels["activity"].enabled:

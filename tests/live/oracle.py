@@ -56,6 +56,10 @@ HAND_ROWS = (  # no seed made these. The server's answer decides each, as with e
     # ``]]`` is a ``]`` in a MariaDB bracket: the first needs the bracket cut, the second no opener in its bracket stops
     ServerRow("SELECT 1 AS [a']]'b], 'BRACKETVALUE'", "maria", "MSSQL", "BRACKETVALUE", None, 0),
     ServerRow("SELECT 1 AS [a]]'b], 'BRACKETVALUE'", "maria", "MSSQL", "BRACKETVALUE", None, 0),
+    ServerRow("WITH x$a(')') AS (SELECT 'ZQMARKA') SELECT * FROM x$a", "sqlite", "", "ZQMARKA", None, 0),
+    ServerRow("SELECT 1 AS [:a(],'ZQMARKB'", "sqlite", "", "ZQMARKB", None, 0),
+    ServerRow('SELECT 1 AS [@b(],"ZQMARKD"', "sqlite", "", "ZQMARKD", None, 0),
+    ServerRow("WITH x﻿$a(')x,') AS (SELECT 'ZQKK') SELECT * FROM x﻿$a", "sqlite", "", "ZQKK", None, 0),
 )
 
 # (server key, session setting) -> the corpus's name of that server. A MySQL-family session is a ``sql_mode``, as the

@@ -14,11 +14,13 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import types
 from collections.abc import Callable
+from dataclasses import fields
 from pathlib import Path
 from typing import NamedTuple
 
@@ -30,6 +32,7 @@ from sharpit.engine.capture import sqlscan, sqltrace
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import rules as rule_table
 
 ROOT = Path(__file__).resolve().parents[2]
 ROWS = 300  # a few hundred rows keep each mutant to seconds; the reds at 60,000 rows are Task 11's
@@ -126,7 +129,12 @@ MUTANTS: dict[str, Mutant] = {
     "doubled_quote": Mutant("if cursor + 1 < length and sql[cursor + 1] == closing:", "if False:", SURFACE, "shape"),
     # without the escape a run tokenises as if the backslash were deleted, so the readings agree and nothing cuts; the
     # recorder scans in MySQL mode, ``db_statement`` does not
-    "backslash": Mutant('if c == "\\\\" and closing in', "if False and closing in", "recorder_sql-mysql", "visible"),
+    "backslash": Mutant(
+        'if c == "\\\\" and escaped and cursor + 1 < length:',
+        "if False and cursor + 1 < length:",
+        "recorder_sql-mysql",
+        "visible",
+    ),
     "array_space": Mutant('subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")',
                           "subscript = subscript or False", "recorder_sql-generic", "shape"),
     # a name holding a quote is plain only on MySQL (r6): generic, a cut hides what follows it anyway
@@ -142,8 +150,12 @@ MUTANTS: dict[str, Mutant] = {
     "open_bracket": Mutant("if not runs or runs[-1][1] != end - index:", "if True:", "recorder_sql-generic", "visible"),
     "bracket_opener": Mutant("for stop in (found, _bracket_opener(scan)) if stop", "for stop in (found,) if stop",
                              "recorder_sql-generic", "visible"),
-    "executable_comment": Mutant("return source.startswith(_EXECUTABLE_COMMENT, start)", "return False",
-                                 "recorder_sql-mysql", "visible"),
+    "executable_comment": Mutant(
+        "return source.startswith(tuple(rules.executable_prefixes), start)",
+        "return False",
+        "recorder_sql-mysql",
+        "visible",
+    ),
     "tight_backtick": Mutant(TIGHT, TIGHT.replace("_RUN_OPENER.pattern", '_RUN_OPENER.pattern.replace("`", "")'),
                              "recorder_sql-generic", "visible"),
     "tight_block_comment": Mutant(TIGHT, "_TIGHT_DASH_OPENER = _RUN_OPENER", "recorder_sql-generic", "visible"),
@@ -152,9 +164,12 @@ MUTANTS: dict[str, Mutant] = {
     "dollar_cut": Mutant(CUT, f"found = {NO_DOLLAR}.search(scan.source)", "recorder_sql-generic", "visible"),
     "hash_backtick": Mutant(LAST, "in _QUOTE.finditer(source)", "recorder_sql-generic", "visible"),
     "hash_dollar": Mutant(LAST, f"in {NO_DOLLAR}.finditer(source)", "recorder_sql-generic", "visible"),
-    "mysql_dollar": Mutant("end = -1 if _name_goes_on(source, index, out, rules)",
-                           f"end = -1 if {MYSQL_TAG} or _name_goes_on(source, index, out, rules)",
-                           "recorder_sql-mysql", "visible"),
+    "mysql_dollar": Mutant(
+        "end = _dollar_quote_end(source, index, rules)",
+        f"end = -1 if {MYSQL_TAG} else _dollar_quote_end(source, index, rules)",
+        "recorder_sql-mysql",
+        "visible",
+    ),
     # the family cut stops at a dollar quote, so these two only move the stop: the value stays hidden, the shape changes
     "mysql_dollar_name": Mutant(' or (rules.dot_digits_is_name and last == ".")', "", "recorder_sql-mysql", "shape"),
     "mysql_closer": Mutant(f"end = {CLOSER}",
@@ -182,7 +197,12 @@ MUTANTS: dict[str, Mutant] = {
     "cut_open_double_quote": Mutant("if string or end >= _MAX_SCAN_LENGTH:", "if string:", SURFACE, "visible"),
     "two_readings": Mutant("return _read(source.replace(", "return False and _read(source.replace(",
                            SURFACE, "visible"),
-    "nested_comment": Mutant('if source.find("/*", start + 2, end) >= 0:', "if False:", SURFACE, "visible"),
+    "nested_comment": Mutant(
+        'if rules.nested_comments is Reading.CUT and source.find("/*", start + 2, end) >= 0:',
+        "if False:",
+        SURFACE,
+        "visible",
+    ),
     "alternative_quote": Mutant("if _ALTERNATIVE_QUOTE.search(source, start, end + 1):", "if False:",
                                 SURFACE, "visible"),
     "hash_quote": Mutant('if 0 <= source.find("#", start, end) < last_opener:', "if False:", SURFACE, "visible"),
@@ -298,6 +318,165 @@ DASH_CUT_FIELD = Mutant(
 RENDER_PREDICATE = Mutant(
     "predicates += candidate.predicate", "predicates += False", "scan_alone-generic", "shape", RENDER
 )
+SQLITE_DOUBLE_QUOTE = Mutant("if scan.hide_double_quoted:", "if False:", "scan_alone-generic", "shape", RENDER)
+SQLITE_SUFFIX = Mutant('elif c == "(":', "elif False:", "scan_alone-generic", "shape")
+SQLITE_SUFFIX_SPACE = Mutant(
+    'source[cursor] not in _SPACE and source[cursor] != ")"',
+    'source[cursor] != " " and source[cursor] != ")"',
+    "",
+    "",
+)
+SQLITE_SUFFIX_NONASCII = Mutant(
+    'if c.isalnum() or c == "_" or c == "$" or not c.isascii():',
+    'if c.isalnum() or c == "_" or c == "$":',
+    "",
+    "",
+)
+SQLITE_SUFFIX_NAMESPACE = Mutant(
+    'elif c == ":" and cursor + 1 < length and source[cursor + 1] == ":":',
+    "elif False:",
+    "",
+    "",
+)
+SQLITE_SUFFIX_EMPTY = Mutant(
+    "    if n == 0:\n        return _keep(source, index, out)",
+    "    if False:\n        return _keep(source, index, out)",
+    "",
+    "",
+)
+SQLITE_BACKSLASH = Mutant(
+    "escaped = _escapes_in_quoted(sql, index, closing, rules)",
+    "escaped = True",
+    "",
+    "",
+)
+SQLITE_BRACKET = Mutant(
+    "if rules.bracket is Bracket.TO_FIRST_CLOSE:",
+    "if False:",
+    "",
+    "",
+)
+PG_NESTED_COMMENTS = Mutant("if rules.nested_comments is Reading.YES:", "if False:", "", "")
+PG_EXECUTABLE_PREFIXES = Mutant(
+    "executable_prefixes=frozenset(),  # scan.l:328, plain comments",
+    'executable_prefixes=frozenset({"/*!"}),  # scan.l:328, plain comments',
+    "",
+    "",
+    "engine/sqltext/rules.py",
+)
+PG_CUT_BRACKET_RULE = Mutant(
+    "cut_bracket=False,\n    executable_prefixes=frozenset(),  # scan.l:328, plain comments",
+    "cut_bracket=True,\n    executable_prefixes=frozenset(),  # scan.l:328, plain comments",
+    "",
+    "",
+    "engine/sqltext/rules.py",
+)
+PG_CR_ENDS_DASH = Mutant("if rules.cr_ends_dash is Reading.YES:", "if False:", "", "")
+PG_DIGIT_DOLLAR = Mutant("return index, True  # ambiguous", "return end, True  # ambiguous", "", "")
+PG_BRACKET_CHAR = Mutant(
+    'if source[index] == "[" and rules.bracket is Bracket.CHARACTER and not rules.cut_bracket:\n'
+    "        return _keep(source, index, out)",
+    "if False:\n        return _keep(source, index, out)",
+    "",
+    "",
+)
+PG_BACKTICK_NONE = Mutant(
+    'if source[index] == "`" and rules.backtick_run is BacktickRun.NONE:\n        return _keep(source, index, out)',
+    "if False:\n        return _keep(source, index, out)",
+    "",
+    "",
+)
+PG_CUT_BACKSLASH = Mutant("if rules.cut_backslash and _backslash_reads_two_ways(scan, rules):", "if False:", "", "")
+PG_ESCAPES_IN_QUOTED_E = Mutant(
+    'if rules.backslash_in_single is Backslash.E_ONLY:\n        prefix = index > 0 and sql[index - 1] in "eE"',
+    'if False:\n        prefix = index > 0 and sql[index - 1] in "eE"',
+    "",
+    "",
+)
+PG_BACKSLASH_TWO_WAYS_E = Mutant(
+    "if rules.backslash_in_single is Backslash.E_ONLY:\n"
+    "        return _read(source, replace(rules, backslash_in_single=Backslash.ALWAYS)).out.text() != scan.out.text()",
+    "if False:\n        return False",
+    "",
+    "",
+)
+PG_ASCII_E_BOUNDARY = Mutant(
+    "not sql[index - 2].isascii() or sql[index - 2].isalnum()",
+    "sql[index - 2].isalnum()",
+    "",
+    "",
+)
+PG_PLACEHOLDER_BEFORE_DOLLAR_QUOTE = Mutant(
+    "return index, True  # ambiguous",
+    "return _keep(source, index, out)  # ambiguous",
+    "",
+    "",
+)
+PG_DOLLAR_NAME_BOUNDARY = Mutant(
+    "dollar_name_boundary=True,",
+    "dollar_name_boundary=False,",
+    "",
+    "",
+    "engine/sqltext/rules.py",
+)
+PG_QUOTED_NAME_BACKSLASH_CUT = Mutant(
+    "and rules.double_quote is not DoubleQuote.NAME",
+    "and True",
+    "",
+    "",
+)
+PG_FIRST_LINE_ENDING = Mutant("min(lf, cr)", "lf", "", "")
+MYSQL_BRACKET_CUT = Mutant(
+    "and rules.bracket is Bracket.CHARACTER and not rules.cut_bracket:",
+    "and rules.bracket is Bracket.CHARACTER:",
+    "",
+    "",
+)
+MYSQL_NESTED_COMMENT_CUT = Mutant(
+    'if rules.nested_comments is Reading.CUT and source.find("/*", start + 2, end) >= 0:',
+    "if False:",
+    "",
+    "",
+)
+SQLITE_VARIABLE_BOUNDARY = Mutant(
+    "if not _opens_a_token(source, index):\n        return index, True\n    if suffix:", "if suffix:", "", ""
+)
+SQLITE_OPEN_SUFFIX = Mutant(
+    'if cursor == length or source[cursor] != ")":\n            return index, True',
+    'if cursor == length or source[cursor] != ")":\n            return cursor, False',
+    "",
+    "",
+)
+SQLITE_QUOTED_SUFFIX = Mutant(
+    """if "'" in source[opening:cursor] or '"' in source[opening:cursor]:""",
+    "if False:",
+    "",
+    "",
+)
+SQLITE_DOUBLE_QUOTED_SUFFIX = Mutant(
+    """if "'" in source[opening:cursor] or '"' in source[opening:cursor]:""",
+    """if "'" in source[opening:cursor]:""",
+    "",
+    "",
+)
+SQLITE_CUT_IS_A_GUESS = Mutant(
+    "variable_cut = rules.variable_suffix is VariableSuffix.TCL_PAREN and scan.cut >= 0",
+    "variable_cut = False",
+    "",
+    "",
+)
+SQLITE_BOM_SPACE = Mutant(
+    'elif rules.variable_suffix is VariableSuffix.TCL_PAREN and c == "\\ufeff":',
+    "elif False:",
+    "",
+    "",
+)
+MYSQL_M_BANG_CUT = Mutant(
+    "return source.startswith(tuple(rules.executable_prefixes), start)",
+    'return source.startswith(("/*!",), start)',
+    "",
+    "visible",
+)
 NAMED_MUTANTS = {
     "mysql_closer_never": NEVER_CLOSES,
     "mysql_closer": MUTANTS["mysql_closer"],
@@ -307,8 +486,41 @@ NAMED_MUTANTS = {
     "render_predicate": RENDER_PREDICATE,
     "cr_cut_field": CR_CUT_FIELD,
     "dash_cut_field": DASH_CUT_FIELD,
+    "sqlite_double_quote": SQLITE_DOUBLE_QUOTE,
+    "sqlite_d6_shows": SQLITE_DOUBLE_QUOTE,
+    "sqlite_suffix": SQLITE_SUFFIX,
+    "suffix_stops_at_space_only": SQLITE_SUFFIX_SPACE,
+    "nonascii_not_name": SQLITE_SUFFIX_NONASCII,
+    "namespace_off": SQLITE_SUFFIX_NAMESPACE,
+    "dollar_not_name": SQLITE_VARIABLE_BOUNDARY,
+    "sqlite_backslash_escape": SQLITE_BACKSLASH,
+    "sqlite_bracket_rule": SQLITE_BRACKET,
+    "unclosed_suffix_visible": SQLITE_OPEN_SUFFIX,
+    "quoted_suffix": SQLITE_QUOTED_SUFFIX,
+    "double_quoted_suffix": SQLITE_DOUBLE_QUOTED_SUFFIX,
+    "n_zero_guard_off": SQLITE_SUFFIX_EMPTY,
+    "variable_cut_is_a_guess": SQLITE_CUT_IS_A_GUESS,
+    "bom_is_space": SQLITE_BOM_SPACE,
+    "pg_nested_comments": PG_NESTED_COMMENTS,
+    "pg_executable_prefixes": PG_EXECUTABLE_PREFIXES,
+    "pg_cut_bracket_rule": PG_CUT_BRACKET_RULE,
+    "pg_cr_ends_dash": PG_CR_ENDS_DASH,
+    "pg_digit_dollar": PG_DIGIT_DOLLAR,
+    "pg_bracket_char": PG_BRACKET_CHAR,
+    "pg_backtick_none": PG_BACKTICK_NONE,
+    "pg_cut_backslash": PG_CUT_BACKSLASH,
+    "pg_escapes_in_quoted_e": PG_ESCAPES_IN_QUOTED_E,
+    "pg_backslash_two_ways_e": PG_BACKSLASH_TWO_WAYS_E,
+    "pg_ascii_e_boundary": PG_ASCII_E_BOUNDARY,
+    "pg_placeholder_before_dollar_quote": PG_PLACEHOLDER_BEFORE_DOLLAR_QUOTE,
+    "pg_dollar_name_boundary": PG_DOLLAR_NAME_BOUNDARY,
+    "pg_quoted_name_backslash_cut": PG_QUOTED_NAME_BACKSLASH_CUT,
+    "pg_first_line_ending": PG_FIRST_LINE_ENDING,
+    "mysql_bracket_cut": MYSQL_BRACKET_CUT,
+    "mysql_nested_comment_cut": MYSQL_NESTED_COMMENT_CUT,
+    "mysql_m_bang_cut": MYSQL_M_BANG_CUT,
 }
-CLOSED_QUOTE = "tests/engine/capture/test_sqlscan.py::test_a_closed_dollar_quote_on_mysql_keeps_what_the_cut_would_hide"
+CLOSED_QUOTE = "tests/engine/sqltext/test_lexer.py::test_mysql_dollar_closer_does_not_step_back_after_a_partial_match"
 PREDICATE = (
     "tests/engine/sqltext/test_lexer.py::test_a_candidate_remembers_whether_a_literal_there_would_sit_in_a_predicate"
 )
@@ -321,7 +533,83 @@ NAMED_TESTS = {
     "render_predicate": "tests/engine/sqltext/test_render.py::test_a_secret_run_in_a_predicate_is_a_predicate_literal",
     "cr_cut_field": "tests/engine/sqltext/test_lexer.py::test_a_lone_cr_in_a_comment_cuts_only_generic_text",
     "dash_cut_field": "tests/engine/sqltext/test_lexer.py::test_an_opener_in_a_tight_comment_cuts_only_generic_text",
+    "sqlite_double_quote": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_sqlite_hides_every_double_quoted_run[select_x]"
+    ),
+    "sqlite_d6_shows": "tests/masking/test_statement_surfaces.py::test_every_sqlite_d6_row_is_hidden[recorder_sql]",
+    "sqlite_suffix": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_a_quote_in_a_suffix_or_an_open_suffix_hides_from_the_opener[colon]"
+    ),
+    "suffix_stops_at_space_only": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_sqlite_tcl_suffix_boundaries[ascii_space]"
+    ),
+    "nonascii_not_name": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_sqlite_tcl_suffix_boundaries[nonascii_name]"
+    ),
+    "namespace_off": ("tests/engine/sqltext/test_rules_sqlite.py::test_sqlite_tcl_suffix_boundaries[namespace]"),
+    "dollar_not_name": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_every_opener_cuts_when_its_source_character_is_not_a_boundary[dollar]"
+    ),
+    "sqlite_backslash_escape": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_sqlite_backslash_does_not_join_adjacent_literals"
+    ),
+    "sqlite_bracket_rule": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_sqlite_never_shows_a_returned_tcl_name_value[colon_in_bracket]"
+    ),
+    "unclosed_suffix_visible": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_a_quote_in_a_suffix_or_an_open_suffix_hides_from_the_opener[open_at_space]"
+    ),
+    "quoted_suffix": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_a_quote_in_a_suffix_or_an_open_suffix_hides_from_the_opener[colon]"
+    ),
+    "double_quoted_suffix": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_a_quote_in_a_suffix_or_an_open_suffix_hides_from_the_opener[at_double]"
+    ),
+    "n_zero_guard_off": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_sqlite_tcl_suffix_boundaries[no_name_no_cut]"
+    ),
+    "variable_cut_is_a_guess": (
+        "tests/engine/sqltext/test_rules_sqlite.py::test_a_block_closer_past_a_variable_cut_is_a_guess"
+    ),
+    "bom_is_space": ("tests/engine/sqltext/test_rules_sqlite.py::test_sqlite_bom_is_space_at_a_token_start"),
+    "pg_nested_comments": "tests/engine/sqltext/test_rules_postgresql.py::test_nested_gate_row",
+    "pg_executable_prefixes": (
+        "tests/engine/sqltext/test_rules_postgresql.py::test_executable_comment_prefix_is_not_postgresql_syntax"
+    ),
+    "pg_cut_bracket_rule": "tests/engine/sqltext/test_rules_postgresql.py::test_bracket_is_character",
+    "pg_cr_ends_dash": "tests/engine/sqltext/test_rules_postgresql.py::test_line_comment_ends_at_cr_or_lf",
+    "pg_digit_dollar": "tests/engine/sqltext/test_rules_postgresql.py::test_dollar_after_number_opens_quote",
+    "pg_bracket_char": "tests/engine/sqltext/test_rules_postgresql.py::test_bracket_is_character",
+    "pg_backtick_none": "tests/engine/sqltext/test_rules_postgresql.py::test_backtick_is_operator",
+    "pg_cut_backslash": "tests/engine/sqltext/test_rules_postgresql.py::test_a_postgresql_backslash_keeps_its_cut",
+    "pg_escapes_in_quoted_e": "tests/engine/sqltext/test_rules_postgresql.py::test_escape_string_constant",
+    "pg_backslash_two_ways_e": (
+        "tests/engine/sqltext/test_rules_postgresql.py::test_a_postgresql_backslash_keeps_its_cut"
+    ),
+    "pg_ascii_e_boundary": (
+        "tests/engine/sqltext/test_rules_postgresql.py::test_non_ascii_identifier_before_e_does_not_make_an_escape_string"
+    ),
+    "pg_placeholder_before_dollar_quote": (
+        "tests/engine/sqltext/test_rules_postgresql.py::test_asyncpg_placeholders_stay_placeholders"
+    ),
+    "pg_dollar_name_boundary": (
+        "tests/engine/sqltext/test_rules_postgresql.py::test_dollar_quotes_after_ascii_boundaries_and_ambiguous_dollars"
+    ),
+    "pg_quoted_name_backslash_cut": (
+        "tests/engine/sqltext/test_rules_postgresql.py::test_a_backslash_in_a_postgresql_quoted_name_does_not_cut"
+    ),
+    "pg_first_line_ending": "tests/engine/sqltext/test_rules_postgresql.py::test_line_comment_ends_at_cr_or_lf",
+    "mysql_bracket_cut": "tests/engine/capture/test_sqlscan.py::test_the_other_cuts_stand_on_a_text_holding_a_dollar",
+    "mysql_nested_comment_cut": (
+        "tests/engine/capture/test_sqlscan.py::test_a_nested_comment_and_a_differing_backslash_cut_on_mysql"
+    ),
+    "mysql_m_bang_cut": (
+        "tests/engine/capture/test_sqlscan.py::test_an_executable_comment_ends_later_than_the_scan_reads"
+    ),
 }
+
+
+CRASH = re.compile(r"\b(?:UnboundLocal|Name|Attribute|Type|Syntax|Index|Key)Error\b")  # a crash is not a red
 
 
 @pytest.mark.parametrize("name", NAMED_TESTS)
@@ -334,6 +622,7 @@ def test_a_mutant_fails_its_named_test(name: str, tmp_path: Path) -> None:
         cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=100,
     )  # fmt: skip
     assert done.returncode == 1, f"{name} survives its named test: {done.stdout[-1500:]}"
+    assert not CRASH.search(done.stdout), f"{name} crashed its test, which proves nothing: {done.stdout[-1500:]}"
 
 
 RAW_FINGERPRINT = Mutant(", fingerprint=text.lower())", ")", "", "", "engine/capture/statement.py")
@@ -385,6 +674,38 @@ def _files_run_by(*calls: Callable[[], object]) -> set[Path]:
 
 
 ALL_MUTANTS = {**MUTANTS, **NAMED_MUTANTS, "raw_fingerprint": RAW_FINGERPRINT}
+RULE_TABLE = Path("engine/sqltext/rules.py")
+# a name, a character ``[``, a comment and a placeholder: each is a rule-table mutant's branch on PostgreSQL
+RULE_PROBE = "select [a], 'b' /* c */, $1 from t"
+
+
+def _rule_fields_read(text: str) -> set[str]:
+    """The ``POSTGRESQL`` fields a scan of ``text`` reads: a table of constants has no frame for a profile to see."""
+    read: set[str] = set()
+
+    class Recording(rule_table.LexRules):
+        __slots__ = ()
+
+        def __getattribute__(self, name: str) -> object:
+            read.add(name)
+            return super().__getattribute__(name)
+
+    recording = Recording(**{f.name: getattr(rule_table.POSTGRESQL, f.name) for f in fields(rule_table.LexRules)})
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setitem(rule_table.READINGS, Dialect.POSTGRESQL, (recording,))  # pyright: ignore[reportArgumentType]
+        sqlscan.read_statement(text, Dialect.POSTGRESQL)
+    return read
+
+
+def _rule_field(mutant: Mutant) -> str:
+    """The field a rule-table mutant changes: its anchor starts ``<field>=``."""
+    return mutant.anchor.split("=", 1)[0]
+
+
+def test_a_rule_mutant_counts_only_when_its_field_is_read() -> None:
+    """``dollar_closer`` is read only past an opened tag, and the probe has none: a mutant of it would prove nothing."""
+    unread = Mutant("dollar_closer=DollarCloser.FIRST_IDENTICAL,", "", "", "", str(RULE_TABLE))
+    assert _rule_field(unread) not in _rule_fields_read(RULE_PROBE)
 
 
 @pytest.mark.parametrize("name", ALL_MUTANTS)
@@ -399,7 +720,11 @@ def test_every_mutant_targets_the_module_in_use(name: str, tmp_path: Path) -> No
         lambda: statement_text(masker, text, Dialect.UNSUPPORTED),
     )  # fmt: skip
 
-    written = _mutate(_scratch_copy(tmp_path), ALL_MUTANTS[name])
+    written = _mutate(_scratch_copy(tmp_path), ALL_MUTANTS[name]).relative_to(tmp_path / "src" / "sharpit")
 
-    assert written.relative_to(tmp_path / "src" / "sharpit") in ran, f"{name} writes {written}: no entry point runs it"
-    assert (package / written.relative_to(tmp_path / "src" / "sharpit")).is_file()
+    if written == RULE_TABLE:
+        field = _rule_field(ALL_MUTANTS[name])
+        assert field in _rule_fields_read(RULE_PROBE), f"{name} changes {field}: no scan of the probe reads it"
+    else:
+        assert written in ran, f"{name} writes {written}: no entry point runs it"
+    assert (package / written).is_file()

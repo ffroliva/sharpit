@@ -86,6 +86,7 @@ class LexRules:
     backtick_run: BacktickRun
     bracket: Bracket
     dollar: DollarOpen
+    dollar_name_boundary: bool
     dollar_closer: DollarCloser
     nested_comments: Reading
     dash_needs_space: Reading
@@ -100,6 +101,7 @@ class LexRules:
     cut_backslash: bool
     cut_bracket: bool
     executable_prefixes: frozenset[str]
+    hide_double_quoted: bool = False
 
 
 _RADIX_ALL = frozenset({"0x", "0X", "0o", "0O", "0b", "0B", "_"})
@@ -111,6 +113,7 @@ POSTGRESQL = LexRules(
     backtick_run=BacktickRun.NONE,  # scan.l:367, an operator
     bracket=Bracket.CHARACTER,  # scan.l:366
     dollar=DollarOpen.POSTGRESQL_TAG,  # scan.l:285-287
+    dollar_name_boundary=True,
     dollar_closer=DollarCloser.FIRST_IDENTICAL,  # scan.l:757-776
     nested_comments=Reading.YES,  # scan.l:447-485
     dash_needs_space=Reading.NO,  # scan.l:210-213
@@ -134,8 +137,9 @@ MYSQL_84 = LexRules(
     backtick_run=BacktickRun.NAME,  # :1765-1804
     bracket=Bracket.CHARACTER,  # sql_chars.cc:98
     dollar=DollarOpen.MYSQL_TAG,  # :2160-2193
+    dollar_name_boundary=False,
     dollar_closer=DollarCloser.NO_STEP_BACK,  # :1159-1188
-    nested_comments=Reading.NO,  # :1315-1351
+    nested_comments=Reading.CUT,  # spec §14 D7 keeps the nested-comment safety cut on the MySQL family
     dash_needs_space=Reading.YES,  # :1504-1506
     cr_ends_dash=Reading.NO,  # :1916
     hash=HashRule.COMMENT,  # :1916
@@ -147,14 +151,15 @@ MYSQL_84 = LexRules(
     variable_suffix=VariableSuffix.NONE,
     cut_backslash=True,
     cut_bracket=True,  # MariaDB `sql_mode=MSSQL` is session state no text reveals
-    executable_prefixes=frozenset({"/*!"}),  # :1993-1998; read as tokens is not built, so it cuts
+    executable_prefixes=frozenset({"/*!", "/*M!"}),  # M! is cut conservatively until MariaDB has its own reading
 )
 
-# MariaDB is MySQL with three fields changed (study section 5): `dollar` and `dollar_closer` (no dollar quote,
+# MariaDB is MySQL with two reading fields changed (study section 5): `dollar` and `dollar_closer` (no dollar quote,
 # charset.c:85) and `executable_prefixes` (`/*M!` executes, :2450).
 MARIADB = replace(
     MYSQL_84,
     dollar=DollarOpen.NONE,
+    dollar_name_boundary=False,
     dollar_closer=DollarCloser.NONE,
     executable_prefixes=frozenset({"/*!", "/*M!"}),
 )
@@ -162,10 +167,11 @@ MARIADB = replace(
 SQLITE = LexRules(
     backslash_in_single=Backslash.NONE,  # tokenize.c:396-420
     backslash_in_double=Backslash.NONE,
-    double_quote=DoubleQuote.VALUE_POSITION,  # tokenize.c:413-415, DQS
+    double_quote=DoubleQuote.NAME,  # tokenize.c:413-415, DQS; hidden by the renderer
     backtick_run=BacktickRun.NAME,
     bracket=Bracket.TO_FIRST_CLOSE,  # tokenize.c:499-503
     dollar=DollarOpen.NONE,  # tokenize.c:509-538, `$` opens a variable
+    dollar_name_boundary=False,
     dollar_closer=DollarCloser.NONE,
     nested_comments=Reading.NO,  # tokenize.c:321-330
     dash_needs_space=Reading.NO,  # tokenize.c:289-293
@@ -180,16 +186,18 @@ SQLITE = LexRules(
     cut_backslash=False,
     cut_bracket=False,
     executable_prefixes=frozenset(),
+    hide_double_quoted=True,
 )
 
 # No claim about the server: every reading some real server could take is possible, so a difference cuts.
 GENERIC = LexRules(
     backslash_in_single=Backslash.ALWAYS,
-    backslash_in_double=Backslash.NONE,  # today's mysql=False: no escape in `"`, a backslash run cuts
+    backslash_in_double=Backslash.NONE,  # generic text has no double-quote escape; the backslash run still cuts
     double_quote=DoubleQuote.VALUE_POSITION,
     backtick_run=BacktickRun.NAME_OR_CUT,
     bracket=Bracket.TWO_WAY,
-    dollar=DollarOpen.POSTGRESQL_TAG,  # today's mysql=False (Task 12 keeps it); the cut stays a later call
+    dollar=DollarOpen.POSTGRESQL_TAG,  # generic text keeps the PostgreSQL reading; the cut stays a later call
+    dollar_name_boundary=False,
     dollar_closer=DollarCloser.FIRST_IDENTICAL,
     nested_comments=Reading.CUT,
     dash_needs_space=Reading.CUT,
@@ -206,9 +214,9 @@ GENERIC = LexRules(
     executable_prefixes=frozenset({"/*!", "/*M!"}),
 )
 
-# staged: only today's two readings, so behaviour holds; tasks 16 to 18 give each dialect its own rules
+# Each dialect is read with its own rule table.
 READINGS: Mapping[Dialect, tuple[LexRules, ...]] = {
-    Dialect.POSTGRESQL: (GENERIC,),
+    Dialect.POSTGRESQL: (POSTGRESQL,),
     Dialect.MYSQL_FAMILY: (MYSQL_84,),
-    Dialect.SQLITE: (GENERIC,),
+    Dialect.SQLITE: (SQLITE,),
 }

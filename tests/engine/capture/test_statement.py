@@ -10,18 +10,13 @@ from sharpit.engine.capture.traces import _sql_attribute  # pyright: ignore[repo
 from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
-
-def dialect_of(mysql: bool) -> Dialect:
-    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
-
-
 MASKER = Masker(Exposure.MASKED, True)
 GITHUB_TOKEN = "ghp_" + "qMJX61wKzKlsVEOXgKQti54E"  # split: the host refuses a push holding a whole token
 STRIPE_KEY = "sk_live_" + "caJxl2ed6lutLaJzdLustUfh"
 
 
-def _statement(sql: str, mysql: bool = False) -> str | None:
-    return _sql_attribute(MASKER, "db.statement", sql, dialect_of(mysql))
+def _statement(sql: str, dialect: Dialect = Dialect.UNSUPPORTED) -> str | None:
+    return _sql_attribute(MASKER, "db.statement", sql, dialect)
 
 
 @pytest.mark.parametrize(
@@ -103,7 +98,7 @@ def test_text_with_no_verb_and_no_hit_keeps_the_render() -> None:
 
 
 def test_mysql_mode_reaches_the_scan() -> None:
-    assert _statement('SELECT "x y"', mysql=True) == "SELECT ?"
+    assert _statement('SELECT "x y"', Dialect.MYSQL_FAMILY) == "SELECT ?"
     assert _statement('SELECT "firstName"') == 'SELECT "firstName"'
 
 
@@ -112,7 +107,7 @@ def test_metadata_only_returns_nothing_in_the_function() -> None:
 
 
 def test_a_broken_render_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken(_sql: str, _mysql: bool) -> None:
+    def broken(_sql: str, _dialect: Dialect) -> None:
         raise RuntimeError
 
     monkeypatch.setattr(sqlscan, "_scan", broken)
@@ -143,9 +138,9 @@ def test_a_shape_and_its_text_come_from_one_scan(monkeypatch: pytest.MonkeyPatch
     calls: list[str] = []
     real = sqlscan._scan  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
-    def counted(sql: str, mysql: bool) -> object:
+    def counted(sql: str, dialect: Dialect) -> object:
         calls.append(sql)
-        return real(sql, mysql)
+        return real(sql, dialect)
 
     monkeypatch.setattr(sqlscan, "_scan", counted)
     sql = "SELECT * FROM one_scan WHERE id = 7"

@@ -391,14 +391,11 @@ def test_the_output_never_grows_a_mask_inside_a_name(dialect: Dialect) -> None:
 
 # --- the planted builds: each removes one cut, and a property must fail on it, shrunk -------------------------------
 
-# ``cut_backslash`` is a field nothing reads until Task 17: the lexer plant makes it the switch, the rules one flips it
-READS_THE_FIELD = Mutant(
-    "    if _backslash_reads_two_ways(scan, rules):",
-    "    if rules.cut_backslash and _backslash_reads_two_ways(scan, rules):",
-    "",
-    "",
-)
-MYSQL_84_CUTS = "    cut_backslash={},\n    cut_bracket=True,  # MariaDB"  # the one rule set holding this comment
+# The MariaDB `sql_mode=MSSQL` state is session-only; this template holds its one rule set.
+MYSQL_84_CUTS = (
+    "    cut_backslash={},\n"
+    + "    cut_bracket=True,  # MariaDB `sql_mode=MSSQL` is session state no text reveals"
+)  # fmt: skip
 NO_BACKSLASH_CUT = Mutant(MYSQL_84_CUTS.format(True), MYSQL_84_CUTS.format(False), "", "", "engine/sqltext/rules.py")
 # owed to Task 18, which adds ``hide_double_quoted`` to rules.py in another lane: until it merges, the anchor is
 # missing and this row fails as a stale plant, not as a red
@@ -406,13 +403,13 @@ SHOWS_DOUBLE_QUOTED = Mutant("hide_double_quoted=True", "hide_double_quoted=Fals
 OWED = {"sqlite-hide_double_quoted": "Task 18 (``hide_double_quoted`` in rules.py)"}
 # the other two properties' controls: a cut that reads on past itself, and a digit that leaves its name (``col1``)
 TAIL_AFTER_CUT = Mutant("    head = _read(source[:cut], rules)\n", "    head = _read(source, rules)\n", "", "")
-_CUT_SCAN = "    return Scan(source, {}, tuple(out.runs), literals, predicate_literals, cut, uncut, tuple(out.marks))"
+_CUT_SCAN = "        out.text(),\n"
 # a cut that shows its head raw: a literal before the cut stays visible, and every character still comes from the head
-RAW_HEAD = Mutant(_CUT_SCAN.format("out.text()"), _CUT_SCAN.format('source[:cut] + " ?"'), "", "")
+RAW_HEAD = Mutant(_CUT_SCAN, '        source[:cut] + " ?",\n', "", "")
 DIGIT_LEAVES_NAME = MUTANTS["digit_in_name"]
 LITERAL, CUT = "test_a_literal_never_survives", "test_a_cut_only_shortens"
 PLANTS: dict[str, tuple[str, Dialect, tuple[Mutant, ...], str]] = {
-    "mysql_family-cut_backslash": (LITERAL, Dialect.MYSQL_FAMILY, (READS_THE_FIELD, NO_BACKSLASH_CUT), LEAK),
+    "mysql_family-cut_backslash": (LITERAL, Dialect.MYSQL_FAMILY, (NO_BACKSLASH_CUT,), LEAK),
     "sqlite-hide_double_quoted": (LITERAL, Dialect.SQLITE, (SHOWS_DOUBLE_QUOTED,), LEAK),
     "postgresql-tail_after_cut": (CUT, Dialect.POSTGRESQL, (TAIL_AFTER_CUT,), PAST_THE_CUT),
     "mysql_family-raw_head": (CUT, Dialect.MYSQL_FAMILY, (RAW_HEAD,), PAST_THE_CUT),

@@ -16,15 +16,16 @@ import threading
 import time
 import traceback
 from collections import deque
-from collections.abc import Generator
-from typing import Any, cast
+from collections.abc import Callable, Generator
+from typing import Any
 
 from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqla.dialect_source import exception_dialect
+from sharpit.engine.sqltext import Dialect, exception_leaves
 
 MAX_MESSAGE = 2000
 MAX_CAUSES = 5
@@ -127,14 +128,6 @@ def fingerprint(exc: BaseException, frames: list[dict[str, Any]] | None = None) 
     return name if frame is None else f"{name}\n{frame['declaringClass']}:{frame['methodName']}:{frame['lineNumber']}"
 
 
-def _leaves(exc: BaseException) -> list[BaseException]:
-    """The leaf exceptions of a group, depth first; any other exception is its own leaf."""
-    if not isinstance(exc, BaseExceptionGroup):
-        return [exc]
-    members = cast("tuple[BaseException, ...]", exc.exceptions)  # pyright: ignore[reportUnknownMemberType]
-    return [leaf for member in members for leaf in _leaves(member)]
-
-
 def _causes(exc: BaseException, extra: list[BaseException]) -> list[BaseException]:
     """``__cause__``, else an unsuppressed ``__context__``; cycle-safe, then the other group leaves, at most five."""
     seen = {id(exc)}
@@ -221,11 +214,19 @@ def caught_report() -> dict[str, Any]:
 class ExceptionStore:
     """Bounded groups (oldest ``lastSeen`` evicted) with bounded occurrences each; thread-safe."""
 
-    def __init__(self, max_groups: int, max_occurrences: int, max_frames: int, masker: Masker) -> None:
+    def __init__(
+        self,
+        max_groups: int,
+        max_occurrences: int,
+        max_frames: int,
+        masker: Masker,
+        application: Callable[[], Dialect | None],
+    ) -> None:
         self.max_groups = max_groups
         self.max_occurrences = max_occurrences
         self.max_frames = max_frames
         self.masker = masker
+        self.application = application
         self.unavailable_reason: str | None = None  # set by the wiring when request capture could not be added
         self.changes = ChangeStream()
         self._groups: dict[str, _Group] = {}
@@ -233,15 +234,17 @@ class ExceptionStore:
         self._order = itertools.count(1)
         self._slot = f"_{next(_SLOTS)}"  # marks are per store: two installed apps each record an exception once
 
-    def _message(self, text: str | None) -> str | None:
-        masked = mask_error(self.masker, text[: 4 * MAX_MESSAGE] if text else None, Dialect.UNSUPPORTED)
+    def _message(self, text: str | None, error: BaseException | None = None) -> str | None:
+        dialect = exception_dialect(error, self.application) if error is not None else self.application()
+        shown = text[: 4 * MAX_MESSAGE] if text else None
+        masked = mask_error(self.masker, shown, Dialect.UNSUPPORTED if dialect is None else dialect)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return masked
 
     def _text(self, exc: BaseException) -> str | None:
         try:
-            return self._message(str(exc) or None)
+            return self._message(str(exc) or None, exc)
         except Exception:  # noqa: BLE001 - a broken __str__ leaves the message out
             return None
 
@@ -268,7 +271,7 @@ class ExceptionStore:
         thread: str | None,
         message_override: str | None,
     ) -> None:
-        leaves = _leaves(exc)
+        leaves = exception_leaves(exc)
         exc, extra = (leaves[0], leaves[1:]) if leaves else (exc, [])
         walked = _frames(exc)  # one uncapped walk: fingerprint, location and applicationException agree
         frames = walked[: self.max_frames]

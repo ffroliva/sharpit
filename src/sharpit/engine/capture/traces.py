@@ -23,7 +23,7 @@ from sharpit.engine.capture.sqltrace import (
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.capture.streams import SSE_TASK
 from sharpit.engine.masking import MASK, Masker, is_sensitive_key
-from sharpit.engine.sqltext import Dialect, dialect_of_name
+from sharpit.engine.sqltext import Dialect, DialectContext, dialect_of_name, resolve
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -150,13 +150,26 @@ def _attribute_value(masker: Masker, key: str, value: object, dialect: Dialect) 
     return masker.mask_text(_text(shown))
 
 
-def _span_dialect(attributes: Mapping[str, Any] | None) -> Dialect:
-    """OTel names the database in ``db.system``, or ``db.system.name`` in the newer conventions. An attribute can hold
-    anything, so only a string is a name; either one naming the MySQL family decides, as it did for the flag."""
-    found = attributes or {}
-    names = (found.get("db.system"), found.get("db.system.name"))
-    dialects = [dialect_of_name(name) or Dialect.UNSUPPORTED for name in names if isinstance(name, str)]
-    return Dialect.MYSQL_FAMILY if Dialect.MYSQL_FAMILY in dialects else next(iter(dialects), Dialect.UNSUPPORTED)
+class SpanDialectSource:
+    def dialect_of(self, event: object, context: DialectContext) -> Dialect | None:
+        del context
+        attributes: Mapping[str, Any] | None
+        if isinstance(event, Mapping):
+            attributes = cast("Mapping[str, Any]", event)
+        else:
+            try:
+                raw = object.__getattribute__(event, "attributes")
+            except Exception:
+                raw = None
+            attributes = cast("Mapping[str, Any]", raw) if isinstance(raw, Mapping) else None
+        if attributes is None:
+            return None
+        names = (attributes.get("db.system"), attributes.get("db.system.name"))
+        found = {dialect_of_name(name) for name in names if isinstance(name, str)}
+        found.discard(None)
+        if Dialect.UNSUPPORTED in found or len(found) > 1:
+            return Dialect.UNSUPPORTED
+        return next(iter(found), None)
 
 
 def _attributes(masker: Masker, attributes: Mapping[str, Any] | None, dialect: Dialect) -> list[dict[str, Any]]:
@@ -234,9 +247,16 @@ def _self_relative_path(path: str, root_path: str, self_path: str) -> str:
 
 class SpanBuffer:
     def __init__(
-        self, masker: Masker, *, capacity: int = 1000, self_path: str = "/sharpit", root_path: str = ""
+        self,
+        masker: Masker,
+        *,
+        application: Callable[[], Dialect | None],
+        capacity: int = 1000,
+        self_path: str = "/sharpit",
+        root_path: str = "",
     ) -> None:
         self.masker = masker
+        self.application = application
         self.root_path = root_path
         self.capacity = capacity
         self.self_path = self_path
@@ -366,7 +386,7 @@ class SpanBuffer:
         parent = _parent_id(span)
         end = span.end_time or span.start_time
         scope = getattr(span, "instrumentation_scope", None)
-        dialect = _span_dialect(span.attributes)
+        dialect = resolve(span, (SpanDialectSource(),), DialectContext(self.application))
         return {
             "traceId": _trace_id(span),
             "spanId": _hex(span.context.span_id, 16),
@@ -403,4 +423,9 @@ class SpanBuffer:
 
 def span_buffer(ctx: SharpitContext) -> SpanBuffer:
     """The context's buffer, made on first use (route build); the routes and the MCP tools share it."""
-    return ctx.lazy("traces.buffer", lambda: SpanBuffer(ctx.masker, self_path=ctx.settings.path))
+    from sharpit.engine.context import application_family
+
+    return ctx.lazy(
+        "traces.buffer",
+        lambda: SpanBuffer(ctx.masker, application=lambda: application_family(ctx), self_path=ctx.settings.path),
+    )

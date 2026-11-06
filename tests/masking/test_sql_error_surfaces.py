@@ -133,7 +133,7 @@ def test_alembic_database_read(handles: list[SharpitHandle]) -> None:
 
 
 def test_transactions_report() -> None:
-    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None))
+    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None), application=lambda: None)
     entry = recorder.begin(1, parent=None, method="a:b", thread="MainThread", trace_id=None, connection_id="db-1")
     recorder.end(entry, "UNKNOWN", RuntimeError(ERROR))
     _assert_scanned(json.dumps(recorder.report([])))
@@ -215,5 +215,8 @@ def test_mysql_failed_section_reads_the_block_as_mysql() -> None:
 
 
 def test_data_panel_warning() -> None:
-    ctx = SimpleNamespace(masker=Masker(Exposure.MASKED, True, None))
+    ctx = SimpleNamespace(
+        masker=Masker(Exposure.MASKED, True, None),
+        capture=SimpleNamespace(raw_sqlite_seen=False, engine_registry=None),
+    )
     _assert_scanned(data._masked(ctx, f"Could not read a mapper (RuntimeError: {ERROR})"))  # type: ignore[arg-type]  # noqa: SLF001

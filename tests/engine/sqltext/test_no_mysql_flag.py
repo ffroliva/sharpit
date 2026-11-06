@@ -37,6 +37,16 @@ ALLOWED = frozenset(
         ("engine/sqltext/dialect.py", "dict key"),  # the one table of names
     }
 )
+TESTS = Path(__file__).resolve().parents[2]
+TESTS_ALLOWED = frozenset(
+    {
+        ("engine/sqltext/test_no_mysql_flag.py", "name"),  # ``GONE`` above names what it bans
+        ("engine/sqltext/test_dialect.py", "dict key"),  # the server names the table maps
+        ("engine/sqltext/test_rules_table.py", "dict key"),  # the rules each server's row expects
+        ("masking/test_server_corpus.py", "dict key"),  # a corpus per server
+        ("masking/test_statement_surfaces.py", "dict key"),  # a corpus per mode
+    }
+)
 
 
 def _dict_keys(node: ast.AST) -> list[ast.Constant]:
@@ -53,6 +63,8 @@ def _names(node: ast.AST) -> list[tuple[str, str]]:
         ast.Attribute: ("attribute", "attr"),
         ast.Name: ("variable", "id"),
         ast.FunctionDef: ("name", "name"),
+        ast.AsyncFunctionDef: ("name", "name"),
+        ast.ClassDef: ("name", "name"),
         ast.Constant: ("name", "value"),
     }
     if isinstance(node, ast.ImportFrom):
@@ -69,21 +81,62 @@ def _named(kind: str, name: object, node: ast.AST) -> bool:
     return kind != "variable" or isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
 
 
+def _is_bool(node: ast.AST | None) -> bool:
+    """``bool`` as an annotation, or ``True`` / ``False`` as a value."""
+    match node:
+        case ast.Name(id="bool") | ast.Constant(value="bool") | ast.Constant(value=bool()):
+            return True
+        case _:
+            return False
+
+
+def _target(node: ast.AST) -> str:
+    return node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else ""
+
+
+def _defaults(node: ast.arguments) -> list[tuple[ast.arg, ast.expr | None]]:
+    positional = [*node.posonlyargs, *node.args]
+    padded: list[ast.expr | None] = [None] * (len(positional) - len(node.defaults))
+    keyword_only = zip(node.kwonlyargs, node.kw_defaults, strict=True)
+    return [*zip(positional, [*padded, *node.defaults], strict=True), *keyword_only]
+
+
+def _bools(node: ast.AST) -> list[tuple[str, str, int]]:
+    """A bool under a name holding the flag's: ``is_mysql: bool``, ``as_mysql=True``, ``self._mysql = False``."""
+    match node:
+        case ast.arguments():
+            found = [
+                ("parameter", arg.arg, arg.lineno)
+                for arg, default in _defaults(node)
+                if _is_bool(arg.annotation) or _is_bool(default)
+            ]
+        case ast.keyword(arg=str() as name, value=value) if _is_bool(value):
+            found = [("parameter", name, node.lineno)]
+        case ast.AnnAssign(target=target, annotation=hint, value=value) if _is_bool(hint) or _is_bool(value):
+            found = [("variable", _target(target), node.lineno)]
+        case ast.Assign(targets=targets, value=value) if _is_bool(value):
+            found = [("variable", _target(target), node.lineno) for target in targets]
+        case _:
+            found = []
+    return [site for site in found if FLAG in site[1].lower() and site[1] != FLAG]  # ``mysql`` itself: ``_named``
+
+
 def _nodes(tree: ast.AST) -> Iterator[tuple[str, str, int]]:
     """Each place ``tree`` names the flag: its kind, the name, the line."""
     for node in ast.walk(tree):
         for kind, name in _names(node):
             if _named(kind, name, node):
                 yield kind, str(name), getattr(node, "lineno", 0)
+        yield from _bools(node)
         yield from (("dict key", FLAG, key.lineno) for key in _dict_keys(node))
 
 
-def flag_sites(root: Path) -> list[str]:
+def flag_sites(root: Path, allowed: frozenset[tuple[str, str]] = ALLOWED) -> list[str]:
     sites: list[str] = []
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root).as_posix()
         for kind, name, line in _nodes(ast.parse(path.read_text(encoding="utf-8"))):
-            if (rel, kind) not in ALLOWED:
+            if (rel, kind) not in allowed:
                 sites.append(f"{rel}:{line} {kind} {name}")
     return sites
 
@@ -109,10 +162,41 @@ def test_no_mysql_flag_is_left() -> None:
     assert flag_sites(SRC) == []
 
 
+def test_no_test_passes_a_mysql_flag() -> None:
+    assert flag_sites(TESTS, TESTS_ALLOWED) == []
+
+
 def test_a_planted_mysql_flag_fails(tmp_path: Path) -> None:
     (tmp_path / "planted.py").write_text("def f(mysql: bool = False) -> bool:\n    return mysql\n", encoding="utf-8")
 
     assert flag_sites(tmp_path) == ["planted.py:1 parameter mysql"]
+
+
+# derived: Task 12 review: the gate read exact names only and skipped ``async def`` and ``class``
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("async def is_mysql() -> bool:\n    return True\n", "planted.py:1 name is_mysql"),
+        ("class MYSQL_DIALECTS:\n    pass\n", "planted.py:1 name MYSQL_DIALECTS"),
+        ("def f(is_mysql_text: bool) -> None:\n    pass\n", "planted.py:1 parameter is_mysql_text"),
+        ("def f(_mysql=False):\n    pass\n", "planted.py:1 parameter _mysql"),
+        ("def f(*, as_mysql: 'bool') -> None:\n    pass\n", "planted.py:1 parameter as_mysql"),
+        ("f(text, as_mysql=True)\n", "planted.py:1 parameter as_mysql"),
+        ("self.is_mysql_text = False\n", "planted.py:1 variable is_mysql_text"),
+        ("MYSQL_TEXT: bool = True\n", "planted.py:1 variable MYSQL_TEXT"),
+    ],
+)
+def test_a_planted_flag_under_another_name_fails(tmp_path: Path, source: str, expected: str) -> None:
+    (tmp_path / "planted.py").write_text(source, encoding="utf-8")
+
+    assert flag_sites(tmp_path) == [expected]
+
+
+def test_a_mysql_name_that_holds_no_bool_passes(tmp_path: Path) -> None:
+    source = "MYSQL_URL = 'mysql://x'\ndef refresh_mysql(limit: int = 5) -> None:\n    pass\nf(mysql_max_sessions=3)\n"
+    (tmp_path / "planted.py").write_text(source, encoding="utf-8")
+
+    assert flag_sites(tmp_path) == []
 
 
 def test_no_row_reads_a_dialect_with_a_default() -> None:

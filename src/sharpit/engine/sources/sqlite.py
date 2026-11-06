@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sources.dispatch import SqlEvent
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, DialectContext
 
 if TYPE_CHECKING:
     import sqlite3
@@ -43,6 +43,17 @@ else:
         dbapi2 = types.SimpleNamespace(connect=None)
 
 logger = logging.getLogger("sharpit")
+
+
+class SQLiteDialectSource:
+    def dialect_of(self, event: object, context: DialectContext) -> Dialect | None:
+        """The sqlite source is direct proof; malformed or unrelated events carry none."""
+        del context
+        try:
+            return Dialect.SQLITE if object.__getattribute__(event, "source") == "sqlite3" else None
+        except Exception:
+            return None
+
 
 UNTRACED_CALLERS = ("coverage", "_pytest", "aiosqlite")
 UNAVAILABLE = "sqlite3 is not available in this Python build"

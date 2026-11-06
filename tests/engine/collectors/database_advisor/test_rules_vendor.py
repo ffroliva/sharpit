@@ -48,11 +48,11 @@ def _sequence(last: int | None, low: int = 1, high: int = 100, step: int = 1) ->
 def test_unsupported_dialect_skips_vendor_rules() -> None:
     sqlite = Source("db", "sqlite", "pysqlite", "AVAILABLE", None, {"tables": [], "vendor": {}})
     postgres = _source("postgresql")
-    mysql = _source("mysql")
+    mysql_server = _source("mysql")
 
     assert all(isinstance(rule.check(sqlite), str) for rule in rules_vendor.RULES)
     assert all(isinstance(_check(rule_id, postgres), str) for rule_id in MYSQL_IDS)
-    assert all(isinstance(_check(rule_id, mysql), str) for rule_id in PG_IDS)
+    assert all(isinstance(_check(rule_id, mysql_server), str) for rule_id in PG_IDS)
 
 
 def test_vendor_rules_skip_when_the_vendor_catalog_was_not_read() -> None:
