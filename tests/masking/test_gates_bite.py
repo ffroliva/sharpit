@@ -128,9 +128,11 @@ DRIVER_SWITCH = Mutant(
     "",
     "engine/capture/errortext.py",
 )
-# the seeded rows hold no quote before a ``#`` (0 failing rows mutated or not at 300): F1's own rows see it
 HASH_CUT_BEFORE_OPENER = Mutant(
-    'if rules.hash is HashRule.CUT and cut >= 0 and source[cut] == "#":', "if False:", "", ""
+    'if rules.hash is HashRule.CUT and cut >= 0 and source[cut] == "#":',
+    "if False:",
+    "recorder_sql-generic",
+    "visible",
 )
 MUTANTS: dict[str, Mutant] = {
     "true": Mutant("return index + 4, True", KEEP, SURFACE, "visible"),
@@ -242,6 +244,7 @@ MUTANTS: dict[str, Mutant] = {
     # scan alone shows it as ``visible``. Its one visible job in production is METADATA_ONLY, where no masker reads
     "double_quote_secret": Mutant("return is_secret_value(body)", "return False", "scan_alone-generic", "visible",
                                   FACADE),
+    "hash_cut_before_opener": HASH_CUT_BEFORE_OPENER,
     # the lexer's hand-over: a ``"`` run it cannot place is a name to the renderer to judge, not code to copy at once
     "double_quoted_kind": Mutant("        return True\n    return None\n", "        return True\n    return False\n",
                                  "scan_alone-generic", "visible"),
@@ -557,7 +560,6 @@ NAMED_MUTANTS = {
     "family_session": FAMILY_SESSION,
     "family_two_ways": FAMILY_TWO_WAYS,
     "mysql_driver_switch": DRIVER_SWITCH,
-    "hash_cut_before_opener": HASH_CUT_BEFORE_OPENER,
     "candidate_predicate": CANDIDATE_PREDICATE,
     "closer_dialect": CLOSER_DIALECT,
     "two_ways_dialect": TWO_WAYS_DIALECT,
@@ -633,9 +635,6 @@ NAMED_TESTS = {
     "family_session": f"{FAMILY}::test_family_cut_witness[7-session]",
     "family_two_ways": f"{FAMILY}::test_reads_two_ways_sees_where_the_readings_part",
     "mysql_driver_switch": "tests/masking/test_error_regions.py::test_a_driver_line_does_switch_mysql_mode",
-    "hash_cut_before_opener": (
-        "tests/engine/capture/test_statement.py::test_unsupported_hash_cut_hides_the_first_opener"
-    ),
     "candidate_predicate": PREDICATE,
     "closer_dialect": "tests/engine/sqltext/test_lexer.py::test_block_closer_reads_the_dialect_it_is_given",
     "two_ways_dialect": "tests/engine/sqltext/test_lexer.py::test_reads_two_ways_reads_the_dialect_it_is_given",

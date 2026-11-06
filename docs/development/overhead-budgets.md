@@ -56,7 +56,7 @@ Until 2026-11-03, noise was the median minus the min of one side. With many shor
 
 Follow these steps when a budget test fails:
 
-1. **Read the noise in the message.** Check if the overshoot sits within the reported noise.
+1. **Read the noise in the message.** Check if the overshoot sits within the reported noise. Low noise means a real rise: an overshoot well past the noise is not a busy runner. Never blame the runner without a noise figure.
 2. **Run the check script locally.** Run `uv run python -m scripts.dev.overhead_check <test> --runs 10` locally; then with `--load` to see how it behaves on a busy machine.
 3. **Compare against main.** Run the same on a clean worktree of `origin/main`. If main fails the same way, it is not your change.
 4. **Evaluate the result.** Only a failure larger than its noise, that also does not happen on main, is a regression.

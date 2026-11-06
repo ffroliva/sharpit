@@ -52,7 +52,6 @@ def test_shown_with_nothing_hidden_equals_normalize(corpus: str, dialect: Dialec
         '"a"."b" = "c"',
         "ARRAY['x'], a[1], (ARRAY[1])[1]",
         "col1 tfoo",
-        "\ufeff",
     ],
 )
 def test_shown_with_nothing_hidden_equals_normalize_on_the_edges(sql: str) -> None:

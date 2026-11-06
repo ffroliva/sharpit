@@ -877,13 +877,16 @@ def _statement_cut(scan: _Pass, rule_sets: tuple[LexRules, ...]) -> int:
     a later reading places apart. A run that swallowed the rest of the text hides that the rest reads apart, so the
     head that shows is read again without it."""
     source, rules = scan.source, rule_sets[0]
-    bracket = source.find("[")
+    bracket = source.find("[") if rules.bracket is Bracket.CHARACTER and rules.cut_bracket else -1
     for start, end, kind in scan.out.runs:
         if kind == _LITERAL and start <= bracket < end:
             bracket = source.find("[", end)
+    close = source.find("]", bracket + 1) if bracket >= 0 else -1
+    if close < 0 or source.find("[", bracket + 1, close) >= 0 or source[close + 1 : close + 2] != "]":
+        bracket = -1
     cuts = [
         _ambiguous_cut(scan, rules),
-        bracket if rules.cut_bracket else -1,
+        bracket,
         *(source.find(prefix) for prefix in rules.cut_prefixes),
     ]
     if rules.digit_dollar is DigitDollar.NAME:
