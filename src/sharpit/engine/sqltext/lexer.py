@@ -6,15 +6,14 @@ It decides nothing about secrets and imports nothing of ``masking``: a ``"`` run
 
 from __future__ import annotations
 
-import functools
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
-from itertools import zip_longest
 from typing import NamedTuple, Protocol
 
 from sharpit.engine.sqltext.dialect import Dialect
+from sharpit.engine.sqltext.family import family_cut, parting_readings
 from sharpit.engine.sqltext.rules import (
     GENERIC,
     READINGS,
@@ -824,12 +823,6 @@ def _bracket_opener(scan: _Pass) -> re.Match[str] | None:
     return None
 
 
-def _family_cut(first: _Pass, other: _Pass) -> int:
-    """The first run two readings place apart: what precedes it reads alike, and what follows it may not."""
-    end = (len(first.source), len(first.source), _LITERAL)  # the read with fewer runs goes on to the end of the text
-    return next((min(a[0], b[0]) for a, b in zip_longest(first.out.runs, other.out.runs, fillvalue=end) if a != b), -1)
-
-
 def _bad_exponent_cut(scan: _Pass) -> int:
     """The end of a real that MySQL's lexer leaves past a byte it ate; -1 when none."""
     source = scan.source
@@ -852,24 +845,6 @@ def _ambiguous_cut(scan: _Pass, rules: LexRules) -> int:
         return -1
     found = _RUN_OPENER.search(scan.source)
     return min((stop.start() for stop in (found, _bracket_opener(scan)) if stop), default=-1)
-
-
-@functools.cache
-def _session_readings(rules: LexRules) -> tuple[LexRules, LexRules]:
-    """``rules`` under ``NO_BACKSLASH_ESCAPES`` and under ``ANSI_QUOTES``: session state no text reveals, so a statement
-    those read apart stops there. Removing the backslashes is no stand-in: ``'\\'\\', 'x'`` reads alike without them."""
-    no_double = replace(rules, backslash_in_double=Backslash.NONE)
-    return replace(no_double, backslash_in_single=Backslash.NONE), no_double
-
-
-def _parting_readings(source: str, rule_sets: tuple[LexRules, ...]) -> tuple[LexRules, ...]:
-    """The readings ``source`` can part from the first on; none for one rule set, and none for text with no ``$`` or
-    ``\\``, which is what makes the second read pay only where the rule sets differ."""
-    backslash = "\\" in source
-    if len(rule_sets) == 1 or not (backslash or "$" in source):
-        return ()
-    session = tuple(r for rules in rule_sets for r in _session_readings(rules)) if backslash else ()
-    return rule_sets[1:] + session
 
 
 def _statement_cut(scan: _Pass, rule_sets: tuple[LexRules, ...]) -> int:
@@ -897,13 +872,13 @@ def _statement_cut(scan: _Pass, rule_sets: tuple[LexRules, ...]) -> int:
         for other in executable
         if any(prefix in source for prefix in other.executable_prefixes - rules.executable_prefixes)
     ]
-    parting = _parting_readings(source, rule_sets)
-    cuts += [_family_cut(scan, _read(source, other)) for other in parting]
+    parting = parting_readings(source, rule_sets)
+    cuts += [family_cut(scan, _read(source, other), _LITERAL) for other in parting]
     cut = min((at for at in cuts if at >= 0), default=-1)
     if cut < 0 or not parting:
         return cut
     shown = _read(source[:cut], rules)
-    parted = (_family_cut(shown, _read(source[:cut], other)) for other in parting)
+    parted = (family_cut(shown, _read(source[:cut], other), _LITERAL) for other in parting)
     return min((at for at in parted if at >= 0), default=cut)
 
 

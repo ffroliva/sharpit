@@ -110,6 +110,7 @@ class Mutant(NamedTuple):
 
 
 LEXER_MODULE = "sharpit.engine.sqltext.lexer"  # where a mutant lands unless it names a module
+FAMILY_MODULE = "engine/sqltext/family.py"
 RENDER = "engine/sqltext/render.py"
 FACADE = "engine/capture/sqlscan.py"
 KEEP = "return _keep(source, index, out)"
@@ -500,12 +501,12 @@ MYSQL_M_BANG_RULE = Mutant(
 FAMILY = "tests/engine/sqltext/test_rules_mysql_family.py"
 SHRUNK = "test_a_value_some_real_reading_holds_never_shows"
 RULES_PY = "engine/sqltext/rules.py"
-FAMILY_CUT = Mutant("cuts += [_family_cut(scan, _read(source, other)) for other in parting]", "", "", "")
-FAMILY_SECOND_READ = Mutant("    return rule_sets[1:] + session\n", "    return ()\n", "", "")
+FAMILY_CUT = Mutant("cuts += [family_cut(scan, _read(source, other), _LITERAL) for other in parting]", "", "", "")
+FAMILY_SECOND_READ = Mutant("    return rule_sets[1:] + session\n", "    return ()\n", "", "", FAMILY_MODULE)
 FAMILY_HEAD = Mutant(
-    "parted = (_family_cut(shown, _read(source[:cut], other)) for other in parting)", "parted = ()", "", ""
+    "parted = (family_cut(shown, _read(source[:cut], other), _LITERAL) for other in parting)", "parted = ()", "", ""
 )
-FAMILY_SESSION = Mutant("    return rule_sets[1:] + session\n", "    return rule_sets[1:]\n", "", "")
+FAMILY_SESSION = Mutant("    return rule_sets[1:] + session\n", "    return rule_sets[1:]\n", "", "", FAMILY_MODULE)
 FAMILY_TWO_WAYS = Mutant(
     "return variable_cut or hash_cut or _statement_cut(scan, rule_sets) >= 0",
     "variable_cut or _ambiguous_cut(scan, rule_sets[0]) >= 0",
