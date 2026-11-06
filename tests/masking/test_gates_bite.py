@@ -662,11 +662,11 @@ def test_a_mutant_fails_its_named_test(name: str, tmp_path: Path) -> None:
 
 
 RAW_FINGERPRINT = Mutant(
-    "identity = text.lower() if text is not None else reading.shape.fingerprint",
-    "identity = reading.shape.fingerprint",
+    "return Shape(shown_text, shown_text.lower(), dialect, literals, predicates)",
+    "return Shape(shown_text, normalized.lower(), dialect, literals, predicates)",
     "",
     "",
-    "engine/capture/statement.py",
+    "engine/sqltext/__init__.py",
 )
 
 
