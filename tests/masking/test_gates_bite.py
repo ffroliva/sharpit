@@ -662,8 +662,7 @@ def test_a_mutant_fails_its_named_test(name: str, tmp_path: Path) -> None:
 
 
 RAW_FINGERPRINT = Mutant(
-    "identity = fingerprint(shown_text.lower(), masker.identity_key) "
-    "if dialect is Dialect.SQLITE else shown_text.lower()",
+    "identity = fingerprint(identity_text.lower(), masker.identity_key)",
     "identity = sql.lower()",
     "",
     "",
@@ -678,15 +677,14 @@ def test_an_id_only_leak_fails_the_gate(tmp_path: Path) -> None:
     env = {**os.environ, "PYTHONPATH": str(tmp_path / "src"), "PYTHONDONTWRITEBYTECODE": "1"}
     done = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider", "--tb=line",
-         "tests/masking/test_serialized_reports.py::test_no_secret_in_test_session_facts",
-         "tests/masking/test_serialized_reports.py::test_no_secret_in_a_relationship_group"],
+         "-o", f"pythonpath={tmp_path / 'src'}",
+         "tests/masking/a10/test_recorder.py::test_keyed_sqlite_recorder_identity_cannot_contain_a_hidden_name"],
         cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=100,
     )  # fmt: skip
     assert done.returncode == 1, done.stdout[-2000:]
     failed = {line.split("::", 1)[1].split(" - ")[0] for line in done.stdout.splitlines() if line.startswith("FAILED")}
-    assert "test_no_secret_in_test_session_facts[unquoted_alias-attributed]" in failed, done.stdout[-2000:]
-    assert "test_no_secret_in_a_relationship_group[upper_case_alias]" in failed, done.stdout[-2000:]
-    assert "AssertionError" in done.stdout, done.stdout[-2000:]  # the gate's own assertion, no crash
+    assert failed == {"test_keyed_sqlite_recorder_identity_cannot_contain_a_hidden_name"}, done.stdout[-2000:]
+    assert "A10SECRET" in done.stdout, done.stdout[-2000:]
 
 
 @pytest.mark.parametrize("name", MUTANTS)

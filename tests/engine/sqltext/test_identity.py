@@ -38,6 +38,12 @@ def test_a_sqlite_id_is_opaque_when_keyed() -> None:
     assert "users" not in identity
 
 
+def test_a_sqlite_id_without_a_key_never_contains_a_hidden_name() -> None:
+    identity = masked_shape(Masker(Exposure.MASKED, True), 'select id from "A10SECRET"', Dialect.SQLITE).fingerprint
+    assert "A10SECRET" not in repr(identity).upper()
+    assert identity is None
+
+
 def test_a_sqlite_id_shown_by_insights_is_opaque() -> None:
     recorder = SqlTraceRecorder(_keyed())
     recorder.record(HIDDEN_NAME, duration_ns=1_000_000, thread="main", connection_id=None, dialect=Dialect.SQLITE)

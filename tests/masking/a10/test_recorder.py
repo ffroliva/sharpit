@@ -80,8 +80,22 @@ def test_unkeyed_sqlite_recorder_identity_cannot_contain_a_hidden_name() -> None
     )
     shape = recorder.rows()[0]["shape"]
     assert isinstance(shape, Shape)
-    assert "A10SECRET" not in repr(shape.fingerprint)
+    assert "A10SECRET" not in repr(shape.fingerprint).upper()
     assert shape.fingerprint is None
+
+
+def test_keyed_sqlite_recorder_identity_cannot_contain_a_hidden_name() -> None:
+    recorder = SqlTraceRecorder(Masker(Exposure.MASKED, True, identity_key=b"k" * 32), capture_call_site=False)
+    recorder.record(
+        'SELECT id FROM "A10SECRET" WHERE a = 1',
+        duration_ns=1,
+        thread="a10",
+        connection_id=None,
+        dialect=Dialect.SQLITE,
+    )
+    shape = recorder.rows()[0]["shape"]
+    assert isinstance(shape, Shape)
+    assert "A10SECRET" not in repr(shape.fingerprint).upper()
 
 
 @pytest.mark.parametrize(

@@ -106,7 +106,15 @@ def statement_shape(masker: Masker, sql: str, dialect: Dialect) -> Shape:
     except Exception:
         text = MASK
     shown_text = normalized if text is None else text
-    identity = fingerprint(shown_text.lower(), masker.identity_key) if dialect is Dialect.SQLITE else shown_text.lower()
+    if dialect is Dialect.SQLITE:
+        if masker.identity_key is None:
+            identity = None
+        else:
+            identity_text, _, _ = shape(scan, frozenset())
+            identity_text, _ = collapse_placeholder_lists(identity_text.strip(SPACE_CHARS))
+            identity = fingerprint(identity_text.lower(), masker.identity_key)
+    else:
+        identity = shown_text.lower()
     return Shape(shown_text, identity, dialect, literals, predicates)
 
 
