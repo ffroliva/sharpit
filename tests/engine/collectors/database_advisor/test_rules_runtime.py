@@ -4,23 +4,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from sharpit.engine.capture.sqltrace import normalize
 from sharpit.engine.collectors.database_advisor import rules_runtime
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
+from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine import sqltext
 from sharpit.engine.sqltext import Dialect
 
 
 def _raw(*statements: str) -> list[dict[str, Any]]:
     """Ring rows as SqlTraceRecorder keeps them when parameters are captured: the raw text and its shape."""
-    return [{"sql": sql, "shape": normalize(sql, Dialect.UNSUPPORTED)} for sql in statements]
+    masker = Masker(Exposure.MASKED, True, capture_parameters=True)
+    return [{"sql": sql, "shape": sqltext.statement_shape(masker, sql, Dialect.UNSUPPORTED)} for sql in statements]
 
 
 def _normalized(*statements: str) -> list[dict[str, Any]]:
     """Ring rows as SqlTraceRecorder keeps them by default: the literals already replaced."""
-    return [
-        {"sql": normalize(sql, Dialect.UNSUPPORTED).sql, "shape": normalize(sql, Dialect.UNSUPPORTED)}
-        for sql in statements
-    ]
+    masker = Masker(Exposure.MASKED, True)
+    rows = []
+    for sql in statements:
+        shape = sqltext.statement_shape(masker, sql, Dialect.UNSUPPORTED)
+        rows.append({"sql": shape.text, "shape": shape})
+    return rows
 
 
 def _check(rows: list[dict[str, Any]] | None) -> Outcome:
