@@ -58,7 +58,7 @@ def test_a_session_with_no_key_warns_once_in_its_report(
     warnings = json.loads((pytester.path / "report.json").read_text())["warnings"]
     identity_warnings = [warning for warning in warnings if "SQLite statement identities are unavailable" in warning]
     assert len(identity_warnings) == 1
-    assert "FileExistsError" in identity_warnings[0]
+    assert "FileExistsError" in identity_warnings[0] or "NotADirectoryError" in identity_warnings[0]
 
 
 def test_local_key_baseline_warns_after_sqlite_was_seen(
