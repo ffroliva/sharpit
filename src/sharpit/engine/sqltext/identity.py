@@ -51,7 +51,17 @@ def load_key(
 
 
 def _read_or_create(state_dir: Path, path: Path) -> bytes | None:
-    return _create(state_dir, path)
+    key = _read(path)
+    if key is None:
+        return _create(state_dir, path)
+    if not _missing_ignore_rules(state_dir):
+        return key
+    try:
+        return _create(state_dir, path)
+    except PermissionError:
+        if KEY_NAME.encode() not in _missing_ignore_rules(state_dir):
+            return key
+        raise
 
 
 def _read(path: Path) -> bytes | None:
@@ -94,6 +104,20 @@ def _ignore_the_key(state_dir: Path) -> None:
     if ignore.is_symlink():
         raise OSError(errno.ELOOP, "refusing a symlink", str(ignore))
     content = ignore.read_bytes() if ignore.exists() else b""
+    missing = _missing_ignore_rules(state_dir, content)
+    if not missing:
+        return
+    prefix = b"" if not content or content.endswith(b"\n") else b"\n"
+    with ignore.open("ab") as stream:
+        stream.write(prefix + b"".join(name + b"\n" for name in missing))
+
+
+def _missing_ignore_rules(state_dir: Path, content: bytes | None = None) -> list[bytes]:
+    ignore = state_dir / ".gitignore"
+    if ignore.is_symlink():
+        raise OSError(errno.ELOOP, "refusing a symlink", str(ignore))
+    if content is None:
+        content = ignore.read_bytes() if ignore.exists() else b""
     lines = [line[:-1] if line.endswith(b"\r") else line for line in content.split(b"\n")]
     missing: list[bytes] = []
     for name in IGNORED:
@@ -103,11 +127,7 @@ def _ignore_the_key(state_dir: Path) -> None:
             for index, line in enumerate(lines)
         ):
             missing.append(pattern)
-    if not missing:
-        return
-    prefix = b"" if not content or content.endswith(b"\n") else b"\n"
-    with ignore.open("ab") as stream:
-        stream.write(prefix + b"".join(name + b"\n" for name in missing))
+    return missing
 
 
 def _publish(path: Path) -> None:

@@ -106,6 +106,31 @@ def test_a_good_key_is_read_and_ignored(tmp_path: Path) -> None:
     assert "identity.key" in (tmp_path / ".gitignore").read_text().splitlines()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not enforce POSIX read-only file modes")
+def test_read_only_gitignore_with_all_rules_keeps_the_existing_key_without_a_lock(tmp_path: Path) -> None:
+    ignore = tmp_path / ".gitignore"
+    ignore.write_bytes(b"identity.key\nidentity.key.lock\nidentity.key.*\n")
+    ignore.chmod(0o444)
+    key = b"k" * 32
+    (tmp_path / "identity.key").write_bytes(key)
+
+    assert load_key(tmp_path, create=True) == key
+    assert not (tmp_path / "identity.key.lock").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not enforce POSIX directory modes")
+def test_read_only_directory_with_old_rules_keeps_an_ignored_existing_key(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_bytes(b"identity.key\nidentity.key.*\n")
+    key = b"k" * 32
+    (tmp_path / "identity.key").write_bytes(key)
+    tmp_path.chmod(0o555)
+    try:
+        assert load_key(tmp_path, create=True) == key
+        assert not (tmp_path / "identity.key.lock").exists()
+    finally:
+        tmp_path.chmod(0o755)
+
+
 @pytest.mark.parametrize("content", [b"# caf\xe9\n", "# sharpit\n".encode("utf-16")], ids=["latin1", "utf16"])
 def test_an_existing_gitignore_with_another_encoding_keeps_the_key(tmp_path: Path, content: bytes) -> None:
     (tmp_path / ".gitignore").write_bytes(content)
