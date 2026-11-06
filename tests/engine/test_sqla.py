@@ -781,17 +781,17 @@ def test_unbounded_read_facts_keep_request_identity_when_context_ids_are_reused_
 
 
 def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch):
-    from sharpit.engine.capture import statement
+    from sharpit.engine import sqltext
 
     calls = 0
-    read_statement = statement.read_statement
+    statement_shape = sqltext.statement_shape
 
-    def counted_read(statement: str, dialect: Dialect) -> Any:
+    def counted_shape(masker: Any, statement: str, dialect: Dialect) -> Any:
         nonlocal calls
         calls += 1
-        return read_statement(statement, dialect)
+        return statement_shape(masker, statement, dialect)
 
-    monkeypatch.setattr(statement, "read_statement", counted_read)
+    monkeypatch.setattr(sqltext, "statement_shape", counted_shape)
     info = _paging_request("request-statement-shape")
     context = _load_context(sa.select(sa.literal(1)))
     request_token = REQUEST.set(info)
@@ -808,17 +808,17 @@ def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_load_compiles_and_masks_statement_once_current(monkeypatch: pytest.MonkeyPatch):
-    from sharpit.engine.capture import statement
+    from sharpit.engine import sqltext
 
     calls = 0
-    read_statement = statement.read_statement
+    statement_shape = sqltext.statement_shape
 
-    def counted_read(statement: str, dialect: Dialect) -> Any:
+    def counted_shape(masker: Any, statement: str, dialect: Dialect) -> Any:
         nonlocal calls
         calls += 1
-        return read_statement(statement, dialect)
+        return statement_shape(masker, statement, dialect)
 
-    monkeypatch.setattr(statement, "read_statement", counted_read)
+    monkeypatch.setattr(sqltext, "statement_shape", counted_shape)
     info = _paging_request("request-statement-shape-current")
     context = _load_context(sa.select(sa.literal(1)))
     request_token = REQUEST.set(info)

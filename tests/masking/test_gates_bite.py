@@ -28,6 +28,7 @@ import pytest
 from tests.masking import mutant_worker, sql_corpus
 from tests.masking import test_statement_surfaces as gates
 
+from sharpit.engine import sqltext
 from sharpit.engine.capture import sqlscan, sqltrace
 from sharpit.engine.capture.errortext import render_error
 from sharpit.engine.capture.statement import statement_text
@@ -126,7 +127,7 @@ DRIVER_SWITCH = Mutant(
     "self.driver = None",
     "",
     "",
-    "engine/capture/errortext.py",
+    "engine/sqltext/errors.py",
 )
 # the seeded rows hold no quote before a ``#`` (0 failing rows mutated or not at 300): F1's own rows see it
 HASH_CUT_BEFORE_OPENER = Mutant(
@@ -226,7 +227,7 @@ MUTANTS: dict[str, Mutant] = {
     "release_name": Mutant('if flags[literal] and literal > start and source[literal - 1] == "=":', "if False:",
                            "db_statement-mysql", "shape", RENDER),
     "verb_lookahead": Mutant(r"(?=[^\w$-]|$)", r"(?=[\s(;]|$)", "db_statement-generic", "shape",
-                             "engine/capture/statement.py"),
+                             "engine/sqltext/__init__.py"),
     "keyword_in_name": Mutant(
         "if _identifier_char_before(out):\n        return _keep(source, index, out)",
         "if False:\n        return _keep(source, index, out)",
@@ -661,7 +662,13 @@ def test_a_mutant_fails_its_named_test(name: str, tmp_path: Path) -> None:
     assert not CRASH.search(done.stdout), f"{name} crashed its test, which proves nothing: {done.stdout[-1500:]}"
 
 
-RAW_FINGERPRINT = Mutant(", fingerprint=text.lower())", ")", "", "", "engine/capture/statement.py")
+RAW_FINGERPRINT = Mutant(
+    "return Shape(shown_text, shown_text.lower(), dialect, literals, predicates)",
+    "return Shape(shown_text, sql.lower(), dialect, literals, predicates)",
+    "",
+    "",
+    "engine/sqltext/__init__.py",
+)
 
 
 def test_an_id_only_leak_fails_the_gate(tmp_path: Path) -> None:
@@ -754,6 +761,7 @@ def test_every_mutant_targets_the_module_in_use(name: str, tmp_path: Path) -> No
         lambda: sqlscan.read_statement(text, Dialect.UNSUPPORTED),
         lambda: sqlscan.shown(text, [(7, 10)], Dialect.UNSUPPORTED),
         lambda: statement_text(masker, text, Dialect.UNSUPPORTED),
+        lambda: sqltext.statement_shape(masker, text, Dialect.UNSUPPORTED),
         lambda: render_error(masker, f"(pymysql.err.Error) x\n[SQL: {text}]", Dialect.UNSUPPORTED),  # the driver line
     )  # fmt: skip
 
