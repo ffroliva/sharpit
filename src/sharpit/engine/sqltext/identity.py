@@ -34,7 +34,9 @@ def fingerprint(shape_text: str, key: bytes | None) -> str | None:
     return hmac.new(key, shape_text.encode("utf-8", "surrogatepass"), hashlib.sha256).hexdigest()
 
 
-def load_key(state_dir: Path, *, create: bool) -> bytes | None:
+def load_key(
+    state_dir: Path, *, create: bool, on_error: Callable[[OSError | ValueError], None] | None = None
+) -> bytes | None:
     """The key, or None: no file, a bad file or a link. ``create=True`` only from an active install or a session start.
 
     Only a creator replaces a bad file, a good one is never written, and a link is refused either way.
@@ -42,18 +44,13 @@ def load_key(state_dir: Path, *, create: bool) -> bytes | None:
     path = state_dir / KEY_NAME
     try:
         return _read_or_create(state_dir, path) if create else _read(path)
-    except (OSError, ValueError):  # a NUL in the path is a ValueError
+    except (OSError, ValueError) as exc:  # a NUL in the path is a ValueError
+        if on_error is not None:
+            on_error(exc)
         return None
 
 
 def _read_or_create(state_dir: Path, path: Path) -> bytes | None:
-    try:
-        key = _read(path)
-    except PermissionError:  # on Windows, while another creator's rename lands: its lock waits that out
-        key = None
-    if key is not None:
-        _ignore_the_key(state_dir)
-        return key
     return _create(state_dir, path)
 
 
@@ -72,25 +69,45 @@ def _read(path: Path) -> bytes | None:
 
 def _create(state_dir: Path, path: Path) -> bytes | None:
     state_dir.mkdir(parents=True, exist_ok=True)
-    _ignore_the_key(state_dir)
+    _preflight_ignore(state_dir)
     with _exclusive(path):
         key = _read(path)
+        _ignore_the_key(state_dir)
         if key is not None:
             return key
         _publish(path)
         return _read(path)
 
 
+def _preflight_ignore(state_dir: Path) -> None:
+    ignore = state_dir / ".gitignore"
+    if ignore.is_symlink():
+        raise OSError(errno.ELOOP, "refusing a symlink", str(ignore))
+    if ignore.exists():
+        with ignore.open("ab"):
+            pass
+
+
 def _ignore_the_key(state_dir: Path) -> None:
     """Keep both key paths ignored before returning or publishing one (owner's ruling)."""
     ignore = state_dir / ".gitignore"
-    content = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
-    missing = [name for name in IGNORED if name not in content.splitlines()]
+    if ignore.is_symlink():
+        raise OSError(errno.ELOOP, "refusing a symlink", str(ignore))
+    content = ignore.read_bytes() if ignore.exists() else b""
+    lines = [line[:-1] if line.endswith(b"\r") else line for line in content.split(b"\n")]
+    missing: list[bytes] = []
+    for name in IGNORED:
+        pattern = name.encode()
+        if not any(
+            line == pattern and not any(later.startswith(b"!") for later in lines[index + 1 :])
+            for index, line in enumerate(lines)
+        ):
+            missing.append(pattern)
     if not missing:
         return
-    prefix = "" if not content or content.endswith(("\n", "\r")) else "\n"
-    with ignore.open("a", encoding="utf-8", newline="\n") as stream:
-        stream.write(prefix + "".join(f"{name}\n" for name in missing))
+    prefix = b"" if not content or content.endswith(b"\n") else b"\n"
+    with ignore.open("ab") as stream:
+        stream.write(prefix + b"".join(name + b"\n" for name in missing))
 
 
 def _publish(path: Path) -> None:

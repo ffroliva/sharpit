@@ -102,8 +102,31 @@ def test_a_key_longer_than_a_key_is_bad(tmp_path: Path) -> None:
 def test_a_good_key_is_read_and_ignored(tmp_path: Path) -> None:
     (tmp_path / "identity.key").write_bytes(b"k" * 32)
     assert load_key(tmp_path, create=True) == b"k" * 32
-    assert sorted(path.name for path in tmp_path.iterdir()) == [".gitignore", "identity.key"]
+    assert sorted(path.name for path in tmp_path.iterdir()) == [".gitignore", "identity.key", "identity.key.lock"]
     assert "identity.key" in (tmp_path / ".gitignore").read_text().splitlines()
+
+
+@pytest.mark.parametrize("content", [b"# caf\xe9\n", "# sharpit\n".encode("utf-16")], ids=["latin1", "utf16"])
+def test_an_existing_gitignore_with_another_encoding_keeps_the_key(tmp_path: Path, content: bytes) -> None:
+    (tmp_path / ".gitignore").write_bytes(content)
+    key = load_key(tmp_path, create=True)
+    assert key is not None
+    assert (tmp_path / "identity.key").read_bytes() == key
+
+
+def test_a_gitignore_symlink_is_refused_without_writing_through_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "outside"
+    target.write_bytes(b"mine\n")
+    ignore = tmp_path / ".gitignore"
+    ignore.write_bytes(b"mine\n")
+    real_is_symlink = Path.is_symlink
+    monkeypatch.setattr(Path, "is_symlink", lambda path: path == ignore or real_is_symlink(path))
+    assert load_key(tmp_path, create=True) is None
+    assert target.read_bytes() == b"mine\n"
+    assert not (tmp_path / "identity.key").exists()
+    assert not (tmp_path / "identity.key.lock").exists()
 
 
 def test_the_key_is_created_owner_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,7 +150,7 @@ def test_key_and_lock_are_not_created_when_gitignore_cannot_be_written(
     def unwritable(_state_dir: Path) -> None:
         raise PermissionError("ignore is read-only")
 
-    monkeypatch.setattr(identity, "_ignore_the_key", unwritable)
+    monkeypatch.setattr(identity, "_preflight_ignore", unwritable)
 
     assert load_key(tmp_path, create=True) is None
     assert not (tmp_path / "identity.key").exists()
@@ -165,6 +188,39 @@ def test_git_add_does_not_commit_key_when_gitignore_exists(tmp_path: Path, exist
     assert load_key(state_dir, create=True) is not None
 
     assert ignore.read_text() == "mine\nidentity.key\nidentity.key.lock\nidentity.key.*\n"
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    tracked = subprocess.run(
+        ["git", "-C", str(tmp_path), "ls-files"], check=True, capture_output=True, text=True
+    ).stdout.splitlines()
+    assert tracked == [".sharpit/.gitignore"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"identity.key\n!identity.key\n",
+        b"identity.key\n!/identity.key\n",
+        b"identity.key\n!identity*\n",
+        b"identity.key\n!*\n",
+        b"# comment\f identity.key\n",
+        b"# comment\ridentity.key\n",
+        b"# comment\x85 identity.key\n",
+        b"# trailing carriage return\r",
+    ],
+    ids=["negate-exact", "negate-rooted", "negate-prefix", "negate-all", "formfeed", "cr", "nel", "lone-cr"],
+)
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_git_honors_the_key_ignore_rules(tmp_path: Path, content: bytes) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    state_dir = tmp_path / ".sharpit"
+    state_dir.mkdir()
+    ignore = state_dir / ".gitignore"
+    ignore.write_bytes(content)
+
+    assert load_key(state_dir, create=True) is not None
+
+    ignored = subprocess.run(["git", "-C", str(tmp_path), "check-ignore", "-q", ".sharpit/identity.key"], check=False)
+    assert ignored.returncode == 0
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
     tracked = subprocess.run(
         ["git", "-C", str(tmp_path), "ls-files"], check=True, capture_output=True, text=True
@@ -257,6 +313,33 @@ def test_the_lock_open_asks_not_to_follow_a_link_where_it_can(tmp_path: Path, mo
     monkeypatch.setattr(identity.os, "open", spy)
     assert load_key(tmp_path, create=True) is not None
     assert [flags for flags in lock_flags if flags & no_follow] != []
+
+
+def test_gitignore_append_happens_under_the_identity_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import contextmanager
+
+    import sharpit.engine.sqltext.identity as identity
+
+    (tmp_path / "identity.key").write_bytes(b"k" * 32)
+    real_exclusive = identity._exclusive
+    locked = False
+
+    @contextmanager
+    def tracked_lock(path: Path):
+        nonlocal locked
+        with real_exclusive(path):
+            locked = True
+            yield
+
+    real_ignore = identity._ignore_the_key
+
+    def checked_ignore(state_dir: Path) -> None:
+        assert locked
+        real_ignore(state_dir)
+
+    monkeypatch.setattr(identity, "_exclusive", tracked_lock)
+    monkeypatch.setattr(identity, "_ignore_the_key", checked_ignore)
+    assert load_key(tmp_path, create=True) == b"k" * 32
 
 
 def test_no_key_gives_no_identity(tmp_path: Path) -> None:

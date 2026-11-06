@@ -199,9 +199,14 @@ def _validate_activation() -> list[str]:
 def _source_state(sink: TestSessionSink, sql_attached: bool) -> None:
     facts = sink.facts
     source = next((s for s in facts.sources if s["name"] == "sqlite3"), None)
+    identity_unavailable = facts.sqlite_seen and sink.masker.identity_key is None
     details = {
-        "attached": sql_attached,
-        "reason": None if sql_attached else "sqlite3 source did not attach",
+        "attached": sql_attached and not identity_unavailable,
+        "reason": "SQLite statement identities are unavailable because sharpit could not load a state key"
+        if identity_unavailable
+        else None
+        if sql_attached
+        else "sqlite3 source did not attach",
         "limitations": sqlite.limitations(),
     }
     if source is None:
@@ -345,16 +350,20 @@ def pytest_sessionstart(session: Any) -> None:
     state = _state(session.config)
     if state is None:
         return
+    key_errors: list[OSError | ValueError] = []
     try:
         identity_key = (
             state.settings.identity_key.encode("utf-8")
             if state.settings.identity_key
-            else load_key(Path(state.settings.state_dir), create=True)
+            else load_key(Path(state.settings.state_dir), create=True, on_error=key_errors.append)
         )
         state.sink.set_identity_key(identity_key)
         sqla.set_identity_key(identity_key)
         if identity_key is None:
             warning = "SQLite statement identities are unavailable because sharpit could not load a state key"
+            if key_errors:
+                error = key_errors[0]
+                warning += f" ({type(error).__name__}: {error})"
             if warning not in state.sink.facts.warnings:
                 state.sink.facts.warnings.append(warning)
         worker_id = getattr(session.config, "workerinput", {}).get("workerid")

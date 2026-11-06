@@ -39,7 +39,7 @@ def test_a_pytest_session_creates_the_key_at_start(pytester: pytest.Pytester, mo
     state_dir = pytester.path / "state"
     monkeypatch.setenv("SHARPIT_STATE_DIR", str(state_dir))
     pytester.makepyfile("def test_pass(): pass")
-    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q")
+    result = pytester.runpytest("--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q")
     assert result.ret == 0
     assert (state_dir / "identity.key").is_file()
 
@@ -56,7 +56,9 @@ def test_a_session_with_no_key_warns_once_in_its_report(
     )
     assert result.ret == 0
     warnings = json.loads((pytester.path / "report.json").read_text())["warnings"]
-    assert len([warning for warning in warnings if "SQLite statement identities are unavailable" in warning]) == 1
+    identity_warnings = [warning for warning in warnings if "SQLite statement identities are unavailable" in warning]
+    assert len(identity_warnings) == 1
+    assert "FileExistsError" in identity_warnings[0]
 
 
 def test_local_key_baseline_warns_after_sqlite_was_seen(
@@ -129,6 +131,28 @@ def test_a_repeating_group_on_sqlite_keeps_its_fingerprint(
     assert result.ret in (0, 1)
     findings = json.loads((pytester.path / "report.json").read_text())["findings"]
     assert [finding for finding in findings if "Owner.pets" in str(finding.get("message"))] != []
+
+
+def test_sqlite_without_a_key_is_unknown_and_can_be_allowed(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_dir = pytester.path / "state"
+    state_dir.write_text("not a directory")
+    monkeypatch.setenv("SHARPIT_STATE_DIR", str(state_dir))
+    pytester.makepyfile(NPLUS_ONE)
+
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-no-advisors", "--sharpit-report=report.json", "-q")
+
+    report = json.loads((pytester.path / "report.json").read_text())
+    assert result.ret != 0
+    assert any("source 'sqlite3' not attached" in reason for reason in report["unknownReasons"])
+
+    allowed = pytester.runpytest(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=allowed.json", "-q"
+    )
+    assert allowed.ret == 0
+    allowed_report = json.loads((pytester.path / "allowed.json").read_text())
+    assert allowed_report["status"] == "unknown"
 
 
 def test_the_env_key_appears_in_no_output(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
