@@ -222,6 +222,7 @@ class SessionFacts:
     advisor_runs: list[AdvisorRun] = field(default_factory=list[AdvisorRun])
     warnings: list[str] = field(default_factory=list[str])
     exceptions_source_ok: bool = True
+    sqlite_seen: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -239,6 +240,7 @@ class SessionFacts:
             "advisorRuns": [r.to_dto() for r in self.advisor_runs],
             "warnings": self.warnings,
             "exceptionsSourceOk": self.exceptions_source_ok,
+            "sqliteSeen": self.sqlite_seen,
         }
 
     @classmethod
@@ -258,4 +260,5 @@ class SessionFacts:
             [_run_from(r) for r in data["advisorRuns"]],
             list(data["warnings"]),
             data["exceptionsSourceOk"],
+            data.get("sqliteSeen", False),
         )

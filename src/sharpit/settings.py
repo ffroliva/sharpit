@@ -38,7 +38,8 @@ class SharpitSettings:
     allowed_hosts: tuple[str, ...] = ()
     trusted_proxies: tuple[str, ...] = ()
     trust_container_gateway: str = "OFF"
-    authentication_token: str | None = None
+    authentication_token: str | None = field(default=None, repr=False)
+    identity_key: str | None = field(default=None, repr=False)
     read_only: bool = False
     panels: Mapping[str, PanelSettings] = field(default_factory=lambda: {p.id: PanelSettings() for p in PANELS})
     expose_values: Exposure = Exposure.MASKED
@@ -254,6 +255,17 @@ def _exposure(raw: object) -> Exposure:
         raise ValueError(raw) from None
 
 
+def _identity_key(raw: object) -> str:
+    value = _str(raw)
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError(raw) from None
+    if len(encoded) < 32:
+        raise ValueError(raw)
+    return value
+
+
 def _config_scan(raw: object) -> tuple[str, ...] | bool:
     try:
         return _bool(raw)
@@ -274,6 +286,7 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "trusted_proxies": (_items, None),
     "trust_container_gateway": (_mode, "OFF"),
     "authentication_token": (_str, None),
+    "identity_key": (_identity_key, None),
     "read_only": (_bool, True),
     "expose_values": (_exposure, Exposure.MASKED),
     "mask_secrets": (_bool, True),
@@ -352,7 +365,13 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "app_package": (_module_name, None),
 }
 _DEFAULTS = SharpitSettings()
-_NEVER_ECHOED = {"authentication_token", "vulnerabilities_osv_base_uri", "vulnerabilities_epss_base_uri"}
+WEAK_IDENTITY_KEY = "SHARPIT_IDENTITY_KEY is one character repeated: a weak key"
+_NEVER_ECHOED = {
+    "authentication_token",
+    "identity_key",
+    "vulnerabilities_osv_base_uri",
+    "vulnerabilities_epss_base_uri",
+}
 _FIELDS = {f.name for f in dataclasses.fields(SharpitSettings)} - {"warnings"}
 
 
@@ -470,4 +489,6 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
     values["panels"] = _panels(kwargs, environ, warnings)
     if values.get("expose_values") is Exposure.FULL:
         warnings.append("SHARPIT_EXPOSE_VALUES=FULL exposes unmasked secrets")
+    if len(set(values.get("identity_key") or "ab")) == 1:
+        warnings.append(WEAK_IDENTITY_KEY)
     return SharpitSettings(**values, warnings=tuple(warnings))
