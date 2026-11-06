@@ -26,10 +26,7 @@ from sharpit.engine.sqltext.lexer import (
     SqlLexer,
     quoted_body,
 )
-from sharpit.engine.sqltext.render import collapse_placeholder_lists, secrets, shape
-from sharpit.engine.sqltext.render import shown as _shown
-
-shown = _shown
+from sharpit.engine.sqltext.render import collapse_placeholder_lists, secrets, shape, shown
 
 if TYPE_CHECKING:
     from sharpit.engine.masking import Masker
@@ -59,7 +56,14 @@ _VERB = re.compile(
 )
 
 
-def _statement_text(masker: Masker, sql: str, scan: Scan, secret: frozenset[int] | None = None) -> str | None:
+def _statement_text(
+    masker: Masker,
+    sql: str,
+    scan: Scan,
+    secret: frozenset[int] | None = None,
+    normalized: str | None = None,
+    cuts: list[tuple[int, int]] | None = None,
+) -> str | None:
     from sharpit.engine.masking import is_secret_value
 
     relaxed = masker.mask_spans(sql, False)
@@ -67,8 +71,9 @@ def _statement_text(masker: Masker, sql: str, scan: Scan, secret: frozenset[int]
         return None
     if secret is None:
         secret = secrets(scan, is_secret_value)
-    scanned, _, _ = shape(scan, secret)
-    normalized, cuts = collapse_placeholder_lists(scanned.strip(SPACE_CHARS))
+    if normalized is None or cuts is None:
+        scanned, _, _ = shape(scan, secret)
+        normalized, cuts = collapse_placeholder_lists(scanned.strip(SPACE_CHARS))
     rendered = normalized if not relaxed and sql.isascii() else shown(sql, scan, relaxed, MASK, secret, cuts)
     if _VERB.match(rendered):
         return masker.mask_statement(rendered)
@@ -80,6 +85,8 @@ def _statement_text(masker: Masker, sql: str, scan: Scan, secret: frozenset[int]
 def statement_text(masker: Masker, sql: str, dialect: Dialect) -> str | None:
     """A statement with inline values and secrets removed under the selected exposure policy."""
     try:
+        if masker.mask_spans("") is None:
+            return None
         return _statement_text(masker, sql, LEXER.scan(sql, dialect))
     except Exception:
         return MASK
@@ -92,9 +99,12 @@ def statement_shape(masker: Masker, sql: str, dialect: Dialect) -> Shape:
     scan = LEXER.scan(sql, dialect)
     secret = secrets(scan, is_secret_value)
     normalized, literals, predicates = shape(scan, secret)
-    normalized, _ = collapse_placeholder_lists(normalized.strip(SPACE_CHARS))
-    text = _statement_text(masker, sql, scan, secret)
-    shown_text = normalized if text is None else text
+    normalized, cuts = collapse_placeholder_lists(normalized.strip(SPACE_CHARS))
+    try:
+        text = _statement_text(masker, sql, scan, secret, normalized, cuts)
+    except Exception:
+        text = MASK
+    shown_text = MASK if text is None else text
     return Shape(shown_text, shown_text.lower(), dialect, literals, predicates)
 
 

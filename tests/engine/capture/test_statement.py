@@ -126,6 +126,30 @@ def test_a_broken_render_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert statement_text(MASKER, "UPDATE broken SET note='SECRET'", Dialect.UNSUPPORTED) == MASK
 
 
+@pytest.mark.parametrize("method", ["mask_spans", "mask_statement"])
+def test_a_broken_render_keeps_a_hidden_shape(method: str) -> None:
+    class Broken(Masker):
+        def __getattribute__(self, name: str) -> object:
+            if name == method:
+                raise RuntimeError(method)
+            return super().__getattribute__(name)
+
+    try:
+        result = sqltext.statement_shape(Broken(Exposure.MASKED, True), "SELECT 1", Dialect.SQLITE)
+    except RuntimeError:
+        result = sqltext.Shape("raised", None, Dialect.SQLITE, 0, 0)
+    assert result.text == MASK
+    assert result.fingerprint == MASK.lower()
+
+
+def test_metadata_only_does_not_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(_sql: str, _dialect: Dialect) -> None:
+        raise AssertionError("scan must not run")
+
+    monkeypatch.setattr(sqltext.LEXER, "scan", broken)
+    assert statement_text(Masker(Exposure.METADATA_ONLY, True), "SELECT 'secret'", Dialect.SQLITE) is None
+
+
 def test_a_token_is_hidden_with_secrets_off() -> None:
     masker = Masker(Exposure.MASKED, False, token="sharpit-token-value")
     assert statement_text(masker, "SELECT sharpit-token-value FROM t", Dialect.UNSUPPORTED) == f"SELECT {MASK} FROM t"

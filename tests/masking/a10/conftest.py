@@ -20,7 +20,7 @@ FIXTURES = ROOT / "tests" / "fixtures" / "sql_errors"
 SECTION = re.compile(r"^##### (.+?) #####\n", re.MULTILINE)
 
 
-def fixture_rows() -> list[tuple[str, Dialect, BaseException]]:
+def fixture_rows() -> list[tuple[str, Dialect, BaseException, str]]:
     entries = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     rows = []
     for entry in entries:
@@ -28,9 +28,10 @@ def fixture_rows() -> list[tuple[str, Dialect, BaseException]]:
         parts = SECTION.split(text)
         types = parts[parts.index("types") + 1].splitlines()
         original = next((line.removeprefix("orig: ") for line in types if line.startswith("orig: ")), None)
-        if original is None:
-            continue
-        module, _, name = original.rpartition(".")
+        modules = {"aiosqlite": "sqlite3", "mysqlclient": "MySQLdb"}
+        module, _, name = (
+            original.rpartition(".") if original else (modules.get(entry["driver"], entry["driver"]), "", "Error")
+        )
         family = {
             "sqlite3": Dialect.SQLITE,
             "aiosqlite": Dialect.SQLITE,
@@ -41,8 +42,14 @@ def fixture_rows() -> list[tuple[str, Dialect, BaseException]]:
             "mysqlclient": Dialect.MYSQL_FAMILY,
             "aiomysql": Dialect.MYSQL_FAMILY,
         }[entry["driver"]]
-        error_type = type(name, (Exception,), {"__module__": module})
-        rows.append((entry["file"], family, error_type("fixture error")))
+        raw = parts[parts.index("str(exc)") + 1].strip()
+        original_error = type(name, (Exception,), {"__module__": module})()
+        error_type = type(
+            "DBAPIError", (Exception,), {"__module__": "sqlalchemy.exc", "__str__": lambda _self, text=raw: text}
+        )
+        error = error_type(raw)
+        error.orig = original_error
+        rows.append((entry["file"], family, error, raw))
     return rows
 
 
@@ -55,17 +62,19 @@ class A10Report:
 
     def row(self, evidence: str, expected: Dialect, actual: Dialect) -> None:
         self.counts[evidence] += 1
-        if evidence in {"proved", "one_family"}:
+        if evidence in {"source_chain", "one_family"}:
             assert actual is expected
             assert actual is not Dialect.UNSUPPORTED
 
 
-def a10_surface(name: str, drive: Callable[[], Iterable[tuple[str, Dialect, Dialect]]]) -> A10Report:
+def a10_surface(name: str, drive: Callable[[], Iterable[tuple[str, Dialect, Dialect, str, str]]]) -> A10Report:
     """Run one surface's real rows and count their evidence classes."""
     del name  # the caller owns the surface's output assertion
     report = A10Report()
-    for evidence, expected, actual in drive():
+    for evidence, expected, actual, rendered, known_word in drive():
         report.row(evidence, expected, actual)
+        if evidence in {"source_chain", "one_family"}:
+            assert known_word in rendered
     return report
 
 

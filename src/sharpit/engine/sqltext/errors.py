@@ -10,8 +10,9 @@ import functools
 import re
 from collections.abc import Iterable, Iterator
 
+from sharpit.engine import sqltext
 from sharpit.engine.masking import MASK, Masker, Tracked
-from sharpit.engine.sqltext import LEXER, Dialect, statement_text
+from sharpit.engine.sqltext import Dialect, statement_text
 
 _BREAKS = r"\n\r\x0b\x0c\x1c\x1d\x1e\x85  "  # every separator ``str.splitlines`` knows
 _LINE_START = rf"(?<![^{_BREAKS}])"
@@ -204,14 +205,13 @@ def _final_link(text: str) -> re.Match[str] | None:
 def _block(masker: Masker, text: str, body: int, end: int, dialect: Dialect, shown: list[str]) -> int:
     """Emit the block whose body starts at ``body``, and its parameters; where the text goes on."""
     statement = text[body:end]
-    closer = LEXER.block_closer(statement, dialect)
+    closer = sqltext.LEXER.block_closer(statement, dialect)
     if closer < 0:
         parameters = statement.rfind(_PARAMETERS_LINE)
         read = statement if parameters < 0 else statement[:parameters]
         shown.append(f"{_BLOCK}{statement_text(masker, read, dialect)}")
         return end
-    scan = LEXER.scan(statement[:closer], dialect)
-    if scan.cut >= 0 or scan.runs != scan.uncut_runs:  # no closer to trust: it runs on, to its parameters
+    if sqltext.LEXER.reads_two_ways(statement[:closer], dialect):  # no closer to trust: it runs on, to its parameters
         parameters = statement.rfind(_PARAMETERS_LINE)
         read = statement if parameters < 0 else statement[:parameters]
         shown.append(f"{_BLOCK}{statement_text(masker, read, dialect)}")
@@ -280,8 +280,5 @@ def error_text(
     masker: Masker, source: str | BaseException, dialect: Dialect, known: bool = False, keep_frames: bool = True
 ) -> str | None:
     """Render free text or a database exception through the same regions and exposure policy."""
-    try:
-        text = source if isinstance(source, str) else str(source)
-        return mask_error(masker, text, dialect, known, keep_frames)
-    except Exception:
-        return MASK
+    text = source if isinstance(source, str) else str(source)
+    return mask_error(masker, text, dialect, known, keep_frames)

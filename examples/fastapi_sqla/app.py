@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 from sqlalchemy import Engine, ForeignKey, String, create_engine, inspect, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from starlette.requests import Request
@@ -148,7 +149,14 @@ def create_app(db_dir: Path | None = None, database_url: str | None = None, **sh
     db_file = (resolved_db_dir / "sample.db").resolve()
 
     sync_url = database_url or f"sqlite:///{db_file.as_posix()}"
-    async_url = f"sqlite+aiosqlite:///{db_file.as_posix()}"
+    if database_url:
+        parsed_url = make_url(database_url)
+        async_driver = {"sqlite": "aiosqlite", "postgresql": "asyncpg", "mysql": "aiomysql"}[
+            parsed_url.get_backend_name()
+        ]
+        async_url = parsed_url.set(drivername=f"{parsed_url.get_backend_name()}+{async_driver}")
+    else:
+        async_url = f"sqlite+aiosqlite:///{db_file.as_posix()}"
 
     sync_engine: Engine = create_engine(sync_url)
     async_engine: AsyncEngine = create_async_engine(async_url)

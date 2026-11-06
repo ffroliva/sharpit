@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -43,20 +44,71 @@ def test_error_text_accepts_the_facade_source_type() -> None:
     assert sqltext.error_text(masker, "connection failed", Dialect.SQLITE) == "connection failed"
 
 
+def test_statement_text_keeps_a_known_word() -> None:
+    text = sqltext.statement_text(Masker(Exposure.MASKED, True), "SELECT 'A10VALUE' FROM a10", Dialect.SQLITE)
+    assert text is not None
+    assert "SELECT" in text
+
+
+def test_error_text_keeps_a_known_word_in_errors() -> None:
+    error = RuntimeError("(sqlite3.OperationalError) failed\n[SQL: SELECT 'A10VALUE' FROM a10]")
+    text = sqltext.error_text(Masker(Exposure.MASKED, True), error, Dialect.SQLITE)
+    assert text is not None
+    assert "SQL" in text
+
+
+def test_conflicting_exception_chain_is_unsupported() -> None:
+    sqlite = type("SqliteFailure", (Exception,), {"__module__": "sqlite3"})()
+    postgres = type("PostgresFailure", (Exception,), {"__module__": "psycopg.errors"})()
+    postgres.__cause__ = sqlite
+    assert resolve(postgres, (ExceptionDialectSource(),), DialectContext(lambda: None)) is Dialect.UNSUPPORTED
+
+
+def test_conflicting_sources_are_unsupported() -> None:
+    class Source:
+        def __init__(self, family: Dialect) -> None:
+            self.family = family
+
+        def dialect_of(self, _event: object, _context: DialectContext) -> Dialect:
+            return self.family
+
+    result = resolve(object(), (Source(Dialect.SQLITE), Source(Dialect.POSTGRESQL)), DialectContext(lambda: None))
+    assert result is Dialect.UNSUPPORTED
+
+
+def test_application_conflict_is_unsupported() -> None:
+    error = type("SqliteFailure", (Exception,), {"__module__": "sqlite3"})()
+    result = resolve(error, (ExceptionDialectSource(),), DialectContext(lambda: Dialect.POSTGRESQL))
+    assert result is Dialect.UNSUPPORTED
+
+
+def test_application_family_resolves_when_no_source_proves_one() -> None:
+    result = resolve(object(), (ExceptionDialectSource(),), DialectContext(lambda: Dialect.SQLITE))
+    assert result is Dialect.SQLITE
+
+
 def test_every_fixture_type_resolves_to_its_family() -> None:
     rows = fixture_rows()
+    assert len(rows) == 164
     if os.environ.get("SHARPIT_A10_SQLITE_ONLY"):
         rows = [row for row in rows if row[1] is Dialect.SQLITE]
-    families = {family for _, family, _ in rows}
+    families = {family for _, family, _, _ in rows}
     assert families >= {Dialect.SQLITE, Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY}
     source = ExceptionDialectSource()
     report = a10_surface(
         "fixture-types",
         lambda: (
-            ("proved", family, resolve(error, (source,), DialectContext(lambda: None))) for _, family, error in rows
+            (
+                "source_chain",
+                family,
+                resolve(error, (source,), DialectContext(lambda: None)),
+                sqltext.error_text(Masker(Exposure.MASKED, True), error, family) or "",
+                next(word for word in re.findall(r"[A-Za-z]+", raw) if len(word) > 2),
+            )
+            for _, family, error, raw in rows
         ),
     )
-    assert report.counts["proved"] == len(rows)
+    assert report.counts["source_chain"] == len(rows)
 
 
 def test_the_recorder_uses_the_sqlite_engine_family() -> None:
@@ -87,6 +139,28 @@ def test_a_build_that_resolves_nothing_fails_a10(tmp_path: Path) -> None:
         "engine/sqltext/dialect.py",
         "        proof: set[Dialect] = set()",
         "        return Dialect.UNSUPPORTED\n        proof: set[Dialect] = set()",
+    )
+
+
+def test_a_build_that_hides_every_statement_fails_a10(tmp_path: Path) -> None:
+    copy = scratch_package(tmp_path)
+    plant_fails(
+        copy,
+        "tests/masking/a10/test_gate.py::test_statement_text_keeps_a_known_word",
+        "engine/sqltext/__init__.py",
+        "return _statement_text(masker, sql, LEXER.scan(sql, dialect))",
+        "return MASK",
+    )
+
+
+def test_a_build_that_hides_every_error_fails_a10(tmp_path: Path) -> None:
+    copy = scratch_package(tmp_path)
+    plant_fails(
+        copy,
+        "tests/masking/a10/test_gate.py::test_error_text_keeps_a_known_word_in_errors",
+        "engine/sqltext/__init__.py",
+        "return render_error_text(masker, source, dialect, known, keep_frames)",
+        "return MASK",
     )
 
 

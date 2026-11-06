@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from sharpit.engine import sqltext
 from sharpit.engine.collectors.database_advisor import rules_runtime
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
 from sharpit.engine.masking import Exposure, Masker
-from sharpit.engine import sqltext
 from sharpit.engine.sqltext import Dialect
 
 
