@@ -12,13 +12,16 @@ import inspect
 import threading
 import time
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.capture.sqltrace import mask_error
+from sharpit.engine.context import application_family
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.masking import MASK, is_sensitive_key
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
+from sharpit.engine.sqla.dialect_source import exception_dialect
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -158,7 +161,8 @@ class HealthService:
         return f"timed out after {self._ctx.settings.health_timeout:g}s; still running"
 
     def _failure(self, exc: BaseException) -> str | None:
-        return mask_error(self._ctx.masker, f"{type(exc).__name__}: {exc}")
+        application = partial(application_family, self._ctx)
+        return mask_error(self._ctx.masker, f"{type(exc).__name__}: {exc}", exception_dialect(exc, application))
 
     async def _ping(self, name: str, engine: Any, flight: Flight, executor: DaemonExecutor) -> dict[str, Any]:
         details: dict[str, Any] = {"database": engine.dialect.name, "validationQuery": "dialect ping"}

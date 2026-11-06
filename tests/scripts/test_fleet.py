@@ -138,3 +138,19 @@ def test_box_figures_without_tests_is_none():
 
 def test_timeline_marks_skips_a_cut_line():
     assert fleet.timeline_marks("start 12 cpu 1 2") == {}
+
+
+def test_box_script_leaves_the_own_job_files_out_by_default():
+    assert "pytest-own.xml" not in fleet.box_script(1, 5, 8, SHA)
+
+
+def test_box_script_runs_the_own_job_files_whole_when_asked():
+    script = fleet.box_script(1, 5, 8, SHA, own_job=True)
+    assert "pytest-own.xml" in script
+    assert "_shard.OWN_JOB" in script
+    assert "SHARPIT_SHARD=1/5 " in script  # the shard run keeps its slice; the own-job run sets no shard
+
+
+def test_the_own_job_option_is_off_unless_given():
+    assert fleet.parse_args([]).own_job is False
+    assert fleet.parse_args(["--own-job"]).own_job is True
