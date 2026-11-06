@@ -17,11 +17,12 @@ from tests.masking.sql_corpus import Row
 
 from sharpit.engine.capture.sqlscan import normalize
 from sharpit.engine.masking import Masker
+from sharpit.engine.sqltext import Dialect
 
 
 def _scan_alone(_masker: Masker, statement: str) -> str:
     """The scan with no masker before it: elsewhere a masker hides the token, so a scan-only branch moves ``shape``."""
-    return normalize(statement).sql
+    return normalize(statement, Dialect.UNSUPPORTED).sql
 
 
 SURFACES: dict[str, gates.Surface] = {**gates.SURFACES, "scan_alone-generic": _scan_alone}

@@ -16,6 +16,7 @@ from sharpit.engine import sqla
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.models import mappers_configured, registries
+from sharpit.engine.sqltext import Dialect
 
 NO_MODELS = "pass models= to sharpit.install"
 UNCONFIGURED = "Mappers are not configured yet: the app has not run a query"
@@ -62,7 +63,7 @@ def _field(ctx: SharpitContext, warnings: list[str], label: str, read: Callable[
 
 
 def _masked(ctx: SharpitContext, text: str) -> str:
-    return mask_error(ctx.masker, text) or text.split(" (", 1)[0]
+    return mask_error(ctx.masker, text, Dialect.UNSUPPORTED) or text.split(" (", 1)[0]
 
 
 def _table(mapper: Any) -> str | None:

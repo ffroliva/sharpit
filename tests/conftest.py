@@ -18,12 +18,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from hypothesis import settings
 
 from sharpit.engine import sqla
 from sharpit.engine.capture import transactions
 from sharpit.engine.sources import sqlite
 
 pytest_plugins = ["pytester", "_shard"]  # _shard: SHARPIT_SHARD=i/n, the CI shards (tests/_shard.py)
+
+# The property tests run the same examples on every run and every shard, and write no example database: a failure seen
+# once is seen again, and a slow runner is not a failure (design section 8).
+settings.register_profile("sharpit", derandomize=True, deadline=None, database=None, print_blob=False)
+settings.load_profile("sharpit")
 
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}

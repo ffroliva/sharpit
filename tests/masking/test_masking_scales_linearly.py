@@ -10,6 +10,7 @@ from __future__ import annotations
 import gc
 import time
 from collections.abc import Callable
+from functools import partial
 
 import pytest
 
@@ -18,7 +19,7 @@ from sharpit.engine.capture.sqlscan import normalize, shown
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import Exposure, Masker
-from sharpit.engine.sqltext import render
+from sharpit.engine.sqltext import Dialect, render
 
 MASKER = Masker(Exposure.MASKED, True)
 SIZES = (4_000, 8_000, 16_000, 32_000)
@@ -98,12 +99,12 @@ def _pair_substitution(text: str) -> str:
 Entry = Callable[[str], object]
 ENTRY_POINTS: dict[str, Entry] = {
     "mask_text": MASKER.mask_text,
-    "mask_error": lambda text: mask_error(MASKER, text),
+    "mask_error": lambda text: mask_error(MASKER, text, Dialect.UNSUPPORTED),
     "pair_substitution": _pair_substitution,
     "mask_spans": MASKER.mask_spans,
     "mask_spans_relaxed": lambda text: MASKER.mask_spans(text, strict=False),
     "mask_statement": MASKER.mask_statement,
-    "statement_text": lambda text: statement_text(MASKER, text),
+    "statement_text": lambda text: statement_text(MASKER, text, Dialect.UNSUPPORTED),
 }
 
 
@@ -113,7 +114,7 @@ def _overlapping(size: int) -> list[tuple[int, int]]:
 
 def _shown_at(size: int) -> Entry:
     spans = _overlapping(size)  # outside the timer: the entry is measured, not the list a caller already holds
-    return lambda text: shown(text, spans)
+    return lambda text: shown(text, spans, Dialect.UNSUPPORTED)
 
 
 def _flags_at(size: int) -> Entry:
@@ -121,7 +122,8 @@ def _flags_at(size: int) -> Entry:
     return lambda text: render._hidden_flags(spans, len(text))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
 
-SCAN_ENTRY_POINTS: dict[str, Callable[[int], Entry]] = {"normalize": lambda _size: normalize, "shown": _shown_at}
+_NORMALIZE = partial(normalize, dialect=Dialect.UNSUPPORTED)
+SCAN_ENTRY_POINTS: dict[str, Callable[[int], Entry]] = {"normalize": lambda _size: _NORMALIZE, "shown": _shown_at}
 
 
 def _seconds(entry: Entry, text: str) -> float:

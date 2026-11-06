@@ -11,6 +11,7 @@ from engine.testsession.tsfakes import NODE, event, run_phase
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.spi import ApiModel
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.facts import PhaseFacts, SessionFacts, TestFacts, TestKey
 from sharpit.engine.testsession.gates import Budget
 from sharpit.engine.testsession.sink import TestSessionSink, report_masker, report_masker_warnings
@@ -520,8 +521,8 @@ def test_mysql_comment_and_hex_literal_are_folded() -> None:
     sink = _sink()
     attempt = sink.begin_test(NODE)
     tag = (NODE, attempt, "call")
-    sink.on_sql(event("SELECT 1 # password hunter2")._replace(mysql=True), tag)
-    sink.on_sql(event("SELECT 0xDEADBEEF")._replace(mysql=True), tag)
+    sink.on_sql(event("SELECT 1 # password hunter2")._replace(dialect=Dialect.MYSQL_FAMILY), tag)
+    sink.on_sql(event("SELECT 0xDEADBEEF")._replace(dialect=Dialect.MYSQL_FAMILY), tag)
     sink.end_test()
 
     report = json.dumps(sink.facts.to_json())

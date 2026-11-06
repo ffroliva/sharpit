@@ -30,6 +30,7 @@ from sharpit.engine.sqla.orm import (  # noqa: E402
     _masked_fingerprint,  # pyright: ignore[reportPrivateUsage]
     _unbounded_read_statement_shape,  # pyright: ignore[reportPrivateUsage]
 )
+from sharpit.engine.sqltext import Dialect  # noqa: E402
 from sharpit.engine.testsession.sink import TestSessionSink  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -147,7 +148,7 @@ def _test_session_facts(statement: str, attempt_test: bool) -> dict[str, Any]:
     sink = TestSessionSink("gw0")
     tag = (NODE, sink.begin_test(NODE), "call") if attempt_test else None
     for _ in range(EXECUTIONS):
-        event = SqlEvent("sqlalchemy", statement, None, False, None, 0, 1, -1, None, None, None)
+        event = SqlEvent("sqlalchemy", statement, None, False, None, 0, 1, -1, None, None, None, Dialect.UNSUPPORTED)
         sink.on_sql(event, tag)
     return sink.facts.to_json()
 
@@ -163,7 +164,7 @@ def test_no_secret_in_test_session_facts(statement: str, secret: str, attributed
 @pytest.mark.parametrize(("statement", "secret"), STATEMENTS.values(), ids=STATEMENTS)
 def test_no_secret_in_a_relationship_group(statement: str, secret: str) -> None:
     # the key of ``relationshipOf`` and ``statementSites``, joined with the sink's on the same text
-    assert secret.lower() not in _masked_fingerprint(statement).lower()
+    assert secret.lower() not in _masked_fingerprint(statement, Dialect.UNSUPPORTED).lower()
 
 
 @pytest.mark.parametrize(("statement", "secret"), STATEMENTS.values(), ids=STATEMENTS)
@@ -176,7 +177,7 @@ def test_no_secret_in_an_unbounded_read_fact(statement: str, secret: str) -> Non
 @pytest.mark.parametrize("key", ["db.statement", "db.query.text"])
 @pytest.mark.parametrize(("statement", "secret"), STATEMENTS.values(), ids=STATEMENTS)
 def test_no_secret_in_a_span_statement(statement: str, secret: str, key: str) -> None:
-    attributes = _attributes(Masker(Exposure.MASKED, True), {key: statement}, False)
+    attributes = _attributes(Masker(Exposure.MASKED, True), {key: statement}, Dialect.UNSUPPORTED)
     assert secret.lower() not in json.dumps(attributes).lower()
 
 
@@ -186,4 +187,4 @@ def test_id_stays_the_lower_cased_shape_without_a_secret() -> None:
     masker = Masker(Exposure.MASKED, True)
     assert golden, "the golden holds no statement"
     for row in golden:
-        assert masked_shape(masker, row["sql"], False).fingerprint == row["id"]
+        assert masked_shape(masker, row["sql"], Dialect.UNSUPPORTED).fingerprint == row["id"]

@@ -31,6 +31,7 @@ from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.collectors.health import health_service
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.sqltext import Dialect
 from sharpit.settings import load_settings
 
 
@@ -94,7 +95,13 @@ def _request(
 
 def _sql(ctx: SharpitContext, rid: str | None, sql: str = "select * from pets where id = 1", **kw: Any) -> None:
     assert ctx.capture.sql_trace is not None
-    fields: dict[str, Any] = {"duration_ns": 2_000_000, "thread": "t", "connection_id": None, **kw}
+    fields: dict[str, Any] = {
+        "duration_ns": 2_000_000,
+        "thread": "t",
+        "connection_id": None,
+        "dialect": Dialect.UNSUPPORTED,
+        **kw,
+    }
     ctx.capture.sql_trace.record(sql, request_id=rid, **fields)
 
 

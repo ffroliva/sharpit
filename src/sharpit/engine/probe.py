@@ -16,6 +16,7 @@ from sharpit.engine.capture import under
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.masking import Masker
 from sharpit.engine.paging import BadRequest
+from sharpit.engine.sqltext import Dialect
 
 MAX_METHOD_BYTES = 32
 MAX_PATH_BYTES = 2048
@@ -335,7 +336,7 @@ async def run_probe(
                 transferred_slot = True
             raise
     except Exception as exc:  # noqa: BLE001 - app exceptions become a stable masked probe response
-        message = mask_error(masker, f"{type(exc).__name__}: {exc}") or type(exc).__name__
+        message = mask_error(masker, f"{type(exc).__name__}: {exc}", Dialect.UNSUPPORTED) or type(exc).__name__
         status = 500
         return {
             "status": status,

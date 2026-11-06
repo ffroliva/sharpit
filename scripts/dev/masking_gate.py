@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import functools
 import io
 import json
 import random
@@ -252,6 +253,10 @@ def resolve(role: str, available: Iterable[str]) -> dict[str, str]:
     return {"logs": "sqltrace.mask_error", "trace": trace}
 
 
+def _with_dialect(mask: Callable[..., str | None], dialect: object, masker: object, text: str) -> str | None:
+    return mask(masker, text, dialect)
+
+
 def work(role: str, src: str, corpus_path: str, out_path: str, fields: list[str]) -> None:
     """In the tree: every field through the tree's own production function. ``sharpit`` must be the tree's."""
     sys.dont_write_bytecode = True
@@ -276,27 +281,44 @@ def work(role: str, src: str, corpus_path: str, out_path: str, fields: list[str]
         else getattr(owners[names["trace"].split(".")[0]], names["trace"].split(".")[1])
     )
     parameters = len(inspect.signature(traces._sql_attribute).parameters)  # noqa: SLF001
+    # a tree before Task 12 takes the flag, a tree after it a Dialect; 0.4.0 takes neither here
+    generic: object = False
+    family: object = True
+    extra: dict[str, object] = {}
+    if "dialect" in inspect.signature(sqltrace.normalize).parameters:
+        from sharpit.engine.sqltext import Dialect  # noqa: PLC0415
+
+        generic, family = Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY
+        extra = {"dialect": generic}
+        if names["trace"] == "sqltrace.mask_error":
+            trace_mask = functools.partial(_with_dialect, sqltrace.mask_error, generic)
 
     def statement(text: str, masker: Masker) -> str | None:
-        args = (masker, "db.statement", text) + ((False,) if parameters > 3 else ())
+        args = (masker, "db.statement", text) + ((generic,) if parameters > 3 else ())
         return traces._sql_attribute(*args)  # noqa: SLF001
 
     def recorded(masker: Masker, text: str, sql: str | None) -> str | None:
         recorder = sqltrace.SqlTraceRecorder(masker, max_sql_length=10**6)
         recorder.record(
-            sql or "SELECT 2", duration_ns=1, thread="t", connection_id=None, success=False, error=Exception(text)
+            sql or "SELECT 2",
+            duration_ns=1,
+            thread="t",
+            connection_id=None,
+            success=False,
+            error=Exception(text),
+            **extra,
         )
         return recorder.rows()[-1]["errorMessage"]
 
-    def logs(masker: Masker, text: str, **kw: bool) -> str | None:
-        return error_mask(masker, text, **kw) if error_mask else masker.mask_text(text)
+    def logs(masker: Masker, text: str, dialect: object) -> str | None:
+        return error_mask(masker, text, dialect) if error_mask else masker.mask_text(text)
 
     table: dict[str, Callable[[str, str | None], str | None]] = {
         "text_off": lambda t, q: off.mask_text(t),
         "text_on": lambda t, q: on.mask_text(t),
-        "err_off": lambda t, q: logs(off, t),
-        "err_on": lambda t, q: logs(on, t),
-        "err_mysql": lambda t, q: logs(off, t, mysql=True) if error_mask else off.mask_text(t),
+        "err_off": lambda t, q: logs(off, t, generic),
+        "err_on": lambda t, q: logs(on, t, generic),
+        "err_mysql": lambda t, q: logs(off, t, family) if error_mask else off.mask_text(t),
         "rec_off": lambda t, q: recorded(off, t, q),
         "rec_on": lambda t, q: recorded(on, t, q),
         "trace": lambda t, q: trace_mask(off, t),

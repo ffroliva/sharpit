@@ -19,6 +19,7 @@ from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqla import _lock
+from sharpit.engine.sqltext import Dialect, dialect_of_name
 from sharpit.engine.testsession.facts import PhaseFacts, UnboundedReadFact
 from sharpit.engine.testsession.gates import LAZY_LOAD_OUTSIDE_APP
 
@@ -30,7 +31,7 @@ _relationship_groups: dict[tuple[str, int, str], dict[str, tuple[str, bool]]] = 
 _relationship_sites: dict[tuple[str, int, str], dict[str, str | None]] = {}
 # raw statement -> (application site, batched-query hint) per test, None until the statement repeats: a statement
 # that runs once never pays the stack walk, a later repeat costs one dict lookup
-_statement_sites: dict[tuple[str, int, str], dict[tuple[str, bool], tuple[str | None, str] | None]] = {}
+_statement_sites: dict[tuple[str, int, str], dict[tuple[str, Dialect], tuple[str | None, str] | None]] = {}
 # shortcut: distinct statements per test (literal-inlined SQL is distinct per value); a repeat first seen after the
 # cap gets the plain message. Upgrade if real suites hit it: key by the masked fingerprint instead.
 MAX_STATEMENT_SITES = 256
@@ -103,10 +104,15 @@ def _relationship_masker() -> Masker:
 
 
 @functools.lru_cache(maxsize=1024)
-def _masked_fingerprint(statement: str, mysql: bool = False) -> str:
+def _masked_fingerprint(statement: str, dialect: Dialect) -> str:
     from sharpit.engine.capture.statement import masked_shape
 
-    return masked_shape(_relationship_masker(), statement, mysql).fingerprint
+    return masked_shape(_relationship_masker(), statement, dialect).fingerprint
+
+
+def _dialect_of(owner: object) -> Dialect:
+    """What a connection, engine or execution context talks to."""
+    return dialect_of_name(getattr(getattr(owner, "dialect", None), "name", None)) or Dialect.UNSUPPORTED
 
 
 def _relationship_path(context: Any) -> tuple[Any, str, str, int] | None:
@@ -169,7 +175,7 @@ def _batched_query(context: Any) -> str:
     return GENERIC_BATCH
 
 
-def _record_statement_site(context: Any, tag: tuple[str, int, str], key: tuple[str, bool]) -> None:
+def _record_statement_site(context: Any, tag: tuple[str, int, str], key: tuple[str, Dialect]) -> None:
     """Remember where a repeated statement runs from in application code (its first repeat), and how to batch it."""
     sites = _statement_sites.get(tag)
     if sites is None or key not in sites:
@@ -205,12 +211,10 @@ def _record_relationship(context: Any) -> None:  # pyright: ignore[reportUnusedF
     statement = getattr(context, "statement", None)
     if not isinstance(statement, str):
         return
-    from sharpit.engine.capture.sqltrace import is_mysql
-
-    mysql = is_mysql(context)
+    dialect = _dialect_of(context)
     seen_key = _lazy_key(context, statement)
     if seen_key is None:  # a lazy load gets its site and fix from the relationship instead
-        _record_statement_site(context, tag, (statement, mysql))
+        _record_statement_site(context, tag, (statement, dialect))
     if seen_key is not None:
         seen = _lazy_seen.get(tag)
         if seen is not None and seen_key in seen:
@@ -220,28 +224,28 @@ def _record_relationship(context: Any) -> None:  # pyright: ignore[reportUnusedF
         with _lock:
             _lazy_seen.setdefault(tag, set()).add(seen_key)
     if isinstance(relation_value, tuple) and len(cast("tuple[object, ...]", relation_value)) == 2:
-        _store_lazy_group(tag, statement, cast("tuple[object, object]", relation_value), mysql)
+        _store_lazy_group(tag, statement, cast("tuple[object, object]", relation_value), dialect)
     elif relation_value is _EAGER_RELATIONSHIP_KEY:
-        _count_eager_batch(tag, statement, mysql)
+        _count_eager_batch(tag, statement, dialect)
 
 
 def _store_lazy_group(
-    tag: tuple[str, int, str], statement: str, relation: tuple[object, object], mysql: bool = False
+    tag: tuple[str, int, str], statement: str, relation: tuple[object, object], dialect: Dialect
 ) -> None:
     """Remember which relationship a lazy-load statement belongs to (first observation wins)."""
     identity, collection = relation
     if not isinstance(identity, str) or not isinstance(collection, bool):
         return
-    key = _masked_fingerprint(statement, mysql)
+    key = _masked_fingerprint(statement, dialect)
     groups = _relationship_groups.get(tag)
     if groups is None or key not in groups:
         with _lock:
             _relationship_groups.setdefault(tag, {}).setdefault(key, (identity, collection))
 
 
-def _count_eager_batch(tag: tuple[str, int, str], statement: str, mysql: bool = False) -> None:
+def _count_eager_batch(tag: tuple[str, int, str], statement: str, dialect: Dialect) -> None:
     """Count one eager-load batch statement, so it is not mistaken for an N+1 repeat."""
-    key = _masked_fingerprint(statement, mysql)
+    key = _masked_fingerprint(statement, dialect)
     with _lock:
         batches = _eager_relationship_batches.setdefault(tag, {})
         batches[key] = batches.get(key, 0) + 1
@@ -274,8 +278,8 @@ def apply_relationship_facts(test: Any) -> None:
         count = phase.selects.get(group, 0)
         if count:
             phase.relationship_loads[identity] = phase.relationship_loads.get(identity, 0) + count
-    for (statement, mysql), site in statement_sites.items():
-        group = _masked_fingerprint(statement, mysql)
+    for (statement, dialect), site in statement_sites.items():
+        group = _masked_fingerprint(statement, dialect)
         if site is not None and phase.selects.get(group, 0) > 1 and group not in phase.relationship_of:
             phase.statement_sites.setdefault(group, site)
 
@@ -300,12 +304,11 @@ def _unbounded_read_statement_shape(context: Any, statement_obj: Any) -> tuple[s
         )
     except Exception:
         has_limit = True
-    from sharpit.engine.capture.sqltrace import is_mysql
     from sharpit.engine.capture.statement import masked_shape
 
     # shortcut: a Session with a binds map has no ``bind``, so that text keeps the generic scan and the masker
-    mysql = is_mysql(getattr(getattr(context, "session", None), "bind", None))
-    return masked_shape(_relationship_masker(), str(statement_obj), mysql).sql, has_limit
+    dialect = _dialect_of(getattr(getattr(context, "session", None), "bind", None))
+    return masked_shape(_relationship_masker(), str(statement_obj), dialect).sql, has_limit
 
 
 def _record_unbounded_read_load(target: Any, context: Any, info: Any, tag: tuple[str, int, str]) -> None:

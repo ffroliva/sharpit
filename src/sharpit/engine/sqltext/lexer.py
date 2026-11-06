@@ -14,6 +14,18 @@ from itertools import zip_longest
 from typing import NamedTuple, Protocol
 
 from sharpit.engine.sqltext.dialect import Dialect
+from sharpit.engine.sqltext.rules import (
+    GENERIC,
+    READINGS,
+    Backslash,
+    BacktickRun,
+    DollarCloser,
+    DollarOpen,
+    DoubleQuote,
+    HashRule,
+    LexRules,
+    Reading,
+)
 
 
 class Kind(Enum):
@@ -32,8 +44,13 @@ class Kind(Enum):
 _CODE, _LITERAL, _DOUBLE_QUOTED, _COMMENT = Kind.CODE, Kind.LITERAL, Kind.DOUBLE_QUOTED, Kind.COMMENT
 
 
+Run = tuple[int, int, Kind]
+"""Raw positions of a run, in the text the scan read: start, end, kind. A plain tuple, built once per run on the hot
+path; a caller that wants names reads it as ``Range(*run)``."""
+
+
 class Range(NamedTuple):
-    """Raw positions of a run, in the text the scan read."""
+    """The named view of one ``Run``; the scan itself never builds one."""
 
     start: int
     end: int
@@ -58,16 +75,25 @@ class Scan:
 
     source: str
     text: str
-    runs: tuple[Range, ...]
+    runs: tuple[Run, ...]
     literals: int
     predicate_literals: int
     cut: int
-    uncut_runs: tuple[Range, ...]
+    uncut_runs: tuple[Run, ...]
     candidates: tuple[Candidate, ...]
 
 
 class SqlLexer(Protocol):
     def scan(self, sql: str, dialect: Dialect) -> Scan: ...
+
+    def block_closer(self, text: str, dialect: Dialect) -> int: ...
+
+    def reads_two_ways(self, sql: str, dialect: Dialect) -> bool: ...
+
+
+def readings(dialect: Dialect) -> tuple[LexRules, ...]:
+    """The rules a dialect reads with: the one place the lexer meets a ``Dialect`` member."""
+    return (GENERIC,) if dialect is Dialect.UNSUPPORTED else READINGS[dialect]
 
 
 def quoted_body(source: str, start: int, end: int) -> str:
@@ -108,7 +134,7 @@ class Out:
         self.chars: list[str] = []
         self.opens: list[int] = []
         self.past_spaces: dict[int, int] = {}  # a space after a space -> the last position before the run
-        self.runs: list[Range] = []  # in the raw text, in order
+        self.runs: list[Run] = []  # in the raw text, in order
         self.marks: list[Candidate] = []  # one per ``DOUBLE_QUOTED`` run
 
     def append(self, text: str) -> None:
@@ -182,9 +208,9 @@ class Out:
         return "".join(self.chars)
 
 
-def _skip_quoted(sql: str, index: int, closing: str, mysql: bool = False) -> int:
+def _skip_quoted(sql: str, index: int, closing: str, rules: LexRules) -> int:
     cursor, length = index + 1, len(sql)
-    escaped_in = "'\"" if mysql else "'"
+    escaped_in = "'\"" if rules.backslash_in_double is Backslash.ALWAYS else "'"
     while cursor < length:
         c = sql[cursor]
         if c == "\\" and closing in escaped_in and cursor + 1 < length:
@@ -199,7 +225,7 @@ def _skip_quoted(sql: str, index: int, closing: str, mysql: bool = False) -> int
     return length
 
 
-def _mysql_closer(sql: str, tag: str, start: int) -> int:
+def _no_step_back_closer(sql: str, tag: str, start: int) -> int:
     """MySQL 8.4.10's match does not step back: a failed one skips what it read, the failing character too, so the
     ``$a$`` of ``$$a$`` closes nothing and ``$a$x$$a$ y $a$`` is one body."""
     cursor = sql.find("$", start)
@@ -213,9 +239,10 @@ def _mysql_closer(sql: str, tag: str, start: int) -> int:
     return -1
 
 
-def _dollar_quote_end(sql: str, index: int, mysql: bool) -> int:
+def _dollar_quote_end(sql: str, index: int, rules: LexRules) -> int:
     """Where the dollar quote at ``index`` ends, the end of the text when it is open; -1 when none opens there."""
     cursor, length, body_start = index + 1, len(sql), -1
+    digit_first = rules.dollar is DollarOpen.MYSQL_TAG
     while cursor < length:
         c = sql[cursor]
         if c == "$":
@@ -223,13 +250,14 @@ def _dollar_quote_end(sql: str, index: int, mysql: bool) -> int:
             break
         # PostgreSQL's tag: any non-ASCII character counts, ``€`` too, though no Unicode class calls it a letter;
         # MySQL's may start with a digit: ``$1$ x $1$`` is a body 8.4.10 stores
-        if not (c.isalpha() or c == "_" or not c.isascii() or (c.isdigit() and (mysql or cursor > index + 1))):
+        if not (c.isalpha() or c == "_" or not c.isascii() or (c.isdigit() and (digit_first or cursor > index + 1))):
             return -1
         cursor += 1
     if body_start < 0:
         return -1
     tag = sql[index:body_start]
-    end = _mysql_closer(sql, tag, body_start) if mysql else sql.find(tag, body_start)
+    no_step_back = rules.dollar_closer is DollarCloser.NO_STEP_BACK
+    end = _no_step_back_closer(sql, tag, body_start) if no_step_back else sql.find(tag, body_start)
     return length if end < 0 else end + len(tag)
 
 
@@ -241,13 +269,14 @@ def _identifier_like(sql: str, index: int, end: int) -> bool:
     return all((c.isascii() and c.isalnum()) or c in "_$." for c in sql[start:stop])
 
 
-def _double_quoted_literal(sql: str, index: int, end: int, out: Out, mysql: bool = False) -> bool | None:
+def _double_quoted_literal(sql: str, index: int, end: int, out: Out, rules: LexRules) -> bool | None:
     """sharpit deviation (0.4.0): MySQL reads ``"..."`` as a string, so an identifier-shaped run is a literal too in a
     value position (unless it qualifies a name, ``"b"."id"``) or when it looks like a secret; identifiers elsewhere
     stay readable. Text known to be MySQL's has every run a literal: ``ANSI_QUOTES`` only masks an identifier.
 
     ``None`` is a run only the secret detector can place, which the lexer does not hold: ``Kind.DOUBLE_QUOTED``."""
-    if mysql or end >= _MAX_SCAN_LENGTH:  # a run the scan limit cut open has no shape to read
+    string = rules.double_quote is DoubleQuote.STRING
+    if string or end >= _MAX_SCAN_LENGTH:  # a run the scan limit cut open has no shape to read
         return True
     if not _identifier_like(sql, index, end) or (out.value_position() and not sql.startswith(".", end)):
         return True
@@ -265,21 +294,21 @@ def _identifier_char_before(out: Out) -> bool:
     return bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$.")
 
 
-def _name_goes_on(source: str, index: int, out: Out, mysql: bool) -> bool:
+def _name_goes_on(source: str, index: int, out: Out, rules: LexRules) -> bool:
     """The output ends inside a name, so the ``$`` at ``index`` is part of it. A number goes on too: ``1$a$`` is a name
     on MySQL and a syntax error on PostgreSQL and SQLite. A ``.`` holds on MySQL only: 0.4.0 hid what follows ``t.$$``,
     so elsewhere the statement stops there (``_generic_trigger``), as it does at ``@$$``, a value on PostgreSQL.
     """
     last = out.chars[-1] if out.chars else " "
     number = last == "?" and source[index - 1].isalnum()  # a raw ``?`` is an operator, and a string ends in a quote
-    return last.isalnum() or last in "_$" or not last.isascii() or number or (mysql and last == ".")
+    return last.isalnum() or last in "_$" or not last.isascii() or number or (rules.dot_digits_is_name and last == ".")
 
 
-def _quoted_end(sql: str, index: int, out: Out, mysql: bool) -> int:
+def _quoted_end(sql: str, index: int, out: Out, rules: LexRules) -> int:
     """Where the run opened at ``index`` ends; ``[`` that opens no identifier ends at once, so the scan reads inside."""
     c = sql[index]
     if c != "[":
-        return _skip_quoted(sql, index, c, mysql)
+        return _skip_quoted(sql, index, c, rules)
     # ``ARRAY[``, ``items[``, ``(ARRAY[1])[``, ``a[1][``, ``ARRAY [``; a space alone proves nothing: ``SELECT [col]``
     subscript = bool(out.chars) and (out.chars[-1].isalnum() or out.chars[-1] in "_$)]")
     subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")
@@ -287,7 +316,7 @@ def _quoted_end(sql: str, index: int, out: Out, mysql: bool) -> int:
     return found.end() if found else index + 1
 
 
-def _two_way_bracket_end(sql: str, index: int, mysql: bool) -> int:
+def _two_way_bracket_end(sql: str, index: int, rules: LexRules) -> int:
     """Where the body of the ``[`` at ``index`` ends when a run opened in it is still open there, otherwise -1.
 
     SQLite closes a bracket at its first ``]`` whatever it holds, so such a body reads apart and the statement stops
@@ -300,21 +329,22 @@ def _two_way_bracket_end(sql: str, index: int, mysql: bool) -> int:
     end = stop.start() if stop else len(sql)
     if not _OPENER.search(sql, index + 1, end):
         return -1
-    runs = _read(sql[index + 1 : end] + "]", mysql).out.runs
+    runs = _read(sql[index + 1 : end] + "]", rules).out.runs
     if not runs or runs[-1][1] != end - index:
         return -1
     return end + 1 if stop and stop[0] == "]" else end
 
 
-def _mysql_dashes(sql: str, index: int) -> bool:
+def _dashes_end_in_space(sql: str, index: int) -> bool:
     """MySQL's ``--`` opens a comment only before whitespace, a control character or the end of the text."""
     after = sql[index + 2 : index + 3]
     return not after or ord(after) <= 32 or ord(after) == 127
 
 
-def _line_comment(sql: str, index: int, mysql: bool) -> bool:
-    dashes = sql.startswith("--", index) and (not mysql or _mysql_dashes(sql, index))
-    return dashes or (mysql and sql[index] == "#")
+def _line_comment(sql: str, index: int, rules: LexRules) -> bool:
+    needs_space = rules.dash_needs_space is Reading.YES
+    dashes = sql.startswith("--", index) and (not needs_space or _dashes_end_in_space(sql, index))
+    return dashes or (rules.hash is HashRule.COMMENT and sql[index] == "#")
 
 
 def _digit_goes_on(sql: str, cursor: int) -> bool:
@@ -360,47 +390,47 @@ def _keep(source: str, index: int, out: Out) -> _Scanned:
     return index + 1, False
 
 
-def _scan_line_comment(source: str, index: int, out: Out, mysql: bool) -> _Scanned:
-    if not _line_comment(source, index, mysql):
+def _scan_line_comment(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
+    if not _line_comment(source, index, rules):
         return _keep(source, index, out)
     out.space()
     newline = source.find("\n", index + 1)
     end = len(source) if newline < 0 else newline
-    out.runs.append(Range(index, end, _COMMENT))
+    out.runs.append((index, end, _COMMENT))
     return end, False
 
 
-def _scan_block_comment(source: str, index: int, out: Out, _mysql: bool) -> _Scanned:
+def _scan_block_comment(source: str, index: int, out: Out, _rules: LexRules) -> _Scanned:
     if not source.startswith("*", index + 1):
         return _keep(source, index, out)
     out.space()
     close = source.find("*/", index + 2)
     end = len(source) if close < 0 else close + 2
-    out.runs.append(Range(index, end, _COMMENT))
+    out.runs.append((index, end, _COMMENT))
     return end, False
 
 
-def _scan_string(source: str, index: int, _out: Out, _mysql: bool) -> _Scanned:
-    return _skip_quoted(source, index, "'"), True
+def _scan_string(source: str, index: int, _out: Out, rules: LexRules) -> _Scanned:
+    return _skip_quoted(source, index, "'", rules), True
 
 
-def _scan_dollar(source: str, index: int, out: Out, mysql: bool) -> _Scanned:
+def _scan_dollar(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
     # ``SELECT`` refuses one on MySQL 8.4.10, but a routine body is one: where a token starts it opens in every mode
-    end = -1 if _name_goes_on(source, index, out, mysql) else _dollar_quote_end(source, index, mysql)
+    end = -1 if _name_goes_on(source, index, out, rules) else _dollar_quote_end(source, index, rules)
     return (end, True) if end > 0 else _keep(source, index, out)
 
 
-def _scan_dot(source: str, index: int, out: Out, _mysql: bool) -> _Scanned:
+def _scan_dot(source: str, index: int, out: Out, _rules: LexRules) -> _Scanned:
     if _identifier_char_before(out) or not source[index + 1 : index + 2].isdigit():
         return _keep(source, index, out)
     return _skip_number(source, index), True
 
 
-def _scan_at(source: str, index: int, out: Out, mysql: bool) -> _Scanned:
+def _scan_at(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
     """MySQL's lexer reads what follows ``@`` as one token, a user variable or an account's host: nothing in it opens a
     run. A number in it hides all of it, so what a digit run hid before stays hidden. ``@@`` is two of these."""
     found = _AT_TOKEN.match(source, index)
-    if not mysql or found is None:
+    if not rules.at_token or found is None:
         return _keep(source, index, out)
     if _AT_NUMBER.search(found[0]):
         return found.end(), True
@@ -408,24 +438,24 @@ def _scan_at(source: str, index: int, out: Out, mysql: bool) -> _Scanned:
     return found.end(), False
 
 
-def _scan_quoted(source: str, index: int, out: Out, mysql: bool) -> _Scanned:
-    if source[index] == "[" and (two_way_end := _two_way_bracket_end(source, index, mysql)) > 0:
+def _scan_quoted(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
+    if source[index] == "[" and (two_way_end := _two_way_bracket_end(source, index, rules)) > 0:
         return two_way_end, True
-    end = _quoted_end(source, index, out, mysql)
+    end = _quoted_end(source, index, out, rules)
     kind = _CODE
     if source[index] == '"':
-        literal = _double_quoted_literal(source, index, end, out, mysql)
+        literal = _double_quoted_literal(source, index, end, out, rules)
         if literal:
             return end, True
         if literal is None:
             kind = _DOUBLE_QUOTED
             out.marks.append(Candidate(len(out.chars), out.predicate_position()))
     out.append(source[index:end])
-    out.runs.append(Range(index, end, kind))
+    out.runs.append((index, end, kind))
     return end, False
 
 
-def _scan_keyword(source: str, index: int, out: Out, _mysql: bool) -> _Scanned:
+def _scan_keyword(source: str, index: int, out: Out, _rules: LexRules) -> _Scanned:
     if _identifier_char_before(out):
         return _keep(source, index, out)
     if _matches_keyword(source, index, "true"):
@@ -455,7 +485,7 @@ class _Pass(NamedTuple):
     predicate_literals: int
 
 
-def _read(source: str, mysql: bool, dollar: bool = True) -> _Pass:
+def _read(source: str, rules: LexRules, dollar: bool = True) -> _Pass:
     """``dollar`` off reads as MariaDB and MySQL before 8.1 do: no dollar quote, which is all they differ in here. A
     bracket's body keeps its own read: a dollar quote that opens in it reads two ways, and that cut comes first."""
     scanners = _SCANNERS if dollar else _NO_DOLLAR_SCANNERS
@@ -469,7 +499,7 @@ def _read(source: str, mysql: bool, dollar: bool = True) -> _Pass:
         scanner = scanners.get(c)
         literal = False
         if scanner is not None:
-            index, literal = scanner(source, index, out, mysql)
+            index, literal = scanner(source, index, out, rules)
         elif c in _SPACE:
             out.space()
             index += 1
@@ -486,7 +516,7 @@ def _read(source: str, mysql: bool, dollar: bool = True) -> _Pass:
             literals += 1
             predicate_literals += out.predicate_position()
             out.append("?")
-            out.runs.append(Range(start, index, _LITERAL))
+            out.runs.append((start, index, _LITERAL))
     return _Pass(source, out, literals, predicate_literals)
 
 
@@ -498,21 +528,21 @@ def _holds_a_trigger(source: str) -> bool:
     )  # fmt: skip
 
 
-def _comment_reads_two_ways(source: str, start: int, end: int, mysql: bool) -> bool:
+def _comment_reads_two_ways(source: str, start: int, end: int, rules: LexRules) -> bool:
     if source.startswith("/*", start):
         if source.find("/*", start + 2, end) >= 0:  # PostgreSQL nests, the scan closes at the first ``*/``
             return True
         # MySQL skips a comment or a name inside one, so it ends past the first ``*/``, and only MySQL knows where
         return source.startswith(_EXECUTABLE_COMMENT, start)
-    if mysql:  # a line comment of known MySQL text ends at its newline
-        return False
-    if "\r" in source[start:end].rstrip("\r"):  # a lone CR ends it on PostgreSQL, not on MySQL or SQLite
+    # a lone CR ends it on PostgreSQL, not on MySQL or SQLite
+    if rules.cr_ends_dash is Reading.CUT and "\r" in source[start:end].rstrip("\r"):
         return True
     # a ``--`` tight against text is two minus signs on MySQL, so what it holds opens a run there
-    return not _mysql_dashes(source, start) and _TIGHT_DASH_OPENER.search(source, start, end) is not None
+    tight = not _dashes_end_in_space(source, start)
+    return rules.dash_needs_space is Reading.CUT and tight and _TIGHT_DASH_OPENER.search(source, start, end) is not None
 
 
-def _trigger_spans(source: str, runs: Sequence[Range]) -> list[tuple[int, int]]:
+def _trigger_spans(source: str, runs: Sequence[Run]) -> list[tuple[int, int]]:
     """The raw text a ``#`` or a ``q`` counts in: all of it outside a literal (spec §3)."""
     spans: list[tuple[int, int]] = []
     index = 0
@@ -524,14 +554,14 @@ def _trigger_spans(source: str, runs: Sequence[Range]) -> list[tuple[int, int]]:
     return spans
 
 
-def _opener_beside_dollar_quote(source: str, start: int) -> bool:
+def _opener_beside_dollar_quote(source: str, start: int, rules: LexRules) -> bool:
     """An opener in the body of the dollar quote at ``start`` or past its closer: with none, nothing can flip."""
     tag = source.index("$", start + 1) + 1 - start
-    end = _dollar_quote_end(source, start, False)
+    end = _dollar_quote_end(source, start, rules)
     return bool(_OPENER.search(source, start + tag, end - tag) or _OPENER.search(source, end))
 
 
-def _generic_trigger(source: str, runs: Sequence[Range]) -> bool:
+def _generic_trigger(source: str, runs: Sequence[Run], rules: LexRules) -> bool:
     """A ``q'`` (the span's end takes in the quote that opens a literal), a ``#`` with an opener after it anywhere, a
     dollar quote after ``@``, a value on PostgreSQL and a name on MySQL, or one after ``.`` beside another opener, a
     syntax error on PostgreSQL and a name on MySQL."""
@@ -543,23 +573,24 @@ def _generic_trigger(source: str, runs: Sequence[Range]) -> bool:
             return True
         if source.startswith("@$", end - 1):
             return True
-        if source.startswith(".$", end - 1) and _opener_beside_dollar_quote(source, end):
+        if source.startswith(".$", end - 1) and _opener_beside_dollar_quote(source, end, rules):
             return True
     return False
 
 
-def _backslash_reads_two_ways(scan: _Pass, mysql: bool) -> bool:
+def _backslash_reads_two_ways(scan: _Pass, rules: LexRules) -> bool:
     """Ported from ``isAmbiguous``. ``MySQL`` escapes in ``"..."`` and the generic scan does not, so such a run always
     counts there. The text without its backslashes is the one derived text the scan reads (spec §3, r4)."""
     source, runs = scan.source, scan.out.runs
     if "\\" not in source:
         return False
-    if not mysql and any(source[start] == '"' and source.find("\\", start, end) >= 0 for start, end, _ in runs):
+    no_escape = rules.backslash_in_double is Backslash.NONE
+    if no_escape and any(source[start] == '"' and source.find("\\", start, end) >= 0 for start, end, _ in runs):
         return True
-    return _read(source.replace("\\", ""), mysql).out.text() != scan.out.text()
+    return _read(source.replace("\\", ""), rules).out.text() != scan.out.text()
 
 
-def _backtick_reads_two_ways(source: str, runs: Sequence[Range]) -> bool:
+def _backtick_reads_two_ways(source: str, runs: Sequence[Run]) -> bool:
     """A name on MySQL and SQLite, an operator on PostgreSQL after ``CREATE OPERATOR``: a quote in it opens a string,
     and left open, an odd count of backticks, it holds code there and is invalid on the other two."""
     if "`" not in source:
@@ -571,19 +602,20 @@ def _backtick_reads_two_ways(source: str, runs: Sequence[Range]) -> bool:
     )  # fmt: skip
 
 
-def _reads_two_ways(scan: _Pass, mysql: bool) -> bool:
+def _reads_two_ways(scan: _Pass, rules: LexRules) -> bool:
     source, runs = scan.source, scan.out.runs
     if "[" in source and any(kind == _LITERAL and source[start] == "[" for start, _, kind in runs):
         return True
-    if not mysql and _backtick_reads_two_ways(source, runs):
+    if rules.backtick_run is BacktickRun.NAME_OR_CUT and _backtick_reads_two_ways(source, runs):
         return True
     if not _holds_a_trigger(source):
         return False
-    if any(_comment_reads_two_ways(source, start, end, mysql) for start, end, kind in runs if kind == _COMMENT):
+    if any(_comment_reads_two_ways(source, start, end, rules) for start, end, kind in runs if kind == _COMMENT):
         return True
-    if _backslash_reads_two_ways(scan, mysql):
+    if _backslash_reads_two_ways(scan, rules):
         return True
-    return not mysql and _generic_trigger(source, runs)  # on MySQL ``#`` is a comment and ``q'`` is nothing
+    # shortcut: one field gates all four of these triggers; Task 29 removes them with generic mode
+    return rules.q_quote_cuts and _generic_trigger(source, runs, rules)  # on MySQL ``#`` is a comment
 
 
 def _bracket_opener(scan: _Pass) -> re.Match[str] | None:
@@ -595,17 +627,17 @@ def _bracket_opener(scan: _Pass) -> re.Match[str] | None:
     return None
 
 
-def _family_cut(scan: _Pass) -> int:
+def _family_cut(scan: _Pass, rules: LexRules) -> int:
     """The first run the MySQL family's two reads place apart; -1 when a ``$`` opens no dollar quote on either."""
     source = scan.source
     if "$" not in source:
         return -1
-    other = _read(source, True, dollar=False).out.runs
+    other = _read(source, rules, dollar=False).out.runs
     end = (len(source), len(source), _LITERAL)  # the read with fewer runs goes on to the end of the text
     return next((min(a[0], b[0]) for a, b in zip_longest(scan.out.runs, other, fillvalue=end) if a != b), -1)
 
 
-def _ambiguous_cut(scan: _Pass, mysql: bool) -> int:
+def _ambiguous_cut(scan: _Pass, rules: LexRules) -> int:
     """Where a statement that reads two ways stops, its first opener; -1 when it reads one way or holds none.
 
     An opener is one of ``_RUN_OPENER``, or what opened a run left open in a bracket. On MySQL a statement that reads
@@ -614,40 +646,53 @@ def _ambiguous_cut(scan: _Pass, mysql: bool) -> int:
     Ported from ``JournalTextExposure.isAmbiguous``, which runs on the journal; here a trigger inside a literal is text
     (MVP spec §14), and the nested and backslash checks also run on MySQL (decision D7).
     """
-    if not _reads_two_ways(scan, mysql):
-        return _family_cut(scan) if mysql else -1
+    if not _reads_two_ways(scan, rules):
+        return _family_cut(scan, rules) if rules.dollar is DollarOpen.MYSQL_TAG else -1
     found = _RUN_OPENER.search(scan.source)
     return min((stop.start() for stop in (found, _bracket_opener(scan)) if stop), default=-1)
 
 
-def _scan(sql: str, mysql: bool) -> Scan:
+def _scan(sql: str, rules: LexRules) -> Scan:
     """The one entry to the read: the output, the runs, and where a statement that reads two ways stops."""
     source = sql[:_MAX_SCAN_LENGTH]
-    scan = _read(source, mysql)
-    cut = _ambiguous_cut(scan, mysql)
+    scan = _read(source, rules)
+    cut = _ambiguous_cut(scan, rules)
     uncut = tuple(scan.out.runs)
     if cut < 0:
         return Scan(
             source, scan.out.text(), uncut, scan.literals, scan.predicate_literals, -1, uncut, tuple(scan.out.marks)
         )
-    head = _read(source[:cut], mysql)
+    head = _read(source[:cut], rules)
     out = head.out
     out.space()
-    out.runs.append(Range(cut, cut, _COMMENT))  # the space, so that ``shown`` replays it
+    out.runs.append((cut, cut, _COMMENT))  # the space, so that ``shown`` replays it
     predicate = out.predicate_position()
     out.append("?")
-    out.runs.append(Range(cut, len(source), _LITERAL))
+    out.runs.append((cut, len(source), _LITERAL))
     literals, predicate_literals = head.literals + 1, head.predicate_literals + predicate
     return Scan(source, out.text(), tuple(out.runs), literals, predicate_literals, cut, uncut, tuple(out.marks))
 
 
 class HandLexer:
-    """The scan by hand, one pass over the text; the only ``SqlLexer`` there is. A MySQL-family dialect reads MySQL's
-    rules, any other the generic ones that cut wherever two servers would disagree (Task 12 replaces the flag by rules).
-    """
+    """The scan by hand, one pass over the text; the only ``SqlLexer`` there is. ``readings`` names the rules."""
 
     def scan(self, sql: str, dialect: Dialect) -> Scan:
-        return _scan(sql, dialect is Dialect.MYSQL_FAMILY)
+        return _scan(sql, readings(dialect)[0])
+
+    def block_closer(self, text: str, dialect: Dialect) -> int:
+        """Where the ``]`` closing a ``[SQL: `` block is in ``text``, the text after its opener; -1 when none does.
+
+        The first ``]`` outside a literal, at bracket depth 0, in the scanned range, that ends the text or comes
+        before what SQLAlchemy writes next (spec §3). One walk: literals and brackets both ascend. A comment is read,
+        so that the ``]`` of ``-- arr[1]]`` counts. No ambiguity cut: parameters are no statement, so what they hold
+        cannot cut one.
+        """
+        return _first_closer(_read(text[:_MAX_SCAN_LENGTH], readings(dialect)[0]), text)
+
+    def reads_two_ways(self, sql: str, dialect: Dialect) -> bool:
+        """Whether ``sql`` stops at its first opener: a closer found in such a statement is a guess."""
+        rules = readings(dialect)[0]
+        return _ambiguous_cut(_read(sql[:_MAX_SCAN_LENGTH], rules), rules) >= 0
 
 
 def _first_closer(scan: _Pass, text: str) -> int:
@@ -667,19 +712,3 @@ def _first_closer(scan: _Pass, text: str) -> int:
         elif _BLOCK_FOLLOWS.match(text, at + 1):
             return at
     return -1
-
-
-def block_closer(text: str, dialect: Dialect) -> int:
-    """Where the ``]`` closing a ``[SQL: `` block is in ``text``, the text after its opener; -1 when none does.
-
-    The first ``]`` outside a literal, at bracket depth 0, in the scanned range, that ends the text or comes before what
-    SQLAlchemy writes next (spec §3). One walk: literals and brackets both ascend. A comment is read, so that the ``]``
-    of ``-- arr[1]]`` counts. No ambiguity cut: parameters are no statement, so what they hold cannot cut one.
-    """
-    return _first_closer(_read(text[:_MAX_SCAN_LENGTH], dialect is Dialect.MYSQL_FAMILY), text)
-
-
-def reads_two_ways(sql: str, dialect: Dialect) -> bool:
-    """Whether ``sql`` stops at its first opener: a closer found in such a statement is a guess."""
-    mysql = dialect is Dialect.MYSQL_FAMILY
-    return _ambiguous_cut(_read(sql[:_MAX_SCAN_LENGTH], mysql), mysql) >= 0

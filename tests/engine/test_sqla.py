@@ -26,6 +26,7 @@ from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestI
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # noqa: E402
 from sharpit.engine.masking import Exposure, Masker  # noqa: E402
 from sharpit.engine.sqla import orm as sqla_orm  # noqa: E402
+from sharpit.engine.sqltext import Dialect  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -227,9 +228,9 @@ def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(monkeypat
         calls["path"] += 1
         return path(context)
 
-    def count_fingerprint(statement: str, mysql: bool = False) -> str:
+    def count_fingerprint(statement: str, dialect: Dialect) -> str:
         calls["fingerprint"] += 1
-        return fingerprint(statement, mysql)
+        return fingerprint(statement, dialect)
 
     monkeypatch.setattr(sqla_orm, "_relationship_path", count_path)
     monkeypatch.setattr(sqla_orm, "_masked_fingerprint", count_fingerprint)
@@ -344,7 +345,7 @@ def test_relationship_facts_use_masked_statement_fingerprint() -> None:
     token = TEST.set(tag)
     try:
         sqla_orm._record_relationship(context)
-        masked_fingerprint = masked_shape(report_masker(), statement, False).fingerprint
+        masked_fingerprint = masked_shape(report_masker(), statement, Dialect.UNSUPPORTED).fingerprint
         assert sqla_orm._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
     finally:
         sqla_orm._relationship_loads.pop(tag, None)
@@ -368,7 +369,7 @@ def test_relationship_facts_on_mysql_use_the_mysql_fingerprint() -> None:
     token = TEST.set(tag)
     try:
         sqla_orm._record_relationship(context)
-        masked_fingerprint = masked_shape(report_masker(), statement, True).fingerprint
+        masked_fingerprint = masked_shape(report_masker(), statement, Dialect.MYSQL_FAMILY).fingerprint
         assert sqla_orm._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
     finally:
         sqla_orm._relationship_loads.pop(tag, None)
@@ -722,10 +723,10 @@ def test_load_compiles_and_masks_statement_once(monkeypatch: pytest.MonkeyPatch)
     calls = 0
     read_statement = statement.read_statement
 
-    def counted_read(statement: str, mysql: bool = False) -> Any:
+    def counted_read(statement: str, dialect: Dialect) -> Any:
         nonlocal calls
         calls += 1
-        return read_statement(statement, mysql)
+        return read_statement(statement, dialect)
 
     monkeypatch.setattr(statement, "read_statement", counted_read)
     info = _paging_request("request-statement-shape")
@@ -749,10 +750,10 @@ def test_load_compiles_and_masks_statement_once_current(monkeypatch: pytest.Monk
     calls = 0
     read_statement = statement.read_statement
 
-    def counted_read(statement: str, mysql: bool = False) -> Any:
+    def counted_read(statement: str, dialect: Dialect) -> Any:
         nonlocal calls
         calls += 1
-        return read_statement(statement, mysql)
+        return read_statement(statement, dialect)
 
     monkeypatch.setattr(statement, "read_statement", counted_read)
     info = _paging_request("request-statement-shape-current")

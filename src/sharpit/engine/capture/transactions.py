@@ -17,6 +17,7 @@ from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqla.events import add_pool_listener
+from sharpit.engine.sqltext import Dialect
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -217,7 +218,7 @@ class TransactionRecorder:
         row["slow"] = self.slow_threshold_ms > 0 and duration >= self.slow_threshold_ms
         row["connectionHeld"] = self.hold_threshold_ms > 0 and duration >= self.hold_threshold_ms
         if error is not None:
-            row["errorMessage"] = mask_error(self._masker, str(error))
+            row["errorMessage"] = mask_error(self._masker, str(error), Dialect.UNSUPPORTED)
 
     def _evict_completed_locked(self) -> bool:
         for row in self._entries:

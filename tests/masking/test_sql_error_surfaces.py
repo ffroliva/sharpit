@@ -31,6 +31,7 @@ from sharpit.engine.collectors.mysql.service import refresh_mysql
 from sharpit.engine.collectors.postgresql.service import refresh_postgresql
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.sink import TestSessionSink
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.settings import load_settings
@@ -140,7 +141,14 @@ def test_transactions_report() -> None:
 
 def test_sql_trace_report_when_the_error_names_another_statement() -> None:
     recorder = SqlTraceRecorder(Masker(Exposure.MASKED, True, None))
-    recorder.record("SELECT 1", duration_ns=1, thread="t", connection_id=None, error=RuntimeError(ERROR))
+    recorder.record(
+        "SELECT 1",
+        duration_ns=1,
+        thread="t",
+        connection_id=None,
+        error=RuntimeError(ERROR),
+        dialect=Dialect.UNSUPPORTED,
+    )
     _assert_scanned(json.dumps(recorder.report([])))
 
 

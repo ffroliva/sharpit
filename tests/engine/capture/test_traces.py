@@ -18,6 +18,7 @@ from sharpit.engine.capture.correlation import INTERNAL
 from sharpit.engine.capture.streams import SSE_TASK
 from sharpit.engine.capture.traces import SpanBuffer
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 MASKED = Masker(Exposure.MASKED, True)
 FULL = Masker(Exposure.FULL, True)
@@ -517,6 +518,21 @@ def test_mysql_span_statement_uses_the_mysql_scan(key: str, system: str):
 
     assert detail is not None
     assert attribute(detail["spans"][0], "db.statement") == "select ?"
+
+
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        (None, Dialect.UNSUPPORTED),
+        ({"db.system": "postgresql"}, Dialect.POSTGRESQL),
+        ({"db.system.name": "sqlite"}, Dialect.SQLITE),
+        ({"db.system": "oracle"}, Dialect.UNSUPPORTED),
+        ({"db.system": "postgresql", "db.system.name": "mysql"}, Dialect.MYSQL_FAMILY),  # either name, as the flag read
+        ({"db.system": ["a", "list"]}, Dialect.UNSUPPORTED),  # an attribute can hold anything: unhashable never raises
+    ],
+)
+def test_a_span_names_its_dialect(attributes: dict[str, Any] | None, expected: Dialect) -> None:
+    assert traces._span_dialect(attributes) is expected
 
 
 def test_mysql_span_sql_error_uses_the_mysql_scan():

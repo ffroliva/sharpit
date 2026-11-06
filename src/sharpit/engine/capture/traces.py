@@ -18,12 +18,12 @@ from sharpit.engine import otel
 from sharpit.engine.capture import under
 from sharpit.engine.capture.correlation import INTERNAL
 from sharpit.engine.capture.sqltrace import (
-    MYSQL_DIALECTS,
     mask_error,
 )
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.capture.streams import SSE_TASK
 from sharpit.engine.masking import MASK, Masker, is_sensitive_key
+from sharpit.engine.sqltext import Dialect, dialect_of_name
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -120,16 +120,16 @@ def _header_attribute(masker: Masker, key: str, value: object) -> str | None:
     return _text([masker.mask_text(v) or "" for v in shown]) if shown else None
 
 
-def _sql_attribute(masker: Masker, key: str, value: object, mysql: bool) -> str | None:
+def _sql_attribute(masker: Masker, key: str, value: object, dialect: Dialect) -> str | None:
     if _SQL_PARAMETER_KEYS.search(key):
         return _text(value) if masker.capture_parameters else MASK
     text = _text(value)
-    return masker.mask_text(text) if masker.capture_parameters else statement_text(masker, text, mysql)
+    return masker.mask_text(text) if masker.capture_parameters else statement_text(masker, text, dialect)
 
 
-def _url_attribute(masker: Masker, key: str, value: object, mysql: bool) -> str | None:
+def _url_attribute(masker: Masker, key: str, value: object, dialect: Dialect) -> str | None:
     if key in {"exception.message", "exception.stacktrace"}:
-        return mask_error(masker, _text(value), mysql)
+        return mask_error(masker, _text(value), dialect)
     if key == "url.query":
         return masker.mask_query(str(value))
     if key in _URL_KEYS or key in _PLAIN_PATH_KEYS:
@@ -137,28 +137,31 @@ def _url_attribute(masker: Masker, key: str, value: object, mysql: bool) -> str 
     return None
 
 
-def _attribute_value(masker: Masker, key: str, value: object, mysql: bool) -> str | None:
+def _attribute_value(masker: Masker, key: str, value: object, dialect: Dialect) -> str | None:
     if key.startswith(_HEADER_PREFIXES):
         return _header_attribute(masker, key, value)
     if _SQL_PARAMETER_KEYS.search(key) or key in _SQL_KEYS:
-        return _sql_attribute(masker, key, value, mysql)
+        return _sql_attribute(masker, key, value, dialect)
     if key in {"exception.message", "exception.stacktrace", "url.query", *_URL_KEYS, *_PLAIN_PATH_KEYS}:
-        return _url_attribute(masker, key, value, mysql)
+        return _url_attribute(masker, key, value, dialect)
     shown, masked = masker.mask(key, value)
     if shown is None or masked:
         return None if shown is None else str(shown)
     return masker.mask_text(_text(shown))
 
 
-def _span_is_mysql(attributes: Mapping[str, Any] | None) -> bool:
-    """OTel names the database in ``db.system``, or ``db.system.name`` in the newer conventions."""
+def _span_dialect(attributes: Mapping[str, Any] | None) -> Dialect:
+    """OTel names the database in ``db.system``, or ``db.system.name`` in the newer conventions. An attribute can hold
+    anything, so only a string is a name; either one naming the MySQL family decides, as it did for the flag."""
     found = attributes or {}
-    return found.get("db.system") in MYSQL_DIALECTS or found.get("db.system.name") in MYSQL_DIALECTS
+    names = (found.get("db.system"), found.get("db.system.name"))
+    dialects = [dialect_of_name(name) or Dialect.UNSUPPORTED for name in names if isinstance(name, str)]
+    return Dialect.MYSQL_FAMILY if Dialect.MYSQL_FAMILY in dialects else next(iter(dialects), Dialect.UNSUPPORTED)
 
 
-def _attributes(masker: Masker, attributes: Mapping[str, Any] | None, mysql: bool = False) -> list[dict[str, Any]]:
+def _attributes(masker: Masker, attributes: Mapping[str, Any] | None, dialect: Dialect) -> list[dict[str, Any]]:
     return [
-        {"key": key, "type": _attribute_type(value), "value": _attribute_value(masker, key, value, mysql)}
+        {"key": key, "type": _attribute_type(value), "value": _attribute_value(masker, key, value, dialect)}
         for key, value in (attributes or {}).items()
     ]
 
@@ -363,7 +366,7 @@ class SpanBuffer:
         parent = _parent_id(span)
         end = span.end_time or span.start_time
         scope = getattr(span, "instrumentation_scope", None)
-        mysql = _span_is_mysql(span.attributes)
+        dialect = _span_dialect(span.attributes)
         return {
             "traceId": _trace_id(span),
             "spanId": _hex(span.context.span_id, 16),
@@ -376,13 +379,13 @@ class SpanBuffer:
             "endEpochNanos": end,
             "durationNanos": end - span.start_time,
             "statusCode": _status_code(span),
-            "statusMessage": mask_error(self.masker, span.status.description, mysql),
-            "attributes": _attributes(self.masker, span.attributes, mysql),
+            "statusMessage": mask_error(self.masker, span.status.description, dialect),
+            "attributes": _attributes(self.masker, span.attributes, dialect),
             "events": [
                 {
                     "name": self.masker.mask_text(e.name),
                     "timeOffsetNanos": e.timestamp - span.start_time,
-                    "attributes": _attributes(self.masker, e.attributes, mysql),
+                    "attributes": _attributes(self.masker, e.attributes, dialect),
                 }
                 for e in span.events or ()
             ],

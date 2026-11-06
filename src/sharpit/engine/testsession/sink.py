@@ -21,6 +21,7 @@ from sharpit.engine.capture.statement import masked_shape
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources.dispatch import SqlEvent, TestTag
 from sharpit.engine.spi import ApiModel
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, SessionFacts, TestFacts, TestKey
 from sharpit.engine.testsession.filters import filtered_rule
 from sharpit.settings import SharpitSettings
@@ -134,7 +135,7 @@ class TestSessionSink:
     def on_sql(self, event: SqlEvent, test: TestTag | None) -> None:
         try:
             rule = filtered_rule(event.sql)
-            shape = None if rule else self._shape(event.sql, event.mysql)
+            shape = None if rule else self._shape(event.sql, event.dialect)
             with self._lock:
                 phase = self._phase_of(test)
                 if shape is None:
@@ -181,7 +182,7 @@ class TestSessionSink:
                     return
                 group = fingerprint(exc)
                 try:
-                    message = mask_error(self._masker, str(exc)) or ""
+                    message = mask_error(self._masker, str(exc), Dialect.UNSUPPORTED) or ""
                 except Exception:
                     message = f"<unprintable {type(exc).__name__}>"
                 phase.exception_groups.setdefault(group, (type(exc).__name__, message))

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from sharpit.engine import sqltext
 from sharpit.engine.sqltext import Dialect
 
@@ -9,9 +11,9 @@ MASK = "******"
 SQL = 'SELECT "x" FROM t'
 
 
-def _shown(sql: str, hidden: list[tuple[int, int]], double_quoted: object) -> str:
+def _shown(sql: str, hidden: list[tuple[int, int]], double_quoted: Callable[[str], bool]) -> str:
     scan = sqltext.LEXER.scan(sql, Dialect.UNSUPPORTED)
-    return sqltext.shown(sql, scan, hidden, MASK, double_quoted)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
+    return sqltext.shown(sql, scan, hidden, MASK, sqltext.secrets(scan, double_quoted), ())
 
 
 def test_render_decides_a_double_quoted_run() -> None:
@@ -48,3 +50,36 @@ def test_render_does_not_ask_about_a_run_the_lexer_made_a_literal() -> None:
     _shown('SELECT a = "x"', [], record)
 
     assert asked == []
+
+
+def test_render_asks_about_each_run_once_for_the_shape_and_the_text() -> None:
+    asked: list[str] = []
+
+    def record(body: str) -> bool:
+        asked.append(body)
+        return True
+
+    sql = 'SELECT "abc", "def" FROM t'
+    scan = sqltext.LEXER.scan(sql, Dialect.UNSUPPORTED)
+    secret = sqltext.secrets(scan, record)
+    sqltext.shape(scan, secret)
+    sqltext.shown(sql, scan, [], MASK, secret, ())
+
+    assert asked == ["abc", "def"]
+
+
+def test_a_secret_run_in_a_predicate_is_a_predicate_literal() -> None:
+    # ported: the candidate remembers whether a literal there sits in a predicate
+    scan = sqltext.LEXER.scan('SELECT 1 WHERE a = "secret".x', Dialect.UNSUPPORTED)
+
+    _, _, predicates = sqltext.shape(scan, sqltext.secrets(scan, lambda _body: True))
+
+    assert predicates == 1
+
+
+def test_a_double_quoted_name_outside_a_predicate_is_no_predicate_literal() -> None:
+    scan = sqltext.LEXER.scan('SELECT "secret".x FROM t', Dialect.UNSUPPORTED)
+
+    _, literals, predicates = sqltext.shape(scan, sqltext.secrets(scan, lambda _body: True))
+
+    assert (literals, predicates) == (1, 0)

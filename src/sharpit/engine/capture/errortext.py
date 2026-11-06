@@ -13,6 +13,7 @@ from collections.abc import Iterable, Iterator
 from sharpit.engine.capture.sqlscan import block_closer, reads_two_ways
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import MASK, Masker, Tracked
+from sharpit.engine.sqltext import Dialect
 
 _BREAKS = r"\n\r\x0b\x0c\x1c\x1d\x1e\x85  "  # every separator ``str.splitlines`` knows
 _LINE_START = rf"(?<![^{_BREAKS}])"
@@ -138,7 +139,7 @@ class _Lines:
         self._state = state
         self._keep_frames = keep_frames
         self.shown: list[str] = []
-        self.mysql = False
+        self.driver: Dialect | None = None  # what the driver line names, until Task 28
 
     @functools.cached_property
     def _hits(self) -> _Hits:
@@ -183,7 +184,8 @@ class _Lines:
         cut = line.find(_BLOCK)
         text = line if cut < 0 else line[:cut]
         quote = _QUOTE.search(text)
-        self.mysql = self.mysql or _MYSQL_DRIVER.search(text, 0, quote.start() if quote else len(text)) is not None
+        named = _MYSQL_DRIVER.search(text, 0, quote.start() if quote else len(text))
+        self.driver = self.driver or (Dialect.MYSQL_FAMILY if named else None)
         self.shown.append(_driver_line(self._masker, text) + ("" if cut < 0 else _BLOCK_HIDDEN))
 
     def _kept(self, start: int, end: int, quotes: bool) -> None:
@@ -201,18 +203,16 @@ def _final_link(text: str) -> re.Match[str] | None:
     return found
 
 
-def _block(masker: Masker, text: str, body: int, end: int, mysql: bool, shown: list[str]) -> int:
+def _block(masker: Masker, text: str, body: int, end: int, dialect: Dialect, shown: list[str]) -> int:
     """Emit the block whose body starts at ``body``, and its parameters; where the text goes on."""
     statement = text[body:end]
-    closer = block_closer(statement, mysql)
-    if closer < 0 or reads_two_ways(
-        statement[:closer], mysql
-    ):  # no closer to trust: the block runs on, to its parameters
+    closer = block_closer(statement, dialect)
+    if closer < 0 or reads_two_ways(statement[:closer], dialect):  # no closer to trust: it runs on, to its parameters
         parameters = statement.rfind(_PARAMETERS_LINE)
         read = statement if parameters < 0 else statement[:parameters]
-        shown.append(f"{_BLOCK}{statement_text(masker, read, mysql)}")
+        shown.append(f"{_BLOCK}{statement_text(masker, read, dialect)}")
         return end
-    shown.append(f"{_BLOCK}{statement_text(masker, statement[:closer], mysql)}]")
+    shown.append(f"{_BLOCK}{statement_text(masker, statement[:closer], dialect)}]")
     resume = body + closer + 1
     if _PARAMETERS.match(text, resume, end):
         shown.append(_PARAMETERS_HIDDEN)
@@ -220,13 +220,13 @@ def _block(masker: Masker, text: str, body: int, end: int, mysql: bool, shown: l
     return resume
 
 
-def _render(masker: Masker, text: str, mysql: bool, keep_frames: bool) -> str:
+def _render(masker: Masker, text: str, dialect: Dialect, keep_frames: bool) -> str:
     link = _final_link(text)
     end = link.start() if link else len(text)
     block = _BLOCK_LINE.search(text, 0, end)
     head = _Lines(masker, text[: block.start() if block else end], _DRIVER, keep_frames)
     shown = head.walk()
-    resume = _block(masker, text, block.end(), end, mysql or head.mysql, shown) if block else end
+    resume = _block(masker, text, block.end(), end, head.driver or dialect, shown) if block else end
     shown += _Lines(masker, text[resume:end], _TRAILER, keep_frames).walk()
     if link:
         shown.append(link[0])
@@ -234,21 +234,21 @@ def _render(masker: Masker, text: str, mysql: bool, keep_frames: bool) -> str:
     return "\n".join(shown)
 
 
-def render_error(masker: Masker, text: str, mysql: bool, keep_frames: bool = True) -> str:
+def render_error(masker: Masker, text: str, dialect: Dialect, keep_frames: bool = True) -> str:
     """``text`` by region; ``""`` under ``METADATA_ONLY``, ``******`` if the render fails.
 
-    ``mysql`` is for text known to be MySQL's, and a MySQL driver named on the driver line counts as known: a literal
+    A MySQL driver named on the driver line counts as ``Dialect.MYSQL_FAMILY``, whatever ``dialect`` says: a literal
     cannot switch it.
     """
     try:
         if masker.mask_spans("") is None:
             return ""
-        return _render(masker, text, mysql, keep_frames)
+        return _render(masker, text, dialect, keep_frames)
     except Exception:
         return MASK
 
 
-def mask_error(masker: Masker, text: str | None, mysql: bool = False, known: bool = False) -> str | None:
+def mask_error(masker: Masker, text: str | None, dialect: Dialect, known: bool = False) -> str | None:
     """An error text for display: every path from an exception to output comes here.
 
     ``known`` is for text certain to come from a database. Free text pays one search and is ``mask_text``'s.
@@ -257,7 +257,7 @@ def mask_error(masker: Masker, text: str | None, mysql: bool = False, known: boo
         return None
     if masker.capture_parameters or not (known or _AN_ERROR.search(text)):
         return masker.mask_text(text)
-    return render_error(masker, text, mysql) or masker.mask_text("")
+    return render_error(masker, text, dialect) or masker.mask_text("")
 
 
 def log_statement(masker: Masker, text: str) -> str | None:
@@ -266,4 +266,4 @@ def log_statement(masker: Masker, text: str) -> str | None:
     SQLAlchemy's cut can take a quote and flip every quote after it, so nothing past it is read.
     """
     cut = _TRUNCATED.search(text)
-    return statement_text(masker, text[: cut.start()] if cut else text)
+    return statement_text(masker, text[: cut.start()] if cut else text, Dialect.UNSUPPORTED)

@@ -6,6 +6,7 @@ import re
 
 from sharpit.engine.capture.sqlscan import Normalized, Reading, read_statement, shown
 from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.sqltext import Dialect
 
 # Words a statement starts with on PostgreSQL, MySQL or SQLite. The list is partial, ``REPAIR`` and ``ABORT`` are not in
 # it: a first word outside it only hides more. A ``-`` after a word makes it no verb: ``set-cookie``.
@@ -19,7 +20,7 @@ _VERB = re.compile(
 )
 
 
-def statement_text(masker: Masker, sql: str, mysql: bool = False, reading: Reading | None = None) -> str | None:
+def statement_text(masker: Masker, sql: str, dialect: Dialect, reading: Reading | None = None) -> str | None:
     """``sql`` with its literals and secrets gone; ``None`` under ``METADATA_ONLY``, ``******`` if the render fails.
 
     Text that starts with no verb is no statement, though it reaches ``db.statement``: a hit there hides all of it,
@@ -31,7 +32,7 @@ def statement_text(masker: Masker, sql: str, mysql: bool = False, reading: Readi
         relaxed = masker.mask_spans(sql, False)
         if relaxed is None:
             return None
-        render = shown(sql, relaxed, mysql, reading)
+        render = shown(sql, relaxed, dialect, reading)
         if _VERB.match(render):
             return masker.mask_statement(render)
         if relaxed or masker.mask_spans(sql, True):
@@ -41,12 +42,12 @@ def statement_text(masker: Masker, sql: str, mysql: bool = False, reading: Readi
         return MASK
 
 
-def masked_shape(masker: Masker, sql: str, mysql: bool) -> Normalized:
+def masked_shape(masker: Masker, sql: str, dialect: Dialect) -> Normalized:
     """The scan's shape of ``sql`` with ``statement_text`` as its text and, lower-cased, as its fingerprint.
 
     A fingerprint built before the masker keeps a secret in code, and lower-casing hides a vendor token from a later
     pass. Under ``METADATA_ONLY``, which gives no text, the scan's shape stands.
     """
-    reading = read_statement(sql, mysql)
-    text = statement_text(masker, sql, mysql, reading)
+    reading = read_statement(sql, dialect)
+    text = statement_text(masker, sql, dialect, reading)
     return reading.shape if text is None else reading.shape._replace(sql=text, fingerprint=text.lower())

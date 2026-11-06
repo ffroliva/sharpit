@@ -49,8 +49,14 @@ from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.probe import ProbeRequest, run_probe
 from sharpit.engine.sources.dispatch import SqlEvent
 from sharpit.engine.sqla.orm import _unbounded_read_statement_shape  # pyright: ignore[reportPrivateUsage]
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.sink import TestSessionSink
 from sharpit.settings import load_settings
+
+
+def dialect_of(mysql: bool) -> Dialect:
+    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
+
 
 ROWS = int(os.environ.get("MASKING_GATE_ROWS", "2000"))  # Task 11 runs the same gates at 60,000
 pytestmark = pytest.mark.timeout(max(300, ROWS // 5))  # the time of a surface grows with the rows, not with a bug
@@ -119,12 +125,12 @@ atexit.register(_PROBE_RUNNER.close)
 
 
 def _attribute(key: str, masker: Masker, value: str, mysql: bool) -> str | None:
-    return _attributes(masker, {key: value}, mysql)[0]["value"]  # noqa: SLF001
+    return _attributes(masker, {key: value}, dialect_of(mysql))[0]["value"]  # noqa: SLF001
 
 
 def _recorded(masker: Masker, sql: str, mysql: bool, error: BaseException | None = None) -> dict[str, Any]:
     recorder = SqlTraceRecorder(masker, max_sql_length=NO_CAP)
-    recorder.record(sql, duration_ns=1, thread="t", connection_id=None, error=error, mysql=mysql)
+    recorder.record(sql, duration_ns=1, thread="t", connection_id=None, error=error, dialect=dialect_of(mysql))
     return recorder.rows()[-1]
 
 
@@ -150,7 +156,9 @@ def _orm_statement(_masker: Masker, statement: str, mysql: bool) -> str | None:
 def _test_session_sql(masker: Masker, statement: str, mysql: bool) -> str | None:
     """Unattributed, because only a test's SELECTs reach ``sql_of``; a fresh sink, as its top list keeps 500."""
     sink = TestSessionSink("gw0", masker)
-    sink.on_sql(SqlEvent("sqlalchemy", statement, None, False, None, 0, 1, -1, None, None, None, mysql), None)
+    sink.on_sql(
+        SqlEvent("sqlalchemy", statement, None, False, None, 0, 1, -1, None, None, None, dialect_of(mysql)), None
+    )
     return next(iter(sink.facts.top_unattributed), None)
 
 

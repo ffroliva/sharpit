@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sharpit.engine.sqltext.constants import MASK
-from sharpit.engine.sqltext.dialect import Dialect
+from sharpit.engine.sqltext.dialect import Dialect, dialect_of_name
 from sharpit.engine.sqltext.lexer import (
     SPACE_CHARS,
     Candidate,
@@ -12,11 +12,9 @@ from sharpit.engine.sqltext.lexer import (
     Range,
     Scan,
     SqlLexer,
-    block_closer,
     quoted_body,
-    reads_two_ways,
 )
-from sharpit.engine.sqltext.render import collapse_placeholder_lists, shape, shown
+from sharpit.engine.sqltext.render import collapse_placeholder_lists, secrets, shape, shown
 
 LEXER: SqlLexer = HandLexer()
 """The one lexer. The facade reads it at each call, so the contract suite and a test can swap it."""
@@ -32,10 +30,10 @@ __all__ = [
     "Range",
     "Scan",
     "SqlLexer",
-    "block_closer",
     "collapse_placeholder_lists",
+    "dialect_of_name",
     "quoted_body",
-    "reads_two_ways",
+    "secrets",
     "shape",
     "shown",
 ]

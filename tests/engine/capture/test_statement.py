@@ -8,6 +8,12 @@ from sharpit.engine.capture import sqlscan
 from sharpit.engine.capture.statement import masked_shape, statement_text
 from sharpit.engine.capture.traces import _sql_attribute  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
+
+
+def dialect_of(mysql: bool) -> Dialect:
+    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
+
 
 MASKER = Masker(Exposure.MASKED, True)
 GITHUB_TOKEN = "ghp_" + "qMJX61wKzKlsVEOXgKQti54E"  # split: the host refuses a push holding a whole token
@@ -15,7 +21,7 @@ STRIPE_KEY = "sk_live_" + "caJxl2ed6lutLaJzdLustUfh"
 
 
 def _statement(sql: str, mysql: bool = False) -> str | None:
-    return _sql_attribute(MASKER, "db.statement", sql, mysql)
+    return _sql_attribute(MASKER, "db.statement", sql, dialect_of(mysql))
 
 
 @pytest.mark.parametrize(
@@ -102,7 +108,7 @@ def test_mysql_mode_reaches_the_scan() -> None:
 
 
 def test_metadata_only_returns_nothing_in_the_function() -> None:
-    assert statement_text(Masker(Exposure.METADATA_ONLY, True), "SELECT 1") is None
+    assert statement_text(Masker(Exposure.METADATA_ONLY, True), "SELECT 1", Dialect.UNSUPPORTED) is None
 
 
 def test_a_broken_render_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,17 +116,17 @@ def test_a_broken_render_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
         raise RuntimeError
 
     monkeypatch.setattr(sqlscan, "_scan", broken)
-    assert statement_text(MASKER, "UPDATE broken SET note='SECRET'") == MASK
+    assert statement_text(MASKER, "UPDATE broken SET note='SECRET'", Dialect.UNSUPPORTED) == MASK
 
 
 def test_a_token_is_hidden_with_secrets_off() -> None:
     masker = Masker(Exposure.MASKED, False, token="sharpit-token-value")
-    assert statement_text(masker, "SELECT sharpit-token-value FROM t") == f"SELECT {MASK} FROM t"
+    assert statement_text(masker, "SELECT sharpit-token-value FROM t", Dialect.UNSUPPORTED) == f"SELECT {MASK} FROM t"
 
 
 def test_capture_on_shows_the_masked_statement() -> None:
     masker = Masker(Exposure.MASKED, True, capture_parameters=True)
-    assert _sql_attribute(masker, "db.statement", "SELECT 'x'", False) == "SELECT 'x'"
+    assert _sql_attribute(masker, "db.statement", "SELECT 'x'", Dialect.UNSUPPORTED) == "SELECT 'x'"
 
 
 @pytest.mark.parametrize(
@@ -129,7 +135,7 @@ def test_capture_on_shows_the_masked_statement() -> None:
 )
 def test_a_key_nested_in_a_bare_value_reads_as_code(sql: str) -> None:
     # ``x = password = abc`` is valid SQL over three columns, and 0.4.0 shows the same: no value is in it
-    assert "abc" in (statement_text(MASKER, sql) or "")
+    assert "abc" in (statement_text(MASKER, sql, Dialect.UNSUPPORTED) or "")
 
 
 def test_a_shape_and_its_text_come_from_one_scan(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -143,5 +149,5 @@ def test_a_shape_and_its_text_come_from_one_scan(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(sqlscan, "_scan", counted)
     sql = "SELECT * FROM one_scan WHERE id = 7"
-    assert masked_shape(MASKER, sql, False).sql == "SELECT * FROM one_scan WHERE id = ?"
+    assert masked_shape(MASKER, sql, Dialect.UNSUPPORTED).sql == "SELECT * FROM one_scan WHERE id = ?"
     assert calls == [sql]

@@ -8,6 +8,7 @@ from sharpit.engine.capture import sqlscan
 from sharpit.engine.capture.sqltrace import normalize_sql
 from sharpit.engine.collectors.mysql.querytext import mysql_query_text
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 SECRET = "Hunter2Value"
 HEX = "DEADBEEFCAFE"
@@ -76,4 +77,4 @@ def test_mysql_query_text_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     ids=["identifiers", "xor-operator", "hex", "backslash"],
 )
 def test_the_generic_scan_keeps_its_output(sql: str, expected: str) -> None:
-    assert normalize_sql(sql) == expected
+    assert normalize_sql(sql, Dialect.UNSUPPORTED) == expected

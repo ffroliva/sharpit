@@ -16,16 +16,28 @@ _PLACEHOLDER_RUN = re.compile(r"\? *, *\?")  # what a folded list needs
 _STRUCTURAL = frozenset('"`[],;()=<>')
 
 
-def shape(scan: Scan, double_quoted: Callable[[str], bool]) -> tuple[str, int, int]:
-    """The scan's output, its literal count and its predicate-literal count, each ``DOUBLE_QUOTED`` run that
-    ``double_quoted`` calls a secret read as the literal it would have been."""
+def secrets(scan: Scan, double_quoted: Callable[[str], bool]) -> frozenset[int]:
+    """The start of each ``DOUBLE_QUOTED`` run that ``double_quoted`` calls a secret: the one place a body is asked
+    about, so ``shape`` and ``shown`` cannot disagree. Such a run reads as the literal it would have been."""
     if not scan.candidates:
+        return frozenset()
+    source = scan.source
+    return frozenset(
+        start
+        for start, end, kind in scan.runs
+        if kind is Kind.DOUBLE_QUOTED and double_quoted(quoted_body(source, start, end))
+    )
+
+
+def shape(scan: Scan, secret: frozenset[int]) -> tuple[str, int, int]:
+    """The scan's output, its literal count and its predicate-literal count, each run in ``secret`` read as a literal"""
+    if not secret:
         return scan.text, scan.literals, scan.predicate_literals
     text, literals, predicates = scan.text, scan.literals, scan.predicate_literals
-    found = [run for run in scan.runs if run.kind is Kind.DOUBLE_QUOTED]
-    for run, candidate in reversed(list(zip(found, scan.candidates, strict=True))):
-        if double_quoted(quoted_body(scan.source, run.start, run.end)):
-            text = f"{text[: candidate.at]}?{text[candidate.at + run.end - run.start :]}"
+    found = [run for run in scan.runs if run[2] is Kind.DOUBLE_QUOTED]
+    for (start, end, _), candidate in reversed(list(zip(found, scan.candidates, strict=True))):
+        if start in secret:
+            text = f"{text[: candidate.at]}?{text[candidate.at + end - start :]}"
             literals += 1
             predicates += candidate.predicate
     return text, literals, predicates
@@ -113,8 +125,8 @@ def shown(
     scan: Scan,
     hidden: Sequence[tuple[int, int]],
     mask: str,
-    double_quoted: Callable[[str], bool],
-    cuts: Sequence[tuple[int, int]] = (),
+    secret: frozenset[int],
+    cuts: Sequence[tuple[int, int]],
 ) -> str:
     """``sql`` as ``normalize`` shows it, with the ``hidden`` raw spans masked (ported from ``SqlSinkText.mask``).
 
@@ -122,7 +134,7 @@ def shown(
     what the scan decided about the ``"x"`` after it. A hidden character in a literal or a comment needs nothing:
     neither is copied. ``pieces`` has one entry per character of the scan's output, so ``cuts``, the placeholder lists
     folded in that output, apply to it by position, and nothing reads what was emitted. A ``DOUBLE_QUOTED`` run is
-    decided here: ``double_quoted(body)`` true makes it a literal, otherwise it is a name and is copied.
+    decided by ``secret`` (``secrets``): in it, a literal, otherwise a name that is copied.
     """
     source = sql[: len(scan.source)]
     flags = _hidden_flags(hidden, len(source))
@@ -130,7 +142,7 @@ def shown(
     index = 0
     for start, end, kind in scan.runs:
         if kind is Kind.DOUBLE_QUOTED:
-            kind = Kind.LITERAL if double_quoted(quoted_body(source, start, end)) else Kind.CODE
+            kind = Kind.LITERAL if start in secret else Kind.CODE
         if kind is Kind.LITERAL and start < len(flags):
             _release_name(source, flags, index, start)
         _copy(source, (index, start), flags, pieces, True, mask)

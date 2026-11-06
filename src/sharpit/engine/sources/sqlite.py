@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sources.dispatch import SqlEvent
+from sharpit.engine.sqltext import Dialect
 
 if TYPE_CHECKING:
     import sqlite3
@@ -104,6 +105,7 @@ def _event(
             error,
             _connection_id(cursor.connection),
             None,
+            Dialect.SQLITE,
         )  # fmt: skip
     )
 

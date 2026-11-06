@@ -30,6 +30,7 @@ from sharpit.engine.collectors.mysql.sections import (
 )
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
+from sharpit.engine.sqltext import Dialect
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -215,7 +216,7 @@ async def _read_engine(
     except Exception as exc:  # noqa: BLE001
         return _error_datasource(
             name,
-            mask_error(ctx.masker, str(exc).strip(), mysql=True, known=True) or type(exc).__name__,
+            mask_error(ctx.masker, str(exc).strip(), dialect=Dialect.MYSQL_FAMILY, known=True) or type(exc).__name__,
             diagnostics,
         )
 

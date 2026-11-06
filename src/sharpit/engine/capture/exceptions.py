@@ -24,6 +24,7 @@ from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
+from sharpit.engine.sqltext import Dialect
 
 MAX_MESSAGE = 2000
 MAX_CAUSES = 5
@@ -233,7 +234,7 @@ class ExceptionStore:
         self._slot = f"_{next(_SLOTS)}"  # marks are per store: two installed apps each record an exception once
 
     def _message(self, text: str | None) -> str | None:
-        masked = mask_error(self.masker, text[: 4 * MAX_MESSAGE] if text else None)
+        masked = mask_error(self.masker, text[: 4 * MAX_MESSAGE] if text else None, Dialect.UNSUPPORTED)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return masked

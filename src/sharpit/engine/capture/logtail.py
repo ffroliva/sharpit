@@ -19,6 +19,7 @@ from sharpit.engine.capture.errortext import log_statement
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
+from sharpit.engine.sqltext import Dialect
 
 LINE_KEYS = ("timestamp", "level", "logger", "message", "thread", "messageOmitted")  # BootUI LogLineDto, record order
 MAX_MESSAGE = 4000
@@ -131,7 +132,7 @@ class SharpitLogHandler(logging.Handler):
         # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
         shown = message[: 4 * MAX_MESSAGE]
         statement = engine_log and not self.masker.capture_parameters
-        masked = log_statement(self.masker, shown) if statement else mask_error(self.masker, shown)
+        masked = log_statement(self.masker, shown) if statement else mask_error(self.masker, shown, Dialect.UNSUPPORTED)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return {

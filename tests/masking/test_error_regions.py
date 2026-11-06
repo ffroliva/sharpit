@@ -24,6 +24,12 @@ from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder, mask_error
 from sharpit.engine.collectors.mysql.sections import DataSourceData, RowLimits, collect_replication
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
+
+
+def dialect_of(mysql: bool) -> Dialect:
+    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
+
 
 pytestmark = pytest.mark.needs_sqlalchemy
 ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "sql_errors"
@@ -71,14 +77,16 @@ def sections(entry: dict[str, Any]) -> dict[str, str]:
 
 
 def shown(text: str, mysql: bool = False) -> str:
-    masked = mask_error(MASKER, text, mysql)
+    masked = mask_error(MASKER, text, dialect_of(mysql))
     assert masked is not None
     return masked
 
 
 def recorded(text: str, sql: str = "SELECT 2", masker: Masker = MASKER) -> str | None:
     recorder = SqlTraceRecorder(masker, max_sql_length=10**6)
-    recorder.record(sql, duration_ns=1, thread="t", connection_id=None, error=Exception(text))
+    recorder.record(
+        sql, duration_ns=1, thread="t", connection_id=None, error=Exception(text), dialect=Dialect.UNSUPPORTED
+    )
     return recorder.rows()[-1]["errorMessage"]
 
 
@@ -234,7 +242,10 @@ class _Broken(Masker):
 
 
 def test_a_render_exception_fails_closed() -> None:
-    assert mask_error(_Broken(Exposure.MASKED, True), f"(sqlite3.Error) x {SECRET}\n[SQL: SELECT 1]") == MASK
+    assert (
+        mask_error(_Broken(Exposure.MASKED, True), f"(sqlite3.Error) x {SECRET}\n[SQL: SELECT 1]", Dialect.UNSUPPORTED)
+        == MASK
+    )
 
 
 @pytest.mark.parametrize(

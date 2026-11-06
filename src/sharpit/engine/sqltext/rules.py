@@ -206,8 +206,9 @@ GENERIC = LexRules(
     executable_prefixes=frozenset({"/*!", "/*M!"}),
 )
 
+# staged: only today's two readings, so behaviour holds; tasks 16 to 18 give each dialect its own rules
 READINGS: Mapping[Dialect, tuple[LexRules, ...]] = {
-    Dialect.POSTGRESQL: (POSTGRESQL,),
-    Dialect.MYSQL_FAMILY: (MYSQL_84, MARIADB),
-    Dialect.SQLITE: (SQLITE,),
+    Dialect.POSTGRESQL: (GENERIC,),
+    Dialect.MYSQL_FAMILY: (MYSQL_84,),
+    Dialect.SQLITE: (GENERIC,),
 }

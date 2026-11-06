@@ -6,6 +6,7 @@ import re
 
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.sqltext import Dialect
 
 MAX_QUERY_TEXT_LENGTH = 400
 _WHITESPACE = re.compile(r"\s+")
@@ -30,4 +31,4 @@ def mysql_query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUER
         return None
     if is_metadata_only(masker):
         return MASK
-    return truncate(statement_text(masker, sql, mysql=True), max_length)
+    return truncate(statement_text(masker, sql, dialect=Dialect.MYSQL_FAMILY), max_length)

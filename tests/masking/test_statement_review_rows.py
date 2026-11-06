@@ -12,6 +12,12 @@ from sharpit.engine.capture.sqlscan import shown
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.collectors.postgresql.querytext import query_text
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import Dialect
+
+
+def dialect_of(mysql: bool) -> Dialect:
+    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
+
 
 MASKER = Masker(Exposure.MASKED, True)
 TOKEN = "9f8e7d6c" + "5b4a3f2e1d0c"
@@ -22,7 +28,7 @@ NO_CAP = 10**6
 
 
 def text(sql: str, mysql: bool = False) -> str:
-    out = statement_text(MASKER, sql, mysql)
+    out = statement_text(MASKER, sql, dialect_of(mysql))
     assert out is not None
     return out
 
@@ -102,4 +108,4 @@ def test_a_dollar_tag_after_a_non_ascii_name_is_no_quote_on_mysql() -> None:
 # at the first character releases the name, and ``flags[-1]`` is the last character's
 def test_a_hit_from_the_first_character_keeps_its_name() -> None:
     sql = 'bio="vvvv"'
-    assert shown(sql, [(0, len(sql))]) == "bio=?"
+    assert shown(sql, [(0, len(sql))], Dialect.UNSUPPORTED) == "bio=?"

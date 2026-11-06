@@ -21,12 +21,13 @@ from typing import Any, NamedTuple, cast
 
 from sharpit.engine.capture.errortext import mask_error, render_error
 from sharpit.engine.capture.frames import is_application_frame
-from sharpit.engine.capture.sqlscan import MYSQL_DIALECTS, Normalized, is_mysql, normalize, normalize_sql
+from sharpit.engine.capture.sqlscan import Normalized, normalize, normalize_sql
 from sharpit.engine.capture.statement import masked_shape
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.sqltext import Dialect
 
-__all__ = ["MYSQL_DIALECTS", "Normalized", "is_mysql", "mask_error", "normalize", "normalize_sql"]
+__all__ = ["Normalized", "mask_error", "normalize", "normalize_sql"]
 
 REPORT_KEYS = (
     "available", "unavailableReason", "capturing", "captureParameters", "bufferSize", "totalCaptured",
@@ -151,7 +152,6 @@ def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
         "requestPhase": None,
     }
     dto.pop("shape", None)  # internal: the recorder's Normalized, kept for grouping without re-normalising
-    dto.pop("mysql", None)  # internal: how the grouping re-reads a stored text
     return dto
 
 
@@ -252,6 +252,7 @@ class SqlTraceRecorder:
         duration_ns: int,
         thread: str,
         connection_id: str | None,
+        dialect: Dialect,
         parameters: object = None,
         executemany: bool = False,
         success: bool = True,
@@ -260,13 +261,12 @@ class SqlTraceRecorder:
         request_id: str | None = None,
         call_site: str | None = None,
         batch_size: int | None = None,
-        mysql: bool = False,
     ) -> None:
         """Build the masked row once, at capture time; a paused recorder returns before any work."""
         if not self.recording:
             return
         masker = self._masker
-        shape = self._shape(sql, mysql)
+        shape = self._shape(sql, dialect)
         stored = shape.sql if not masker.capture_parameters else (masker.mask_text(sql) or "")
         error_message: str | None = None
         if error is not None:
@@ -274,7 +274,7 @@ class SqlTraceRecorder:
             masked = (
                 masker.mask_text(text)
                 if masker.capture_parameters
-                else render_error(masker, text, mysql, keep_frames=False) or masker.mask_text("")
+                else render_error(masker, text, dialect, keep_frames=False) or masker.mask_text("")
             )
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
@@ -304,7 +304,6 @@ class SqlTraceRecorder:
             "traceId": request_id,
             "callSite": site,
             "shape": shape,
-            "mysql": mysql,
         }
         with self._lock:
             row["id"] = next(self._ids)

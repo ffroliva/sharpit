@@ -14,14 +14,13 @@ from sharpit.engine import sqltext
 from sharpit.engine.masking import MASK, is_secret_value
 from sharpit.engine.sqltext import Dialect, Scan
 
-MYSQL_DIALECTS = ("mysql", "mariadb")
-
 
 class Normalized(NamedTuple):
     sql: str
     fingerprint: str
     literal_count: int
     predicate_literal_count: int
+    dialect: Dialect
 
 
 class Range(NamedTuple):
@@ -35,17 +34,12 @@ class Range(NamedTuple):
     literal: bool
 
 
-def _dialect(mysql: bool) -> Dialect:
-    """What ``mysql: bool`` meant: MySQL's rules, or the generic ones that cut wherever two servers disagree."""
-    return Dialect.MYSQL_FAMILY if mysql else Dialect.UNSUPPORTED
+def block_closer(text: str, dialect: Dialect) -> int:
+    return sqltext.LEXER.block_closer(text, dialect)
 
 
-def block_closer(text: str, mysql: bool = False) -> int:
-    return sqltext.block_closer(text, _dialect(mysql))
-
-
-def reads_two_ways(sql: str, mysql: bool = False) -> bool:
-    return sqltext.reads_two_ways(sql, _dialect(mysql))
+def reads_two_ways(sql: str, dialect: Dialect) -> bool:
+    return sqltext.LEXER.reads_two_ways(sql, dialect)
 
 
 def _is_secret_name(body: str) -> bool:
@@ -53,9 +47,9 @@ def _is_secret_name(body: str) -> bool:
     return is_secret_value(body)
 
 
-def _scan(sql: str, mysql: bool) -> Scan:
+def _scan(sql: str, dialect: Dialect) -> Scan:
     """The one entry to the lexer: ``normalize`` keeps its output, ``shown`` and ``scan_ranges`` its runs."""
-    return sqltext.LEXER.scan(sql, _dialect(mysql))
+    return sqltext.LEXER.scan(sql, dialect)
 
 
 class Reading(NamedTuple):
@@ -64,58 +58,57 @@ class Reading(NamedTuple):
     shape: Normalized
     scan: Scan
     cuts: list[tuple[int, int]]
+    secret: frozenset[int]  # the ``"`` runs the detector called a secret, decided once
 
 
-def read_statement(sql: str, mysql: bool = False) -> Reading:
+def read_statement(sql: str, dialect: Dialect) -> Reading:
     """The one read of ``sql``: ``normalize`` keeps the shape, ``shown`` takes the rest, so neither scans again."""
-    scan = _scan(sql, mysql)
-    text, literals, predicate_literals = sqltext.shape(scan, _is_secret_name)
+    scan = _scan(sql, dialect)
+    secret = sqltext.secrets(scan, _is_secret_name)
+    text, literals, predicate_literals = sqltext.shape(scan, secret)
     collapsed, cuts = sqltext.collapse_placeholder_lists(text.strip(sqltext.SPACE_CHARS))
-    return Reading(Normalized(collapsed, collapsed.lower(), literals, predicate_literals), scan, cuts)
+    shape_read = Normalized(collapsed, collapsed.lower(), literals, predicate_literals, dialect)
+    return Reading(shape_read, scan, cuts, secret)
 
 
-@functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text
-def normalize(sql: str, mysql: bool = False) -> Normalized:
+@functools.lru_cache(maxsize=1024)  # the same statements repeat: the scan runs once per distinct text and lexer
+def _normalized(lexer: sqltext.SqlLexer, sql: str, dialect: Dialect) -> Normalized:
+    if not sql.strip(sqltext.SPACE_CHARS):
+        return Normalized("", "", 0, 0, dialect)
+    return read_statement(sql, dialect).shape
+
+
+def normalize(sql: str, dialect: Dialect) -> Normalized:
     """Literals become ``?``, comments and whitespace runs one space, ``IN (?, ?)`` lists ``IN (?)``.
 
-    ``mysql`` is for text known to be MySQL's: ``"..."`` is a string with backslash escapes, ``#`` starts a comment and
-    ``--`` needs a space after it. Elsewhere those mean an identifier, an operator and a comment. A statement that reads
-    two ways stops at its first opener (``Scan.cut``).
+    ``Dialect.MYSQL_FAMILY`` is text known to be MySQL's: ``"..."`` is a string with backslash escapes, ``#`` starts a
+    comment and ``--`` needs a space after it. Elsewhere those mean an identifier, an operator and a comment. A
+    statement that reads two ways stops at its first opener (``Scan.cut``). The cache is keyed on the lexer, so swapping
+    ``sqltext.LEXER`` cannot serve a reading the old one made.
     """
-    if not sql.strip(sqltext.SPACE_CHARS):
-        return Normalized("", "", 0, 0)
-    return read_statement(sql, mysql).shape
+    return _normalized(sqltext.LEXER, sql, dialect)
 
 
-def scan_ranges(sql: str, mysql: bool = False) -> list[Range]:
+def scan_ranges(sql: str, dialect: Dialect) -> list[Range]:
     """The literals and comments of ``sql``, in order, as the scan read them (``SqlStatementNormalizer.ranges``)."""
-    scan = _scan(sql, mysql)
-    kinds = (sqltext.Kind.LITERAL, sqltext.Kind.COMMENT, sqltext.Kind.DOUBLE_QUOTED)
-    found: list[Range] = []
-    for start, end, kind in scan.runs:
-        if kind not in kinds:
-            continue
-        if kind is sqltext.Kind.DOUBLE_QUOTED:
-            if not _is_secret_name(sqltext.quoted_body(scan.source, start, end)):
-                continue
-            kind = sqltext.Kind.LITERAL
-        found.append(Range(start, end, kind is sqltext.Kind.LITERAL))
-    return found
+    scan = _scan(sql, dialect)
+    secret = sqltext.secrets(scan, _is_secret_name)
+    kinds = (sqltext.Kind.LITERAL, sqltext.Kind.COMMENT)
+    return [
+        Range(start, end, kind is sqltext.Kind.LITERAL or start in secret)
+        for start, end, kind in scan.runs
+        if kind in kinds or start in secret
+    ]
 
 
-def shown(sql: str, hidden: Sequence[tuple[int, int]], mysql: bool = False, reading: Reading | None = None) -> str:
+def shown(sql: str, hidden: Sequence[tuple[int, int]], dialect: Dialect, reading: Reading | None = None) -> str:
     """``sql`` as ``normalize`` shows it, with the ``hidden`` raw spans masked (ported from ``SqlSinkText.mask``).
 
     ``reading`` is ``read_statement``'s, when the caller holds it.
     """
-    reading = reading or read_statement(sql, mysql)
-    return sqltext.shown(sql, reading.scan, hidden, MASK, _is_secret_name, reading.cuts)
+    reading = reading or read_statement(sql, dialect)
+    return sqltext.shown(sql, reading.scan, hidden, MASK, reading.secret, reading.cuts)
 
 
-def is_mysql(owner: object) -> bool:
-    """Whether a connection, engine or execution context talks to MySQL or MariaDB (also behind a ``mysql://`` URL)."""
-    return getattr(getattr(owner, "dialect", None), "name", None) in MYSQL_DIALECTS
-
-
-def normalize_sql(sql: str, mysql: bool = False) -> str:
-    return normalize(sql, mysql).sql
+def normalize_sql(sql: str, dialect: Dialect) -> str:
+    return normalize(sql, dialect).sql

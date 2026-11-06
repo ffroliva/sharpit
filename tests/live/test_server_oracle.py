@@ -101,7 +101,14 @@ def test_a_refused_statement_keeps_its_value_hidden(server: LiveServer) -> None:
 # --- the planted builds: each must raise what the oracle finds, on rows the real build hides ----------------------
 
 
-WRONG_WIRED = Mutant("conn.dialect.name in MYSQL_DIALECTS,", "False,", "", "", "engine/sqla/listeners.py")
+# MySQL text read as another family's: the bit was hard-coded ``False`` here before Task 12
+WRONG_WIRED = Mutant(
+    "dialect_of_name(conn.dialect.name) or Dialect.UNSUPPORTED,",
+    "Dialect.POSTGRESQL,",
+    "",
+    "",
+    "engine/sqla/listeners.py",
+)
 # The scanner never reads ``\`` as an escape inside a quote (field log F16, probes pg-plant and b2).
 NEVER_ESCAPES = Mutant(
     'if c == "\\\\" and closing in escaped_in and cursor + 1 < length:',
@@ -123,9 +130,13 @@ CONTROLS: dict[str, tuple[str, str, Mutant]] = {
     "backslash-mysql": (
         "mysql84",
         "NO_BACKSLASH_ESCAPES",
-        Mutant("if _backslash_reads_two_ways(scan, mysql):", "if False:", "", ""),
+        Mutant("if _backslash_reads_two_ways(scan, rules):", "if False:", "", ""),
     ),
-    "dollar-mariadb": ("mariadb", "", Mutant("return _family_cut(scan) if mysql else -1", "return -1", "", "")),
+    "dollar-mariadb": (
+        "mariadb",
+        "",
+        Mutant("return _family_cut(scan, rules) if rules.dollar is DollarOpen.MYSQL_TAG else -1", "return -1", "", ""),
+    ),
     "bracket-mssql": (
         "mariadb",
         "MSSQL",

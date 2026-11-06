@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
-from sharpit.engine.capture.sqltrace import MYSQL_DIALECTS
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sources.dispatch import SqlEvent
 from sharpit.engine.sqla import _lock
@@ -29,6 +28,7 @@ from sharpit.engine.sqla.orm import (
     _unbounded_read_facts,
     _unbounded_read_missing_capture,
 )
+from sharpit.engine.sqltext import Dialect, dialect_of_name
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -144,7 +144,7 @@ def _emit(
             error,
             connection_id,
             conn.engine,
-            conn.dialect.name in MYSQL_DIALECTS,  # the engine's dialect holds it: no lookup table, nothing allocated
+            dialect_of_name(conn.dialect.name) or Dialect.UNSUPPORTED,  # the only name lookup on the hot path
         ),  # fmt: skip
         targets,
     )

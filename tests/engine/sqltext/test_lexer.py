@@ -11,7 +11,7 @@ GENERIC = Dialect.UNSUPPORTED
 
 
 def _kinds(sql: str, dialect: Dialect = GENERIC) -> list[tuple[str, Kind]]:
-    return [(sql[found.start : found.end], found.kind) for found in sqltext.LEXER.scan(sql, dialect).runs]
+    return [(sql[start:end], kind) for start, end, kind in sqltext.LEXER.scan(sql, dialect).runs]
 
 
 def test_a_double_quoted_run_is_its_own_kind() -> None:
@@ -71,7 +71,7 @@ def test_a_statement_that_reads_two_ways_cuts_at_its_first_opener() -> None:
 def test_a_cut_keeps_the_runs_the_scan_read_before_it() -> None:
     scan = sqltext.LEXER.scan("select 1 # 'x'", GENERIC)
 
-    assert [found.kind for found in scan.uncut_runs] == [Kind.LITERAL, Kind.LITERAL]
+    assert [kind for _, _, kind in scan.uncut_runs] == [Kind.LITERAL, Kind.LITERAL]
 
 
 def test_a_cut_ends_the_runs_with_a_literal_to_the_end() -> None:
@@ -98,6 +98,57 @@ def test_the_facade_reads_the_lexer_the_package_names(monkeypatch: pytest.Monkey
             return real.scan(sql, dialect)
 
     monkeypatch.setattr(sqltext, "LEXER", Spy())
-    sqlscan.normalize.__wrapped__("select 1", True)  # type: ignore[attr-defined]  # pyright: ignore[reportFunctionMemberAccess]
+    sqlscan.normalize("select 1", Dialect.MYSQL_FAMILY)
 
     assert seen == [Dialect.MYSQL_FAMILY]
+
+
+MYSQL = Dialect.MYSQL_FAMILY
+
+
+def test_block_closer_reads_the_dialect_it_is_given() -> None:
+    text = 'x = "a\\"]" ]'  # a backslash escapes the quote on MySQL, so the first ``]`` is inside a string there
+
+    assert sqltext.LEXER.block_closer(text, MYSQL) == 11
+    assert sqltext.LEXER.block_closer(text, GENERIC) == -1
+
+
+def test_reads_two_ways_reads_the_dialect_it_is_given() -> None:
+    sql = 'select 1 where a = "x\y"'  # MySQL escapes in ``"..."``, the generic read does not: two readings there
+
+    assert not sqltext.LEXER.reads_two_ways(sql, MYSQL)
+    assert sqltext.LEXER.reads_two_ways(sql, GENERIC)
+
+
+def test_a_lone_cr_in_a_comment_cuts_only_generic_text() -> None:
+    sql = "select 1 -- a\rb\n, 'x'"
+
+    assert not sqltext.LEXER.reads_two_ways(sql, MYSQL)
+    assert sqltext.LEXER.reads_two_ways(sql, GENERIC)
+
+
+def test_an_opener_in_a_tight_comment_cuts_only_generic_text() -> None:
+    assert not sqltext.LEXER.reads_two_ways("select 1 #a'b\n, 2", MYSQL)
+    assert sqltext.LEXER.reads_two_ways("select 1 --a'b\n, 2", GENERIC)
+
+
+def test_a_swapped_lexer_reaches_the_closer_the_two_way_check_and_the_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine.capture import sqlscan  # noqa: PLC0415
+
+    sqlscan.normalize("select 1", Dialect.UNSUPPORTED)  # warm: a cache that outlives the swap would answer from this
+
+    class Swapped:
+        def scan(self, sql: str, dialect: Dialect) -> sqltext.Scan:
+            return sqltext.HandLexer().scan("delete from t", dialect)
+
+        def block_closer(self, text: str, dialect: Dialect) -> int:
+            return 99
+
+        def reads_two_ways(self, sql: str, dialect: Dialect) -> bool:
+            return True
+
+    monkeypatch.setattr(sqltext, "LEXER", Swapped())
+
+    assert sqlscan.block_closer("a]", Dialect.UNSUPPORTED) == 99
+    assert sqlscan.reads_two_ways("a", Dialect.UNSUPPORTED)
+    assert sqlscan.normalize("select 1", Dialect.UNSUPPORTED).sql == "delete from t"
