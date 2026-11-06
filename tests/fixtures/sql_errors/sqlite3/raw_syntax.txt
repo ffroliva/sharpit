@@ -1,0 +1,13 @@
+##### types #####
+sqlite3.OperationalError
+##### str(exc) #####
+near "AND": syntax error
+##### traceback #####
+Traceback (most recent call last):
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 399, in raw_run
+    sync()
+    ~~~~^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 387, in sync
+    cur.execute(sql, params)
+    ~~~~~~~~~~~^^^^^^^^^^^^^
+sqlite3.OperationalError: near "AND": syntax error

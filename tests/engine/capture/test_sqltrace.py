@@ -18,8 +18,10 @@ import threading
 from typing import Any
 
 import pytest
+from tests.dialect_ids import dialect_id
 
-from sharpit.engine.capture import sqltrace
+from sharpit.engine.capture import sqltrace, statement
+from sharpit.engine.capture.sqlscan import Reading
 from sharpit.engine.capture.sqltrace import (
     ENTRY_KEYS,
     GROUP_KEYS,
@@ -32,6 +34,7 @@ from sharpit.engine.capture.sqltrace import (
     unavailable_report,
 )
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 MASKED = Masker(Exposure.MASKED, True)
 WITH_PARAMETERS = Masker(Exposure.MASKED, True, capture_parameters=True)
@@ -43,7 +46,13 @@ def _recorder(masker: Masker = MASKED, **kw: Any) -> SqlTraceRecorder:
 
 
 def _record(recorder: SqlTraceRecorder, sql: str = "select 1", **kw: Any) -> None:
-    fields: dict[str, Any] = {"duration_ns": 1_000_000, "thread": "main", "connection_id": "c1", **kw}
+    fields: dict[str, Any] = {
+        "duration_ns": 1_000_000,
+        "thread": "main",
+        "connection_id": "c1",
+        "dialect": Dialect.UNSUPPORTED,
+        **kw,
+    }
     recorder.record(sql, **fields)
 
 
@@ -55,7 +64,7 @@ def _entries(recorder: SqlTraceRecorder) -> list[dict[str, Any]]:
 
 
 def _fingerprint(sql: str) -> str:
-    return normalize(sql).fingerprint
+    return normalize(sql, Dialect.UNSUPPORTED).fingerprint
 
 
 def test_replaces_string_and_numeric_literals():
@@ -67,7 +76,9 @@ def test_replaces_string_and_numeric_literals():
 
 def test_never_leaves_a_literal_value():
     # ported: SqlStatementNormalizerTests.neverLeavesALiteralValueInTheNormalizedText
-    result = normalize("insert into audit (actor, token) values ('ada@example.com', 'sk-live-9f3b')")
+    result = normalize(
+        "insert into audit (actor, token) values ('ada@example.com', 'sk-live-9f3b')", Dialect.UNSUPPORTED
+    )
     assert "ada@example.com" not in result.sql
     assert "sk-live-9f3b" not in result.sql
     assert result.literal_count == 2
@@ -82,7 +93,10 @@ def test_folds_in_lists():
 
 def test_case_insensitive_fingerprint_keeps_text_as_written():
     # ported: SqlStatementNormalizerTests.isCaseInsensitiveForGroupingButKeepsTheStatementAsWritten
-    upper, lower = normalize("SELECT ID FROM USERS"), normalize("select id from users")
+    upper, lower = (
+        normalize("SELECT ID FROM USERS", Dialect.UNSUPPORTED),
+        normalize("select id from users", Dialect.UNSUPPORTED),
+    )
     assert upper.fingerprint == lower.fingerprint
     assert upper.sql == "SELECT ID FROM USERS"
 
@@ -90,19 +104,21 @@ def test_case_insensitive_fingerprint_keeps_text_as_written():
 def test_keeps_quoted_identifiers():
     # ported: SqlStatementNormalizerTests.keepsQuotedIdentifiersSoDifferentColumnsNeverCollapse
     assert _fingerprint('select "firstName" from "user"') != _fingerprint('select "lastName" from "user"')
-    assert '"firstName"' in normalize_sql('select "firstName" from "user"')
+    assert '"firstName"' in normalize_sql('select "firstName" from "user"', Dialect.UNSUPPORTED)
 
 
 def test_digits_inside_identifiers_are_not_literals():
     # ported: SqlStatementNormalizerTests.doesNotTreatDigitsInsideIdentifiersAsLiterals
-    result = normalize("select t2.column1 from order_2024 t2 where t2.column1 = 7")
+    result = normalize("select t2.column1 from order_2024 t2 where t2.column1 = 7", Dialect.UNSUPPORTED)
     assert result.sql == "select t2.column1 from order_2024 t2 where t2.column1 = ?"
     assert result.literal_count == 1
 
 
 def test_collapses_whitespace_and_strips_comments():
     # ported: SqlStatementNormalizerTests.collapsesWhitespaceAndStripsComments
-    result = normalize("select id\n  from users -- the comment\n  where id = 1 /* inline */ and active = true")
+    result = normalize(
+        "select id\n  from users -- the comment\n  where id = 1 /* inline */ and active = true", Dialect.UNSUPPORTED
+    )
     assert result.sql == "select id from users where id = ? and active = ?"
 
 
@@ -121,42 +137,48 @@ def test_collapses_whitespace_and_strips_comments():
 def test_predicate_literal_count(sql: str, count: int):
     # ported: SqlStatementNormalizerTests.countsLiteralsInPredicatePositionsSeparately,
     # doesNotCountProjectedOrPagingLiteralsAsPredicateLiterals
-    assert normalize(sql).predicate_literal_count == count
+    assert normalize(sql, Dialect.UNSUPPORTED).predicate_literal_count == count
 
 
 def test_survives_unterminated_quotes():
     # ported: SqlStatementNormalizerTests.survivesUnterminatedQuotesFromTruncatedCapture
-    assert normalize_sql("select * from t where name = 'ad") == "select * from t where name = ?"
+    assert normalize_sql("select * from t where name = 'ad", Dialect.UNSUPPORTED) == "select * from t where name = ?"
 
 
 def test_doubled_quote_escape():
     # ported: SqlStatementNormalizerTests.handlesDoubledQuoteEscapesWithoutSplittingTheLiteral
-    result = normalize("select * from t where name = 'it''s' and id = 1")
+    result = normalize("select * from t where name = 'it''s' and id = 1", Dialect.UNSUPPORTED)
     assert result.sql == "select * from t where name = ? and id = ?"
     assert result.literal_count == 2
 
 
 def test_bounds_the_scan():
     # ported: SqlStatementNormalizerTests.boundsTheScanSoAPathologicalStatementCannotDominate
-    assert len(normalize_sql("select * from t where x in (" + "1," * 30_000 + "1)")) < 1000
+    assert len(normalize_sql("select * from t where x in (" + "1," * 30_000 + "1)", Dialect.UNSUPPORTED)) < 1000
 
 
 def test_masks_dollar_quoted_strings():
     # ported: SqlStatementNormalizerTests.masksPostgresDollarQuotedStrings
-    result = normalize("select * from t where note = $$top secret$$ and tag = $x$vip$x$")
+    result = normalize("select * from t where note = $$top secret$$ and tag = $x$vip$x$", Dialect.UNSUPPORTED)
     assert result.sql == "select * from t where note = ? and tag = ?"
     assert result.predicate_literal_count == 2
 
 
 def test_unterminated_dollar_run_left_alone():
     # ported: SqlStatementNormalizerTests.leavesAnUnterminatedDollarRunAloneRatherThanSwallowingTheStatement
-    assert normalize_sql("select a$b$c from t where id = 5") == "select a$b$c from t where id = ?"
+    assert normalize_sql("select a$b$c from t where id = 5", Dialect.UNSUPPORTED) == "select a$b$c from t where id = ?"
 
 
 def test_double_quoted_run_that_cannot_be_an_identifier():
     # ported: SqlStatementNormalizerTests.masksADoubleQuotedRunThatCannotBeAnIdentifier
-    assert normalize_sql('select * from t where name = "Ada Lovelace"') == "select * from t where name = ?"
-    assert normalize_sql('select "firstName" from t where id = 1') == 'select "firstName" from t where id = ?'
+    assert (
+        normalize_sql('select * from t where name = "Ada Lovelace"', Dialect.UNSUPPORTED)
+        == "select * from t where name = ?"
+    )
+    assert (
+        normalize_sql('select "firstName" from t where id = 1', Dialect.UNSUPPORTED)
+        == 'select "firstName" from t where id = ?'
+    )
 
 
 STRIPE_LIKE = "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc"
@@ -164,34 +186,40 @@ STRIPE_LIKE = "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc"
 
 def test_double_quoted_value_right_of_a_comparison_is_a_literal():
     # MySQL reads "bob" as a string; an identifier-shaped value in a value position is a literal, fail closed
-    assert normalize_sql('select * from t where name = "bob"') == "select * from t where name = ?"
+    assert normalize_sql('select * from t where name = "bob"', Dialect.UNSUPPORTED) == "select * from t where name = ?"
 
 
 def test_double_quoted_values_in_an_in_list_are_literals():
-    assert normalize_sql('select * from t where name in ("ann", "bob")') == "select * from t where name in (?)"
+    assert (
+        normalize_sql('select * from t where name in ("ann", "bob")', Dialect.UNSUPPORTED)
+        == "select * from t where name in (?)"
+    )
 
 
 def test_double_quoted_values_in_a_values_list_are_literals():
     sql = 'insert into t ("a", "b") values ("ann", "bob"), ("cy", "di")'
-    assert normalize_sql(sql) == 'insert into t ("a", "b") values (?, ?), (?, ?)'
+    assert normalize_sql(sql, Dialect.UNSUPPORTED) == 'insert into t ("a", "b") values (?, ?), (?, ?)'
 
 
 def test_double_quoted_like_pattern_is_a_literal():
-    assert normalize_sql('select * from t where name like "bob"') == "select * from t where name like ?"
+    assert (
+        normalize_sql('select * from t where name like "bob"', Dialect.UNSUPPORTED)
+        == "select * from t where name like ?"
+    )
 
 
 def test_double_quoted_secret_is_a_literal_anywhere():
-    assert STRIPE_LIKE not in normalize_sql(f'select "{STRIPE_LIKE}" as k from t')
+    assert STRIPE_LIKE not in normalize_sql(f'select "{STRIPE_LIKE}" as k from t', Dialect.UNSUPPORTED)
 
 
 def test_double_quoted_identifiers_stay_readable():
     sql = """select "userId" from "Order" where "status" = 'x'"""
-    assert normalize_sql(sql) == 'select "userId" from "Order" where "status" = ?'
+    assert normalize_sql(sql, Dialect.UNSUPPORTED) == 'select "userId" from "Order" where "status" = ?'
 
 
 def test_qualified_double_quoted_identifier_in_a_join_stays_readable():
     sql = 'select * from "a" join "b" on "a"."id" = "b"."id"'
-    assert normalize_sql(sql) == sql
+    assert normalize_sql(sql, Dialect.UNSUPPORTED) == sql
 
 
 def test_boolean_literals_aggregate():
@@ -201,20 +229,24 @@ def test_boolean_literals_aggregate():
 
 def test_collapses_in_lists_but_not_projections():
     # ported: SqlStatementNormalizerTests.collapsesInListsButNotProjectionsOrArguments
-    assert normalize_sql("select * from t where id in (1, 2, 3)") == "select * from t where id in (?)"
+    assert (
+        normalize_sql("select * from t where id in (1, 2, 3)", Dialect.UNSUPPORTED) == "select * from t where id in (?)"
+    )
     assert _fingerprint("select 1, 2 from dual") != _fingerprint("select 1 from dual")
-    assert normalize_sql("insert into t (a, b) values (1, 2)") == "insert into t (a, b) values (?, ?)"
+    assert (
+        normalize_sql("insert into t (a, b) values (1, 2)", Dialect.UNSUPPORTED) == "insert into t (a, b) values (?, ?)"
+    )
 
 
 def test_empty_result_for_blank_sql():
     # ported: SqlStatementNormalizerTests.returnsAnEmptyResultForNullOrBlankSql
-    assert normalize("   ").fingerprint == ""
-    assert normalize("").sql == ""
+    assert normalize("   ", Dialect.UNSUPPORTED).fingerprint == ""
+    assert normalize("", Dialect.UNSUPPORTED).sql == ""
 
 
 def test_escape_string_literal():
     # derived: spec §7.3 names PostgreSQL E'...' strings; the backslash escape keeps the quote inside the literal
-    assert "hunter2" not in normalize_sql(r"select * from u where p = E'hunter2\'s'")
+    assert "hunter2" not in normalize_sql(r"select * from u where p = E'hunter2\'s'", Dialect.UNSUPPORTED)
 
 
 # --- SqlTracingProxies.categoryOf ------------------------------------------------------------------------------------
@@ -454,7 +486,8 @@ def test_raw_text_masked_when_params_on():
     _record(recorder, "update users set password = 'hunter2' where id = 4")
     entry = _entries(recorder)[0]
     assert entry["sql"] == f"update users set password = {MASK}"
-    assert recorder.report([])["topStatements"][0]["sql"] == "update users set password = ? where id = ?"
+    # the aggregate takes the masker pass: a sensitive key's value reads ``******`` even where it was a ``?``
+    assert recorder.report([])["topStatements"][0]["sql"] == f"update users set password = {MASK} where id = ?"
 
 
 def test_parameter_caps_and_masking():
@@ -488,9 +521,8 @@ def test_error_message_masked_and_inline_sql_normalised():
     error = RuntimeError(f"(sqlite3.IntegrityError) UNIQUE\n[SQL: {sql}]\n[parameters: ('{JWT}',)]")
     _record(recorder, sql, success=False, error=error)
     message = _entries(recorder)[0]["errorMessage"]
-    assert (
-        message == f"(sqlite3.IntegrityError) UNIQUE\n[SQL: insert into u (id, p) values (?, ?)] [parameters: {MASK}]"
-    )
+    statement = "insert into u (id, p) values (?, ?)"
+    assert message == f"(sqlite3.IntegrityError) UNIQUE\n[SQL: {statement}]\n[parameters: {MASK}]"
 
 
 @pytest.mark.parametrize(
@@ -507,7 +539,7 @@ def test_error_message_masked_and_inline_sql_normalised():
         ),
         (
             "(pymysql.err.IntegrityError) (1062, \"Duplicate entry 'hunter2-xyz' for key 'secret'\")",
-            "(pymysql.err.IntegrityError) (1062, ?)",
+            '(pymysql.err.IntegrityError) (1062, "Duplicate entry ?")',
         ),
     ],
 )
@@ -519,7 +551,7 @@ def test_driver_message_values_dropped_with_parameters_off(message: str, expecte
     _record(recorder, sql, success=False, error=error)
     stored = _entries(recorder)[0]["errorMessage"]
     assert "hunter2" not in stored
-    assert stored == f"{expected}\n[SQL: {sql}] [parameters: {MASK}]"
+    assert stored == f"{expected}\n[SQL: {sql}]\n[parameters: {MASK}]"
 
 
 def test_sql_cut_at_max_length():
@@ -555,6 +587,51 @@ def test_call_site_off_ignores_given_call_site():
     recorder = _recorder(capture_call_site=False)
     _record(recorder, call_site="app:f:3")
     assert _entries(recorder)[0]["callSite"] is None
+
+
+def test_recorder_sql_takes_the_masker_pass():
+    # derived: 2026-11-05 design section 10 step 1, a secret in code position is no literal, so the scan keeps it
+    token = "ghp_" + "a1B2" * 9
+    recorder = _recorder()
+    _record(recorder, f"SELECT * FROM t WHERE u = 'x' AND note = https://h/?token={token}")
+    assert token not in _entries(recorder)[0]["sql"]
+    assert token not in recorder.report([])["topStatements"][0]["sql"]
+    assert token not in recorder.rows()[0]["shape"].sql
+
+
+def test_recorder_under_metadata_only_keeps_its_text():
+    # derived: pinned on the commit before the masker pass, which must change nothing here
+    recorder = _recorder(Masker(Exposure.METADATA_ONLY, True))
+    _record(recorder, "SELECT * FROM users WHERE name = 'bob' AND id IN (1, 2)")
+    assert _entries(recorder)[0]["sql"] == "SELECT * FROM users WHERE name = ? AND id IN (?)"
+    assert recorder.report([])["topStatements"][0]["sql"] == "SELECT * FROM users WHERE name = ? AND id IN (?)"
+    assert recorder.rows()[0]["shape"] == normalize(
+        "SELECT * FROM users WHERE name = 'bob' AND id IN (1, 2)", Dialect.UNSUPPORTED
+    )
+
+
+def test_with_parameters_the_stored_text_stays_the_masked_raw_text():
+    # derived: Task 3 changes the shape; with capture on the ring keeps ``mask_text(sql)``, as before it
+    recorder = _recorder(WITH_PARAMETERS)
+    _record(recorder, "select * from t where name = 'bob'")
+    assert recorder.rows()[0]["sql"] == "select * from t where name = 'bob'"
+    assert recorder.rows()[0]["shape"].sql == "select * from t where name = ?"
+
+
+def test_a_repeated_statement_is_masked_once(monkeypatch: pytest.MonkeyPatch):
+    # derived: plan risk "125 us uncached": the pass runs per distinct statement, per recorder
+    calls: list[str] = []
+    real = statement.statement_text
+
+    def counted(masker: Masker, sql: str, dialect: Dialect, reading: Reading) -> str | None:
+        calls.append(sql)
+        return real(masker, sql, dialect, reading)
+
+    monkeypatch.setattr(statement, "statement_text", counted)
+    first, second = _recorder(), _recorder()
+    for recorder in (first, first, second):
+        _record(recorder, "select 1")
+    assert calls == ["select 1", "select 1"]
 
 
 # --- call site (frame walk) ------------------------------------------------------------------------------------------
@@ -647,12 +724,12 @@ def test_sql_trace_entry_includes_duration_micros_and_report_retention():
         ("SELECT ARRAY [1234]", "SELECT ARRAY [?]"),
         ("SELECT doc['hunter2'] FROM t", "SELECT doc[?] FROM t"),
         ("SELECT items[3] FROM t", "SELECT items[?] FROM t"),
-        ("SELECT ARRAY['hunter2", "SELECT ARRAY[?"),
+        ("SELECT ARRAY['hunter2", "SELECT ARRAY[ ?"),
     ],
 )
-@pytest.mark.parametrize("mysql", [False, True])
-def test_literals_inside_brackets_are_normalised(sql: str, expected: str, mysql: bool) -> None:
-    assert normalize(sql, mysql).sql == expected
+@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_literals_inside_brackets_are_normalised(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
 
 
 @pytest.mark.parametrize(
@@ -665,16 +742,21 @@ def test_literals_inside_brackets_are_normalised(sql: str, expected: str, mysql:
     ],
 )
 def test_bracket_identifiers_stay_verbatim(sql: str) -> None:
-    assert normalize(sql).sql == sql
+    assert normalize(sql, Dialect.UNSUPPORTED).sql == sql
 
 
 def test_a_long_run_of_open_brackets_stays_linear() -> None:
-    assert normalize("[a" * 10_000).sql == "[a" * 10_000
+    assert normalize("[a" * 10_000, Dialect.UNSUPPORTED).sql == "[a" * 10_000
 
 
-# derived: a qualified bracket identifier is no subscript, so its digits are part of the name
-def test_a_qualified_bracket_identifier_keeps_its_digits() -> None:
-    assert normalize("SELECT t.[col 1] FROM t").sql == "SELECT t.[col 1] FROM t"
+# derived: a qualified bracket identifier is no subscript; (r7) a word led by a digit is read inside there too, NB4
+def test_a_qualified_bracket_identifier_reads_a_word_led_by_a_digit_inside() -> None:
+    assert normalize("SELECT t.[col 1] FROM t", Dialect.UNSUPPORTED).sql == "SELECT t.[col ?] FROM t"
+
+
+# a name of SQLite's: read as a subscript, it would give ``t.[? x]``
+def test_a_qualified_bracket_identifier_is_no_subscript() -> None:
+    assert normalize("SELECT t.[true x] FROM t", Dialect.UNSUPPORTED).sql == "SELECT t.[true x] FROM t"
 
 
 # derived: release council probe p3_sql.py: the bracket identifier admitted ``$ ( / - *`` and the subscript check
@@ -695,12 +777,12 @@ def test_a_qualified_bracket_identifier_keeps_its_digits() -> None:
     ],
 )
 def test_a_value_inside_brackets_is_scanned(sql: str, expected: str) -> None:
-    assert normalize(sql).sql == expected
+    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
 
 
 # decided: a digit opens no name in brackets, so ``[2024 sales]`` is read as a value: readable less, leaks nothing
 def test_a_bracket_starting_with_a_digit_is_a_value() -> None:
-    assert normalize("SELECT [2024 sales] FROM t").sql == "SELECT [? sales] FROM t"
+    assert normalize("SELECT [2024 sales] FROM t", Dialect.UNSUPPORTED).sql == "SELECT [? sales] FROM t"
 
 
 # derived: delete-the-control on the identifier body: only the subscript check was proved, here no subscript helps
@@ -713,4 +795,4 @@ def test_a_bracket_starting_with_a_digit_is_a_value() -> None:
     ],
 )
 def test_a_bracket_that_holds_more_than_a_name_is_scanned_anywhere(sql: str, expected: str) -> None:
-    assert normalize(sql).sql == expected
+    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected

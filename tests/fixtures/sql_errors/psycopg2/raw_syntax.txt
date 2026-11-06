@@ -1,0 +1,18 @@
+##### types #####
+psycopg2.errors.SyntaxError
+##### str(exc) #####
+syntax error at or near "AND"
+LINE 1: SELECT name FROM u WHERE AND name = 'mkc3f6fa7c0f'
+                                 ^
+
+##### traceback #####
+Traceback (most recent call last):
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 399, in raw_run
+    sync()
+    ~~~~^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 387, in sync
+    cur.execute(sql, params)
+    ~~~~~~~~~~~^^^^^^^^^^^^^
+psycopg2.errors.SyntaxError: syntax error at or near "AND"
+LINE 1: SELECT name FROM u WHERE AND name = 'mkc3f6fa7c0f'
+                                 ^

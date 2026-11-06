@@ -11,6 +11,7 @@ from engine.testsession.tsfakes import NODE, event, run_phase
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.spi import ApiModel
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.facts import PhaseFacts, SessionFacts, TestFacts, TestKey
 from sharpit.engine.testsession.gates import Budget
 from sharpit.engine.testsession.sink import TestSessionSink, report_masker, report_masker_warnings
@@ -506,13 +507,35 @@ def test_masked_fingerprint_memo_keys_on_masker_settings() -> None:
     assert "ghp_" in json.dumps(later_loose.facts.to_json())
 
 
+def test_a_metadata_only_sink_keeps_the_scans_shape() -> None:
+    # derived: ``masked_shape`` gives no text under METADATA_ONLY, so the key and the text are the scan's, not ""
+    statement = "SELECT * FROM pets WHERE pets.id = 1"
+    sink = TestSessionSink("gw0", Masker(Exposure.METADATA_ONLY, True))
+    run_phase(sink, NODE, sink.begin_test(NODE), "call", statement)
+    assert dict(_call(sink).selects) == {"select * from pets where pets.id = ?": 1}
+    assert _call(sink).sql_of == {"select * from pets where pets.id = ?": "SELECT * FROM pets WHERE pets.id = ?"}
+
+
+# derived: conflicts hide (spec section 6): the connection says SQLite, where ``#`` is a variable and its text shows,
+# and the failure's own driver says MySQL. The sink read the connection alone.
+def test_a_failed_statement_in_a_family_conflict_hides_in_the_session() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    failure = type("OperationalError", (Exception,), {"__module__": "pymysql.err"})("failed")
+    failed = event("SELECT 1 # password hunter2")._replace(dialect=Dialect.SQLITE, error=failure)
+    sink.on_sql(failed, (NODE, attempt, "call"))
+    sink.end_test()
+
+    assert "hunter2" not in json.dumps(sink.facts.to_json())
+
+
 # derived: release council fix round 2: the session sink used the generic scan on MySQL text
 def test_mysql_comment_and_hex_literal_are_folded() -> None:
     sink = _sink()
     attempt = sink.begin_test(NODE)
     tag = (NODE, attempt, "call")
-    sink.on_sql(event("SELECT 1 # password hunter2")._replace(mysql=True), tag)
-    sink.on_sql(event("SELECT 0xDEADBEEF")._replace(mysql=True), tag)
+    sink.on_sql(event("SELECT 1 # password hunter2")._replace(dialect=Dialect.MYSQL_FAMILY), tag)
+    sink.on_sql(event("SELECT 0xDEADBEEF")._replace(dialect=Dialect.MYSQL_FAMILY), tag)
     sink.end_test()
 
     report = json.dumps(sink.facts.to_json())
