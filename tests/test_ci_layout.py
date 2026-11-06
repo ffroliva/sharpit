@@ -86,3 +86,31 @@ def test_the_required_test_check_still_fails_when_lint_fails() -> None:
     """Lint left the shards, so the required `test` checks must wait for it or a lint failure would merge."""
     assert "needs: [test-shard, lint]" in JOBS["test"]
     assert 'needs.lint.result }}" = success' in JOBS["test"]
+
+
+OWN_JOB_FILES = (  # each alone outweighs a shard ceiling (487, 386, 418 s): one job runs them whole, every row
+    "tests/masking/test_masking_scales_linearly.py",
+    "tests/masking/test_statement_surfaces.py",
+    "tests/scripts/test_lane_gate.py",
+)
+
+
+def test_the_heavy_masking_gates_have_one_job_and_no_shard_collects_them(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for gate in OWN_JOB_FILES:
+        assert [name for name, body in JOBS.items() if gate in body] == ["masking-gates"], gate
+    for gate in OWN_JOB_FILES:
+        path = pytester.path / gate
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("def test_row(): pass" + chr(10), encoding="utf-8")
+    pytester.makepyfile(test_other="def test_a(): pass")
+    for spec in ("1/3", "2/3", "3/3"):
+        monkeypatch.setenv("SHARPIT_SHARD", spec)
+        result = pytester.runpytest("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
+        for gate in OWN_JOB_FILES:
+            assert not [line for line in result.outlines if gate in line], f"shard {spec} collects {gate}"
+    monkeypatch.delenv("SHARPIT_SHARD")
+    result = pytester.runpytest("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
+    for gate in OWN_JOB_FILES:
+        assert f"{gate}::test_row" in result.outlines

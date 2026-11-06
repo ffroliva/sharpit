@@ -28,6 +28,7 @@ from sharpit.engine.collectors.sqlastats import (
 )
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.sqltext import Dialect
 from sharpit.settings import load_settings
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
@@ -87,7 +88,9 @@ def _request(ctx: SharpitContext, rid: str, *, method: str = "GET", endpoint: st
 
 def _sql(ctx: SharpitContext, sql: str, rid: str | None = None, millis: int = 2) -> None:
     assert ctx.capture.sql_trace is not None
-    ctx.capture.sql_trace.record(sql, duration_ns=millis * 1_000_000, thread="t", connection_id=None, request_id=rid)
+    ctx.capture.sql_trace.record(
+        sql, duration_ns=millis * 1_000_000, thread="t", connection_id=None, request_id=rid, dialect=Dialect.UNSUPPORTED
+    )
 
 
 def _stats(ctx: SharpitContext) -> dict[str, Any]:
@@ -278,7 +281,7 @@ def test_get_does_not_normalize(monkeypatch: pytest.MonkeyPatch):
 
     def spy(sql: str) -> Any:
         calls.append(sql)
-        return normalize(sql)
+        return normalize(sql, Dialect.UNSUPPORTED)
 
     monkeypatch.setattr(sqlastats, "normalize", spy, raising=False)
     statistics_report(ctx)

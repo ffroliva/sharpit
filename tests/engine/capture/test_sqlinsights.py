@@ -14,6 +14,7 @@ from sharpit.engine.capture.sqlinsights import insights_report, mask_route, perc
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sqla import TRACING_DISABLED
+from sharpit.engine.sqltext import Dialect
 
 MASKED = Masker(Exposure.MASKED, True)
 WITH_PARAMETERS = Masker(Exposure.MASKED, True, capture_parameters=True)
@@ -24,7 +25,8 @@ def _recorder(masker: Masker = MASKED, max_entries: int = 100) -> SqlTraceRecord
 
 
 def _record(recorder: SqlTraceRecorder, sql: str, millis: int, **kw: Any) -> None:
-    recorder.record(sql, duration_ns=millis * 1_000_000, thread="main", connection_id="c1", **kw)
+    fields: dict[str, Any] = {"dialect": Dialect.UNSUPPORTED, **kw}
+    recorder.record(sql, duration_ns=millis * 1_000_000, thread="main", connection_id="c1", **fields)
 
 
 def _exchanges(*requests: tuple[str, str, str]) -> HttpExchangeBuffer:

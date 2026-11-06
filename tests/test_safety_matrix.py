@@ -36,6 +36,7 @@ from sharpit.engine.guard import (
 )
 from sharpit.engine.mcp import DISABLED_MESSAGE
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.tools import TOOLS, rest_api_service
 from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle
 
@@ -385,7 +386,7 @@ def _seed_sql_trace(handle: SharpitHandle) -> Callable[[], object]:
     recorder = handle.context.capture.sql_trace
     if recorder is None:
         return lambda: None
-    recorder.record("select 1", duration_ns=1, thread="test", connection_id=None)
+    recorder.record("select 1", duration_ns=1, thread="test", connection_id=None, dialect=Dialect.UNSUPPORTED)
     return lambda: (recorder.report([])["totalCaptured"], len(recorder.report([])["entries"]), recorder.recording)
 
 
