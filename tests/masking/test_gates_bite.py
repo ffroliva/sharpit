@@ -61,8 +61,9 @@ def _overcut(_masker: Masker, text: str) -> str:
     return text.split("'", 1)[0].strip() + " ?"
 
 
-SURFACE = "db_statement-generic"
-BASE_ROWS = sql_corpus.rows(7, ROWS)
+# Generic spans without dialect evidence fail closed; drive lexer gates through a known family.
+SURFACE = "recorder_sql-mysql"
+BASE_ROWS = sql_corpus.rows(7, ROWS, sql_corpus.MYSQL)
 
 
 @pytest.mark.parametrize(
@@ -205,18 +206,20 @@ MUTANTS: dict[str, Mutant] = {
     "dot_dollar_body": Mutant("_OPENER.search(source, start + tag, end - tag) or ", "", "recorder_sql-generic",
                               "visible"),
     "dot_dollar_holds": Mutant(' or ".$" in source', "", "recorder_sql-generic", "visible"),
-    "bracket_digit_word": Mutant(r'(?: +[^\W\d]\w*)* *\]")', r'[\w ]*\]")', SURFACE, "visible"),
-    "cut_open_double_quote": Mutant("if string or end >= _MAX_SCAN_LENGTH:", "if string:", SURFACE, "visible"),
+    "bracket_digit_word": Mutant(r'(?: +[^\W\d]\w*)* *\]")', r'[\w ]*\]")', "scan_alone-generic", "shape"),
+    "cut_open_double_quote": Mutant(
+        "if string or end >= _MAX_SCAN_LENGTH:", "if string:", "scan_alone-generic", "shape"
+    ),
     "two_readings": Mutant("return _read(source.replace(", "return False and _read(source.replace(",
-                           SURFACE, "visible"),
+                           SURFACE, "shape"),
     "nested_comment": Mutant(
         'if rules.nested_comments is Reading.CUT and source.find("/*", start + 2, end) >= 0:',
         "if False:",
-        SURFACE,
-        "visible",
+        "scan_alone-generic",
+        "shape",
     ),
     "alternative_quote": Mutant("if _ALTERNATIVE_QUOTE.search(source, start, end + 1):", "if False:",
-                                SURFACE, "visible"),
+                                "scan_alone-generic", "shape"),
     # a digit or a keyword after a name character belongs to the name: over-masking ``col1`` lowers A1: A3 must catch it
     "digit_in_name": Mutant(DIGIT, "elif c.isdigit():", SURFACE, "shape"),
     "dot_digit": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), SURFACE, "visible"),
@@ -228,7 +231,7 @@ MUTANTS: dict[str, Mutant] = {
     "at_number": Mutant("if _AT_NUMBER.search(found[0]):", "if False:", "db_statement-mysql", "shape"),
     "release_name": Mutant('if flags[literal] and literal > start and source[literal - 1] == "=":', "if False:",
                            "db_statement-mysql", "shape", RENDER),
-    "verb_lookahead": Mutant(r"(?=[^\w$-]|$)", r"(?=[\s(;]|$)", "db_statement-generic", "shape",
+    "verb_lookahead": Mutant(r"(?=[^\w$-]|$)", r"(?=[\s(;]|$)", "recorder_sql-mysql", "shape",
                              "engine/sqltext/__init__.py"),
     "keyword_in_name": Mutant(
         "if _identifier_char_before(out):\n        return _keep(source, index, out)",
@@ -236,7 +239,7 @@ MUTANTS: dict[str, Mutant] = {
         SURFACE,
         "shape",
     ),
-    "ascii_space": Mutant("elif c in _SPACE:", "elif c.isspace():", SURFACE, "visible"),
+    "ascii_space": Mutant("elif c in _SPACE:", "elif c.isspace():", SURFACE, "shape"),
     "ascii_space_collapse": Mutant("if c in _SPACE and collapse:", "if c.isspace() and collapse:", SURFACE, "shape",
                                    RENDER),
     "in_collapse": Mutant("if _PLACEHOLDER_RUN.search(normalized) is None:", "if True:", SURFACE, "shape", RENDER),
