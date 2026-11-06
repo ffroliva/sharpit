@@ -398,7 +398,9 @@ MYSQL_84_CUTS = (
 )  # fmt: skip
 NO_BACKSLASH_CUT = Mutant(MYSQL_84_CUTS.format(True), MYSQL_84_CUTS.format(False), "", "", "engine/sqltext/rules.py")
 # the session readings cut most of the same text: the plant takes both, or the field's removal hides behind them
-NO_SESSION_READINGS = Mutant("    return rule_sets[1:] + session\n", "    return rule_sets[1:]\n", "", "")
+NO_SESSION_READINGS = Mutant(
+    "    return rule_sets[1:] + session\n", "    return rule_sets[1:]\n", "", "", "engine/sqltext/family.py"
+)
 # owed to Task 18, which adds ``hide_double_quoted`` to rules.py in another lane: until it merges, the anchor is
 # missing and this row fails as a stale plant, not as a red
 SHOWS_DOUBLE_QUOTED = Mutant("hide_double_quoted=True", "hide_double_quoted=False", "", "", "engine/sqltext/rules.py")
