@@ -6,6 +6,7 @@ docs/development/overhead-budgets.md.
 
 from __future__ import annotations
 
+import itertools
 import time
 from collections.abc import Iterator
 
@@ -24,6 +25,8 @@ pytestmark = pytest.mark.needs_sqlalchemy
 
 BUDGET_NS = 50_000
 ROUNDS, PER_ROUND = 45, 200
+MISS_BUDGET_NS = 300_000  # a distinct statement: the scan and the masker's passes; overhead-budgets.md has the numbers
+MISS_ROUNDS, MISS_PER_ROUND = 20, 50  # 1,000 distinct statements a side
 
 
 @pytest.fixture
@@ -64,3 +67,34 @@ def test_statement_overhead_budget(handle: SharpitHandle):
     assert recorder is not None
     assert recorder.report([])["totalCaptured"] == captured
     check_budget("SQL listener per statement", result, BUDGET_NS, "µs", 1000)
+
+
+def test_recorder_cache_miss_within_budget(handle: SharpitHandle):
+    """The hit budget reuses one statement, so it cannot see the scan and the masker: here no statement repeats."""
+    engine = handle.context.engines[0]
+    serial = itertools.count()
+
+    def miss_round(conn: object) -> int:
+        statements = [f"select * from (select 1 as n{next(serial):06d}) where 0" for _ in range(MISS_PER_ROUND)]
+        started = time.perf_counter_ns()
+        for statement in statements:
+            conn.exec_driver_sql(statement)  # type: ignore[attr-defined]
+        return (time.perf_counter_ns() - started) // MISS_PER_ROUND
+
+    with engine.connect() as conn:  # type: ignore[attr-defined]
+        sqla.remove(handle.context)
+
+        def on() -> int:
+            sqla.add(handle.context, statements=True, discovery=True)
+            r = miss_round(conn)
+            sqla.remove(handle.context)
+            return r
+
+        def off() -> int:
+            return miss_round(conn)
+
+        result = paired(off, on, MISS_ROUNDS)
+    recorder = handle.context.capture.sql_trace
+    assert recorder is not None
+    assert recorder.report([])["totalCaptured"] == MISS_ROUNDS * MISS_PER_ROUND
+    check_budget("SQL listener per distinct statement", result, MISS_BUDGET_NS, "µs", 1000)

@@ -19,6 +19,7 @@ from typing import Any
 
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder, normalize
+from sharpit.engine.sqltext import Dialect
 
 TOP_PER_CRITERION = 10
 MAX_ROUTES = 20
@@ -136,11 +137,16 @@ def _by(metric: Callable[[Group], float]) -> Callable[[Group], tuple[float, str]
 
 
 def _add(groups: dict[str, Group], row: dict[str, Any]) -> None:
-    # grouped by the stored text re-normalised: with parameter capture on, the stored literal is never shown
-    shape = normalize(row["sql"], row.get("mysql", False))
-    group = groups.get(shape.fingerprint)
+    # grouped by the stored text re-normalised: with parameter capture on, the stored literal is never shown. On SQLite
+    # that text hides quoted names, so only the identity kept at capture tells two tables apart.
+    stored = row["shape"]
+    shape = normalize(row["sql"], stored.dialect)
+    key = stored.fingerprint if stored.dialect is Dialect.SQLITE else shape.fingerprint
+    if key is None:
+        return
+    group = groups.get(key)
     if group is None:
-        group = groups[shape.fingerprint] = Group(shape.fingerprint, shape.sql, row["category"] or "OTHER")
+        group = groups[key] = Group(key, shape.sql, row["category"] or "OTHER")
     group.add(row)
 
 

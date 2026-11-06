@@ -18,6 +18,7 @@ from conftest import SideEffectGuard
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.masking import MASK
+from sharpit.engine.sqltext import Dialect
 from sharpit.fastapi.adapter import SharpitHandle
 
 LOCAL = ("127.0.0.1", 50000)
@@ -76,6 +77,7 @@ def test_probe_tag_bypassing_validation_is_denied_by_guard(handle: list[SharpitH
             {"headers": [(b"host", b"localhost")], "state": {}, "client": LOCAL},
             "",
             installed.context.masker,
+            application=lambda: None,
         )
     )
     assert result["status"] == 403
@@ -337,6 +339,7 @@ def test_timeout_message_and_timed_out_probe_holds_slot(handle: list[SharpitHand
                 {"headers": [], "state": {}},
                 "",
                 installed.context.masker,
+                application=lambda: None,
                 timeout=0.05,
                 on_complete=slots.release,
             )
@@ -379,6 +382,7 @@ def test_async_probe_timeout_cancels_task_and_releases_slot(handle: list[Sharpit
             {"headers": [], "state": {}},
             "",
             installed.context.masker,
+            application=lambda: None,
             timeout=0.01,
             on_complete=slots.release,
         )
@@ -549,6 +553,7 @@ def test_probe_location_header_is_capped_by_utf8_bytes(handle: list[SharpitHandl
             {"headers": [], "state": {}},
             "",
             installed.context.masker,
+            application=lambda: None,
         )
     )
     assert len(result["headers"]["location"].encode("utf-8")) <= 8192
@@ -606,6 +611,38 @@ def test_app_exception_returns_masked_500(handle: list[SharpitHandle]):
     assert groups
 
 
+@pytest.mark.needs_sqlalchemy
+def test_probe_uses_the_application_family_for_a_generic_database_error(
+    handle: list[SharpitHandle], monkeypatch: pytest.MonkeyPatch
+):
+    sa = pytest.importorskip("sqlalchemy")
+    from sharpit.engine import probe as probe_engine
+
+    families: list[Dialect | None] = []
+
+    def observe(_error: BaseException, application: Any) -> Dialect:
+        families.append(application())
+        return Dialect.POSTGRESQL
+
+    monkeypatch.setattr(probe_engine, "exception_dialect", observe)
+    from types import SimpleNamespace
+
+    engine = sa.create_engine(
+        "postgresql+pg8000://db/app", module=SimpleNamespace(paramstyle="format", __version__="1.30.5")
+    )
+    app = FastAPI()
+    error = RuntimeError("failed")
+
+    @app.get("/family-fail")
+    def fail():
+        raise error
+
+    _install(app, handle, engines=[engine])
+    with _client(app) as client:
+        _probe(client, "/family-fail")
+    assert families == [Dialect.POSTGRESQL]
+
+
 def test_probe_read_only_403(handle: list[SharpitHandle]):
     app = FastAPI()
     _install(app, handle, read_only=True)
@@ -633,6 +670,7 @@ def test_status_text_fallback_and_empty_response_error_match_bootui(handle: list
             {"headers": [], "state": {}},
             "",
             installed.context.masker,
+            application=lambda: None,
         )
 
     redirect = asyncio.run(invoke(status_response))

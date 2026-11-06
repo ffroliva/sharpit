@@ -1,0 +1,255 @@
+import multiprocessing
+import os
+import shutil
+import subprocess
+import sys
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from sharpit.engine.sqltext import identity
+from sharpit.engine.sqltext.identity import fingerprint, load_key
+from sharpit.settings import load_settings
+
+WORKERS = 8
+ROUNDS = 200
+
+
+def _worker_key(state_dir: str) -> bytes | None:
+    return load_key(Path(state_dir), create=True)
+
+
+def test_sqlite_identity_survives_a_new_process(tmp_path: Path) -> None:
+    key = load_key(tmp_path, create=True)
+    assert key is not None
+    expected = fingerprint("select * from users", key)
+    code = (
+        "from pathlib import Path; from sharpit.engine.sqltext.identity import load_key, fingerprint; "
+        f"print(fingerprint('select * from users', load_key(Path({str(tmp_path)!r}), create=False)))"
+    )
+    actual = subprocess.check_output([sys.executable, "-c", code], text=True).strip()
+    assert actual == expected
+
+
+def test_two_workers_create_one_key(tmp_path: Path) -> None:
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        keys = list(pool.map(_worker_key, [str(tmp_path)] * 2))
+    assert keys[0] == keys[1]
+
+
+_start_line: Any = None
+
+
+def _share_start_line(barrier: Any) -> None:
+    global _start_line  # noqa: PLW0603 - a pool initializer has no other way to hand a worker its barrier
+    _start_line = barrier
+
+
+def _racing_key(state_dir: str) -> bytes | None:
+    _start_line.wait(timeout=30)
+    return load_key(Path(state_dir), create=True)
+
+
+@pytest.mark.parametrize("left_behind", [None, b"", b"short"], ids=["fresh", "crashed_empty", "crashed_short"])
+def test_eight_workers_at_a_barrier_share_one_key(tmp_path: Path, left_behind: bytes | None) -> None:
+    context = multiprocessing.get_context("spawn")
+    barrier = context.Barrier(WORKERS)
+    with ProcessPoolExecutor(WORKERS, context, _share_start_line, (barrier,)) as pool:
+        for race in range(ROUNDS):
+            state_dir = tmp_path / str(race)
+            if left_behind is not None:
+                state_dir.mkdir()
+                (state_dir / "identity.key").write_bytes(left_behind)
+            keys = [pool.submit(_racing_key, str(state_dir)) for _ in range(WORKERS)]
+            got = {key.result(timeout=60) for key in keys}
+            assert None not in got, f"a worker went keyless in round {race}"
+            assert len(got) == 1, f"round {race} made {len(got)} keys"
+            assert (state_dir / "identity.key").read_bytes() in got
+
+
+def test_a_crash_before_the_key_lands_leaves_nothing_to_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def crash(*_args: object) -> None:
+        raise OSError("disk gone")
+
+    monkeypatch.setattr(identity.os, "replace", crash)
+    monkeypatch.setattr(identity, "WAIT_SECONDS", 0, raising=False)
+    assert load_key(tmp_path, create=True) is None
+    assert not (tmp_path / "identity.key").exists()
+    assert [path.name for path in tmp_path.iterdir() if path.name.endswith(".tmp")] == []
+
+
+def test_a_creator_replaces_a_file_a_crash_left_short(tmp_path: Path) -> None:
+    (tmp_path / "identity.key").write_bytes(b"cut")
+    key = load_key(tmp_path, create=True)
+    assert key is not None
+    assert len(key) == 32
+    assert (tmp_path / "identity.key").read_bytes() == key
+
+
+def test_a_reader_refuses_a_bad_file_and_leaves_it(tmp_path: Path) -> None:
+    (tmp_path / "identity.key").write_bytes(b"cut")
+    assert load_key(tmp_path, create=False) is None
+    assert (tmp_path / "identity.key").read_bytes() == b"cut"
+
+
+def test_a_key_longer_than_a_key_is_bad(tmp_path: Path) -> None:
+    (tmp_path / "identity.key").write_bytes(b"k" * 33)
+    assert load_key(tmp_path, create=False) is None
+
+
+def test_a_good_key_is_read_and_nothing_is_written(tmp_path: Path) -> None:
+    (tmp_path / "identity.key").write_bytes(b"k" * 32)
+    assert load_key(tmp_path, create=True) == b"k" * 32
+    assert [path.name for path in tmp_path.iterdir()] == ["identity.key"]
+
+
+def test_the_key_is_created_owner_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Asked of ``os.open``, so a platform with no POSIX modes still answers (the stat test above says it for POSIX)."""
+    real, modes = os.open, {}
+
+    def spy(path: Any, flags: int, mode: int = 0o777, **kwargs: Any) -> int:
+        modes[Path(path).name] = mode
+        return real(path, flags, mode, **kwargs)
+
+    monkeypatch.setattr(identity.os, "open", spy)
+    load_key(tmp_path, create=True)
+    written = [name for name in modes if name.startswith("identity.key.") and name.endswith(".tmp")]
+    assert len(written) == 1
+    assert modes[written[0]] == 0o600
+
+
+def test_the_key_lands_beside_a_gitignore_that_names_it(tmp_path: Path) -> None:
+    load_key(tmp_path, create=True)
+    assert (tmp_path / ".gitignore").is_file()
+    assert "identity.key" in (tmp_path / ".gitignore").read_text().splitlines()
+
+
+def test_the_gitignore_is_there_before_the_key_is(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    real, seen = os.replace, []
+
+    def spy(source: Any, target: Any) -> None:
+        seen.append((tmp_path / ".gitignore").is_file())
+        real(source, target)
+
+    monkeypatch.setattr(identity.os, "replace", spy)
+    load_key(tmp_path, create=True)
+    assert seen == [True]
+
+
+def test_a_gitignore_already_there_is_left_alone(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text("mine\n")
+    load_key(tmp_path, create=True)
+    assert (tmp_path / ".gitignore").read_text() == "mine\n"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_git_ignores_everything_beside_the_gitignore(tmp_path: Path) -> None:
+    state_dir = tmp_path / ".sharpit"
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    load_key(state_dir, create=True)
+    (state_dir / "identity.key.1a2b.tmp").write_bytes(b"a crash left this")  # holds a whole key
+    shown = subprocess.run(
+        ["git", "-C", str(tmp_path), "status", "--porcelain", "--untracked-files=all"],
+        check=True, capture_output=True, text=True,
+    )  # fmt: skip
+    assert shown.stdout.splitlines() == ["?? .sharpit/.gitignore"]
+
+
+@pytest.mark.parametrize("create", [True, False])
+def test_a_nul_in_the_state_dir_gives_no_key(create: bool) -> None:
+    assert load_key(Path("state\x00dir"), create=create) is None
+
+
+@pytest.mark.parametrize("create", [True, False])
+def test_a_symlink_at_the_key_path_is_refused(tmp_path: Path, create: bool) -> None:
+    target = tmp_path / "elsewhere"
+    target.write_bytes(b"k" * 32)
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    try:
+        (state_dir / "identity.key").symlink_to(target)
+    except OSError:
+        pytest.skip("this account may not make symlinks")
+    assert load_key(state_dir, create=create) is None
+    assert target.read_bytes() == b"k" * 32
+    assert (state_dir / "identity.key").is_symlink()
+
+
+@pytest.mark.parametrize("create", [True, False])
+def test_a_link_is_refused_where_making_one_takes_a_privilege(
+    tmp_path: Path, create: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows has no ``O_NOFOLLOW``: the lstat alone refuses there, and an unprivileged run cannot plant a link."""
+    (tmp_path / "identity.key").write_bytes(b"k" * 32)
+    monkeypatch.setattr(Path, "is_symlink", lambda _self: True)
+    assert load_key(tmp_path, create=create) is None
+
+
+def test_the_read_asks_not_to_follow_a_link_where_it_can(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "identity.key").write_bytes(b"k" * 32)
+    no_follow, real, flags_seen = 1 << 30, os.open, []
+
+    def spy(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        flags_seen.append(flags)
+        return real(path, flags & ~no_follow, *args, **kwargs)
+
+    monkeypatch.setattr(os, "O_NOFOLLOW", no_follow, raising=False)
+    monkeypatch.setattr(identity.os, "open", spy)
+    assert load_key(tmp_path, create=False) == b"k" * 32
+    assert [flags for flags in flags_seen if flags & no_follow] != []
+
+
+def test_no_key_gives_no_identity(tmp_path: Path) -> None:
+    assert fingerprint("select 'x'", None) is None
+    assert load_key(tmp_path, create=False) is None
+
+
+def test_key_file_is_private_on_posix(tmp_path: Path) -> None:
+    key = load_key(tmp_path, create=True)
+    assert key is not None
+    if os.name == "posix":
+        assert (tmp_path / "identity.key").stat().st_mode & 0o777 == 0o600
+
+
+def test_sqlite_identity_is_keyed() -> None:
+    expected = fingerprint("select * from users", b"a" * 32)
+    guess = fingerprint("select * from users", b"b" * 32)
+    assert guess != expected
+
+
+def test_identity_takes_any_text() -> None:
+    assert fingerprint("select \ud800", b"k" * 32) is not None
+    assert fingerprint("select\x00x", b"k" * 32) is not None
+
+
+def test_the_env_key_is_read_as_a_secret_setting() -> None:
+    settings = load_settings({}, {"SHARPIT_IDENTITY_KEY": "k" * 32})
+    assert settings.identity_key == "k" * 32
+    assert "k" * 32 not in repr(settings.warnings)
+
+
+def test_two_machines_with_one_env_key_share_identity() -> None:
+    first = load_settings({}, {"SHARPIT_IDENTITY_KEY": "k" * 32})
+    second = load_settings({}, {"SHARPIT_IDENTITY_KEY": "k" * 32})
+    first_id = fingerprint("select * from users", first.identity_key.encode() if first.identity_key else None)
+    second_id = fingerprint("select * from users", second.identity_key.encode() if second.identity_key else None)
+    assert first_id == second_id
+
+
+def test_an_empty_env_key_is_unset() -> None:
+    settings = load_settings({}, {"SHARPIT_IDENTITY_KEY": ""})
+    assert settings.identity_key is None
+
+
+def test_a_short_env_key_is_rejected_without_echoing_it() -> None:
+    settings = load_settings({}, {"SHARPIT_IDENTITY_KEY": "short-secret"})
+    assert settings.identity_key is None
+    assert all("short-secret" not in warning for warning in settings.warnings)
+
+
+def test_an_unencodable_env_key_fails_safe() -> None:
+    settings = load_settings({}, {"SHARPIT_IDENTITY_KEY": "\ud800" * 32})
+    assert settings.identity_key is None
+    assert any("SHARPIT_IDENTITY_KEY" in warning for warning in settings.warnings)

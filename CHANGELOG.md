@@ -5,6 +5,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- An unregistered engine that reports the wrong database name in an application using a different single family is read as the name it reports; a comment that family keeps can therefore remain visible. The test-session sink resolves with no application fallback (`lambda: None`), so it does not share the recorder's fallback behavior.
+- Test-session group keys are built from masked text, so a key changes for a statement the masker edits (`password = ?` reads `password = ****** where id = ?`). N+1 baselines and dismissals on those groups re-flag after an upgrade: 1,396 of 20,000 generic rows and 2,048 of 20,000 MySQL rows in the corpus change.
+- A statement whose database family is unknown or in conflict shows nothing past a `#`, on any line: it is a comment on MySQL, an operator on PostgreSQL and a variable on SQLite.
+
 ## [0.5.0] - 2026-11-04
 
 ### Added

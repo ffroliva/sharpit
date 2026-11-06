@@ -65,12 +65,14 @@ ROUTE_UNKNOWN = "No HTTP Exchanges row for this request (HTTP Exchanges disabled
 
 def _select_counts(rows: list[dict[str, Any]]) -> tuple[dict[tuple[str, str], int], dict[str, str]]:
     counts: dict[tuple[str, str], int] = {}  # (request, fingerprint) -> executions
-    shapes: dict[str, str] = {}  # fingerprint -> normalised sql (unmasked until output)
+    shapes: dict[str, str] = {}  # fingerprint -> normalised sql, masked at capture
     for row in rows:
         request_id = row["traceId"]
         if request_id is None or row["category"] != "SELECT":
             continue
         shape = row["shape"]
+        if shape.fingerprint is None:
+            continue
         key = (request_id, shape.fingerprint)
         counts[key] = counts.get(key, 0) + 1
         shapes[shape.fingerprint] = shape.sql

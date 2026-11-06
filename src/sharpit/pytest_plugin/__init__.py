@@ -26,6 +26,7 @@ from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.collectors.restapi.service import assess as assess  # compatibility seam for apps.py
 from sharpit.engine.sources import dispatch, sqlite
+from sharpit.engine.sqltext import load_key
 from sharpit.engine.testsession import gates as gates
 from sharpit.engine.testsession import outcome, report
 from sharpit.engine.testsession.facts import SessionFacts
@@ -336,6 +337,17 @@ def pytest_sessionstart(session: Any) -> None:
     if state is None:
         return
     try:
+        identity_key = (
+            state.settings.identity_key.encode("utf-8")
+            if state.settings.identity_key
+            else load_key(Path(state.settings.state_dir), create=True)
+        )
+        state.sink.set_identity_key(identity_key)
+        sqla.set_identity_key(identity_key)
+        if identity_key is None:
+            warning = "SQLite statement identities are unavailable because sharpit could not load a state key"
+            if warning not in state.sink.facts.warnings:
+                state.sink.facts.warnings.append(warning)
         worker_id = getattr(session.config, "workerinput", {}).get("workerid")
         if worker_id:
             state.sink.facts.worker = worker_id

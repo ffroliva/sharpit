@@ -33,18 +33,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, python: "3.12", shard: 1/4 }
-          - { os: ubuntu-latest, python: "3.12", shard: 2/4 }
-          - { os: ubuntu-latest, python: "3.12", shard: 3/4 }
-          - { os: ubuntu-latest, python: "3.12", shard: 4/4 }
-          - { os: ubuntu-latest, python: "3.13", shard: 1/4 }
-          - { os: ubuntu-latest, python: "3.13", shard: 2/4 }
-          - { os: ubuntu-latest, python: "3.13", shard: 3/4 }
-          - { os: ubuntu-latest, python: "3.13", shard: 4/4 }
-          - { os: ubuntu-latest, python: "3.14", shard: 1/4 }
-          - { os: ubuntu-latest, python: "3.14", shard: 2/4 }
-          - { os: ubuntu-latest, python: "3.14", shard: 3/4 }
-          - { os: ubuntu-latest, python: "3.14", shard: 4/4 }
+          - { os: ubuntu-latest, python: "3.12", shard: 1/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 2/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 3/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 4/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 5/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 1/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 2/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 3/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 4/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 5/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 1/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 2/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 3/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 4/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 5/5 }
           - { os: windows-latest, python: "3.14", shard: 1/4 }
           - { os: windows-latest, python: "3.14", shard: 2/4 }
           - { os: windows-latest, python: "3.14", shard: 3/4 }
@@ -265,6 +268,70 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: test "${{ needs.no-sqlalchemy-shard.result }}" = success
+
+  masking-gates:
+    # The three files that outweigh any shard ceiling alone, every row: test_masking_scales_linearly.py (487 s of CPU
+    # time on Linux), test_statement_surfaces.py (386 s on Windows) and test_lane_gate.py (418 s on Windows). The
+    # shards leave them out (tests/_shard.py OWN_JOB) and this job runs them whole. No job timeout is set, so GitHub's 6 h default
+    # covers them.
+    name: masking gates (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv python install 3.14
+      - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the gate
+      - run: uv run --no-sync pytest tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: # ci_review.py globs junit-*
+          name: junit-gates-${{ matrix.os }}
+          path: ${{ runner.temp }}/junit.xml
+          retention-days: 7
+
+  masking-gates-check:
+    # required check, as `test` is for the shards (always(): a skipped required check counts as green)
+    needs: masking-gates
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.masking-gates.result }}" = success
+
+  live:
+    # The live profile (tests/live, --live): real MySQL, MariaDB and PostgreSQL servers started by Testcontainers. Linux
+    # only: GitHub's Windows runners cannot run Linux containers. A skip is a failure: the check reads the report.
+    runs-on: ubuntu-latest
+    # A container per row once ran this job 2 h 38 min with no verdict (field log F16). The gate takes about 9 minutes
+    # on one container per server; 30 makes a regression of that kind fail in half an hour, not hold the runner.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv python install 3.14
+      - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the live tests
+      - run: uv run --no-sync pytest tests/live --live -n 0 --junitxml=live.xml
+      - name: Require executed live tests, without skips
+        if: always()
+        # the server oracle (tests/live/test_server_oracle.py), by function: the check reads JUnit case names, and a
+        # file name is none. Counts only where the file pins them: a plant list that grows must not break the check
+        run: >-
+          uv run --no-sync python scripts/ci/check_live_tests.py live.xml --require test_a_server_answers=4
+          test_oracle_row test_every_session_leg_ran=14 test_a_refused_statement_keeps_its_value_hidden=5
+          test_oracle_control test_a_wrong_wired_dialect_fails_the_oracle=1 test_the_inverse_plant_shows_five_rows_on_off=1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: # ci_review.py globs junit-*
+          name: junit-live
+          path: live.xml
+          retention-days: 7
 
   sharpit-gate:
     # Dogfood: the example's fixed route must pass `pytest --sharpit`, its planted N+1 must fail it.

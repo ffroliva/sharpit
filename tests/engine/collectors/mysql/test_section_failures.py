@@ -55,6 +55,13 @@ def test_section_driver_error_dsn_password_masked(kind: str) -> None:
     assert PASSWORD not in repr(data)
 
 
+def test_replica_last_error_reads_as_mysql() -> None:
+    """MySQL's ``#`` opens a comment: the replica's error text is read as the server's, which names no driver."""
+    row = {"channel_name": "", "last_error_message": "Worker 1 failed\n[SQL: select 1 # password hunter2\nfrom t]"}
+    data = _collect(FakeMySqlConnection().with_rows("REPLICATION", row))
+    assert "hunter2" not in str(data.replication_channels[0]["lastErrorMessage"])
+
+
 @pytest.mark.parametrize("dialect", ["mysql", "mariadb"])
 def test_lock_wait_rows_are_read(dialect: str) -> None:
     # The fake rejects an undeclared alias and a lock table the server does not have, as the server does.

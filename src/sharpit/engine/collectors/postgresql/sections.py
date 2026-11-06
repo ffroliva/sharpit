@@ -22,6 +22,7 @@ from sharpit.engine.collectors.postgresql.limits import RowLimits, read_one_past
 from sharpit.engine.collectors.postgresql.queries import checkpoint_sql, statement_sql
 from sharpit.engine.collectors.postgresql.querytext import is_metadata_only, query_text, truncate
 from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.sqltext import Dialect
 
 # PostgresSectionIds
 SECTION_IDS = ("vital-signs", "sessions", "statements", "indexes", "tables", "vacuum", "replication", "settings")
@@ -165,7 +166,8 @@ def append_sentence(reason: str | None, sentence: str) -> str:
 
 def _describe(ctx: ReadContext, label: str, exc: Exception) -> str:
     message = str(exc).strip() or type(exc).__name__
-    return f"{label} could not be read: {mask_error(ctx.masker, message) or type(exc).__name__}"
+    masked = mask_error(ctx.masker, message, Dialect.UNSUPPORTED, known=True)
+    return f"{label} could not be read: {masked or type(exc).__name__}"
 
 
 def _sqlstate(exc: Exception) -> str | None:

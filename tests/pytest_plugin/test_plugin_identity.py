@@ -1,0 +1,87 @@
+import json
+
+import pytest
+
+NPLUS_ONE = """
+from sqlalchemy import ForeignKey, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Owner(Base):
+    __tablename__ = "owners"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pets: Mapped[list["Pet"]] = relationship()
+
+
+class Pet(Base):
+    __tablename__ = "pets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("owners.id"))
+
+
+def test_nplus_one(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path}/a.db")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(Owner(id=i, pets=[Pet(id=i * 10 + j) for j in range(2)]) for i in range(1, 12))
+        session.commit()
+    with Session(engine) as session:
+        assert sum(len(owner.pets) for owner in session.query(Owner).all()) == 22
+"""
+
+
+def test_a_pytest_session_creates_the_key_at_start(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    state_dir = pytester.path / "state"
+    monkeypatch.setenv("SHARPIT_STATE_DIR", str(state_dir))
+    pytester.makepyfile("def test_pass(): pass")
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q")
+    assert result.ret == 0
+    assert (state_dir / "identity.key").is_file()
+
+
+def test_a_session_with_no_key_warns_once_in_its_report(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_dir = pytester.path / "a-file"
+    state_dir.write_text("no directory can go here")
+    monkeypatch.setenv("SHARPIT_STATE_DIR", str(state_dir))
+    pytester.makepyfile("def test_pass(): pass")
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    warnings = json.loads((pytester.path / "report.json").read_text())["warnings"]
+    assert len([warning for warning in warnings if "SQLite statement identities are unavailable" in warning]) == 1
+
+
+def test_a_repeating_group_on_sqlite_keeps_its_fingerprint(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding: the ORM's masker had no key, so a SQLite N+1 lost its relationship and the report its fingerprint."""
+    monkeypatch.setenv("SHARPIT_STATE_DIR", str(pytester.path / "state"))
+    pytester.makepyfile(NPLUS_ONE)
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret in (0, 1)
+    findings = json.loads((pytester.path / "report.json").read_text())["findings"]
+    assert [finding for finding in findings if "Owner.pets" in str(finding.get("message"))] != []
+
+
+def test_the_env_key_appears_in_no_output(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    key = "x" * 32
+    state_dir = pytester.path / "state"
+    monkeypatch.setenv("SHARPIT_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("SHARPIT_IDENTITY_KEY", key)
+    pytester.makepyfile("def test_pass(): pass")
+    result = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    assert result.ret == 0
+    assert key not in result.stdout.str()
+    assert key not in (pytester.path / "report.json").read_text()
+    assert not (state_dir / "identity.key").exists()
