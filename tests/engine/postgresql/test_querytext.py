@@ -101,3 +101,13 @@ def test_query_text_masks_postgresql_16_numeric_forms_whole() -> None:
 def test_query_text_masks_nested_comments_whole() -> None:
     # derived: final round (3): PostgreSQL block comments nest
     assert query_text(MASKED, "select a /* outer /* inner */ secret */ from t") == "select a from t"
+
+
+def test_a_double_quoted_value_hides_on_postgresql() -> None:
+    # spec A1: the lexer hides this on every other surface, and the corpus's row reaches this one
+    shown = query_text(MASKED, 'SELECT id FROM t WHERE email = "alice@example.com"')
+    assert shown == "SELECT id FROM t WHERE email = '******'"
+
+
+def test_a_double_quoted_name_stays_on_postgresql() -> None:
+    assert query_text(MASKED, 'SELECT "t"."id" FROM "t"') == 'SELECT "t"."id" FROM "t"'

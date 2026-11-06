@@ -15,9 +15,11 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from sharpit.engine.capture.errortext import log_statement
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
+from sharpit.engine.sqltext import Dialect
 
 LINE_KEYS = ("timestamp", "level", "logger", "message", "thread", "messageOmitted")  # BootUI LogLineDto, record order
 MAX_MESSAGE = 4000
@@ -37,6 +39,9 @@ class LogTailBuffer:
         self.boot_nonce = secrets.token_hex(8)  # per process start: an SSE id from another process replays all
         self.stream = LineStream(self.after)
 
+    # Readers take no lock: a collection inside one runs a finalizer that logs into ``append`` on the same thread.
+    # shortcut: ``tuple(deque)`` is atomic only under the GIL, where GC runs between bytecodes; a free-threaded build
+    # needs a retry on the deque's RuntimeError.
     def append(self, line: dict[str, Any]) -> int:
         size = len((line.get("message") or "").encode()) + len((line.get("thread") or "").encode())
         with self._lock:
@@ -51,12 +56,10 @@ class LogTailBuffer:
 
     def recent(self) -> list[dict[str, Any]]:
         """Oldest first (BootUI ``recent()``)."""
-        with self._lock:
-            return [line for _, line, _ in self._lines]
+        return [line for _, line, _ in tuple(self._lines)]
 
     def after(self, seq: int | None) -> list[tuple[int, dict[str, Any]]]:
-        with self._lock:
-            return [(s, line) for s, line, _ in self._lines if seq is None or s > seq]
+        return [(s, line) for s, line, _ in tuple(self._lines) if seq is None or s > seq]
 
     def resume_point(self, last_event_id: str | None) -> int | None:
         """The sequence number in ``<bootNonce>-<seq>``; ``None`` (replay everything) for another process's id."""
@@ -87,10 +90,16 @@ def _own(name: str) -> bool:
 class SharpitLogHandler(logging.Handler):
     """Level ``NOTSET``: it sees what the app's logger levels let through and changes no level (spec §7.5)."""
 
-    def __init__(self, masker: Masker, log_tail: LogTailBuffer | None) -> None:
+    def __init__(
+        self,
+        masker: Masker,
+        log_tail: LogTailBuffer | None,
+        application: Callable[[], Dialect | None],
+    ) -> None:
         super().__init__(logging.NOTSET)
         self.masker = masker
         self.log_tail = log_tail
+        self.application = application
         self.on_exc_info: Callable[[logging.LogRecord], None] | None = None  # Exceptions (Task 4)
         self._local = threading.local()
         self._failed = False
@@ -128,7 +137,11 @@ class SharpitLogHandler(logging.Handler):
         except Exception:  # noqa: BLE001 - a bad format string
             message = str(record.msg)
         # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
-        masked = mask_error(self.masker, message[: 4 * MAX_MESSAGE])
+        shown = message[: 4 * MAX_MESSAGE]
+        statement = engine_log and not self.masker.capture_parameters
+        family = self.application()
+        dialect = Dialect.UNSUPPORTED if family is None else family
+        masked = log_statement(self.masker, shown, dialect) if statement else mask_error(self.masker, shown, dialect)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return {

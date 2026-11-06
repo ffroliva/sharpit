@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.routing import Route
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from conftest import golden
@@ -21,6 +23,8 @@ from sharpit.engine.guard import (
     MESSAGE_FORWARDED_SOURCE,
 )
 from sharpit.engine.headers import CSP
+from sharpit.engine.sqltext import identity
+from sharpit.fastapi.adapter import SharpitMount
 from surface import BASE_PANEL_IDS, expected_panel_ids
 
 LOCAL = ("127.0.0.1", 50000)
@@ -58,6 +62,80 @@ def test_inactive_logs_reason(caplog: pytest.LogCaptureFixture):
     with caplog.at_level(logging.INFO, logger="sharpit"):
         install(FastAPI(), enabled="OFF")
     assert [r.getMessage() for r in caplog.records] == ["sharpit inactive: Disabled by SHARPIT_ENABLED=OFF"]
+
+
+def test_an_inactive_install_creates_no_key(tmp_path: Any) -> None:
+    install(FastAPI(), enabled="OFF", state_dir=str(tmp_path))
+    assert not (tmp_path / "identity.key").exists()
+
+
+def test_the_env_key_overrides_the_file(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    key = "k" * 32
+    (tmp_path / "identity.key").write_bytes(b"f" * 32)
+    monkeypatch.setenv("SHARPIT_IDENTITY_KEY", key)
+    handle = install(FastAPI(), enabled="ON", show_banner=False, state_dir=str(tmp_path))
+    assert handle.context.masker.identity_key == key.encode()
+    assert (tmp_path / "identity.key").read_bytes() == b"f" * 32
+
+
+def test_no_key_leaves_sqlite_statements_ungrouped(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from sharpit.fastapi import install as install_module
+
+    monkeypatch.setattr(install_module, "load_key", lambda *_args, **_kw: None)
+    handle = install(FastAPI(), enabled="ON", show_banner=False, state_dir=str(tmp_path))
+    assert handle.context.masker.identity_key is None
+    assert len([row for row in caplog.records if "SQLite statement identities are unavailable" in row.message]) == 1
+    from sharpit.engine.capture.sqltrace import SqlTraceRecorder
+    from sharpit.engine.sqltext import Dialect
+
+    recorder = SqlTraceRecorder(handle.context.masker)
+    recorder.record(
+        'select "id" from "users"', duration_ns=1, thread="main", connection_id=None, dialect=Dialect.SQLITE
+    )
+    assert recorder.aggregate_count == 0
+
+
+def test_install_creates_the_key_in_a_fresh_directory(tmp_path: Any) -> None:
+    state_dir = tmp_path / "fresh"
+    handle = install(FastAPI(), enabled="ON", show_banner=False, state_dir=str(state_dir))
+    assert handle.context.masker.identity_key == (state_dir / "identity.key").read_bytes()
+
+
+def _spy_on_load_key(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    """Every ``create`` a read passes. With the key on disk, ``create=True`` writes nothing: only the argument shows."""
+    real, calls = identity.load_key, []
+
+    def spy(state_dir: Any, *, create: bool) -> bytes | None:
+        calls.append(create)
+        return real(state_dir, create=create)
+
+    for name, module in list(sys.modules.items()):
+        if name.startswith("sharpit") and hasattr(module, "load_key"):
+            monkeypatch.setattr(module, "load_key", spy)
+    return calls
+
+
+def _get_routes(app: FastAPI) -> list[str]:
+    mount = next(route for route in app.router.routes if isinstance(route, SharpitMount))
+    found = [route.path_format for route in mount.routes if isinstance(route, Route) and "GET" in (route.methods or ())]
+    return ["/sharpit" + path for path in found if "{" not in path]
+
+
+def test_a_read_creates_no_key(no_side_effects: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
+    assert (no_side_effects.state_dir / "identity.key").is_file()
+    no_side_effects.rebaseline()
+    calls = _spy_on_load_key(monkeypatch)
+    no_side_effects.unblock_network()
+    with _client(app) as client:
+        no_side_effects.block_network()
+        statuses = {path: client.get(path).status_code for path in _get_routes(app)}
+    assert statuses["/sharpit/api/overview"] == 200
+    assert no_side_effects.violations == []
+    assert True not in calls, "a GET asked to create the key"
 
 
 def test_bare_path_goes_through_guard():
