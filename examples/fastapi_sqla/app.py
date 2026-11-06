@@ -135,7 +135,7 @@ async def _sleep_coro() -> None:
         await asyncio.sleep(30.0)
 
 
-def create_app(db_dir: Path | None = None, **sharpit_options: Any) -> FastAPI:
+def create_app(db_dir: Path | None = None, database_url: str | None = None, **sharpit_options: Any) -> FastAPI:
     """Create the sample app with sync/async SQLite engines and sharpit installed."""
     settings = Settings()
 
@@ -147,7 +147,7 @@ def create_app(db_dir: Path | None = None, **sharpit_options: Any) -> FastAPI:
     resolved_db_dir.mkdir(parents=True, exist_ok=True)
     db_file = (resolved_db_dir / "sample.db").resolve()
 
-    sync_url = f"sqlite:///{db_file.as_posix()}"
+    sync_url = database_url or f"sqlite:///{db_file.as_posix()}"
     async_url = f"sqlite+aiosqlite:///{db_file.as_posix()}"
 
     sync_engine: Engine = create_engine(sync_url)

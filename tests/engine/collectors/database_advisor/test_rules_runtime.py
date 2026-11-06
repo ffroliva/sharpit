@@ -7,16 +7,20 @@ from typing import Any
 from sharpit.engine.capture.sqltrace import normalize
 from sharpit.engine.collectors.database_advisor import rules_runtime
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
+from sharpit.engine.sqltext import Dialect
 
 
 def _raw(*statements: str) -> list[dict[str, Any]]:
     """Ring rows as SqlTraceRecorder keeps them when parameters are captured: the raw text and its shape."""
-    return [{"sql": sql, "shape": normalize(sql)} for sql in statements]
+    return [{"sql": sql, "shape": normalize(sql, Dialect.UNSUPPORTED)} for sql in statements]
 
 
 def _normalized(*statements: str) -> list[dict[str, Any]]:
     """Ring rows as SqlTraceRecorder keeps them by default: the literals already replaced."""
-    return [{"sql": normalize(sql).sql, "shape": normalize(sql)} for sql in statements]
+    return [
+        {"sql": normalize(sql, Dialect.UNSUPPORTED).sql, "shape": normalize(sql, Dialect.UNSUPPORTED)}
+        for sql in statements
+    ]
 
 
 def _check(rows: list[dict[str, Any]] | None) -> Outcome:

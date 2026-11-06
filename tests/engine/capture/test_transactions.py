@@ -8,7 +8,7 @@ from sharpit.engine.masking import Masker
 
 # ported: TransactionRecorderTests.recordsACommittedRootTransaction
 def test_records_committed_root() -> None:
-    recorder = TransactionRecorder(Masker("MASKED", True, None))
+    recorder = TransactionRecorder(Masker("MASKED", True, None), application=lambda: None)
     entry_id = recorder.begin(
         1, parent=None, method="orders:create", thread="MainThread", trace_id=None, connection_id="db-1"
     )
@@ -29,7 +29,7 @@ def test_records_rolled_back() -> None:
 
 
 def _recorder(**options: object) -> TransactionRecorder:
-    return TransactionRecorder(Masker("MASKED", True, None), **options)  # type: ignore[arg-type]
+    return TransactionRecorder(Masker("MASKED", True, None), application=lambda: None, **options)  # type: ignore[arg-type]
 
 
 def _begin(recorder: TransactionRecorder, connection_id: str | None = "db-1") -> int:

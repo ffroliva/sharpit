@@ -56,8 +56,17 @@ if [ ! -f $OUT/fatal ]; then
   SHARPIT_SHARD=@IDX@/@TOTAL@ SHARPIT_OVERHEAD_LOG=$OUT/overhead.jsonl uv run pytest -q -p no:cacheprovider \
     -n @WORKERS@ --durations=15 --junitxml=$OUT/pytest.xml > $OUT/pytest.log 2>&1; echo $? > $OUT/pytest.rc
   step tests_end
-fi
+@OWN@fi
 tar -czf $HOME/out.tgz -C $HOME out; touch $HOME/out.done
+"""
+
+
+# The files tests/_shard.py leaves to CI's masking-gates job (no shard collects them): run whole, no shard set. A
+# failure there turns the box's exit code red.
+OWN_JOB_STEP = """  OWN=$(uv run python -c "import sys; sys.path[:0]=['tests']; import _shard; print(*_shard.OWN_JOB)")
+  uv run pytest -q -p no:cacheprovider -n @WORKERS@ --junitxml=$OUT/pytest-own.xml $OWN > $OUT/pytest-own.log 2>&1 \\
+    || echo $? > $OUT/pytest.rc
+  step own_end
 """
 
 
@@ -71,10 +80,11 @@ class BoxResult:
     wall: float = 0.0  # host seconds, create to result copied
 
 
-def box_script(index: int, total: int, workers: int, sha: str) -> str:
+def box_script(index: int, total: int, workers: int, sha: str, own_job: bool = False) -> str:
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError(f"not a full sha: {sha!r}")
     values = {"REPO": REPO, "SHA": sha, "IDX": str(index), "TOTAL": str(total), "WORKERS": str(workers)}
+    values["OWN"] = re.sub(r"@(\w+)@", lambda m: values[m[1]], OWN_JOB_STEP) if own_job else ""
     return re.sub(r"@(\w+)@", lambda m: values.get(m[1], m[0]), BOX_SCRIPT)
 
 
@@ -243,7 +253,9 @@ def load_ledger() -> object | None:
     return sbx_ledger
 
 
-def run_box(index: int, total: int, sha: str, workers: int, out_dir: Path, deadline: float) -> BoxResult:
+def run_box(
+    index: int, total: int, sha: str, workers: int, out_dir: Path, deadline: float, own_job: bool = False
+) -> BoxResult:
     name = f"{NAME_PREFIX}{sha[:9]}-{os.getpid()}-{index}of{total}"
     began = time.monotonic()
     started = time.time()
@@ -253,7 +265,9 @@ def run_box(index: int, total: int, sha: str, workers: int, out_dir: Path, deadl
             print(f"box {index}: create failed: {created.stderr.strip()[-300:]}", flush=True)
             return BoxResult(index)
         script = out_dir / f"box{index}.sh"
-        script.write_text(box_script(index, total, workers, sha), encoding="utf-8", newline="\n")
+        script.write_text(
+            box_script(index, total, workers, sha, own_job and index == 1), encoding="utf-8", newline="\n"
+        )
         if _sbx("cp", str(script), f"{name}:/home/agent/box.sh").returncode != 0:
             return BoxResult(index, fatal="failed to upload the box script")
         if _sbx("exec", name, "bash", "-c", "nohup bash ~/box.sh > ~/box.out 2>&1 & disown").returncode != 0:
@@ -293,15 +307,25 @@ def _on_sigterm(_signum: int, _frame: object) -> None:
     raise KeyboardInterrupt
 
 
-def main(argv: list[str] | None = None) -> int:
-    started = time.monotonic()
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     cli = argparse.ArgumentParser(description="Run the full suite across up to 5 cloud sandboxes.")
     cli.add_argument("--boxes", type=int, default=MAX_BOXES)
     cli.add_argument("--workers", type=int, default=8, help="xdist workers per box (a box has 8 vCPUs)")
     cli.add_argument("--sha", default="HEAD")
     cli.add_argument("--minutes", type=int, default=15, help="wall-clock limit; a box past it is red")
     cli.add_argument("--out", type=Path, default=None)
-    args = cli.parse_args(argv)
+    cli.add_argument(
+        "--own-job",
+        action="store_true",
+        help="box 1 also runs the files CI's masking-gates job runs (tests/_shard.py OWN_JOB; no shard collects "
+        "them, so the default run skips them); raise --minutes, they add about 8 minutes on that box",
+    )
+    return cli.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    started = time.monotonic()
+    args = parse_args(argv)
     try:
         total = check_boxes(args.boxes)
     except ValueError as exc:
@@ -330,7 +354,10 @@ def main(argv: list[str] | None = None) -> int:
         with ThreadPoolExecutor(max_workers=total) as pool:
             try:
                 results = list(
-                    pool.map(lambda k: run_box(k, total, sha, args.workers, out_dir, deadline), range(1, total + 1))
+                    pool.map(
+                        lambda k: run_box(k, total, sha, args.workers, out_dir, deadline, args.own_job),
+                        range(1, total + 1),
+                    )
                 )
             except KeyboardInterrupt:
                 stop.set()  # each box thread sees it within POLL_INTERVAL and removes its box

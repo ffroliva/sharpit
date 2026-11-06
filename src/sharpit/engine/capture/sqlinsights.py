@@ -137,7 +137,7 @@ def _by(metric: Callable[[Group], float]) -> Callable[[Group], tuple[float, str]
 
 def _add(groups: dict[str, Group], row: dict[str, Any]) -> None:
     # grouped by the stored text re-normalised: with parameter capture on, the stored literal is never shown
-    shape = normalize(row["sql"], row.get("mysql", False))
+    shape = normalize(row["sql"], row["shape"].dialect)
     group = groups.get(shape.fingerprint)
     if group is None:
         group = groups[shape.fingerprint] = Group(shape.fingerprint, shape.sql, row["category"] or "OTHER")

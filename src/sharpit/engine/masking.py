@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import functools
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import StrEnum
 from urllib.parse import unquote_plus
 
-MASK = "******"
+from sharpit.engine.sqltext import MASK
 
 
 class Exposure(StrEnum):
@@ -64,7 +64,9 @@ _VENDOR_PREFIXES = (
     "sk-ant-",
     "sk-proj-",
 )  # fmt: skip: keep in step with _VENDOR_TOKEN
-_SECRET_MARKERS = ("=", "://", "eyJ", _PEM_MARKER, "AKIA", "ASIA")
+_SECRET_HINT = re.compile(
+    "|".join(re.escape(hint) for hint in ("=", "://", "eyJ", _PEM_MARKER, "AKIA", "ASIA", *_VENDOR_PREFIXES))
+)
 
 
 def _has_vendor_token(value: str) -> bool:
@@ -84,11 +86,8 @@ def _has_pem_private_key(value: str) -> bool:
 
 def is_secret_value(value: str) -> bool:
     """True when the value matches a high-confidence secret pattern (SecretValueDetector)."""
-    if not value.strip():
+    if _SECRET_HINT.search(value) is None:  # fast path: every pattern below needs one of them
         return False
-    if not any(marker in value for marker in _SECRET_MARKERS):  # fast path: every pattern needs one of them
-        # sharpit widening (0.3.0 spec §14): vendor token prefixes for positional values
-        return _has_vendor_token(value)
     return bool(
         _JWT.fullmatch(value.strip())
         or _has_pem_private_key(value)
@@ -168,23 +167,121 @@ _QUOTED_PAIR_MASKED = rf"\g<0>\1{MASK}\1"
 _PAIR_MASKED = rf"\g<0>{MASK}"
 
 
+def _shared_ends(old: str, new: str) -> tuple[int, int]:
+    """How many characters ``old`` and ``new`` share at each end. A ``*`` is never shared: it may be a value's own."""
+    limit = min(len(old), len(new))
+    head = 0
+    while head < limit and old[head] == new[head] and old[head] != "*":
+        head += 1
+    tail = 0
+    while tail < limit - head and old[-1 - tail] == new[-1 - tail] and old[-1 - tail] != "*":
+        tail += 1
+    return head, tail
+
+
+def _unedited(text: str, edits: Sequence[tuple[int, int, str]]) -> list[tuple[int, int, int]]:
+    """The ``(start, end, shift)`` runs of ``text`` that ``edits`` leave in place, ascending."""
+    runs: list[tuple[int, int, int]] = []
+    cursor = shift = 0
+    for start, end, replacement in edits:
+        old = text[start:end]
+        if old != replacement:
+            head, tail = _shared_ends(old, replacement)
+            runs.append((cursor, start + head, shift))
+            shift += len(replacement) - len(old)
+            cursor = end - tail
+    runs.append((cursor, len(text), shift))
+    return runs
+
+
+def _kept_in(kept: list[tuple[int, int, int]], runs: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
+    """``kept`` cut down to ``runs``. Both ascend, so a segment behind a run is never read again: one walk."""
+    survivors: list[tuple[int, int, int]] = []
+    first = 0
+    for start, end, shift in runs:
+        while first < len(kept) and kept[first][0] + kept[first][2] <= start:
+            first += 1
+        index = first
+        while start < end and index < len(kept) and kept[index][0] < end:
+            output, raw, length = kept[index]
+            low, high = max(output, start), min(output + length, end)
+            survivors.append((low + shift, raw + low - output, high - low))
+            index += 1
+    return survivors
+
+
+class Tracked:
+    """Text under rewrite that can say which raw characters survived. Each pass reads what the last one wrote.
+
+    ``track=False`` keeps no positions: the same passes at the cost of the passes, which is how free text runs.
+    """
+
+    def __init__(self, text: str, track: bool = True) -> None:
+        self.text = text
+        self._track = track
+        self._raw_length = len(text)
+        self._kept = [(0, 0, len(text))] if text else []  # (output start, raw start, length), ascending in both
+
+    def apply(self, edits: Sequence[tuple[int, int, str]]) -> None:
+        """Replace each ``(start, end, replacement)``, ascending and disjoint, in the current text."""
+        if not edits:
+            return
+        text = self.text
+        if self._track:
+            self._kept = _kept_in(self._kept, _unedited(text, edits))
+        parts: list[str] = []
+        cursor = 0
+        for start, end, replacement in edits:
+            parts += (text[cursor:start], replacement)
+            cursor = end
+        parts.append(text[cursor:])
+        self.text = "".join(parts)
+
+    def sub(self, pattern: re.Pattern[str], repl: str | Callable[[re.Match[str]], str]) -> None:
+        """``pattern.sub(repl, text)``, tracked."""
+        if not self._track:
+            self.text = pattern.sub(repl, self.text)
+            return
+        edits: list[tuple[int, int, str]] = []
+        for found in pattern.finditer(self.text):
+            replacement = repl(found) if callable(repl) else found.expand(repl)
+            if replacement != found[0]:  # most tokens: a pass that changes nothing costs its read alone
+                edits.append((found.start(), found.end(), replacement))
+        self.apply(edits)
+
+    def hidden(self) -> list[tuple[int, int]]:
+        """The raw ``(start, end)`` runs that did not survive, ascending. With no positions, all of it: fail closed."""
+        if not self._track:
+            return [(0, self._raw_length)]
+        spans: list[tuple[int, int]] = []
+        at = 0
+        for _, raw, length in self._kept:
+            if raw > at:
+                spans.append((at, raw))
+            at = raw + length
+        if at < self._raw_length:
+            spans.append((at, self._raw_length))
+        return spans
+
+
 def _mask_segments(path: str) -> str:
     return "/".join(MASK if is_secret_value(seg) else seg for seg in path.split("/"))
 
 
-def _mask_pairs(pattern: re.Pattern[str], masked: str, text: str) -> str:
-    """Mask the value of each sensitive key in ``text``, to the end of its line."""
-    parts: list[str] = []
-    cursor = position = 0
+def _mask_pairs(pattern: re.Pattern[str], masked: str, tracked: Tracked) -> None:
+    """Mask the value of each sensitive key in ``tracked``, to the end of its line."""
+    text = tracked.text
+    edits: list[tuple[int, int, str]] = []
+    position = 0
     while found := pattern.search(text, position):
         position = found.end()
         name = found.group(found.lastindex or 0)
         if is_sensitive_key(name) or name.lower() in _SECRET_HEADERS:  # Cookie: session=abc
             line_end = text.find("\n", position)
-            parts += (text[cursor : found.start()], found.expand(masked))
-            cursor = position = len(text) if line_end < 0 else line_end
-    parts.append(text[cursor:])
-    return "".join(parts)
+            end = len(text) if line_end < 0 else line_end
+            edits.append((found.start(), end, found.expand(masked)))
+            position = end
+    tracked.apply(edits)
 
 
 def _mask_pair_v04(m: re.Match[str]) -> str:
@@ -208,6 +305,8 @@ def _mask_jwt(m: re.Match[str]) -> str:
 
 def _mask_token(m: re.Match[str]) -> str:
     token = m.group(0)
+    if _SECRET_HINT.search(token) is None:  # what ``is_secret_value`` reads first: below, no other answer is possible
+        return token
     stripped = token.lstrip(_TOKEN_LEAD)
     core = stripped.rstrip(_TOKEN_TRAIL)
     lead, trail = token[: len(token) - len(stripped)], stripped[len(core) :]
@@ -220,6 +319,21 @@ def _mask_token(m: re.Match[str]) -> str:
     return token
 
 
+def _mask_glued(m: re.Match[str]) -> str:
+    """A mask vouches for nothing glued to it. The last pass only: it can remove a key an earlier pass must read."""
+    token = m.group(0)
+    if MASK not in token:
+        return token
+    return MASK.join(MASK if is_secret_value(part.strip(_GLUED_EDGES)) else part for part in token.split(MASK))
+
+
+def _mask_tokens(tracked: Tracked) -> None:
+    """The token pass. A text with no hint holds no token with one, and this pass is a Python call per word."""
+    if _SECRET_HINT.search(tracked.text):
+        tracked.sub(_TEXT_TOKEN, _mask_token)
+
+
+_GLUED_EDGES = f"{_TOKEN_LEAD}{_TOKEN_TRAIL}="  # a key's ``=`` beside a mask is no connection-string credential
 _SECRET_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key"})
 
 
@@ -261,31 +375,59 @@ class Masker:
             return MASK, True
         return value, False
 
+    def _run_passes(self, tracked: Tracked, strict: bool) -> None:
+        """The one pass chain. ``strict`` adds the two passes that guess a value runs to the end of its line."""
+        if self._token:
+            tracked.sub(re.compile(re.escape(self._token)), MASK)
+        if self._exposure is Exposure.FULL:
+            return
+        if not self.capture_parameters:
+            tracked.sub(_SQL_PARAMETERS, _SQL_PARAMETERS_MASKED)
+        if not self._mask_secrets:
+            return
+        tracked.sub(_TEXT_USERINFO, f"://{MASK}@")
+        # 0.4.0's text pipeline, in its order; its JWT and token passes are the linear forms below, same output
+        tracked.sub(_TEXT_QUOTED_PAIR_V04, _mask_quoted_pair_v04)
+        tracked.sub(_TEXT_PAIR_V04, _mask_pair_v04)
+        tracked.sub(_TEXT_JWT, _mask_jwt)
+        _mask_tokens(tracked)
+        # the strict pass over that output: whatever either masks stays masked
+        tracked.sub(_TEXT_USERINFO, f"://{MASK}@")
+        if strict:
+            _mask_pairs(_TEXT_QUOTED_PAIR, _QUOTED_PAIR_MASKED, tracked)
+            _mask_pairs(_TEXT_PAIR, _PAIR_MASKED, tracked)
+        tracked.sub(_TEXT_AUTH_SCHEME, _AUTH_SCHEME_MASKED)
+        tracked.sub(_TEXT_JWT, _mask_jwt)
+        _mask_tokens(tracked)
+        if MASK in tracked.text:
+            tracked.sub(_TEXT_TOKEN, _mask_glued)  # last: every pass above that reads a key has read it
+
     def mask_text(self, text: str | None) -> str | None:
         """Mask secrets inside free text: log lines, exception messages, SQL errors (spec §11)."""
         if text is None or self._exposure is Exposure.METADATA_ONLY:
             return None
-        if self._token:
-            text = text.replace(self._token, MASK)
-        if self._exposure is Exposure.FULL:
-            return text
-        if not self.capture_parameters:
-            text = _SQL_PARAMETERS.sub(_SQL_PARAMETERS_MASKED, text)
-        if not self._mask_secrets:
-            return text
-        text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
-        # 0.4.0's text pipeline, in its order; its JWT and token passes are the linear forms below, same output
-        text = _TEXT_QUOTED_PAIR_V04.sub(_mask_quoted_pair_v04, text)
-        text = _TEXT_PAIR_V04.sub(_mask_pair_v04, text)
-        text = _TEXT_JWT.sub(_mask_jwt, text)
-        text = _TEXT_TOKEN.sub(_mask_token, text)
-        # the strict pass over that output: whatever either masks stays masked
-        text = _TEXT_USERINFO.sub(f"://{MASK}@", text)
-        text = _mask_pairs(_TEXT_QUOTED_PAIR, _QUOTED_PAIR_MASKED, text)
-        text = _mask_pairs(_TEXT_PAIR, _PAIR_MASKED, text)
-        text = _TEXT_AUTH_SCHEME.sub(_AUTH_SCHEME_MASKED, text)
-        text = _TEXT_JWT.sub(_mask_jwt, text)
-        return _TEXT_TOKEN.sub(_mask_token, text)
+        tracked = Tracked(text, track=False)
+        self._run_passes(tracked, strict=True)
+        return tracked.text
+
+    def mask_spans(self, text: str, strict: bool = True, view: Tracked | None = None) -> list[tuple[int, int]] | None:
+        """The raw ``(start, end)`` runs the passes hide in ``text``; ``view``, a tracked text over it, is read instead.
+
+        ``None`` under ``METADATA_ONLY``, where nothing is shown: ``[]`` would read as nothing to hide.
+        """
+        if self._exposure is Exposure.METADATA_ONLY:
+            return None
+        tracked = Tracked(text) if view is None else view
+        self._run_passes(tracked, strict)
+        return tracked.hidden()
+
+    def mask_statement(self, text: str) -> str | None:
+        """``mask_text`` for a statement: its literals are gone, so no value's end is left to guess (spec §3)."""
+        if self._exposure is Exposure.METADATA_ONLY:
+            return None
+        tracked = Tracked(text, track=False)
+        self._run_passes(tracked, strict=False)
+        return tracked.text
 
     def mask_path(self, path: str) -> str:
         """Replace each URL path segment that looks like a secret (a JWT in ``/reset/<jwt>``) with the mask."""

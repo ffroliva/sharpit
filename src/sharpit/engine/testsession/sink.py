@@ -16,10 +16,13 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from sharpit.engine.capture.exceptions import fingerprint
-from sharpit.engine.capture.sqltrace import category_of, mask_error, normalize
+from sharpit.engine.capture.sqltrace import category_of, mask_error
+from sharpit.engine.capture.statement import masked_shape
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources.dispatch import SqlEvent, TestTag
 from sharpit.engine.spi import ApiModel
+from sharpit.engine.sqla.dialect_source import event_dialect
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, SessionFacts, TestFacts, TestKey
 from sharpit.engine.testsession.filters import filtered_rule
 from sharpit.settings import SharpitSettings
@@ -78,8 +81,8 @@ class TestSessionSink:
         self.facts = SessionFacts(worker)
         self.current_test: TestFacts | None = None  # the test last begun (its window is open until ``end_test``)
         self._masker = masker or report_masker()
-        # normalised SQL repeats all session; per sink, so one masker's results never reach another's
-        self._mask_sql = functools.lru_cache(maxsize=1024)(self._mask)
+        # SQL repeats all session; per sink, so one masker's results never reach another's
+        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(masked_shape, self._masker))
         self._lock = threading.Lock()
         self._attempts: Counter[str] = Counter()
         self._window: tuple[str, int] | None = None
@@ -133,34 +136,36 @@ class TestSessionSink:
     def on_sql(self, event: SqlEvent, test: TestTag | None) -> None:
         try:
             rule = filtered_rule(event.sql)
-            normalized = None if rule else normalize(event.sql, event.mysql)
+            # The test-session sink resolves with no application fallback (`lambda: None`),
+            # so it does not share the recorder's fallback behavior (owner ruling, 2026-11-06).
+            shape = None if rule else self._shape(event.sql, event_dialect(event, lambda: None))
             with self._lock:
                 phase = self._phase_of(test)
-                if normalized is None:
+                if shape is None:
                     self.facts.filtered += 1
                     if phase is not None:
                         phase.filtered += 1
                     return
-                key = self._mask_sql(normalized.fingerprint)  # the raw fingerprint never leaves this call
+                key = shape.fingerprint
                 if phase is None:
-                    self._count_unattributed(key, normalized.sql)
+                    self._count_unattributed(key, shape.sql)
                     return
                 phase.queries += 1
                 if category_of(event.sql) == "SELECT":
                     phase.selects[key] += 1
                     if key not in phase.sql_of:
-                        phase.sql_of[key] = self._mask_sql(normalized.sql)
+                        phase.sql_of[key] = shape.sql
         except Exception as exc:  # noqa: BLE001
             self._failed(exc)
 
     def _count_unattributed(self, key: str, sql: str) -> None:
         self.facts.unattributed += 1
         top = self.facts.top_unattributed
-        masked = self._unattributed_by_key.get(key)
-        if masked is None:
+        if key not in self._unattributed_by_key:
             if len(self._unattributed_by_key) >= MAX_UNATTRIBUTED_STATEMENTS:
                 return
-            masked = self._unattributed_by_key[key] = self._mask(sql)
+            self._unattributed_by_key[key] = sql
+        masked = self._unattributed_by_key[key]
         top[masked] = top.get(masked, 0) + 1
 
     def on_exception(self, exc: BaseException, source: str, test: TestTag | None) -> None:
@@ -180,7 +185,7 @@ class TestSessionSink:
                     return
                 group = fingerprint(exc)
                 try:
-                    message = mask_error(self._masker, str(exc)) or ""
+                    message = mask_error(self._masker, str(exc), Dialect.UNSUPPORTED) or ""
                 except Exception:
                     message = f"<unprintable {type(exc).__name__}>"
                 phase.exception_groups.setdefault(group, (type(exc).__name__, message))
