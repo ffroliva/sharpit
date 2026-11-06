@@ -1,0 +1,29 @@
+##### types #####
+sqlite3.OperationalError
+##### str(exc) #####
+near "AND": syntax error
+##### traceback #####
+Traceback (most recent call last):
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 393, in raw_run
+    asyncio.run(a_sqlite())
+    ~~~~~~~~~~~^^^^^^^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 359, in a_sqlite
+    await db.execute(sql, params)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiosqlite\core.py", line 223, in execute
+    cursor = await self._execute(self._conn.execute, sql, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+sqlite3.OperationalError: near "AND": syntax error

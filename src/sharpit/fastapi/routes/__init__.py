@@ -32,7 +32,7 @@ from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
 from sharpit.engine.collectors.threads import threads_report
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
-from sharpit.engine.context import SharpitContext
+from sharpit.engine.context import SharpitContext, application_family
 from sharpit.engine.mcp import McpServer, payload_too_large
 from sharpit.engine.paging import BadRequest, parse_int_param
 from sharpit.engine.panels import PANELS, panels_report
@@ -339,6 +339,7 @@ async def _http_probe(ctx: SharpitContext, host_app: Any, request: Request) -> R
             timeout=probe_engine.PROBE_TIMEOUT,
             on_complete=release_slot,
             host_runner=run_host,
+            application=lambda: application_family(ctx),
         )
     except asyncio.CancelledError:
         raise

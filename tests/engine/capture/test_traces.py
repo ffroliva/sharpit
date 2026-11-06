@@ -16,8 +16,10 @@ from sharpit.engine import otel
 from sharpit.engine.capture import traces
 from sharpit.engine.capture.correlation import INTERNAL
 from sharpit.engine.capture.streams import SSE_TASK
-from sharpit.engine.capture.traces import SpanBuffer
+from sharpit.engine.capture.traces import SpanBuffer, SpanDialectSource
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext.dialect import DialectContext
 
 MASKED = Masker(Exposure.MASKED, True)
 FULL = Masker(Exposure.FULL, True)
@@ -59,7 +61,7 @@ def event(name: str, timestamp: int, attributes: dict[str, Any]) -> Any:
 
 
 def buffer(masker: Masker = MASKED) -> SpanBuffer:
-    return SpanBuffer(masker, capacity=1000, self_path="/sharpit")
+    return SpanBuffer(masker, application=lambda: None, capacity=1000, self_path="/sharpit")
 
 
 def summary(buf: SpanBuffer) -> dict[str, Any]:
@@ -196,7 +198,7 @@ def test_list_is_newest_first_and_limited():
 
 
 def test_capacity_bounds_retained_spans():
-    buf = SpanBuffer(MASKED, capacity=2, self_path="/sharpit")
+    buf = SpanBuffer(MASKED, application=lambda: None, capacity=2, self_path="/sharpit")
     for i in range(5):
         buf.add(span(trace_id=i + 1, start=i))
     assert buf.list(100)["retained"] == 2
@@ -239,7 +241,7 @@ def test_report_says_why_traces_are_unavailable(monkeypatch: pytest.MonkeyPatch)
 def test_sql_literals_in_db_statement_are_masked():
     # live check (real SDK): a literal under a non-secret column name leaked through mask_text alone
     buf = buffer()
-    buf.add(span(attributes={"db.statement": "select * from owners where pw = 'hunter2'"}))
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where pw = 'hunter2'"}))
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None
     assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
@@ -248,7 +250,7 @@ def test_sql_literals_in_db_statement_are_masked():
 def test_double_quoted_value_in_db_statement_is_a_placeholder():
     # 0.3.0 leak: a double-quoted value (MySQL string literal) passed through normalize_sql verbatim
     buf = buffer()
-    buf.add(span(attributes={"db.statement": 'select * from owners where pw = "hunter2"'}))
+    buf.add(span(attributes={"db.system": "mysql", "db.statement": 'select * from owners where pw = "hunter2"'}))
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None
     assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
@@ -377,24 +379,24 @@ def test_bind_parameter_attributes_shown_with_capture_parameters():
 def test_full_exposure_without_capture_parameters_still_hides_sql_literals():
     # SQL Trace keys literals on capture_parameters, not on the exposure (review r1)
     buf = buffer(FULL)
-    buf.add(span(attributes={"db.statement": "select * from owners where pw = 'hunter2'"}))
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where pw = 'hunter2'"}))
     assert attribute(first_span(buf), "db.statement") == "select * from owners where pw = ?"
 
 
-def test_capture_parameters_shows_sql_literals():
+def test_capture_parameters_does_not_show_inline_sql_literals():
     buf = buffer(CAPTURING)
-    buf.add(span(attributes={"db.statement": "select * from owners where name = 'alice'"}))
-    assert attribute(first_span(buf), "db.statement") == "select * from owners where name = 'alice'"
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where name = 'alice'"}))
+    assert attribute(first_span(buf), "db.statement") == "select * from owners where name = ?"
 
 
 def test_detail_applies_the_live_capture_parameters_policy_on_every_read():
     # ported: TracesServiceTests.detailAppliesTheLiveExposurePolicyOnEveryRead (supersedes the FULL-exposure version)
     buf = buffer(CAPTURING)
-    buf.add(span(attributes={"db.statement": "select * from owners where name = 'alice'"}))
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where name = 'alice'"}))
     first = attribute(first_span(buf), "db.statement")
     buf.masker = MASKED
     second = attribute(first_span(buf), "db.statement")
-    assert "alice" in first
+    assert "alice" not in first
     assert "alice" not in second
 
 
@@ -440,20 +442,20 @@ def test_spans_of_sharpit_event_streams_never_reach_the_buffer():
 
 
 def test_a_sharpit_server_span_takes_no_capacity():
-    buf = SpanBuffer(MASKED, capacity=1, self_path="/sharpit")
+    buf = SpanBuffer(MASKED, application=lambda: None, capacity=1, self_path="/sharpit")
     buf.add(span(attributes={"url.path": "/owners"}))
     buf.add(span(trace_id=OTHER, attributes=SELF_SERVER))
     assert [t["traceId"] for t in buf.list(100)["traces"]] == [f"{TRACE:032x}"]
 
 
 def test_the_self_path_check_strips_the_root_path():
-    buf = SpanBuffer(MASKED, capacity=10, self_path="/sharpit", root_path="/proxy")
+    buf = SpanBuffer(MASKED, application=lambda: None, capacity=10, self_path="/sharpit", root_path="/proxy")
     buf.add(span(attributes={"url.path": "/proxy/sharpit/api/traces"}))
     assert buf.list(100)["traces"] == []
 
 
 def test_children_of_a_sharpit_request_take_no_capacity():
-    buf = SpanBuffer(MASKED, capacity=1, self_path="/sharpit")
+    buf = SpanBuffer(MASKED, application=lambda: None, capacity=1, self_path="/sharpit")
     processor = otel.SharpitSpanProcessor()
     processor.sinks = (buf,)
     processor.on_end(span(attributes={"url.path": "/owners"}))
@@ -519,6 +521,21 @@ def test_mysql_span_statement_uses_the_mysql_scan(key: str, system: str):
     assert attribute(detail["spans"][0], "db.statement") == "select ?"
 
 
+@pytest.mark.parametrize(
+    ("attributes", "expected"),
+    [
+        (None, None),
+        ({"db.system": "postgresql"}, Dialect.POSTGRESQL),
+        ({"db.system.name": "sqlite"}, Dialect.SQLITE),
+        ({"db.system": "oracle"}, Dialect.UNSUPPORTED),
+        ({"db.system": "postgresql", "db.system.name": "mysql"}, Dialect.UNSUPPORTED),
+        ({"db.system": ["a", "list"]}, None),
+    ],
+)
+def test_a_span_names_its_dialect(attributes: dict[str, Any] | None, expected: Dialect | None) -> None:
+    assert SpanDialectSource().dialect_of(attributes or {}, DialectContext(lambda: None)) is expected
+
+
 def test_mysql_span_sql_error_uses_the_mysql_scan():
     buf = buffer()
     message = "(pymysql.err.ProgrammingError) (1064, 'x')\n[SQL: select 0xDEADBEEF]"
@@ -528,6 +545,32 @@ def test_mysql_span_sql_error_uses_the_mysql_scan():
 
     assert detail is not None
     assert "DEADBEEF" not in attribute(detail["spans"][0], "exception.message")
+
+
+NO_DRIVER_ERROR = "(sqlalchemy.exc.ProgrammingError) x\n[SQL: select 1 # password hunter2\nfrom t]"
+
+
+def test_mysql_span_status_message_reads_as_the_span_dialect():
+    """The message names no MySQL driver: only the span's ``db.system`` says ``#`` opens a comment."""
+    raw = span(status="ERROR", attributes={"db.system": "mysql"})
+    raw.status.description = NO_DRIVER_ERROR
+    buf = buffer()
+    buf.add(raw)
+    assert "hunter2" not in first_span(buf)["statusMessage"]
+
+
+def test_span_surface_resolves_its_application_family() -> None:
+    buf = SpanBuffer(MASKED, application=lambda: Dialect.POSTGRESQL, capacity=10, self_path="/sharpit")
+    raw = span(kind="CLIENT", attributes={"db.system": "mysql", "db.statement": "select 1"})
+    shown = attribute(buf._span(raw), "db.statement")  # noqa: SLF001
+    assert shown == "[statement hidden: unsupported database]"
+
+
+def test_mysql_span_event_attributes_read_as_the_span_dialect():
+    buf = buffer()
+    events = [event("exception", 2_000, {"exception.message": NO_DRIVER_ERROR})]
+    buf.add(span(attributes={"db.system": "mysql"}, events=events))
+    assert "hunter2" not in first_span(buf)["events"][0]["attributes"][0]["value"]
 
 
 def test_a_span_of_another_database_keeps_the_generic_scan():
@@ -553,10 +596,12 @@ def test_a_span_of_another_database_keeps_the_generic_scan():
     ],
 )
 @pytest.mark.parametrize("key", ["exception.message", "exception.stacktrace"])
-def test_a_mysql_driver_error_on_a_span_without_a_database_uses_the_mysql_scan(driver: str, key: str):
+# the quoted run hides only in the MySQL scan; the ``#`` row hides either way since the generic ``#`` cut
+@pytest.mark.parametrize("sql", ['select "hunter2" from t', "select 0xDEADBEEF # password hunter2\nfrom t"])
+def test_a_mysql_driver_error_on_a_span_without_a_database_uses_the_mysql_scan(driver: str, key: str, sql: str):
     buf = buffer()
-    message = f"({driver}) (1064, 'x')\n[SQL: select 0xDEADBEEF # password hunter2\nfrom t]"
-    buf.add(span(attributes={"http.route": "/x", key: message}))
+    message = f"({driver}) (1064, 'x')\n[SQL: {sql}]"
+    buf.add(span(attributes={"db.system": "mysql", "http.route": "/x", key: message}))
 
     detail = buf.detail(f"{TRACE:032x}")
 
@@ -564,7 +609,7 @@ def test_a_mysql_driver_error_on_a_span_without_a_database_uses_the_mysql_scan(d
     assert "hunter2" not in attribute(detail["spans"][0], key)
 
 
-def test_a_postgres_driver_error_on_a_span_without_a_database_keeps_the_generic_scan():
+def test_a_driver_name_in_text_keeps_the_generic_scan():
     buf = buffer()
     message = "(psycopg.errors.SyntaxError) x\n[SQL: select a # b from t]"
     buf.add(span(attributes={"http.route": "/x", "exception.message": message}))
@@ -572,7 +617,7 @@ def test_a_postgres_driver_error_on_a_span_without_a_database_keeps_the_generic_
     detail = buf.detail(f"{TRACE:032x}")
 
     assert detail is not None
-    assert "[SQL: select a # b from t]" in attribute(detail["spans"][0], "exception.message")
+    assert attribute(detail["spans"][0], "exception.message").endswith("[SQL: select a")
 
 
 # derived: this round's regex audit: ``[SQL: `` with no ``]`` after it scanned to the end from every occurrence
@@ -601,7 +646,7 @@ def test_sql_error_scan_stays_fast_after_a_closed_statement():
 
 
 def shown_message(message: str) -> str:
-    buf = buffer()
+    buf = SpanBuffer(MASKED, application=lambda: Dialect.POSTGRESQL, capacity=1000, self_path="/sharpit")
     buf.add(span(attributes={"exception.message": message}))
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None
@@ -609,7 +654,6 @@ def shown_message(message: str) -> str:
 
 
 BACKGROUND = "(Background on this error at: https://sqlalche.me/e/20/f405)"
-BACKGROUND_NORMALISED = "(Background on this error at: https://sqlalche.me/e/?/f405)"
 
 
 # derived: release council fix round 3, p_first_bracket.py: the block ended at the first ``]``, a subscript's, and the
@@ -622,11 +666,11 @@ BACKGROUND_NORMALISED = "(Background on this error at: https://sqlalche.me/e/?/f
         ("(a.Error) x\n[SQL: SELECT a[1]\n, 'hunter2' FROM t]", "(a.Error) x\n[SQL: SELECT a[?] , ? FROM t]"),
         (
             f"(a.Error) x\n[SQL: SELECT a[1], 'hunter2']\n[parameters: ('p4ss', [1])]\n{BACKGROUND}",
-            f"(a.Error) x\n[SQL: SELECT a[?], ?] [parameters: {MASK}] {BACKGROUND_NORMALISED}",
+            f"(a.Error) x\n[SQL: SELECT a[?], ?]\n[parameters: {MASK}]\n{BACKGROUND}",
         ),
         (
             "(a.Error) x\n[SQL: SELECT a[1], 'hunter2']\n[SQL parameters hidden due to hide_parameters=True]",
-            "(a.Error) x\n[SQL: SELECT a[?], ?] [SQL parameters hidden due to hide_parameters=?]",
+            "(a.Error) x\n[SQL: SELECT a[?], ?]\n[SQL parameters hidden due to hide_parameters=True]",
         ),
         (
             "(a.Error) x\n[SQL: SELECT a[1], 'one']\n(b.Error) y\n[SQL: SELECT b[2], 'two']",

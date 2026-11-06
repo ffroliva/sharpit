@@ -7,6 +7,7 @@ import pytest
 
 from fastapi import FastAPI
 from sharpit import pytest_plugin
+from sharpit.engine.testsession.sink import report_masker
 
 
 def _rest_run(pytester: pytest.Pytester) -> dict[str, object]:
@@ -120,7 +121,7 @@ def test_plugin_loader_facade_remains_monkeypatchable(monkeypatch: pytest.Monkey
     app.get("/ready")(lambda: {"ready": True})
     state = SimpleNamespace(
         options=SimpleNamespace(advisors=True, app="fake_app:app", fail_on="HIGH"),
-        sink=SimpleNamespace(app_snapshots=lambda: [], facts=SimpleNamespace(advisor_runs=[])),
+        sink=SimpleNamespace(app_snapshots=lambda: [], facts=SimpleNamespace(advisor_runs=[]), masker=report_masker()),
         dismissed=[],
     )
     monkeypatch.setattr(pytest_plugin, "_load_app", lambda spec: (spec, app))

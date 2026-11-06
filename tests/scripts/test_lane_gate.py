@@ -219,7 +219,12 @@ def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = Tru
     (objects / "info").mkdir(parents=True)
     shared = template.integration / ".git" / "objects"
     (objects / "info" / "alternates").write_bytes(f"{shared.as_posix()}\n".encode())  # bytes: git reads a \r as a path
-    _git(integration, "worktree", "repair", str(worktree))
+    # Point the copy's pair of links at the copy by hand: `worktree repair` left the lane's `.git` aimed at the template
+    # on git 2.47.3, so a commit in the copy landed in the template.
+    (admin,) = (integration / ".git" / "worktrees").iterdir()
+    (worktree / ".git").unlink()  # copytree keeps the template file's read-only bit
+    (worktree / ".git").write_bytes(f"gitdir: {admin.as_posix()}\n".encode())
+    (admin / "gitdir").write_bytes(f"{(worktree / '.git').as_posix()}\n".encode())
     return Fixture(
         integration,
         worktree,
@@ -237,6 +242,15 @@ def _refusals(result: object) -> list[str]:
 
 def _refused(result: object, needle: str) -> bool:
     return any(needle in reason for reason in _refusals(result))
+
+
+def test_fixture_copy_never_writes_into_its_template(tmp_path: Path) -> None:
+    """A commit in a copy must not move the template's branch or dirty its worktree (git 2.47.3 leaked into it)."""
+    copy = _fixture(tmp_path)
+    template = _FIXTURE_TEMPLATES[(copy.lane, True)]
+    copy.commit({"src/leak.py": "x = 1\n"}, "feat: leak")
+    assert _git(template.worktree, "rev-parse", "HEAD") == template.head
+    assert _git(template.worktree, "status", "--porcelain") == ""
 
 
 # --- controls ---------------------------------------------------------------------------------------------------------

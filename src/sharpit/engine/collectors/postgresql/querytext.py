@@ -29,6 +29,7 @@ _TOKEN = re.compile(
     r"|(?P<comment>--[^\n]*|/\*)",  # a block comment's end is found by _comment_end: they nest
     re.DOTALL,
 )
+_PLAIN_NAME = re.compile(r'"[A-Za-z0-9_$.]+"')
 _COMMENT_MARK = re.compile(r"/\*|\*/")
 _WHITESPACE = re.compile(r"\s+")
 
@@ -69,6 +70,9 @@ def _mask_token(m: re.Match[str]) -> str:
         before = m.string[: m.start()].rstrip()[-1:]
         # a lone digit right after a keyword (``SELECT 1``, ``LIMIT 5``) is not a value worth hiding
         return m.group() if len(m.group()) == 1 and before.isalpha() else MASK
+    # spec A1: a ``"`` run no name would be spelled like hides here too, as the lexer hides it on every other surface
+    if m.group().startswith('"') and not _PLAIN_NAME.fullmatch(m.group()):
+        return f"'{MASK}'"
     return m.group()
 
 
@@ -89,6 +93,9 @@ def truncate(value: str | None, max_length: int = MAX_QUERY_TEXT_LENGTH) -> str 
 def query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUERY_TEXT_LENGTH) -> str | None:
     if sql is None or not sql.strip():
         return None
+    # shortcut: any Unicode whitespace with dollar syntax hides the catalog text; use the facade if more shapes appear.
+    if any(ord(char) > 127 and char.isspace() for char in sql) and "$" in sql:
+        return MASK
     if is_metadata_only(masker):  # the text exists but is withheld
         return MASK
     masked = masker.mask_text(sql) or MASK

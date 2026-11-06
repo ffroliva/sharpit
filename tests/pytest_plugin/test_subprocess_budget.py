@@ -8,6 +8,7 @@ _BUDGETS = {
     "test_plugin_baseline.py": 9,
     "test_plugin_gate_defaults.py": 9,
     "test_plugin_gates.py": 11,
+    "test_plugin_identity.py": 6,
     "test_plugin_inert.py": 3,
     "test_plugin_report_only.py": 0,
     "test_plugin_reports.py": 1,

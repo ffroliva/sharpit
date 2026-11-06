@@ -16,7 +16,7 @@ from __future__ import annotations
 import ast
 import functools
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -82,6 +82,19 @@ def _within(name: str, packages: tuple[str, ...]) -> bool:
     return any(name == p or name.startswith(f"{p}.") for p in packages)
 
 
+def _names_a_module(source: str, name: str) -> bool:
+    """Whether ``from source import name`` imports a module. A ``sharpit`` name is one only when a file or package of
+    that name exists under ``SRC``. A library's is read as one when ``source`` is its top level (``from urllib import
+    request``); deeper, ``from sqlalchemy.engine import Engine`` names a class, and the source already matched."""
+    if name == "*":
+        return False
+    if source.split(".")[0] != "sharpit":
+        return "." not in source
+    parent = SRC.joinpath(*source.split("."))
+    # names, not ``is_file``: a case-insensitive disk would read ``Dialect`` as the module ``dialect.py``
+    return parent.is_dir() and {name, f"{name}.py"} & {entry.name for entry in parent.iterdir()} != set()
+
+
 def imports(path: Path, *, skip_type_checking: bool = False) -> tuple[str, ...]:
     """Absolute names of the modules ``path`` imports, relative imports resolved. Each file is parsed once per run."""
     return _imports(path, path.stat().st_mtime_ns, skip_type_checking=skip_type_checking)
@@ -102,9 +115,13 @@ def _imports(path: Path, _mtime_ns: int, *, skip_type_checking: bool) -> tuple[s
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 base = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
-                yield f"{base}.{node.module}" if node.module else base
-            elif node.module:
-                yield node.module
+                source = f"{base}.{node.module}" if node.module else base
+            else:
+                source = node.module or ""
+            if source:
+                yield source
+                # ``from X import a`` reaches ``X.a`` when ``a`` is a module: a name re-exported by ``X`` is not one
+                yield from (f"{source}.{a.name}" for a in node.names if _names_a_module(source, a.name))
         for child in ast.iter_child_nodes(node):
             yield from visit(child)
 
@@ -151,13 +168,18 @@ def _gatekeeper_allows(rel: str, allowed: set[str]) -> bool:
 
 
 def gatekeeper_violations(root: Path | None = None) -> list[str]:
-    return [
-        f"{_rel(path)} imports {name}: only {sorted(allowed) or 'no file'} may import {lib}"
-        for path in sorted((root or SRC / "sharpit").rglob("*.py"))
-        for name in imports(path)
-        for lib, allowed in GATEKEEPERS.items()
-        if _within(name, (lib,)) and not _gatekeeper_allows(_rel(path), allowed)
-    ]
+    found: dict[
+        tuple[str, str], str
+    ] = {}  # one report per file and library: ``from sqlalchemy import event`` is two names
+    for path in sorted((root or SRC / "sharpit").rglob("*.py")):
+        for name in imports(path):
+            for lib, allowed in GATEKEEPERS.items():
+                if _within(name, (lib,)) and not _gatekeeper_allows(_rel(path), allowed):
+                    found.setdefault(
+                        (_rel(path), lib),
+                        f"{_rel(path)} imports {name}: only {sorted(allowed) or 'no file'} may import {lib}",
+                    )
+    return list(found.values())
 
 
 def _aliases(tree: ast.Module) -> dict[str, str]:
@@ -360,3 +382,241 @@ def test_planted_sqlalchemy_import_outside_package_fails(tmp_path: Path, monkeyp
         "sharpit/engine/models.py imports sqlalchemy.engine",
         "sharpit/engine/sqla_extra.py imports sqlalchemy.orm",
     ]
+
+
+# 0.5.0 SQL output architecture, section 10 step 3: the ``sqltext`` package and its boundary.
+SQLTEXT = "sharpit.engine.sqltext"
+SQLTEXT_ADAPTERS = (
+    "sharpit.engine.sqla",
+    "sharpit.engine.otel",
+    "sharpit.engine.sources",
+    "sharpit.engine.capture",
+    "sharpit.engine.context",
+)
+
+
+def _sqltext_files(root: Path | None = None) -> list[Path]:
+    return sorted(((root or SRC / "sharpit") / "engine" / "sqltext").rglob("*.py"))
+
+
+def sqltext_internal_violations(root: Path | None = None) -> list[str]:
+    inside = {_rel(p) for p in _sqltext_files(root)}
+    return [
+        f"{_rel(path)} imports {name}"
+        for path in sorted((root or SRC / "sharpit").rglob("*.py"))
+        if _rel(path) not in inside
+        for name in imports(path)
+        if name.startswith(f"{SQLTEXT}.")
+    ]
+
+
+def sqltext_adapter_violations(root: Path | None = None) -> list[str]:
+    return [
+        f"{_rel(path)} imports {name}"
+        for path in _sqltext_files(root)
+        for name in imports(path)
+        if _within(name, (*ADAPTERS, *SQLTEXT_ADAPTERS))
+    ]
+
+
+def sqltext_masking_violations(root: Path | None = None) -> list[str]:
+    return [
+        f"{_rel(path)} imports {name}"
+        for path in _sqltext_files(root)
+        if path.stem in ("lexer", "render")
+        for name in imports(path)
+        if _within(name, ("sharpit.engine.masking",))
+    ]
+
+
+def sqltext_errors_private_violations(root: Path | None = None) -> list[str]:
+    errors = (root or SRC / "sharpit") / "engine" / "sqltext" / "errors.py"
+    if not errors.exists():
+        return []
+    tree = ast.parse(errors.read_text(encoding="utf-8"))
+    return [
+        f"{_rel(errors)} imports private lexer name {alias.name}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith("sqltext.lexer")
+        for alias in node.names
+        if alias.name.startswith("_")
+    ]
+
+
+def _plant_sqltext(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]) -> Path:
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    root = tmp_path / "src" / "sharpit"
+    for rel, code in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(code, encoding="utf-8")
+    return root
+
+
+def test_sqltext_internals_stay_inside() -> None:
+    assert sqltext_internal_violations() == []
+
+
+def test_planted_sqltext_internal_import_outside_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _plant_sqltext(
+        tmp_path,
+        monkeypatch,
+        {
+            "engine/sqltext/__init__.py": "from sharpit.engine.sqltext.dialect import Dialect\n",
+            "engine/sqltext/dialect.py": "",
+            "engine/masking.py": "from sharpit.engine.sqltext import MASK\n",
+            "engine/tools.py": "from sharpit.engine.sqltext.lexer import t\nfrom sharpit.engine.sqltext import D\n",
+        },
+    )
+
+    assert sqltext_internal_violations(root) == ["sharpit/engine/tools.py imports sharpit.engine.sqltext.lexer"]
+
+
+def test_sqltext_imports_no_adapter() -> None:
+    assert sqltext_adapter_violations() == []
+
+
+def test_planted_sqltext_adapter_import_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _plant_sqltext(
+        tmp_path,
+        monkeypatch,
+        {
+            "engine/sqltext/dialect.py": "from sharpit.engine.sqla import x\n",
+            "engine/sqltext/lexer.py": "from sharpit.engine.capture.statement import y\nimport re\n",
+            "engine/sqltext/render.py": "from sharpit.fastapi import z\n",
+            "engine/sqltext/constants.py": "from sharpit.engine.sqltext.dialect import Dialect\n",
+        },
+    )
+
+    assert sqltext_adapter_violations(root) == [
+        "sharpit/engine/sqltext/dialect.py imports sharpit.engine.sqla",
+        "sharpit/engine/sqltext/lexer.py imports sharpit.engine.capture.statement",
+        "sharpit/engine/sqltext/render.py imports sharpit.fastapi",
+    ]
+
+
+def test_lexer_and_render_import_no_masking() -> None:
+    assert sqltext_masking_violations() == []
+
+
+def test_planted_masking_import_in_lexer_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _plant_sqltext(
+        tmp_path,
+        monkeypatch,
+        {
+            "engine/sqltext/lexer.py": "from sharpit.engine.masking import mask\n",
+            "engine/sqltext/render.py": "import sharpit.engine.masking\n",
+            "engine/sqltext/dialect.py": "from sharpit.engine.masking import mask\n",
+        },
+    )
+
+    assert sqltext_masking_violations(root) == [
+        "sharpit/engine/sqltext/lexer.py imports sharpit.engine.masking",
+        "sharpit/engine/sqltext/render.py imports sharpit.engine.masking",
+    ]
+
+
+def test_sqltext_names_no_optional_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    real = gatekeeper_violations()
+    root = _plant_sqltext(tmp_path, monkeypatch, {"engine/sqltext/errors.py": "import sqlalchemy\n"})
+
+    planted = gatekeeper_violations(root)
+
+    assert [v for v in real if "engine/sqltext/" in v] == []
+    assert planted == [
+        "sharpit/engine/sqltext/errors.py imports sqlalchemy: only ['sharpit/engine/sqla'] may import sqlalchemy"
+    ]
+
+
+def test_errors_imports_no_lexer_private() -> None:
+    assert sqltext_errors_private_violations() == []
+
+
+def test_a_planted_error_import_of_a_lexer_private_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _plant_sqltext(
+        tmp_path,
+        monkeypatch,
+        {"engine/sqltext/errors.py": "from sharpit.engine.sqltext.lexer import _scan\n"},
+    )
+
+    assert sqltext_errors_private_violations(root) == [
+        "sharpit/engine/sqltext/errors.py imports private lexer name _scan"
+    ]
+
+
+# A ``from X import a`` form names ``X.a`` when ``a`` is a submodule: every rule has to see it (review of Tasks 9, 10).
+FROM_FORM_PLANTS: dict[str, tuple[dict[str, str], Callable[[Path], list[str]], list[str]]] = {
+    "sqltext_submodule_from_outside": (
+        {"engine/sqltext/lexer.py": "", "engine/tools.py": "from sharpit.engine.sqltext import lexer\n"},
+        sqltext_internal_violations,
+        ["sharpit/engine/tools.py imports sharpit.engine.sqltext.lexer"],
+    ),
+    "sqltext_submodule_relative_from_outside": (
+        {"engine/sqltext/lexer.py": "", "engine/tools.py": "from .sqltext import lexer\n"},
+        sqltext_internal_violations,
+        ["sharpit/engine/tools.py imports sharpit.engine.sqltext.lexer"],
+    ),
+    "sqltext_root_name_is_not_a_submodule": (
+        {"engine/sqltext/__init__.py": "", "engine/tools.py": "from sharpit.engine.sqltext import Dialect, MASK\n"},
+        sqltext_internal_violations,
+        [],
+    ),
+    "sqla_and_otel_in_sqltext": (
+        {
+            "engine/sqla/__init__.py": "",
+            "engine/otel.py": "",
+            "engine/sqltext/dialect.py": "from sharpit.engine import sqla\nfrom sharpit.engine import otel\n",
+        },
+        sqltext_adapter_violations,
+        [
+            "sharpit/engine/sqltext/dialect.py imports sharpit.engine.sqla",
+            "sharpit/engine/sqltext/dialect.py imports sharpit.engine.otel",
+        ],
+    ),
+    "adapter_package_from_sharpit": (
+        {"fastapi/__init__.py": "", "engine/tools.py": "from sharpit import fastapi\n"},
+        lambda root: adapter_violations(root / "engine"),
+        ["sharpit/engine/tools.py imports sharpit.fastapi"],
+    ),
+    "masking_in_lexer_from_engine": (
+        {"engine/masking.py": "", "engine/sqltext/lexer.py": "from sharpit.engine import masking\n"},
+        sqltext_masking_violations,
+        ["sharpit/engine/sqltext/lexer.py imports sharpit.engine.masking"],
+    ),
+    "masking_in_render_relative_parent": (
+        {"engine/masking.py": "", "engine/sqltext/render.py": "from .. import masking\n"},
+        sqltext_masking_violations,
+        ["sharpit/engine/sqltext/render.py imports sharpit.engine.masking"],
+    ),
+    "collector_reaches_a_sibling": (
+        {
+            "engine/collectors/mappings.py": "",
+            "engine/collectors/beans.py": "from sharpit.engine.collectors import mappings\n",
+        },
+        lambda root: collector_violations(root / "engine" / "collectors"),
+        [
+            "sharpit/engine/collectors/beans.py imports sharpit.engine.collectors.mappings:"
+            " collector 'beans' reaches into 'mappings'"
+        ],
+    ),
+    "collector_reaches_a_sibling_relative": (
+        {"engine/collectors/mappings.py": "", "engine/collectors/beans.py": "from . import mappings\n"},
+        lambda root: collector_violations(root / "engine" / "collectors"),
+        [
+            "sharpit/engine/collectors/beans.py imports sharpit.engine.collectors.mappings:"
+            " collector 'beans' reaches into 'mappings'"
+        ],
+    ),
+    "network_client_from_urllib": (
+        {"engine/tools.py": "from urllib import request\n"},
+        lambda root: [v.split(": only")[0] for v in gatekeeper_violations(root)],
+        ["sharpit/engine/tools.py imports urllib.request"],
+    ),
+}
+
+
+@pytest.mark.parametrize("plant", FROM_FORM_PLANTS)
+def test_a_from_import_of_a_submodule_is_seen(plant: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    files, check, wanted = FROM_FORM_PLANTS[plant]
+    root = _plant_sqltext(tmp_path, monkeypatch, files)
+
+    assert check(root) == wanted
