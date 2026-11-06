@@ -210,6 +210,7 @@ class SqlTraceRecorder:
         self._total = 0
         self._evicted = 0
         self._selects = 0
+        self._sqlite_seen = False
         self._slowest: tuple[int, str | None] = (-1, None)  # -1: no SELECT since the last clear; replaced whole
         # Writers only, and reentrant: a collection in a critical section can run a finalizer that runs SQL on this
         # thread. Readers take no lock, so they wait for no writer.
@@ -305,6 +306,7 @@ class SqlTraceRecorder:
         }
         with self._lock:
             row["id"] = next(self._ids)
+            self._sqlite_seen |= dialect is Dialect.SQLITE
             if len(self._entries) == self.max_entries:
                 self._evicted += 1
             self._entries.append(row)
@@ -341,6 +343,7 @@ class SqlTraceRecorder:
             self._entries.clear()
             self._aggregates.clear()
             self._slowest = (-1, None)
+            self._sqlite_seen = False
         self.changes.signal()
 
     def set_recording(self, enabled: bool) -> None:
@@ -361,6 +364,7 @@ class SqlTraceRecorder:
                 for a in list(self._aggregates.values())
             ]
             total, evicted = self._total, self._evicted
+            sqlite_seen = self._sqlite_seen
         stats = _empty_stats()
         for row in rows:
             millis = row["durationMillis"]
@@ -394,6 +398,8 @@ class SqlTraceRecorder:
             for sql, category, n, total_ms, max_ms, sites in groups[:TOP_STATEMENTS_LIMIT]
         ]
         warnings: list[str] = []
+        if sqlite_seen and self._masker.identity_key is None:
+            warnings.append("SQLite statement identities are unavailable because sharpit could not load a state key")
         if not self.recording:
             warnings.append(PAUSED)
         if self._masker.capture_parameters:

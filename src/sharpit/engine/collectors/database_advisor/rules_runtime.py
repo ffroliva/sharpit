@@ -46,6 +46,8 @@ def facts(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
         shape, sql = row.get("shape"), row.get("sql")
         if shape is None or not sql or shape.predicate_literal_count == 0:
             continue
+        if shape.fingerprint is None:
+            continue
         if sql == shape.text:  # the literals were dropped at capture time
             hidden += 1
             continue

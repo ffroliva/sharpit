@@ -285,6 +285,16 @@ def test_evicts_oldest_and_counts_evictions():
     assert "Older queries were dropped; the buffer keeps the most recent 2." in report["warnings"]
 
 
+def test_sqlite_without_an_identity_key_explains_missing_group_identities() -> None:
+    recorder = _recorder(Masker(Exposure.MASKED, True))
+    _record(recorder, "select * from users", dialect=Dialect.SQLITE)
+
+    assert (
+        "SQLite statement identities are unavailable because sharpit could not load a state key"
+        in recorder.report([])["warnings"]
+    )
+
+
 def test_drops_parameters_when_capture_disabled():
     # ported: SqlTraceRecorderTests.dropsParametersWhenCaptureDisabled
     recorder = _recorder()

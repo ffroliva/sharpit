@@ -16,6 +16,7 @@ from sharpit.engine.sqltext.dialect import (
     read_chain,
     resolve,
 )
+from sharpit.engine.sqltext.identity import fingerprint, load_key
 from sharpit.engine.sqltext.lexer import (
     SPACE_CHARS,
     Candidate,
@@ -104,7 +105,7 @@ def statement_shape(masker: Masker, sql: str, dialect: Dialect) -> Shape:
         text = _statement_text(masker, sql, scan, secret, normalized, cuts)
     except Exception:
         text = MASK
-    shown_text = MASK if text is None else text
+    shown_text = normalized if text is None else text
     return Shape(shown_text, shown_text.lower(), dialect, literals, predicates)
 
 
@@ -157,6 +158,8 @@ __all__ = [
     "collapse_placeholder_lists",
     "dialect_of_name",
     "exception_leaves",
+    "fingerprint",
+    "load_key",
     "quoted_body",
     "read_chain",
     "resolve",

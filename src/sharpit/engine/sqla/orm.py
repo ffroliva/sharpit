@@ -104,7 +104,7 @@ def _relationship_masker() -> Masker:
 
 
 @functools.lru_cache(maxsize=1024)
-def _masked_fingerprint(statement: str, dialect: Dialect) -> str:
+def _masked_fingerprint(statement: str, dialect: Dialect) -> str | None:
     from sharpit.engine.capture.statement import masked_shape
 
     return masked_shape(_relationship_masker(), statement, dialect).fingerprint
@@ -238,6 +238,8 @@ def _store_lazy_group(
     if not isinstance(identity, str) or not isinstance(collection, bool):
         return
     key = _masked_fingerprint(statement, dialect)
+    if key is None:
+        return
     groups = _relationship_groups.get(tag)
     if groups is None or key not in groups:
         with _lock:
@@ -247,6 +249,8 @@ def _store_lazy_group(
 def _count_eager_batch(tag: tuple[str, int, str], statement: str, dialect: Dialect) -> None:
     """Count one eager-load batch statement, so it is not mistaken for an N+1 repeat."""
     key = _masked_fingerprint(statement, dialect)
+    if key is None:
+        return
     with _lock:
         batches = _eager_relationship_batches.setdefault(tag, {})
         batches[key] = batches.get(key, 0) + 1
@@ -281,7 +285,12 @@ def apply_relationship_facts(test: Any) -> None:
             phase.relationship_loads[identity] = phase.relationship_loads.get(identity, 0) + count
     for (statement, dialect), site in statement_sites.items():
         group = _masked_fingerprint(statement, dialect)
-        if site is not None and phase.selects.get(group, 0) > 1 and group not in phase.relationship_of:
+        if (
+            group is not None
+            and site is not None
+            and phase.selects.get(group, 0) > 1
+            and group not in phase.relationship_of
+        ):
             phase.statement_sites.setdefault(group, site)
 
 
@@ -385,6 +394,12 @@ def apply_unbounded_read_facts(test: Any) -> bool:
 def unbounded_read_capture_limitation_needed() -> bool:
     with _lock:
         return _unbounded_read_capture_missing and not _unbounded_read_request_seen
+
+
+def set_identity_key(key: bytes | None) -> None:
+    """The session's key: this group must be the sink's, and on SQLite only the key says which group that is."""
+    _relationship_masker().identity_key = key
+    _masked_fingerprint.cache_clear()
 
 
 def set_unbounded_read_factor(factor: int) -> None:

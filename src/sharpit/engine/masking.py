@@ -337,30 +337,51 @@ _GLUED_EDGES = f"{_TOKEN_LEAD}{_TOKEN_TRAIL}="  # a key's ``=`` beside a mask is
 _SECRET_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key"})
 
 
+def _key_text(key: bytes | None) -> str:
+    """What the key looks like in a text. A generated key is random bytes and has no such form: nothing can show it."""
+    try:
+        return key.decode("utf-8") if key else ""
+    except UnicodeDecodeError:
+        return ""
+
+
 # ---- SecretMasker --------------------------------------------------------------------------------------------------
 class Masker:
     """Decides what the UI sees for a (name, value) pair under the live exposure policy."""
 
     def __init__(
-        self, exposure: Exposure, mask_secrets: bool, token: str | None = None, capture_parameters: bool = False
+        self,
+        exposure: Exposure,
+        mask_secrets: bool,
+        token: str | None = None,
+        capture_parameters: bool = False,
+        identity_key: bytes | None = None,
     ) -> None:
         self._exposure = exposure
         self._mask_secrets = mask_secrets
         self._token = (token or "").strip()
         # SQL bind values are never shown under METADATA_ONLY, whatever the capture setting
         self.capture_parameters = capture_parameters and exposure is not Exposure.METADATA_ONLY
+        self.identity_key = identity_key
+
+    @property
+    def identity_key(self) -> bytes | None:
+        return self._identity_key
+
+    @identity_key.setter
+    def identity_key(self, key: bytes | None) -> None:
+        self._identity_key = key
+        self._never_shown = tuple(secret for secret in (self._token, _key_text(key)) if secret)
 
     def mask(self, name: str, value: object) -> tuple[object | None, bool]:
         """Return ``(display_value, masked)``."""
-        # sharpit's own token is never shown, whatever the mask setting or exposure: it grants the whole console.
-        # Any value that contains it is masked whole (a URL or padded copy would leak it otherwise).
-        if (
-            self._token
-            and value is not None
-            and self._token in str(value)
-            and self._exposure is not Exposure.METADATA_ONLY
-        ):
-            return MASK, True
+        # sharpit's own token and identity key are never shown, whatever the mask setting or exposure: one grants the
+        # whole console, the other lets a guess at a hidden name be checked. Any value that contains one is masked whole
+        # (a URL or padded copy would leak it otherwise).
+        if self._never_shown and value is not None and self._exposure is not Exposure.METADATA_ONLY:
+            text = str(value)
+            if any(secret in text for secret in self._never_shown):
+                return MASK, True
         if self._exposure is Exposure.FULL:
             return value, False
         if self._exposure is Exposure.METADATA_ONLY:
@@ -377,8 +398,8 @@ class Masker:
 
     def _run_passes(self, tracked: Tracked, strict: bool) -> None:
         """The one pass chain. ``strict`` adds the two passes that guess a value runs to the end of its line."""
-        if self._token:
-            tracked.sub(re.compile(re.escape(self._token)), MASK)
+        for secret in self._never_shown:
+            tracked.sub(re.compile(re.escape(secret)), MASK)
         if self._exposure is Exposure.FULL:
             return
         if not self.capture_parameters:
@@ -431,8 +452,10 @@ class Masker:
 
     def mask_path(self, path: str) -> str:
         """Replace each URL path segment that looks like a secret (a JWT in ``/reset/<jwt>``) with the mask."""
-        if self._token:
-            path = "/".join(MASK if self._token in seg else seg for seg in path.split("/"))
+        if self._never_shown:
+            path = "/".join(
+                MASK if any(secret in seg for secret in self._never_shown) else seg for seg in path.split("/")
+            )
         if self._exposure is Exposure.FULL or not self._mask_secrets:
             return path
         return _mask_segments(path)

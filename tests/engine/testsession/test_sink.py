@@ -10,6 +10,7 @@ import pytest
 from engine.testsession.tsfakes import NODE, event, run_phase
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sources.dispatch import SqlEvent
 from sharpit.engine.spi import ApiModel
 from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.facts import PhaseFacts, SessionFacts, TestFacts, TestKey
@@ -78,6 +79,33 @@ def test_no_test_window_means_unattributed() -> None:
     sink = _sink()
     sink.on_sql(event("SELECT 1"), (NODE, 1, "call"))
     assert sink.facts.unattributed == 1
+
+
+def _sqlite(sql: str) -> SqlEvent:
+    return event(sql)._replace(dialect=Dialect.SQLITE)
+
+
+def test_a_keyless_sqlite_statement_is_counted_and_not_grouped() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    sink.on_sql(_sqlite('SELECT "id" FROM "users"'), (NODE, attempt, "call"))
+    assert _call(sink).queries == 1
+    assert _call(sink).selects == {}
+
+
+def test_a_keyless_sqlite_statement_with_no_test_is_counted_and_not_listed() -> None:
+    sink = _sink()
+    sink.on_sql(_sqlite('SELECT "id" FROM "users"'), None)
+    assert sink.facts.unattributed == 1
+    assert sink.facts.top_unattributed == {}
+
+
+def test_a_key_set_late_reaches_a_statement_seen_before_it() -> None:
+    sink = _sink()
+    sink.on_sql(_sqlite('SELECT "id" FROM "users"'), None)
+    sink.set_identity_key(b"k" * 32)
+    sink.on_sql(_sqlite('SELECT "id" FROM "users"'), None)
+    assert list(sink.facts.top_unattributed.values()) == [1]
 
 
 def test_filtered_statements_are_counted_apart() -> None:

@@ -1,6 +1,6 @@
-"""# derived: a miss on the recorder renders a statement once: with nothing hidden the shape is the render.
+"""# derived: a miss on the recorder renders a statement once: with nothing hidden the shape is its render.
 
-``test_shown_with_nothing_hidden_equals_normalize`` in ``test_sqlscan.py`` is the proof that the two are the same text.
+``test_shown_with_nothing_hidden_equals_normalize`` covers ASCII text; non-ASCII input uses the full render.
 """
 
 from __future__ import annotations

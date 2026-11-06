@@ -199,7 +199,17 @@ def test_session_capture_does_not_register_orm_execute_listener():
     sqla.detach_session()
 
 
-def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture
+def session_key() -> Iterator[None]:
+    """As a session's start does: a statement on SQLite has no group without it."""
+    sqla.set_identity_key(b"k" * 32)
+    yield
+    sqla.set_identity_key(None)
+
+
+def test_repeated_lazy_load_inspects_relationship_and_fingerprint_once(
+    session_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # the lazy-load budget (test_n_plus_one_overhead) pins the time; this pins the work behind it as a count
     orm = pytest.importorskip("sqlalchemy.orm")
     engine = sa.create_engine("sqlite://")
@@ -377,6 +387,61 @@ def test_relationship_facts_on_mysql_use_the_mysql_fingerprint() -> None:
         sqla_orm._relationship_sites.pop(tag, None)
         sqla_orm._statement_sites.pop(tag, None)
         TEST.reset(token)
+
+
+SQLITE_STATEMENT = 'SELECT "id" FROM "payments"'
+
+
+@pytest.fixture
+def relationship_tag(request: pytest.FixtureRequest) -> Iterator[tuple[str, int, str]]:
+    tag = (request.node.name, 1, "call")
+    token = TEST.set(tag)
+    yield tag
+    TEST.reset(token)
+    sqla.set_identity_key(None)
+    for store in (
+        sqla_orm._relationship_loads,
+        sqla_orm._relationship_groups,
+        sqla_orm._relationship_sites,
+        sqla_orm._statement_sites,
+        sqla_orm._eager_relationship_batches,
+    ):
+        store.pop(tag, None)
+
+
+def _sqlite_relationship_context() -> Any:
+    return types.SimpleNamespace(
+        execution_options={sqla.RELATIONSHIP_KEY: ("Payment.refunds", True)},
+        statement=SQLITE_STATEMENT,
+        dialect=types.SimpleNamespace(name="sqlite"),
+    )
+
+
+def test_a_sqlite_relationship_group_is_the_sinks_group(relationship_tag: tuple[str, int, str]) -> None:
+    from sharpit.engine.capture.statement import masked_shape
+
+    sqla.set_identity_key(b"k" * 32)
+    sqla_orm._record_relationship(_sqlite_relationship_context())
+    masker = Masker(Exposure.MASKED, True, identity_key=b"k" * 32)
+    expected = masked_shape(masker, SQLITE_STATEMENT, Dialect.SQLITE).fingerprint
+    assert list(sqla_orm._relationship_groups.get(relationship_tag, ())) == [expected]
+
+
+def test_a_new_key_reaches_a_sqlite_statement_seen_before_it(relationship_tag: tuple[str, int, str]) -> None:
+    sqla.set_identity_key(b"a" * 32)
+    first = sqla_orm._masked_fingerprint(SQLITE_STATEMENT, Dialect.SQLITE)
+    sqla.set_identity_key(b"b" * 32)
+    assert sqla_orm._masked_fingerprint(SQLITE_STATEMENT, Dialect.SQLITE) != first
+
+
+def test_a_keyless_sqlite_relationship_is_not_grouped(relationship_tag: tuple[str, int, str]) -> None:
+    sqla_orm._record_relationship(_sqlite_relationship_context())
+    assert relationship_tag not in sqla_orm._relationship_groups
+
+
+def test_a_keyless_sqlite_eager_batch_is_not_counted(relationship_tag: tuple[str, int, str]) -> None:
+    sqla_orm._count_eager_batch(relationship_tag, SQLITE_STATEMENT, Dialect.SQLITE)
+    assert relationship_tag not in sqla_orm._eager_relationship_batches
 
 
 MYSQL_STATEMENT = "SELECT * FROM payments # password hunter2"

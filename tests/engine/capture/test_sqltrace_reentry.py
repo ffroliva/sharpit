@@ -18,7 +18,9 @@ WAIT_SECONDS = 2.0
 
 
 def _recorder(**options: Any) -> SqlTraceRecorder:
-    return SqlTraceRecorder(Masker(Exposure.MASKED, True), **options)
+    masker = Masker(Exposure.MASKED, True)
+    masker.identity_key = b"k" * 32
+    return SqlTraceRecorder(masker, **options)
 
 
 def _record(recorder: SqlTraceRecorder, sql: str = "select 1") -> None:

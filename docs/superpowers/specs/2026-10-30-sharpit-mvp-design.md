@@ -353,6 +353,8 @@ Internal module structure, caching details, UI component structure and visuals w
 | beans, application context | dependency providers, middleware, lifespan | no IoC container |
 | Maven coordinates, messages | `pypi` group, normalised names, PyPI wording | ecosystem |
 | config overrides, health, profile diff | deferred | MVP scope |
+| SQLite statement `id` | opaque HMAC-SHA256 using a private key in `state_dir`; optional `SHARPIT_IDENTITY_KEY` shares identities across machines | preserves grouping without exposing guessed SQL shapes; differs from BootUI's lower-cased SQL id |
+If `identity.key` was already committed, remove it from Git manually; `.gitignore` does not untrack it.
 | MCP `vulnerabilities_scan` | CLI endpoint only | MCP read-only goal |
 | CLI client | deferred; endpoint kept | MVP scope |
 | `.bootui/boot-ui.yml` | `.sharpit/sharpit.yml`, created lazily | name |
