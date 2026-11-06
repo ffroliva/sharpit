@@ -1,0 +1,100 @@
+##### types #####
+sqlalchemy.exc.IntegrityError
+orig: MySQLdb.IntegrityError
+##### str(exc) #####
+(MySQLdb.IntegrityError) (1062, "Duplicate entry 'mk9bd38daad6\\'x' for key 'u.name'")
+[SQL: INSERT INTO u VALUES (%s, %s, %s)]
+[parameters: (2, "mk9bd38daad6\\'x", 's')]
+(Background on this error at: https://sqlalche.me/e/21/gkpj)
+##### str(exc.orig) #####
+(1062, "Duplicate entry 'mk9bd38daad6\\'x' for key 'u.name'")
+##### traceback #####
+Traceback (most recent call last):
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1958, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\MySQLdb\cursors.py", line 219, in execute
+    res = self._query(mogrified_query)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\MySQLdb\cursors.py", line 498, in _query
+    db.query(q)
+    ~~~~~~~~^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\MySQLdb\connections.py", line 302, in query
+    _mysql.connection.query(self, query)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+MySQLdb.IntegrityError: (1062, "Duplicate entry 'mk9bd38daad6\\'x' for key 'u.name'")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 341, in fail_sqlalchemy
+    run_conn(d, ctx, work, hide_parameters=c.hide)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 259, in run_conn
+    return work(conn)
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 338, in work
+    conn.execute(sa.text(c.sql), c.params)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1463, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\sql\elements.py", line 533, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1683, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<9 lines>...
+        param_dict=param_dict,
+    )
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1837, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1977, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 2347, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1958, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\MySQLdb\cursors.py", line 219, in execute
+    res = self._query(mogrified_query)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\MySQLdb\cursors.py", line 498, in _query
+    db.query(q)
+    ~~~~~~~~^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\MySQLdb\connections.py", line 302, in query
+    _mysql.connection.query(self, query)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+sqlalchemy.exc.IntegrityError: (MySQLdb.IntegrityError) (1062, "Duplicate entry 'mk9bd38daad6\\'x' for key 'u.name'")
+[SQL: INSERT INTO u VALUES (%s, %s, %s)]
+[parameters: (2, "mk9bd38daad6\\'x", 's')]
+(Background on this error at: https://sqlalche.me/e/21/gkpj)

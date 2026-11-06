@@ -17,7 +17,6 @@ from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.collectors.restapi.rules import application_routes
 from sharpit.engine.spi import ApiModel
-from sharpit.engine.testsession.sink import report_masker
 from sharpit.fastapi.introspector import FastApiIntrospector
 
 __all__ = [
@@ -248,7 +247,7 @@ def run_advisors(
                 state.sink.facts.advisor_runs.append(
                     (assess_fn if assess_fn and advisor == "rest-api" else discovered)(
                         model,
-                        report_masker(),
+                        state.sink.masker,
                         fail_on=cast("Severity", state.options.fail_on),
                         app=name,
                         dismissed=state.dismissed,
