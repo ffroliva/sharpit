@@ -25,7 +25,7 @@ from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.sqlscan import Normalized, normalize, normalize_sql
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker
-from sharpit.engine.sqltext import Dialect, Shape, fingerprint
+from sharpit.engine.sqltext import Dialect, Shape
 
 __all__ = ["Normalized", "mask_error", "normalize", "normalize_sql"]
 
@@ -272,14 +272,6 @@ class SqlTraceRecorder:
         masker = self._masker
         shape: Shape = self._shape(sql, dialect)
         stored = shape.text if not masker.capture_parameters else (masker.mask_text(sql) or "")
-        if shape.fingerprint is not None:
-            if dialect is Dialect.SQLITE:
-                raw_shape = normalize(sql, Dialect.UNSUPPORTED).fingerprint
-                shape = shape._replace(
-                    fingerprint=fingerprint(raw_shape, masker.identity_key) if raw_shape is not None else None
-                )
-            else:
-                shape = shape._replace(fingerprint=normalize(stored, dialect).fingerprint)
         error_message: str | None = None
         if error is not None:
             masked = sqltext.error_text(masker, error, dialect, known=True, keep_frames=False) or masker.mask_text("")

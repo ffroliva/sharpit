@@ -662,8 +662,9 @@ def test_a_mutant_fails_its_named_test(name: str, tmp_path: Path) -> None:
 
 
 RAW_FINGERPRINT = Mutant(
-    "return Shape(shown_text, shown_text.lower(), dialect, literals, predicates)",
-    "return Shape(shown_text, normalized.lower(), dialect, literals, predicates)",
+    "identity = fingerprint(shown_text.lower(), masker.identity_key) "
+    "if dialect is Dialect.SQLITE else shown_text.lower()",
+    "identity = sql.lower()",
     "",
     "",
     "engine/sqltext/__init__.py",

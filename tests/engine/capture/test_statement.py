@@ -139,7 +139,7 @@ def test_a_broken_render_keeps_a_hidden_shape(method: str) -> None:
     except RuntimeError:
         result = sqltext.Shape("raised", None, Dialect.SQLITE, 0, 0)
     assert result.text == MASK
-    assert result.fingerprint == MASK.lower()
+    assert result.fingerprint is None
 
 
 def test_metadata_only_does_not_scan(monkeypatch: pytest.MonkeyPatch) -> None:

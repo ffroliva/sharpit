@@ -197,6 +197,16 @@ def test_request_profile_groups_by_the_row_dialect():
     assert [(g["sql"], g["executions"]) for g in groups] == [("select * from owners where id = ?", 3)]
 
 
+def test_keyless_sqlite_activity_groups_by_masked_text_without_an_identity():
+    ctx = _ctx(activity_n_plus_one_threshold=3)
+    _request(ctx, "r1")
+    for _ in range(9):
+        _sql(ctx, "r1", "SELECT id FROM t WHERE a = 7", dialect=Dialect.SQLITE)
+    [group] = request_profile(ctx, "r1")["sqlGroups"]
+    assert (group["sql"], group["executions"], group["potentialNPlusOne"]) == ("SELECT id FROM t WHERE a = ?", 9, True)
+    assert "id" not in group
+
+
 @pytest.mark.parametrize(
     ("status", "duration_ms", "expected"),
     [(503, 5, "ERROR"), (500, 5000, "ERROR"), (404, 5000, "WARN"), (200, 1000, "SLOW"), (200, 999, "OK")],

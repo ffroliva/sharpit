@@ -34,7 +34,7 @@ def test_statement_shape_uses_masked_text_for_its_fingerprint() -> None:
     masker = Masker(Exposure.MASKED, True, None)
     shape = sqltext.statement_shape(masker, "SELECT 'A10VALUE'", Dialect.SQLITE)
     assert shape.text == "SELECT ?"
-    assert shape.fingerprint == shape.text.lower()
+    assert shape.fingerprint is None
     assert shape.dialect is Dialect.SQLITE
     assert shape.literal_count == 1
 
@@ -43,7 +43,7 @@ def test_metadata_only_shape_keeps_the_normalized_sql() -> None:
     masker = Masker(Exposure.METADATA_ONLY, True, None)
     shape = sqltext.statement_shape(masker, "SELECT 'A10VALUE'", Dialect.SQLITE)
     assert shape.text == "SELECT ?"
-    assert shape.fingerprint == "select ?"
+    assert shape.fingerprint is None
 
 
 def test_error_text_accepts_the_facade_source_type() -> None:

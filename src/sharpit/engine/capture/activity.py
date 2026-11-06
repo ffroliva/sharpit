@@ -118,9 +118,7 @@ def _groups(rows: Iterable[dict[str, Any]], threshold: int) -> list[dict[str, An
     by_sql: dict[str, dict[str, Any]] = {}
     for row in rows:
         shape = row["shape"]
-        key = shape.fingerprint
-        if key is None:
-            continue
+        key = shape.fingerprint if shape.fingerprint is not None else shape.text
         group = by_sql.get(key)
         if group is None:
             group = by_sql[key] = {

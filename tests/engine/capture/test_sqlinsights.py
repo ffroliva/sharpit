@@ -11,9 +11,9 @@ from typing import Any
 
 import pytest
 
+from sharpit.engine import sqltext
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer, exchange_row
 from sharpit.engine.capture.sqlinsights import insights_report, mask_route, percentile
-from sharpit.engine.capture.sqlscan import normalize
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sqla import TRACING_DISABLED
@@ -217,13 +217,24 @@ def test_percentile_is_nearest_rank():
     ids=["number", "password", "token", "key"],
 )
 def test_other_dialects_rank_by_the_stored_text_normalized(dialect: Dialect, sql: str):
-    """Task 19 moves SQLite's identity only: elsewhere the stored text, normalized again, stays the id."""
+    """Task 22 groups by each statement shape's fingerprint from its one scan."""
     recorder = _recorder(WITH_PARAMETERS)
     _record(recorder, sql, 4, dialect=dialect)
     [row] = insights_report(recorder, _exchanges(), None)["statements"]
-    stored = WITH_PARAMETERS.mask_text(sql)
-    assert stored is not None
-    assert row["id"] == normalize(stored, dialect).fingerprint
+    shape = sqltext.statement_shape(WITH_PARAMETERS, sql, dialect)
+    assert row["id"] == shape.fingerprint
+
+
+def test_parameter_capture_keeps_distinct_statement_shapes_grouped():
+    recorder = _recorder(WITH_PARAMETERS)
+    for sql, count in (
+        ("SELECT * FROM t WHERE token = 'abc123'", 6),
+        ("SELECT * FROM t WHERE token = 'abc123' OR 1=1", 3),
+    ):
+        for _ in range(count):
+            _record(recorder, sql, 1, dialect=Dialect.POSTGRESQL)
+    rows = insights_report(recorder, _exchanges(), None)["statements"]
+    assert sorted(row["executions"] for row in rows) == [3, 6]
 
 
 def test_a_sqlite_statement_with_no_identity_is_not_ranked():
