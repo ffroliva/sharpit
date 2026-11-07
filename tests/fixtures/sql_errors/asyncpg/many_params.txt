@@ -1,0 +1,181 @@
+##### types #####
+sqlalchemy.exc.IntegrityError
+orig: sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.UniqueViolationError
+##### str(exc) #####
+(sqlalchemy.dialects.postgresql.asyncpg.UniqueViolationError) duplicate key value violates unique constraint "u_name_key"
+[SQL: INSERT INTO u VALUES ($1, $2, $3)]
+[parameters: [(100, 'mkd63775ae36', 's0'), (101, 'mkd63775ae36-1', 's1'), (102, 'mkd63775ae36-2', 's2'), (103, 'mkd63775ae36-3', 's3'), (104, 'mkd63775ae36-4', 's4'), (105, 'mkd63775ae36-5', 's5'), (106, 'mkd63775ae36-6', 's6'), (107, 'mkd63775ae36-7', 's7')  ... displaying 10 of 40 total bound parameter sets ...  (138, 'mkd63775ae36-38', 's38'), (139, 'mkd63775ae36-39', 's39')]]
+(Background on this error at: https://sqlalche.me/e/21/gkpj)
+##### str(exc.orig) #####
+duplicate key value violates unique constraint "u_name_key"
+##### traceback #####
+Traceback (most recent call last):
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 649, in _executemany
+    return await self._connection.executemany(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        operation, seq_of_parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\asyncpg\connection.py", line 424, in executemany
+    return await self._executemany(command, args, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\asyncpg\connection.py", line 2030, in _executemany
+    result, _ = await self._do_execute(
+                ^^^^^^^^^^^^^^^^^^^^^^^
+        query, executor, timeout, record_class=record_class
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\asyncpg\connection.py", line 2066, in _do_execute
+    result = await executor(stmt, None)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 254, in bind_execute_many
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "u_name_key"
+DETAIL:  Key (name)=(mkd63775ae36) already exists.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1927, in _exec_single_context
+    self.dialect.do_executemany(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor,
+        ^^^^^^^
+    ...<2 lines>...
+        context,
+        ^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\default.py", line 1189, in do_executemany
+    cursor.executemany(statement, parameters)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 659, in executemany
+    return await_(self._executemany(operation, seq_of_parameters))
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 167, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 205, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 653, in _executemany
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 847, in _handle_exception
+    super()._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 840, in _handle_exception_no_connection
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.UniqueViolationError: duplicate key value violates unique constraint "u_name_key"
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 341, in fail_sqlalchemy
+    run_conn(d, ctx, work, hide_parameters=c.hide)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 255, in run_conn
+    return asyncio.run(go())
+           ~~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 251, in go
+    return await work(conn)
+           ^^^^^^^^^^^^^^^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 331, in work
+    await conn.execute(sa.text(c.sql), c.params)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py", line 667, in execute
+    result = await greenlet_spawn(
+             ^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 210, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1463, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\sql\elements.py", line 533, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1683, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<9 lines>...
+        param_dict=param_dict,
+    )
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1837, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1977, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 2347, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1927, in _exec_single_context
+    self.dialect.do_executemany(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor,
+        ^^^^^^^
+    ...<2 lines>...
+        context,
+        ^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\default.py", line 1189, in do_executemany
+    cursor.executemany(statement, parameters)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 659, in executemany
+    return await_(self._executemany(operation, seq_of_parameters))
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 167, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 205, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 653, in _executemany
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 568, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 847, in _handle_exception
+    super()._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 840, in _handle_exception_no_connection
+    raise translated_error from error
+sqlalchemy.exc.IntegrityError: (sqlalchemy.dialects.postgresql.asyncpg.UniqueViolationError) duplicate key value violates unique constraint "u_name_key"
+[SQL: INSERT INTO u VALUES ($1, $2, $3)]
+[parameters: [(100, 'mkd63775ae36', 's0'), (101, 'mkd63775ae36-1', 's1'), (102, 'mkd63775ae36-2', 's2'), (103, 'mkd63775ae36-3', 's3'), (104, 'mkd63775ae36-4', 's4'), (105, 'mkd63775ae36-5', 's5'), (106, 'mkd63775ae36-6', 's6'), (107, 'mkd63775ae36-7', 's7')  ... displaying 10 of 40 total bound parameter sets ...  (138, 'mkd63775ae36-38', 's38'), (139, 'mkd63775ae36-39', 's39')]]
+(Background on this error at: https://sqlalche.me/e/21/gkpj)

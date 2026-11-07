@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from sharpit.engine.capture import exceptions
 from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.exceptions import (
     GROUP_KEYS,
@@ -28,13 +29,14 @@ from sharpit.engine.capture.exceptions import (
 )
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 MASKED = Masker(Exposure.MASKED, True)
 JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjb3JwdXMifQ.c2lnbmF0dXJlLWJ5dGVz"
 
 
 def _store(groups: int = 100, occurrences: int = 25, frames: int = 50, masker: Masker = MASKED) -> ExceptionStore:
-    return ExceptionStore(groups, occurrences, frames, masker)
+    return ExceptionStore(groups, occurrences, frames, masker, application=lambda: None)
 
 
 def _raised(factory: Callable[[], BaseException]) -> BaseException:
@@ -383,6 +385,19 @@ def test_frames_innermost_first_and_capped():
     assert detail is not None
     assert len(detail["frames"]) == 2
     assert all(f["methodName"].endswith("deep") for f in detail["frames"])  # the innermost two
+
+
+def test_the_message_keeps_a_falsy_application_family(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(Dialect, "__bool__", lambda _self: False, raising=False)
+    seen: list[Dialect] = []
+
+    def spy(_masker: Masker, text: str, dialect: Dialect) -> str:
+        seen.append(dialect)
+        return text
+
+    monkeypatch.setattr(exceptions, "mask_error", spy)
+    ExceptionStore(10, 5, 5, MASKED, application=lambda: Dialect.SQLITE)._message("failed")  # noqa: SLF001
+    assert seen == [Dialect.SQLITE]
 
 
 def test_fingerprint_first_application_frame():

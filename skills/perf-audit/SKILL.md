@@ -52,7 +52,9 @@ Speed never trades against safety (AGENTS.md "Safety model"). Before such a chan
 
 - the masking corpus (`tests/test_masking_corpus.py`) and the safety matrix stay unchanged and green;
 - a new cache or shortcut gets its own failing test first, which shows it cannot hold or return an unmasked secret;
-- the change goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`, as AGENTS.md requires.
+- the change goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`, as AGENTS.md requires;
+- a performance brief may not remove a check on a safety path, whoever wrote the brief. Run the existing planted builds
+  before and after: a drop in the tests that kill a plant is a finding, even with no test edited.
 
 A change that alters output (even "a token rotating mid-request") is a behaviour change. Call it one; don't hide it in
 a speed patch.

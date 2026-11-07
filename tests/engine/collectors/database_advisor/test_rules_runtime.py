@@ -4,19 +4,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from sharpit.engine.capture.sqltrace import normalize
+from sharpit.engine import sqltext
 from sharpit.engine.collectors.database_advisor import rules_runtime
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
+from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 
 def _raw(*statements: str) -> list[dict[str, Any]]:
     """Ring rows as SqlTraceRecorder keeps them when parameters are captured: the raw text and its shape."""
-    return [{"sql": sql, "shape": normalize(sql)} for sql in statements]
+    masker = Masker(Exposure.MASKED, True, capture_parameters=True)
+    return [{"sql": sql, "shape": sqltext.statement_shape(masker, sql, Dialect.UNSUPPORTED)} for sql in statements]
 
 
 def _normalized(*statements: str) -> list[dict[str, Any]]:
     """Ring rows as SqlTraceRecorder keeps them by default: the literals already replaced."""
-    return [{"sql": normalize(sql).sql, "shape": normalize(sql)} for sql in statements]
+    masker = Masker(Exposure.MASKED, True)
+    rows = []
+    for sql in statements:
+        shape = sqltext.statement_shape(masker, sql, Dialect.UNSUPPORTED)
+        rows.append({"sql": shape.text, "shape": shape})
+    return rows
 
 
 def _check(rows: list[dict[str, Any]] | None) -> Outcome:
@@ -71,6 +79,12 @@ def test_runtime_001_skips_when_only_normalized_text_is_kept() -> None:
 
     assert isinstance(outcome, str)
     assert "parameter capture" in outcome
+
+
+def test_runtime_001_finds_nothing_in_statements_with_no_identity() -> None:
+    rows = _raw("SELECT * FROM t WHERE id = 1", "SELECT * FROM u WHERE id = 2", "SELECT * FROM v WHERE id = 3")
+    keyless = [{**row, "shape": row["shape"]._replace(fingerprint=None)} for row in rows]
+    assert _check(keyless) == []
 
 
 def test_runtime_001_skips_when_the_window_was_not_read() -> None:
