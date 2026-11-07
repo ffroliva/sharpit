@@ -15,6 +15,7 @@ from typing import NamedTuple, Protocol
 from sharpit.engine.sqltext.dialect import Dialect
 from sharpit.engine.sqltext.family import family_cut, parting_readings
 from sharpit.engine.sqltext.numbers import skip_number as _skip_number
+from sharpit.engine.sqltext.numbers import uncertain_number_cut as _uncertain_number_cut
 from sharpit.engine.sqltext.rules import (
     GENERIC,
     READINGS,
@@ -107,9 +108,9 @@ def quoted_body(source: str, start: int, end: int) -> str:
 
 
 _MAX_SCAN_LENGTH = 20_000
-# a square-bracket identifier is a name, words and spaces only, no word led by a digit: anything else in brackets is a
-# showing a value is the worse mistake
+# A square-bracket identifier is a name, words and spaces only, no word led by a digit: anything else in brackets is a
 # value and stays in the scan (``ARRAY['x']``, ``ARRAY [lower($$x$$)]``, ``[2024 sales]``, ``a [CASE WHEN x THEN 1]``);
+# showing a value is the worse mistake
 _BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d]\w*(?: +[^\W\d]\w*)* *\]")
 # a bracket's body also ends at the next ``[``, so bodies never overlap and a run of open brackets stays linear
 _BRACKET_STOP = re.compile(r"[\[\]]")
@@ -128,11 +129,6 @@ _REAL = re.compile(r"[\d_]*[.eE]")
 # signed exponent with a name char or a ``.`` after it was none if a name led to it (``t.1.5e+0x7`` is ``5e``, ``+``,
 # ``0x7``), and ``1e+1.$$`` then opens a dollar quote
 _BAD_EXPONENT = re.compile(r"(?<=[\d.])(?=[eE](?![+-]?\d))|[eE][+-]\d+(?=[\w.$\x80-\U0010ffff])")
-_UNICODE_EXPONENT = re.compile(r"(?<=[0-9.])[eE][+-]?[0-9]*[^\x00-\x7f]")
-_MARIADB_DOT_RADIX = re.compile(
-    r"(?<![\w.$])(?:\d[\d_]*(?:\.\d[\d_]*)?|\.\d[\d_]*|"
-    r"0[bB]_?[01]*[2-9A-Za-z_]\w*|0[xX]_?[0-9a-fA-F]*[g-zG-Z_]\w*)\.\.(?=0[xXbB])"
-)
 _KEY_COLON = re.compile(r"\s*:")
 _SYSTEM_VARIABLE = re.compile(r"@[\w$\x80-\U0010ffff]+")  # the second ``@`` of ``@@``: no ``.`` and no host
 _EXECUTABLE_COMMENT = ("/*!", "/*M!")  # MySQL and MariaDB run what these hold
@@ -603,11 +599,7 @@ def _scan_digits(source: str, index: int, out: Out, rules: LexRules) -> _Scanned
     """A number, or a digit of a name. All digits after ``word.`` stay a literal: ``THEN.5`` hides on every dialect."""
     fail_unicode = rules.digit_dollar is DigitDollar.NAME
     end = _skip_number(source, index, _name_part(out), fail_unicode)
-    if (
-        rules.dot_digits_is_name
-        and not (fail_unicode and _UNICODE_EXPONENT.match(source, end))
-        and _digit_of_a_name(source, out, end)
-    ):
+    if rules.dot_digits_is_name and _digit_of_a_name(source, out, end):
         out.chars.append(source[index])
         return index + 1, False
     return end, True
@@ -814,15 +806,6 @@ def _bad_exponent_cut(scan: _Pass) -> int:
         if _real_number(source, start, end) or source[end : end + 1] in "eE" and _real_number(source, start, end + 1)
     }
     found = [match.end() for match in _BAD_EXPONENT.finditer(source) if match.end() in ends]
-    found.extend(
-        match.start()
-        for match in _UNICODE_EXPONENT.finditer(source)
-        if not any(
-            start <= match.start() < end
-            and (source[start : start + 1] in "'\"`$" or source[start : start + 2].lower() in {"x'", "b'", "n'"})
-            for start, end in literals
-        )
-    )
     return min(found, default=-1)
 
 
@@ -846,19 +829,6 @@ def _bracket_cut(scan: _Pass) -> int:
             elif source[index] == "]" and openings:
                 openings.pop()
             index += 1
-    return -1
-
-
-def _mariadb_dot_radix_cut(scan: _Pass) -> int:
-    if "..0" not in scan.source:
-        return -1
-    spans = iter((start, end) for start, end, kind in scan.out.runs if kind in (_LITERAL, _COMMENT))
-    span = next(spans, None)
-    for match in _MARIADB_DOT_RADIX.finditer(scan.source):
-        while span and span[1] <= match.start():
-            span = next(spans, None)
-        if not span or not span[0] < match.start() < span[1]:
-            return match.start()
     return -1
 
 
@@ -888,7 +858,8 @@ def _statement_cut(scan: _Pass, rule_sets: tuple[LexRules, ...]) -> int:
         *(source.find(prefix) for prefix in rules.cut_prefixes),
     ]
     if rules.digit_dollar is DigitDollar.NAME:
-        cuts.extend((_bad_exponent_cut(scan), _mariadb_dot_radix_cut(scan)))
+        literals = [(start, end) for start, end, kind in scan.out.runs if kind == _LITERAL]
+        cuts.extend((_bad_exponent_cut(scan), _uncertain_number_cut(source, literals)))
     executable = (other for other in rule_sets[1:] if other.executable_prefixes != rules.executable_prefixes)
     cuts += [
         _ambiguous_cut(scan, other)

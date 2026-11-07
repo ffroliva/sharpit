@@ -563,17 +563,6 @@ MARIADB_DOLLAR = Mutant(
     "engine/sqltext/lexer.py",
 )
 MARIADB_BACKSLASH = Mutant("backslash_token=True,", "backslash_token=False,", "", "", RULES_PY)
-MYSQL_DOT_NAME_PART = Mutant(
-    "if (\n"
-    "        rules.dot_digits_is_name\n"
-    "        and not (fail_unicode and _UNICODE_EXPONENT.match(source, end))\n"
-    "        and _digit_of_a_name(source, out, end)\n"
-    "    ):",
-    "if False:",
-    "",
-    "",
-    "engine/sqltext/lexer.py",
-)
 MYSQL_REAL_DOLLAR = Mutant(
     "if number and rules.digit_dollar is DigitDollar.NAME and _real_number(",
     "if False and _real_number(",
@@ -581,20 +570,15 @@ MYSQL_REAL_DOLLAR = Mutant(
     "",
     "engine/sqltext/lexer.py",
 )
-MYSQL_DOUBLE_DOT = Mutant(
-    'source[start - 1 : start] == "." and not', "False and not", "", "", "engine/sqltext/lexer.py"
-)
 MYSQL_BAD_EXPONENT = Mutant(
-    "cuts.extend((_bad_exponent_cut(scan), _mariadb_dot_radix_cut(scan)))",
-    "cuts.extend((_mariadb_dot_radix_cut(scan),))",
+    "cuts.extend((_bad_exponent_cut(scan), _uncertain_number_cut(source, literals)))",
+    "cuts.extend((-1, _uncertain_number_cut(source, literals)))",
     "",
     "",
     "engine/sqltext/lexer.py",
 )
+MYSQL_UNCERTAIN_NUMBER = Mutant("_uncertain_number_cut(source, literals)", "-1", "", "", "engine/sqltext/lexer.py")
 MYSQL_SIGNED_EXPONENT = Mutant("|[eE][+-]\\d+(?=[\\w.$\\x80-\\U0010ffff])", "", "", "", "engine/sqltext/lexer.py")
-MYSQL_EXPONENT_POINT = Mutant(
-    "(?=[\\w.$\\x80-\\U0010ffff])", "(?=[\\w$\\x80-\\U0010ffff])", "", "", "engine/sqltext/lexer.py"
-)
 MYSQL_ASCII_HOST = Mutant('r"@[0-9A-Za-z_.$]+"', 'r"@[\\w.$\\x80-\\U0010ffff]+"', "", "", "engine/sqltext/lexer.py")
 MYSQL_DOUBLED_BRACKET = Mutant('and source.startswith("]", end):', "and False:", "", "", "engine/sqltext/lexer.py")
 MYSQL_BRACKET_LITERAL_SKIP = Mutant(
@@ -679,12 +663,10 @@ NAMED_MUTANTS = {
     "mysql_bracket_rule": MYSQL_BRACKET_RULE,
     "mariadb_dollar_none": MARIADB_DOLLAR,
     "mariadb_backslash": MARIADB_BACKSLASH,
-    "mysql_dot_name_part": MYSQL_DOT_NAME_PART,
     "mysql_real_dollar": MYSQL_REAL_DOLLAR,
-    "mysql_double_dot": MYSQL_DOUBLE_DOT,
     "mysql_bad_exponent": MYSQL_BAD_EXPONENT,
+    "mysql_uncertain_number": MYSQL_UNCERTAIN_NUMBER,
     "mysql_signed_exponent": MYSQL_SIGNED_EXPONENT,
-    "mysql_exponent_point": MYSQL_EXPONENT_POINT,
     "mysql_ascii_host": MYSQL_ASCII_HOST,
     "mysql_doubled_bracket": MYSQL_DOUBLED_BRACKET,
     "mysql_bracket_literal_skip": MYSQL_BRACKET_LITERAL_SKIP,
@@ -800,13 +782,10 @@ NAMED_TESTS = {
     "mysql_bracket_rule": f"{FAMILY}::test_family_keeps_the_bracket_cut",
     "mariadb_dollar_none": f"{FAMILY}::test_mariadb_does_not_open_a_dollar_quote",
     "mariadb_backslash": f"{FAMILY}::test_family_cut_witness[7-escape]",
-    "mysql_dot_name_part": f"{FAMILY}::test_digits_after_a_dot_that_run_into_a_name_stay_in_the_name",
     "mysql_real_dollar": f"{FAMILY}::test_family_cut_witness[7-real_dollar]",
-    "mysql_double_dot": f"{FAMILY}::test_a_value_some_real_reading_holds_never_shows"
-    "[mysql84-a_double_dot_owns_no_word]",
     "mysql_bad_exponent": f"{FAMILY}::test_family_cut_witness[7-bad_exponent]",
+    "mysql_uncertain_number": f"{FAMILY}::test_uncertain_mysql_number_read_cuts_at_number[underscore-exponent]",
     "mysql_signed_exponent": f"{FAMILY}::test_family_cut_witness[7-signed_exponent]",
-    "mysql_exponent_point": f"{FAMILY}::{SHRUNK}[mysql84-a_signed_exponent_then_a_point]",
     "mysql_ascii_host": f"{FAMILY}::{SHRUNK}[mysql84-a_host_is_ascii]",
     "mysql_doubled_bracket": (
         "tests/engine/sqltext/test_lexer.py::test_mssql_doubled_bracket_opener_cuts_the_raw_mysql_pass"

@@ -285,6 +285,38 @@ def test_mariadb_dot_radix_cut_ignores_strings() -> None:
 
 
 @pytest.mark.parametrize(
+    ("sql", "marker"),
+    [
+        ("SELECT 1e7654001_0é", "7654001"),
+        ("SELECT ①e-0x7654001", "7654001"),
+        ("SELECT 1....0x7654001", "7654001"),
+        ("SELECT 1e7654001_٣", "7654001"),
+        ("SELECT .1e7654001_0\xa0", "7654001"),
+        ("SELECT ①..0x7654001", "7654001"),
+        ("SELECT ٣....0b101100100001", "101100100001"),
+        ("SELECT 0x7654001０..0x7654002", "7654002"),
+        ("SELECT 1.5..0b101100100001 ٣.٣ ..0x_7654002", "101100100001"),
+        ("SELECT ..5.e7654001", "7654001"),
+    ],
+    ids=[
+        "underscore-exponent",
+        "unicode-digit-name",
+        "even-dot-run",
+        "unicode-exponent-digit",
+        "nbsp-after-exponent",
+        "unicode-radix-lead",
+        "binary-after-even-dots",
+        "fullwidth-digit-and-dots",
+        "earliest-cut-wins",
+        "dots-before-number",
+    ],
+)
+def test_uncertain_mysql_number_read_cuts_at_number(sql: str, marker: str) -> None:
+    shown = statement_text(Masker(Exposure.MASKED, True), sql, Dialect.MYSQL_FAMILY) or ""
+    assert marker not in shown
+
+
+@pytest.mark.parametrize(
     ("dialect", "sql", "expected"),
     [
         (Dialect.POSTGRESQL, "SELECT @a.1e①e-0x7654001", "SELECT @a.?e-?"),
