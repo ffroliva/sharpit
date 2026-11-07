@@ -56,7 +56,7 @@ def fails(dto: Mapping[str, object]) -> bool:
 @dataclass(frozen=True)
 class AdvisorRun:
     advisor: str
-    status: Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]
+    status: Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"]
     findings: tuple[Finding, ...]
     evidence: dict[str, Any]
     reason: str | None
@@ -77,18 +77,19 @@ class AdvisorRun:
         found = tuple(findings)
         gate = severity_rank(fail_on)
         limitations: list[str] = evidence.get("limitations") or []
-        incomplete = (
-            not evidence.get("coverageComplete")
-            or (not evidence.get("usable") and bool(limitations))
-            or scan_status in ("PARTIAL", "ERROR")
-        )
+        usable = bool(evidence.get("usable"))
+        coverage_complete = bool(evidence.get("coverageComplete"))
+        incomplete = not coverage_complete or (not usable and bool(limitations)) or scan_status in ("PARTIAL", "ERROR")
         if any(fails(f.to_dto()) and severity_rank(f.severity) <= gate for f in found):
             reason = None
             if incomplete:
                 reason = limitations[0] if limitations else _FALLBACK_REASON
             return cls(advisor, "FAILED", found, evidence, reason, app)
         if incomplete:
-            return cls(advisor, "UNKNOWN", found, evidence, limitations[0] if limitations else _FALLBACK_REASON, app)
+            reason = limitations[0] if limitations else _FALLBACK_REASON
+            if usable and scan_status != "ERROR":
+                return cls(advisor, "PARTIAL", found, evidence, reason, app)
+            return cls(advisor, "UNKNOWN", found, evidence, reason, app)
         return cls(advisor, "PASSED", found, evidence, None, app)
 
     def to_dto(self) -> dict[str, Any]:

@@ -7,6 +7,7 @@ from typing import Any
 
 from sharpit.engine.advisors.findings import AdvisorRun
 from sharpit.engine.sources.dispatch import SqlEvent
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.facts import PhaseFacts, SessionFacts, TestFacts, TestKey
 from sharpit.engine.testsession.gates import Budget, evaluate_test
 from sharpit.engine.testsession.outcome import merge, session_status
@@ -19,7 +20,20 @@ NODE = "tests/test_owners.py::test_list"
 def event(
     sql: str = "SELECT 1", *, duration_ns: int = 1000, parameters: object = (), batch: int | None = None
 ) -> SqlEvent:
-    return SqlEvent("sqlalchemy", sql, parameters, batch is not None, batch, 0, duration_ns, 1, None, None, None)
+    return SqlEvent(
+        "sqlalchemy",
+        sql,
+        parameters,
+        batch is not None,
+        batch,
+        0,
+        duration_ns,
+        1,
+        None,
+        None,
+        None,
+        Dialect.UNSUPPORTED,
+    )
 
 
 def run_phase(sink: TestSessionSink, node_id: str, attempt: int, phase: str, *sql: str) -> None:

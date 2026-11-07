@@ -207,9 +207,9 @@ def test_no_routes_is_confirmed_empty():
     assert run.findings == ()
 
 
-def test_partial_scan_is_unknown():
+def test_partial_scan_is_partial():
     run = assess(_model([route()], limitations=[LIMITATION]), _masker(), fail_on="CRITICAL")
-    assert run.status == "UNKNOWN"
+    assert run.status == "PARTIAL"
     assert run.reason == LIMITATION
 
 

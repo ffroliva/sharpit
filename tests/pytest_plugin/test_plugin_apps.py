@@ -7,6 +7,7 @@ import pytest
 
 from fastapi import FastAPI
 from sharpit import pytest_plugin
+from sharpit.engine.testsession.sink import report_masker
 
 
 def _rest_run(pytester: pytest.Pytester) -> dict[str, object]:
@@ -120,7 +121,7 @@ def test_plugin_loader_facade_remains_monkeypatchable(monkeypatch: pytest.Monkey
     app.get("/ready")(lambda: {"ready": True})
     state = SimpleNamespace(
         options=SimpleNamespace(advisors=True, app="fake_app:app", fail_on="HIGH"),
-        sink=SimpleNamespace(app_snapshots=lambda: [], facts=SimpleNamespace(advisor_runs=[])),
+        sink=SimpleNamespace(app_snapshots=lambda: [], facts=SimpleNamespace(advisor_runs=[]), masker=report_masker()),
         dismissed=[],
     )
     monkeypatch.setattr(pytest_plugin, "_load_app", lambda spec: (spec, app))
@@ -292,3 +293,90 @@ def test_autodetect_names_app_by_shortest_module(monkeypatch: pytest.MonkeyPatch
 
     assert "short_mod:app" in detected
     assert "a_longer_reexport_mod:app" not in detected
+
+
+@pytest.mark.needs_sqlalchemy
+def test_partial_app_assessment_exits_zero_with_warning(pytester: pytest.Pytester) -> None:
+    pytest.importorskip("sqlalchemy")
+    pytester.makepyfile(
+        """
+        import sqlalchemy as sa
+        from fastapi import FastAPI
+        from starlette.applications import Starlette
+        from sharpit.fastapi.adapter import install
+        app = FastAPI()
+        sub = Starlette()
+        app.mount("/mcp/messages", sub)
+        @app.get("/items")
+        def items(): return []
+        install(app, show_banner=False)
+        def test_snapshot():
+            engine = sa.create_engine("sqlite://")
+            try:
+                with engine.connect() as conn:
+                    conn.execute(sa.text("SELECT 1")).fetchone()
+            finally:
+                engine.dispose()
+        """
+    )
+
+    result = pytester.runpytest_subprocess("--sharpit", "--sharpit-report=report.json", "-q")
+
+    assert result.ret == 0
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["status"] == "pass"
+    assert data["unknownReasons"] == []
+    assert data["totals"]["queries"] == 1
+    sqla_source = next(source for source in data["sources"] if source["name"] == "sqlalchemy")
+    assert sqla_source["attached"] is True
+    assert not any(finding["severity"] == "high" for finding in data["findings"])
+    assert "no SQL statement was executed" not in data["warnings"]
+    run = next(r for r in data["advisors"] if r["advisor"] == "rest-api")
+    assert run["status"] == "PARTIAL"
+    assert "Mounted application at /mcp/messages has no inspectable routes." in data["warnings"]
+    result.stdout.fnmatch_lines(["*warning: Mounted application at /mcp/messages has no inspectable routes.*"])
+
+
+def test_partial_app_assessment_with_high_finding_fails(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        from fastapi import FastAPI
+        from starlette.applications import Starlette
+        from sharpit.fastapi.adapter import install
+        app = FastAPI()
+        sub = Starlette()
+        app.mount("/mcp/messages", sub)
+        @app.get("/items")
+        def items1(): return []
+        @app.get("/items")
+        def items2(): return []
+        install(app, show_banner=False)
+        def test_snapshot(): pass
+        """
+    )
+
+    result = pytester.runpytest("--sharpit", "--sharpit-report=report.json", "-q")
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["status"] == "fail"
+    run = next(r for r in data["advisors"] if r["advisor"] == "rest-api")
+    assert run["status"] == "FAILED"
+
+
+def test_lost_capture_still_exits_one(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        """
+        from fastapi import FastAPI
+        from sharpit.fastapi.adapter import install
+        app = FastAPI()
+        install(app, show_banner=False)
+        def test_snapshot(): pass
+        """
+    )
+
+    result = pytester.runpytest("--sharpit", "--sharpit-report=report.json", "-q")
+
+    assert result.ret == 1
+    data = json.loads((pytester.path / "report.json").read_text())
+    assert data["status"] == "unknown"
