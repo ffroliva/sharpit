@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -13,10 +14,13 @@ from sqlalchemy import exc, orm  # noqa: E402
 from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship  # noqa: E402
 
 from data_support import spy_on_configure  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.activation import ActivationStatus  # noqa: E402
 from sharpit.engine.collectors import data  # noqa: E402
 from sharpit.engine.context import SharpitContext  # noqa: E402
+from sharpit.engine.sqltext import Dialect  # noqa: E402
 from sharpit.settings import SharpitSettings  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -39,6 +43,45 @@ def make_ctx(*models: object) -> SharpitContext:
     ctx = SharpitContext(SharpitSettings(), ActivationStatus(True, True, "on", ()), None)  # pyright: ignore[reportArgumentType]
     ctx.models = models
     return ctx
+
+
+def test_data_warning_uses_the_application_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    families: list[Dialect | None] = []
+
+    def observe(_error: BaseException, application: Any) -> Dialect:
+        families.append(application())
+        return Dialect.POSTGRESQL
+
+    monkeypatch.setattr(data, "exception_dialect", observe)
+    engine = sa.create_engine(
+        "postgresql+pg8000://db/app", module=SimpleNamespace(paramstyle="format", __version__="1.30.5")
+    )
+    handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[engine])
+    ctx = handle.context
+    error = RuntimeError("failed")
+    text = f"Could not read owner (RuntimeError: {error})"
+    try:
+        data._masked(ctx, text, error)  # noqa: SLF001
+        assert families == [Dialect.POSTGRESQL]
+    finally:
+        handle.uninstall_capture()
+
+
+def test_data_warning_keeps_a_falsy_application_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(Dialect, "__bool__", lambda _self: False, raising=False)
+    seen: list[Dialect] = []
+
+    def spy(_masker: object, text: str, dialect: Dialect) -> str:
+        seen.append(dialect)
+        return text
+
+    monkeypatch.setattr(data, "mask_error", spy)
+    handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[sa.create_engine("sqlite://")])
+    try:
+        data._masked(handle.context, "Could not read owner")  # noqa: SLF001
+        assert seen == [Dialect.SQLITE]
+    finally:
+        handle.uninstall_capture()
 
 
 def owner_pet(module: str = __name__, other: str = "Pet", prefix: str = "") -> tuple[type[DeclarativeBase], type, type]:

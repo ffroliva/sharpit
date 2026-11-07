@@ -17,6 +17,7 @@ from conftest import OpenStream
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.headers import NO_STORE
+from sharpit.engine.sqltext import Dialect
 from sharpit.fastapi.adapter import SharpitHandle
 
 
@@ -32,7 +33,7 @@ def _raise_into_exceptions(handle: SharpitHandle) -> None:
 def _record_sql(handle: SharpitHandle) -> None:
     recorder = handle.context.capture.sql_trace
     assert recorder is not None
-    recorder.record("select 1", duration_ns=1, thread="test", connection_id=None)
+    recorder.record("select 1", duration_ns=1, thread="test", connection_id=None, dialect=Dialect.UNSUPPORTED)
 
 
 def _serve_request(handle: SharpitHandle) -> None:
