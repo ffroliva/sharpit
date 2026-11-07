@@ -40,7 +40,8 @@ turn without reading the others first.
 
 **Source over docs.** The contract doc, the spec and the model's memory describe BootUI and Starlette; the code is the
 truth. A persona that states how BootUI, FastAPI or Starlette behaves cites the line it read: BootUI from the reference
-checkout at the commit named in the latest `docs/reference/BOOTUI-CONTRACT-*-DRIFT.md`, FastAPI and Starlette from the
+checkout at the commit named in the latest `docs/reference/BOOTUI-CONTRACT-*-DRIFT.md` (confirm with
+`git -C <checkout> log -1` first), FastAPI and Starlette from the
 installed copy in `.venv` (`uv run python -c "import starlette; print(starlette.__file__)"`), never from memory. Where
 the code and a doc disagree, the code wins and the disagreement is a finding (log it in spec §14 if sharpit follows it).
 
