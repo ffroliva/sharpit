@@ -11,7 +11,8 @@ import sharpit.engine.testsession as testsession_pkg
 from engine.testsession.tsfakes import NODE, event, run_phase, selects
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.sqltrace import normalize
-from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey, UnboundedReadFact
+from sharpit.engine.sqltext import Dialect
+from sharpit.engine.testsession.facts import PhaseFacts, SwallowedFact, TestFacts, TestKey, UnboundedReadFact
 from sharpit.engine.testsession.gates import Budget, evaluate_test, fails
 from sharpit.engine.testsession.sink import TestSessionSink
 
@@ -126,7 +127,7 @@ def test_n_plus_one_identity_is_the_normalized_fingerprint() -> None:
     run_phase(sink, NODE, attempt, "call", sql, "SELECT * FROM pets WHERE ID = 42")
     assert sink.current_test is not None
     [finding] = evaluate_test(sink.current_test, NONE, 2, ())
-    assert finding.identity == normalize(sql).fingerprint
+    assert finding.identity == normalize(sql, Dialect.UNSUPPORTED).fingerprint
 
 
 def test_n_plus_one_ignores_writes() -> None:
@@ -418,6 +419,12 @@ def test_unbounded_read_respects_report_only_and_baseline() -> None:
 SWALLOWED_RULE = "sharpit.swallowed-exception"
 
 
+def _swallowed_fact(location: str, *, qualname: str, offset: int) -> SwallowedFact:
+    fact = SwallowedFact(location, "AttributeError", True, qualname=qualname)
+    object.__setattr__(fact, "offset", offset)
+    return fact
+
+
 def _swallowed(type_name: str, programming_error: bool) -> TestFacts:
     from sharpit.engine.testsession.facts import SwallowedFact
 
@@ -472,6 +479,115 @@ def test_swallowed_message_names_handler_and_type_only() -> None:
     assert [f["message"] for f in found] == [
         "AttributeError swallowed by a broad except clause at app/weeks.py:21 (neither re-raised nor logged)"
     ]
+
+
+def test_swallowed_identity_uses_qualname_and_survives_line_shift() -> None:
+    dismissed = {("sharpit.swallowed-exception", "app/weeks.py:WeekService.get_weeks:AttributeError:40")}
+
+    fact1 = _swallowed_fact("app/weeks.py:21", qualname="WeekService.get_weeks", offset=40)
+    fact2 = _swallowed_fact("app/weeks.py:35", qualname="WeekService.get_weeks", offset=112)
+    shifted1 = _swallowed_fact("app/weeks.py:24", qualname="WeekService.get_weeks", offset=40)
+    shifted2 = _swallowed_fact("app/weeks.py:38", qualname="WeekService.get_weeks", offset=112)
+
+    [f1] = evaluate_test(_facts(call=PhaseFacts(swallowed=[fact1])), NONE, 5, (), dismissed)
+    [f2, f3] = evaluate_test(_facts(call=PhaseFacts(swallowed=[fact1, fact2])), NONE, 5, (), dismissed)
+    [f4, f5] = evaluate_test(_facts(call=PhaseFacts(swallowed=[shifted1, shifted2])), NONE, 5, (), dismissed)
+
+    assert f1.identity == "app/weeks.py:WeekService.get_weeks:AttributeError:40"
+    assert f2.identity != f3.identity
+    assert f2.identity == f4.identity
+    assert f3.identity == f5.identity
+    assert f2.fingerprint == f4.fingerprint
+    assert f3.fingerprint == f5.fingerprint
+    assert f1.dismissed is True
+    assert f2.dismissed is True
+    assert f3.dismissed is False
+
+
+def test_swallowed_dismissal_distinguishes_functions_in_same_file() -> None:
+    dismissed = {("sharpit.swallowed-exception", "app/weeks.py:WeekService.get_weeks:AttributeError:40")}
+
+    fact_target = _swallowed_fact("app/weeks.py:21", qualname="WeekService.get_weeks", offset=40)
+    fact_other = _swallowed_fact("app/weeks.py:50", qualname="WeekService.other_func", offset=40)
+
+    [f_target] = evaluate_test(_facts(call=PhaseFacts(swallowed=[fact_target])), NONE, 5, (), dismissed)
+    [f_other] = evaluate_test(_facts(call=PhaseFacts(swallowed=[fact_other])), NONE, 5, (), dismissed)
+
+    assert f_target.dismissed is True
+    assert f_other.identity == "app/weeks.py:WeekService.other_func:AttributeError:40"
+    assert f_other.dismissed is False
+
+
+def test_swallowed_handlers_in_one_function_have_independent_dismissals() -> None:
+    dismissed = {("sharpit.swallowed-exception", "app/weeks.py:WeekService.get_weeks:AttributeError:40")}
+    fact_target = _swallowed_fact("app/weeks.py:21", qualname="WeekService.get_weeks", offset=40)
+    fact_other = _swallowed_fact("app/weeks.py:35", qualname="WeekService.get_weeks", offset=112)
+
+    [target, other] = evaluate_test(
+        _facts(call=PhaseFacts(swallowed=[fact_target, fact_other])), NONE, 5, (), dismissed
+    )
+
+    assert target.dismissed is True
+    assert other.dismissed is False
+    assert target.identity != other.identity
+
+
+def test_swallowed_handler_identity_survives_lines_added_above_function() -> None:
+    before = _swallowed_fact("app/weeks.py:21", qualname="WeekService.get_weeks", offset=40)
+    after = _swallowed_fact("app/weeks.py:24", qualname="WeekService.get_weeks", offset=40)
+
+    [original] = evaluate_test(_facts(call=PhaseFacts(swallowed=[before])), NONE, 5, ())
+    [shifted] = evaluate_test(_facts(call=PhaseFacts(swallowed=[after])), NONE, 5, ())
+
+    assert original.identity == shifted.identity
+    assert original.fingerprint == shifted.fingerprint
+
+
+def test_swallowed_legacy_dismissal_matches_unmoved_line() -> None:
+    legacy_dismissed = {("sharpit.swallowed-exception", "app/weeks.py:21:AttributeError")}
+    fact = SwallowedFact("app/weeks.py:21", "AttributeError", True, qualname="WeekService.get_weeks")
+    [f] = evaluate_test(_facts(call=PhaseFacts(swallowed=[fact])), NONE, 5, (), legacy_dismissed)
+    assert f.dismissed is True
+
+
+def test_swallowed_baseline_survives_line_shift() -> None:
+    fact1 = _swallowed_fact("app/weeks.py:21", qualname="WeekService.get_weeks", offset=40)
+    fact2 = _swallowed_fact("app/weeks.py:35", qualname="WeekService.get_weeks", offset=40)
+
+    current = evaluate_test(_facts(call=PhaseFacts(swallowed=[fact1])), NONE, 5, ())[0]
+    [shifted] = evaluate_test(
+        _facts(call=PhaseFacts(swallowed=[fact2])), NONE, 5, (), baseline={current.fingerprint: 1}
+    )
+
+    assert shifted.baseline_state == "existing"
+    assert fails(shifted.to_dto()) is False
+
+
+def test_old_swallowed_baseline_fingerprint_requires_rebaseline() -> None:
+    from sharpit.engine.advisors.findings import Finding
+
+    old_fingerprint = Finding(
+        SWALLOWED_RULE,
+        "test-runtime",
+        "HIGH",
+        "app/weeks.py:21",
+        "old message",
+        NODE,
+        identity="app/weeks.py:21:AttributeError",
+    ).fingerprint
+    fact = _swallowed_fact("app/weeks.py:21", qualname="WeekService.get_weeks", offset=40)
+
+    [finding] = evaluate_test(_facts(call=PhaseFacts(swallowed=[fact])), NONE, 5, (), baseline={old_fingerprint: 1})
+
+    assert finding.fingerprint != old_fingerprint
+    assert finding.baseline_state == "new"
+
+
+def test_swallowed_fact_json_round_trip() -> None:
+    fact = _swallowed_fact("app/weeks.py:21", qualname="WeekService.get_weeks", offset=40)
+    assert fact.to_json().get("offset") == 40
+    restored = SwallowedFact.from_json(json.loads(json.dumps(fact.to_json())))
+    assert restored == fact
 
 
 LOOP_SQL = "SELECT performances.performance_id FROM performances WHERE performances.performance_id = ?"

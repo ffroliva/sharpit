@@ -52,6 +52,7 @@ def test_disabled_response_over_http():
 def test_toggle_enables_in_memory(tmp_path: Path):
     # adapted: McpServerControllerTests toggle (in memory only, brief ruling)
     client = _client(tmp_path)
+    installed = set(tmp_path.iterdir())  # the identity key: install writes that, a toggle nothing
     assert client.get("/sharpit/api/mcp-server").json()["enabled"] is False
     on = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": True})
     assert on.status_code == 200
@@ -70,7 +71,7 @@ def test_toggle_enables_in_memory(tmp_path: Path):
     assert client.post(toggle, json={}).json()["enabled"] is True  # missing 'enabled': flip
     null = client.post(toggle, content=b"null", headers={"content-type": "application/json"})
     assert (null.status_code, null.json()["enabled"]) == (200, False)  # BootUI: request == null flips
-    assert list(tmp_path.iterdir()) == []  # in memory only: nothing written to the state dir
+    assert set(tmp_path.iterdir()) == installed  # in memory only: nothing written to the state dir
     assert _client(tmp_path).get("/sharpit/api/mcp-server").json()["enabled"] is False  # a new install starts OFF
 
 

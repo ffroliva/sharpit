@@ -61,13 +61,26 @@ class SwallowedFact:
     location: str  # ``path:line`` of the except clause, relative to the working directory when under it
     type_name: str
     programming_error: bool
+    qualname: str = ""
+    offset: int | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {"location": self.location, "type": self.type_name, "programmingError": self.programming_error}
+        data: dict[str, Any] = {
+            "location": self.location,
+            "type": self.type_name,
+            "programmingError": self.programming_error,
+        }
+        if self.qualname:
+            data["qualname"] = self.qualname
+        if self.offset is not None:
+            data["offset"] = self.offset
+        return data
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Self:
-        return cls(data["location"], data["type"], data["programmingError"])
+        return cls(
+            data["location"], data["type"], data["programmingError"], data.get("qualname", ""), data.get("offset")
+        )
 
 
 @dataclass
@@ -222,6 +235,7 @@ class SessionFacts:
     advisor_runs: list[AdvisorRun] = field(default_factory=list[AdvisorRun])
     warnings: list[str] = field(default_factory=list[str])
     exceptions_source_ok: bool = True
+    sqlite_seen: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -239,6 +253,7 @@ class SessionFacts:
             "advisorRuns": [r.to_dto() for r in self.advisor_runs],
             "warnings": self.warnings,
             "exceptionsSourceOk": self.exceptions_source_ok,
+            "sqliteSeen": self.sqlite_seen,
         }
 
     @classmethod
@@ -258,4 +273,5 @@ class SessionFacts:
             [_run_from(r) for r in data["advisorRuns"]],
             list(data["warnings"]),
             data["exceptionsSourceOk"],
+            data.get("sqliteSeen", False),
         )

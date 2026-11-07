@@ -5,7 +5,7 @@ from sharpit.engine.masking import MASK, Exposure, Masker
 
 
 def test_error_message_masked() -> None:
-    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None))
+    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None), application=lambda: None)
     entry_id = recorder.begin(
         1, parent=None, method="orders:create", thread="MainThread", trace_id=None, connection_id="db-1"
     )

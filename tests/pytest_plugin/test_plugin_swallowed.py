@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import dis
 import json
 import os
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from types import CodeType
 from typing import Any
 
 import pytest
@@ -32,6 +34,14 @@ def _report(pytester: pytest.Pytester) -> dict[str, Any]:
 
 def _test_entry(data: dict[str, Any], name: str) -> dict[str, Any]:
     return next(t for t in data["tests"] if t["nodeId"].endswith(f"::{name}"))
+
+
+def _handler_offset(source: str, name: str) -> int:
+    module = compile(source, "appcode.py", "exec")
+    function = next(code for code in module.co_consts if isinstance(code, CodeType) and code.co_name == name)
+    return next(
+        instruction.offset for instruction in dis.get_instructions(function) if instruction.opname == "PUSH_EXC_INFO"
+    )
 
 
 def test_spike_f1_swallowed_attribute_error_fails(pytester: pytest.Pytester) -> None:
@@ -99,7 +109,15 @@ def test_library_raise_app_handler_is_seen(
     _app_swallow()
 
     location = f"{Path(os.path.relpath(__file__)).as_posix()}:{_app_swallow_line()}"
-    assert seen == [(in_test, SwallowedFact(location, "JSONDecodeError", False))]
+    offset = next(
+        instruction.offset
+        for instruction in dis.get_instructions(_app_swallow)
+        if instruction.opname == "PUSH_EXC_INFO"
+    )
+    expected_fact = SwallowedFact(location, "JSONDecodeError", False, qualname="_app_swallow")
+    object.__setattr__(expected_fact, "offset", offset)
+    assert expected_fact.to_json().get("offset") == offset
+    assert seen == [(in_test, expected_fact)]
 
 
 def test_library_handler_is_ignored(
@@ -278,3 +296,45 @@ def test_swallowed_respects_report_only_and_baseline(pytester: pytest.Pytester) 
     assert [f["ruleId"] for f in reported["findings"] if f["ruleId"] == RULE] == [RULE]
     assert _test_entry(baselined, "test_lookup")["outcome"] == "passed"
     assert [f["baselineState"] for f in baselined["findings"] if f["ruleId"] == RULE] == ["existing"]
+
+
+def test_dismissed_swallowed_survives_line_shift_and_distinguishes_functions(pytester: pytest.Pytester) -> None:
+    sharpit_dir = pytester.path / ".sharpit"
+    sharpit_dir.mkdir()
+    app_source = """# Comment line 1
+# Comment line 2
+def lookup():
+    try:
+        return undefined_name
+    except:
+        return None
+
+def other_lookup():
+    try:
+        return other_undefined
+    except:
+        return None
+"""
+    lookup_offset = _handler_offset(app_source, "lookup")
+    (sharpit_dir / "sharpit.yml").write_text(
+        f"dismissedFindings:\n  - sharpit.swallowed-exception appcode.py:lookup:NameError:{lookup_offset}\n",
+        encoding="utf-8",
+    )
+    pytester.makepyfile(
+        appcode=app_source,
+        test_bare="""
+from appcode import lookup, other_lookup
+
+def test_lookup():
+    assert lookup() is None
+
+def test_other_lookup():
+    assert other_lookup() is None
+""",
+    )
+    pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "--sharpit-report=report.json", "-q"
+    )
+    data = _report(pytester)
+    assert _test_entry(data, "test_lookup")["outcome"] == "passed"
+    assert _test_entry(data, "test_other_lookup")["outcome"] == "failed"

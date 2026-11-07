@@ -49,7 +49,13 @@ def _fact(code: CodeType, offset: int, exc_type: type[BaseException]) -> Swallow
     line = swallowing_clause_line(code, offset, exc_type)
     if line is None:
         return None
-    return SwallowedFact(_location(code.co_filename, line), exc_type.__name__, issubclass(exc_type, PROGRAMMING_ERRORS))
+    return SwallowedFact(
+        _location(code.co_filename, line),
+        exc_type.__name__,
+        issubclass(exc_type, PROGRAMMING_ERRORS),
+        qualname=code.co_qualname,
+        offset=offset,
+    )
 
 
 class MonitoringCapture:

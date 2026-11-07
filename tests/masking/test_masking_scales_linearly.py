@@ -10,15 +10,20 @@ from __future__ import annotations
 import gc
 import time
 from collections.abc import Callable
+from functools import partial
 
 import pytest
 
 from sharpit.engine import masking
+from sharpit.engine.capture.sqlscan import normalize, shown
 from sharpit.engine.capture.sqltrace import mask_error
+from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import Dialect, render
 
 MASKER = Masker(Exposure.MASKED, True)
 SIZES = (4_000, 8_000, 16_000, 32_000)
+SCAN_SIZES = (5_000, 10_000, 19_900)  # past the scan's limit of 20,000 a step is flat by construction
 REPEATS = 3
 ATTEMPTS = 3
 MAX_STEP = 3
@@ -35,7 +40,10 @@ def _repeat(unit: str) -> Callable[[int], str]:
 GENERATORS: dict[str, Callable[[int], str]] = {
     "quote-run": lambda size: "token " + '"' * size + "1",
     "quote-pairs": _repeat("\"' "),
-    "escaped-quote-run": lambda size: "password=[" + ESCAPED_QUOTE * (size // 2) + "]",
+    # the count is fixed even or odd: the body read cuts on an open run, so a parity that flips between sizes compares
+    # a full read with a cut, and that step is not the scan's growth
+    "escaped-quote-run": lambda size: "password=[" + ESCAPED_QUOTE * (size // 4 * 2) + "]",
+    "escaped-quote-run-odd": lambda size: "password=[" + ESCAPED_QUOTE * (size // 4 * 2 + 1) + "]",
     "escaped-quote-pairs": _repeat(f'"k":"{ESCAPED_QUOTE}'),
     "bracket-run": lambda size: "password=" + "[" * size,
     "unclosed-brackets": _repeat("k=[ "),
@@ -52,22 +60,73 @@ GENERATORS: dict[str, Callable[[int], str]] = {
     "jwt-prefix": _repeat("eyJ"),
     "pem-prefix": _repeat("=BEGIN "),
     "mixed": _repeat('"k":[ \\" [SQL: eyJ BEGIN token "1 '),
+    # a quoted name is the one place the scan's output keeps a run of spaces
+    "quoted-name-spaces": lambda size: "SELECT 1, `" + " " * size + "`",
+    "quoted-name-list": lambda size: "SELECT ?, `" + " " * (size // 2) + "(" + "," * (size // 2) + "`",
+    "quoted-name-row": lambda size: "VALUES `)" + " " * (size // 2) + ",(`" + ', "a"' * (size // 10),
+    # what the ambiguity check reads: a run for each, and a trigger that is checked at every position
+    "odd-quote-brackets": _repeat("['] "),
+    "open-odd-quote-brackets": _repeat("[' "),
+    "escaped-quotes": _repeat("a\\'b "),
+    "nested-comments": _repeat("/* /* */ '' "),
+    "alternative-quotes": _repeat("q'a' "),
+    "hash-quotes": _repeat("# 'a' "),
+    "hash-numbers": _repeat("# 1 "),  # a span for each number, and no quote to find after any ``#``
+    "backtick-brackets": _repeat("[`] "),
+    # each body opens a run with no closer in the text: only the bound on the body keeps these linear
+    "dollar-brackets": _repeat("[$a$] "),
+    "comment-brackets": _repeat("[/*] "),
+    "dash-brackets": _repeat("[-- ] "),
+    "open-run-brackets": _repeat("[/* ["),
+    "open-word-bracket": lambda size: "k=[" + "a " * (size // 2),  # the name read fails only at the end, once
+    "word-brackets": _repeat("[a 1 "),
+    "dollar-openers": _repeat("# $a$ $1 "),  # the last opener is found once, not per ``#``
+    "closed-run-brackets": _repeat("['a'] "),
+    "subscripts": _repeat("a['] "),
+    "at-dollars": _repeat("@$$ $$ "),
+    "lone-crs": _repeat("-- a\r'\n"),
+    "open-double-quote": lambda size: "SELECT " + "a, " * (size // 3) + '"' + "y" * 30_000,
 }
 
 
 def _pair_substitution(text: str) -> str:
-    masked = masking._mask_pairs(masking._TEXT_QUOTED_PAIR, masking._QUOTED_PAIR_MASKED, text)  # noqa: SLF001
-    return masking._mask_pairs(masking._TEXT_PAIR, masking._PAIR_MASKED, masked)  # noqa: SLF001
+    tracked = masking.Tracked(text)
+    masking._mask_pairs(masking._TEXT_QUOTED_PAIR, masking._QUOTED_PAIR_MASKED, tracked)  # noqa: SLF001
+    masking._mask_pairs(masking._TEXT_PAIR, masking._PAIR_MASKED, tracked)  # noqa: SLF001
+    return tracked.text
 
 
-ENTRY_POINTS: dict[str, Callable[[str], object]] = {
+Entry = Callable[[str], object]
+ENTRY_POINTS: dict[str, Entry] = {
     "mask_text": MASKER.mask_text,
-    "mask_error": lambda text: mask_error(MASKER, text),
+    "mask_error": lambda text: mask_error(MASKER, text, Dialect.UNSUPPORTED),
     "pair_substitution": _pair_substitution,
+    "mask_spans": MASKER.mask_spans,
+    "mask_spans_relaxed": lambda text: MASKER.mask_spans(text, strict=False),
+    "mask_statement": MASKER.mask_statement,
+    "statement_text": lambda text: statement_text(MASKER, text, Dialect.UNSUPPORTED),
 }
 
 
-def _seconds(entry: Callable[[str], object], text: str) -> float:
+def _overlapping(size: int) -> list[tuple[int, int]]:
+    return [(start, size) for start in range(size)]
+
+
+def _shown_at(size: int) -> Entry:
+    spans = _overlapping(size)  # outside the timer: the entry is measured, not the list a caller already holds
+    return lambda text: shown(text, spans, Dialect.UNSUPPORTED)
+
+
+def _flags_at(size: int) -> Entry:
+    spans = _overlapping(size)
+    return lambda text: render._hidden_flags(spans, len(text))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+
+
+_NORMALIZE = partial(normalize, dialect=Dialect.UNSUPPORTED)
+SCAN_ENTRY_POINTS: dict[str, Callable[[int], Entry]] = {"normalize": lambda _size: _NORMALIZE, "shown": _shown_at}
+
+
+def _seconds(entry: Entry, text: str) -> float:
     best = float("inf")
     for repeat in range(REPEATS):
         runs = 0
@@ -79,30 +138,46 @@ def _seconds(entry: Callable[[str], object], text: str) -> float:
     return best
 
 
-def _step(entry: Callable[[str], object], make: Callable[[int], str], size: int) -> float:
+def _step(entry_at: Callable[[int], Entry], make: Callable[[int], str], size: int) -> float:
     """How many times the half size ``size`` costs: a busy machine can fail a step, a quadratic pass fails every one."""
+    half_entry, full_entry = entry_at(size // 2), entry_at(size)
     step = float("inf")
     for _ in range(ATTEMPTS):
-        half = _seconds(entry, make(size // 2))
-        full = _seconds(entry, make(size))
+        half = _seconds(half_entry, make(size // 2))
+        full = _seconds(full_entry, make(size))
         step = min(step, (full + FLOOR_SECONDS) / (half + FLOOR_SECONDS))
         if step < MAX_STEP:
             break
     return step
 
 
-@pytest.mark.parametrize("entry", ENTRY_POINTS)
-@pytest.mark.parametrize("generator", GENERATORS)
-def test_masking_scales_linearly(entry: str, generator: str) -> None:
-    run, make = ENTRY_POINTS[entry], GENERATORS[generator]
+def _assert_linear(entry_at: Callable[[int], Entry], make: Callable[[int], str], sizes: tuple[int, ...]) -> None:
     gc_was_on = gc.isenabled()
     gc.disable()
     try:
-        for size in SIZES[1:]:  # smallest first: a quadratic pass fails before it runs into the test timeout
-            step = _step(run, make, size)
+        for size in sizes:  # smallest first: a quadratic pass fails before it runs into the test timeout
+            step = _step(entry_at, make, size)
             assert step < MAX_STEP, f"{size} chars cost {step:.1f}x the half size"
-        largest = _seconds(run, make(SIZES[-1]))
+        largest = _seconds(entry_at(sizes[-1]), make(sizes[-1]))
     finally:
         if gc_was_on:
             gc.enable()
     assert largest < MAX_SECONDS
+
+
+def test_overlapping_hidden_spans_are_written_once() -> None:
+    """Direct, and far past ``SIZES``: writing a span again is a ``memset``, too cheap to see under the scan's cost."""
+    _assert_linear(_flags_at, GENERATORS["closers"], (200_000,))
+
+
+@pytest.mark.parametrize("entry", ENTRY_POINTS)
+@pytest.mark.parametrize("generator", GENERATORS)
+def test_masking_scales_linearly(entry: str, generator: str) -> None:
+    run = ENTRY_POINTS[entry]
+    _assert_linear(lambda _size: run, GENERATORS[generator], SIZES[1:])
+
+
+@pytest.mark.parametrize("entry", SCAN_ENTRY_POINTS)
+@pytest.mark.parametrize("generator", GENERATORS)
+def test_the_scan_scales_linearly(entry: str, generator: str) -> None:
+    _assert_linear(SCAN_ENTRY_POINTS[entry], GENERATORS[generator], SCAN_SIZES)
