@@ -21,6 +21,7 @@ TOKEN = "9f8e7d6c" + "5b4a3f2e1d0c"
 KEY = "AKIA" + "IOSFODNN7EXAMPLE"
 VALUE = "hunter2xyz"
 SECOND = "hunter2xyz2"
+VENDOR_TOKEN = "sk_live_" + "1234567890abcdefghijkl"
 NO_CAP = 10**6
 
 
@@ -64,7 +65,7 @@ def test_a_secret_token_leaves_no_part_visible_through_any_joiner() -> None:
 @pytest.mark.parametrize(
     ("sql", "leak"),
     [
-        ("select password='sk_live_1234567890abcdef'_sk_live_1234567890abcdefghijkl", "_sk_live_"),
+        (f"select password='sk_live_1234567890abcdef'_{VENDOR_TOKEN}", "_sk_live_"),
         ("select token='eyJabcdefgh.abcdefgh.abcdefgh'@qwertyuiop1234567890", "@qwertyuiop"),
         ("select api_key='9f8e7d-6c5b4a-3f2e1d0c'@9f8e7d-6c5b4a-3f2e1d0c", "@9f8e7d-6c5b4a-"),
     ],
