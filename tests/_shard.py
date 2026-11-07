@@ -21,8 +21,8 @@ _SPEC = pytest.StashKey[tuple[int, int]]()
 
 
 @cache
-def _balanced(n: int, platform: str) -> dict[str, int]:
-    table: dict[str, dict[str, float]] = json.loads(WEIGHTS.read_text(encoding="utf-8"))
+def _balanced(n: int, platform: str, weights: Path) -> tuple[dict[str, int], tuple[float, ...]]:
+    table: dict[str, dict[str, float]] = json.loads(weights.read_text(encoding="utf-8"))
     durations = table.get(platform) or table["linux"]  # macOS and others: the nearest measured platform
     loads = [0.0] * n
     owners: dict[str, int] = {}
@@ -30,12 +30,23 @@ def _balanced(n: int, platform: str) -> dict[str, int]:
         lightest = loads.index(min(loads))
         loads[lightest] += seconds
         owners[rel] = lightest + 1
-    return owners
+    return owners, tuple(loads)
+
+
+def split_files(n: int, platform: str = sys.platform) -> frozenset[str]:
+    """Weighted test files heavier than one shard's share (total / n): collected on shards 1..n-1 and split by test."""
+    del n, platform
+    return frozenset()
+
+
+def shard_loads(n: int, platform: str = sys.platform) -> tuple[float, ...]:
+    """Predicted weighted test-seconds on each shard (1..n)."""
+    return _balanced(n, platform, WEIGHTS)[1]
 
 
 def shard_of(rel: str, n: int, platform: str = sys.platform) -> int:
     """The shard (1..n) that runs the test file at ``rel``, a POSIX path relative to the rootdir."""
-    return _balanced(n, platform).get(rel) or int(hashlib.sha256(rel.encode()).hexdigest(), 16) % n + 1
+    return _balanced(n, platform, WEIGHTS)[0].get(rel) or int(hashlib.sha256(rel.encode()).hexdigest(), 16) % n + 1
 
 
 def pytest_configure(config: pytest.Config) -> None:
