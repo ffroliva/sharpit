@@ -436,7 +436,7 @@ LOG_CORPUS = [
         "host.app",
         "%s",
         (f"(sqlite3.IntegrityError) failed\n[SQL: INSERT INTO u VALUES (?)]\n[parameters: ('{SENTINEL}',)]",),
-        f"(sqlite3.IntegrityError) failed\n[SQL: INSERT INTO u VALUES (?)] [parameters: {MASK}]",
+        f"(sqlite3.IntegrityError) failed\n[SQL: INSERT INTO u VALUES (?)]\n[parameters: {MASK}]",
     ),
     ("sqlalchemy_echo_parameters", "sqlalchemy.engine.Engine", "[%s] %r", ("generated in 0.0001s", (SENTINEL,)), None),
 ]  # fmt: skip

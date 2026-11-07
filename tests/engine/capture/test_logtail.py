@@ -9,14 +9,19 @@ buffer by sequence number).
 from __future__ import annotations
 
 import contextlib
+import gc
 import logging
-from collections.abc import Iterator
+import threading
+from collections import deque
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
 
+from sharpit.engine.capture import logtail
 from sharpit.engine.capture.logtail import LINE_KEYS, MAX_MESSAGE, LogTailBuffer, SharpitLogHandler
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjb3JwdXMifQ.c2lnbmF0dXJlLWJ5dGVz"
 MASKED = Masker(Exposure.MASKED, True)
@@ -86,7 +91,7 @@ def bare(*loggers: logging.Logger) -> Iterator[logging.Logger]:
 
 def _handler(masker: Masker = MASKED, max_lines: int = 500) -> tuple[SharpitLogHandler, LogTailBuffer]:
     buffer = LogTailBuffer(max_lines, 1 << 20)
-    return SharpitLogHandler(masker, buffer), buffer
+    return SharpitLogHandler(masker, buffer, application=lambda: None), buffer
 
 
 def test_handler_level_notset_changes_no_level(isolated: logging.Logger):
@@ -276,3 +281,50 @@ def test_log_tail_line_sets_message_omitted_in_metadata_only_mode():
         shown = _handler(Masker(exposure, True))[0].line(record)
         assert shown is not None
         assert shown.get("messageOmitted") is False, exposure
+
+
+def test_the_line_keeps_a_falsy_application_family(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(Dialect, "__bool__", lambda _self: False, raising=False)
+    seen: list[Dialect] = []
+
+    def spy(_masker: Masker, text: str, dialect: Dialect) -> str:
+        seen.append(dialect)
+        return text
+
+    monkeypatch.setattr(logtail, "mask_error", spy)
+    handler = SharpitLogHandler(MASKED, None, lambda: Dialect.SQLITE)
+    handler.line(logging.makeLogRecord({"name": "host", "msg": "line"}))
+    assert seen == [Dialect.SQLITE]
+
+
+@pytest.mark.parametrize("read", [LogTailBuffer.recent, lambda buffer: buffer.after(None)], ids=["recent", "after"])
+def test_a_finalizer_that_logs_during_a_read_does_not_deadlock(read: Callable[[LogTailBuffer], list[Any]]):
+    """A collection on the reader's thread runs a finalizer, which logs, which appends: a held lock hangs that thread.
+
+    The finalizer appends directly: a hung ``emit`` would keep the handler's lock and hang ``logging.shutdown`` too.
+    """
+    buffer = LogTailBuffer(5, 1 << 20)
+    buffer.append(_line("first"))
+
+    class Finalized:
+        def __del__(self) -> None:
+            buffer.append(_line("from a finalizer"))
+
+    class Collected(deque[Any]):
+        def __iter__(self) -> Iterator[Any]:
+            garbage = Finalized()
+            garbage.cycle = garbage  # pyright: ignore[reportAttributeAccessIssue]
+            del garbage
+            gc.collect()
+            return super().__iter__()
+
+    buffer._lines = Collected(buffer._lines)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    finished = threading.Event()
+
+    def run() -> None:
+        read(buffer)
+        finished.set()
+
+    threading.Thread(target=run, daemon=True).start()
+    assert finished.wait(5)
+    assert _messages(buffer)[:2] == ["first", "from a finalizer"]  # this read collects again and may add a third

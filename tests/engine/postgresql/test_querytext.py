@@ -20,6 +20,14 @@ def test_query_text_masks_single_quoted_escape_and_dollar_quoted_literals() -> N
     )
 
 
+def test_query_text_after_a_unicode_space_before_dollars_shows_no_literal() -> None:
+    # derived: the facade replaces the ambiguous dollar-quoted value with a placeholder.
+    secret = "A10" + "QUERY" + "SECRET"
+    shown = query_text(MASKED, f"SELECT\u2003$tag${secret}$tag$")
+    assert secret not in (shown or "")
+    assert shown == "SELECT ?"
+
+
 def test_query_text_masks_unterminated_string_literals() -> None:
     # ported: PostgresHelpersTests.queryTextMasksUnterminatedStringLiterals
     assert query_text(MASKED, "SELECT * FROM users WHERE token = 'sk-live-truncated") == (
@@ -53,6 +61,13 @@ def test_query_text_respects_exposure_level() -> None:
     assert query_text(MASKED, sql) == "SELECT * FROM users WHERE email = '******' AND id = $1"
     assert query_text(MASKED, None) is None
     assert query_text(MASKED, "   ") is None
+
+
+def test_query_text_fails_closed_for_unicode_dollar_tags_and_non_ascii_spacing() -> None:
+    token = "A10" + "QUERY" + "SECRET"
+    assert token not in (query_text(MASKED, f"SELECT $é$ {token} $é$") or "")
+    assert query_text(MASKED, "SELECT\u00a0$1") == "SELECT $1"
+    assert query_text(Masker(Exposure.FULL, False), "SELECT $1") == "SELECT $1"
 
 
 def test_query_text_a_dollar_inside_a_string_is_not_a_dollar_quote() -> None:
@@ -101,3 +116,13 @@ def test_query_text_masks_postgresql_16_numeric_forms_whole() -> None:
 def test_query_text_masks_nested_comments_whole() -> None:
     # derived: final round (3): PostgreSQL block comments nest
     assert query_text(MASKED, "select a /* outer /* inner */ secret */ from t") == "select a from t"
+
+
+def test_a_double_quoted_value_hides_on_postgresql() -> None:
+    # spec A1: the lexer hides this on every other surface, and the corpus's row reaches this one
+    shown = query_text(MASKED, 'SELECT id FROM t WHERE email = "alice@example.com"')
+    assert shown == "SELECT id FROM t WHERE email = '******'"
+
+
+def test_a_double_quoted_name_stays_on_postgresql() -> None:
+    assert query_text(MASKED, 'SELECT "t"."id" FROM "t"') == 'SELECT "t"."id" FROM "t"'

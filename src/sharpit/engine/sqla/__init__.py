@@ -92,6 +92,7 @@ from sharpit.engine.sqla.orm import (  # noqa: E402
     RELATIONSHIP_KEY,
     apply_relationship_facts,
     apply_unbounded_read_facts,
+    set_identity_key,
     set_unbounded_read_factor,
     unbounded_read_capture_limitation_needed,
 )
@@ -143,6 +144,7 @@ __all__ = [
     "remove",
     "routed",
     "run_db_read",
+    "set_identity_key",
     "set_unbounded_read_factor",
     "sql_trace_unavailable_reason",
     "sqlalchemy_module",
