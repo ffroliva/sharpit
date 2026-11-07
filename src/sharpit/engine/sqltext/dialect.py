@@ -95,7 +95,7 @@ def exception_leaves(exc: BaseException) -> list[BaseException]:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, BaseExceptionGroup):
+        if issubclass(type(current), BaseExceptionGroup):
             group = cast("BaseExceptionGroup[BaseException]", current)
             children = cast(
                 "tuple[BaseException, ...]",
@@ -142,7 +142,7 @@ def _is_sqlalchemy_internal(exc: BaseException) -> bool:
 
 
 def _queue_group_children(current: BaseException, pending: list[BaseException], visited: int) -> ChainReading | None:
-    if not isinstance(current, BaseExceptionGroup):
+    if not issubclass(type(current), BaseExceptionGroup):
         return None
     group = cast("BaseExceptionGroup[BaseException]", current)
     try:
@@ -165,19 +165,37 @@ def _queue_exception_links(current: BaseException, pending: list[BaseException])
         cause = _CAUSE.__get__(current)
         context = _CONTEXT.__get__(current)
         suppressed = _SUPPRESS_CONTEXT.__get__(current)
-        original = _INSTANCE_DICT.__get__(current).get("orig")
+        fields = cast("dict[str, object]", _INSTANCE_DICT.__get__(current))
     except BaseException:
         return False
-    if isinstance(cause, BaseException):
-        pending.append(cause)
-    elif not suppressed and isinstance(context, BaseException):
-        pending.append(context)
-    if isinstance(original, BaseException):
-        pending.append(original)
+    if type(fields) is not dict:
+        return False  # a dict subclass's methods could run, so its ``orig`` cannot be read
+    original = fields.get("orig")
+    if original is not None and not issubclass(type(original), BaseException):
+        return False  # a link that is not an exception cannot be read as one, whatever it claims to be
+    if issubclass(type(cause), BaseException):
+        pending.append(cast("BaseException", cause))
+    elif not suppressed and issubclass(type(context), BaseException):
+        pending.append(cast("BaseException", context))
+    if issubclass(type(original), BaseException):
+        pending.append(cast("BaseException", original))
     return True
 
 
+def is_database_exception(exc: BaseException) -> bool:
+    reading = read_chain(exc)
+    return bool(reading.families or reading.stopped or reading.exhausted)
+
+
 def read_chain(exc: BaseException) -> ChainReading:
+    """Never raises: a chain whose classes cannot be read stops, so every caller fails closed."""
+    try:
+        return _walk_chain(exc)
+    except BaseException:
+        return ChainReading(frozenset(), stopped=True)
+
+
+def _walk_chain(exc: BaseException) -> ChainReading:
     pending = [exc]
     seen: set[int] = set()
     families: set[Dialect] = set()

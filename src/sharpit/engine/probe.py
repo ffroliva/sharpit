@@ -13,11 +13,10 @@ from typing import Any, cast
 from urllib.parse import quote, unquote, urlsplit
 
 from sharpit.engine.capture import under
-from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.masking import Masker
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.sqla.dialect_source import exception_dialect
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, error_text, is_database_exception
 
 MAX_METHOD_BYTES = 32
 MAX_PATH_BYTES = 2048
@@ -339,14 +338,11 @@ async def run_probe(
                 transferred_slot = True
             raise
     except Exception as exc:  # noqa: BLE001 - app exceptions become a stable masked probe response
-        message = (
-            mask_error(
-                masker,
-                f"{type(exc).__name__}: {exc}",
-                exception_dialect(exc, application),
-            )
-            or type(exc).__name__
-        )
+        dialect = exception_dialect(exc, application)
+        if is_database_exception(exc):
+            message = error_text(masker, exc, dialect) or type(exc).__name__
+        else:  # as a7a6ff2f: an unclassified error keeps its "Name: " diagnostics, masked
+            message = error_text(masker, f"{type(exc).__name__}: {exc}", dialect) or type(exc).__name__
         status = 500
         return {
             "status": status,

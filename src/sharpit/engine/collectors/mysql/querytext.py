@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import re
 
-from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import MASK, Masker
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, statement_text
 
 MAX_QUERY_TEXT_LENGTH = 400
 _WHITESPACE = re.compile(r"\s+")

@@ -32,6 +32,7 @@ from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.context import application_family
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sources import dispatch, sqlite
+from sharpit.engine.sqltext import is_database_exception
 
 if TYPE_CHECKING:
     from sharpit.engine.capture.exceptions import ExceptionStore
@@ -203,7 +204,8 @@ def _record_logged(store: ExceptionStore, record: logging.LogRecord) -> None:
     if exc is not None:
         if (sink := dispatch.session_sink()) is not None:
             sink.on_exception(exc, "log", TEST.get())
-        store.record(exc, "log", REQUEST.get(), record.threadName, message_override=record.getMessage())
+        override = None if is_database_exception(exc) else record.getMessage()
+        store.record(exc, "log", REQUEST.get(), record.threadName, message_override=override)
 
 
 def sqlite_holder(ctx: SharpitContext) -> str:

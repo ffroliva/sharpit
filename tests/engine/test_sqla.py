@@ -577,7 +577,10 @@ def test_failed_statement_recorded_with_error():
         conn.execute(sa.text("select * from missing_table"))
     entry = _entries(handle)[0]
     assert (entry["success"], entry["affectedRows"]) == (False, None)
-    assert "no such table: missing_table" in entry["errorMessage"]
+    # owner ruling 2026-11-07, structured driver codes: the class and its code, never the driver's text
+    assert "sqlite3.OperationalError" in entry["errorMessage"]
+    assert "SQLITE_ERROR" in entry["errorMessage"]
+    assert "no such table" not in entry["errorMessage"]
 
 
 def test_detach_removes_listeners_only_when_last_context_leaves():

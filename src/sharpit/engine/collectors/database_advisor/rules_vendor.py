@@ -15,7 +15,9 @@ from typing import Any
 
 from sharpit.engine.advisors.rules import RuleDefinition, Severity
 from sharpit.engine.collectors.database_advisor.catalog import Hit, Outcome, Rule, Source, unreadable
+from sharpit.engine.masking import Masker
 from sharpit.engine.sqla.inspect import CatalogBounds, error_text
+from sharpit.engine.sqltext import Dialect, dialect_of_name
 
 PG = ("postgresql",)
 MYSQL = ("mysql", "mariadb")
@@ -82,10 +84,11 @@ def _fetch(conn: Any, sql: str, limit: int) -> tuple[list[str], list[Any]]:
     return list(result.keys()), result.fetchmany(limit + 1)
 
 
-def read_vendor(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
+def read_vendor(conn: Any, bounds: CatalogBounds, masker: Masker) -> dict[str, Any]:
     """The vendor facts behind ``conn`` (run it inside the read-only read); ``{}`` on any other dialect."""
     facts: dict[str, Any] = {}
     savepoint = conn.dialect.name in PG  # a failed statement must not abort the read's transaction
+    dialect = dialect_of_name(conn.dialect.name) or Dialect.UNSUPPORTED
     for name, sql in _statements(conn.dialect).items():
         try:
             if savepoint:
@@ -94,7 +97,7 @@ def read_vendor(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
             else:
                 keys, rows = _fetch(conn, sql, bounds.vendor_rows)
         except Exception as exc:  # noqa: BLE001 - one denied view skips its rules; never the scan
-            facts[name] = {"error": error_text(exc)}
+            facts[name] = {"error": error_text(exc, masker, dialect)}
             continue
         kept = [dict(zip(keys, row, strict=True)) for row in rows[: bounds.vendor_rows]]
         facts[name] = {"rows": kept, "truncated": len(rows) > bounds.vendor_rows}

@@ -172,8 +172,10 @@ _IGNORE_RAW_SQLITE_PLANT = Plant(
 )
 _SKIP_CONTEXT_PLANT = Plant(
     "engine/sqltext/dialect.py",
-    "elif not suppressed and isinstance(context, BaseException):\n        pending.append(context)",
-    "elif False and not suppressed and isinstance(context, BaseException):\n        pending.append(context)",
+    "elif not suppressed and issubclass(type(context), BaseException):\n"
+    '        pending.append(cast("BaseException", context))',
+    "elif False and not suppressed and issubclass(type(context), BaseException):\n"
+    '        pending.append(cast("BaseException", context))',
 )
 _IGNORE_BOUND_PLANT = Plant(
     "engine/sqla/dialect_source.py",
@@ -191,7 +193,11 @@ def _multiline_driver_line():
 
 
 def _driver_shaped_trigger_value():
-    value = '(psycopg.errors.SyntaxError) failed\n[SQL: SELECT "x"]'
+    return (_input(trigger_message('(psycopg.errors.SyntaxError) failed\n[SQL: SELECT "x"]'), _TEXT_SOURCES, None),)
+
+
+def trigger_message(value: str) -> str:
+    """``str(exc)`` of a live SQLite trigger that raises ``value``, a bound value, as its message."""
     connection = sqlite3.connect(":memory:")
     connection.executescript(
         "CREATE TABLE input (value TEXT);"
@@ -210,7 +216,7 @@ def _driver_shaped_trigger_value():
         raise AssertionError("SQLite trigger did not fail")
     finally:
         connection.close()
-    return (_input(message, _TEXT_SOURCES, None),)
+    return message
 
 
 def _two_families_in_chain():

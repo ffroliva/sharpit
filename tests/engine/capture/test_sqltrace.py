@@ -558,7 +558,9 @@ def test_driver_message_values_dropped_with_parameters_off(message: str, expecte
     recorder = _recorder()
     sql = "insert into u (secret) values (%(secret)s)"
     error = RuntimeError(f"{message}\n[SQL: {sql}]\n[parameters: {{'secret': 'hunter2-xyz'}}]")
-    _record(recorder, sql, success=False, error=error)
+    # the event's proof: since Task 28 the pymysql text no longer gives the family
+    proof = Dialect.MYSQL_FAMILY if message.startswith("(pymysql.") else Dialect.UNSUPPORTED
+    _record(recorder, sql, success=False, error=error, dialect=proof)
     stored = _entries(recorder)[0]["errorMessage"]
     assert "hunter2" not in stored
     assert stored == f"{expected}\n[SQL: {sql}]\n[parameters: {MASK}]"

@@ -12,14 +12,12 @@ import logging
 import secrets
 import threading
 from collections import deque
-from collections.abc import AsyncIterator, Callable
-from typing import Any
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from typing import Any, cast
 
-from sharpit.engine.capture.errortext import log_statement
-from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.streams import LineStream
 from sharpit.engine.masking import Masker
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, error_text, is_database_exception, log_statement
 
 LINE_KEYS = ("timestamp", "level", "logger", "message", "thread", "messageOmitted")  # BootUI LogLineDto, record order
 MAX_MESSAGE = 4000
@@ -80,11 +78,66 @@ async def log_events(buffer: LogTailBuffer, after: int | None) -> AsyncIterator[
 def _is_parameter_line(record: logging.LogRecord) -> bool:
     """SQLAlchemy's ``echo=True`` bind-value lines: ``"[%s] %r"`` and ``"[raw sql] %r"``."""
     msg = record.msg
-    return isinstance(msg, str) and msg.startswith("[") and msg.endswith("%r")
+    return type(msg) is str and msg.startswith("[") and msg.endswith("%r")
 
 
 def _own(name: str) -> bool:
     return name == "sharpit" or name.startswith("sharpit.")
+
+
+def _is_classified_exc(value: object) -> bool:
+    return issubclass(type(value), BaseException) and is_database_exception(cast(BaseException, value))
+
+
+def _substitute_arg(value: object, masker: Masker, dialect: Dialect) -> object:
+    if not _is_classified_exc(value):
+        return value
+    exc = cast(BaseException, value)
+    return error_text(masker, exc, dialect) or type(exc).__name__
+
+
+def _first_classified(values: Iterable[object]) -> BaseException | None:
+    return next((cast(BaseException, v) for v in values if _is_classified_exc(v)), None)
+
+
+def _format_classified(msg: object, substituted: object, fallback: BaseException) -> str:
+    try:
+        return msg % substituted if type(msg) is str else type(fallback).__name__
+    except Exception:  # noqa: BLE001 - a bad format string falls back to the classified exception's class name
+        return type(fallback).__name__
+
+
+def _substitute_mapping(mapping: Mapping[object, object], masker: Masker, dialect: Dialect) -> dict[object, object]:
+    return {k: _substitute_arg(v, masker, dialect) for k, v in mapping.items()}
+
+
+def _substitute_tuple(seq: tuple[object, ...], masker: Masker, dialect: Dialect) -> tuple[object, ...]:
+    return tuple(_substitute_arg(v, masker, dialect) for v in seq)
+
+
+def _classified_args_message(record: logging.LogRecord, masker: Masker, dialect: Dialect) -> str | None:
+    args = record.args
+    if issubclass(type(args), Mapping):
+        mapping = cast(Mapping[object, object], args)
+        first = _first_classified(mapping.values())
+        return _format_classified(record.msg, _substitute_mapping(mapping, masker, dialect), first) if first else None
+    if type(args) is tuple:
+        first = _first_classified(args)
+        return _format_classified(record.msg, _substitute_tuple(args, masker, dialect), first) if first else None
+    return None
+
+
+def _record_message(record: logging.LogRecord, masker: Masker, dialect: Dialect) -> str:
+    if _is_classified_exc(record.msg):
+        exc = cast(BaseException, record.msg)
+        return error_text(masker, exc, dialect) or type(exc).__name__
+    formatted = _classified_args_message(record, masker, dialect)
+    if formatted is not None:
+        return formatted
+    try:
+        return record.getMessage()
+    except Exception:  # noqa: BLE001 - a bad format string
+        return record.msg if type(record.msg) is str else type(record.msg).__name__
 
 
 class SharpitLogHandler(logging.Handler):
@@ -132,16 +185,13 @@ class SharpitLogHandler(logging.Handler):
         engine_log = record.name.startswith("sqlalchemy.engine")
         if engine_log and not self.masker.capture_parameters and _is_parameter_line(record):
             return None
-        try:
-            message = record.getMessage()
-        except Exception:  # noqa: BLE001 - a bad format string
-            message = str(record.msg)
+        family = self.application()
+        dialect = Dialect.UNSUPPORTED if family is None else family
+        message = _record_message(record, self.masker, dialect)
         # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
         shown = message[: 4 * MAX_MESSAGE]
         statement = engine_log and not self.masker.capture_parameters
-        family = self.application()
-        dialect = Dialect.UNSUPPORTED if family is None else family
-        masked = log_statement(self.masker, shown, dialect) if statement else mask_error(self.masker, shown, dialect)
+        masked = log_statement(self.masker, shown, dialect) if statement else error_text(self.masker, shown, dialect)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return {

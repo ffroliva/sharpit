@@ -129,6 +129,9 @@ def test_cause_chain():
     assert detail is not None
     assert [c["exceptionClassName"] for c in detail["causes"]] == ["ValueError"]
     assert tuple(detail["causes"][0]) == ("exceptionClassName", "message", "frames", "commonFrames")
+    assert detail["causes"][0]["message"] == "bad number"
+    assert len(detail["causes"][0]["frames"]) >= 1
+    assert isinstance(detail["causes"][0]["commonFrames"], int)
     implicit = wrapped()  # __context__, not suppressed
     _record(store, implicit)
     detail = store.detail(next(g["id"] for g in _groups(store) if g["message"] == "wrapped"))
@@ -341,6 +344,25 @@ def test_message_override_used_and_masked():
     assert _groups(store)[0]["message"] == f"logged password={MASK}"
 
 
+# derived: Task 27 review 1 (ExceptionStore.record ignores message_override for classified exceptions)
+# owner ruling 2026-11-07, structured driver codes; Opus review r2 #3: a code-less driver keeps the override
+# ignored, so the guard still has a row that bites
+OVERRIDE_ROWS = {
+    "code": ("InvalidTextRepresentation", "(psycopg.errors.InvalidTextRepresentation) 22P02"),
+    "no_code": ("Error", None),
+}
+
+
+@pytest.mark.parametrize("case", sorted(OVERRIDE_ROWS))
+def test_classified_exception_ignores_message_override(case: str) -> None:
+    psycopg_errors = pytest.importorskip("psycopg.errors")
+    kind, wanted = OVERRIDE_ROWS[case]
+    store = _store()
+    exc = _raised(lambda: getattr(psycopg_errors, kind)('invalid input syntax for type integer: "hunter2secret"'))
+    _record(store, exc, message_override='failed: invalid input syntax for type integer: "hunter2secret"')
+    assert _groups(store)[0]["message"] == wanted
+
+
 def test_metadata_only_exception_message_null():
     store = _store(masker=Masker(Exposure.METADATA_ONLY, True))
     exc = _raised(lambda: RuntimeError("secret detail"))
@@ -395,7 +417,7 @@ def test_the_message_keeps_a_falsy_application_family(monkeypatch: pytest.Monkey
         seen.append(dialect)
         return text
 
-    monkeypatch.setattr(exceptions, "mask_error", spy)
+    monkeypatch.setattr(exceptions, "error_text", spy)
     ExceptionStore(10, 5, 5, MASKED, application=lambda: Dialect.SQLITE)._message("failed")  # noqa: SLF001
     assert seen == [Dialect.SQLITE]
 

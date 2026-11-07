@@ -13,6 +13,7 @@ from sharpit.engine.sqltext.dialect import (
     DialectSource,
     dialect_of_name,
     exception_leaves,
+    is_database_exception,
     read_chain,
     resolve,
 )
@@ -186,6 +187,7 @@ __all__ = [
     "dialect_of_name",
     "exception_leaves",
     "fingerprint",
+    "is_database_exception",
     "load_key",
     "quoted_body",
     "read_chain",

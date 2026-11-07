@@ -21,11 +21,10 @@ from typing import Any
 
 from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.frames import is_application_frame
-from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sqla.dialect_source import exception_dialect
-from sharpit.engine.sqltext import Dialect, exception_leaves
+from sharpit.engine.sqltext import Dialect, error_text, exception_leaves, is_database_exception
 
 MAX_MESSAGE = 2000
 MAX_CAUSES = 5
@@ -237,16 +236,18 @@ class ExceptionStore:
     def _message(self, text: str | None, error: BaseException | None = None) -> str | None:
         dialect = exception_dialect(error, self.application) if error is not None else self.application()
         shown = text[: 4 * MAX_MESSAGE] if text else None
-        masked = mask_error(self.masker, shown, Dialect.UNSUPPORTED if dialect is None else dialect)
+        read_as = Dialect.UNSUPPORTED if dialect is None else dialect
+        masked = None if shown is None else error_text(self.masker, shown, read_as)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return masked
 
     def _text(self, exc: BaseException) -> str | None:
-        try:
-            return self._message(str(exc) or None, exc)
-        except Exception:  # noqa: BLE001 - a broken __str__ leaves the message out
-            return None
+        dialect = exception_dialect(exc, self.application)
+        rendered = error_text(self.masker, exc, dialect)
+        if rendered and len(rendered) > MAX_MESSAGE:
+            return rendered[: MAX_MESSAGE - 1] + "…"
+        return rendered
 
     def record(
         self,
@@ -287,7 +288,7 @@ class ExceptionStore:
                 }
             )
         message = self._text(exc)
-        if message is None and message_override:
+        if message is None and message_override and not is_database_exception(exc):
             message = self._message(message_override)
         key = fingerprint(exc, walked)
         chosen = _chosen(walked)

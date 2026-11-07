@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from sharpit.engine import sqla
+from sharpit.engine.masking import Masker
 from sharpit.engine.sqla import inspect as sqla_inspect
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -61,7 +62,10 @@ def test_read_only_wrapper_rejects_write(url: str, monkeypatch: pytest.MonkeyPat
     try:
         found = asyncio.run(
             sqla.run_db_read(
-                engine, lambda c: sqla_inspect.catalog(c, sqla_inspect.CatalogBounds()), 5.0, read_only=True
+                engine,
+                lambda c: sqla_inspect.catalog(c, sqla_inspect.CatalogBounds(), Masker("MASKED", True, None)),
+                5.0,
+                read_only=True,
             )
         )
         with engine.connect() as conn:
@@ -84,7 +88,10 @@ def test_server_limits_are_read(url: str) -> None:
     try:
         found = asyncio.run(
             sqla.run_db_read(
-                engine, lambda c: sqla_inspect.catalog(c, sqla_inspect.CatalogBounds()), 5.0, read_only=True
+                engine,
+                lambda c: sqla_inspect.catalog(c, sqla_inspect.CatalogBounds(), Masker("MASKED", True, None)),
+                5.0,
+                read_only=True,
             )
         )
 
@@ -111,7 +118,7 @@ def _vendor_scan(url: str, dialect: str) -> tuple[list[str], dict[str, str], int
         found = asyncio.run(
             sqla.run_db_read(
                 engine,
-                lambda c: catalog._catalog_and_vendor(c, sqla_inspect.CatalogBounds()),  # noqa: SLF001
+                lambda c: catalog._catalog_and_vendor(c, sqla_inspect.CatalogBounds(), Masker("MASKED", True, None)),  # noqa: SLF001
                 5.0,
                 read_only=True,
             )

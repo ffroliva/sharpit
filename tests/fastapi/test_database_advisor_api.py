@@ -247,3 +247,20 @@ def test_query_string_secret_never_read_or_emitted() -> None:
     assert "qs-" not in scanned
     assert "qs-" not in json.dumps(called)
     assert "dataSourceNames" in json.dumps(called)
+
+
+# derived: Task 27 review 3 (classified driver exception in database advisor scan hides driver text)
+def test_classified_driver_exception_in_advisor_scan_hides_driver_text() -> None:
+    psycopg_errors = pytest.importorskip("psycopg.errors")
+
+    def fail() -> Any:
+        raise psycopg_errors.InvalidTextRepresentation('invalid input syntax for type integer: "hunter2secret"')
+
+    engine = sa.create_engine("postgresql+psycopg://app@localhost/app", creator=fail)
+    client, _ = _client(("primary", engine))
+
+    report = _ok(client.post(SCAN))
+
+    assert report["dataSources"][0]["status"] == "FAILED"
+    assert "hunter2secret" not in json.dumps(report)
+    assert report["dataSources"][0]["message"] == "(psycopg.errors.InvalidTextRepresentation) 22P02"

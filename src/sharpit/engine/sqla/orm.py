@@ -14,6 +14,7 @@ import sys
 from types import CodeType
 from typing import Any, cast
 
+from sharpit.engine import sqltext
 from sharpit.engine.capture.correlation import REQUEST, TEST, paging_of
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.masking import Masker
@@ -105,9 +106,7 @@ def _relationship_masker() -> Masker:
 
 @functools.lru_cache(maxsize=1024)
 def _masked_fingerprint(statement: str, dialect: Dialect) -> str | None:
-    from sharpit.engine.capture.statement import masked_shape
-
-    return masked_shape(_relationship_masker(), statement, dialect).fingerprint
+    return sqltext.statement_shape(_relationship_masker(), statement, dialect).fingerprint
 
 
 def _dialect_of(owner: object) -> Dialect:
@@ -314,8 +313,6 @@ def _unbounded_read_statement_shape(context: Any, statement_obj: Any) -> tuple[s
         )
     except Exception:
         has_limit = True
-    from sharpit.engine.capture.statement import masked_shape
-
     owner = context
     if getattr(context, "dialect", None) is None:
         session = getattr(context, "session", None)
@@ -330,7 +327,7 @@ def _unbounded_read_statement_shape(context: Any, statement_obj: Any) -> tuple[s
         except Exception:
             owner = None
     dialect = _dialect_of(owner)
-    return masked_shape(_relationship_masker(), str(statement_obj), dialect).sql, has_limit
+    return sqltext.statement_shape(_relationship_masker(), str(statement_obj), dialect).text, has_limit
 
 
 def _record_unbounded_read_load(target: Any, context: Any, info: Any, tag: tuple[str, int, str]) -> None:

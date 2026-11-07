@@ -16,10 +16,12 @@ from typing import TYPE_CHECKING, Any, cast
 from sharpit.engine import sqla
 from sharpit.engine.advisors.rules import RuleDefinition
 from sharpit.engine.daemon_executor import DaemonExecutor
+from sharpit.engine.sqla.dialect_source import engine_dialect
 from sharpit.engine.sqla.inspect import CatalogBounds, catalog, error_text
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
+    from sharpit.engine.masking import Masker
     from sharpit.engine.singleflight import Flight
 
 URL_KEYS = frozenset({"connect_timeout", "charset", "sslmode"})  # presence only, never a value
@@ -150,11 +152,11 @@ async def read_sources(ctx: SharpitContext, flight: Flight) -> list[Source]:
     return sources
 
 
-def _catalog_and_vendor(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
+def _catalog_and_vendor(conn: Any, bounds: CatalogBounds, masker: Masker) -> dict[str, Any]:
     """The catalog plus the vendor facts, in one read-only read."""
     from sharpit.engine.collectors.database_advisor.rules_vendor import read_vendor  # noqa: PLC0415 - imports this module
 
-    return {**catalog(conn, bounds), "vendor": read_vendor(conn, bounds)}
+    return {**catalog(conn, bounds, masker), "vendor": read_vendor(conn, bounds, masker)}
 
 
 async def _read(
@@ -164,7 +166,7 @@ async def _read(
     try:
         found = await sqla.run_db_read(
             engine,
-            lambda conn: _catalog_and_vendor(conn, bounds),
+            lambda conn: _catalog_and_vendor(conn, bounds, ctx.masker),
             min(CATALOG_TIMEOUT, bounds.budget),
             executor=executor,
             done=flight.worker(),
@@ -176,6 +178,6 @@ async def _read(
     except TimeoutError:
         return "FAILED", BUDGET_RAN_OUT, {}
     except Exception as exc:  # noqa: BLE001 - a failed engine is reported for that engine; never raised
-        return "FAILED", error_text(exc), {}
+        return "FAILED", error_text(exc, ctx.masker, engine_dialect(engine)), {}
     partial = found["truncated"] or not found["complete"]
     return ("PARTIAL" if partial else "AVAILABLE"), None, found

@@ -12,13 +12,13 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
-from sharpit.engine.capture.sqltrace import call_site, mask_error
+from sharpit.engine.capture.sqltrace import call_site
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqla.dialect_source import exception_dialect
 from sharpit.engine.sqla.events import add_pool_listener
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, error_text
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -221,7 +221,9 @@ class TransactionRecorder:
         row["slow"] = self.slow_threshold_ms > 0 and duration >= self.slow_threshold_ms
         row["connectionHeld"] = self.hold_threshold_ms > 0 and duration >= self.hold_threshold_ms
         if error is not None:
-            row["errorMessage"] = mask_error(self._masker, str(error), exception_dialect(error, self._application))
+            row["errorMessage"] = error_text(
+                self._masker, error, exception_dialect(error, self._application)
+            ) or self._masker.mask_text(type(error).__name__)
 
     def _evict_completed_locked(self) -> bool:
         for row in self._entries:

@@ -36,10 +36,10 @@ def test_a_session_exception_reads_its_chain(monkeypatch: pytest.MonkeyPatch) ->
             attempt = sink.begin_test(NODE)
             sink.on_exception(error, "logging", (NODE, attempt, "call"))
             groups = sink.current_test.phases["call"].exception_groups  # type: ignore[union-attr]
-            message = next(iter(groups.values()))[1]
+            type_name, message = next(iter(groups.values()))
             actual = observed[-1] if observed else Dialect.UNSUPPORTED
             known_word = next(word for word in re.findall(r"[A-Za-z]+", raw) if len(word) > 2)
-            yield "source_chain", expected, actual, message, known_word
+            yield "source_chain", expected, actual, message or type_name, known_word
 
     report = a10_surface("test-session-exception", drive)
     assert report.counts["source_chain"] == len(fixture_rows())

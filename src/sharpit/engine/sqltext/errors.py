@@ -9,10 +9,13 @@ from __future__ import annotations
 import functools
 import re
 from collections.abc import Iterable, Iterator
+from types import MappingProxyType, MemberDescriptorType
+from typing import cast
 
 from sharpit.engine import sqltext
 from sharpit.engine.masking import MASK, Masker, Tracked
-from sharpit.engine.sqltext import Dialect, statement_text
+from sharpit.engine.sqltext import Dialect, is_database_exception, statement_text
+from sharpit.engine.sqltext.dialect import _class_value  # pyright: ignore[reportPrivateUsage]
 
 _BREAKS = r"\n\r\x0b\x0c\x1c\x1d\x1e\x85  "  # every separator ``str.splitlines`` knows
 _LINE_START = rf"(?<![^{_BREAKS}])"
@@ -34,7 +37,8 @@ _AN_ERROR = re.compile(
     rf"\[SQL: |{_LINE_START}(?:DETAIL|Detail|HINT|CONTEXT|LINE \d+):|(?<![\w.])(?:{_DRIVERS})\.[\w.]*+[):]"
     r"""|\A\(\d+, ["']"""
 )
-_MYSQL_DRIVER = re.compile(r"\b(?:pymysql|MySQLdb|asyncmy|mariadb|mysql\.connector)\.")
+# a MySQL driver named on the driver line, with a proof that is not MySQL's, is a conflict: the block hides
+_MYSQL_NAMED = re.compile(r"\b(?:pymysql|MySQLdb|asyncmy|mariadb|mysql\.connector)\.")
 _DROPPED = ("DETAIL:", "Detail:")
 _QUOTE = re.compile("['\"]")
 _QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")  # the view 0.4.0 masked: what it hid stays hidden
@@ -48,6 +52,13 @@ _CHAINS = frozenset(
     }
 )
 _FRAMES, _DRIVER, _TAIL, _TRAILER = range(4)  # where a walk stands: what the next line is
+# BaseException's own descriptors, as ``dialect`` reads links: a subclass property of the same name never runs
+_ARGS = BaseException.__dict__["args"]
+_FIELDS = BaseException.__dict__["__dict__"]
+# owner 2026-11-07, structured driver codes: after an int ``args[0]``, the first exact str of its code's shape is shown
+_SQLSTATE = re.compile(r"[0-9A-Z]{5}")
+_CODES = (("sqlstate", _SQLSTATE), ("pgcode", _SQLSTATE), ("sqlite_errorname", re.compile(r"SQLITE_[A-Z_]+")))
+_UNSET = object()
 
 
 def _merged(spans: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -102,10 +113,9 @@ def _quoted(line: str) -> tuple[int, int] | None:
         line.endswith(f"{first[0]})") and line.find(first[0], first.end(), high - 2) < 0
     )  # a repr holds no bare quote
     if closes and _TUPLE_OPEN.search(line, 0, first.start()):
-        low, high = first.end(), high - 2
-        first = _QUOTE.search(line, low, high)
-        if first is None:
-            return None
+        inner = _QUOTE.search(line, first.end(), high - 2)
+        if inner is not None:
+            low, high, first = first.end(), high - 2, inner
     last = max(line.rfind("'", low, high), line.rfind('"', low, high))
     odd = line.count("'", low, high) % 2 or line.count('"', low, high) % 2
     return first.start(), high if odd else last + 1
@@ -138,7 +148,7 @@ class _Lines:
         self._state = state
         self._keep_frames = keep_frames
         self.shown: list[str] = []
-        self.driver: Dialect | None = None  # what the driver line names, until Task 28
+        self.named: Dialect | None = None  # the family the driver line names: a mark that can only hide
 
     @functools.cached_property
     def _hits(self) -> _Hits:
@@ -183,8 +193,8 @@ class _Lines:
         cut = line.find(_BLOCK)
         text = line if cut < 0 else line[:cut]
         quote = _QUOTE.search(text)
-        named = _MYSQL_DRIVER.search(text, 0, quote.start() if quote else len(text))
-        self.driver = self.driver or (Dialect.MYSQL_FAMILY if named else None)
+        named = _MYSQL_NAMED.search(text, 0, quote.start() if quote else len(text))
+        self.named = self.named or (Dialect.MYSQL_FAMILY if named else None)
         self.shown.append(_driver_line(self._masker, text) + ("" if cut < 0 else _BLOCK_HIDDEN))
 
     def _kept(self, start: int, end: int, quotes: bool) -> None:
@@ -206,6 +216,10 @@ def _block(masker: Masker, text: str, body: int, end: int, dialect: Dialect, sho
     """Emit the block whose body starts at ``body``, and its parameters; where the text goes on."""
     statement = text[body:end]
     closer = sqltext.LEXER.block_closer(statement, dialect)
+    later = _BLOCK_LINE.search(statement, 0, closer if closer >= 0 else len(statement))
+    if later is not None and "]" not in statement[: later.start()]:
+        shown.append(_BLOCK_HIDDEN)
+        return end
     if closer < 0:
         parameters = statement.rfind(_PARAMETERS_LINE)
         read = statement if parameters < 0 else statement[:parameters]
@@ -230,8 +244,11 @@ def _render(masker: Masker, text: str, dialect: Dialect, keep_frames: bool) -> s
     block = _BLOCK_LINE.search(text, 0, end)
     head = _Lines(masker, text[: block.start() if block else end], _DRIVER, keep_frames)
     shown = head.walk()
-    read_as = dialect if head.driver is None else head.driver
-    resume = _block(masker, text, block.end(), end, read_as, shown) if block else end
+    # a driver named in the text can be a value's word: it can reveal a conflict, which hides, and never reads
+    conflict = block is not None and head.named is not None and head.named is not dialect
+    if conflict:
+        shown.append(_BLOCK_HIDDEN)
+    resume = _block(masker, text, block.end(), end, dialect, shown) if block and not conflict else end
     shown += _Lines(masker, text[resume:end], _TRAILER, keep_frames).walk()
     if link:
         shown.append(link[0])
@@ -242,8 +259,9 @@ def _render(masker: Masker, text: str, dialect: Dialect, keep_frames: bool) -> s
 def render_error(masker: Masker, text: str, dialect: Dialect, keep_frames: bool = True) -> str:
     """``text`` by region; ``""`` under ``METADATA_ONLY``, ``******`` if the render fails.
 
-    A MySQL driver named on the driver line counts as ``Dialect.MYSQL_FAMILY``, whatever ``dialect`` says: a literal
-    cannot switch it.
+    The block reads with ``dialect``. A driver named in the text marks a region and never picks the reading: a database
+    can return a driver-shaped string as a value (architecture spec section 6). A MySQL driver on the driver line with
+    another ``dialect`` is a conflict, and the block hides.
     """
     try:
         if masker.mask_spans("") is None:
@@ -276,9 +294,77 @@ def log_statement(masker: Masker, text: str, dialect: Dialect) -> str | None:
     return statement_text(masker, text[: cut.start()] if cut else text, dialect)
 
 
+def _plain_field(driver: BaseException, fields: dict[str, object], name: str) -> object:
+    """``name`` as plain data, looked up as ``getattr`` would: a slot or C member is read through its own descriptor;
+    any other descriptor (a property) never runs and stands for no value."""
+    for cls in cast(tuple[type, ...], _class_value(type(driver), "__mro__")):
+        found = cast(MappingProxyType[str, object], _class_value(cls, "__dict__")).get(name, _UNSET)
+        if found is _UNSET:
+            continue
+        if type(found) is MemberDescriptorType:
+            try:
+                return found.__get__(driver)
+            except AttributeError:  # an unset slot
+                return None
+        return fields.get(name, found) if found is None or type(found) is str else None
+    return fields.get(name)
+
+
+def _driver_code(driver: BaseException) -> int | str | None:
+    args = cast(tuple[object, ...], _ARGS.__get__(driver))
+    if args and type(args[0]) is int:
+        return args[0]
+    raw_fields = _FIELDS.__get__(driver)
+    fields = cast(dict[str, object], raw_fields) if type(raw_fields) is dict else {}
+    for name, shape in _CODES:
+        value = _plain_field(driver, fields, name)
+        if type(value) is str and shape.fullmatch(value):
+            return value
+    return None
+
+
+def _classified_text(source: BaseException, fields: dict[str, object]) -> str | None:
+    """A database exception's own facts: its driver class, a structured code and its statement. The driver's text is
+    free text a value can shape, so it is never shown; with neither a code nor a statement there is nothing to show."""
+    original = fields.get("orig")
+    driver = cast(BaseException, original) if issubclass(type(original), BaseException) else source
+    code = _driver_code(driver)
+    statement = fields.get("statement")
+    if code is None and type(statement) is not str:
+        return None
+    module, name = _class_value(type(driver), "__module__"), _class_value(type(driver), "__qualname__")
+    if type(module) is not str or type(name) is not str:
+        return None
+    text = f"({module}.{name})" if code is None else f"({module}.{name}) {code}"
+    if type(statement) is not str:
+        return text
+    # owner 2026-11-07: the region stays as a constant, so the reader knows values were bound; none is ever read
+    bound = fields.get("params")  # as SQLAlchemy prints it: no line for no values; only exact containers are sized
+    empty = bound is None or (type(bound) in (tuple, list, dict) and not cast(tuple[object, ...], bound))
+    params = "" if empty else f"\n{_PARAMETERS_HIDDEN}"
+    return f"{text}\n[SQL: {statement}]{params}"
+
+
 def error_text(
     masker: Masker, source: str | BaseException, dialect: Dialect, known: bool = False, keep_frames: bool = True
 ) -> str | None:
     """Render free text or a database exception through the same regions and exposure policy."""
-    text = source if isinstance(source, str) else str(source)
-    return mask_error(masker, text, dialect, known, keep_frames)
+    if type(source) is str:
+        return mask_error(masker, source, dialect, known, keep_frames)
+    exc = cast(BaseException, source)
+    try:
+        raw_fields = _FIELDS.__get__(exc)
+        fields = cast(dict[str, object], raw_fields) if type(raw_fields) is dict else {}
+        if is_database_exception(exc):
+            classified = _classified_text(exc, fields)
+            return None if classified is None else mask_error(masker, classified, dialect, True, keep_frames)
+        statement = fields.get("statement")
+        args = cast(tuple[object, ...], _ARGS.__get__(exc))
+        if not args or sum(len(value) for value in args if type(value) is str) > 100_000:
+            return None
+        text = " ".join(value for value in args if type(value) is str)
+    except Exception:  # noqa: BLE001 - unreadable exception objects fail closed
+        return None
+    if not text:
+        return None
+    return mask_error(masker, text, dialect, known or type(statement) is str, keep_frames)

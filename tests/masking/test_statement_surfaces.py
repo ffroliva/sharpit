@@ -757,10 +757,23 @@ def test_newline_pair_keeps_the_value_hidden(name: str) -> None:
     assert VALUE not in _shown_by(name, f'UPDATE t SET pwd=\n"{VALUE}", note=? WHERE id=?')
 
 
+# Task 28: a pymysql driver line on a surface wired with no proof (``application=lambda: None``) is a conflict, which
+# hides the block, where the text used to switch it to MySQL's reading
+NO_PROOF_MYSQL_ERRORS = frozenset(
+    f"{name}-mysql"
+    for name in (
+        "log_handler_error", "exception_message", "causes", "transactions", "data", "health", "probe",
+        "test_session_exception",
+    )
+)  # fmt: skip
+
+
 @pytest.mark.parametrize("name", _params(name for name in SURFACES if name != "mysql_last_error-mysql"))
 def test_a_sensitive_column_keeps_where(name: str) -> None:
     shown = _shown_by(name, "UPDATE users SET password=? WHERE id=?")
     if name in {"db_statement-generic", "db_query_text-generic"}:
         assert shown == "[statement hidden: unsupported database]"
+    elif name in NO_PROOF_MYSQL_ERRORS:
+        assert f"[SQL: {MASK}]" in shown
     else:
         assert "WHERE id=?" in shown

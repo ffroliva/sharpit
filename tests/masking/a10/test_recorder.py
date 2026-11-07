@@ -34,12 +34,13 @@ def test_each_fixture_error_is_recorded_with_its_family() -> None:
             )
             shape = recorder.rows()[0]["shape"]
             assert isinstance(shape, Shape)
-            expected = sqltext.error_text(masker, error, resolved, known=True, keep_frames=False)
+            expected = sqltext.error_text(masker, error, resolved, known=True, keep_frames=False) or ""
             assert recorder.rows()[0]["errorMessage"] == (
-                expected if expected is None or len(expected) <= 2000 else expected.strip()[:2000] + "…"
+                expected if len(expected) <= 2000 else expected.strip()[:2000] + "…"
             )
             known_word = next(word for word in re.findall(r"[A-Za-z]+", raw) if len(word) > 2)
-            yield "source_chain", family, shape.dialect, recorder.rows()[0]["errorMessage"], known_word
+            rendered = recorder.rows()[0]["errorMessage"] or type(error).__name__
+            yield "source_chain", family, shape.dialect, rendered, known_word
 
     report = a10_surface("recorder", drive)
     assert report.counts["source_chain"] == len(fixture_rows())

@@ -18,6 +18,7 @@ from sharpit.engine.sqltext import Dialect
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "tests" / "fixtures" / "sql_errors"
 SECTION = re.compile(r"^##### (.+?) #####\n", re.MULTILINE)
+CLASS_ONLY = re.compile(r"^(?:\([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\)|[A-Za-z_]\w*)$")
 
 
 def fixture_rows() -> list[tuple[str, Dialect, BaseException, str]]:
@@ -43,12 +44,19 @@ def fixture_rows() -> list[tuple[str, Dialect, BaseException, str]]:
             "aiomysql": Dialect.MYSQL_FAMILY,
         }[entry["driver"]]
         raw = parts[parts.index("str(exc)") + 1].strip()
-        original_error = type(name, (Exception,), {"__module__": module})()
+        orig_text = parts[parts.index("str(exc.orig)") + 1].strip() if "str(exc.orig)" in parts else ""
+        code = re.match(r"\((\d+),", orig_text)
+        msg = orig_text or raw
+        args: tuple[object, ...] = (int(code[1]), msg) if code else (msg,)
+        original_error = type(name, (Exception,), {"__module__": module})(*args)
         error_type = type(
             "DBAPIError", (Exception,), {"__module__": "sqlalchemy.exc", "__str__": lambda _self, text=raw: text}
         )
         error = error_type(raw)
         error.orig = original_error
+        block = re.search(r"^\[SQL: (.*?)\]$", raw, re.MULTILINE | re.DOTALL)
+        if block:
+            error.statement = block[1]
         rows.append((entry["file"], family, error, raw))
     return rows
 
@@ -74,7 +82,13 @@ def a10_surface(name: str, drive: Callable[[], Iterable[tuple[str, Dialect, Dial
     for evidence, expected, actual, rendered, known_word in drive():
         report.row(evidence, expected, actual)
         if evidence in {"source_chain", "one_family"}:
-            assert known_word in rendered
+            if CLASS_ONLY.fullmatch(rendered):
+                report.counts["class_only"] += 1
+                assert known_word not in rendered
+            else:
+                assert known_word in rendered
+    if report.counts["source_chain"]:
+        assert report.counts["class_only"] == 16
     return report
 
 

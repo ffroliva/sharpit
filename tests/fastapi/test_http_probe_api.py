@@ -611,6 +611,20 @@ def test_app_exception_returns_masked_500(handle: list[SharpitHandle]):
     assert groups
 
 
+# derived: Task 27 Opus review r2 #5: an unclassified app exception keeps the a7a6ff2f "Name: " prefix
+def test_app_exception_error_keeps_its_class_prefix(handle: list[SharpitHandle]):
+    app = FastAPI()
+
+    @app.get("/fail")
+    def fail():
+        raise RuntimeError("password=hunter2")
+
+    _install(app, handle)
+    with _client(app) as client:
+        result = _probe(client, "/fail").json()
+    assert result["error"] == "RuntimeError: ******"  # a7a6ff2f, measured: the value and its name are masked
+
+
 @pytest.mark.needs_sqlalchemy
 def test_probe_uses_the_application_family_for_a_generic_database_error(
     handle: list[SharpitHandle], monkeypatch: pytest.MonkeyPatch

@@ -75,7 +75,7 @@ def test_data_warning_keeps_a_falsy_application_family(monkeypatch: pytest.Monke
         seen.append(dialect)
         return text
 
-    monkeypatch.setattr(data, "mask_error", spy)
+    monkeypatch.setattr(data, "error_text", spy)
     handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[sa.create_engine("sqlite://")])
     try:
         data._masked(handle.context, "Could not read owner")  # noqa: SLF001
@@ -637,3 +637,53 @@ def test_registry_subclass_new_mapper_is_not_configured(configure_spy: list[str]
     assert configure_spy == []
     assert report["repositories"][0]["relationships"] is None
     assert not any("Missing" in warning for warning in report["warnings"])
+
+
+class _Unprintable(Exception):
+    def __str__(self) -> str:
+        raise RuntimeError("no text")
+
+
+def _raise_unprintable(_self: object) -> Any:
+    raise _Unprintable
+
+
+# T27 v5 review D4: a warning reads the exception object, never ``str()``; an exception whose ``__str__`` raises must
+# not escape the GET, and the label stays outside the masked text
+UNPRINTABLE = {
+    "field": "Could not read the id type of app.models.Odd (_Unprintable)",
+    "mapper": "Skipping a mapper that could not be read (_Unprintable)",
+    "registry": "Skipping a registry that could not be read (_Unprintable)",
+}
+
+
+@pytest.mark.parametrize("site", ["field", "mapper", "registry"])
+def test_an_unprintable_exception_keeps_the_get(site: str) -> None:
+    # derived: spec §7: user mapping code must not fail the GET
+    if site == "registry":
+        registry: object = type("Registry", (), {"mappers": property(_raise_unprintable)})()
+    else:
+        broken = "primary_key" if site == "field" else "class_"
+        mapper = type(
+            "Odd",
+            (),
+            {
+                "configured": True,
+                "local_table": None,
+                "relationships": (),
+                "primary_key": (),
+                "class_": type("Odd", (), {"__module__": "app.models"}),
+                broken: property(_raise_unprintable),
+            },
+        )()
+        registry = SimpleNamespace(mappers=[mapper])
+
+    escaped: BaseException | None = None
+    warnings: list[str] | None = None
+    try:
+        warnings = data.repositories_report(make_ctx(registry))["warnings"]
+    except Exception as error:  # noqa: BLE001 - the defect is an exception escaping the GET
+        escaped = error
+
+    assert escaped is None
+    assert warnings == [UNPRINTABLE[site]]

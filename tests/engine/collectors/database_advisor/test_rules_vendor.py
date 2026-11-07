@@ -16,6 +16,7 @@ import pytest
 from sharpit.engine import sqla
 from sharpit.engine.collectors.database_advisor import rules_vendor
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
+from sharpit.engine.masking import Masker
 from sharpit.engine.sqla.inspect import CatalogBounds
 
 PG_URL = os.environ.get("SHARPIT_TEST_POSTGRES_URL", "")
@@ -177,7 +178,12 @@ def _read(url: str) -> dict[str, Any]:
     engine = sa.create_engine(url, pool_size=1, max_overflow=0)
     try:
         return asyncio.run(
-            sqla.run_db_read(engine, lambda c: rules_vendor.read_vendor(c, CatalogBounds()), 5.0, read_only=True)
+            sqla.run_db_read(
+                engine,
+                lambda c: rules_vendor.read_vendor(c, CatalogBounds(), Masker("MASKED", True, None)),
+                5.0,
+                read_only=True,
+            )
         )
     finally:
         engine.dispose()

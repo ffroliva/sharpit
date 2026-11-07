@@ -266,6 +266,48 @@ def test_a_link_that_cannot_be_read_hides_the_application_family() -> None:
     assert resolve(outer, [ExceptionDialectSource()], context(Dialect.POSTGRESQL)) is Dialect.UNSUPPORTED
 
 
+def _moduleless_error() -> type[Exception]:
+    """A class whose dictionary has no ``__module__``: ``type`` raises when asked for it."""
+    namespace: dict[str, object] = {}
+    exec("E = type('Error', (Exception,), {})", namespace)  # noqa: S102 - globals without __name__
+    return namespace["E"]  # pyright: ignore[reportReturnType]
+
+
+# derived: Task 27 Opus review r2 #1: a class with no __module__ cannot make the walk raise; it stops it
+def test_a_class_with_no_module_stops_the_walk() -> None:
+    try:
+        stopped = read_chain(_moduleless_error()("failed")).stopped
+    except Exception:  # noqa: BLE001 - the defect; pytest cannot render a traceback holding this class
+        stopped = None
+    assert stopped is True
+
+
+# derived: Task 27 Opus review r2 #2: an ``orig`` that is not an exception stops the walk, however it disguises itself
+def test_a_link_whose_getattribute_claims_a_class_stops_the_walk() -> None:
+    class Disguised:
+        def __getattribute__(self, name: str) -> object:
+            return ValueError if name == "__class__" else object.__getattribute__(self, name)
+
+    outer = Exception("wrapper")
+    object.__setattr__(outer, "orig", Disguised())
+    assert read_chain(outer).stopped
+
+
+# derived: Task 27 Opus review r2 #6: ``orig`` is read from the instance dictionary without running a subclass's get
+def test_an_instance_dict_subclass_get_never_runs() -> None:
+    ran: list[str] = []
+
+    class SpyDict(dict[str, object]):
+        def get(self, key: str, default: object = None) -> object:  # pyright: ignore[reportIncompatibleMethodOverride]
+            ran.append(key)
+            return super().get(key, default)
+
+    outer = Exception("wrapper")
+    outer.__dict__ = SpyDict(orig=driver_error("psycopg"))
+    read_chain(outer)
+    assert ran == []
+
+
 def test_class_metadata_failure_cannot_escape_the_resolver() -> None:
     class HostFailure(BaseException):
         pass

@@ -14,11 +14,10 @@ from functools import partial
 from typing import Any, NamedTuple, cast
 
 from sharpit.engine import sqla
-from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.context import SharpitContext, application_family
 from sharpit.engine.models import mappers_configured, registries
 from sharpit.engine.sqla.dialect_source import exception_dialect
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, error_text
 
 NO_MODELS = "pass models= to sharpit.install"
 UNCONFIGURED = "Mappers are not configured yet: the app has not run a query"
@@ -60,7 +59,7 @@ def _field(ctx: SharpitContext, warnings: list[str], label: str, read: Callable[
     try:
         return read()
     except Exception as error:  # noqa: BLE001 - user mapping code must not fail the GET
-        warnings.append(_masked(ctx, f"Could not read {label} ({type(error).__name__}: {error})", error))
+        warnings.append(_warning(ctx, f"Could not read {label}", error))
         return None
 
 
@@ -68,7 +67,17 @@ def _masked(ctx: SharpitContext, text: str, error: BaseException | None = None) 
     application = partial(application_family, ctx)
     family = exception_dialect(error, application) if error is not None else application()
     dialect = Dialect.UNSUPPORTED if family is None else family
-    return mask_error(ctx.masker, text, dialect) or text.split(" (", 1)[0]
+    if error is not None:
+        return error_text(ctx.masker, error, dialect) or type(error).__name__
+    return error_text(ctx.masker, text, dialect) or text.split(" (", 1)[0]
+
+
+def _warning(ctx: SharpitContext, label: str, error: BaseException) -> str:
+    """``label (Name: message)``. The message is read from the object, never by ``str()``, which is application code
+    and can raise; the label is sharpit's own text and stays outside what is masked."""
+    name = type(error).__name__
+    message = _masked(ctx, name, error)
+    return f"{label} ({name})" if message == name else f"{label} ({name}: {message})"
 
 
 def _table(mapper: Any) -> str | None:
@@ -116,9 +125,7 @@ def _scan(ctx: SharpitContext) -> _Scan:
         try:
             mappers = list(cast(Any, registry).mappers)
         except Exception as error:  # noqa: BLE001
-            warnings.append(
-                _masked(ctx, f"Skipping a registry that could not be read ({type(error).__name__}: {error})")
-            )
+            warnings.append(_warning(ctx, "Skipping a registry that could not be read", error))
             continue
         configured = mappers_configured(registry, mappers)
         pending = pending or not configured
@@ -126,9 +133,7 @@ def _scan(ctx: SharpitContext) -> _Scan:
             try:
                 rows.append(_row(ctx, warnings, mapper, configured))
             except Exception as error:  # noqa: BLE001 - one bad mapper drops only its own row
-                warnings.append(
-                    _masked(ctx, f"Skipping a mapper that could not be read ({type(error).__name__}: {error})")
-                )
+                warnings.append(_warning(ctx, "Skipping a mapper that could not be read", error))
     rows.sort(key=lambda row: row["repositoryInterface"])
     if pending:
         warnings.append(UNCONFIGURED)

@@ -124,9 +124,15 @@ TIGHT = '_TIGHT_DASH_OPENER = re.compile(rf"{_RUN_OPENER.pattern}|/\\*")'
 NO_DOLLAR = 're.compile("[\'\\"`]")'  # the opener set without its dollar quote
 MYSQL_TAG = "rules.dollar is DollarOpen.MYSQL_TAG"
 CLOSER = "_no_step_back_closer(sql, tag, body_start) if no_step_back else sql.find(tag, body_start)"
-DRIVER_SWITCH = Mutant(
-    "self.driver = self.driver or (Dialect.MYSQL_FAMILY if named else None)",
-    "self.driver = None",
+CONFLICT_HIDES = (
+    "    if conflict:\n"
+    "        shown.append(_BLOCK_HIDDEN)\n"
+    "    resume = _block(masker, text, block.end(), end, dialect, shown) if block and not conflict else end"
+)
+DRIVER_SWITCH = Mutant(  # Task 28 turned the switch into a hide; the mutant puts the switch back
+    CONFLICT_HIDES,
+    "    resume = _block(masker, text, block.end(), end, Dialect.MYSQL_FAMILY if conflict else dialect, shown) "
+    "if block else end",
     "",
     "",
     "engine/sqltext/errors.py",
@@ -700,7 +706,7 @@ NAMED_TESTS = {
     "family_head": f"{FAMILY}::test_family_cut_witness[7-head]",
     "family_session": f"{FAMILY}::test_family_cut_witness[7-session]",
     "family_two_ways": f"{FAMILY}::test_reads_two_ways_sees_where_the_readings_part",
-    "mysql_driver_switch": "tests/masking/test_error_regions.py::test_a_driver_line_does_switch_mysql_mode",
+    "mysql_driver_switch": "tests/masking/test_error_regions.py::test_a_driver_line_chooses_no_reading",
     "candidate_predicate": PREDICATE,
     "closer_dialect": "tests/engine/sqltext/test_lexer.py::test_block_closer_reads_the_dialect_it_is_given",
     "two_ways_dialect": "tests/engine/sqltext/test_lexer.py::test_reads_two_ways_reads_the_dialect_it_is_given",

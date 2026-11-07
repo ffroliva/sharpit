@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from sharpit.engine import sqltext
 from sharpit.engine.capture.exceptions import fingerprint
 from sharpit.engine.capture.sqltrace import category_of
-from sharpit.engine.capture.statement import masked_shape
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources.dispatch import SqlEvent, TestTag
 from sharpit.engine.spi import ApiModel
@@ -83,7 +82,7 @@ class TestSessionSink:
         self.current_test: TestFacts | None = None  # the test last begun (its window is open until ``end_test``)
         self._masker = masker or report_masker()
         # SQL repeats all session; per sink, so one masker's results never reach another's
-        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(masked_shape, self._masker))
+        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(sqltext.statement_shape, self._masker))
         self._lock = threading.RLock()
         self._attempts: Counter[str] = Counter()
         self._window: tuple[str, int] | None = None
@@ -165,13 +164,13 @@ class TestSessionSink:
                         self.facts.unattributed += 1
                     return
                 if phase is None:
-                    self._count_unattributed(key, shape.sql)
+                    self._count_unattributed(key, shape.text)
                     return
                 phase.queries += 1
                 if category_of(event.sql) == "SELECT":
                     phase.selects[key] += 1
                     if key not in phase.sql_of:
-                        phase.sql_of[key] = shape.sql
+                        phase.sql_of[key] = shape.text
         except Exception as exc:  # noqa: BLE001
             self._failed(exc)
 
@@ -204,7 +203,7 @@ class TestSessionSink:
                 try:
                     dialect = resolve(exc, (ExceptionDialectSource(),), DialectContext(lambda: None))
                     message = sqltext.error_text(self._masker, exc, dialect) or ""
-                    if message == sqltext.MASK:
+                    if message in ("", sqltext.MASK):  # nothing shown: say whether the text could be read at all
                         try:
                             str(exc)
                         except Exception:

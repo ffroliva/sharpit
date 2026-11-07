@@ -291,7 +291,7 @@ def test_the_line_keeps_a_falsy_application_family(monkeypatch: pytest.MonkeyPat
         seen.append(dialect)
         return text
 
-    monkeypatch.setattr(logtail, "mask_error", spy)
+    monkeypatch.setattr(logtail, "error_text", spy)
     handler = SharpitLogHandler(MASKED, None, lambda: Dialect.SQLITE)
     handler.line(logging.makeLogRecord({"name": "host", "msg": "line"}))
     assert seen == [Dialect.SQLITE]
@@ -328,3 +328,106 @@ def test_a_finalizer_that_logs_during_a_read_does_not_deadlock(read: Callable[[L
     threading.Thread(target=run, daemon=True).start()
     assert finished.wait(5)
     assert _messages(buffer)[:2] == ["first", "from a finalizer"]  # this read collects again and may add a third
+
+
+class _CustomStrError(Exception):
+    def __str__(self) -> str:
+        return "custom __str__ text"
+
+
+class _AppStatementError(Exception):
+    def __init__(self, statement: str) -> None:
+        super().__init__(statement)
+        self.statement = statement
+
+
+class _RaisingStrError(Exception):
+    def __str__(self) -> str:
+        raise RuntimeError("unprintable")
+
+
+@pytest.mark.parametrize(
+    ("fmt", "args", "expected"),
+    [
+        ("retrying after %s", (ValueError("timeout"),), "retrying after timeout"),
+        (
+            "%s",
+            (OSError(2, "No such file or directory", "/tmp/x.db"),),
+            "[Errno 2] No such file or directory: '/tmp/x.db'",
+        ),
+        ("%s", (_CustomStrError("raw args"),), "custom __str__ text"),
+        ("%s", (_AppStatementError('note: "keep"'),), 'note: "keep"'),
+        (
+            "retrying %s after %s",
+            (
+                ValueError("timeout"),
+                type("OperationalError", (Exception,), {"__module__": "sqlite3"})("near 'secret_token': syntax error"),
+            ),
+            "retrying timeout after OperationalError",
+        ),
+        (
+            "retrying after %s password=hunter2",
+            (_RaisingStrError("raw args"),),
+            f"retrying after %s password={MASK}",
+        ),
+    ],
+    ids=[
+        "retrying_prefix",
+        "oserror_filename",
+        "custom_str",
+        "unclassified_statement",
+        "classified_driver_in_args",
+        "raising_str",
+    ],
+)
+def test_log_record_exception_args_follow_chain_classification(
+    isolated: logging.Logger, fmt: str, args: tuple[object, ...], expected: str
+) -> None:
+    # derived: D5 logtail exception args classification (a7a6ff2f base parity vs read_chain driver objects)
+    handler, buffer = _handler()
+    with bare(isolated):
+        isolated.addHandler(handler)
+        isolated.addHandler(logging.NullHandler())
+        isolated.error(fmt, *args)
+    (message,) = _messages(buffer)
+    assert "secret_token" not in (message or "")
+    assert message == expected
+
+
+# derived: Task 27 review 4 (subclass __class__ descriptor on a log arg never runs and record is still logged)
+def test_logtail_arg_with_raising_class_property_is_still_logged() -> None:
+    ran: list[str] = []
+
+    class HostileArgError(Exception):
+        @property
+        def __class__(self) -> type:  # type: ignore[override]
+            ran.append("__class__")
+            raise RuntimeError("__class__ descriptor ran")
+
+    handler, buffer = _handler()
+    record = logging.makeLogRecord(
+        {
+            "name": "host",
+            "levelno": logging.ERROR,
+            "levelname": "ERROR",
+            "msg": "hello %s",
+            "args": (HostileArgError("bad"),),
+        }
+    )
+    handler.emit(record)
+    assert ran == []
+    assert _messages(buffer) == ["hello bad"]
+
+
+# derived: Task 27 review 8 (classified psycopg arg in log record substitutes safe rendering into record.msg)
+def test_logtail_classified_psycopg_arg_keeps_format_text_without_driver_text(isolated: logging.Logger) -> None:
+    psycopg_errors = pytest.importorskip("psycopg.errors")
+    handler, buffer = _handler()
+    with bare(isolated):
+        isolated.addHandler(handler)
+        isolated.addHandler(logging.NullHandler())
+        isolated.error(
+            "retrying after %s",
+            psycopg_errors.InvalidTextRepresentation('invalid input syntax for type integer: "hunter2secret"'),
+        )
+    assert _messages(buffer) == ["retrying after (psycopg.errors.InvalidTextRepresentation) 22P02"]

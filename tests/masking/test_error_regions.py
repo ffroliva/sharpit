@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import psycopg.errors
 import pymysql
 import pytest
 
@@ -26,7 +27,7 @@ from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder, mask_error
 from sharpit.engine.collectors.mysql.sections import DataSourceData, RowLimits, collect_replication
 from sharpit.engine.masking import MASK, Exposure, Masker
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, error_text, statement_text
 
 pytestmark = pytest.mark.needs_sqlalchemy
 ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "sql_errors"
@@ -102,12 +103,14 @@ def error(statement: str, parameters: str = "(1, 'bound-value-7')", driver: str 
 
 
 COMPLETE = [e for e in MANIFEST if not e["case"].startswith("raw_")]
+# the proof a surface holding the exception gets from its chain (Task 27): since Task 28 the text no longer gives it
+PROOF = dict.fromkeys(("pymysql", "mysqlclient", "aiomysql"), Dialect.MYSQL_FAMILY)
 
 
 @pytest.mark.parametrize("entry", COMPLETE, ids=lambda e: e["file"])
 def test_real_error_keeps_statement_and_link(entry: dict[str, Any]) -> None:
     raw = sections(entry)["str(exc)"]
-    masked = shown(raw)
+    masked = shown(raw, PROOF.get(entry["driver"], Dialect.UNSUPPORTED))
     assert MARKERS.search(masked) is None
     assert re.search(r"\(Background on this error at: https://sqlalche\.me/e/\d+/\w+\)$", masked) is not None
     if entry["case"] not in NO_CLOSER:
@@ -121,7 +124,7 @@ def test_a_real_traceback_shows_no_value(entry: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize("entry", COMPLETE, ids=lambda e: e["file"])
 def test_a_real_traceback_keeps_its_frames_and_statement(entry: dict[str, Any]) -> None:
-    masked = shown(sections(entry)["traceback"])
+    masked = shown(sections(entry)["traceback"], PROOF.get(entry["driver"], Dialect.UNSUPPORTED))
     assert '  File "<repo>' in masked
     if entry["case"] not in NO_CLOSER:
         assert KEPT[entry["case"]] in masked
@@ -211,9 +214,37 @@ def test_a_driver_value_cannot_switch_mysql_mode() -> None:
     assert '"c"' in masked
 
 
-def test_a_driver_line_does_switch_mysql_mode() -> None:
-    masked = shown(f"(pymysql.err.Error) (1064, 'bad')\n[SQL: SELECT \"{SECRET}\" FROM t]\n{LINK_LINE}")
-    assert SECRET not in masked
+# derived: replaces test_a_driver_line_does_switch_mysql_mode, whose behaviour Task 28 removes. Architecture spec §6,
+# "Text never names a dialect": a database can return a driver-shaped string as a value, so a driver line marks a
+# region and never picks the reading: a MySQL driver line on a surface whose proof is not MySQL's is a conflict, which
+# hides the block.
+def test_a_driver_line_chooses_no_reading() -> None:
+    masked = shown(f"(pymysql.err.Error) (1064, 'bad')\n[SQL: SELECT \"c\" FROM t]\n{LINK_LINE}")
+    assert f"[SQL: {MASK}]" in masked
+
+
+DRIVER_LINES = {
+    "pymysql": "(pymysql.err.Error) (1064, 'bad')",
+    "mysqldb": "(MySQLdb.OperationalError) (1064, 'bad')",
+    "mysql_connector": "(mysql.connector.errors.ProgrammingError) 1064 (42000): bad",
+    "mariadb": "(mariadb.ProgrammingError) bad",
+    "asyncmy": "(asyncmy.errors.ProgrammingError) (1064, 'bad')",
+    "psycopg": "(psycopg.errors.SyntaxError) bad",
+    "sqlite3": "(sqlite3.OperationalError) bad",
+}
+HIDDEN_BLOCK = f"[SQL: {MASK}]"
+
+
+# derived: architecture spec §6, "Driver text marks regions and can reveal a conflict, which hides. It cannot authorise
+# a reading": whatever driver a line names, the block is the given dialect's reading of it, or hidden.
+@pytest.mark.parametrize("dialect", list(Dialect), ids=[dialect.name.lower() for dialect in Dialect])
+@pytest.mark.parametrize("line", DRIVER_LINES.values(), ids=DRIVER_LINES)
+def test_a_driver_name_in_text_can_only_hide(line: str, dialect: Dialect) -> None:
+    sql = "SELECT \"c\", 'v' FROM t"
+    masked = shown(f"{line}\n[SQL: {sql}]\n{LINK_LINE}", dialect)
+    # hiding too much is caught elsewhere: test_real_error_keeps_statement_and_link (with PROOF) and
+    # test_a_sensitive_column_keeps_where on the surfaces that carry a proof
+    assert f"[SQL: {statement_text(MASKER, sql, dialect)}]" in masked or HIDDEN_BLOCK in masked
 
 
 @pytest.mark.parametrize(
@@ -470,20 +501,45 @@ def test_a_parameters_repr_holding_the_closer_stays_hidden() -> None:
 
 # Task 7's two open leaks (report, "Known limits"): red until Task 27 closes them
 def test_a_bare_cause_with_an_object_shows_no_value() -> None:
-    """A PostgreSQL cause with no ``DETAIL:`` or ``LINE n:`` has nothing to route on."""
-    masked = shown(f'invalid input syntax for type integer: "{SECRET}"')
-    assert SECRET not in masked
+    """A PostgreSQL cause with no ``DETAIL:`` or ``LINE n:`` has nothing to route on: the object is read, not its text.
+
+    Owner ruling 2026-11-07 (alternative B): the real psycopg class, raised as the ``__cause__`` of a wrapper. Its
+    driver message is never shown. Owner ruling 2026-11-07, structured driver codes: its SQLSTATE is.
+    """
+    cause = psycopg.errors.InvalidTextRepresentation(f'invalid input syntax for type integer: "{SECRET}"')
+    store = ExceptionStore(10, 5, 20, MASKER, application=lambda: None)
+    try:
+        try:
+            raise cause
+        except psycopg.errors.InvalidTextRepresentation as inner:
+            raise RuntimeError("wrapper") from inner
+    except RuntimeError as outer:
+        store.record(outer, "t", None, None)
+    recorded_cause = next(iter(store._groups.values())).causes[0]  # pyright: ignore[reportPrivateUsage]
+    assert recorded_cause["message"] == "(psycopg.errors.InvalidTextRepresentation) 22P02"
+    assert recorded_cause["exceptionClassName"] == "psycopg.errors.InvalidTextRepresentation"
+    assert len(recorded_cause["frames"]) >= 1
+    assert isinstance(recorded_cause["commonFrames"], int)
+    assert error_text(MASKER, cause, Dialect.POSTGRESQL) == "(psycopg.errors.InvalidTextRepresentation) 22P02"
 
 
 def test_a_planted_block_line_shows_no_value() -> None:
     """A newline planted in a ``DETAIL`` value starts a block that is not the real one."""
     masked = shown(f"{DRIVER}\nDETAIL:  Key (a)=(x\n[SQL: {SECRET}) exists\n[SQL: SELECT 1]")
     assert SECRET not in masked
+    assert masked == f"{DRIVER}\n[SQL: {MASK}]"
+
+
+def test_unclosed_block_before_real_block_keeps_driver_and_hides_block() -> None:
+    masked = shown(f"{DRIVER}\nDETAIL:  Key (a)=(x\n[SQL: {SECRET}) exists\n[SQL: SELECT 1]\n{LINK_LINE}")
+    assert masked == f"{DRIVER}\n[SQL: {MASK}]\n{LINK_LINE}"
+    assert SECRET not in masked
 
 
 # Task 8 review of 11-04/T7 (r8b): each finding as a row, red until the owning task closes it. Real SQLite errors,
 # real exception objects and real pymysql classes.
-TRIGGER = "CREATE TRIGGER tg BEFORE INSERT ON u BEGIN SELECT RAISE(ABORT, 'bad value ' || NEW.a); END"
+# the message is a literal: older SQLite accepts only a string literal in RAISE, not an expression
+TRIGGER = f"CREATE TRIGGER tg BEFORE INSERT ON u BEGIN SELECT RAISE(ABORT, 'bad value {SECRET}'); END"
 CHAIN = "The above exception was the direct cause of the following exception:"
 
 
@@ -522,6 +578,137 @@ def test_a_driver_line_with_no_quote_shows_no_value(case: str) -> None:
     else:
         exc = raised("INSERT INTO u VALUES (?)", (SECRET,), ("CREATE TABLE u(a TEXT)", TRIGGER))
     assert SECRET not in shown(str(exc))
+
+
+def _store_message(exc: BaseException) -> str | None:
+    store = ExceptionStore(10, 5, 20, MASKER, application=lambda: None)
+    store.record(exc, "t", None, None)
+    return next(iter(store._groups.values())).message  # pyright: ignore[reportPrivateUsage]
+
+
+# T27 v5 review D1: H2's rows on the object path. A classified driver exception shows its class, a numeric code and
+# the masked statement; never the driver's own text (owner ruling 2026-11-07, 2). Bound values add the constant masked
+# parameters line, as SQLAlchemy prints it (owner ruling 2026-11-07, params region kept)
+OBJECT_ROWS = {  # owner ruling 2026-11-07: structured driver codes (sqlite3's sqlite_errorname)
+    "attach": "(sqlite3.OperationalError) SQLITE_CANTOPEN\n[SQL: ATTACH DATABASE ? AS x]",
+    "raise": (
+        "(sqlite3.IntegrityError) SQLITE_CONSTRAINT_TRIGGER\n[SQL: INSERT INTO u VALUES (?)]\n[parameters: ******]"
+    ),
+}
+
+
+@pytest.mark.parametrize("surface", ["error_text", "exception_store"])
+@pytest.mark.parametrize("case", ["attach", "raise"])
+def test_a_driver_object_with_no_quote_shows_no_value(case: str, surface: str) -> None:
+    if case == "attach":
+        exc = raised(f"ATTACH DATABASE '/nonexistent/dir/{SECRET}' AS x")
+    else:
+        exc = raised("INSERT INTO u VALUES (?)", (SECRET,), ("CREATE TABLE u(a TEXT)", TRIGGER))
+    masked = error_text(MASKER, exc, Dialect.SQLITE) if surface == "error_text" else _store_message(exc)
+    assert masked == OBJECT_ROWS[case]
+
+
+# derived: owner ruling 2026-11-07, structured driver codes. A driver's structured code is shown after its class: the
+# int ``args[0]``, else psycopg's ``sqlstate`` or psycopg2's ``pgcode``, else sqlite3's ``sqlite_errorname``
+PG_CODES = {
+    "invalid_text": (psycopg.errors.InvalidTextRepresentation, "22P02"),
+    "undefined_table": (psycopg.errors.UndefinedTable, "42P01"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(PG_CODES))
+def test_a_psycopg_error_shows_its_sqlstate(case: str) -> None:
+    kind, code = PG_CODES[case]
+    exc = DBAPIError.instance("SELECT a FROM t", None, kind(f"bad value {SECRET}"), psycopg.Error)
+    assert (
+        error_text(MASKER, exc, Dialect.POSTGRESQL)
+        == f"({kind.__module__}.{kind.__qualname__}) {code}\n[SQL: SELECT a FROM t]"
+    )
+
+
+@pytest.mark.parametrize("storage", ["instance", "member"])  # a member descriptor, as psycopg2's C type keeps it
+def test_a_psycopg2_error_shows_its_pgcode(storage: str) -> None:
+    slots = {"__slots__": ("pgcode",)} if storage == "member" else {}
+    kind = type("UndefinedTable", (Exception,), {"__module__": "psycopg2.errors", **slots})
+    cause = kind(f"relation {SECRET} does not exist")
+    cause.pgcode = "42P01"  # pyright: ignore[reportAttributeAccessIssue]
+    exc = DBAPIError.instance("SELECT a FROM t", None, cause, Exception)
+    assert (
+        error_text(MASKER, exc, Dialect.POSTGRESQL) == "(psycopg2.errors.UndefinedTable) 42P01\n[SQL: SELECT a FROM t]"
+    )
+
+
+def test_a_sqlite_error_shows_its_error_name_and_no_message() -> None:
+    masked = error_text(MASKER, raised("select * from missing_table"), Dialect.SQLITE) or ""
+    assert masked.startswith("(sqlite3.OperationalError) SQLITE_ERROR\n")
+    assert "no such table" not in masked
+
+
+class _OddStr(str):
+    __slots__ = ()
+
+
+def _code_spy(ran: list[str]) -> property:
+    def read(_self: object) -> str:
+        ran.append("code")
+        return "42P01"
+
+    return property(read)
+
+
+# derived: owner ruling 2026-11-07, structured driver codes: a code that is not an exact str of the code's shape is
+# not shown, and a property standing for one never runs
+@pytest.mark.parametrize("value", ["subclass", "wrong_shape", "property"])
+@pytest.mark.parametrize("field", ["sqlstate", "sqlite_errorname"])
+def test_a_code_of_the_wrong_kind_is_not_shown(field: str, value: str) -> None:
+    ran: list[str] = []
+    module = "sqlite3" if field == "sqlite_errorname" else "psycopg.errors"
+    good = "SQLITE_ERROR" if field == "sqlite_errorname" else "42P01"
+    planted = {"subclass": _OddStr(good), "wrong_shape": f"{good} {SECRET}", "property": _code_spy(ran)}[value]
+    kind = type("OperationalError", (Exception,), {"__module__": module, field: planted})
+    exc = DBAPIError.instance("SELECT a FROM t", None, kind("failed"), Exception)
+    masked = error_text(MASKER, exc, Dialect.UNSUPPORTED)
+    assert masked == f"({module}.OperationalError)\n[SQL: SELECT a FROM t]"
+    assert ran == []
+
+
+# derived: Task 27 Opus review r2 #4: a str subclass is no code wherever the driver keeps it
+@pytest.mark.parametrize("storage", ["instance", "member"])
+def test_a_str_subclass_code_on_the_driver_is_not_shown(storage: str) -> None:
+    slots = {"__slots__": ("pgcode",)} if storage == "member" else {}
+    kind = type("UndefinedTable", (Exception,), {"__module__": "psycopg2.errors", **slots})
+    cause = kind("failed")
+    cause.pgcode = _OddStr("42P01")  # pyright: ignore[reportAttributeAccessIssue]
+    exc = DBAPIError.instance("SELECT a FROM t", None, cause, Exception)
+    assert error_text(MASKER, exc, Dialect.POSTGRESQL) == "(psycopg2.errors.UndefinedTable)\n[SQL: SELECT a FROM t]"
+
+
+# derived: Task 27 Opus review r2 #4: a bool ``args[0]`` is no numeric code
+def test_a_bool_first_argument_is_not_a_code() -> None:
+    exc = DBAPIError.instance("SELECT a FROM t", None, pymysql.err.OperationalError(True, "failed"), pymysql.err.Error)
+    assert error_text(MASKER, exc, Dialect.MYSQL_FAMILY) == "(pymysql.err.OperationalError)\n[SQL: SELECT a FROM t]"
+
+
+# T27 v5 review D3: no data descriptor a subclass defines may run while its exception is read
+@pytest.mark.parametrize("surface", ["error_text", "exception_store"])
+@pytest.mark.parametrize("module", ["app.errors", "sqlite3"], ids=["plain", "driver"])
+@pytest.mark.parametrize("field", ["args", "__dict__"])
+def test_an_exception_property_never_runs(field: str, module: str, surface: str) -> None:
+    ran: list[str] = []
+
+    def spy(_self: BaseException) -> object:
+        ran.append(field)
+        return (SECRET,) if field == "args" else {"statement": SECRET}
+
+    shadow = type("Shadow", (Exception,), {"__module__": module, field: property(spy)})("plain")
+    if surface == "error_text":
+        error_text(MASKER, shadow, Dialect.UNSUPPORTED)
+    else:
+        try:
+            raise RuntimeError("wrapper") from shadow
+        except RuntimeError as outer:
+            _store_message(outer)
+    assert ran == []
 
 
 # T27, review H3: ``causes[]`` is the real ``__cause__`` of a SQLAlchemy error, and shows what it holds as it came
@@ -568,3 +755,41 @@ def test_a_colon_name_before_a_value_shows_no_value(name: str) -> None:
 def test_a_comment_is_not_a_closer() -> None:
     exc = raised("SELECT pin FROM t /* ] (Background on */ WHERE pin = 1234567")
     assert "1234567" not in shown(str(exc))
+
+
+# derived: Task 27 review 4 (subclass __class__ descriptor is never invoked by read_chain or error_text)
+def test_a_class_property_on_exception_never_runs() -> None:
+    import sqlite3
+
+    from sharpit.engine.sqltext.dialect import read_chain
+
+    ran: list[str] = []
+
+    class HostileClassError(sqlite3.OperationalError):
+        __module__ = "sqlite3"
+
+        @property
+        def __class__(self) -> type:  # type: ignore[override]
+            ran.append("__class__")
+            return sqlite3.OperationalError
+
+    exc = HostileClassError("near 'secret': syntax error")
+    assert read_chain(exc).families == frozenset({Dialect.SQLITE})
+    assert error_text(MASKER, exc, Dialect.SQLITE) is None
+    assert ran == []
+
+
+# derived: Task 27 review 10 (single exported is_database_exception predicate in sharpit.engine.sqltext)
+def test_sqltext_exports_single_is_database_exception_predicate() -> None:
+    import sqlite3
+
+    from sharpit.engine import sqltext
+    from sharpit.engine.capture import logtail
+    from sharpit.engine.sqltext import errors
+
+    predicate = getattr(sqltext, "is_database_exception", None)
+    assert callable(predicate)
+    assert predicate(sqlite3.OperationalError("near 'secret': syntax error")) is True
+    assert predicate(RuntimeError("plain failure")) is False
+    assert not hasattr(errors, "_is_database_exception")
+    assert not hasattr(logtail, "_is_classified")
