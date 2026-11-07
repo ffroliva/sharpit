@@ -94,6 +94,26 @@ def test_a_reader_refuses_a_bad_file_and_leaves_it(tmp_path: Path) -> None:
     assert (tmp_path / "identity.key").read_bytes() == b"cut"
 
 
+def test_a_creator_retries_a_transient_permission_error_on_the_first_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = b"k" * 32
+    (tmp_path / "identity.key").write_bytes(key)
+    real_read, reads = identity._read, 0
+
+    def transient_error(path: Path) -> bytes | None:
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            raise PermissionError("rename in progress")
+        return real_read(path)
+
+    monkeypatch.setattr(identity, "_read", transient_error)
+
+    assert load_key(tmp_path, create=True) == key
+    assert reads >= 2
+
+
 def test_a_key_longer_than_a_key_is_bad(tmp_path: Path) -> None:
     (tmp_path / "identity.key").write_bytes(b"k" * 33)
     assert load_key(tmp_path, create=False) is None

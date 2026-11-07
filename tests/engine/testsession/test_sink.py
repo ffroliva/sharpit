@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import json
 import os
+import threading
 import weakref
 
 import pytest
@@ -91,6 +92,37 @@ def test_a_keyless_sqlite_statement_is_counted_and_not_grouped() -> None:
     sink.on_sql(_sqlite('SELECT "id" FROM "users"'), (NODE, attempt, "call"))
     assert _call(sink).queries == 1
     assert _call(sink).selects == {}
+
+
+def test_a_finalizer_that_runs_sql_during_a_sink_record_does_not_deadlock() -> None:
+    sink = _sink()
+    collected = threading.Event()
+
+    class Finalized:
+        def __del__(self) -> None:
+            sink.on_sql(event("SELECT 2"), None)
+            collected.set()
+
+    class CollectingDict(dict[str, int]):
+        collecting = True
+
+        def get(self, key: str, default: int = 0) -> int:
+            value = super().get(key, default)
+            if self.collecting:
+                self.collecting = False
+                garbage = Finalized()
+                garbage.cycle = garbage  # type: ignore[attr-defined]
+                del garbage
+                gc.collect()
+            return value
+
+    sink.facts.top_unattributed = CollectingDict()
+    finished = threading.Event()
+    threading.Thread(target=lambda: (sink.on_sql(event("SELECT 1"), None), finished.set()), daemon=True).start()
+
+    assert finished.wait(2)
+    assert collected.is_set()
+    assert sink.facts.unattributed == 2
 
 
 def test_a_keyless_sqlite_statement_with_no_test_is_counted_and_not_listed() -> None:

@@ -627,13 +627,16 @@ def test_the_corpus_holds_its_share_of_quoted_identifiers() -> None:
 
 @pytest.mark.parametrize("name", _params(name for name in SURFACES if name.endswith("-generic")))
 def test_a_quoted_identifier_is_counted_not_failed(name: str) -> None:
-    """D6 keeps generic names readable; a count of 0 of 0 would prove nothing, so the rows must exist."""
+    """Generic SQL spans with no dialect evidence fail closed; other generic surfaces keep D6 names readable."""
     rows = gate_rows(_mode(name))
     in_corpus = sum(bool(row.quoted_identifier) for row in rows)
     shown = quoted_identifiers_shown(SURFACES[name], rows)
     print(f"D6 {name}: {len(shown)} of {in_corpus} rows")
     assert in_corpus > 0
-    assert len(shown) == in_corpus, f"{len(shown)} of {in_corpus} rows show their quoted identifier"
+    if name in {"db_statement-generic", "db_query_text-generic"}:
+        assert not shown, f"{len(shown)} of {in_corpus} unsupported span statements show a quoted identifier"
+    else:
+        assert len(shown) == in_corpus, f"{len(shown)} of {in_corpus} rows show their quoted identifier"
 
 
 D6_ROWS = 1475  # tests/masking/test_server_corpus.py pins the same count on the corpus itself
@@ -756,4 +759,8 @@ def test_newline_pair_keeps_the_value_hidden(name: str) -> None:
 
 @pytest.mark.parametrize("name", _params(name for name in SURFACES if name != "mysql_last_error-mysql"))
 def test_a_sensitive_column_keeps_where(name: str) -> None:
-    assert "WHERE id=?" in _shown_by(name, "UPDATE users SET password=? WHERE id=?")
+    shown = _shown_by(name, "UPDATE users SET password=? WHERE id=?")
+    if name in {"db_statement-generic", "db_query_text-generic"}:
+        assert shown == "[statement hidden: unsupported database]"
+    else:
+        assert "WHERE id=?" in shown

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 
+from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.sqltext import Dialect
 
 MAX_QUERY_TEXT_LENGTH = 400
 
@@ -95,6 +97,8 @@ def query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUERY_TEXT
         return None
     if is_metadata_only(masker):  # the text exists but is withheld
         return MASK
+    if any(ord(char) > 127 for char in sql) and "$" in sql:
+        return truncate(statement_text(masker, sql, Dialect.POSTGRESQL), max_length)
     masked = masker.mask_text(sql) or MASK
     # literals and comments are values: masked exactly when the masker masks a secret value (not FULL, not mask-off)
     if masker.mask("password", "x")[1]:

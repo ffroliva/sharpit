@@ -14,6 +14,7 @@ _SPACE = frozenset(SPACE_CHARS)
 _PLACEHOLDER_RUN = re.compile(r"\? *, *\?")  # what a folded list needs
 # never hidden in code: the statement keeps its shape, and the last masker pass still sees ``password=`` in the render
 _STRUCTURAL = frozenset('"`[],;()=<>')
+_NAME_BOUNDARIES = frozenset(" \t\r\n,([{")
 
 
 def secrets(scan: Scan, double_quoted: Callable[[str], bool]) -> frozenset[int]:
@@ -102,8 +103,13 @@ def _release_name(source: str, flags: bytearray, start: int, literal: int) -> No
         cursor = literal - 2
         while cursor >= start and flags[cursor] and (source[cursor].isalnum() or source[cursor] in "_.-"):
             cursor -= 1
-        if cursor < start or not flags[cursor]:
-            flags[cursor + 1 : literal - 1] = bytes(literal - cursor - 2)
+        # A prior value delimiter means the hit may be a value, so keep it hidden.
+        name_start = cursor + 1
+        boundary = (cursor < start and start == 0) or (
+            cursor >= start and not flags[cursor] and source[cursor] in _NAME_BOUNDARIES
+        )
+        if boundary:
+            flags[name_start : literal - 1] = bytes(literal - cursor - 2)
 
 
 def _copy(source: str, span: tuple[int, int], flags: bytearray, pieces: list[str], collapse: bool, mask: str) -> None:

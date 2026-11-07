@@ -317,6 +317,28 @@ def test_uncertain_mysql_number_read_cuts_at_number(sql: str, marker: str) -> No
 
 
 @pytest.mark.parametrize(
+    ("sql", "marker"),
+    [
+        ("SELECT ①_0e-0x7654001", "7654001"),
+        ("SELECT ²_0e+0x7654001", "7654001"),
+        ("SELECT ③_0.5e-0x7654001", "7654001"),
+        ("SELECT ⑴_0_0e-0b1011001000", "1011001000"),
+        ("SELECT a-①_0e-0x7654001", "7654001"),
+    ],
+    ids=[
+        "circled-digit-exponent",
+        "superscript-digit-exponent",
+        "circled-digit-decimal-exponent",
+        "parenthesized-digit-binary-exponent",
+        "circled-digit-after-name",
+    ],
+)
+def test_non_ascii_first_number_character_cuts_the_mysql_read(sql: str, marker: str) -> None:
+    shown = statement_text(Masker(Exposure.MASKED, True), sql, Dialect.MYSQL_FAMILY) or ""
+    assert marker not in shown
+
+
+@pytest.mark.parametrize(
     ("dialect", "sql", "expected"),
     [
         (Dialect.POSTGRESQL, "SELECT @a.1e①e-0x7654001", "SELECT @a.?e-?"),

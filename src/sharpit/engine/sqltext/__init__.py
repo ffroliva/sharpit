@@ -55,6 +55,23 @@ _VERB = re.compile(
     r"(?=[^\w$-]|$)",
     re.IGNORECASE,
 )
+_TAIL_WORD = re.compile(r"\w")
+
+
+def _hide_joined_tails(sql: str, spans: list[tuple[int, int]]) -> None:
+    """A secret span also hides its contiguous tail; a closing bracket continues it when a token follows."""
+    reach = 0
+    for index, (start, end) in enumerate(spans):
+        end = max(end, reach)
+        while end < len(sql):
+            char = sql[end]
+            if char.isspace() or char == ",":
+                break
+            if char in ")]}" and not _TAIL_WORD.match(sql, end + 1):
+                break
+            end += 1
+        spans[index] = (start, end)
+        reach = end
 
 
 def _statement_text(
@@ -70,6 +87,7 @@ def _statement_text(
     relaxed = masker.mask_spans(sql, False)
     if relaxed is None:
         return None
+    _hide_joined_tails(sql, relaxed)
     if secret is None:
         secret = secrets(scan, is_secret_value)
     if normalized is None or cuts is None:

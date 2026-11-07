@@ -76,6 +76,8 @@ def _number_run_cut(sql: str, start: int) -> int:
     first = sql[start : start + 1]
     if not (first.isdigit() or first == "." and sql[start + 1 : start + 2].isdigit()):
         return -1
+    if not first.isascii():
+        return start
     dot_start = start
     while dot_start and sql[dot_start - 1] == ".":
         dot_start -= 1

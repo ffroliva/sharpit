@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from sharpit.engine import sqla
-from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.collectors.mysql.limits import (
     LOCK_TIMEOUT,
     READ_BUDGET,
@@ -30,7 +29,7 @@ from sharpit.engine.collectors.mysql.sections import (
 )
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, error_text
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -216,7 +215,7 @@ async def _read_engine(
     except Exception as exc:  # noqa: BLE001
         return _error_datasource(
             name,
-            mask_error(ctx.masker, str(exc).strip(), dialect=Dialect.MYSQL_FAMILY, known=True) or type(exc).__name__,
+            error_text(ctx.masker, exc, Dialect.MYSQL_FAMILY, known=True) or type(exc).__name__,
             diagnostics,
         )
 

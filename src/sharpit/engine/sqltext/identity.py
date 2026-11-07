@@ -51,7 +51,16 @@ def load_key(
 
 
 def _read_or_create(state_dir: Path, path: Path) -> bytes | None:
-    key = _read(path)
+    try:
+        key = _read(path)
+    except PermissionError:
+        key = None
+
+        def read() -> None:
+            nonlocal key
+            key = _read(path)
+
+        _patiently(read)
     if key is None:
         return _create(state_dir, path)
     if not _missing_ignore_rules(state_dir):

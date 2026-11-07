@@ -15,14 +15,15 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from sharpit.engine import sqltext
 from sharpit.engine.capture.exceptions import fingerprint
-from sharpit.engine.capture.sqltrace import category_of, mask_error
+from sharpit.engine.capture.sqltrace import category_of
 from sharpit.engine.capture.statement import masked_shape
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources.dispatch import SqlEvent, TestTag
 from sharpit.engine.spi import ApiModel
-from sharpit.engine.sqla.dialect_source import event_dialect
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqla.dialect_source import ExceptionDialectSource, event_dialect
+from sharpit.engine.sqltext import Dialect, DialectContext, resolve
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, SessionFacts, TestFacts, TestKey
 from sharpit.engine.testsession.filters import filtered_rule
 from sharpit.settings import SharpitSettings
@@ -83,7 +84,7 @@ class TestSessionSink:
         self._masker = masker or report_masker()
         # SQL repeats all session; per sink, so one masker's results never reach another's
         self._shape = functools.lru_cache(maxsize=1024)(functools.partial(masked_shape, self._masker))
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._attempts: Counter[str] = Counter()
         self._window: tuple[str, int] | None = None
         self._seen: dict[int, tuple[BaseException, str, str]] = {}  # id -> (strong ref, phase, group)
@@ -201,7 +202,13 @@ class TestSessionSink:
                     return
                 group = fingerprint(exc)
                 try:
-                    message = mask_error(self._masker, str(exc), Dialect.UNSUPPORTED) or ""
+                    dialect = resolve(exc, (ExceptionDialectSource(),), DialectContext(lambda: None))
+                    message = sqltext.error_text(self._masker, exc, dialect) or ""
+                    if message == sqltext.MASK:
+                        try:
+                            str(exc)
+                        except Exception:
+                            message = f"<unprintable {type(exc).__name__}>"
                 except Exception:
                     message = f"<unprintable {type(exc).__name__}>"
                 phase.exception_groups.setdefault(group, (type(exc).__name__, message))

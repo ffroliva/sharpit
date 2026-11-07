@@ -155,9 +155,9 @@ def test_a_token_is_hidden_with_secrets_off() -> None:
     assert statement_text(masker, "SELECT sharpit-token-value FROM t", Dialect.UNSUPPORTED) == f"SELECT {MASK} FROM t"
 
 
-def test_capture_on_shows_the_masked_statement() -> None:
+def test_capture_on_still_hides_inline_values() -> None:
     masker = Masker(Exposure.MASKED, True, capture_parameters=True)
-    assert _sql_attribute(masker, "db.statement", "SELECT 'x'", Dialect.UNSUPPORTED) == "SELECT 'x'"
+    assert _sql_attribute(masker, "db.statement", "SELECT 'x'", Dialect.UNSUPPORTED) == "SELECT ?"
 
 
 @pytest.mark.parametrize(

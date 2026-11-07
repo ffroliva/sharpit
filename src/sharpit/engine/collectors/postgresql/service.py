@@ -13,7 +13,6 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
-from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.collectors.postgresql.limits import LOCK_TIMEOUT, READ_BUDGET, STATEMENT_TIMEOUT, RowLimits
 from sharpit.engine.collectors.postgresql.sections import (
     BUDGET_SKIPPED,
@@ -24,7 +23,7 @@ from sharpit.engine.collectors.postgresql.sections import (
 )
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, error_text
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -198,7 +197,7 @@ async def _read_engine(
     except Exception as exc:  # noqa: BLE001  # a failed engine is reported for that engine, never raised
         return _error_database(
             name,
-            mask_error(ctx.masker, str(exc).strip(), Dialect.UNSUPPORTED, known=True) or type(exc).__name__,
+            error_text(ctx.masker, exc, Dialect.POSTGRESQL, known=True) or type(exc).__name__,
             diagnostics,
         )
     data.name = name

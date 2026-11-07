@@ -241,7 +241,7 @@ def test_report_says_why_traces_are_unavailable(monkeypatch: pytest.MonkeyPatch)
 def test_sql_literals_in_db_statement_are_masked():
     # live check (real SDK): a literal under a non-secret column name leaked through mask_text alone
     buf = buffer()
-    buf.add(span(attributes={"db.statement": "select * from owners where pw = 'hunter2'"}))
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where pw = 'hunter2'"}))
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None
     assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
@@ -250,7 +250,7 @@ def test_sql_literals_in_db_statement_are_masked():
 def test_double_quoted_value_in_db_statement_is_a_placeholder():
     # 0.3.0 leak: a double-quoted value (MySQL string literal) passed through normalize_sql verbatim
     buf = buffer()
-    buf.add(span(attributes={"db.statement": 'select * from owners where pw = "hunter2"'}))
+    buf.add(span(attributes={"db.system": "mysql", "db.statement": 'select * from owners where pw = "hunter2"'}))
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None
     assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
@@ -379,24 +379,24 @@ def test_bind_parameter_attributes_shown_with_capture_parameters():
 def test_full_exposure_without_capture_parameters_still_hides_sql_literals():
     # SQL Trace keys literals on capture_parameters, not on the exposure (review r1)
     buf = buffer(FULL)
-    buf.add(span(attributes={"db.statement": "select * from owners where pw = 'hunter2'"}))
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where pw = 'hunter2'"}))
     assert attribute(first_span(buf), "db.statement") == "select * from owners where pw = ?"
 
 
-def test_capture_parameters_shows_sql_literals():
+def test_capture_parameters_does_not_show_inline_sql_literals():
     buf = buffer(CAPTURING)
-    buf.add(span(attributes={"db.statement": "select * from owners where name = 'alice'"}))
-    assert attribute(first_span(buf), "db.statement") == "select * from owners where name = 'alice'"
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where name = 'alice'"}))
+    assert attribute(first_span(buf), "db.statement") == "select * from owners where name = ?"
 
 
 def test_detail_applies_the_live_capture_parameters_policy_on_every_read():
     # ported: TracesServiceTests.detailAppliesTheLiveExposurePolicyOnEveryRead (supersedes the FULL-exposure version)
     buf = buffer(CAPTURING)
-    buf.add(span(attributes={"db.statement": "select * from owners where name = 'alice'"}))
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where name = 'alice'"}))
     first = attribute(first_span(buf), "db.statement")
     buf.masker = MASKED
     second = attribute(first_span(buf), "db.statement")
-    assert "alice" in first
+    assert "alice" not in first
     assert "alice" not in second
 
 
@@ -547,6 +547,13 @@ def test_mysql_span_sql_error_uses_the_mysql_scan():
     assert "DEADBEEF" not in attribute(detail["spans"][0], "exception.message")
 
 
+def test_a_prefixed_driver_message_shows_no_value():
+    buf = buffer()
+    message = "(pymysql.err.ProgrammingError) failed\n[SQL: SELECT 'hunter2']"
+    buf.add(span(attributes={"db.system": "mysql", "exception.message": message}))
+    assert "hunter2" not in attribute(first_span(buf), "exception.message")
+
+
 NO_DRIVER_ERROR = "(sqlalchemy.exc.ProgrammingError) x\n[SQL: select 1 # password hunter2\nfrom t]"
 
 
@@ -559,13 +566,11 @@ def test_mysql_span_status_message_reads_as_the_span_dialect():
     assert "hunter2" not in first_span(buf)["statusMessage"]
 
 
-def test_span_surface_resolves_its_application_family(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[Dialect] = []
-    monkeypatch.setattr(traces, "mask_error", lambda _masker, text, dialect: (seen.append(dialect), text)[1])
+def test_span_surface_resolves_its_application_family() -> None:
     buf = SpanBuffer(MASKED, application=lambda: Dialect.POSTGRESQL, capacity=10, self_path="/sharpit")
-    raw = span(kind="CLIENT", attributes={"db.system": "mysql"})
-    buf._span(raw)  # noqa: SLF001
-    assert seen == [Dialect.UNSUPPORTED]
+    raw = span(kind="CLIENT", attributes={"db.system": "mysql", "db.statement": "select 1"})
+    shown = attribute(buf._span(raw), "db.statement")  # noqa: SLF001
+    assert shown == "[statement hidden: unsupported database]"
 
 
 def test_mysql_span_event_attributes_read_as_the_span_dialect():
@@ -603,7 +608,7 @@ def test_a_span_of_another_database_keeps_the_generic_scan():
 def test_a_mysql_driver_error_on_a_span_without_a_database_uses_the_mysql_scan(driver: str, key: str, sql: str):
     buf = buffer()
     message = f"({driver}) (1064, 'x')\n[SQL: {sql}]"
-    buf.add(span(attributes={"http.route": "/x", key: message}))
+    buf.add(span(attributes={"db.system": "mysql", "http.route": "/x", key: message}))
 
     detail = buf.detail(f"{TRACE:032x}")
 
@@ -611,7 +616,7 @@ def test_a_mysql_driver_error_on_a_span_without_a_database_uses_the_mysql_scan(d
     assert "hunter2" not in attribute(detail["spans"][0], key)
 
 
-def test_a_postgres_driver_error_on_a_span_without_a_database_keeps_the_generic_scan():
+def test_a_driver_name_in_text_keeps_the_generic_scan():
     buf = buffer()
     message = "(psycopg.errors.SyntaxError) x\n[SQL: select a # b from t]"
     buf.add(span(attributes={"http.route": "/x", "exception.message": message}))
@@ -648,7 +653,7 @@ def test_sql_error_scan_stays_fast_after_a_closed_statement():
 
 
 def shown_message(message: str) -> str:
-    buf = buffer()
+    buf = SpanBuffer(MASKED, application=lambda: Dialect.POSTGRESQL, capacity=1000, self_path="/sharpit")
     buf.add(span(attributes={"exception.message": message}))
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None

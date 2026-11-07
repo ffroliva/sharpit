@@ -21,10 +21,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla
-from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, dialect_of_name, error_text
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -401,7 +400,8 @@ async def _read(
     except sqla.ReadOnlyUnavailable as exc:
         return DatabaseRead(name, None, exc.reason, checked)
     except Exception as exc:  # noqa: BLE001 - a failed read is reported for that database, never raised
-        reason = mask_error(ctx.masker, f"{type(exc).__name__}: {exc}", Dialect.UNSUPPORTED) or type(exc).__name__
+        dialect = dialect_of_name(getattr(getattr(engine, "dialect", None), "name", None)) or Dialect.UNSUPPORTED
+        reason = error_text(ctx.masker, exc, dialect) or type(exc).__name__
         return DatabaseRead(name, None, reason, checked)
     if heads is None:
         table = (
