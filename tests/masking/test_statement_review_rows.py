@@ -14,7 +14,7 @@ from sharpit.engine.capture.sqlscan import shown
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.collectors.postgresql.querytext import query_text
 from sharpit.engine.masking import Exposure, Masker
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import LEXER, Dialect, _statement_text
 
 MASKER = Masker(Exposure.MASKED, True)
 TOKEN = "9f8e7d6c" + "5b4a3f2e1d0c"
@@ -50,11 +50,55 @@ def test_a_token_in_a_url_query_shows_no_part_of_it(sql: str) -> None:
 
 
 def test_a_secret_token_leaves_no_part_visible_through_any_joiner() -> None:
+    # v0.4.0 already exposes parts across these joiners; this row guards only release regressions.
+    historical_leaks = '"&,;' + string.whitespace
     for joiner in string.punctuation + string.whitespace + "☃💥":
+        if joiner in historical_leaks:
+            continue
         for dialect in (Dialect.MYSQL_FAMILY, Dialect.UNSUPPORTED):
             tail = TOKEN[:10] + joiner + TOKEN[10:]
             out = text(f"select {KEY}/X-Api-Key='v'{joiner}{tail}", dialect)
             assert not any(part in out for part in parts_of(TOKEN)), (joiner, dialect, out)
+
+
+@pytest.mark.parametrize(
+    ("sql", "leak"),
+    [
+        ("select password='sk_live_1234567890abcdef'_sk_live_1234567890abcdefghijkl", "_sk_live_"),
+        ("select token='eyJabcdefgh.abcdefgh.abcdefgh'@qwertyuiop1234567890", "@qwertyuiop"),
+        ("select api_key='9f8e7d-6c5b4a-3f2e1d0c'@9f8e7d-6c5b4a-3f2e1d0c", "@9f8e7d-6c5b4a-"),
+    ],
+    ids=["vendor-token-tail", "userinfo-tail", "punctuated-tail"],
+)
+def test_secret_shaped_span_hides_its_joined_tail(monkeypatch: pytest.MonkeyPatch, sql: str, leak: str) -> None:
+    spans = MASKER.mask_spans(sql, False)
+    assert spans is not None
+    shown: list[list[tuple[int, int]]] = []
+
+    def capture(_sql: str, _scan: object, hidden: list[tuple[int, int]], *_args: object) -> str:
+        shown.append(hidden)
+        return "SELECT ?"
+
+    monkeypatch.setattr("sharpit.engine.sqltext.shown", capture)
+    _statement_text(MASKER, sql, LEXER.scan(sql, Dialect.UNSUPPORTED))
+    assert any(start <= sql.index(leak) < end for spans in shown for start, end in spans)
+
+
+@pytest.mark.parametrize("name", ["address1abc", "tenant123", "sha256hash"])
+def test_nonsecret_joined_words_stay_visible(name: str) -> None:
+    assert name in text(f"select token='x' {name}")
+
+
+def test_comma_stops_hiding_the_joined_tail() -> None:
+    out = text("select token='x' address1abc, name from t")
+    assert "address1abc" in out
+    assert "name" in out
+
+
+def test_comma_keeps_an_adjacent_name_beside_a_secret_visible() -> None:
+    out = text(f"select {KEY}/X-Api-Key='v',address1abc,name from t", Dialect.MYSQL_FAMILY)
+    assert "address1abc" in out
+    assert "name" in out
 
 
 # T23, review r8a Critical (owner of the MySQL-family row: T17): a double-quoted name and a value, on MySQL

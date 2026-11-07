@@ -322,7 +322,7 @@ def _unbounded_read_statement_shape(context: Any, statement_obj: Any) -> tuple[s
         primary = getattr(getattr(context, "compile_state", None), "_primary_entity", None)
         mapper = getattr(primary, "mapper", None)
         try:
-            owner = (
+            owner = getattr(context, "bind_arguments", {}).get("bind") or (
                 session.get_bind(mapper=mapper)
                 if session is not None and mapper is not None
                 else getattr(session, "bind", None)

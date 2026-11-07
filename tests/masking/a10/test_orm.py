@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -30,7 +31,18 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
 
-def test_a_binds_map_session_gives_one_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture
+def keyed_masker(monkeypatch: pytest.MonkeyPatch) -> Iterator[Masker]:
+    masker = Masker(Exposure.MASKED, True, identity_key=b"k" * 32)
+    monkeypatch.setattr(orm, "_relationship_masker", lambda: masker)
+    orm._masked_fingerprint.cache_clear()
+    try:
+        yield masker
+    finally:
+        orm._masked_fingerprint.cache_clear()
+
+
+def test_a_binds_map_session_gives_one_answer(monkeypatch: pytest.MonkeyPatch, keyed_masker: Masker) -> None:
     engine = sa.create_engine("sqlite://")
     Base.metadata.create_all(engine)
     token = "A10" + "QUERY" + "SECRET"
@@ -48,7 +60,7 @@ def test_a_binds_map_session_gives_one_answer(monkeypatch: pytest.MonkeyPatch) -
     def on_load(_target: User, context: Any) -> None:
         sql = 'SELECT "password" FROM users'
         statement, _has_limit = orm._unbounded_read_statement_shape(context, sql)
-        expected = statement_text(Masker(Exposure.MASKED, True), sql, Dialect.SQLITE)
+        expected = statement_text(keyed_masker, sql, Dialect.SQLITE)
         secret_statement, _has_limit = orm._unbounded_read_statement_shape(context, f"SELECT '{token}' FROM users")
         shown.append(secret_statement)
         seen.append(orm._masked_fingerprint(statement, Dialect.SQLITE) or "")
@@ -62,11 +74,42 @@ def test_a_binds_map_session_gives_one_answer(monkeypatch: pytest.MonkeyPatch) -
             bound.get(User, 1)
         with Session(bind=engine) as plain:
             plain.get(User, 1)
-        assert seen
+        assert len(seen) == 4
+        assert all(seen)
         assert token not in shown[0]
         assert seen[0] == seen[1]
         assert seen[2] == seen[3]
+        assert seen[0] == seen[2]
         assert owners[0] is engine
+    finally:
+        sa.event.remove(User, "load", on_load)
+        engine.dispose()
+
+
+def test_explicit_query_bind_matches_a_plain_session(keyed_masker: Masker) -> None:
+    engine = sa.create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sql = 'SELECT "password" FROM users'
+    seen: list[tuple[str, str | None]] = []
+
+    def on_load(_target: User, context: Any) -> None:
+        statement, _has_limit = orm._unbounded_read_statement_shape(context, sql)
+        seen.append((statement, orm._masked_fingerprint(statement, Dialect.SQLITE)))
+
+    sa.event.listen(User, "load", on_load)
+    try:
+        with Session(bind=engine) as plain:
+            plain.add(User(id=1))
+            plain.commit()
+            plain.get(User, 1)
+        with Session() as routed:
+            routed.scalars(sa.select(User), bind_arguments={"bind": engine}).all()
+
+        assert len(seen) == 2
+        assert seen[0][0] == statement_text(keyed_masker, sql, Dialect.SQLITE)
+        assert seen[0][1]
+        assert seen[1][1]
+        assert seen[0] == seen[1]
     finally:
         sa.event.remove(User, "load", on_load)
         engine.dispose()

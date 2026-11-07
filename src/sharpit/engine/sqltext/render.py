@@ -108,7 +108,7 @@ def _release_name(source: str, flags: bytearray, start: int, literal: int) -> No
         boundary = (cursor < start and start == 0) or (
             cursor >= start and not flags[cursor] and source[cursor] in _NAME_BOUNDARIES
         )
-        if boundary and all(c.isalnum() or c in "_.-" for c in source[name_start : literal - 1]):
+        if boundary:
             flags[name_start : literal - 1] = bytes(literal - cursor - 2)
 
 
