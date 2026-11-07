@@ -112,3 +112,19 @@ def test_require_app_cli_and_ini(pytester: pytest.Pytester) -> None:
     assert default.require_app is False
     assert cli.require_app is True
     assert ini.require_app is True
+
+
+def test_require_explicit_app_cli_and_ini(pytester: pytest.Pytester) -> None:
+    from sharpit.pytest_plugin.options import resolve
+
+    default = resolve(pytester.parseconfig())
+    cli = resolve(pytester.parseconfig("--sharpit-require-explicit-app"))
+    pytester.makeini("""
+        [pytest]
+        sharpit_require_explicit_app = true
+    """)
+    ini = resolve(pytester.parseconfig())
+
+    assert default.require_explicit_app is False
+    assert cli.require_explicit_app is True
+    assert ini.require_explicit_app is True

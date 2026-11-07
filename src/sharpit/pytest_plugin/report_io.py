@@ -23,6 +23,17 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
     try:
         facts = plugin._final_facts(state)  # forced app snapshot precedes advisor assessment
         parts = _report_parts(plugin, session, state, facts)
+        warnings = list(sink.facts.warnings)
+        if (
+            state.options.baseline
+            and not state.settings.identity_key
+            and sink.masker.identity_key is not None
+            and any(part.sqlite_seen for part in parts)
+        ):
+            warnings.append(
+                "SQLite baseline fingerprints use a local identity key and may differ across machines; "
+                "set SHARPIT_IDENTITY_KEY in CI to a shared key."
+            )
         data, _status, _reasons = finish(
             parts,
             state.missing_workers,
@@ -37,7 +48,7 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
             ),
             version=__version__,
             now_ms=time.time_ns() // 1_000_000,
-            warnings=sink.facts.warnings,
+            warnings=warnings,
         )
         _apply_baseline(state, data)
         refusal = _baseline_refusal(state, data)

@@ -9,11 +9,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
+from sharpit.engine import sqltext
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer, exchange_row
 from sharpit.engine.capture.sqlinsights import insights_report, mask_route, percentile
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sqla import TRACING_DISABLED
+from sharpit.engine.sqltext import Dialect
 
 MASKED = Masker(Exposure.MASKED, True)
 WITH_PARAMETERS = Masker(Exposure.MASKED, True, capture_parameters=True)
@@ -24,7 +28,8 @@ def _recorder(masker: Masker = MASKED, max_entries: int = 100) -> SqlTraceRecord
 
 
 def _record(recorder: SqlTraceRecorder, sql: str, millis: int, **kw: Any) -> None:
-    recorder.record(sql, duration_ns=millis * 1_000_000, thread="main", connection_id="c1", **kw)
+    fields: dict[str, Any] = {"dialect": Dialect.UNSUPPORTED, **kw}
+    recorder.record(sql, duration_ns=millis * 1_000_000, thread="main", connection_id="c1", **fields)
 
 
 def _exchanges(*requests: tuple[str, str, str]) -> HttpExchangeBuffer:
@@ -198,6 +203,45 @@ def test_n_plus_one_flag_on_repeated_select():
 
 def test_percentile_is_nearest_rank():
     assert percentile(list(range(1, 21)), 95) == 19
+
+
+@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY, Dialect.UNSUPPORTED])
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM users WHERE id = 1",
+        "select * from users where password = 'hunter2'",
+        "UPDATE t SET token = 'abc' WHERE id = 2",
+        "select * from t where api_key = 'abc' and id = 7",
+    ],
+    ids=["number", "password", "token", "key"],
+)
+def test_other_dialects_rank_by_the_stored_text_normalized(dialect: Dialect, sql: str):
+    """Task 22 groups by each statement shape's fingerprint from its one scan."""
+    recorder = _recorder(WITH_PARAMETERS)
+    _record(recorder, sql, 4, dialect=dialect)
+    [row] = insights_report(recorder, _exchanges(), None)["statements"]
+    shape = sqltext.statement_shape(WITH_PARAMETERS, sql, dialect)
+    assert row["id"] == shape.fingerprint
+
+
+def test_parameter_capture_keeps_distinct_statement_shapes_grouped():
+    recorder = _recorder(WITH_PARAMETERS)
+    for sql, count in (
+        ("SELECT * FROM t WHERE token = 'abc123'", 6),
+        ("SELECT * FROM t WHERE token = 'abc123' OR 1=1", 3),
+    ):
+        for _ in range(count):
+            _record(recorder, sql, 1, dialect=Dialect.POSTGRESQL)
+    rows = insights_report(recorder, _exchanges(), None)["statements"]
+    assert sorted(row["executions"] for row in rows) == [3, 6]
+
+
+def test_a_sqlite_statement_with_no_identity_is_not_ranked():
+    recorder = _recorder()  # no key: ruling 4, not grouped
+    _record(recorder, 'select "id" from "users"', 4, dialect=Dialect.SQLITE)
+    _record(recorder, 'select "id" from "orders"', 4, dialect=Dialect.SQLITE)
+    assert insights_report(recorder, _exchanges(), None)["statements"] == []
 
 
 def test_mask_route_masks_value_segments():

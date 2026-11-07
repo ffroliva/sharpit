@@ -180,9 +180,7 @@ def test_vulnerabilities_read_only_panel_blocks_scan(tmp_state_dir: Path):
     assert resp.json()["reason"] == "Panel is read-only via SHARPIT_PANELS_VULNERABILITIES_READ_ONLY=true"
 
 
-def test_default_service_never_networks_on_get(
-    no_side_effects: SideEffectGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_default_service_never_networks_on_get(no_side_effects: SideEffectGuard, monkeypatch: pytest.MonkeyPatch):
     no_side_effects.unblock_network()  # TestClient needs a socketpair; the opener patch guards HTTP
 
     def no_http(*_args: object) -> object:
@@ -190,7 +188,7 @@ def test_default_service_never_networks_on_get(
 
     monkeypatch.setattr(urllib.request, "build_opener", no_http)
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path / "state"))
+    install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
     client = TestClient(app, base_url="http://localhost", client=LOCAL)
     resp = client.get("/sharpit/api/vulnerabilities")
     assert resp.status_code == 200
@@ -199,4 +197,4 @@ def test_default_service_never_networks_on_get(
     assert body["total"] > 0
     assert body["dependencies"][0]["source"] == "importlib.metadata"
     assert client.get("/sharpit/api/dismissed-rules").json() == {"dismissed": []}
-    assert not (tmp_path / "state").exists()
+    assert not (no_side_effects.state_dir / "sharpit.yml").exists()  # the guard checks the whole state dir too

@@ -17,7 +17,6 @@ from sharpit.engine.advisors.registry import ADVISORS
 from sharpit.engine.advisors.rules import Severity
 from sharpit.engine.collectors.restapi.rules import application_routes
 from sharpit.engine.spi import ApiModel
-from sharpit.engine.testsession.sink import report_masker
 from sharpit.fastapi.introspector import FastApiIntrospector
 
 __all__ = [
@@ -191,6 +190,9 @@ def _configured_models(
 def _discovered_models(state: Any) -> list[tuple[str, ApiModel]] | None:
     candidates = autodetect_apps(getattr(state, "test_files", TEST_FILES))
     state.autodetected = [name for name, _ in candidates]
+    warning = "app detection depended on test imports"
+    if warning not in state.sink.facts.warnings:
+        state.sink.facts.warnings.append(warning)
     chosen = select_app(candidates)
     if chosen is None:
         if (run := no_app_run(state.autodetected, state.options.require_app)) is not None:
@@ -209,6 +211,18 @@ def _models_to_assess(
     models = state.sink.app_snapshots()
     if state.options.app:
         return _configured_models(state, load_app)
+    if getattr(state.options, "require_explicit_app", False):
+        state.sink.facts.advisor_runs.append(
+            AdvisorRun(
+                "rest-api",
+                "UNKNOWN",
+                (),
+                {},
+                "no explicit application configured; rest-api requires --sharpit-app",
+                None,
+            )
+        )
+        return None
     return models or _discovered_models(state)
 
 
@@ -248,7 +262,7 @@ def run_advisors(
                 state.sink.facts.advisor_runs.append(
                     (assess_fn if assess_fn and advisor == "rest-api" else discovered)(
                         model,
-                        report_masker(),
+                        state.sink.masker,
                         fail_on=cast("Severity", state.options.fail_on),
                         app=name,
                         dismissed=state.dismissed,

@@ -447,4 +447,5 @@ def test_a_sqlite_engine_keeps_the_generic_scan(monkeypatch: pytest.MonkeyPatch)
 
     shown = [entry["sql"] for entry in client.get(API).json()["entries"]]
 
-    assert "SELECT ?xDEADBEEF" in shown
+    assert "SELECT ?" in shown
+    assert any("#" in sql for sql in shown)  # ``0x`` is a literal in every mode now: the ``#`` tells the scans apart

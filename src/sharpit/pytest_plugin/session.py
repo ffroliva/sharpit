@@ -179,6 +179,9 @@ def _finish_controller(plugin: Any, state: Any, session: Any, exitstatus: int, l
             plugin._record_hook_failure(state.sink, exc)
         if snapshot:  # an installed app was assessed: autodetect did not decide anything
             state.autodetected = None
+            for part in state.parts:
+                if "app detection depended on test imports" in part.warnings:
+                    part.warnings.remove("app detection depended on test imports")
     plugin._write_report(state, session, exitstatus)
 
 

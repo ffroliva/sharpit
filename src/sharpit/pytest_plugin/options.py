@@ -29,6 +29,12 @@ def pytest_addoption(parser: Any) -> None:
         "--sharpit-require-app", action="store_true", default=None, help="no application found is unknown, not skipped"
     )
     group.addoption(
+        "--sharpit-require-explicit-app",
+        action="store_true",
+        default=None,
+        help="require --sharpit-app to be set explicitly; do not autodetect from test imports",
+    )
+    group.addoption(
         "--sharpit-no-advisors",
         action="store_false",
         default=None,
@@ -62,6 +68,12 @@ def _add_ini(parser: Any) -> None:
     parser.addini("sharpit_app", "Application module and attribute", default="")
     parser.addini("sharpit_verbose", "List advisor notes in the terminal gate counts", type="bool", default=False)
     parser.addini("sharpit_require_app", "Treat a run with no application as unknown", type="bool", default=False)
+    parser.addini(
+        "sharpit_require_explicit_app",
+        "Require --sharpit-app; do not autodetect from test imports",
+        type="bool",
+        default=False,
+    )
     parser.addini("sharpit_advisors", "Run application advisors", type="bool", default=True)
     parser.addini("sharpit_max_unattributed", "Maximum unattributed SQL percentage", default="10")
     parser.addini("sharpit_report_only", "Report findings without gating pytest", type="bool", default=False)
@@ -84,6 +96,7 @@ class PluginOptions:
     report_only: bool = False
     baseline: Path | None = None
     write_baseline: Path | None = None
+    require_explicit_app: bool = False
 
 
 def _value(config: Any, option: Any, name: str, default: Any) -> Any:
@@ -133,4 +146,5 @@ def resolve(config: Any) -> PluginOptions:
         bool(_value(config, option, "report_only", False)),
         Path(_value(config, option, "baseline", "")) if _value(config, option, "baseline", "") else None,
         Path(option.sharpit_write_baseline) if getattr(option, "sharpit_write_baseline", None) else None,
+        require_explicit_app=bool(_value(config, option, "require_explicit_app", False)),
     )

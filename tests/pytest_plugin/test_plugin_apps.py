@@ -7,6 +7,7 @@ import pytest
 
 from fastapi import FastAPI
 from sharpit import pytest_plugin
+from sharpit.engine.testsession.sink import report_masker
 
 
 def _rest_run(pytester: pytest.Pytester) -> dict[str, object]:
@@ -120,7 +121,7 @@ def test_plugin_loader_facade_remains_monkeypatchable(monkeypatch: pytest.Monkey
     app.get("/ready")(lambda: {"ready": True})
     state = SimpleNamespace(
         options=SimpleNamespace(advisors=True, app="fake_app:app", fail_on="HIGH"),
-        sink=SimpleNamespace(app_snapshots=lambda: [], facts=SimpleNamespace(advisor_runs=[])),
+        sink=SimpleNamespace(app_snapshots=lambda: [], facts=SimpleNamespace(advisor_runs=[]), masker=report_masker()),
         dismissed=[],
     )
     monkeypatch.setattr(pytest_plugin, "_load_app", lambda spec: (spec, app))
@@ -292,3 +293,101 @@ def test_autodetect_names_app_by_shortest_module(monkeypatch: pytest.MonkeyPatch
 
     assert "short_mod:app" in detected
     assert "a_longer_reexport_mod:app" not in detected
+
+
+def test_autodetect_depends_on_test_selection(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+        from fastapi import FastAPI
+        app = FastAPI()
+        @app.get('/items')
+        def items():
+            return []
+        """,
+        test_no_app="""
+        def test_unrelated():
+            assert True
+        """,
+        test_with_app="""
+        import appmod
+
+        def test_app_endpoint():
+            assert appmod.app is not None
+        """,
+    )
+
+    res_subset = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-report=report_subset.json", "-q", "test_no_app.py"
+    )
+    assert res_subset.ret == 0
+    data_subset = json.loads((pytester.path / "report_subset.json").read_text())
+    run_subset = next(r for r in data_subset["advisors"] if r["advisor"] == "rest-api")
+    assert run_subset["status"] == "SKIPPED"
+
+    res_full = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-report=report_full.json", "-q", "test_no_app.py", "test_with_app.py"
+    )
+    assert res_full.ret == 0
+    data_full = json.loads((pytester.path / "report_full.json").read_text())
+    run_full = next(r for r in data_full["advisors"] if r["advisor"] == "rest-api")
+    assert run_full["status"] == "PASSED"
+
+    warning = "app detection depended on test imports"
+    assert warning in data_subset["warnings"]
+    assert warning in data_full["warnings"]
+    assert f"warning: {warning}" in res_subset.stdout.str()
+    assert f"warning: {warning}" in res_full.stdout.str()
+
+
+def test_require_explicit_app(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(
+        appmod="""
+        from fastapi import FastAPI
+        app = FastAPI()
+        @app.get('/items')
+        def items():
+            return []
+        """,
+        test_no_app="def test_unrelated(): pass",
+        test_with_app="""
+        import appmod
+        def test_app(): assert appmod.app is not None
+        """,
+    )
+
+    res_sub = pytester.runpytest_subprocess(
+        "--sharpit", "--sharpit-require-explicit-app", "--sharpit-report=report_sub.json", "-q", "test_no_app.py"
+    )
+    assert "unrecognized arguments: --sharpit-require-explicit-app" not in res_sub.stderr.str()
+    assert res_sub.ret == 1
+    data_sub = json.loads((pytester.path / "report_sub.json").read_text())
+    run_sub = next(r for r in data_sub["advisors"] if r["advisor"] == "rest-api")
+    assert run_sub["status"] == "UNKNOWN"
+    assert run_sub["reason"] == "no explicit application configured; rest-api requires --sharpit-app"
+
+    res_full = pytester.runpytest_subprocess(
+        "--sharpit",
+        "--sharpit-require-explicit-app",
+        "--sharpit-report=report_full.json",
+        "-q",
+        "test_no_app.py",
+        "test_with_app.py",
+    )
+    assert res_full.ret == 1
+    data_full = json.loads((pytester.path / "report_full.json").read_text())
+    run_full = next(r for r in data_full["advisors"] if r["advisor"] == "rest-api")
+    assert run_full["status"] == "UNKNOWN"
+    assert run_full["reason"] == "no explicit application configured; rest-api requires --sharpit-app"
+
+    res_app_sub = pytester.runpytest_subprocess(
+        "--sharpit",
+        "--sharpit-require-explicit-app",
+        "--sharpit-app=appmod:app",
+        "--sharpit-report=report_app_sub.json",
+        "-q",
+        "test_no_app.py",
+    )
+    assert res_app_sub.ret == 0
+    data_app_sub = json.loads((pytester.path / "report_app_sub.json").read_text())
+    run_app_sub = next(r for r in data_app_sub["advisors"] if r["advisor"] == "rest-api")
+    assert run_app_sub["status"] == "PASSED"
