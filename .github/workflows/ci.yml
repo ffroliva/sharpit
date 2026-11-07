@@ -317,6 +317,7 @@ jobs:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install 3.14
       - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the live tests
+      - run: uv pip install asyncpg aiomysql # drivers imported by live example tests only
       - run: uv run --no-sync pytest tests/live --live -n 0 --junitxml=live.xml
       - name: Require executed live tests, without skips
         if: always()

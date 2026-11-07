@@ -120,7 +120,7 @@ def test_a_sqlite_row_of_the_corpus_keeps_its_words(live_servers: Callable[[str]
 
 # Every surface the row reads comes from ``statement_text``: blanking ``normalize`` alone leaves them all showing.
 BLANK_RENDER = Mutant(
-    "render = shown(sql, relaxed, dialect, reading)", 'render = "?"', "", "", "engine/capture/statement.py"
+    "return sqltext.statement_text(masker, sql, dialect)", 'return "?"', "", "", "engine/capture/statement.py"
 )
 
 
@@ -154,7 +154,7 @@ def test_a_planted_blanking_build_fails_the_keep_row(family: str, tmp_path: Path
 
 # MySQL text read as another family's: the bit was hard-coded ``False`` here before Task 12
 WRONG_WIRED = Mutant(
-    "dialect_of_name(conn.dialect.name) or Dialect.UNSUPPORTED,",
+    "Dialect.UNSUPPORTED if dialect is None else dialect,",
     "Dialect.POSTGRESQL,",
     "",
     "",
@@ -186,12 +186,25 @@ CONTROLS: dict[str, tuple[str, str, Mutant]] = {
     "backslash-mysql": (
         "mysql84",
         "NO_BACKSLASH_ESCAPES",
-        Mutant("if rules.cut_backslash and _backslash_reads_two_ways(scan, rules):", "if False:", "", ""),
+        Mutant(
+            "session = tuple(r for rules in rule_sets for r in _session_readings(rules)) if backslash else ()",
+            "session = ()",
+            "",
+            "",
+            "engine/sqltext/family.py",
+        ),
     ),
     "dollar-mariadb": (
         "mariadb",
         "",
-        Mutant("return _family_cut(scan, rules) if rules.dollar is DollarOpen.MYSQL_TAG else -1", "return -1", "", ""),
+        Mutant(
+            "return next((min(a[0], b[0]) for a, b in zip_longest(first.out.runs, other.out.runs, "
+            "fillvalue=end) if a != b), -1)",
+            "return -1",
+            "",
+            "",
+            "engine/sqltext/family.py",
+        ),
     ),
     "bracket-mssql": (
         "mariadb",
