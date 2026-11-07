@@ -163,7 +163,7 @@ class DismissalStore:
     def _lines(self) -> list[str]:
         try:
             return self._file.read_text(encoding="utf-8").splitlines()
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             return []
 
     def _file_stamp(self) -> tuple[int, int] | None:

@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import pytest
 
+from sharpit.engine import sqltext
 from sharpit.engine.capture import statement
-from sharpit.engine.capture.sqlscan import read_statement
+from sharpit.engine.capture.sqlscan import read_statement, shown
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
@@ -18,13 +19,13 @@ MASKED = Masker(Exposure.MASKED, True)
 def test_a_statement_with_nothing_hidden_is_not_rendered_twice(monkeypatch: pytest.MonkeyPatch):
     sql = "select a from t where b is null"
     calls: list[str] = []
-    real = statement.shown
+    real = sqltext.shown
 
     def counted(*args: object) -> str:
         calls.append("rendered")
         return real(*args)  # pyright: ignore[reportArgumentType]
 
-    monkeypatch.setattr(statement, "shown", counted)
+    monkeypatch.setattr(sqltext, "shown", counted)
 
     assert statement.statement_text(MASKED, sql, Dialect.SQLITE, read_statement(sql, Dialect.SQLITE)) == sql
     assert calls == []
@@ -46,6 +47,4 @@ def test_a_non_ascii_statement_uses_the_full_render():
     sql = "SELECT \ufeff`x`"
     reading = read_statement(sql, Dialect.SQLITE)
 
-    assert statement.statement_text(MASKED, sql, Dialect.SQLITE, reading) == statement.shown(
-        sql, [], Dialect.SQLITE, reading
-    )
+    assert statement.statement_text(MASKED, sql, Dialect.SQLITE, reading) == shown(sql, [], Dialect.SQLITE, reading)

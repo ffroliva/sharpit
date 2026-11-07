@@ -71,9 +71,11 @@ def _select_counts(rows: list[dict[str, Any]]) -> tuple[dict[tuple[str, str], in
         if request_id is None or row["category"] != "SELECT":
             continue
         shape = row["shape"]
+        if shape.fingerprint is None:
+            continue
         key = (request_id, shape.fingerprint)
         counts[key] = counts.get(key, 0) + 1
-        shapes[shape.fingerprint] = shape.sql
+        shapes[shape.fingerprint] = shape.text
     return counts, shapes
 
 

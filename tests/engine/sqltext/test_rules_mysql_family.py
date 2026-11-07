@@ -233,4 +233,77 @@ def test_ordinary_mysql_reads_one_way(sql: str) -> None:
 
 
 def test_a_bracket_inside_a_string_does_not_start_a_family_cut() -> None:
-    assert scan("SELECT '$.items[0]'").cut == -1
+    assert scan("SELECT '$.items[0]]'").cut == -1
+
+
+def test_a_second_bracket_shape_is_hidden_in_the_rendered_mysql_statement() -> None:
+    sql = "SELECT x[1][2]], ' ] 'ZSECRET'"
+
+    assert "ZSECRET" not in (statement_text(Masker(Exposure.MASKED, True), sql, Dialect.MYSQL_FAMILY) or "")
+
+
+@pytest.mark.parametrize(
+    ("sql", "opener"),
+    [
+        ("SELECT [p], x[a]], ' ] 'ZSECRET'", "[a]"),
+        ("SELECT [a[b]], ' ] 'ZSECRET'", "["),
+        ("SELECT x[1][2]], ' ] 'ZSECRET'", "[2]"),
+        ("SELECT [p] FROM t WHERE y[a]], ' ] = 'ZSECRET'", "[a]"),
+    ],
+    ids=["subscript", "nested", "second-subscript", "predicate"],
+)
+def test_a_mssql_doubled_bracket_cuts_at_the_earliest_matching_opener(sql: str, opener: str) -> None:
+    assert scan(sql).cut == sql.index(opener)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    ["SELECT @a.1e①e-0x7654001", "SELECT 1E٣٣..0x7654001"],
+    ids=["mysql-number-ident", "mariadb-real-or-point"],
+)
+def test_a_non_ascii_character_after_a_mysql_exponent_cuts_the_read(sql: str) -> None:
+    assert "7654001" not in (statement_text(Masker(Exposure.MASKED, True), sql, Dialect.MYSQL_FAMILY) or "")
+
+
+@pytest.mark.parametrize(
+    ("sql", "marker"),
+    [
+        ("SELECT ٣..0x7654001", "7654001"),
+        ("SELECT ,7654001.5..0x7654002", "7654002"),
+        ("SELECT 0b12..0x7654001", "7654001"),
+    ],
+    ids=["unicode-digit", "decimal-number", "malformed-binary"],
+)
+def test_mariadb_double_dot_before_hex_literal_fails_closed(sql: str, marker: str) -> None:
+    shown = statement_text(Masker(Exposure.MASKED, True), sql, Dialect.MYSQL_FAMILY) or ""
+    assert marker not in shown
+
+
+def test_mariadb_dot_radix_cut_ignores_strings() -> None:
+    sql = "SELECT '1..0x7654001', 1"
+    assert statement_text(Masker(Exposure.MASKED, True), sql, Dialect.MYSQL_FAMILY) == "SELECT ?, ?"
+
+
+@pytest.mark.parametrize(
+    ("dialect", "sql", "expected"),
+    [
+        (Dialect.POSTGRESQL, "SELECT @a.1e①e-0x7654001", "SELECT @a.?e-?"),
+        (Dialect.POSTGRESQL, "SELECT 1E٣٣..0x7654001", "SELECT ?..?"),
+        (Dialect.SQLITE, "SELECT @a.1e①e-0x7654001", "SELECT @a.?e-?"),
+        (Dialect.SQLITE, "SELECT 1E٣٣..0x7654001", "SELECT ?..?"),
+        (Dialect.UNSUPPORTED, "SELECT @a.1e①e-0x7654001", "SELECT @a.?e-?"),
+        (Dialect.UNSUPPORTED, "SELECT 1E٣٣..0x7654001", "SELECT ?..?"),
+    ],
+    ids=[
+        "postgresql-number-ident",
+        "postgresql-real",
+        "sqlite-number-ident",
+        "sqlite-real",
+        "generic-number-ident",
+        "generic-real",
+    ],
+)
+def test_mysql_exponent_fail_closed_rule_does_not_change_other_dialect_output(
+    dialect: Dialect, sql: str, expected: str
+) -> None:
+    assert statement_text(Masker(Exposure.MASKED, True), sql, dialect) == expected

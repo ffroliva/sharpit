@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sharpit.engine.capture import sqlscan
+from sharpit.engine import sqltext
 from sharpit.engine.capture.statement import masked_shape, statement_text
 from sharpit.engine.capture.traces import _sql_attribute  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.masking import MASK, Exposure, Masker
@@ -122,8 +122,32 @@ def test_a_broken_render_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(_sql: str, _dialect: Dialect) -> None:
         raise RuntimeError
 
-    monkeypatch.setattr(sqlscan, "_scan", broken)
+    monkeypatch.setattr(sqltext.LEXER, "scan", broken)
     assert statement_text(MASKER, "UPDATE broken SET note='SECRET'", Dialect.UNSUPPORTED) == MASK
+
+
+@pytest.mark.parametrize("method", ["mask_spans", "mask_statement"])
+def test_a_broken_render_keeps_a_hidden_shape(method: str) -> None:
+    class Broken(Masker):
+        def __getattribute__(self, name: str) -> object:
+            if name == method:
+                raise RuntimeError(method)
+            return super().__getattribute__(name)
+
+    try:
+        result = sqltext.statement_shape(Broken(Exposure.MASKED, True), "SELECT 1", Dialect.SQLITE)
+    except RuntimeError:
+        result = sqltext.Shape("raised", None, Dialect.SQLITE, 0, 0)
+    assert result.text == MASK
+    assert result.fingerprint is None
+
+
+def test_metadata_only_does_not_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(_sql: str, _dialect: Dialect) -> None:
+        raise AssertionError("scan must not run")
+
+    monkeypatch.setattr(sqltext.LEXER, "scan", broken)
+    assert statement_text(Masker(Exposure.METADATA_ONLY, True), "SELECT 'secret'", Dialect.SQLITE) is None
 
 
 def test_a_token_is_hidden_with_secrets_off() -> None:
@@ -148,13 +172,13 @@ def test_a_key_nested_in_a_bare_value_reads_as_code(sql: str) -> None:
 def test_a_shape_and_its_text_come_from_one_scan(monkeypatch: pytest.MonkeyPatch) -> None:
     # derived: 2026-11-05 design, "classified once and emitted once": the miss budget pays for one read of raw text
     calls: list[str] = []
-    real = sqlscan._scan  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    real = sqltext.LEXER.scan
 
     def counted(sql: str, dialect: Dialect) -> object:
         calls.append(sql)
         return real(sql, dialect)
 
-    monkeypatch.setattr(sqlscan, "_scan", counted)
+    monkeypatch.setattr(sqltext.LEXER, "scan", counted)
     sql = "SELECT * FROM one_scan WHERE id = 7"
     assert masked_shape(MASKER, sql, Dialect.UNSUPPORTED).sql == "SELECT * FROM one_scan WHERE id = ?"
     assert calls == [sql]

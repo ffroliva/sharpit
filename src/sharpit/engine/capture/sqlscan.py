@@ -17,7 +17,7 @@ from sharpit.engine.sqltext import Dialect, Scan
 
 class Normalized(NamedTuple):
     sql: str
-    fingerprint: str
+    fingerprint: str | None
     literal_count: int
     predicate_literal_count: int
     dialect: Dialect

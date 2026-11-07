@@ -429,6 +429,20 @@ def sqltext_masking_violations(root: Path | None = None) -> list[str]:
     ]
 
 
+def sqltext_errors_private_violations(root: Path | None = None) -> list[str]:
+    errors = (root or SRC / "sharpit") / "engine" / "sqltext" / "errors.py"
+    if not errors.exists():
+        return []
+    tree = ast.parse(errors.read_text(encoding="utf-8"))
+    return [
+        f"{_rel(errors)} imports private lexer name {alias.name}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith("sqltext.lexer")
+        for alias in node.names
+        if alias.name.startswith("_")
+    ]
+
+
 def _plant_sqltext(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]) -> Path:
     monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
     root = tmp_path / "src" / "sharpit"
@@ -514,6 +528,22 @@ def test_sqltext_names_no_optional_library(tmp_path: Path, monkeypatch: pytest.M
     assert [v for v in real if "engine/sqltext/" in v] == []
     assert planted == [
         "sharpit/engine/sqltext/errors.py imports sqlalchemy: only ['sharpit/engine/sqla'] may import sqlalchemy"
+    ]
+
+
+def test_errors_imports_no_lexer_private() -> None:
+    assert sqltext_errors_private_violations() == []
+
+
+def test_a_planted_error_import_of_a_lexer_private_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _plant_sqltext(
+        tmp_path,
+        monkeypatch,
+        {"engine/sqltext/errors.py": "from sharpit.engine.sqltext.lexer import _scan\n"},
+    )
+
+    assert sqltext_errors_private_violations(root) == [
+        "sharpit/engine/sqltext/errors.py imports private lexer name _scan"
     ]
 
 

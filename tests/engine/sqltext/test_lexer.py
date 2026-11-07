@@ -195,23 +195,32 @@ def test_an_opener_in_a_tight_comment_cuts_only_generic_text() -> None:
     assert sqltext.LEXER.reads_two_ways("select 1 --a'b\n, 2", GENERIC)
 
 
-def test_a_swapped_lexer_reaches_the_closer_the_two_way_check_and_the_cache(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sharpit.engine.capture import sqlscan  # noqa: PLC0415
-
-    sqlscan.normalize("select 1", Dialect.UNSUPPORTED)  # warm: a cache that outlives the swap would answer from this
+def test_a_swapped_lexer_reaches_the_facade_and_error_renderer(monkeypatch: pytest.MonkeyPatch) -> None:
 
     class Swapped:
         def scan(self, sql: str, dialect: Dialect) -> sqltext.Scan:
+            self.scans += 1
             return sqltext.HandLexer().scan("delete from t", dialect)
 
         def block_closer(self, text: str, dialect: Dialect) -> int:
+            self.closers += 1
             return 99
 
         def reads_two_ways(self, sql: str, dialect: Dialect) -> bool:
+            self.two_ways += 1
             return True
 
-    monkeypatch.setattr(sqltext, "LEXER", Swapped())
+        def __init__(self) -> None:
+            self.closers = 0
+            self.scans = 0
+            self.two_ways = 0
 
-    assert sqlscan.block_closer("a]", Dialect.UNSUPPORTED) == 99
-    assert sqlscan.reads_two_ways("a", Dialect.UNSUPPORTED)
-    assert sqlscan.normalize("select 1", Dialect.UNSUPPORTED).sql == "delete from t"
+    swapped = Swapped()
+    monkeypatch.setattr(sqltext, "LEXER", swapped)
+
+    from sharpit.engine.masking import Exposure, Masker
+
+    sqltext.error_text(Masker(Exposure.MASKED, True), "(psycopg.errors.Error) failed\n[SQL: select 1]", GENERIC)
+    assert swapped.closers == 1
+    assert swapped.two_ways >= 1
+    assert swapped.scans >= 1

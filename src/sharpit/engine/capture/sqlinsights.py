@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
-from sharpit.engine.capture.sqltrace import SqlTraceRecorder, normalize
+from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 
 TOP_PER_CRITERION = 10
 MAX_ROUTES = 20
@@ -136,11 +136,13 @@ def _by(metric: Callable[[Group], float]) -> Callable[[Group], tuple[float, str]
 
 
 def _add(groups: dict[str, Group], row: dict[str, Any]) -> None:
-    # grouped by the stored text re-normalised: with parameter capture on, the stored literal is never shown
-    shape = normalize(row["sql"], row["shape"].dialect)
+    # The capture-time shape is the one identity shared with SQL Trace and SQLAlchemy Statistics.
+    shape = row["shape"]
+    if shape.fingerprint is None:
+        return
     group = groups.get(shape.fingerprint)
     if group is None:
-        group = groups[shape.fingerprint] = Group(shape.fingerprint, shape.sql, row["category"] or "OTHER")
+        group = groups[shape.fingerprint] = Group(shape.fingerprint, shape.text, row["category"] or "OTHER")
     group.add(row)
 
 

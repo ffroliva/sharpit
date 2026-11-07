@@ -95,6 +95,14 @@ class TestSessionSink:
         self._orphan_snapshots: dict[str, tuple[str, ApiModel]] = {}
         self._models_by_signature: dict[tuple[str, tuple[tuple[object, ...], ...]], ApiModel] = {}
 
+    @property
+    def masker(self) -> Masker:
+        return self._masker
+
+    def set_identity_key(self, key: bytes | None) -> None:
+        self._masker.identity_key = key
+        self._shape.cache_clear()
+
     def _mask(self, text: str) -> str:
         return self._masker.mask_text(text) or ""
 
@@ -138,8 +146,10 @@ class TestSessionSink:
             rule = filtered_rule(event.sql)
             # The test-session sink resolves with no application fallback (`lambda: None`),
             # so it does not share the recorder's fallback behavior (owner ruling, 2026-11-06).
-            shape = None if rule else self._shape(event.sql, event_dialect(event, lambda: None))
+            dialect = event_dialect(event, lambda: None)
+            shape = None if rule else self._shape(event.sql, dialect)
             with self._lock:
+                self.facts.sqlite_seen |= dialect is Dialect.SQLITE
                 phase = self._phase_of(test)
                 if shape is None:
                     self.facts.filtered += 1
@@ -147,6 +157,12 @@ class TestSessionSink:
                         phase.filtered += 1
                     return
                 key = shape.fingerprint
+                if key is None:
+                    if phase is not None:
+                        phase.queries += 1
+                    else:
+                        self.facts.unattributed += 1
+                    return
                 if phase is None:
                     self._count_unattributed(key, shape.sql)
                     return

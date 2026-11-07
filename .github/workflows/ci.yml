@@ -326,6 +326,7 @@ jobs:
           uv run --no-sync python scripts/ci/check_live_tests.py live.xml --require test_a_server_answers=4
           test_oracle_row test_every_session_leg_ran=14 test_a_refused_statement_keeps_its_value_hidden=5
           test_oracle_control test_a_wrong_wired_dialect_fails_the_oracle=1 test_the_inverse_plant_shows_five_rows_on_off=1
+          test_example_app_records_its_server_family=2
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with: # ci_review.py globs junit-*
