@@ -48,7 +48,7 @@ PINNED: dict[tuple[str, str], int] = {
     ("mysql80", "NO_BACKSLASH_ESCAPES"): 1995,
     ("mysql80", "ANSI_QUOTES"): 1233,
     ("mariadb", ""): 1996,
-    ("mariadb", "NO_BACKSLASH_ESCAPES"): 1995,
+    ("mariadb", "NO_BACKSLASH_ESCAPES"): 1996,
     ("mariadb", "ANSI_QUOTES"): 1233,
     ("mariadb", "MSSQL"): 1403,
     ("mariadb", "ORACLE"): 1233,
@@ -120,7 +120,11 @@ def test_a_sqlite_row_of_the_corpus_keeps_its_words(live_servers: Callable[[str]
 
 # Every surface the row reads comes from ``statement_text``: blanking ``normalize`` alone leaves them all showing.
 BLANK_RENDER = Mutant(
-    "return sqltext.statement_text(masker, sql, dialect)", 'return "?"', "", "", "engine/capture/statement.py"
+    "rendered = normalized if not relaxed and sql.isascii() else shown(sql, scan, relaxed, MASK, secret, cuts)",
+    'rendered = "?"',
+    "",
+    "",
+    "engine/sqltext/__init__.py",
 )
 
 
@@ -142,6 +146,8 @@ def test_a_planted_blanking_build_fails_the_keep_row(family: str, tmp_path: Path
             "no:cacheprovider",
             "-p",
             "no:xdist",
+            "-o",
+            f"pythonpath={tmp_path / 'src'}",
         ],
         cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=2 * PLANT_SECONDS,
     )  # fmt: skip
@@ -184,7 +190,7 @@ CONTROLS: dict[str, tuple[str, str, Mutant]] = {
     "backslash-postgresql-on": ("postgresql", "on", NEVER_ESCAPES),
     "backslash-postgresql-off": ("postgresql", "off", NEVER_ESCAPES),
     "backslash-mysql": (
-        "mysql84",
+        "mariadb",
         "NO_BACKSLASH_ESCAPES",
         Mutant(
             "session = tuple(r for rules in rule_sets for r in _session_readings(rules)) if backslash else ()",

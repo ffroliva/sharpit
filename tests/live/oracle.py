@@ -52,6 +52,8 @@ HAND_ROWS = (  # no seed made these. The server's answer decides each, as with e
         ServerRow(_NO_BACKSLASH, s, "NO_BACKSLASH_ESCAPES", "BACKSLASHVALUE", None, 0)
         for s in ("my84", "my80", "maria")
     ),
+    # MariaDB's NBE-only parting witness survives the general backslash cut.
+    ServerRow("SELECT '\\'\\', 'ZQXJKV'", "maria", "NO_BACKSLASH_ESCAPES", "ZQXJKV", None, 0),
     ServerRow("SELECT 1 /*! , 'BANGVALUE' */", "my84", "", "BANGVALUE", None, 0),
     ServerRow("SELECT 1 /*! , 'BANGVALUE' */", "my80", "", "BANGVALUE", None, 0),
     ServerRow("SELECT 1 /*! , 'BANGVALUE' */", "maria", "", "BANGVALUE", None, 0),
