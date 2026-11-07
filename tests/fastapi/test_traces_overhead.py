@@ -28,7 +28,7 @@ def _round(processor: otel.SharpitSpanProcessor) -> int:
 
 
 def test_on_end_overhead_budget():
-    buffer = SpanBuffer(Masker(Exposure.MASKED, True), capacity=1000)
+    buffer = SpanBuffer(Masker(Exposure.MASKED, True), application=lambda: None, capacity=1000)
     idle, armed = otel.SharpitSpanProcessor(), otel.SharpitSpanProcessor()
     armed.sinks = (buffer,)
     result = paired(lambda: _round(idle), lambda: _round(armed), ROUNDS)

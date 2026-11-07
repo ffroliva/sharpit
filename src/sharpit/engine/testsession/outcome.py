@@ -114,13 +114,15 @@ def _combine_sources(parts: Sequence[SessionFacts], untraced: set[str], engines:
     return list(by_name.values())
 
 
-def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED"]:
-    """FAILED over UNKNOWN over SKIPPED over PASSED (R14); no status at all is PASSED."""
+def _worst(statuses: Iterable[str]) -> Literal["PASSED", "FAILED", "UNKNOWN", "SKIPPED", "PARTIAL"]:
+    """FAILED over UNKNOWN over PARTIAL over SKIPPED over PASSED (R14); no status at all is PASSED."""
     present = set(statuses)
     if "FAILED" in present:
         return "FAILED"
     if "UNKNOWN" in present:
         return "UNKNOWN"
+    if "PARTIAL" in present:
+        return "PARTIAL"
     return "SKIPPED" if "SKIPPED" in present else "PASSED"
 
 
@@ -132,7 +134,9 @@ def _merge_group(advisor: str, app: str | None, runs: list[AdvisorRun]) -> Advis
     chosen = next((r for r in runs if r.status == status), runs[0])
     reason = next((run.reason for run in runs if run.status == status and run.reason is not None), chosen.reason)
     if status == "FAILED" and reason is None:  # an UNKNOWN worker beside a complete FAILED one stays visible
-        reason = next((run.reason for run in runs if run.status == "UNKNOWN" and run.reason is not None), None)
+        reason = next(
+            (run.reason for run in runs if run.status in ("UNKNOWN", "PARTIAL") and run.reason is not None), None
+        )
     return AdvisorRun(advisor, status, tuple(findings.values()), chosen.evidence, reason, app)
 
 
@@ -184,7 +188,16 @@ def merge(parts: Sequence[SessionFacts], missing_workers: Sequence[str]) -> Merg
     attributed = attributed_queries(tests)
     unattributed = sum(p.unattributed for p in parts)
     warnings: list[str] = []
-    for line in [*(w for p in parts for w in p.warnings), *(x for s in sources for x in s["limitations"])]:
+    for line in [
+        *(w for p in parts for w in p.warnings),
+        *(x for s in sources for x in s["limitations"]),
+        *(
+            x
+            for r in runs
+            if r.status in ("PARTIAL", "FAILED")
+            for x in (r.evidence.get("limitations") or ([r.reason] if r.status == "PARTIAL" and r.reason else []))
+        ),
+    ]:
         if line not in warnings:
             warnings.append(line)
     if attributed + unattributed == 0:

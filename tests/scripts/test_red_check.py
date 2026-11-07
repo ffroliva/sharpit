@@ -10,7 +10,7 @@ import os
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -135,6 +135,20 @@ def _project(root: Path) -> Path:
     (root / "scripts" / "red_scripts_helper.py").write_text(HELPER.format("scripts"), encoding="utf-8")
     (root / "pytest.ini").write_text("[pytest]\npythonpath = scripts tests\n", encoding="utf-8")
     return root
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _bare_nested_pytest() -> Iterator[None]:
+    """The throwaway project needs no pytest plugin; autoloading seven of them costs each nested pytest ~0.7 s."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+        yield
+
+
+def test_nested_pytest_autoloads_no_plugins(project: Path) -> None:
+    # bound to a name so a failure prints one value, not the whole environment
+    autoload_off = red_check._env(project).get("PYTEST_DISABLE_PLUGIN_AUTOLOAD")
+    assert autoload_off == "1"
 
 
 @pytest.fixture(scope="module")
