@@ -63,7 +63,7 @@ class SecurityEventBuffer:
 
     def __init__(self, max_logs: int, token: str | None = None, masker: Masker | None = None) -> None:
         self.max_logs = clamp_max_logs(max_logs)
-        self._strict = Masker(Exposure.MASKED, True, token)
+        self._strict = Masker(Exposure.MASKED, True, token, identity_key=masker.identity_key if masker else None)
         self._masker = masker or self._strict
         self.changes = ChangeStream()
         self._events: deque[SecurityEvent] = deque(maxlen=self.max_logs)

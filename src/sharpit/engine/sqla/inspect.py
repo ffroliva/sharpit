@@ -11,6 +11,8 @@ from typing import Any, cast
 
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.masking import Masker
+from sharpit.engine.sqla.dialect_source import engine_dialect
+from sharpit.engine.sqltext import Dialect
 
 _clock = time.monotonic  # test seam: the catalog budget's clock
 
@@ -181,7 +183,8 @@ class EngineRegistry:
     def __init__(self, masker: Masker) -> None:
         self._masker = masker
         self._names: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._snapshot: tuple[tuple[weakref.ReferenceType[Any], str], ...] = ()
 
     def add(self, engine: object) -> None:
         """Register a sync ``Engine`` or an ``AsyncEngine`` (its ``sync_engine``); anything else is ignored."""
@@ -202,15 +205,23 @@ class EngineRegistry:
                 n += 1
                 unique = f"{name}#{n}"
             self._names[sync] = unique
+            self._snapshot = tuple((weakref.ref(key), value) for key, value in self._names.items())
 
     def holds(self, engine: object) -> bool:
-        with self._lock:
-            return engine in self._names
+        return any(ref() is engine for ref, _ in self._snapshot)
 
     def engines(self) -> list[tuple[str, Any]]:
         """``(display name, Engine)`` in registration order."""
-        with self._lock:
-            return [(name, engine) for engine, name in self._names.items()]
+        return [(name, engine) for ref, name in self._snapshot if (engine := ref()) is not None]
+
+    def has_engines(self) -> bool:
+        return any(ref() is not None for ref, _ in self._snapshot)
 
     def names(self) -> list[str]:
         return [name for name, _ in self.engines()]
+
+    def family(self) -> Dialect | None:
+        """The live engines' current dialects, with no lock: ``engine.dialect`` can change after ``add``."""
+        families = {engine_dialect(engine) for _, engine in self.engines()}
+        family = families.pop() if len(families) == 1 else None
+        return None if family is Dialect.UNSUPPORTED else family

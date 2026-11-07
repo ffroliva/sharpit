@@ -95,7 +95,8 @@ keyword is the same name in lower case.
 | `SHARPIT_EXPOSE_VALUES` | `expose_values` | `MASKED` | `MASKED`, `METADATA_ONLY` or `FULL` (logs a warning) |
 | `SHARPIT_MASK_SECRETS` | `mask_secrets` | `true` | mask secret-looking names and values |
 | `SHARPIT_SHOW_BANNER` | `show_banner` | `true` | print the startup banner to stderr |
-| `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | where dismissals are stored (created on first write) |
+| `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | holds `sharpit.yml` (dismissals, created on first write) and `identity.key` (created by an active `install()` or `pytest --sharpit`, with a `.gitignore` naming it) |
+| `SHARPIT_IDENTITY_KEY` | `identity_key` | unset | optional shared UTF-8 key (at least 32 bytes) for stable SQLite statement identities, overriding `identity.key`; masked by value in every exposure, `FULL` included. One repeated character warns |
 | `SHARPIT_VULNERABILITIES_OSV_ENABLED` | `vulnerabilities_osv_enabled` | `true` | allow the OSV scan |
 | `SHARPIT_MCP_ENABLED` | `mcp_enabled` | `OFF` | turn on the read-only MCP endpoint |
 | `SHARPIT_PANELS_<ID>_ENABLED` / `_READ_ONLY` | `panels={"<id>": {...}}` | on / off | per-panel switches, e.g. `SHARPIT_PANELS_LOGGERS_READ_ONLY=true` |
@@ -263,7 +264,9 @@ dismissedRules:
 - A rule ID dismisses every finding for that rule.
 - A fingerprint dismisses only that exact occurrence.
 - The web console UI also provides a "dismiss this finding" action in the REST API details drawer.
-- Committing `sharpit.yml` to version control establishes the accepted baseline for CI gates.
+- Committing `sharpit.yml` to version control establishes the accepted baseline for CI gates. Commit that file only:
+  `identity.key`, beside it, is a local secret and stays out (the `.gitignore` sharpit writes next to it says so). On
+  SQLite a fingerprint depends on the key, so a shared baseline needs one `SHARPIT_IDENTITY_KEY` across CI and laptops.
 
 `GET/POST/DELETE {api}/dismissed-findings` keep per-finding dismissals in the same file under `dismissedFindings:`,
 next to `dismissedRules:`. POST and DELETE take `{"ruleId": "...", "identity": "...", "note": "optional, at most 200

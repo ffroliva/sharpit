@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 
+from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.sqltext import Dialect
 
 MAX_QUERY_TEXT_LENGTH = 400
 
@@ -29,6 +31,7 @@ _TOKEN = re.compile(
     r"|(?P<comment>--[^\n]*|/\*)",  # a block comment's end is found by _comment_end: they nest
     re.DOTALL,
 )
+_PLAIN_NAME = re.compile(r'"[A-Za-z0-9_$.]+"')
 _COMMENT_MARK = re.compile(r"/\*|\*/")
 _WHITESPACE = re.compile(r"\s+")
 
@@ -69,6 +72,9 @@ def _mask_token(m: re.Match[str]) -> str:
         before = m.string[: m.start()].rstrip()[-1:]
         # a lone digit right after a keyword (``SELECT 1``, ``LIMIT 5``) is not a value worth hiding
         return m.group() if len(m.group()) == 1 and before.isalpha() else MASK
+    # spec A1: a ``"`` run no name would be spelled like hides here too, as the lexer hides it on every other surface
+    if m.group().startswith('"') and not _PLAIN_NAME.fullmatch(m.group()):
+        return f"'{MASK}'"
     return m.group()
 
 
@@ -91,6 +97,8 @@ def query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUERY_TEXT
         return None
     if is_metadata_only(masker):  # the text exists but is withheld
         return MASK
+    if any(ord(char) > 127 for char in sql) and "$" in sql:
+        return truncate(statement_text(masker, sql, Dialect.POSTGRESQL), max_length)
     masked = masker.mask_text(sql) or MASK
     # literals and comments are values: masked exactly when the masker masks a secret value (not FULL, not mask-off)
     if masker.mask("password", "x")[1]:
