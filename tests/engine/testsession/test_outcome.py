@@ -241,11 +241,19 @@ def test_driver_name_table(module: str, engines: set[str], covered: bool) -> Non
     assert (reasons == []) is covered
 
 
-def test_status_advisor_unknown() -> None:
+def test_status_advisor_partial_passes_with_warning() -> None:
     limited = _run([], limitations=["an opaque mounted app"])
+    status, reasons = _legacy_status(part(advisor_runs=[limited]))
+    assert (status, reasons) == ("pass", [])
+
+
+def test_status_advisor_assessed_nothing_is_unknown() -> None:
+    limited = AdvisorRun.of(
+        "rest-api", [], {"usable": False, "coverageComplete": False, "limitations": ["nothing readable"]}
+    )
     assert _legacy_status(part(advisor_runs=[limited])) == (
         "unknown",
-        ["advisor 'rest-api' could not assess: an opaque mounted app"],
+        ["advisor 'rest-api' could not assess: nothing readable"],
     )
 
 
@@ -275,13 +283,23 @@ def test_status_exception_source_lost_unknown() -> None:
     assert _legacy_status(lost) == ("unknown", ["exception capture was lost: no hook"])
 
 
-def test_merge_advisor_per_app_unknown_wins() -> None:
+def test_merge_advisor_per_app_partial_wins_over_passed() -> None:
     limited = _run([], limitations=["partial"], app="A#1")
     merged = merge(
         [part("gw0", advisor_runs=[passed_run("A#1"), passed_run("B#2")]), part("gw1", advisor_runs=[limited])], []
     )
     by_app = {run.app: run.status for run in merged.advisor_runs}
-    assert by_app == {"A#1": "UNKNOWN", "B#2": "PASSED"}
+    assert by_app == {"A#1": "PARTIAL", "B#2": "PASSED"}
+
+
+def test_merge_advisor_per_app_unknown_wins_over_partial() -> None:
+    partial_run = _run([], limitations=["partial"], app="A#1")
+    unknown_run = AdvisorRun.of(
+        "rest-api", [], {"usable": False, "coverageComplete": False, "limitations": ["opaque"]}, app="A#1"
+    )
+    merged = merge([part("gw0", advisor_runs=[partial_run]), part("gw1", advisor_runs=[unknown_run])], [])
+    by_app = {run.app: run.status for run in merged.advisor_runs}
+    assert by_app == {"A#1": "UNKNOWN"}
 
 
 def test_merge_advisor_findings_deduplicated_by_fingerprint() -> None:
@@ -372,7 +390,7 @@ def _incomplete_pair(app_b: str, worker_b: str) -> Any:
         app="App#A",
     )
     unknown = AdvisorRun.of(
-        "rest-api", [], {"usable": True, "coverageComplete": False, "limitations": ["app b errored"]}, app=app_b
+        "rest-api", [], {"usable": False, "coverageComplete": False, "limitations": ["app b errored"]}, app=app_b
     )
     return session_status(
         merge([part(advisor_runs=[failed]), part(worker_b, advisor_runs=[unknown])], []),

@@ -13,6 +13,7 @@ import sys
 import textwrap
 import threading
 from collections.abc import Callable, Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -31,6 +32,7 @@ from sharpit.engine.collectors.health import (
     node,
 )
 from sharpit.engine.masking import MASK
+from sharpit.engine.sqltext import Dialect
 from sharpit.fastapi.adapter import SharpitHandle
 
 SECRET = "hunter2"
@@ -316,6 +318,26 @@ def test_engine_ping_not_traced(tmp_path: Any):
     recorder = _HANDLES[-1].context.capture.sql_trace
     assert recorder is not None
     assert recorder.report([])["entries"] == []
+
+
+@pytest.mark.needs_sqlalchemy
+def test_health_failure_uses_the_application_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine.collectors import health as health_module
+
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine(
+        "postgresql+pg8000://db/app", module=SimpleNamespace(paramstyle="format", __version__="1.30.5")
+    )
+    service = _service(engines=[engine])
+    families: list[Dialect | None] = []
+
+    def observe(_error: BaseException, application: Callable[[], Dialect | None]) -> Dialect:
+        families.append(application())
+        return Dialect.POSTGRESQL
+
+    monkeypatch.setattr(health_module, "exception_dialect", observe)
+    service._failure(RuntimeError("failed"))  # noqa: SLF001
+    assert families == [Dialect.POSTGRESQL]
 
 
 @pytest.mark.needs_sqlalchemy

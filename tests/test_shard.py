@@ -10,7 +10,11 @@ import _shard
 from _shard import shard_of
 
 TESTS = Path(__file__).parent
-FILES = [p.relative_to(TESTS.parent).as_posix() for p in TESTS.rglob("test_*.py")]
+FILES = [  # tests/live (the CI live job) and _shard.OWN_JOB (the masking-gates job) belong to no shard
+    p.relative_to(TESTS.parent).as_posix()
+    for p in TESTS.rglob("test_*.py")
+    if p.relative_to(TESTS).parts[0] != "live" and p.relative_to(TESTS.parent).as_posix() not in _shard.OWN_JOB
+]
 
 
 def _collected(pytester: pytest.Pytester) -> set[str]:
@@ -53,10 +57,12 @@ def test_a_malformed_shard_spec_is_an_error_not_the_whole_suite(
 
 
 WEIGHTS = json.loads((TESTS / "shard_weights.json").read_text(encoding="utf-8"))
+CI = (TESTS.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+CI_COUNTS = sorted({int(n) for line in CI.splitlines() if "shard:" in line for n in re.findall(r"\d+/(\d+)", line)})
 
 
 @pytest.mark.parametrize("platform", ["linux", "win32"])
-@pytest.mark.parametrize("n", [2, 3, 4])
+@pytest.mark.parametrize("n", CI_COUNTS)  # the shard counts ci.yml really runs
 def test_measured_weights_balance_the_shards_within_the_longest_first_bound(platform: str, n: int) -> None:
     weights: dict[str, float] = WEIGHTS[platform]
     loads = [0.0] * n
@@ -77,11 +83,8 @@ def test_almost_every_real_test_file_has_a_measured_weight(platform: str) -> Non
 
 # A CPU-heavy file competes with a paired on/off timing test for the same cores; the budget tests then fail on the
 # shard that holds both (security-logs hook, 2.624 µs against 2.000 µs with noise 0.661 µs, run 41889040828).
-HEAVY_SECONDS = 30.0  # measured test seconds; the two masking gates below are not measured yet
-UNMEASURED_HEAVY = (
-    "tests/masking/test_statement_surfaces.py",
-    "tests/masking/test_gates_bite.py",
-)
+HEAVY_SECONDS = 30.0  # measured test seconds; every heavy file is measured now (the two gates left for their own job)
+UNMEASURED_HEAVY: tuple[str, ...] = ()
 TIMING_FILES = sorted(
     p.relative_to(TESTS.parent).as_posix()
     for p in TESTS.rglob("test_*.py")
@@ -95,7 +98,7 @@ def test_the_overhead_budget_files_are_found() -> None:
 
 
 @pytest.mark.parametrize("platform", ["linux", "win32"])
-@pytest.mark.parametrize("n", [2, 3, 4, 5])
+@pytest.mark.parametrize("n", CI_COUNTS)
 def test_no_shard_holds_both_a_heavy_file_and_an_overhead_budget_file(platform: str, n: int) -> None:
     heavy = {f for f, seconds in WEIGHTS[platform].items() if seconds >= HEAVY_SECONDS} | set(UNMEASURED_HEAVY)
     heavy_shards = {shard_of(f, n, platform) for f in heavy}
@@ -103,6 +106,16 @@ def test_no_shard_holds_both_a_heavy_file_and_an_overhead_budget_file(platform: 
     assert not heavy_shards & timing_shards, f"shards {sorted(heavy_shards & timing_shards)} hold both"
 
 
-def test_the_unmeasured_heavy_masking_gates_are_named_in_the_shard_code() -> None:
+def test_the_shard_counts_are_read_from_ci_yml() -> None:
+    assert CI_COUNTS == [3, 4, 5]
+
+
+def test_the_unmeasured_heavy_files_are_named_in_the_shard_code() -> None:
     assert set(UNMEASURED_HEAVY) <= set(_shard.HEAVY_PATHS)
     assert _shard.timing_files() == set(TIMING_FILES)
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_the_weights_hold_no_file_that_runs_in_its_own_job(platform: str) -> None:
+    """An own-job file is no shard's cost: a weight for it would be charged to a shard that never runs it."""
+    assert not set(_shard.OWN_JOB) & set(WEIGHTS[platform])

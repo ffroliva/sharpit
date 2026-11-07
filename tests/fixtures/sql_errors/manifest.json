@@ -1,0 +1,2794 @@
+[
+ {
+  "case": "unique_params",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/unique_params.txt",
+  "marker": "mk8f6e5d57b0",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "hide_parameters",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/hide_parameters.txt",
+  "marker": "mk5d0944b8f4",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_inline_literal",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/syntax_inline_literal.txt",
+  "marker": "mk63f44d9b66",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_mid_literal",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/syntax_mid_literal.txt",
+  "marker": "mk2a6995421f",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_syntax",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/bracket_syntax.txt",
+  "marker": "mk42d6a42112",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_block",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/bracket_block.txt",
+  "marker": "mk1960e30a68",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_param",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/closer_in_param.txt",
+  "marker": "mke9c7e05d88",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_literal",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/closer_in_literal.txt",
+  "marker": "mkc0b8e1dcc7",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_param",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/sql_marker_in_param.txt",
+  "marker": "mk820b9a7d38",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_literal",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/sql_marker_in_literal.txt",
+  "marker": "mk7251f1b5df",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "multiline_literal",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/multiline_literal.txt",
+  "marker": "mk94587e98e2",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "crlf",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/crlf.txt",
+  "marker": "mk49514ff438",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_statement",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/long_statement.txt",
+  "marker": "mka2c0181048",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_params",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/long_params.txt",
+  "marker": "mk749d92954b",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "many_params",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/many_params.txt",
+  "marker": "mkcd6b8e446b",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/engine_log.txt",
+  "marker": "mk5e90002737",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log_long",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/engine_log_long.txt",
+  "marker": "mk3491138079",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_unique",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/raw_unique.txt",
+  "marker": "mkb248db3e77",
+  "marker_in_text": false,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_syntax",
+  "driver": "sqlite3",
+  "driver_version": "python 3.13.7, sqlite 3.50.4",
+  "file": "sqlite3/raw_syntax.txt",
+  "marker": "mk168eb76560",
+  "marker_in_text": false,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "unique_params",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/unique_params.txt",
+  "marker": "mk830f1dda89",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "hide_parameters",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/hide_parameters.txt",
+  "marker": "mk399e35d3d5",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_inline_literal",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/syntax_inline_literal.txt",
+  "marker": "mk924f910d61",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_mid_literal",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/syntax_mid_literal.txt",
+  "marker": "mk24b3295ad2",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_syntax",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/bracket_syntax.txt",
+  "marker": "mk2c9e6d7260",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_block",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/bracket_block.txt",
+  "marker": "mk0fa5e8acf6",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_param",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/closer_in_param.txt",
+  "marker": "mk1c12f913c8",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_literal",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/closer_in_literal.txt",
+  "marker": "mk79d9f6f5dd",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_param",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/sql_marker_in_param.txt",
+  "marker": "mk84bd4a9be0",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_literal",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/sql_marker_in_literal.txt",
+  "marker": "mkfb072a0582",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "multiline_literal",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/multiline_literal.txt",
+  "marker": "mke1f1d76d9b",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "crlf",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/crlf.txt",
+  "marker": "mk748d9a4a36",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_statement",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/long_statement.txt",
+  "marker": "mk95de316a89",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_params",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/long_params.txt",
+  "marker": "mkc643ac8e8f",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "many_params",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/many_params.txt",
+  "marker": "mkcc59a30c39",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/engine_log.txt",
+  "marker": "mk419a5862b2",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log_long",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/engine_log_long.txt",
+  "marker": "mk35606fe424",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_unique",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/raw_unique.txt",
+  "marker": "mk5e9f2c9c2a",
+  "marker_in_text": false,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_syntax",
+  "driver": "aiosqlite",
+  "driver_version": "0.22.1",
+  "file": "aiosqlite/raw_syntax.txt",
+  "marker": "mk3b1fed1800",
+  "marker_in_text": false,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "3.50.4",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "unique_params",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/unique_params.txt",
+  "marker": "mk77c042bac1",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "hide_parameters",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/hide_parameters.txt",
+  "marker": "mk624757f1dd",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_inline_literal",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/syntax_inline_literal.txt",
+  "marker": "mk8f55c7220e",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_mid_literal",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/syntax_mid_literal.txt",
+  "marker": "mkf97c5d0ae3",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_syntax",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/bracket_syntax.txt",
+  "marker": "mk117a0b2281",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_block",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/bracket_block.txt",
+  "marker": "mkaec93e3ea2",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_param",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/closer_in_param.txt",
+  "marker": "mk33ffbb7773",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_literal",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/closer_in_literal.txt",
+  "marker": "mk315691758a",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_param",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/sql_marker_in_param.txt",
+  "marker": "mkf7328d1048",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_literal",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/sql_marker_in_literal.txt",
+  "marker": "mkf3ab2870b3",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "multiline_literal",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/multiline_literal.txt",
+  "marker": "mk1d73dd20ed",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "crlf",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/crlf.txt",
+  "marker": "mkaa5d733a9f",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_statement",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/long_statement.txt",
+  "marker": "mkbd15875dd1",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_params",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/long_params.txt",
+  "marker": "mkd8e0499703",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "many_params",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/many_params.txt",
+  "marker": "mkfc5b4b6b2f",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/engine_log.txt",
+  "marker": "mkf0bba283e1",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12",
+   "log record 13",
+   "log record 14"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log_long",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/engine_log_long.txt",
+  "marker": "mkcf3fafb0e4",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "pg_line_hint",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/pg_line_hint.txt",
+  "marker": "mk5af1846c70",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "pg_context",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/pg_context.txt",
+  "marker": "mk50116cb8d0",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_unique",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/raw_unique.txt",
+  "marker": "mk2886874921",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_syntax",
+  "driver": "psycopg2",
+  "driver_version": "2.9.13",
+  "file": "psycopg2/raw_syntax.txt",
+  "marker": "mkc3f6fa7c0f",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "unique_params",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/unique_params.txt",
+  "marker": "mk6805210321",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "hide_parameters",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/hide_parameters.txt",
+  "marker": "mk920d616c0d",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_inline_literal",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/syntax_inline_literal.txt",
+  "marker": "mkbd43a0677a",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_mid_literal",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/syntax_mid_literal.txt",
+  "marker": "mkd2aa079d5d",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_syntax",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/bracket_syntax.txt",
+  "marker": "mk241bdb8dd0",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_block",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/bracket_block.txt",
+  "marker": "mk482bbad365",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_param",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/closer_in_param.txt",
+  "marker": "mk43a00e4c0e",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_literal",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/closer_in_literal.txt",
+  "marker": "mk7e5dc2e287",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_param",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/sql_marker_in_param.txt",
+  "marker": "mkff9df693fe",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_literal",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/sql_marker_in_literal.txt",
+  "marker": "mkd97e5549c0",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "multiline_literal",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/multiline_literal.txt",
+  "marker": "mk1f21bba29b",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "crlf",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/crlf.txt",
+  "marker": "mk7195bae3e4",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_statement",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/long_statement.txt",
+  "marker": "mk4789d37938",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_params",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/long_params.txt",
+  "marker": "mk0f33eec8c3",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "many_params",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/many_params.txt",
+  "marker": "mk99c25dce12",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/engine_log.txt",
+  "marker": "mk5ce61d1cf0",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12",
+   "log record 13",
+   "log record 14"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log_long",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/engine_log_long.txt",
+  "marker": "mk2d80081f75",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "pg_line_hint",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/pg_line_hint.txt",
+  "marker": "mk6cc99a8f58",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "pg_context",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/pg_context.txt",
+  "marker": "mk57e70b75e4",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_unique",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/raw_unique.txt",
+  "marker": "mk16a3a9ce67",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_syntax",
+  "driver": "psycopg",
+  "driver_version": "3.3.6",
+  "file": "psycopg/raw_syntax.txt",
+  "marker": "mk09202b46c9",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "unique_params",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/unique_params.txt",
+  "marker": "mk3316bb2a91",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "hide_parameters",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/hide_parameters.txt",
+  "marker": "mkff5e6daf3e",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_inline_literal",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/syntax_inline_literal.txt",
+  "marker": "mk8afe023967",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_mid_literal",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/syntax_mid_literal.txt",
+  "marker": "mk6eb85e2902",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_syntax",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/bracket_syntax.txt",
+  "marker": "mk6d28a52238",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_block",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/bracket_block.txt",
+  "marker": "mk1a900ac46c",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_param",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/closer_in_param.txt",
+  "marker": "mkf489521253",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_literal",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/closer_in_literal.txt",
+  "marker": "mk6ae3a00ebb",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_param",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/sql_marker_in_param.txt",
+  "marker": "mkbcd8f75534",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_literal",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/sql_marker_in_literal.txt",
+  "marker": "mk07dd150b1c",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "multiline_literal",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/multiline_literal.txt",
+  "marker": "mke8b2a67437",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "crlf",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/crlf.txt",
+  "marker": "mkbf3fe4cd1f",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_statement",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/long_statement.txt",
+  "marker": "mk8d98ed3b67",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_params",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/long_params.txt",
+  "marker": "mk9b66c5dba8",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "many_params",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/many_params.txt",
+  "marker": "mkd63775ae36",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/engine_log.txt",
+  "marker": "mk79919b4bf3",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12",
+   "log record 13",
+   "log record 14"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log_long",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/engine_log_long.txt",
+  "marker": "mk5c08f72faf",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "pg_line_hint",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/pg_line_hint.txt",
+  "marker": "mkd556da1c27",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "pg_context",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/pg_context.txt",
+  "marker": "mk38f2ef4020",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_unique",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/raw_unique.txt",
+  "marker": "mkbfcfb8db5c",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_syntax",
+  "driver": "asyncpg",
+  "driver_version": "0.32.0",
+  "file": "asyncpg/raw_syntax.txt",
+  "marker": "mk6d17dd5d5f",
+  "marker_in_text": false,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "18.2",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "unique_params",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/unique_params.txt",
+  "marker": "mkf8fb9cc6d4",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "hide_parameters",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/hide_parameters.txt",
+  "marker": "mkb1b155e799",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_inline_literal",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/syntax_inline_literal.txt",
+  "marker": "mkb70246b556",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_mid_literal",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/syntax_mid_literal.txt",
+  "marker": "mk7b7b960b2c",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_syntax",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/bracket_syntax.txt",
+  "marker": "mk40f8122a66",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_block",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/bracket_block.txt",
+  "marker": "mkc29b2f80b1",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_param",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/closer_in_param.txt",
+  "marker": "mk40432b3b74",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_literal",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/closer_in_literal.txt",
+  "marker": "mk400f466e03",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_param",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/sql_marker_in_param.txt",
+  "marker": "mkf4912e8c82",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_literal",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/sql_marker_in_literal.txt",
+  "marker": "mk8344925a80",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "multiline_literal",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/multiline_literal.txt",
+  "marker": "mk652d8779d5",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "crlf",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/crlf.txt",
+  "marker": "mk0ad02bac05",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_statement",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/long_statement.txt",
+  "marker": "mka2cc94be35",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_params",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/long_params.txt",
+  "marker": "mkdf4985e3a0",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "many_params",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/many_params.txt",
+  "marker": "mk697c121db9",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/engine_log.txt",
+  "marker": "mk10b994525d",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12",
+   "log record 13",
+   "log record 14"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log_long",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/engine_log_long.txt",
+  "marker": "mkf851fbb478",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "mysql_no_backslash_param",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/mysql_no_backslash_param.txt",
+  "marker": "mkfe9cf69834",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "mysql_no_backslash_literal",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/mysql_no_backslash_literal.txt",
+  "marker": "mk106e006923",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_unique",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/raw_unique.txt",
+  "marker": "mk163e14bc78",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_syntax",
+  "driver": "pymysql",
+  "driver_version": "1.2.3",
+  "file": "pymysql/raw_syntax.txt",
+  "marker": "mk34b10d2b36",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "unique_params",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/unique_params.txt",
+  "marker": "mkd0b5ec35e6",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "hide_parameters",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/hide_parameters.txt",
+  "marker": "mkb3b9dfb1e5",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_inline_literal",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/syntax_inline_literal.txt",
+  "marker": "mk2b06dac544",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_mid_literal",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/syntax_mid_literal.txt",
+  "marker": "mk915caac084",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_syntax",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/bracket_syntax.txt",
+  "marker": "mk5f18d9a52b",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_block",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/bracket_block.txt",
+  "marker": "mkb0cda42a9f",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_param",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/closer_in_param.txt",
+  "marker": "mk8ae492aa6c",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_literal",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/closer_in_literal.txt",
+  "marker": "mk4c4161db20",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_param",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/sql_marker_in_param.txt",
+  "marker": "mkde69fa4f71",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_literal",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/sql_marker_in_literal.txt",
+  "marker": "mkf4c5f7470c",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "multiline_literal",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/multiline_literal.txt",
+  "marker": "mkc91260b7b6",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "crlf",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/crlf.txt",
+  "marker": "mk65f97fab9c",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_statement",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/long_statement.txt",
+  "marker": "mkdd95579c3b",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_params",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/long_params.txt",
+  "marker": "mk08936394a1",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "many_params",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/many_params.txt",
+  "marker": "mk07da1c4371",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/engine_log.txt",
+  "marker": "mkd60a89e53e",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12",
+   "log record 13",
+   "log record 14"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log_long",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/engine_log_long.txt",
+  "marker": "mk4d02bcec65",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "mysql_no_backslash_param",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/mysql_no_backslash_param.txt",
+  "marker": "mk9bd38daad6",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "mysql_no_backslash_literal",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/mysql_no_backslash_literal.txt",
+  "marker": "mk0978919730",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_unique",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/raw_unique.txt",
+  "marker": "mkd66b7d4f60",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_syntax",
+  "driver": "mysqlclient",
+  "driver_version": "2.3.0",
+  "file": "mysqlclient/raw_syntax.txt",
+  "marker": "mk327f320e8d",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "unique_params",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/unique_params.txt",
+  "marker": "mka23ebe078f",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "hide_parameters",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/hide_parameters.txt",
+  "marker": "mk0f5717c3f4",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_inline_literal",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/syntax_inline_literal.txt",
+  "marker": "mk042995e9d2",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "syntax_mid_literal",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/syntax_mid_literal.txt",
+  "marker": "mk92025dd56f",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_syntax",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/bracket_syntax.txt",
+  "marker": "mk204bdd1006",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "bracket_block",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/bracket_block.txt",
+  "marker": "mkcd6367fabe",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_param",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/closer_in_param.txt",
+  "marker": "mk25c905f387",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "closer_in_literal",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/closer_in_literal.txt",
+  "marker": "mka5d3b4e50c",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_param",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/sql_marker_in_param.txt",
+  "marker": "mkec8c710293",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "sql_marker_in_literal",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/sql_marker_in_literal.txt",
+  "marker": "mk7f5d8e6c86",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "multiline_literal",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/multiline_literal.txt",
+  "marker": "mk5e84e16303",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "crlf",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/crlf.txt",
+  "marker": "mkb19327ff87",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_statement",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/long_statement.txt",
+  "marker": "mk9c7aec89a6",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "long_params",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/long_params.txt",
+  "marker": "mk7409131a33",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "many_params",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/many_params.txt",
+  "marker": "mk966b548d4d",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/engine_log.txt",
+  "marker": "mk522d91d318",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12",
+   "log record 13",
+   "log record 14"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "engine_log_long",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/engine_log_long.txt",
+  "marker": "mk162c2cbac0",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback",
+   "log record 1",
+   "log record 2",
+   "log record 3",
+   "log record 4",
+   "log record 5",
+   "log record 6",
+   "log record 7",
+   "log record 8",
+   "log record 9",
+   "log record 10",
+   "log record 11",
+   "log record 12"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "mysql_no_backslash_param",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/mysql_no_backslash_param.txt",
+  "marker": "mk8a2a11e82b",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "mysql_no_backslash_literal",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/mysql_no_backslash_literal.txt",
+  "marker": "mk2124b06db2",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "str(exc.orig)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_unique",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/raw_unique.txt",
+  "marker": "mk2e09def2a8",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ },
+ {
+  "case": "raw_syntax",
+  "driver": "aiomysql",
+  "driver_version": "0.3.2",
+  "file": "aiomysql/raw_syntax.txt",
+  "marker": "mk481f6b2e93",
+  "marker_in_text": true,
+  "sections": [
+   "types",
+   "str(exc)",
+   "traceback"
+  ],
+  "server_version": "8.4.10",
+  "sqlalchemy_version": "2.1.6"
+ }
+]

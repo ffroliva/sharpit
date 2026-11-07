@@ -2,8 +2,6 @@
 
 import re
 
-import pytest
-
 from sharpit.engine.advisors.findings import AdvisorRun, Finding, severity_counts_of
 from sharpit.engine.advisors.report import evidence
 from sharpit.engine.advisors.rules import SEVERITIES, Severity
@@ -74,9 +72,9 @@ def test_run_medium_only_passes_with_high_gate():
     assert AdvisorRun.of("rest-api", [_finding("MEDIUM")], _complete()).status == "PASSED"
 
 
-def test_run_unknown_when_coverage_incomplete():
+def test_run_partial_when_coverage_incomplete():
     run = AdvisorRun.of("rest-api", [], evidence(True, False, ["router x could not be read"]))
-    assert run.status == "UNKNOWN"
+    assert run.status == "PARTIAL"
     assert run.reason == "router x could not be read"
 
 
@@ -89,14 +87,18 @@ def test_run_confirmed_empty_passes():
     assert AdvisorRun.of("rest-api", [], evidence(False, True, [])).status == "PASSED"
 
 
-@pytest.mark.parametrize("scan_status", ["PARTIAL", "ERROR"])
-def test_run_partial_and_error_are_unknown(scan_status: str):
-    assert AdvisorRun.of("rest-api", [], _complete(), scan_status=scan_status).status == "UNKNOWN"
+def test_run_partial_when_scan_status_partial():
+    assert AdvisorRun.of("rest-api", [], _complete(), scan_status="PARTIAL").status == "PARTIAL"
 
 
-def test_run_unknown_reason_fallback():
+def test_run_unknown_when_scan_status_error():
+    assert AdvisorRun.of("rest-api", [], _complete(), scan_status="ERROR").status == "UNKNOWN"
+
+
+def test_run_partial_reason_fallback():
     run = AdvisorRun.of("rest-api", [], _complete(), scan_status="PARTIAL")
     assert run.reason == "assessment evidence is incomplete"
+    assert run.status == "PARTIAL"
 
 
 def test_dismissed_finding_does_not_fail():

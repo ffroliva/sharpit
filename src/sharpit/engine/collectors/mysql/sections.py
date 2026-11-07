@@ -7,7 +7,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.collectors.mysql.limits import ReadBudget, RowLimits, read_one_past
 from sharpit.engine.collectors.mysql.queries import (
     CAPABILITIES_SQL,
@@ -26,6 +25,7 @@ from sharpit.engine.collectors.mysql.queries import (
 )
 from sharpit.engine.collectors.mysql.querytext import mysql_query_text
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import Dialect, error_text
 
 Dto = dict[str, Any]
 Row = dict[str, Any]
@@ -73,7 +73,7 @@ def section_dto(section_id: str, status: str, reason: str | None = None, rows: i
 
 
 def _reason(masker: Masker, exc: Exception) -> str:
-    return mask_error(masker, str(exc).strip(), mysql=True) or type(exc).__name__
+    return error_text(masker, exc, Dialect.MYSQL_FAMILY, known=True) or type(exc).__name__
 
 
 def _rows(conn: Any, sql: str) -> list[Row]:
@@ -282,7 +282,11 @@ def collect_replication(conn: Any, limits: RowLimits, data: DataSourceData, mask
                 "serviceState": r.get("service_state"),
                 "sourceUuid": r.get("source_uuid"),
                 "lastErrorNumber": r.get("last_error_number"),
-                "lastErrorMessage": masker.mask_text(r.get("last_error_message")),
+                "lastErrorMessage": (
+                    None
+                    if (message := r.get("last_error_message")) is None
+                    else error_text(masker, message, dialect=Dialect.MYSQL_FAMILY, known=True)
+                ),
                 "lastErrorTimestamp": r.get("last_error_timestamp"),
             }
             for r in rows
