@@ -22,9 +22,11 @@ _SPEC = pytest.StashKey[tuple[int, int]]()
 
 
 HEAVY_SECONDS = 30.0  # a file this costly (measured test seconds) competes with a timing test for the runner's cores
-HEAVY_PATHS = (  # CPU-heavy files not measured yet (about 720 CPU-s, and a bite gate): heavy from day one
+HEAVY_PATHS: tuple[str, ...] = ()  # CPU-heavy files not measured yet: heavy from day one (none: the table has them all)
+OWN_JOB = (  # each heavier than a shard ceiling alone (487, 386, 418 s): the CI job masking-gates runs them whole
+    "tests/masking/test_masking_scales_linearly.py",
     "tests/masking/test_statement_surfaces.py",
-    "tests/masking/test_gates_bite.py",
+    "tests/scripts/test_lane_gate.py",
 )
 _TIMING_CALL = re.compile(r"^\s+check_budget\(", re.MULTILINE)
 
@@ -95,4 +97,6 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool 
     if spec is None or not collection_path.is_file() or not collection_path.name.startswith("test_"):
         return None  # None, never False: False would override every other ignore rule
     rel = collection_path.relative_to(config.rootpath).as_posix()
+    if rel in OWN_JOB:
+        return True
     return True if shard_of(rel, spec[1]) != spec[0] else None

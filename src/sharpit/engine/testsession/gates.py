@@ -60,9 +60,14 @@ def _finding(
     observed: int | None = None,
     *,
     severity: Severity = "HIGH",
+    legacy_identity: str | None = None,
 ) -> Finding:
     fingerprint = Finding(rule_id, ADVISOR, severity, target, message, node_id, identity=identity).fingerprint
-    is_dismissed = fingerprint in dismissed or (rule_id, identity or target) in dismissed_pairs
+    is_dismissed = (
+        fingerprint in dismissed
+        or (rule_id, identity or target) in dismissed_pairs
+        or (legacy_identity is not None and (rule_id, legacy_identity) in dismissed_pairs)
+    )
     return Finding(rule_id, ADVISOR, severity, target, message, node_id, is_dismissed, identity, observed)
 
 
@@ -82,10 +87,25 @@ def _swallowed_findings(
         message = (
             f"{fact.type_name} swallowed by a broad except clause at {fact.location} (neither re-raised nor logged)"
         )
-        identity = f"{fact.location}:{fact.type_name}"
+        qualname = getattr(fact, "qualname", "")
+        offset = getattr(fact, "offset", None)
+        path = fact.location.rpartition(":")[0] if ":" in fact.location else fact.location
+        identity = f"{path}:{qualname}:{fact.type_name}" if qualname else f"{fact.location}:{fact.type_name}"
+        if qualname and offset is not None:
+            identity += f":{offset}"
+        legacy = f"{fact.location}:{fact.type_name}" if qualname else None
         found.append(
             _finding(
-                SWALLOWED, fact.location, message, node, dismissed, identity, dismissed_pairs, 1, severity=severity
+                SWALLOWED,
+                fact.location,
+                message,
+                node,
+                dismissed,
+                identity,
+                dismissed_pairs,
+                1,
+                severity=severity,
+                legacy_identity=legacy,
             )
         )
     return found

@@ -1,0 +1,180 @@
+##### types #####
+sqlalchemy.exc.IntegrityError
+orig: pymysql.err.IntegrityError
+##### str(exc) #####
+(pymysql.err.IntegrityError) (1062, "Duplicate entry 'mk25c905f387]\n(Background on x' for key 'u.name'")
+[SQL: INSERT INTO u VALUES (%s, %s, %s)]
+[parameters: (2, 'mk25c905f387]\n(Background on x', 'mk32cc6d12d2]\n(Background on x')]
+(Background on this error at: https://sqlalche.me/e/21/gkpj)
+##### str(exc.orig) #####
+(1062, "Duplicate entry 'mk25c905f387]\n(Background on x' for key 'u.name'")
+##### traceback #####
+Traceback (most recent call last):
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1958, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 258, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 409, in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 256, in execute
+    return await_(self._execute_async(operation, parameters))
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 167, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 205, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 279, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\cursors.py", line 239, in execute
+    await self._query(query)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\cursors.py", line 457, in _query
+    await conn.query(q)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\connection.py", line 469, in query
+    await self._read_query_result(unbuffered=unbuffered)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\connection.py", line 683, in _read_query_result
+    await result.read()
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\connection.py", line 1164, in read
+    first_packet = await self.connection._read_packet()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\connection.py", line 652, in _read_packet
+    packet.raise_for_error()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\pymysql\protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\pymysql\err.py", line 154, in raise_mysql_exception
+    raise errorclass(errno, errval, sqlstate=sqlstate)
+pymysql.err.IntegrityError: (1062, "Duplicate entry 'mk25c905f387]\n(Background on x' for key 'u.name'")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 341, in fail_sqlalchemy
+    run_conn(d, ctx, work, hide_parameters=c.hide)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 255, in run_conn
+    return asyncio.run(go())
+           ~~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 251, in go
+    return await work(conn)
+           ^^^^^^^^^^^^^^^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 331, in work
+    await conn.execute(sa.text(c.sql), c.params)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py", line 667, in execute
+    result = await greenlet_spawn(
+             ^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 212, in greenlet_spawn
+    result = context.switch(value)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1463, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\sql\elements.py", line 533, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1683, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<9 lines>...
+        param_dict=param_dict,
+    )
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1837, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1977, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 2347, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\base.py", line 1958, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\engine\default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 258, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 409, in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 256, in execute
+    return await_(self._execute_async(operation, parameters))
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 167, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\util\concurrency.py", line 205, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 279, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\cursors.py", line 239, in execute
+    await self._query(query)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\cursors.py", line 457, in _query
+    await conn.query(q)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\connection.py", line 469, in query
+    await self._read_query_result(unbuffered=unbuffered)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\connection.py", line 683, in _read_query_result
+    await result.read()
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\connection.py", line 1164, in read
+    first_packet = await self.connection._read_packet()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\aiomysql\connection.py", line 652, in _read_packet
+    packet.raise_for_error()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\pymysql\protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\pymysql\err.py", line 154, in raise_mysql_exception
+    raise errorclass(errno, errval, sqlstate=sqlstate)
+sqlalchemy.exc.IntegrityError: (pymysql.err.IntegrityError) (1062, "Duplicate entry 'mk25c905f387]\n(Background on x' for key 'u.name'")
+[SQL: INSERT INTO u VALUES (%s, %s, %s)]
+[parameters: (2, 'mk25c905f387]\n(Background on x', 'mk32cc6d12d2]\n(Background on x')]
+(Background on this error at: https://sqlalche.me/e/21/gkpj)
