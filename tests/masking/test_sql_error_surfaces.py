@@ -31,6 +31,7 @@ from sharpit.engine.collectors.mysql.service import refresh_mysql
 from sharpit.engine.collectors.postgresql.service import refresh_postgresql
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.sink import TestSessionSink
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.settings import load_settings
@@ -132,7 +133,7 @@ def test_alembic_database_read(handles: list[SharpitHandle]) -> None:
 
 
 def test_transactions_report() -> None:
-    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None))
+    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None), application=lambda: None)
     entry = recorder.begin(1, parent=None, method="a:b", thread="MainThread", trace_id=None, connection_id="db-1")
     recorder.end(entry, "UNKNOWN", RuntimeError(ERROR))
     _assert_scanned(json.dumps(recorder.report([])))
@@ -140,7 +141,14 @@ def test_transactions_report() -> None:
 
 def test_sql_trace_report_when_the_error_names_another_statement() -> None:
     recorder = SqlTraceRecorder(Masker(Exposure.MASKED, True, None))
-    recorder.record("SELECT 1", duration_ns=1, thread="t", connection_id=None, error=RuntimeError(ERROR))
+    recorder.record(
+        "SELECT 1",
+        duration_ns=1,
+        thread="t",
+        connection_id=None,
+        error=RuntimeError(ERROR),
+        dialect=Dialect.UNSUPPORTED,
+    )
     _assert_scanned(json.dumps(recorder.report([])))
 
 
@@ -207,5 +215,8 @@ def test_mysql_failed_section_reads_the_block_as_mysql() -> None:
 
 
 def test_data_panel_warning() -> None:
-    ctx = SimpleNamespace(masker=Masker(Exposure.MASKED, True, None))
+    ctx = SimpleNamespace(
+        masker=Masker(Exposure.MASKED, True, None),
+        capture=SimpleNamespace(raw_sqlite_seen=False, engine_registry=None),
+    )
     _assert_scanned(data._masked(ctx, f"Could not read a mapper (RuntimeError: {ERROR})"))  # type: ignore[arg-type]  # noqa: SLF001
