@@ -62,6 +62,12 @@ def test_replica_last_error_reads_as_mysql() -> None:
     assert "hunter2" not in str(data.replication_channels[0]["lastErrorMessage"])
 
 
+def test_replica_missing_last_error_stays_null() -> None:
+    row = {"channel_name": "", "last_error_message": None}
+    data = _collect(FakeMySqlConnection().with_rows("REPLICATION", row))
+    assert data.replication_channels[0]["lastErrorMessage"] is None
+
+
 @pytest.mark.parametrize("dialect", ["mysql", "mariadb"])
 def test_lock_wait_rows_are_read(dialect: str) -> None:
     # The fake rejects an undeclared alias and a lock table the server does not have, as the server does.

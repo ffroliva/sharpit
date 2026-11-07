@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -75,6 +76,39 @@ def test_a_span_conflict_hides() -> None:
     shown = _statement({"db.system": "postgresql", "db.system.name": "redis"})
     assert shown is not None
     assert VALUE not in shown
+
+
+def test_a_mysql_span_error_and_status_use_span_dialect() -> None:
+    message = f'failed\n[SQL: select "{VALUE}" from t]'
+    raw = _span({"db.system": "mysql", "exception.message": message})
+    raw.status.status_code.name = "ERROR"
+    raw.status.description = message
+    buffer = SpanBuffer(Masker(Exposure.MASKED, True, None), application=lambda: None)
+    buffer.add(raw)
+    detail = buffer.detail(f"{TRACE_ID:032x}")
+    assert detail is not None
+    attributes = {item["key"]: item["value"] for item in detail["spans"][0]["attributes"]}
+    assert VALUE not in attributes["exception.message"]
+    assert VALUE not in detail["spans"][0]["statusMessage"]
+
+
+def test_a_span_error_and_status_dialect_routes_fail_when_planted(tmp_path: Path) -> None:
+    package = scratch_package(tmp_path)
+    plant_fails(
+        package,
+        "tests/masking/a10/test_spans.py::test_a_mysql_span_error_and_status_use_span_dialect",
+        "engine/capture/traces.py",
+        "error_text(masker, value if isinstance(value, (str, BaseException)) else _text(value), dialect)",
+        "error_text(masker, value if isinstance(value, (str, BaseException)) else _text(value), Dialect.UNSUPPORTED)",
+    )
+    plant_fails(
+        package,
+        "tests/masking/a10/test_spans.py::test_a_mysql_span_error_and_status_use_span_dialect",
+        "engine/capture/traces.py",
+        "None if span.status.description is None else error_text(self.masker, span.status.description, dialect)",
+        "None if span.status.description is None else error_text(self.masker, "
+        "span.status.description, Dialect.UNSUPPORTED)",
+    )
 
 
 def test_a_span_conflict_hides_when_unsupported_statement_guard_is_removed(tmp_path) -> None:

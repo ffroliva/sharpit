@@ -547,6 +547,13 @@ def test_mysql_span_sql_error_uses_the_mysql_scan():
     assert "DEADBEEF" not in attribute(detail["spans"][0], "exception.message")
 
 
+def test_a_prefixed_driver_message_shows_no_value():
+    buf = buffer()
+    message = "(pymysql.err.ProgrammingError) failed\n[SQL: SELECT 'hunter2']"
+    buf.add(span(attributes={"db.system": "mysql", "exception.message": message}))
+    assert "hunter2" not in attribute(first_span(buf), "exception.message")
+
+
 NO_DRIVER_ERROR = "(sqlalchemy.exc.ProgrammingError) x\n[SQL: select 1 # password hunter2\nfrom t]"
 
 

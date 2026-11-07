@@ -316,11 +316,20 @@ def _unbounded_read_statement_shape(context: Any, statement_obj: Any) -> tuple[s
         has_limit = True
     from sharpit.engine.capture.statement import masked_shape
 
-    dialect = _dialect_of(
-        context
-        if getattr(context, "dialect", None) is not None
-        else getattr(getattr(context, "session", None), "bind", None)
-    )
+    owner = context
+    if getattr(context, "dialect", None) is None:
+        session = getattr(context, "session", None)
+        primary = getattr(getattr(context, "compile_state", None), "_primary_entity", None)
+        mapper = getattr(primary, "mapper", None)
+        try:
+            owner = (
+                session.get_bind(mapper=mapper)
+                if session is not None and mapper is not None
+                else getattr(session, "bind", None)
+            )
+        except Exception:
+            owner = None
+    dialect = _dialect_of(owner)
     return masked_shape(_relationship_masker(), str(statement_obj), dialect).sql, has_limit
 
 

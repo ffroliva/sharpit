@@ -6,6 +6,8 @@ review named; tokens are built by concatenation.
 
 from __future__ import annotations
 
+import string
+
 import pytest
 
 from sharpit.engine.capture.sqlscan import shown
@@ -45,6 +47,14 @@ def parts_of(token: str) -> list[str]:
 def test_a_token_in_a_url_query_shows_no_part_of_it(sql: str) -> None:
     out = text(sql)
     assert not any(part in out for part in parts_of(TOKEN))
+
+
+def test_a_secret_token_leaves_no_part_visible_through_any_joiner() -> None:
+    for joiner in string.punctuation + string.whitespace + "☃💥":
+        for dialect in (Dialect.MYSQL_FAMILY, Dialect.UNSUPPORTED):
+            tail = TOKEN[:10] + joiner + TOKEN[10:]
+            out = text(f"select {KEY}/X-Api-Key='v'{joiner}{tail}", dialect)
+            assert not any(part in out for part in parts_of(TOKEN)), (joiner, dialect, out)
 
 
 # T23, review r8a Critical (owner of the MySQL-family row: T17): a double-quoted name and a value, on MySQL

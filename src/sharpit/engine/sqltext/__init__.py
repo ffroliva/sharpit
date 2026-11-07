@@ -70,14 +70,42 @@ def _statement_text(
     relaxed = masker.mask_spans(sql, False)
     if relaxed is None:
         return None
-    # A value joined after a literal to a SQL @-variable stays part of the same hidden run.
-    for _, end in tuple(relaxed):
-        if end + 1 < len(sql) and sql[end] in "'\"" and sql[end + 1] == "@":
-            tail = end + 2
-            while tail < len(sql) and (sql[tail].isalnum() or sql[tail] in "_.-"):
-                tail += 1
-            if tail > end + 2:
-                relaxed.append((end, tail))
+    # A malformed credential tail stays hidden even when punctuation split it from its sensitive key.
+    for start, end in tuple(relaxed):
+        quote = max(sql.rfind("'", start, end), sql.rfind('"', start, end))
+        if quote >= start:
+            literal_end = next(
+                (
+                    run_end
+                    for run_start, run_end, kind in scan.runs
+                    if kind is Kind.LITERAL and run_start <= quote < run_end
+                ),
+                quote + 1,
+            )
+            tail_start = literal_end
+            while tail_start < len(sql) and sql[tail_start].isspace():
+                tail_start += 1
+            first_start = tail_start
+            while first_start < len(sql) and not sql[first_start].isalnum():
+                first_start += 1
+            first_end = first_start
+            while first_end < len(sql) and sql[first_end].isalnum():
+                first_end += 1
+            first = sql[first_start:first_end]
+            tail_end = first_end
+            visible = len(first) + len(re.sub(r"[^A-Za-z0-9]", "", sql[quote + 1 : literal_end]))
+            while tail_end < len(sql) and visible < 20:
+                visible += sql[tail_end].isalnum()
+                tail_end += 1
+            while tail_end < len(sql) and sql[tail_end].isalnum():
+                tail_end += 1
+            if (
+                len(first) >= 8
+                and any(c.isalpha() for c in first)
+                and any(c.isdigit() for c in first)
+                and visible >= 20
+            ):
+                relaxed.append((literal_end, tail_end))
     if secret is None:
         secret = secrets(scan, is_secret_value)
     if normalized is None or cuts is None:

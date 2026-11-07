@@ -236,6 +236,17 @@ class _Statements:
         shown = f"UPDATE t SET {name}{collapsed}{sa}, {c2} = {sb} WHERE id={self.number}"
         return self._row("sensitive_name", _Shown(text, shown, shown), (a, b), f"WHERE id={self.number}", plain=False)
 
+    def released_name(self) -> Row:
+        secret = _double_secret(self.rng)
+        return Row(
+            f"UPDATE t SET bio={secret.raw} WHERE id=1",
+            (secret.marker,),
+            "released_name",
+            False,
+            "UPDATE t SET bio=? WHERE id=?",
+            tail="bio=?",
+        )
+
     def sensitive_table(self) -> Row:
         a, b, _, _, sa, sb = self._pair()
         name = self.rng.choice(_SENSITIVE_NAMES)
@@ -546,7 +557,7 @@ class _Statements:
                   self.names, self.tight_verb, self.unicode_space)  # fmt: skip
         if self.dialect == MYSQL:
             return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger, self.mysql_name,
-                    self.mysql_routine, self.dot_digit, self.unlisted_verb)  # fmt: skip
+                    self.mysql_routine, self.dot_digit, self.unlisted_verb, self.released_name)  # fmt: skip
         if self.pg:
             return (*common, self.trailing_backslash, self.nested_comment, self.unclosed_dollar)
         return (*common, self.trailing_backslash, self.nested_comment, self.oracle_quote, self.hash_comment,

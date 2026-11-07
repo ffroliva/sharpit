@@ -21,11 +21,11 @@ def test_query_text_masks_single_quoted_escape_and_dollar_quoted_literals() -> N
 
 
 def test_query_text_after_a_unicode_space_before_dollars_shows_no_literal() -> None:
-    # derived: Task 26 coordinator ruling; the PostgreSQL catalog reader's regex must mask this lexer leak too
+    # derived: the facade replaces the ambiguous dollar-quoted value with a placeholder.
     secret = "A10" + "QUERY" + "SECRET"
     shown = query_text(MASKED, f"SELECT\u2003$tag${secret}$tag$")
     assert secret not in (shown or "")
-    assert shown == MASK
+    assert shown == "SELECT ?"
 
 
 def test_query_text_masks_unterminated_string_literals() -> None:
@@ -61,6 +61,13 @@ def test_query_text_respects_exposure_level() -> None:
     assert query_text(MASKED, sql) == "SELECT * FROM users WHERE email = '******' AND id = $1"
     assert query_text(MASKED, None) is None
     assert query_text(MASKED, "   ") is None
+
+
+def test_query_text_fails_closed_for_unicode_dollar_tags_and_non_ascii_spacing() -> None:
+    token = "A10" + "QUERY" + "SECRET"
+    assert token not in (query_text(MASKED, f"SELECT $é$ {token} $é$") or "")
+    assert query_text(MASKED, "SELECT\u00a0$1") == "SELECT $1"
+    assert query_text(Masker(Exposure.FULL, False), "SELECT $1") == "SELECT $1"
 
 
 def test_query_text_a_dollar_inside_a_string_is_not_a_dollar_quote() -> None:

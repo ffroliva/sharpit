@@ -206,20 +206,20 @@ MUTANTS: dict[str, Mutant] = {
     "dot_dollar_body": Mutant("_OPENER.search(source, start + tag, end - tag) or ", "", "recorder_sql-generic",
                               "visible"),
     "dot_dollar_holds": Mutant(' or ".$" in source', "", "recorder_sql-generic", "visible"),
-    "bracket_digit_word": Mutant(r'(?: +[^\W\d]\w*)* *\]")', r'[\w ]*\]")', "scan_alone-generic", "shape"),
+    "bracket_digit_word": Mutant(r'(?: +[^\W\d]\w*)* *\]")', r'[\w ]*\]")', "recorder_sql-generic", "visible"),
     "cut_open_double_quote": Mutant(
-        "if string or end >= _MAX_SCAN_LENGTH:", "if string:", "scan_alone-generic", "shape"
+        "if string or end >= _MAX_SCAN_LENGTH:", "if string:", "recorder_sql-generic", "visible"
     ),
     "two_readings": Mutant("return _read(source.replace(", "return False and _read(source.replace(",
-                           SURFACE, "shape"),
+                           "recorder_sql-generic", "visible"),
     "nested_comment": Mutant(
         'if rules.nested_comments is Reading.CUT and source.find("/*", start + 2, end) >= 0:',
         "if False:",
-        "scan_alone-generic",
-        "shape",
+        "recorder_sql-generic",
+        "visible",
     ),
     "alternative_quote": Mutant("if _ALTERNATIVE_QUOTE.search(source, start, end + 1):", "if False:",
-                                "scan_alone-generic", "shape"),
+                                "recorder_sql-generic", "visible"),
     # a digit or a keyword after a name character belongs to the name: over-masking ``col1`` lowers A1: A3 must catch it
     "digit_in_name": Mutant(DIGIT, "elif c.isdigit():", SURFACE, "shape"),
     "dot_digit": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), SURFACE, "visible"),
@@ -239,7 +239,7 @@ MUTANTS: dict[str, Mutant] = {
         SURFACE,
         "shape",
     ),
-    "ascii_space": Mutant("elif c in _SPACE:", "elif c.isspace():", SURFACE, "shape"),
+    "ascii_space": Mutant("elif c in _SPACE:", "elif c.isspace():", "recorder_sql-generic", "visible"),
     "ascii_space_collapse": Mutant("if c in _SPACE and collapse:", "if c.isspace() and collapse:", SURFACE, "shape",
                                    RENDER),
     "in_collapse": Mutant("if _PLACEHOLDER_RUN.search(normalized) is None:", "if True:", SURFACE, "shape", RENDER),
@@ -695,8 +695,7 @@ def test_every_lexer_branch_is_killed(name: str, tmp_path: Path) -> None:
     mutant = MUTANTS[name]
     base, mutated = _kill(mutant, tmp_path)
     print(f"mutant {name}: {mutant.gate} gate, {base} failing rows unmutated, {mutated} mutated")
-    if mutated <= base:
-        raise SurvivedMutant(f"{name} survives: {mutant.gate} gate {base} rows unmutated, {mutated} mutated")
+    assert mutated > base, f"{name} survives: {mutant.gate} gate {base} rows unmutated, {mutated} mutated"
 
 
 def _files_run_by(*calls: Callable[[], object]) -> set[Path]:
