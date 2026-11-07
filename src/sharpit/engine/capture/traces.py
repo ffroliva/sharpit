@@ -17,13 +17,9 @@ from urllib.parse import urlsplit
 from sharpit.engine import otel
 from sharpit.engine.capture import under
 from sharpit.engine.capture.correlation import INTERNAL
-from sharpit.engine.capture.sqltrace import (
-    mask_error,
-)
-from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.capture.streams import SSE_TASK
 from sharpit.engine.masking import MASK, Masker, is_sensitive_key
-from sharpit.engine.sqltext import Dialect, DialectContext, dialect_of_name, resolve
+from sharpit.engine.sqltext import Dialect, DialectContext, dialect_of_name, error_text, resolve, statement_text
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -124,12 +120,12 @@ def _sql_attribute(masker: Masker, key: str, value: object, dialect: Dialect) ->
     if _SQL_PARAMETER_KEYS.search(key):
         return _text(value) if masker.capture_parameters else MASK
     text = _text(value)
-    return masker.mask_text(text) if masker.capture_parameters else statement_text(masker, text, dialect)
+    return statement_text(masker, text, dialect)
 
 
 def _url_attribute(masker: Masker, key: str, value: object, dialect: Dialect) -> str | None:
     if key in {"exception.message", "exception.stacktrace"}:
-        return mask_error(masker, _text(value), dialect)
+        return error_text(masker, value if isinstance(value, (str, BaseException)) else _text(value), dialect)
     if key == "url.query":
         return masker.mask_query(str(value))
     if key in _URL_KEYS or key in _PLAIN_PATH_KEYS:
@@ -140,6 +136,8 @@ def _url_attribute(masker: Masker, key: str, value: object, dialect: Dialect) ->
 def _attribute_value(masker: Masker, key: str, value: object, dialect: Dialect) -> str | None:
     if key.startswith(_HEADER_PREFIXES):
         return _header_attribute(masker, key, value)
+    if key in _SQL_KEYS and dialect is Dialect.UNSUPPORTED:
+        return "[statement hidden: unsupported database]"
     if _SQL_PARAMETER_KEYS.search(key) or key in _SQL_KEYS:
         return _sql_attribute(masker, key, value, dialect)
     if key in {"exception.message", "exception.stacktrace", "url.query", *_URL_KEYS, *_PLAIN_PATH_KEYS}:
@@ -399,7 +397,9 @@ class SpanBuffer:
             "endEpochNanos": end,
             "durationNanos": end - span.start_time,
             "statusCode": _status_code(span),
-            "statusMessage": mask_error(self.masker, span.status.description, dialect),
+            "statusMessage": (
+                None if span.status.description is None else error_text(self.masker, span.status.description, dialect)
+            ),
             "attributes": _attributes(self.masker, span.attributes, dialect),
             "events": [
                 {

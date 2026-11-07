@@ -29,6 +29,7 @@ from hypothesis import settings  # noqa: E402
 from sharpit.engine import sqla
 from sharpit.engine.capture import transactions
 from sharpit.engine.sources import sqlite
+from sharpit.engine.sqltext.identity import load_key
 
 pytest_plugins = ["pytester", "_shard"]  # _shard: SHARPIT_SHARD=i/n, the CI shards (tests/_shard.py)
 
@@ -316,7 +317,9 @@ def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
 
 @pytest.fixture
 def tmp_state_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return tmp_path_factory.mktemp("sharpit-state")
+    state_dir = tmp_path_factory.mktemp("sharpit-state")
+    load_key(state_dir, create=True)  # so install() finds it and writes nothing, under the strict no_side_effects
+    return state_dir
 
 
 @pytest.fixture

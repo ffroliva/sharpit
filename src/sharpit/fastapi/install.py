@@ -9,6 +9,7 @@ import time
 from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from importlib import import_module
+from pathlib import Path
 from typing import Any, cast
 
 from starlette.applications import Starlette
@@ -26,6 +27,7 @@ from sharpit.engine.capture.transactions import attach as attach_transactions
 from sharpit.engine.context import SharpitContext, application_family
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
+from sharpit.engine.sqltext import load_key
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import CaptureWiring
 from sharpit.fastapi.introspector import FastApiIntrospector
@@ -192,6 +194,14 @@ def install(
         level = logging.WARNING if _requested(sharpit_settings, profiles) else logging.INFO
         logger.log(level, "sharpit inactive: %s", activation.reason)
         return handle
+
+    ctx.masker.identity_key = (
+        sharpit_settings.identity_key.encode("utf-8")
+        if sharpit_settings.identity_key
+        else load_key(Path(sharpit_settings.state_dir), create=True)
+    )
+    if ctx.masker.identity_key is None:
+        logger.warning("SQLite statement identities are unavailable because sharpit could not load a state key")
 
     wiring = _configure_capture(app, ctx, sharpit_settings)
 

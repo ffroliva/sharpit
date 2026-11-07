@@ -102,6 +102,8 @@ class LexRules:
     cut_bracket: bool
     executable_prefixes: frozenset[str]
     hide_double_quoted: bool = False
+    cut_prefixes: frozenset[str] = frozenset()  # text this reading stops at wherever it stands
+    backslash_token: bool = False  # outside a string `\` and the next byte are one token
 
 
 _RADIX_ALL = frozenset({"0x", "0X", "0o", "0O", "0b", "0B", "_"})
@@ -151,17 +153,20 @@ MYSQL_84 = LexRules(
     variable_suffix=VariableSuffix.NONE,
     cut_backslash=True,
     cut_bracket=True,  # MariaDB `sql_mode=MSSQL` is session state no text reveals
-    executable_prefixes=frozenset({"/*!", "/*M!"}),  # M! is cut conservatively until MariaDB has its own reading
+    executable_prefixes=frozenset({"/*!"}),
+    # TiDB reports as MySQL and runs this; no lexer of its was read (spec §14, the owner's word item 4)
+    cut_prefixes=frozenset({"/*T!"}),
 )
 
-# MariaDB is MySQL with two reading fields changed (study section 5): `dollar` and `dollar_closer` (no dollar quote,
-# charset.c:85) and `executable_prefixes` (`/*M!` executes, :2450).
+# MariaDB has no dollar quote (charset.c:85), executes `/*M!` (sql_lex.cc:2450-2453) and reads `\` outside a string as
+# a token with the next byte (charset.c:95, sql_lex.cc:2091-2096).
 MARIADB = replace(
     MYSQL_84,
     dollar=DollarOpen.NONE,
     dollar_name_boundary=False,
     dollar_closer=DollarCloser.NONE,
     executable_prefixes=frozenset({"/*!", "/*M!"}),
+    backslash_token=True,
 )
 
 SQLITE = LexRules(
@@ -217,6 +222,6 @@ GENERIC = LexRules(
 # Each dialect is read with its own rule table.
 READINGS: Mapping[Dialect, tuple[LexRules, ...]] = {
     Dialect.POSTGRESQL: (POSTGRESQL,),
-    Dialect.MYSQL_FAMILY: (MYSQL_84,),
+    Dialect.MYSQL_FAMILY: (MYSQL_84, MARIADB),
     Dialect.SQLITE: (SQLITE,),
 }

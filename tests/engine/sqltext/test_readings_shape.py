@@ -9,15 +9,15 @@ import pytest
 
 from sharpit.engine.sqltext.dialect import Dialect
 from sharpit.engine.sqltext.lexer import readings
-from sharpit.engine.sqltext.rules import GENERIC, MYSQL_84, POSTGRESQL, READINGS, SQLITE
+from sharpit.engine.sqltext.rules import GENERIC, MARIADB, MYSQL_84, POSTGRESQL, READINGS, SQLITE
 
 
 def test_readings_is_not_empty() -> None:
     assert READINGS
 
 
-def test_each_dialect_has_one_reading_while_staged() -> None:
-    assert [len(READINGS.get(d, ())) for d in (Dialect.MYSQL_FAMILY, Dialect.POSTGRESQL, Dialect.SQLITE)] == [1, 1, 1]
+def test_each_dialect_has_its_rule_readings() -> None:
+    assert [len(READINGS.get(d, ())) for d in (Dialect.MYSQL_FAMILY, Dialect.POSTGRESQL, Dialect.SQLITE)] == [2, 1, 1]
 
 
 def test_unsupported_has_no_reading() -> None:
@@ -25,8 +25,8 @@ def test_unsupported_has_no_reading() -> None:
     assert Dialect.UNSUPPORTED not in READINGS
 
 
-def test_the_family_reads_todays_mysql() -> None:
-    assert READINGS.get(Dialect.MYSQL_FAMILY) == (MYSQL_84,)
+def test_the_family_reads_mysql_and_mariadb() -> None:
+    assert READINGS.get(Dialect.MYSQL_FAMILY) == (MYSQL_84, MARIADB)
 
 
 def test_sqlite_reads_its_own_rules() -> None:

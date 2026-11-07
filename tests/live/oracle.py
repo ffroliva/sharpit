@@ -52,6 +52,10 @@ HAND_ROWS = (  # no seed made these. The server's answer decides each, as with e
         ServerRow(_NO_BACKSLASH, s, "NO_BACKSLASH_ESCAPES", "BACKSLASHVALUE", None, 0)
         for s in ("my84", "my80", "maria")
     ),
+    ServerRow("SELECT 1 /*! , 'BANGVALUE' */", "my84", "", "BANGVALUE", None, 0),
+    ServerRow("SELECT 1 /*! , 'BANGVALUE' */", "my80", "", "BANGVALUE", None, 0),
+    ServerRow("SELECT 1 /*! , 'BANGVALUE' */", "maria", "", "BANGVALUE", None, 0),
+    ServerRow("SELECT 1 /*M! , 'MARIAVALUE' */", "maria", "", "MARIAVALUE", None, 0),
     ServerRow("SELECT 1 AS [it's], 'SECRET'", "maria", "MSSQL", "SECRET", None, 0),  # the brief's
     # ``]]`` is a ``]`` in a MariaDB bracket: the first needs the bracket cut, the second no opener in its bracket stops
     ServerRow("SELECT 1 AS [a']]'b], 'BRACKETVALUE'", "maria", "MSSQL", "BRACKETVALUE", None, 0),

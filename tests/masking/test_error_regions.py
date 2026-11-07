@@ -201,18 +201,18 @@ def test_a_detail_line_never_survives(separator: str) -> None:
 
 
 def test_a_literal_cannot_switch_mysql_mode() -> None:
-    """The ``#`` of generic text is no comment: a literal holding ``pymysql.`` must not make it one."""
-    masked = shown(f"{DRIVER}\n[SQL: SELECT 'pymysql.x', a # b {SECRET}\n, c]\n{LINK_LINE}")
-    assert "a # b" in masked
+    """A ``"`` run is a name in generic text and a string on MySQL: a literal with ``pymysql.`` must not switch it."""
+    masked = shown(f"{DRIVER}\n[SQL: SELECT 'pymysql.x', \"c\" FROM t]\n{LINK_LINE}")
+    assert '"c"' in masked
 
 
 def test_a_driver_value_cannot_switch_mysql_mode() -> None:
-    masked = shown(f"(sqlite3.Error) bad 'pymysql.x'\n[SQL: SELECT a # b {SECRET}\n, c]\n{LINK_LINE}")
-    assert "a # b" in masked
+    masked = shown(f"(sqlite3.Error) bad 'pymysql.x'\n[SQL: SELECT \"c\" FROM t]\n{LINK_LINE}")
+    assert '"c"' in masked
 
 
 def test_a_driver_line_does_switch_mysql_mode() -> None:
-    masked = shown(f"(pymysql.err.Error) (1064, 'bad')\n[SQL: SELECT a # b {SECRET}\n, c]\n{LINK_LINE}")
+    masked = shown(f"(pymysql.err.Error) (1064, 'bad')\n[SQL: SELECT \"{SECRET}\" FROM t]\n{LINK_LINE}")
     assert SECRET not in masked
 
 

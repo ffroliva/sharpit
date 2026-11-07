@@ -333,7 +333,8 @@ def test_a_seen_raw_sqlite_statement_conflicts_with_a_database_family() -> None:
     assert _application_family(handle.context) is None
 
 
-def test_sqlalchemy_event_dialect_conflict_is_resolved_before_recording(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_statement_reads_its_own_connection_over_the_application(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 5's rule for the hot path: a statement that proves its family never reads the registry."""
     handle = _install_default(FastAPI(), engines=[_engine("postgresql+pg8000://db/app")])
     recorder = handle.context.capture.sql_trace
     assert recorder is not None
@@ -354,7 +355,7 @@ def test_sqlalchemy_event_dialect_conflict_is_resolved_before_recording(monkeypa
         Dialect.MYSQL_FAMILY,
     )
     dispatch._record(event, [handle.context])  # noqa: SLF001
-    assert seen == [Dialect.UNSUPPORTED]
+    assert seen == [Dialect.MYSQL_FAMILY]
 
 
 def test_a_statement_on_a_connection_older_than_the_engine_dialect_hides(monkeypatch: pytest.MonkeyPatch) -> None:

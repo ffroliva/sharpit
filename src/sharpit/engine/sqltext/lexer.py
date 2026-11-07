@@ -10,16 +10,19 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
-from itertools import zip_longest
 from typing import NamedTuple, Protocol
 
 from sharpit.engine.sqltext.dialect import Dialect
+from sharpit.engine.sqltext.family import family_cut, parting_readings
+from sharpit.engine.sqltext.numbers import skip_number as _skip_number
+from sharpit.engine.sqltext.numbers import uncertain_number_cut as _uncertain_number_cut
 from sharpit.engine.sqltext.rules import (
     GENERIC,
     READINGS,
     Backslash,
     BacktickRun,
     Bracket,
+    DigitDollar,
     DollarCloser,
     DollarOpen,
     DoubleQuote,
@@ -105,8 +108,7 @@ def quoted_body(source: str, start: int, end: int) -> str:
 
 
 _MAX_SCAN_LENGTH = 20_000
-_RADIX_LITERAL = re.compile(r"0[xX]_?[0-9a-fA-F]+(?:_[0-9a-fA-F]+)*|0[bB]_?[01]+(?:_[01]+)*|0[oO]_?[0-7]+(?:_[0-7]+)*")
-# a square-bracket identifier is a name, words and spaces only, no word led by a digit: anything else in brackets is a
+# A square-bracket identifier is a name, words and spaces only, no word led by a digit: anything else in brackets is a
 # value and stays in the scan (``ARRAY['x']``, ``ARRAY [lower($$x$$)]``, ``[2024 sales]``, ``a [CASE WHEN x THEN 1]``);
 # showing a value is the worse mistake
 _BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d]\w*(?: +[^\W\d]\w*)* *\]")
@@ -119,8 +121,16 @@ _QUOTE = re.compile("['\"]")
 # a tag's shape, and a tag can start with a digit on MySQL. No comment: a cut there would take every ``/*!`` statement
 _RUN_OPENER = re.compile("['\"`]|\\$[\\w\\x80-\\U0010ffff]*\\$")
 _TIGHT_DASH_OPENER = re.compile(rf"{_RUN_OPENER.pattern}|/\*")
-_AT_TOKEN = re.compile(r"@[\w.$\x80-\U0010ffff]+")
+_AT_TOKEN = re.compile(r"@[0-9A-Za-z_.$]+")  # my_isalnum: a non-ASCII byte ends a host (sql_lex.cc:2113-2118)
 _AT_NUMBER = re.compile(r"[@.]\d")
+# a number with a point or an exponent ends its token on MySQL; digits alone run on into a name (``1$a$``)
+_REAL = re.compile(r"[\d_]*[.eE]")
+# where a read past a real is a guess: a bad exponent's next byte is eaten (``1.5e'``, sql_lex.cc:1809-1817), and a
+# signed exponent with a name char or a ``.`` after it was none if a name led to it (``t.1.5e+0x7`` is ``5e``, ``+``,
+# ``0x7``), and ``1e+1.$$`` then opens a dollar quote
+_BAD_EXPONENT = re.compile(r"(?<=[\d.])(?=[eE](?![+-]?\d))|[eE][+-]\d+(?=[\w.$\x80-\U0010ffff])")
+_KEY_COLON = re.compile(r"\s*:")
+_SYSTEM_VARIABLE = re.compile(r"@[\w$\x80-\U0010ffff]+")  # the second ``@`` of ``@@``: no ``.`` and no host
 _EXECUTABLE_COMMENT = ("/*!", "/*M!")  # MySQL and MariaDB run what these hold
 SPACE_CHARS = " \t\n\v\f\r"
 _SPACE = frozenset(SPACE_CHARS)  # ASCII only: no server reads U+00A0 or U+2028 as whitespace, `isspace` does
@@ -259,6 +269,8 @@ def _no_step_back_closer(sql: str, tag: str, start: int) -> int:
 
 def _dollar_quote_end(sql: str, index: int, rules: LexRules) -> int:
     """Where the dollar quote at ``index`` ends, the end of the text when it is open; -1 when none opens there."""
+    if rules.dollar is DollarOpen.NONE:
+        return -1
     cursor, length, body_start = index + 1, len(sql), -1
     digit_first = rules.dollar is DollarOpen.MYSQL_TAG
     while cursor < length:
@@ -306,6 +318,10 @@ def _matches_keyword(sql: str, index: int, keyword: str) -> bool:
     if after > len(sql) or sql[index:after].lower() != keyword:
         return False
     return after >= len(sql) or not (sql[after].isalnum() or sql[after] in "_$")
+
+
+def _name_char(c: str) -> bool:
+    return bool(c) and (c.isalnum() or c in "_$" or not c.isascii())
 
 
 def _identifier_char_before(out: Out) -> bool:
@@ -358,36 +374,9 @@ def _line_comment(sql: str, index: int, rules: LexRules) -> bool:
     return dashes or (rules.hash is HashRule.COMMENT and sql[index] == "#")
 
 
-def _digit_goes_on(sql: str, cursor: int) -> bool:
-    return sql[cursor].isdigit() or (sql[cursor] == "_" and sql[cursor + 1 : cursor + 2].isdigit())
-
-
-def _skip_exponent(sql: str, index: int) -> int:
-    """Past the exponent whose ``e`` is at ``index``; at ``index`` when no digit follows: that ``e`` is a name."""
-    cursor, length = index + 1, len(sql)
-    if cursor < length and sql[cursor] in "+-":
-        cursor += 1
-    if cursor >= length or not sql[cursor].isdigit():
-        return index
-    while cursor < length and _digit_goes_on(sql, cursor):
-        cursor += 1
-    return cursor
-
-
 def _name_part(out: Out) -> bool:
     """Digits here are a part of a name: the ``.`` after them separates, ``rv.1.$$``."""
     return bool(out.chars) and out.chars[-1] == "."
-
-
-def _skip_number(sql: str, index: int, name_part: bool = False) -> int:
-    if sql[index] == "0" and (radix := _RADIX_LITERAL.match(sql, index)):
-        return radix.end()
-    cursor, length = index, len(sql)
-    while cursor < length and ((sql[cursor] == "." and not name_part) or _digit_goes_on(sql, cursor)):
-        cursor += 1
-    if cursor < length and sql[cursor] in "eE":
-        return _skip_exponent(sql, cursor)
-    return cursor
 
 
 # A scanner reads the construct that may open at ``index`` and returns where the scan goes on and whether that construct
@@ -401,41 +390,43 @@ def _keep(source: str, index: int, out: Out) -> _Scanned:
     return index + 1, False
 
 
-def _scan_tcl_variable(source: str, index: int, out: Out) -> _Scanned:
-    """SQLite's variable: `$`, `@`, `:` or `#`, a name, `::` namespaces and a `(...)` suffix to `)` or an ASCII space
-    (tokenize.c:509-538). It hides from the opener, where only a boundary in the source may precede a variable (a
-    `$` goes on a name, and no reading here tells a name's character from the rest), and at a suffix that is left open
-    or holds a quote: a reader that does not know the suffix opens a string there. A name with no variable keeps its
-    characters: `a$`.
-    """
+def _tcl_variable_name_end(source: str, index: int) -> tuple[int, int, bool]:
     cursor, length = index + 1, len(source)
     n = 0
-    suffix = False
     while cursor < length:
         c = source[cursor]
         if c.isalnum() or c == "_" or c == "$" or not c.isascii():
             n += 1
             cursor += 1
         elif c == "(":
-            suffix = True
-            break
+            return cursor, n, True
         elif c == ":" and cursor + 1 < length and source[cursor + 1] == ":":
             cursor += 2
         else:
             break
+    return cursor, n, False
+
+
+def _tcl_variable_suffix_end(source: str, cursor: int) -> int:
+    opening = cursor
+    while cursor < len(source) and source[cursor] not in _SPACE and source[cursor] != ")":
+        cursor += 1
+    if cursor == len(source) or source[cursor] != ")" or "'" in source[opening:cursor] or '"' in source[opening:cursor]:
+        return -1
+    return cursor + 1
+
+
+def _scan_tcl_variable(source: str, index: int, out: Out) -> _Scanned:
+    """SQLite's `$`, `@`, `:` or `#` variable, with `::` names and a parenthesized suffix (tokenize.c:509-538)."""
+    cursor, n, suffix = _tcl_variable_name_end(source, index)
     if n == 0:
         return _keep(source, index, out)
     if not _opens_a_token(source, index):
         return index, True
     if suffix:
-        opening = cursor
-        while cursor < length and source[cursor] not in _SPACE and source[cursor] != ")":
-            cursor += 1
-        if cursor == length or source[cursor] != ")":
+        cursor = _tcl_variable_suffix_end(source, cursor)
+        if cursor < 0:
             return index, True
-        if "'" in source[opening:cursor] or '"' in source[opening:cursor]:
-            return index, True
-        cursor += 1
     out.chars.extend(source[index:cursor])
     return cursor, False
 
@@ -447,6 +438,8 @@ def _scan_colon(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
 
 
 def _scan_line_comment(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
+    if rules.hash is HashRule.CUT and source[index] == "#":
+        return index, False  # a comment, an operator or a variable: ``_read`` stops, and ``_scan`` hides the rest
     if rules.variable_suffix is VariableSuffix.TCL_PAREN and source[index] == "#":
         return _scan_tcl_variable(source, index, out)
     if not _line_comment(source, index, rules):
@@ -495,6 +488,13 @@ def _scan_string(source: str, index: int, _out: Out, rules: LexRules) -> _Scanne
     return _skip_quoted(source, index, "'", rules), True
 
 
+def _real_number(source: str, start: int, end: int) -> bool:
+    """A point or an exponent, or a ``.`` before it that no word owns: ``x..5``, where ``.5`` is a number on MySQL."""
+    return bool(_REAL.match(source, start, end)) or (
+        source[start - 1 : start] == "." and not _name_char(source[max(start - 2, 0) : start - 1])
+    )
+
+
 def _name_goes_on(source: str, index: int, out: Out, rules: LexRules) -> bool:
     """The output ends inside a name, so the ``$`` at ``index`` is part of it. A number goes on too: ``1$a$`` is a name
     on MySQL and a syntax error on PostgreSQL and SQLite. A ``.`` holds on MySQL only: 0.4.0 hid what follows ``t.$$``,
@@ -502,6 +502,8 @@ def _name_goes_on(source: str, index: int, out: Out, rules: LexRules) -> bool:
     """
     last = out.chars[-1] if out.chars else " "
     number = last == "?" and source[index - 1].isalnum()  # a raw ``?`` is an operator, and a string ends in a quote
+    if number and rules.digit_dollar is DigitDollar.NAME and _real_number(source, *out.runs[-1][:2]):
+        return False
     return last.isalnum() or last in "_$" or not last.isascii() or number or (rules.dot_digits_is_name and last == ".")
 
 
@@ -526,10 +528,10 @@ def _scan_dollar(source: str, index: int, out: Out, rules: LexRules) -> _Scanned
     return (end, True) if end > 0 else _keep(source, index, out)
 
 
-def _scan_dot(source: str, index: int, out: Out, _rules: LexRules) -> _Scanned:
+def _scan_dot(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
     if _identifier_char_before(out) or not source[index + 1 : index + 2].isdigit():
         return _keep(source, index, out)
-    return _skip_number(source, index), True
+    return _skip_number(source, index, fail_unicode=rules.digit_dollar is DigitDollar.NAME), True
 
 
 def _scan_at(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
@@ -537,7 +539,7 @@ def _scan_at(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
     run. A number in it hides all of it, so what a digit run hid before stays hidden. ``@@`` is two of these."""
     if rules.variable_suffix is VariableSuffix.TCL_PAREN:
         return _scan_tcl_variable(source, index, out)
-    found = _AT_TOKEN.match(source, index)
+    found = (_SYSTEM_VARIABLE if source[index - 1 : index] == "@" else _AT_TOKEN).match(source, index)
     if not rules.at_token or found is None:
         return _keep(source, index, out)
     if _AT_NUMBER.search(found[0]):
@@ -558,9 +560,15 @@ def _scan_quoted(source: str, index: int, out: Out, rules: LexRules) -> _Scanned
     ):
         return two_way_end, True
     end = _quoted_end(source, index, out, rules)
+    # under `sql_mode=MSSQL` a ``]]`` goes on (sql_lex.cc:3026): where the bracket ends is session state, so stop
+    if rules.bracket is Bracket.CHARACTER and end > index + 1 and source[index] == "[" and source.startswith("]", end):
+        return index, True
     kind = _CODE
     if source[index] == '"':
         literal = _double_quoted_literal(source, index, end, out, rules)
+        # MySQL hides the key of ``"password":value``, so the masker's last pass cannot see what it keys: stop here
+        if rules.double_quote is DoubleQuote.STRING and _KEY_COLON.match(source, end):
+            return index, True
         if literal:
             return end, True
         if literal is None:
@@ -569,6 +577,32 @@ def _scan_quoted(source: str, index: int, out: Out, rules: LexRules) -> _Scanned
     out.append(source[index:end])
     out.runs.append((index, end, kind))
     return end, False
+
+
+def _scan_backslash(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
+    if not rules.backslash_token:
+        return _keep(source, index, out)
+    # MY_LEX_ESCAPE reads the next byte whatever it is: a quote there opens nothing, and a token starts after it
+    out.append(source[index : index + 2])
+    out.space()
+    return index + 2, False
+
+
+def _digit_of_a_name(source: str, out: Out, end: int) -> bool:
+    """On MySQL, digits after ``word.`` that run on into a name character are a name (sql_lex.cc:1611-1612)."""
+    return (
+        len(out.chars) > 1 and out.chars[-1] == "." and _name_char(out.chars[-2]) and _name_char(source[end : end + 1])
+    )
+
+
+def _scan_digits(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
+    """A number, or a digit of a name. All digits after ``word.`` stay a literal: ``THEN.5`` hides on every dialect."""
+    fail_unicode = rules.digit_dollar is DigitDollar.NAME
+    end = _skip_number(source, index, _name_part(out), fail_unicode)
+    if rules.dot_digits_is_name and _digit_of_a_name(source, out, end):
+        out.chars.append(source[index])
+        return index + 1, False
+    return end, True
 
 
 def _scan_keyword(source: str, index: int, out: Out, _rules: LexRules) -> _Scanned:
@@ -585,6 +619,7 @@ _SCANNERS = {
     **dict.fromkeys("-#", _scan_line_comment),
     "/": _scan_block_comment,
     "'": _scan_string,
+    "\\": _scan_backslash,
     "$": _scan_dollar,
     ".": _scan_dot,
     "@": _scan_at,
@@ -592,7 +627,6 @@ _SCANNERS = {
     **dict.fromkeys('"`[', _scan_quoted),
     **dict.fromkeys("tTfF", _scan_keyword),
 }
-_NO_DOLLAR_SCANNERS = {c: scanner for c, scanner in _SCANNERS.items() if c != "$"}  # ``$`` is then a name's character
 
 
 class _Pass(NamedTuple):
@@ -603,10 +637,7 @@ class _Pass(NamedTuple):
     cut: int = -1
 
 
-def _read(source: str, rules: LexRules, dollar: bool = True) -> _Pass:
-    """``dollar`` off reads as MariaDB and MySQL before 8.1 do: no dollar quote, which is all they differ in here. A
-    bracket's body keeps its own read: a dollar quote that opens in it reads two ways, and that cut comes first."""
-    scanners = _SCANNERS if dollar else _NO_DOLLAR_SCANNERS
+def _read(source: str, rules: LexRules) -> _Pass:
     out = Out()
     chars = out.chars
     literals = predicate_literals = 0
@@ -615,7 +646,7 @@ def _read(source: str, rules: LexRules, dollar: bool = True) -> _Pass:
     while index < length:
         start = index
         c = source[index]
-        scanner = scanners.get(c)
+        scanner = _SCANNERS.get(c)
         literal = False
         if scanner is not None:
             index, literal = scanner(source, index, out, rules)
@@ -634,7 +665,7 @@ def _read(source: str, rules: LexRules, dollar: bool = True) -> _Pass:
             index += 1
         # after a ``.`` a digit starts a literal: ``THEN.5`` is a number, and no keyword list can tell it from ``t.5``
         elif c.isdigit() and (not _identifier_char_before(out) or out.chars[-1] == "."):
-            index, literal = _skip_number(source, index, _name_part(out)), True
+            index, literal = _scan_digits(source, index, out, rules)
         elif c in "()":
             out.append(c)
             index += 1
@@ -692,14 +723,11 @@ def _opener_beside_dollar_quote(source: str, start: int, rules: LexRules) -> boo
 
 
 def _generic_trigger(source: str, runs: Sequence[Run], rules: LexRules) -> bool:
-    """A ``q'`` (the span's end takes in the quote that opens a literal), a ``#`` with an opener after it anywhere, a
-    dollar quote after ``@``, a value on PostgreSQL and a name on MySQL, or one after ``.`` beside another opener, a
-    syntax error on PostgreSQL and a name on MySQL."""
-    last_opener = max((found.start() for found in _RUN_OPENER.finditer(source)), default=-1)
+    """A ``q'`` (the span's end takes in the quote that opens a literal), a dollar quote after ``@``, a value on
+    PostgreSQL and a name on MySQL, or one after ``.`` beside another opener, a syntax error on PostgreSQL and a name on
+    MySQL. A ``#`` needs no trigger: ``_scan_line_comment`` stops the read there."""
     for start, end in _trigger_spans(source, runs):
         if _ALTERNATIVE_QUOTE.search(source, start, end + 1):
-            return True
-        if 0 <= source.find("#", start, end) < last_opener:
             return True
         if source.startswith("@$", end - 1):
             return True
@@ -768,38 +796,97 @@ def _bracket_opener(scan: _Pass) -> re.Match[str] | None:
     return None
 
 
-def _family_cut(scan: _Pass, rules: LexRules) -> int:
-    """The first run the MySQL family's two reads place apart; -1 when a ``$`` opens no dollar quote on either."""
+def _bad_exponent_cut(scan: _Pass) -> int:
+    """The end of a real that MySQL's lexer leaves past a byte it ate; -1 when none."""
     source = scan.source
-    if "$" not in source:
-        return -1
-    other = _read(source, rules, dollar=False).out.runs
-    end = (len(source), len(source), _LITERAL)  # the read with fewer runs goes on to the end of the text
-    return next((min(a[0], b[0]) for a, b in zip_longest(scan.out.runs, other, fillvalue=end) if a != b), -1)
+    literals = [(start, end) for start, end, kind in scan.out.runs if kind == _LITERAL]
+    ends = {
+        end
+        for start, end in literals
+        if _real_number(source, start, end) or source[end : end + 1] in "eE" and _real_number(source, start, end + 1)
+    }
+    found = [match.end() for match in _BAD_EXPONENT.finditer(source) if match.end() in ends]
+    return min(found, default=-1)
+
+
+def _bracket_cut(scan: _Pass) -> int:
+    source = scan.source
+    literals = iter((start, end) for start, end, kind in scan.out.runs if kind == _LITERAL)
+    literal = next(literals, None)
+    openings: list[int] = []
+    index = 0
+    while index < len(source):
+        if literal and literal[0] <= index < literal[1]:
+            index = literal[1]
+            literal = next(literals, None)
+        elif source.startswith("]]", index):
+            if openings:
+                return openings[0]
+            index += 2
+        else:
+            if source[index] == "[":
+                openings.append(index)
+            elif source[index] == "]" and openings:
+                openings.pop()
+            index += 1
+    return -1
 
 
 def _ambiguous_cut(scan: _Pass, rules: LexRules) -> int:
     """Where a statement that reads two ways stops, its first opener; -1 when it reads one way or holds none.
 
-    An opener is one of ``_RUN_OPENER``, or what opened a run left open in a bracket. On MySQL a statement that reads
-    one way can still stop, where the family's reads part: never before that first opener, so the cuts need no merge.
+    An opener is one of ``_RUN_OPENER``, or what opened a run left open in a bracket.
 
     Ported from ``JournalTextExposure.isAmbiguous``, which runs on the journal; here a trigger inside a literal is text
     (MVP spec §14), and the nested and backslash checks also run on MySQL (decision D7).
     """
     if not _reads_two_ways(scan, rules):
-        return _family_cut(scan, rules) if rules.dollar is DollarOpen.MYSQL_TAG else -1
+        return -1
     found = _RUN_OPENER.search(scan.source)
     return min((stop.start() for stop in (found, _bracket_opener(scan)) if stop), default=-1)
 
 
-def _scan(sql: str, rules: LexRules) -> Scan:
-    """The one entry to the read: the output, the runs, and where a statement that reads two ways stops."""
+def _statement_cut(scan: _Pass, rule_sets: tuple[LexRules, ...]) -> int:
+    """Where the statement stops: the first reading's own cuts, read whatever any other test says, then the first run
+    a later reading places apart. A run that swallowed the rest of the text hides that the rest reads apart, so the
+    head that shows is read again without it."""
+    source, rules = scan.source, rule_sets[0]
+    bracket = _bracket_cut(scan) if rules.bracket is Bracket.CHARACTER and rules.cut_bracket else -1
+    cuts = [
+        _ambiguous_cut(scan, rules),
+        bracket,
+        *(source.find(prefix) for prefix in rules.cut_prefixes),
+    ]
+    if rules.digit_dollar is DigitDollar.NAME:
+        literals = [(start, end) for start, end, kind in scan.out.runs if kind == _LITERAL]
+        cuts.extend((_bad_exponent_cut(scan), _uncertain_number_cut(source, literals)))
+    executable = (other for other in rule_sets[1:] if other.executable_prefixes != rules.executable_prefixes)
+    cuts += [
+        _ambiguous_cut(scan, other)
+        for other in executable
+        if any(prefix in source for prefix in other.executable_prefixes - rules.executable_prefixes)
+    ]
+    parting = parting_readings(source, rule_sets)
+    cuts += [family_cut(scan, _read(source, other), _LITERAL) for other in parting]
+    cut = min((at for at in cuts if at >= 0), default=-1)
+    if cut < 0 or not parting:
+        return cut
+    shown = _read(source[:cut], rules)
+    parted = (family_cut(shown, _read(source[:cut], other), _LITERAL) for other in parting)
+    return min((at for at in parted if at >= 0), default=cut)
+
+
+def read_all(sql: str, rule_sets: tuple[LexRules, ...]) -> Scan:
+    """The read of a tuple of rule sets: the output is the first's, cut where any of them stops."""
     source = sql[:_MAX_SCAN_LENGTH]
+    rules = rule_sets[0]
     scan = _read(source, rules)
-    cut = _ambiguous_cut(scan, rules)
+    cut = _statement_cut(scan, rule_sets)
     if scan.cut >= 0 and (cut < 0 or scan.cut < cut):
         cut = scan.cut
+    if rules.hash is HashRule.CUT and cut >= 0 and source[cut] == "#":
+        found = _RUN_OPENER.search(source)
+        cut = found.start() if found and found.start() < cut else cut
     uncut = tuple(scan.out.runs)
     if cut < 0:
         return Scan(
@@ -816,11 +903,15 @@ def _scan(sql: str, rules: LexRules) -> Scan:
     head = _read(source[:cut], rules)
     out = head.out
     out.space()
-    out.runs.append((cut, cut, _COMMENT))  # the space, so that ``shown`` replays it
-    predicate = out.predicate_position()
-    out.append("?")
-    out.runs.append((cut, len(source), _LITERAL))
-    literals, predicate_literals = head.literals + 1, head.predicate_literals + predicate
+    literals, predicate_literals = head.literals, head.predicate_literals
+    if rules.hash is HashRule.CUT and source[cut] == "#":
+        out.runs.append((cut, len(source), _COMMENT))  # read as the comment it may be, no value is claimed past it
+    else:
+        out.runs.append((cut, cut, _COMMENT))  # the space, so that ``shown`` replays it
+        predicate_literals += out.predicate_position()
+        out.append("?")
+        out.runs.append((cut, len(source), _LITERAL))
+        literals += 1
     return Scan(
         source,
         out.text(),
@@ -838,7 +929,7 @@ class HandLexer:
     """The scan by hand, one pass over the text; the only ``SqlLexer`` there is. ``readings`` names the rules."""
 
     def scan(self, sql: str, dialect: Dialect) -> Scan:
-        return _scan(sql, readings(dialect)[0])
+        return read_all(sql, readings(dialect))
 
     def block_closer(self, text: str, dialect: Dialect) -> int:
         """Where the ``]`` closing a ``[SQL: `` block is in ``text``, the text after its opener; -1 when none does.
@@ -852,11 +943,12 @@ class HandLexer:
 
     def reads_two_ways(self, sql: str, dialect: Dialect) -> bool:
         """Whether ``sql`` stops at its first opener: a closer found in such a statement is a guess."""
-        rules = readings(dialect)[0]
-        scan = _read(sql[:_MAX_SCAN_LENGTH], rules)
+        rule_sets = readings(dialect)
+        scan = _read(sql[:_MAX_SCAN_LENGTH], rule_sets[0])
         # shortcut: SQLite alone, Task 18 changes no other dialect; PostgreSQL's boundary cut needs this line too
-        variable_cut = rules.variable_suffix is VariableSuffix.TCL_PAREN and scan.cut >= 0
-        return variable_cut or _ambiguous_cut(scan, rules) >= 0
+        variable_cut = rule_sets[0].variable_suffix is VariableSuffix.TCL_PAREN and scan.cut >= 0
+        hash_cut = rule_sets[0].hash is HashRule.CUT and scan.cut >= 0
+        return variable_cut or hash_cut or _statement_cut(scan, rule_sets) >= 0
 
 
 def _first_closer(scan: _Pass, text: str) -> int:

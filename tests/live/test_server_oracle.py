@@ -41,13 +41,13 @@ PLANT_SECONDS = 900  # a leg twice: the base here, the plant in a child
 # The rows each leg runs: each text once, so a repeated reading counts one. Pinned, so a lost leg or a shrunk corpus
 # fails; nothing here is derived from the corpus it checks.
 PINNED: dict[tuple[str, str], int] = {
-    ("mysql84", ""): 2149,
+    ("mysql84", ""): 2150,
     ("mysql84", "NO_BACKSLASH_ESCAPES"): 2150,
     ("mysql84", "ANSI_QUOTES"): 1388,
-    ("mysql80", ""): 1994,
+    ("mysql80", ""): 1995,
     ("mysql80", "NO_BACKSLASH_ESCAPES"): 1995,
     ("mysql80", "ANSI_QUOTES"): 1233,
-    ("mariadb", ""): 1994,
+    ("mariadb", ""): 1996,
     ("mariadb", "NO_BACKSLASH_ESCAPES"): 1995,
     ("mariadb", "ANSI_QUOTES"): 1233,
     ("mariadb", "MSSQL"): 1403,

@@ -19,13 +19,13 @@ from dataclasses import dataclass, field
 from types import FrameType
 from typing import Any, NamedTuple, cast
 
-from sharpit.engine.capture.errortext import mask_error, render_error
+from sharpit.engine import sqltext
+from sharpit.engine.capture.errortext import mask_error
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.sqlscan import Normalized, normalize, normalize_sql
-from sharpit.engine.capture.statement import masked_shape
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import MASK, Masker
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, Shape
 
 __all__ = ["Normalized", "mask_error", "normalize", "normalize_sql"]
 
@@ -151,7 +151,7 @@ def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
         "threadKind": None,
         "requestPhase": None,
     }
-    dto.pop("shape", None)  # internal: the recorder's Normalized, kept for grouping without re-normalising
+    dto.pop("shape", None)  # internal: kept for grouping without re-normalising
     return dto
 
 
@@ -196,7 +196,7 @@ class SqlTraceRecorder:
     ) -> None:
         self._masker = masker
         # the same statements repeat: per recorder, so one masker's results never reach another's
-        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(masked_shape, masker))
+        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(sqltext.statement_shape, masker))
         self.max_entries = max_entries
         self.slow_query_threshold_millis = slow_query_threshold_millis
         self._max_sql_length = max_sql_length
@@ -210,14 +210,18 @@ class SqlTraceRecorder:
         self._total = 0
         self._evicted = 0
         self._selects = 0
-        self._max_millis = -1  # -1: no SELECT since the last clear
-        self._max_sql: str | None = None
-        self._lock = threading.Lock()
+        self._sqlite_seen = False
+        self._slowest: tuple[int, str | None] = (-1, None)  # -1: no SELECT since the last clear; replaced whole
+        # Writers only, and reentrant: a collection in a critical section can run a finalizer that runs SQL on this
+        # thread. Readers take no lock, so they wait for no writer.
+        # shortcut: ``list(deque)`` is atomic only under the GIL, where GC runs between bytecodes; a free-threaded build
+        # needs a retry on the deque's RuntimeError.
+        self._lock = threading.RLock()
         self.changes = ChangeStream()
 
     def totals(self) -> SqlTotals:
-        with self._lock:
-            return SqlTotals(self._total, self._selects, max(self._max_millis, 0), self._max_sql)
+        millis, sql = self._slowest
+        return SqlTotals(self._total, self._selects, max(millis, 0), sql)
 
     @property
     def aggregate_count(self) -> int:
@@ -266,16 +270,11 @@ class SqlTraceRecorder:
         if not self.recording:
             return
         masker = self._masker
-        shape = self._shape(sql, dialect)
-        stored = shape.sql if not masker.capture_parameters else (masker.mask_text(sql) or "")
+        shape: Shape = self._shape(sql, dialect)
+        stored = shape.text if not masker.capture_parameters else (masker.mask_text(sql) or "")
         error_message: str | None = None
         if error is not None:
-            text = str(error)
-            masked = (
-                masker.mask_text(text)
-                if masker.capture_parameters
-                else render_error(masker, text, dialect, keep_frames=False) or masker.mask_text("")
-            )
+            masked = sqltext.error_text(masker, error, dialect, known=True, keep_frames=False) or masker.mask_text("")
             error_message = _truncate(masked, self._max_sql_length) if masked is not None else None
         has_parameters = bool(parameters)
         millis = duration_ns // 1_000_000
@@ -307,39 +306,44 @@ class SqlTraceRecorder:
         }
         with self._lock:
             row["id"] = next(self._ids)
+            self._sqlite_seen |= dialect is Dialect.SQLITE
             if len(self._entries) == self.max_entries:
                 self._evicted += 1
             self._entries.append(row)
             self._total += 1
             self._selects += category == "SELECT"
-            if category == "SELECT" and millis > self._max_millis:  # rare: only a new slowest SELECT pays to mask
-                self._new_max(millis, shape.sql)
+            if category == "SELECT" and millis > self._slowest[0]:  # rare: only a new slowest SELECT pays to mask
+                self._new_max(millis, shape.text)
             key = shape.fingerprint
-            aggregate = self._aggregates.get(key)
-            if aggregate is None:
-                aggregate = self._aggregates[key] = _Aggregate(shape.sql, category)
-                if len(self._aggregates) > MAX_AGGREGATES:
-                    self._aggregates.popitem(last=False)
-            else:
-                self._aggregates.move_to_end(key)
-            aggregate.executions += 1
-            aggregate.total_duration += millis
-            aggregate.max_duration = max(aggregate.max_duration, millis)
-            if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
-                aggregate.call_sites[site] = None
+            if key is not None:
+                aggregate = self._aggregates.get(key)
+                if aggregate is None:
+                    aggregate = self._aggregates[key] = _Aggregate(shape.text, category)
+                    if len(self._aggregates) > MAX_AGGREGATES:
+                        self._aggregates.popitem(last=False)
+                else:
+                    try:
+                        self._aggregates.move_to_end(key)
+                    except KeyError:  # a finalizer on this thread evicted it since the ``get``
+                        self._aggregates[key] = aggregate
+                aggregate.executions += 1
+                aggregate.total_duration += millis
+                aggregate.max_duration = max(aggregate.max_duration, millis)
+                if site is not None and len(aggregate.call_sites) < MAX_CALL_SITES_PER_GROUP:
+                    aggregate.call_sites[site] = None
         self.changes.signal()
 
     def _new_max(self, millis: int, sql: str) -> None:
         """Under the lock: the slowest SELECT since the last clear, masked like the ring rows."""
-        self._max_millis = millis
         shown = self._masker.mask_text(sql)
-        self._max_sql = _truncate(shown, self._max_sql_length) if shown is not None else None
+        self._slowest = (millis, _truncate(shown, self._max_sql_length) if shown is not None else None)
 
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
             self._aggregates.clear()
-            self._max_millis, self._max_sql = -1, None
+            self._slowest = (-1, None)
+            self._sqlite_seen = False
         self.changes.signal()
 
     def set_recording(self, enabled: bool) -> None:
@@ -349,18 +353,18 @@ class SqlTraceRecorder:
 
     def rows(self) -> list[dict[str, Any]]:
         """The ring as stored, oldest first (``timestamp`` in epoch ns); ``entry_dto`` builds one DTO."""
-        with self._lock:
-            return list(self._entries)
+        return list(self._entries)
 
     def report(self, data_sources: list[str]) -> dict[str, Any]:
         """``SqlTraceReport``: entries newest first, stats over the ring, top statements since the last clear."""
-        with self._lock:
+        with self._lock:  # one view of the ring and the groups; a reader that spins here must yield to the writers
             rows = list(self._entries)
             groups = [
                 (a.sql, a.category, a.executions, a.total_duration, a.max_duration, list(a.call_sites))
-                for a in self._aggregates.values()
+                for a in list(self._aggregates.values())
             ]
             total, evicted = self._total, self._evicted
+            sqlite_seen = self._sqlite_seen
         stats = _empty_stats()
         for row in rows:
             millis = row["durationMillis"]
@@ -394,6 +398,8 @@ class SqlTraceRecorder:
             for sql, category, n, total_ms, max_ms, sites in groups[:TOP_STATEMENTS_LIMIT]
         ]
         warnings: list[str] = []
+        if sqlite_seen and self._masker.identity_key is None:
+            warnings.append("SQLite statement identities are unavailable because sharpit could not load a state key")
         if not self.recording:
             warnings.append(PAUSED)
         if self._masker.capture_parameters:

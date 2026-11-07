@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from sharpit.engine import sqla
 from sharpit.engine.capture.exchanges import DTO_KEYS as EXCHANGE_KEYS
-from sharpit.engine.capture.sqltrace import entry_dto, normalize_sql
+from sharpit.engine.capture.sqltrace import entry_dto
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -114,14 +114,15 @@ def _summarize_sql(category: str, sql: str) -> str:
 
 
 def _groups(rows: Iterable[dict[str, Any]], threshold: int) -> list[dict[str, Any]]:
-    """``SqlTraceGrouping.group`` over normalised SQL: executions first, N+1 = a SELECT run ``threshold`` times."""
+    """Group by the recorder's masked fingerprint; N+1 is a SELECT run ``threshold`` times."""
     by_sql: dict[str, dict[str, Any]] = {}
     for row in rows:
-        key = normalize_sql(row["sql"], row["shape"].dialect)
+        shape = row["shape"]
+        key = shape.fingerprint if shape.fingerprint is not None else shape.text
         group = by_sql.get(key)
         if group is None:
             group = by_sql[key] = {
-                "sql": key,
+                "sql": shape.text,
                 "category": row["category"] or "OTHER",
                 "executions": 0,
                 "totalDurationMillis": 0,

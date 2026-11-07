@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sharpit.engine.capture import sqlscan
+from sharpit.engine import sqltext
 from sharpit.engine.capture.sqltrace import normalize_sql
 from sharpit.engine.collectors.mysql.querytext import mysql_query_text
 from sharpit.engine.masking import MASK, Exposure, Masker
@@ -62,7 +62,7 @@ def test_mysql_query_text_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(_sql: str, _dialect: Dialect) -> None:
         raise RuntimeError
 
-    monkeypatch.setattr(sqlscan, "_scan", broken)
+    monkeypatch.setattr(sqltext.LEXER, "scan", broken)
     assert mysql_query_text(MASKER, f"UPDATE fails_closed SET note='{SECRET}'") == MASK
 
 
@@ -70,7 +70,7 @@ def test_mysql_query_text_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     ("sql", "expected"),
     [
         ('SELECT "firstName" FROM "user"', 'SELECT "firstName" FROM "user"'),
-        ("SELECT a # b", "SELECT a # b"),
+        ("SELECT a # b", "SELECT a"),
         ("SELECT 0xFF", "SELECT ?"),
         ('SELECT "a\\"b', "SELECT ?"),
     ],

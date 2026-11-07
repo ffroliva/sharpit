@@ -20,8 +20,8 @@ from typing import Any
 import pytest
 from tests.dialect_ids import dialect_id
 
-from sharpit.engine.capture import sqltrace, statement
-from sharpit.engine.capture.sqlscan import Reading
+from sharpit.engine import sqltext
+from sharpit.engine.capture import sqltrace
 from sharpit.engine.capture.sqltrace import (
     ENTRY_KEYS,
     GROUP_KEYS,
@@ -34,7 +34,7 @@ from sharpit.engine.capture.sqltrace import (
     unavailable_report,
 )
 from sharpit.engine.masking import MASK, Exposure, Masker
-from sharpit.engine.sqltext import Dialect
+from sharpit.engine.sqltext import Dialect, Shape
 
 MASKED = Masker(Exposure.MASKED, True)
 WITH_PARAMETERS = Masker(Exposure.MASKED, True, capture_parameters=True)
@@ -283,6 +283,16 @@ def test_evicts_oldest_and_counts_evictions():
     assert [e["sql"] for e in report["entries"]] == ["select third", "select second"]
     assert (report["totalCaptured"], report["stats"]["evicted"]) == (3, 1)
     assert "Older queries were dropped; the buffer keeps the most recent 2." in report["warnings"]
+
+
+def test_sqlite_without_an_identity_key_explains_missing_group_identities() -> None:
+    recorder = _recorder(Masker(Exposure.MASKED, True))
+    _record(recorder, "select * from users", dialect=Dialect.SQLITE)
+
+    assert (
+        "SQLite statement identities are unavailable because sharpit could not load a state key"
+        in recorder.report([])["warnings"]
+    )
 
 
 def test_drops_parameters_when_capture_disabled():
@@ -596,7 +606,7 @@ def test_recorder_sql_takes_the_masker_pass():
     _record(recorder, f"SELECT * FROM t WHERE u = 'x' AND note = https://h/?token={token}")
     assert token not in _entries(recorder)[0]["sql"]
     assert token not in recorder.report([])["topStatements"][0]["sql"]
-    assert token not in recorder.rows()[0]["shape"].sql
+    assert token not in recorder.rows()[0]["shape"].text
 
 
 def test_recorder_under_metadata_only_keeps_its_text():
@@ -605,8 +615,10 @@ def test_recorder_under_metadata_only_keeps_its_text():
     _record(recorder, "SELECT * FROM users WHERE name = 'bob' AND id IN (1, 2)")
     assert _entries(recorder)[0]["sql"] == "SELECT * FROM users WHERE name = ? AND id IN (?)"
     assert recorder.report([])["topStatements"][0]["sql"] == "SELECT * FROM users WHERE name = ? AND id IN (?)"
-    assert recorder.rows()[0]["shape"] == normalize(
-        "SELECT * FROM users WHERE name = 'bob' AND id IN (1, 2)", Dialect.UNSUPPORTED
+    assert recorder.rows()[0]["shape"] == sqltext.statement_shape(
+        Masker(Exposure.METADATA_ONLY, True),
+        "SELECT * FROM users WHERE name = 'bob' AND id IN (1, 2)",
+        Dialect.UNSUPPORTED,
     )
 
 
@@ -615,23 +627,32 @@ def test_with_parameters_the_stored_text_stays_the_masked_raw_text():
     recorder = _recorder(WITH_PARAMETERS)
     _record(recorder, "select * from t where name = 'bob'")
     assert recorder.rows()[0]["sql"] == "select * from t where name = 'bob'"
-    assert recorder.rows()[0]["shape"].sql == "select * from t where name = ?"
+    assert recorder.rows()[0]["shape"].text == "select * from t where name = ?"
 
 
 def test_a_repeated_statement_is_masked_once(monkeypatch: pytest.MonkeyPatch):
     # derived: plan risk "125 us uncached": the pass runs per distinct statement, per recorder
     calls: list[str] = []
-    real = statement.statement_text
+    real = sqltext.statement_shape
 
-    def counted(masker: Masker, sql: str, dialect: Dialect, reading: Reading) -> str | None:
+    def counted(masker: Masker, sql: str, dialect: Dialect) -> Shape:
         calls.append(sql)
-        return real(masker, sql, dialect, reading)
+        return real(masker, sql, dialect)
 
-    monkeypatch.setattr(statement, "statement_text", counted)
+    monkeypatch.setattr(sqltext, "statement_shape", counted)
     first, second = _recorder(), _recorder()
     for recorder in (first, first, second):
         _record(recorder, "select 1")
     assert calls == ["select 1", "select 1"]
+
+
+def test_a_shape_without_a_fingerprint_is_not_aggregated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sqltext, "statement_shape", lambda _, __, dialect: Shape("SELECT ?", None, dialect, 1, 0))
+    recorder = _recorder()
+
+    _record(recorder, "select 1")
+
+    assert recorder.aggregate_count == 0
 
 
 # --- call site (frame walk) ------------------------------------------------------------------------------------------

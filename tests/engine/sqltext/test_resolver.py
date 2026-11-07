@@ -379,6 +379,35 @@ def test_an_event_with_no_error_never_reaches_the_exception_source(monkeypatch: 
     assert calls == []
 
 
+def test_a_statement_that_proves_its_family_never_reads_the_application() -> None:
+    """The common path: the event's own connection answers, so no statement walks the engine registry."""
+    reads: list[str] = []
+
+    def application() -> Dialect:
+        reads.append("read")
+        return Dialect.POSTGRESQL
+
+    event = SimpleNamespace(dialect=Dialect.POSTGRESQL, engine=FakeEngine("postgresql"), error=None)
+    assert dialect_source.event_dialect(event, application) is Dialect.POSTGRESQL
+    assert reads == []
+
+
+def test_a_statement_that_proves_nothing_takes_the_application() -> None:
+    event = SimpleNamespace(dialect=None, engine=None, error=None)
+    assert dialect_source.event_dialect(event, lambda: Dialect.SQLITE) is Dialect.SQLITE
+
+
+def test_a_statement_that_proves_nothing_in_an_unknown_application_hides() -> None:
+    event = SimpleNamespace(dialect=None, engine=None, error=None)
+    assert dialect_source.event_dialect(event, lambda: None) is Dialect.UNSUPPORTED
+
+
+def test_a_failed_statement_still_meets_the_application() -> None:
+    """A failure is rare, so it pays for the whole check: its own proof against step 2 hides."""
+    event = SimpleNamespace(dialect=Dialect.MYSQL_FAMILY, engine=FakeEngine("mysql"), error=driver_error("pymysql"))
+    assert dialect_source.event_dialect(event, lambda: Dialect.POSTGRESQL) is Dialect.UNSUPPORTED
+
+
 def test_a_disagreeing_engine_hides_an_event_with_no_error() -> None:
     event = SimpleNamespace(dialect=Dialect.POSTGRESQL, engine=FakeEngine("mysql"), error=None)
     assert dialect_source.event_dialect(event, lambda: None) is Dialect.UNSUPPORTED

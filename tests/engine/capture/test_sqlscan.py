@@ -196,8 +196,6 @@ AMBIGUOUS = [
     ("SELECT nq'[it's x]'", "SELECT nq ?"),
     ("SELECT /* outer /* inner */ ' */ 'x'", "SELECT ?"),
     ("/* /* n */ it's */ SELECT 'x'", "it ?"),
-    ("SELECT # it's\n 'x'", "SELECT # it ?"),
-    ("data #>> '{a}'", "data #>> ?"),  # an accepted limit: read as an operator it could show a literal on MySQL
     ("-- c\r, 'a\nS', 'b'", "?"),
     ("SELECT ['a]', 'x']", "SELECT [ ?"),
     ("SELECT ['a b] c', 'x']", "SELECT [ ?"),
@@ -256,12 +254,37 @@ def test_a_cut_is_a_predicate_literal_where_the_text_stops_at_one() -> None:
     assert normalize("path='C:\\', note='x'", Dialect.UNSUPPORTED).predicate_literal_count == 1
 
 
+# derived: conflicts hide (spec section 6): with no family known a ``#`` is a comment, an operator or a variable, and
+# a statement on a conflict showed ``# password hunter2``. It stops at the ``#``, on any line.
+GENERIC_HASH = [
+    ("SELECT # it's\n 'x'", "SELECT"),
+    ("data #>> '{a}'", "data"),
+    ("SELECT a # b", "SELECT a"),
+    ("SELECT 'a' # b", "SELECT ?"),
+    ("SELECT 1 # $1", "SELECT ?"),
+    ("SELECT 1 # `\n, 1234567 # `\n", "SELECT ?"),
+    ("SELECT 1 # x $$\n$$SECRET$$", "SELECT ?"),
+    (
+        "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS # $$\n $$ SECRET $$",
+        "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS",
+    ),
+]
+
+
+@pytest.mark.parametrize(("sql", "expected"), GENERIC_HASH)
+def test_a_statement_with_no_family_stops_at_a_hash(sql: str, expected: str) -> None:
+    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+
+
+@pytest.mark.parametrize(("sql", "expected"), GENERIC_HASH)
+def test_shown_stops_at_a_hash_where_normalize_stops(sql: str, expected: str) -> None:
+    assert shown(sql, [], Dialect.UNSUPPORTED).strip() == expected
+
+
 @pytest.mark.parametrize(
     ("sql", "expected"),
     [
         ("SELECT 'C:\\dir', 'y'", "SELECT ?, ?"),  # the backslash reads the same both ways
-        ("SELECT a # b", "SELECT a # b"),  # no quote after the operator
-        ("SELECT 'a' # b", "SELECT ? # b"),
         ("color='#fff', note='x'", "color=?, note=?"),  # a trigger inside a literal is text
         ("SELECT '/* /* */', 'x'", "SELECT ?, ?"),
         ("SELECT 'q''x', 'y'", "SELECT ?, ?"),
@@ -694,7 +717,6 @@ def test_a_backtick_stops_the_cut(sql: str, expected: str, dialect: Dialect) -> 
     [
         ("SELECT 5--`a\nb`, 1234567 FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),
         ("SELECT 5--`a\nb`, 1234567, 'x' FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),
-        ("SELECT 1 # `\n, 1234567 # `\n", "SELECT ? # ?"),  # a backtick after a ``#`` is a quote after it
     ],
 )
 def test_a_backtick_stops_the_cut_with_the_dialect_unknown(sql: str, expected: str) -> None:
@@ -1052,11 +1074,6 @@ def test_a_probed_value_stays_hidden_on_mysql(sql: str) -> None:
         ("SELECT -- x\r $a$\n SECRET $a$", "SELECT ?"),
         ("SELECT 1 --\r, $$\n SECRET $$", "SELECT ? ?"),
         ("SELECT 1, -- x\r $$\n SECRET $$, 'x'", "SELECT ?, ?"),
-        (
-            "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS # $$\n $$ SECRET $$",
-            "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS # ?",
-        ),
-        ("SELECT 1 # x $$\n$$SECRET$$", "SELECT ? # x ?"),
         ("SELECT 5--$$\n SECRET $$", "SELECT ? ?"),
         (
             "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT /*! AS $$ */ SECRET $$ */",
@@ -1092,7 +1109,6 @@ def test_a_cut_stops_at_a_dollar_quote_on_mysql(sql: str) -> None:
         ("SELECT /* /* */ 1234567", "SELECT ?"),
         ("SELECT /* /* */ */ 1234567", "SELECT */ ?"),
         ("SELECT /*!50000 a */ FROM t", "SELECT FROM t"),
-        ("SELECT 1 # $1", "SELECT ? # $1"),
         ("SELECT $$x$$, 'y'", "SELECT ?, ?"),
     ],
 )
@@ -1151,16 +1167,24 @@ def test_a_double_quote_cut_open_at_the_scan_limit_is_a_literal() -> None:
 )
 @pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
 def test_digits_after_a_word_and_a_dot_are_a_literal(sql: str, expected: str, dialect: Dialect) -> None:
+    if dialect is Dialect.MYSQL_FAMILY:
+        expected = {"SELECT ..123": "SELECT ?", "SELECT t..123": "SELECT t ?"}.get(sql, expected)
     assert normalize(sql, dialect).sql == expected
 
 
 # (r8) the rule's cost, toward hiding: MySQL reads both as names, and they lose their digits
 @pytest.mark.parametrize(
-    ("sql", "expected"),
-    [("SELECT t.1col FROM t", "SELECT t.?col FROM t"), ("SELECT * FROM db.2020_sales", "SELECT * FROM db.?_sales")],
+    ("sql", "unsupported", "mysql_expected"),
+    [
+        ("SELECT t.1col FROM t", "SELECT t.?col FROM t", "SELECT t.1col FROM t"),
+        ("SELECT * FROM db.2020_sales", "SELECT * FROM db.?_sales", "SELECT * FROM db.2020_sales"),
+    ],
 )
 @pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
-def test_a_name_led_by_a_digit_after_a_dot_loses_its_digits(sql: str, expected: str, dialect: Dialect) -> None:
+def test_name_digits_after_a_dot_stay_inside_mysql_name(
+    sql: str, unsupported: str, mysql_expected: str, dialect: Dialect
+) -> None:
+    expected = mysql_expected if dialect is Dialect.MYSQL_FAMILY else unsupported
     assert normalize(sql, dialect).sql == expected
 
 

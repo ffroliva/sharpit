@@ -24,6 +24,7 @@ from sharpit.engine.collectors.sqlastats import (
     RECORDING_PAUSED,
     REPORT_KEYS,
     STATISTICS_KEYS,
+    _select_counts,  # pyright: ignore[reportPrivateUsage]
     statistics_report,
 )
 from sharpit.engine.context import SharpitContext
@@ -159,6 +160,12 @@ def test_unavailable_when_tracing_off():
 def test_unavailable_mirrors_sqlalchemy_absent(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(sqla, "unavailable_reason", lambda: "SQLAlchemy not imported")
     assert statistics_report(_ctx())["unavailableReason"] == "SQLAlchemy not imported"
+
+
+def test_a_statement_with_no_identity_counts_toward_no_n_plus_one():
+    shape = normalize("select 1", Dialect.SQLITE)._replace(fingerprint=None)
+    rows = [{"traceId": "r1", "category": "SELECT", "shape": shape}] * 6
+    assert _select_counts(rows) == ({}, {})
 
 
 def test_n_plus_one_per_route():

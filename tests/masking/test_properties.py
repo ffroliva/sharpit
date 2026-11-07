@@ -397,6 +397,10 @@ MYSQL_84_CUTS = (
     + "    cut_bracket=True,  # MariaDB `sql_mode=MSSQL` is session state no text reveals"
 )  # fmt: skip
 NO_BACKSLASH_CUT = Mutant(MYSQL_84_CUTS.format(True), MYSQL_84_CUTS.format(False), "", "", "engine/sqltext/rules.py")
+# the session readings cut most of the same text: the plant takes both, or the field's removal hides behind them
+NO_SESSION_READINGS = Mutant(
+    "    return rule_sets[1:] + session\n", "    return rule_sets[1:]\n", "", "", "engine/sqltext/family.py"
+)
 # owed to Task 18, which adds ``hide_double_quoted`` to rules.py in another lane: until it merges, the anchor is
 # missing and this row fails as a stale plant, not as a red
 SHOWS_DOUBLE_QUOTED = Mutant("hide_double_quoted=True", "hide_double_quoted=False", "", "", "engine/sqltext/rules.py")
@@ -409,7 +413,7 @@ RAW_HEAD = Mutant(_CUT_SCAN, '        source[:cut] + " ?",\n', "", "")
 DIGIT_LEAVES_NAME = MUTANTS["digit_in_name"]
 LITERAL, CUT = "test_a_literal_never_survives", "test_a_cut_only_shortens"
 PLANTS: dict[str, tuple[str, Dialect, tuple[Mutant, ...], str]] = {
-    "mysql_family-cut_backslash": (LITERAL, Dialect.MYSQL_FAMILY, (NO_BACKSLASH_CUT,), LEAK),
+    "mysql_family-cut_backslash": (LITERAL, Dialect.MYSQL_FAMILY, (NO_BACKSLASH_CUT, NO_SESSION_READINGS), LEAK),
     "sqlite-hide_double_quoted": (LITERAL, Dialect.SQLITE, (SHOWS_DOUBLE_QUOTED,), LEAK),
     "postgresql-tail_after_cut": (CUT, Dialect.POSTGRESQL, (TAIL_AFTER_CUT,), PAST_THE_CUT),
     "mysql_family-raw_head": (CUT, Dialect.MYSQL_FAMILY, (RAW_HEAD,), PAST_THE_CUT),

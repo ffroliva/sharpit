@@ -37,25 +37,26 @@ def engine_dialect(holder: object) -> Dialect | None:
     return _candidate(_attribute(holder, "dialect"))
 
 
+def _agreed(proof: Dialect | None, other: Dialect | None) -> Dialect | None:
+    if proof is None:
+        return other
+    return proof if other is None or other is proof else Dialect.UNSUPPORTED
+
+
+def _event_proof(event: object) -> Dialect | None:
+    """The connection, its execution context and its engine: three holders, each read once, that must agree."""
+    proof = _candidate(_attribute(event, "dialect"))
+    execution = _attribute(event, "context")
+    if execution is not None:
+        proof = _agreed(proof, _candidate(_attribute(execution, "dialect")))
+    engine = _attribute(event, "engine")
+    return proof if engine is None else _agreed(proof, engine_dialect(engine))
+
+
 class EngineDialectSource:
     def dialect_of(self, event: object, context: DialectContext) -> Dialect | None:
         del context
-        candidates = [_candidate(_attribute(event, "dialect"))]
-        execution = _attribute(event, "context")
-        if execution is not None:
-            candidates.append(_candidate(_attribute(execution, "dialect")))
-        engine = _attribute(event, "engine")
-        if engine is not None:
-            candidates.append(engine_dialect(engine))
-        proof: set[Dialect] = set()
-        for candidate in candidates:
-            if candidate is Dialect.UNSUPPORTED:
-                return Dialect.UNSUPPORTED
-            if candidate is not None:
-                proof.add(candidate)
-        if len(proof) > 1:
-            return Dialect.UNSUPPORTED
-        return next(iter(proof), None)
+        return _event_proof(event)
 
 
 class ExceptionDialectSource:
@@ -76,11 +77,13 @@ def exception_dialect(event: object, application: Callable[[], Dialect | None]) 
     return resolve(event, (ExceptionDialectSource(),), DialectContext(application))
 
 
-_EVENT_SOURCES = (EngineDialectSource(),)
-_ERROR_SOURCES = (*_EVENT_SOURCES, ExceptionDialectSource())
+_ERROR_SOURCES = (EngineDialectSource(), ExceptionDialectSource())
 
 
 def event_dialect(event: object, application: Callable[[], Dialect | None]) -> Dialect:
-    """Per statement. Agreement is decided in one place, ``EngineDialectSource``; with no error, no chain is walked."""
-    sources = _EVENT_SOURCES if _attribute(event, "error") is None else _ERROR_SOURCES
-    return resolve(event, sources, DialectContext(application))
+    """Per statement. With no error the event answers alone: no chain is walked and the application's engines are not
+    read, unless the event proves nothing. A failure is rare, so it pays for the chain and for step 2."""
+    if _attribute(event, "error") is not None:
+        return resolve(event, _ERROR_SOURCES, DialectContext(application))
+    proof = _event_proof(event)
+    return proof if proof is not None else resolve(event, (), DialectContext(application))

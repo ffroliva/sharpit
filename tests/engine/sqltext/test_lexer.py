@@ -6,7 +6,8 @@ import pytest
 
 from sharpit.engine import sqltext
 from sharpit.engine.sqltext import Dialect, Kind, Range
-from sharpit.engine.sqltext.lexer import _dollar_quote_end
+from sharpit.engine.sqltext.lexer import _dollar_quote_end, _read, _two_way_bracket_end
+from sharpit.engine.sqltext.rules import GENERIC as GENERIC_RULES
 from sharpit.engine.sqltext.rules import MYSQL_84
 
 GENERIC = Dialect.UNSUPPORTED
@@ -52,10 +53,65 @@ def test_the_scan_holds_the_text_the_runs_replay() -> None:
     assert scan.text == "SELECT ?, ? "
 
 
+def test_array_subscript_is_not_a_bracket_identifier() -> None:
+    assert _read("SELECT ARRAY [secret]", GENERIC_RULES).out.runs == [(13, 14, Kind.CODE)]
+
+
+def test_a_digit_led_bracket_body_is_not_an_identifier() -> None:
+    assert _read("SELECT [123]", GENERIC_RULES).out.runs == [(7, 8, Kind.CODE), (8, 11, Kind.LITERAL)]
+
+
+def test_a_closed_quote_inside_brackets_does_not_open_a_two_way_read() -> None:
+    sql = "SELECT [" + chr(39) + "x" + chr(39) + " tail]"
+    assert _two_way_bracket_end(sql, sql.index("["), GENERIC_RULES) == -1
+
+
+def test_an_open_quote_at_bracket_close_opens_a_two_way_read() -> None:
+    sql = "SELECT [" + chr(39) + "x]"
+    assert _two_way_bracket_end(sql, sql.index("["), GENERIC_RULES) == sql.index("]") + 1
+
+
+def test_mssql_doubled_bracket_opener_cuts_the_raw_mysql_pass() -> None:
+    sql = "SELECT [a]]`[it" + chr(39) + "s], " + chr(39) + "secret" + chr(39)
+    assert _read(sql, MYSQL_84).cut == sql.index("[")
+
+
 def test_a_scan_that_reads_one_way_has_no_cut() -> None:
     scan = sqltext.LEXER.scan("select 1", GENERIC)
 
     assert scan.cut == -1
+
+
+# derived: rules.py gives generic ``HashRule.CUT``: ``#`` is a comment on MySQL, an operator on PostgreSQL and a
+# variable on SQLite, so with no family known nothing past it can be read, on any line, quoted or not.
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT 1 # password hunter2",
+        "SELECT 1 # password\n, hunter2",
+        "SELECT 1 # password hunter2 'x'",
+        "SELECT 1 # password hunter2 `x",
+        "SELECT 1 #password hunter2\r\nFROM t",
+    ],
+)
+def test_generic_hides_everything_past_a_hash(sql: str) -> None:
+    scan = sqltext.LEXER.scan(sql, GENERIC)
+
+    assert scan.text.strip() == "SELECT ?"
+
+
+def test_generic_shows_nothing_past_a_hash_after_a_hidden_render() -> None:
+    sql = "SELECT 1 # password hunter2"
+
+    assert sqltext.shown(sql, sqltext.LEXER.scan(sql, GENERIC), (), "***", frozenset(), []).strip() == "SELECT ?"
+
+
+def test_a_hash_in_a_literal_stays_in_the_literal() -> None:
+    assert sqltext.LEXER.scan("SELECT 'a#b', c FROM t", GENERIC).text == "SELECT ?, c FROM t"
+
+
+def test_a_closer_past_a_generic_hash_is_a_guess() -> None:
+    assert sqltext.LEXER.reads_two_ways("SELECT 1 # x", GENERIC)
 
 
 def test_a_scan_that_reads_one_way_has_the_runs_it_would_have_uncut() -> None:
@@ -65,21 +121,21 @@ def test_a_scan_that_reads_one_way_has_the_runs_it_would_have_uncut() -> None:
 
 
 def test_a_statement_that_reads_two_ways_cuts_at_its_first_opener() -> None:
-    scan = sqltext.LEXER.scan("select 1 # 'x'", GENERIC)
+    scan = sqltext.LEXER.scan("select 1 /* /* */ 'x'", GENERIC)
 
-    assert scan.cut == 11
+    assert scan.cut == 18
 
 
 def test_a_cut_keeps_the_runs_the_scan_read_before_it() -> None:
-    scan = sqltext.LEXER.scan("select 1 # 'x'", GENERIC)
+    scan = sqltext.LEXER.scan("select 1 /* /* */ 'x'", GENERIC)
 
-    assert [kind for _, _, kind in scan.uncut_runs] == [Kind.LITERAL, Kind.LITERAL]
+    assert [kind for _, _, kind in scan.uncut_runs] == [Kind.LITERAL, Kind.COMMENT, Kind.LITERAL]
 
 
 def test_a_cut_ends_the_runs_with_a_literal_to_the_end() -> None:
-    scan = sqltext.LEXER.scan("select 1 # 'x'", GENERIC)
+    scan = sqltext.LEXER.scan("select 1 /* /* */ 'x'", GENERIC)
 
-    assert scan.runs[-1] == Range(11, 14, Kind.LITERAL)
+    assert scan.runs[-1] == Range(18, 21, Kind.LITERAL)
 
 
 def test_the_scan_is_frozen() -> None:
@@ -139,23 +195,32 @@ def test_an_opener_in_a_tight_comment_cuts_only_generic_text() -> None:
     assert sqltext.LEXER.reads_two_ways("select 1 --a'b\n, 2", GENERIC)
 
 
-def test_a_swapped_lexer_reaches_the_closer_the_two_way_check_and_the_cache(monkeypatch: pytest.MonkeyPatch) -> None:
-    from sharpit.engine.capture import sqlscan  # noqa: PLC0415
-
-    sqlscan.normalize("select 1", Dialect.UNSUPPORTED)  # warm: a cache that outlives the swap would answer from this
+def test_a_swapped_lexer_reaches_the_facade_and_error_renderer(monkeypatch: pytest.MonkeyPatch) -> None:
 
     class Swapped:
         def scan(self, sql: str, dialect: Dialect) -> sqltext.Scan:
+            self.scans += 1
             return sqltext.HandLexer().scan("delete from t", dialect)
 
         def block_closer(self, text: str, dialect: Dialect) -> int:
+            self.closers += 1
             return 99
 
         def reads_two_ways(self, sql: str, dialect: Dialect) -> bool:
+            self.two_ways += 1
             return True
 
-    monkeypatch.setattr(sqltext, "LEXER", Swapped())
+        def __init__(self) -> None:
+            self.closers = 0
+            self.scans = 0
+            self.two_ways = 0
 
-    assert sqlscan.block_closer("a]", Dialect.UNSUPPORTED) == 99
-    assert sqlscan.reads_two_ways("a", Dialect.UNSUPPORTED)
-    assert sqlscan.normalize("select 1", Dialect.UNSUPPORTED).sql == "delete from t"
+    swapped = Swapped()
+    monkeypatch.setattr(sqltext, "LEXER", swapped)
+
+    from sharpit.engine.masking import Exposure, Masker
+
+    sqltext.error_text(Masker(Exposure.MASKED, True), "(psycopg.errors.Error) failed\n[SQL: select 1]", GENERIC)
+    assert swapped.closers == 1
+    assert swapped.two_ways >= 1
+    assert swapped.scans >= 1

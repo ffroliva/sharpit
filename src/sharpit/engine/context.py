@@ -55,6 +55,7 @@ class SharpitContext:
             self.settings.mask_secrets,
             self.settings.authentication_token,
             capture_parameters=self.settings.sql_trace_capture_parameters,
+            identity_key=self.settings.identity_key.encode("utf-8") if self.settings.identity_key else None,
         )
 
     def peek(self, key: str) -> object | None:

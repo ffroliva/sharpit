@@ -108,10 +108,10 @@ ROWS: dict[str, dict[str, dict[str, Any]]] = {
         "sqlite": {"nested_comments": Reading.NO},
         "generic": {"nested_comments": Reading.CUT},
     },
-    # `/*!`, `/*M!`: the family conservatively cuts both (MariaDB also executes `/*M!`, mdb 2450-2453).
+    # `/*!` belongs to MySQL; MariaDB adds `/*M!` (sql_lex.cc:2440-2525).
     "executable_comment": {
         "postgresql": {"executable_prefixes": frozenset()},
-        "mysql": {"executable_prefixes": frozenset({"/*!", "/*M!"})},
+        "mysql": {"executable_prefixes": frozenset({"/*!"})},
         "sqlite": {"executable_prefixes": frozenset()},
         "generic": {"executable_prefixes": frozenset({"/*!", "/*M!"})},
     },
@@ -206,10 +206,10 @@ def test_the_frozenset_fields_hold_strings() -> None:
         assert all(isinstance(item, str) for item in rules.radix | rules.executable_prefixes)
 
 
-def test_mariadb_is_mysql_with_two_reading_fields_changed() -> None:
-    # study section 5: the conservative `/*M!` cut is shared; MariaDB differs on dollar quotes.
+def test_mariadb_is_mysql_with_dollar_executable_comment_and_backslash_readings_changed() -> None:
+    # study section 5 and MariaDB sql_lex.cc:2091-2096, 2440-2525: /*M! executes and `\` is a token on MariaDB alone.
     differs = {f.name for f in fields(MARIADB) if getattr(MARIADB, f.name) != getattr(MYSQL_84, f.name)}
-    assert differs == {"dollar", "dollar_closer"}
+    assert differs == {"dollar", "dollar_closer", "executable_prefixes", "backslash_token"}
 
 
 def test_mariadb_opens_no_dollar_quote() -> None:
@@ -220,8 +220,8 @@ def test_mariadb_runs_m_bang() -> None:
     assert "/*M!" in MARIADB.executable_prefixes
 
 
-def test_mysql_m_bang_is_cut_conservatively() -> None:
-    assert "/*M!" in MYSQL_84.executable_prefixes
+def test_mysql_m_bang_is_not_its_executable_comment() -> None:
+    assert "/*M!" not in MYSQL_84.executable_prefixes
 
 
 def test_the_family_keeps_the_bracket_cut_on_both_readings() -> None:

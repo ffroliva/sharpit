@@ -9,6 +9,7 @@ sharpit runs inside someone else's app, so what counts is the time it adds. Four
 - `tests/fastapi/test_capture_overhead.py`: capture middleware, 0.2 ms per request.
 - `tests/fastapi/test_sql_trace_overhead.py`: SQL listener, 50 µs per statement.
 - `tests/fastapi/test_sql_trace_overhead.py::test_recorder_cache_miss_within_budget`: SQL listener on a statement the recorder has not seen, 300 µs. The 50 µs test repeats one statement, so it never reaches the scan or the masker. Measured 2026-11-05 with `uv run python -m scripts.dev.overhead_check <test> --runs 10`, 1,000 distinct statements a side, on a quiet workstation: 58 µs median (57 to 64) on `9725dc1`, 213 µs median (199 to 230) with the recorder's masker pass. The rise is the price of masking, paid once per distinct text while the statement stays in the recorder's 1,024-entry cache; a statement with inline literals is a new text every time. With one scan on a miss and no second read of unchanged text: 114 µs median (96 to 136), 130 µs (120 to 176) under `--load`. The test's statement is 43 characters and the cost grows with length: paired on and off, a 736-character statement adds 581 µs (350 at `9725dc1`), a 4,901-character one 4,175 µs (2,349). 300 µs is a first number, set from that measurement, for the owner to confirm.
+- `tests/fastapi/test_sql_trace_overhead.py::test_mysql_family_read_budget`: distinct ORM-style backtick statements, family scan against one MySQL read, maximum 1.2x. There is no statement cache in this direct lexer measurement, so each input reaches the reader. A statement holding a `$` or a `\` pays the second read, and one holding a `\` four more for the session readings: no budget covers those, and no statement of an ORM holds them unless its values are inline.
 - `tests/fastapi/test_mask_error_overhead.py`: `mask_error` on a log line, 350 µs per line. That is about 2x `fa2d51e`, the tree the masking redesign started from: a line with no SQL marker takes the path of `mask_text`.
 
 CI's coverage job deselects them because coverage tracing distorts timing. Every other test job runs them.
@@ -55,7 +56,7 @@ Until 2026-11-03, noise was the median minus the min of one side. With many shor
 
 Follow these steps when a budget test fails:
 
-1. **Read the noise in the message.** Check if the overshoot sits within the reported noise.
+1. **Read the noise in the message.** Check if the overshoot sits within the reported noise. Low noise means a real rise: an overshoot well past the noise is not a busy runner. Never blame the runner without a noise figure.
 2. **Run the check script locally.** Run `uv run python -m scripts.dev.overhead_check <test> --runs 10` locally; then with `--load` to see how it behaves on a busy machine.
 3. **Compare against main.** Run the same on a clean worktree of `origin/main`. If main fails the same way, it is not your change.
 4. **Evaluate the result.** Only a failure larger than its noise, that also does not happen on main, is a regression.
