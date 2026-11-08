@@ -26,13 +26,20 @@ _TOKEN = re.compile(
     r"|'.*)"  # plain with an ambiguous \': masked to the end of the text
     r"|(?P<number>0[xX][0-9A-Fa-f_]+|0[oO][0-7_]+|0[bB][01_]+"  # PostgreSQL 16 forms, masked whole
     r"|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?)"
-    r'|(?P<keep>"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*|\$\d+)'  # identifiers and $n placeholders
+    r'|(?P<keep>"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*|\$\d+'  # identifiers and $n placeholders
+    r"|[^\x00-\x7f]+\$+)"  # _NAME_DOLLARS: scan.l ident_cont, a ``$`` run ending a name after a non-ASCII char
     r"|(?P<comment>--[^\n]*|/\*)",  # a block comment's end is found by _comment_end: they nest
     re.DOTALL,
 )
 _PLAIN_NAME = re.compile(r'"[A-Za-z0-9_$.]+"')
 _COMMENT_MARK = re.compile(r"/\*|\*/")
 _WHITESPACE = re.compile(r"\s+", re.ASCII)
+# _NAME_DOLLARS' other half: a ``$`` that reads two ways next to a non-ASCII name character (a name character before
+# it, ``$tag$`` text after it, or a non-ASCII tag) still goes to the lexer, which cuts it; only a ``$`` run that ends
+# the name after a non-ASCII character (``x<U+202F>$$,``) stays on this tokenizer
+_TWO_WAY_DOLLAR = re.compile(
+    r"[^\x00-\x7f][A-Za-z0-9_$\x80-\U0010ffff]*?(?:[A-Za-z0-9_]\$|\$[A-Za-z0-9_\x80-\U0010ffff])|\$[^\x00-\x7f]"
+)
 # a sensitive key's masked literal, which BootUI shows bare: ``password = ******``, not ``password = '******'``
 _KEYED_LITERAL = re.compile(rf"(?<![\w.-])([\w.-]+)(\s*[=:]\s*)'{re.escape(MASK)}'", re.ASCII)
 
@@ -124,7 +131,7 @@ def query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUERY_TEXT
         return None
     if is_metadata_only(masker):  # the text exists but is withheld
         return MASK
-    if any(ord(char) > 127 for char in sql) and "$" in sql:
+    if _TWO_WAY_DOLLAR.search(sql):
         return truncate(statement_text(masker, sql, Dialect.POSTGRESQL), max_length)
     masked = masker.mask_text(sql) or MASK
     # literals and comments are values: masked exactly when the masker masks a secret value (not FULL, not mask-off)

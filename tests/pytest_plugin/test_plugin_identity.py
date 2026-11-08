@@ -119,6 +119,7 @@ def test_broken_state_still_writes_a_report_with_a_reason(
         assert any("SQLite statement identities are unavailable" in warning for warning in report["warnings"])
 
 
+@pytest.mark.needs_sqlalchemy
 def test_a_repeating_group_on_sqlite_keeps_its_fingerprint(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:

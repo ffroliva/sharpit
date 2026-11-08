@@ -25,7 +25,7 @@ def test_query_text_after_a_unicode_space_before_dollars_shows_no_literal() -> N
     secret = "A10" + "QUERY" + "SECRET"
     shown = query_text(MASKED, f"SELECT\u2003$tag${secret}$tag$")
     assert secret not in (shown or "")
-    assert shown == "SELECT ?"
+    assert shown == "SELECT\u2003 ?"  # Unicode spaces are text, not whitespace (Task 1), so truncate keeps them
 
 
 def test_query_text_masks_unterminated_string_literals() -> None:
@@ -66,7 +66,7 @@ def test_query_text_respects_exposure_level() -> None:
 def test_query_text_fails_closed_for_unicode_dollar_tags_and_non_ascii_spacing() -> None:
     token = "A10" + "QUERY" + "SECRET"
     assert token not in (query_text(MASKED, f"SELECT $é$ {token} $é$") or "")
-    assert query_text(MASKED, "SELECT\u00a0$1") == "SELECT $1"
+    assert query_text(MASKED, "SELECT\u00a0$1") == "SELECT\u00a0$1"  # Task 1: a no-break space stays text
     assert query_text(Masker(Exposure.FULL, False), "SELECT $1") == "SELECT $1"
 
 

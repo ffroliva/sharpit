@@ -4,6 +4,7 @@ import ast
 import asyncio
 import builtins
 import gc
+import importlib.util
 import io
 import json
 import linecache
@@ -67,6 +68,15 @@ def sqlalchemy_imports_without_marker(source: str) -> list[str]:
     return [] if marked else found
 
 
+def needs_sqlalchemy_marker(source: str) -> bool:
+    return any(
+        isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in node.targets)
+        and "needs_sqlalchemy" in ast.unparse(node.value)
+        for node in ast.parse(source).body
+    )
+
+
 def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> None:
     del parent
     found = sqlalchemy_imports_without_marker(module_path.read_text(encoding="utf-8"))
@@ -94,7 +104,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
     """Without ``--live`` the live profile is not collected, so a default run has no live test and nothing to skip."""
     live = collection_path.name == "live" and collection_path.parent.name == "tests"
-    return True if live and not config.getoption("--live") else None
+    if live and not config.getoption("--live"):
+        return True
+    if (
+        importlib.util.find_spec("sqlalchemy") is None
+        and collection_path.suffix == ".py"
+        and needs_sqlalchemy_marker(collection_path.read_text(encoding="utf-8"))
+    ):
+        return True
+    return None
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
