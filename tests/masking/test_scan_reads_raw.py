@@ -93,6 +93,8 @@ def _names(names: Sequence[str]) -> list[object]:
 ZERO_READS = {
     "log_handler_statement-unsupported": "unsupported statements are hidden before scanning",
     "mysql_last_error-mysql": "the applier's message has no [SQL: block to parse back, so mask_text never scans",
+    "query_text-pg_valid": "the PostgreSQL collector masks with its own tokenizer; the lexer reads only a two-way "
+    "dollar run (scan.l name rule), and these rows hold none",
     "test_session_exception-mysql": "the test-session exception has no SQL statement to scan",
     **{name: "unsupported SQL is hidden before scanning" for name in ALL_SURFACES if name.endswith("-unsupported")},
 }

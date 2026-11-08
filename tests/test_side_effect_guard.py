@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import gc
 import linecache
+import os
 import sys
+import threading
 import tokenize
 import tracemalloc
 from collections.abc import Callable
@@ -181,6 +183,39 @@ def test_side_effect_guard_sees_a_read_through_a_warm_linecache(
         linecache.clearcache()
 
     assert error is not None, "a read served by a warm linecache was not reported"
+
+
+def test_side_effect_guard_watches_while_another_thread_fills_linecache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CI run 42459653867 (test shard 3.12 1/5): watch_sources walked the live linecache.cache while another thread
+    # wrote it (FastAPI's inspect.getsourcelines on a route's first request runs on the TestClient portal thread):
+    # "RuntimeError: dictionary changed size during iteration". Forced interleave: the write lands mid-walk.
+    root = _app_root(tmp_path, monkeypatch)
+    linecache.getlines(str(root / "main.py"))  # a warm entry: the walk has a key to visit
+    other = tmp_path / "portal.py"  # outside root: the guard has no reason to evict it
+    other.write_text("x = 1\n", encoding="utf-8")
+    realpath = os.path.realpath
+
+    def realpath_while_another_thread_writes(path: Any, *args: Any, **kwargs: Any) -> Any:
+        if path in linecache.cache and str(other) not in linecache.cache:
+            writer = threading.Thread(target=linecache.getlines, args=(str(other),))
+            writer.start()
+            writer.join()
+        return realpath(path, *args, **kwargs)
+
+    monkeypatch.setattr(os.path, "realpath", realpath_while_another_thread_writes)
+    guard = SideEffectGuard(tmp_path / "state")
+    error: RuntimeError | None = None
+    try:
+        guard.watch_sources(root)
+    except RuntimeError as raised:
+        error = raised
+    finally:
+        guard.unwatch_sources()
+        linecache.clearcache()
+
+    assert error is None, f"watch_sources raced a concurrent linecache write: {error}"
 
 
 # --- the shared sweeps watch the sample app's source (0.5.0 spec §4.4: every lane's no_side_effects test inherits it)

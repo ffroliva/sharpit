@@ -134,6 +134,7 @@ def test_a_repeating_group_on_sqlite_keeps_its_fingerprint(
     assert [finding for finding in findings if "Owner.pets" in str(finding.get("message"))] != []
 
 
+@pytest.mark.needs_sqlalchemy
 def test_sqlite_without_a_key_is_unknown_and_can_be_allowed(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:

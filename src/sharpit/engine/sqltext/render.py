@@ -95,10 +95,12 @@ def _space(pieces: list[str]) -> None:
         pieces.append(" ")
 
 
-def _release_name(source: str, flags: bytearray, start: int, literal: int) -> None:
+def _release_name(source: str, flags: bytearray, start: int, literal: int, end: int) -> None:
     """A hit running from ``name=`` into the literal at ``literal`` was one token to the masker, ``bio="sk_live_..."``:
-    the literal hides the value, so the name stays. A hit that starts before the name, a url's ``?token=abc="v"``, stays
-    whole: ``abc`` is its value. The masker's last read still sees a secret left in the name."""
+    the literal hides the value, so the name stays. Only a hit that is exactly ``name=`` and the literal ending at
+    ``end`` releases its name: one that starts before the name, a url's ``?token=abc="v"``, or that joins another hidden
+    run across whitespace, either side, stays whole: ``abc`` is its value. The masker's last read still sees a secret
+    left in the name."""
     if flags[literal] and literal > start and source[literal - 1] == "=":
         cursor = literal - 2
         while cursor >= start and flags[cursor] and (source[cursor].isalnum() or source[cursor] in "_.-"):
@@ -108,8 +110,16 @@ def _release_name(source: str, flags: bytearray, start: int, literal: int) -> No
         boundary = (cursor < start and start == 0) or (
             cursor >= start and not flags[cursor] and source[cursor] in _NAME_BOUNDARIES
         )
-        if boundary:
+        if boundary and not _touches(source, flags, cursor, -1) and not _touches(source, flags, end, 1):
             flags[name_start : literal - 1] = bytes(literal - cursor - 2)
+
+
+def _touches(source: str, flags: bytearray, at: int, step: int) -> bool:
+    """Whether a hidden character sits at ``at``, past any whitespace in the direction ``step``: a hit is the hidden
+    runs joined across whitespace, so ``Bearer <name>="v"`` and ``<name>='v'=<url>`` are one hit, not a name."""
+    while 0 <= at < len(source) and source[at] in _SPACE:
+        at += step
+    return 0 <= at < len(source) and bool(flags[at])
 
 
 def _copy(source: str, span: tuple[int, int], flags: bytearray, pieces: list[str], collapse: bool, mask: str) -> None:
@@ -152,7 +162,7 @@ def shown(
         if kind is Kind.DOUBLE_QUOTED:
             kind = Kind.LITERAL if start in secret else Kind.CODE
         if kind is Kind.LITERAL and start < len(flags):
-            _release_name(source, flags, index, start)
+            _release_name(source, flags, index, start, end)
         _copy(source, (index, start), flags, pieces, True, mask)
         if kind is Kind.LITERAL:
             pieces.append("?")

@@ -267,7 +267,8 @@ class SideEffectGuard:
     def watch_sources(self, root: Path) -> None:
         """Report every file opened under ``root`` (the app's source tree) until ``unwatch_sources``."""
         self._source_roots.append(os.path.realpath(root))
-        for name in [n for n in linecache.cache if _under(os.path.realpath(n), self._source_roots)]:
+        # list() copies the keys in one step: other threads (FastAPI on a TestClient portal) write linecache meanwhile
+        for name in [n for n in list(linecache.cache) if _under(os.path.realpath(n), self._source_roots)]:
             del linecache.cache[name]  # a warm cache (FastAPI reads a host endpoint's source) would hide a later read
         if self._spies:
             return

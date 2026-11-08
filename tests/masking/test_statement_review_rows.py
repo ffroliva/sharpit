@@ -161,6 +161,37 @@ def test_free_text_after_a_verb_branch_shows_no_value(prefix: str, payload: str,
     assert SECOND not in shown
 
 
+DOTTED_SURFACES = {**FREE_TEXT_SURFACES, "text": MASKER.mask_text}
+# the gate's random draw, not a credential; tokens built by concatenation
+DRAW = "T1Q4G4lG" + "Z45F8jBOw2a9"
+GLUED = "glpat-" + "RqXlcGXiHVP0IBkhIgmm4D"
+
+
+# Task 33 residue, owner 2026-11-08: A2 seed 11 row 65733 (A7 seed 11 row 40811) at 200,000 rows. dff9c601 reads
+# ``<s>.set-cookie`` as the header and masks only its value, so the token pass no longer hides the glued run whole,
+# as 0.4.0 did: the prefix of a dotted name ending in a secret header is hidden too
+@pytest.mark.parametrize("surface", sorted(DOTTED_SURFACES))
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"failed for {DRAW}.set-cookie:aquFe6amIlWKGcrbNDtV;stMZ9dyIEnTkj2XBCMIq/{GLUED}\t\"credentials\" : 'x'",
+        f"failed for {DRAW}.Cookie: session=x",
+    ],
+    ids=["gate-row", "cookie"],
+)
+def test_a_dotted_name_ending_in_a_secret_header_hides_its_prefix(line: str, surface: str) -> None:
+    shown = DOTTED_SURFACES[surface](line)
+    assert shown is not None
+    assert DRAW not in shown
+
+
+@pytest.mark.parametrize("surface", sorted(DOTTED_SURFACES))
+def test_a_dotted_name_ending_in_no_secret_header_is_shown(surface: str) -> None:
+    shown = DOTTED_SURFACES[surface]("failed for request.user: bob")
+    assert shown is not None
+    assert "request.user: bob" in shown
+
+
 # T26, review r8b: the real leak of ``test_no_literal_is_visible[query_text-pg_valid]``, a non-ASCII space before ``$$``
 def test_query_text_after_a_unicode_space_before_dollars_shows_no_literal() -> None:
     marker = "mk" + "0a1b2c3d4e"

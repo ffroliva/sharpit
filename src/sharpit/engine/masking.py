@@ -296,7 +296,7 @@ def _mask_pairs(pattern: re.Pattern[str], masked: str, tracked: Tracked, value: 
                 end = bounded.end()
             else:  # no value after the key: nothing to hide
                 continue
-            edits.append((found.start(), end, found.expand(masked)))
+            edits.append((found.start(), end, found.expand(masked).replace(name, _shown_key(name), 1)))
             position = end
     tracked.apply(edits)
 
@@ -306,7 +306,7 @@ def _mask_pair_v04(m: re.Match[str]) -> str:
         return m.group(0)
     value = m.group(3)
     quote = value[0] if value[:1] in ("'", '"') else ""
-    return f"{m.group(1)}{m.group(2)}{quote}{MASK}{quote}"
+    return f"{_shown_key(m.group(1))}{m.group(2)}{quote}{MASK}{quote}"
 
 
 def _mask_quoted_pair_v04(m: re.Match[str]) -> str:
@@ -358,6 +358,13 @@ def _is_secret_header(name: str) -> bool:
     """A secret header's name, alone or as the last segment of a dotted name (``request.Cookie``): the text pair
     patterns read dots as name characters, so ``do.Cookie: session=x`` is the Cookie header with a prefix."""
     return name.rpartition(".")[2].lower() in _SECRET_HEADERS
+
+
+def _shown_key(name: str) -> str:
+    """``name`` as a masked pair shows it. The prefix of a dotted secret header is hidden too: it may be a value glued
+    to the header (``<token>.set-cookie:``), which 0.4.0's token pass hid with the rest (owner, 2026-11-08)."""
+    prefix, dot, header = name.rpartition(".")
+    return f"{MASK}{dot}{header}" if prefix and header.lower() in _SECRET_HEADERS else name
 
 
 def _key_text(key: bytes | None) -> str:

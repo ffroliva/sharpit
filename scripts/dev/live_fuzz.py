@@ -46,6 +46,8 @@ COMMON = [
     # fuzz2's additions: escape prefixes, Unicode spaces, a dollar quote beside a string
     "e'", "E'", "\\'", "'\\", "U&'", "/*", "*/", "\r", "\\", "x ", " ", "　", "x $$", "'a $$ ",
     "'a $a$ ", "@$$ := ", "@$a$ := ",
+    # owner 2026-11-08: a value in "..." on the MySQL family (a name where the server quotes names with it)
+    '"SECRET"', '"SECRET"', '"SECRET"',
 ]  # fmt: skip
 _MYSQL = ["@a", "@`a`", "t.", "t.$$", "@$$", "/*!", "/*!50000", "/*! ", "1$$", "1$a$", ":=", "_utf8mb4'",
           "$1$SECRET$1$", "$js$ SECRET $js$", "/*! AS ", "AS "]  # fmt: skip
@@ -106,11 +108,15 @@ def _mysql_runner(raw: Any) -> Run:
         if not text.startswith("CREATE"):
             return repr(cursor.fetchall())
         kind, name = ("FUNCTION", "zf") if text.startswith("CREATE FUNCTION") else ("PROCEDURE", "zp")
-        where = "FROM information_schema.routines WHERE routine_schema = DATABASE() AND routine_name = %s"
-        cursor.execute(f"SELECT routine_definition {where}", (name,))  # noqa: S608 - a constant
-        body = repr(cursor.fetchall())
-        cursor.execute(f"DROP {kind} {name}")
-        return body
+        try:
+            if text.startswith((ROUTINE, "CREATE FUNCTION")):  # a JavaScript body is a string: its definition
+                where = "FROM information_schema.routines WHERE routine_schema = DATABASE() AND routine_name = %s"
+                cursor.execute(f"SELECT routine_definition {where}", (name,))  # noqa: S608 - a constant
+            else:  # a SQL body's definition is its source, names included: what it returns is the value
+                cursor.execute(f"CALL {name}()")
+            return repr(cursor.fetchall())
+        finally:  # a routine left behind refuses every later CREATE
+            cursor.execute(f"DROP {kind} {name}")
 
     return run
 
@@ -131,7 +137,7 @@ def server_runner(key: str, session: str) -> Iterator[tuple[str, Run]]:
         raw: Any = engine.raw_connection()
         try:
             if server.family == "postgresql":
-                raw.autocommit = True
+                raw.dbapi_connection.autocommit = True  # the pool's proxy takes the attribute and psycopg never sees it
                 cursor = raw.cursor()
                 if session:
                     cursor.execute(f"SET standard_conforming_strings = {session}")
@@ -170,8 +176,19 @@ def _builds(family: str) -> dict[str, Callable[[str], str]]:
     }
 
 
-def _twin_holds(text: str, run: Run, read: Callable[[str], str]) -> dict[str, str] | None:
-    """The hit is that occurrence's: with the twin in its place, the server returns it and the output shows it."""
+def quotes_names(family: str, session: str) -> bool:
+    """Whether ``"`` quotes a name: PostgreSQL, SQLite (sharpit hides ``"`` runs there, a documented limit), and MySQL
+    or MariaDB only with ANSI_QUOTES (``ANSI`` includes it). Elsewhere ``"..."`` is a string value."""
+    modes = {mode.strip().upper() for mode in session.split(",")}
+    return family in {"postgresql", "sqlite"} or bool(modes & {"ANSI_QUOTES", "ANSI"})
+
+
+def _twin_holds(
+    text: str, run: Run, read: Callable[[str], str], *, names_quoted: bool = False
+) -> dict[str, str] | None:
+    """The hit is that occurrence's: with the twin in its place, the server returns it and the output shows it.
+
+    A twin inside a ``"`` run counts unless ``names_quoted``: then that run is a name, shown by design."""
     for marker, twin in TWIN.items():
         for found in re.finditer(marker, text):
             swapped = text[: found.start()] + twin + text[found.end() :]
@@ -180,7 +197,8 @@ def _twin_holds(text: str, run: Run, read: Callable[[str], str]) -> dict[str, st
             except Exception:  # noqa: BLE001, S112 - a refused twin proves nothing either way
                 continue
             out = read(swapped)
-            if twin in rows and twin in out and not re.search(rf'"[^"]*{twin}[^"]*"', out):
+            in_name = names_quoted and re.search(rf'"[^"]*{twin}[^"]*"', out)
+            if twin in rows and twin in out and not in_name:
                 return {"out": out, "rows": rows[:200]}
     return None
 
@@ -188,6 +206,7 @@ def _twin_holds(text: str, run: Run, read: Callable[[str], str]) -> dict[str, st
 def fuzz(key: str, session: str, seed: int, count: int, out: Path) -> dict[str, Any]:
     with server_runner(key, session) as (family, run):
         builds = _builds(family)
+        names_quoted = quotes_names(family, session)
         hits = dict.fromkeys(builds, 0)
         parsed = 0
         seen: set[tuple[str, str]] = set()
@@ -203,7 +222,7 @@ def fuzz(key: str, session: str, seed: int, count: int, out: Path) -> dict[str, 
                     shown = read(text)
                     if (name, text) in seen or not any(m in rows and m in shown for m in TWIN):
                         continue
-                    held = _twin_holds(text, run, read)
+                    held = _twin_holds(text, run, read, names_quoted=names_quoted)
                     if held:
                         seen.add((name, text))
                         hits[name] += 1
