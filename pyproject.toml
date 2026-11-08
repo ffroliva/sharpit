@@ -133,3 +133,6 @@ markers = [
 [tool.coverage.run]
 # the pytest plugin tests run pytest in a subprocess (pytester.runpytest_subprocess); measure those too
 patch = ["subprocess"]
+# a planted build copies src/sharpit under pytest's temp dir (tests/masking/a10/conftest.py: scratch_package);
+# its subprocess imports that copy as sharpit, and the combine job, on another runner, has no such file
+omit = ["*/pytest-of-*/*"]

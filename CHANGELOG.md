@@ -11,6 +11,20 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - An unregistered engine that reports the wrong database name in an application using a different single family is read as the name it reports; a comment that family keeps can therefore remain visible.
 - Test-session group keys are built from masked text, so a key changes for a statement the masker edits (`password = ?` reads `password = ****** where id = ?`). N+1 baselines and dismissals on those groups re-flag after an upgrade: 1,396 of 20,000 generic rows and 2,048 of 20,000 MySQL rows in the corpus change.
 - A statement whose database family is unknown or in conflict shows nothing past a `#`, on any line: it is a comment on MySQL, an operator on PostgreSQL and a variable on SQLite.
+- The SQL dialect is resolved per event from what the connection or exception proves; an application using a single database family applies that family to unwired events.
+- A database driver exception shows its class, one structured code, the masked `[SQL: ...]` statement, and `[parameters: ******]` when parameters were bound, and never the driver's free-text message.
+- A statement of an unsupported database family shows `[statement hidden: unsupported database]` at every exposure level, and parameter capture does not reveal it.
+- Under `METADATA_ONLY` exposure, SQL statements and database error text are omitted entirely.
+
+### Known limits
+
+- Text an application writes as a statement is read as SQL.
+- In free text, a value with no key name before it can be shown.
+- An unproven event from a second database that sharpit has not seen is read as the application's one registered family.
+- Database forks (such as Percona or Aurora) are read as their parent family; no fork runs in the live tests.
+- SQL Server and Oracle statements are hidden (`[statement hidden: unsupported database]`): sharpit has no verified rules for them.
+- On SQLite a `"..."` run is hidden: SQLite reads it as a name, or as a string when no column matches.
+- Live fuzzing with MySQL's ANSI_QUOTES session mode is deferred past 0.5.0.
 
 ## [0.5.0] - 2026-11-04
 
