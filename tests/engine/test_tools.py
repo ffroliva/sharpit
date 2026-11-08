@@ -32,6 +32,7 @@ from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.singleflight import ActionBusy
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.tools import (
     COMMANDS,
     INTERNAL_ERROR,
@@ -539,7 +540,7 @@ def _mcp_arguments(name: str, ctx: SharpitContext) -> dict[str, Any]:
     """A tool's required arguments, seeded into ``ctx``."""
     arguments: dict[str, Any] = {}
     if name == "get_exception_detail":  # the one tool with a required argument: the id of a recorded exception
-        store = ctx.capture.exceptions = ExceptionStore(10, 5, 20, ctx.masker)
+        store = ctx.capture.exceptions = ExceptionStore(10, 5, 20, ctx.masker, application=lambda: None)
         try:
             raise RuntimeError("for the detail")
         except RuntimeError as exc:
@@ -603,7 +604,7 @@ def test_mcp_sql_traces_and_log_tail_accept_query_and_limit_with_page_metadata(m
     ctx = _ctx()
     recorder = SqlTraceRecorder(ctx.masker)
     for sql in ("select * from orders", "select * from pets", "select id from orders"):
-        recorder.record(sql, duration_ns=1_000, thread="main", connection_id="c1")
+        recorder.record(sql, duration_ns=1_000, thread="main", connection_id="c1", dialect=Dialect.POSTGRESQL)
     ctx.capture.sql_trace = recorder
     monkeypatch.setattr(facade, "sql_trace_unavailable_reason", lambda _ctx: None)
     traces = call_tool(_call(ctx), "get_sql_traces", {"query": "orders", "limit": 1}, via="mcp")

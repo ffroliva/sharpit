@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from sharpit.engine.masking import MASK, Exposure, Masker, is_secret_value, is_sensitive_key
+from sharpit.engine.sqltext import Dialect, statement_text
 
 M = Exposure.MASKED
 FULL = Exposure.FULL
@@ -154,6 +155,33 @@ def test_pass_segment_is_sensitive(name: str) -> None:
 @pytest.mark.parametrize("name", ["CACHE_BYPASS", "COMPASS_HEADING", "PASSENGER_COUNT", "app.passthrough"])
 def test_pass_inside_a_word_is_not_sensitive(name: str) -> None:
     assert not is_sensitive_key(name)
+
+
+# sharpit widening (owner ruling 2026-11-08, F): ``pw`` is a whole name segment too, as ``pass`` is
+@pytest.mark.parametrize("name", ["pw", "PW", "user_pw", "pw.hash", "smtp-pw"])
+def test_pw_segment_is_sensitive(name: str) -> None:
+    assert is_sensitive_key(name)
+
+
+@pytest.mark.parametrize("name", ["PWM_DUTY", "app.pwr", "npw", "upward"])
+def test_pw_inside_a_word_is_not_sensitive(name: str) -> None:
+    assert not is_sensitive_key(name)
+
+
+# sharpit widening (owner ruling 2026-11-08, F): each short name hides its value by the name rule, on text and SQL
+@pytest.mark.parametrize("name", ["pw", "pwd", "passwd", "pass"])
+@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY, Dialect.SQLITE])
+def test_a_short_password_name_hides_its_value(name: str, dialect: Dialect) -> None:
+    masker = Masker(M, True)
+    shown = statement_text(masker, f"SELECT * FROM t WHERE {name} = hunter2", dialect)
+    assert shown is not None
+    assert "hunter2" not in shown
+    assert "hunter2" not in (masker.mask_text(f"login failed {name}=hunter2") or "")
+
+
+def test_a_name_that_holds_pass_keeps_its_name() -> None:
+    shown = statement_text(Masker(M, True), "SELECT * FROM t WHERE passenger = 'x'", Dialect.POSTGRESQL)
+    assert shown == "SELECT * FROM t WHERE passenger = ?"
 
 
 # derived: KeywordPatternMasker.shouldMask (name branch, value branch, neither, null value)

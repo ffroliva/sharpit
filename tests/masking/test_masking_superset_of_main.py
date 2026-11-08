@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 
 import pytest
 
@@ -10,6 +11,7 @@ from sharpit.engine.capture.sqltrace import SqlTraceRecorder, mask_error
 from sharpit.engine.capture.traces import _attributes  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.collectors.mysql.querytext import mysql_query_text
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 MASKER = Masker(Exposure.MASKED, True)
 PEM_BODY = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"
@@ -18,9 +20,11 @@ AWS_KEY = "AKIA" + "ABCDEFGHIJKLMNOP"
 GITHUB_TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2"
 STRIPE_KEY = "sk_live_" + "Z9y8X7w6V5u4T3s2R1q0"
 
+# the three families sharpit reads: UNSUPPORTED hides the whole statement, so a row on it passes with no masking at all
+FAMILIES = [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY, Dialect.SQLITE]
 ENTRY_POINTS: dict[str, Callable[[str], str | None]] = {
     "mask_text": MASKER.mask_text,
-    "mask_error": lambda text: mask_error(MASKER, text),
+    **{f"mask_error-{d.value}": partial(mask_error, MASKER, dialect=d) for d in FAMILIES},
 }
 
 
@@ -62,16 +66,23 @@ def test_a_secret_inside_a_token_is_masked(entry: str, text: str, secret: str) -
     assert secret not in shown
 
 
-def _recorded(text: str) -> str | None:
+def _recorded(text: str, dialect: Dialect) -> str | None:
     recorder = SqlTraceRecorder(MASKER, max_sql_length=10**6)
-    recorder.record("SELECT 2", duration_ns=1, thread="t", connection_id=None, success=False, error=Exception(text))
+    recorder.record(
+        "SELECT 2",
+        duration_ns=1,
+        thread="t",
+        connection_id=None,
+        success=False,
+        error=Exception(text),
+        dialect=dialect,
+    )
     return recorder.rows()[-1]["errorMessage"]
 
 
 ERROR_PATHS: dict[str, Callable[[str], str | None]] = {
-    "mask_error": ENTRY_POINTS["mask_error"],
-    "mask_error_mysql": lambda text: mask_error(MASKER, text, mysql=True),
-    "record": _recorded,
+    **{f"mask_error-{d.value}": ENTRY_POINTS[f"mask_error-{d.value}"] for d in FAMILIES},
+    **{f"record-{d.value}": partial(_recorded, dialect=d) for d in FAMILIES},
 }
 VENDOR_TOKEN = "xoxb-" + "2qgq5Te2iKkFVekJrsBAT2"
 TAIL = "8cr6qmZr5nNRvrYKqvPi"
@@ -88,8 +99,9 @@ SQLALCHEMY_ERROR = "sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) 
         (VENDOR_TOKEN, VENDOR_TOKEN[6:]),
         (f"'pwd': FVZ3JF6P0bJtuGtLqFcg;{TAIL}", TAIL),
         (f"""'token':"KnZy2AQKVS0LSb3MM13n\\"{TAIL}\"""", TAIL),
+        (f'"set-cookie": "oOqGp2losuTPWHeVpnz9\n{TAIL}"', TAIL),  # derived: the A2 differential, seed 11, shortest hit
     ],
-    ids=["quoted-key-list", "double-quoted-key-list", "vendor-token", "quoted-pwd", "escaped-quote"],
+    ids=["quoted-key-list", "double-quoted-key-list", "vendor-token", "quoted-pwd", "escaped-quote", "newline-pair"],
 )
 def test_a_statement_is_masked_before_the_scan_changes_its_shape(path: str, value: str, secret: str) -> None:
     shown = ERROR_PATHS[path](SQLALCHEMY_ERROR.format(value))
@@ -98,6 +110,7 @@ def test_a_statement_is_masked_before_the_scan_changes_its_shape(path: str, valu
 
 
 # derived: release probe6 fuzz, rec_off, 2,248 hits: masking first kept a line the driver-value drop would have removed
+@pytest.mark.parametrize("dialect", FAMILIES, ids=[d.value for d in FAMILIES])
 @pytest.mark.parametrize(
     ("text", "secret"),
     [
@@ -115,15 +128,23 @@ def test_a_statement_is_masked_before_the_scan_changes_its_shape(path: str, valu
     ],
     ids=["multi-line", "pem", "crlf", "space-in-value", "before-a-token"],
 )
-def test_record_drops_driver_values_before_it_masks(text: str, secret: str) -> None:
-    shown = _recorded(text)
+def test_record_drops_driver_values_before_it_masks(text: str, secret: str, dialect: Dialect) -> None:
+    shown = _recorded(text, dialect)
     assert shown is not None
     assert secret not in shown
 
 
-def test_a_span_statement_is_masked_before_the_scan() -> None:
-    attributes = _attributes(MASKER, {"db.statement": f"UPDATE t SET {VENDOR_TOKEN}"})
+@pytest.mark.parametrize("dialect", FAMILIES, ids=[d.value for d in FAMILIES])
+def test_a_span_statement_is_masked_before_the_scan(dialect: Dialect) -> None:
+    attributes = _attributes(MASKER, {"db.statement": f"UPDATE t SET {VENDOR_TOKEN}"}, dialect)
     assert VENDOR_TOKEN[6:] not in str(attributes)
+
+
+@pytest.mark.parametrize("dialect", FAMILIES, ids=[d.value for d in FAMILIES])
+def test_a_span_statement_keeps_a_quoted_value_hidden_across_a_newline(dialect: Dialect) -> None:
+    """Derived: the A2 differential (``masking_gate.py a2``): 0.4.0 hid the second line, ``fa2d51e`` showed it."""
+    value = f'"set-cookie": "oOqGp2losuTPWHeVpnz9\n{TAIL}"'
+    assert TAIL[1:] not in str(_attributes(MASKER, {"db.statement": value}, dialect))  # the scan takes a leading digit
 
 
 def test_a_mysql_query_text_is_masked_before_the_scan() -> None:

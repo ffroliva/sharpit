@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from sharpit.engine import sqla
+from sharpit.engine.masking import Masker
 from sharpit.engine.sqla import inspect as sqla_inspect
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -32,7 +33,8 @@ def _engine(*ddl: str) -> Any:
 
 
 def _read(engine: Any, bounds: Any) -> dict[str, Any]:
-    return asyncio.run(sqla.run_db_read(engine, lambda c: sqla_inspect.catalog(c, bounds), 5.0, read_only=True))
+    masker = Masker("MASKED", True, None)
+    return asyncio.run(sqla.run_db_read(engine, lambda c: sqla_inspect.catalog(c, bounds, masker), 5.0, read_only=True))
 
 
 def test_table_bound_truncates() -> None:

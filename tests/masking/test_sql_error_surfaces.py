@@ -31,6 +31,7 @@ from sharpit.engine.collectors.mysql.service import refresh_mysql
 from sharpit.engine.collectors.postgresql.service import refresh_postgresql
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.sink import TestSessionSink
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.settings import load_settings
@@ -70,6 +71,8 @@ def handles() -> Iterator[list[SharpitHandle]]:
 
 def _client(handles: list[SharpitHandle], app: FastAPI | None = None, **options: Any) -> TestClient:
     app = app or FastAPI()
+    # Task 29: an application on SQLite, so its errors read as SQLite's; with no family they are UNSUPPORTED's
+    options.setdefault("engines", [sa.create_engine("sqlite://")])
     handles.append(install(app, enabled="ON", show_banner=False, **options))
     return TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False)
 
@@ -132,7 +135,7 @@ def test_alembic_database_read(handles: list[SharpitHandle]) -> None:
 
 
 def test_transactions_report() -> None:
-    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None))
+    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None), application=lambda: Dialect.SQLITE)
     entry = recorder.begin(1, parent=None, method="a:b", thread="MainThread", trace_id=None, connection_id="db-1")
     recorder.end(entry, "UNKNOWN", RuntimeError(ERROR))
     _assert_scanned(json.dumps(recorder.report([])))
@@ -140,7 +143,14 @@ def test_transactions_report() -> None:
 
 def test_sql_trace_report_when_the_error_names_another_statement() -> None:
     recorder = SqlTraceRecorder(Masker(Exposure.MASKED, True, None))
-    recorder.record("SELECT 1", duration_ns=1, thread="t", connection_id=None, error=RuntimeError(ERROR))
+    recorder.record(
+        "SELECT 1",
+        duration_ns=1,
+        thread="t",
+        connection_id=None,
+        error=RuntimeError(ERROR),
+        dialect=Dialect.SQLITE,  # Task 29: an UNSUPPORTED statement's error is the marker
+    )
     _assert_scanned(json.dumps(recorder.report([])))
 
 
@@ -149,7 +159,10 @@ def test_test_session_report() -> None:
     attempt = sink.begin_test(NODE)
     sink.on_exception(RuntimeError(ERROR), "logging", (NODE, attempt, "call"))
     assert sink.current_test is not None
-    _assert_scanned(json.dumps(sink.current_test.phases["call"].exception_groups))
+    # Task 29: the sink resolves with no application (owner, 2026-11-06), so this text is UNSUPPORTED's (item 8)
+    shown = json.dumps(sink.current_test.phases["call"].exception_groups)
+    assert LITERAL not in shown
+    assert "[statement hidden: unsupported database]" in shown
 
 
 def _pg_context(engine: FakePgEngine) -> SharpitContext:
@@ -207,5 +220,34 @@ def test_mysql_failed_section_reads_the_block_as_mysql() -> None:
 
 
 def test_data_panel_warning() -> None:
-    ctx = SimpleNamespace(masker=Masker(Exposure.MASKED, True, None))
+    ctx = SimpleNamespace(
+        masker=Masker(Exposure.MASKED, True, None),
+        capture=SimpleNamespace(raw_sqlite_seen=True, engine_registry=None),  # Task 29: an application on SQLite
+    )
     _assert_scanned(data._masked(ctx, f"Could not read a mapper (RuntimeError: {ERROR})"))  # type: ignore[arg-type]  # noqa: SLF001
+
+
+# Task 35 council H1, end to end: a failing statement whose comment holds SQLAlchemy's docs-link line, through install()
+# and the SQL Trace and exceptions APIs. The number after the comment is an inline literal
+PLANTED_ACCOUNT = "99887766"
+PLANTED_LINK_STATEMENT = (
+    f"SELECT nosuchcol /*\n(Background on this error at: https://sqlalche.me/e/20/e3q8)\n*/ , {PLANTED_ACCOUNT} AS acct"
+)
+
+
+@pytest.mark.parametrize("path", ["/sharpit/api/sql-trace", "/sharpit/api/exceptions"])
+def test_a_link_line_in_a_statement_comment_shows_no_value(handles: list[SharpitHandle], path: str) -> None:
+    engine = sa.create_engine("sqlite://")
+    app = FastAPI()
+
+    @app.get("/boom")
+    def boom() -> dict[str, int]:
+        with engine.connect() as conn:
+            conn.execute(sa.text(PLANTED_LINK_STATEMENT))
+        return {"n": 1}
+
+    client = _client(handles, app, engines=[engine], sql_trace_sqlite3_enabled=False)
+    assert client.get("/boom").status_code == 500
+    body = client.get(path).text
+    assert "nosuchcol" in body  # the error reached the surface
+    assert PLANTED_ACCOUNT not in body

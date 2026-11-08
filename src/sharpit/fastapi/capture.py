@@ -29,8 +29,10 @@ from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_r
 from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
+from sharpit.engine.context import application_family
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sources import dispatch, sqlite
+from sharpit.engine.sqltext import is_database_exception
 
 if TYPE_CHECKING:
     from sharpit.engine.capture.exceptions import ExceptionStore
@@ -202,7 +204,8 @@ def _record_logged(store: ExceptionStore, record: logging.LogRecord) -> None:
     if exc is not None:
         if (sink := dispatch.session_sink()) is not None:
             sink.on_exception(exc, "log", TEST.get())
-        store.record(exc, "log", REQUEST.get(), record.threadName, message_override=record.getMessage())
+        override = None if is_database_exception(exc) else record.getMessage()
+        store.record(exc, "log", REQUEST.get(), record.threadName, message_override=override)
 
 
 def sqlite_holder(ctx: SharpitContext) -> str:
@@ -241,7 +244,9 @@ class CaptureWiring:
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
         if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
-            self.log_handler = SharpitLogHandler(ctx.masker, ctx.capture.log_tail)
+            self.log_handler = SharpitLogHandler(
+                ctx.masker, ctx.capture.log_tail, application=lambda: application_family(ctx)
+            )
             if store is not None:
                 self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works

@@ -16,6 +16,7 @@ import pytest
 from sharpit.engine import sqla
 from sharpit.engine.collectors.database_advisor import rules_vendor
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Source
+from sharpit.engine.masking import Masker
 from sharpit.engine.sqla.inspect import CatalogBounds
 
 PG_URL = os.environ.get("SHARPIT_TEST_POSTGRES_URL", "")
@@ -48,11 +49,11 @@ def _sequence(last: int | None, low: int = 1, high: int = 100, step: int = 1) ->
 def test_unsupported_dialect_skips_vendor_rules() -> None:
     sqlite = Source("db", "sqlite", "pysqlite", "AVAILABLE", None, {"tables": [], "vendor": {}})
     postgres = _source("postgresql")
-    mysql = _source("mysql")
+    mysql_server = _source("mysql")
 
     assert all(isinstance(rule.check(sqlite), str) for rule in rules_vendor.RULES)
     assert all(isinstance(_check(rule_id, postgres), str) for rule_id in MYSQL_IDS)
-    assert all(isinstance(_check(rule_id, mysql), str) for rule_id in PG_IDS)
+    assert all(isinstance(_check(rule_id, mysql_server), str) for rule_id in PG_IDS)
 
 
 def test_vendor_rules_skip_when_the_vendor_catalog_was_not_read() -> None:
@@ -177,7 +178,12 @@ def _read(url: str) -> dict[str, Any]:
     engine = sa.create_engine(url, pool_size=1, max_overflow=0)
     try:
         return asyncio.run(
-            sqla.run_db_read(engine, lambda c: rules_vendor.read_vendor(c, CatalogBounds()), 5.0, read_only=True)
+            sqla.run_db_read(
+                engine,
+                lambda c: rules_vendor.read_vendor(c, CatalogBounds(), Masker("MASKED", True, None)),
+                5.0,
+                read_only=True,
+            )
         )
     finally:
         engine.dispose()

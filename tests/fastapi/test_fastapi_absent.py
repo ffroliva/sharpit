@@ -5,6 +5,7 @@ Each case runs in a clean interpreter, where ``sys.modules[name] = None`` makes 
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import textwrap
@@ -19,9 +20,10 @@ ABSENT = """
 PANELS = ("overview", "mappings/flat", "beans", "fastapi", "fastapi-security", "security", "rest-api", "http-exchanges")
 
 
-def _run(script: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
+def _run(script: str, cwd: Path = ROOT, state_dir: Path | None = None) -> subprocess.CompletedProcess[str]:
     code = textwrap.dedent(ABSENT) + textwrap.dedent(script)
-    return subprocess.run([sys.executable, "-c", code], cwd=cwd, capture_output=True, text=True, timeout=120)
+    env = os.environ | {"SHARPIT_STATE_DIR": str(state_dir)} if state_dir else None
+    return subprocess.run([sys.executable, "-c", code], cwd=cwd, capture_output=True, text=True, timeout=120, env=env)
 
 
 def test_sharpit_imports_without_fastapi() -> None:
@@ -29,19 +31,20 @@ def test_sharpit_imports_without_fastapi() -> None:
     assert done.stdout.startswith("imported"), done.stderr[-2000:]
 
 
-def test_sharpit_installs_on_starlette_without_fastapi() -> None:
+def test_sharpit_installs_on_starlette_without_fastapi(tmp_path: Path) -> None:
     done = _run(
         """
         import sharpit
         from starlette.applications import Starlette
         sharpit.install(Starlette(), enabled="ON", show_banner=False)
         print("installed")
-        """
+        """,
+        state_dir=tmp_path / "state",
     )
     assert done.stdout.strip().endswith("installed"), done.stderr[-2000:]
 
 
-def test_panels_answer_on_starlette_without_fastapi() -> None:
+def test_panels_answer_on_starlette_without_fastapi(tmp_path: Path) -> None:
     done = _run(
         f"""
         import sharpit
@@ -58,7 +61,8 @@ def test_panels_answer_on_starlette_without_fastapi() -> None:
         client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
         client.get("/owners/1")
         print([client.get("/sharpit/api/" + panel).status_code for panel in {PANELS!r}])
-        """
+        """,
+        state_dir=tmp_path / "state",
     )
     assert done.stdout.strip().splitlines()[-1:] == [str([200] * len(PANELS))], done.stderr[-2000:]
 

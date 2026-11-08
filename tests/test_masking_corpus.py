@@ -436,7 +436,8 @@ LOG_CORPUS = [
         "host.app",
         "%s",
         (f"(sqlite3.IntegrityError) failed\n[SQL: INSERT INTO u VALUES (?)]\n[parameters: ('{SENTINEL}',)]",),
-        f"(sqlite3.IntegrityError) failed\n[SQL: INSERT INTO u VALUES (?)] [parameters: {MASK}]",
+        # Task 29: the sample app registers no engine, so a log line's error is UNSUPPORTED's (owner, item 8)
+        f"(sqlite3.IntegrityError)\n[SQL: [statement hidden: unsupported database]]\n[parameters: {MASK}]",
     ),
     ("sqlalchemy_echo_parameters", "sqlalchemy.engine.Engine", "[%s] %r", ("generated in 0.0001s", (SENTINEL,)), None),
 ]  # fmt: skip

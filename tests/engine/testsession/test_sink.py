@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import json
 import os
+import threading
 import weakref
 
 import pytest
@@ -10,7 +11,9 @@ import pytest
 from engine.testsession.tsfakes import NODE, event, run_phase
 from sharpit.engine.advisors.findings import AdvisorRun, Finding
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sources.dispatch import SqlEvent
 from sharpit.engine.spi import ApiModel
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.facts import PhaseFacts, SessionFacts, TestFacts, TestKey
 from sharpit.engine.testsession.gates import Budget
 from sharpit.engine.testsession.sink import TestSessionSink, report_masker, report_masker_warnings
@@ -77,6 +80,64 @@ def test_no_test_window_means_unattributed() -> None:
     sink = _sink()
     sink.on_sql(event("SELECT 1"), (NODE, 1, "call"))
     assert sink.facts.unattributed == 1
+
+
+def _sqlite(sql: str) -> SqlEvent:
+    return event(sql)._replace(dialect=Dialect.SQLITE)
+
+
+def test_a_keyless_sqlite_statement_is_counted_and_not_grouped() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    sink.on_sql(_sqlite('SELECT "id" FROM "users"'), (NODE, attempt, "call"))
+    assert _call(sink).queries == 1
+    assert _call(sink).selects == {}
+
+
+def test_a_finalizer_that_runs_sql_during_a_sink_record_does_not_deadlock() -> None:
+    sink = _sink()
+    collected = threading.Event()
+
+    class Finalized:
+        def __del__(self) -> None:
+            sink.on_sql(event("SELECT 2"), None)
+            collected.set()
+
+    class CollectingDict(dict[str, int]):
+        collecting = True
+
+        def get(self, key: str, default: int = 0) -> int:
+            value = super().get(key, default)
+            if self.collecting:
+                self.collecting = False
+                garbage = Finalized()
+                garbage.cycle = garbage  # type: ignore[attr-defined]
+                del garbage
+                gc.collect()
+            return value
+
+    sink.facts.top_unattributed = CollectingDict()
+    finished = threading.Event()
+    threading.Thread(target=lambda: (sink.on_sql(event("SELECT 1"), None), finished.set()), daemon=True).start()
+
+    assert finished.wait(2)
+    assert collected.is_set()
+    assert sink.facts.unattributed == 2
+
+
+def test_a_keyless_sqlite_statement_with_no_test_is_counted_and_not_listed() -> None:
+    sink = _sink()
+    sink.on_sql(_sqlite('SELECT "id" FROM "users"'), None)
+    assert sink.facts.unattributed == 1
+    assert sink.facts.top_unattributed == {}
+
+
+def test_a_key_set_late_reaches_a_statement_seen_before_it() -> None:
+    sink = _sink()
+    sink.on_sql(_sqlite('SELECT "id" FROM "users"'), None)
+    sink.set_identity_key(b"k" * 32)
+    sink.on_sql(_sqlite('SELECT "id" FROM "users"'), None)
+    assert list(sink.facts.top_unattributed.values()) == [1]
 
 
 def test_filtered_statements_are_counted_apart() -> None:
@@ -506,13 +567,35 @@ def test_masked_fingerprint_memo_keys_on_masker_settings() -> None:
     assert "ghp_" in json.dumps(later_loose.facts.to_json())
 
 
+def test_a_metadata_only_sink_keeps_the_scans_shape() -> None:
+    # derived: ``masked_shape`` gives no text under METADATA_ONLY, so the key and the text are the scan's, not ""
+    statement = "SELECT * FROM pets WHERE pets.id = 1"
+    sink = TestSessionSink("gw0", Masker(Exposure.METADATA_ONLY, True))
+    run_phase(sink, NODE, sink.begin_test(NODE), "call", statement)
+    assert dict(_call(sink).selects) == {"select * from pets where pets.id = ?": 1}
+    assert _call(sink).sql_of == {"select * from pets where pets.id = ?": "SELECT * FROM pets WHERE pets.id = ?"}
+
+
+# derived: conflicts hide (spec section 6): the connection says SQLite, where ``#`` is a variable and its text shows,
+# and the failure's own driver says MySQL. The sink read the connection alone.
+def test_a_failed_statement_in_a_family_conflict_hides_in_the_session() -> None:
+    sink = _sink()
+    attempt = sink.begin_test(NODE)
+    failure = type("OperationalError", (Exception,), {"__module__": "pymysql.err"})("failed")
+    failed = event("SELECT 1 # password hunter2")._replace(dialect=Dialect.SQLITE, error=failure)
+    sink.on_sql(failed, (NODE, attempt, "call"))
+    sink.end_test()
+
+    assert "hunter2" not in json.dumps(sink.facts.to_json())
+
+
 # derived: release council fix round 2: the session sink used the generic scan on MySQL text
 def test_mysql_comment_and_hex_literal_are_folded() -> None:
     sink = _sink()
     attempt = sink.begin_test(NODE)
     tag = (NODE, attempt, "call")
-    sink.on_sql(event("SELECT 1 # password hunter2")._replace(mysql=True), tag)
-    sink.on_sql(event("SELECT 0xDEADBEEF")._replace(mysql=True), tag)
+    sink.on_sql(event("SELECT 1 # password hunter2")._replace(dialect=Dialect.MYSQL_FAMILY), tag)
+    sink.on_sql(event("SELECT 0xDEADBEEF")._replace(dialect=Dialect.MYSQL_FAMILY), tag)
     sink.end_test()
 
     report = json.dumps(sink.facts.to_json())

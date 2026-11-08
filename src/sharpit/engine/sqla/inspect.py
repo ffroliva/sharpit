@@ -11,6 +11,9 @@ from typing import Any, cast
 
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.masking import Masker
+from sharpit.engine.sqla.dialect_source import engine_dialect
+from sharpit.engine.sqltext import Dialect, dialect_of_name
+from sharpit.engine.sqltext import error_text as sql_error_text
 
 _clock = time.monotonic  # test seam: the catalog budget's clock
 
@@ -35,13 +38,14 @@ _SERVER_SQL = {
 }
 
 
-def error_text(exc: BaseException) -> str:
+def error_text(exc: BaseException, masker: Masker, dialect: Dialect | None = None) -> str:
     """An error's first line only: SQLAlchemy appends the statement and its parameters on the lines after it."""
-    lines = str(exc).strip().splitlines()
+    resolved = Dialect.UNSUPPORTED if dialect is None else dialect
+    lines = (sql_error_text(masker, exc, resolved, keep_frames=False) or "").strip().splitlines()
     return lines[0] if lines else type(exc).__name__
 
 
-def catalog(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
+def catalog(conn: Any, bounds: CatalogBounds, masker: Masker) -> dict[str, Any]:
     """The physical schema behind ``conn`` as plain dicts, read within ``bounds`` (run it inside the read-only read).
 
     Tables past ``bounds.tables``, columns and indexes past their per-table bounds are not kept and set ``truncated``.
@@ -49,6 +53,7 @@ def catalog(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
     """
     start = _clock()
     dialect = conn.dialect.name
+    dialect_enum = dialect_of_name(dialect) or Dialect.UNSUPPORTED
     diagnostics: list[dict[str, str]] = []
     inspector = _sqla.sqlalchemy_module().inspect(conn)  # type: ignore[union-attr]  # callers hold a SQLAlchemy conn
     names: list[str] = inspector.get_table_names()
@@ -64,7 +69,7 @@ def catalog(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
             table, cut = _table(conn, inspector, name, bounds)
         except Exception as exc:  # noqa: BLE001 - one unreadable table is a diagnostic; never a failed scan
             complete = False
-            diagnostics.append(_warning(f"Table {name} could not be read: {error_text(exc)}"))
+            diagnostics.append(_warning(f"Table {name} could not be read: {error_text(exc, masker, dialect_enum)}"))
             continue
         tables.append(table)
         truncated |= cut
@@ -75,7 +80,7 @@ def catalog(conn: Any, bounds: CatalogBounds) -> dict[str, Any]:
         "truncated": truncated,
         "complete": complete,
         "diagnostics": diagnostics,
-        "server": _server(conn, dialect, bounds, diagnostics),
+        "server": _server(conn, dialect, bounds, diagnostics, masker),
     }
 
 
@@ -138,7 +143,9 @@ def _table(conn: Any, inspector: Any, name: str, bounds: CatalogBounds) -> tuple
     return table, cut
 
 
-def _server(conn: Any, dialect: str, bounds: CatalogBounds, diagnostics: list[dict[str, str]]) -> dict[str, str]:
+def _server(
+    conn: Any, dialect: str, bounds: CatalogBounds, diagnostics: list[dict[str, str]], masker: Masker
+) -> dict[str, str]:
     sql = _SERVER_SQL.get(dialect)
     if sql is None:
         return {}
@@ -149,7 +156,8 @@ def _server(conn: Any, dialect: str, bounds: CatalogBounds, diagnostics: list[di
         else:
             rows = conn.exec_driver_sql(sql).fetchmany(bounds.vendor_rows)
     except Exception as exc:  # noqa: BLE001 - the pool rules then skip with the reason
-        diagnostics.append(_warning(f"Server settings could not be read: {error_text(exc)}"))
+        dialect_enum = dialect_of_name(dialect) or Dialect.UNSUPPORTED
+        diagnostics.append(_warning(f"Server settings could not be read: {error_text(exc, masker, dialect_enum)}"))
         return {}
     return {str(row[0]).lower(): str(row[1]) for row in rows}
 
@@ -181,7 +189,8 @@ class EngineRegistry:
     def __init__(self, masker: Masker) -> None:
         self._masker = masker
         self._names: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._snapshot: tuple[tuple[weakref.ReferenceType[Any], str], ...] = ()
 
     def add(self, engine: object) -> None:
         """Register a sync ``Engine`` or an ``AsyncEngine`` (its ``sync_engine``); anything else is ignored."""
@@ -202,15 +211,23 @@ class EngineRegistry:
                 n += 1
                 unique = f"{name}#{n}"
             self._names[sync] = unique
+            self._snapshot = tuple((weakref.ref(key), value) for key, value in self._names.items())
 
     def holds(self, engine: object) -> bool:
-        with self._lock:
-            return engine in self._names
+        return any(ref() is engine for ref, _ in self._snapshot)
 
     def engines(self) -> list[tuple[str, Any]]:
         """``(display name, Engine)`` in registration order."""
-        with self._lock:
-            return [(name, engine) for engine, name in self._names.items()]
+        return [(name, engine) for ref, name in self._snapshot if (engine := ref()) is not None]
+
+    def has_engines(self) -> bool:
+        return any(ref() is not None for ref, _ in self._snapshot)
 
     def names(self) -> list[str]:
         return [name for name, _ in self.engines()]
+
+    def family(self) -> Dialect | None:
+        """The live engines' current dialects, with no lock: ``engine.dialect`` can change after ``add``."""
+        families = {engine_dialect(engine) for _, engine in self.engines()}
+        family = families.pop() if len(families) == 1 else None
+        return None if family is Dialect.UNSUPPORTED else family

@@ -9,14 +9,19 @@ buffer by sequence number).
 from __future__ import annotations
 
 import contextlib
+import gc
 import logging
-from collections.abc import Iterator
+import threading
+from collections import deque
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
 
+from sharpit.engine.capture import logtail
 from sharpit.engine.capture.logtail import LINE_KEYS, MAX_MESSAGE, LogTailBuffer, SharpitLogHandler
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjb3JwdXMifQ.c2lnbmF0dXJlLWJ5dGVz"
 MASKED = Masker(Exposure.MASKED, True)
@@ -84,9 +89,11 @@ def bare(*loggers: logging.Logger) -> Iterator[logging.Logger]:
             lg.handlers[:] = handlers
 
 
-def _handler(masker: Masker = MASKED, max_lines: int = 500) -> tuple[SharpitLogHandler, LogTailBuffer]:
+def _handler(
+    masker: Masker = MASKED, max_lines: int = 500, application: Callable[[], Dialect | None] = lambda: None
+) -> tuple[SharpitLogHandler, LogTailBuffer]:
     buffer = LogTailBuffer(max_lines, 1 << 20)
-    return SharpitLogHandler(masker, buffer), buffer
+    return SharpitLogHandler(masker, buffer, application=application), buffer
 
 
 def test_handler_level_notset_changes_no_level(isolated: logging.Logger):
@@ -182,7 +189,10 @@ def test_metadata_only_log_message_null(isolated: logging.Logger):
 
 @pytest.mark.parametrize("capture", [False, True])
 def test_sqlalchemy_param_lines_dropped(isolated: logging.Logger, capture: bool):
-    handler, buffer = _handler(Masker(Exposure.MASKED, True, capture_parameters=capture))
+    # derived: Task 29, a record of an application on SQLite: with no proof the statement is hidden
+    handler, buffer = _handler(
+        Masker(Exposure.MASKED, True, capture_parameters=capture), application=lambda: Dialect.SQLITE
+    )
     engine_log = logging.getLogger("sqlalchemy.engine.Engine")
     engine_log.addHandler(handler)
     saved = engine_log.level
@@ -276,3 +286,204 @@ def test_log_tail_line_sets_message_omitted_in_metadata_only_mode():
         shown = _handler(Masker(exposure, True))[0].line(record)
         assert shown is not None
         assert shown.get("messageOmitted") is False, exposure
+
+
+def test_the_line_keeps_a_falsy_application_family(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(Dialect, "__bool__", lambda _self: False, raising=False)
+    seen: list[Dialect] = []
+
+    def spy(_masker: Masker, text: str, dialect: Dialect) -> str:
+        seen.append(dialect)
+        return text
+
+    monkeypatch.setattr(logtail, "error_text", spy)
+    handler = SharpitLogHandler(MASKED, None, lambda: Dialect.SQLITE)
+    handler.line(logging.makeLogRecord({"name": "host", "msg": "line"}))
+    assert seen == [Dialect.SQLITE]
+
+
+@pytest.mark.parametrize("read", [LogTailBuffer.recent, lambda buffer: buffer.after(None)], ids=["recent", "after"])
+def test_a_finalizer_that_logs_during_a_read_does_not_deadlock(read: Callable[[LogTailBuffer], list[Any]]):
+    """A collection on the reader's thread runs a finalizer, which logs, which appends: a held lock hangs that thread.
+
+    The finalizer appends directly: a hung ``emit`` would keep the handler's lock and hang ``logging.shutdown`` too.
+    """
+    buffer = LogTailBuffer(5, 1 << 20)
+    buffer.append(_line("first"))
+
+    class Finalized:
+        def __del__(self) -> None:
+            buffer.append(_line("from a finalizer"))
+
+    class Collected(deque[Any]):
+        def __iter__(self) -> Iterator[Any]:
+            garbage = Finalized()
+            garbage.cycle = garbage  # pyright: ignore[reportAttributeAccessIssue]
+            del garbage
+            gc.collect()
+            return super().__iter__()
+
+    buffer._lines = Collected(buffer._lines)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    finished = threading.Event()
+
+    def run() -> None:
+        read(buffer)
+        finished.set()
+
+    threading.Thread(target=run, daemon=True).start()
+    assert finished.wait(5)
+    assert _messages(buffer)[:2] == ["first", "from a finalizer"]  # this read collects again and may add a third
+
+
+class _CustomStrError(Exception):
+    def __str__(self) -> str:
+        return "custom __str__ text"
+
+
+class _AppStatementError(Exception):
+    def __init__(self, statement: str) -> None:
+        super().__init__(statement)
+        self.statement = statement
+
+
+class _RaisingStrError(Exception):
+    def __str__(self) -> str:
+        raise RuntimeError("unprintable")
+
+
+@pytest.mark.parametrize(
+    ("fmt", "args", "expected"),
+    [
+        ("retrying after %s", (ValueError("timeout"),), "retrying after timeout"),
+        (
+            "%s",
+            (OSError(2, "No such file or directory", "/tmp/x.db"),),
+            "[Errno 2] No such file or directory: '/tmp/x.db'",
+        ),
+        ("%s", (_CustomStrError("raw args"),), "custom __str__ text"),
+        ("%s", (_AppStatementError('note: "keep"'),), 'note: "keep"'),
+        (
+            "retrying %s after %s",
+            (
+                ValueError("timeout"),
+                type("OperationalError", (Exception,), {"__module__": "sqlite3"})("near 'secret_token': syntax error"),
+            ),
+            "retrying timeout after OperationalError",
+        ),
+        (
+            "retrying after %s password=hunter2",
+            (_RaisingStrError("raw args"),),
+            f"retrying after %s password={MASK}",
+        ),
+    ],
+    ids=[
+        "retrying_prefix",
+        "oserror_filename",
+        "custom_str",
+        "unclassified_statement",
+        "classified_driver_in_args",
+        "raising_str",
+    ],
+)
+def test_log_record_exception_args_follow_chain_classification(
+    isolated: logging.Logger, fmt: str, args: tuple[object, ...], expected: str
+) -> None:
+    # derived: D5 logtail exception args classification (a7a6ff2f base parity vs read_chain driver objects)
+    handler, buffer = _handler()
+    with bare(isolated):
+        isolated.addHandler(handler)
+        isolated.addHandler(logging.NullHandler())
+        isolated.error(fmt, *args)
+    (message,) = _messages(buffer)
+    assert "secret_token" not in (message or "")
+    assert message == expected
+
+
+# derived: Task 27 review 4 (subclass __class__ descriptor on a log arg never runs and record is still logged)
+def test_logtail_arg_with_raising_class_property_is_still_logged() -> None:
+    ran: list[str] = []
+
+    class HostileArgError(Exception):
+        @property
+        def __class__(self) -> type:  # type: ignore[override]
+            ran.append("__class__")
+            raise RuntimeError("__class__ descriptor ran")
+
+    handler, buffer = _handler()
+    record = logging.makeLogRecord(
+        {
+            "name": "host",
+            "levelno": logging.ERROR,
+            "levelname": "ERROR",
+            "msg": "hello %s",
+            "args": (HostileArgError("bad"),),
+        }
+    )
+    handler.emit(record)
+    assert ran == []
+    assert _messages(buffer) == ["hello bad"]
+
+
+# derived: Task 27 review 8 (classified psycopg arg in log record substitutes safe rendering into record.msg)
+def test_logtail_classified_psycopg_arg_keeps_format_text_without_driver_text(isolated: logging.Logger) -> None:
+    psycopg_errors = pytest.importorskip("psycopg.errors")
+    # Task 29: on an application with no family the record's text is UNSUPPORTED's, and hidden
+    handler, buffer = _handler(application=lambda: Dialect.POSTGRESQL)
+    with bare(isolated):
+        isolated.addHandler(handler)
+        isolated.addHandler(logging.NullHandler())
+        isolated.error(
+            "retrying after %s",
+            psycopg_errors.InvalidTextRepresentation('invalid input syntax for type integer: "hunter2secret"'),
+        )
+    assert _messages(buffer) == ["retrying after (psycopg.errors.InvalidTextRepresentation) 22P02"]
+
+
+STORED = "storedsecret7Q"
+# both quotes, so ``repr`` escapes the ``'`` with a backslash, which SQLite reads as a plain character: the string
+# closes early and the stored value reads as words
+STORED_VALUE = f"x' {STORED} \"y"
+
+
+def _echoed_lines(capture: bool) -> list[str | None]:
+    """A real SQLite engine at ``echo="debug"``: SQLAlchemy logs each fetched row as ``"Row %r"``, with its values."""
+    sa = pytest.importorskip("sqlalchemy")
+    handler, buffer = _handler(
+        Masker(Exposure.MASKED, True, capture_parameters=capture), application=lambda: Dialect.SQLITE
+    )
+    engine = sa.create_engine("sqlite://", echo="debug")
+    engine_log = logging.getLogger("sqlalchemy.engine.Engine")
+    engine_log.addHandler(handler)
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("CREATE TABLE u (name TEXT, token TEXT)")
+            conn.exec_driver_sql("INSERT INTO u VALUES (?, ?)", ("bob", STORED_VALUE))
+            conn.exec_driver_sql("SELECT name, token FROM u WHERE name = ?", ("bob",)).fetchall()
+    finally:
+        engine_log.removeHandler(handler)
+        engine.dispose()
+    return _messages(buffer)
+
+
+# derived: Task 29 review of 855f712f, HIGH: logtail read every sqlalchemy.engine record as a statement, and a fetched
+# row's values are no statement
+def test_an_echoed_row_shows_no_stored_value() -> None:
+    lines = _echoed_lines(False)
+    assert [line for line in lines if line and STORED.lower() in line.lower()] == []
+
+
+def test_an_echoed_statement_is_still_captured() -> None:
+    assert "SELECT name, token FROM u WHERE name = ?" in _echoed_lines(False)
+
+
+# derived: Task 32 exposure matrix, logtail_statement-*-capture_on-*-unsupported: owner's item 7, capture on does not
+# lift the hide of a statement sharpit cannot read
+@pytest.mark.parametrize("exposure", [Exposure.MASKED, Exposure.FULL])
+def test_capture_on_keeps_an_unsupported_engine_statement_hidden(exposure: Exposure) -> None:
+    masker = Masker(exposure, True, capture_parameters=True)
+    record = logging.LogRecord(
+        "sqlalchemy.engine.Engine", logging.INFO, __file__, 1, "SELECT * FROM t WHERE pw = 'hunter2plain'", None, None
+    )
+    line = SharpitLogHandler(masker, None, application=lambda: None).line(record)
+    assert line is not None
+    assert line["message"] == "[statement hidden: unsupported database]"

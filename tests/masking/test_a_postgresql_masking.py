@@ -9,6 +9,7 @@ import pytest
 from tests.engine.postgresql.fakes import FakePgEngine, FakeRegistry, default_rows
 
 from sharpit.engine.activation import ActivationStatus
+from sharpit.engine.collectors.postgresql.querytext import truncate
 from sharpit.engine.collectors.postgresql.service import refresh_postgresql
 from sharpit.engine.context import SharpitContext
 from sharpit.settings import load_settings
@@ -82,3 +83,7 @@ def test_a_driver_error_carrying_a_dsn_password_is_masked() -> None:
 
 def test_a_refused_connection_with_a_dsn_password_is_masked() -> None:
     assert PASSWORD not in _read(FakePgEngine(refuse=f"could not connect to postgresql://app:{PASSWORD}@db/app"))
+
+
+def test_truncate_keeps_unicode_space_between_tokens() -> None:
+    assert truncate("SELECT \u1680 1") == "SELECT \u1680 1"

@@ -132,6 +132,13 @@ The session produces one of three overall statuses in the report:
    - An xdist worker crashed or failed to return facts.
 3. `pass`: All gates passed and advisors completed with full coverage. A test suite with zero database queries passes with a warning (`"no SQL statement was executed"`), provided no uninstrumented drivers were detected.
 
+## What a run proves and does not prove
+
+The terminal summary lists the `test-runtime` gates and the advisors that assessed an application during this session.
+It also lists advisors from the registry that did not run. A `pass` means those gates passed and the reported advisors
+completed; it does not mean the application is secure. Routes and SQL that the tests did not exercise were not checked,
+and sharpit performs no attack or penetration testing.
+
 ### Exit codes
 
 - A `fail` status raises the pytest exit code to 1 if pytest would have returned 0.

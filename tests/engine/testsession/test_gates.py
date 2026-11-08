@@ -11,6 +11,7 @@ import sharpit.engine.testsession as testsession_pkg
 from engine.testsession.tsfakes import NODE, event, run_phase, selects
 from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.sqltrace import normalize
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.testsession.facts import PhaseFacts, TestFacts, TestKey, UnboundedReadFact
 from sharpit.engine.testsession.gates import Budget, evaluate_test, fails
 from sharpit.engine.testsession.sink import TestSessionSink
@@ -126,7 +127,7 @@ def test_n_plus_one_identity_is_the_normalized_fingerprint() -> None:
     run_phase(sink, NODE, attempt, "call", sql, "SELECT * FROM pets WHERE ID = 42")
     assert sink.current_test is not None
     [finding] = evaluate_test(sink.current_test, NONE, 2, ())
-    assert finding.identity == normalize(sql).fingerprint
+    assert finding.identity == normalize(sql, Dialect.POSTGRESQL).fingerprint
 
 
 def test_n_plus_one_ignores_writes() -> None:

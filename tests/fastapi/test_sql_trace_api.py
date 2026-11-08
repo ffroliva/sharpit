@@ -5,6 +5,7 @@ Derived cases (SQLAlchemy events have no BootUI oracle) unless a ``# ported:`` c
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -301,7 +302,7 @@ def test_no_lifespan_first_request_attaches_listeners(monkeypatch: pytest.Monkey
     assert [e["sql"] for e in client.get(API).json()["entries"]] == ["select ? + ?"]
 
 
-def test_sqlalchemy_imported_in_lifespan_attached_at_startup():
+def test_sqlalchemy_imported_in_lifespan_attached_at_startup(tmp_path: Path):
     script = textwrap.dedent(
         """
         import sys
@@ -342,7 +343,14 @@ def test_sqlalchemy_imported_in_lifespan_attached_at_startup():
         print("ok")
         """
     )
-    done = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    done = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=os.environ | {"SHARPIT_STATE_DIR": str(tmp_path / "state")},
+    )
     assert (done.returncode, done.stdout.strip()) == (0, "ok"), done.stderr
 
 
@@ -422,7 +430,8 @@ def test_mysql_engine_statements_reach_the_trace_normalised(monkeypatch: pytest.
 
     shown = [entry["sql"] for entry in client.get(API).json()["entries"]]
 
-    assert shown == ["SELECT ?", "SELECT ?", "SELECT ?"]
+    # Task 29: the failed one's SQLite error conflicts with the engine's name, so it is hidden (owner, item 7)
+    assert shown == ["SELECT ?", "SELECT ?", "[statement hidden: unsupported database]"]
 
 
 # derived: release council probe p11_trace.py, the second surface of the same statements
@@ -447,4 +456,5 @@ def test_a_sqlite_engine_keeps_the_generic_scan(monkeypatch: pytest.MonkeyPatch)
 
     shown = [entry["sql"] for entry in client.get(API).json()["entries"]]
 
-    assert "SELECT ?xDEADBEEF" in shown
+    assert "SELECT ?" in shown
+    assert any("#" in sql for sql in shown)  # ``0x`` is a literal in every mode now: the ``#`` tells the scans apart

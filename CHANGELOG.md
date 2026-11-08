@@ -5,6 +5,28 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- SQLite test-session baselines use a machine-local identity key by default; set `SHARPIT_IDENTITY_KEY` to the same secret in CI jobs that compare a committed baseline.
+- An unregistered engine that reports the wrong database name in an application using a different single family is read as the name it reports; a comment that family keeps can therefore remain visible.
+- Test-session group keys are built from masked text, so a key changes for a statement the masker edits (`password = ?` reads `password = ****** where id = ?`). N+1 baselines and dismissals on those groups re-flag after an upgrade: 1,396 of 20,000 generic rows and 2,048 of 20,000 MySQL rows in the corpus change.
+- A statement whose database family is unknown or in conflict shows nothing past a `#`, on any line: it is a comment on MySQL, an operator on PostgreSQL and a variable on SQLite.
+- The SQL dialect is resolved per event from what the connection or exception proves; an application using a single database family applies that family to unwired events.
+- A database driver exception shows its class, one structured code, the masked `[SQL: ...]` statement, and `[parameters: ******]` when parameters were bound, and never the driver's free-text message.
+- A statement of an unsupported database family shows `[statement hidden: unsupported database]` at every exposure level, and parameter capture does not reveal it.
+- Under `METADATA_ONLY` exposure, no statement text or database error text is shown; SQL Trace groups keep the masked statement shape (`SELECT ? FROM users WHERE id = ?`), never more than `MASKED` shows.
+
+### Known limits
+
+- Text an application writes as a statement is read as SQL.
+- In free text, a value with no key name before it can be shown.
+- An unquoted value after `PASSWORD` or `IDENTIFIED BY` is shown as written: PostgreSQL and MySQL reject it as a syntax error, so it appears only on a mistyped, failed statement. A quoted value is hidden.
+- An unproven event from a second database that sharpit has not seen is read as the application's one registered family.
+- Database forks (such as Percona or Aurora) are read as their parent family; no fork runs in the live tests.
+- SQL Server and Oracle statements are hidden (`[statement hidden: unsupported database]`): sharpit has no verified rules for them.
+- On SQLite a `"..."` run is hidden: SQLite reads it as a name, or as a string when no column matches.
+- Live fuzzing with MySQL's ANSI_QUOTES session mode is deferred past 0.5.0.
+
 ## [0.5.0] - 2026-11-04
 
 ### Added
@@ -87,6 +109,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - An error with an `[SQL: ` marker is masked, normalised and masked again. Everything after the marker is normalised, not only the statement: `[parameters: ...]` and the `Background` link too, digits and quoted text read `?`, line breaks collapse, and text past 20,000 characters is dropped. The statements stored by SQL Trace, the test session and the N+1 messages are normalised and then masked, as in 0.4.0.
 - `mask_text` masks the word after `basic` or `bearer` in any case, also in English or SQL (`basic usage` shows `basic ******`, `SELECT basic FROM t` shows `SELECT basic ****** t`), and does not mask `Digest` parameter lists. With no key before it, an ordinary word or a punctuation-only value after `token` stays readable (`Token expired`, `FROM Token WHERE`), so a credential of 16 letters or fewer in one case, or of punctuation alone, is not masked there.
 - On FastAPI 0.16x an `include_router` prefix cannot be recovered from the route, so those routes report `MASKED_PATH` instead of a template.
+- A driver error read from text alone keeps an unquoted driver value visible in four shapes: a SQLite `ATTACH` path or a trigger's `RAISE` message on a driver line with no quote, a chain line planted by a value on the driver line, and a docs-link line planted by a value in a `StatementError` that has no link of its own. Quoted values, the `[SQL: ...]` block and its parameters stay masked.
 
 ## [0.4.0] - 2026-11-02
 

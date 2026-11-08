@@ -506,3 +506,58 @@ def test_exceptions_report_carries_caught_in_code():
     report = _client(app).get("/sharpit/api/exceptions").json()
     assert "caughtInCode" in report, "the 2.2.0 report carries caughtInCode"
     assert report["caughtInCode"] is None
+
+
+# derived: Task 27 Opus review r2 #3: the log source passes no override for a classified exception, so the store's own
+# guard is not the only one (with only the store's, removing this one fails nothing above)
+def test_the_log_source_passes_no_override_for_a_classified_exception() -> None:
+    from sharpit.fastapi.capture import _record_logged  # pyright: ignore[reportPrivateUsage]
+
+    psycopg_errors = pytest.importorskip("psycopg.errors")
+    passed: list[object] = []
+
+    class SpyStore:
+        def record(self, *_args: object, message_override: object = None) -> None:
+            passed.append(message_override)
+
+    exc = psycopg_errors.Error('failed: "hunter2secret"')
+    record = logging.LogRecord("app", logging.ERROR, "f", 1, "failed: %s", (exc,), (type(exc), exc, None))
+    _record_logged(SpyStore(), record)  # pyright: ignore[reportArgumentType]
+    assert passed == [None]
+
+
+# derived: Task 27 review 1 (classified exception logged via logger.exception does not fall back to message_override)
+# owner ruling 2026-11-07, structured driver codes; Opus review r2 #3: a code-less driver keeps the override
+# ignored, so the guard still has a row that bites
+OVERRIDE_ROWS = {
+    "code": ("InvalidTextRepresentation", "(psycopg.errors.InvalidTextRepresentation) 22P02"),
+    "no_code": ("Error", None),
+}
+
+
+@pytest.mark.parametrize("case", sorted(OVERRIDE_ROWS))
+def test_logged_classified_exception_ignores_message_override(case: str) -> None:
+    psycopg_errors = pytest.importorskip("psycopg.errors")
+    kind, wanted = OVERRIDE_ROWS[case]
+    driver = getattr(psycopg_errors, kind)
+    app = FastAPI()
+
+    @app.get("/logs")
+    def logs() -> dict[str, bool]:  # pyright: ignore[reportUnusedFunction]
+        try:
+            raise driver('invalid input syntax for type integer: "hunter2secret"')
+        except Exception as exc:  # noqa: BLE001
+            log.exception("failed: %s", exc)
+        try:
+            raise MyError
+        except MyError:
+            log.exception("unclassified override password=hunter2")
+        return {"ok": True}
+
+    _install(app)
+    with _client(app) as client:
+        assert client.get("/logs").status_code == 200
+        groups = {g["exceptionClassName"]: g["message"] for g in _groups(client)}
+    assert groups[f"{driver.__module__}.{driver.__qualname__}"] == wanted
+    assert "hunter2secret" not in str(groups)
+    assert groups[f"{__name__}.MyError"] == "unclassified override password=******"

@@ -4,6 +4,7 @@ import ast
 import asyncio
 import builtins
 import gc
+import importlib.util
 import io
 import json
 import linecache
@@ -11,6 +12,7 @@ import logging
 import os
 import socket
 import sys
+import tempfile
 import tokenize
 import tracemalloc
 from collections.abc import Callable, Iterator
@@ -19,11 +21,47 @@ from typing import Any
 
 import pytest
 
+# Hypothesis caches constants under the working directory, and `no_side_effects` reads a file written there as a read
+# that wrote one. Set before its import, so no run writes into the tree.
+os.environ.setdefault("HYPOTHESIS_STORAGE_DIRECTORY", str(Path(tempfile.gettempdir()) / "sharpit-hypothesis"))
+# pytest's session hooks run before function-scoped fixtures, so give them an out-of-tree state location too.
+os.environ["SHARPIT_STATE_DIR"] = str(Path(tempfile.gettempdir()) / f"sharpit-pytest-{os.getpid()}")
+
+from hypothesis import settings  # noqa: E402
+
+import sharpit.settings as sharpit_settings
 from sharpit.engine import sqla
 from sharpit.engine.capture import transactions
 from sharpit.engine.sources import sqlite
+from sharpit.engine.sqltext.identity import load_key
 
 pytest_plugins = ["pytester", "_shard"]  # _shard: SHARPIT_SHARD=i/n, the CI shards (tests/_shard.py)
+_REPO_STATE_SNAPSHOT: dict[str, tuple[int, int] | None] = {}
+
+# The property tests run the same examples on every run and every shard, and write no example database: a failure seen
+# once is seen again, and a slow runner is not a failure (design section 8).
+settings.register_profile("sharpit", derandomize=True, deadline=None, database=None, print_blob=False)
+settings.load_profile("sharpit")
+
+
+@pytest.fixture(autouse=True)
+def isolated_default_state_dir(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[None]:
+    original_init = sharpit_settings.SharpitSettings.__init__
+
+    def init(self: sharpit_settings.SharpitSettings, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("state_dir", str(tmp_path / "state"))
+        original_init(self, *args, **kwargs)
+
+    # its own MonkeyPatch, not the test's `monkeypatch` fixture: requesting that one here would set it up first and so
+    # tear it down last, after the other fixtures' teardowns, which then ran while a test's patches were still applied
+    with pytest.MonkeyPatch.context() as patch:
+        patch.delenv("SHARPIT_STATE_DIR", raising=False)
+        patch.setattr(sharpit_settings.SharpitSettings, "__init__", init)
+        yield
+    assert _snapshot(Path(__file__).parents[1] / ".sharpit") == _REPO_STATE_SNAPSHOT, (
+        f"{request.node.nodeid} changed repo-root .sharpit state"
+    )
+
 
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}
@@ -54,6 +92,15 @@ def sqlalchemy_imports_without_marker(source: str) -> list[str]:
     return [] if marked else found
 
 
+def needs_sqlalchemy_marker(source: str) -> bool:
+    return any(
+        isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in node.targets)
+        and "needs_sqlalchemy" in ast.unparse(node.value)
+        for node in ast.parse(source).body
+    )
+
+
 def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> None:
     del parent
     found = sqlalchemy_imports_without_marker(module_path.read_text(encoding="utf-8"))
@@ -63,6 +110,7 @@ def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> None:
 
 TIMING_MODULES = (
     "test_capture_overhead.py",
+    "test_mask_error_overhead.py",  # masking redesign, Task 5
     "test_n_plus_one_overhead.py",
     "test_sql_trace_overhead.py",
     "test_sqlite_overhead.py",
@@ -73,8 +121,30 @@ TIMING_MODULES = (
 )  # every module that times a budget (tests/test_overhead_harness.py keeps this complete)
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--live", action="store_true", help="collect tests/live: real database servers (the CI live job)")
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    """Without ``--live`` the live profile is not collected, so a default run has no live test and nothing to skip."""
+    live = collection_path.name == "live" and collection_path.parent.name == "tests"
+    if live and not config.getoption("--live"):
+        return True
+    if (
+        importlib.util.find_spec("sqlalchemy") is None
+        and collection_path.suffix == ".py"
+        and needs_sqlalchemy_marker(collection_path.read_text(encoding="utf-8"))
+    ):
+        return True
+    return None
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Timing budgets run last: xdist hands out tests in this order, so they meet a draining pool, not 22 busy ones."""
+    if not config.getoption("--live"):  # pytest does not ask pytest_ignore_collect for a path named on the command line
+        live = [i for i in items if "live" in i.path.parts[-2:-1] and i.path.parent.parent.name == "tests"]
+        config.hook.pytest_deselected(items=live)
+        items[:] = [i for i in items if i not in live]
     items.sort(key=lambda item: item.path.name in TIMING_MODULES)  # stable: everything else keeps its order
 
 
@@ -124,6 +194,11 @@ def _snapshot(root: Path) -> dict[str, tuple[int, int] | None]:
             st = os.stat(os.path.join(base, name))
             snap[os.path.join(base, name)] = (st.st_mtime_ns, st.st_size)
     return snap
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    del session
+    _REPO_STATE_SNAPSHOT.update(_snapshot(Path(__file__).parents[1] / ".sharpit"))
 
 
 def _environ() -> dict[str, str]:
@@ -221,7 +296,8 @@ class SideEffectGuard:
     def watch_sources(self, root: Path) -> None:
         """Report every file opened under ``root`` (the app's source tree) until ``unwatch_sources``."""
         self._source_roots.append(os.path.realpath(root))
-        for name in [n for n in linecache.cache if _under(os.path.realpath(n), self._source_roots)]:
+        # list() copies the keys in one step: other threads (FastAPI on a TestClient portal) write linecache meanwhile
+        for name in [n for n in list(linecache.cache) if _under(os.path.realpath(n), self._source_roots)]:
             del linecache.cache[name]  # a warm cache (FastAPI reads a host endpoint's source) would hide a later read
         if self._spies:
             return
@@ -289,7 +365,9 @@ def _no_sqlite3_patch_leak(request: pytest.FixtureRequest) -> Iterator[None]:
 
 @pytest.fixture
 def tmp_state_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return tmp_path_factory.mktemp("sharpit-state")
+    state_dir = tmp_path_factory.mktemp("sharpit-state")
+    load_key(state_dir, create=True)  # so install() finds it and writes nothing, under the strict no_side_effects
+    return state_dir
 
 
 @pytest.fixture

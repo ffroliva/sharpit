@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import re
 
-from sharpit.engine.capture.sqltrace import normalize_sql
 from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.sqltext import Dialect, statement_text
 
 MAX_QUERY_TEXT_LENGTH = 400
-_WHITESPACE = re.compile(r"\s+")
+_WHITESPACE = re.compile(r"\s+", re.ASCII)
 
 
 def is_metadata_only(masker: Masker) -> bool:
@@ -30,9 +30,4 @@ def mysql_query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUER
         return None
     if is_metadata_only(masker):
         return MASK
-    try:
-        normalized = normalize_sql(masker.mask_text(sql) or "", mysql=True)
-    except Exception:
-        normalized = _WHITESPACE.sub(" ", sql).strip()
-    masked = masker.mask_text(normalized) or normalized
-    return truncate(masked, max_length)
+    return truncate(statement_text(masker, sql, dialect=Dialect.MYSQL_FAMILY), max_length)

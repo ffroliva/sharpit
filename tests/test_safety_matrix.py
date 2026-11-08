@@ -36,8 +36,10 @@ from sharpit.engine.guard import (
 )
 from sharpit.engine.mcp import DISABLED_MESSAGE
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
+from sharpit.engine.sqltext import Dialect
 from sharpit.engine.tools import TOOLS, rest_api_service
 from sharpit.fastapi.adapter import GuardMiddleware, SharpitHandle
+from state_files import state_files
 
 LOCAL = ("127.0.0.1", 50000)
 GROUP_ID = "0123456789abcdef"  # conftest._PATH_PARAMS["id"]
@@ -385,7 +387,7 @@ def _seed_sql_trace(handle: SharpitHandle) -> Callable[[], object]:
     recorder = handle.context.capture.sql_trace
     if recorder is None:
         return lambda: None
-    recorder.record("select 1", duration_ns=1, thread="test", connection_id=None)
+    recorder.record("select 1", duration_ns=1, thread="test", connection_id=None, dialect=Dialect.UNSUPPORTED)
     return lambda: (recorder.report([])["totalCaptured"], len(recorder.report([])["entries"]), recorder.recording)
 
 
@@ -448,13 +450,14 @@ def test_dismissed_rules_obey_global_and_owning_panel_read_only(tmp_path: Path):
     rule = "/sharpit/api/dismissed-rules/V-1%3A%3Apypi%3Awidget"
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, read_only=True, state_dir=str(tmp_path))
+    installed = state_files(tmp_path)  # the identity key: install writes that, no request may write anything
     client = _client(app)
     assert client.get("/sharpit/api/dismissed-rules").status_code == 200
     for method in ("POST", "DELETE"):
         resp = client.request(method, rule)
         reason = "sharpit is read-only via SHARPIT_READ_ONLY=true"
         assert (resp.status_code, resp.json()) == (403, _panel_denied("dismissed-rules", reason))
-    assert list(tmp_path.iterdir()) == []
+    assert state_files(tmp_path) == installed
     panel_only = FastAPI()
     install(
         panel_only,
@@ -466,7 +469,7 @@ def test_dismissed_rules_obey_global_and_owning_panel_read_only(tmp_path: Path):
     resp = _client(panel_only).post(rule)  # the owning panel's read-only flag covers its rules (spec §8)
     reason = "Panel is read-only via SHARPIT_PANELS_VULNERABILITIES_READ_ONLY=true"
     assert (resp.status_code, resp.json()) == (403, _panel_denied("dismissed-rules", reason))
-    assert list(tmp_path.iterdir()) == []
+    assert state_files(tmp_path) == installed
 
 
 # (rule, owning panel): dismissals x per-panel enabled and read-only (spec §8, §14.2)
@@ -480,11 +483,12 @@ def test_dismissals_per_panel_gate(tmp_path: Path, rule: str, owner: str, method
     flags = {"read_only": True} if gate == "read-only" else {"enabled": False}
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path), panels={owner: flags})
+    installed = state_files(tmp_path)
     client = _client(app)
     resp = client.request(method, f"/sharpit/api/dismissed-rules/{rule}")
     reason = read_only_reason(owner, False) if gate == "read-only" else disabled_reason(owner)
     assert (resp.status_code, resp.json()) == (403, _panel_denied("dismissed-rules", reason))
-    assert list(tmp_path.iterdir()) == []
+    assert state_files(tmp_path) == installed
     other = next(r for r, o in DISMISSALS if o != owner)
     assert client.request(method, f"/sharpit/api/dismissed-rules/{other}").status_code == 200
 
@@ -503,12 +507,13 @@ MUTATIONS = [
 def test_other_local_port_cannot_mutate(tmp_path: Path, path: str, body: bytes):
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, state_dir=str(tmp_path))
+    installed = state_files(tmp_path)
     client = _client(app)
     plain = {"Content-Type": "text/plain"}
     other_port = {**plain, "Origin": "http://localhost:3000", "Sec-Fetch-Site": "same-site"}
     resp = client.post(path, content=body, headers=other_port)
     assert (resp.status_code, resp.json()) == (403, {"error": MESSAGE_CROSS_SITE})
-    assert list(tmp_path.iterdir()) == []  # no dismissal written
+    assert state_files(tmp_path) == installed  # no dismissal written
     assert logging.getLogger("matrix.origin.probe").level == logging.NOTSET
     assert client.get("/sharpit/api/mcp-server").json()["enabled"] is False
     # the page's own origin, and a client that sends no Origin (curl, the CLI, MCP clients), still work

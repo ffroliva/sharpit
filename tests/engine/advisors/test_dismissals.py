@@ -36,6 +36,26 @@ def test_list_empty_when_file_missing(tmp_path: Path):
     assert DismissalStore(tmp_path).list() == []
 
 
+def test_not_a_directory_state_has_no_dismissals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.write_text("not a directory")
+    read_text = Path.read_text
+
+    def not_a_directory(path: Path, *args: Any, **kwargs: Any) -> str:
+        if path == state_dir / FILE_NAME:
+            raise NotADirectoryError
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", not_a_directory)
+
+    try:
+        dismissed = DismissalStore(state_dir).list()
+    except (OSError, ValueError):
+        dismissed = None
+
+    assert dismissed == []
+
+
 # ported: DismissedRulesStoreTests.dismissPersistsRuleIdsAndIsIdempotent
 def test_add_persists_and_is_idempotent(tmp_path: Path):
     store = DismissalStore(tmp_path)
@@ -363,7 +383,7 @@ def _refused(call: Any) -> AdvisorViolationError:
 def test_dismissed_findings_note_and_cap_validation(tmp_path: Path):
     file = tmp_path / FILE_NAME
     store = DismissalStore(tmp_path)
-    note = 'it\'s "fine": # really\nsecond line éè \U0001f600 \ end'
+    note = 'it\'s "fine": # really\nsecond line éè \U0001f600 \\ end'
     store.dismiss_finding(RULE, IDENTITY, note)
     assert DismissalStore(tmp_path).list_findings().dismissed == [DismissedFinding(RULE, IDENTITY, note)]
     assert "really" not in file.read_text(encoding="utf-8")

@@ -16,8 +16,8 @@ from sharpit.settings import PanelSettings, SharpitSettings, load_settings
 
 
 def test_defaults():
-    s = load_settings({}, {})
-    assert s == SharpitSettings(panels=s.panels)
+    s = load_settings({"state_dir": ".sharpit"}, {})
+    assert s == SharpitSettings(state_dir=".sharpit", panels=s.panels)
     assert s.enabled == "AUTO"
     assert s.enabled_profiles == ("dev", "local", "development")
     assert s.disabled_profiles == ("prod", "production")
@@ -231,6 +231,7 @@ PROPERTIES = {
     "bootui.trusted-proxies": ("trusted_proxies", "10.0.0.0/8"),
     "bootui.trust-container-gateway": ("trust_container_gateway", "AUTO"),
     "bootui.authentication.token": ("authentication_token", "tok"),
+    "bootui.identity-key": ("identity_key", "a-shared-key-of-thirty-two-bytes"),  # sharpit-only: SQLite's opaque ids
     "bootui.read-only": ("read_only", "true"),
     "bootui.expose-values": ("expose_values", "METADATA_ONLY"),
     "bootui.mask-secrets": ("mask_secrets", "false"),
@@ -435,6 +436,18 @@ def test_alembic_config_env_overrides_kwarg():
 
 def _env_name(prop: str) -> str:
     return "SHARPIT_" + prop.removeprefix("bootui.").replace(".", "_").replace("-", "_").upper()
+
+
+def test_a_same_character_key_warns_without_showing_it() -> None:
+    key = "k" * 32
+    settings = load_settings({}, {"SHARPIT_IDENTITY_KEY": key})
+    assert settings.identity_key == key
+    assert settings.warnings == ("SHARPIT_IDENTITY_KEY is one character repeated: a weak key",)
+
+
+def test_a_varied_key_does_not_warn() -> None:
+    settings = load_settings({}, {"SHARPIT_IDENTITY_KEY": "a-shared-key-of-thirty-two-bytes"})
+    assert settings.warnings == ()
 
 
 @pytest.mark.parametrize("prop", PROPERTIES)

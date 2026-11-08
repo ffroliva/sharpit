@@ -8,7 +8,7 @@ from sharpit.engine.masking import Masker
 
 # ported: TransactionRecorderTests.recordsACommittedRootTransaction
 def test_records_committed_root() -> None:
-    recorder = TransactionRecorder(Masker("MASKED", True, None))
+    recorder = TransactionRecorder(Masker("MASKED", True, None), application=lambda: None)
     entry_id = recorder.begin(
         1, parent=None, method="orders:create", thread="MainThread", trace_id=None, connection_id="db-1"
     )
@@ -29,7 +29,7 @@ def test_records_rolled_back() -> None:
 
 
 def _recorder(**options: object) -> TransactionRecorder:
-    return TransactionRecorder(Masker("MASKED", True, None), **options)  # type: ignore[arg-type]
+    return TransactionRecorder(Masker("MASKED", True, None), application=lambda: None, **options)  # type: ignore[arg-type]
 
 
 def _begin(recorder: TransactionRecorder, connection_id: str | None = "db-1") -> int:
@@ -714,3 +714,23 @@ def test_conn_info_holds_no_strong_context_reference(monkeypatch) -> None:
         remove()
         engine.dispose()
     assert not alive, "a pooled connection's info must not keep a dropped sharpit context alive"
+
+
+# derived: Task 27 review 9 (transaction errorMessage falls back to class name when error_text returns None); owner
+# ruling 2026-11-07, structured driver codes: a driver with a SQLSTATE shows it; one without shows its class name
+TRANSACTION_ROWS = {
+    "code": ("InvalidTextRepresentation", "(psycopg.errors.InvalidTextRepresentation) 22P02"),
+    "no_code": ("Error", "Error"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(TRANSACTION_ROWS))
+def test_classified_driver_exception_in_transaction_falls_back_to_class_name(case: str) -> None:
+    psycopg_errors = pytest.importorskip("psycopg.errors")
+    kind, wanted = TRANSACTION_ROWS[case]
+    recorder = _recorder()
+    entry_id = _begin(recorder)
+    exc = getattr(psycopg_errors, kind)('invalid input syntax for type integer: "hunter2secret"')
+    recorder.end(entry_id, "ROLLED_BACK", exc)
+    message = recorder.report([])["entries"][0]["errorMessage"]
+    assert message == wanted
