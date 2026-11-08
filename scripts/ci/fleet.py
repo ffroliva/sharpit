@@ -76,6 +76,38 @@ class BoxResult:
     fatal: str = ""
     timeline: str = ""
     wall: float = 0.0  # host seconds, create to result copied
+    create_cause: str = ""
+
+
+def create_failure_cause(stderr: str) -> str:
+    causes = (
+        ("dns", ("no such host", "lookup ", "lookup failed")),
+        ("network", ("dial tcp", "connection refused", "connection reset", "i/o timeout", "tls handshake")),
+        ("daemon", ("sandboxd", "daemon not reachable", "daemon is not reachable")),
+        ("auth", ("unauthorized", "401", "not logged in", "login required")),
+        ("quota", ("quota", "vcpu", "limit exceeded")),
+        ("credit", ("credit", "payment", "billing")),
+    )
+    message = stderr.casefold()
+    return next((cause for cause, phrases in causes if any(phrase in message for phrase in phrases)), "unknown")
+
+
+def create_failure_excerpt(stderr: str) -> str:
+    return re.sub(r"(https?://[^\s?]+)\?[^\s]*", r"\1", stderr.strip())[-300:]
+
+
+def no_box_message(results: list[BoxResult]) -> str:
+    counts: dict[str, int] = {}
+    for result in results:
+        if result.create_cause:
+            counts[result.create_cause] = counts.get(result.create_cause, 0) + 1
+    causes = ", ".join(f"{count} {cause}" if count > 1 else cause for cause, count in sorted(counts.items()))
+    failures = sum(counts.values())
+    detail = f": {failures} create failure{'s' if failures != 1 else ''} ({causes})" if causes else ""
+    return (
+        f"fleet: NO VERDICT, no box ran its tests{detail}. Check the network and `sbx diagnose`; "
+        "use CI meanwhile; never retry in a loop."
+    )
 
 
 def box_script(index: int, total: int, workers: int, sha: str) -> str:
@@ -312,8 +344,9 @@ def run_box(index: int, total: int, sha: str, workers: int, out_dir: Path, deadl
     try:
         created = _create(name)
         if created.returncode != 0:  # not a verdict on the code: exit 3 when no box gets this far
-            print(f"box {index}: create failed: {created.stderr.strip()[-300:]}", flush=True)
-            return BoxResult(index)
+            cause = create_failure_cause(created.stderr)
+            print(f"box {index}: create failed ({cause}): {create_failure_excerpt(created.stderr)}", flush=True)
+            return BoxResult(index, create_cause=cause)
         script = out_dir / f"box{index}.sh"
         script.write_text(box_script(index, total, workers, sha), encoding="utf-8", newline="\n")
         if _sbx("cp", str(script), f"{name}:/home/agent/box.sh").returncode != 0:
@@ -411,9 +444,7 @@ def main(argv: list[str] | None = None) -> int:
     if len(results) == total and all(r.tests > 0 for r in results):
         record_wall(max(r.wall for r in results))
     if code == 3:
-        print(
-            "fleet: NO VERDICT, no box ran its tests (credit, vCPU quota or an outage). Use CI; never retry in a loop."
-        )
+        print(no_box_message(results))
         return 3
     ok, lines = verdict(results, total)
     print("\n".join(lines + report(results, total, time.monotonic() - started)))
