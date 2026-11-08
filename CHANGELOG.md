@@ -5,29 +5,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Changed
-
-- SQLite test-session baselines use a machine-local identity key by default; set `SHARPIT_IDENTITY_KEY` to the same secret in CI jobs that compare a committed baseline.
-- An unregistered engine that reports the wrong database name in an application using a different single family is read as the name it reports; a comment that family keeps can therefore remain visible.
-- Test-session group keys are built from masked text, so a key changes for a statement the masker edits (`password = ?` reads `password = ****** where id = ?`). N+1 baselines and dismissals on those groups re-flag after an upgrade: 1,396 of 20,000 generic rows and 2,048 of 20,000 MySQL rows in the corpus change.
-- A statement whose database family is unknown or in conflict shows nothing past a `#`, on any line: it is a comment on MySQL, an operator on PostgreSQL and a variable on SQLite.
-- The SQL dialect is resolved per event from what the connection or exception proves; an application using a single database family applies that family to unwired events.
-- A database driver exception shows its class, one structured code, the masked `[SQL: ...]` statement, and `[parameters: ******]` when parameters were bound, and never the driver's free-text message.
-- A statement of an unsupported database family shows `[statement hidden: unsupported database]` at every exposure level, and parameter capture does not reveal it.
-- Under `METADATA_ONLY` exposure, no statement text or database error text is shown; SQL Trace groups keep the masked statement shape (`SELECT ? FROM users WHERE id = ?`), never more than `MASKED` shows.
-
-### Known limits
-
-- Text an application writes as a statement is read as SQL.
-- In free text, a value with no key name before it can be shown.
-- An unquoted value after `PASSWORD` or `IDENTIFIED BY` is shown as written: PostgreSQL and MySQL reject it as a syntax error, so it appears only on a mistyped, failed statement. A quoted value is hidden.
-- An unproven event from a second database that sharpit has not seen is read as the application's one registered family.
-- Database forks (such as Percona or Aurora) are read as their parent family; no fork runs in the live tests.
-- SQL Server and Oracle statements are hidden (`[statement hidden: unsupported database]`): sharpit has no verified rules for them.
-- On SQLite a `"..."` run is hidden: SQLite reads it as a name, or as a string when no column matches.
-- Live fuzzing with MySQL's ANSI_QUOTES session mode is deferred past 0.5.0.
-
-## [0.5.0] - 2026-11-04
+## [0.5.0] - 2026-11-08
 
 ### Added
 
@@ -48,6 +26,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - BootUI 2.2.0 drift for `vulnerabilities`, `mcp-server` and `rest-api`: the vulnerabilities report and its dependencies carry `runtimeReach`, `advisorySymbols` and `advisorySymbolSource` (reported unavailable, empty and `NONE`), and `get_vulnerabilities_report` returns a compacted view (default limit 10); the `mcp-server` status lists protocol `2026-07-28` ahead of `2025-06-18` and gains `cancellations` (counts `notifications/cancelled`; calls are synchronous, so a cancel cannot stop one) and `progressDropped` (always 0, sharpit sends no progress notifications); the `rest-api` advisor ports `RAPI-RESP-011` (a GET whose declared response is `X | None` with the default status) and does not port `RAPI-RESP-010`, `RAPI-VALID-006` and `RAPI-VER-007`: the reasons are in the rule registry, and no report or panel lists them. CVSS v4.0 score selection and `sampleLocations` are not done: the score falls back to the database label and `sampleLocations` stays `[]`.
 - N+1 findings on a repeated statement that is not a relationship lazy load now give the application line of the repeat.
 - `database-connection-pools` gains `poolLibraryPresent` and `implementation`; `readOnly`/`autoCommit` are nullable; `get_threads` defaults to 25 entries (BootUI 2.2.0).
+- The `pytest --sharpit` terminal summary says which gates and advisors the run checked and which it did not, plus routes and SQL the tests did not exercise and that sharpit does no security testing.
 
 ### Changed
 
@@ -61,6 +40,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `beans`: a provider class's `resource` comes from the class object (`__firstlineno__` on Python 3.13+, the first method's line on 3.12) instead of reading the source file; on 3.12 the line can differ by a few lines.
 - `fastapi-security`: scopes are de-duplicated (FastAPI 0.115 accumulates `security_scopes` down the tree).
 - `config`: explicit `config_scan` module names are also found on `sys.path` without importing them; undecodable bytes in a source file are replaced instead of being recorded as a limitation.
+- SQLite test-session baselines use a machine-local identity key by default; set `SHARPIT_IDENTITY_KEY` to the same secret in CI jobs that compare a committed baseline.
+- An unregistered engine that reports the wrong database name in an application using a different single family is read as the name it reports; a comment that family keeps can therefore remain visible.
+- Test-session group keys are built from masked text, so a key changes for a statement the masker edits (`password = ?` reads `password = ****** where id = ?`). N+1 baselines and dismissals on those groups re-flag after an upgrade: 1,396 of 20,000 generic rows and 2,048 of 20,000 MySQL rows in the corpus change.
+- A statement whose database family is unknown or in conflict shows nothing past a `#`, on any line: it is a comment on MySQL, an operator on PostgreSQL and a variable on SQLite.
+- The SQL dialect is resolved per event from what the connection or exception proves; an application using a single database family applies that family to unwired events.
+- A database driver exception shows its class, one structured code, the masked `[SQL: ...]` statement, and `[parameters: ******]` when parameters were bound, and never the driver's free-text message.
+- A statement of an unsupported database family shows `[statement hidden: unsupported database]` at every exposure level, and parameter capture does not reveal it.
+- Under `METADATA_ONLY` exposure, no statement text or database error text is shown; SQL Trace groups keep the masked statement shape (`SELECT ? FROM users WHERE id = ?`), never more than `MASKED` shows.
 
 ### Fixed
 
@@ -110,6 +97,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `mask_text` masks the word after `basic` or `bearer` in any case, also in English or SQL (`basic usage` shows `basic ******`, `SELECT basic FROM t` shows `SELECT basic ****** t`), and does not mask `Digest` parameter lists. With no key before it, an ordinary word or a punctuation-only value after `token` stays readable (`Token expired`, `FROM Token WHERE`), so a credential of 16 letters or fewer in one case, or of punctuation alone, is not masked there.
 - On FastAPI 0.16x an `include_router` prefix cannot be recovered from the route, so those routes report `MASKED_PATH` instead of a template.
 - A driver error read from text alone keeps an unquoted driver value visible in four shapes: a SQLite `ATTACH` path or a trigger's `RAISE` message on a driver line with no quote, a chain line planted by a value on the driver line, and a docs-link line planted by a value in a `StatementError` that has no link of its own. Quoted values, the `[SQL: ...]` block and its parameters stay masked.
+- Text an application writes as a statement is read as SQL.
+- In free text, a value with no key name before it can be shown.
+- An unquoted value after `PASSWORD` or `IDENTIFIED BY` is shown as written: PostgreSQL and MySQL reject it as a syntax error, so it appears only on a mistyped, failed statement. A quoted value is hidden.
+- An unproven event from a second database that sharpit has not seen is read as the application's one registered family.
+- Database forks (such as Percona or Aurora) are read as their parent family; no fork runs in the live tests.
+- SQL Server and Oracle statements are hidden (`[statement hidden: unsupported database]`): sharpit has no verified rules for them.
+- On SQLite a `"..."` run is hidden: SQLite reads it as a name, or as a string when no column matches.
+- Live fuzzing with MySQL's ANSI_QUOTES session mode is deferred past 0.5.0.
 
 ## [0.4.0] - 2026-11-02
 
