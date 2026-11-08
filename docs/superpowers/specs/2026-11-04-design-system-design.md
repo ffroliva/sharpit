@@ -1,6 +1,6 @@
 # sharpit design system
 
-Status: approved by the owner, 2026-11-04. The owner then folded it into release 0.5.0. Nothing is built.
+Status: draft for the owner's review, 2026-11-04. Nothing is built.
 
 The owner chose the home (the sharpit repo) and the scope (console, docs site, launch and social, brand basics). The owner
 skipped the questions, so every other decision here is the author's call. They are listed in "Calls to check" at the end.
@@ -23,38 +23,34 @@ A reader who meets sharpit on LinkedIn, then the docs, then the console should s
 - The console, the docs site and promo slides read those tokens.
 - A check fails when a surface drifts or a colour pair drops below WCAG AA.
 - Brand basics are written down: name, wordmark, voice, credit to BootUI.
-- The token move leaves the console identical. A separate hardening step then fixes the defects the live audit measured.
-- Spacing, headings and type follow one written rule set on every surface.
+- The console looks identical after the move.
 
 ## Non-goals
 
 - A logo or favicon. There is none today and none is designed here.
 - A component library. Svelte components stay in `ui/src/components/`.
 - A published package. This is two files in the repo.
-- A console redesign or new tokens the surfaces do not need. Hardening fixes defects and breaks of the written rules; it changes no layout concept.
-- The golden ratio. It was assessed and does not fit: 13, 21, 34 gives three sizes where the console needs five, and the rail and the 4:5 slide are fixed proportions.
+- A console redesign or new tokens the surfaces do not need.
 - Syntax highlighting colours on the docs site. Material's stay.
 
 ## Anti-goals
 
 This fails, even if every check passes, when:
 
-- the token move changes the console visually, or its CSP or build gets weaker;
+- the console changes visually, or its CSP or build gets weaker;
 - sharpit gains a runtime dependency or a web font;
 - the system adds decoration: a second accent, cards, filled status badges, uppercase labels;
 - it starts to look like BootUI, whose look the owner rejected (table in `ui/DESIGN.md`);
-- it conflicts with the masking work: it stays out of `src/sharpit/engine/`, `tests/masking/` and everything else that work touches.
+- it delays the 0.5.0 release.
 
 ## Constraints
 
-- The owner asked to harden the look on 2026-11-04, so console changes are in scope, in their own step after the token move's proof.
 - Runtime dependencies stay exactly `starlette` and `packaging`. `design/` is not in the wheel; the built CSS is.
 - The console's CSP allows `font-src 'self' data:` and no inline script, so there are no web fonts. The docs already set
   `font: false`, and slides use the same system stacks.
 - The built UI in `src/sharpit/ui/static/` is committed, and CI checks it matches `ui/`, so any token move needs a rebuild.
-- Owner's decision, 2026-11-04: this ships in 0.5.0. Work happens on `feat/0.5.0-design-system` from `release/0.5.0`. On
-  2026-11-04 the masking branch had changed nothing under `ui/`, `website/` or `src/sharpit/ui/`, and neither branch needs the other.
-- The 0.5.0 changelog records the docs site's new look.
+- Work happens in a worktree from current `origin/main`, after the v0.5.0 tag. On 2026-11-04 `ui/DESIGN.md`, `ui/src/app.css`
+  and `website/mkdocs.yml` were identical on `release/0.5.0` and `origin/main`, so no conflict is expected.
 
 ## Structure
 
@@ -72,23 +68,7 @@ tests/design/
   test_tokens.py   the checks below
 ```
 
-`design/DESIGN.md` has one section per concern: principles, tokens, spacing and type rules, console (today's content, kept), docs site, social, brand.
-
-`design/` and `tests/design` stay out of the sdist, because those tests read `ui/`, which the sdist does not ship.
-
-## Spacing and type rules
-
-These apply on every surface unless a surface says otherwise.
-
-- **Spacing:** `--s` tokens only. Exceptions: 1 to 3px optical offsets, each with a comment.
-- **Containers:** left padding equals right, top equals bottom.
-- **Headings:** space above is at least twice the space below. Console 12 and 4, slides 36 and 12, docs keep Material's 40 and 16.
-- **Levels:** one h1 per panel or page, then h2. Levels are never skipped, and the console uses h1 and h2 only.
-- **Console sizes:** 12/16, 13/20, 14.5/20, 16.5/24, one 20/24 metric, mono 12.5, graph labels 11. This replaces the "1.125 ratio" claim in `ui/DESIGN.md`, which the numbers do not match.
-- **Weights:** 400 and 600, on every surface.
-- **Slides:** spacing is the console's ×3. Type is four steps of its own, with no text under 34px, so it stays at 12px or more at phone width.
-- **Touch targets:** at least 24px, the WCAG 2.2 AA minimum. 44px does not apply to this dense desktop tool.
-- **Numbers:** right aligned, tabular. Status words left aligned.
+`design/DESIGN.md` has one section per concern: principles, tokens, console (today's content, kept), docs site, social, brand.
 
 ## Tokens
 
@@ -132,10 +112,9 @@ Four colour literals exist in `ui/src` outside `app.css`. The builder moves each
 
 Proof of no visual change, as a one-off in the PR rather than a lasting CI gate:
 
-- Run the Playwright suites with `SHOTS=1` twice before the move and once after it, in both themes, and keep each set in a
-  temporary folder. A small compare script in the PR finds the panels that differ between the two before runs: those hold live
-  values such as clock times and request rates, so they are left out and checked by eye. Every other panel must match byte for
-  byte after the move.
+- At the same commit, run the Playwright suites with `SHOTS=1` before and after the move, in both themes, into a temporary
+  folder, and compare the two sets. Nothing compares them today, so the PR adds a small compare script. It masks live values such
+  as clock times, request rates and temp paths (for example on `activity` and `health`).
 - Diff the built CSS as well: only the source order of the token blocks may change, and the resolved values may not.
 
 The committed PNGs under `ui/tests/e2e/screenshots/` stay untouched. They are the 0.4.0 catalog, so they are not a valid baseline,
@@ -155,43 +134,34 @@ stylesheets. `sharpit.css` maps tokens onto Material's variables:
 | Table header | `--rail` |
 | Admonition edges | status tokens, as a full 1px outline |
 
-Mappings are set on `[data-md-color-scheme]`, not `:root`, so they resolve against the toggle's tokens. Material colours h1 with a lighter variable, so h1 maps to `--ink`. Headings use 400 and 600 only, overriding Material's 300 and 700. Material's teal also fails contrast today at 3.77:1, which this removes.
-
 The header is neutral, as the console's rail is: the accent keeps its one job of marking links, focus and selection. Material
 keeps its layout. The docs do not imitate the console's density, because they are for long reading.
 
 ### Launch and social
 
-`design/social/slide.css` is based on the approved `social-publisher/media/sharpit-v0.4.0/deck.html` `<style>`, not the
-0.5.0 deck. Slides use 1080×1350 format, 72px equal margins and one wordmark line (`sharpit` at left, position or version
-at right). The cover has a real hook; each slide carries one idea centred vertically. Spacing uses `--s2` 24px, `--s3` 36px,
-`--s4` 48px and `--s6` 72px. Type uses `--t-sm` 34px, `--t-base` 42px, `--t-lg` 84px and `--t-xl` 112px; nothing is under
-34px. The template pins dark on `<html>` and links `../tokens.css` before `slide.css`; the fit script reads
-`document.documentElement.clientWidth`. The kit defines no colour tokens.
+`design/social/slide.css` holds the console's patterns at slide size: the rail row, the 36px header line, tables, the `.tag`
+outline, `.notice`, `dl.facts`, code blocks. The scale is the console's multiplied by about 2.9, so 13px body text becomes 38px
+and stays readable at phone width.
 
 Rules, proven by the 0.5.0 deck:
 
-- **Format:** 1080×1350, exported as PNG.
+- **Format:** 1080×1350, exported as PNG. A slide is a console panel at its below-720px layout: rail row, one header line,
+  hairlines.
 - **Theme:** dark for exports, the console's dark tokens unchanged.
-- **Filled element:** `.cmd` only, at most one per slide.
+- **Filled element:** one per deck at most, on the cover command.
 - **Show the product:** use real commands, real findings and real screenshots with fake secrets.
-- **Banned:** big-number hero stats, cards and gradients. `.hit` findings and `.code` output are the only blocks; both show
-  real output. Font sizes use the kit's type steps.
+- **Banned:** big-number hero stats, cards, gradients, and any text under 32px except code at 28px.
 - **Claims:** every claim traces to a Facts block in the campaign file.
 - **Images:** alt text with each post.
 
-A campaign copies `tokens.css`, `slide.css` and the template into its own folder and records the commit it copied from. A deck is a dated
+A campaign copies `tokens.css` and `slide.css` into its own folder and records the commit it copied from. A deck is a dated
 snapshot, so it should not change when the tokens later do. This is why no check reaches into `social-publisher`.
 
-`template.html` is a two-slide starter based on the approved 0.4.0 deck.
+The 0.5.0 deck's CSS becomes the base of `slide.css`. `template.html` is two of its slides.
 
 ### Brand basics
 
-- **One line:** "sharpit is a local developer console and pytest gate for FastAPI apps, a Python port of BootUI by Julien Dubois." The README, docs, PyPI and GitHub descriptions all use it or a shortened form of it.
-- **Three pillars:** in your tests, in your app, in CI.
-- **Glossary:** console, panel, advisor (scans the code or app), gate (fails a test or build), finding.
 - **Name:** `sharpit`, always lower case, also at the start of a sentence.
-- **Versions:** `0.5.0` in prose, `v0.5.0` for tags and launch headlines.
 - **Wordmark:** the word in `--ui` at weight 600. No logo.
 - **Personality:** precise, candid, quiet.
 - **Voice:**
@@ -212,9 +182,7 @@ snapshot, so it should not change when the tokens later do. This is why no check
 |---|---|
 | Docs copy | `website/docs/stylesheets/tokens.css` differs from `design/tokens.css` |
 | One source | `ui/src/app.css` or `sharpit.css` defines a colour token |
-| Contrast | any text pair parsed from the `design/DESIGN.md` contrast table is under 4.5:1, computed from `tokens.css` in both themes |
-| Headings | `ui/src` uses `<h3>` or lower |
-| Literals | a font size outside the published set, or a `.card` rule, appears in `ui/src` |
+| Contrast | any text pair in the `design/DESIGN.md` contrast table is under 4.5:1, computed from `tokens.css` in both themes |
 | Doc in step | a token in `tokens.css` is missing from the token tables in `design/DESIGN.md`, or the reverse (only those tables count, so the type sizes and `--md-*` names are not tokens) |
 
 The contrast check needs a small OKLCH to sRGB conversion in the test, with a known-value assertion against the ratios already
@@ -222,23 +190,21 @@ in the table.
 
 ## Order of work
 
-Each step is its own reviewable commit, and they land together in one PR:
+Each step lands and can be reviewed alone:
 
-1. Move the tokens and `DESIGN.md`, wire the console, rebuild, add the checks, prove no visual change.
-2. Harden the console.
-3. Docs site.
-4. `slide.css` and the template, then rebuild the deck on them.
-5. Brand section and copy fixes, then update `AGENTS.md` (Layout), `docs/README.md` and references to `ui/DESIGN.md`.
+1. Move the tokens and `DESIGN.md`, wire the console, rebuild, add the checks.
+2. Docs site.
+3. `slide.css` and the template.
+4. Brand section, then update `AGENTS.md` (Layout), `docs/README.md` and references to `ui/DESIGN.md`.
 
-The chain from `AGENTS.md` applies: `/sharpit:plan`, `/sharpit:check` before commits, a draft PR into `release/0.5.0`. No safety model item is touched,
+The chain from `AGENTS.md` applies: `/sharpit:plan`, `/sharpit:check` before commits, a draft PR. No safety model item is touched,
 so `/sharpit:llm-council` is not required.
 
 ## Done
 
-- The before and after screenshots match in both themes, panels with live values are checked by eye, and the resolved CSS values are unchanged.
+- The before and after screenshots match in both themes, with live values masked, and the resolved CSS values are unchanged.
 - The docs site shows the ochre accent and neutrals in light and dark, with the toggle working under both OS themes.
-- All checks pass, and each was seen red.
-- The measured High and Medium defects from the live audit are fixed and re-measured.
+- All four checks pass, and each was seen red.
 - A new slide can be started from `template.html` with no copied colour values.
 - CI is green, including the UI build check.
 
@@ -260,6 +226,6 @@ These are the author's, not the owner's:
 6. Decks keep a dated copy of the tokens and are not checked by CI.
 7. No logo in this version.
 8. Lower-case `sharpit` even at the start of a sentence.
-9. (Superseded: the owner folded this into 0.5.0.)
-10. The no-visual-change proof is a one-off before and after run, plus a CSS diff, with the committed PNGs untouched. Live panels are found by comparing two before runs, which needs no image library.
+9. Starts after the v0.5.0 tag.
+10. The no-visual-change proof is a one-off before and after run with masking, plus a CSS diff, with the committed PNGs untouched.
 11. Type sizes stay plain sizes in the doc, and `slide.css` owns its `--t-*`.

@@ -35,6 +35,10 @@ For every doc in scope: every env var named exists in `settings.py`; every route
 matches the code; every command shown runs. Run the commands you can (`uv run python -c "import sharpit; ..."`).
 Flag invented APIs: sharpit is a pre-release MVP and docs must not describe panels that are not built yet as working.
 
+A behaviour claim (a default, a safety guarantee, an error string, "never", "always") also names the test that pins
+it: find it with `git grep` in `tests/`. A claim no test enforces is `untested`: add the test on this branch, or cut
+the claim. A doc that is right today with no test behind it is how docs drift.
+
 ## 3. Check links
 
 Relative links in changed Markdown files resolve to files that exist. No slash command outside the `/sharpit:` namespace, no base branch other than
@@ -42,7 +46,7 @@ Relative links in changed Markdown files resolve to files that exist. No slash c
 
 ## Output
 
-A table `doc | claim | status (ok / stale / wrong / missing) | fix`. Fix stale docs on the same branch. A missing doc
+A table `doc | claim | test | status (ok / stale / wrong / missing / untested) | fix`. Fix stale docs on the same branch. A missing doc
 for a user-visible change is a blocker for `/sharpit:pr-council-review`.
 
 Ported from gflow-cli's doc-review gate, rewritten around sharpit's settings, routes and safety docs.

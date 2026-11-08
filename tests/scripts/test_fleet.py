@@ -1,5 +1,8 @@
 """scripts/ci/fleet.py: the pure parts (verdict, exit codes, box count, timings). No network, no `sbx`."""
 
+import os
+import subprocess
+
 import pytest
 from _load import load_script
 
@@ -17,6 +20,110 @@ def stat(user: int, system: int = 0, idle: int = 0, steal: int = 0) -> str:
 
 def line(label: str, epoch_ms: int, cpu: str) -> str:
     return f"{label} {epoch_ms} {cpu}\n"
+
+
+def test_sbx_disables_interactive_prompts(monkeypatch: pytest.MonkeyPatch):
+    calls = []
+
+    def run(command: list[str], **kwargs: object) -> object:
+        calls.append((command, kwargs))
+        return object()
+
+    monkeypatch.setattr(fleet.subprocess, "run", run)
+    fleet._sbx("create", "shell", stdin="answer", timeout=123)
+
+    assert calls[0][0] == ["sbx", "--no-input", "--cloud", "create", "shell"]
+    kwargs = calls[0][1]
+    assert kwargs["input"] == "answer"
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    assert kwargs["timeout"] == 123
+    assert kwargs["env"] == {**os.environ, "GODEBUG": "tlsmlkem=0", "MSYS_NO_PATHCONV": "1"}
+
+
+def test_create_passes_network_allowlist_on_single_create_call(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(fleet, "ttl_s", 30 * 60)  # the run's TTL, set by main from the history
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "sbx_1\n", "")
+
+    monkeypatch.setattr(fleet.subprocess, "run", run)
+    result = fleet._create("fleet-abc123456-9-1of5")
+
+    assert result.returncode == 0
+    assert result.stdout == "sbx_1\n"
+    assert calls == [
+        [
+            "sbx",
+            "--no-input",
+            "--cloud",
+            "create",
+            "shell",
+            "--name",
+            "fleet-abc123456-9-1of5",
+            "--cpus",
+            "8",
+            "--memory",
+            "16g",
+            "--ttl",
+            "30m",
+            "--on-timeout",
+            "delete",
+            "--no-progress",
+            "--allow-network",
+            "github.com",
+            "--allow-network",
+            "**.githubusercontent.com",
+            "--allow-network",
+            "pypi.org",
+            "--allow-network",
+            "files.pythonhosted.org",
+            "--allow-network",
+            "astral.sh",
+            "--allow-network",
+            "**.astral.sh",
+        ],
+    ]
+    assert [c for c in calls if "policy" in c] == []
+    assert calls[0][-12:] == [a for host in fleet.NETWORK for a in ("--allow-network", host)]
+
+
+def test_create_returns_direct_failure_result(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(fleet, "ttl_s", 30 * 60)  # the run's TTL, set by main from the history
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 1, "", "quota exceeded\n")
+
+    monkeypatch.setattr(fleet.subprocess, "run", run)
+    result = fleet._create("fleet-abc123456-9-2of5")
+
+    assert result.returncode == 1
+    assert result.stderr == "quota exceeded\n"
+    assert calls == [
+        [
+            "sbx",
+            "--no-input",
+            "--cloud",
+            "create",
+            "shell",
+            "--name",
+            "fleet-abc123456-9-2of5",
+            "--cpus",
+            "8",
+            "--memory",
+            "16g",
+            "--ttl",
+            "30m",
+            "--on-timeout",
+            "delete",
+            "--no-progress",
+            *[a for host in fleet.NETWORK for a in ("--allow-network", host)],
+        ],
+    ]
 
 
 def test_all_boxes_green_is_exit_0():
@@ -140,17 +247,100 @@ def test_timeline_marks_skips_a_cut_line():
     assert fleet.timeline_marks("start 12 cpu 1 2") == {}
 
 
-def test_box_script_leaves_the_own_job_files_out_by_default():
-    assert "pytest-own.xml" not in fleet.box_script(1, 5, 8, SHA)
+class FakeSbx:
+    """`sbx` with a scripted inventory: `listed` holds the `sbx ls` answers in order, the last one repeats."""
+
+    def __init__(self, listed: list[list[str]], rm_rc: int = 0, create: object = None):
+        self.listed, self.rm_rc, self.create, self.calls = listed, rm_rc, create, []
+
+    def __call__(self, *args: str, timeout: int = 300, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+        self.calls.append(args)
+        if args[0] == "ls":
+            names = self.listed.pop(0) if len(self.listed) > 1 else self.listed[0]
+            rows = "".join(f"shell/{n}  shell  sbx_1  running\n" for n in names)
+            return subprocess.CompletedProcess(args, 0, "SANDBOX  AGENT  ID  STATUS\n" + rows, "")
+        if args[0] == "rm":
+            return subprocess.CompletedProcess(args, self.rm_rc, "", "")
+        if args[0] == "create" and isinstance(self.create, BaseException):
+            raise self.create
+        return subprocess.CompletedProcess(args, 1, "", "create refused")
 
 
-def test_box_script_runs_the_own_job_files_whole_when_asked():
-    script = fleet.box_script(1, 5, 8, SHA, own_job=True)
-    assert "pytest-own.xml" in script
-    assert "_shard.OWN_JOB" in script
-    assert "SHARPIT_SHARD=1/5 " in script  # the shard run keeps its slice; the own-job run sets no shard
+class FakeLedger:
+    RATE_LARGE = 0.00016
+
+    def __init__(self):
+        self.rows: list[tuple[str, float, str]] = []
+
+    def record(self, name: str, seconds: float, rate: float, basis: str = "measured") -> None:
+        self.rows.append((name, seconds, basis))
 
 
-def test_the_own_job_option_is_off_unless_given():
-    assert fleet.parse_args([]).own_job is False
-    assert fleet.parse_args(["--own-job"]).own_job is True
+@pytest.fixture
+def no_wait(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(fleet.time, "sleep", lambda _s: None)
+
+
+def test_a_box_absent_from_the_inventory_is_released_even_when_rm_fails(monkeypatch: pytest.MonkeyPatch, no_wait):
+    sbx = FakeSbx(listed=[[]], rm_rc=1)  # create timed out: the box never existed, so `rm -f` has nothing to remove
+    monkeypatch.setattr(fleet, "_sbx", sbx)
+    assert fleet._release("fleet-abc-1-1of5") is True
+
+
+def test_release_removes_and_rechecks_until_the_inventory_is_clean(monkeypatch: pytest.MonkeyPatch, no_wait):
+    name = "fleet-abc-1-1of5"
+    sbx = FakeSbx(listed=[[name], [name], []])
+    monkeypatch.setattr(fleet, "_sbx", sbx)
+    fleet._release(name)
+    assert [c[0] for c in sbx.calls].count("rm") == 3
+
+
+def test_a_box_still_listed_after_every_try_is_not_released(monkeypatch: pytest.MonkeyPatch, no_wait, capsys):
+    name = "fleet-abc-1-1of5"
+    monkeypatch.setattr(fleet, "_sbx", FakeSbx(listed=[[name]]))
+    assert fleet._release(name) is False
+    assert f"BOX LEFT RUNNING: {name}" in capsys.readouterr().out
+
+
+def test_a_create_timeout_with_no_box_is_charged_measured_not_ttl(monkeypatch: pytest.MonkeyPatch, no_wait, tmp_path):
+    monkeypatch.setattr(fleet, "_sbx", FakeSbx(listed=[[]], rm_rc=1, create=subprocess.TimeoutExpired("sbx", 300)))
+    book = FakeLedger()
+    monkeypatch.setattr(fleet, "ledger", book)
+    fleet.run_box(1, 5, SHA, 8, tmp_path, deadline=0.0)
+    assert [basis for _n, _s, basis in book.rows] == ["measured"]
+
+
+def test_the_run_ends_with_no_box_of_its_own_left(monkeypatch: pytest.MonkeyPatch, no_wait):
+    mine, other = f"{fleet.NAME_PREFIX}{SHA[:9]}-{os.getpid()}-2of5", "fleet-bbbbbbbbb-1-1of5"
+    sbx = FakeSbx(listed=[[mine, other], [other]])
+    monkeypatch.setattr(fleet, "_sbx", sbx)
+    assert fleet.release_own(SHA) == []
+    assert ("rm", "-f", mine) in sbx.calls
+
+
+# The box TTL follows the measured runs (owner 2026-11-07): the slowest box of recent runs, with room, never an hour
+def test_the_ttl_follows_the_slowest_box_of_recent_runs():
+    assert fleet.ttl_for([82.0, 79.0, 73.0, 77.0, 86.0]) == 5 * 60  # median 79 s x 1.5 + 120 s, up to a 5 min floor
+
+
+def test_a_slower_history_gets_a_longer_ttl():
+    assert fleet.ttl_for([200.0]) == 7 * 60  # 200 x 1.5 + 120 = 420 s
+
+
+def test_the_ttl_never_passes_its_cap():
+    assert fleet.ttl_for([1500.0]) == 30 * 60
+
+
+def test_no_history_gives_the_default_ttl_not_the_cap():
+    assert fleet.ttl_for([]) == 10 * 60
+
+
+def test_the_deadline_leaves_the_slack_to_collect_before_the_ttl():
+    assert fleet.deadline_for(5 * 60) == 3 * 60
+
+
+def test_a_run_records_its_slowest_box_and_keeps_the_last_five(tmp_path):
+    history = tmp_path / "walls.json"
+    for wall in (10.0, 20.0, 30.0, 40.0, 50.0, 60.0):
+        fleet.record_wall(wall, history)
+    assert fleet.load_walls(history) == [20.0, 30.0, 40.0, 50.0, 60.0]

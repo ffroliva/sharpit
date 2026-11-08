@@ -72,6 +72,14 @@ response-size caps (counted in UTF-8 bytes), MCP timeout releasing its semaphore
 no action tool; `vulnerabilities_scan` exists only on `/cli`, gated by the panel and read-only. `SHARPIT_MCP_ENABLED`
 off by default.
 
+## Worst-case trace (before any code)
+
+Pick the one input most likely to break the change (the Critical row with the least obvious path) and walk it by hand
+through the **current** code, line by line, writing down each value as it changes. Trace the code, not the doc or the
+spec's promise about it: a cap applied one step too early, a check skipped on one branch, a mask applied after a
+filter only shows up this way. Cite file and line at each step. A finding that the code contradicts (a comment or a
+branch explains it) is withdrawn, with the reason. Each real gap becomes a must-cover row.
+
 ## Artifact
 
 Write `docs/superpowers/plans/<YYYY-MM-DD>-<slug>-scenario.md` next to the plan `/sharpit:plan` will write, and commit
@@ -80,6 +88,7 @@ it with the plan. Do not leave the analysis only in the conversation.
 ```
 # Scenario: <title>
 ## Coverage map (active dimensions, and why the others are skipped)
+## Worst-case trace (input, file:line steps, what it found or why a finding was withdrawn)
 ## Scenario table
 | # | Dimension | Scenario | Severity | Expected behaviour | Test |
 Severity: Critical (secret leak, active in prod, cross-site read, side effect on GET) · High (feature broken) ·

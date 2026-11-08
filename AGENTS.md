@@ -45,8 +45,8 @@ uv sync --extra test                 # background: first run downloads
 uv run ruff check                    # lint (repo-wide, scripts/ included; vendored pytest_speed excluded)
 uv run ruff format --check           # format (also formats Python blocks in Markdown)
 uv run pyright                       # strict on src/sharpit
-uv run pytest -q -n 8                # full suite, parallel (pytest-xdist): background it; -n 8 on the 22-core dev box, -n auto elsewhere
-uv run pytest -q tests/engine/test_guard.py   # one file
+uv run pytest -q -n auto             # full suite, parallel (pytest-xdist): choose -n by machine load
+uv run pytest -q -n auto tests/engine/test_guard.py   # one file, still parallel (see Workflow)
 uv run python scripts/dev/active_plan.py      # where are we?
 ```
 
@@ -135,6 +135,12 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 - **Long commands run in the background** (full pytest, `uv sync`, `uv build`, `npm run build`, a dev server): start
   them with `run_in_background` (Claude) or detached with a timeout and a log file (Codex, Antigravity), then read the
   log when notified. Never wait in the foreground. Stop only processes you started, by id.
+- **Tests run in parallel.** Every pytest run passes `-n` (pytest-xdist), by every agent, locally and in a delegated
+  brief: `-n auto` by default, a single file included. A lower `-n <k>`, or `-n 0`, is the running agent's call from
+  the machine's load at that moment: another agent's suite, a fleet run or a server holding the cores, little free
+  memory, or a test that must run alone (overhead budgets, a nested pytester run that pins its own workers). Check the
+  load first (for example `Get-Counter '\Processor(_Total)\% Processor Time'` or `uptime`, and `agent_watch.py`), then
+  write the chosen value and the reason in the report. A brief names its `-n` value or says `-n auto`.
 - **Shared resources** (ports, browser sessions) with other agents: the `multi-agent-dev` protocol.
 - **Verify before claiming done** (`superpowers:verification-before-completion`): command output, not belief.
 

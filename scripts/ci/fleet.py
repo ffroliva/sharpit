@@ -13,6 +13,8 @@ A box that dies, times out or returns nothing is red, never rerun.
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import os
 import re
 import signal
@@ -31,9 +33,14 @@ from typing import Any
 REPO = "https://github.com/ffroliva/sharpit.git"
 MAX_BOXES = 5  # 5 boxes x 8 vCPU = the account's 40-vCPU quota; a sixth is refused by sbx
 POLL_INTERVAL = 2
+REMOVE_TRIES = 5  # rm, then the inventory decides; backoff 2, 4, 6, 8 s between tries
 NAME_PREFIX = "fleet-"
 NETWORK = ("github.com", "**.githubusercontent.com", "pypi.org", "files.pythonhosted.org", "astral.sh", "**.astral.sh")
-TTL_S = 30 * 60  # the box TTL below; what a box left behind is charged
+TTL_S = 30 * 60  # the cap: no box lives longer, whatever the history says
+TTL_FLOOR_S, TTL_DEFAULT_S, TTL_SLACK_S, TTL_FACTOR = 5 * 60, 10 * 60, 120, 1.5  # slack: create, collect and remove
+HISTORY_RUNS = 5
+HISTORY = Path(os.environ.get("SBX_FLEET_HISTORY", Path.home() / ".sbx-ledger" / "fleet-walls.json"))
+ttl_s = TTL_DEFAULT_S  # this run's box TTL, set in main from the history; what a box left behind is charged
 DEFAULT_LEDGER_DIR = "C:/development/github/sharpit-bench/bench"
 stop = threading.Event()
 ledger_lock = threading.Lock()
@@ -56,17 +63,8 @@ if [ ! -f $OUT/fatal ]; then
   SHARPIT_SHARD=@IDX@/@TOTAL@ SHARPIT_OVERHEAD_LOG=$OUT/overhead.jsonl uv run pytest -q -p no:cacheprovider \
     -n @WORKERS@ --durations=15 --junitxml=$OUT/pytest.xml > $OUT/pytest.log 2>&1; echo $? > $OUT/pytest.rc
   step tests_end
-@OWN@fi
+fi
 tar -czf $HOME/out.tgz -C $HOME out; touch $HOME/out.done
-"""
-
-
-# The files tests/_shard.py leaves to CI's masking-gates job (no shard collects them): run whole, no shard set. A
-# failure there turns the box's exit code red.
-OWN_JOB_STEP = """  OWN=$(uv run python -c "import sys; sys.path[:0]=['tests']; import _shard; print(*_shard.OWN_JOB)")
-  uv run pytest -q -p no:cacheprovider -n @WORKERS@ --junitxml=$OUT/pytest-own.xml $OWN > $OUT/pytest-own.log 2>&1 \\
-    || echo $? > $OUT/pytest.rc
-  step own_end
 """
 
 
@@ -80,11 +78,10 @@ class BoxResult:
     wall: float = 0.0  # host seconds, create to result copied
 
 
-def box_script(index: int, total: int, workers: int, sha: str, own_job: bool = False) -> str:
+def box_script(index: int, total: int, workers: int, sha: str) -> str:
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError(f"not a full sha: {sha!r}")
     values = {"REPO": REPO, "SHA": sha, "IDX": str(index), "TOTAL": str(total), "WORKERS": str(workers)}
-    values["OWN"] = re.sub(r"@(\w+)@", lambda m: values[m[1]], OWN_JOB_STEP) if own_job else ""
     return re.sub(r"@(\w+)@", lambda m: values.get(m[1], m[0]), BOX_SCRIPT)
 
 
@@ -169,7 +166,7 @@ def stale_boxes(ls_output: str) -> list[str]:
 def _sbx(*args: str, timeout: int = 300, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "GODEBUG": "tlsmlkem=0", "MSYS_NO_PATHCONV": "1"}
     return subprocess.run(
-        ["sbx", "--cloud", *args], input=stdin, capture_output=True, text=True, timeout=timeout, env=env
+        ["sbx", "--no-input", "--cloud", *args], input=stdin, capture_output=True, text=True, timeout=timeout, env=env
     )
 
 
@@ -179,6 +176,61 @@ def _rm(name: str) -> bool:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         print(f"fleet: could not remove {name}; run `sbx --cloud rm -f {name}`", flush=True)
         return False
+
+
+def _listed() -> list[str] | None:
+    """The fleet boxes `sbx ls` shows now, or None when the inventory cannot be read."""
+    try:
+        listing = _sbx("ls", timeout=60)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    return stale_boxes(listing.stdout) if listing.returncode == 0 else None
+
+
+def _release(name: str) -> bool:
+    """Remove a box and confirm it by the inventory, not by `rm`'s exit: a box that never existed fails `rm -f`."""
+    for attempt in range(REMOVE_TRIES):
+        _rm(name)
+        listed = _listed()
+        if listed is not None and name not in listed:
+            return True
+        time.sleep(POLL_INTERVAL * (attempt + 1))
+    print(f"fleet: BOX LEFT RUNNING: {name}; it bills until its TTL. Run `sbx --cloud rm -f {name}`", flush=True)
+    return False
+
+
+def release_own(sha: str) -> list[str]:
+    """After the run: every box of this run must be gone from the inventory. Returns the names still listed."""
+    mine = f"{NAME_PREFIX}{sha[:9]}-{os.getpid()}-"
+    return [name for name in (_listed() or []) if name.startswith(mine) and not _release(name)]
+
+
+def ttl_for(walls: list[float]) -> int:
+    """The box TTL from the slowest box of recent runs: their median, with room for variation."""
+    if not walls:
+        return TTL_DEFAULT_S
+    ordered = sorted(walls)
+    median = ordered[len(ordered) // 2]
+    return min(TTL_S, max(TTL_FLOOR_S, math.ceil((median * TTL_FACTOR + TTL_SLACK_S) / 60) * 60))
+
+
+def deadline_for(ttl: int) -> int:
+    """The test deadline: the TTL less the slack, so results are collected before the box is deleted."""
+    return ttl - TTL_SLACK_S
+
+
+def load_walls(path: Path = HISTORY) -> list[float]:
+    try:
+        walls = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [float(w) for w in walls if type(w) in (int, float) and 0 < w < TTL_S] if type(walls) is list else []
+
+
+def record_wall(wall: float, path: Path = HISTORY) -> None:
+    """Keep the slowest box of the last runs; a run that did not report every box records nothing (main decides)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps([*load_walls(path), wall][-HISTORY_RUNS:]), encoding="utf-8")
 
 
 def sweep_stale() -> None:
@@ -194,7 +246,7 @@ def sweep_stale() -> None:
 
 def _create(name: str) -> subprocess.CompletedProcess[str]:
     allow = [a for host in NETWORK for a in ("--allow-network", host)]
-    shape = ("--cpus", "8", "--memory", "16g", "--ttl", f"{TTL_S // 60}m", "--on-timeout", "delete", "--no-progress")
+    shape = ("--cpus", "8", "--memory", "16g", "--ttl", f"{ttl_s // 60}m", "--on-timeout", "delete", "--no-progress")
     return _sbx("create", "shell", "--name", name, *shape, *allow)
 
 
@@ -238,7 +290,7 @@ def _charge(name: str, seconds: float, removed: bool) -> None:
         if removed:
             ledger.record(name, seconds, ledger.RATE_LARGE)
         else:
-            ledger.record(name, TTL_S, ledger.RATE_LARGE, basis="ttl")
+            ledger.record(name, ttl_s, ledger.RATE_LARGE, basis="ttl")
 
 
 def load_ledger() -> object | None:
@@ -253,9 +305,7 @@ def load_ledger() -> object | None:
     return sbx_ledger
 
 
-def run_box(
-    index: int, total: int, sha: str, workers: int, out_dir: Path, deadline: float, own_job: bool = False
-) -> BoxResult:
+def run_box(index: int, total: int, sha: str, workers: int, out_dir: Path, deadline: float) -> BoxResult:
     name = f"{NAME_PREFIX}{sha[:9]}-{os.getpid()}-{index}of{total}"
     began = time.monotonic()
     started = time.time()
@@ -265,9 +315,7 @@ def run_box(
             print(f"box {index}: create failed: {created.stderr.strip()[-300:]}", flush=True)
             return BoxResult(index)
         script = out_dir / f"box{index}.sh"
-        script.write_text(
-            box_script(index, total, workers, sha, own_job and index == 1), encoding="utf-8", newline="\n"
-        )
+        script.write_text(box_script(index, total, workers, sha), encoding="utf-8", newline="\n")
         if _sbx("cp", str(script), f"{name}:/home/agent/box.sh").returncode != 0:
             return BoxResult(index, fatal="failed to upload the box script")
         if _sbx("exec", name, "bash", "-c", "nohup bash ~/box.sh > ~/box.out 2>&1 & disown").returncode != 0:
@@ -277,7 +325,7 @@ def run_box(
     except subprocess.TimeoutExpired:
         return BoxResult(index, fatal="sandbox command timed out")
     finally:
-        _charge(name, time.time() - started, _rm(name))
+        _charge(name, time.time() - started, _release(name))
 
 
 def pushed(sha: str) -> bool:
@@ -307,25 +355,17 @@ def _on_sigterm(_signum: int, _frame: object) -> None:
     raise KeyboardInterrupt
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def main(argv: list[str] | None = None) -> int:
+    started = time.monotonic()
     cli = argparse.ArgumentParser(description="Run the full suite across up to 5 cloud sandboxes.")
     cli.add_argument("--boxes", type=int, default=MAX_BOXES)
     cli.add_argument("--workers", type=int, default=8, help="xdist workers per box (a box has 8 vCPUs)")
     cli.add_argument("--sha", default="HEAD")
-    cli.add_argument("--minutes", type=int, default=15, help="wall-clock limit; a box past it is red")
-    cli.add_argument("--out", type=Path, default=None)
     cli.add_argument(
-        "--own-job",
-        action="store_true",
-        help="box 1 also runs the files CI's masking-gates job runs (tests/_shard.py OWN_JOB; no shard collects "
-        "them, so the default run skips them); raise --minutes, they add about 8 minutes on that box",
+        "--minutes", type=int, default=None, help="wall-clock limit; a box past it is red (default: from the TTL)"
     )
-    return cli.parse_args(argv)
-
-
-def main(argv: list[str] | None = None) -> int:
-    started = time.monotonic()
-    args = parse_args(argv)
+    cli.add_argument("--out", type=Path, default=None)
+    args = cli.parse_args(argv)
     try:
         total = check_boxes(args.boxes)
     except ValueError as exc:
@@ -337,34 +377,39 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     out_dir = args.out or Path(tempfile.mkdtemp(prefix=f"fleet-{sha[:9]}-"))
     out_dir.mkdir(parents=True, exist_ok=True)
-    global ledger
+    global ledger, ttl_s
+    ttl_s = ttl_for(load_walls())
+    if args.minutes:  # a deliberate longer limit is never cut by the box TTL
+        ttl_s = min(TTL_S, max(ttl_s, args.minutes * 60 + TTL_SLACK_S))
+    print(f"fleet: box TTL {ttl_s // 60} min from {len(load_walls())} recorded runs", flush=True)
     ledger = load_ledger()
     if ledger is not None:
         try:
-            ledger.preflight(total, TTL_S, ledger.RATE_LARGE)
+            ledger.preflight(total, ttl_s, ledger.RATE_LARGE)
         except (ledger.SpendCapError, ledger.LedgerError) as exc:
             print(f"fleet: the spend ledger refuses this run: {exc}")
             return 2
     sweep_stale()
     print(f"fleet: {total} boxes on {sha}, results in {out_dir}", flush=True)
-    deadline = time.monotonic() + args.minutes * 60
+    deadline = time.monotonic() + (args.minutes * 60 if args.minutes else deadline_for(ttl_s))
     previous = signal.signal(signal.SIGTERM, _on_sigterm)
     stop.clear()
     try:
         with ThreadPoolExecutor(max_workers=total) as pool:
             try:
                 results = list(
-                    pool.map(
-                        lambda k: run_box(k, total, sha, args.workers, out_dir, deadline, args.own_job),
-                        range(1, total + 1),
-                    )
+                    pool.map(lambda k: run_box(k, total, sha, args.workers, out_dir, deadline), range(1, total + 1))
                 )
             except KeyboardInterrupt:
                 stop.set()  # each box thread sees it within POLL_INTERVAL and removes its box
                 raise
     finally:
         signal.signal(signal.SIGTERM, previous)
+        left = release_own(sha)  # also after an interrupt: no box of this run is let go
+        print(f"fleet: inventory {'clean' if not left else 'NOT CLEAN: ' + ', '.join(left)}", flush=True)
     code = exit_code(results, total)
+    if len(results) == total and all(r.tests > 0 for r in results):
+        record_wall(max(r.wall for r in results))
     if code == 3:
         print(
             "fleet: NO VERDICT, no box ran its tests (credit, vCPU quota or an outage). Use CI; never retry in a loop."
