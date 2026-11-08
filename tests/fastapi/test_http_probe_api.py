@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -161,14 +162,14 @@ def test_client_disconnect_keeps_probe_slot_until_sync_host_returns(handle: list
         release.set()
 
 
-def test_probe_opens_no_socket(no_side_effects: SideEffectGuard, handle: list[SharpitHandle]):
+def test_probe_opens_no_socket(no_side_effects: SideEffectGuard, handle: list[SharpitHandle], tmp_state_dir: Path):
     app = FastAPI()
 
     @app.get("/local")
     def local():
         return {"ok": True}
 
-    _install(app, handle)
+    _install(app, handle, state_dir=str(tmp_state_dir))
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop creates a self-pipe socketpair.
     with _client(app) as client:
         no_side_effects.block_network()

@@ -187,10 +187,12 @@ def test_inactive_architecture_paths_404() -> None:
     assert client_inactive.get("/sharpit/api/architecture/rules/ARCH-PKG-001/violations").status_code == 404
 
 
-def test_architecture_get_no_side_effects(no_side_effects: Any, asgi_loop: asyncio.AbstractEventLoop) -> None:
+def test_architecture_get_no_side_effects(
+    no_side_effects: Any, asgi_loop: asyncio.AbstractEventLoop, tmp_state_dir: Path
+) -> None:
     del no_side_effects
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, config_scan=False)
+    install(app, enabled="ON", show_banner=False, config_scan=False, state_dir=str(tmp_state_dir))
 
     async def fetch() -> list[httpx.Response]:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as client:

@@ -38,7 +38,7 @@ class Odd(BaseRoute):
         raise NotImplementedError
 
 
-def _app(tmp_path: Path) -> FastAPI:
+def _app(tmp_path: Path, state_dir: str) -> FastAPI:
     app = FastAPI()
 
     @app.get("/items/{item_id}", name="read_item")
@@ -78,7 +78,7 @@ def _app(tmp_path: Path) -> FastAPI:
     app.mount("/sub", Starlette(routes=[Route("/a", plain), Mount("/deep", routes=[Route("/b", plain)])]))
     app.router.routes.append(Host("api.example.com", app=Starlette(routes=[Route("/h", plain)])))
     app.router.routes.append(Odd())
-    install(app, enabled="ON", show_banner=False)
+    install(app, enabled="ON", show_banner=False, state_dir=state_dir)
     return app
 
 
@@ -87,7 +87,7 @@ def _by(routes: list[RouteInfo]) -> dict[tuple[str, str], RouteInfo]:
 
 
 def test_routes_exact_rows(tmp_path: Path, no_side_effects: SideEffectGuard):
-    routes = FastApiIntrospector(_app(tmp_path), "/sharpit").routes()
+    routes = FastApiIntrospector(_app(tmp_path, str(no_side_effects.state_dir)), "/sharpit").routes()
     assert sorted(_by(routes)) == sorted(
         [
             ("GET", "/items/{item_id}"),
@@ -115,7 +115,7 @@ def test_routes_exact_rows(tmp_path: Path, no_side_effects: SideEffectGuard):
 
 
 def test_row_details(tmp_path: Path, no_side_effects: SideEffectGuard):
-    rows = _by(FastApiIntrospector(_app(tmp_path), "/sharpit").routes())
+    rows = _by(FastApiIntrospector(_app(tmp_path, str(no_side_effects.state_dir)), "/sharpit").routes())
     item = rows["GET", "/items/{item_id}"]
     assert (item.handler, item.name, item.produces, item.consumes, item.host) == (
         f"{__name__}:_app.<locals>.read_item",
@@ -152,7 +152,7 @@ def test_handler_never_uses_repr_of_closure_values(no_side_effects: SideEffectGu
 
 
 def test_routes_added_after_install_appear_later(tmp_path: Path, no_side_effects: SideEffectGuard):
-    app = _app(tmp_path)
+    app = _app(tmp_path, str(no_side_effects.state_dir))
     intro = FastApiIntrospector(app, "/sharpit")
     assert ("GET", "/late") not in _by(intro.routes())
     app.router.routes.append(Route("/late", plain))
@@ -161,7 +161,7 @@ def test_routes_added_after_install_appear_later(tmp_path: Path, no_side_effects
 
 def test_endpoint_is_flat_json_and_sharpit_excluded(tmp_path: Path, no_side_effects: SideEffectGuard):
     no_side_effects.unblock_network()  # the Windows Proactor loop TestClient starts connects a self-pipe socketpair
-    client = TestClient(_app(tmp_path), base_url="http://localhost", client=LOCAL)
+    client = TestClient(_app(tmp_path, str(no_side_effects.state_dir)), base_url="http://localhost", client=LOCAL)
     resp = client.get("/sharpit/api/mappings/flat", params={"q": "ping"})
     assert resp.status_code == 200
     body = resp.json()
@@ -195,7 +195,7 @@ def test_mount_chain_deeper_than_cap_stops_with_a_row(no_side_effects: SideEffec
 def test_lazy_include_router_expansion_never_calls_candidates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_side_effects: SideEffectGuard
 ):
-    app = _app(tmp_path)
+    app = _app(tmp_path, str(no_side_effects.state_dir))
     included = next((r for r in app.routes if hasattr(r, "effective_candidates")), None)
     if included is None:
         pytest.skip("this FastAPI expands include_router eagerly")
@@ -208,9 +208,9 @@ def test_lazy_include_router_expansion_never_calls_candidates(
 
 
 @pytest.mark.parametrize("path", ["/dev-tools", "/dev-tools/"])
-def test_custom_sharpit_path_excluded(path: str, no_side_effects: SideEffectGuard):
+def test_custom_sharpit_path_excluded(path: str, no_side_effects: SideEffectGuard, tmp_state_dir: Path):
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, path=path.rstrip("/"))
+    install(app, enabled="ON", show_banner=False, path=path.rstrip("/"), state_dir=str(tmp_state_dir))
     assert not [r for r in FastApiIntrospector(app, path).routes() if r.path.startswith("/dev-tools")]
 
 
