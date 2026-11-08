@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from sharpit.engine.collectors.config.getenv_scan import GetenvFinding, scan_packages
+from sharpit.engine import appsource
+from sharpit.engine.appsource import GetenvFinding, scan_packages
 from sharpit.engine.collectors.config.settings_source import ConfigEntry, settings_entries
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.masking import MASK, Exposure
@@ -20,23 +21,19 @@ _SCALARS = (str, int, float, bool)
 
 
 def _scan_roots(ctx: SharpitContext) -> list[Path]:
-    """Package directories to scan: ``config_scan`` names, or the caller's top-level package when ``True``."""
+    """Roots to scan, through the one resolver (spec §4.2): ``config_scan`` names (looked up on ``sys.path`` too,
+    never imported), or when ``True`` the ``app_package`` setting, else the module that called install()."""
     setting = ctx.settings.config_scan
     if setting is False:
         return []
-    names = (ctx.caller_module or "",) if setting is True else setting
+    names, search = ((ctx.settings.app_package or ctx.caller_module,), ()) if setting is True else (setting, sys.path)
     roots: list[Path] = []
     for name in names:
-        top = name.partition(".")[0]  # find_spec("a.b") imports a; a top-level lookup imports nothing
-        if top in ("", "__main__", "sharpit"):
+        if not name or name.partition(".")[0] == "sharpit":
             continue
-        try:
-            spec = importlib.util.find_spec(top)
-        except Exception:  # ValueError for a module without __spec__, ImportError for broken finders
-            continue
-        # shortcut: a single-module app (main.py) has no package directory and is not scanned; scan its file if needed
-        if spec is not None and spec.submodule_search_locations:
-            roots.extend(Path(p) for p in spec.submodule_search_locations)
+        root = appsource.resolve_package_root(None, sys.modules, app_package=name, search_path=tuple(search))
+        if root is not None:
+            roots.append(root)
     return roots
 
 

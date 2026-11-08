@@ -25,7 +25,7 @@ const SERVER_ENV: Record<string, string> = {
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  testIgnore: 'panels-0.2.0.spec.ts', // needs the SQLAlchemy sample: playwright.sqla.config.ts runs it
+  testIgnore: ['panels-0.2.0.spec.ts', 'layout.spec.ts'], // needs the SQLAlchemy sample: playwright.sqla.config.ts runs it
   outputDir: path.join(scratch, 'test-results'), // traces and failure artefacts stay out of the repo
   reporter: [['list']],
   workers: 1, // one shared server whose logger levels and scan state the tests observe
@@ -48,3 +48,4 @@ export default defineConfig({
     env: { ...SERVER_ENV, SHARPIT_E2E_KEYS: Object.keys(SERVER_ENV).join(',') },
   },
 });
+

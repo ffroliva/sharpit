@@ -1,5 +1,5 @@
 name: sharpit
-description: Run pytest with sharpit (SQL and exception advisors) and publish a findings summary to the job summary.
+description: Run pytest with sharpit (SQL and exception gates) and publish a findings summary to the job summary.
 inputs:
   pytest-args:
     description: Extra pytest arguments, split with Python shlex (quote values with spaces).
@@ -31,7 +31,7 @@ runs:
         INSTALL: ${{ inputs.install }}
       run: |
         if [ "$INSTALL" = "pip" ]; then
-          python -m pip install "sharpit==0.4.0"
+          python -m pip install "sharpit==0.5.0"
         elif [ "$INSTALL" != "none" ]; then
           echo "::error::install must be pip or none"
           exit 1

@@ -1,38 +1,5 @@
-/* Tokens: ui/DESIGN.md is the source; keep the two in step. */
-:root {
-  color-scheme: light dark;
-  --bg: oklch(1 0 0); --rail: oklch(0.965 0 0); --line: oklch(0.89 0 0);
-  --ink: oklch(0.22 0 0); --muted: oklch(0.48 0 0);
-  --accent: oklch(0.53 0.124 60); --on-accent: oklch(1 0 0); --sel: oklch(0.95 0.03 60);
-  --ok: oklch(0.50 0.12 150); --warn: oklch(0.52 0.12 75); --danger: oklch(0.52 0.18 27);
-
-  --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
-  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px;
-  --row: 28px; --head: 36px; --rail-w: 208px; --radius: 4px;
-  --ease: cubic-bezier(0.25, 1, 0.5, 1); --dur: 150ms;
-  --z-sticky: 10; --z-palette: 100;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: oklch(0.17 0 0); --rail: oklch(0.205 0 0); --line: oklch(0.30 0 0);
-    --ink: oklch(0.93 0 0); --muted: oklch(0.72 0 0);
-    --accent: oklch(0.78 0.13 65); --on-accent: oklch(0.17 0 0); --sel: oklch(0.26 0.04 60);
-    --ok: oklch(0.76 0.13 150); --warn: oklch(0.82 0.13 85); --danger: oklch(0.72 0.16 27);
-  }
-}
-:root[data-theme="light"] { color-scheme: light; }
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: oklch(0.17 0 0); --rail: oklch(0.205 0 0); --line: oklch(0.30 0 0);
-  --ink: oklch(0.93 0 0); --muted: oklch(0.72 0 0);
-  --accent: oklch(0.78 0.13 65); --on-accent: oklch(0.17 0 0); --sel: oklch(0.26 0.04 60);
-  --ok: oklch(0.76 0.13 150); --warn: oklch(0.82 0.13 85); --danger: oklch(0.72 0.16 27);
-}
-@media (prefers-reduced-motion: reduce) {
-  :root { --dur: 0ms; }
-}
+/* Tokens: design/tokens.css. Rules: design/DESIGN.md. */
+@import '../../design/tokens.css';
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
@@ -42,6 +9,7 @@ body {
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
+strong { font-weight: 600; }
 #app { height: 100%; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -90,7 +58,8 @@ input::placeholder { color: var(--muted); }
 .panel-head input[type="search"] { width: 100%; }
 .panel-body { flex: 1; overflow: auto; min-height: 0; }
 .panel-body:focus-visible { outline-offset: -2px; } /* a scroll region is a tab stop (axe scrollable-region-focusable) */
-.notice { padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line); }
+.panel-body table a:focus-visible, .rail :focus-visible, [role='listbox'] :focus-visible { outline-offset: -2px; }
+.notice { margin: 0; padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line); }
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; }
@@ -100,9 +69,10 @@ th {
   font-weight: 600; color: var(--muted); white-space: nowrap;
 }
 th:first-child, td:first-child { padding-left: var(--s4); }
+th:last-child, td:last-child { padding-right: var(--s4); }
 tbody tr { transition: background-color var(--dur) var(--ease); }
 tbody tr:hover { background: var(--sel); }
-td.num, th.num { text-align: right; }
+td.num, th.num, dd.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 td.wrap { overflow-wrap: break-word; } /* names keep their width */
 td.shrink { overflow-wrap: anywhere; } /* long values give way first */
 tr.group th { position: static; background: var(--bg); color: var(--ink); padding-top: var(--s3); }
@@ -112,9 +82,18 @@ tr.group th { position: static; background: var(--bg); color: var(--ink); paddin
 .empty { padding: var(--s6) var(--s4); }
 .empty p { margin: 0 0 var(--s2); }
 .empty .lead { font-size: 16.5px; line-height: 24px; font-weight: 600; }
+.empty h1 { margin: 0 0 var(--s2); font-size: 16.5px; line-height: 24px; font-weight: 600; }
 
 dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--s1) var(--s6); margin: 0; padding: var(--s4); }
+h2 + dl.facts { padding-top: 0; }
+dl.facts.statistics { grid-template-columns: max-content max-content; }
+dl.facts.statistics dd.status { text-align: left; }
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; }
 section.block { border-bottom: 1px solid var(--line); }
-section.block h2 { margin: 0; padding: var(--s3) var(--s4) 0; font-size: 13px; font-weight: 600; }
+h2 { margin: var(--s3) var(--s4) var(--s1); font-size: 13px; line-height: 20px; font-weight: 600; }
+h2.mono { font-size: 13px; line-height: 20px; }
+@media (max-width: 720px) {
+  button.link { min-height: 24px; }
+  table.fixed th { min-width: 3.25rem; }
+}

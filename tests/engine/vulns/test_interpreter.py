@@ -400,6 +400,9 @@ def test_recorded_advisory_with_a_fix():
         "epssScore": None,
         "epssPercentile": None,
         "dismissed": False,
+        "advisorySymbols": [],
+        "advisorySymbolSource": "NONE",
+        "runtimeReach": None,
     }
     assert f.unresolved is False
     assert "unresolved" not in f.to_dto()

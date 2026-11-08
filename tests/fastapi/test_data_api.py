@@ -135,7 +135,14 @@ def test_get_never_configures_mappers(
     sa.event.listen(sa.engine.Engine, "before_cursor_execute", record)
     request.addfinalizer(lambda: sa.event.remove(sa.engine.Engine, "before_cursor_execute", record))
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, config_scan=False, models=base)
+    install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        models=base,
+        state_dir=str(no_side_effects.state_dir),
+    )
 
     async def fetch() -> list[httpx.Response]:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as client:

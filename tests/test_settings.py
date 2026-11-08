@@ -16,8 +16,8 @@ from sharpit.settings import PanelSettings, SharpitSettings, load_settings
 
 
 def test_defaults():
-    s = load_settings({}, {})
-    assert s == SharpitSettings(panels=s.panels)
+    s = load_settings({"state_dir": ".sharpit"}, {})
+    assert s == SharpitSettings(state_dir=".sharpit", panels=s.panels)
     assert s.enabled == "AUTO"
     assert s.enabled_profiles == ("dev", "local", "development")
     assert s.disabled_profiles == ("prod", "production")
@@ -231,6 +231,7 @@ PROPERTIES = {
     "bootui.trusted-proxies": ("trusted_proxies", "10.0.0.0/8"),
     "bootui.trust-container-gateway": ("trust_container_gateway", "AUTO"),
     "bootui.authentication.token": ("authentication_token", "tok"),
+    "bootui.identity-key": ("identity_key", "a-shared-key-of-thirty-two-bytes"),  # sharpit-only: SQLite's opaque ids
     "bootui.read-only": ("read_only", "true"),
     "bootui.expose-values": ("expose_values", "METADATA_ONLY"),
     "bootui.mask-secrets": ("mask_secrets", "false"),
@@ -295,6 +296,21 @@ PROPERTIES = {
     "bootui.transactions.max-entries": ("transactions_max_entries", "45"),
     "bootui.transactions.slow-transaction-threshold-millis": ("transactions_slow_transaction_threshold_millis", "46"),
     "bootui.transactions.connection-hold-threshold-millis": ("transactions_connection_hold_threshold_millis", "47"),
+    # 0.5.0 (spec §4.5; F5a-harness): BootUI's bootui.mysql.*, plus sharpit-only bounds under the same naming rule
+    "bootui.mysql.max-sessions": ("mysql_max_sessions", "47"),
+    "bootui.mysql.max-statements": ("mysql_max_statements", "47"),
+    "bootui.mysql.max-indexes": ("mysql_max_indexes", "47"),
+    "bootui.mysql.max-tables": ("mysql_max_tables", "47"),
+    "bootui.mysql.max-lock-waits": ("mysql_max_lock_waits", "47"),
+    "bootui.mysql.max-replication-channels": ("mysql_max_replication_channels", "47"),
+    "bootui.mysql.max-settings": ("mysql_max_settings", "47"),
+    "bootui.database-advisor.max-tables": ("database_advisor_max_tables", "47"),
+    "bootui.database-advisor.max-columns": ("database_advisor_max_columns", "47"),
+    "bootui.database-advisor.max-indexes-per-table": ("database_advisor_max_indexes_per_table", "47"),
+    "bootui.database-advisor.max-vendor-rows": ("database_advisor_max_vendor_rows", "47"),
+    "bootui.architecture.max-files": ("architecture_max_files", "47"),
+    "bootui.architecture.max-file-bytes": ("architecture_max_file_bytes", "47"),
+    "bootui.app-package": ("app_package", "myapp"),
 }
 
 NEW_DEFAULTS_0_2_0: dict[str, Any] = {
@@ -420,6 +436,18 @@ def test_alembic_config_env_overrides_kwarg():
 
 def _env_name(prop: str) -> str:
     return "SHARPIT_" + prop.removeprefix("bootui.").replace(".", "_").replace("-", "_").upper()
+
+
+def test_a_same_character_key_warns_without_showing_it() -> None:
+    key = "k" * 32
+    settings = load_settings({}, {"SHARPIT_IDENTITY_KEY": key})
+    assert settings.identity_key == key
+    assert settings.warnings == ("SHARPIT_IDENTITY_KEY is one character repeated: a weak key",)
+
+
+def test_a_varied_key_does_not_warn() -> None:
+    settings = load_settings({}, {"SHARPIT_IDENTITY_KEY": "a-shared-key-of-thirty-two-bytes"})
+    assert settings.warnings == ()
 
 
 @pytest.mark.parametrize("prop", PROPERTIES)

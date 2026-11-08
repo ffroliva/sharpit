@@ -3,15 +3,16 @@
 Every test lands in exactly one shard, so the shards of one leg together run the whole suite once
 (``tests/test_shard.py``). Files with a measured weight for this platform in ``shard_weights.json`` (CI JUnit,
 ``scripts/ci/shard_weights.py``) that exceed one shard's share (``total / n``) are collected on shards ``1..n-1`` and
-split deterministically by sorted nodeid (with ``n == 1`` nothing changes); their weight is spread evenly across
-``1..n-1`` before the other weighted files are placed longest first onto the lightest shard. Every other file goes by a
-hash of its path, so a new file never moves the others. ``test_durations.json`` is the pytest-speed baseline and is not
-used. Unset, nothing is filtered.
+split deterministically by sorted nodeid; their weight is spread evenly across ``1..n-1`` before the other weighted
+files are placed longest first onto the lightest allowed shard, keeping the timing shard free of split CPU-heavy work.
+Every other file goes by a hash of its path, so a new file never moves the others. ``test_durations.json`` is the
+pytest-speed baseline and is not used. Unset, nothing is filtered.
 """
 
 import hashlib
 import json
 import os
+import re
 import sys
 from functools import cache
 from pathlib import Path
@@ -22,18 +23,61 @@ WEIGHTS = Path(__file__).with_name("shard_weights.json")
 _SPEC = pytest.StashKey[tuple[int, int]]()
 
 
-def _splits(durations: dict[str, float], n: int) -> frozenset[str]:
+HEAVY_SECONDS = 30.0  # a file this costly (measured test seconds) competes with a timing test for the runner's cores
+HEAVY_PATHS: tuple[str, ...] = ()  # CPU-heavy files not measured yet: heavy from day one (none: the table has them all)
+OWN_JOB = (  # each heavier than a shard ceiling alone (487, 386, 418 s): the CI job masking-gates runs them whole
+    "tests/masking/test_masking_scales_linearly.py",
+    "tests/masking/test_statement_surfaces.py",
+    "tests/scripts/test_lane_gate.py",
+    "tests/masking/test_gates_bite.py",
+)
+_TIMING_CALL = re.compile(r"^\s+check_budget\(", re.MULTILINE)
+
+
+@cache
+def timing_files() -> frozenset[str]:
+    """The files holding an overhead budget test (a paired on/off timing): a busy runner fails them."""
+    tests = Path(__file__).parent
+    return frozenset(
+        p.relative_to(tests.parent).as_posix()
+        for p in tests.rglob("test_*.py")
+        if _TIMING_CALL.search(p.read_text(encoding="utf-8"))
+    )
+
+
+def _durations(platform: str, weights: Path) -> dict[str, float]:
+    table: dict[str, dict[str, float]] = json.loads(weights.read_text(encoding="utf-8"))
+    return dict(table.get(platform) or table["linux"])  # macOS and others: the nearest measured platform
+
+
+def _splits(durations: dict[str, float], n: int, timing: frozenset[str]) -> frozenset[str]:
     if n <= 1 or not durations:
         return frozenset()
     share = sum(durations.values()) / n
-    return frozenset(rel for rel, seconds in durations.items() if seconds > share)
+    excluded = timing | frozenset(OWN_JOB)
+    return frozenset(rel for rel, seconds in durations.items() if seconds > share and rel not in excluded)
+
+
+def _allowed_shards(rel: str, seconds: float, n: int, timing: frozenset[str]) -> range:
+    if n > 1 and (rel in HEAVY_PATHS or seconds >= HEAVY_SECONDS):
+        return range(n - 1)
+    if n > 1 and rel in timing:
+        return range(n - 1, n)
+    return range(n)
 
 
 @cache
 def _plan(n: int, platform: str, weights: Path) -> tuple[frozenset[str], dict[str, int], tuple[float, ...]]:
-    table: dict[str, dict[str, float]] = json.loads(weights.read_text(encoding="utf-8"))
-    durations = table.get(platform) or table["linux"]  # macOS and others: the nearest measured platform
-    splits = _splits(durations, n)
+    """Split files heavier than ``total / n`` across shards ``1..n-1``; place the rest longest first.
+
+    Heavy whole files and split files never go on the last shard, and timing files go only there, so a budget test
+    never shares a runner with CPU-heavy work (with ``n == 1`` there is nothing to separate).
+    """
+    durations = _durations(platform, weights)
+    timing = timing_files()
+    splits = _splits(durations, n, timing)
+    for rel in HEAVY_PATHS:
+        durations.setdefault(rel, 0.0)  # placed (and kept off the timing shard) before the weights know them
     if splits and n > 1:
         split_share = sum(durations[rel] for rel in splits) / (n - 1)
         loads = [*([split_share] * (n - 1)), 0.0]
@@ -43,7 +87,8 @@ def _plan(n: int, platform: str, weights: Path) -> tuple[frozenset[str], dict[st
     for rel, seconds in sorted(durations.items(), key=lambda kv: (-kv[1], kv[0])):
         if rel in splits:
             continue
-        lightest = loads.index(min(loads))
+        allowed = _allowed_shards(rel, seconds, n, timing)
+        lightest = min(allowed, key=lambda i: (loads[i], i))
         loads[lightest] += seconds
         owners[rel] = lightest + 1
     return splits, owners, tuple(loads)
@@ -66,6 +111,8 @@ def shard_of(rel: str, n: int, platform: str = sys.platform) -> int:
         return owner
     if rel in splits:
         return 1
+    if n > 1 and rel in timing_files():  # a new timing file nobody measured yet: still away from the heavy ones
+        return n
     return int(hashlib.sha256(rel.encode()).hexdigest(), 16) % n + 1
 
 
@@ -92,6 +139,8 @@ def _rel_path(path: Path, root: Path) -> str | None:
 
 
 def _ignore_rel(rel: str, i: int, n: int) -> bool:
+    if rel in OWN_JOB:
+        return True
     if rel in split_files(n):
         return n > 1 and i == n
     return shard_of(rel, n) != i

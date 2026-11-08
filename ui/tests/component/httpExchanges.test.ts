@@ -57,3 +57,28 @@ it('sends the method and status class filters, and reloads on a stream tick', as
   await until(() => expect(h.calls('GET').length).toBeGreaterThan(before));
   expect(FakeEventSource.last.url).toBe('api/activity/stream');
 });
+
+it('live ticks do not restart the initial load', async () => {
+  h.route((url) => url.startsWith('api/http-exchanges') ? new Promise<Response>(() => {}) : undefined);
+  h.mount(HttpExchanges);
+  await until(() => expect(h.calls('GET').filter((url) => url.startsWith('api/http-exchanges'))).toHaveLength(1));
+  await until(() => expect(FakeEventSource.last).toBeDefined());
+  FakeEventSource.last.emit('update');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(h.calls('GET').filter((url) => url.startsWith('api/http-exchanges'))).toHaveLength(1);
+});
+
+it('live ticks do not refetch an error, and Retry recovers', async () => {
+  h.route((url) => url.startsWith('api/http-exchanges') ? json(503, { error: 'offline' }) : undefined);
+  h.mount(HttpExchanges);
+  await until(() => expect(h.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load'));
+  await until(() => expect(FakeEventSource.last).toBeDefined());
+  const failedRequests = h.calls('GET').filter((url) => url.startsWith('api/http-exchanges')).length;
+  FakeEventSource.last.emit('update');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(h.calls('GET').filter((url) => url.startsWith('api/http-exchanges'))).toHaveLength(failedRequests);
+
+  h.route((url) => url.startsWith('api/http-exchanges') ? json(200, report([])) : undefined);
+  h.target.querySelector<HTMLButtonElement>('button')!.click();
+  await until(() => expect(h.target.querySelector('[role="alert"]')).toBeNull());
+});

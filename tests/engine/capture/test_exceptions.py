@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from sharpit.engine.capture import exceptions
 from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.exceptions import (
     GROUP_KEYS,
@@ -28,13 +29,14 @@ from sharpit.engine.capture.exceptions import (
 )
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 MASKED = Masker(Exposure.MASKED, True)
 JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjb3JwdXMifQ.c2lnbmF0dXJlLWJ5dGVz"
 
 
 def _store(groups: int = 100, occurrences: int = 25, frames: int = 50, masker: Masker = MASKED) -> ExceptionStore:
-    return ExceptionStore(groups, occurrences, frames, masker)
+    return ExceptionStore(groups, occurrences, frames, masker, application=lambda: None)
 
 
 def _raised(factory: Callable[[], BaseException]) -> BaseException:
@@ -127,6 +129,9 @@ def test_cause_chain():
     assert detail is not None
     assert [c["exceptionClassName"] for c in detail["causes"]] == ["ValueError"]
     assert tuple(detail["causes"][0]) == ("exceptionClassName", "message", "frames", "commonFrames")
+    assert detail["causes"][0]["message"] == "bad number"
+    assert len(detail["causes"][0]["frames"]) >= 1
+    assert isinstance(detail["causes"][0]["commonFrames"], int)
     implicit = wrapped()  # __context__, not suppressed
     _record(store, implicit)
     detail = store.detail(next(g["id"] for g in _groups(store) if g["message"] == "wrapped"))
@@ -320,7 +325,7 @@ def test_causes_cycle_safe_max_five():
 def test_message_masked_and_cut_2000():
     store = _store()
     _record(store, _raised(lambda: RuntimeError(f"login failed password=hunter2 token {JWT}")))
-    assert _groups(store)[0]["message"] == f"login failed password={MASK} token {MASK}"
+    assert _groups(store)[0]["message"] == f"login failed password={MASK}"
     _record(store, _raised(lambda: ValueError("x" * 5000)))
     long = next(g for g in _groups(store) if g["exceptionClassName"] == "ValueError")["message"]
     assert len(long) == MAX_MESSAGE == 2000
@@ -337,6 +342,25 @@ def test_message_override_used_and_masked():
     store = _store()
     _record(store, _raised(lambda: RuntimeError()), message_override="logged password=hunter2")
     assert _groups(store)[0]["message"] == f"logged password={MASK}"
+
+
+# derived: Task 27 review 1 (ExceptionStore.record ignores message_override for classified exceptions)
+# owner ruling 2026-11-07, structured driver codes; Opus review r2 #3: a code-less driver keeps the override
+# ignored, so the guard still has a row that bites
+OVERRIDE_ROWS = {
+    "code": ("InvalidTextRepresentation", "(psycopg.errors.InvalidTextRepresentation) 22P02"),
+    "no_code": ("Error", None),
+}
+
+
+@pytest.mark.parametrize("case", sorted(OVERRIDE_ROWS))
+def test_classified_exception_ignores_message_override(case: str) -> None:
+    psycopg_errors = pytest.importorskip("psycopg.errors")
+    kind, wanted = OVERRIDE_ROWS[case]
+    store = _store()
+    exc = _raised(lambda: getattr(psycopg_errors, kind)('invalid input syntax for type integer: "hunter2secret"'))
+    _record(store, exc, message_override='failed: invalid input syntax for type integer: "hunter2secret"')
+    assert _groups(store)[0]["message"] == wanted
 
 
 def test_metadata_only_exception_message_null():
@@ -383,6 +407,19 @@ def test_frames_innermost_first_and_capped():
     assert detail is not None
     assert len(detail["frames"]) == 2
     assert all(f["methodName"].endswith("deep") for f in detail["frames"])  # the innermost two
+
+
+def test_the_message_keeps_a_falsy_application_family(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(Dialect, "__bool__", lambda _self: False, raising=False)
+    seen: list[Dialect] = []
+
+    def spy(_masker: Masker, text: str, dialect: Dialect) -> str:
+        seen.append(dialect)
+        return text
+
+    monkeypatch.setattr(exceptions, "error_text", spy)
+    ExceptionStore(10, 5, 5, MASKED, application=lambda: Dialect.SQLITE)._message("failed")  # noqa: SLF001
+    assert seen == [Dialect.SQLITE]
 
 
 def test_fingerprint_first_application_frame():
@@ -563,3 +600,21 @@ def test_marks_are_per_store():
     for store in (first, second):
         _record(store, slots, _request("r2"))
     assert [s.report()["totalExceptions"] for s in (first, second)] == [2, 2]
+
+
+def test_exceptions_report_includes_caught_in_code_null():
+    # ported: ExceptionsControllerTests.reportCarriesNullCaughtInCodeWithoutSensor (BootUI 2.2.0 ExceptionsReport)
+    from sharpit.engine.capture.exceptions import caught_report
+
+    report = _store().report()
+    assert "caughtInCode" in report, "the 2.2.0 report carries caughtInCode"
+    assert report["caughtInCode"] is None
+    assert caught_report() == {
+        "available": False,
+        "unavailableReason": "Caught exceptions are recorded by the sharpit agent's caught-exceptions sensor.",
+        "limitations": [],
+        "settling": 0,
+        "occurrences": 0,
+        "findings": 0,
+        "rows": [],
+    }

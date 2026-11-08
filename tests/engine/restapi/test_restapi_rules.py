@@ -55,7 +55,7 @@ def test_clean_routes_pass_every_rule():
         route("/v1/pets/{pet_id}", ("DELETE",), "delete_pet", status_code=204, return_annotation=type(None)),
     ]
     assert {r.id: r.status for r in scan(routes, APP_HANDLER)} == dict.fromkeys(
-        [r.id for r in scan([], APP_HANDLER)], "PASSED"
+        [r.id for r in scan([], APP_HANDLER)], "PASS"
     )
 
 
@@ -200,4 +200,35 @@ def test_framework_routes_excluded():
 def test_samples_bounded_and_counts_full():
     routes = [route(f"/v1/getThing{i}", name=f"read_{i}") for i in range(15)]
     result = next(r for r in scan(routes, APP_HANDLER) if r.id == "RAPI-NAME-001")
-    assert (result.status, result.violation_count, len(result.sample_violations)) == ("FAILED", 15, 10)
+    assert (result.status, result.violation_count, len(result.sample_violations)) == ("VIOLATION", 15, 10)
+
+
+# --- lane D4: BootUI 2.2.0 rules (contract 0.4 drift §19) ------------------------------------------------------------
+
+NEW_RULES_2_2_0 = ["RAPI-RESP-010", "RAPI-RESP-011", "RAPI-VALID-006", "RAPI-VER-007"]
+
+
+@pytest.mark.parametrize("rule_id", NEW_RULES_2_2_0)
+def test_rest_api_new_rules_fire(rule_id: str):
+    # ported: RestApiRulesTests (2.2.0): RESP-011 is the one with a FastAPI analog; the other three read Spring
+    # metadata FastAPI has no counterpart for and are registered as skipped, with a reason
+    from sharpit.engine.collectors.restapi.rules import RULE_IDS, SKIPPED_RULES
+
+    if rule_id != "RAPI-RESP-011":
+        assert SKIPPED_RULES.get(rule_id, "").strip() != "", f"{rule_id} is registered as skipped with a reason"
+        assert rule_id not in RULE_IDS
+        return
+    optional = route("/v1/pets/{id}", name="read_pet", return_annotation=Optional[Pet])  # noqa: UP045
+    union = route("/v1/owners/{id}", name="read_owner", response_model=Pet | None)
+    found_now = violations([optional, union], APP_HANDLER).get(rule_id, [])
+    assert found_now == [
+        "app.pets:read_pet [GET /v1/pets/{id}] — Optional return served as 200 with a null body",
+        "app.pets:read_owner [GET /v1/owners/{id}] — Optional return served as 200 with a null body",
+    ]
+    quiet = [
+        route("/v1/pets", name="read_pets"),  # not Optional
+        route("/v1/a/{id}", name="read_a", return_annotation=Optional[Pet], status_code=202),  # noqa: UP045
+        route("/v1/b/{id}", name="read_b", return_annotation=Optional[Pet], dynamic_response=True),  # noqa: UP045
+        route("/v1/c/{id}", ("POST",), "make_c", return_annotation=Optional[Pet]),  # noqa: UP045
+    ]
+    assert violations(quiet, APP_HANDLER).get(rule_id, ["absent"]) == []

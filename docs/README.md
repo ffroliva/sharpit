@@ -3,6 +3,7 @@
 | Path | What it is |
 |---|---|
 | [../website/docs/how-it-works.md](../website/docs/how-it-works.md) | How sharpit works; published with the rest of the user docs at https://ffroliva.github.io/sharpit/ |
+| [../design/DESIGN.md](../design/DESIGN.md) | Shared design tokens and rules for the console, docs site and launch slides |
 | [screenshots.md](screenshots.md) | Every panel in the light and the dark theme, and how to regenerate the images |
 | [development/workflow.md](development/workflow.md) | How a change goes from idea to release with the `/sharpit:*` skills |
 | [development/ci.md](development/ci.md) | Every CI job, what it guards, and the exact command to run it locally |

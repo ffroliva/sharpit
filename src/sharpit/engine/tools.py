@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Final, Literal, cast
 
 from sharpit.engine import sqla
 from sharpit.engine.advisors.dismissals import DismissalStore
@@ -22,6 +22,7 @@ from sharpit.engine.advisors.retention import AdvisorViolationError
 from sharpit.engine.capture import activity
 from sharpit.engine.capture.exceptions import unknown_group
 from sharpit.engine.capture.exchanges import unavailable_report
+from sharpit.engine.capture.routes import NOT_INSTALLED, summarize_http_routes
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.sqltrace import unavailable_report as sql_trace_unavailable
 from sharpit.engine.collectors.alembic import alembic_report
@@ -39,6 +40,7 @@ from sharpit.engine.collectors.vulns.inventory import inventory
 from sharpit.engine.collectors.vulns.osv import OsvClient
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.paging import paged
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.sources import sqlite
 from sharpit.engine.spi import ApiModel
@@ -95,6 +97,7 @@ class Tool:
     panel: str
     action: bool
     handler: Callable[[CallContext, dict[str, Any]], dict[str, Any]]
+    default_limit: int | None = None  # an absent ``limit`` (None: the via's max results); still capped by it
 
 
 # --- Schemas (BootUiMcpService.schema) ------------------------------------------------------------------------------
@@ -219,6 +222,7 @@ def exceptions_report(ctx: SharpitContext) -> dict[str, Any]:
             "maxGroups": ctx.settings.exceptions_max_groups,
             "totalExceptions": 0,
             "groups": [],
+            "caughtInCode": None,
         }
     return store.report()
 
@@ -266,12 +270,71 @@ def http_exchanges_report(
     status_class: str | None,
     offset: int | None,
     limit: int | None,
+    route: str | None = None,
 ) -> dict[str, Any]:
     """``HttpExchangesReport``; unavailable when request capture is not installed for this context."""
     buffer = ctx.capture.exchanges
     if buffer is None:
-        return unavailable_report("Request capture is not installed")
-    return buffer.report(q, method, status_class, offset, limit)
+        return unavailable_report(NOT_INSTALLED)
+    return buffer.report(q, method, status_class, offset, limit, route)
+
+
+def _sql_traces_view(ctx: SharpitContext, query: str | None, limit: int) -> dict[str, Any]:
+    """``McpAgentViews.sqlTraces``: the report with its entries filtered by ``query`` and capped, plus ``page``."""
+    report = sql_trace_report(ctx)
+    entries, page = paged(report["entries"], query, None, limit, lambda e: (e["sql"], e["errorMessage"], e["callSite"]))
+    return {**report, "entries": entries, "page": page}
+
+
+def _log_tail_view(ctx: SharpitContext, query: str | None, limit: int) -> dict[str, Any]:
+    """``McpAgentViews.logTail``: the newest ``limit`` matching lines, oldest first, plus ``page``."""
+    newest = log_tail_lines(ctx)[::-1]
+    lines, page = paged(newest, query, None, limit, lambda line: (line["message"], line["logger"], line["level"]))
+    return {"entries": lines[::-1], "page": page}
+
+
+VULNERABILITIES_DEFAULT_LIMIT: Final[int] = 10  # McpAgentViews constants
+ADVISORIES_PER_DEPENDENCY: Final[int] = 5
+ADVISORY_LIST_ITEMS: Final[int] = 3
+INVENTORY_DEFAULT_LIMIT: Final[int] = 25
+
+
+def _vulnerabilities_view(ctx: SharpitContext, query: str | None, limit: int) -> dict[str, Any]:
+    """``McpAgentViews.vulnerabilities``: vulnerable dependencies only (any dependency under a ``query``), capped,
+    each with at most 5 advisories and 3 items per advisory list, plus ``page`` and per-dependency ``advisories``.
+    Free text is masked; the cached report is never mutated."""
+    report = vulnerability_service(ctx).report()
+    deps = report["dependencies"] if query else [d for d in report["dependencies"] if d["vulnerabilityCount"] > 0]
+    page_deps, page = paged(deps, query, None, limit, _dependency_text)
+    mask = ctx.masker.mask_text
+    return {
+        **report,
+        "scan": {**report["scan"], "message": mask(report["scan"]["message"])},
+        "dependencies": [_compact_dependency(d, mask) for d in page_deps],
+        "page": page,
+    }
+
+
+def _dependency_text(dep: dict[str, Any]) -> list[str | None]:
+    vulns = dep["vulnerabilities"]
+    aliases = (a for v in vulns for a in v["aliases"])
+    return [dep["packageName"], dep.get("version"), *(v["id"] for v in vulns), *aliases]
+
+
+def _compact_dependency(dep: dict[str, Any], mask: Callable[[str | None], str | None]) -> dict[str, Any]:
+    vulns = dep["vulnerabilities"]
+    kept = vulns[:ADVISORIES_PER_DEPENDENCY]
+    advisories = [
+        {
+            **v,
+            "summary": mask(v["summary"]),
+            "details": mask(v["details"]),
+            **{key: v[key][:ADVISORY_LIST_ITEMS] for key in ("aliases", "references", "fixedVersions")},
+        }
+        for v in kept
+    ]
+    summary = {"total": len(vulns), "returned": len(kept), "truncated": len(kept) < len(vulns)}
+    return {**dep, "vulnerabilities": advisories, "advisories": summary}
 
 
 def log_tail_lines(ctx: SharpitContext) -> list[dict[str, Any]]:
@@ -350,10 +413,10 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "get_log_tail",
         "Return the latest buffered application log snapshot, oldest first. Messages are masked at capture, but logs "
         "are application-controlled and may contain sensitive data; use them only in the local diagnostic context.",
-        _NONE,
+        _QUERY_LIMIT,
         "log-tail",
         False,
-        lambda c, _a: {"entries": log_tail_lines(c.ctx)},
+        lambda c, a: _log_tail_view(c.ctx, a["query"], a["limit"]),
     ),
     Tool(
         "get_exceptions",
@@ -386,10 +449,10 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "get_sql_traces",
         "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may contain "
         "sensitive values; correlate it locally with request or trace identifiers.",
-        _NONE,
+        _QUERY_LIMIT,
         "sql-trace",
         False,
-        lambda c, _a: sql_trace_report(c.ctx),
+        lambda c, a: _sql_traces_view(c.ctx, a["query"], a["limit"]),
     ),
     Tool(
         "clear_sql_traces",
@@ -422,10 +485,10 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "get_live_activity",
         "Return a bounded, newest-first activity snapshot that merges HTTP requests, SQL statements and exceptions, "
         "correlated by request id. Use first when diagnosing one request.",
-        _LIMIT_ONLY,
+        _QUERY_LIMIT,
         "activity",
         False,
-        lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], None),
+        lambda c, a: activity.activity_report(c.ctx, None, None, None, a["limit"], a["query"]),
     ),
     Tool(
         "get_alembic_migrations",
@@ -465,6 +528,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "threads",
         False,
         lambda c, a: threads_report(c.ctx, a["query"], None, None, a["limit"]),
+        INVENTORY_DEFAULT_LIMIT,
     ),
     Tool(
         "get_vulnerabilities_report",
@@ -472,11 +536,13 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         "without contacting OSV.dev or any other network service. Inspect `scan.status`, `scan.message`, "
         "`coverage` and `scan.packagesSkipped` before interpreting absent findings. Partial results "
         "retain available evidence; UNKNOWN severity is not zero risk. Coverage describes the "
-        "inventory provider's accounting, not shaded-library discovery or exploitability.",
-        _NONE,
+        "inventory provider's accounting, not shaded-library discovery or exploitability. Lists vulnerable "
+        "dependencies only unless `query` is given (default limit 10), at most 5 advisories each.",
+        _QUERY_LIMIT,
         "vulnerabilities",
         False,
-        lambda c, _a: vulnerability_service(c.ctx).report(),
+        lambda c, a: _vulnerabilities_view(c.ctx, a["query"], a["limit"]),
+        VULNERABILITIES_DEFAULT_LIMIT,
     ),
     Tool(
         "vulnerabilities_scan",
@@ -525,6 +591,27 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         True,
         lambda c, _a: rest_api_service(c.ctx).scan(),
     ),
+    # BootUI 2.2.0 capture tools, after the 0.2.0 catalogue
+    Tool(
+        "get_http_routes",
+        "Return the HTTP routes this application served, grouped by method and route template, with request counts, "
+        "status classes, errors and duration percentiles over the retained exchanges, ranked by requests, total time "
+        "and p95 latency. A path no route matched is grouped by its masked path; query strings are never used.",
+        _LIMIT_ONLY,
+        "http-exchanges",
+        False,
+        lambda c, a: summarize_http_routes(c.ctx.capture.exchanges, limit=a["limit"]),
+    ),
+    Tool(
+        "get_request_profile",
+        "Return what one request did, by its exact request id from get_live_activity or get_http_exchanges: the "
+        "request, its SQL statements grouped by shape with N+1 suspects, its exceptions and the time spent in SQL. "
+        "An id no longer in the buffer returns available false.",
+        _ID,
+        "activity",
+        False,
+        lambda c, a: activity.request_profile(c.ctx, a["id"]),
+    ),
 )
 
 _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
@@ -534,6 +621,7 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "get_loggers": "loggers",
     "get_beans": "beans",
     "get_http_exchanges": "http exchanges",
+    "get_http_routes": "http routes",
     "get_log_tail": "logs tail",
     "get_exceptions": "exceptions list",
     "get_exception_detail": "exceptions show",
@@ -543,6 +631,7 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
     "pause_sql_trace_recording": "sql pause",
     "resume_sql_trace_recording": "sql resume",
     "get_live_activity": "activity",
+    "get_request_profile": "activity profile",
     "get_alembic_migrations": "db alembic",
     "get_health": "health",
     "get_database_connection_pools": "db pools",

@@ -1,0 +1,17 @@
+##### types #####
+psycopg.errors.UniqueViolation
+##### str(exc) #####
+duplicate key value violates unique constraint "u_name_key"
+DETAIL:  Key (name)=(mk16a3a9ce67) already exists.
+##### traceback #####
+Traceback (most recent call last):
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 399, in raw_run
+    sync()
+    ~~~~^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 387, in sync
+    cur.execute(sql, params)
+    ~~~~~~~~~~~^^^^^^^^^^^^^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\psycopg\cursor.py", line 117, in execute
+    raise ex.with_traceback(None)
+psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "u_name_key"
+DETAIL:  Key (name)=(mk16a3a9ce67) already exists.

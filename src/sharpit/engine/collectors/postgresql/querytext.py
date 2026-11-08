@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import re
 
-from sharpit.engine.masking import MASK, Masker
+from sharpit.engine.masking import MASK, Masker, is_sensitive_key
+from sharpit.engine.sqltext import Dialect, secret_spans, statement_text
 
 MAX_QUERY_TEXT_LENGTH = 400
 
@@ -25,12 +26,26 @@ _TOKEN = re.compile(
     r"|'.*)"  # plain with an ambiguous \': masked to the end of the text
     r"|(?P<number>0[xX][0-9A-Fa-f_]+|0[oO][0-7_]+|0[bB][01_]+"  # PostgreSQL 16 forms, masked whole
     r"|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?)"
-    r'|(?P<keep>"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*|\$\d+)'  # identifiers and $n placeholders
+    r'|(?P<keep>"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*|\$\d+'  # identifiers and $n placeholders
+    r"|[^\x00-\x7f]+\$+)"  # _NAME_DOLLARS: scan.l ident_cont, a ``$`` run ending a name after a non-ASCII char
     r"|(?P<comment>--[^\n]*|/\*)",  # a block comment's end is found by _comment_end: they nest
     re.DOTALL,
 )
+_PLAIN_NAME = re.compile(r'"[A-Za-z0-9_$.]+"')
 _COMMENT_MARK = re.compile(r"/\*|\*/")
-_WHITESPACE = re.compile(r"\s+")
+_WHITESPACE = re.compile(r"\s+", re.ASCII)
+# _NAME_DOLLARS' other half: a ``$`` that reads two ways next to a non-ASCII name character (a name character before
+# it, ``$tag$`` text after it, or a non-ASCII tag) still goes to the lexer, which cuts it; only a ``$`` run that ends
+# the name after a non-ASCII character (``x<U+202F>$$,``) stays on this tokenizer
+_TWO_WAY_DOLLAR = re.compile(
+    r"[^\x00-\x7f][A-Za-z0-9_$\x80-\U0010ffff]*?(?:[A-Za-z0-9_]\$|\$[A-Za-z0-9_\x80-\U0010ffff])|\$[^\x00-\x7f]"
+)
+# a sensitive key's masked literal, which BootUI shows bare: ``password = ******``, not ``password = '******'``
+_KEYED_LITERAL = re.compile(rf"(?<![\w.-])([\w.-]+)(\s*[=:]\s*)'{re.escape(MASK)}'", re.ASCII)
+
+
+def _bare(m: re.Match[str]) -> str:
+    return f"{m[1]}{m[2]}{MASK}" if is_sensitive_key(m[1]) else m[0]
 
 
 def _comment_end(sql: str, start: int) -> int:
@@ -43,18 +58,48 @@ def _comment_end(sql: str, start: int) -> int:
     return len(sql)
 
 
-def _mask_all(sql: str) -> str:
+class _Keeper:
+    """Appends kept text (code, names) to ``out``, each raw secret span in it one mask. Calls come in text order."""
+
+    def __init__(self, sql: str, out: list[str], secret: list[tuple[int, int]] | tuple[()]) -> None:
+        self._sql, self._out = sql, out
+        self._spans = iter(secret)
+        self._span = next(self._spans, None)
+
+    def keep(self, start: int, end: int) -> None:
+        sql, out, span = self._sql, self._out, self._span
+        while span is not None and span[1] <= start:
+            span = next(self._spans, None)
+        while span is not None and span[0] < end:
+            if gap := sql[start : max(span[0], start)]:
+                out.append(gap)
+            if out[-1:] != [MASK]:  # one mask for a span cut by a masked token
+                out.append(MASK)
+            start = min(span[1], end)
+            if span[1] > end:
+                break
+            span = next(self._spans, None)
+        self._span = span
+        out.append(sql[start:end])
+
+
+def _mask_all(sql: str, secret: list[tuple[int, int]] | None = None) -> str:
+    """Literals, numbers and comments masked; what is kept (code, names) loses each raw ``secret`` span too."""
     out: list[str] = []
+    keep = _Keeper(sql, out, secret or ()).keep
     pos = 0
     while (m := _TOKEN.search(sql, pos)) is not None:
-        out.append(sql[pos : m.start()])
+        keep(pos, m.start())
         if m.group() == "/*":
             out.append(" ")
             pos = _comment_end(sql, m.start())
-        else:
-            out.append(_mask_token(m))
+        elif (masked := _mask_token(m)) == m.group():
+            keep(m.start(), m.end())
             pos = m.end()
-    out.append(sql[pos:])
+        else:
+            out.append(masked)
+            pos = m.end()
+    keep(pos, len(sql))
     return "".join(out)
 
 
@@ -69,6 +114,9 @@ def _mask_token(m: re.Match[str]) -> str:
         before = m.string[: m.start()].rstrip()[-1:]
         # a lone digit right after a keyword (``SELECT 1``, ``LIMIT 5``) is not a value worth hiding
         return m.group() if len(m.group()) == 1 and before.isalpha() else MASK
+    # spec A1: a ``"`` run no name would be spelled like hides here too, as the lexer hides it on every other surface
+    if m.group().startswith('"') and not _PLAIN_NAME.fullmatch(m.group()):
+        return f"'{MASK}'"
     return m.group()
 
 
@@ -91,8 +139,16 @@ def query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUERY_TEXT
         return None
     if is_metadata_only(masker):  # the text exists but is withheld
         return MASK
+    if _TWO_WAY_DOLLAR.search(sql):
+        return truncate(statement_text(masker, sql, Dialect.POSTGRESQL), max_length)
     masked = masker.mask_text(sql) or MASK
     # literals and comments are values: masked exactly when the masker masks a secret value (not FULL, not mask-off)
     if masker.mask("password", "x")[1]:
-        masked = masker.mask_text(_mask_all(sql)) or MASK
+        # the raw text's secret spans, read before ``_mask_all`` masks a quoted key (``'pwd': v``) out of every pass.
+        # The text is a statement, so its last pass is the statement's (MVP spec section 14): a sensitive key hides
+        # one value and the clauses after it stay, as on every other statement surface
+        spans = secret_spans(masker, sql)
+        masked = (
+            MASK if spans is None else _KEYED_LITERAL.sub(_bare, masker.mask_statement(_mask_all(sql, spans)) or MASK)
+        )
     return truncate(masked, max_length)

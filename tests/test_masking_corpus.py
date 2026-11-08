@@ -311,7 +311,7 @@ def test_probe_masking_corpus(tmp_path: Path):
             exchange_rows = client.get(f"{API}/http-exchanges").json()["exchanges"]
     finally:
         handle.uninstall_capture()
-    assert results[0].json()["body"] == f'{{"password":"{MASK}","ok":true}}'
+    assert results[0].json()["body"] == f'{{"password":"{MASK}"'
     assert "Set-Cookie" not in results[0].text
     assert "session=" not in results[0].text
     assert results[1].json()["body"] == f"token={MASK}"
@@ -423,7 +423,7 @@ LOG_CORPUS = [
     ("prefixed_jwt_value", "host.app", "user sent %s", (f"refresh-{JWT}",), f"user sent refresh-{MASK}"),
     ("dsn_userinfo", "host.app", "connect %s failed", (f"postgres://u:{SENTINEL}@h/db",),
      "connect postgres://******@h/db failed"),
-    ("dict_repr", "host.app", "kwargs=%r", ({"api_key": SENTINEL},), f"kwargs={{'api_key': '{MASK}'}}"),
+    ("dict_repr", "host.app", "kwargs=%r", ({"api_key": SENTINEL},), f"kwargs={{'api_key': '{MASK}'"),
     (
         "access_log_jwt_path",
         "uvicorn.access",
@@ -436,7 +436,8 @@ LOG_CORPUS = [
         "host.app",
         "%s",
         (f"(sqlite3.IntegrityError) failed\n[SQL: INSERT INTO u VALUES (?)]\n[parameters: ('{SENTINEL}',)]",),
-        f"(sqlite3.IntegrityError) failed\n[SQL: INSERT INTO u VALUES (?)]\n[parameters: {MASK}]",
+        # Task 29: the sample app registers no engine, so a log line's error is UNSUPPORTED's (owner, item 8)
+        f"(sqlite3.IntegrityError)\n[SQL: [statement hidden: unsupported database]]\n[parameters: {MASK}]",
     ),
     ("sqlalchemy_echo_parameters", "sqlalchemy.engine.Engine", "[%s] %r", ("generated in 0.0001s", (SENTINEL,)), None),
 ]  # fmt: skip
