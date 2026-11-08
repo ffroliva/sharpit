@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import NamedTuple, Protocol
+from typing import Literal, NamedTuple, Protocol, cast
 
 from sharpit.engine.sqltext.dialect import Dialect
 from sharpit.engine.sqltext.family import family_cut, parting_readings
@@ -298,7 +298,7 @@ def _identifier_like(sql: str, index: int, end: int) -> bool:
     return all((c.isascii() and c.isalnum()) or c in "_$." for c in sql[start:stop])
 
 
-def _double_quoted_literal(sql: str, index: int, end: int, out: Out, rules: LexRules) -> bool | None:
+def _double_quoted_literal(sql: str, index: int, end: int, out: Out, rules: LexRules) -> Literal[True] | None:
     """sharpit deviation (0.4.0): MySQL reads ``"..."`` as a string, so an identifier-shaped run is a literal too in a
     value position (unless it qualifies a name, ``"b"."id"``) or when it looks like a secret; identifiers elsewhere
     stay readable. Text known to be MySQL's has every run a literal: ``ANSI_QUOTES`` only masks an identifier.
@@ -577,12 +577,10 @@ def _scan_double_quoted(source: str, index: int, end: int, out: Out, rules: LexR
     # MySQL hides the key of ``"password":value``, so the masker's last pass cannot see what it keys: stop here
     if rules.double_quote is DoubleQuote.STRING and _KEY_COLON.match(source, end):
         return index, True
-    if literal:
+    if literal is not None:
         return end, True
-    if literal is None:
-        out.marks.append(Candidate(len(out.chars), out.predicate_position()))
-        return _DOUBLE_QUOTED
-    return _CODE
+    out.marks.append(Candidate(len(out.chars), out.predicate_position()))
+    return _DOUBLE_QUOTED
 
 
 def _scan_backslash(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
@@ -722,7 +720,7 @@ def _backslash_reads_two_ways(scan: _Pass, rules: LexRules) -> bool:
 
 def _escaping_single(rules: LexRules) -> LexRules:
     """``rules`` with a backslash escaping in every single-quoted string, typed as the class ``_read`` takes."""
-    return replace(rules, backslash_in_single=Backslash.ALWAYS)
+    return cast(LexRules, replace(rules, backslash_in_single=Backslash.ALWAYS))  # pyright: ignore[reportUnnecessaryCast]
 
 
 def _without_backslashes(scan: _Pass) -> str:

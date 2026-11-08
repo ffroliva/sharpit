@@ -67,6 +67,51 @@ def test_gate_failure_still_printed(pytester: pytest.Pytester) -> None:
     assert f"sharpit: {len(notes)} advisor notes in report.json" in stdout
 
 
+def test_summary_says_what_the_run_checked(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(appmod=NOTES_APP, test_notes="def test_ok(): pass")
+
+    result = pytester.runpytest_inprocess("--sharpit", "--sharpit-app=appmod:app", "--sharpit-report=report.json", "-q")
+
+    stdout = result.stdout.str()
+    checked = next((line for line in stdout.splitlines() if line.startswith("sharpit checked:")), "")
+    not_checked = next((line for line in stdout.splitlines() if line.startswith("sharpit did not check:")), "")
+    assert "sharpit.n-plus-one" in checked
+    assert "REST API" in checked
+    assert "security" in not_checked
+    assert "routes and SQL your tests did not exercise" in not_checked
+    assert "security testing" in not_checked
+
+
+def test_summary_advisor_lists_follow_assessor_registry(pytester: pytest.Pytester) -> None:
+    pytester.makeconftest(
+        """
+        import sharpit.pytest_plugin.apps as apps
+        apps.advisor_assessors = lambda: []
+        """
+    )
+    pytester.makepyfile(appmod=NOTES_APP, test_notes="def test_ok(): pass")
+
+    result = pytester.runpytest_inprocess("--sharpit", "--sharpit-app=appmod:app", "--sharpit-report=report.json", "-q")
+
+    stdout = result.stdout.str()
+    checked = next((line for line in stdout.splitlines() if line.startswith("sharpit checked:")), "")
+    not_checked = next((line for line in stdout.splitlines() if line.startswith("sharpit did not check:")), "")
+    assert "REST API" not in checked
+    assert "REST API" in not_checked
+
+
+def test_summary_never_lists_what_ran_as_not_checked(pytester: pytest.Pytester) -> None:
+    """The test-runtime gates run in every session, so the 'did not check' line must not name them too."""
+    pytester.makepyfile(appmod=NOTES_APP, test_notes="def test_ok(): pass")
+
+    result = pytester.runpytest_inprocess("--sharpit", "--sharpit-app=appmod:app", "--sharpit-report=report.json", "-q")
+
+    not_checked = next(
+        (line for line in result.stdout.str().splitlines() if line.startswith("sharpit did not check:")), ""
+    )
+    assert "test-runtime" not in not_checked
+
+
 def test_gate_failure_counted_whatever_fail_on(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(
         test_gate="""
