@@ -32,6 +32,9 @@ from typing import NamedTuple
 GENERIC = "generic"
 MYSQL = "mysql"
 POSTGRESQL = "postgresql"
+# PostgreSQL's statements as the lexer shows them, on a surface that reads them with ``Dialect.POSTGRESQL`` (an error's
+# ``[SQL: `` block): ``generic``'s conventions; ``postgresql`` is the collector's own form. Owner ruling 2026-11-08
+POSTGRESQL_LEXER = "postgresql_lexer"
 SCAN_LIMIT = 20_000  # the scanner's limit, restated: past it nothing is scanned or shown
 LONG_EVERY = 100  # one row in this many is a statement over the limit
 MASKED = "******"
@@ -168,6 +171,7 @@ _LITERALS = {
     GENERIC: (*_DOUBLE_QUOTED, *_NOT_MYSQL, *_COMMON),
     MYSQL: (*_DOUBLE_QUOTED, *_COMMON),
     POSTGRESQL: (_double_value, *_NOT_MYSQL, *_COMMON),
+    POSTGRESQL_LEXER: (_double_value, *_NOT_MYSQL, *_COMMON),
 }
 
 
@@ -181,7 +185,8 @@ class _Statements:
     def __init__(self, rng: random.Random, dialect: str) -> None:
         self.rng = rng
         self.dialect = dialect
-        self.pg = dialect == POSTGRESQL
+        self.pg = dialect == POSTGRESQL  # the collector's form
+        self.pg_family = dialect in (POSTGRESQL, POSTGRESQL_LEXER)  # PostgreSQL's templates, in either form
         self.number = MASKED if self.pg else "?"
         self.string = f"'{MASKED}'" if self.pg else "?"
         self.turn = 0
@@ -277,11 +282,11 @@ class _Statements:
         return self._single("trailing_backslash", shown, m, ambiguous=True)
 
     def nested_comment(self) -> Row:  # PostgreSQL nests comments, so there it reads one way
-        if self.pg:
+        if self.pg_family:
             m = _mark(self.rng)
             return self._single(
                 "nested_comment",
-                _Shown(f"SELECT /* /* x */ */ '{m}', '{m}x'", "", f"SELECT '{MASKED}', '{MASKED}'"),
+                _Shown(f"SELECT /* /* x */ */ '{m}', '{m}x'", "SELECT ?, ?", f"SELECT '{MASKED}', '{MASKED}'"),
                 m,
             )
         m = _mark(self.rng)
@@ -409,7 +414,9 @@ class _Statements:
         m, space = _mark(self.rng), self.rng.choice(_UNICODE_SPACES)
         lead = self.rng.choice(("x", ""))
         text = f"SELECT {lead}{space}$$, 'a $$ {m} '"
-        shown = _Shown(text, f"SELECT {lead}{space}$$, ?", f"SELECT {lead}{space}$$, {self.string}")
+        # on PostgreSQL's lexer a ``$`` after a non-ASCII character could open a quote, so it cuts (``é$$``, spec §14)
+        scan = f"SELECT {lead}{space} ?" if self.pg_family else f"SELECT {lead}{space}$$, ?"
+        shown = _Shown(text, scan, f"SELECT {lead}{space}$$, {self.string}")
         return self._single("unicode_space", shown, m)
 
     def unlisted_verb(self) -> Row:  # a verb ``statement.py`` lacks: with no hit its render still shows
@@ -507,8 +514,12 @@ class _Statements:
 
     def names(self) -> Row:  # quoted names and arrays beside a literal
         m = _mark(self.rng)
-        if self.pg:
-            shown = _Shown(f"SELECT ARRAY['{m}', 'z'] FROM t", "", f"SELECT ARRAY['{MASKED}', '{MASKED}'] FROM t")
+        if self.pg_family:
+            shown = _Shown(
+                f"SELECT ARRAY['{m}', 'z'] FROM t",
+                "SELECT ARRAY[?, ?] FROM t",
+                f"SELECT ARRAY['{MASKED}', '{MASKED}'] FROM t",
+            )
             return self._single("names", shown, m)
         if self.dialect == MYSQL:
             name = self.rng.choice(("a b", "it's"))  # a quote inside a name is not a string
@@ -561,7 +572,7 @@ class _Statements:
         if self.dialect == MYSQL:
             return (*common, self.hash_comment, self.mysql_escaped, self.quiet_trigger, self.mysql_name,
                     self.mysql_routine, self.dot_digit, self.unlisted_verb, self.released_name)  # fmt: skip
-        if self.pg:
+        if self.pg_family:
             return (*common, self.trailing_backslash, self.nested_comment, self.unclosed_dollar)
         return (*common, self.trailing_backslash, self.nested_comment, self.oracle_quote, self.hash_comment,
                 self.unclosed_dollar, self.quiet_trigger, self.dollar_names, self.digit_bracket,
@@ -569,7 +580,7 @@ class _Statements:
                 self.unlisted_verb)  # fmt: skip
 
     def long_templates(self) -> tuple[Callable[[], Row], ...]:
-        return (self.long_literal,) if self.pg else (self.long_literal, self.long_identifier)
+        return (self.long_literal,) if self.pg_family else (self.long_literal, self.long_identifier)
 
 
 def rows(seed: int, n: int, dialect: str = GENERIC) -> list[Row]:

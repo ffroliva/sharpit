@@ -14,7 +14,7 @@ from sharpit.engine.sqltext import Dialect
 def _raw(*statements: str) -> list[dict[str, Any]]:
     """Ring rows as SqlTraceRecorder keeps them when parameters are captured: the raw text and its shape."""
     masker = Masker(Exposure.MASKED, True, capture_parameters=True)
-    return [{"sql": sql, "shape": sqltext.statement_shape(masker, sql, Dialect.UNSUPPORTED)} for sql in statements]
+    return [{"sql": sql, "shape": sqltext.statement_shape(masker, sql, Dialect.POSTGRESQL)} for sql in statements]
 
 
 def _normalized(*statements: str) -> list[dict[str, Any]]:
@@ -22,7 +22,7 @@ def _normalized(*statements: str) -> list[dict[str, Any]]:
     masker = Masker(Exposure.MASKED, True)
     rows = []
     for sql in statements:
-        shape = sqltext.statement_shape(masker, sql, Dialect.UNSUPPORTED)
+        shape = sqltext.statement_shape(masker, sql, Dialect.POSTGRESQL)
         rows.append({"sql": shape.text, "shape": shape})
     return rows
 

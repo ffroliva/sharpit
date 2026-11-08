@@ -66,6 +66,26 @@ def test_a_secret_the_baseline_also_showed_is_no_regression() -> None:
     assert not +gate.a2_hits([SECRET], shown, shown)
 
 
+MARKER = "MKstatement42"
+
+
+# derived: owner 2026-11-07, item 5: the statement surface is fed statements and judged on their markers
+def test_a_statement_surface_is_judged_on_its_statements_markers() -> None:
+    old = {"statement": "******", "err_off": "******"}
+    new = {"statement": f"SELECT {MARKER} {SECRET}", "err_off": "******"}
+    assert +gate.a2_hits([SECRET], old, new, [MARKER]) == {"statement": 1}
+
+
+def test_free_text_secrets_are_not_judged_on_a_statement_surface() -> None:
+    assert not +gate.a2_hits([SECRET], {"statement": "******"}, {"statement": SECRET}, [MARKER])
+
+
+def test_every_a2_row_carries_a_real_statement_of_a_known_dialect() -> None:
+    rows = gate.with_statements(gate.corpus(7, 6), 7)
+    assert {row["sd"] for row in rows} == set(gate.STATEMENT_DIALECTS)
+    assert all(row["ss"] and all(marker in row["st"] for marker in row["ss"]) for row in rows)
+
+
 def test_a_secret_is_judged_on_its_own_surface() -> None:
     """``mask_text`` hid it, the trace path did not: judging traces by ``mask_text`` hid 2,270 regressions."""
     old = {"err_off": "******", "trace": SECRET}

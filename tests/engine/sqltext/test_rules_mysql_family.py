@@ -345,16 +345,12 @@ def test_non_ascii_first_number_character_cuts_the_mysql_read(sql: str, marker: 
         (Dialect.POSTGRESQL, "SELECT 1E٣٣..0x7654001", "SELECT ?..?"),
         (Dialect.SQLITE, "SELECT @a.1e①e-0x7654001", "SELECT @a.?e-?"),
         (Dialect.SQLITE, "SELECT 1E٣٣..0x7654001", "SELECT ?..?"),
-        (Dialect.UNSUPPORTED, "SELECT @a.1e①e-0x7654001", "SELECT @a.?e-?"),
-        (Dialect.UNSUPPORTED, "SELECT 1E٣٣..0x7654001", "SELECT ?..?"),
     ],
     ids=[
         "postgresql-number-ident",
         "postgresql-real",
         "sqlite-number-ident",
         "sqlite-real",
-        "generic-number-ident",
-        "generic-real",
     ],
 )
 def test_mysql_exponent_fail_closed_rule_does_not_change_other_dialect_output(

@@ -181,16 +181,19 @@ class SharpitLogHandler(logging.Handler):
             local.busy = False
 
     def line(self, record: logging.LogRecord) -> dict[str, Any] | None:
-        """``LogLineDto``, or ``None`` for a SQLAlchemy bind-value line while parameter capture is off."""
+        """``LogLineDto``, or ``None`` for a SQLAlchemy line carrying values while parameter capture is off."""
         engine_log = record.name.startswith("sqlalchemy.engine")
-        if engine_log and not self.masker.capture_parameters and _is_parameter_line(record):
+        # SQLAlchemy logs a statement with no args; bind values, column names and fetched rows ("Row %r") come as args,
+        # and a row's repr is no statement: read as one on SQLite its escaped quote closes early and a value shows
+        if engine_log and not self.masker.capture_parameters and (_is_parameter_line(record) or record.args):
             return None
         family = self.application()
         dialect = Dialect.UNSUPPORTED if family is None else family
         message = _record_message(record, self.masker, dialect)
         # mask before the cut so a cut cannot hide a secret; the generous pre-cut bounds the regex work
         shown = message[: 4 * MAX_MESSAGE]
-        statement = engine_log and not self.masker.capture_parameters
+        # capture on shows a known dialect's raw text, but never one sharpit cannot read (owner, item 7)
+        statement = engine_log and (not self.masker.capture_parameters or dialect is Dialect.UNSUPPORTED)
         masked = log_statement(self.masker, shown, dialect) if statement else error_text(self.masker, shown, dialect)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"

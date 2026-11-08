@@ -17,7 +17,6 @@ import pytest
 
 from sharpit.engine.sqltext import rules as rules_module
 from sharpit.engine.sqltext.rules import (
-    GENERIC,
     MARIADB,
     MYSQL_84,
     POSTGRESQL,
@@ -38,7 +37,7 @@ from sharpit.engine.sqltext.rules import (
 RADIX_ALL = frozenset({"0x", "0X", "0o", "0O", "0b", "0B", "_"})
 
 
-COLUMNS: dict[str, LexRules] = {"postgresql": POSTGRESQL, "mysql": MYSQL_84, "sqlite": SQLITE, "generic": GENERIC}
+COLUMNS: dict[str, LexRules] = {"postgresql": POSTGRESQL, "mysql": MYSQL_84, "sqlite": SQLITE}
 
 
 def column(name: str) -> LexRules:
@@ -54,30 +53,25 @@ ROWS: dict[str, dict[str, dict[str, Any]]] = {
         "postgresql": {"backslash_in_single": Backslash.E_ONLY, "cut_backslash": True},
         "mysql": {"backslash_in_single": Backslash.ALWAYS, "cut_backslash": True},
         "sqlite": {"backslash_in_single": Backslash.NONE, "cut_backslash": False},
-        "generic": {"backslash_in_single": Backslash.ALWAYS, "cut_backslash": True},
     },
-    # `\` in `"`: pg 294-298 (none), my 1043-1054 (escape; ANSI_QUOTES is session state), sl 396-420 (none). generic is
-    # Generic text has no double-quote escape, but the backslash run remains ambiguous.
+    # `\` in `"`: pg 294-298 (none), my 1043-1054 (escape; ANSI_QUOTES is session state), sl 396-420 (none).
     "backslash_in_double": {
         "postgresql": {"backslash_in_double": Backslash.NONE},
         "mysql": {"backslash_in_double": Backslash.ALWAYS},
         "sqlite": {"backslash_in_double": Backslash.NONE},
-        "generic": {"backslash_in_double": Backslash.NONE},
     },
-    # `"`: pg 294-298 name, my literal, sl 413-415 name (DQS); generic keeps its value-position rule.
+    # `"`: pg 294-298 name, my literal, sl 413-415 name (DQS).
     # On SQLite, whether a name shows is a separate field: `hide_double_quoted=True`, read by the renderer.
     "double_quote": {
         "postgresql": {"double_quote": DoubleQuote.NAME, "hide_double_quoted": False},
         "mysql": {"double_quote": DoubleQuote.STRING, "hide_double_quoted": False},
         "sqlite": {"double_quote": DoubleQuote.NAME, "hide_double_quoted": True},
-        "generic": {"double_quote": DoubleQuote.VALUE_POSITION, "hide_double_quoted": False},
     },
-    # Backtick: pg 367 an operator, my 1765-1804 and sl 396-420 a name; generic cuts a run with a quote or left open.
+    # Backtick: pg 367 an operator, my 1765-1804 and sl 396-420 a name.
     "backtick": {
         "postgresql": {"backtick_run": BacktickRun.NONE},
         "mysql": {"backtick_run": BacktickRun.NAME},
         "sqlite": {"backtick_run": BacktickRun.NAME},
-        "generic": {"backtick_run": BacktickRun.NAME_OR_CUT},
     },
     # `[`: pg 366 and my sql_chars.cc:98 a character, sl 499-503 to the first `]`. The family keeps a bracket cut
     # (MariaDB sql_mode=MSSQL, mdb 2105-2106, is session state).
@@ -85,87 +79,67 @@ ROWS: dict[str, dict[str, dict[str, Any]]] = {
         "postgresql": {"bracket": Bracket.CHARACTER, "cut_bracket": False},
         "mysql": {"bracket": Bracket.CHARACTER, "cut_bracket": True},
         "sqlite": {"bracket": Bracket.TO_FIRST_CLOSE, "cut_bracket": False},
-        "generic": {"bracket": Bracket.TWO_WAY, "cut_bracket": True},
     },
-    # Dollar quote opens: pg 285-287 tag, my 2160-2193 tag, sl 509-538 never (`$` opens a variable), generic as today.
+    # Dollar quote opens: pg 285-287 tag, my 2160-2193 tag, sl 509-538 never (`$` opens a variable).
     "dollar_opens": {
         "postgresql": {"dollar": DollarOpen.POSTGRESQL_TAG},
         "mysql": {"dollar": DollarOpen.MYSQL_TAG},
         "sqlite": {"dollar": DollarOpen.NONE},
-        "generic": {"dollar": DollarOpen.POSTGRESQL_TAG},
     },
-    # Dollar closer: pg 757-776 first identical, my 1159-1188 no step back, generic PostgreSQL's.
+    # Dollar closer: pg 757-776 first identical, my 1159-1188 no step back.
     "dollar_closer": {
         "postgresql": {"dollar_closer": DollarCloser.FIRST_IDENTICAL},
         "mysql": {"dollar_closer": DollarCloser.NO_STEP_BACK},
         "sqlite": {"dollar_closer": DollarCloser.NONE},
-        "generic": {"dollar_closer": DollarCloser.FIRST_IDENTICAL},
     },
     # Nested `/*`: pg 447-485 counts depth; the family keeps the safety cut from spec §14 D7.
     "nested_comment": {
         "postgresql": {"nested_comments": Reading.YES},
         "mysql": {"nested_comments": Reading.CUT},
         "sqlite": {"nested_comments": Reading.NO},
-        "generic": {"nested_comments": Reading.CUT},
     },
     # `/*!` belongs to MySQL; MariaDB adds `/*M!` (sql_lex.cc:2440-2525).
     "executable_comment": {
         "postgresql": {"executable_prefixes": frozenset()},
         "mysql": {"executable_prefixes": frozenset({"/*!"})},
         "sqlite": {"executable_prefixes": frozenset()},
-        "generic": {"executable_prefixes": frozenset({"/*!", "/*M!"})},
     },
     # `--`: pg 210-213 always, ends at `\n` or `\r`; my 1504-1506 needs a space, ends at `\n`; sl 289-293 always,
-    # ends at `\n`; generic: a tight one or a lone CR cuts.
+    # ends at `\n`.
     "dash": {
         "postgresql": {"dash_needs_space": Reading.NO, "cr_ends_dash": Reading.YES},
         "mysql": {"dash_needs_space": Reading.YES, "cr_ends_dash": Reading.NO},
         "sqlite": {"dash_needs_space": Reading.NO, "cr_ends_dash": Reading.NO},
-        "generic": {"dash_needs_space": Reading.CUT, "cr_ends_dash": Reading.CUT},
     },
-    # `#`: pg 367 operator, my 1916 comment, sl 509-538 variable prefix, generic a trigger.
+    # `#`: pg 367 operator, my 1916 comment, sl 509-538 variable prefix.
     "hash": {
         "postgresql": {"hash": HashRule.OPERATOR},
         "mysql": {"hash": HashRule.COMMENT},
         "sqlite": {"hash": HashRule.VARIABLE},
-        "generic": {"hash": HashRule.CUT},
-    },
-    # `q'`: nothing on pg, my (`q` is an identifier) and sl; a trigger in generic.
-    "q_quote": {
-        "postgresql": {"q_quote_cuts": False},
-        "mysql": {"q_quote_cuts": False},
-        "sqlite": {"q_quote_cuts": False},
-        "generic": {"q_quote_cuts": True},
     },
     # `.digits` after a word: pg 395 and sl 421-433 literal, my 1611-1612 a name (keep it).
     "dot_digits": {
         "postgresql": {"dot_digits_is_name": False},
         "mysql": {"dot_digits_is_name": True},
         "sqlite": {"dot_digits_is_name": False},
-        "generic": {"dot_digits_is_name": False},
     },
-    # Digits then `$`: pg 421 the number ends and `$` opens, my 1682-1728 a name (integers only), sl 493-496 illegal,
-    # generic opens nothing.
+    # Digits then `$`: pg 421 the number ends and `$` opens, my 1682-1728 a name (integers only), sl 493-496 illegal.
     "digit_dollar": {
         "postgresql": {"digit_dollar": DigitDollar.OPENS},
         "mysql": {"digit_dollar": DigitDollar.NAME},
         "sqlite": {"digit_dollar": DigitDollar.ILLEGAL},
-        "generic": {"digit_dollar": DigitDollar.NO_OPEN},
     },
-    # Radix: pg 386-393 `0x 0o 0b _`, my 1677-1726 lowercase `0x 0b`, sl 438-492 `0x _`, generic keeps all.
+    # Radix: pg 386-393 `0x 0o 0b _`, my 1677-1726 lowercase `0x 0b`, sl 438-492 `0x _`.
     "radix": {
         "postgresql": {"radix": RADIX_ALL},
         "mysql": {"radix": frozenset({"0x", "0b"})},
         "sqlite": {"radix": frozenset({"0x", "0X", "_"})},
-        "generic": {"radix": RADIX_ALL},
     },
-    # Variable with a suffix: pg none, my 2100-2122 `@` runs to `[alnum._$]*`, sl 519-531 `$a(..)` to `)` or space,
-    # generic does not read it (a limit).
+    # Variable with a suffix: pg none, my 2100-2122 `@` runs to `[alnum._$]*`, sl 519-531 `$a(..)` to `)` or space.
     "variable_suffix": {
         "postgresql": {"at_token": False, "variable_suffix": VariableSuffix.NONE},
         "mysql": {"at_token": True, "variable_suffix": VariableSuffix.NONE},
         "sqlite": {"at_token": False, "variable_suffix": VariableSuffix.TCL_PAREN},
-        "generic": {"at_token": False, "variable_suffix": VariableSuffix.NOT_READ},
     },
 }
 
@@ -188,7 +162,7 @@ def non_data_fields(rules: LexRules) -> list[str]:
 
 
 def all_rules() -> list[LexRules]:
-    return [GENERIC, MYSQL_84, MARIADB, POSTGRESQL, SQLITE]
+    return [MYSQL_84, MARIADB, POSTGRESQL, SQLITE]
 
 
 def test_rules_are_data() -> None:
@@ -197,7 +171,7 @@ def test_rules_are_data() -> None:
 
 def test_a_function_field_is_not_data() -> None:
     # planted: a real LexRules whose closer is held as a callable field must fail the same check
-    planted = replace(GENERIC, dollar_closer=lambda text: text)  # type: ignore[arg-type]
+    planted = replace(POSTGRESQL, dollar_closer=lambda text: text)  # type: ignore[arg-type]
     assert non_data_fields(planted) == ["dollar_closer"]
 
 
@@ -226,11 +200,6 @@ def test_mysql_m_bang_is_not_its_executable_comment() -> None:
 
 def test_the_family_keeps_the_bracket_cut_on_both_readings() -> None:
     assert [r.cut_bracket for r in (MYSQL_84, MARIADB)] == [True, True]
-
-
-def test_generic_is_todays_non_mysql_reading() -> None:
-    # Task 12 reads POSTGRESQL, SQLITE and UNSUPPORTED through GENERIC: it keeps the PostgreSQL tag and no `"` escape
-    assert (GENERIC.dollar, GENERIC.backslash_in_double) == (DollarOpen.POSTGRESQL_TAG, Backslash.NONE)
 
 
 def dialect_uses(source: str) -> list[int]:

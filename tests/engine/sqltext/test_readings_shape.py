@@ -1,6 +1,6 @@
-"""The shape of ``READINGS`` as Task 12 stages it: the family reads one MySQL entry, PostgreSQL and SQLite read
-``GENERIC``. The dialect tasks (16 to 23) change these expectations here, and nowhere else: the rule-table cells in
-``test_rules_table.py`` read the named constants and do not move.
+"""The shape of ``READINGS``: the family reads MySQL and MariaDB, PostgreSQL and SQLite their own rules. Task 29
+removed ``GENERIC``: ``UNSUPPORTED`` has no rules, its text is hidden. The dialect tasks change these expectations
+here, and nowhere else: the rule-table cells in ``test_rules_table.py`` read the named constants and do not move.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import pytest
 
 from sharpit.engine.sqltext.dialect import Dialect
 from sharpit.engine.sqltext.lexer import readings
-from sharpit.engine.sqltext.rules import GENERIC, MARIADB, MYSQL_84, POSTGRESQL, READINGS, SQLITE
+from sharpit.engine.sqltext.rules import MARIADB, MYSQL_84, POSTGRESQL, READINGS, SQLITE
 
 
 def test_readings_is_not_empty() -> None:
@@ -37,8 +37,10 @@ def test_postgresql_reads_postgresql() -> None:
     assert READINGS.get(Dialect.POSTGRESQL) == (POSTGRESQL,)
 
 
-def test_unsupported_reads_generic() -> None:
-    assert readings(Dialect.UNSUPPORTED) == (GENERIC,)
+def test_unsupported_reads_nothing() -> None:
+    # derived: Task 29, an unwired path that reaches the lexer with UNSUPPORTED fails closed
+    with pytest.raises(KeyError):
+        readings(Dialect.UNSUPPORTED)
 
 
 def test_a_leftover_flag_is_no_dialect() -> None:

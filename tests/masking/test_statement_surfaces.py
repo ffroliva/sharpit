@@ -56,12 +56,15 @@ from sharpit.settings import load_settings
 ROWS = int(os.environ.get("MASKING_GATE_ROWS", "2000"))  # Task 11 runs the same gates at 60,000
 pytestmark = pytest.mark.timeout(max(300, ROWS // 5))  # the time of a surface grows with the rows, not with a bug
 SEEDS = (7, 8)
-DIALECTS = {"generic": sql_corpus.GENERIC, "mysql": sql_corpus.MYSQL, "pg_valid": sql_corpus.POSTGRESQL}
+# Task 29: the generic rows are the named UNSUPPORTED set. Their text has no rules sharpit reads, so every statement
+# surface shows the marker and every error block the marker in place of the statement
+DIALECTS = {"unsupported": sql_corpus.GENERIC, "mysql": sql_corpus.MYSQL, "pg_valid": sql_corpus.POSTGRESQL}
+MARKER = "[statement hidden: unsupported database]"
 NO_CAP = 10**6
 # decision D6, issue #59: the share of the generic corpus that holds a quoted identifier; a rise must be noticed
 QUOTED_IDENTIFIER_SHARE = 0.013
 # spec A3: how often the fallback that loses statement text fires, per mode; a rise must be noticed
-FALLBACK_SHARE = {"generic": 0.35, "mysql": 0.11, "pg_valid": 0.11}
+FALLBACK_SHARE = {"unsupported": 0.35, "mysql": 0.11, "pg_valid": 0.11}
 NODE = "tests/test_x.py::test_x"
 BOUND = "bound-value-7"
 DETAIL = "detail-value-7"
@@ -142,8 +145,13 @@ def _recorder_error(carrier: Carrier, dialect: Dialect, masker: Masker, statemen
     return _recorded(masker, statement, dialect, RuntimeError(error_text(statement, carrier)))["errorMessage"]
 
 
-# the name each wiring reads a dialect from: a generic row reaches these surfaces with no server the lexer knows
-SERVER_NAMES = {Dialect.MYSQL_FAMILY: "mysql", Dialect.SQLITE: "sqlite", Dialect.UNSUPPORTED: "mssql"}
+# the name each wiring reads a dialect from: an unsupported row reaches these surfaces with no server sharpit reads
+SERVER_NAMES = {
+    Dialect.MYSQL_FAMILY: "mysql",
+    Dialect.SQLITE: "sqlite",
+    Dialect.POSTGRESQL: "postgresql",
+    Dialect.UNSUPPORTED: "mssql",
+}
 
 
 def _orm_statement(_masker: Masker, statement: str, dialect: Dialect) -> str | None:
@@ -168,29 +176,45 @@ def _test_session_exception(masker: Masker, text: str, _dialect: Dialect) -> str
     return next(iter(groups.values()))[1] if groups else None
 
 
-def _log_line(logger: str, masker: Masker, message: str, _dialect: Dialect = Dialect.UNSUPPORTED) -> str | None:
+def _proof(dialect: Dialect) -> Callable[[], Dialect | None]:
+    """The application's family for a surface that reads one: none in the unsupported mode, else the mode's own.
+
+    derived: owner ruling 2026-11-08 (C, cp9-deep S1): a ``-mysql`` gate row measures a MySQL deployment reading MySQL
+    text, so the surface has the application's proof; with none (Task 28) it hid every block as ``UNSUPPORTED``.
+    """
+    family = None if dialect is Dialect.UNSUPPORTED else dialect
+    return lambda: family
+
+
+def _registry(dialect: Dialect) -> Any:
+    """An engine registry whose family is ``dialect``'s proof, or no registry in the unsupported mode."""
+    family = _proof(dialect)()
+    return None if family is None else SimpleNamespace(family=lambda: family, has_engines=lambda: True)
+
+
+def _log_line(logger: str, masker: Masker, message: str, dialect: Dialect = Dialect.UNSUPPORTED) -> str | None:
     record = logging.LogRecord(logger, logging.INFO, __file__, 1, message, None, None)
-    line = SharpitLogHandler(masker, None, application=lambda: None).line(record)
+    line = SharpitLogHandler(masker, None, application=_proof(dialect)).line(record)
     return None if line is None else line["message"]
 
 
-def _stored_exception(masker: Masker, exc: Exception) -> tuple[ExceptionStore, str]:
-    store = ExceptionStore(5, 5, 5, masker, application=lambda: None)
+def _stored_exception(masker: Masker, exc: Exception, dialect: Dialect) -> tuple[ExceptionStore, str]:
+    store = ExceptionStore(5, 5, 5, masker, application=_proof(dialect))
     store.record(exc, "logging", None, None)
     return store, store.report()["groups"][0]["id"]
 
 
-def _exception_message(masker: Masker, text: str, _dialect: Dialect) -> str | None:
-    store, gid = _stored_exception(masker, RuntimeError(text))
+def _exception_message(masker: Masker, text: str, dialect: Dialect) -> str | None:
+    store, gid = _stored_exception(masker, RuntimeError(text), dialect)
     detail = store.detail(gid)
     assert detail is not None
     return detail["group"]["message"]
 
 
-def _cause_message(masker: Masker, text: str, _dialect: Dialect) -> str | None:
+def _cause_message(masker: Masker, text: str, dialect: Dialect) -> str | None:
     outer = RuntimeError("the read failed")
     outer.__cause__ = RuntimeError(text)
-    store, gid = _stored_exception(masker, outer)
+    store, gid = _stored_exception(masker, outer, dialect)
     detail = store.detail(gid)
     assert detail is not None
     return detail["causes"][0]["message"]
@@ -213,8 +237,8 @@ def _trace_status(masker: Masker, text: str, dialect: Dialect) -> str | None:
     return SpanBuffer(masker, application=lambda: None)._span(span)["statusMessage"]  # noqa: SLF001
 
 
-def _transaction_error(masker: Masker, text: str, _dialect: Dialect) -> str | None:
-    recorder = TransactionRecorder(masker, application=lambda: None)
+def _transaction_error(masker: Masker, text: str, dialect: Dialect) -> str | None:
+    recorder = TransactionRecorder(masker, application=_proof(dialect))
     entry = recorder.begin(1, parent=None, method="a:b", thread="MainThread", trace_id=None, connection_id="db-1")
     recorder.end(entry, "UNKNOWN", RuntimeError(text))
     return recorder.report([])["entries"][0]["errorMessage"]
@@ -237,30 +261,30 @@ def test_exception_transaction_and_log_surfaces_call_the_application_family() ->
     assert called == ["application", "application", "application"]
 
 
-def _data_warning(masker: Masker, text: str, _dialect: Dialect) -> str | None:
+def _data_warning(masker: Masker, text: str, dialect: Dialect) -> str | None:
     ctx: Any = SimpleNamespace(
         masker=masker,
-        capture=SimpleNamespace(raw_sqlite_seen=False, engine_registry=None),
+        capture=SimpleNamespace(raw_sqlite_seen=False, engine_registry=_registry(dialect)),
     )
     return data._masked(ctx, f"Could not read a mapper (RuntimeError: {text})").removesuffix(")")  # noqa: SLF001
 
 
-def _health_failure(masker: Masker, text: str, _dialect: Dialect) -> str | None:
+def _health_failure(masker: Masker, text: str, dialect: Dialect) -> str | None:
     service: Any = SimpleNamespace(
         _ctx=SimpleNamespace(
             masker=masker,
-            capture=SimpleNamespace(raw_sqlite_seen=False, engine_registry=None),
+            capture=SimpleNamespace(raw_sqlite_seen=False, engine_registry=_registry(dialect)),
         )
     )
     return HealthService._failure(service, RuntimeError(text))  # noqa: SLF001
 
 
-def _probe_error(masker: Masker, text: str, _dialect: Dialect) -> str | None:
+def _probe_error(masker: Masker, text: str, dialect: Dialect) -> str | None:
     async def app(_scope: Any, _receive: Any, _send: Any) -> None:
         raise RuntimeError(text)
 
     return _PROBE_RUNNER.run(
-        run_probe(app, ProbeRequest("GET", "/fail", "", {}), {}, "", masker, application=lambda: None)
+        run_probe(app, ProbeRequest("GET", "/fail", "", {}), {}, "", masker, application=_proof(dialect))
     )["error"]
 
 
@@ -350,7 +374,9 @@ ERROR_DRIVERS: dict[str, Driver] = {
     "probe": _probe_error,
     "test_session_exception": _test_session_exception,
 }
-MODES = (("generic", Dialect.UNSUPPORTED, SQLITE), ("mysql", Dialect.MYSQL_FAMILY, PYMYSQL))
+MODES = (("unsupported", Dialect.UNSUPPORTED, SQLITE), ("mysql", Dialect.MYSQL_FAMILY, PYMYSQL))
+# a hidden statement has no identity, so the test session lists none: test_unsupported_identity.py reads that
+NO_IDENTITY = {"test_session_sql-unsupported"}
 
 
 def _driven(driver: Driver, dialect: Dialect, masker: Masker, statement: str) -> str | None:
@@ -371,9 +397,10 @@ def _statement_surfaces() -> dict[str, Surface]:
         f"{name}-{mode}": partial(_driven, driver, dialect)
         for name, driver in STATEMENT_DRIVERS.items()
         for mode, dialect, _ in MODES
+        if f"{name}-{mode}" not in NO_IDENTITY
     }
-    # generic only: a log record names no driver, so nothing tells the handler the text is MySQL's
-    surfaces["log_handler_statement-generic"] = partial(_log_line, "sqlalchemy.engine.Engine")
+    # unsupported only: a log record names no driver, and the handler has no application, so its text is hidden
+    surfaces["log_handler_statement-unsupported"] = partial(_log_line, "sqlalchemy.engine.Engine")
     surfaces["mysql_query_text-mysql"] = _mysql_query_text
     surfaces["query_text-pg_valid"] = _query_text
     return surfaces
@@ -386,9 +413,9 @@ def _error_surfaces() -> dict[str, tuple[Surface, Carrier]]:
             surfaces[f"{name}-{mode}"] = (partial(_driven_error, driver, dialect, carrier), carrier)
         surfaces[f"recorder_error-{mode}"] = (partial(_recorder_error, carrier, dialect), carrier)
         surfaces[f"exception_stacktrace-{mode}"] = (partial(_stacktrace, dialect, carrier), carrier)
-    surfaces["postgresql_error-generic"] = (_postgresql_failure, PSYCOPG)
+    surfaces["postgresql_error-pg_valid"] = (_postgresql_failure, PSYCOPG)
     surfaces["mysql_error-mysql"] = (_mysql_failure, PYMYSQL)
-    surfaces["postgresql_refused-generic"] = (_postgresql_refused, PSYCOPG)
+    surfaces["postgresql_refused-pg_valid"] = (_postgresql_refused, PSYCOPG)
     surfaces["mysql_refused-mysql"] = (_mysql_refused, PYMYSQL)
     return surfaces
 
@@ -401,8 +428,8 @@ SURFACES: dict[str, Surface] = {
     "mysql_last_error-mysql": _mysql_last_error,  # the applier's text, with no ``[SQL: `` block to parse back
 }
 # these cut what they show: a statement over the limit cannot equal ``expected`` there, and A1 still reads it
-CAPPED = {"log_handler_statement-generic", *ERROR_SURFACES}
-NEEDS_SQLALCHEMY = {"postgresql_refused-generic", "mysql_refused-mysql"}
+CAPPED = {"log_handler_statement-unsupported", *ERROR_SURFACES}
+NEEDS_SQLALCHEMY = {"postgresql_refused-pg_valid", "mysql_refused-mysql"}
 _MASKER = Masker(Exposure.MASKED, True)
 _BLOCK = re.compile(r"\[SQL: (.*?)\]?\s*(?:\[parameters: |\(Background on |\Z)", re.DOTALL)
 _REGIONS = re.compile(
@@ -439,19 +466,21 @@ def _statement_of(shown: str | None) -> str | None:
     return block.group(1) if block else shown
 
 
-def _shape_fails(row: Row, statement: str | None) -> bool:
+def _shape_fails(row: Row, statement: str | None, hidden: bool = False) -> bool:
+    if hidden:  # the named UNSUPPORTED set: its expected output is the marker
+        return statement != MARKER
     if row.plain:
         return statement != row.expected
     return statement is None or row.tail not in statement
 
 
-def failures_shape(surface: Surface, rows: Sequence[Row]) -> list[Row]:
+def failures_shape(surface: Surface, rows: Sequence[Row], hidden: bool = False) -> list[Row]:
     """A3, the anti-blanking oracle: a ``plain`` row must equal the template, any other row must keep its tail.
 
     An ambiguous row is plain and equals its cut, so a statement that reads one way cannot take the fallback: that is
     spec A3's "0 on statements that read one way".
     """
-    return [row for row in rows if _shape_fails(row, _statement_of(surface(_MASKER, row.text)))]
+    return [row for row in rows if _shape_fails(row, _statement_of(surface(_MASKER, row.text)), hidden)]
 
 
 def broken_regions(shown: str | None, carrier: Carrier, tail: str = "", statement: str | None = None) -> list[str]:
@@ -473,14 +502,40 @@ def _closes(row: Row) -> bool:
     return not row.ambiguous and len(row.text) <= sql_corpus.SCAN_LIMIT
 
 
-def failures_regions(surface: Surface, rows: Sequence[Row], carrier: Carrier) -> list[Row]:
+def hidden_regions(shown: str | None, carrier: Carrier) -> list[str]:
+    """An ``UNSUPPORTED`` error, as owner's item 8 rules: the class, the marker for the block, the constant parameters
+    region; none of the driver's free text."""
+    lines = (shown or "").split("\n")
+    allowed = {carrier.shown.split(" ", 1)[0], f"[SQL: {MARKER}]", f"[parameters: {MASK}]"}
+    holds = {
+        "block": f"[SQL: {MARKER}]" in lines,
+        "parameters": f"[parameters: {MASK}]" in lines,
+        "free_text": all(line in allowed for line in lines),  # a surface that prefixes a name loses its class line
+    }
+    return [region for region, held in holds.items() if not held]
+
+
+def failures_regions(surface: Surface, rows: Sequence[Row], carrier: Carrier, hidden: bool = False) -> list[Row]:
     """A3: the rows whose error does not parse back. ``failures_visible`` reads the rest, for the carried values."""
+    if hidden:
+        return [row for row in rows if _closes(row) and hidden_regions(surface(_MASKER, row.text), carrier)]
     return [row for row in rows if _closes(row) and broken_regions(surface(_MASKER, row.text), carrier, row.tail)]
+
+
+# the gates' corpora: a mode's own, and PostgreSQL's in the lexer's form for a surface that reads it with the lexer
+GATE_CORPORA = {**DIALECTS, "pg_lexer": sql_corpus.POSTGRESQL_LEXER}
+# derived: owner ruling 2026-11-08 (C, cp9-deep S2): these render PostgreSQL's ``[SQL: `` block with the lexer, so they
+# are judged by the lexer's form of the same statements, not ``query_text``'s ``******`` form
+LEXER_PG = frozenset({"postgresql_error-pg_valid", "postgresql_refused-pg_valid"})
 
 
 @functools.cache
 def gate_rows(mode: str) -> tuple[Row, ...]:
-    return tuple(row for seed in SEEDS for row in sql_corpus.rows(seed, ROWS, DIALECTS[mode]))
+    return tuple(row for seed in SEEDS for row in sql_corpus.rows(seed, ROWS, GATE_CORPORA[mode]))
+
+
+def _gate_mode(name: str) -> str:
+    return "pg_lexer" if name in LEXER_PG else _mode(name)
 
 
 def _params(names: Iterable[str]) -> list[Any]:
@@ -490,6 +545,11 @@ def _params(names: Iterable[str]) -> list[Any]:
 
 def _mode(name: str) -> str:
     return name.rsplit("-", 1)[1]
+
+
+def _hidden(name: str) -> bool:
+    """Whether the surface hides the statement as ``UNSUPPORTED``: the unsupported mode, and a surface with no proof."""
+    return _mode(name) == "unsupported" or name in NO_PROOF_MYSQL_ERRORS
 
 
 def _summary(failing: Sequence[Row], total: int) -> str:
@@ -529,7 +589,7 @@ def test_every_row_holds_its_markers_and_expected_shows_none(dialect: str, seed:
         (sql_corpus.MYSQL, {"shapes", "sensitive_name", "sensitive_table", "comments", "names", "hash", "long_literal",
                             "long_identifier", "mysql_escaped", "quiet_trigger", "mysql_name", "executable_comment",
                             "mysql_routine", "family_dollar", "dot_digit", "tight_verb", "unlisted_verb",
-                            "unicode_space"}),
+                            "unicode_space", "released_name"}),
         (sql_corpus.POSTGRESQL, {"shapes", "sensitive_name", "sensitive_table", "comments", "names",
                                  "trailing_backslash", "nested_comment", "unclosed_dollar", "long_literal",
                                  "tight_verb", "unicode_space"}),
@@ -559,7 +619,7 @@ def test_a_cut_identifier_opens_before_the_limit_and_closes_after_it() -> None:
     ("mode", "shapes"),
     [
         (
-            "generic",
+            "unsupported",
             {
                 "trailing_backslash",
                 "nested_comment",
@@ -625,18 +685,15 @@ def test_the_corpus_holds_its_share_of_quoted_identifiers() -> None:
     assert in_corpus <= QUOTED_IDENTIFIER_SHARE * len(rows)
 
 
-@pytest.mark.parametrize("name", _params(name for name in SURFACES if name.endswith("-generic")))
+@pytest.mark.parametrize("name", _params(name for name in SURFACES if name.endswith("-unsupported")))
 def test_a_quoted_identifier_is_counted_not_failed(name: str) -> None:
-    """Generic SQL spans with no dialect evidence fail closed; other generic surfaces keep D6 names readable."""
+    """An unsupported statement is hidden whole, so no surface shows a quoted identifier of one (Task 29)."""
     rows = gate_rows(_mode(name))
     in_corpus = sum(bool(row.quoted_identifier) for row in rows)
     shown = quoted_identifiers_shown(SURFACES[name], rows)
     print(f"D6 {name}: {len(shown)} of {in_corpus} rows")
     assert in_corpus > 0
-    if name in {"db_statement-generic", "db_query_text-generic"}:
-        assert not shown, f"{len(shown)} of {in_corpus} unsupported span statements show a quoted identifier"
-    else:
-        assert len(shown) == in_corpus, f"{len(shown)} of {in_corpus} rows show their quoted identifier"
+    assert not shown, f"{len(shown)} of {in_corpus} unsupported statements show a quoted identifier"
 
 
 D6_ROWS = 1475  # tests/masking/test_server_corpus.py pins the same count on the corpus itself
@@ -662,16 +719,18 @@ def test_every_sqlite_d6_row_is_hidden(name: str) -> None:
 
 @pytest.mark.parametrize("name", _params(name for name in SURFACES if name != "mysql_last_error-mysql"))
 def test_output_equals_the_expected_shape(name: str) -> None:
-    rows = [row for row in gate_rows(_mode(name)) if not (name in CAPPED and len(row.text) > sql_corpus.SCAN_LIMIT)]
-    failing = failures_shape(SURFACES[name], rows)
+    rows = [
+        row for row in gate_rows(_gate_mode(name)) if not (name in CAPPED and len(row.text) > sql_corpus.SCAN_LIMIT)
+    ]
+    failing = failures_shape(SURFACES[name], rows, _hidden(name))
     assert not failing, _summary(failing, len(rows))
 
 
 @pytest.mark.parametrize("name", _params(ERROR_SURFACES))
 def test_an_error_keeps_its_regions(name: str) -> None:
     surface, carrier = ERROR_SURFACES[name]
-    rows = gate_rows(_mode(name))
-    failing = failures_regions(surface, rows, carrier)
+    rows = gate_rows(_gate_mode(name))
+    failing = failures_regions(surface, rows, carrier, _hidden(name))
     assert not failing, f"{_summary(failing, sum(_closes(row) for row in rows))}"
 
 
@@ -704,9 +763,12 @@ def test_a_live_error_stays_readable(name: str, live_error: str) -> None:
     driver_line = live_error.split("\n", 1)[0]
     link = re.search(r"https://sqlalche\.me/\S+?(?=\))", live_error)
     assert link is not None
-    shown = ERROR_DRIVERS[name](_MASKER, live_error, Dialect.UNSUPPORTED)
+    shown = ERROR_DRIVERS[name](_MASKER, live_error, Dialect.SQLITE)  # derived: a live SQLite error reads as one
     carrier = Carrier(driver_line, driver_line, link.group())
-    assert broken_regions(shown, carrier, statement="INSERT INTO u VALUES (?, ?, ?)") == []
+    if name in NO_PROOF_ERRORS:  # Task 29: text never names a dialect, so a surface with no proof hides the block
+        assert hidden_regions(shown, carrier) == []
+    else:
+        assert broken_regions(shown, carrier, statement="INSERT INTO u VALUES (?, ?, ?)") == []
 
 
 # --- the masker reads the recorder's statement, 2026-11-05 design section 10 step 1 ---------------------------------
@@ -719,7 +781,7 @@ CODE_POSITIONS = {
 }
 
 
-@pytest.mark.parametrize("name", ["recorder_sql-generic", "recorder_sql-mysql"])
+@pytest.mark.parametrize("name", ["recorder_sql-unsupported", "recorder_sql-mysql"])
 @pytest.mark.parametrize("statement", CODE_POSITIONS.values(), ids=CODE_POSITIONS)
 def test_the_masker_reads_the_recorders_statement(name: str, statement: str) -> None:
     assert CODE_TOKEN not in _shown_by(name, statement)
@@ -757,23 +819,19 @@ def test_newline_pair_keeps_the_value_hidden(name: str) -> None:
     assert VALUE not in _shown_by(name, f'UPDATE t SET pwd=\n"{VALUE}", note=? WHERE id=?')
 
 
-# Task 28: a pymysql driver line on a surface wired with no proof (``application=lambda: None``) is a conflict, which
-# hides the block, where the text used to switch it to MySQL's reading
-NO_PROOF_MYSQL_ERRORS = frozenset(
-    f"{name}-mysql"
-    for name in (
-        "log_handler_error", "exception_message", "causes", "transactions", "data", "health", "probe",
-        "test_session_exception",
-    )
-)  # fmt: skip
+# Task 28: a pymysql driver line on a surface with no proof is a conflict, which hides the block, where the text used
+# to switch it to MySQL's reading. The test session's sink resolves an exception with no application (``sink.py``), so
+# it has none in production; the other error drivers take the mode's proof (owner ruling 2026-11-08, cp9-deep S1)
+NO_PROOF_ERRORS = frozenset({"test_session_exception"})
+NO_PROOF_MYSQL_ERRORS = frozenset(f"{name}-mysql" for name in NO_PROOF_ERRORS)
 
 
 @pytest.mark.parametrize("name", _params(name for name in SURFACES if name != "mysql_last_error-mysql"))
 def test_a_sensitive_column_keeps_where(name: str) -> None:
     shown = _shown_by(name, "UPDATE users SET password=? WHERE id=?")
-    if name in {"db_statement-generic", "db_query_text-generic"}:
-        assert shown == "[statement hidden: unsupported database]"
-    elif name in NO_PROOF_MYSQL_ERRORS:
-        assert f"[SQL: {MASK}]" in shown
+    if name in STATEMENT_SURFACES and _mode(name) == "unsupported":
+        assert shown == MARKER
+    elif _mode(name) == "unsupported" or name in NO_PROOF_MYSQL_ERRORS:
+        assert f"[SQL: {MARKER}]" in shown
     else:
         assert "WHERE id=?" in shown

@@ -38,6 +38,10 @@ SECRET = "hunter2plain"
 LINK = "https://sqlalche.me/e/21/gkpj"
 LINK_LINE = f"(Background on this error at: {LINK})"
 DRIVER = "(sqlite3.IntegrityError) UNIQUE constraint failed: u.name"
+# owner ruling 2026-11-08: a stated limit (CHANGELOG, MVP spec section 14); strict: a fix that closes one fails
+TEXT_ONLY_LIMIT = pytest.mark.xfail(
+    strict=True, reason="owner ruling 2026-11-08: text-only surface, unquoted driver value; stated limit"
+)
 MARKERS = re.compile(r"mk[0-9a-f]{10}")
 SECTION = re.compile(r"^##### (.+?) #####\n", re.MULTILINE)
 SEPARATORS = {"cr": "\r", "nel": "\x85", "ls": " ", "ps": " ", "vt": "\x0b", "ff": "\x0c", "fs": "\x1c"}
@@ -74,7 +78,7 @@ def sections(entry: dict[str, Any]) -> dict[str, str]:
     return {parts[i]: parts[i + 1][:-1] for i in range(1, len(parts), 2)}
 
 
-def shown(text: str, dialect: Dialect = Dialect.UNSUPPORTED) -> str:
+def shown(text: str, dialect: Dialect = Dialect.POSTGRESQL) -> str:
     masked = mask_error(MASKER, text, dialect)
     assert masked is not None
     return masked
@@ -83,16 +87,17 @@ def shown(text: str, dialect: Dialect = Dialect.UNSUPPORTED) -> str:
 def recorded(text: str, sql: str = "SELECT 2", masker: Masker = MASKER) -> str | None:
     recorder = SqlTraceRecorder(masker, max_sql_length=10**6)
     recorder.record(
-        sql, duration_ns=1, thread="t", connection_id=None, error=Exception(text), dialect=Dialect.UNSUPPORTED
+        sql, duration_ns=1, thread="t", connection_id=None, error=Exception(text), dialect=Dialect.POSTGRESQL
     )
     return recorder.rows()[-1]["errorMessage"]
 
 
-def logged(name: str, message: str, masker: Masker = MASKER) -> str | None:
+def logged(name: str, message: str, masker: Masker = MASKER, family: Dialect | None = None) -> str | None:
     handler = SharpitLogHandler.__new__(SharpitLogHandler)
     handler.masker = masker
-    handler.application = lambda: None
-    record = logging.LogRecord(name, logging.INFO, __file__, 1, "%s", (message,), None)
+    handler.application = lambda: family
+    # as SQLAlchemy logs a statement: the text is the message, with no args (a record with args carries values)
+    record = logging.LogRecord(name, logging.INFO, __file__, 1, message, None, None)
     line = handler.line(record)
     assert line is not None
     return line["message"]
@@ -110,7 +115,7 @@ PROOF = dict.fromkeys(("pymysql", "mysqlclient", "aiomysql"), Dialect.MYSQL_FAMI
 @pytest.mark.parametrize("entry", COMPLETE, ids=lambda e: e["file"])
 def test_real_error_keeps_statement_and_link(entry: dict[str, Any]) -> None:
     raw = sections(entry)["str(exc)"]
-    masked = shown(raw, PROOF.get(entry["driver"], Dialect.UNSUPPORTED))
+    masked = shown(raw, PROOF.get(entry["driver"], Dialect.POSTGRESQL))
     assert MARKERS.search(masked) is None
     assert re.search(r"\(Background on this error at: https://sqlalche\.me/e/\d+/\w+\)$", masked) is not None
     if entry["case"] not in NO_CLOSER:
@@ -124,7 +129,7 @@ def test_a_real_traceback_shows_no_value(entry: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize("entry", COMPLETE, ids=lambda e: e["file"])
 def test_a_real_traceback_keeps_its_frames_and_statement(entry: dict[str, Any]) -> None:
-    masked = shown(sections(entry)["traceback"], PROOF.get(entry["driver"], Dialect.UNSUPPORTED))
+    masked = shown(sections(entry)["traceback"], PROOF.get(entry["driver"], Dialect.POSTGRESQL))
     assert '  File "<repo>' in masked
     if entry["case"] not in NO_CLOSER:
         assert KEPT[entry["case"]] in masked
@@ -141,7 +146,8 @@ def test_a_bare_cause_shows_no_value(entry: dict[str, Any]) -> None:
 def test_a_closer_past_the_scan_limit_is_not_a_closer() -> None:
     masked = shown(f"{DRIVER}\n[SQL: SELECT {'1, ' * 8000}'{SECRET}']\n[parameters: ('{SECRET}',)]\n{LINK_LINE}")
     assert SECRET not in masked
-    assert "[parameters: " not in masked
+    # owner ruling 2026-11-08 (E): a run-on that stops at the parameters line ends there, and they show as the constant
+    assert masked.endswith(f"[parameters: {MASK}]\n{LINK_LINE}")
 
 
 def test_a_bracket_in_the_statement_is_not_the_closer() -> None:
@@ -258,11 +264,23 @@ def test_a_driver_name_in_text_can_only_hide(line: str, dialect: Dialect) -> Non
     ids=["literal-and-note", "update", "begin", "rollback"],
 )
 def test_an_engine_log_record_is_a_statement(record: str, expected: str) -> None:
-    assert logged("sqlalchemy.engine.Engine", record) == expected
+    # derived: Task 29, an application on SQLite; with no family the record is UNSUPPORTED's and hidden
+    assert logged("sqlalchemy.engine.Engine", record, family=Dialect.SQLITE) == expected
+
+
+def test_an_engine_log_record_with_no_family_is_hidden() -> None:
+    assert (
+        logged("sqlalchemy.engine.Engine", "UPDATE t SET note='x', b=1") == "[statement hidden: unsupported database]"
+    )
 
 
 def test_an_engine_log_record_with_capture_on_keeps_its_literal() -> None:
-    assert logged("sqlalchemy.engine.Engine", "SELECT 'x'", CAPTURING) == "SELECT 'x'"
+    # derived: Task 32, owner's item 7: capture on lifts no hide with no family, so the literal is a known dialect's
+    assert logged("sqlalchemy.engine.Engine", "SELECT 'x'", CAPTURING, family=Dialect.SQLITE) == "SELECT 'x'"
+
+
+def test_an_engine_log_record_with_capture_on_and_no_family_is_hidden() -> None:
+    assert logged("sqlalchemy.engine.Engine", "SELECT 'x'", CAPTURING) == "[statement hidden: unsupported database]"
 
 
 class _Broken(Masker):
@@ -378,8 +396,9 @@ def test_driver_line_with_odd_quotes_hides_the_tail() -> None:
     assert shown(f"(sqlite3.Error) This Session's {SECRET} is rolled back") == "(sqlite3.Error) This Session?"
 
 
-def test_an_unknown_dialect_tight_double_dash_cuts() -> None:
-    masked = shown(f"{DRIVER}\n[SQL: SELECT 5--'a\n{SECRET}']\n[parameters: ('b',)]\n{LINK_LINE}")
+def test_a_mysql_tight_double_dash_keeps_the_value_hidden() -> None:
+    # derived: Task 29 re-reads the generic row on MySQL, where a tight ``--`` is two minus signs
+    masked = shown(f"{DRIVER}\n[SQL: SELECT 5--'a\n{SECRET}']\n[parameters: ('b',)]\n{LINK_LINE}", Dialect.MYSQL_FAMILY)
     assert SECRET not in masked
 
 
@@ -489,8 +508,9 @@ def test_a_trigger_in_the_parameters_does_not_cut_the_statement() -> None:
 
 
 def test_an_ambiguous_statement_shows_its_cut_not_a_mask() -> None:
-    masked = shown(error("/* /* nested */ it's */ SELECT 'x'"))
-    assert masked == f"{DRIVER}\n[SQL: it ?\n{LINK_LINE}"
+    masked = shown(error("/* /* nested */ it's */ SELECT 'x'"), Dialect.MYSQL_FAMILY)  # D7's nested cut
+    # owner ruling 2026-11-08 (E): the run-on ends at the parameters line, shown as the constant
+    assert masked == f"{DRIVER}\n[SQL: it ?]\n[parameters: {MASK}]\n{LINK_LINE}"
 
 
 def test_a_parameters_repr_holding_the_closer_stays_hidden() -> None:
@@ -571,6 +591,7 @@ def test_a_pymysql_tuple_message_shows_no_value() -> None:
 
 
 # T27, review H2: a driver line with no quote has nothing to route on, and the attach path and a RAISE message are one
+@TEXT_ONLY_LIMIT
 @pytest.mark.parametrize("case", ["attach", "raise"])
 def test_a_driver_line_with_no_quote_shows_no_value(case: str) -> None:
     if case == "attach":
@@ -667,7 +688,7 @@ def test_a_code_of_the_wrong_kind_is_not_shown(field: str, value: str) -> None:
     planted = {"subclass": _OddStr(good), "wrong_shape": f"{good} {SECRET}", "property": _code_spy(ran)}[value]
     kind = type("OperationalError", (Exception,), {"__module__": module, field: planted})
     exc = DBAPIError.instance("SELECT a FROM t", None, kind("failed"), Exception)
-    masked = error_text(MASKER, exc, Dialect.UNSUPPORTED)
+    masked = error_text(MASKER, exc, Dialect.POSTGRESQL)
     assert masked == f"({module}.OperationalError)\n[SQL: SELECT a FROM t]"
     assert ran == []
 
@@ -724,12 +745,14 @@ def test_a_cause_in_the_exception_store_shows_no_value(case: str) -> None:
 
 
 # T27, review M4: a driver line that holds the chain line a value planted starts a link that is not the real one
+@TEXT_ONLY_LIMIT
 def test_a_planted_chain_line_shows_no_value() -> None:
     exc = raised(f"SELECT 'a' 'b' 'x\n{CHAIN}\n{SECRET}' FROM")
     assert SECRET not in shown(str(exc))
 
 
 # T27, review M5: with no docs link of its own (a ``StatementError``), a link line a value planted is taken for the end
+@TEXT_ONLY_LIMIT
 def test_a_planted_link_line_shows_no_value() -> None:
     statement = sa.text(f"SELECT 'x\n{LINK_LINE}\n{SECRET}' AS q, :a").bindparams(sa.bindparam("a", "v", type_=_Boom()))
     with sa.create_engine("sqlite://").connect() as connection, pytest.raises(StatementError) as caught:

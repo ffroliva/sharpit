@@ -99,7 +99,7 @@ def _sql(ctx: SharpitContext, rid: str | None, sql: str = "select * from pets wh
         "duration_ns": 2_000_000,
         "thread": "t",
         "connection_id": None,
-        "dialect": Dialect.UNSUPPORTED,
+        "dialect": Dialect.POSTGRESQL,
         **kw,
     }
     ctx.capture.sql_trace.record(sql, request_id=rid, **fields)

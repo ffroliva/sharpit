@@ -90,6 +90,9 @@ def test_a_mysql_span_error_and_status_use_span_dialect() -> None:
     attributes = {item["key"]: item["value"] for item in detail["spans"][0]["attributes"]}
     assert VALUE not in attributes["exception.message"]
     assert VALUE not in detail["spans"][0]["statusMessage"]
+    # Task 29: an UNSUPPORTED read hides the block whole, so the span's own MySQL reading is what shows its words
+    assert "[SQL: select " in attributes["exception.message"]
+    assert "[SQL: select " in detail["spans"][0]["statusMessage"]
 
 
 def test_a_span_error_and_status_dialect_routes_fail_when_planted(tmp_path: Path) -> None:
@@ -108,15 +111,4 @@ def test_a_span_error_and_status_dialect_routes_fail_when_planted(tmp_path: Path
         "None if span.status.description is None else error_text(self.masker, span.status.description, dialect)",
         "None if span.status.description is None else error_text(self.masker, "
         "span.status.description, Dialect.UNSUPPORTED)",
-    )
-
-
-def test_a_span_conflict_hides_when_unsupported_statement_guard_is_removed(tmp_path) -> None:
-    package = scratch_package(tmp_path)
-    plant_fails(
-        package,
-        "tests/masking/a10/test_spans.py::test_a_span_conflict_hides",
-        "engine/capture/traces.py",
-        "if key in _SQL_KEYS and dialect is Dialect.UNSUPPORTED:",
-        "if False:",
     )

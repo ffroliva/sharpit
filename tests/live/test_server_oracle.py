@@ -158,13 +158,15 @@ def test_a_planted_blanking_build_fails_the_keep_row(family: str, tmp_path: Path
 # --- the planted builds: each must raise what the oracle finds, on rows the real build hides ----------------------
 
 
-# MySQL text read as another family's: the bit was hard-coded ``False`` here before Task 12
+# MySQL text read as another family's: the bit was hard-coded ``False`` here before Task 12. Planted where the dialect
+# reaches the recorder: a wrong dialect on the event alone conflicts with its engine, and since Task 29 a conflict hides
+# whole, so that plant leaked nothing (test_live_anchors.py::test_the_wrong_wired_plant_reaches_the_recorder)
 WRONG_WIRED = Mutant(
-    "Dialect.UNSUPPORTED if dialect is None else dialect,",
-    "Dialect.POSTGRESQL,",
+    "dialect=event_dialect(event, lambda ctx=ctx: application_family(ctx)),",
+    "dialect=Dialect.POSTGRESQL,",
     "",
     "",
-    "engine/sqla/listeners.py",
+    "engine/sources/dispatch.py",
 )
 # The scanner never reads ``\`` as an escape inside a quote (field log F16, probes pg-plant and b2).
 NEVER_ESCAPES = Mutant(
@@ -185,7 +187,8 @@ CONTROLS: dict[str, tuple[str, str, Mutant]] = {
     "scs_off_no_cut": (
         "postgresql",
         "off",
-        Mutant("if rules.cut_backslash and _backslash_reads_two_ways(scan, rules):", "if False:", "", ""),
+        # the PostgreSQL backslash cut (``standard_conforming_strings`` is session state), rewritten by Task 29
+        Mutant("return rules.cut_backslash and _backslash_reads_two_ways(scan, rules)", "return False", "", ""),
     ),
     "backslash-postgresql-on": ("postgresql", "on", NEVER_ESCAPES),
     "backslash-postgresql-off": ("postgresql", "off", NEVER_ESCAPES),

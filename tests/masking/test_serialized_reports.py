@@ -164,7 +164,7 @@ def test_no_secret_in_test_session_facts(statement: str, secret: str, attributed
 @pytest.mark.parametrize(("statement", "secret"), STATEMENTS.values(), ids=STATEMENTS)
 def test_no_secret_in_a_relationship_group(statement: str, secret: str) -> None:
     # the key of ``relationshipOf`` and ``statementSites``, joined with the sink's on the same text
-    assert secret.lower() not in _masked_fingerprint(statement, Dialect.UNSUPPORTED).lower()
+    assert secret.lower() not in (_masked_fingerprint(statement, Dialect.POSTGRESQL) or "").lower()
 
 
 @pytest.mark.parametrize(("statement", "secret"), STATEMENTS.values(), ids=STATEMENTS)
@@ -187,4 +187,4 @@ def test_id_stays_the_lower_cased_shape_without_a_secret() -> None:
     masker = Masker(Exposure.MASKED, True)
     assert golden, "the golden holds no statement"
     for row in golden:
-        assert masked_shape(masker, row["sql"], Dialect.UNSUPPORTED).fingerprint == row["id"]
+        assert masked_shape(masker, row["sql"], Dialect.POSTGRESQL).fingerprint == row["id"]

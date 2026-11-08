@@ -53,7 +53,7 @@ def test_a_sqlite_id_shown_by_insights_is_opaque() -> None:
 
 def test_a_sqlite_id_is_never_a_plain_hash_of_the_shape() -> None:
     identity = masked_shape(_keyed(), HIDDEN_NAME, Dialect.SQLITE).fingerprint
-    shape = normalize(HIDDEN_NAME, Dialect.UNSUPPORTED).fingerprint
+    shape = normalize(HIDDEN_NAME, Dialect.SQLITE).fingerprint
     assert shape is not None
     assert identity != hashlib.sha256(shape.encode()).hexdigest()
 

@@ -239,21 +239,22 @@ def test_report_says_why_traces_are_unavailable(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_sql_literals_in_db_statement_are_masked():
-    # live check (real SDK): a literal under a non-secret column name leaked through mask_text alone
+    # live check (real SDK): a literal under a non-secret column name leaked through mask_text alone. The column was
+    # `pw`, a secret name since owner ruling 2026-11-08 (F); `nick` keeps the row about the literal
     buf = buffer()
-    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where pw = 'hunter2'"}))
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where nick = 'hunter2'"}))
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None
-    assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
+    assert attribute(detail["spans"][0], "db.statement") == "select * from owners where nick = ?"
 
 
 def test_double_quoted_value_in_db_statement_is_a_placeholder():
     # 0.3.0 leak: a double-quoted value (MySQL string literal) passed through normalize_sql verbatim
     buf = buffer()
-    buf.add(span(attributes={"db.system": "mysql", "db.statement": 'select * from owners where pw = "hunter2"'}))
+    buf.add(span(attributes={"db.system": "mysql", "db.statement": 'select * from owners where nick = "hunter2"'}))
     detail = buf.detail(f"{TRACE:032x}")
     assert detail is not None
-    assert attribute(detail["spans"][0], "db.statement") == "select * from owners where pw = ?"
+    assert attribute(detail["spans"][0], "db.statement") == "select * from owners where nick = ?"
 
 
 def first_span(buf: SpanBuffer) -> dict[str, Any]:
@@ -334,7 +335,10 @@ def test_exception_event_stacktrace_gets_the_sql_handling():
 def test_sql_exception_stacktrace_keeps_python_frames():
     trace = 'Traceback (most recent call last):\n  File "app.py", line 3, in <module>\n' + SQL_ERROR
     buf = buffer()
-    buf.add(span(events=[event("exception", 2_000, {"exception.stacktrace": trace})]))
+    # derived: Task 29, a span that names its database; with none its error is UNSUPPORTED's and keeps no frame
+    buf.add(
+        span(attributes={"db.system": "sqlite"}, events=[event("exception", 2_000, {"exception.stacktrace": trace})])
+    )
     shown = first_span(buf)["events"][0]["attributes"][0]["value"]
     assert 'File "app.py", line 3' in shown
 
@@ -616,7 +620,8 @@ def test_a_mysql_driver_error_on_a_span_without_a_database_uses_the_mysql_scan(d
     assert "hunter2" not in attribute(detail["spans"][0], key)
 
 
-def test_a_driver_name_in_text_keeps_the_generic_scan():
+def test_a_driver_name_in_text_with_no_proof_hides_the_block():
+    """Task 29: text never names a dialect, so with no proof the error is UNSUPPORTED's (owner, item 8)."""
     buf = buffer()
     message = "(psycopg.errors.SyntaxError) x\n[SQL: select a # b from t]"
     buf.add(span(attributes={"http.route": "/x", "exception.message": message}))
@@ -624,7 +629,9 @@ def test_a_driver_name_in_text_keeps_the_generic_scan():
     detail = buf.detail(f"{TRACE:032x}")
 
     assert detail is not None
-    assert attribute(detail["spans"][0], "exception.message").endswith("[SQL: select a")
+    assert attribute(detail["spans"][0], "exception.message") == (
+        "(psycopg.errors.SyntaxError)\n[SQL: [statement hidden: unsupported database]]"
+    )
 
 
 # derived: this round's regex audit: ``[SQL: `` with no ``]`` after it scanned to the end from every occurrence

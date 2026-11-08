@@ -7,7 +7,6 @@ It decides nothing about secrets and imports nothing of ``masking``: a ``"`` run
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import NamedTuple, Protocol
@@ -17,7 +16,6 @@ from sharpit.engine.sqltext.family import family_cut, parting_readings
 from sharpit.engine.sqltext.numbers import skip_number as _skip_number
 from sharpit.engine.sqltext.numbers import uncertain_number_cut as _uncertain_number_cut
 from sharpit.engine.sqltext.rules import (
-    GENERIC,
     READINGS,
     Backslash,
     BacktickRun,
@@ -98,8 +96,11 @@ class SqlLexer(Protocol):
 
 
 def readings(dialect: Dialect) -> tuple[LexRules, ...]:
-    """The rules a dialect reads with: the one place the lexer meets a ``Dialect`` member."""
-    return (GENERIC,) if dialect is Dialect.UNSUPPORTED else READINGS[dialect]
+    """The rules a dialect reads with: the one place the lexer meets a ``Dialect`` member.
+
+    ``UNSUPPORTED`` has none: its text is hidden before any read, and an unwired path that reaches here fails closed.
+    """
+    return READINGS[dialect]  # a KeyError for UNSUPPORTED, or for anything that is no dialect
 
 
 def quoted_body(source: str, start: int, end: int) -> str:
@@ -115,12 +116,10 @@ _BRACKET_IDENTIFIER = re.compile(r"\[[^\W\d]\w*(?: +[^\W\d]\w*)* *\]")
 # a bracket's body also ends at the next ``[``, so bodies never overlap and a run of open brackets stays linear
 _BRACKET_STOP = re.compile(r"[\[\]]")
 _OPENER = re.compile("['\"`$#]|--|/\\*")  # what can open a run: a body without one reads one way and pays this search
-_ALTERNATIVE_QUOTE = re.compile(r"(?<![\w$])n?q'", re.IGNORECASE)
 _QUOTE = re.compile("['\"]")
 # where a cut stops, every opener the scan knows: a new kind goes here. ``$1`` opens nothing, so a ``$`` counts only in
 # a tag's shape, and a tag can start with a digit on MySQL. No comment: a cut there would take every ``/*!`` statement
 _RUN_OPENER = re.compile("['\"`]|\\$[\\w\\x80-\\U0010ffff]*\\$")
-_TIGHT_DASH_OPENER = re.compile(rf"{_RUN_OPENER.pattern}|/\*")
 _AT_TOKEN = re.compile(r"@[0-9A-Za-z_.$]+")  # my_isalnum: a non-ASCII byte ends a host (sql_lex.cc:2113-2118)
 _AT_NUMBER = re.compile(r"[@.]\d")
 # a number with a point or an exponent ends its token on MySQL; digits alone run on into a name (``1$a$``)
@@ -438,8 +437,6 @@ def _scan_colon(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
 
 
 def _scan_line_comment(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
-    if rules.hash is HashRule.CUT and source[index] == "#":
-        return index, False  # a comment, an operator or a variable: ``_read`` stops, and ``_scan`` hides the rest
     if rules.variable_suffix is VariableSuffix.TCL_PAREN and source[index] == "#":
         return _scan_tcl_variable(source, index, out)
     if not _line_comment(source, index, rules):
@@ -498,7 +495,7 @@ def _real_number(source: str, start: int, end: int) -> bool:
 def _name_goes_on(source: str, index: int, out: Out, rules: LexRules) -> bool:
     """The output ends inside a name, so the ``$`` at ``index`` is part of it. A number goes on too: ``1$a$`` is a name
     on MySQL and a syntax error on PostgreSQL and SQLite. A ``.`` holds on MySQL only: 0.4.0 hid what follows ``t.$$``,
-    so elsewhere the statement stops there (``_generic_trigger``), as it does at ``@$$``, a value on PostgreSQL.
+    so elsewhere it does not.
     """
     last = out.chars[-1] if out.chars else " "
     number = last == "?" and source[index - 1].isalnum()  # a raw ``?`` is an operator, and a string ends in a quote
@@ -681,11 +678,8 @@ def _read(source: str, rules: LexRules) -> _Pass:
 
 
 def _holds_a_trigger(source: str) -> bool:
-    """A statement with none of these reads one way, and pays only these tests. A lone CR needs a ``--`` to matter."""
-    return (
-        "\\" in source or "#" in source or "/*" in source or "--" in source or "q'" in source or "Q'" in source
-        or "@$" in source or ".$" in source
-    )  # fmt: skip
+    """A statement with none of these reads one way, and pays only these tests."""
+    return "\\" in source or "/*" in source
 
 
 def _comment_reads_two_ways(source: str, start: int, end: int, rules: LexRules) -> bool:
@@ -695,75 +689,32 @@ def _comment_reads_two_ways(source: str, start: int, end: int, rules: LexRules) 
             return True
         # Executable comments may run quotes or names that the scan treats as inert.
         return source.startswith(tuple(rules.executable_prefixes), start)
-    # a lone CR ends it on PostgreSQL, not on MySQL or SQLite
-    if rules.cr_ends_dash is Reading.CUT and "\r" in source[start:end].rstrip("\r"):
-        return True
-    # a ``--`` tight against text is two minus signs on MySQL, so what it holds opens a run there
-    tight = not _dashes_end_in_space(source, start)
-    return rules.dash_needs_space is Reading.CUT and tight and _TIGHT_DASH_OPENER.search(source, start, end) is not None
-
-
-def _trigger_spans(source: str, runs: Sequence[Run]) -> list[tuple[int, int]]:
-    """The raw text a ``#`` or a ``q`` counts in: all of it outside a literal (spec §3)."""
-    spans: list[tuple[int, int]] = []
-    index = 0
-    for start, end, kind in runs:
-        if kind == _LITERAL:
-            spans.append((index, start))
-            index = end
-    spans.append((index, len(source)))
-    return spans
-
-
-def _opener_beside_dollar_quote(source: str, start: int, rules: LexRules) -> bool:
-    """An opener in the body of the dollar quote at ``start`` or past its closer: with none, nothing can flip."""
-    tag = source.index("$", start + 1) + 1 - start
-    end = _dollar_quote_end(source, start, rules)
-    return bool(_OPENER.search(source, start + tag, end - tag) or _OPENER.search(source, end))
-
-
-def _generic_trigger(source: str, runs: Sequence[Run], rules: LexRules) -> bool:
-    """A ``q'`` (the span's end takes in the quote that opens a literal), a dollar quote after ``@``, a value on
-    PostgreSQL and a name on MySQL, or one after ``.`` beside another opener, a syntax error on PostgreSQL and a name on
-    MySQL. A ``#`` needs no trigger: ``_scan_line_comment`` stops the read there."""
-    for start, end in _trigger_spans(source, runs):
-        if _ALTERNATIVE_QUOTE.search(source, start, end + 1):
-            return True
-        if source.startswith("@$", end - 1):
-            return True
-        if source.startswith(".$", end - 1) and _opener_beside_dollar_quote(source, end, rules):
-            return True
-    return False
+    return False  # a line comment reads one way on each known dialect: each read knows where it ends
 
 
 def _backslash_reads_two_ways(scan: _Pass, rules: LexRules) -> bool:
-    """Ported from ``isAmbiguous``. ``MySQL`` escapes in ``"..."`` and the generic scan does not, so such a run always
-    counts there. The text without its backslashes is the one derived text the scan reads (spec §3, r4)."""
-    source, runs = scan.source, scan.out.runs
+    """Ported from ``isAmbiguous``. The text without its backslashes is the one derived text the scan reads (spec §3,
+    r4)."""
+    source = scan.source
     if "\\" not in source:
         return False
-    no_escape = rules.backslash_in_double is Backslash.NONE
-    if (
-        no_escape
-        and rules.double_quote is not DoubleQuote.NAME
-        and any(source[start] == '"' and source.find("\\", start, end) >= 0 for start, end, _ in runs)
-    ):
-        return True
     if rules.backslash_in_single is Backslash.E_ONLY:
         return _read(source, replace(rules, backslash_in_single=Backslash.ALWAYS)).out.text() != scan.out.text()
-    return _read(source.replace("\\", ""), rules).out.text() != scan.out.text()
+    return _read(_without_backslashes(scan), rules).out.text() != scan.out.text()
 
 
-def _backtick_reads_two_ways(source: str, runs: Sequence[Run]) -> bool:
-    """A name on MySQL and SQLite, an operator on PostgreSQL after ``CREATE OPERATOR``: a quote in it opens a string,
-    and left open, an odd count of backticks, it holds code there and is invalid on the other two."""
-    if "`" not in source:
-        return False
-    return any(
-        kind == _CODE and source[start] == "`"
-        and (_QUOTE.search(source, start, end) or source.count("`", start, end) % 2)
-        for start, end, kind in runs
-    )  # fmt: skip
+def _without_backslashes(scan: _Pass) -> str:
+    """The source with its backslashes removed, but those inside a closed backtick name: a backtick name takes no
+    escape on any reading, so its ``\\`` changes the name's text and never where a run ends."""
+    source = scan.source
+    parts: list[str] = []
+    cursor = 0
+    for start, end, kind in scan.out.runs:
+        if kind == _CODE and source[start] == "`" and end - start > 1 and source[end - 1] == "`":
+            parts += (source[cursor:start].replace("\\", ""), source[start:end])
+            cursor = end
+    parts.append(source[cursor:].replace("\\", ""))
+    return "".join(parts)
 
 
 def _reads_two_ways(scan: _Pass, rules: LexRules) -> bool:
@@ -775,16 +726,11 @@ def _reads_two_ways(scan: _Pass, rules: LexRules) -> bool:
         and any(kind == _LITERAL and source[start] == "[" for start, _, kind in runs)
     ):
         return True
-    if rules.backtick_run is BacktickRun.NAME_OR_CUT and _backtick_reads_two_ways(source, runs):
-        return True
     if not _holds_a_trigger(source):
         return False
     if any(_comment_reads_two_ways(source, start, end, rules) for start, end, kind in runs if kind == _COMMENT):
         return True
-    if rules.cut_backslash and _backslash_reads_two_ways(scan, rules):
-        return True
-    # shortcut: one field gates all four of these triggers; Task 29 removes them with generic mode
-    return rules.q_quote_cuts and _generic_trigger(source, runs, rules)  # on MySQL ``#`` is a comment
+    return rules.cut_backslash and _backslash_reads_two_ways(scan, rules)
 
 
 def _bracket_opener(scan: _Pass) -> re.Match[str] | None:
@@ -884,9 +830,6 @@ def read_all(sql: str, rule_sets: tuple[LexRules, ...]) -> Scan:
     cut = _statement_cut(scan, rule_sets)
     if scan.cut >= 0 and (cut < 0 or scan.cut < cut):
         cut = scan.cut
-    if rules.hash is HashRule.CUT and cut >= 0 and source[cut] == "#":
-        found = _RUN_OPENER.search(source)
-        cut = found.start() if found and found.start() < cut else cut
     uncut = tuple(scan.out.runs)
     if cut < 0:
         return Scan(
@@ -904,14 +847,11 @@ def read_all(sql: str, rule_sets: tuple[LexRules, ...]) -> Scan:
     out = head.out
     out.space()
     literals, predicate_literals = head.literals, head.predicate_literals
-    if rules.hash is HashRule.CUT and source[cut] == "#":
-        out.runs.append((cut, len(source), _COMMENT))  # read as the comment it may be, no value is claimed past it
-    else:
-        out.runs.append((cut, cut, _COMMENT))  # the space, so that ``shown`` replays it
-        predicate_literals += out.predicate_position()
-        out.append("?")
-        out.runs.append((cut, len(source), _LITERAL))
-        literals += 1
+    out.runs.append((cut, cut, _COMMENT))  # the space, so that ``shown`` replays it
+    predicate_literals += out.predicate_position()
+    out.append("?")
+    out.runs.append((cut, len(source), _LITERAL))
+    literals += 1
     return Scan(
         source,
         out.text(),
@@ -935,9 +875,10 @@ class HandLexer:
         """Where the ``]`` closing a ``[SQL: `` block is in ``text``, the text after its opener; -1 when none does.
 
         The first ``]`` outside a literal, at bracket depth 0, in the scanned range, that ends the text or comes
-        before what SQLAlchemy writes next (spec §3). One walk: literals and brackets both ascend. A comment is read,
-        so that the ``]`` of ``-- arr[1]]`` counts. No ambiguity cut: parameters are no statement, so what they hold
-        cannot cut one.
+        before what SQLAlchemy writes next (spec §3). One walk: literals and brackets both ascend. A line comment and
+        an unclosed block comment are read, so that the ``]`` of ``-- arr[1]]`` counts; a closed ``/* ... */`` is
+        skipped as a literal is: what it holds cannot end the block. No ambiguity cut: parameters are no statement, so
+        what they hold cannot cut one.
         """
         return _first_closer(_read(text[:_MAX_SCAN_LENGTH], readings(dialect)[0]), text)
 
@@ -947,12 +888,21 @@ class HandLexer:
         scan = _read(sql[:_MAX_SCAN_LENGTH], rule_sets[0])
         # shortcut: SQLite alone, Task 18 changes no other dialect; PostgreSQL's boundary cut needs this line too
         variable_cut = rule_sets[0].variable_suffix is VariableSuffix.TCL_PAREN and scan.cut >= 0
-        hash_cut = rule_sets[0].hash is HashRule.CUT and scan.cut >= 0
-        return variable_cut or hash_cut or _statement_cut(scan, rule_sets) >= 0
+        return variable_cut or _statement_cut(scan, rule_sets) >= 0
+
+
+def _closed_block_comment(source: str, start: int, end: int) -> bool:
+    """A ``/* ... */`` run ending in its own ``*/``: what it holds is no closer. A line or unclosed comment can be."""
+    return end - start >= 4 and source.startswith("/*", start) and source.startswith("*/", end - 2)
 
 
 def _first_closer(scan: _Pass, text: str) -> int:
-    literals = (run for run in scan.out.runs if run[2] == _LITERAL)
+    source = scan.source
+    literals = (
+        run
+        for run in scan.out.runs
+        if run[2] == _LITERAL or (run[2] == _COMMENT and _closed_block_comment(source, run[0], run[1]))
+    )
     literal = next(literals, None)
     depth = 0
     for found in _BRACKET_STOP.finditer(scan.source):

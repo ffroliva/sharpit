@@ -84,14 +84,8 @@ SURFACE_ROWS: dict[str, Callable[[], tuple[str, ...]]] = {
         resolver_plants.trigger_message(f"(pymysql.err.ProgrammingError) failed\n[SQL: {SURFACE_SQL}]"),
     ),
 }
-# the harness wires every other surface with ``application=lambda: None`` and a plain exception: its proof is step 3
-TAKES_THE_DIALECT = {
-    "recorder_error_of_another_statement",
-    "exception_message_attribute",
-    "trace_status",
-    "exception_stacktrace",
-}
-MODES = {"generic": Dialect.UNSUPPORTED, "mysql_family": Dialect.MYSQL_FAMILY}
+# Task 29: a proof that is not MySQL is where a MySQL name on the driver line conflicts; UNSUPPORTED never reads
+MODES = {"generic": Dialect.UNSUPPORTED, "mysql_family": Dialect.MYSQL_FAMILY, "postgresql": Dialect.POSTGRESQL}
 
 
 def _stacktrace(masker: Masker, text: str, dialect: Dialect) -> str | None:
@@ -99,6 +93,9 @@ def _stacktrace(masker: Masker, text: str, dialect: Dialect) -> str | None:
 
 
 SURFACES: dict[str, gates.Driver] = {**gates.ERROR_DRIVERS, "exception_stacktrace": _stacktrace}
+# every surface reads the mode as its proof but the test session's, which has no application (owner ruling 2026-11-08,
+# cp9-deep S1: the harness gives the other error drivers the mode's proof); with none its proof is step 3
+TAKES_THE_DIALECT = set(SURFACES) - gates.NO_PROOF_ERRORS
 SURFACE_IDS = [f"{surface}-{mode}-{row}" for surface in SURFACES for mode in MODES for row in SURFACE_ROWS]
 
 
@@ -138,7 +135,7 @@ def test_the_driver_switch_put_back_fails_the_surface_row(row: str, tmp_path: Pa
     target.write_text(source.replace(plant.anchor, plant.replacement, 1), encoding="utf-8")
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join((str(tmp_path / "src"), str(ROOT), env.get("PYTHONPATH", "")))
-    node = f"tests/masking/test_a12_resolver.py::test_a12_surface_row[log_handler_error-generic-{row}]"
+    node = f"tests/masking/test_a12_resolver.py::test_a12_surface_row[exception_stacktrace-postgresql-{row}]"
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", node],
         cwd=ROOT, env=env, capture_output=True, text=True, timeout=120, check=False,

@@ -127,7 +127,7 @@ def test_n_plus_one_identity_is_the_normalized_fingerprint() -> None:
     run_phase(sink, NODE, attempt, "call", sql, "SELECT * FROM pets WHERE ID = 42")
     assert sink.current_test is not None
     [finding] = evaluate_test(sink.current_test, NONE, 2, ())
-    assert finding.identity == normalize(sql, Dialect.UNSUPPORTED).fingerprint
+    assert finding.identity == normalize(sql, Dialect.POSTGRESQL).fingerprint
 
 
 def test_n_plus_one_ignores_writes() -> None:

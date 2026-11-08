@@ -13,8 +13,9 @@ from types import MappingProxyType, MemberDescriptorType
 from typing import cast
 
 from sharpit.engine import sqltext
-from sharpit.engine.masking import MASK, Masker, Tracked
+from sharpit.engine.masking import MASK, Exposure, Masker, Tracked
 from sharpit.engine.sqltext import Dialect, is_database_exception, statement_text
+from sharpit.engine.sqltext.constants import UNSUPPORTED_STATEMENT
 from sharpit.engine.sqltext.dialect import _class_value  # pyright: ignore[reportPrivateUsage]
 
 _BREAKS = r"\n\r\x0b\x0c\x1c\x1d\x1e\x85  "  # every separator ``str.splitlines`` knows
@@ -59,6 +60,12 @@ _FIELDS = BaseException.__dict__["__dict__"]
 _SQLSTATE = re.compile(r"[0-9A-Z]{5}")
 _CODES = (("sqlstate", _SQLSTATE), ("pgcode", _SQLSTATE), ("sqlite_errorname", re.compile(r"SQLITE_[A-Z_]+")))
 _UNSET = object()
+# owner 2026-11-07, item 8: an ``UNSUPPORTED`` error shows a leading class, its block as the marker and the constant
+# parameters region. Only a dotted name in parentheses is a class; a value can shape one, so the secret passes read
+# it at ``MASKED`` whatever the exposure
+_CLASS = re.compile(r"\A\(((?:[A-Za-z_]\w{0,99}\.){1,9}[A-Za-z_]\w{0,99})\)")
+_HEAD_CHECK = Masker(Exposure.MASKED, True)
+_BLOCK_UNSUPPORTED = f"{_BLOCK}{UNSUPPORTED_STATEMENT}]"
 
 
 def _merged(spans: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -220,15 +227,15 @@ def _block(masker: Masker, text: str, body: int, end: int, dialect: Dialect, sho
     if later is not None and "]" not in statement[: later.start()]:
         shown.append(_BLOCK_HIDDEN)
         return end
-    if closer < 0:
+    # no closer, or none to trust (the statement reads two ways): it runs on, to its parameters
+    if closer < 0 or sqltext.LEXER.reads_two_ways(statement[:closer], dialect):
         parameters = statement.rfind(_PARAMETERS_LINE)
         read = statement if parameters < 0 else statement[:parameters]
-        shown.append(f"{_BLOCK}{statement_text(masker, read, dialect)}")
-        return end
-    if sqltext.LEXER.reads_two_ways(statement[:closer], dialect):  # no closer to trust: it runs on, to its parameters
-        parameters = statement.rfind(_PARAMETERS_LINE)
-        read = statement if parameters < 0 else statement[:parameters]
-        shown.append(f"{_BLOCK}{statement_text(masker, read, dialect)}")
+        # a run-on that stops at a line SQLAlchemy writes, its parameters or its final docs link, ends the block there
+        closed = parameters >= 0 or _LINK.match(text, end) is not None
+        shown.append(f"{_BLOCK}{statement_text(masker, read, dialect)}{']' if closed else ''}")
+        if parameters >= 0:
+            shown.append(_PARAMETERS_HIDDEN)
         return end
     shown.append(f"{_BLOCK}{statement_text(masker, statement[:closer], dialect)}]")
     resume = body + closer + 1
@@ -256,6 +263,24 @@ def _render(masker: Masker, text: str, dialect: Dialect, keep_frames: bool) -> s
     return "\n".join(shown)
 
 
+def _plain_head(masker: Masker, head: str) -> bool:
+    return masker.mask_text(head) == head and _HEAD_CHECK.mask_text(head) == head
+
+
+def _unsupported(masker: Masker, text: str) -> str:
+    """An error of a provider sharpit cannot read, as a classified one: never the driver's free text (item 8)."""
+    shown: list[str] = []
+    head = _CLASS.match(text)
+    if head is not None and _plain_head(masker, head[0]):
+        shown.append(head[0])
+    block = text.find(_BLOCK)
+    if block >= 0:
+        shown.append(_BLOCK_UNSUPPORTED)
+        if "[parameters: " in text[block:]:
+            shown.append(_PARAMETERS_HIDDEN)
+    return "\n".join(shown) or MASK
+
+
 def render_error(masker: Masker, text: str, dialect: Dialect, keep_frames: bool = True) -> str:
     """``text`` by region; ``""`` under ``METADATA_ONLY``, ``******`` if the render fails.
 
@@ -266,6 +291,8 @@ def render_error(masker: Masker, text: str, dialect: Dialect, keep_frames: bool 
     try:
         if masker.mask_spans("") is None:
             return ""
+        if dialect is Dialect.UNSUPPORTED:
+            return _unsupported(masker, text)
         return _render(masker, text, dialect, keep_frames)
     except Exception:
         return MASK
@@ -280,6 +307,8 @@ def mask_error(
     """
     if text is None:
         return None
+    if dialect is Dialect.UNSUPPORTED and (known or _AN_ERROR.search(text)):  # capture on does not lift the hide
+        return render_error(masker, text, dialect, keep_frames) or None  # (owner, item 7); METADATA_ONLY gives ""
     if masker.capture_parameters or not (known or _AN_ERROR.search(text)):
         return masker.mask_text(text)
     return render_error(masker, text, dialect, keep_frames) or masker.mask_text("")
@@ -323,9 +352,10 @@ def _driver_code(driver: BaseException) -> int | str | None:
     return None
 
 
-def _classified_text(source: BaseException, fields: dict[str, object]) -> str | None:
+def _classified_text(source: BaseException, fields: dict[str, object], dialect: Dialect) -> str | None:
     """A database exception's own facts: its driver class, a structured code and its statement. The driver's text is
-    free text a value can shape, so it is never shown; with neither a code nor a statement there is nothing to show."""
+    free text a value can shape, so it is never shown; with neither a code nor a statement there is nothing to show.
+    An ``UNSUPPORTED`` statement is the marker: its text is never read (owner, item 8)."""
     original = fields.get("orig")
     driver = cast(BaseException, original) if issubclass(type(original), BaseException) else source
     code = _driver_code(driver)
@@ -342,6 +372,8 @@ def _classified_text(source: BaseException, fields: dict[str, object]) -> str | 
     bound = fields.get("params")  # as SQLAlchemy prints it: no line for no values; only exact containers are sized
     empty = bound is None or (type(bound) in (tuple, list, dict) and not cast(tuple[object, ...], bound))
     params = "" if empty else f"\n{_PARAMETERS_HIDDEN}"
+    if dialect is Dialect.UNSUPPORTED:
+        return f"{text}\n{_BLOCK_UNSUPPORTED}{params}"
     return f"{text}\n[SQL: {statement}]{params}"
 
 
@@ -356,8 +388,10 @@ def error_text(
         raw_fields = _FIELDS.__get__(exc)
         fields = cast(dict[str, object], raw_fields) if type(raw_fields) is dict else {}
         if is_database_exception(exc):
-            classified = _classified_text(exc, fields)
-            return None if classified is None else mask_error(masker, classified, dialect, True, keep_frames)
+            classified = _classified_text(exc, fields, dialect)
+            if classified is None or dialect is not Dialect.UNSUPPORTED:
+                return None if classified is None else mask_error(masker, classified, dialect, True, keep_frames)
+            return None if masker.mask_spans("") is None else classified
         statement = fields.get("statement")
         args = cast(tuple[object, ...], _ARGS.__get__(exc))
         if not args or sum(len(value) for value in args if type(value) is str) > 100_000:

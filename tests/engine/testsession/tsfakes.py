@@ -32,7 +32,7 @@ def event(
         None,
         None,
         None,
-        Dialect.UNSUPPORTED,
+        Dialect.POSTGRESQL,  # Task 29: a database sharpit reads; an UNSUPPORTED event has no identity
     )
 
 

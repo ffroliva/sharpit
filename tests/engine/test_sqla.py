@@ -351,11 +351,12 @@ def test_relationship_facts_use_masked_statement_fingerprint() -> None:
     context = types.SimpleNamespace(
         execution_options={sqla.RELATIONSHIP_KEY: ("Payment.refunds", True)},
         statement=statement,
+        dialect=types.SimpleNamespace(name="postgresql"),  # Task 29: an UNSUPPORTED statement has no identity
     )
     token = TEST.set(tag)
     try:
         sqla_orm._record_relationship(context)
-        masked_fingerprint = masked_shape(report_masker(), statement, Dialect.UNSUPPORTED).fingerprint
+        masked_fingerprint = masked_shape(report_masker(), statement, Dialect.POSTGRESQL).fingerprint
         assert sqla_orm._relationship_groups[tag].get(masked_fingerprint) == ("Payment.refunds", True)
     finally:
         sqla_orm._relationship_loads.pop(tag, None)

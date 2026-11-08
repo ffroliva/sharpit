@@ -8,7 +8,7 @@ from sharpit.engine.masking import MASK, Masker
 from sharpit.engine.sqltext import Dialect, statement_text
 
 MAX_QUERY_TEXT_LENGTH = 400
-_WHITESPACE = re.compile(r"\s+")
+_WHITESPACE = re.compile(r"\s+", re.ASCII)
 
 
 def is_metadata_only(masker: Masker) -> bool:

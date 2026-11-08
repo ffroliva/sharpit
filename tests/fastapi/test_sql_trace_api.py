@@ -422,7 +422,8 @@ def test_mysql_engine_statements_reach_the_trace_normalised(monkeypatch: pytest.
 
     shown = [entry["sql"] for entry in client.get(API).json()["entries"]]
 
-    assert shown == ["SELECT ?", "SELECT ?", "SELECT ?"]
+    # Task 29: the failed one's SQLite error conflicts with the engine's name, so it is hidden (owner, item 7)
+    assert shown == ["SELECT ?", "SELECT ?", "[statement hidden: unsupported database]"]
 
 
 # derived: release council probe p11_trace.py, the second surface of the same statements

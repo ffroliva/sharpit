@@ -29,6 +29,7 @@ OWN_JOB = (  # each heavier than a shard ceiling alone (487, 386, 418 s): the CI
     "tests/masking/test_masking_scales_linearly.py",
     "tests/masking/test_statement_surfaces.py",
     "tests/scripts/test_lane_gate.py",
+    "tests/masking/test_gates_bite.py",
 )
 _TIMING_CALL = re.compile(r"^\s+check_budget\(", re.MULTILINE)
 

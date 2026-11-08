@@ -366,6 +366,10 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
 }
 _DEFAULTS = SharpitSettings()
 WEAK_IDENTITY_KEY = "SHARPIT_IDENTITY_KEY is one character repeated: a weak key"
+# owner 2026-11-07, item 7: capture on shows more than bound values, so install says so, as FULL does
+CAPTURE_SHOWS_VALUES = (
+    "SHARPIT_SQL_TRACE_CAPTURE_PARAMETERS=true shows SQL inline literals and error text unmasked, with bound values"
+)
 _NEVER_ECHOED = {
     "authentication_token",
     "identity_key",
@@ -489,6 +493,8 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
     values["panels"] = _panels(kwargs, environ, warnings)
     if values.get("expose_values") is Exposure.FULL:
         warnings.append("SHARPIT_EXPOSE_VALUES=FULL exposes unmasked secrets")
+    if values.get("sql_trace_capture_parameters") and values.get("expose_values") is not Exposure.METADATA_ONLY:
+        warnings.append(CAPTURE_SHOWS_VALUES)
     if len(set(values.get("identity_key") or "ab")) == 1:
         warnings.append(WEAK_IDENTITY_KEY)
     return SharpitSettings(**values, warnings=tuple(warnings))

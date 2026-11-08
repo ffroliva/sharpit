@@ -15,6 +15,7 @@ from typing import Any
 
 from sharpit.engine.advisors.rules import RuleDefinition
 from sharpit.engine.collectors.database_advisor.catalog import Outcome, Rule, Source
+from sharpit.engine.sqltext import UNSUPPORTED_STATEMENT
 
 MIN_VARIANTS = 2
 MAX_TRACKED_VARIANTS = 64
@@ -44,6 +45,9 @@ def facts(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
     hidden = 0
     for row in rows:
         shape, sql = row.get("shape"), row.get("sql")
+        if shape is not None and sql == UNSUPPORTED_STATEMENT:  # hidden whole: its literals were never read
+            hidden += 1
+            continue
         if shape is None or not sql or shape.predicate_literal_count == 0:
             continue
         if shape.fingerprint is None:

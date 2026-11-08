@@ -12,6 +12,9 @@ in the shapes of a driver error.
   ran there: ``_sql_message`` for traces, ``mask_text`` for logs, exceptions and collectors, the recorder for the
   recorder, ``_sql_attribute`` for ``db.statement``. The old ``p2_cmp`` used ``mask_text`` for traces and hid 2,270
   regressions. Target 0.
+  Owner, 2026-11-07 (item 5): the ``statement`` surfaces are fed statements, the real ones of
+  ``tests/masking/sql_corpus.py`` on PostgreSQL and the MySQL family, judged on their own markers; free text is
+  measured on the log, exception and trace surfaces, where it really occurs (architecture spec section 9).
 * **A7:** ``mask_text`` on text with no SQL block is byte-identical to the baseline (``fa2d51e``), or hides more: 0
   secrets newly shown.
 """
@@ -41,6 +44,8 @@ A2_SURFACES = (
     "trace", "trace_on", "statement", "statement_on",
 )  # fmt: skip
 NEEDS_RESOLVING = frozenset({"err_off", "err_on", "err_mysql", "trace", "trace_on"})
+STATEMENT_FIELDS = frozenset({"statement", "statement_on"})  # fed real statements, judged on their markers
+STATEMENT_DIALECTS = ("postgresql", "mysql_family")  # Dialect values; sql_corpus names them postgresql and mysql
 A7_SURFACES = ("text_off", "text_on")
 # the corpus's own fixed text: a window made of it is no part of a secret, whatever a masker does with the rest
 FIXED = (
@@ -155,6 +160,26 @@ def corpus(seed: int, rows: int) -> list[dict[str, Any]]:
     return [generator.row() for _ in range(rows)]
 
 
+def with_statements(data: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
+    """Each row also carries a real statement (``st``), its markers (``ss``) and its dialect (``sd``), in turn."""
+    import importlib.util  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location("_gate_sql_corpus", ROOT / "tests/masking/sql_corpus.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses look their module up
+    spec.loader.exec_module(module)
+    names = {"postgresql": "postgresql", "mysql_family": "mysql"}
+    half = (len(data) + 1) // 2
+    pools = {d: module.rows(seed, half, names[d]) for d in STATEMENT_DIALECTS}
+    for index, row in enumerate(data):
+        dialect = STATEMENT_DIALECTS[index % 2]
+        found = pools[dialect][index // 2]
+        row.update(st=found.text, ss=list(found.markers), sd=dialect)
+    return data
+
+
 # --- the comparator: pure ---------------------------------------------------------------------------------------------
 
 
@@ -189,13 +214,18 @@ def leaked(secret: str, old: str | None, new: str | None) -> str | None:
 
 
 def a2_hits(
-    secrets: Iterable[str], old: Mapping[str, str | None], new: Mapping[str, str | None]
+    secrets: Iterable[str],
+    old: Mapping[str, str | None],
+    new: Mapping[str, str | None],
+    statement_secrets: Iterable[str] = (),
 ) -> collections.Counter[str]:
-    """Per surface: the secrets the candidate shows on a surface where the baseline hid them."""
+    """Per surface: the secrets the candidate shows on a surface where the baseline hid them. A statement surface is
+    judged on its statement's markers, ``statement_secrets``."""
     hits: collections.Counter[str] = collections.Counter()
     for surface in A2_SURFACES:
         if surface in old and surface in new:
-            hits[surface] += sum(leaked(secret, old[surface], new[surface]) is not None for secret in secrets)
+            judged = statement_secrets if surface in STATEMENT_FIELDS else secrets
+            hits[surface] += sum(leaked(secret, old[surface], new[surface]) is not None for secret in judged)
     return hits
 
 
@@ -293,9 +323,9 @@ def work(role: str, src: str, corpus_path: str, out_path: str, fields: list[str]
         if names["trace"] == "sqltrace.mask_error":
             trace_mask = functools.partial(_with_dialect, sqltrace.mask_error, generic)
 
-    def statement(text: str, masker: Masker) -> str | None:
-        args = (masker, "db.statement", text) + ((generic,) if parameters > 3 else ())
-        return traces._sql_attribute(*args)  # noqa: SLF001
+    def statement(row: dict[str, Any], masker: Masker) -> str | None:
+        dialect = (Dialect(row["sd"]),) if parameters > 3 else ()
+        return traces._sql_attribute(masker, "db.statement", row["st"], *dialect)  # noqa: SLF001
 
     def recorded(masker: Masker, text: str, sql: str | None) -> str | None:
         recorder = sqltrace.SqlTraceRecorder(masker, max_sql_length=10**6)
@@ -313,25 +343,25 @@ def work(role: str, src: str, corpus_path: str, out_path: str, fields: list[str]
     def logs(masker: Masker, text: str, dialect: object) -> str | None:
         return error_mask(masker, text, dialect) if error_mask else masker.mask_text(text)
 
-    table: dict[str, Callable[[str, str | None], str | None]] = {
-        "text_off": lambda t, q: off.mask_text(t),
-        "text_on": lambda t, q: on.mask_text(t),
-        "err_off": lambda t, q: logs(off, t, generic),
-        "err_on": lambda t, q: logs(on, t, generic),
-        "err_mysql": lambda t, q: logs(off, t, family) if error_mask else off.mask_text(t),
-        "rec_off": lambda t, q: recorded(off, t, q),
-        "rec_on": lambda t, q: recorded(on, t, q),
-        "trace": lambda t, q: trace_mask(off, t),
-        "trace_on": lambda t, q: trace_mask(on, t),
-        "statement": lambda t, q: statement(t, off),
-        "statement_on": lambda t, q: statement(t, on),
+    table: dict[str, Callable[[dict[str, Any]], str | None]] = {
+        "text_off": lambda r: off.mask_text(r["t"]),
+        "text_on": lambda r: on.mask_text(r["t"]),
+        "err_off": lambda r: logs(off, r["t"], generic),
+        "err_on": lambda r: logs(on, r["t"], generic),
+        "err_mysql": lambda r: logs(off, r["t"], family) if error_mask else off.mask_text(r["t"]),
+        "rec_off": lambda r: recorded(off, r["t"], r["q"]),
+        "rec_on": lambda r: recorded(on, r["t"], r["q"]),
+        "trace": lambda r: trace_mask(off, r["t"]),
+        "trace_on": lambda r: trace_mask(on, r["t"]),
+        "statement": lambda r: statement(r, off),
+        "statement_on": lambda r: statement(r, on),
     }
     meta = {"sharpit": sharpit.__file__, "version": sharpit.__version__, **names}
     with open(corpus_path, encoding="utf-8") as source, open(out_path, "w", encoding="utf-8") as out:
         print(json.dumps({"meta": meta}), file=out)
         for line in source:
             row = json.loads(line)
-            print(json.dumps({field: table[field](row["t"], row["q"]) for field in fields}), file=out)
+            print(json.dumps({field: table[field](row) for field in fields}), file=out)
 
 
 def read(path: Path) -> tuple[dict[str, str], Iterable[dict[str, str | None]]]:
@@ -347,6 +377,8 @@ def run(mode: str, rows: int, seed: int, candidate: str, baseline: str, allowed:
     with tempfile.TemporaryDirectory(prefix="masking-gate-") as tmp:
         work_dir = Path(tmp)
         data = corpus(seed, rows)
+        if mode == "a2":
+            data = with_statements(data, seed)
         if mode == "a7":
             data = [row for row in data if "[SQL:" not in row["t"]]
         corpus_path = work_dir / "corpus.jsonl"
@@ -374,12 +406,13 @@ def a2_report(
     total: collections.Counter[str] = collections.Counter()
     shortest: dict[str, tuple[str, str, str | None, str | None]] = {}
     for row, old, new in zip(data, old_rows, new_rows, strict=True):
-        hits = a2_hits(row["s"], old, new)
+        hits = a2_hits(row["s"], old, new, row.get("ss", ()))
         total += hits
         for surface in +hits:
-            if surface not in shortest or len(row["t"]) < len(shortest[surface][1]):
-                fragment = next(f for s in row["s"] if (f := leaked(s, old[surface], new[surface])))
-                shortest[surface] = (fragment, row["t"], old[surface], new[surface])
+            text, judged = (row["st"], row["ss"]) if surface in STATEMENT_FIELDS else (row["t"], row["s"])
+            if surface not in shortest or len(text) < len(shortest[surface][1]):
+                fragment = next(f for s in judged if (f := leaked(s, old[surface], new[surface])))
+                shortest[surface] = (fragment, text, old[surface], new[surface])
     for surface, (fragment, text, was, now) in shortest.items():
         print(f"  shortest on {surface}: shows {fragment!r}\n    in  {text[:200]!r}")
         print(f"    was {was!r:.200}\n    now {now!r:.200}")

@@ -106,8 +106,8 @@ DEFAULT_KEY_PATTERNS = (
     "apikey", "api-key", "client-secret", "client_secret", "auth", "authorization", "session-id", "session_id",
     "pgpass",  # sharpit widening: libpq PGPASS / PGPASSFILE
 )  # fmt: skip
-# sharpit widening: ``pass`` as a whole name segment (DB_PASS, PASS), never inside a word (bypass, compass)
-_PASS_SEGMENT = re.compile(r"(?:^|[_.-])pass(?:$|[_.-])")
+# sharpit widening: ``pass`` and ``pw`` as a whole name segment (DB_PASS, user_pw), never inside a word (bypass, PWM)
+_PASS_SEGMENT = re.compile(r"(?:^|[_.-])(?:pass|pw)(?:$|[_.-])")
 
 
 @functools.lru_cache(maxsize=1024)  # names repeat (headers, config keys) and are never secret themselves
@@ -117,6 +117,12 @@ def is_sensitive_key(name: str) -> bool:
         return False
     lowered = name.lower()
     return any(p in lowered for p in DEFAULT_KEY_PATTERNS) or bool(_PASS_SEGMENT.search(lowered))
+
+
+def _may_hold_sensitive_key(text: str) -> bool:
+    """False only when no name in ``text`` can be a sensitive key: each one needs one of these substrings."""
+    lowered = text.lower()
+    return any(p in lowered for p in DEFAULT_KEY_PATTERNS) or any(p in lowered for p in ("pass", "pw", "cookie"))
 
 
 # ---- text masking (0.2.0, spec §11) --------------------------------------------------------------------------------
@@ -165,6 +171,9 @@ _SQL_PARAMETERS_MASKED = f"[parameters: {MASK}]"
 _AUTH_SCHEME_MASKED = rf"\1 {MASK}"
 _QUOTED_PAIR_MASKED = rf"\g<0>\1{MASK}\1"
 _PAIR_MASKED = rf"\g<0>{MASK}"
+_PAIR_TOKEN = re.compile(r"[^\s,;&'\"]+")  # 0.4.0's bare value: where a statement's value ends
+# a statement's ``name = name`` is SQL (0.4.0 shows it); a colon after a name is no operator SQL puts before a value
+_TEXT_COLON_PAIR = re.compile(r"(?<![\w.-])([\w.-]+)\s*:=?\s*", re.ASCII)
 
 
 def _shared_ends(old: str, new: str) -> tuple[int, int]:
@@ -268,24 +277,32 @@ def _mask_segments(path: str) -> str:
     return "/".join(MASK if is_secret_value(seg) else seg for seg in path.split("/"))
 
 
-def _mask_pairs(pattern: re.Pattern[str], masked: str, tracked: Tracked) -> None:
-    """Mask the value of each sensitive key in ``tracked``, to the end of its line."""
+def _mask_pairs(pattern: re.Pattern[str], masked: str, tracked: Tracked, value: re.Pattern[str] | None = None) -> None:
+    """Mask the value of each sensitive key in ``tracked``, to the end of its line, or to the end of ``value`` there.
+
+    The pattern matches a key and its separator alone, so a key inside another pair's value is still read as a key.
+    """
     text = tracked.text
     edits: list[tuple[int, int, str]] = []
     position = 0
     while found := pattern.search(text, position):
         position = found.end()
         name = found.group(found.lastindex or 0)
-        if is_sensitive_key(name) or name.lower() in _SECRET_HEADERS:  # Cookie: session=abc
-            line_end = text.find("\n", position)
-            end = len(text) if line_end < 0 else line_end
+        if is_sensitive_key(name) or _is_secret_header(name):  # Cookie: session=abc
+            if value is None:
+                line_end = text.find("\n", position)
+                end = len(text) if line_end < 0 else line_end
+            elif bounded := value.match(text, position):
+                end = bounded.end()
+            else:  # no value after the key: nothing to hide
+                continue
             edits.append((found.start(), end, found.expand(masked)))
             position = end
     tracked.apply(edits)
 
 
 def _mask_pair_v04(m: re.Match[str]) -> str:
-    if not (is_sensitive_key(m.group(1)) or m.group(1).lower() in _SECRET_HEADERS):  # Cookie: session=abc
+    if not (is_sensitive_key(m.group(1)) or _is_secret_header(m.group(1))):  # Cookie: session=abc
         return m.group(0)
     value = m.group(3)
     quote = value[0] if value[:1] in ("'", '"') else ""
@@ -335,6 +352,12 @@ def _mask_tokens(tracked: Tracked) -> None:
 
 _GLUED_EDGES = f"{_TOKEN_LEAD}{_TOKEN_TRAIL}="  # a key's ``=`` beside a mask is no connection-string credential
 _SECRET_HEADERS = frozenset({"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key"})
+
+
+def _is_secret_header(name: str) -> bool:
+    """A secret header's name, alone or as the last segment of a dotted name (``request.Cookie``): the text pair
+    patterns read dots as name characters, so ``do.Cookie: session=x`` is the Cookie header with a prefix."""
+    return name.rpartition(".")[2].lower() in _SECRET_HEADERS
 
 
 def _key_text(key: bytes | None) -> str:
@@ -418,6 +441,10 @@ class Masker:
             _mask_pairs(_TEXT_QUOTED_PAIR, _QUOTED_PAIR_MASKED, tracked)
             _mask_pairs(_TEXT_PAIR, _PAIR_MASKED, tracked)
         tracked.sub(_TEXT_AUTH_SCHEME, _AUTH_SCHEME_MASKED)
+        if not strict and _may_hold_sensitive_key(tracked.text):
+            # a statement: each colon key is still re-read, its value bounded to one token (``x = pwd:=v`` hides ``v``).
+            # After the scheme pass: a value that opens with ``Token`` would hide the word and leave the credential
+            _mask_pairs(_TEXT_COLON_PAIR, _PAIR_MASKED, tracked, _PAIR_TOKEN)
         tracked.sub(_TEXT_JWT, _mask_jwt)
         _mask_tokens(tracked)
         if MASK in tracked.text:

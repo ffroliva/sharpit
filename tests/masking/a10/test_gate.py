@@ -308,3 +308,56 @@ def test_a_forwarder_reached_by_another_import_form_fails_wiring(form: str, tmp_
         DATA_ANCHOR,
         FORWARDER_FORMS[form],
     )
+
+
+# owner 2026-11-07, item 6: the A10 counts measured at 4a64832f (arch/a10-counts/report.md) are the ceiling, no rise
+# allowed. 164 fixture rows read through their exception chain: conflict 0 and no_proof 0. The one no_proof event
+# measured is the unit row of test_a_record_with_no_proof_counts_in_the_bucket, and the examples' no_proof events come
+# with no engine registered, which section 6's step 2 cannot read
+UNSUPPORTED_CEILING = 0
+
+
+def test_fixture_rows_reach_unsupported_no_more_than_the_ceiling() -> None:
+    sources = (ExceptionDialectSource(),)
+    hidden = [
+        name
+        for name, _, error, _ in fixture_rows()
+        if resolve(error, sources, DialectContext(lambda: None)) is Dialect.UNSUPPORTED
+    ]
+    assert len(hidden) <= UNSUPPORTED_CEILING, hidden[:5]
+
+
+def test_a_blanket_hide_build_fails_a10(tmp_path: Path) -> None:
+    """``resolve`` is correct and ``statement_text`` hides every statement: A10 must fail, not pass on nothing."""
+    copy = scratch_package(tmp_path)
+    plant_fails(
+        copy,
+        "tests/masking/a10/test_gate.py::test_statement_text_keeps_a_known_word",
+        "engine/sqltext/__init__.py",
+        "        if dialect is Dialect.UNSUPPORTED:  # after the None check",
+        "        if True:  # after the None check",
+    )
+
+
+def test_a_hide_on_an_unwired_site_is_caught(tmp_path: Path) -> None:
+    """A surface that passes ``UNSUPPORTED`` by hand hides a proven PostgreSQL span: A10's span row must fail."""
+    copy = scratch_package(tmp_path)
+    plant_fails(
+        copy,
+        "tests/masking/a10/test_spans.py::test_span_rows_read_names_and_application_evidence",
+        "engine/capture/traces.py",
+        "    return statement_text(masker, text, dialect)\n",
+        "    return statement_text(masker, text, Dialect.UNSUPPORTED)\n",
+    )
+
+
+def test_a_build_without_the_strict_pass_fails_a2(tmp_path: Path) -> None:
+    """The table's ``MUTE`` build: the last pass over raw text removed, so a secret a literal split shows its tail."""
+    copy = scratch_package(tmp_path)
+    plant_fails(
+        copy,
+        "tests/masking/test_unsupported_identity.py::test_the_strict_last_pass_keeps_the_tail_hidden[userinfo-POSTGRESQL]",
+        "engine/sqltext/__init__.py",
+        "    rendered = normalized if not relaxed and sql.isascii() else shown(sql, scan, relaxed, MASK, secret, cuts)",
+        "    rendered = normalized",
+    )

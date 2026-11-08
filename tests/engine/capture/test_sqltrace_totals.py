@@ -13,7 +13,7 @@ MASKED = Masker(Exposure.MASKED, True)
 
 def _record(recorder: SqlTraceRecorder, sql: str = "select 1", millis: int = 1, **kw: Any) -> None:
     recorder.record(
-        sql, duration_ns=millis * 1_000_000, thread="main", connection_id="c1", dialect=Dialect.UNSUPPORTED, **kw
+        sql, duration_ns=millis * 1_000_000, thread="main", connection_id="c1", dialect=Dialect.POSTGRESQL, **kw
     )
 
 

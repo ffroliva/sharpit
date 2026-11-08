@@ -10,6 +10,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from functools import partial
 
 from tests.masking import sql_corpus
 from tests.masking import test_statement_surfaces as gates
@@ -20,12 +21,19 @@ from sharpit.engine.masking import Masker
 from sharpit.engine.sqltext import Dialect
 
 
-def _scan_alone(_masker: Masker, statement: str) -> str:
-    """The scan with no masker before it: elsewhere a masker hides the token, so a scan-only branch moves ``shape``."""
-    return normalize(statement, Dialect.UNSUPPORTED).sql
+def _scan_alone(dialect: Dialect, _masker: Masker, statement: str) -> str:
+    """The scan with no masker before it: elsewhere a masker hides the token, so a scan-only branch moves ``shape``.
+
+    Task 29: ``UNSUPPORTED`` is never scanned, so the scan is read on the known dialect whose rules reach the branch.
+    """
+    return normalize(statement, dialect).sql
 
 
-SURFACES: dict[str, gates.Surface] = {**gates.SURFACES, "scan_alone-generic": _scan_alone}
+SURFACES: dict[str, gates.Surface] = {
+    **gates.SURFACES,
+    "scan_alone-mysql": partial(_scan_alone, Dialect.MYSQL_FAMILY),
+    "scan_alone-pg_valid": partial(_scan_alone, Dialect.POSTGRESQL),
+}
 
 
 def rows_for(surface: str, rows: int, seeds: Sequence[int]) -> list[Row]:

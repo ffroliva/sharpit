@@ -94,6 +94,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - An error with an `[SQL: ` marker is masked, normalised and masked again. Everything after the marker is normalised, not only the statement: `[parameters: ...]` and the `Background` link too, digits and quoted text read `?`, line breaks collapse, and text past 20,000 characters is dropped. The statements stored by SQL Trace, the test session and the N+1 messages are normalised and then masked, as in 0.4.0.
 - `mask_text` masks the word after `basic` or `bearer` in any case, also in English or SQL (`basic usage` shows `basic ******`, `SELECT basic FROM t` shows `SELECT basic ****** t`), and does not mask `Digest` parameter lists. With no key before it, an ordinary word or a punctuation-only value after `token` stays readable (`Token expired`, `FROM Token WHERE`), so a credential of 16 letters or fewer in one case, or of punctuation alone, is not masked there.
 - On FastAPI 0.16x an `include_router` prefix cannot be recovered from the route, so those routes report `MASKED_PATH` instead of a template.
+- A driver error read from text alone keeps an unquoted driver value visible in four shapes: a SQLite `ATTACH` path or a trigger's `RAISE` message on a driver line with no quote, a chain line planted by a value on the driver line, and a docs-link line planted by a value in a `StatementError` that has no link of its own. Quoted values, the `[SQL: ...]` block and its parameters stay masked.
 
 ## [0.4.0] - 2026-11-02
 

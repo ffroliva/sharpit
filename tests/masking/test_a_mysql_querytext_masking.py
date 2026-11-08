@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sharpit.engine import sqltext
-from sharpit.engine.capture.sqltrace import normalize_sql
-from sharpit.engine.collectors.mysql.querytext import mysql_query_text
+from sharpit.engine.collectors.mysql.querytext import mysql_query_text, truncate
 from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
@@ -21,7 +20,7 @@ MASKER = Masker(Exposure.MASKED, True)
         (f'SELECT * FROM u WHERE "{SECRET}"=pw', "SELECT * FROM u WHERE ?=pw"),
         (f'CALL login("bob","{SECRET}")', "CALL login(?,?)"),
         (f'SELECT MD5("{SECRET}")', "SELECT MD5(?)"),
-        (f'UPDATE u SET pw="a\\"{SECRET}" WHERE id=1', "UPDATE u SET pw= ?"),  # D7: the readings differ, so it stops
+        (f'UPDATE u SET nick="a\\"{SECRET}" WHERE id=1', "UPDATE u SET nick= ?"),  # D7: the readings differ: it stops
         (f"SELECT 1 # {SECRET}\n, 2", "SELECT ? , ?"),
         (f"UPDATE u SET k=0x{HEX}", "UPDATE u SET k=?"),
         ("UPDATE u SET k=0b1011", "UPDATE u SET k=?"),
@@ -38,7 +37,7 @@ def test_a_mysql_literal_never_survives(sql: str, expected: str) -> None:
         (f"SELECT 'C:\\\\', '{SECRET}'", "SELECT ?, ?"),
         (f"UPDATE u SET a='x\\\\', b='{SECRET}' WHERE id=1", "UPDATE u SET a=?, b=? WHERE id=?"),
         (f'INSERT INTO u(n,pw) VALUES ("a b","{SECRET}")', "INSERT INTO u(n,pw) VALUES (?,?)"),
-        (f'UPDATE u SET pw="{SECRET}"', "UPDATE u SET pw=?"),
+        (f'UPDATE u SET nick="{SECRET}"', "UPDATE u SET nick=?"),
     ],
 )
 def test_a_literal_the_generic_scan_already_caught_stays_caught(sql: str, expected: str) -> None:
@@ -66,15 +65,5 @@ def test_mysql_query_text_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert mysql_query_text(MASKER, f"UPDATE fails_closed SET note='{SECRET}'") == MASK
 
 
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ('SELECT "firstName" FROM "user"', 'SELECT "firstName" FROM "user"'),
-        ("SELECT a # b", "SELECT a"),
-        ("SELECT 0xFF", "SELECT ?"),
-        ('SELECT "a\\"b', "SELECT ?"),
-    ],
-    ids=["identifiers", "xor-operator", "hex", "backslash"],
-)
-def test_the_generic_scan_keeps_its_output(sql: str, expected: str) -> None:
-    assert normalize_sql(sql, Dialect.UNSUPPORTED) == expected
+def test_truncate_keeps_unicode_space_between_tokens() -> None:
+    assert truncate("SELECT \u1680 1") == "SELECT \u1680 1"

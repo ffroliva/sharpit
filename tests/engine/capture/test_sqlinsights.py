@@ -28,7 +28,7 @@ def _recorder(masker: Masker = MASKED, max_entries: int = 100) -> SqlTraceRecord
 
 
 def _record(recorder: SqlTraceRecorder, sql: str, millis: int, **kw: Any) -> None:
-    fields: dict[str, Any] = {"dialect": Dialect.UNSUPPORTED, **kw}
+    fields: dict[str, Any] = {"dialect": Dialect.POSTGRESQL, **kw}
     recorder.record(sql, duration_ns=millis * 1_000_000, thread="main", connection_id="c1", **fields)
 
 
@@ -205,7 +205,7 @@ def test_percentile_is_nearest_rank():
     assert percentile(list(range(1, 21)), 95) == 19
 
 
-@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY, Dialect.UNSUPPORTED])
+@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY])  # UNSUPPORTED has no identity
 @pytest.mark.parametrize(
     "sql",
     [

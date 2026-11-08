@@ -12,7 +12,7 @@ SQL = 'SELECT "x" FROM t'
 
 
 def _shown(sql: str, hidden: list[tuple[int, int]], double_quoted: Callable[[str], bool]) -> str:
-    scan = sqltext.LEXER.scan(sql, Dialect.UNSUPPORTED)
+    scan = sqltext.LEXER.scan(sql, Dialect.POSTGRESQL)
     return sqltext.shown(sql, scan, hidden, MASK, sqltext.secrets(scan, double_quoted), ())
 
 
@@ -60,7 +60,7 @@ def test_render_asks_about_each_run_once_for_the_shape_and_the_text() -> None:
         return True
 
     sql = 'SELECT "abc", "def" FROM t'
-    scan = sqltext.LEXER.scan(sql, Dialect.UNSUPPORTED)
+    scan = sqltext.LEXER.scan(sql, Dialect.POSTGRESQL)
     secret = sqltext.secrets(scan, record)
     sqltext.shape(scan, secret)
     sqltext.shown(sql, scan, [], MASK, secret, ())
@@ -70,7 +70,7 @@ def test_render_asks_about_each_run_once_for_the_shape_and_the_text() -> None:
 
 def test_a_secret_run_in_a_predicate_is_a_predicate_literal() -> None:
     # ported: the candidate remembers whether a literal there sits in a predicate
-    scan = sqltext.LEXER.scan('SELECT 1 WHERE a = "secret".x', Dialect.UNSUPPORTED)
+    scan = sqltext.LEXER.scan('SELECT 1 WHERE a = "secret".x', Dialect.POSTGRESQL)
 
     _, _, predicates = sqltext.shape(scan, sqltext.secrets(scan, lambda _body: True))
 
@@ -78,7 +78,7 @@ def test_a_secret_run_in_a_predicate_is_a_predicate_literal() -> None:
 
 
 def test_a_double_quoted_name_outside_a_predicate_is_no_predicate_literal() -> None:
-    scan = sqltext.LEXER.scan('SELECT "secret".x FROM t', Dialect.UNSUPPORTED)
+    scan = sqltext.LEXER.scan('SELECT "secret".x FROM t', Dialect.POSTGRESQL)
 
     _, literals, predicates = sqltext.shape(scan, sqltext.secrets(scan, lambda _body: True))
 

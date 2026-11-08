@@ -89,9 +89,11 @@ def bare(*loggers: logging.Logger) -> Iterator[logging.Logger]:
             lg.handlers[:] = handlers
 
 
-def _handler(masker: Masker = MASKED, max_lines: int = 500) -> tuple[SharpitLogHandler, LogTailBuffer]:
+def _handler(
+    masker: Masker = MASKED, max_lines: int = 500, application: Callable[[], Dialect | None] = lambda: None
+) -> tuple[SharpitLogHandler, LogTailBuffer]:
     buffer = LogTailBuffer(max_lines, 1 << 20)
-    return SharpitLogHandler(masker, buffer, application=lambda: None), buffer
+    return SharpitLogHandler(masker, buffer, application=application), buffer
 
 
 def test_handler_level_notset_changes_no_level(isolated: logging.Logger):
@@ -187,7 +189,10 @@ def test_metadata_only_log_message_null(isolated: logging.Logger):
 
 @pytest.mark.parametrize("capture", [False, True])
 def test_sqlalchemy_param_lines_dropped(isolated: logging.Logger, capture: bool):
-    handler, buffer = _handler(Masker(Exposure.MASKED, True, capture_parameters=capture))
+    # derived: Task 29, a record of an application on SQLite: with no proof the statement is hidden
+    handler, buffer = _handler(
+        Masker(Exposure.MASKED, True, capture_parameters=capture), application=lambda: Dialect.SQLITE
+    )
     engine_log = logging.getLogger("sqlalchemy.engine.Engine")
     engine_log.addHandler(handler)
     saved = engine_log.level
@@ -422,7 +427,8 @@ def test_logtail_arg_with_raising_class_property_is_still_logged() -> None:
 # derived: Task 27 review 8 (classified psycopg arg in log record substitutes safe rendering into record.msg)
 def test_logtail_classified_psycopg_arg_keeps_format_text_without_driver_text(isolated: logging.Logger) -> None:
     psycopg_errors = pytest.importorskip("psycopg.errors")
-    handler, buffer = _handler()
+    # Task 29: on an application with no family the record's text is UNSUPPORTED's, and hidden
+    handler, buffer = _handler(application=lambda: Dialect.POSTGRESQL)
     with bare(isolated):
         isolated.addHandler(handler)
         isolated.addHandler(logging.NullHandler())
@@ -431,3 +437,53 @@ def test_logtail_classified_psycopg_arg_keeps_format_text_without_driver_text(is
             psycopg_errors.InvalidTextRepresentation('invalid input syntax for type integer: "hunter2secret"'),
         )
     assert _messages(buffer) == ["retrying after (psycopg.errors.InvalidTextRepresentation) 22P02"]
+
+
+STORED = "storedsecret7Q"
+# both quotes, so ``repr`` escapes the ``'`` with a backslash, which SQLite reads as a plain character: the string
+# closes early and the stored value reads as words
+STORED_VALUE = f"x' {STORED} \"y"
+
+
+def _echoed_lines(capture: bool) -> list[str | None]:
+    """A real SQLite engine at ``echo="debug"``: SQLAlchemy logs each fetched row as ``"Row %r"``, with its values."""
+    sa = pytest.importorskip("sqlalchemy")
+    handler, buffer = _handler(
+        Masker(Exposure.MASKED, True, capture_parameters=capture), application=lambda: Dialect.SQLITE
+    )
+    engine = sa.create_engine("sqlite://", echo="debug")
+    engine_log = logging.getLogger("sqlalchemy.engine.Engine")
+    engine_log.addHandler(handler)
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("CREATE TABLE u (name TEXT, token TEXT)")
+            conn.exec_driver_sql("INSERT INTO u VALUES (?, ?)", ("bob", STORED_VALUE))
+            conn.exec_driver_sql("SELECT name, token FROM u WHERE name = ?", ("bob",)).fetchall()
+    finally:
+        engine_log.removeHandler(handler)
+        engine.dispose()
+    return _messages(buffer)
+
+
+# derived: Task 29 review of 855f712f, HIGH: logtail read every sqlalchemy.engine record as a statement, and a fetched
+# row's values are no statement
+def test_an_echoed_row_shows_no_stored_value() -> None:
+    lines = _echoed_lines(False)
+    assert [line for line in lines if line and STORED.lower() in line.lower()] == []
+
+
+def test_an_echoed_statement_is_still_captured() -> None:
+    assert "SELECT name, token FROM u WHERE name = ?" in _echoed_lines(False)
+
+
+# derived: Task 32 exposure matrix, logtail_statement-*-capture_on-*-unsupported: owner's item 7, capture on does not
+# lift the hide of a statement sharpit cannot read
+@pytest.mark.parametrize("exposure", [Exposure.MASKED, Exposure.FULL])
+def test_capture_on_keeps_an_unsupported_engine_statement_hidden(exposure: Exposure) -> None:
+    masker = Masker(exposure, True, capture_parameters=True)
+    record = logging.LogRecord(
+        "sqlalchemy.engine.Engine", logging.INFO, __file__, 1, "SELECT * FROM t WHERE pw = 'hunter2plain'", None, None
+    )
+    line = SharpitLogHandler(masker, None, application=lambda: None).line(record)
+    assert line is not None
+    assert line["message"] == "[statement hidden: unsupported database]"

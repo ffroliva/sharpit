@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, NamedTuple
 
-from sharpit.engine.sqltext.constants import MASK
+from sharpit.engine.sqltext.constants import MASK, UNSUPPORTED_STATEMENT
 from sharpit.engine.sqltext.dialect import (
     ChainReading,
     Dialect,
@@ -48,14 +48,6 @@ class Shape(NamedTuple):
 type ErrorSource = str | BaseException
 
 
-_VERB = re.compile(
-    r"[(\s]*(?:alter|analyze|attach|begin|binlog|call|change|checkpoint|clone|cluster|comment|commit|copy|create|deallocate"
-    r"|declare|delete|desc|describe|detach|do|drop|exec|execute|explain|fetch|flush|grant|handler|insert|kill|listen"
-    r"|load|lock|merge|notify|optimize|pragma|prepare|refresh|reindex|release|rename|replace|reset|resignal|revoke"
-    r"|rollback|savepoint|select|set|show|signal|start|table|truncate|unlock|update|use|vacuum|values|with)"
-    r"(?=[^\w$-]|$)",
-    re.IGNORECASE,
-)
 _TAIL_WORD = re.compile(r"\w")
 
 
@@ -75,6 +67,14 @@ def _hide_joined_tails(sql: str, spans: list[tuple[int, int]]) -> None:
         reach = end
 
 
+def secret_spans(masker: Masker, sql: str) -> list[tuple[int, int]] | None:
+    """The raw ``(start, end)`` runs a statement's secrets cover, each with its joined tail; ``None`` hides all."""
+    spans = masker.mask_spans(sql, False)
+    if spans is not None:
+        _hide_joined_tails(sql, spans)
+    return spans
+
+
 def _statement_text(
     masker: Masker,
     sql: str,
@@ -85,21 +85,18 @@ def _statement_text(
 ) -> str | None:
     from sharpit.engine.masking import is_secret_value
 
-    relaxed = masker.mask_spans(sql, False)
+    relaxed = secret_spans(masker, sql)
     if relaxed is None:
         return None
-    _hide_joined_tails(sql, relaxed)
     if secret is None:
         secret = secrets(scan, is_secret_value)
     if normalized is None or cuts is None:
         scanned, _, _ = shape(scan, secret)
         normalized, cuts = collapse_placeholder_lists(scanned.strip(SPACE_CHARS))
+    # the surface says: this text is a statement, whatever its first word. The last pass over the raw text hides each
+    # secret and its joined tail before the emit, so a literal that split a secret cannot show the secret's remainder
     rendered = normalized if not relaxed and sql.isascii() else shown(sql, scan, relaxed, MASK, secret, cuts)
-    if _VERB.match(rendered):
-        return masker.mask_statement(rendered)
-    if relaxed or masker.mask_spans(sql, True):
-        return MASK
-    return masker.mask_text(rendered)
+    return masker.mask_statement(rendered)
 
 
 def statement_text(masker: Masker, sql: str, dialect: Dialect) -> str | None:
@@ -107,13 +104,28 @@ def statement_text(masker: Masker, sql: str, dialect: Dialect) -> str | None:
     try:
         if masker.mask_spans("") is None:
             return None
+        if dialect is Dialect.UNSUPPORTED:  # after the None check: METADATA_ONLY gives nothing
+            return UNSUPPORTED_STATEMENT
         return _statement_text(masker, sql, LEXER.scan(sql, dialect))
     except Exception:
         return MASK
 
 
 def statement_shape(masker: Masker, sql: str, dialect: Dialect) -> Shape:
-    """The emitted statement and its masked identity, counts and resolved dialect."""
+    """The emitted statement and its masked identity, counts and resolved dialect.
+
+    An ``UNSUPPORTED`` statement is the marker with no identity, and never reaches the lexer. A shape that cannot be
+    read degrades to the mask with no identity: it never raises into the host (safety rule 5).
+    """
+    if dialect is Dialect.UNSUPPORTED:
+        return Shape(UNSUPPORTED_STATEMENT, None, dialect, 0, 0)
+    try:
+        return _shape(masker, sql, dialect)
+    except Exception:
+        return Shape(MASK, None, dialect, 0, 0)
+
+
+def _shape(masker: Masker, sql: str, dialect: Dialect) -> Shape:
     from sharpit.engine.masking import is_secret_value
 
     scan = LEXER.scan(sql, dialect)
@@ -183,6 +195,7 @@ __all__ = [
     "Scan",
     "Shape",
     "SqlLexer",
+    "UNSUPPORTED_STATEMENT",
     "collapse_placeholder_lists",
     "dialect_of_name",
     "exception_leaves",
@@ -192,6 +205,7 @@ __all__ = [
     "quoted_body",
     "read_chain",
     "resolve",
+    "secret_spans",
     "secrets",
     "statement_shape",
     "statement_text",

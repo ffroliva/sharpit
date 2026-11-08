@@ -6,10 +6,13 @@ review named; tokens are built by concatenation.
 
 from __future__ import annotations
 
+import logging
 import string
 
 import pytest
 
+from sharpit.engine.capture.exceptions import ExceptionStore
+from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.sqlscan import shown
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.collectors.postgresql.querytext import query_text
@@ -25,7 +28,7 @@ VENDOR_TOKEN = "sk_live_" + "1234567890abcdefghijkl"
 NO_CAP = 10**6
 
 
-def text(sql: str, dialect: Dialect = Dialect.UNSUPPORTED) -> str:
+def text(sql: str, dialect: Dialect = Dialect.POSTGRESQL) -> str:
     out = statement_text(MASKER, sql, dialect)
     assert out is not None
     return out
@@ -81,7 +84,7 @@ def test_secret_shaped_span_hides_its_joined_tail(monkeypatch: pytest.MonkeyPatc
         return "SELECT ?"
 
     monkeypatch.setattr("sharpit.engine.sqltext.shown", capture)
-    _statement_text(MASKER, sql, LEXER.scan(sql, Dialect.UNSUPPORTED))
+    _statement_text(MASKER, sql, LEXER.scan(sql, Dialect.POSTGRESQL))
     assert any(start <= sql.index(leak) < end for spans in shown for start, end in spans)
 
 
@@ -112,7 +115,27 @@ def test_a_single_quoted_name_before_a_value_shows_no_value_on_mysql() -> None:
     assert VALUE not in text(f"select 'password':{VALUE}=1", Dialect.MYSQL_FAMILY)
 
 
-# T28, review r8a Important: free text taken down the relaxed path by the verb branch keeps what follows the name
+def _log_message(text: str) -> str | None:
+    record = logging.LogRecord("host.app", logging.INFO, __file__, 1, text, None, None)
+    line = SharpitLogHandler(MASKER, None, application=lambda: Dialect.POSTGRESQL).line(record)
+    return None if line is None else line["message"]
+
+
+def _exception_message(text: str) -> str | None:
+    store = ExceptionStore(5, 5, 5, MASKER, application=lambda: Dialect.POSTGRESQL)
+    store.record(RuntimeError(text), "logging", None, None)
+    detail = store.detail(store.report()["groups"][0]["id"])
+    assert detail is not None
+    return detail["group"]["message"]
+
+
+FREE_TEXT_SURFACES = {"log": _log_message, "exception": _exception_message}
+
+
+# derived: T28, review r8a Important, re-pointed by owner ruling 2026-11-08 (A). The rows read the statement surface,
+# where Task 29 reads all text as SQL by contract (MVP spec section 14); verb-branch free text arrives on the log and
+# exception surfaces, so it is read there, with the same assertion
+@pytest.mark.parametrize("surface", sorted(FREE_TEXT_SURFACES))
 @pytest.mark.parametrize(
     "prefix",
     [
@@ -132,8 +155,10 @@ def test_a_single_quoted_name_before_a_value_shows_no_value_on_mysql() -> None:
     ],
 )
 @pytest.mark.parametrize("payload", ["password=a {}", "Cookie: session=x; other={}"], ids=["password", "cookie"])
-def test_free_text_after_a_verb_branch_shows_no_value(prefix: str, payload: str) -> None:
-    assert SECOND not in text(prefix + payload.format(SECOND))
+def test_free_text_after_a_verb_branch_shows_no_value(prefix: str, payload: str, surface: str) -> None:
+    shown = FREE_TEXT_SURFACES[surface](prefix + payload.format(SECOND))
+    assert shown is not None
+    assert SECOND not in shown
 
 
 # T26, review r8b: the real leak of ``test_no_literal_is_visible[query_text-pg_valid]``, a non-ASCII space before ``$$``
@@ -158,4 +183,4 @@ def test_a_dollar_tag_after_a_non_ascii_name_is_no_quote_on_mysql() -> None:
 # at the first character releases the name, and ``flags[-1]`` is the last character's
 def test_a_hit_from_the_first_character_keeps_its_name() -> None:
     sql = 'bio="vvvv"'
-    assert shown(sql, [(0, len(sql))], Dialect.UNSUPPORTED) == "bio=?"
+    assert shown(sql, [(0, len(sql))], Dialect.POSTGRESQL) == "bio=?"

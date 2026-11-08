@@ -271,7 +271,9 @@ class SqlTraceRecorder:
             return
         masker = self._masker
         shape: Shape = self._shape(sql, dialect)
-        stored = shape.text if not masker.capture_parameters else (masker.mask_text(sql) or "")
+        # capture on shows the raw statement, but never one sharpit cannot read (owner, item 7)
+        raw = masker.capture_parameters and dialect is not Dialect.UNSUPPORTED
+        stored = (masker.mask_text(sql) or "") if raw else shape.text
         error_message: str | None = None
         if error is not None:
             masked = sqltext.error_text(masker, error, dialect, known=True, keep_frames=False) or masker.mask_text("")

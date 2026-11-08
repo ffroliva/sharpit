@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import re
 
-from sharpit.engine.masking import MASK, Masker
-from sharpit.engine.sqltext import Dialect, statement_text
+from sharpit.engine.masking import MASK, Masker, is_sensitive_key
+from sharpit.engine.sqltext import Dialect, secret_spans, statement_text
 
 MAX_QUERY_TEXT_LENGTH = 400
 
@@ -32,7 +32,13 @@ _TOKEN = re.compile(
 )
 _PLAIN_NAME = re.compile(r'"[A-Za-z0-9_$.]+"')
 _COMMENT_MARK = re.compile(r"/\*|\*/")
-_WHITESPACE = re.compile(r"\s+")
+_WHITESPACE = re.compile(r"\s+", re.ASCII)
+# a sensitive key's masked literal, which BootUI shows bare: ``password = ******``, not ``password = '******'``
+_KEYED_LITERAL = re.compile(rf"(?<![\w.-])([\w.-]+)(\s*[=:]\s*)'{re.escape(MASK)}'", re.ASCII)
+
+
+def _bare(m: re.Match[str]) -> str:
+    return f"{m[1]}{m[2]}{MASK}" if is_sensitive_key(m[1]) else m[0]
 
 
 def _comment_end(sql: str, start: int) -> int:
@@ -45,18 +51,40 @@ def _comment_end(sql: str, start: int) -> int:
     return len(sql)
 
 
-def _mask_all(sql: str) -> str:
+def _mask_all(sql: str, secret: list[tuple[int, int]] | None = None) -> str:
+    """Literals, numbers and comments masked; what is kept (code, names) loses each raw ``secret`` span too."""
     out: list[str] = []
+    spans = iter(secret or ())
+    span = next(spans, None)
+
+    def keep(start: int, end: int) -> None:
+        nonlocal span
+        while span is not None and span[1] <= start:
+            span = next(spans, None)
+        while span is not None and span[0] < end:
+            if gap := sql[start : max(span[0], start)]:
+                out.append(gap)
+            if out[-1:] != [MASK]:  # one mask for a span cut by a masked token
+                out.append(MASK)
+            start = min(span[1], end)
+            if span[1] > end:
+                break
+            span = next(spans, None)
+        out.append(sql[start:end])
+
     pos = 0
     while (m := _TOKEN.search(sql, pos)) is not None:
-        out.append(sql[pos : m.start()])
+        keep(pos, m.start())
         if m.group() == "/*":
             out.append(" ")
             pos = _comment_end(sql, m.start())
-        else:
-            out.append(_mask_token(m))
+        elif (masked := _mask_token(m)) == m.group():
+            keep(m.start(), m.end())
             pos = m.end()
-    out.append(sql[pos:])
+        else:
+            out.append(masked)
+            pos = m.end()
+    keep(pos, len(sql))
     return "".join(out)
 
 
@@ -101,5 +129,11 @@ def query_text(masker: Masker, sql: str | None, max_length: int = MAX_QUERY_TEXT
     masked = masker.mask_text(sql) or MASK
     # literals and comments are values: masked exactly when the masker masks a secret value (not FULL, not mask-off)
     if masker.mask("password", "x")[1]:
-        masked = masker.mask_text(_mask_all(sql)) or MASK
+        # the raw text's secret spans, read before ``_mask_all`` masks a quoted key (``'pwd': v``) out of every pass.
+        # The text is a statement, so its last pass is the statement's (MVP spec section 14): a sensitive key hides
+        # one value and the clauses after it stay, as on every other statement surface
+        spans = secret_spans(masker, sql)
+        masked = (
+            MASK if spans is None else _KEYED_LITERAL.sub(_bare, masker.mask_statement(_mask_all(sql, spans)) or MASK)
+        )
     return truncate(masked, max_length)

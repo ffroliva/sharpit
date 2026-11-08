@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from sharpit.engine import sqla
 from sharpit.engine.capture.exchanges import DTO_KEYS as EXCHANGE_KEYS
 from sharpit.engine.capture.sqltrace import entry_dto
+from sharpit.engine.sqltext import Dialect
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -118,6 +119,8 @@ def _groups(rows: Iterable[dict[str, Any]], threshold: int) -> list[dict[str, An
     by_sql: dict[str, dict[str, Any]] = {}
     for row in rows:
         shape = row["shape"]
+        if shape.dialect is Dialect.UNSUPPORTED:  # a hidden statement has no identity: it groups with no other
+            continue
         key = shape.fingerprint if shape.fingerprint is not None else shape.text
         group = by_sql.get(key)
         if group is None:

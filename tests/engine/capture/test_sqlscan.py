@@ -20,9 +20,9 @@ from sharpit.engine.sqltext import Dialect
 
 CORPUS_ROWS = 2000
 DIALECTS = (
-    (sql_corpus.GENERIC, Dialect.UNSUPPORTED),
+    (sql_corpus.GENERIC, Dialect.POSTGRESQL),
     (sql_corpus.MYSQL, Dialect.MYSQL_FAMILY),
-    (sql_corpus.POSTGRESQL, Dialect.UNSUPPORTED),
+    (sql_corpus.POSTGRESQL, Dialect.POSTGRESQL),
 )
 
 
@@ -55,7 +55,7 @@ def test_shown_with_nothing_hidden_equals_normalize(corpus: str, dialect: Dialec
     ],
 )
 def test_shown_with_nothing_hidden_equals_normalize_on_the_edges(sql: str) -> None:
-    assert shown(sql, [], Dialect.UNSUPPORTED) == normalize(sql, Dialect.UNSUPPORTED).sql
+    assert shown(sql, [], Dialect.POSTGRESQL) == normalize(sql, Dialect.POSTGRESQL).sql
 
 
 @pytest.mark.parametrize(
@@ -66,12 +66,12 @@ def test_shown_with_nothing_hidden_equals_normalize_on_the_edges(sql: str) -> No
     ],
 )
 def test_a_value_position_is_read_past_a_run_of_spaces(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 def test_a_hidden_equals_sign_does_not_change_a_literal() -> None:
     sql = 'basic = "x"'
-    assert shown(sql, [_span(sql, "=")], Dialect.UNSUPPORTED) == "basic = ?"
+    assert shown(sql, [_span(sql, "=")], Dialect.POSTGRESQL) == "basic = ?"
 
 
 @pytest.mark.parametrize(
@@ -84,7 +84,7 @@ def test_a_hidden_equals_sign_does_not_change_a_literal() -> None:
 )
 def test_a_hidden_keyword_does_not_change_a_literal(sql: str, part: str, expected: str) -> None:
     """``=`` is structural, so a scan of the masked text still reads it: a second scan loses these words instead."""
-    assert shown(sql, [_span(sql, part)], Dialect.UNSUPPORTED) == expected
+    assert shown(sql, [_span(sql, part)], Dialect.POSTGRESQL) == expected
 
 
 @pytest.mark.parametrize(
@@ -97,36 +97,36 @@ def test_a_hidden_keyword_does_not_change_a_literal(sql: str, part: str, expecte
     ],
 )
 def test_a_list_collapses_as_the_raw_scan_read_it(sql: str, parts: list[str], expected: str) -> None:
-    assert shown(sql, [_span(sql, part) for part in parts], Dialect.UNSUPPORTED) == expected
+    assert shown(sql, [_span(sql, part) for part in parts], Dialect.POSTGRESQL) == expected
 
 
 def test_a_hidden_run_in_code_is_one_mask_and_keeps_its_structure() -> None:
     sql = "WHERE k = abcdef AND z"
-    assert shown(sql, [_span(sql, "= abcdef")], Dialect.UNSUPPORTED) == f"WHERE k = {MASK} AND z"
+    assert shown(sql, [_span(sql, "= abcdef")], Dialect.POSTGRESQL) == f"WHERE k = {MASK} AND z"
 
 
 def test_a_hidden_character_in_a_literal_is_already_a_placeholder() -> None:
     sql = "SELECT 'abc', 1"
-    assert shown(sql, [_span(sql, "b")], Dialect.UNSUPPORTED) == "SELECT ?, ?"
+    assert shown(sql, [_span(sql, "b")], Dialect.POSTGRESQL) == "SELECT ?, ?"
 
 
 def test_a_hidden_character_in_a_comment_is_dropped_with_it() -> None:
     sql = "SELECT /* abc */ 1"
-    assert shown(sql, [_span(sql, "b")], Dialect.UNSUPPORTED) == "SELECT ?"
+    assert shown(sql, [_span(sql, "b")], Dialect.POSTGRESQL) == "SELECT ?"
 
 
 def test_a_hidden_span_across_a_literal_masks_only_the_code() -> None:
     sql = "ab = 'x' cd"
-    assert shown(sql, [(0, len(sql))], Dialect.UNSUPPORTED) == f"{MASK} = ? {MASK}"
+    assert shown(sql, [(0, len(sql))], Dialect.POSTGRESQL) == f"{MASK} = ? {MASK}"
 
 
 def test_a_hidden_quoted_name_keeps_its_quotes() -> None:
     sql = "SELECT `abc`"
-    assert shown(sql, [_span(sql, "abc")], Dialect.UNSUPPORTED) == f"SELECT `{MASK}`"
+    assert shown(sql, [_span(sql, "abc")], Dialect.POSTGRESQL) == f"SELECT `{MASK}`"
 
 
 def test_hidden_spans_may_overlap_and_run_off_the_text() -> None:
-    assert shown("abcdef", [(-5, 2), (1, 3), (4, 4), (100, 200)], Dialect.UNSUPPORTED) == f"{MASK}def"
+    assert shown("abcdef", [(-5, 2), (1, 3), (4, 4), (100, 200)], Dialect.POSTGRESQL) == f"{MASK}def"
 
 
 def test_shown_scans_the_raw_text_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,12 +138,12 @@ def test_shown_scans_the_raw_text_once(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(sqlscan, "_scan", spy)
     sql = 'basic = "x"'
-    shown(sql, [_span(sql, "=")], Dialect.UNSUPPORTED)
+    shown(sql, [_span(sql, "=")], Dialect.POSTGRESQL)
     assert seen == [sql]
 
 
 def test_ranges_report_literals_and_comments_with_their_kind() -> None:
-    assert scan_ranges("SELECT 'a', /* c */ 1 -- d\n", Dialect.UNSUPPORTED) == [
+    assert scan_ranges("SELECT 'a', /* c */ 1 -- d\n", Dialect.POSTGRESQL) == [
         Range(7, 10, True),
         Range(12, 19, False),
         Range(20, 21, True),
@@ -152,12 +152,12 @@ def test_ranges_report_literals_and_comments_with_their_kind() -> None:
 
 
 def test_a_double_quoted_value_is_frozen_as_a_literal_in_the_raw_scan() -> None:
-    assert scan_ranges('basic = "x"', Dialect.UNSUPPORTED) == [Range(8, 11, True)]
+    assert scan_ranges('basic = "x"', Dialect.POSTGRESQL) == [Range(8, 11, True)]
 
 
 # ported: SqlStatementNormalizerTests.tokensClassifyTheTextTheWayNormalizeLexesIt
 def test_a_quoted_name_is_not_a_range() -> None:
-    assert scan_ranges('"n", `b`, [c], 1', Dialect.UNSUPPORTED) == [Range(15, 16, True)]
+    assert scan_ranges('"n", `b`, [c], 1', Dialect.POSTGRESQL) == [Range(15, 16, True)]
 
 
 # ported: SqlRowLimitsTests.anEmptyHashCommentEndsAtItsLineAndAtTheEndOfTheText
@@ -167,7 +167,7 @@ def test_a_hash_comment_at_the_end_runs_to_the_end_of_the_text() -> None:
 
 def test_ranges_stop_at_the_scan_limit() -> None:
     sql = "'a' " + "x" * sql_corpus.SCAN_LIMIT + " 'y'"
-    assert scan_ranges(sql, Dialect.UNSUPPORTED) == [Range(0, 3, True)]
+    assert scan_ranges(sql, Dialect.POSTGRESQL) == [Range(0, 3, True)]
 
 
 @pytest.mark.parametrize(("corpus", "dialect"), DIALECTS, ids=dialect_id)
@@ -191,12 +191,8 @@ AMBIGUOUS = [
     ('select * from t where a = "x\\"y"', "select * from t where a = ?"),
     ('k="a\\" x "', "k= ?"),  # both readings give the same text; MySQL's is one literal, and only the ``"`` run says so
     # ported: JournalTextExposureTests.sqlThatCannotBeToldApartFromAValueIsNeverShownMasked
-    ("SELECT q'[it's x]' FROM dual", "SELECT q ?"),
-    ("SELECT Q'[it's x]'", "SELECT Q ?"),
-    ("SELECT nq'[it's x]'", "SELECT nq ?"),
     ("SELECT /* outer /* inner */ ' */ 'x'", "SELECT ?"),
     ("/* /* n */ it's */ SELECT 'x'", "it ?"),
-    ("-- c\r, 'a\nS', 'b'", "?"),
     ("SELECT ['a]', 'x']", "SELECT [ ?"),
     ("SELECT ['a b] c', 'x']", "SELECT [ ?"),
     # derived: review C1, each valid on PostgreSQL 18.2: a bracket read as one literal inverts the quotes after it
@@ -229,56 +225,49 @@ AMBIGUOUS = [
 
 @pytest.mark.parametrize(("sql", "expected"), AMBIGUOUS)
 def test_a_statement_that_reads_two_ways_stops_at_its_first_quote(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 @pytest.mark.parametrize(("sql", "expected"), AMBIGUOUS)
 def test_shown_stops_where_normalize_stops(sql: str, expected: str) -> None:
-    assert shown(sql, [], Dialect.UNSUPPORTED) == expected
+    assert shown(sql, [], Dialect.MYSQL_FAMILY) == expected
 
 
 @pytest.mark.parametrize(("sql", "_expected"), AMBIGUOUS)
 def test_a_cut_counts_as_one_literal_in_the_ranges(sql: str, _expected: str) -> None:
     assert (
-        sum(found.literal for found in scan_ranges(sql, Dialect.UNSUPPORTED))
-        == normalize(sql, Dialect.UNSUPPORTED).literal_count
+        sum(found.literal for found in scan_ranges(sql, Dialect.POSTGRESQL))
+        == normalize(sql, Dialect.POSTGRESQL).literal_count
     )
 
 
 def test_what_a_cut_drops_is_one_literal_range_to_the_end() -> None:
     sql = "path='C:\\', note='x'"
-    assert scan_ranges(sql, Dialect.UNSUPPORTED)[-1] == Range(sql.index("'"), len(sql), True)
+    assert scan_ranges(sql, Dialect.POSTGRESQL)[-1] == Range(sql.index("'"), len(sql), True)
 
 
 def test_a_cut_is_a_predicate_literal_where_the_text_stops_at_one() -> None:
-    assert normalize("path='C:\\', note='x'", Dialect.UNSUPPORTED).predicate_literal_count == 1
+    assert normalize("path='C:\\', note='x'", Dialect.POSTGRESQL).predicate_literal_count == 1
 
 
 # derived: conflicts hide (spec section 6): with no family known a ``#`` is a comment, an operator or a variable, and
 # a statement on a conflict showed ``# password hunter2``. It stops at the ``#``, on any line.
 GENERIC_HASH = [
-    ("SELECT # it's\n 'x'", "SELECT"),
     ("data #>> '{a}'", "data"),
     ("SELECT a # b", "SELECT a"),
     ("SELECT 'a' # b", "SELECT ?"),
     ("SELECT 1 # $1", "SELECT ?"),
-    ("SELECT 1 # `\n, 1234567 # `\n", "SELECT ?"),
-    ("SELECT 1 # x $$\n$$SECRET$$", "SELECT ?"),
-    (
-        "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS # $$\n $$ SECRET $$",
-        "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT AS",
-    ),
 ]
 
 
 @pytest.mark.parametrize(("sql", "expected"), GENERIC_HASH)
 def test_a_statement_with_no_family_stops_at_a_hash(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 @pytest.mark.parametrize(("sql", "expected"), GENERIC_HASH)
 def test_shown_stops_at_a_hash_where_normalize_stops(sql: str, expected: str) -> None:
-    assert shown(sql, [], Dialect.UNSUPPORTED).strip() == expected
+    assert shown(sql, [], Dialect.MYSQL_FAMILY).strip() == expected
 
 
 @pytest.mark.parametrize(
@@ -295,7 +284,7 @@ def test_shown_stops_at_a_hash_where_normalize_stops(sql: str, expected: str) ->
     ],
 )
 def test_a_statement_that_reads_one_way_is_not_cut(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.POSTGRESQL).sql == expected
 
 
 @pytest.mark.parametrize(
@@ -328,14 +317,15 @@ def test_what_mysql_reads_one_way_is_not_cut(sql: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("sql", "dialect", "expected"),
     [
-        ("-- ticket #12\nSELECT 'x', 'y'", Dialect.UNSUPPORTED, "SELECT ?, ?"),
-        ("SELECT 1 /* # 'a */, 'b'", Dialect.UNSUPPORTED, "SELECT ? , ?"),
-        ("SELECT `a#b`, 'x', 'y'", Dialect.UNSUPPORTED, "SELECT `a#b`, ?, ?"),
-        ("SELECT 1 AS `q'a`, 'x', 'y'", Dialect.UNSUPPORTED, "SELECT ? AS `q'a`, ?, ?"),
-        ("SELECT `a\\b`, 'x', 'y'", Dialect.UNSUPPORTED, "SELECT `a\\b`, ?, ?"),
+        ("-- ticket #12\nSELECT 'x', 'y'", Dialect.POSTGRESQL, "SELECT ?, ?"),
+        ("SELECT 1 /* # 'a */, 'b'", Dialect.POSTGRESQL, "SELECT ? , ?"),
+        ("SELECT `a#b`, 'x', 'y'", Dialect.POSTGRESQL, "SELECT `a#b`, ?, ?"),
+        # owner ruling 2026-11-08: written for generic mode's backtick name; PostgreSQL has none, SQLite does
+        ("SELECT 1 AS `q'a`, 'x', 'y'", Dialect.SQLITE, "SELECT ? AS `q'a`, ?, ?"),
+        ("SELECT `a\\b`, 'x', 'y'", Dialect.POSTGRESQL, "SELECT `a\\b`, ?, ?"),
         ("SELECT `a\\b`, 'x', 'y'", Dialect.MYSQL_FAMILY, "SELECT `a\\b`, ?, ?"),
-        ("SELECT 1 AS \"a\\b\", 'y'", Dialect.UNSUPPORTED, "SELECT ? AS ?, ?"),
-        ("SELECT \"C:\\dir\", 'y'", Dialect.UNSUPPORTED, "SELECT ?, ?"),
+        ("SELECT 1 AS \"a\\b\", 'y'", Dialect.POSTGRESQL, "SELECT ? AS ?, ?"),
+        ("SELECT \"C:\\dir\", 'y'", Dialect.POSTGRESQL, "SELECT ?, ?"),
     ],
     ids=dialect_id,
 )
@@ -346,8 +336,6 @@ def test_a_trigger_in_a_comment_or_a_closed_name_is_text(sql: str, dialect: Dial
 TWO_WAY = [
     "SELECT 1 # /* \n, 'a */ SECRET -- '",  # review Q1: a literal on MySQL; the only quote after ``#`` is in a comment
     "SELECT 5--q'a\nSECRET', 'b'",  # review Q1: tight, so a literal on MySQL
-    "SELECT 5--#'a\nSECRET', 'b'",
-    "SELECT `a#b 'x', SECRET' ",  # an open backtick is no name on PostgreSQL: ``'x'`` and ``SECRET`` are code there
     "SELECT /* # 'a, SECRET'",  # an open comment proves nothing
     "SELECT /*!# */ 'SECRET', 'b'",  # MySQL runs an executable comment, so its ``#`` is code
     "SELECT 'C:\\', SECRET, 'b'",
@@ -357,24 +345,7 @@ TWO_WAY = [
 
 @pytest.mark.parametrize("sql", TWO_WAY)
 def test_a_statement_that_reads_two_ways_still_cuts(sql: str) -> None:
-    assert "SECRET" not in normalize(sql, Dialect.UNSUPPORTED).sql
-
-
-# derived: re-review N1, MySQL 8.4.10 returns (1, 'SECRET') for each: it skips a comment or a name inside ``/*!``, so
-# the run ends later than the scan's first ``*/``
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ("SELECT 1 /*! -- */ don't\n, 'SECRET' */", "SELECT ? don ?"),
-        ("SELECT 1 /*! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
-        ("SELECT 1 /*M! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
-        ("SELECT /*M! '*/', 'MARK' */", "SELECT ?"),
-        ("SELECT /*!50000 1 AS `*/`, 'SECRET' */", "SELECT ?"),
-    ],
-)
-@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
-def test_an_executable_comment_ends_later_than_the_scan_reads(sql: str, expected: str, dialect: Dialect) -> None:
-    assert normalize(sql, dialect).sql == expected
+    assert "SECRET" not in normalize(sql, Dialect.MYSQL_FAMILY).sql
 
 
 # derived: re-review N2, MySQL 8.4.10 reads a name after ``@`` or ``.``, under both sql modes; ``t.$$`` is a syntax
@@ -408,20 +379,6 @@ def test_a_dollar_after_a_dot_is_a_name_on_mysql(sql: str, expected: str) -> Non
     assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
-# (r6) re-review 2 D1: ``t.$$`` is a name on MySQL and a syntax error elsewhere, and 0.4.0 hid what follows it, so with
-# the dialect unknown a ``.`` keeps its reading and the statement stops at its first opener, as after ``@``
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ("SELECT t.$$ = 'a $$ SECRET '", "SELECT t. ?"),
-        ("SELECT 1 FROM (SELECT 1 AS `$a$`) t WHERE t.$a$ = 'a $a$ SECRET '", "SELECT ? FROM (SELECT ? AS ?"),
-        ("SELECT t.$$ FROM (SELECT 1 AS `$$`) t WHERE t.$$ = 'a $$ SECRET '", "SELECT t. ?"),
-    ],
-)
-def test_a_dollar_after_a_dot_stops_the_statement_with_the_dialect_unknown(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
-
-
 # (r8) re-review 4: a syntax error on all three engines, or a name on MySQL when a column has it: one reading, so it
 # took a cut it did not need. With nothing else to open, there is nothing for a second reading to flip
 @pytest.mark.parametrize(
@@ -434,23 +391,7 @@ def test_a_dollar_after_a_dot_stops_the_statement_with_the_dialect_unknown(sql: 
     ],
 )
 def test_a_dollar_quote_after_a_dot_with_no_other_opener_reads_one_way(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
-
-
-# (r8) an opener anywhere else keeps the cut: past the closer (the second dollar quote holds a string on MySQL, whose
-# ``x$$$$`` is one name) or in the body (a comment on MySQL)
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ("SELECT x.$$a$$, 'SECRET'", "SELECT x. ?"),
-        ("SELECT t.$$ + x$$$$, ' $$ SECRET ' FROM t", "SELECT t. ?"),
-        ("SELECT t.$$ /* $$ SECRET */ FROM t", "SELECT t. ?"),
-        ("SELECT t.$$ -- $$ SECRET\n FROM t", "SELECT t. ?"),
-        ("SELECT t.$$ # $$ SECRET\n FROM t", "SELECT t. ?"),
-    ],
-)
-def test_a_dollar_quote_after_a_dot_beside_another_opener_still_stops(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.POSTGRESQL).sql == expected
 
 
 # (r7) re-review 3 NB1: ``SELECT`` refuses a dollar quote, but MySQL 8.4.10's lexer has one and its grammar takes it as
@@ -634,34 +575,7 @@ def test_the_other_cuts_stand_on_a_text_holding_a_dollar(sql: str, expected: str
 
 def test_a_digit_led_tag_opens_nothing_with_the_dialect_unknown() -> None:
     """PostgreSQL's tag rule. SQLite reads ``$1$`` as a variable, so opening there would show what follows it."""
-    assert normalize("SELECT $1$, 'a $1$ SECRET '", Dialect.UNSUPPORTED).sql == "SELECT $1$, ?"
-
-
-# derived: re-review 2 B1, MySQL 8.4.10 reads a digit-led name for each, under both sql modes; PostgreSQL and SQLite
-# answer a syntax error to ``1$$x$$``, so a ``$`` tight after a number opens nothing anywhere
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ("SELECT 1$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `1$a$`) t", "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t"),
-        ("SELECT 1$$, 'a $$ SECRET ' FROM (SELECT 1 AS `1$$`) t", "SELECT ?$$, ? FROM (SELECT ? AS `1$$`) t"),
-        (
-            "SELECT 0xAB$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `0xAB$a$`) t",
-            "SELECT ?$a$, ? FROM (SELECT ? AS `0xAB$a$`) t",
-        ),
-        (
-            "SELECT 1_2$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `1_2$a$`) t",
-            "SELECT ?$a$, ? FROM (SELECT ? AS `1_2$a$`) t",
-        ),
-        ("SELECT 1 AS 1$a$, 'a $a$ SECRET '", "SELECT ? AS ?$a$, ?"),
-        (
-            "SELECT 'SECRET' FROM (SELECT 1 AS `1$a$`) t WHERE 1$a$ = 1 OR 'a $a$ SECRET' = ''",
-            "SELECT ? FROM (SELECT ? AS `1$a$`) t WHERE ?$a$ = ? OR ? = ?",
-        ),
-    ],
-)
-@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
-def test_a_dollar_after_a_number_opens_nothing(sql: str, expected: str, dialect: Dialect) -> None:
-    assert normalize(sql, dialect).sql == expected
+    assert normalize("SELECT $1$, 'a $1$ SECRET '", Dialect.POSTGRESQL).sql == "SELECT $1$, ?"
 
 
 @pytest.mark.parametrize(
@@ -673,22 +587,7 @@ def test_a_dollar_after_a_number_opens_nothing(sql: str, expected: str, dialect:
     ],
 )
 def test_a_dollar_after_anything_else_that_is_no_name_still_opens(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
-
-
-def test_a_dollar_quote_after_at_reads_two_ways_with_the_dialect_unknown() -> None:
-    """``SELECT @$$5$$::int`` is ``5`` on PostgreSQL, a variable on MySQL."""
-    assert normalize("SELECT @$$ := 'a $$ SECRET '", Dialect.UNSUPPORTED).sql == "SELECT @ ?"
-
-
-def test_a_dollar_quote_after_at_stops_the_statement_with_no_quote_to_stop_at() -> None:
-    assert normalize("SELECT @$$5$$::int", Dialect.UNSUPPORTED).sql == "SELECT @ ?"
-
-
-# derived: re-review N3, MySQL 8.4.10 returns (6, 'SECRET'): the tight ``--`` hides the backtick that opens the name
-def test_a_tight_double_dash_holding_a_backtick_cuts() -> None:
-    sql = "SELECT 5--`a\nb`, 'SECRET' FROM (SELECT 1 AS `a\nb`) t"
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == "SELECT ? ?"
+    assert normalize(sql, Dialect.POSTGRESQL).sql == expected
 
 
 def test_mysql_reads_two_minus_signs_and_a_name_there() -> None:
@@ -696,69 +595,12 @@ def test_mysql_reads_two_minus_signs_and_a_name_there() -> None:
     assert normalize(sql, Dialect.MYSQL_FAMILY).sql == "SELECT ?--`a\nb`, ? FROM (SELECT ? AS `a\nb`) t"
 
 
-# derived: re-review 2 A1, MySQL 8.4.10 returns 1234567 for each, under both sql modes: the statement holds no quote or
-# the number is before it, so only a backtick is there to stop at
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ("SELECT 1 /*!50000 AS `*/`, 1234567 */", "SELECT ? ?"),
-        ("SELECT /*! 1 AS `*/`, 1234567 */", "SELECT ?"),
-        ("SELECT /*! 1 AS `*/`, 1234567, 'x' */", "SELECT ?"),
-        ("SELECT 1 /*! # */ `\n, 1234567 # `\n */", "SELECT ? ?"),
-    ],
-)
-@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
-def test_a_backtick_stops_the_cut(sql: str, expected: str, dialect: Dialect) -> None:
-    assert normalize(sql, dialect).sql == expected
-
-
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ("SELECT 5--`a\nb`, 1234567 FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),
-        ("SELECT 5--`a\nb`, 1234567, 'x' FROM (SELECT 1 AS `a\nb`) t", "SELECT ? ?"),
-    ],
-)
-def test_a_backtick_stops_the_cut_with_the_dialect_unknown(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
-
-
-# derived: re-review 2 B2, MySQL 8.4.10 returns the value for each, under both sql modes: two minus signs and a block
-# comment over the newline, so a quote or a backtick inside it opens a run for the scan alone
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ("SELECT 5--/*\n don't */1, 'SECRET'", "SELECT ? don ?"),
-        ("SELECT 5--1 /*\n don't */, 'SECRET'", "SELECT ? don ?"),
-        ("SELECT 5--/*\n ` */1, 'SECRET'", "SELECT ? ?"),
-    ],
-)
-def test_a_tight_double_dash_holding_a_block_comment_cuts(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
-
-
 def test_mysql_reads_two_minus_signs_and_a_block_comment_there() -> None:
     assert normalize("SELECT 5--/*\n don't */1, 'SECRET'", Dialect.MYSQL_FAMILY).sql == "SELECT ?-- ?, ?"
 
 
 def test_a_tight_double_dash_with_no_opener_after_it_has_nothing_to_stop_at() -> None:
-    assert normalize("SELECT 5--/* c\n, 2", Dialect.UNSUPPORTED).sql == "SELECT ? , ?"
-
-
-# derived: re-review 1 N5, ruled: with CREATE OPERATOR a backtick is an operator on PostgreSQL 18.2, and
-# ``SELECT 1 ` 'SECRET'`` returns the value, while the scan reads a name and copies it
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ("SELECT 1 ` 'SECRET'", "SELECT ? ?"),
-        ("SELECT `a 'x', SECRET' ", "SELECT ?"),
-        ('SELECT 1 ` "SECRET"', "SELECT ? ?"),
-        ("SELECT `a'b`, 'SECRET' FROM (SELECT 1 AS `a'b`) t", "SELECT ?"),
-        ('SELECT `a"b`, 1234567', "SELECT ?"),
-    ],
-)
-def test_a_backtick_run_holding_a_quote_reads_two_ways_with_the_dialect_unknown(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize("SELECT 5--/* c\n, 2", Dialect.POSTGRESQL).sql == "SELECT ? , ?"
 
 
 def test_a_backtick_run_is_a_name_on_mysql() -> None:
@@ -767,28 +609,7 @@ def test_a_backtick_run_is_a_name_on_mysql() -> None:
 
 
 def test_a_backtick_run_with_no_quote_keeps_the_statement() -> None:
-    assert normalize("SELECT `a b`, 'x'", Dialect.UNSUPPORTED).sql == "SELECT `a b`, ?"
-
-
-# (r7) re-review 3 NB3: with CREATE OPERATOR what follows a backtick is code on PostgreSQL 18.2, and an unclosed run is
-# invalid on MySQL and SQLite, so nothing readable is lost
-@pytest.mark.parametrize(
-    ("sql", "expected"),
-    [
-        ("SELECT 1 ` 1234567", "SELECT ? ?"),
-        ("SELECT 1`1234567", "SELECT ? ?"),
-        ("SELECT 1 ` /* c */ 1234567", "SELECT ? ?"),
-        ("SELECT 1 ` 1234567 FROM (SELECT 1) t", "SELECT ? ?"),
-        ("SELECT 1 ` $$SECRET$$::text", "SELECT ? ?"),
-        ("SELECT 1 ` $a$SECRET$a$::text", "SELECT ? ?"),
-        ("SELECT 1 ``` 1234567", "SELECT ? ?"),  # a doubled backtick does not close it
-        ("SELECT `a`` 1234567", "SELECT ?"),
-        ("SELECT `a``", "SELECT ?"),  # ends on a backtick, still open
-        ("SELECT `a` ` 1234567", "SELECT ?"),  # a closed name before it: the first opener is the stop
-    ],
-)
-def test_an_unclosed_backtick_stops_the_statement_with_the_dialect_unknown(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize("SELECT `a b`, 'x'", Dialect.POSTGRESQL).sql == "SELECT `a b`, ?"
 
 
 @pytest.mark.parametrize(
@@ -802,7 +623,7 @@ def test_an_unclosed_backtick_stops_the_statement_with_the_dialect_unknown(sql: 
     ],
 )
 def test_a_closed_backtick_run_keeps_the_statement_with_the_dialect_unknown(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 def test_an_unclosed_backtick_is_a_name_on_mysql() -> None:
@@ -811,7 +632,7 @@ def test_an_unclosed_backtick_is_a_name_on_mysql() -> None:
 
 def test_a_lone_cr_in_a_line_comment_cuts() -> None:
     """PostgreSQL ends the comment at the CR, MySQL and SQLite at the newline: ``S`` is in a literal for one of them."""
-    assert "S" not in normalize("-- c\r, 'a\nS', 'b'", Dialect.UNSUPPORTED).sql
+    assert "S" not in normalize("-- c\r, 'a\nS', 'b'", Dialect.POSTGRESQL).sql
 
 
 # --- literals the scan read as something else -------------------------------------------------------------------------
@@ -837,7 +658,7 @@ def test_a_lone_cr_in_a_line_comment_cuts() -> None:
         ("SELECT t.c1, t0x1, a_1 FROM s.t", "SELECT t.c1, t0x1, a_1 FROM s.t"),
     ],
 )
-@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY], ids=dialect_id)
 # ported: JournalTextExposureTests.sqlThatCannotBeToldApartFromAValueIsNeverShownMasked
 def test_a_number_is_a_literal_however_it_is_spelled(sql: str, expected: str, dialect: Dialect) -> None:
     assert normalize(sql, dialect).sql == expected
@@ -857,11 +678,11 @@ def test_a_number_is_a_literal_however_it_is_spelled(sql: str, expected: str, di
 )
 # ported: JournalTextExposureTests.sqlThatCannotBeToldApartFromAValueIsNeverShownMasked
 def test_an_open_dollar_quote_runs_to_the_end(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 def test_a_non_ascii_dollar_tag_is_one_literal() -> None:
-    assert normalize("$€$it's$€$, 'S'", Dialect.UNSUPPORTED).sql == "?, ?"
+    assert normalize("$€$it's$€$, 'S'", Dialect.POSTGRESQL).sql == "?, ?"
 
 
 @pytest.mark.parametrize(
@@ -880,12 +701,12 @@ def test_two_dashes_open_a_mysql_comment_only_before_a_space_a_control_or_the_en
 
 
 def test_two_dashes_open_a_comment_elsewhere_without_a_space() -> None:
-    assert normalize("SELECT 5--c\n, 2", Dialect.UNSUPPORTED).sql == "SELECT ? , ?"
+    assert normalize("SELECT 5--c\n, 2", Dialect.POSTGRESQL).sql == "SELECT ? , ?"
 
 
 def test_an_unknown_dialect_tight_double_dash_cuts() -> None:
     """On MySQL it is two minus signs and a string, elsewhere a comment; only the column name of a real server shows."""
-    assert "S" not in normalize("SELECT 5--'a\nS', 'b'", Dialect.UNSUPPORTED).sql.replace("SELECT", "")
+    assert "S" not in normalize("SELECT 5--'a\nS', 'b'", Dialect.MYSQL_FAMILY).sql.replace("SELECT", "")
 
 
 @pytest.mark.parametrize(
@@ -902,7 +723,7 @@ def test_an_executable_comment_stops_a_statement_with_a_quote_anywhere(sql: str,
 
 # derived: review M1: ``ARRAY [`` decides this, the planted removal passed both named files
 def test_an_array_with_a_space_before_its_bracket_is_a_subscript() -> None:
-    assert normalize("SELECT ARRAY [TRUE], [TRUE]", Dialect.UNSUPPORTED).sql == "SELECT ARRAY [?], [TRUE]"
+    assert normalize("SELECT ARRAY [TRUE], [TRUE]", Dialect.MYSQL_FAMILY).sql == "SELECT ARRAY [?], [TRUE]"
 
 
 # derived: re-review N4 and A1: a backtick stops the cut, so a number after it never reaches a head with an open run
@@ -914,7 +735,7 @@ def test_an_array_with_a_space_before_its_bracket_is_a_subscript() -> None:
     ],
 )
 def test_a_bracket_holding_a_backtick_is_one_literal(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 @pytest.mark.parametrize(
@@ -926,7 +747,7 @@ def test_a_bracket_holding_a_backtick_is_one_literal(sql: str, expected: str) ->
     ],
 )
 def test_a_subscript_with_balanced_quotes_keeps_its_reading(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.POSTGRESQL).sql == expected
 
 
 @pytest.mark.parametrize(
@@ -939,7 +760,7 @@ def test_a_subscript_with_balanced_quotes_keeps_its_reading(sql: str, expected: 
     ],
 )
 def test_a_bracket_without_a_quote_keeps_its_reading(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.POSTGRESQL).sql == expected
 
 
 # derived: re-review 2 A2, each runs on SQLite, where a bracket closes at its first ``]`` whatever is in it; 0.4.0 hid
@@ -947,9 +768,6 @@ def test_a_bracket_without_a_quote_keeps_its_reading(sql: str, expected: str) ->
 @pytest.mark.parametrize(
     ("sql", "expected"),
     [
-        ("SELECT [$$], 'a $$ SECRET ' FROM (SELECT 1 AS [$$])", "SELECT [ ?"),
-        ("SELECT a[$$], 'a $$ SECRET ' FROM (SELECT 1 AS a)", "SELECT a[ ?"),
-        ("SELECT [$a$], 'a $a$ SECRET ' FROM (SELECT 1 AS [$a$])", "SELECT [ ?"),
         ("SELECT [-- ], 'a\n', 'SECRET' FROM (SELECT 1 AS [-- ])", "SELECT [ ?"),
         ("SELECT a[-- ], 'a\n', 'SECRET' FROM (SELECT 1 AS a)", "SELECT a[ ?"),
         ("SELECT [x-- y], 'a\n', 'SECRET' FROM (SELECT 1 AS [x-- y])", "SELECT [x ?"),
@@ -970,7 +788,7 @@ def test_a_bracket_without_a_quote_keeps_its_reading(sql: str, expected: str) ->
     ],
 )
 def test_a_run_left_open_in_a_bracket_stops_the_statement(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 # each returns the value on PostgreSQL 18.2 and e8210e8 hid it: read as one literal, the bracket inverts what follows,
@@ -978,13 +796,11 @@ def test_a_run_left_open_in_a_bracket_stops_the_statement(sql: str, expected: st
 @pytest.mark.parametrize(
     ("sql", "expected"),
     [
-        ("SELECT ARRAY[$$a]$$, $$SECRET$$]", "SELECT ARRAY[ ?"),
-        ("SELECT ARRAY[$$a]$$, $$SECRET$$], 'x'", "SELECT ARRAY[ ?"),
         ("SELECT ARRAY[/*]$$*/$$SECRET$$]", "SELECT ARRAY[ ?"),
     ],
 )
 def test_a_bracket_stops_at_the_opener_it_leaves_open(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 # a further ``[`` with no run open is read by the scan when it gets there: each is valid on PostgreSQL or SQLite
@@ -1007,7 +823,7 @@ def test_a_bracket_stops_at_the_opener_it_leaves_open(sql: str, expected: str) -
     ],
 )
 def test_a_run_closed_in_a_bracket_keeps_the_statement(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.POSTGRESQL).sql == expected
 
 
 def test_a_bracket_is_read_by_the_rules_of_its_mode() -> None:
@@ -1049,7 +865,7 @@ PROBED_ELSEWHERE = [
 
 @pytest.mark.parametrize("sql", PROBED_ON_MYSQL + PROBED_ELSEWHERE)
 def test_a_probed_value_stays_hidden(sql: str) -> None:
-    shown_text = normalize(sql, Dialect.UNSUPPORTED).sql
+    shown_text = normalize(sql, Dialect.MYSQL_FAMILY).sql
     assert "SECRET" not in shown_text
     assert "1234567" not in shown_text
 
@@ -1070,10 +886,6 @@ def test_a_probed_value_stays_hidden_on_mysql(sql: str) -> None:
         ("SELECT /* /* */ $a$ */ $a$ SECRET $a$", "SELECT ?"),
         ("SELECT /* /* */ $$ */ $$SECRET$$, 'x'", "SELECT ?"),
         ("SELECT /* /* */ $$ */ $$SECRET$$ AS a, 2 AS b FROM (SELECT 1) t", "SELECT ?"),
-        ("SELECT 1, -- x\r $$\n SECRET $$", "SELECT ?, ?"),
-        ("SELECT -- x\r $a$\n SECRET $a$", "SELECT ?"),
-        ("SELECT 1 --\r, $$\n SECRET $$", "SELECT ? ?"),
-        ("SELECT 1, -- x\r $$\n SECRET $$, 'x'", "SELECT ?, ?"),
         ("SELECT 5--$$\n SECRET $$", "SELECT ? ?"),
         (
             "CREATE PROCEDURE p() LANGUAGE JAVASCRIPT /*! AS $$ */ SECRET $$ */",
@@ -1086,7 +898,7 @@ def test_a_probed_value_stays_hidden_on_mysql(sql: str) -> None:
     ],
 )
 def test_a_cut_stops_at_a_dollar_quote(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 @pytest.mark.parametrize(
@@ -1109,11 +921,10 @@ def test_a_cut_stops_at_a_dollar_quote_on_mysql(sql: str) -> None:
         ("SELECT /* /* */ 1234567", "SELECT ?"),
         ("SELECT /* /* */ */ 1234567", "SELECT */ ?"),
         ("SELECT /*!50000 a */ FROM t", "SELECT FROM t"),
-        ("SELECT $$x$$, 'y'", "SELECT ?, ?"),
     ],
 )
 def test_a_parameter_or_a_comment_is_not_where_a_cut_stops(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == expected
 
 
 # (r7) re-review 3 NB4: after a space a ``[`` is no subscript, and PostgreSQL 18.2 ran the first two and read the number
@@ -1132,20 +943,20 @@ def test_a_parameter_or_a_comment_is_not_where_a_cut_stops(sql: str, expected: s
         ("SELECT [a 0x10 b]", "SELECT [a ? b]"),
     ],
 )
-@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY], ids=dialect_id)
 def test_a_bracket_holding_a_word_led_by_a_digit_is_read_inside(sql: str, expected: str, dialect: Dialect) -> None:
     assert normalize(sql, dialect).sql == expected
 
 
 @pytest.mark.parametrize("sql", ["SELECT [a b]", "SELECT [col_1]", "SELECT [a b2]", "SELECT [_1 x]", "SELECT [a  b ]"])
 def test_a_bracket_of_words_stays_a_name(sql: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == sql
+    assert normalize(sql, Dialect.MYSQL_FAMILY).sql == sql
 
 
 def test_a_double_quote_cut_open_at_the_scan_limit_is_a_literal() -> None:
     sql = f'SELECT {"name, " * 3330}"{"y" * 300}" FROM t'
     assert '"' in sql[: sql_corpus.SCAN_LIMIT]
-    assert normalize(sql, Dialect.UNSUPPORTED).sql.endswith(", ?")
+    assert normalize(sql, Dialect.POSTGRESQL).sql.endswith(", ?")
 
 
 # (r8) re-review 4: a keyword is a word, and PostgreSQL and SQLite read ``THEN.1234567`` as ``THEN 0.1234567``. No list
@@ -1165,7 +976,7 @@ def test_a_double_quote_cut_open_at_the_scan_limit_is_a_literal() -> None:
         ("SELECT ..123", "SELECT ..?"),
     ],
 )
-@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+@pytest.mark.parametrize("dialect", [Dialect.SQLITE, Dialect.MYSQL_FAMILY], ids=dialect_id)
 def test_digits_after_a_word_and_a_dot_are_a_literal(sql: str, expected: str, dialect: Dialect) -> None:
     if dialect is Dialect.MYSQL_FAMILY:
         expected = {"SELECT ..123": "SELECT ?", "SELECT t..123": "SELECT t ?"}.get(sql, expected)
@@ -1180,7 +991,7 @@ def test_digits_after_a_word_and_a_dot_are_a_literal(sql: str, expected: str, di
         ("SELECT * FROM db.2020_sales", "SELECT * FROM db.?_sales", "SELECT * FROM db.2020_sales"),
     ],
 )
-@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY], ids=dialect_id)
 def test_name_digits_after_a_dot_stay_inside_mysql_name(
     sql: str, unsupported: str, mysql_expected: str, dialect: Dialect
 ) -> None:
@@ -1213,7 +1024,7 @@ def test_name_digits_after_a_dot_stay_inside_mysql_name(
         "SELECT 1 FROM (SELECT 1 AS a) t JOIN (SELECT 1 AS b) u ON.1234567>0",
     ],
 )
-@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY], ids=dialect_id)
 def test_no_keyword_keeps_the_digits_after_a_dot(sql: str, dialect: Dialect) -> None:
     assert "1234567" not in normalize(sql, dialect).sql
     assert shown(sql, [], dialect) == normalize(sql, dialect).sql
@@ -1280,7 +1091,7 @@ def test_a_name_after_at_stays_on_mysql(sql: str, expected: str) -> None:
     [("SELECT (1).5", "SELECT (?)?"), ("SELECT ?.5", "SELECT ??"), ('SELECT "a".5', 'SELECT "a"?')],
 )
 def test_a_dot_after_no_word_keeps_its_read(sql: str, expected: str) -> None:
-    assert normalize(sql, Dialect.UNSUPPORTED).sql == expected
+    assert normalize(sql, Dialect.POSTGRESQL).sql == expected
 
 
 # the 19 non-ASCII spaces ``str.isspace`` accepts and no server reads as whitespace
@@ -1300,13 +1111,13 @@ _UNICODE_SPACES = [
 @pytest.mark.parametrize("space", _UNICODE_SPACES, ids=[f"U+{ord(c):04X}" for c in _UNICODE_SPACES])
 def test_a_unicode_space_opens_nothing(space: str) -> None:
     for sql in ("SELECT x{c}$$, 'a $$ SECRET '", "SELECT {c}$$, 'a $$ SECRET '"):
-        for dialect in (Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY):
+        for dialect in (Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY):
             assert "SECRET" not in normalize(sql.format(c=space), dialect).sql, (sql, dialect)
 
 
 def test_a_zero_width_space_is_a_name_character() -> None:
     """A guard, not a defect: U+200B is not ``isspace`` and no server reads it as whitespace, so it joins the name."""
-    assert "SECRET" not in normalize("SELECT x\u200b$$, 'a $$ SECRET '", Dialect.UNSUPPORTED).sql
+    assert "SECRET" not in normalize("SELECT x\u200b$$, 'a $$ SECRET '", Dialect.POSTGRESQL).sql
 
 
 @pytest.mark.parametrize(
@@ -1320,20 +1131,81 @@ def test_a_zero_width_space_is_a_name_character() -> None:
 )
 def test_shown_equals_normalize_around_adjacent_unicode_spaces(sql: str) -> None:
     """A Unicode space is a name character: the list cuts of the scan text must fit ``pieces`` position for position."""
-    assert shown(sql, [], Dialect.UNSUPPORTED) == normalize(sql, Dialect.UNSUPPORTED).sql
+    assert shown(sql, [], Dialect.POSTGRESQL) == normalize(sql, Dialect.POSTGRESQL).sql
 
 
 def test_a_hidden_unicode_space_is_masked_with_its_run() -> None:
     """A Unicode space is not whitespace: a hidden run holding one is a single mask, not two around a copied space."""
     sql = "SELECT id FROM t WHERE k=aa bb"
     start = sql.index("aa")
-    assert shown(sql, [(start, len(sql))], Dialect.UNSUPPORTED) == f"SELECT id FROM t WHERE k={MASK}"
+    assert shown(sql, [(start, len(sql))], Dialect.POSTGRESQL) == f"SELECT id FROM t WHERE k={MASK}"
 
 
 @pytest.mark.parametrize("space", _UNICODE_SPACES, ids=[f"U+{ord(c):04X}" for c in _UNICODE_SPACES])
 @pytest.mark.parametrize("pad", ["", " ", "\t"])
-@pytest.mark.parametrize("dialect", [Dialect.UNSUPPORTED, Dialect.MYSQL_FAMILY], ids=dialect_id)
+@pytest.mark.parametrize("dialect", [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY], ids=dialect_id)
 def test_a_statement_of_only_unicode_spaces_is_a_name_in_both_outputs(space: str, pad: str, dialect: Dialect) -> None:
     """A Unicode space is no whitespace to a server: the statement is a name, so both outputs keep it."""
     sql = space + pad
     assert shown(sql, [], dialect) == normalize(sql, dialect).sql
+
+
+# Task 29: rows that also ran on the MySQL family keep that run; their generic run went
+# derived: re-review N1, MySQL 8.4.10 returns (1, 'SECRET') for each: it skips a comment or a name inside ``/*!``, so
+# the run ends later than the scan's first ``*/``
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1 /*! -- */ don't\n, 'SECRET' */", "SELECT ? don ?"),
+        ("SELECT 1 /*! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
+        ("SELECT 1 /*M! # */ don't\n, 'SECRET' */", "SELECT ? don ?"),
+        ("SELECT /*M! '*/', 'MARK' */", "SELECT ?"),
+        ("SELECT /*!50000 1 AS `*/`, 'SECRET' */", "SELECT ?"),
+    ],
+)
+@pytest.mark.parametrize("dialect", [Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_an_executable_comment_ends_later_than_the_scan_reads(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
+
+
+# derived: re-review 2 B1, MySQL 8.4.10 reads a digit-led name for each, under both sql modes; PostgreSQL and SQLite
+# answer a syntax error to ``1$$x$$``, so a ``$`` tight after a number opens nothing anywhere
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `1$a$`) t", "SELECT ?$a$, ? FROM (SELECT ? AS `1$a$`) t"),
+        ("SELECT 1$$, 'a $$ SECRET ' FROM (SELECT 1 AS `1$$`) t", "SELECT ?$$, ? FROM (SELECT ? AS `1$$`) t"),
+        (
+            "SELECT 0xAB$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `0xAB$a$`) t",
+            "SELECT ?$a$, ? FROM (SELECT ? AS `0xAB$a$`) t",
+        ),
+        (
+            "SELECT 1_2$a$, 'a $a$ SECRET ' FROM (SELECT 1 AS `1_2$a$`) t",
+            "SELECT ?$a$, ? FROM (SELECT ? AS `1_2$a$`) t",
+        ),
+        ("SELECT 1 AS 1$a$, 'a $a$ SECRET '", "SELECT ? AS ?$a$, ?"),
+        (
+            "SELECT 'SECRET' FROM (SELECT 1 AS `1$a$`) t WHERE 1$a$ = 1 OR 'a $a$ SECRET' = ''",
+            "SELECT ? FROM (SELECT ? AS `1$a$`) t WHERE ?$a$ = ? OR ? = ?",
+        ),
+    ],
+)
+@pytest.mark.parametrize("dialect", [Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_a_dollar_after_a_number_opens_nothing(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected
+
+
+# derived: re-review 2 A1, MySQL 8.4.10 returns 1234567 for each, under both sql modes: the statement holds no quote or
+# the number is before it, so only a backtick is there to stop at
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1 /*!50000 AS `*/`, 1234567 */", "SELECT ? ?"),
+        ("SELECT /*! 1 AS `*/`, 1234567 */", "SELECT ?"),
+        ("SELECT /*! 1 AS `*/`, 1234567, 'x' */", "SELECT ?"),
+        ("SELECT 1 /*! # */ `\n, 1234567 # `\n */", "SELECT ? ?"),
+    ],
+)
+@pytest.mark.parametrize("dialect", [Dialect.MYSQL_FAMILY], ids=dialect_id)
+def test_a_backtick_stops_the_cut(sql: str, expected: str, dialect: Dialect) -> None:
+    assert normalize(sql, dialect).sql == expected

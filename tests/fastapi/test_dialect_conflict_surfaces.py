@@ -116,7 +116,8 @@ def test_a_conflict_hides_the_statement_in_the_recorded_row(conflict: Conflict):
 
     rows = recorder.rows()
 
-    assert [row["sql"] for row in rows] == ["SELECT ?"] * 4
+    # Task 29: a conflict is UNSUPPORTED, so its statement is the marker (owner, item 7)
+    assert [row["sql"] for row in rows] == ["[statement hidden: unsupported database]"] * 4
 
 
 def test_a_conflict_hides_the_statement_in_the_recorded_error(conflict: Conflict):

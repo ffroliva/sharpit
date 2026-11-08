@@ -71,6 +71,8 @@ def handles() -> Iterator[list[SharpitHandle]]:
 
 def _client(handles: list[SharpitHandle], app: FastAPI | None = None, **options: Any) -> TestClient:
     app = app or FastAPI()
+    # Task 29: an application on SQLite, so its errors read as SQLite's; with no family they are UNSUPPORTED's
+    options.setdefault("engines", [sa.create_engine("sqlite://")])
     handles.append(install(app, enabled="ON", show_banner=False, **options))
     return TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False)
 
@@ -133,7 +135,7 @@ def test_alembic_database_read(handles: list[SharpitHandle]) -> None:
 
 
 def test_transactions_report() -> None:
-    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None), application=lambda: None)
+    recorder = TransactionRecorder(Masker(Exposure.MASKED, True, None), application=lambda: Dialect.SQLITE)
     entry = recorder.begin(1, parent=None, method="a:b", thread="MainThread", trace_id=None, connection_id="db-1")
     recorder.end(entry, "UNKNOWN", RuntimeError(ERROR))
     _assert_scanned(json.dumps(recorder.report([])))
@@ -147,7 +149,7 @@ def test_sql_trace_report_when_the_error_names_another_statement() -> None:
         thread="t",
         connection_id=None,
         error=RuntimeError(ERROR),
-        dialect=Dialect.UNSUPPORTED,
+        dialect=Dialect.SQLITE,  # Task 29: an UNSUPPORTED statement's error is the marker
     )
     _assert_scanned(json.dumps(recorder.report([])))
 
@@ -157,7 +159,10 @@ def test_test_session_report() -> None:
     attempt = sink.begin_test(NODE)
     sink.on_exception(RuntimeError(ERROR), "logging", (NODE, attempt, "call"))
     assert sink.current_test is not None
-    _assert_scanned(json.dumps(sink.current_test.phases["call"].exception_groups))
+    # Task 29: the sink resolves with no application (owner, 2026-11-06), so this text is UNSUPPORTED's (item 8)
+    shown = json.dumps(sink.current_test.phases["call"].exception_groups)
+    assert LITERAL not in shown
+    assert "[statement hidden: unsupported database]" in shown
 
 
 def _pg_context(engine: FakePgEngine) -> SharpitContext:
@@ -217,6 +222,6 @@ def test_mysql_failed_section_reads_the_block_as_mysql() -> None:
 def test_data_panel_warning() -> None:
     ctx = SimpleNamespace(
         masker=Masker(Exposure.MASKED, True, None),
-        capture=SimpleNamespace(raw_sqlite_seen=False, engine_registry=None),
+        capture=SimpleNamespace(raw_sqlite_seen=True, engine_registry=None),  # Task 29: an application on SQLite
     )
     _assert_scanned(data._masked(ctx, f"Could not read a mapper (RuntimeError: {ERROR})"))  # type: ignore[arg-type]  # noqa: SLF001

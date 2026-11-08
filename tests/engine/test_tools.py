@@ -604,7 +604,7 @@ def test_mcp_sql_traces_and_log_tail_accept_query_and_limit_with_page_metadata(m
     ctx = _ctx()
     recorder = SqlTraceRecorder(ctx.masker)
     for sql in ("select * from orders", "select * from pets", "select id from orders"):
-        recorder.record(sql, duration_ns=1_000, thread="main", connection_id="c1", dialect=Dialect.UNSUPPORTED)
+        recorder.record(sql, duration_ns=1_000, thread="main", connection_id="c1", dialect=Dialect.POSTGRESQL)
     ctx.capture.sql_trace = recorder
     monkeypatch.setattr(facade, "sql_trace_unavailable_reason", lambda _ctx: None)
     traces = call_tool(_call(ctx), "get_sql_traces", {"query": "orders", "limit": 1}, via="mcp")

@@ -90,7 +90,7 @@ def _request(ctx: SharpitContext, rid: str, *, method: str = "GET", endpoint: st
 def _sql(ctx: SharpitContext, sql: str, rid: str | None = None, millis: int = 2) -> None:
     assert ctx.capture.sql_trace is not None
     ctx.capture.sql_trace.record(
-        sql, duration_ns=millis * 1_000_000, thread="t", connection_id=None, request_id=rid, dialect=Dialect.UNSUPPORTED
+        sql, duration_ns=millis * 1_000_000, thread="t", connection_id=None, request_id=rid, dialect=Dialect.POSTGRESQL
     )
 
 

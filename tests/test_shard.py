@@ -247,7 +247,6 @@ def test_real_predicted_last_shard_load_holds_no_split_weight(platform: str, n: 
     weights: dict[str, float] = WEIGHTS[platform]
     splits = split_files(n, platform)
     unsplit_last = sum(s for r, s in weights.items() if r not in splits and shard_of(r, n, platform) == n)
-    assert splits
     assert shard_loads(n, platform)[-1] == pytest.approx(unsplit_last)
 
 

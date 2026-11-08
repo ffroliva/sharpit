@@ -270,10 +270,10 @@ jobs:
       - run: test "${{ needs.no-sqlalchemy-shard.result }}" = success
 
   masking-gates:
-    # The three files that outweigh any shard ceiling alone, every row: test_masking_scales_linearly.py (487 s of CPU
-    # time on Linux), test_statement_surfaces.py (386 s on Windows) and test_lane_gate.py (418 s on Windows). The
-    # shards leave them out (tests/_shard.py OWN_JOB) and this job runs them whole. No job timeout is set, so GitHub's 6 h default
-    # covers them.
+    # The four files that outweigh any shard ceiling alone, every row: test_masking_scales_linearly.py (487 s of CPU
+    # time on Linux), test_statement_surfaces.py (386 s on Windows), test_lane_gate.py (418 s on Windows) and
+    # test_gates_bite.py (488 s on Windows, 279 s on Linux). The shards leave them out (tests/_shard.py OWN_JOB) and
+    # this job runs them whole. No job timeout is set, so GitHub's 6 h default covers them.
     name: masking gates (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -287,7 +287,7 @@ jobs:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install 3.14
       - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the gate
-      - run: uv run --no-sync pytest tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync pytest tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py tests/masking/test_gates_bite.py -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with: # ci_review.py globs junit-*

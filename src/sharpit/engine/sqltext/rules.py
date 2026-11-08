@@ -1,8 +1,9 @@
 """``LexRules``: study section 5 as data. A dialect meets rules in ``READINGS`` and nowhere else.
 
 Every field is a ``bool``, an enum member or a ``frozenset``: a closer that needs code is a scanner chosen by an enum
-member, never a callable field. Source lines cited are from ``study.md`` section 1. ``generic`` claims nothing about
-the server, so wherever two readings differ it cuts. ``mssql`` and ``oracle`` have no entry: no server source was read.
+member, never a callable field. Source lines cited are from ``study.md`` section 1. ``UNSUPPORTED`` has no entry: its
+text is hidden, never read (architecture spec section 7). ``mssql`` and ``oracle`` are ``UNSUPPORTED``: no server
+source was read.
 """
 
 from __future__ import annotations
@@ -23,19 +24,16 @@ class Backslash(Enum):
 class DoubleQuote(Enum):
     NAME = "name"
     STRING = "string"
-    VALUE_POSITION = "value_position"
 
 
 class BacktickRun(Enum):
     NONE = "none"
     NAME = "name"
-    NAME_OR_CUT = "name_or_cut"
 
 
 class Bracket(Enum):
     CHARACTER = "character"
     TO_FIRST_CLOSE = "to_first_close"
-    TWO_WAY = "two_way"
 
 
 class DollarOpen(Enum):
@@ -62,20 +60,17 @@ class HashRule(Enum):
     COMMENT = "comment"
     VARIABLE = "variable"
     NAME = "name"
-    CUT = "cut"
 
 
 class DigitDollar(Enum):
     OPENS = "opens"
     NAME = "name"
     ILLEGAL = "illegal"
-    NO_OPEN = "no_open"
 
 
 class VariableSuffix(Enum):
     NONE = "none"
     TCL_PAREN = "tcl_paren"
-    NOT_READ = "not_read"
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +87,6 @@ class LexRules:
     dash_needs_space: Reading
     cr_ends_dash: Reading
     hash: HashRule
-    q_quote_cuts: bool
     dot_digits_is_name: bool
     digit_dollar: DigitDollar
     radix: frozenset[str]
@@ -121,7 +115,6 @@ POSTGRESQL = LexRules(
     dash_needs_space=Reading.NO,  # scan.l:210-213
     cr_ends_dash=Reading.YES,  # scan.l:210-213
     hash=HashRule.OPERATOR,  # scan.l:367
-    q_quote_cuts=False,
     dot_digits_is_name=False,  # scan.l:395
     digit_dollar=DigitDollar.OPENS,  # scan.l:421
     radix=_RADIX_ALL,  # scan.l:386-393
@@ -145,7 +138,6 @@ MYSQL_84 = LexRules(
     dash_needs_space=Reading.YES,  # :1504-1506
     cr_ends_dash=Reading.NO,  # :1916
     hash=HashRule.COMMENT,  # :1916
-    q_quote_cuts=False,
     dot_digits_is_name=True,  # :1611-1612
     digit_dollar=DigitDollar.NAME,  # :1682-1728, integers only
     radix=frozenset({"0x", "0b"}),  # :1677-1726
@@ -182,7 +174,6 @@ SQLITE = LexRules(
     dash_needs_space=Reading.NO,  # tokenize.c:289-293
     cr_ends_dash=Reading.NO,
     hash=HashRule.VARIABLE,  # tokenize.c:509-538
-    q_quote_cuts=False,
     dot_digits_is_name=False,  # tokenize.c:421-433
     digit_dollar=DigitDollar.ILLEGAL,  # tokenize.c:493-496
     radix=frozenset({"0x", "0X", "_"}),  # tokenize.c:438-492
@@ -192,31 +183,6 @@ SQLITE = LexRules(
     cut_bracket=False,
     executable_prefixes=frozenset(),
     hide_double_quoted=True,
-)
-
-# No claim about the server: every reading some real server could take is possible, so a difference cuts.
-GENERIC = LexRules(
-    backslash_in_single=Backslash.ALWAYS,
-    backslash_in_double=Backslash.NONE,  # generic text has no double-quote escape; the backslash run still cuts
-    double_quote=DoubleQuote.VALUE_POSITION,
-    backtick_run=BacktickRun.NAME_OR_CUT,
-    bracket=Bracket.TWO_WAY,
-    dollar=DollarOpen.POSTGRESQL_TAG,  # generic text keeps the PostgreSQL reading; the cut stays a later call
-    dollar_name_boundary=False,
-    dollar_closer=DollarCloser.FIRST_IDENTICAL,
-    nested_comments=Reading.CUT,
-    dash_needs_space=Reading.CUT,
-    cr_ends_dash=Reading.CUT,
-    hash=HashRule.CUT,
-    q_quote_cuts=True,
-    dot_digits_is_name=False,
-    digit_dollar=DigitDollar.NO_OPEN,
-    radix=_RADIX_ALL,
-    at_token=False,
-    variable_suffix=VariableSuffix.NOT_READ,
-    cut_backslash=True,
-    cut_bracket=True,
-    executable_prefixes=frozenset({"/*!", "/*M!"}),
 )
 
 # Each dialect is read with its own rule table.

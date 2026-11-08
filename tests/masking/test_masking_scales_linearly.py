@@ -14,12 +14,12 @@ from functools import partial
 
 import pytest
 
-from sharpit.engine import masking
+from sharpit.engine import masking, sqltext
 from sharpit.engine.capture.sqlscan import normalize, shown
 from sharpit.engine.capture.sqltrace import mask_error
 from sharpit.engine.capture.statement import statement_text
 from sharpit.engine.masking import Exposure, Masker
-from sharpit.engine.sqltext import Dialect, render
+from sharpit.engine.sqltext import Dialect, read_chain, render
 
 MASKER = Masker(Exposure.MASKED, True)
 SIZES = (4_000, 8_000, 16_000, 32_000)
@@ -86,6 +86,15 @@ GENERATORS: dict[str, Callable[[int], str]] = {
     "at-dollars": _repeat("@$$ $$ "),
     "lone-crs": _repeat("-- a\r'\n"),
     "open-double-quote": lambda size: "SELECT " + "a, " * (size // 3) + '"' + "y" * 30_000,
+    # the closer: 500 to 4,000 ``]\n[SQL: `` pairs over ``SIZES``, bare and inside an error's block
+    "closer-pairs": _repeat("]\n[SQL: "),
+    "closer-pairs-in-block": lambda size: "(psycopg.ProgrammingError) x\n[SQL: " + "]\n[SQL: " * (size // 8),
+    # the region renderer: a traceback of many frames, then the block it fails on
+    "many-frames": lambda size: (
+        "Traceback (most recent call last):\n"
+        + '  File "/srv/app/db.py", line 12, in run\n    conn.execute(q)\n' * (size // 60)
+        + "sqlalchemy.exc.ProgrammingError: (psycopg.ProgrammingError) x\n[SQL: SELECT 'a']\n[parameters: (1,)]"
+    ),
 }
 
 
@@ -99,12 +108,17 @@ def _pair_substitution(text: str) -> str:
 Entry = Callable[[str], object]
 ENTRY_POINTS: dict[str, Entry] = {
     "mask_text": MASKER.mask_text,
-    "mask_error": lambda text: mask_error(MASKER, text, Dialect.UNSUPPORTED),
+    "mask_error": lambda text: mask_error(MASKER, text, Dialect.POSTGRESQL),
     "pair_substitution": _pair_substitution,
     "mask_spans": MASKER.mask_spans,
     "mask_spans_relaxed": lambda text: MASKER.mask_spans(text, strict=False),
     "mask_statement": MASKER.mask_statement,
-    "statement_text": lambda text: statement_text(MASKER, text, Dialect.UNSUPPORTED),
+    "statement_text": lambda text: statement_text(MASKER, text, Dialect.POSTGRESQL),
+    "facade_statement_text": lambda text: sqltext.statement_text(MASKER, text, Dialect.POSTGRESQL),
+    "statement_shape": lambda text: sqltext.statement_shape(MASKER, text, Dialect.POSTGRESQL),
+    "error_text": lambda text: sqltext.error_text(MASKER, text, Dialect.POSTGRESQL, known=True),
+    "error_text_free": lambda text: sqltext.error_text(MASKER, text, Dialect.POSTGRESQL),
+    "closer": lambda text: sqltext.LEXER.block_closer(text, Dialect.POSTGRESQL),
 }
 
 
@@ -114,7 +128,7 @@ def _overlapping(size: int) -> list[tuple[int, int]]:
 
 def _shown_at(size: int) -> Entry:
     spans = _overlapping(size)  # outside the timer: the entry is measured, not the list a caller already holds
-    return lambda text: shown(text, spans, Dialect.UNSUPPORTED)
+    return lambda text: shown(text, spans, Dialect.POSTGRESQL)
 
 
 def _flags_at(size: int) -> Entry:
@@ -122,7 +136,7 @@ def _flags_at(size: int) -> Entry:
     return lambda text: render._hidden_flags(spans, len(text))  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
 
-_NORMALIZE = partial(normalize, dialect=Dialect.UNSUPPORTED)
+_NORMALIZE = partial(normalize, dialect=Dialect.POSTGRESQL)
 SCAN_ENTRY_POINTS: dict[str, Callable[[int], Entry]] = {"normalize": lambda _size: _NORMALIZE, "shown": _shown_at}
 
 
@@ -175,6 +189,50 @@ def test_overlapping_hidden_spans_are_written_once() -> None:
 def test_masking_scales_linearly(entry: str, generator: str) -> None:
     run = ENTRY_POINTS[entry]
     _assert_linear(lambda _size: run, GENERATORS[generator], SIZES[1:])
+
+
+def _cause_chain(size: int) -> BaseException:
+    head = RuntimeError("0")
+    current = head
+    for index in range(1, size):
+        link = RuntimeError(str(index))
+        if index % 2:
+            current.__cause__ = link
+        else:
+            current.__context__ = link
+        current = link
+    return head
+
+
+def _wide_group(size: int) -> BaseException:
+    return ExceptionGroup("wide", [RuntimeError(str(index)) for index in range(size)])
+
+
+def _walk_at(build: Callable[[int], BaseException], read: Callable[[BaseException], object]) -> Callable[[int], Entry]:
+    def entry_at(size: int) -> Entry:
+        exc = build(size)  # outside the timer: the walk is measured, not the chain a host already raised
+        return lambda _text: read(exc)
+
+    return entry_at
+
+
+def _error_text_of(exc: BaseException) -> object:
+    return sqltext.error_text(MASKER, exc, Dialect.POSTGRESQL)
+
+
+WALKS: dict[str, Callable[[int], Entry]] = {
+    "read_chain-cause-chain": _walk_at(_cause_chain, read_chain),
+    "read_chain-wide-group": _walk_at(_wide_group, read_chain),
+    "exception_leaves-wide-group": _walk_at(_wide_group, sqltext.exception_leaves),
+    "error_text-cause-chain": _walk_at(_cause_chain, _error_text_of),
+    "error_text-wide-group": _walk_at(_wide_group, _error_text_of),
+}
+
+
+@pytest.mark.parametrize("walk", WALKS)
+def test_the_exception_walk_scales_linearly(walk: str) -> None:
+    """A long ``__cause__``/``__context__`` chain and a wide group: the walk is bounded, so each step stays flat."""
+    _assert_linear(WALKS[walk], lambda _size: "", SIZES)
 
 
 @pytest.mark.parametrize("entry", SCAN_ENTRY_POINTS)

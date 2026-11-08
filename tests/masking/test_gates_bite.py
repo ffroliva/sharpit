@@ -93,7 +93,7 @@ def _ideal_error(carrier: gates.Carrier) -> gates.Surface:
 
 def test_the_regions_gate_passes_an_ideal_error_and_fails_a_blank_one() -> None:
     """Head fails every row's regions (its parameters show), so the ceiling is shown against an ideal build."""
-    _, carrier = gates.ERROR_SURFACES["recorder_error-generic"]
+    _, carrier = gates.ERROR_SURFACES["recorder_error-mysql"]
     ideal = gates.failures_regions(_ideal_error(carrier), BASE_ROWS, carrier)
     planted = gates.failures_regions(_blank, BASE_ROWS, carrier)
     assert not ideal, f"{len(ideal)} rows fail an ideal error: the oracle is wrong"
@@ -120,7 +120,6 @@ DOT_DIGIT = ' or out.chars[-1] == "."'
 DIGIT = f"elif c.isdigit() and (not _identifier_char_before(out){DOT_DIGIT}):"
 QUOTES = "**dict.fromkeys('\"`[', _scan_quoted),"  # the scanners of the three quoting characters
 CUT = "found = _RUN_OPENER.search(scan.source)"
-TIGHT = '_TIGHT_DASH_OPENER = re.compile(rf"{_RUN_OPENER.pattern}|/\\*")'
 NO_DOLLAR = 're.compile("[\'\\"`]")'  # the opener set without its dollar quote
 MYSQL_TAG = "rules.dollar is DollarOpen.MYSQL_TAG"
 CLOSER = "_no_step_back_closer(sql, tag, body_start) if no_step_back else sql.find(tag, body_start)"
@@ -136,12 +135,6 @@ DRIVER_SWITCH = Mutant(  # Task 28 turned the switch into a hide; the mutant put
     "",
     "",
     "engine/sqltext/errors.py",
-)
-HASH_CUT_BEFORE_OPENER = Mutant(
-    'if rules.hash is HashRule.CUT and cut >= 0 and source[cut] == "#":',
-    "if False:",
-    "recorder_sql-generic",
-    "visible",
 )
 MUTANTS: dict[str, Mutant] = {
     "true": Mutant("return index + 4, True", KEEP, SURFACE, "visible"),
@@ -166,7 +159,7 @@ MUTANTS: dict[str, Mutant] = {
         "visible",
     ),
     "array_space": Mutant('subscript = subscript or out.ends_with_keyword(out.last_non_space(), "array")',
-                          "subscript = subscript or False", "recorder_sql-generic", "shape"),
+                          "subscript = subscript or False", "recorder_sql-mysql", "shape"),
     # a name holding a quote is plain only on MySQL (r6): generic, a cut hides what follows it anyway
     "backtick": Mutant(QUOTES, QUOTES.replace("`", ""), "recorder_sql-mysql", "visible"),
     "bracket": Mutant(QUOTES, QUOTES.replace("[", ""), SURFACE, "shape"),
@@ -185,21 +178,18 @@ MUTANTS: dict[str, Mutant] = {
         "visible",
         "engine/sqltext/numbers.py",
     ),
-    "open_bracket": Mutant("if not runs or runs[-1][1] != end - index:", "if True:", "recorder_sql-generic", "visible"),
+    "open_bracket": Mutant("if not runs or runs[-1][1] != end - index:", "if True:", "recorder_sql-mysql", "visible"),
     "bracket_opener": Mutant("for stop in (found, _bracket_opener(scan)) if stop", "for stop in (found,) if stop",
-                             "recorder_sql-generic", "visible"),
+                             "recorder_sql-mysql", "visible"),
     "executable_comment": Mutant(
         "return source.startswith(tuple(rules.executable_prefixes), start)",
         "return False",
         "recorder_sql-mysql",
         "visible",
     ),
-    "tight_backtick": Mutant(TIGHT, TIGHT.replace("_RUN_OPENER.pattern", '_RUN_OPENER.pattern.replace("`", "")'),
-                             "recorder_sql-generic", "visible"),
-    "tight_block_comment": Mutant(TIGHT, "_TIGHT_DASH_OPENER = _RUN_OPENER", "recorder_sql-generic", "visible"),
-    "backtick_cut": Mutant(CUT, "found = _QUOTE.search(scan.source)", "recorder_sql-generic", "visible"),
+    "backtick_cut": Mutant(CUT, "found = _QUOTE.search(scan.source)", "recorder_sql-mysql", "visible"),
     "backtick_cut_mysql": Mutant(CUT, "found = _QUOTE.search(scan.source)", "recorder_sql-mysql", "visible"),
-    "dollar_cut": Mutant(CUT, f"found = {NO_DOLLAR}.search(scan.source)", "recorder_sql-generic", "visible"),
+    "dollar_cut": Mutant(CUT, f"found = {NO_DOLLAR}.search(scan.source)", "recorder_sql-mysql", "visible"),
     "mysql_dollar": Mutant(
         "end = _dollar_quote_end(source, index, rules)",
         f"end = -1 if {MYSQL_TAG} else _dollar_quote_end(source, index, rules)",
@@ -213,37 +203,22 @@ MUTANTS: dict[str, Mutant] = {
     "mysql_digit_tag": Mutant("(digit_first or cursor > index + 1)", "(cursor > index + 1)", "recorder_sql-mysql",
                               "visible"),
     # the MySQL family: a statement that reads one way still stops where the two reads part
-    "number_dollar": Mutant('last == "?" and source[index - 1].isalnum()', "False", "recorder_sql-generic", "visible"),
-    "dot_opens": Mutant('or last in "_$" or', 'or last in "_$." or', "recorder_sql-generic", "visible"),
-    "backtick_quote": Mutant("if rules.backtick_run is BacktickRun.NAME_OR_CUT and _backtick_reads_two_ways(",
-                             "if False and _backtick_reads_two_ways(", "recorder_sql-generic", "visible"),
-    "unclosed_backtick": Mutant(' or source.count("`", start, end) % 2', "", "recorder_sql-generic", "visible"),
-    "at_dollar_cut": Mutant('if source.startswith("@$", end - 1):', "if False:", "recorder_sql-generic", "visible"),
-    "dot_dollar_cut": Mutant('if source.startswith(".$", end - 1) and', "if False and", "recorder_sql-generic",
-                             "visible"),
-    "dot_dollar_tail": Mutant(" or _OPENER.search(source, end))", ")", "recorder_sql-generic", "visible"),
-    "dot_dollar_body": Mutant("_OPENER.search(source, start + tag, end - tag) or ", "", "recorder_sql-generic",
-                              "visible"),
-    "dot_dollar_holds": Mutant(' or ".$" in source', "", "recorder_sql-generic", "visible"),
+    "number_dollar": Mutant('last == "?" and source[index - 1].isalnum()', "False", "recorder_sql-mysql", "shape"),
     "bracket_digit_word": Mutant(
         '_BRACKET_IDENTIFIER = re.compile(r"\\[[^\\W\\d]\\w*(?: +[^\\W\\d]\\w*)* *\\]")',
         '_BRACKET_IDENTIFIER = re.compile(r"\\[\\w[\\w ]*\\]")',
-        "recorder_sql-generic",
+        "recorder_sql-mysql",
         "visible",
     ),
     "cut_open_double_quote": Mutant(
-        "if string or end >= _MAX_SCAN_LENGTH:", "if string:", "recorder_sql-generic", "visible"
+        "if string or end >= _MAX_SCAN_LENGTH:", "if string:", "recorder_sql-mysql", "visible"
     ),
-    "two_readings": Mutant("return _read(source.replace(", "return False and _read(source.replace(",
-                           "recorder_sql-generic", "visible"),
     "nested_comment": Mutant(
         'if rules.nested_comments is Reading.CUT and source.find("/*", start + 2, end) >= 0:',
         "if False:",
-        "recorder_sql-generic",
+        "recorder_sql-mysql",
         "visible",
     ),
-    "alternative_quote": Mutant("if _ALTERNATIVE_QUOTE.search(source, start, end + 1):", "if False:",
-                                "recorder_sql-generic", "visible"),
     # a digit or a keyword after a name character belongs to the name: over-masking ``col1`` lowers A1: A3 must catch it
     "digit_in_name": Mutant(DIGIT, "elif c.isdigit():", SURFACE, "shape"),
     "dot_digit": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), SURFACE, "visible"),
@@ -255,26 +230,23 @@ MUTANTS: dict[str, Mutant] = {
     "at_number": Mutant("if _AT_NUMBER.search(found[0]):", "if False:", "db_statement-mysql", "shape"),
     "release_name": Mutant('if flags[literal] and literal > start and source[literal - 1] == "=":', "if False:",
                            "db_statement-mysql", "shape", RENDER),
-    "verb_lookahead": Mutant(r"(?=[^\w$-]|$)", r"(?=[\s(;]|$)", "recorder_sql-mysql", "shape",
-                             "engine/sqltext/__init__.py"),
     "keyword_in_name": Mutant(
         "if _identifier_char_before(out):\n        return _keep(source, index, out)",
         "if False:\n        return _keep(source, index, out)",
         SURFACE,
         "shape",
     ),
-    "ascii_space": Mutant("elif c in _SPACE:", "elif c.isspace():", "recorder_sql-generic", "visible"),
+    "ascii_space": Mutant("elif c in _SPACE:", "elif c.isspace():", "recorder_sql-mysql", "shape"),
     "ascii_space_collapse": Mutant("if c in _SPACE and collapse:", "if c.isspace() and collapse:", SURFACE, "shape",
                                    RENDER),
     "in_collapse": Mutant("if _PLACEHOLDER_RUN.search(normalized) is None:", "if True:", SURFACE, "shape", RENDER),
     # also dies on every surface's ``shape``: a masker hides the token as a mask where the scan left ``?``, so only the
     # scan alone shows it as ``visible``. Its one visible job in production is METADATA_ONLY, where no masker reads
-    "double_quote_secret": Mutant("return is_secret_value(body)", "return False", "scan_alone-generic", "visible",
+    "double_quote_secret": Mutant("return is_secret_value(body)", "return False", "scan_alone-mysql", "visible",
                                   FACADE),
-    "hash_cut_before_opener": HASH_CUT_BEFORE_OPENER,
     # the lexer's hand-over: a ``"`` run it cannot place is a name to the renderer to judge, not code to copy at once
     "double_quoted_kind": Mutant("        return True\n    return None\n", "        return True\n    return False\n",
-                                 "scan_alone-generic", "visible"),
+                                 "scan_alone-mysql", "visible"),
 }  # fmt: skip
 
 
@@ -334,43 +306,30 @@ NEVER_CLOSES = Mutant(
 CANDIDATE_PREDICATE = Mutant(
     "Candidate(len(out.chars), out.predicate_position())",
     "Candidate(len(out.chars), False)",
-    "scan_alone-generic",
+    "scan_alone-mysql",
     "shape",
 )  # the predicate count is no gate's row: only the lexer's own test sees it
 CLOSER_DIALECT = Mutant(
     "_read(text[:_MAX_SCAN_LENGTH], readings(dialect)[0]), text)",
-    "_read(text[:_MAX_SCAN_LENGTH], GENERIC), text)",
-    "scan_alone-generic",
+    "_read(text[:_MAX_SCAN_LENGTH], READINGS[Dialect.POSTGRESQL][0]), text)",
+    "scan_alone-mysql",
     "shape",
 )  # no row reads a ``[SQL: `` block: only the lexer's own test sees which dialect ``block_closer`` is given
 TWO_WAYS_DIALECT = Mutant(
     "rule_sets = readings(dialect)",
-    "rule_sets = (GENERIC,)",
-    "scan_alone-generic",
+    "rule_sets = READINGS[Dialect.SQLITE]",
+    "scan_alone-mysql",
     "shape",
 )  # likewise for ``reads_two_ways``
-GENERIC_HASH_STOPS = Mutant(
-    'if rules.hash is HashRule.CUT and source[index] == "#":', "if False:", "scan_alone-generic", "shape"
-)
-GENERIC_HASH_ADDS_NO_VALUE = Mutant(
-    'if rules.hash is HashRule.CUT and source[cut] == "#":', "if False:", "scan_alone-generic", "shape"
-)
-GENERIC_HASH_IS_A_GUESS = Mutant(
-    "hash_cut = rule_sets[0].hash is HashRule.CUT and scan.cut >= 0", "hash_cut = False", "scan_alone-generic", "shape"
-)
 TOKEN_GATE_SKIPS_ALL = Mutant("if _SECRET_HINT.search(tracked.text):", "if False:", "", "", "engine/masking.py")
 TOKEN_GATE_SKIPS_EACH = Mutant("if _SECRET_HINT.search(token) is None:", "if True:", "", "", "engine/masking.py")
 TOKEN_GATE_TEST = "tests/engine/test_masking_token_gate.py::test_a_secret_the_gate_could_miss_is_still_masked"
 # each field gates its own cut: with it read away MySQL text stops where only generic text stops, and no row holds that
-CR_CUT_FIELD = Mutant('if rules.cr_ends_dash is Reading.CUT and "\\r" in', 'if "\\r" in', "scan_alone-generic", "shape")
-DASH_CUT_FIELD = Mutant(
-    "return rules.dash_needs_space is Reading.CUT and tight and", "return tight and", "scan_alone-generic", "shape"
-)
 RENDER_PREDICATE = Mutant(
-    "predicates += candidate.predicate", "predicates += False", "scan_alone-generic", "shape", RENDER
+    "predicates += candidate.predicate", "predicates += False", "scan_alone-mysql", "shape", RENDER
 )
-SQLITE_DOUBLE_QUOTE = Mutant("if scan.hide_double_quoted:", "if False:", "scan_alone-generic", "shape", RENDER)
-SQLITE_SUFFIX = Mutant('elif c == "(":', "elif False:", "scan_alone-generic", "shape")
+SQLITE_DOUBLE_QUOTE = Mutant("if scan.hide_double_quoted:", "if False:", "scan_alone-mysql", "shape", RENDER)
+SQLITE_SUFFIX = Mutant('elif c == "(":', "elif False:", "scan_alone-mysql", "shape")
 SQLITE_SUFFIX_SPACE = Mutant(
     'source[cursor] not in _SPACE and source[cursor] != ")"',
     'source[cursor] != " " and source[cursor] != ")"',
@@ -437,7 +396,9 @@ PG_BACKTICK_NONE = Mutant(
     "",
     "",
 )
-PG_CUT_BACKSLASH = Mutant("if rules.cut_backslash and _backslash_reads_two_ways(scan, rules):", "if False:", "", "")
+PG_CUT_BACKSLASH = Mutant(
+    "return rules.cut_backslash and _backslash_reads_two_ways(scan, rules)", "return False", "", ""
+)
 PG_ESCAPES_IN_QUOTED_E = Mutant(
     'if rules.backslash_in_single is Backslash.E_ONLY:\n        prefix = index > 0 and sql[index - 1] in "eE"',
     'if False:\n        prefix = index > 0 and sql[index - 1] in "eE"',
@@ -469,12 +430,6 @@ PG_DOLLAR_NAME_BOUNDARY = Mutant(
     "",
     "",
     "engine/sqltext/rules.py",
-)
-PG_QUOTED_NAME_BACKSLASH_CUT = Mutant(
-    "and rules.double_quote is not DoubleQuote.NAME",
-    "and True",
-    "",
-    "",
 )
 PG_FIRST_LINE_ENDING = Mutant("min(lf, cr)", "lf", "", "")
 MYSQL_BRACKET_CUT = Mutant(
@@ -550,7 +505,7 @@ FAMILY_HEAD = Mutant(
 )
 FAMILY_SESSION = Mutant("    return rule_sets[1:] + session\n", "    return rule_sets[1:]\n", "", "", FAMILY_MODULE)
 FAMILY_TWO_WAYS = Mutant(
-    "return variable_cut or hash_cut or _statement_cut(scan, rule_sets) >= 0",
+    "return variable_cut or _statement_cut(scan, rule_sets) >= 0",
     "variable_cut or _ambiguous_cut(scan, rule_sets[0]) >= 0",
     "",
     "",
@@ -617,10 +572,14 @@ NAMED_MUTANTS = {
     "open_bracket": MUTANTS["open_bracket"],
     "token_gate_skips_all": TOKEN_GATE_SKIPS_ALL,
     "token_gate_skips_each": TOKEN_GATE_SKIPS_EACH,
-    "generic_hash_stops": GENERIC_HASH_STOPS,
-    "generic_hash_adds_no_value": GENERIC_HASH_ADDS_NO_VALUE,
-    "generic_hash_is_a_guess": GENERIC_HASH_IS_A_GUESS,
     "mysql_closer_never": NEVER_CLOSES,
+    # Task 29: the generic rows reached these on the corpus; on a known dialect a unit test does
+    "dollar_cut": MUTANTS["dollar_cut"],
+    "cut_open_double_quote": MUTANTS["cut_open_double_quote"],
+    "double_quote_secret": MUTANTS["double_quote_secret"],
+    "double_quoted_kind": MUTANTS["double_quoted_kind"],
+    "nested_comment": MUTANTS["nested_comment"],
+    "bracket_opener": MUTANTS["bracket_opener"],
     "mysql_closer": MUTANTS["mysql_closer"],
     "family_cut": FAMILY_CUT,
     "family_second_read": FAMILY_SECOND_READ,
@@ -632,8 +591,6 @@ NAMED_MUTANTS = {
     "closer_dialect": CLOSER_DIALECT,
     "two_ways_dialect": TWO_WAYS_DIALECT,
     "render_predicate": RENDER_PREDICATE,
-    "cr_cut_field": CR_CUT_FIELD,
-    "dash_cut_field": DASH_CUT_FIELD,
     "sqlite_double_quote": SQLITE_DOUBLE_QUOTE,
     "sqlite_d6_shows": SQLITE_DOUBLE_QUOTE,
     "sqlite_suffix": SQLITE_SUFFIX,
@@ -662,7 +619,6 @@ NAMED_MUTANTS = {
     "pg_ascii_e_boundary": PG_ASCII_E_BOUNDARY,
     "pg_placeholder_before_dollar_quote": PG_PLACEHOLDER_BEFORE_DOLLAR_QUOTE,
     "pg_dollar_name_boundary": PG_DOLLAR_NAME_BOUNDARY,
-    "pg_quoted_name_backslash_cut": PG_QUOTED_NAME_BACKSLASH_CUT,
     "pg_first_line_ending": PG_FIRST_LINE_ENDING,
     "mysql_bracket_cut": MYSQL_BRACKET_CUT,
     "mysql_nested_comment_cut": MYSQL_NESTED_COMMENT_CUT,
@@ -696,10 +652,17 @@ NAMED_TESTS = {
     "open_bracket": "tests/engine/sqltext/test_lexer.py::test_an_open_quote_at_bracket_close_opens_a_two_way_read",
     "token_gate_skips_all": TOKEN_GATE_TEST,
     "token_gate_skips_each": TOKEN_GATE_TEST,
-    "generic_hash_stops": "tests/engine/sqltext/test_lexer.py::test_generic_hides_everything_past_a_hash",
-    "generic_hash_adds_no_value": "tests/engine/sqltext/test_lexer.py::test_generic_hides_everything_past_a_hash",
-    "generic_hash_is_a_guess": "tests/engine/sqltext/test_lexer.py::test_a_closer_past_a_generic_hash_is_a_guess",
     "mysql_closer_never": CLOSED_QUOTE,
+    "dollar_cut": "tests/engine/capture/test_sqlscan.py::test_a_cut_stops_at_a_dollar_quote",
+    "cut_open_double_quote": (
+        "tests/engine/capture/test_sqlscan.py::test_a_double_quote_cut_open_at_the_scan_limit_is_a_literal"
+    ),
+    "double_quote_secret": "tests/engine/capture/test_sqltrace.py::test_double_quoted_secret_is_a_literal_anywhere",
+    "double_quoted_kind": "tests/engine/sqltext/test_lexer.py::test_a_double_quoted_run_is_its_own_kind",
+    "nested_comment": (
+        "tests/engine/capture/test_sqlscan.py::test_a_nested_comment_and_a_differing_backslash_cut_on_mysql"
+    ),
+    "bracket_opener": "tests/engine/capture/test_sqlscan.py::test_a_run_left_open_in_a_bracket_stops_the_statement",
     "mysql_closer": CLOSED_QUOTE,
     "family_cut": f"{FAMILY}::test_family_cut_witness[7-dollar]",
     "family_second_read": f"{FAMILY}::test_family_cut_witness[7-dollar]",
@@ -711,8 +674,6 @@ NAMED_TESTS = {
     "closer_dialect": "tests/engine/sqltext/test_lexer.py::test_block_closer_reads_the_dialect_it_is_given",
     "two_ways_dialect": "tests/engine/sqltext/test_lexer.py::test_reads_two_ways_reads_the_dialect_it_is_given",
     "render_predicate": "tests/engine/sqltext/test_render.py::test_a_secret_run_in_a_predicate_is_a_predicate_literal",
-    "cr_cut_field": "tests/engine/sqltext/test_lexer.py::test_a_lone_cr_in_a_comment_cuts_only_generic_text",
-    "dash_cut_field": "tests/engine/sqltext/test_lexer.py::test_an_opener_in_a_tight_comment_cuts_only_generic_text",
     "sqlite_double_quote": (
         "tests/engine/sqltext/test_rules_sqlite.py::test_sqlite_hides_every_double_quoted_run[select_x]"
     ),
@@ -774,9 +735,6 @@ NAMED_TESTS = {
     ),
     "pg_dollar_name_boundary": (
         "tests/engine/sqltext/test_rules_postgresql.py::test_dollar_quotes_after_ascii_boundaries_and_ambiguous_dollars"
-    ),
-    "pg_quoted_name_backslash_cut": (
-        "tests/engine/sqltext/test_rules_postgresql.py::test_a_backslash_in_a_postgresql_quoted_name_does_not_cut"
     ),
     "pg_first_line_ending": "tests/engine/sqltext/test_rules_postgresql.py::test_line_comment_ends_at_cr_or_lf",
     "mysql_bracket_cut": "tests/engine/capture/test_sqlscan.py::test_the_other_cuts_stand_on_a_text_holding_a_dollar",
@@ -867,7 +825,18 @@ def test_an_id_only_leak_fails_the_gate(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("name", MUTANTS)
 def test_every_lexer_branch_is_killed(name: str, tmp_path: Path) -> None:
-    if name in {"array_space", "bracket_digit_word", "open_bracket", "mysql_doubled_bracket"}:
+    if name in {
+        "array_space",
+        "bracket_digit_word",
+        "open_bracket",
+        "mysql_doubled_bracket",
+        "dollar_cut",
+        "cut_open_double_quote",
+        "double_quote_secret",
+        "double_quoted_kind",
+        "nested_comment",
+        "bracket_opener",
+    }:
         _assert_named_mutant_fails(name, tmp_path)
         return
     mutant = MUTANTS[name]
@@ -972,11 +941,11 @@ def test_every_mutant_targets_the_module_in_use(name: str, tmp_path: Path) -> No
     text = "select \"a\", 'b' from t where c in (7, ?) -- d"  # a closed name, a literal, an IN list and a comment
     package = Path(sqltrace.__file__).resolve().parents[2]
     ran = _files_run_by(
-        lambda: sqlscan.read_statement(text, Dialect.UNSUPPORTED),
-        lambda: sqlscan.shown(text, [(7, 10)], Dialect.UNSUPPORTED),
-        lambda: statement_text(masker, text, Dialect.UNSUPPORTED),
-        lambda: sqltext.statement_shape(masker, text, Dialect.UNSUPPORTED),
-        lambda: render_error(masker, f"(pymysql.err.Error) x\n[SQL: {text}]", Dialect.UNSUPPORTED),  # the driver line
+        lambda: sqlscan.read_statement(text, Dialect.MYSQL_FAMILY),
+        lambda: sqlscan.shown(text, [(7, 10)], Dialect.MYSQL_FAMILY),
+        lambda: statement_text(masker, text, Dialect.MYSQL_FAMILY),
+        lambda: sqltext.statement_shape(masker, text, Dialect.MYSQL_FAMILY),
+        lambda: render_error(masker, f"(pymysql.err.Error) x\n[SQL: {text}]", Dialect.MYSQL_FAMILY),  # the driver line
     )  # fmt: skip
 
     written = _mutate(_scratch_copy(tmp_path), ALL_MUTANTS[name]).relative_to(tmp_path / "src" / "sharpit")
