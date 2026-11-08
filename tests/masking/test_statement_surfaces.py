@@ -561,7 +561,8 @@ def _summary(failing: Sequence[Row], total: int) -> str:
 
 @pytest.mark.parametrize("dialect", DIALECTS.values())
 def test_the_corpus_is_seeded(dialect: str) -> None:
-    assert sql_corpus.rows(7, 300, dialect) == sql_corpus.rows(7, 300, dialect)
+    first = sql_corpus.rows(7, 300, dialect)
+    assert first == sql_corpus.rows(7, 300, dialect)
 
 
 def test_the_corpus_refuses_an_unknown_dialect() -> None:

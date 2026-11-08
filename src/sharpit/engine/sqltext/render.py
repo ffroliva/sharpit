@@ -59,24 +59,31 @@ def collapse_placeholder_lists(normalized: str) -> tuple[str, list[tuple[int, in
             out.append(c)
             index += 1
             continue
-        cursor = last_placeholder = index
-        while True:
-            following = cursor + 1
-            while following < length and normalized[following] == " ":
-                following += 1
-            if following < length and normalized[following] == ",":
-                following += 1
-                while following < length and normalized[following] == " ":
-                    following += 1
-                if following < length and normalized[following] == "?":
-                    cursor = last_placeholder = following
-                    continue
-            break
+        last_placeholder = _last_placeholder(normalized, index)
         out.append("?")
         if last_placeholder > index:
             cuts.append((index + 1, last_placeholder + 1))
         index = last_placeholder + 1
     return out.text(), cuts
+
+
+def _past_spaces(text: str, at: int) -> int:
+    while at < len(text) and text[at] == " ":
+        at += 1
+    return at
+
+
+def _last_placeholder(normalized: str, index: int) -> int:
+    """The last ``?`` of the ``?, ?`` run whose first ``?`` is at ``index``."""
+    length, cursor = len(normalized), index
+    while True:
+        following = _past_spaces(normalized, cursor + 1)
+        if following >= length or normalized[following] != ",":
+            return cursor
+        following = _past_spaces(normalized, following + 1)
+        if following >= length or normalized[following] != "?":
+            return cursor
+        cursor = following
 
 
 def _hidden_flags(hidden: Sequence[tuple[int, int]], length: int) -> bytearray:

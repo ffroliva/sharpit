@@ -32,7 +32,8 @@ def test_the_corpus_is_p2_gens_byte_for_byte() -> None:
 
 
 def test_the_corpus_is_seeded() -> None:
-    assert gate.corpus(5, 50) == gate.corpus(5, 50)
+    first = gate.corpus(5, 50)
+    assert first == gate.corpus(5, 50)
     assert gate.corpus(5, 50) != gate.corpus(6, 50)
 
 

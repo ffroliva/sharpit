@@ -49,6 +49,7 @@ type ErrorSource = str | BaseException
 
 
 _TAIL_WORD = re.compile(r"\w")
+_MASK_MARGIN = 4_096  # past the longest shape the masker reads whole: a JWT, a vendor token, a key and its value
 
 
 def _hide_joined_tails(sql: str, spans: list[tuple[int, int]]) -> None:
@@ -75,6 +76,15 @@ def secret_spans(masker: Masker, sql: str) -> list[tuple[int, int]] | None:
     return spans
 
 
+def _masked_twin(masker: Masker) -> Masker:
+    """``MASKED`` with ``masker``'s own token and key: what a ``METADATA_ONLY`` shape shows is never more (council)."""
+    from sharpit.engine.masking import Exposure
+    from sharpit.engine.masking import Masker as MaskerType
+
+    token = masker._token  # pyright: ignore[reportPrivateUsage]
+    return MaskerType(Exposure.MASKED, True, token, identity_key=masker.identity_key)
+
+
 def _statement_text(
     masker: Masker,
     sql: str,
@@ -85,7 +95,8 @@ def _statement_text(
 ) -> str | None:
     from sharpit.engine.masking import is_secret_value
 
-    relaxed = secret_spans(masker, sql)
+    # nothing past the scan is shown: the masker reads the scan and a margin, so a secret across the cut is whole
+    relaxed = secret_spans(masker, sql[: len(scan.source) + _MASK_MARGIN])
     if relaxed is None:
         return None
     if secret is None:
@@ -134,9 +145,11 @@ def _shape(masker: Masker, sql: str, dialect: Dialect) -> Shape:
     normalized, cuts = collapse_placeholder_lists(normalized.strip(SPACE_CHARS))
     try:
         text = _statement_text(masker, sql, scan, secret, normalized, cuts)
+        if text is None:  # METADATA_ONLY: a shape shows what MASKED shows, never the scan's text with no masker pass
+            text = _statement_text(_masked_twin(masker), sql, scan, secret, normalized, cuts)
     except Exception:
         text = MASK
-    shown_text = normalized if text is None else text
+    shown_text = MASK if text is None else text
     if dialect is Dialect.SQLITE:
         if masker.identity_key is None:
             identity = None

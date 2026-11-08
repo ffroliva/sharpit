@@ -15,7 +15,7 @@ pytest.importorskip("sqlalchemy")
 
 from tests.masking import resolver_plants
 from tests.masking import test_statement_surfaces as gates
-from tests.masking.test_gates_bite import DRIVER_SWITCH
+from tests.masking.test_gates_bite import DRIVER_SWITCH, UNREAD_HIDES
 
 from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect, resolve, statement_text
@@ -115,9 +115,8 @@ def test_a12_surface_row(case: str) -> None:
 
 # the switch Task 28 removed, put back: on the driver line (test_gates_bite's mutant), and on any line of the head
 ANY_LINE_SWITCH = DRIVER_SWITCH._replace(
-    replacement="    named = block is not None and _MYSQL_NAMED.search(text, 0, block.start())\n"
-    "    resume = _block(masker, text, block.end(), end, Dialect.MYSQL_FAMILY if named else dialect, shown) "
-    "if block else end"
+    replacement=UNREAD_HIDES + "        named = _MYSQL_NAMED.search(text, 0, block.start())\n"
+    "        resume, link = _block(masker, text, block.end(), Dialect.MYSQL_FAMILY if named else dialect, shown)\n"
 )
 SURFACE_PLANTS = {
     "value_naming_a_driver": DRIVER_SWITCH,

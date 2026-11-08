@@ -5,7 +5,16 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-_RADIX_LITERAL = re.compile(r"0[xX]_?[0-9a-fA-F]+(?:_[0-9a-fA-F]+)*|0[bB]_?[01]+(?:_[01]+)*|0[oO]_?[0-7]+(?:_[0-7]+)*")
+# one pattern per radix: their prefixes differ, so at most one matches, as the alternation they were did
+_RADIX_LITERALS = (
+    re.compile(r"0[xX]_?[0-9a-fA-F]+(?:_[0-9a-fA-F]+)*"),
+    re.compile(r"0[bB]_?[01]+(?:_[01]+)*"),
+    re.compile(r"0[oO]_?[0-7]+(?:_[0-7]+)*"),
+)
+
+
+def _radix_literal(sql: str, index: int) -> re.Match[str] | None:
+    return next((found for pattern in _RADIX_LITERALS if (found := pattern.match(sql, index))), None)
 
 
 def _digit_goes_on(sql: str, cursor: int) -> bool:
@@ -19,25 +28,31 @@ def _skip_exponent(sql: str, index: int, fail_unicode: bool = False) -> int:
         cursor += 1
     if cursor >= length:
         return index
-    if not fail_unicode:
-        if not sql[cursor].isdigit():
-            return index
-        while cursor < length and _digit_goes_on(sql, cursor):
-            cursor += 1
-        return cursor
+    if fail_unicode:
+        return _ascii_exponent_end(sql, index, cursor)
+    if not sql[cursor].isdigit():
+        return index
+    while cursor < length and _digit_goes_on(sql, cursor):
+        cursor += 1
+    return cursor
+
+
+def _ascii_exponent_end(sql: str, index: int, cursor: int) -> int:
+    """Past the exponent digits at ``cursor``; at ``index``, the ``e``, when a non-ASCII digit is in them or next."""
+    length = len(sql)
     if not "0" <= sql[cursor] <= "9":
         return index
     while cursor < length and _digit_goes_on(sql, cursor):
         if not sql[cursor].isascii():
             return index
         cursor += 1
-    if fail_unicode and cursor < length and not sql[cursor].isascii():
+    if cursor < length and not sql[cursor].isascii():
         return index
     return cursor
 
 
 def skip_number(sql: str, index: int, name_part: bool = False, fail_unicode: bool = False) -> int:
-    if sql[index] == "0" and (radix := _RADIX_LITERAL.match(sql, index)):
+    if sql[index] == "0" and (radix := _radix_literal(sql, index)):
         return radix.end()
     cursor, length = index, len(sql)
     while cursor < length and ((sql[cursor] == "." and not name_part) or _digit_goes_on(sql, cursor)):
@@ -72,6 +87,16 @@ def _number_char(sql: str, index: int) -> bool:
     return sql[index].isdigit() or sql[index] in "._+-" or sql[index].isascii() and sql[index].isalnum()
 
 
+def _ascii_number_end(sql: str, cursor: int) -> int:
+    """Past the number characters from ``cursor``; ``-1`` at a non-ASCII one."""
+    length = len(sql)
+    while cursor < length and _number_char(sql, cursor):
+        if not sql[cursor].isascii():
+            return -1
+        cursor += 1
+    return cursor
+
+
 def _number_run_cut(sql: str, start: int) -> int:
     first = sql[start : start + 1]
     if not (first.isdigit() or first == "." and sql[start + 1 : start + 2].isdigit()):
@@ -83,11 +108,9 @@ def _number_run_cut(sql: str, start: int) -> int:
         dot_start -= 1
     if start - dot_start >= 2:
         return dot_start
-    cursor, length = start + 1, len(sql)
-    while cursor < length and _number_char(sql, cursor):
-        if not sql[cursor].isascii():
-            return start
-        cursor += 1
+    cursor, length = _ascii_number_end(sql, start + 1), len(sql)
+    if cursor < 0:
+        return start
     if cursor < length and not sql[cursor].isascii() or start and not sql[start - 1].isascii():
         return start
     return start if ".." in sql[start : min(length, cursor + 1)] else -1

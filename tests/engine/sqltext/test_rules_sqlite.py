@@ -103,8 +103,10 @@ def test_a_quote_in_a_suffix_or_an_open_suffix_hides_from_the_opener(sql: str) -
 
 def test_a_refused_statement_with_a_quote_in_its_suffix_keeps_its_value_hidden() -> None:
     sql = "SELECT ?1,$a(')','ZQMARK'"
+    connection = sqlite3.connect(":memory:")
     with pytest.raises(sqlite3.Error):
-        sqlite3.connect(":memory:").execute(sql)
+        connection.execute(sql)
+    connection.close()
     assert normalize(sql, Dialect.SQLITE).sql == "SELECT ??, ?"
     assert "ZQMARK" not in (statement_text(MASKER, sql, Dialect.SQLITE) or "")
 

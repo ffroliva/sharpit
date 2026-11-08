@@ -117,21 +117,30 @@ RENDER = "engine/sqltext/render.py"
 FACADE = "engine/capture/sqlscan.py"
 KEEP = "return _keep(source, index, out)"
 DOT_DIGIT = ' or out.chars[-1] == "."'
-DIGIT = f"elif c.isdigit() and (not _identifier_char_before(out){DOT_DIGIT}):"
+DIGIT = "elif c.isdigit() and _number_can_start(out):"
+NUMBER_START = f"    return not _identifier_char_before(out){DOT_DIGIT}\n"  # the test DIGIT hands to _number_can_start
 QUOTES = "**dict.fromkeys('\"`[', _scan_quoted),"  # the scanners of the three quoting characters
 CUT = "found = _RUN_OPENER.search(scan.source)"
 NO_DOLLAR = 're.compile("[\'\\"`]")'  # the opener set without its dollar quote
 MYSQL_TAG = "rules.dollar is DollarOpen.MYSQL_TAG"
 CLOSER = "_no_step_back_closer(sql, tag, body_start) if no_step_back else sql.find(tag, body_start)"
-CONFLICT_HIDES = (
-    "    if conflict:\n"
+CONFLICT_HIDES = (  # Task 35 moved the hide into _render's branch on a conflict or an open-quote ambiguity
+    "    if block is not None and (ambiguous or (head.named is not None and head.named is not dialect)):\n"
     "        shown.append(_BLOCK_HIDDEN)\n"
-    "    resume = _block(masker, text, block.end(), end, dialect, shown) if block and not conflict else end"
+    "        resume, link = _closing_link(text, block.end())\n"
+    "    elif block is not None:\n"
+    "        resume, link = _block(masker, text, block.end(), dialect, shown)\n"
+)
+UNREAD_HIDES = (  # what the mutants keep: the ambiguity's hide is not the switch
+    "    if block is not None and ambiguous:\n"
+    "        shown.append(_BLOCK_HIDDEN)\n"
+    "        resume, link = _closing_link(text, block.end())\n"
+    "    elif block is not None:\n"
 )
 DRIVER_SWITCH = Mutant(  # Task 28 turned the switch into a hide; the mutant puts the switch back
     CONFLICT_HIDES,
-    "    resume = _block(masker, text, block.end(), end, Dialect.MYSQL_FAMILY if conflict else dialect, shown) "
-    "if block else end",
+    UNREAD_HIDES + "        conflict = head.named is not None and head.named is not dialect\n"
+    "        resume, link = _block(masker, text, block.end(), Dialect.MYSQL_FAMILY if conflict else dialect, shown)\n",
     "",
     "",
     "engine/sqltext/errors.py",
@@ -221,8 +230,8 @@ MUTANTS: dict[str, Mutant] = {
     ),
     # a digit or a keyword after a name character belongs to the name: over-masking ``col1`` lowers A1: A3 must catch it
     "digit_in_name": Mutant(DIGIT, "elif c.isdigit():", SURFACE, "shape"),
-    "dot_digit": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), SURFACE, "visible"),
-    "dot_digit_mysql": Mutant(DIGIT, DIGIT.replace(DOT_DIGIT, ""), "recorder_sql-mysql", "visible"),
+    "dot_digit": Mutant(NUMBER_START, NUMBER_START.replace(DOT_DIGIT, ""), SURFACE, "visible"),
+    "dot_digit_mysql": Mutant(NUMBER_START, NUMBER_START.replace(DOT_DIGIT, ""), "recorder_sql-mysql", "visible"),
     # as ``mysql_dollar_name``: the ``$`` they free opens a quote, and the family cut stops there
     "name_part": Mutant("_skip_number(source, index, _name_part(out), fail_unicode)", "_skip_number(source, index)",
                         "recorder_sql-mysql", "shape"),
@@ -407,7 +416,7 @@ PG_ESCAPES_IN_QUOTED_E = Mutant(
 )
 PG_BACKSLASH_TWO_WAYS_E = Mutant(
     "if rules.backslash_in_single is Backslash.E_ONLY:\n"
-    "        return _read(source, replace(rules, backslash_in_single=Backslash.ALWAYS)).out.text() != scan.out.text()",
+    "        return _read(source, _escaping_single(rules)).out.text() != scan.out.text()",
     "if False:\n        return False",
     "",
     "",

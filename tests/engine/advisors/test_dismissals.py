@@ -383,7 +383,7 @@ def _refused(call: Any) -> AdvisorViolationError:
 def test_dismissed_findings_note_and_cap_validation(tmp_path: Path):
     file = tmp_path / FILE_NAME
     store = DismissalStore(tmp_path)
-    note = 'it\'s "fine": # really\nsecond line éè \U0001f600 \ end'
+    note = 'it\'s "fine": # really\nsecond line éè \U0001f600 \\ end'
     store.dismiss_finding(RULE, IDENTITY, note)
     assert DismissalStore(tmp_path).list_findings().dismissed == [DismissedFinding(RULE, IDENTITY, note)]
     assert "really" not in file.read_text(encoding="utf-8")

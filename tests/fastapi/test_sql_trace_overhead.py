@@ -31,6 +31,10 @@ ROUNDS, PER_ROUND = 45, 200
 MISS_BUDGET_NS = 300_000  # a distinct statement: the scan and the masker's passes; overhead-budgets.md has the numbers
 MISS_ROUNDS, MISS_PER_ROUND = 20, 50  # 1,000 distinct statements a side
 FAMILY_ROUNDS, FAMILY_PER_ROUND = 20, 300
+# a distinct statement of 138 KB: nothing past the scan's 20,000 characters is shown, so the cost stays the window's
+LARGE_MISS_BUDGET_NS = 40_000_000  # first number, for the owner: overhead-budgets.md has the measurements
+LARGE_ROUNDS, LARGE_PER_ROUND = 12, 2
+LARGE_VALUES = ",".join(f"'k{i}=v{i}'" for i in range(10_000))
 
 
 @pytest.fixture
@@ -116,3 +120,37 @@ def test_mysql_family_read_budget():
 
     result = paired(lambda: measure((MYSQL_84,)), lambda: measure(READINGS[Dialect.MYSQL_FAMILY]), FAMILY_ROUNDS)
     check_budget("MySQL family second reading", result, min(result.off) // 5, "ns", 1)
+
+
+def test_recorder_cache_miss_on_a_large_statement_within_budget(handle: SharpitHandle):
+    """Council M3 (Task 35): the masker read the whole raw statement, past the scan window nothing of it is shown."""
+    engine = handle.context.engines[0]
+    serial = itertools.count()
+
+    def large_round(conn: object) -> int:
+        statements = [
+            f"select * from (select 1 as n{next(serial):06d}) where 0 and 'k' in ({LARGE_VALUES})"
+            for _ in range(LARGE_PER_ROUND)
+        ]
+        started = time.perf_counter_ns()
+        for statement in statements:
+            conn.exec_driver_sql(statement)  # type: ignore[attr-defined]
+        return (time.perf_counter_ns() - started) // LARGE_PER_ROUND
+
+    with engine.connect() as conn:  # type: ignore[attr-defined]
+        sqla.remove(handle.context)
+
+        def on() -> int:
+            sqla.add(handle.context, statements=True, discovery=True)
+            r = large_round(conn)
+            sqla.remove(handle.context)
+            return r
+
+        def off() -> int:
+            return large_round(conn)
+
+        result = paired(off, on, LARGE_ROUNDS)
+    recorder = handle.context.capture.sql_trace
+    assert recorder is not None
+    assert recorder.report([])["totalCaptured"] == LARGE_ROUNDS * LARGE_PER_ROUND
+    check_budget("SQL listener per distinct 138 KB statement", result, LARGE_MISS_BUDGET_NS, "ms", 1_000_000)

@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import __version__, install
+from state_files import state_files
 from surface import expected_mcp_tool_names
 
 LOCAL = ("127.0.0.1", 50000)
@@ -52,7 +53,7 @@ def test_disabled_response_over_http():
 def test_toggle_enables_in_memory(tmp_path: Path):
     # adapted: McpServerControllerTests toggle (in memory only, brief ruling)
     client = _client(tmp_path)
-    installed = set(tmp_path.iterdir())  # the identity key: install writes that, a toggle nothing
+    installed = state_files(tmp_path)  # the identity key: install writes that, a toggle nothing
     assert client.get("/sharpit/api/mcp-server").json()["enabled"] is False
     on = client.post("/sharpit/api/mcp-server/toggle", json={"enabled": True})
     assert on.status_code == 200
@@ -71,7 +72,7 @@ def test_toggle_enables_in_memory(tmp_path: Path):
     assert client.post(toggle, json={}).json()["enabled"] is True  # missing 'enabled': flip
     null = client.post(toggle, content=b"null", headers={"content-type": "application/json"})
     assert (null.status_code, null.json()["enabled"]) == (200, False)  # BootUI: request == null flips
-    assert set(tmp_path.iterdir()) == installed  # in memory only: nothing written to the state dir
+    assert state_files(tmp_path) == installed  # in memory only: nothing written to the state dir
     assert _client(tmp_path).get("/sharpit/api/mcp-server").json()["enabled"] is False  # a new install starts OFF
 
 

@@ -14,12 +14,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - The SQL dialect is resolved per event from what the connection or exception proves; an application using a single database family applies that family to unwired events.
 - A database driver exception shows its class, one structured code, the masked `[SQL: ...]` statement, and `[parameters: ******]` when parameters were bound, and never the driver's free-text message.
 - A statement of an unsupported database family shows `[statement hidden: unsupported database]` at every exposure level, and parameter capture does not reveal it.
-- Under `METADATA_ONLY` exposure, SQL statements and database error text are omitted entirely.
+- Under `METADATA_ONLY` exposure, no statement text or database error text is shown; SQL Trace groups keep the masked statement shape (`SELECT ? FROM users WHERE id = ?`), never more than `MASKED` shows.
 
 ### Known limits
 
 - Text an application writes as a statement is read as SQL.
 - In free text, a value with no key name before it can be shown.
+- An unquoted value after `PASSWORD` or `IDENTIFIED BY` is shown as written: PostgreSQL and MySQL reject it as a syntax error, so it appears only on a mistyped, failed statement. A quoted value is hidden.
 - An unproven event from a second database that sharpit has not seen is read as the application's one registered family.
 - Database forks (such as Percona or Aurora) are read as their parent family; no fork runs in the live tests.
 - SQL Server and Oracle statements are hidden (`[statement hidden: unsupported database]`): sharpit has no verified rules for them.

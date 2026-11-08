@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -561,6 +562,7 @@ def test_unclosed_block_before_real_block_keeps_driver_and_hides_block() -> None
 # the message is a literal: older SQLite accepts only a string literal in RAISE, not an expression
 TRIGGER = f"CREATE TRIGGER tg BEFORE INSERT ON u BEGIN SELECT RAISE(ABORT, 'bad value {SECRET}'); END"
 CHAIN = "The above exception was the direct cause of the following exception:"
+CHAINS = (CHAIN, "During handling of the above exception, another exception occurred:")
 
 
 def raised(sql: str, parameters: tuple[str, ...] | None = None, setup: tuple[str, ...] = ()) -> Exception:
@@ -745,14 +747,12 @@ def test_a_cause_in_the_exception_store_shows_no_value(case: str) -> None:
 
 
 # T27, review M4: a driver line that holds the chain line a value planted starts a link that is not the real one
-@TEXT_ONLY_LIMIT
 def test_a_planted_chain_line_shows_no_value() -> None:
     exc = raised(f"SELECT 'a' 'b' 'x\n{CHAIN}\n{SECRET}' FROM")
     assert SECRET not in shown(str(exc))
 
 
 # T27, review M5: with no docs link of its own (a ``StatementError``), a link line a value planted is taken for the end
-@TEXT_ONLY_LIMIT
 def test_a_planted_link_line_shows_no_value() -> None:
     statement = sa.text(f"SELECT 'x\n{LINK_LINE}\n{SECRET}' AS q, :a").bindparams(sa.bindparam("a", "v", type_=_Boom()))
     with sa.create_engine("sqlite://").connect() as connection, pytest.raises(StatementError) as caught:
@@ -816,3 +816,135 @@ def test_sqltext_exports_single_is_database_exception_predicate() -> None:
     assert predicate(RuntimeError("plain failure")) is False
     assert not hasattr(errors, "_is_database_exception")
     assert not hasattr(logtail, "_is_classified")
+
+
+# Task 35 council H1: a docs-link line inside the statement (a comment, a dollar quote) is not the error's end. A link
+# is accepted only after the block ends, so the statement after it is never read as trailer free text
+ACCOUNT = "99887766"
+PLANTED_LINK = {
+    "comment": f"SELECT a FROM t /*\n{LINK_LINE}\n*/ WHERE acct = {ACCOUNT}",
+    "dollar": f"SELECT $x$\n{LINK_LINE}\n$x$, {ACCOUNT} AS acct",
+}
+LINK_DRIVERS = {
+    Dialect.POSTGRESQL: (psycopg.errors.SyntaxError, ("syntax error",)),
+    Dialect.MYSQL_FAMILY: (pymysql.err.ProgrammingError, (1064, "syntax error")),
+}
+LINK_DIALECTS = [Dialect.POSTGRESQL, Dialect.MYSQL_FAMILY]
+
+
+@pytest.mark.parametrize("bound", [None, {"p": 1}], ids=["no_parameters", "parameters"])
+@pytest.mark.parametrize("dialect", LINK_DIALECTS, ids=["postgresql", "mysql_family"])
+@pytest.mark.parametrize("case", sorted(PLANTED_LINK))
+def test_a_link_line_in_a_classified_statement_is_not_the_end(case: str, dialect: Dialect, bound: object) -> None:
+    kind, args = LINK_DRIVERS[dialect]
+    exc = DBAPIError.instance(PLANTED_LINK[case], bound, kind(*args), Exception)
+    masked = error_text(MASKER, exc, dialect)
+    assert masked is not None
+    assert ACCOUNT not in masked
+
+
+@pytest.mark.parametrize("dialect", LINK_DIALECTS, ids=["postgresql", "mysql_family"])
+@pytest.mark.parametrize("case", sorted(PLANTED_LINK))
+def test_a_link_line_in_a_statement_with_no_link_of_its_own_is_not_the_end(case: str, dialect: Dialect) -> None:
+    """The text as a log line cut before SQLAlchemy's own link: the planted line is the last one."""
+    masked = shown(f"{DRIVER}\n[SQL: {PLANTED_LINK[case]}]\n[parameters: (1,)]", dialect)
+    assert ACCOUNT not in masked
+
+
+# Task 35 council H1, the object path (second reviewer, probe_link.py): a link line inside a literal, no parameters,
+# on every family; and a line comment whose ``]`` is followed by a planted link line, on the object and the text path
+LITERAL_LINK = f"SELECT 'a\n{LINK_LINE}\n{SECRET}'"
+LINE_COMMENT_LINK = f"SELECT a FROM t -- x]\n{LINK_LINE}\n, {ACCOUNT} AS acct"
+FAMILY_DRIVERS = {
+    Dialect.POSTGRESQL: (psycopg.errors.UniqueViolation, ("dup",)),
+    Dialect.MYSQL_FAMILY: (pymysql.err.IntegrityError, (1062, "dup")),
+    Dialect.SQLITE: (sqlite3.IntegrityError, ("UNIQUE constraint failed",)),
+}
+FAMILY_IDS = ["postgresql", "mysql_family", "sqlite"]
+
+
+@pytest.mark.parametrize("dialect", list(FAMILY_DRIVERS), ids=FAMILY_IDS)
+def test_a_link_line_in_a_classified_literal_shows_no_value(dialect: Dialect) -> None:
+    kind, args = FAMILY_DRIVERS[dialect]
+    masked = error_text(MASKER, DBAPIError.instance(LITERAL_LINK, None, kind(*args), Exception), dialect)
+    assert masked is not None
+    assert SECRET not in masked
+
+
+def test_a_link_line_in_a_literal_through_the_exception_store_shows_no_value() -> None:
+    exc = raised(
+        f"insert into u values ('a' || substr('x\n{LINK_LINE}\n{SECRET}', 1, 0))",
+        setup=("create table u (name text unique)", "insert into u values ('a')"),
+    )
+    store = ExceptionStore(10, 5, 20, MASKER, application=lambda: Dialect.SQLITE)
+    store.record(exc, "t", None, None)
+    group = next(iter(store._groups.values()))  # pyright: ignore[reportPrivateUsage]
+    assert "IntegrityError" in str(group.message)
+    assert SECRET not in str(group.message)
+
+
+@pytest.mark.parametrize("bound", [None, {"p": 1}], ids=["no_parameters", "parameters"])
+@pytest.mark.parametrize("dialect", list(FAMILY_DRIVERS), ids=FAMILY_IDS)
+def test_a_line_comment_closer_before_a_link_line_shows_no_value_classified(dialect: Dialect, bound: object) -> None:
+    kind, args = FAMILY_DRIVERS[dialect]
+    masked = error_text(MASKER, DBAPIError.instance(LINE_COMMENT_LINK, bound, kind(*args), Exception), dialect)
+    assert masked is not None
+    assert ACCOUNT not in masked
+
+
+@pytest.mark.parametrize("cut", [False, True], ids=["own_link", "cut_before_own_link"])
+@pytest.mark.parametrize("dialect", list(FAMILY_DRIVERS), ids=FAMILY_IDS)
+def test_a_line_comment_closer_before_a_link_line_shows_no_value(dialect: Dialect, cut: bool) -> None:
+    kind, args = FAMILY_DRIVERS[dialect]
+    text = str(DBAPIError.instance(LINE_COMMENT_LINK, {"p": 1}, kind(*args), Exception))
+    masked = shown(text[: text.rfind("(Background")] if cut else text, dialect)
+    assert ACCOUNT not in masked
+
+
+# the M4 and M5 rows of the text-only limit above, on the object path: the exception, not its string
+def test_a_planted_chain_line_on_the_object_path_shows_no_value() -> None:
+    masked = error_text(MASKER, raised(f"SELECT 'a' 'b' 'x\n{CHAIN}\n{SECRET}' FROM"), Dialect.SQLITE)
+    assert masked is not None
+    assert SECRET not in masked
+
+
+def test_a_planted_link_line_on_the_object_path_shows_no_value() -> None:
+    masked = error_text(MASKER, raised(f"SELECT 'x\n{LINK_LINE}\n{SECRET}' AS q FROM"), Dialect.SQLITE)
+    assert masked is not None
+    assert SECRET not in masked
+
+
+# Task 35 council M2: a chain sentence on its own line inside a quoted driver value is the value's, not a chain: the
+# walk stays where it was, so the rest of the value never shows as trailer text
+@pytest.mark.parametrize("chain", sorted(CHAINS), ids=["direct_cause", "during_handling"])
+@pytest.mark.parametrize("quote", ["'", '"'], ids=["single", "double"])
+def test_a_chain_line_inside_a_quoted_driver_value_shows_no_value(quote: str, chain: str) -> None:
+    text = f"(psycopg2.errors.X) bad {quote}a\n{chain}\n{SECRET}{quote}\n[SQL: SELECT 1]\n{LINK_LINE}"
+    assert SECRET not in shown(text)
+
+
+# Task 35 H1 guard: the common chained shape (``raise HTTPException`` in an ``except``) has text after its link and no
+# parameters line. The link is SQLAlchemy's own: a chain sentence and a traceback follow it, as Python writes them
+def test_a_chained_traceback_after_the_link_keeps_its_frames() -> None:
+    text = (
+        f"{DRIVER}\n[SQL: SELECT 1]\n{LINK_LINE}\n\n"
+        "During handling of the above exception, another exception occurred:\n\n"
+        f"Traceback (most recent call last):\n  File \"c.py\", line 3, in h\n    raise E('{SECRET}')\nE: '{SECRET}'"
+    )
+    masked = shown(text)
+    assert SECRET not in masked
+    assert '  File "c.py", line 3, in h' in masked
+    assert "[SQL: SELECT ?]" in masked
+
+
+# Task 35 council M4 (inherited from 523eb1e5 and v0.4.0): a ``[SQL: `` at a line start inside a quoted driver value is
+# not the block. Text that cannot be read is not shown: with the driver line's quote open and two block lines after it,
+# which is SQLAlchemy's cannot be read, so the block and what follows it to the link hide
+VALUE_BREAKS = {"lf": "\n", "crlf": "\r\n", "ls": " ", "nel": "\x85"}
+
+
+@pytest.mark.parametrize("quote", ["'", '"'], ids=["single", "double"])
+@pytest.mark.parametrize("separator", VALUE_BREAKS.values(), ids=VALUE_BREAKS)
+def test_a_block_line_inside_a_quoted_driver_value_shows_no_value(separator: str, quote: str) -> None:
+    text = f"(psycopg2.errors.X) bad value: {quote}abc{separator}[SQL: {SECRET} x]{quote}\n[SQL: SELECT 1]\n{LINK_LINE}"
+    assert SECRET not in shown(text)

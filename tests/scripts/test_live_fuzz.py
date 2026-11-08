@@ -63,8 +63,10 @@ def test_a_javascript_routine_is_still_read_from_its_definition() -> None:
 def test_a_refused_call_still_drops_the_routine() -> None:
     """A routine left behind makes every later CREATE refuse: the drop must run when the call fails."""
     cursor = _Cursor(refuse="CALL")
+    run = live_fuzz._mysql_runner(_Raw(cursor))
+    statement = live_fuzz.MARIADB_ROUTINE + "SELECT t.x"
     with pytest.raises(RuntimeError):
-        live_fuzz._mysql_runner(_Raw(cursor))(live_fuzz.MARIADB_ROUTINE + "SELECT t.x")
+        run(statement)
     assert cursor.sent[-1] == "DROP PROCEDURE zp"
 
 

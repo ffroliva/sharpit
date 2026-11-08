@@ -26,6 +26,7 @@ _BLOCK_LINE = re.compile(_LINE_START + re.escape(_BLOCK))
 _BLOCK_HIDDEN = f"{_BLOCK}{MASK}]"
 _PARAMETERS = re.compile(r"\s*+\[parameters: ")
 _PARAMETERS_LINE = "\n[parameters: "
+_SPACES = re.compile(r"\s*+")
 _PARAMETERS_HIDDEN = f"[parameters: {MASK}]"
 # SQLAlchemy's own text and a URL of its own shape, so a line a value planted shows nothing even if it is taken for this
 _LINK = re.compile(_LINE_START + r"\(Background on this error at: https://sqlalche\.me/e/\w+/\w+\)")
@@ -52,6 +53,7 @@ _CHAINS = frozenset(
         "During handling of the above exception, another exception occurred:",
     }
 )
+_CHAINED = re.compile(rf"\s*+(?:{'|'.join(map(re.escape, sorted(_CHAINS)))})\s*+{re.escape(_TRACEBACK)}")
 _FRAMES, _DRIVER, _TAIL, _TRAILER = range(4)  # where a walk stands: what the next line is
 # BaseException's own descriptors, as ``dialect`` reads links: a subclass property of the same name never runs
 _ARGS = BaseException.__dict__["args"]
@@ -128,6 +130,14 @@ def _quoted(line: str) -> tuple[int, int] | None:
     return first.start(), high if odd else last + 1
 
 
+def _left_open(line: str) -> bool:
+    """Whether a quote the line opens is still open at its end; a PyMySQL tuple's own quotes close its message."""
+    quoted = _quoted(line)
+    if quoted is None or quoted[1] != len(line):
+        return False
+    return line.count("'", quoted[0]) % 2 == 1 or line.count('"', quoted[0]) % 2 == 1
+
+
 def _views(line: str, quoted: tuple[int, int]) -> Iterator[Tracked]:
     """The two reads of a driver line beside the raw one: a key can sit on either side of a quote."""
     first_to_last = Tracked(line)
@@ -156,6 +166,7 @@ class _Lines:
         self._keep_frames = keep_frames
         self.shown: list[str] = []
         self.named: Dialect | None = None  # the family the driver line names: a mark that can only hide
+        self.open_quote = False
 
     @functools.cached_property
     def _hits(self) -> _Hits:
@@ -191,7 +202,7 @@ class _Lines:
             self._driver(line)
         elif self._state == _TRAILER:
             self._kept(start, end, quotes=True)
-        elif line in _CHAINS and self._keep_frames:
+        elif line in _CHAINS and self._keep_frames and not self.open_quote:
             self._state = _TRAILER
             self.shown.append(line)
 
@@ -202,6 +213,8 @@ class _Lines:
         quote = _QUOTE.search(text)
         named = _MYSQL_NAMED.search(text, 0, quote.start() if quote else len(text))
         self.named = self.named or (Dialect.MYSQL_FAMILY if named else None)
+        # a quote the driver line leaves open runs on into the lines below it: a chain line there is the value's
+        self.open_quote = _left_open(line)
         self.shown.append(_driver_line(self._masker, text) + ("" if cut < 0 else _BLOCK_HIDDEN))
 
     def _kept(self, start: int, end: int, quotes: bool) -> None:
@@ -211,38 +224,82 @@ class _Lines:
         self.shown.append(self._hits.around(start, stop, quoted) + ("" if cut < 0 else _BLOCK_HIDDEN))
 
 
-def _final_link(text: str) -> re.Match[str] | None:
-    """The last line that is SQLAlchemy's docs link: a parameters repr can hold one, and SQLAlchemy writes the last."""
+def _final_link(text: str, start: int = 0) -> re.Match[str] | None:
+    """The last line from ``start`` that is SQLAlchemy's docs link: a parameters repr can hold one, and SQLAlchemy
+    writes the last."""
     found = None
-    for found in _LINK.finditer(text):  # noqa: B007
+    for found in _LINK.finditer(text, start):  # noqa: B007
         pass
     return found
 
 
-def _block(masker: Masker, text: str, body: int, end: int, dialect: Dialect, shown: list[str]) -> int:
-    """Emit the block whose body starts at ``body``, and its parameters; where the text goes on."""
-    statement = text[body:end]
+def _ends_error(text: str, at: int) -> bool:
+    """Whether a link ending at ``at`` is SQLAlchemy's last line: nothing follows, or a chained traceback as Python
+    writes it (a chain sentence, then ``Traceback``). A statement's remainder after a planted link is neither."""
+    return not text[at:].strip() or _CHAINED.match(text, at) is not None
+
+
+def _closing_link(text: str, start: int) -> tuple[int, re.Match[str] | None]:
+    """Where a block whose end is unknown stops, and its link: a link with text after it may be inside the block, so
+    only one that ends the text is taken, and the block hides or reads to it."""
+    link = _final_link(text, start)
+    if link is None or not _ends_error(text, link.end()):
+        return len(text), None
+    return link.start(), link
+
+
+def _inner_link(text: str, at: int) -> bool:
+    """Whether a link line follows ``at`` with text after it: SQLAlchemy writes its link last."""
+    spaces = _SPACES.match(text, at)  # ``\s*+`` always matches
+    link = _LINK.match(text, spaces.end() if spaces else at)
+    return link is not None and not _ends_error(text, link.end())
+
+
+def _run_on(
+    masker: Masker, text: str, body: int, dialect: Dialect, shown: list[str]
+) -> tuple[int, re.Match[str] | None]:
+    """A block with no closer to trust: it runs on to its parameters, or to a link that ends the text."""
+    parameters = text.rfind(_PARAMETERS_LINE, body)
+    if parameters < 0:
+        stop, link = _closing_link(text, body)
+        shown.append(f"{_BLOCK}{statement_text(masker, text[body:stop], dialect)}{']' if link else ''}")
+        return stop, link
+    link = _final_link(text, parameters)
+    shown += (f"{_BLOCK}{statement_text(masker, text[body:parameters], dialect)}]", _PARAMETERS_HIDDEN)
+    return (link.start() if link else len(text)), link
+
+
+def _block(
+    masker: Masker, text: str, body: int, dialect: Dialect, shown: list[str]
+) -> tuple[int, re.Match[str] | None]:
+    """Emit the block whose body starts at ``body``, and its parameters; where the text goes on, and the docs link,
+    which is taken only after the block ends: a statement's comment or dollar quote can hold a line of its shape."""
+    # the lexer reads through the last link and no further: what follows it is no text of SQLAlchemy's error
+    last = _final_link(text, body)
+    statement = text[body : last.end() if last else len(text)]
     closer = sqltext.LEXER.block_closer(statement, dialect)
     later = _BLOCK_LINE.search(statement, 0, closer if closer >= 0 else len(statement))
     if later is not None and "]" not in statement[: later.start()]:
         shown.append(_BLOCK_HIDDEN)
-        return end
-    # no closer, or none to trust (the statement reads two ways): it runs on, to its parameters
-    if closer < 0 or sqltext.LEXER.reads_two_ways(statement[:closer], dialect):
-        parameters = statement.rfind(_PARAMETERS_LINE)
-        read = statement if parameters < 0 else statement[:parameters]
-        # a run-on that stops at a line SQLAlchemy writes, its parameters or its final docs link, ends the block there
-        closed = parameters >= 0 or _LINK.match(text, end) is not None
-        shown.append(f"{_BLOCK}{statement_text(masker, read, dialect)}{']' if closed else ''}")
-        if parameters >= 0:
-            shown.append(_PARAMETERS_HIDDEN)
-        return end
+        return _closing_link(text, body)
+    # no closer, or none to trust (the statement reads two ways, or a link line follows it with text after: a line
+    # comment's ``]`` then a planted link): it runs on, to its parameters
+    if closer < 0 or sqltext.LEXER.reads_two_ways(statement[:closer], dialect) or _inner_link(text, body + closer + 1):
+        return _run_on(masker, text, body, dialect, shown)
     shown.append(f"{_BLOCK}{statement_text(masker, statement[:closer], dialect)}]")
     resume = body + closer + 1
+    link = _final_link(text, resume)
+    end = link.start() if link else len(text)
     if _PARAMETERS.match(text, resume, end):
         shown.append(_PARAMETERS_HIDDEN)
-        return end
-    return resume
+        return end, link
+    return resume, link
+
+
+def _value_holds_block(text: str, block: re.Match[str], end: int) -> bool:
+    """Whether a block line follows ``block`` before ``end``. After a driver line whose quote is left open, either can
+    be the value's, and which one is SQLAlchemy's cannot be read (council M4, Task 35)."""
+    return _BLOCK_LINE.search(text, block.end(), end) is not None
 
 
 def _render(masker: Masker, text: str, dialect: Dialect, keep_frames: bool) -> str:
@@ -251,11 +308,16 @@ def _render(masker: Masker, text: str, dialect: Dialect, keep_frames: bool) -> s
     block = _BLOCK_LINE.search(text, 0, end)
     head = _Lines(masker, text[: block.start() if block else end], _DRIVER, keep_frames)
     shown = head.walk()
-    # a driver named in the text can be a value's word: it can reveal a conflict, which hides, and never reads
-    conflict = block is not None and head.named is not None and head.named is not dialect
-    if conflict:
+    resume = end
+    # text that cannot be read is not shown: a driver named with another family, or a quote left open with two
+    # block lines after it, hides the block and everything to the link
+    ambiguous = block is not None and head.open_quote and _value_holds_block(text, block, end)
+    if block is not None and (ambiguous or (head.named is not None and head.named is not dialect)):
         shown.append(_BLOCK_HIDDEN)
-    resume = _block(masker, text, block.end(), end, dialect, shown) if block and not conflict else end
+        resume, link = _closing_link(text, block.end())
+    elif block is not None:
+        resume, link = _block(masker, text, block.end(), dialect, shown)
+    end = link.start() if link else len(text)
     shown += _Lines(masker, text[resume:end], _TRAILER, keep_frames).walk()
     if link:
         shown.append(link[0])
@@ -352,10 +414,10 @@ def _driver_code(driver: BaseException) -> int | str | None:
     return None
 
 
-def _classified_text(source: BaseException, fields: dict[str, object], dialect: Dialect) -> str | None:
-    """A database exception's own facts: its driver class, a structured code and its statement. The driver's text is
-    free text a value can shape, so it is never shown; with neither a code nor a statement there is nothing to show.
-    An ``UNSUPPORTED`` statement is the marker: its text is never read (owner, item 8)."""
+def _classified_parts(source: BaseException, fields: dict[str, object]) -> tuple[str, str | None, str] | None:
+    """A database exception's own facts: its driver class with a structured code, its statement and its parameters
+    line. The driver's text is free text a value can shape, so it is never shown; with neither a code nor a statement
+    there is nothing to show."""
     original = fields.get("orig")
     driver = cast(BaseException, original) if issubclass(type(original), BaseException) else source
     code = _driver_code(driver)
@@ -365,16 +427,37 @@ def _classified_text(source: BaseException, fields: dict[str, object], dialect: 
     module, name = _class_value(type(driver), "__module__"), _class_value(type(driver), "__qualname__")
     if type(module) is not str or type(name) is not str:
         return None
-    text = f"({module}.{name})" if code is None else f"({module}.{name}) {code}"
-    if type(statement) is not str:
-        return text
+    head = f"({module}.{name})" if code is None else f"({module}.{name}) {code}"
     # owner 2026-11-07: the region stays as a constant, so the reader knows values were bound; none is ever read
     bound = fields.get("params")  # as SQLAlchemy prints it: no line for no values; only exact containers are sized
     empty = bound is None or (type(bound) in (tuple, list, dict) and not cast(tuple[object, ...], bound))
-    params = "" if empty else f"\n{_PARAMETERS_HIDDEN}"
+    return head, statement if type(statement) is str else None, "" if empty else f"\n{_PARAMETERS_HIDDEN}"
+
+
+def _classified_text(
+    masker: Masker, parts: tuple[str, str | None, str], dialect: Dialect, keep_frames: bool
+) -> str | None:
+    """The facts as shown. The statement is rendered from the field it came in, never written out and read back: a
+    line of the docs link's shape in its comment or literal would end a block read from text (council H1, Task 35).
+    An ``UNSUPPORTED`` statement is the marker: its text is never read (owner, item 8)."""
+    head, statement, params = parts
     if dialect is Dialect.UNSUPPORTED:
-        return f"{text}\n{_BLOCK_UNSUPPORTED}{params}"
-    return f"{text}\n[SQL: {statement}]{params}"
+        block = "" if statement is None else f"\n{_BLOCK_UNSUPPORTED}{params}"
+        return None if masker.mask_spans("") is None else head + block
+    if masker.capture_parameters:  # capture on shows the statement as ``mask_text`` does free text
+        block = "" if statement is None else f"\n[SQL: {statement}]{params}"
+        return mask_error(masker, head + block, dialect, True, keep_frames)
+    shown = render_error(masker, head, dialect, keep_frames)
+    if not shown or statement is None:
+        return shown or masker.mask_text("")
+    # a MySQL driver named with another family is a conflict, as on the text path: the block hides
+    named = _MYSQL_NAMED.search(head) is not None
+    block = (
+        _BLOCK_HIDDEN
+        if named and dialect is not Dialect.MYSQL_FAMILY
+        else f"{_BLOCK}{statement_text(masker, statement, dialect)}]"
+    )
+    return f"{shown}\n{block}{params}"
 
 
 def error_text(
@@ -388,10 +471,8 @@ def error_text(
         raw_fields = _FIELDS.__get__(exc)
         fields = cast(dict[str, object], raw_fields) if type(raw_fields) is dict else {}
         if is_database_exception(exc):
-            classified = _classified_text(exc, fields, dialect)
-            if classified is None or dialect is not Dialect.UNSUPPORTED:
-                return None if classified is None else mask_error(masker, classified, dialect, True, keep_frames)
-            return None if masker.mask_spans("") is None else classified
+            parts = _classified_parts(exc, fields)
+            return None if parts is None else _classified_text(masker, parts, dialect, keep_frames)
         statement = fields.get("statement")
         args = cast(tuple[object, ...], _ARGS.__get__(exc))
         if not args or sum(len(value) for value in args if type(value) is str) > 100_000:

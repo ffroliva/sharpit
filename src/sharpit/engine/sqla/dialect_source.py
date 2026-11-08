@@ -17,7 +17,7 @@ def _attribute(value: object, name: str) -> object | None:
         return object.__getattribute__(value, name)
     except AttributeError:
         return None
-    except BaseException:
+    except BaseException:  # noqa: BLE001 # NOSONAR - a host object's property can raise anything: unreadable
         return _UNREADABLE
 
 

@@ -562,18 +562,27 @@ def _scan_quoted(source: str, index: int, out: Out, rules: LexRules) -> _Scanned
         return index, True
     kind = _CODE
     if source[index] == '"':
-        literal = _double_quoted_literal(source, index, end, out, rules)
-        # MySQL hides the key of ``"password":value``, so the masker's last pass cannot see what it keys: stop here
-        if rules.double_quote is DoubleQuote.STRING and _KEY_COLON.match(source, end):
-            return index, True
-        if literal:
-            return end, True
-        if literal is None:
-            kind = _DOUBLE_QUOTED
-            out.marks.append(Candidate(len(out.chars), out.predicate_position()))
+        read = _scan_double_quoted(source, index, end, out, rules)
+        if isinstance(read, tuple):
+            return read
+        kind = read
     out.append(source[index:end])
     out.runs.append((index, end, kind))
     return end, False
+
+
+def _scan_double_quoted(source: str, index: int, end: int, out: Out, rules: LexRules) -> _Scanned | Kind:
+    """The scan's result when the ``"`` run at ``index`` ends the token here, else the kind of run it is to copy."""
+    literal = _double_quoted_literal(source, index, end, out, rules)
+    # MySQL hides the key of ``"password":value``, so the masker's last pass cannot see what it keys: stop here
+    if rules.double_quote is DoubleQuote.STRING and _KEY_COLON.match(source, end):
+        return index, True
+    if literal:
+        return end, True
+    if literal is None:
+        out.marks.append(Candidate(len(out.chars), out.predicate_position()))
+        return _DOUBLE_QUOTED
+    return _CODE
 
 
 def _scan_backslash(source: str, index: int, out: Out, rules: LexRules) -> _Scanned:
@@ -634,6 +643,17 @@ class _Pass(NamedTuple):
     cut: int = -1
 
 
+def _sqlite_bom(out: Out) -> None:
+    if _identifier_char_before(out):
+        out.chars.append("﻿")
+    else:
+        out.space()
+
+
+def _number_can_start(out: Out) -> bool:
+    return not _identifier_char_before(out) or out.chars[-1] == "."
+
+
 def _read(source: str, rules: LexRules) -> _Pass:
     out = Out()
     chars = out.chars
@@ -652,16 +672,13 @@ def _read(source: str, rules: LexRules) -> _Pass:
                 break
         # SQLite treats a BOM as IdChar inside a name and as whitespace at token start (tokenize.c:575-579, 636).
         elif rules.variable_suffix is VariableSuffix.TCL_PAREN and c == "\ufeff":
-            if _identifier_char_before(out):
-                chars.append(c)
-            else:
-                out.space()
+            _sqlite_bom(out)
             index += 1
         elif c in _SPACE:
             out.space()
             index += 1
         # after a ``.`` a digit starts a literal: ``THEN.5`` is a number, and no keyword list can tell it from ``t.5``
-        elif c.isdigit() and (not _identifier_char_before(out) or out.chars[-1] == "."):
+        elif c.isdigit() and _number_can_start(out):
             index, literal = _scan_digits(source, index, out, rules)
         elif c in "()":
             out.append(c)
@@ -699,8 +716,13 @@ def _backslash_reads_two_ways(scan: _Pass, rules: LexRules) -> bool:
     if "\\" not in source:
         return False
     if rules.backslash_in_single is Backslash.E_ONLY:
-        return _read(source, replace(rules, backslash_in_single=Backslash.ALWAYS)).out.text() != scan.out.text()
+        return _read(source, _escaping_single(rules)).out.text() != scan.out.text()
     return _read(_without_backslashes(scan), rules).out.text() != scan.out.text()
+
+
+def _escaping_single(rules: LexRules) -> LexRules:
+    """``rules`` with a backslash escaping in every single-quoted string, typed as the class ``_read`` takes."""
+    return replace(rules, backslash_in_single=Backslash.ALWAYS)
 
 
 def _without_backslashes(scan: _Pass) -> str:

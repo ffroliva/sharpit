@@ -388,20 +388,31 @@ def test_full_exposure_without_capture_parameters_still_hides_sql_literals():
 
 
 def test_capture_parameters_does_not_show_inline_sql_literals():
+    # spec §14: a span's statement hides inline literals even with capture on (SQL Trace shows them)
     buf = buffer(CAPTURING)
     buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where name = 'alice'"}))
     assert attribute(first_span(buf), "db.statement") == "select * from owners where name = ?"
 
 
-def test_detail_applies_the_live_capture_parameters_policy_on_every_read():
-    # ported: TracesServiceTests.detailAppliesTheLiveExposurePolicyOnEveryRead (supersedes the FULL-exposure version)
-    buf = buffer(CAPTURING)
-    buf.add(span(attributes={"db.system": "postgresql", "db.statement": "select * from owners where name = 'alice'"}))
-    first = attribute(first_span(buf), "db.statement")
+TABLE_TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2"  # a token mask_text knows, in a name: no literal rule touches it
+
+
+def test_detail_applies_the_live_exposure_policy_on_every_read():
+    # ported: TracesServiceTests.detailAppliesTheLiveExposurePolicyOnEveryRead
+    # differs: BootUI reads a secret in the status message; sharpit reads one SQL statement, whose inline literal hides
+    # at every exposure (spec §14), so the live policy shows on a token in a name: FULL shows it, MASKED hides it,
+    # METADATA_ONLY shows no statement
+    buf = buffer(Masker(Exposure.FULL, True, capture_parameters=True))
+    statement = f"select * from {TABLE_TOKEN} where name = 'alice'"
+    buf.add(span(attributes={"db.system": "postgresql", "db.statement": statement}))
+    full = attribute(first_span(buf), "db.statement")
     buf.masker = MASKED
-    second = attribute(first_span(buf), "db.statement")
-    assert "alice" not in first
-    assert "alice" not in second
+    masked = attribute(first_span(buf), "db.statement")
+    buf.masker = Masker(Exposure.METADATA_ONLY, True)
+    metadata = attribute(first_span(buf), "db.statement")
+    assert full == f"select * from {TABLE_TOKEN} where name = ?"
+    assert masked == f"select * from {MASK} where name = ?"
+    assert metadata is None
 
 
 def test_span_name_goes_through_text_masking():

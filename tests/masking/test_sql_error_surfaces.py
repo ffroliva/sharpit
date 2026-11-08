@@ -225,3 +225,29 @@ def test_data_panel_warning() -> None:
         capture=SimpleNamespace(raw_sqlite_seen=True, engine_registry=None),  # Task 29: an application on SQLite
     )
     _assert_scanned(data._masked(ctx, f"Could not read a mapper (RuntimeError: {ERROR})"))  # type: ignore[arg-type]  # noqa: SLF001
+
+
+# Task 35 council H1, end to end: a failing statement whose comment holds SQLAlchemy's docs-link line, through install()
+# and the SQL Trace and exceptions APIs. The number after the comment is an inline literal
+PLANTED_ACCOUNT = "99887766"
+PLANTED_LINK_STATEMENT = (
+    f"SELECT nosuchcol /*\n(Background on this error at: https://sqlalche.me/e/20/e3q8)\n*/ , {PLANTED_ACCOUNT} AS acct"
+)
+
+
+@pytest.mark.parametrize("path", ["/sharpit/api/sql-trace", "/sharpit/api/exceptions"])
+def test_a_link_line_in_a_statement_comment_shows_no_value(handles: list[SharpitHandle], path: str) -> None:
+    engine = sa.create_engine("sqlite://")
+    app = FastAPI()
+
+    @app.get("/boom")
+    def boom() -> dict[str, int]:
+        with engine.connect() as conn:
+            conn.execute(sa.text(PLANTED_LINK_STATEMENT))
+        return {"n": 1}
+
+    client = _client(handles, app, engines=[engine], sql_trace_sqlite3_enabled=False)
+    assert client.get("/boom").status_code == 500
+    body = client.get(path).text
+    assert "nosuchcol" in body  # the error reached the surface
+    assert PLANTED_ACCOUNT not in body

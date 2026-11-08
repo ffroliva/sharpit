@@ -37,6 +37,16 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _count(shapes: dict[str, tuple[list[int], set[str]]], fingerprint: str, sql: str) -> None:
+    """One execution of ``fingerprint``, and its text as a variant, while the bounds leave room."""
+    if fingerprint not in shapes and len(shapes) >= MAX_TRACKED_SHAPES:
+        return
+    executions, texts = shapes.setdefault(fingerprint, ([0], set()))
+    executions[0] += 1
+    if len(texts) < MAX_TRACKED_VARIANTS:
+        texts.add(_digest(_PLACEHOLDER_LIST.sub("(?)", sql)))
+
+
 def facts(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
     """Counts per shape over the retained window, or ``{"skipped": reason}``."""
     if not rows:
@@ -55,12 +65,7 @@ def facts(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
         if sql == shape.text:  # the literals were dropped at capture time
             hidden += 1
             continue
-        if shape.fingerprint not in shapes and len(shapes) >= MAX_TRACKED_SHAPES:
-            continue
-        executions, texts = shapes.setdefault(shape.fingerprint, ([0], set()))
-        executions[0] += 1
-        if len(texts) < MAX_TRACKED_VARIANTS:
-            texts.add(_digest(_PLACEHOLDER_LIST.sub("(?)", sql)))
+        _count(shapes, shape.fingerprint, sql)
     if hidden and not shapes:
         return {"skipped": NORMALIZED_ONLY}
     found = [

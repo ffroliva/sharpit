@@ -26,6 +26,7 @@ KEY_NAME = "identity.key"
 KEY_BYTES = 32
 IGNORED = ("identity.key", "identity.key.lock", "identity.key.*")  # a temporary file holds a whole key until rename
 WAIT_SECONDS = 10.0  # for the lock, and on Windows for a reader holding a bad file open
+_REFUSING_A_SYMLINK = "refusing a symlink"
 
 
 def fingerprint(shape_text: str, key: bytes | None) -> str | None:
@@ -76,7 +77,7 @@ def _read_or_create(state_dir: Path, path: Path) -> bytes | None:
 def _read(path: Path) -> bytes | None:
     """``O_NOFOLLOW`` where the platform has it. Windows has none: the lstat alone refuses there, a check then a use."""
     if path.is_symlink():
-        raise OSError(errno.ELOOP, "refusing a symlink", str(path))
+        raise OSError(errno.ELOOP, _REFUSING_A_SYMLINK, str(path))
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except FileNotFoundError:
@@ -98,20 +99,23 @@ def _create(state_dir: Path, path: Path) -> bytes | None:
         return _read(path)
 
 
-def _preflight_ignore(state_dir: Path) -> None:
+def _ignore_file(state_dir: Path) -> Path:
+    """The state directory's ``.gitignore``, refused when it is a symlink."""
     ignore = state_dir / ".gitignore"
     if ignore.is_symlink():
-        raise OSError(errno.ELOOP, "refusing a symlink", str(ignore))
+        raise OSError(errno.ELOOP, _REFUSING_A_SYMLINK, str(ignore))
+    return ignore
+
+
+def _preflight_ignore(state_dir: Path) -> None:
+    ignore = _ignore_file(state_dir)
     if ignore.exists():
-        with ignore.open("ab"):
-            pass
+        ignore.open("ab").close()  # opened only to prove it can be appended to
 
 
 def _ignore_the_key(state_dir: Path) -> None:
     """Keep both key paths ignored before returning or publishing one (owner's ruling)."""
-    ignore = state_dir / ".gitignore"
-    if ignore.is_symlink():
-        raise OSError(errno.ELOOP, "refusing a symlink", str(ignore))
+    ignore = _ignore_file(state_dir)
     content = ignore.read_bytes() if ignore.exists() else b""
     missing = _missing_ignore_rules(state_dir, content)
     if not missing:
@@ -122,9 +126,7 @@ def _ignore_the_key(state_dir: Path) -> None:
 
 
 def _missing_ignore_rules(state_dir: Path, content: bytes | None = None) -> list[bytes]:
-    ignore = state_dir / ".gitignore"
-    if ignore.is_symlink():
-        raise OSError(errno.ELOOP, "refusing a symlink", str(ignore))
+    ignore = _ignore_file(state_dir)
     if content is None:
         content = ignore.read_bytes() if ignore.exists() else b""
     lines = [line[:-1] if line.endswith(b"\r") else line for line in content.split(b"\n")]

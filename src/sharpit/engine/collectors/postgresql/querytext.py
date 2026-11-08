@@ -58,16 +58,18 @@ def _comment_end(sql: str, start: int) -> int:
     return len(sql)
 
 
-def _mask_all(sql: str, secret: list[tuple[int, int]] | None = None) -> str:
-    """Literals, numbers and comments masked; what is kept (code, names) loses each raw ``secret`` span too."""
-    out: list[str] = []
-    spans = iter(secret or ())
-    span = next(spans, None)
+class _Keeper:
+    """Appends kept text (code, names) to ``out``, each raw secret span in it one mask. Calls come in text order."""
 
-    def keep(start: int, end: int) -> None:
-        nonlocal span
+    def __init__(self, sql: str, out: list[str], secret: list[tuple[int, int]] | tuple[()]) -> None:
+        self._sql, self._out = sql, out
+        self._spans = iter(secret)
+        self._span = next(self._spans, None)
+
+    def keep(self, start: int, end: int) -> None:
+        sql, out, span = self._sql, self._out, self._span
         while span is not None and span[1] <= start:
-            span = next(spans, None)
+            span = next(self._spans, None)
         while span is not None and span[0] < end:
             if gap := sql[start : max(span[0], start)]:
                 out.append(gap)
@@ -76,9 +78,15 @@ def _mask_all(sql: str, secret: list[tuple[int, int]] | None = None) -> str:
             start = min(span[1], end)
             if span[1] > end:
                 break
-            span = next(spans, None)
+            span = next(self._spans, None)
+        self._span = span
         out.append(sql[start:end])
 
+
+def _mask_all(sql: str, secret: list[tuple[int, int]] | None = None) -> str:
+    """Literals, numbers and comments masked; what is kept (code, names) loses each raw ``secret`` span too."""
+    out: list[str] = []
+    keep = _Keeper(sql, out, secret or ()).keep
     pos = 0
     while (m := _TOKEN.search(sql, pos)) is not None:
         keep(pos, m.start())

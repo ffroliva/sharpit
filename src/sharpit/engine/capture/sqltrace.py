@@ -363,7 +363,7 @@ class SqlTraceRecorder:
             rows = list(self._entries)
             groups = [
                 (a.sql, a.category, a.executions, a.total_duration, a.max_duration, list(a.call_sites))
-                for a in list(self._aggregates.values())
+                for a in list(self._aggregates.values())  # NOSONAR - RLock: a gc finalizer here can add a group
             ]
             total, evicted = self._total, self._evicted
             sqlite_seen = self._sqlite_seen

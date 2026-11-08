@@ -138,23 +138,21 @@ def _normalised_twice(_masker: object, statement: str) -> str:
 
 
 def test_a_planted_second_normalisation_fails_the_gate() -> None:
+    rows = gates.gate_rows("mysql")[:200]
     with pytest.raises(AssertionError, match="reads; first"):
-        assert_reads_raw("planted", _normalised_twice, gates.gate_rows("mysql")[:200])  # type: ignore[arg-type]
+        assert_reads_raw("planted", _normalised_twice, rows)  # type: ignore[arg-type]
 
 
 def test_a_planted_surface_that_scans_nothing_fails_the_gate() -> None:
+    rows = gates.gate_rows("mysql")[:50]
     with pytest.raises(AssertionError, match="made no lexer reads"):
-        assert_reads_raw("planted", lambda _masker, statement: statement, gates.gate_rows("mysql")[:50])
+        assert_reads_raw("planted", lambda _masker, statement: statement, rows)
 
 
 def test_a_stale_zero_read_entry_fails_the_gate() -> None:
+    surface, rows = ALL_SURFACES["recorder_sql-mysql"], gates.gate_rows("mysql")[:50]
     with pytest.raises(AssertionError, match="drop it from ZERO_READS"):
-        assert_reads_raw(
-            "recorder_sql-mysql",
-            ALL_SURFACES["recorder_sql-mysql"],
-            gates.gate_rows("mysql")[:50],
-            ["recorder_sql-mysql"],
-        )
+        assert_reads_raw("recorder_sql-mysql", surface, rows, ["recorder_sql-mysql"])
 
 
 def test_the_spy_sees_the_scan_of_a_surface() -> None:

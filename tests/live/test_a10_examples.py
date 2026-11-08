@@ -32,8 +32,9 @@ def test_example_app_records_its_server_family(
     app = create_app(db_dir=tmp_path, database_url=server.url, show_banner=False)
     handle = app.state.sharpit
     with TestClient(app):
-        with pytest.raises(DBAPIError), app.state.sync_engine.connect() as connection:
-            connection.execute(text("SELECT 'A10VALUE' FROM missing_a10_table"))
+        statement = text("SELECT 'A10VALUE' FROM missing_a10_table")
+        with app.state.sync_engine.connect() as connection, pytest.raises(DBAPIError):
+            connection.execute(statement)
         recorder = handle.context.capture.sql_trace
         assert recorder is not None
         row = recorder.rows()[-1]

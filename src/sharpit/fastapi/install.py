@@ -133,6 +133,26 @@ def _requested(settings: SharpitSettings, profiles: tuple[str, ...]) -> bool:
     return parse_mode(settings.enabled) is None or any(p in profiles for p in settings.enabled_profiles)
 
 
+def _existing_handle(router: Any, mount_type: type) -> Any:
+    """An earlier install's handle on this router, with its warning logged; ``None`` on a first install."""
+    existing = next((r.sharpit_handle for r in router.routes if isinstance(r, mount_type) and r.sharpit_handle), None)
+    if existing is not None:
+        first = (
+            ""
+            if existing.activation.enabled
+            else f" (that install left sharpit inactive: {existing.activation.reason})"
+        )
+        logger.warning("sharpit.install() was already called on this app; ignoring this call%s", first)
+    return existing
+
+
+def _identity_key(settings: SharpitSettings) -> bytes | None:
+    """The configured identity key, or the state directory's, created when missing."""
+    if settings.identity_key:
+        return settings.identity_key.encode("utf-8")
+    return load_key(Path(settings.state_dir), create=True)
+
+
 def install(
     app: Any,
     *,
@@ -151,16 +171,7 @@ def install(
     _not_found = adapter._not_found
     caller_module: str | None = sys._getframe(1).f_globals.get("__name__")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     router = app.router
-    existing = next(
-        (r.sharpit_handle for r in router.routes if isinstance(r, sharpit_mount_type) and r.sharpit_handle), None
-    )
-    if existing is not None:
-        first = (
-            ""
-            if existing.activation.enabled
-            else f" (that install left sharpit inactive: {existing.activation.reason})"
-        )
-        logger.warning("sharpit.install() was already called on this app; ignoring this call%s", first)
+    if (existing := _existing_handle(router, sharpit_mount_type)) is not None:
         return existing
     app_settings = _app_settings(settings)
     sharpit_settings = load_settings(options, os.environ)
@@ -195,11 +206,7 @@ def install(
         logger.log(level, "sharpit inactive: %s", activation.reason)
         return handle
 
-    ctx.masker.identity_key = (
-        sharpit_settings.identity_key.encode("utf-8")
-        if sharpit_settings.identity_key
-        else load_key(Path(sharpit_settings.state_dir), create=True)
-    )
+    ctx.masker.identity_key = _identity_key(sharpit_settings)
     if ctx.masker.identity_key is None:
         logger.warning("SQLite statement identities are unavailable because sharpit could not load a state key")
 

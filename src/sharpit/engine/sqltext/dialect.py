@@ -136,9 +136,7 @@ def _is_sqlalchemy_wrapper(exc: BaseException) -> bool:
 
 def _is_sqlalchemy_internal(exc: BaseException) -> bool:
     module = _class_value(type(exc), "__module__")
-    return type(module) is str and (
-        module.startswith("sqlalchemy.dialects.") or module.startswith("sqlalchemy.connectors.")
-    )
+    return type(module) is str and module.startswith(("sqlalchemy.dialects.", "sqlalchemy.connectors."))
 
 
 def _queue_group_children(current: BaseException, pending: list[BaseException], visited: int) -> ChainReading | None:
@@ -150,7 +148,7 @@ def _queue_group_children(current: BaseException, pending: list[BaseException], 
             "tuple[BaseException, ...]",
             BaseExceptionGroup.__dict__["exceptions"].__get__(group, type(group)),
         )
-    except BaseException:
+    except BaseException:  # noqa: BLE001 # NOSONAR - a hostile group subclass can raise anything: stop, fail closed
         return ChainReading(frozenset(), stopped=True, visited=visited)
     available = _CHAIN_LIMIT - visited
     if len(children) > available:
@@ -166,7 +164,7 @@ def _queue_exception_links(current: BaseException, pending: list[BaseException])
         context = _CONTEXT.__get__(current)
         suppressed = _SUPPRESS_CONTEXT.__get__(current)
         fields = cast("dict[str, object]", _INSTANCE_DICT.__get__(current))
-    except BaseException:
+    except BaseException:  # noqa: BLE001 # NOSONAR - a host exception's links can raise anything: stop, fail closed
         return False
     if type(fields) is not dict:
         return False  # a dict subclass's methods could run, so its ``orig`` cannot be read
@@ -191,7 +189,7 @@ def read_chain(exc: BaseException) -> ChainReading:
     """Never raises: a chain whose classes cannot be read stops, so every caller fails closed."""
     try:
         return _walk_chain(exc)
-    except BaseException:
+    except BaseException:  # noqa: BLE001 # NOSONAR - never raises into the host: a stopped chain fails closed
         return ChainReading(frozenset(), stopped=True)
 
 
@@ -238,5 +236,5 @@ def resolve(event: object, sources: Sequence[DialectSource], context: DialectCon
             family = next(iter(proof))
             return family if application in (None, family) else Dialect.UNSUPPORTED
         return application if application is not None else Dialect.UNSUPPORTED
-    except BaseException:
+    except BaseException:  # noqa: BLE001 # NOSONAR - sources read host objects: UNSUPPORTED hides it all
         return Dialect.UNSUPPORTED

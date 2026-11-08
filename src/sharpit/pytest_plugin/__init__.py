@@ -200,13 +200,15 @@ def _source_state(sink: TestSessionSink, sql_attached: bool) -> None:
     facts = sink.facts
     source = next((s for s in facts.sources if s["name"] == "sqlite3"), None)
     identity_unavailable = facts.sqlite_seen and sink.masker.identity_key is None
+    if identity_unavailable:
+        reason = "SQLite statement identities are unavailable because sharpit could not load a state key"
+    elif sql_attached:
+        reason = None
+    else:
+        reason = "sqlite3 source did not attach"
     details = {
         "attached": sql_attached and not identity_unavailable,
-        "reason": "SQLite statement identities are unavailable because sharpit could not load a state key"
-        if identity_unavailable
-        else None
-        if sql_attached
-        else "sqlite3 source did not attach",
+        "reason": reason,
         "limitations": sqlite.limitations(),
     }
     if source is None:

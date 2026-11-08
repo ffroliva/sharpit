@@ -401,10 +401,8 @@ NO_BACKSLASH_CUT = Mutant(MYSQL_84_CUTS.format(True), MYSQL_84_CUTS.format(False
 NO_SESSION_READINGS = Mutant(
     "    return rule_sets[1:] + session\n", "    return rule_sets[1:]\n", "", "", "engine/sqltext/family.py"
 )
-# owed to Task 18, which adds ``hide_double_quoted`` to rules.py in another lane: until it merges, the anchor is
-# missing and this row fails as a stale plant, not as a red
+# Task 18's ``hide_double_quoted`` in rules.py: SQLite hides every ``"`` run; a moved anchor fails as a stale plant
 SHOWS_DOUBLE_QUOTED = Mutant("hide_double_quoted=True", "hide_double_quoted=False", "", "", "engine/sqltext/rules.py")
-OWED = {"sqlite-hide_double_quoted": "Task 18 (``hide_double_quoted`` in rules.py)"}
 # the other two properties' controls: a cut that reads on past itself, and a digit that leaves its name (``col1``)
 TAIL_AFTER_CUT = Mutant("    head = _read(source[:cut], rules)\n", "    head = _read(source, rules)\n", "", "")
 _CUT_SCAN = "        out.text(),\n"
@@ -442,10 +440,7 @@ def test_a_property_catches_a_removed_cut(plant: str, tmp_path: Path) -> None:
     test, dialect, mutants, message = PLANTS[plant]
     copy = _scratch_copy(tmp_path)
     for mutant in mutants:
-        try:
-            _mutate(copy, mutant)
-        except AssertionError as stale:
-            pytest.fail(f"{plant} no longer applies, owed to {OWED.get(plant, 'whoever moved it')}: {stale}")
+        _mutate(copy, mutant)  # a stale anchor fails here, naming the anchor and its file
     done = _property_run(tmp_path / "src", test, dialect)
     assert done.returncode == 1, f"{plant} survives the property: {done.stdout[-1500:]}"
     shrunk = "Failing test case" in done.stdout or "Falsifying example" in done.stdout  # hypothesis 6.1xx says either
