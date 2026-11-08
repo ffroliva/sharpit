@@ -5,6 +5,7 @@ Derived cases (SQLAlchemy events have no BootUI oracle) unless a ``# ported:`` c
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -301,7 +302,7 @@ def test_no_lifespan_first_request_attaches_listeners(monkeypatch: pytest.Monkey
     assert [e["sql"] for e in client.get(API).json()["entries"]] == ["select ? + ?"]
 
 
-def test_sqlalchemy_imported_in_lifespan_attached_at_startup():
+def test_sqlalchemy_imported_in_lifespan_attached_at_startup(tmp_path: Path):
     script = textwrap.dedent(
         """
         import sys
@@ -342,7 +343,14 @@ def test_sqlalchemy_imported_in_lifespan_attached_at_startup():
         print("ok")
         """
     )
-    done = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    done = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=os.environ | {"SHARPIT_STATE_DIR": str(tmp_path / "state")},
+    )
     assert (done.returncode, done.stdout.strip()) == (0, "ok"), done.stderr
 
 

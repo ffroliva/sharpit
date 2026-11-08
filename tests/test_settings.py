@@ -16,8 +16,8 @@ from sharpit.settings import PanelSettings, SharpitSettings, load_settings
 
 
 def test_defaults():
-    s = load_settings({}, {})
-    assert s == SharpitSettings(panels=s.panels)
+    s = load_settings({"state_dir": ".sharpit"}, {})
+    assert s == SharpitSettings(state_dir=".sharpit", panels=s.panels)
     assert s.enabled == "AUTO"
     assert s.enabled_profiles == ("dev", "local", "development")
     assert s.disabled_profiles == ("prod", "production")

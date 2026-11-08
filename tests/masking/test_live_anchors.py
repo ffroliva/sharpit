@@ -63,7 +63,12 @@ def test_the_wrong_wired_plant_reaches_the_recorder(tmp_path: Path) -> None:
     from tests.masking.test_gates_bite import _mutate, _scratch_copy  # pyright: ignore[reportPrivateUsage]
 
     _mutate(_scratch_copy(tmp_path), live.WRONG_WIRED)
-    env = {**os.environ, "PYTHONPATH": str(tmp_path / "src"), "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(tmp_path / "src"),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "SHARPIT_STATE_DIR": str(tmp_path / "state"),
+    }
     done = subprocess.run(
         [sys.executable, "-c", _PROBE], env=env, capture_output=True, text=True, check=False, timeout=120
     )

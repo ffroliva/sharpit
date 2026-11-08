@@ -24,20 +24,44 @@ import pytest
 # Hypothesis caches constants under the working directory, and `no_side_effects` reads a file written there as a read
 # that wrote one. Set before its import, so no run writes into the tree.
 os.environ.setdefault("HYPOTHESIS_STORAGE_DIRECTORY", str(Path(tempfile.gettempdir()) / "sharpit-hypothesis"))
+# pytest's session hooks run before function-scoped fixtures, so give them an out-of-tree state location too.
+os.environ["SHARPIT_STATE_DIR"] = str(Path(tempfile.gettempdir()) / f"sharpit-pytest-{os.getpid()}")
 
 from hypothesis import settings  # noqa: E402
 
+import sharpit.settings as sharpit_settings
 from sharpit.engine import sqla
 from sharpit.engine.capture import transactions
 from sharpit.engine.sources import sqlite
 from sharpit.engine.sqltext.identity import load_key
 
 pytest_plugins = ["pytester", "_shard"]  # _shard: SHARPIT_SHARD=i/n, the CI shards (tests/_shard.py)
+_REPO_STATE_SNAPSHOT: dict[str, tuple[int, int] | None] = {}
 
 # The property tests run the same examples on every run and every shard, and write no example database: a failure seen
 # once is seen again, and a slow runner is not a failure (design section 8).
 settings.register_profile("sharpit", derandomize=True, deadline=None, database=None, print_blob=False)
 settings.load_profile("sharpit")
+
+
+@pytest.fixture(autouse=True)
+def isolated_default_state_dir(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[None]:
+    original_init = sharpit_settings.SharpitSettings.__init__
+
+    def init(self: sharpit_settings.SharpitSettings, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("state_dir", str(tmp_path / "state"))
+        original_init(self, *args, **kwargs)
+
+    # its own MonkeyPatch, not the test's `monkeypatch` fixture: requesting that one here would set it up first and so
+    # tear it down last, after the other fixtures' teardowns, which then ran while a test's patches were still applied
+    with pytest.MonkeyPatch.context() as patch:
+        patch.delenv("SHARPIT_STATE_DIR", raising=False)
+        patch.setattr(sharpit_settings.SharpitSettings, "__init__", init)
+        yield
+    assert _snapshot(Path(__file__).parents[1] / ".sharpit") == _REPO_STATE_SNAPSHOT, (
+        f"{request.node.nodeid} changed repo-root .sharpit state"
+    )
+
 
 FIXTURES = Path(__file__).parent / "fixtures" / "bootui"
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".pyright"}
@@ -170,6 +194,11 @@ def _snapshot(root: Path) -> dict[str, tuple[int, int] | None]:
             st = os.stat(os.path.join(base, name))
             snap[os.path.join(base, name)] = (st.st_mtime_ns, st.st_size)
     return snap
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    del session
+    _REPO_STATE_SNAPSHOT.update(_snapshot(Path(__file__).parents[1] / ".sharpit"))
 
 
 def _environ() -> dict[str, str]:

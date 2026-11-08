@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import os
 import subprocess
 import sys
 import textwrap
@@ -43,9 +44,14 @@ def _client(app: Any) -> TestClient:
     return TestClient(app, base_url="http://localhost", client=LOCAL)
 
 
-def _run(script: str) -> subprocess.CompletedProcess[str]:
+def _run(script: str, state_dir: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-c", textwrap.dedent(script)], cwd=ROOT, capture_output=True, text=True, timeout=60
+        [sys.executable, "-c", textwrap.dedent(script)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=os.environ | {"SHARPIT_STATE_DIR": str(state_dir)} if state_dir else None,
     )
 
 
@@ -53,7 +59,7 @@ def _sql_panel(client: TestClient) -> dict[str, Any]:
     return next(p for p in client.get("/sharpit/api/panels").json()["panels"] if p["id"] == "sql-trace")
 
 
-def test_sqlalchemy_not_imported_after_install():
+def test_sqlalchemy_not_imported_after_install(tmp_path: Path):
     done = _run(
         """
         import sys
@@ -72,12 +78,13 @@ def test_sqlalchemy_not_imported_after_install():
             client.post("/sharpit/api/cli/tools/clear_sql_traces", json={})
         loaded = sorted(m for m in sys.modules if m.split(".")[0] in ("sqlalchemy", "aiosqlite", "alembic", "greenlet"))
         print(loaded)
-        """
+        """,
+        state_dir=tmp_path / "state",
     )
     assert (done.returncode, done.stdout.strip()) == (0, "[]"), done.stderr
 
 
-def test_sqlalchemy_blocked_reports_unavailable():
+def test_sqlalchemy_blocked_reports_unavailable(tmp_path: Path):
     # sys.modules["sqlalchemy"] = None is how CPython spells "not installed" to an import
     done = _run(
         """
@@ -93,7 +100,8 @@ def test_sqlalchemy_blocked_reports_unavailable():
             report = client.get("/sharpit/api/sql-trace").json()
             panel = [p for p in client.get("/sharpit/api/panels").json()["panels"] if p["id"] == "sql-trace"][0]
         print(json.dumps([report["available"], report["unavailableReason"], panel["available"]]))
-        """
+        """,
+        state_dir=tmp_path / "state",
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == '[false, "SQLAlchemy is not imported by this application", false]'

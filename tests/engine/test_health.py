@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import sys
 import textwrap
@@ -61,7 +62,7 @@ def _components(root: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {c["name"]: c for c in root["components"]}
 
 
-def test_hung_health_worker_does_not_block_interpreter_exit():
+def test_hung_health_worker_does_not_block_interpreter_exit(tmp_path):
     code = textwrap.dedent(
         """
         import asyncio
@@ -77,7 +78,13 @@ def test_hung_health_worker_does_not_block_interpreter_exit():
         print("ready to exit", flush=True)
         """
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=6)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=6,
+        env=os.environ | {"SHARPIT_STATE_DIR": str(tmp_path / "state")},
+    )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "ready to exit"
 

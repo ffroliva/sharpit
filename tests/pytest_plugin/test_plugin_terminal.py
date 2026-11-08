@@ -137,3 +137,47 @@ def test_gate_failure_counted_whatever_fail_on(pytester: pytest.Pytester) -> Non
     assert "  sharpit.n-plus-one: 1" in stdout
     assert "advisor notes in" not in stdout
     assert 'type="sharpit.n-plus-one"' in junit
+
+
+class _Lines:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def write_line(self, line: str) -> None:
+        self.lines.append(line)
+
+    def starting(self, prefix: str) -> str:
+        return next((line for line in self.lines if line.startswith(prefix)), "")
+
+
+def _coverage(apps: list[dict[str, str]], monkeypatch: pytest.MonkeyPatch) -> _Lines:
+    from types import SimpleNamespace
+
+    from sharpit.pytest_plugin import terminal
+
+    monkeypatch.setattr(terminal, "advisor_assessors", lambda: [("rest-api", None)])
+    out = _Lines()
+    state = SimpleNamespace(options=SimpleNamespace(advisors=True))
+    terminal._write_coverage(out, state, {"advisors": [{"advisor": "rest-api", "apps": apps}]})  # pyright: ignore[reportPrivateUsage]
+    return out
+
+
+@pytest.mark.parametrize("status", ["SKIPPED", "UNKNOWN"])
+def test_an_advisor_whose_app_was_not_assessed_is_not_checked(status: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Council delta 2026-11-08: a skipped or unloadable app was reported as 'checked'. Only an assessed app counts."""
+    out = _coverage([{"status": status}], monkeypatch)
+    assert "REST API" not in out.starting("sharpit checked:")
+
+
+def test_the_error_fallback_never_lists_the_test_runtime_gates(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.pytest_plugin import terminal
+
+    def broken() -> list[object]:
+        raise RuntimeError("registry unreadable")
+
+    monkeypatch.setattr(terminal, "advisor_assessors", broken)
+    out = _Lines()
+    from types import SimpleNamespace
+
+    terminal._write_coverage(out, SimpleNamespace(options=SimpleNamespace(advisors=True)), {"advisors": []})  # pyright: ignore[reportPrivateUsage]
+    assert "test-runtime" not in out.starting("sharpit did not check:")
