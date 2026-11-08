@@ -134,6 +134,7 @@ def test_a_planted_blanking_build_fails_the_keep_row(family: str, tmp_path: Path
     copy = _scratch_copy(tmp_path)
     _mutate(copy, BLANK_RENDER)
     env = {**os.environ, "PYTHONPATH": str(tmp_path / "src"), "PYTHONDONTWRITEBYTECODE": "1"}
+    env["SHARPIT_STATE_DIR"] = str(tmp_path / "state")  # a subprocess misses the in-process temp state dir patch
     done = subprocess.run(
         [
             sys.executable,
@@ -228,6 +229,7 @@ def _gained(server: LiveServer, session: str, mutant: Mutant, tmp: Path) -> set[
     _mutate(_scratch_copy(tmp), mutant)
     spec = json.dumps({"server": asdict(server), "session": session})
     env = {**os.environ, "PYTHONPATH": str(tmp / "src"), "PYTHONDONTWRITEBYTECODE": "1"}
+    env["SHARPIT_STATE_DIR"] = str(tmp / "state")  # a subprocess misses the in-process temp state dir patch
     done = subprocess.run(
         [sys.executable, "-m", "tests.live.oracle", spec],
         cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=PLANT_SECONDS,
