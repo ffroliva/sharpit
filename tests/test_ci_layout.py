@@ -187,8 +187,9 @@ def test_the_live_legs_partition_the_live_tests() -> None:
         check=False,
         timeout=900,
     )
-    assert collected.returncode == 0, collected.stderr[-2000:]
     nodeids = [line for line in collected.stdout.splitlines() if line.startswith("tests/live/") and "::" in line]
+    assert len(nodeids) >= 21_888, f"live collection unexpectedly small: {len(nodeids)} tests"
+    assert collected.returncode == 0, collected.stderr[-2000:]
     assert nodeids
     test_paths = sorted({nodeid.split("[", 1)[0] for nodeid in nodeids})
     selected: dict[str, set[str]] = {}
