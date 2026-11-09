@@ -23,7 +23,11 @@ jobs:
           HEAD: ${{ github.sha }}
         shell: bash
         run: |
-          if [[ "$BASE" =~ ^0+$ ]] || git diff --name-only "$BASE" "$HEAD" | grep -Ev '(^website/|\.md$)' >/dev/null; then
+          if [[ "$GITHUB_EVENT_NAME" != pull_request && "$GITHUB_EVENT_NAME" != push ]] || [[ -z "$BASE" || -z "$HEAD" || "$BASE" =~ ^0+$ ]]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          elif ! changed=$(git diff --name-only "$BASE" "$HEAD"); then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          elif grep -Ev '(^website/|\.md$)' <<< "$changed" >/dev/null; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
@@ -125,7 +129,8 @@ jobs:
       - env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          if [ "$CODE_CHANGED" != true ]; then exit 0; fi
+          test "${{ needs.changes.result }}" = success
+          if [ "$CODE_CHANGED" = false ]; then exit 0; fi
           test "${{ needs.test-shard.result }}" = success && test "${{ needs.lint.result }}" = success
 
   coverage-shard:
@@ -181,29 +186,31 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      - if: always()
+        run: test "${{ needs.changes.result }}" = success
       - if: needs.changes.outputs.code == 'false'
         run: echo "Docs-only change; coverage check is a no-op."
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: test "${{ needs.coverage-shard.result }}" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: uv sync --locked --extra test --python 3.13 # NOSONAR - the report reads sharpit's sources and coverage's config
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           pattern: coverage-data-*
           merge-multiple: true
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: uv run --no-sync coverage combine coverage-*.data && uv run --no-sync coverage xml
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           name: coverage-xml
           path: coverage.xml
@@ -212,39 +219,36 @@ jobs:
   sonar:
     needs: [coverage, changes]
     runs-on: ubuntu-latest
-    # Forked PRs and Dependabot runs get no SONAR_TOKEN; scan trusted pushes and internal PRs only.
-    # always(): when coverage fails, sonar must fail too, not skip (a skipped required check counts as green).
-    if: >-
-      always() &&
-      (needs.changes.outputs.code == 'false' ||
-      (github.actor != 'dependabot[bot]' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)))
+    # always(): report change-detection and coverage failures in this required check too.
+    if: always()
     permissions:
       contents: read
       pull-requests: read
     steps:
+      - if: always()
+        run: test "${{ needs.changes.result }}" = success
       - if: needs.changes.outputs.code == 'false'
         run: echo "Docs-only change; Sonar check is a no-op."
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: test "${{ needs.coverage.result }}" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           persist-credentials: false
           fetch-depth: 0 # blame and new-code detection need full history
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           name: coverage-xml
       - name: Read project version
         id: version
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         run: |
           VERSION=$(python -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('src/sharpit/__init__.py').read()).group(1))")
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Check SonarCloud availability
         id: health
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         run: |
           if curl -sf -m 10 https://sonarcloud.io/api/system/status | grep -q '"status":"UP"'; then
             echo "up=true" >> "$GITHUB_OUTPUT"
@@ -253,7 +257,10 @@ jobs:
             echo "::warning::SonarCloud is unreachable; scan skipped for this run (not a code failure)."
           fi
       - name: SonarCloud scan
-        if: needs.changes.outputs.code == 'true' && steps.health.outputs.up == 'true'
+        if: >-
+          needs.changes.outputs.code != 'false' && steps.health.outputs.up == 'true' &&
+          github.actor != 'dependabot[bot]' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
         with:
           args: -Dsonar.projectVersion=${{ steps.version.outputs.value }}
@@ -262,7 +269,10 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
       - name: Sonar ratchet (no new issues; main never above sonar-baseline.txt)
-        if: needs.changes.outputs.code == 'true' && steps.health.outputs.up == 'true'
+        if: >-
+          needs.changes.outputs.code != 'false' && steps.health.outputs.up == 'true' &&
+          github.actor != 'dependabot[bot]' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
@@ -319,7 +329,8 @@ jobs:
       - env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          if [ "$CODE_CHANGED" != true ]; then exit 0; fi
+          test "${{ needs.changes.result }}" = success
+          if [ "$CODE_CHANGED" = false ]; then exit 0; fi
           test "${{ needs.lowest-shard.result }}" = success
 
   no-sqlalchemy-shard:
@@ -370,7 +381,8 @@ jobs:
       - env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          if [ "$CODE_CHANGED" != true ]; then exit 0; fi
+          test "${{ needs.changes.result }}" = success
+          if [ "$CODE_CHANGED" = false ]; then exit 0; fi
           test "${{ needs.no-sqlalchemy-shard.result }}" = success
 
   masking-gates:
@@ -421,7 +433,8 @@ jobs:
       - env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          if [ "$CODE_CHANGED" != true ]; then exit 0; fi
+          test "${{ needs.changes.result }}" = success
+          if [ "$CODE_CHANGED" = false ]; then exit 0; fi
           test "${{ needs.masking-gates.result }}" = success
 
   live:
@@ -430,11 +443,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { server: mysql84, image: mysql:8.4.10, port: 3306, filter: "mysql84 and not wrong_wired", legs: "mysql84-default=2150 mysql84-NO_BACKSLASH_ESCAPES=2150 mysql84-ANSI_QUOTES=1388", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
+          - { server: mysql84, image: mysql:8.4.10, port: 3306, filter: "mysql84 and not wrong_wired or wrong_wired", legs: "mysql84-default=2150 mysql84-NO_BACKSLASH_ESCAPES=2150 mysql84-ANSI_QUOTES=1388", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_a_wrong_wired_dialect_fails_the_oracle=1" }
           - { server: mysql80, image: mysql:8.0.44, port: 3306, filter: mysql80, legs: "mysql80-default=1995 mysql80-NO_BACKSLASH_ESCAPES=1995 mysql80-ANSI_QUOTES=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
-          - { server: mariadb, image: mariadb:12.3.3, port: 3306, filter: mariadb, legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
-          - { server: postgresql, image: postgres:18.2, port: 5432, filter: postgresql, legs: "postgresql-on=138 postgresql-off=138", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
-          - { server: controls, image: mysql:8.4.10, port: 3306, filter: "sqlite or oracle_control or wrong_wired or inverse_plant", legs: "sqlite-default=2817", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=5 test_a_wrong_wired_dialect_fails_the_oracle=1 test_the_inverse_plant_shows_five_rows_on_off=1" }
+          - { server: mariadb, image: mariadb:12.3.3, port: 3306, filter: "mariadb or backslash and mysql or bracket and mssql", legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3" }
+          - { server: postgresql, image: postgres:18.2, port: 5432, filter: "postgresql or scs_off_no_cut or inverse_plant", legs: "postgresql-on=138 postgresql-off=138", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3 test_example_app_records_its_server_family=1 test_the_inverse_plant_shows_five_rows_on_off=1" }
+          - { server: controls, image: mysql:8.4.10, port: 3306, filter: "sqlite or test_example_app_records_its_server_family and mysql", legs: "sqlite-default=2817", required: "test_example_app_records_its_server_family=1" }
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -442,6 +455,9 @@ jobs:
     services:
       db:
         image: ${{ matrix.image }}
+        options: >-
+          --health-cmd "${{ matrix.server == 'postgresql' && 'pg_isready -U postgres' || 'mysqladmin ping -h 127.0.0.1 -psharpit' }}"
+          --health-interval 10s --health-timeout 5s --health-retries 10
         env:
           MYSQL_ROOT_PASSWORD: sharpit
           MYSQL_DATABASE: sharpit
@@ -465,7 +481,7 @@ jobs:
         env:
           LIVE_FILTER: ${{ matrix.filter }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-          SHARPIT_LIVE_MYSQL84_URL: ${{ matrix.server == 'mysql84' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
+          SHARPIT_LIVE_MYSQL84_URL: ${{ (matrix.server == 'mysql84' || matrix.server == 'controls') && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
           SHARPIT_LIVE_MYSQL80_URL: ${{ matrix.server == 'mysql80' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
           SHARPIT_LIVE_MARIADB_URL: ${{ matrix.server == 'mariadb' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
           SHARPIT_LIVE_POSTGRESQL_URL: ${{ matrix.server == 'postgresql' && format('postgresql+psycopg://postgres:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
@@ -545,19 +561,21 @@ jobs:
       run:
         working-directory: ui
     steps:
+      - if: always()
+        run: test "${{ needs.changes.result }}" = success
       - if: needs.changes.outputs.code == 'false'
         run: echo "Docs-only change; UI check is a no-op."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           node-version: 22
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: npm ci --ignore-scripts && npm run build
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: git diff --exit-code -- ../src/sharpit/ui/static
 
   vitest:
@@ -568,17 +586,19 @@ jobs:
       run:
         working-directory: ui
     steps:
+      - if: always()
+        run: test "${{ needs.changes.result }}" = success
       - if: needs.changes.outputs.code == 'false'
         run: echo "Docs-only change; Vitest check is a no-op."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           node-version: 22
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: npm ci --ignore-scripts && npm test
 
   wheel:
@@ -586,22 +606,24 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      - if: always()
+        run: test "${{ needs.changes.result }}" = success
       - if: needs.changes.outputs.code == 'false'
         run: echo "Docs-only change; wheel check is a no-op."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           persist-credentials: false
       - name: main never tracks .superpowers/ (harvest into docs/reports/ first)
-        if: needs.changes.outputs.code == 'true' && github.base_ref == 'main'
+        if: needs.changes.outputs.code != 'false' && github.base_ref == 'main'
         run: python3 scripts/ci/no_superpowers.py
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code != 'false'
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: uv build --out-dir "$RUNNER_TEMP/dist"
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false'
         run: |
           uv venv "$RUNNER_TEMP/smoke" --python 3.12
           uv pip install --python "$RUNNER_TEMP/smoke/bin/python" "$RUNNER_TEMP"/dist/sharpit-*.whl fastapi pydantic-settings uvicorn httpx

@@ -1,13 +1,19 @@
 """CI layout costs, pinned by count, never by wall clock: where lint runs, how a leg is sharded, the tracer."""
 
+import ast
 import os
 import re
+import shutil
+import subprocess
+import sys
+import textwrap
 from collections import defaultdict
 from pathlib import Path
 
 import pytest
 
-CI = (Path(__file__).parent.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+CI_PATH = Path(__file__).parent.parent / ".github" / "workflows" / "ci.yml"
+CI = CI_PATH.read_text(encoding="utf-8")
 
 
 def _jobs() -> dict[str, str]:
@@ -120,7 +126,67 @@ def test_live_runs_one_job_per_server() -> None:
     assert "services:" in live
     for key in ("MYSQL84", "MYSQL80", "MARIADB", "POSTGRESQL"):
         assert f"SHARPIT_LIVE_{key}_URL:" in live
-    assert "-n 0" not in live
+    pytest_steps = [line for line in live.splitlines() if re.search(r"^\s*- run:.*pytest\b", line)]
+    assert pytest_steps
+    assert all(not re.search(r"(?:^|\s)-n\s+0(?:\s|$)", line) for line in pytest_steps)
+    assert "--health-cmd" in live
+    assert "--health-interval" in live
+    assert "--health-retries" in live
+
+
+def test_live_leg_pins_keep_the_old_case_totals() -> None:
+    rows = [line for line in JOBS["live"].splitlines() if "server:" in line and "required:" in line]
+    required = [re.search(r'required: "([^"]+)"', line)[1].split() for line in rows]
+    assert sum("test_example_app_records_its_server_family=1" in pins for pins in required) == 2
+    assert sum("test_oracle_control=3" in pins for pins in required) == 2
+    assert sum("test_a_server_answers=1" in pins for pins in required) == 4
+    assert sum("test_a_refused_statement_keeps_its_value_hidden=1" in pins for pins in required) == 4
+
+
+def _live_leg_filters() -> dict[str, str]:
+    result = {}
+    for line in JOBS["live"].splitlines():
+        if "server:" not in line or "filter:" not in line:
+            continue
+        server = re.search(r"server: ([\w-]+)", line)[1]
+        filter_match = re.search(r'filter: "([^"]+)"|filter: ([^,}]+)', line)
+        result[server] = (filter_match[1] or filter_match[2]).strip()
+    return result
+
+
+def _matches_live_filter(expression: str, nodeid: str) -> bool:
+    def matches(node: ast.AST) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in nodeid
+        if isinstance(node, ast.BoolOp):
+            values = [matches(value) for value in node.values]
+            return all(values) if isinstance(node.op, ast.And) else any(values)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return not matches(node.operand)
+        raise AssertionError(f"unsupported -k expression: {expression}")
+
+    return matches(ast.parse(expression, mode="eval").body)
+
+
+def test_the_live_legs_partition_the_live_tests() -> None:
+    root = Path(__file__).parent.parent
+    collected = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-n", "4", "tests/live", "--live"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=900,
+    )
+    assert collected.returncode == 0, collected.stderr[-2000:]
+    nodeids = [line for line in collected.stdout.splitlines() if line.startswith("tests/live/") and "::" in line]
+    assert nodeids
+    assignments = {
+        nodeid: [leg for leg, expression in _live_leg_filters().items() if _matches_live_filter(expression, nodeid)]
+        for nodeid in nodeids
+    }
+    assert not [nodeid for nodeid, legs in assignments.items() if not legs]
+    assert not [nodeid for nodeid, legs in assignments.items() if len(legs) > 1]
 
 
 def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None:
@@ -141,6 +207,45 @@ def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None
         "workflow-lint",
     ):
         assert "if: needs.changes.outputs.code == 'true'" in JOBS[job], job
+
+
+def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path: Path) -> None:
+    lines = CI.splitlines()
+    start = lines.index("        run: |", lines.index("      - id: filter")) + 1
+    end = next(index for index in range(start, len(lines)) if lines[index].startswith("  lint:"))
+    run = textwrap.dedent("\n".join(lines[start:end]))
+    output = Path(f"{tmp_path.name}-change-output")
+    result = subprocess.run(
+        [shutil.which("bash") or "bash", "-e", "-c", run],
+        cwd=CI_PATH.parents[2],
+        env={
+            **os.environ,
+            "BASE": "not-a-commit",
+            "HEAD": "HEAD",
+            "GITHUB_EVENT_NAME": "push",
+            "GITHUB_OUTPUT": output.name,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        assert result.returncode == 0
+        assert "code=true" in output.read_text(encoding="utf-8")
+    finally:
+        output.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("job", ["test", "lowest", "no-sqlalchemy", "masking-gates-check"])
+def test_required_checks_fail_when_change_detection_did_not_succeed(job: str) -> None:
+    assert 'test "${{ needs.changes.result }}" = success' in JOBS[job], job
+    assert 'if [ "$CODE_CHANGED" = false ]; then exit 0; fi' in JOBS[job], job
+
+
+@pytest.mark.parametrize("job", ["coverage", "sonar", "ui", "vitest", "wheel"])
+def test_required_jobs_fail_when_change_detection_did_not_succeed(job: str) -> None:
+    assert 'test "${{ needs.changes.result }}" = success' in JOBS[job], job
+    assert "needs.changes.outputs.code == 'true'" not in JOBS[job], job
 
 
 OWN_JOB_FILES = (  # each alone outweighs a shard ceiling (487, 386, 418 s): one job runs them whole, every row
