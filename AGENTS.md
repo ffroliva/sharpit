@@ -62,7 +62,13 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
   fail-safe and adds a warning. Env name = `SHARPIT_` + the BootUI property without `bootui.`, `.`/`-` → `_`, upper case.
 - Every contract DTO key is emitted (nulls included), camelCase, no envelope, epoch ms.
 - Error bodies and reason strings are verbatim from the contract §1/§10 with `BootUI`→`sharpit`.
-- **No GET route and no MCP tool may open a socket, write a file, change a logger level or change `os.environ`.**
+- **No GET route and no read MCP tool may open a socket, write a file, change a logger level or change `os.environ`.**
+- **Actions follow BootUI: if BootUI lets an agent press the button, sharpit does too.** An action (a POST route, an
+  MCP action tool, a CLI action) runs only when its surface is enabled (`SHARPIT_MCP_ENABLED` / `SHARPIT_CLI_ENABLED`,
+  off by default like BootUI), the guard chain passes, its panel is enabled and not read-only, and single-flight is
+  free. Its side effect is exactly the one BootUI's same action has, no more; an action BootUI does not offer is not
+  added. MCP lists action tools like BootUI's catalogue (`McpToolCatalog`, refused per read-only panel in
+  `McpDispatcher`).
 - Each ported test cites its BootUI source: `# ported: LocalhostGuardTests.rejectsMalformedHost`.
 - The session cookie name is `SESSION_COOKIE` in `engine/guard.py`; nothing else spells it.
 - Durations accept `Ns`, `Nms` or bare seconds.
@@ -75,9 +81,11 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
 2. **Guard chain on every request**, in order: security headers → trusted source → Host allow-list → cross-site →
    token → panel access. Forwarded headers never grant trust.
 3. **Secrets masked** before filtering and before any output (JSON, errors, MCP, CLI). `FULL` exposure warns.
-4. **No side effects** on reads (above). Tests use the `no_side_effects` fixture.
+4. **No side effects** on reads (above). Tests use the `no_side_effects` fixture. An action's side effect is
+   BootUI's, behind the panel's read-only switch; a test proves the read-only panel refuses it.
 5. **Introspection is defensive**: FastAPI/Starlette internals change between versions; degrade, never crash the host.
-6. **OSV / network** failures are reported in the scan status and release the lock; nothing else needs the network.
+6. **OSV / network** failures are reported in the scan status and release the lock; only an action whose BootUI
+   counterpart calls the network may (OSV/EPSS today).
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
