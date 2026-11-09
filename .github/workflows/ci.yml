@@ -477,7 +477,7 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the live tests
       - run: uv pip install asyncpg aiomysql
-      - run: uv run --no-sync pytest tests/live --live -n 0 -k "$LIVE_FILTER" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync pytest tests/live --live -n auto -k "$LIVE_FILTER" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           LIVE_FILTER: ${{ matrix.filter }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl

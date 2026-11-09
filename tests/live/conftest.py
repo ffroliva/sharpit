@@ -17,11 +17,41 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 HERE = Path(__file__).parent
 PASSWORD = "sharpit"  # noqa: S105 - a throwaway container
 DATABASE = "sharpit"
 BOOT_SECONDS = 120.0
+
+
+def _worker_database_url(url: str, worker_id: str | None) -> str:
+    if worker_id is None:
+        return url
+    if not worker_id.startswith("gw") or not worker_id[2:].isdigit():
+        raise ValueError(f"unexpected xdist worker id: {worker_id!r}")
+    return make_url(url).set(database=f"{DATABASE}_{worker_id}").render_as_string(hide_password=False)
+
+
+def _ensure_worker_database(url: str, family: str) -> None:
+    target = make_url(url)
+    admin = target.set(database="postgres" if family == "postgresql" else "")
+    engine = create_engine(admin, isolation_level="AUTOCOMMIT" if family == "postgresql" else None)
+    try:
+        with engine.connect() as connection:
+            if family == "postgresql":
+                exists = connection.execute(
+                    text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": target.database}
+                ).scalar()
+                if not exists:
+                    connection.exec_driver_sql(f'CREATE DATABASE "{target.database}"')
+            else:
+                name = target.database.replace("`", "``")
+                connection.exec_driver_sql(f"CREATE DATABASE IF NOT EXISTS `{name}`")
+    finally:
+        engine.dispose()
+
 
 # key -> (family, default image, container port, driver, environment of the image). The defaults are the versions
 # the spike ran (mysql 8.4.10, mysql 8.0.44, mariadb 12.3.3, postgres 18.2); each tag exists on Docker Hub.
@@ -117,6 +147,9 @@ def _boot(key: str) -> Iterator[LiveServer]:
     image = os.environ.get(f"SHARPIT_LIVE_IMAGE_{key.upper()}") or default_image
     url = os.environ.get(f"SHARPIT_LIVE_{key.upper()}_URL")
     if url:
+        _wait_until_it_answers(url)
+        url = _worker_database_url(url, os.environ.get("PYTEST_XDIST_WORKER"))
+        _ensure_worker_database(url, family)
         _wait_until_it_answers(url)
         yield LiveServer(url, family, image, key)
         return
