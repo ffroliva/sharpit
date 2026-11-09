@@ -79,6 +79,7 @@ LEGS: dict[tuple[str, str], str] = {
 }
 SERVER_KEYS = dict.fromkeys(key for key, _ in LEGS)
 _REAL_LEAKS = {"my84": "mysql", "my80": "mysql", "maria": "mysql", "postgresql": "postgresql", "sqlite": "sqlite"}
+_TRUSTED_FUNCTION_CREATORS: set[str] = set()
 
 
 def rows_for(key: str, session: str) -> list[ServerRow]:
@@ -166,9 +167,12 @@ class _Leg:
 
     def _trust_function_creators(self) -> None:
         """As the spike: a binary log refuses ``CREATE FUNCTION`` without it. Refused, those rows only stop counting."""
+        if self.server.key in _TRUSTED_FUNCTION_CREATORS:
+            return
         try:
             with self.engine.connect() as connection:
                 connection.exec_driver_sql("SET GLOBAL log_bin_trust_function_creators = 1")
+            _TRUSTED_FUNCTION_CREATORS.add(self.server.key)
         except sa.exc.DBAPIError as refused:
             print(f"oracle: {self.server.key}: {refused.orig}")
 

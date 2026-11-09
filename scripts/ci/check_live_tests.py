@@ -10,15 +10,17 @@ its cases and report no failure, error or skip, and no case failed, errored or w
 """
 
 import argparse
+import re
 import sys
 import xml.etree.ElementTree as ET  # noqa: S405 - the report is pytest's own output, written in this job
 from collections.abc import Sequence
 from pathlib import Path
 
 STATES = ("failure", "error", "skipped")
+ORACLE_LEG = re.compile(r"test_oracle_row\[(\w+)-(\w+)-\d+\]$")
 
 
-def check(report: Path, required: Sequence[str]) -> list[str]:  # noqa: C901 - one linear sequence of report checks
+def check(report: Path, required: Sequence[str], legs: Sequence[str] = ()) -> list[str]:  # noqa: C901 - one linear sequence of report checks
     try:
         root = ET.parse(report).getroot()  # noqa: S314 - as above
     except (ET.ParseError, OSError) as error:
@@ -45,6 +47,22 @@ def check(report: Path, required: Sequence[str]) -> list[str]:  # noqa: C901 - o
             failures.append(f"{name}: expected {wanted} cases, found {len(mine)}")
         elif any(case.find(state) is not None for case in mine for state in STATES):
             failures.append(f"{name}: every required live test must pass without skips")
+    rows = [case for case in cases if ORACLE_LEG.fullmatch(case.get("name", ""))]
+    for spec in legs:
+        name, _, wanted = spec.partition("=")
+        mine = [
+            case
+            for case in rows
+            if (match := ORACLE_LEG.fullmatch(case.get("name", ""))) and f"{match[1]}-{match[2]}" == name
+        ]
+        if len(mine) != int(wanted):
+            failures.append(f"{name}: expected {wanted} cases, found {len(mine)}")
+        elif not any(
+            prop.get("name") == "returned" and prop.get("value", "").lower() == "true"
+            for case in mine
+            for prop in case.iter("property")
+        ):
+            failures.append(f"{name}: no row returned its marker")
     return failures
 
 
@@ -52,8 +70,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", type=Path)
     parser.add_argument("--require", nargs="+", required=True, help="Required test function names")
+    parser.add_argument("--legs", nargs="*", default=(), help="Pinned oracle leg counts as key-session=count")
     arguments = parser.parse_args(argv)
-    failures = check(arguments.report, arguments.require)
+    failures = check(arguments.report, arguments.require, arguments.legs)
     if failures:
         print("\n".join(failures), file=sys.stderr)
         return 1
