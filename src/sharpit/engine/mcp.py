@@ -40,6 +40,7 @@ from sharpit.engine.tools import (
 logger = logging.getLogger("sharpit")
 
 PROTOCOL_VERSION = "2025-06-18"
+KNOWN_PROTOCOL_VERSIONS: tuple[str, ...] = (PROTOCOL_VERSION,)
 SUPPORTED_PROTOCOL_VERSIONS = ("2026-07-28", PROTOCOL_VERSION)  # newest first (McpServerStatus)
 DISABLED_MESSAGE = "sharpit MCP server is disabled. Enable it from the MCP Server panel or set SHARPIT_MCP_ENABLED=ON."
 _FRAMEWORK = "FastAPI"
@@ -220,7 +221,7 @@ class McpServer:
         if lower.get("content-type", "").partition(";")[0].strip().lower() != "application/json":
             return 415, {"error": "Unsupported Media Type"}, []
         version = lower.get("mcp-protocol-version")
-        if version is not None and version not in SUPPORTED_PROTOCOL_VERSIONS:
+        if version is not None and version not in KNOWN_PROTOCOL_VERSIONS and version != "2026-07-28":
             return 400, _error(None, INVALID_REQUEST, "Unsupported MCP-Protocol-Version"), []
         if len(body) > self.ctx.settings.mcp_max_payload_bytes:
             return 413, payload_too_large(), []
@@ -228,6 +229,27 @@ class McpServer:
             request: object = json.loads(body, parse_constant=_reject_constant)
         except (ValueError, RecursionError):  # deep nesting raises RecursionError
             return 400, _error(None, PARSE_ERROR, "Invalid JSON-RPC request"), []
+        if version is not None and version not in KNOWN_PROTOCOL_VERSIONS:
+            if version == "2026-07-28" and _is_notification(request):
+                return 202, None, []
+            envelope = _as_object(request)
+            if (
+                version == "2026-07-28"
+                and envelope is not None
+                and envelope.get("method") != "initialize"
+                and "io.modelcontextprotocol/protocolVersion"
+                not in (_as_object((_as_object(envelope.get("params", {})) or {}).get("_meta")) or {})
+            ):
+                return (
+                    400,
+                    _error(
+                        envelope.get("id"),
+                        INVALID_PARAMS,
+                        "Missing required _meta field: io.modelcontextprotocol/protocolVersion",
+                    ),
+                    [],
+                )
+            return 400, _error(None, INVALID_REQUEST, "Unsupported MCP-Protocol-Version"), []
         if isinstance(request, list):
             return 400, _error(None, INVALID_REQUEST, BATCH_MESSAGE), []
         if not self.enabled:
@@ -309,7 +331,7 @@ class McpServer:
         if method == "initialize":  # a supported revision is echoed, anything else gets the default
             requested = params.get("protocolVersion")
             return {
-                "protocolVersion": requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION,
+                "protocolVersion": requested if requested in KNOWN_PROTOCOL_VERSIONS else PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}, "prompts": {"listChanged": False}},
                 "serverInfo": {"name": SERVER_NAME, "version": __version__},
                 "instructions": INSTRUCTIONS,
