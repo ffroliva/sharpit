@@ -111,3 +111,10 @@ def test_the_heavy_masking_gates_have_one_job_and_no_shard_collects_them(
     result = pytester.runpytest("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
     for gate in OWN_JOB_FILES:
         assert f"{gate}::test_row" in result.outlines
+
+
+def test_the_documented_full_suite_command_collects_every_file() -> None:
+    command = next(
+        line for line in Path("AGENTS.md").read_text(encoding="utf-8").splitlines() if "pytest -q -n auto" in line
+    )
+    assert "--import-mode=importlib" in command
