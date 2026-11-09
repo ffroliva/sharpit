@@ -119,6 +119,16 @@ def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
     assert parse_artifact("junit-test-shard-ubuntu-latest-3.12-0") == ("test-shard", "ubuntu-latest-3.12-0")
 
 
+def test_live_runs_one_job_per_server() -> None:
+    live = JOBS["live"]
+    for server in ("mysql84", "mysql80", "mariadb", "postgresql", "controls"):
+        assert f"server: {server}," in live
+    assert "services:" in live
+    for key in ("MYSQL84", "MYSQL80", "MARIADB", "POSTGRESQL"):
+        assert f"SHARPIT_LIVE_{key}_URL:" in live
+    assert "-n 0" not in live
+
+
 OWN_JOB_FILES = (  # each alone outweighs a shard ceiling (487, 386, 418 s): one job runs them whole, every row
     "tests/masking/test_masking_scales_linearly.py",
     "tests/masking/test_statement_surfaces.py",

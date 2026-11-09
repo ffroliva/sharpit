@@ -359,44 +359,64 @@ jobs:
       - run: test "${{ needs.masking-gates.result }}" = success
 
   live:
-    # The live profile (tests/live, --live): real MySQL, MariaDB and PostgreSQL servers started by Testcontainers. Linux
-    # only: GitHub's Windows runners cannot run Linux containers. A skip is a failure: the check reads the report.
+    name: live (${{ matrix.server }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { server: mysql84, image: mysql:8.4.10, port: 3306, filter: "mysql84 and not wrong_wired", legs: "mysql84-default=2150 mysql84-NO_BACKSLASH_ESCAPES=2150 mysql84-ANSI_QUOTES=1388", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
+          - { server: mysql80, image: mysql:8.0.44, port: 3306, filter: mysql80, legs: "mysql80-default=1995 mysql80-NO_BACKSLASH_ESCAPES=1995 mysql80-ANSI_QUOTES=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
+          - { server: mariadb, image: mariadb:12.3.3, port: 3306, filter: mariadb, legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
+          - { server: postgresql, image: postgres:18.2, port: 5432, filter: postgresql, legs: "postgresql-on=138 postgresql-off=138", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
+          - { server: controls, image: mysql:8.4.10, port: 3306, filter: "sqlite or oracle_control or wrong_wired or inverse_plant", legs: "sqlite-default=2817", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=5 test_a_wrong_wired_dialect_fails_the_oracle=1 test_the_inverse_plant_shows_five_rows_on_off=1" }
     runs-on: ubuntu-latest
-    # A container per row once ran this job 2 h 38 min with no verdict (field log F16). The gate takes about 9 minutes
-    # on one container per server; 30 makes a regression of that kind fail in half an hour, not hold the runner.
     timeout-minutes: 30
+    services:
+      db:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: sharpit
+          MYSQL_DATABASE: sharpit
+          MARIADB_ROOT_PASSWORD: sharpit
+          MARIADB_DATABASE: sharpit
+          POSTGRES_PASSWORD: sharpit
+          POSTGRES_DB: sharpit
+        ports:
+          - ${{ matrix.port }}:${{ matrix.port }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+          enable-cache: true
       - run: uv python install 3.14
       - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the live tests
-      - run: uv pip install asyncpg aiomysql # drivers imported by live example tests only
-      - run: uv run --no-sync pytest tests/live --live -n 0 --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv pip install asyncpg aiomysql
+      - run: uv run --no-sync pytest tests/live --live -n auto -k "$LIVE_FILTER" --junitxml="${{ runner.temp }}/junit.xml"
         env:
+          LIVE_FILTER: ${{ matrix.filter }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+          SHARPIT_LIVE_MYSQL84_URL: ${{ matrix.server == 'mysql84' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
+          SHARPIT_LIVE_MYSQL80_URL: ${{ matrix.server == 'mysql80' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
+          SHARPIT_LIVE_MARIADB_URL: ${{ matrix.server == 'mariadb' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
+          SHARPIT_LIVE_POSTGRESQL_URL: ${{ matrix.server == 'postgresql' && format('postgresql+psycopg://postgres:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
       - name: Require executed live tests, without skips
         if: always()
-        # the server oracle (tests/live/test_server_oracle.py), by function: the check reads JUnit case names, and a
-        # file name is none. Counts only where the file pins them: a plant list that grows must not break the check
-        run: >-
-          uv run --no-sync python scripts/ci/check_live_tests.py "$RUNNER_TEMP/junit.xml" --require test_a_server_answers=4
-          test_oracle_row test_every_session_leg_ran=14 test_a_refused_statement_keeps_its_value_hidden=5
-          test_oracle_control test_a_wrong_wired_dialect_fails_the_oracle=1 test_the_inverse_plant_shows_five_rows_on_off=1
-          test_example_app_records_its_server_family=2
+        env:
+          LEGS: ${{ matrix.legs }}
+          REQUIRED_LIVE: ${{ matrix.required }}
+        run: uv run --no-sync python scripts/ci/check_live_tests.py "$RUNNER_TEMP/junit.xml" --legs $LEGS --require $REQUIRED_LIVE
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
-        with: # ci_review.py globs junit-*
-          name: junit-live-single
+        with:
+          name: junit-live-${{ matrix.server }}
           path: ${{ runner.temp }}/junit.xml
           retention-days: 7
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: overhead-live-single
+          name: overhead-live-${{ matrix.server }}
           path: ${{ runner.temp }}/overhead.jsonl
           if-no-files-found: ignore
           retention-days: 7
