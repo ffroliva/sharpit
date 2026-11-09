@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- MCP negotiates only protocol revision `2025-06-18`, while retaining BootUI's supported-version list in status. A `2026-07-28` header is now refused as BootUI refuses it (it used to be accepted).
+
 ## [0.5.0] - 2026-11-08
 
 ### Added

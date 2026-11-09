@@ -40,7 +40,9 @@ from sharpit.engine.tools import (
 logger = logging.getLogger("sharpit")
 
 PROTOCOL_VERSION = "2025-06-18"
-SUPPORTED_PROTOCOL_VERSIONS = ("2026-07-28", PROTOCOL_VERSION)  # newest first (McpServerStatus)
+KNOWN_PROTOCOL_VERSIONS: tuple[str, ...] = (PROTOCOL_VERSION,)
+MODERN_PROTOCOL_VERSION = "2026-07-28"
+SUPPORTED_PROTOCOL_VERSIONS = (MODERN_PROTOCOL_VERSION, PROTOCOL_VERSION)  # newest first (McpServerStatus)
 DISABLED_MESSAGE = "sharpit MCP server is disabled. Enable it from the MCP Server panel or set SHARPIT_MCP_ENABLED=ON."
 _FRAMEWORK = "FastAPI"
 BATCH_MESSAGE = "JSON-RPC batch requests are not supported by MCP Streamable HTTP transport"
@@ -193,6 +195,28 @@ def _as_object(request: object) -> dict[str, object] | None:
     return cast("dict[str, object]", request) if isinstance(request, dict) else None
 
 
+def _modern_header_response(version: str | None, request: object) -> _Response | None:
+    if version != MODERN_PROTOCOL_VERSION:
+        return None
+    if _is_notification(request):
+        return 202, None, []
+    envelope = _as_object(request)
+    if envelope is None or envelope.get("method") != "initialize":
+        params = _as_object(envelope.get("params", {})) or {} if envelope is not None else {}
+        meta = _as_object(params.get("_meta")) or {}
+        if "io.modelcontextprotocol/protocolVersion" not in meta:
+            return (
+                400,
+                _error(
+                    None if envelope is None else envelope.get("id"),
+                    INVALID_PARAMS,
+                    "Missing required _meta field: io.modelcontextprotocol/protocolVersion",
+                ),
+                [],
+            )
+    return 400, _error(None, INVALID_REQUEST, "Unsupported MCP-Protocol-Version"), []
+
+
 def _is_notification(request: object) -> bool:
     envelope = _as_object(request)
     if envelope is None:
@@ -220,7 +244,7 @@ class McpServer:
         if lower.get("content-type", "").partition(";")[0].strip().lower() != "application/json":
             return 415, {"error": "Unsupported Media Type"}, []
         version = lower.get("mcp-protocol-version")
-        if version is not None and version not in SUPPORTED_PROTOCOL_VERSIONS:
+        if version is not None and version not in KNOWN_PROTOCOL_VERSIONS and version != MODERN_PROTOCOL_VERSION:
             return 400, _error(None, INVALID_REQUEST, "Unsupported MCP-Protocol-Version"), []
         if len(body) > self.ctx.settings.mcp_max_payload_bytes:
             return 413, payload_too_large(), []
@@ -230,6 +254,9 @@ class McpServer:
             return 400, _error(None, PARSE_ERROR, "Invalid JSON-RPC request"), []
         if isinstance(request, list):
             return 400, _error(None, INVALID_REQUEST, BATCH_MESSAGE), []
+        modern_response = _modern_header_response(version, request)
+        if modern_response is not None:
+            return modern_response
         if not self.enabled:
             if _is_notification(request):
                 return 202, None, []
@@ -306,10 +333,10 @@ class McpServer:
         return response
 
     def _dispatch(self, method: str, params: dict[str, object], scope: Mapping[str, object]) -> dict[str, Any]:
-        if method == "initialize":  # a supported revision is echoed, anything else gets the default
+        if method == "initialize":  # a known revision is echoed, anything else gets the default
             requested = params.get("protocolVersion")
             return {
-                "protocolVersion": requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION,
+                "protocolVersion": requested if requested in KNOWN_PROTOCOL_VERSIONS else PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}, "prompts": {"listChanged": False}},
                 "serverInfo": {"name": SERVER_NAME, "version": __version__},
                 "instructions": INSTRUCTIONS,
