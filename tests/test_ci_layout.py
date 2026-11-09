@@ -167,6 +167,8 @@ def _live_leg_filters() -> dict[str, str]:
 
 def test_the_live_legs_partition_the_live_tests() -> None:
     root = Path(__file__).parent.parent
+    collection_environment = os.environ.copy()
+    collection_environment.pop("SHARPIT_SHARD", None)
     collected = subprocess.run(
         [
             sys.executable,
@@ -182,6 +184,7 @@ def test_the_live_legs_partition_the_live_tests() -> None:
             "--live",
         ],
         cwd=root,
+        env=collection_environment,
         capture_output=True,
         text=True,
         check=False,
@@ -211,6 +214,7 @@ def test_the_live_legs_partition_the_live_tests() -> None:
                 expression,
             ],
             cwd=root,
+            env=collection_environment,
             capture_output=True,
             text=True,
             check=False,
