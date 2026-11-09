@@ -71,7 +71,6 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if item.path.is_relative_to(HERE):
             item.add_marker(pytest.mark.live)
             item.add_marker(pytest.mark.needs_sqlalchemy)
-    items.sort(key=lambda item: item.name.startswith("test_every_session_leg_ran"))  # it counts the rows that ran
 
 
 @pytest.fixture(autouse=True)
