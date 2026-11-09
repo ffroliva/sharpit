@@ -55,7 +55,7 @@ def test_each_leg_of_a_sharded_job_lists_every_shard_exactly_once(job: str) -> N
 
 
 def test_no_sqlalchemy_is_sharded_behind_the_required_check_name() -> None:
-    assert "needs: no-sqlalchemy-shard" in JOBS["no-sqlalchemy"]
+    assert "needs: [no-sqlalchemy-shard, changes]" in JOBS["no-sqlalchemy"]
     assert "SHARPIT_SHARD: ${{ matrix.shard }}" in JOBS["no-sqlalchemy-shard"]
 
 
@@ -80,7 +80,7 @@ def test_no_test_shard_carries_more_weighted_test_time_than_the_ceiling(leg: str
 
 def test_the_required_test_check_still_fails_when_lint_fails() -> None:
     """Lint left the shards, so the required `test` checks must wait for it or a lint failure would merge."""
-    assert "needs: [test-shard, lint]" in JOBS["test"]
+    assert "needs: [test-shard, lint, changes]" in JOBS["test"]
     assert 'needs.lint.result }}" = success' in JOBS["test"]
 
 
@@ -127,6 +127,26 @@ def test_live_runs_one_job_per_server() -> None:
     for key in ("MYSQL84", "MYSQL80", "MARIADB", "POSTGRESQL"):
         assert f"SHARPIT_LIVE_{key}_URL:" in live
     assert "-n 0" not in live
+
+
+def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None:
+    assert "changes" in JOBS
+    assert "paths-ignore: [ '**.md', 'website/**']" not in CI.split("permissions:", 1)[0]
+    assert "grep -Ev '(^website/|\\.md$)'" in CI
+    for job in ("test", "coverage", "sonar", "lowest", "no-sqlalchemy", "ui", "vitest", "wheel"):
+        assert "needs.changes.outputs.code" in JOBS[job], job
+    for job in (
+        "lint",
+        "test-shard",
+        "coverage-shard",
+        "lowest-shard",
+        "no-sqlalchemy-shard",
+        "masking-gates",
+        "live",
+        "sharpit-gate",
+        "workflow-lint",
+    ):
+        assert "if: needs.changes.outputs.code == 'true'" in JOBS[job], job
 
 
 OWN_JOB_FILES = (  # each alone outweighs a shard ceiling (487, 386, 418 s): one job runs them whole, every row
