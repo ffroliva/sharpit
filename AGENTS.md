@@ -62,7 +62,15 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
   fail-safe and adds a warning. Env name = `SHARPIT_` + the BootUI property without `bootui.`, `.`/`-` → `_`, upper case.
 - Every contract DTO key is emitted (nulls included), camelCase, no envelope, epoch ms.
 - Error bodies and reason strings are verbatim from the contract §1/§10 with `BootUI`→`sharpit`.
-- **No GET route and no MCP tool may open a socket, write a file, change a logger level or change `os.environ`.**
+- **Reads have no side effects:** no GET route and no read MCP or CLI tool may open a socket, write a file, change a
+  logger level or change `os.environ`.
+- **Actions follow BootUI** (owner, 2026-11-09: "if BootUI presses the button we do it too"). An action is a POST or
+  DELETE route, or an MCP or CLI tool marked `action`, exactly where BootUI 2.3.0 has the same action. It may have the
+  side effect BootUI's action has, after the gates BootUI applies: MCP or CLI enabled, the guard chain, the panel
+  enabled, the panel not read-only (refused with `PANEL_READ_ONLY`), and single-flight where BootUI's action has it
+  (scans, heap dumps, thread captures, the vulnerability scan; not every action). Defaults (MCP off, each panel's
+  read-only default) are BootUI's. An action with no BootUI counterpart needs `/sharpit:predict` and
+  `/sharpit:llm-council --tier high`.
 - Each ported test cites its BootUI source: `# ported: LocalhostGuardTests.rejectsMalformedHost`.
 - The session cookie name is `SESSION_COOKIE` in `engine/guard.py`; nothing else spells it.
 - Durations accept `Ns`, `Nms` or bare seconds.
@@ -75,9 +83,11 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
 2. **Guard chain on every request**, in order: security headers → trusted source → Host allow-list → cross-site →
    token → panel access. Forwarded headers never grant trust.
 3. **Secrets masked** before filtering and before any output (JSON, errors, MCP, CLI). `FULL` exposure warns.
-4. **No side effects** on reads (above). Tests use the `no_side_effects` fixture.
+4. **No side effects on reads; actions only behind BootUI's gates** (above). Every read uses the `no_side_effects`
+   fixture; every action has a test that a read-only panel refuses it.
 5. **Introspection is defensive**: FastAPI/Starlette internals change between versions; degrade, never crash the host.
-6. **OSV / network** failures are reported in the scan status and release the lock; nothing else needs the network.
+6. **Network** is used only by actions that call out in BootUI too (the OSV/EPSS scan, the GitHub refresh); their
+   failures are reported in the action's status and release the lock.
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
