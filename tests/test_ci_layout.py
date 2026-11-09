@@ -1,6 +1,5 @@
 """CI layout costs, pinned by count, never by wall clock: where lint runs, how a leg is sharded, the tracer."""
 
-import ast
 import os
 import re
 import shutil
@@ -132,6 +131,7 @@ def test_live_runs_one_job_per_server() -> None:
     assert "--health-cmd" in live
     assert "--health-interval" in live
     assert "--health-retries" in live
+    assert "matrix.server == 'mariadb' && 'healthcheck.sh --connect --innodb_initialized'" in live
 
 
 def test_live_leg_pins_keep_the_old_case_totals() -> None:
@@ -140,7 +140,7 @@ def test_live_leg_pins_keep_the_old_case_totals() -> None:
     assert sum("test_example_app_records_its_server_family=1" in pins for pins in required) == 2
     assert sum("test_oracle_control=3" in pins for pins in required) == 2
     assert sum("test_a_server_answers=1" in pins for pins in required) == 4
-    assert sum("test_a_refused_statement_keeps_its_value_hidden=1" in pins for pins in required) == 4
+    assert sum("test_a_refused_statement_keeps_its_value_hidden=1" in pins for pins in required) == 5
 
 
 def _live_leg_filters() -> dict[str, str]:
@@ -154,24 +154,10 @@ def _live_leg_filters() -> dict[str, str]:
     return result
 
 
-def _matches_live_filter(expression: str, nodeid: str) -> bool:
-    def matches(node: ast.AST) -> bool:
-        if isinstance(node, ast.Name):
-            return node.id in nodeid
-        if isinstance(node, ast.BoolOp):
-            values = [matches(value) for value in node.values]
-            return all(values) if isinstance(node.op, ast.And) else any(values)
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-            return not matches(node.operand)
-        raise AssertionError(f"unsupported -k expression: {expression}")
-
-    return matches(ast.parse(expression, mode="eval").body)
-
-
 def test_the_live_legs_partition_the_live_tests() -> None:
     root = Path(__file__).parent.parent
     collected = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-n", "4", "tests/live", "--live"],
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-n", "0", "tests/live", "--live"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -181,12 +167,40 @@ def test_the_live_legs_partition_the_live_tests() -> None:
     assert collected.returncode == 0, collected.stderr[-2000:]
     nodeids = [line for line in collected.stdout.splitlines() if line.startswith("tests/live/") and "::" in line]
     assert nodeids
-    assignments = {
-        nodeid: [leg for leg, expression in _live_leg_filters().items() if _matches_live_filter(expression, nodeid)]
-        for nodeid in nodeids
+    test_paths = sorted({nodeid.split("[", 1)[0] for nodeid in nodeids})
+    selected: dict[str, set[str]] = {}
+    for leg, expression in _live_leg_filters().items():
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "--collect-only",
+                "-q",
+                "-n",
+                "0",
+                *test_paths,
+                "--live",
+                "-k",
+                expression,
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=900,
+        )
+        assert result.returncode == 0, f"{leg}: {result.stderr[-2000:]}"
+        selected[leg] = {line for line in result.stdout.splitlines() if line.startswith("tests/live/") and "::" in line}
+    assigned = set().union(*selected.values())
+    assert assigned == set(nodeids), f"unassigned live tests: {set(nodeids) - assigned}"
+    overlaps = {
+        (left, right): len(selected[left] & selected[right])
+        for index, left in enumerate(selected)
+        for right in list(selected)[index + 1 :]
+        if selected[left] & selected[right]
     }
-    assert not [nodeid for nodeid, legs in assignments.items() if not legs]
-    assert not [nodeid for nodeid, legs in assignments.items() if len(legs) > 1]
+    assert not overlaps, f"live leg overlaps: {overlaps}"
 
 
 def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None:
