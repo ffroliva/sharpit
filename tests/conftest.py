@@ -199,8 +199,9 @@ def _snapshot(root: Path) -> dict[str, tuple[int, int] | None]:
 def pytest_sessionstart(session: pytest.Session) -> None:
     # Create the cache dir before xdist workers start: its first creation stages a pytest-cache-files-* dir in the cwd,
     # which a worker's no_side_effects snapshot would otherwise catch mid-test.
-    if session.config.cache is not None:
-        session.config.cache.mkdir("sharpit")
+    cache = getattr(session.config, "cache", None)  # absent under -p no:cacheprovider
+    if cache is not None:
+        cache.mkdir("sharpit")
     _REPO_STATE_SNAPSHOT.update(_snapshot(Path(__file__).parents[1] / ".sharpit"))
 
 
