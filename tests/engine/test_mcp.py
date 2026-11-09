@@ -481,8 +481,9 @@ def test_cancellations_and_progress_dropped_status():
     server = _server()
     cancel = _rpc("notifications/cancelled", None, {"requestId": 7, "reason": "user"})
     assert _post(server, cancel) == (202, None)
-    assert server.status()["cancellations"] == 1
-    assert server.status()["progressDropped"] == 0
+    status = server.status()
+    assert status["cancellations"] == 1
+    assert status["progressDropped"] == 0
 
 
 def test_mcp_progress_token_in_meta_is_accepted():
