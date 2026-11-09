@@ -166,6 +166,7 @@ def _live_leg_filters() -> dict[str, str]:
 
 
 @pytest.mark.needs_sqlalchemy  # it collects tests/live, which imports the SQLAlchemy stack
+@pytest.mark.timeout(300)  # five nested collections; see NESTED_RUN_TESTS
 def test_the_live_legs_partition_the_live_tests() -> None:
     root = Path(__file__).parent.parent
     collection_environment = os.environ.copy()
@@ -322,3 +323,21 @@ def test_the_heavy_masking_gates_have_one_job_and_no_shard_collects_them(
     result = pytester.runpytest_subprocess("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
     for gate in OWN_JOB_FILES:
         assert f"{gate}::test_row" in result.outlines
+
+
+# Windows has no SIGALRM: pytest-timeout's thread method calls os._exit at the deadline, and xdist reports the dead
+# worker as "crashed" with no traceback. Tests that run nested git or pytest suites outlive the 60 s default under load.
+NESTED_RUN_TESTS = (
+    ("tests/scripts/test_lane_gate.py", "test_f5b_leased_log_needs_both_leased_tests"),
+    ("tests/masking/test_a12_resolver.py", "test_the_driver_switch_put_back_fails_the_surface_row"),
+    ("tests/test_ci_layout.py", "test_the_live_legs_partition_the_live_tests"),
+)
+
+
+@pytest.mark.parametrize(("path", "name"), NESTED_RUN_TESTS, ids=[name for _, name in NESTED_RUN_TESTS])
+def test_a_nested_run_test_outlives_the_default_timeout(path: str, name: str) -> None:
+    source = (Path(__file__).parent.parent / path).read_text(encoding="utf-8")
+    head = source[: source.index(f"def {name}(")].rstrip().splitlines()[-3:]
+    marks = [int(found) for line in head for found in re.findall(r"pytest\.mark\.timeout\((\d+)\)", line)]
+    assert marks, f"{name} has no timeout mark"
+    assert marks[0] >= 300, f"{name} timeout {marks[0]} s"

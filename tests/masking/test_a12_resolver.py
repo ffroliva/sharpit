@@ -125,6 +125,7 @@ SURFACE_PLANTS = {
 }
 
 
+@pytest.mark.timeout(300)  # its nested pytest run has its own 120 s timeout: the outer one must outlive it
 @pytest.mark.parametrize("row", SURFACE_ROWS)
 def test_the_driver_switch_put_back_fails_the_surface_row(row: str, tmp_path: Path) -> None:
     plant = SURFACE_PLANTS[row]
