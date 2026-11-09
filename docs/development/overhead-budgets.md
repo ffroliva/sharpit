@@ -4,10 +4,14 @@ How sharpit measures its performance impact, how to read a budget failure, and h
 
 ## What the budget tests guard
 
-sharpit runs inside someone else's app, so what counts is the time it adds. Two budget tests guard the hot paths:
+sharpit runs inside someone else's app, so what counts is the time it adds. Four budget tests guard the hot paths:
 
 - `tests/fastapi/test_capture_overhead.py`: capture middleware, 0.2 ms per request.
 - `tests/fastapi/test_sql_trace_overhead.py`: SQL listener, 50 µs per statement.
+- `tests/fastapi/test_sql_trace_overhead.py::test_recorder_cache_miss_within_budget`: SQL listener on a statement the recorder has not seen, 300 µs. The 50 µs test repeats one statement, so it never reaches the scan or the masker. Measured 2026-11-05 with `uv run python -m scripts.dev.overhead_check <test> --runs 10`, 1,000 distinct statements a side, on a quiet workstation: 58 µs median (57 to 64) on `9725dc1`, 213 µs median (199 to 230) with the recorder's masker pass. The rise is the price of masking, paid once per distinct text while the statement stays in the recorder's 1,024-entry cache; a statement with inline literals is a new text every time. With one scan on a miss and no second read of unchanged text: 114 µs median (96 to 136), 130 µs (120 to 176) under `--load`. The test's statement is 43 characters and the cost grows with length: paired on and off, a 736-character statement adds 581 µs (350 at `9725dc1`), a 4,901-character one 4,175 µs (2,349). 300 µs is a first number, set from that measurement, for the owner to confirm.
+- `tests/fastapi/test_sql_trace_overhead.py::test_recorder_cache_miss_on_a_large_statement_within_budget`: SQL listener on a distinct 138 KB statement (10,000 `'k=v'` literals), 40 ms. Nothing past the scan's 20,000 characters is shown, so the masker reads that window and a 4,096-character margin, not the whole statement (council finding, Task 35). Measured 2026-11-08 on a workstation at 64 to 68 % CPU from other agents, `-n 0`: 4.5 ms on base `523eb1e5` (same shape, a scratch script: the test needs HEAD's modules), 90 ms on `6975ff94` before the bound (52 ms in this test, red against 40), and with the bound, `overhead_check --runs 10`: 24.6 ms median (20.9 to 31.2), noise 1.8 ms. The residual over base is the masker's pass over the bounded window, the price a 24 KB statement pays too. 40 ms is a first number, for the owner to confirm.
+- `tests/fastapi/test_sql_trace_overhead.py::test_mysql_family_read_budget`: distinct ORM-style backtick statements, family scan against one MySQL read, maximum 1.2x. There is no statement cache in this direct lexer measurement, so each input reaches the reader. A statement holding a `$` or a `\` pays the second read, and one holding a `\` four more for the session readings: no budget covers those, and no statement of an ORM holds them unless its values are inline.
+- `tests/fastapi/test_mask_error_overhead.py`: `mask_error` on a log line, 350 µs per line. That is about 2x `fa2d51e`, the tree the masking redesign started from: a line with no SQL marker takes the path of `mask_text`. `test_error_text_overhead` times the facade's `error_text`, the call the log tail makes, on the same line against the same budget. Measured 2026-11-08 on the SQL output architecture (Task 32, five runs alone, `-n 0`): `mask_error` 236 µs median (173 to 251), `error_text` 233 µs median (181 to 248), noise 11 to 15 µs. The facade adds no pass.
 
 CI's coverage job deselects them because coverage tracing distorts timing. Every other test job runs them.
 
@@ -53,7 +57,7 @@ Until 2026-11-03, noise was the median minus the min of one side. With many shor
 
 Follow these steps when a budget test fails:
 
-1. **Read the noise in the message.** Check if the overshoot sits within the reported noise.
+1. **Read the noise in the message.** Check if the overshoot sits within the reported noise. Low noise means a real rise: an overshoot well past the noise is not a busy runner. Never blame the runner without a noise figure.
 2. **Run the check script locally.** Run `uv run python -m scripts.dev.overhead_check <test> --runs 10` locally; then with `--load` to see how it behaves on a busy machine.
 3. **Compare against main.** Run the same on a clean worktree of `origin/main`. If main fails the same way, it is not your change.
 4. **Evaluate the result.** Only a failure larger than its noise, that also does not happen on main, is a regression.
@@ -78,3 +82,30 @@ Capture overhead measured 0.12 to 0.18 ms per request.
 Under bursty load (every core busy 0.7 s, idle 0.7 s) the old sequential harness failed 3 of 12 runs (0.530, 0.244 and 0.259 ms against a 0.2 ms budget). On a quiet machine it passed 10 of 10 runs.
 
 After the alternating harness, on the same machine and load: 0 of 12 runs failed under load (overhead 0.119 to 0.191 ms, median noise 0.044 ms) and 0 of 10 quiet (0.117 to 0.160 ms, median noise 0.024 ms). The worst loaded run is still close to the budget, so a rare failure on a very busy runner remains possible; the noise in the message tells it apart.
+
+## Removed budgets
+
+### security-logs hook per request (removed 2026-11-04, owner's decision)
+
+`tests/fastapi/test_security_logs_overhead.py` held a 2.000 µs wall-clock budget for what the enabled `security-logs`
+panel adds to a 200 request. It is gone, on purpose, as an explicit owner exception to architecture rule 5 for this one
+test.
+
+Why: the number it measured is zero by construction. The capture middleware reaches the hook only for a 401 or 403
+(`if sent in (401, 403) and wiring.on_security_event is not None`), so on a timed 200 the hook-on and hook-off apps run
+the same code. What the test reported was the error of the estimator, and the error is larger than the budget:
+
+- 65 results from 13 CI runs on 2026-11-04: 36 were negative (down to -45 µs, a hook cannot speed a request up), 6 were
+  over the budget (2.13 to 21.6 µs; four on Linux 3.14, one of them on `release/0.5.0` before any masking gate), and a
+  quiet runner scatters about ±1 µs against a 2 µs budget. A passing run and a failing run of the same code, hours apart.
+- A control with two identical hook-off apps, 12 fresh processes: -3.8 to +3.7 µs, as wide as the real pair.
+- The `noise` figure cannot see the cause. A constant offset between two apps is the same in both halves of the run, so
+  it does not show in the split-half gap, and a 2 µs margin is 1.25 % of a 130-160 µs request.
+
+What replaces it: `test_200_request_runs_no_security_logs_code` in the same file. It profiles a round of 200 requests and
+asserts that no function of `engine/capture/securitylogs.py` is entered, and that a 401 does enter it (so the profile can
+see the lane). It was checked to bite: with the guard in `capture.py` changed to call the hook on every request, it fails
+on `assert ['hook', ...] == []` (110 calls). The 0.2 ms capture budget still covers the middleware as a whole.
+
+This is not a precedent. A budget that measures real work (the other budget tests time 20 to 50 µs per call, or 0.2 ms)
+stays, and moving one is still the owner's decision with the measurements in the PR.

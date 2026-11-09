@@ -396,3 +396,31 @@ def test_prompts_get_unknown():
     server = _server()
     assert _post(server, _rpc("prompts/get", 6, {"name": "nope"}))[1] == _err(6, -32602, "Unknown prompt: nope")
     assert _post(server, _rpc("prompts/get", 6, {}))[1] == _err(6, -32602, "Missing prompt name")
+
+
+# --- lane D4: BootUI 2.2.0 protocol revisions and status counters ---------------------------------------------------
+
+
+def test_mcp_negotiates_2026_07_28_and_tracks_cancellations_and_progress_dropped():
+    # ported: McpProtocolTests.negotiatesSupportedProtocolVersionsAndTracksCancellations
+    server = _server()
+    body = _post(server, _rpc("initialize", 1, {"protocolVersion": "2026-07-28"}))[1] or {}
+    assert body.get("result", {}).get("protocolVersion") == "2026-07-28", "a supported revision is echoed"
+    status, _ = _post(server, PING, {**JSON, "MCP-Protocol-Version": "2026-07-28"})
+    assert status == 200, "the newer revision is accepted in the header"
+    cancel = _rpc("notifications/cancelled", None, {"requestId": 7, "reason": "user"})
+    assert _post(server, cancel) == (202, None)
+    snapshot = server.status()
+    assert snapshot.get("supportedProtocolVersions") == ["2026-07-28", "2025-06-18"]
+    assert snapshot.get("protocolVersion") == "2025-06-18"
+    assert snapshot.get("cancellations") == 1
+    assert snapshot.get("progressDropped") == 0
+
+
+def test_mcp_progress_token_in_meta_is_accepted():
+    # ported: McpProtocolTests.acceptsProgressTokenMeta (no streaming: the call answers in one JSON response)
+    server = _server(tools=(_overview_tool({"ok": True}),))
+    request = _rpc("tools/call", 3, {"name": "get_overview", "arguments": {}, "_meta": {"progressToken": "p-1"}})
+    body = _post(server, request)[1] or {}
+    assert body.get("result", {}).get("structuredContent") == {"ok": True}
+    assert server.status().get("progressDropped") == 0

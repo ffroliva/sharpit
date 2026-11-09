@@ -2,23 +2,22 @@
 
 Port of BootUI ``DataController`` (contract Wave A §1), with the Spring Data repository replaced by the mapped class.
 The collector is duck-typed over the objects the app passed in (a declarative base, a ``registry``) and never imports
-SQLAlchemy. It reads ``registry.mappers`` and, per mapper, ``class_``, ``configured``, ``primary_key`` and
-``local_table``: none of those configures anything. ``mapper.relationships`` and ``mapper.attrs`` call
-``configure_mappers()`` for the mapper's registry and the registries it depends on (user code, may raise), so they are
-read only when every mapper is ``configured`` **and** the registry and each registry it depends on have a clear
-``_new_mappers`` flag (a mapper added to a registry flags its dependents, whose own mappers still say ``configured``).
-That flag is private: a real SQLAlchemy registry without it counts as not configured (fail closed). A GET never
+SQLAlchemy. The registries and the configured-gate come from ``engine/models.py``; per mapper it reads ``class_``,
+``primary_key`` and ``local_table`` (none configures anything) and ``relationships`` only behind the gate. A GET never
 configures mappers, runs SQL or calls user code (spec §4).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from inspect import getattr_static
+from functools import partial
 from typing import Any, NamedTuple, cast
 
 from sharpit.engine import sqla
-from sharpit.engine.context import SharpitContext
+from sharpit.engine.context import SharpitContext, application_family
+from sharpit.engine.models import mappers_configured, registries
+from sharpit.engine.sqla.dialect_source import exception_dialect
+from sharpit.engine.sqltext import Dialect, error_text
 
 NO_MODELS = "pass models= to sharpit.install"
 UNCONFIGURED = "Mappers are not configured yet: the app has not run a query"
@@ -32,36 +31,6 @@ class _Scan(NamedTuple):
     warnings: list[str]
     reason: str | None
     present: bool
-
-
-_MISSING = object()
-
-
-def _has_mappers(candidate: object) -> bool:
-    # getattr_static never runs a descriptor, so a hybrid property or a ``mappers`` column on a model is inert
-    return not isinstance(candidate, type) and getattr_static(candidate, "mappers", _MISSING) is not _MISSING
-
-
-def _registry_of(entry: object) -> object | None:
-    candidate = getattr_static(entry, "registry", None) if isinstance(entry, type) else entry
-    return candidate if _has_mappers(candidate) else None
-
-
-def registries(models: tuple[object, ...]) -> tuple[list[object], list[str]]:
-    """The distinct registries behind ``models`` (a base, a ``registry``, a mapped class); a warning per stranger."""
-    found: list[object] = []
-    warnings: list[str] = []
-    for entry in models:
-        try:
-            registry = _registry_of(entry)
-        except Exception:  # noqa: BLE001 - a hostile attribute must not fail the GET
-            registry = None
-        if registry is None:
-            kind = type(entry).__name__
-            warnings.append(f"Ignoring models entry of type {kind}: expected a declarative base or a registry")
-        elif not any(registry is seen for seen in found):
-            found.append(registry)
-    return found, warnings
 
 
 def _qualified(cls: Any) -> str:
@@ -90,12 +59,25 @@ def _field(ctx: SharpitContext, warnings: list[str], label: str, read: Callable[
     try:
         return read()
     except Exception as error:  # noqa: BLE001 - user mapping code must not fail the GET
-        warnings.append(_masked(ctx, f"Could not read {label} ({type(error).__name__}: {error})"))
+        warnings.append(_warning(ctx, f"Could not read {label}", error))
         return None
 
 
-def _masked(ctx: SharpitContext, text: str) -> str:
-    return ctx.masker.mask_text(text) or text.split(" (", 1)[0]
+def _masked(ctx: SharpitContext, text: str, error: BaseException | None = None) -> str:
+    application = partial(application_family, ctx)
+    family = exception_dialect(error, application) if error is not None else application()
+    dialect = Dialect.UNSUPPORTED if family is None else family
+    if error is not None:
+        return error_text(ctx.masker, error, dialect) or type(error).__name__
+    return error_text(ctx.masker, text, dialect) or text.split(" (", 1)[0]
+
+
+def _warning(ctx: SharpitContext, label: str, error: BaseException) -> str:
+    """``label (Name: message)``. The message is read from the object, never by ``str()``, which is application code
+    and can raise; the label is sharpit's own text and stays outside what is masked."""
+    name = type(error).__name__
+    message = _masked(ctx, name, error)
+    return f"{label} ({name})" if message == name else f"{label} ({name}: {message})"
 
 
 def _table(mapper: Any) -> str | None:
@@ -128,33 +110,6 @@ def _row(ctx: SharpitContext, warnings: list[str], mapper: Any, configured: bool
     }
 
 
-def _is_configured(mapper: Any) -> bool:
-    try:
-        return bool(mapper.configured)
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def _registry_is_clear(registry: Any) -> bool:
-    """No registry this one depends on (itself included) has a mapper waiting to be configured."""
-    if not any(c.__module__.startswith("sqlalchemy") for c in type(registry).__mro__):
-        return True  # not SQLAlchemy's registry or a subclass: nothing private to read, the per-mapper flags decide
-    try:
-        pending = [registry]
-        seen: set[int] = set()
-        while pending:
-            current = pending.pop()
-            if id(current) in seen:
-                continue
-            seen.add(id(current))
-            if getattr(current, "_new_mappers", True):  # absent or True: fail closed
-                return False
-            pending.extend(getattr(current, "_dependencies", ()))
-    except Exception:  # noqa: BLE001
-        return False
-    return True
-
-
 def _scan(ctx: SharpitContext) -> _Scan:
     if not ctx.models:
         return _Scan([], [], NO_MODELS, False)
@@ -170,19 +125,15 @@ def _scan(ctx: SharpitContext) -> _Scan:
         try:
             mappers = list(cast(Any, registry).mappers)
         except Exception as error:  # noqa: BLE001
-            warnings.append(
-                _masked(ctx, f"Skipping a registry that could not be read ({type(error).__name__}: {error})")
-            )
+            warnings.append(_warning(ctx, "Skipping a registry that could not be read", error))
             continue
-        configured = all(_is_configured(mapper) for mapper in mappers) and _registry_is_clear(registry)
+        configured = mappers_configured(registry, mappers)
         pending = pending or not configured
         for mapper in mappers:
             try:
                 rows.append(_row(ctx, warnings, mapper, configured))
             except Exception as error:  # noqa: BLE001 - one bad mapper drops only its own row
-                warnings.append(
-                    _masked(ctx, f"Skipping a mapper that could not be read ({type(error).__name__}: {error})")
-                )
+                warnings.append(_warning(ctx, "Skipping a mapper that could not be read", error))
     rows.sort(key=lambda row: row["repositoryInterface"])
     if pending:
         warnings.append(UNCONFIGURED)

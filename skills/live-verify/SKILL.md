@@ -47,7 +47,8 @@ Use only routes that exist on the branch (`grep -n "Route(" src/sharpit/fastapi/
 ## 3. Real server check (when activation, the guard or the UI changed)
 
 ```bash
-cd <scratchpad> && uv run --project <repo> fastapi dev live_app.py --port <leased port>   # background it
+# `fastapi dev` needs fastapi[standard], which the test extra does not install
+cd <scratchpad> && uv run --project <repo> --with "fastapi[standard]" fastapi dev live_app.py --port <leased port>   # background it
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:<port>/sharpit/api/panels
 curl -s -H "Host: evil.example" -o /dev/null -w "%{http_code}\n" http://127.0.0.1:<port>/sharpit/api/panels
 ```

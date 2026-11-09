@@ -24,10 +24,12 @@ from sharpit.engine.collectors.sqlastats import (
     RECORDING_PAUSED,
     REPORT_KEYS,
     STATISTICS_KEYS,
+    _select_counts,  # pyright: ignore[reportPrivateUsage]
     statistics_report,
 )
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.sqltext import Dialect
 from sharpit.settings import load_settings
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
@@ -87,7 +89,9 @@ def _request(ctx: SharpitContext, rid: str, *, method: str = "GET", endpoint: st
 
 def _sql(ctx: SharpitContext, sql: str, rid: str | None = None, millis: int = 2) -> None:
     assert ctx.capture.sql_trace is not None
-    ctx.capture.sql_trace.record(sql, duration_ns=millis * 1_000_000, thread="t", connection_id=None, request_id=rid)
+    ctx.capture.sql_trace.record(
+        sql, duration_ns=millis * 1_000_000, thread="t", connection_id=None, request_id=rid, dialect=Dialect.POSTGRESQL
+    )
 
 
 def _stats(ctx: SharpitContext) -> dict[str, Any]:
@@ -156,6 +160,12 @@ def test_unavailable_when_tracing_off():
 def test_unavailable_mirrors_sqlalchemy_absent(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(sqla, "unavailable_reason", lambda: "SQLAlchemy not imported")
     assert statistics_report(_ctx())["unavailableReason"] == "SQLAlchemy not imported"
+
+
+def test_a_statement_with_no_identity_counts_toward_no_n_plus_one():
+    shape = normalize("select 1", Dialect.SQLITE)._replace(fingerprint=None)
+    rows = [{"traceId": "r1", "category": "SELECT", "shape": shape}] * 6
+    assert _select_counts(rows) == ({}, {})
 
 
 def test_n_plus_one_per_route():
@@ -278,7 +288,7 @@ def test_get_does_not_normalize(monkeypatch: pytest.MonkeyPatch):
 
     def spy(sql: str) -> Any:
         calls.append(sql)
-        return normalize(sql)
+        return normalize(sql, Dialect.UNSUPPORTED)
 
     monkeypatch.setattr(sqlastats, "normalize", spy, raising=False)
     statistics_report(ctx)

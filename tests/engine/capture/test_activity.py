@@ -31,6 +31,7 @@ from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.collectors.health import health_service
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.spi import AppInfo, ProviderInfo, RouteInfo
+from sharpit.engine.sqltext import Dialect
 from sharpit.settings import load_settings
 
 
@@ -61,7 +62,7 @@ def _ctx(*, sql: bool = True, exceptions: bool = True, **options: Any) -> Sharpi
     capture = ctx.capture
     capture.exchanges = HttpExchangeBuffer(200)
     if exceptions:
-        capture.exceptions = ExceptionStore(100, 25, 50, ctx.masker)
+        capture.exceptions = ExceptionStore(100, 25, 50, ctx.masker, application=lambda: None)
     if sql:
         capture.sql_trace = SqlTraceRecorder(ctx.masker, slow_query_threshold_millis=100)
     return ctx
@@ -94,7 +95,13 @@ def _request(
 
 def _sql(ctx: SharpitContext, rid: str | None, sql: str = "select * from pets where id = 1", **kw: Any) -> None:
     assert ctx.capture.sql_trace is not None
-    fields: dict[str, Any] = {"duration_ns": 2_000_000, "thread": "t", "connection_id": None, **kw}
+    fields: dict[str, Any] = {
+        "duration_ns": 2_000_000,
+        "thread": "t",
+        "connection_id": None,
+        "dialect": Dialect.POSTGRESQL,
+        **kw,
+    }
     ctx.capture.sql_trace.record(sql, request_id=rid, **fields)
 
 
@@ -177,6 +184,29 @@ def test_n_plus_one_flags_request_and_group():
     ]
 
 
+def test_request_profile_groups_by_the_row_dialect():
+    """MySQL's ``#`` opens a comment: the group drops it, read as the row's dialect says, not as the generic scan.
+
+    Captured parameters keep the row's text raw, so the grouping is the first read of it.
+    """
+    ctx = _ctx(activity_n_plus_one_threshold=3, sql_trace_capture_parameters=True)
+    _request(ctx, "r1")
+    for n in range(3):
+        _sql(ctx, "r1", f"select * from owners # by name\nwhere id = {n}", dialect=Dialect.MYSQL_FAMILY)
+    groups = request_profile(ctx, "r1")["sqlGroups"]
+    assert [(g["sql"], g["executions"]) for g in groups] == [("select * from owners where id = ?", 3)]
+
+
+def test_keyless_sqlite_activity_groups_by_masked_text_without_an_identity():
+    ctx = _ctx(activity_n_plus_one_threshold=3)
+    _request(ctx, "r1")
+    for _ in range(9):
+        _sql(ctx, "r1", "SELECT id FROM t WHERE a = 7", dialect=Dialect.SQLITE)
+    [group] = request_profile(ctx, "r1")["sqlGroups"]
+    assert (group["sql"], group["executions"], group["potentialNPlusOne"]) == ("SELECT id FROM t WHERE a = ?", 9, True)
+    assert "id" not in group
+
+
 @pytest.mark.parametrize(
     ("status", "duration_ms", "expected"),
     [(503, 5, "ERROR"), (500, 5000, "ERROR"), (404, 5000, "WARN"), (200, 1000, "SLOW"), (200, 999, "OK")],
@@ -235,7 +265,8 @@ def test_until_cursor_ignored():
     # BootUI's until/cursor/pageSize belong to persistence; sharpit's signature has no such parameters
     import inspect
 
-    assert set(inspect.signature(activity_report).parameters) == {"ctx", "type", "severity", "since", "limit", "q"}
+    params = {"ctx", "type", "severity", "since", "limit", "q", "journal_filters"}  # 2.2.0: journal-only filter flag
+    assert set(inspect.signature(activity_report).parameters) == params
 
 
 def test_kpis_p50_p95_and_nulls():
@@ -370,20 +401,23 @@ def test_shape_keys_match_bootui():
     # ported: ActivityEntryDto, ActivityKpiDto, LiveActivityReport, RequestProfileDto
     assert ENTRY_KEYS == (
         "id", "type", "timestamp", "severity", "summary", "detail", "durationMs", "correlationId", "method", "path",
-        "status", "thread", "profileable", "parentId", "securedPrincipal", "sqlNPlusOneSuspected",
+        "status", "thread", "profileable", "parentId", "securedPrincipal", "sqlNPlusOneSuspected", "badges",
+        "exceptionGroupId",
     )  # fmt: skip
     assert KPI_KEYS == (
         "requestsPerMinute", "errorRatePercent", "p50LatencyMs", "p95LatencyMs", "slowestEndpoint",
         "slowestEndpointMs", "activeExceptionCount", "sqlPerMinute", "slowestQueryMs", "healthStatus",
         "heapUsedBytes", "heapMaxBytes", "cacheHitRatioPercent", "scheduledTaskFailureCount",
-        "restCallErrorRatePercent", "restCallP95LatencyMs",
+        "restCallErrorRatePercent", "restCallP95LatencyMs", "latencySampleCount", "slowestEndpointRoute",
+        "slowestEndpointRouteId", "slowestEndpointRouteSource",
     )  # fmt: skip
     assert REPORT_KEYS == (
         "available", "entries", "typeCounts", "kpis", "sources", "warnings", "pageInfo", "persistenceOption",
     )  # fmt: skip
     assert PROFILE_KEYS == (
         "available", "unavailableReason", "request", "sql", "sqlGroups", "sqlCorrelationApproximate", "exceptions",
-        "security", "trace", "timing", "notes",
+        "security", "trace", "timing", "notes", "restCalls", "cacheAccesses", "sections", "correlationTiers",
+        "approximate",
     )  # fmt: skip
     ctx = _ctx()
     _request(ctx, "r1")
@@ -400,3 +434,35 @@ def test_fan_in_forwards_source_ticks():
     target.signal = lambda: seen.append(1)  # type: ignore[method-assign]
     source.signal()  # nobody subscribes to the source: the tick still reaches the fan-in
     assert seen == [1]
+
+
+def test_request_profile_emits_2_2_0_keys_and_get_request_profile_tool():
+    # ported: LiveActivityServiceTests.requestProfileIncludes220Collections (BootUI 2.2.0 RequestProfileDto)
+    from sharpit.engine.tools import TOOLS
+
+    ctx = _ctx()
+    _request(ctx, "r1")
+    profile = request_profile(ctx, "r1")
+    added = {k: profile.get(k, "missing") for k in ("restCalls", "cacheAccesses", "sections", "correlationTiers")}
+    assert added == dict.fromkeys(added, []), "the 2.2.0 collections are empty lists"
+    assert profile.get("approximate") is False
+    assert request_profile(ctx, "gone").get("approximate") is False, "the unavailable profile has every key"
+    tools = {t.name: t for t in TOOLS}
+    assert "get_request_profile" in tools, "the 2.2.0 request profile tool"
+    tool = tools["get_request_profile"]
+    assert (tool.panel, tool.action, tool.input_schema["required"]) == ("activity", False, ["id"])
+
+
+def test_activity_buffer_source_emits_warning_on_journal_only_filters():
+    # ported: LiveActivityControllerTests.warnsWhenJournalFiltersUsedAgainstBuffers
+    from sharpit.engine.capture.activity import BUFFER_SOURCE_FILTERS
+
+    ctx = _ctx()
+    _request(ctx, "r1")
+    warned = _report(ctx, journal_filters=True)["warnings"]
+    assert BUFFER_SOURCE_FILTERS in warned, "journal-only filters on the buffer feed say they do not apply"
+    assert BUFFER_SOURCE_FILTERS not in _report(ctx)["warnings"]
+    assert BUFFER_SOURCE_FILTERS == (
+        "The route, run, request id, and no-request filters apply to the feed rendered from the runtime journal "
+        "(source=journal); this feed comes from the panel buffers."
+    )

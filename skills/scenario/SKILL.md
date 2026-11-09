@@ -68,9 +68,20 @@ catch-all route (must not shadow the mount, which sits at `routes[0]`), a `root_
 **D9. Scale and limits.** ~300 routes, ~80 getenv keys, ~200 distributions, very long values, deep logger trees, MCP
 response-size caps (counted in UTF-8 bytes), MCP timeout releasing its semaphore.
 
-**D10. MCP and CLI parity.** MCP and `{api}/cli` share `engine/tools.py`: same schema, same caps, same masking. MCP has
-no action tool; `vulnerabilities_scan` exists only on `/cli`, gated by the panel and read-only. `SHARPIT_MCP_ENABLED`
+**D10. MCP and CLI parity.** MCP and `{api}/cli` share `engine/tools.py`: same schema, same caps, same masking. Action tools
+follow BootUI (AGENTS.md): listed on MCP like BootUI's catalogue, refused on a read-only or disabled panel, one at a time
+where BootUI's action is single-flight, with no side effect beyond BootUI's. Scenarios: an agent calls an action on a
+read-only panel (refused, `PANEL_READ_ONLY`); two concurrent calls to a single-flight action (409 busy); a
+prompt-injected argument (validated, masked). `SHARPIT_MCP_ENABLED`
 off by default.
+
+## Worst-case trace (before any code)
+
+Pick the one input most likely to break the change (the Critical row with the least obvious path) and walk it by hand
+through the **current** code, line by line, writing down each value as it changes. Trace the code, not the doc or the
+spec's promise about it: a cap applied one step too early, a check skipped on one branch, a mask applied after a
+filter only shows up this way. Cite file and line at each step. A finding that the code contradicts (a comment or a
+branch explains it) is withdrawn, with the reason. Each real gap becomes a must-cover row.
 
 ## Artifact
 
@@ -80,6 +91,7 @@ it with the plan. Do not leave the analysis only in the conversation.
 ```
 # Scenario: <title>
 ## Coverage map (active dimensions, and why the others are skipped)
+## Worst-case trace (input, file:line steps, what it found or why a finding was withdrawn)
 ## Scenario table
 | # | Dimension | Scenario | Severity | Expected behaviour | Test |
 Severity: Critical (secret leak, active in prod, cross-site read, side effect on GET) · High (feature broken) ·

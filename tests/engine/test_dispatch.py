@@ -19,6 +19,8 @@ from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST, RequestInfo  # noqa: E402
 from sharpit.engine.sources import dispatch  # noqa: E402
 from sharpit.engine.sources.dispatch import SqlEvent  # noqa: E402
+from sharpit.engine.sqla import listeners as sqla_listeners  # noqa: E402
+from sharpit.engine.sqltext import Dialect  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -74,6 +76,7 @@ def _event(sql: str = "select 1", **fields: Any) -> SqlEvent:
     values: dict[str, Any] = {
         "source": "sqlite3", "sql": sql, "parameters": None, "executemany": False, "batch_size": None,
         "started_ns": 0, "duration_ns": 1000, "rowcount": 1, "error": None, "connection_id": None, "engine": None,
+        "dialect": Dialect.SQLITE,
     }  # fmt: skip
     return SqlEvent(**{**values, **fields})
 
@@ -200,7 +203,7 @@ def test_before_returns_early_without_targets_or_sink(monkeypatch: pytest.Monkey
     _install()
     _install()
     named: list[object] = []
-    monkeypatch.setattr(sqla, "_named", lambda *a: named.append(a) or (None, None))
+    monkeypatch.setattr(sqla_listeners, "_named", lambda *a: named.append(a) or (None, None))
     engine = sa.create_engine("sqlite://")
     with engine.connect() as conn:
         conn.exec_driver_sql("select 1")

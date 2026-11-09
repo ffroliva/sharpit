@@ -1,0 +1,45 @@
+##### types #####
+asyncpg.exceptions.UniqueViolationError
+##### str(exc) #####
+duplicate key value violates unique constraint "u_name_key"
+DETAIL:  Key (name)=(mkbfcfb8db5c) already exists.
+##### traceback #####
+Traceback (most recent call last):
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 395, in raw_run
+    asyncio.run(a_pg())
+    ~~~~~~~~~~~^^^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "<home>\AppData\Roaming\uv\python\cpython-3.13.7-windows-x86_64-none\Lib\asyncio\base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "<repo>\scripts\dev\capture_sql_errors.py", line 364, in a_pg
+    await conn.execute(sql, *params)
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\asyncpg\connection.py", line 380, in execute
+    _, status, _ = await self._execute(
+                   ^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\asyncpg\connection.py", line 1904, in _execute
+    result, _ = await self.__execute(
+                ^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\asyncpg\connection.py", line 2003, in __execute
+    result, stmt = await self._do_execute(
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "<home>\AppData\Local\uv\cache\archive-v0\fsATR2No33hPH-TM9OZfe\Lib\site-packages\asyncpg\connection.py", line 2066, in _do_execute
+    result = await executor(stmt, None)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 197, in bind_execute
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "u_name_key"
+DETAIL:  Key (name)=(mkbfcfb8db5c) already exists.

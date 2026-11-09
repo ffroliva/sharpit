@@ -32,7 +32,7 @@ it('shows loading, then the good-news empty state', async () => {
   h.route(serve([]));
   h.mount(Exceptions, { panel: panel('exceptions') });
   expect(h.text()).toContain('Loading');
-  await until(() => expect(h.text()).toContain('No exceptions captured. That is good news.'));
+  await until(() => expect(h.text()).toContain('No exceptions captured.'));
 });
 
 it('shows the error state', async () => {

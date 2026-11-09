@@ -100,7 +100,7 @@ def test_shape_keys_match_bootui(tmp_path: Path):
         3,
         5,
     )
-    assert report["rulesEvaluated"] == report["scan"]["rulesEvaluated"] == 20
+    assert report["rulesEvaluated"] == report["scan"]["rulesEvaluated"] == 21  # 20 + 2.2.0's RAPI-RESP-011
     assert report["scan"]["status"] == "SCANNED"
     assert isinstance(report["scan"]["scannedAt"], int)
     assert report["scan"]["message"] == (
@@ -108,7 +108,7 @@ def test_shape_keys_match_bootui(tmp_path: Path):
     )
     ids = [r["id"] for r in report["results"]]
     assert ids == ["RAPI-MAP-003", "RAPI-DOC-002", "RAPI-NAME-001", "RAPI-NAME-003"]  # severity, then count, then id
-    assert all(r["status"] == "FAILED" and r["dismissed"] is False for r in report["results"])
+    assert all(r["status"] == "VIOLATION" and r["dismissed"] is False for r in report["results"])
     assert report["violationsFound"] == report["scan"]["violationsFound"] == 4
     assert {c["severity"]: c["count"] for c in report["severityCounts"]} == {
         "CRITICAL": 0,
@@ -199,11 +199,12 @@ RESULT_KEYS = {
     "violationCount",
     "sampleViolations",
     "dismissed",
+    "sampleLocations",
 }
 
 
 def test_result_keys_match_bootui(tmp_path: Path):
-    # ported: RestApiRuleResultDto (11 components)
+    # ported: RestApiRuleResultDto (12 components; 2.2.0 adds sampleLocations)
     assert set(_service(tmp_path).scan()["results"][0]) == RESULT_KEYS
 
 
@@ -240,8 +241,21 @@ def test_failed_build_leaves_retention_and_cache_unchanged(tmp_path: Path, monke
     # a scan whose report cannot be built must not replace the retained details (review r0 finding 3)
     service = _service(tmp_path)
     first = service.scan()["violationDetails"]["scanId"]
-    monkeypatch.setattr("sharpit.engine.collectors.restapi.service.report.build", lambda *a, **k: 1 / 0)
+    monkeypatch.setattr("sharpit.engine.advisors.scan.build_report", lambda *a, **k: 1 / 0)
     with pytest.raises(ZeroDivisionError):
         service.scan()
     assert service.report()["violationDetails"]["scanId"] == first
     assert service.violations("RAPI-NAME-001", first, None, None, 1000)["violationCount"] == 1  # still pages
+
+
+def test_rest_api_golden_parity_after_drift(tmp_path: Path):
+    # lane D4: a scan that trips the 2.2.0 RAPI-RESP-011 rule still matches the BootUI 2.2.0 capture
+    from golden import assert_enum_values, assert_parity
+
+    optional = _route("/v1/pets/{id}", "read_pet", return_annotation=Pet | None)
+    report = _service(tmp_path, (*ROUTES, optional)).scan()
+    by_id = {r["id"]: r for r in report["results"]}
+    assert by_id.get("RAPI-RESP-011", {}).get("status") == "VIOLATION"
+    assert by_id["RAPI-RESP-011"]["sampleLocations"] == [], "sharpit keeps no source locations (handoff decision)"
+    assert_parity("rest-api", "captured", report)
+    assert_enum_values("rest-api", "captured", report)

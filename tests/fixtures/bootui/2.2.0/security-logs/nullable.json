@@ -1,0 +1,4 @@
+{
+  "events[].traceId": "sharpit has no trace id for a security event; it carries the request id, as BootUI's Quarkus buffer does, so the golden's null becomes a string.",
+  "events[].principal": "null for an event with no authenticated user, such as an anonymous 401"
+}

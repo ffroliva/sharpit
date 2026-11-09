@@ -45,6 +45,7 @@
   {loadError}
   vulnerabilities
   readOnlyReason={panel.readOnly ? (panel.readOnlyReason ?? 'Read-only') : null}
+  onretry={load}
   scanDisabledReason={report && !report.scanningEnabled ? report.scan.message : null}
   scanLabel={(phase) => (phase === 'scanning' ? 'Scanning…' : phase === 'results' || phase === 'failed' ? 'Scan again' : 'Scan with OSV.dev')}
   onScan={async () => void (report = await post<VulnReport>('vulnerabilities/scan'))}
@@ -166,5 +167,4 @@
   tr.dismissed .mono { text-decoration: line-through; }
   .line { display: block; }
   .hint { user-select: all; white-space: nowrap; } /* one click selects the whole command */
-  section.block h2 { padding-bottom: var(--s2); }
 </style>

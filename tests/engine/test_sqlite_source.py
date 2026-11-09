@@ -22,6 +22,7 @@ from sharpit.engine import sqla
 from sharpit.engine.capture.sqltrace import category_of
 from sharpit.engine.sources import dispatch, sqlite
 from sharpit.engine.sources.dispatch import SqlEvent
+from sharpit.engine.sqltext import Dialect
 
 REAL_CONNECT = sqlite3.connect
 HOLDER = "test"
@@ -81,6 +82,12 @@ def test_conn_execute_traced(conn: sqlite3.Connection, sink: Sink):
     assert event.rowcount == 1
     assert event.error is None
     assert event.connection_id == hex(id(conn))
+
+
+def test_event_reads_as_sqlite(conn: sqlite3.Connection, sink: Sink):
+    """sqlite's ``"..."`` is an identifier: an event read as MySQL would mask a column name as a string."""
+    conn.execute('select "n" from t')
+    assert [event.dialect for event in sink.events] == [Dialect.SQLITE]
 
 
 def test_cursor_execute_traced(conn: sqlite3.Connection, sink: Sink):
@@ -244,6 +251,21 @@ def test_sqlalchemy_sqlite_counted_once(sink: Sink):
     with engine.connect() as connection:
         connection.execute(sa.text("select 1"))
     assert [e.source for e in sink.events] == ["sqlalchemy"]
+
+
+def _false(_self: Dialect) -> bool:
+    return False
+
+
+# derived: Task 12 review: the listener chose by ``or``, so a falsy member read as UNSUPPORTED
+def test_sqlalchemy_event_names_its_dialect_by_none_not_truth(monkeypatch: pytest.MonkeyPatch, sink: Sink):
+    sa = pytest.importorskip("sqlalchemy")
+    monkeypatch.setattr(Dialect, "__bool__", _false, raising=False)
+    assert sqla.attach_session() is True
+    engine = sa.create_engine("sqlite://")
+    with engine.connect() as connection:
+        connection.execute(sa.text("select 1"))
+    assert [e.dialect for e in sink.events] == [Dialect.SQLITE]
 
 
 def test_sqlalchemy_aiosqlite_counted_once(sink: Sink):

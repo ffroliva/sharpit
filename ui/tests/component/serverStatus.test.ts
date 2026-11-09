@@ -35,6 +35,16 @@ afterEach(() => {
 });
 const until = (fn: () => void) => vi.waitFor(fn, { timeout: 1000, interval: 5 });
 
+it('status load failure has a retry', async () => {
+  fetchMock.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(json(status(true)));
+  component = mount(ServerStatus, { target, props: { panel, kind: 'mcp-server' } });
+  flushSync();
+  await until(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('Could not load'));
+  target.querySelector<HTMLButtonElement>('button')!.click();
+  await until(() => expect(target.textContent).toContain('get_config'));
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
 it('the toggle keeps keyboard focus through the switch', async () => {
   let finish!: (r: Response) => void;
   fetchMock.mockResolvedValueOnce(json(status(false))).mockReturnValueOnce(new Promise<Response>((r) => (finish = r)));

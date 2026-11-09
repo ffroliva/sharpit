@@ -8,7 +8,24 @@ permissions:
   contents: read
 
 jobs:
-  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py) where one runner would take over ~2 min.
+  lint:
+    # ruff, format, pyright and the mirror-link grep are version-independent (pyright pins 3.12): one job, in parallel
+    # with the test shards, so no shard carries lint on its critical path.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv sync --locked --extra test --python 3.12 # NOSONAR - installs sharpit from source; pyright resolves it
+      - run: uv run --no-sync ruff check
+      - run: "! git grep -n 'cloud[n]s' -- ." # links must point at github.com, never a mirror
+        shell: bash
+      - run: uv run --no-sync ruff format --check
+      - run: uv run --no-sync pyright
+
+  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards a leg, because the costliest shard
+  # sets the leg's wall (the ceiling is pinned in tests/test_ci_layout.py).
   # Each leg's shards together run every test exactly once (tests/test_shard.py).
   test-shard:
     name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
@@ -16,34 +33,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, python: "3.12", shard: 1/2 }
-          - { os: ubuntu-latest, python: "3.12", shard: 2/2 }
-          - { os: ubuntu-latest, python: "3.13", shard: 1/2 }
-          - { os: ubuntu-latest, python: "3.13", shard: 2/2 }
-          - { os: ubuntu-latest, python: "3.14", shard: 1/2 }
-          - { os: ubuntu-latest, python: "3.14", shard: 2/2 }
-          - { os: windows-latest, python: "3.14", shard: 1/3 }
-          - { os: windows-latest, python: "3.14", shard: 2/3 }
-          - { os: windows-latest, python: "3.14", shard: 3/3 }
+          - { os: ubuntu-latest, python: "3.12", shard: 1/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 2/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 3/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 4/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 5/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 1/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 2/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 3/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 4/5 }
+          - { os: ubuntu-latest, python: "3.13", shard: 5/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 1/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 2/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 3/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 4/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 5/5 }
+          - { os: windows-latest, python: "3.14", shard: 1/4 }
+          - { os: windows-latest, python: "3.14", shard: 2/4 }
+          - { os: windows-latest, python: "3.14", shard: 3/4 }
+          - { os: windows-latest, python: "3.14", shard: 4/4 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
       - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
-      - run: uv run ruff check
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
-      - run: "! git grep -n 'cloud[n]s' -- ." # links must point at github.com, never a mirror
-        shell: bash
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
-      - run: uv run ruff format --check
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
-      - run: uv run pyright
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && matrix.shard == '1/2' # lint is version-independent (pyright pins 3.12): once
       - run: uv run pytest -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
@@ -67,8 +85,8 @@ jobs:
 
   test:
     # The required checks keep their names: each passes only when every test shard passed (always(): a skipped
-    # required check would count as green). Stricter than per leg: one failed shard fails all four.
-    needs: test-shard
+    # required check would count as green). Stricter than per leg: one failed shard, or lint, fails all four.
+    needs: [test-shard, lint]
     if: always()
     strategy:
       fail-fast: false # each required check reports, none shows as cancelled
@@ -80,7 +98,7 @@ jobs:
             python: "3.14"
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.test-shard.result }}" = success
+      - run: test "${{ needs.test-shard.result }}" = success && test "${{ needs.lint.result }}" = success
 
   coverage-shard:
     # Coverage for SonarCloud. Overhead budget tests time capture on vs off, which the coverage tracer distorts:
@@ -89,13 +107,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/3, 2/3, 3/3]
+        shard: [1/4, 2/4, 3/4, 4/4]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python 3.13 # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
@@ -122,7 +140,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python 3.13 # NOSONAR - the report reads sharpit's sources and coverage's config
@@ -174,7 +192,7 @@ jobs:
           fi
       - name: SonarCloud scan
         if: steps.health.outputs.up == 'true'
-        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
+        uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
         with:
           args: -Dsonar.projectVersion=${{ steps.version.outputs.value }}
         env:
@@ -198,13 +216,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1/2, 2/2]
+        shard: [1/4, 2/4, 3/4, 4/4]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
@@ -232,20 +250,101 @@ jobs:
     steps:
       - run: test "${{ needs.lowest-shard.result }}" = success
 
-  no-sqlalchemy:
+  no-sqlalchemy-shard:
     # SQLAlchemy is optional: sharpit must install, import and serve every panel without it
+    name: no-sqlalchemy shard (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/3, 2/3, 3/3]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: >-
           uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
           --no-install-package alembic --no-install-package greenlet # NOSONAR - this job installs sharpit from source and excludes optional dependencies
       - run: uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy"
+        env:
+          SHARPIT_SHARD: ${{ matrix.shard }}
+
+  no-sqlalchemy:
+    # required check: passes only when every no-sqlalchemy shard passed (always(): a skipped required check counts as green)
+    needs: no-sqlalchemy-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.no-sqlalchemy-shard.result }}" = success
+
+  masking-gates:
+    # The four files that outweigh any shard ceiling alone, every row: test_masking_scales_linearly.py (487 s of CPU
+    # time on Linux), test_statement_surfaces.py (386 s on Windows), test_lane_gate.py (418 s on Windows) and
+    # test_gates_bite.py (488 s on Windows, 279 s on Linux). The shards leave them out (tests/_shard.py OWN_JOB) and
+    # this job runs them whole. No job timeout is set, so GitHub's 6 h default covers them.
+    name: masking gates (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv python install 3.14
+      - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the gate
+      - run: uv run --no-sync pytest tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py tests/masking/test_gates_bite.py -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: # ci_review.py globs junit-*
+          name: junit-gates-${{ matrix.os }}
+          path: ${{ runner.temp }}/junit.xml
+          retention-days: 7
+
+  masking-gates-check:
+    # required check, as `test` is for the shards (always(): a skipped required check counts as green)
+    needs: masking-gates
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.masking-gates.result }}" = success
+
+  live:
+    # The live profile (tests/live, --live): real MySQL, MariaDB and PostgreSQL servers started by Testcontainers. Linux
+    # only: GitHub's Windows runners cannot run Linux containers. A skip is a failure: the check reads the report.
+    runs-on: ubuntu-latest
+    # A container per row once ran this job 2 h 38 min with no verdict (field log F16). The gate takes about 9 minutes
+    # on one container per server; 30 makes a regression of that kind fail in half an hour, not hold the runner.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv python install 3.14
+      - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the live tests
+      - run: uv pip install asyncpg aiomysql # drivers imported by live example tests only
+      - run: uv run --no-sync pytest tests/live --live -n 0 --junitxml=live.xml
+      - name: Require executed live tests, without skips
+        if: always()
+        # the server oracle (tests/live/test_server_oracle.py), by function: the check reads JUnit case names, and a
+        # file name is none. Counts only where the file pins them: a plant list that grows must not break the check
+        run: >-
+          uv run --no-sync python scripts/ci/check_live_tests.py live.xml --require test_a_server_answers=4
+          test_oracle_row test_every_session_leg_ran=14 test_a_refused_statement_keeps_its_value_hidden=5
+          test_oracle_control test_a_wrong_wired_dialect_fails_the_oracle=1 test_the_inverse_plant_shows_five_rows_on_off=1
+          test_example_app_records_its_server_family=2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with: # ci_review.py globs junit-*
+          name: junit-live
+          path: live.xml
+          retention-days: 7
 
   sharpit-gate:
     # Dogfood: the example's fixed route must pass `pytest --sharpit`, its planted N+1 must fail it.
@@ -254,7 +353,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python 3.13 # NOSONAR - installs sharpit from source for the gate
@@ -308,7 +407,7 @@ jobs:
       - name: main never tracks .superpowers/ (harvest into docs/reports/ first)
         if: github.base_ref == 'main'
         run: python3 scripts/ci/no_superpowers.py
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv build --out-dir "$RUNNER_TEMP/dist"
@@ -323,6 +422,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: uvx --from actionlint-py==1.7.12.25 actionlint
       - run: uvx zizmor@1.32.0 --offline --min-severity medium .github/workflows

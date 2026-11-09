@@ -23,6 +23,7 @@ from sharpit.engine.collectors.postgresql.sections import (
 )
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
+from sharpit.engine.sqltext import Dialect, error_text
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -194,7 +195,11 @@ async def _read_engine(
         data, version, timed_out = replace(partial, sections=sections), None, True
         diagnostics.append(_diagnostic(name, "WARNING", BUDGET_RAN_OUT))
     except Exception as exc:  # noqa: BLE001  # a failed engine is reported for that engine, never raised
-        return _error_database(name, ctx.masker.mask_text(str(exc).strip()) or type(exc).__name__, diagnostics)
+        return _error_database(
+            name,
+            error_text(ctx.masker, exc, Dialect.POSTGRESQL, known=True) or type(exc).__name__,
+            diagnostics,
+        )
     data.name = name
     for section in data.sections:
         source = f"{name}/{section['id']}"

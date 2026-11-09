@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sharpit"
 dynamic = ["version"]
-description = "Embedded, local-only developer console for Python apps (a port of BootUI)."
+description = "Local developer console and pytest gate for FastAPI apps, a Python port of BootUI by Julien Dubois."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -54,10 +54,14 @@ test = [
     "sqlalchemy[asyncio]>=2.0.38",
     "aiosqlite>=0.20",
     "psycopg[binary]>=3.2",  # A-postgresql: leased-database tests (spec §6.1 item 9)
+    "pymysql>=1.1",  # 0.5.0 F5b/A-mysql: leased MySQL tests (spec §4.5)
     "alembic>=1.13",
     "jsonschema>=4.21",
     "pytest-asyncio>=0.24",
     "pytest-rerunfailures>=14",
+    "hypothesis>=6.100",  # the property tests of the SQL output architecture
+    "testcontainers>=4.8",  # the live profile (tests/live): the generic DockerContainer, so no sqlalchemy extras
+    "opentelemetry-sdk>=1.26",  # A12 resolver rows use the real ReadableSpan shape
 ]
 
 [dependency-groups]
@@ -80,6 +84,8 @@ exclude = [
     "/skills",
     "/docs/superpowers",
     "/ui",
+    "/design",
+    "/tests/design",
     "/scripts",
     "/pytest-speed.toml",
     "/uv.lock",
@@ -98,7 +104,17 @@ src = ["src", "tests"]
 extend-exclude = ["scripts/pytest_speed"]  # vendored verbatim; its VERSION hash catches local edits
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "PERF", "C4", "FURB", "PT018"]  # PERF/C4/FURB: performance; PT018: one condition per assert
+select = ["E", "F", "I", "UP", "B", "S", "SIM", "PERF", "C4", "FURB", "PT018"]  # PERF/C4/FURB: performance; PT018: one condition per assert
+
+[tool.ruff.lint.per-file-ignores]
+# S (security) guards what ships. Tests assert and use fake secrets by design; scripts and examples are not shipped.
+"tests/**" = ["S"]
+"scripts/**" = ["S"]
+"examples/**" = ["S"]
+"src/sharpit/engine/masking.py" = ["S105"]  # regex fragments named *_TOKEN_*, not passwords
+"src/sharpit/engine/collectors/postgresql/queries.py" = ["S608"]  # constants; relation must match _RELATION_NAME
+"src/sharpit/engine/collectors/vulns/osv.py" = ["S310"]  # settings allow only http and https base URIs
+"src/sharpit/engine/collectors/vulns/epss.py" = ["S310"]  # as osv.py
 
 [tool.pyright]
 include = ["src/sharpit"]
@@ -111,8 +127,12 @@ pythonpath = ["."]  # examples/ (the sample app) imports as a package
 timeout = 60
 markers = [
     "needs_sqlalchemy: needs SQLAlchemy, aiosqlite or greenlet installed (the no-sqlalchemy CI job deselects it)",
+    "live: runs against a real database server (tests/live, collected only with --live)",
 ]
 
 [tool.coverage.run]
 # the pytest plugin tests run pytest in a subprocess (pytester.runpytest_subprocess); measure those too
 patch = ["subprocess"]
+# a planted build copies src/sharpit under pytest's temp dir (tests/masking/a10/conftest.py: scratch_package);
+# its subprocess imports that copy as sharpit, and the combine job, on another runner, has no such file
+omit = ["*/pytest-of-*/*"]

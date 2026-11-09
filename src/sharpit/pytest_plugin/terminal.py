@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from sharpit.engine.advisors.registry import ADVISORS
+from sharpit.engine.testsession.gates import ADVISOR as TEST_RUNTIME_GATES
+from sharpit.engine.testsession.gates import EXCEPTION, MAX_QUERIES, N_PLUS_ONE
 from sharpit.engine.testsession.report import TEST_RUNTIME, finding_fails
-from sharpit.pytest_plugin.apps import AUTODETECT, skip_reason
+from sharpit.pytest_plugin.apps import AUTODETECT, advisor_assessors, skip_reason
 
 
 def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
@@ -58,6 +61,36 @@ def _write_summary(terminalreporter: Any, config: Any, state: Any, plugin: Any, 
         terminalreporter.write_line(f"warning: {warning}")
     if would_fail is not None:
         terminalreporter.write_line(f"sharpit report-only: {would_fail} tests would fail, status {data['status']}")
+    _write_coverage(terminalreporter, state, data)
+
+
+_ASSESSED = frozenset({"PASSED", "FAILED"})  # an app SKIPPED or UNKNOWN was not assessed, so it proves nothing
+
+
+def _write_coverage(terminalreporter: Any, state: Any, data: dict[str, Any]) -> None:
+    try:
+        assessors: set[str] = {advisor for advisor, _ in advisor_assessors()} if state.options.advisors else set()
+        ran = {
+            advisor["advisor"]
+            for advisor in data["advisors"]
+            if advisor["advisor"] in assessors and any(app.get("status") in _ASSESSED for app in advisor["apps"])
+        }
+        checked = [f"{TEST_RUNTIME_GATES} gates ({MAX_QUERIES}, {N_PLUS_ONE}, {EXCEPTION})"]
+        checked.extend(f"{_advisor_name(advisor)} advisor" for advisor in sorted(ran))
+        unchecked = [_advisor_name(spec.id) for spec in ADVISORS if spec.id not in ran | {TEST_RUNTIME_GATES}]
+        terminalreporter.write_line(f"sharpit checked: {', '.join(checked)}")
+    except Exception:  # noqa: BLE001
+        terminalreporter.write_line("sharpit could not list what it checked")
+        unchecked = [_advisor_name(spec.id) for spec in ADVISORS if spec.id != TEST_RUNTIME_GATES]
+    terminalreporter.write_line(
+        "sharpit did not check: "
+        f"{', '.join(unchecked)}; routes and SQL your tests did not exercise; "
+        "security testing (sharpit does no attack or penetration testing)"
+    )
+
+
+def _advisor_name(advisor: str) -> str:
+    return "REST API" if advisor == "rest-api" else advisor
 
 
 def _would_fail(data: dict[str, Any], fail_on: str) -> int:

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 from sharpit.engine import sqla
 from sharpit.engine.daemon_executor import DaemonExecutor
 from sharpit.engine.singleflight import ActionBusy, Flight, SingleFlight
+from sharpit.engine.sqltext import Dialect, dialect_of_name, error_text
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -380,7 +381,8 @@ def _versions(table: str, schema: str | None, conn: Any) -> list[str] | None:
         return None
     prep = conn.dialect.identifier_preparer
     name = prep.quote(table) if schema is None else f"{prep.quote_schema(schema)}.{prep.quote(table)}"
-    return [str(row[0]) for row in conn.exec_driver_sql(f"SELECT version_num FROM {name}")]
+    # name comes from the dialect's identifier preparer, so it is quoted
+    return [str(row[0]) for row in conn.exec_driver_sql(f"SELECT version_num FROM {name}")]  # noqa: S608
 
 
 async def _read(
@@ -395,8 +397,11 @@ async def _read(
         heads = await sqla.run_db_read(engine, read, timeout, executor=executor, done=flight.worker())
     except TimeoutError:
         return DatabaseRead(name, None, f"Reading the database version timed out after {timeout:g}s", checked)
+    except sqla.ReadOnlyUnavailable as exc:
+        return DatabaseRead(name, None, exc.reason, checked)
     except Exception as exc:  # noqa: BLE001 - a failed read is reported for that database, never raised
-        reason = ctx.masker.mask_text(f"{type(exc).__name__}: {exc}") or type(exc).__name__
+        dialect = dialect_of_name(getattr(getattr(engine, "dialect", None), "name", None)) or Dialect.UNSUPPORTED
+        reason = error_text(ctx.masker, exc, dialect) or type(exc).__name__
         return DatabaseRead(name, None, reason, checked)
     if heads is None:
         table = (

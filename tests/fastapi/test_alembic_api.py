@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
+from sharpit.engine import sqla
 from sharpit.engine.collectors.alembic import NEVER_RUNS, NO_ENGINE, NOT_READ, OPERATION
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -189,3 +190,30 @@ def test_refresh_read_only_403(tmp_path: Path, options: dict[str, Any]):
     assert client.get(URL).status_code == 200
     assert client.post(REFRESH).status_code == 403
     assert checkouts == []
+
+
+# derived: release council probe p1b_e2e.py, on the other read without read_only
+def test_refresh_on_a_sharing_pool_keeps_the_hosts_open_transaction():
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
+    client = _client([engine])
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE t (x INTEGER)")
+    host = engine.connect()
+    transaction = host.begin()
+    host.exec_driver_sql("INSERT INTO t VALUES (1)")
+
+    client.post(REFRESH)
+    transaction.commit()
+    host.close()
+
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT count(*) FROM t").scalar() == 1
+
+
+# derived: release council fix round 2: the reason alone, not the exception's class name
+def test_refresh_on_a_sharing_pool_reports_a_clean_unavailable_state():
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
+
+    (database,) = _client([engine]).post(REFRESH).json()["databases"]
+
+    assert database["unavailableReason"] == sqla.SHARED_CONNECTION_REFUSED

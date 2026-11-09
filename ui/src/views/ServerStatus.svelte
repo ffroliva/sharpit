@@ -1,7 +1,7 @@
 <script lang="ts">
   import { errorText, get, post } from '../lib/api';
   import { firstSentence } from '../lib/format';
-  import { scrollable } from '../lib/scrollable';
+  import { focusRegion, scrollable } from '../lib/scrollable';
   import type { Panel, ServerStatus } from '../lib/types';
 
   /** MCP server and CLI share one status shape; only MCP has an on/off toggle. */
@@ -12,11 +12,12 @@
   let toggling = $state(false);
   let toggleError = $state<string | null>(null);
 
-  // svelte-ignore state_referenced_locally (one view instance per panel)
-  get<ServerStatus>(kind).then(
-    (d) => (data = d),
-    (e: unknown) => (error = errorText(e)),
-  );
+  async function load() {
+    error = null;
+    try { data = await get<ServerStatus>(kind); }
+    catch (e) { error = errorText(e); }
+  }
+  void load();
 
   async function toggle() {
     if (!data || toggling || panel.readOnly) return;
@@ -67,7 +68,7 @@
   <div class="panel-body" use:scrollable role="region" aria-label={title}>
     {#if panel.readOnly}<p class="notice warn">{panel.readOnlyReason}</p>{/if}
     {#if error}
-      <div class="empty" role="alert"><p class="lead danger">Could not load the {title} status</p><p>{error}</p></div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load the {title} status</p><p>{error}</p><button onclick={(event) => { focusRegion(event); void load(); }}>Retry</button></div>
     {:else if !data}
       <table aria-hidden="true"><tbody>{#each { length: 6 } as _}<tr class="skeleton"><td></td><td></td></tr>{/each}</tbody></table>
     {:else}

@@ -8,16 +8,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import os
+import re
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from starlette._utils import is_async_callable  # pyright: ignore[reportPrivateUsage]  # Starlette's own dispatch test
 from starlette.exceptions import HTTPException
+from starlette.routing import Mount, compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from sharpit.engine import sqla
@@ -25,8 +28,11 @@ from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_request_id
 from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
+from sharpit.engine.capture.securitylogs import attach as attach_security_logs
+from sharpit.engine.context import application_family
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sources import dispatch, sqlite
+from sharpit.engine.sqltext import is_database_exception
 
 if TYPE_CHECKING:
     from sharpit.engine.capture.exceptions import ExceptionStore
@@ -46,9 +52,8 @@ CAPTURE_PANELS = (
     "exceptions",
     "sql-trace",
     "activity",
-    "transactions",
     "security-logs",
-)  # any implemented, enabled panel needs the middleware
+)  # any implemented, enabled request-capture panel needs the middleware
 LOG_PANELS = ("log-tail", "exceptions")  # either enabled needs the log handler (spec §6.1 step 3)
 LOG_TAIL_DETACHED_REASON = (
     "The sharpit log handler is not on the root logger: the app reconfigured logging (dictConfig or "
@@ -60,6 +65,7 @@ SEVERAL_WORKERS = (
 )
 PROBE_HEADER = b"x-sharpit-probe"
 PROBE_EXTENSION = "sharpit.probe"
+MAX_MOUNT_DEPTH = 32  # a sub-app mounted inside itself must not loop the walk
 
 
 def several_workers(environ: Mapping[str, str], argv: Sequence[str]) -> bool:
@@ -79,6 +85,50 @@ def _endpoint_name(endpoint: object) -> str | None:
         return None
     qualname = getattr(endpoint, "__qualname__", type(endpoint).__name__)
     return f"{getattr(endpoint, '__module__', None) or '?'}:{qualname}"
+
+
+@functools.lru_cache(maxsize=1024)  # templates come from the host's code, never from a request
+def _template_regex(template: str) -> re.Pattern[str]:
+    return compile_path(template)[0]
+
+
+def _mount_of(routes: Iterable[object], path: str) -> tuple[Mount, str] | None:
+    """The first ``Mount`` that takes ``path``, the router's own pick (a Mount matches fully), and what it leaves."""
+    for route in routes:
+        if isinstance(route, Mount) and (match := route.path_regex.match(path)):
+            return route, "/" + match["path"]
+    return None
+
+
+def _mount_prefix(routes: Iterable[object], path: str, below: str) -> str | None:
+    """The Mounts' own templates from ``path`` down to ``below``, read from the route table: ``root_path`` only has the
+    request's values. ``None`` when the table does not lead there (an ASGI wrapper hides the sub-app's routes)."""
+    prefix = ""
+    for _ in range(MAX_MOUNT_DEPTH):
+        if path == below:
+            return prefix
+        step = _mount_of(routes, path)
+        if step is None:
+            return None
+        mount, path = step
+        prefix, routes = prefix + mount.path, mount.routes
+    return None
+
+
+def _route_template(scope: Scope, root_path: str, app: object) -> str | None:
+    """The matched route's template behind the templates of its mounts, only when it matches the real path; ``None``
+    (the masked path) otherwise: FastAPI 0.16x's ``route.path`` has no ``include_router`` prefix."""
+    template = getattr(scope.get("route"), "path", None)
+    if not isinstance(template, str):
+        return None
+    below = route_path(scope)
+    try:
+        prefix = _mount_prefix(
+            getattr(app, "routes", ()), route_path({"path": scope["path"], "root_path": root_path}), below
+        )
+        return None if prefix is None or _template_regex(template).match(below) is None else prefix + template
+    except Exception:  # noqa: BLE001 - a drifted router or a custom route degrades to the masked path; the row stays
+        return None
 
 
 def _wrapped_key(key: object) -> bool:
@@ -154,7 +204,8 @@ def _record_logged(store: ExceptionStore, record: logging.LogRecord) -> None:
     if exc is not None:
         if (sink := dispatch.session_sink()) is not None:
             sink.on_exception(exc, "log", TEST.get())
-        store.record(exc, "log", REQUEST.get(), record.threadName, message_override=record.getMessage())
+        override = None if is_database_exception(exc) else record.getMessage()
+        store.record(exc, "log", REQUEST.get(), record.threadName, message_override=override)
 
 
 def sqlite_holder(ctx: SharpitContext) -> str:
@@ -190,9 +241,12 @@ class CaptureWiring:
         if self.app is not None:
             return
         self.app = app
+        self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
         if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
-            self.log_handler = SharpitLogHandler(ctx.masker, ctx.capture.log_tail)
+            self.log_handler = SharpitLogHandler(
+                ctx.masker, ctx.capture.log_tail, application=lambda: application_family(ctx)
+            )
             if store is not None:
                 self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
@@ -278,7 +332,7 @@ class CaptureWiring:
         return self.log_handler is not None and self.log_handler in logging.root.handlers
 
     def _attach(self, target: logging.Logger) -> None:
-        assert self.log_handler is not None
+        assert self.log_handler is not None  # noqa: S101 - narrows the type; set before any attach
         if self.log_handler not in target.handlers:
             target.addHandler(self.log_handler)
         if target not in self.log_attached:
@@ -346,6 +400,7 @@ class CaptureMiddleware:
             ):  # only sharpit's probe may carry the header (spec §7.11)
                 scope = {**scope, "headers": [h for h in scope["headers"] if h[0] != PROBE_HEADER]}
             started_epoch_ns = time.time_ns()
+            root_path = scope.get("root_path", "")
             info = RequestInfo(
                 new_request_id(),
                 self.ctx.context_id,
@@ -354,11 +409,13 @@ class CaptureMiddleware:
                 None,
                 time.perf_counter_ns(),
                 None,
+                scope=scope,
             )
         except Exception as exc:  # noqa: BLE001 - a capture failure never changes the host's response
             wiring.hook_failed("request start", exc)
             await self.app(scope, receive, send)
             return
+        sqla.note_request_captured()
 
         status: int | None = None
         response_headers: list[tuple[bytes, bytes]] = []
@@ -445,6 +502,7 @@ class CaptureMiddleware:
                             error=error,
                             endpoint=info.endpoint,
                             finished_epoch_ns=started_epoch_ns + finished - info.started_ns,
+                            route=_route_template(scope, root_path, wiring.app),
                         )
                     )
             except Exception as exc:  # noqa: BLE001
