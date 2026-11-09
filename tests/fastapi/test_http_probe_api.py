@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from conftest import SideEffectGuard
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.masking import MASK
+from sharpit.engine.sqltext import Dialect
 from sharpit.fastapi.adapter import SharpitHandle
 
 LOCAL = ("127.0.0.1", 50000)
@@ -76,6 +78,7 @@ def test_probe_tag_bypassing_validation_is_denied_by_guard(handle: list[SharpitH
             {"headers": [(b"host", b"localhost")], "state": {}, "client": LOCAL},
             "",
             installed.context.masker,
+            application=lambda: None,
         )
     )
     assert result["status"] == 403
@@ -159,14 +162,14 @@ def test_client_disconnect_keeps_probe_slot_until_sync_host_returns(handle: list
         release.set()
 
 
-def test_probe_opens_no_socket(no_side_effects: SideEffectGuard, handle: list[SharpitHandle]):
+def test_probe_opens_no_socket(no_side_effects: SideEffectGuard, handle: list[SharpitHandle], tmp_state_dir: Path):
     app = FastAPI()
 
     @app.get("/local")
     def local():
         return {"ok": True}
 
-    _install(app, handle)
+    _install(app, handle, state_dir=str(tmp_state_dir))
     no_side_effects.unblock_network()  # TestClient's Windows Proactor loop creates a self-pipe socketpair.
     with _client(app) as client:
         no_side_effects.block_network()
@@ -337,6 +340,7 @@ def test_timeout_message_and_timed_out_probe_holds_slot(handle: list[SharpitHand
                 {"headers": [], "state": {}},
                 "",
                 installed.context.masker,
+                application=lambda: None,
                 timeout=0.05,
                 on_complete=slots.release,
             )
@@ -379,6 +383,7 @@ def test_async_probe_timeout_cancels_task_and_releases_slot(handle: list[Sharpit
             {"headers": [], "state": {}},
             "",
             installed.context.masker,
+            application=lambda: None,
             timeout=0.01,
             on_complete=slots.release,
         )
@@ -549,6 +554,7 @@ def test_probe_location_header_is_capped_by_utf8_bytes(handle: list[SharpitHandl
             {"headers": [], "state": {}},
             "",
             installed.context.masker,
+            application=lambda: None,
         )
     )
     assert len(result["headers"]["location"].encode("utf-8")) <= 8192
@@ -572,8 +578,7 @@ def test_json_and_text_bodies_are_masked_and_binary_is_summarized(handle: list[S
     _install(app, handle)
     with _client(app) as client:
         json_result, text_result, binary_result = (_probe(client, p).json() for p in ("/json", "/text", "/binary"))
-    assert '"password":"******"' in json_result["body"]
-    assert '"ok":true' in json_result["body"]
+    assert json_result["body"] == '{"password":"******"'
     assert "secret-token" not in text_result["body"]
     assert binary_result["body"] == "<3 bytes, application/octet-stream>"
 
@@ -607,6 +612,52 @@ def test_app_exception_returns_masked_500(handle: list[SharpitHandle]):
     assert groups
 
 
+# derived: Task 27 Opus review r2 #5: an unclassified app exception keeps the a7a6ff2f "Name: " prefix
+def test_app_exception_error_keeps_its_class_prefix(handle: list[SharpitHandle]):
+    app = FastAPI()
+
+    @app.get("/fail")
+    def fail():
+        raise RuntimeError("password=hunter2")
+
+    _install(app, handle)
+    with _client(app) as client:
+        result = _probe(client, "/fail").json()
+    assert result["error"] == "RuntimeError: ******"  # a7a6ff2f, measured: the value and its name are masked
+
+
+@pytest.mark.needs_sqlalchemy
+def test_probe_uses_the_application_family_for_a_generic_database_error(
+    handle: list[SharpitHandle], monkeypatch: pytest.MonkeyPatch
+):
+    sa = pytest.importorskip("sqlalchemy")
+    from sharpit.engine import probe as probe_engine
+
+    families: list[Dialect | None] = []
+
+    def observe(_error: BaseException, application: Any) -> Dialect:
+        families.append(application())
+        return Dialect.POSTGRESQL
+
+    monkeypatch.setattr(probe_engine, "exception_dialect", observe)
+    from types import SimpleNamespace
+
+    engine = sa.create_engine(
+        "postgresql+pg8000://db/app", module=SimpleNamespace(paramstyle="format", __version__="1.30.5")
+    )
+    app = FastAPI()
+    error = RuntimeError("failed")
+
+    @app.get("/family-fail")
+    def fail():
+        raise error
+
+    _install(app, handle, engines=[engine])
+    with _client(app) as client:
+        _probe(client, "/family-fail")
+    assert families == [Dialect.POSTGRESQL]
+
+
 def test_probe_read_only_403(handle: list[SharpitHandle]):
     app = FastAPI()
     _install(app, handle, read_only=True)
@@ -634,6 +685,7 @@ def test_status_text_fallback_and_empty_response_error_match_bootui(handle: list
             {"headers": [], "state": {}},
             "",
             installed.context.masker,
+            application=lambda: None,
         )
 
     redirect = asyncio.run(invoke(status_response))

@@ -1,0 +1,4 @@
+{
+  "auth.configuredUsername": "FastAPI has no analogue of spring.security.user.name: always null",
+  "endpoints[].description": "null when the route has no scheme, guard or limitation to describe (a nullable String in BootUI too)"
+}

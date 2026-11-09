@@ -253,7 +253,7 @@ def test_beans_route(no_side_effects: SideEffectGuard):
     @app.get("/a")
     def a(repo: str = Depends(get_repo)) -> None: ...
 
-    install(app, enabled="ON", show_banner=False)
+    install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
     client = TestClient(app, base_url="http://localhost", client=LOCAL)
     body = client.get("/sharpit/api/beans", params={"q": "get_", "classification": "application", "limit": 2}).json()
     assert [b["name"] for b in body["beans"]] == [f"{HERE}:get_db", f"{HERE}:get_repo"]

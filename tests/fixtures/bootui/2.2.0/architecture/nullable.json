@@ -1,0 +1,5 @@
+{
+  "scan.scannedAt": "null before the first architecture scan (ArchitectureScanStatusDto.initialReport)",
+  "violationDetails.scanId": "null before the first architecture scan (AdvisorViolationDetailsDto.unknown)",
+  "violationDetails.changes": "null when no baseline changes are tracked (AdvisorViolationDetailsDto.changes)"
+}

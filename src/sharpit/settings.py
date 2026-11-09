@@ -14,6 +14,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from sharpit.engine.masking import Exposure
 from sharpit.engine.panels import PANELS
@@ -37,7 +38,8 @@ class SharpitSettings:
     allowed_hosts: tuple[str, ...] = ()
     trusted_proxies: tuple[str, ...] = ()
     trust_container_gateway: str = "OFF"
-    authentication_token: str | None = None
+    authentication_token: str | None = field(default=None, repr=False)
+    identity_key: str | None = field(default=None, repr=False)
     read_only: bool = False
     panels: Mapping[str, PanelSettings] = field(default_factory=lambda: {p.id: PanelSettings() for p in PANELS})
     expose_values: Exposure = Exposure.MASKED
@@ -103,6 +105,22 @@ class SharpitSettings:
     transactions_max_entries: int = 200
     transactions_slow_transaction_threshold_millis: int = 200
     transactions_connection_hold_threshold_millis: int = 500
+    # 0.5.0 committed lanes (spec §4.5): BootUI's bootui.mysql.* (WAVE-A §6), BootUI's fixed database-advisor scan
+    # bounds (WAVE-A §4, settable here), the app-source index bounds (spec §4.2) and the app package override
+    mysql_max_sessions: int = 100
+    mysql_max_statements: int = 100
+    mysql_max_indexes: int = 500
+    mysql_max_tables: int = 200
+    mysql_max_lock_waits: int = 100
+    mysql_max_replication_channels: int = 10
+    mysql_max_settings: int = 40
+    database_advisor_max_tables: int = 300
+    database_advisor_max_columns: int = 300
+    database_advisor_max_indexes_per_table: int = 100
+    database_advisor_max_vendor_rows: int = 500
+    architecture_max_files: int = 2000
+    architecture_max_file_bytes: int = 524288
+    app_package: str | None = None  # dotted name, resolved through sys.modules only (never imported)
     warnings: tuple[str, ...] = ()
 
 
@@ -166,8 +184,8 @@ def _min_two_int(raw: object) -> int:
     return max(2, _non_negative_int(raw))
 
 
-def _postgresql_limit(raw: object) -> int:
-    """PostgreSQL row limits: 1..2147483646, so ``limit + 1`` (one past, to detect truncation) fits an int4."""
+def _row_limit(raw: object) -> int:
+    """PostgreSQL/MySQL row limits: 1..2147483646, so ``limit + 1`` (one past, to detect truncation) fits an int4."""
     n = _int(raw)
     if n > 2147483646:
         raise ValueError(raw)
@@ -186,10 +204,29 @@ def _duration(raw: object) -> float:
     return seconds
 
 
+_MODULE_NAME = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
+
+
+def _module_name(raw: object) -> str:
+    name = _str(raw)
+    if not _MODULE_NAME.fullmatch(name):
+        raise ValueError(raw)
+    return name
+
+
 def _str(raw: object) -> str:
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
     raise ValueError(raw)
+
+
+def _http_uri(raw: object) -> str:
+    value = _str(raw)
+    parts = urlsplit(value)
+    # urllib's default opener also reads file: and ftp:
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        raise ValueError(raw)
+    return value
 
 
 def _items(raw: object) -> tuple[str, ...]:
@@ -218,6 +255,17 @@ def _exposure(raw: object) -> Exposure:
         raise ValueError(raw) from None
 
 
+def _identity_key(raw: object) -> str:
+    value = _str(raw)
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError(raw) from None
+    if len(encoded) < 32:
+        raise ValueError(raw)
+    return value
+
+
 def _config_scan(raw: object) -> tuple[str, ...] | bool:
     try:
         return _bool(raw)
@@ -238,6 +286,7 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "trusted_proxies": (_items, None),
     "trust_container_gateway": (_mode, "OFF"),
     "authentication_token": (_str, None),
+    "identity_key": (_identity_key, None),
     "read_only": (_bool, True),
     "expose_values": (_exposure, Exposure.MASKED),
     "mask_secrets": (_bool, True),
@@ -248,9 +297,9 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "vulnerabilities_request_timeout": (_duration, None),
     "vulnerabilities_max_packages": (_int, None),
     "vulnerabilities_max_advisories": (_int, None),
-    "vulnerabilities_osv_base_uri": (_str, None),
+    "vulnerabilities_osv_base_uri": (_http_uri, None),
     "vulnerabilities_epss_enabled": (_bool, False),
-    "vulnerabilities_epss_base_uri": (_str, None),
+    "vulnerabilities_epss_base_uri": (_http_uri, None),
     "mcp_enabled": (_mode, "OFF"),
     "mcp_max_results": (_int, None),
     "mcp_max_payload_bytes": (_int, None),
@@ -288,20 +337,45 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "advisors_max_retained_violations": (_int, None),
     "stream_max_seconds": (_duration, None),
     "security_logs_max_logs": (_int, None),
-    "postgresql_max_sessions": (_postgresql_limit, None),
-    "postgresql_max_statements": (_postgresql_limit, None),
-    "postgresql_max_indexes": (_postgresql_limit, None),
-    "postgresql_max_tables": (_postgresql_limit, None),
-    "postgresql_max_vacuum_tables": (_postgresql_limit, None),
-    "postgresql_max_replicas": (_postgresql_limit, None),
-    "postgresql_max_settings": (_postgresql_limit, None),
+    "postgresql_max_sessions": (_row_limit, None),
+    "postgresql_max_statements": (_row_limit, None),
+    "postgresql_max_indexes": (_row_limit, None),
+    "postgresql_max_tables": (_row_limit, None),
+    "postgresql_max_vacuum_tables": (_row_limit, None),
+    "postgresql_max_replicas": (_row_limit, None),
+    "postgresql_max_settings": (_row_limit, None),
     "transactions_enabled": (_bool, False),
     "transactions_recording": (_bool, False),
     "transactions_max_entries": (_int, None),
     "transactions_slow_transaction_threshold_millis": (_int, None),
     "transactions_connection_hold_threshold_millis": (_int, None),
+    "mysql_max_sessions": (_row_limit, None),
+    "mysql_max_statements": (_row_limit, None),
+    "mysql_max_indexes": (_row_limit, None),
+    "mysql_max_tables": (_row_limit, None),
+    "mysql_max_lock_waits": (_row_limit, None),
+    "mysql_max_replication_channels": (_row_limit, None),
+    "mysql_max_settings": (_row_limit, None),
+    "database_advisor_max_tables": (_int, None),
+    "database_advisor_max_columns": (_int, None),
+    "database_advisor_max_indexes_per_table": (_int, None),
+    "database_advisor_max_vendor_rows": (_int, None),
+    "architecture_max_files": (_int, None),
+    "architecture_max_file_bytes": (_int, None),
+    "app_package": (_module_name, None),
 }
 _DEFAULTS = SharpitSettings()
+WEAK_IDENTITY_KEY = "SHARPIT_IDENTITY_KEY is one character repeated: a weak key"
+# owner 2026-11-07, item 7: capture on shows more than bound values, so install says so, as FULL does
+CAPTURE_SHOWS_VALUES = (
+    "SHARPIT_SQL_TRACE_CAPTURE_PARAMETERS=true shows SQL inline literals and error text unmasked, with bound values"
+)
+_NEVER_ECHOED = {
+    "authentication_token",
+    "identity_key",
+    "vulnerabilities_osv_base_uri",
+    "vulnerabilities_epss_base_uri",
+}
 _FIELDS = {f.name for f in dataclasses.fields(SharpitSettings)} - {"warnings"}
 
 
@@ -385,8 +459,8 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
         try:
             value = parse(raw)
         except ValueError:
-            # install() logs warnings: never echo a token, however malformed
-            shown = "" if name == "authentication_token" else f" '{raw}'"
+            # install() logs warnings: never echo a token, however malformed, or a URI that can carry credentials
+            shown = "" if name in _NEVER_ECHOED else f" '{raw}'"
             warnings.append(f"Ignoring invalid {env} value{shown}")
             # `enabled` keeps the raw text so decide() reports it; other fields take their fail-safe (or default).
             if name == "enabled":
@@ -419,4 +493,8 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
     values["panels"] = _panels(kwargs, environ, warnings)
     if values.get("expose_values") is Exposure.FULL:
         warnings.append("SHARPIT_EXPOSE_VALUES=FULL exposes unmasked secrets")
+    if values.get("sql_trace_capture_parameters") and values.get("expose_values") is not Exposure.METADATA_ONLY:
+        warnings.append(CAPTURE_SHOWS_VALUES)
+    if len(set(values.get("identity_key") or "ab")) == 1:
+        warnings.append(WEAK_IDENTITY_KEY)
     return SharpitSettings(**values, warnings=tuple(warnings))

@@ -181,7 +181,7 @@ def test_alembic_docstring_masked(tmp_path: Path):
     (tmp_path / "alembic.ini").write_text("[alembic]\nscript_location = %(here)s/migrations\n", "utf-8")
     (versions / "r1.py").write_text(f'"""rotate password={SECRET} for app"""\n\nrevision = "r1"\n', "utf-8")
     files = read_alembic_files(tmp_path / "alembic.ini", MASKER)
-    assert files.revisions[0].description == f"rotate password={MASK} for app"
+    assert files.revisions[0].description == f"rotate password={MASK}"
 
 
 def test_no_ini_unavailable(tmp_path: Path):

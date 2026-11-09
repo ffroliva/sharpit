@@ -202,7 +202,7 @@ def test_statement_text_goes_through_exposure_policy() -> None:
     hidden.conn.with_rows("STATEMENTS", row)
     shown = _read(_ctx(("primary", masked)))["databases"][0]["statements"]
     withheld = _read(_ctx(("primary", hidden), expose_values="METADATA_ONLY"))["databases"][0]["statements"]
-    assert [s["query"] for s in shown] == ["select * from users where password = '******'"]
+    assert [s["query"] for s in shown] == ["select * from users where password = ******"]
     assert [s["query"] for s in withheld] == [MASK]
 
 

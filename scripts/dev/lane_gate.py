@@ -1,9 +1,12 @@
-"""Mechanical 0.4.0 lane merge gate (spec §10.3; council C2, F1c, F1f, R2, R7, round 4).
+"""Mechanical lane merge gate (0.4.0 spec §10.3; council C2, F1c, F1f, R2, R7, round 4; 0.5.0 spec §4.0).
 
-Run the release/0.4.0 copy from the integration worktree, never a lane's copy:
+Run the release branch's copy from the integration worktree, never a lane's copy:
 
-    uv run python scripts/dev/lane_gate.py <lane-id> [--worktree PATH] [--sha SHA] [--integration PATH]
+    uv run python scripts/dev/lane_gate.py <lane-id> [--release X] [--worktree PATH] [--sha SHA] [--integration PATH]
                                            [--accept-unverified] [--no-rerun]
+
+The release (evidence under ``.superpowers/sdd/<release>/lanes/<lane-id>/``) is ``--release``, else the integration
+branch ``release/<x>``, else the only release folder in the integration worktree; otherwise the gate refuses.
 
 Exit 0 only when every check passes; each refusal is printed. Checks, in order:
 
@@ -30,7 +33,7 @@ import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 GateRunner = Callable[[str, Sequence[str], Path], tuple[int, str]]
@@ -38,7 +41,7 @@ PytestRunner = Callable[[Path, Sequence[str], Path], None]
 EnvPreparer = Callable[[Path], tuple[int, str]]
 
 WORKTREE_ROOT = Path(r"C:\development\github\sharpit-wt")
-LANES = ".superpowers/sdd/0.4.0/lanes"
+SDD = ".superpowers/sdd"  # <SDD>/<release>/lanes/<lane id>/
 EVIDENCE = ("handoff.md", "findings.md", "field-map.md", "checklist.md")
 SHA_LOGS = ("lowest-direct", "no-sqlalchemy")  # run by the coordinator in a throwaway copy, pinned to the head SHA
 GATES: tuple[tuple[str, tuple[str, ...], int], ...] = (  # run in a fresh tree after SYNC built its env
@@ -59,12 +62,65 @@ PROTECTED = (
     "conftest.py",
 )
 GATE_CONFIG = ("ruff", "pyright", "pytest", "uv")  # [tool.<x>] sections of pyproject.toml
-F_MAY_CHANGE = {"scripts/dev/lane_gate.py", "tests/engine/test_import_boundary.py", "uv.lock", "pyproject.toml"}
 BASELINE = "tests/complexity_baseline.json"
-LEASED_LANE = "A-postgresql"
-LEASED_TESTS = ("test_read_only_wrapper_rejects_write", "test_autocommit_engine_is_unavailable")
 FIXTURE_PREFIX = "test-fixture"
-REVIEWER_OWNED = re.compile(rf"^{re.escape(LANES)}/[^/]+/(review\.md|live-verify\.md|gate/.*)$")
+# lane -> the PROTECTED files it may change (0.5.0 spec §4.0); every other lane changes none
+PROTECTED_ALLOWED: dict[str, frozenset[str]] = {
+    "F": frozenset({"scripts/dev/lane_gate.py", "tests/engine/test_import_boundary.py", "uv.lock"}),
+    "F5a-harness": frozenset({"tests/conftest.py", "uv.lock", "tests/engine/test_import_boundary.py"}),
+    "F5b": frozenset({"tests/engine/test_import_boundary.py"}),
+    "U20-memory": frozenset({"uv.lock"}),  # inert until the owner's O4
+    "W-workload": frozenset({"uv.lock"}),  # inert until the owner's O5
+}
+# pyproject.toml dependency lists: F changes any; the others only [project.optional-dependencies] test (council 6)
+DEPENDENCY_ALLOWED = frozenset({"F", "F5a-harness", "U20-memory", "W-workload"})
+DEPENDENCY_ALL = frozenset({"F"})
+PLANS = "docs/superpowers/plans/"  # coordinator-owned: the gate reads the Lanes table and must-cover lists here
+PLAN_LANES: frozenset[str] = frozenset()  # lanes that may change plan files; none in 0.5.0 (--allow-path to amend)
+RELEASE_NAME = re.compile(r"\w[\w.-]*")
+FOUNDATION = frozenset({"F", "F5a-harness", "F5a-source", "F5a-core", "F5b"})  # may re-key the complexity baseline
+LEASED_TESTS = ("test_read_only_wrapper_rejects_write", "test_autocommit_engine_is_unavailable")
+_ADVISOR = "tests/fastapi/test_database_advisor_leased.py"
+# lane -> ((coordinator-written gate log, node ids that must be PASSED in it), ...). A full node id matches only itself;
+# A-postgresql keeps 0.4.0's bare names, matched as `::<name>` (its lane merged under that rule).
+LEASED: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+    "A-postgresql": (("leased-pg.log", LEASED_TESTS),),
+    "F5b": (
+        (
+            "leased-mysql.log",
+            (
+                "tests/fastapi/test_mysql_read_only_leased.py::test_mysql_read_only_wrapper_rejects_write",
+                "tests/fastapi/test_mysql_read_only_leased.py::test_mysql_autocommit_engine_refused",
+            ),
+        ),
+    ),
+    "A-mysql": (
+        (
+            "leased-mysql.log",
+            (
+                "tests/fastapi/test_mysql_leased.py::test_read_only_wrapper_rejects_write",
+                "tests/fastapi/test_mysql_leased.py::test_full_read_against_mysql_84",
+            ),
+        ),
+    ),
+    "A-dbadv-1": (
+        ("leased-pg.log", (f"{_ADVISOR}::test_read_only_wrapper_rejects_write[postgresql]",)),
+        ("leased-mysql.log", (f"{_ADVISOR}::test_read_only_wrapper_rejects_write[mysql]",)),
+    ),
+    "A-dbadv-2": (
+        ("leased-pg.log", (f"{_ADVISOR}::test_pg_vendor_rules_against_server",)),
+        ("leased-mysql.log", (f"{_ADVISOR}::test_mysql_vendor_rules_against_server",)),
+    ),
+}
+# every release's reviewer-owned paths, so a lane of one release cannot plant another release's review either
+REVIEWER_OWNED = re.compile(
+    rf"^{re.escape(SDD)}/[^/]+/lanes/[^/]+/(review\.md|live-verify\.md|council\.md|gate/.*)$", re.IGNORECASE
+)
+SDD_LANES = re.compile(rf"^{re.escape(SDD)}/[^/]+/lanes/([^/]+)(/.*)?$", re.IGNORECASE)  # lane id, path inside
+UNRESOLVED = (
+    f"cannot resolve the release: the integration HEAD is not on release/<x> and its worktree does not hold exactly"
+    f" one {SDD}/<x>/lanes folder; pass --release"
+)
 BUDGET_LINE = re.compile(r"^(BUDGET\w*)\s*(?::[^=]*)?=\s*(.+?)\s*$", re.MULTILINE)
 
 
@@ -77,6 +133,9 @@ class Options:
     accept_unverified: bool = False
     no_rerun: bool = False
     allow_paths: tuple[str, ...] = ()
+    release: str | None = None  # None: resolved from the integration worktree (resolve_release)
+    plan_index: Path | None = None  # PLAN.md with the Lanes table; None: no council or must-cover check
+    plan: Path | None = None  # the lane plan file; None: PLAN.md's "Plan file" column
 
 
 @dataclass
@@ -97,12 +156,58 @@ class Red:
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True, encoding="utf-8")
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=check, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape"
+    )
+
+
+_READS: dict[tuple[object, ...], object] = {}
+_OBJECT_ID = re.compile(r"[0-9a-f]{40}")
+
+
+def _read_once[T](key: tuple[str, str, str], revs: Sequence[str], read: Callable[[], T]) -> T:
+    """``read()``, kept when every rev is a full object id: a ref can move, what an object id names cannot, in any repo.
+
+    The key has no repo: identical copies share their reads, and that is safe only because a rev reaches here already
+    proven present in the repo at hand. ``opts.sha`` and ``base`` by ``evaluate``'s checked ``merge-base``, a red or
+    council sha by ``_resolve``. So ``_resolve`` is never cached here: it is what tells two repos apart.
+    """
+    if key in _READS:
+        return _READS[key]  # type: ignore[return-value]
+    value = read()
+    if value is not None and all(_OBJECT_ID.fullmatch(rev) for rev in revs):  # None: a failure, never kept
+        _READS[key] = value
+    return value
+
+
+def _tree(repo: Path, sha: str) -> dict[str, str]:
+    """path -> object id of every file at ``sha``."""
+
+    def read() -> dict[str, str]:
+        entries = _git(repo, "ls-tree", "-r", "-z", "--full-tree", sha).stdout.split(
+            "\0"
+        )  # raises, so no empty listing is ever kept
+        return {path: meta.split()[2] for meta, path in (entry.split("\t", 1) for entry in entries if entry)}
+
+    return _read_once(("tree", sha, ""), [sha], read)
+
+
+def _blob(repo: Path, blob: str) -> str | None:
+    def read() -> str | None:
+        done = _git(repo, "cat-file", "blob", blob, check=False)
+        return done.stdout if done.returncode == 0 else None
+
+    return _read_once(("blob", blob, ""), [blob], read)
 
 
 def _show(repo: Path, sha: str, path: str) -> str | None:
-    done = _git(repo, "show", f"{sha}:{path}", check=False)
-    return done.stdout if done.returncode == 0 else None
+    """The file at ``sha``. A commit's unchanged files are read once across its children: a tree listing, then a read
+    per blob not seen yet. ``path`` must be repo-relative: ``./x`` reads as absent, which refuses rather than passes."""
+    if not _OBJECT_ID.fullmatch(sha):
+        done = _git(repo, "show", f"{sha}:{path}", check=False)
+        return done.stdout if done.returncode == 0 else None
+    blob = _tree(repo, sha).get(path)
+    return _blob(repo, blob) if blob else None
 
 
 def _resolve(repo: Path, ref: str) -> str | None:
@@ -111,7 +216,30 @@ def _resolve(repo: Path, ref: str) -> str | None:
 
 
 def _is_ancestor(repo: Path, older: str, newer: str) -> bool:
-    return _git(repo, "merge-base", "--is-ancestor", older, newer, check=False).returncode == 0
+    def read() -> bool | None:
+        code = _git(repo, "merge-base", "--is-ancestor", older, newer, check=False).returncode
+        return None if code > 1 else code == 0  # 1 is a no; anything higher is git failing
+
+    return bool(_read_once(("is-ancestor", older, newer), [older, newer], read))
+
+
+def resolve_release(integration: Path) -> tuple[str | None, str]:
+    """(release or None, how it was found) when ``--release`` is absent: the integration branch ``release/<x>``, else
+    the one ``<SDD>/<x>/lanes`` folder in the integration worktree. Anything else does not resolve: never a default."""
+    branch = _git(integration, "branch", "--show-current", check=False).stdout.strip()
+    if branch.startswith("release/"):
+        return branch.removeprefix("release/"), f"release {branch.removeprefix('release/')} from branch {branch}"
+    found = sorted(path.parent.name for path in (integration / SDD).glob("*/lanes") if path.is_dir())
+    if len(found) == 1:
+        return found[0], f"release {found[0]} from the only {SDD}/<x>/lanes folder in {integration}"
+    return None, UNRESOLVED
+
+
+def _folder(opts: Options) -> str:
+    """The lane's evidence folder, relative to a worktree root."""
+    if opts.release is None:
+        raise ValueError("Options.release is unresolved: evaluate() resolves it")
+    return f"{SDD}/{opts.release}/lanes/{opts.lane}"
 
 
 # --- markdown tables --------------------------------------------------------------------------------------------------
@@ -158,6 +286,17 @@ def _column(header: list[str], *names: str) -> int | None:
     return next((header.index(name) for name in names if name in header), None)
 
 
+def _test_column(header: list[str]) -> int | None:
+    """``Test id``/``Test``, else the first header with the word ``test`` (``Vitest test``, ``test (node id)``)."""
+    found = _column(header, "test id", "test")
+    return found if found is not None else next((i for i, name in enumerate(header) if "test" in name.split()), None)
+
+
+def _not_a_red(disposition: str) -> bool:
+    """A ``pin: <mutation>`` or ``N/A — <reason>`` findings row (0.5.0 PLAN.md): no red SHA, never replayed."""
+    return bool(re.match(r"(pin\b|n/a\b)", disposition.strip().lower()))
+
+
 def _cell(row: list[str], col: int | None) -> str:
     return _code(row[col]) if col is not None and col < len(row) else ""
 
@@ -170,9 +309,7 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
     problems: list[str] = []
     for label, text in texts.items():
         for heading, header, rows in _headed_tables(text):
-            test_col = _column(header, "test id", "test")
-            if test_col is None:  # e.g. "Vitest test"
-                test_col = next((i for i, name in enumerate(header) if "test" in name.split()), None)
+            test_col = _test_column(header)
             manual = bool(re.search(r"\b(ui|manual)\b", heading, re.IGNORECASE))
             sha_col = next((i for i, name in enumerate(header) if "red sha" in name), None)
             disp_col = _column(header, "disposition")
@@ -183,7 +320,8 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
             for row in rows:
                 test, sha = _cell(row, test_col), _cell(row, sha_col)
                 disposition = row[disp_col] if disp_col is not None and disp_col < len(row) else ""
-                if not test or (not sha and disposition.lower().startswith("parked")):  # raw cell, as in findings
+                parked = not sha and disposition.lower().startswith("parked")  # raw cell, as in findings
+                if not test or parked or (label.endswith("findings.md") and _not_a_red(disposition)):
                     continue
                 if sha:
                     reds[Red(test, sha, manual)] = None
@@ -196,15 +334,21 @@ def red_tests(texts: Mapping[str, str]) -> tuple[list[Red], list[str]]:
 
 
 def _diff_paths(repo: Path, base: str, head: str) -> list[str]:
-    return _git(repo, "diff", "--name-only", "--no-renames", base, head).stdout.splitlines()
+    def read() -> tuple[str, ...]:
+        return tuple(_git(repo, "diff", "--name-only", "--no-renames", base, head).stdout.splitlines())
+
+    return list(_read_once(("diff", base, head), [base, head], read))
 
 
-def _dependency_lists(text: str | None) -> object:
+def _dependency_lists(text: str | None, *, test_extra: bool = True) -> object:
+    """The pyproject dependency lists; ``test_extra=False`` leaves out ``[project.optional-dependencies] test``."""
     data = tomllib.loads(text or "")
     project = data.get("project", {})
+    extras: dict[str, object] = project.get("optional-dependencies") or {}
+    optional = {name: deps for name, deps in extras.items() if test_extra or name != "test"}
     return (
         project.get("dependencies"),
-        project.get("optional-dependencies"),
+        optional,
         data.get("dependency-groups"),
         data.get("build-system", {}).get("requires"),
     )
@@ -213,7 +357,7 @@ def _dependency_lists(text: str | None) -> object:
 def _baseline_refusals(lane: str, before: str | None, after: str | None) -> list[str]:
     old: dict[str, int] = json.loads(before or "{}")
     new: dict[str, int] = json.loads(after or "{}")
-    if lane == "F":  # F1c: F may re-key moved code; the per-finding total must not rise
+    if lane in FOUNDATION:  # F1c: a foundation lane may re-key moved code; the per-finding total must not rise
         rose = sum(new.values()) > sum(old.values())
         return [f"complexity baseline total rose: {sum(old.values())} -> {sum(new.values())}"] if rose else []
     problems = [f"complexity baseline entry added: {key}" for key in new if key not in old]
@@ -239,21 +383,43 @@ def diff_refusals(opts: Options, base: str) -> tuple[list[str], list[str]]:
     return problems, notes
 
 
+def _plan_dirs(opts: Options) -> set[str]:
+    """Lower-cased folders (``a/b/``) the gate reads plans from: PLANS, plus wherever --plan-index/--plan point."""
+    dirs = {PLANS}
+    for given in (opts.plan_index, opts.plan):
+        if given is not None and _inside(given, opts.integration):
+            rel = given.resolve().parent.relative_to(opts.integration.resolve()).as_posix()
+            dirs.add(f"{rel.lower()}/" if rel != "." else given.name.lower())  # at the root: that file itself
+    return dirs
+
+
+def _dependency_problem(lane: str, before: str | None, after: str | None) -> list[str]:
+    """F changes any dependency list; DEPENDENCY_ALLOWED lanes only the test extra (council 6); others none."""
+    if lane in DEPENDENCY_ALL:
+        return []
+    keep_test = lane not in DEPENDENCY_ALLOWED
+    changed = _dependency_lists(before, test_extra=keep_test) != _dependency_lists(after, test_extra=keep_test)
+    return ["dependency list changed: pyproject.toml"] if changed else []
+
+
 def _path_refusals(opts: Options, base: str, path: str) -> list[str]:
-    is_f = opts.lane == "F"
     before, after = _show(opts.worktree, base, path), _show(opts.worktree, opts.sha, path)
+    key = path.lower()  # a case-insensitive checkout (NTFS) lands Tests/conftest.py on tests/conftest.py
     if REVIEWER_OWNED.match(path):
         return [f"reviewer-owned path changed: {path}"]
-    if path in PROTECTED and not (is_f and path in F_MAY_CHANGE):
+    lanes_entry = SDD_LANES.match(path)  # another lane's folder, or a file or symlink where a lane folder goes
+    if lanes_entry and (lanes_entry.group(2) is None or lanes_entry.group(1).lower() != opts.lane.lower()):
+        return [f"not the lane's own evidence folder: {path}"]
+    if key in PROTECTED and key not in PROTECTED_ALLOWED.get(opts.lane, frozenset()):
         return [f"protected path changed: {path}"]
-    if path == BASELINE:
+    if opts.lane not in PLAN_LANES and any(key.startswith(d) for d in _plan_dirs(opts)):
+        return [f"plan file changed: {path} (plans are coordinator-owned; --allow-path for a deliberate amendment)"]
+    if key == BASELINE:
         return _baseline_refusals(opts.lane, before, after)
-    if path == "pyproject.toml":
+    if key == "pyproject.toml":
         old, new = _gate_config(before), _gate_config(after)
         problems = [f"gate config changed: pyproject.toml [tool.{n}]" for n in GATE_CONFIG if old[n] != new[n]]
-        if not is_f and _dependency_lists(before) != _dependency_lists(after):
-            problems.append("dependency list changed: pyproject.toml")
-        return problems
+        return problems + _dependency_problem(opts.lane, before, after)
     return _overhead_problems(path, before or "", after or "") if _is_overhead_module(path, before) else []
 
 
@@ -288,6 +454,10 @@ def _overhead_problems(path: str, before: str, after: str) -> list[str]:
     return [f"overhead budget module changed: {path} ({', '.join(names)})"] if names else []
 
 
+def _inside(path: Path, root: Path) -> bool:
+    return path.resolve().is_relative_to(root.resolve())
+
+
 def _evidence_path_exists(opts: Options, token: str) -> bool:
     rel = re.split(r"::|:\d", token, maxsplit=1)[0].strip()
     if not rel or " " in rel:
@@ -319,7 +489,7 @@ def _findings_refusals(text: str) -> list[str]:
     if any(rows for _header, rows in tables) and not any("disposition" in header for header, _rows in tables):
         problems.append("findings.md: no table with a Disposition column (every finding needs one)")
     for header, rows in tables:
-        disp_col, test_col = _column(header, "disposition"), _column(header, "test id", "test")
+        disp_col, test_col = _column(header, "disposition"), _test_column(header)
         if disp_col is None:
             continue
         for row in rows:
@@ -328,13 +498,16 @@ def _findings_refusals(text: str) -> list[str]:
             word = disposition.lower()
             fixed = word.startswith("fixed") and bool(test)
             parked = word.startswith("parked") and bool(disposition[6:].strip(" :-—–()"))
-            if not (fixed or parked):
+            # pin: <the mutation, the assertion it failed>, on a row that names the test it pins
+            pinned = bool(test) and bool(re.match(r"pin\b[\s:—–-]*[^\s:—–-]", word))
+            not_applicable = bool(re.match(r"n/a\s*[—–:-]+\s*[^\s:—–-]", word))  # N/A — <reason>
+            if not (fixed or parked or pinned or not_applicable):
                 problems.append(f"findings.md: unresolved finding: {' | '.join(row)}")
     return problems
 
 
 def _review_refusals(opts: Options, handoff: str) -> list[str]:
-    path = opts.integration / LANES / opts.lane / "review.md"
+    path = opts.integration / _folder(opts) / "review.md"
     if not path.is_file():
         return [f"missing review: {path}"]
     text = path.read_text(encoding="utf-8")
@@ -356,7 +529,7 @@ def _review_refusals(opts: Options, handoff: str) -> list[str]:
 
 
 def evidence_refusals(opts: Options, base: str) -> tuple[list[str], dict[str, str]]:
-    folder = f"{LANES}/{opts.lane}"
+    folder = _folder(opts)
     texts = {name: _show(opts.worktree, opts.sha, f"{folder}/{name}") for name in EVIDENCE}
     problems = [f"missing evidence: {name} (at {folder}/ in the lane head)" for name, t in texts.items() if t is None]
     found = {name: text for name, text in texts.items() if text is not None}
@@ -375,17 +548,221 @@ def evidence_refusals(opts: Options, base: str) -> tuple[list[str], dict[str, st
     return problems, found
 
 
-def leased_pg_problem(opts: Options) -> str | None:
-    log = opts.integration / LANES / opts.lane / "gate" / "leased-pg.log"
+def leased_problem(opts: Options, log_name: str, node_ids: Sequence[str]) -> str | None:
+    tag = log_name.removesuffix(".log")
+    log = opts.integration / _folder(opts) / "gate" / log_name
     if not log.is_file():
-        return f"leased-pg: {log} missing"
+        return f"{tag}: {log} missing"
     lines = log.read_text(encoding="utf-8").splitlines()
     if not lines or opts.sha not in lines[0]:
-        return "leased-pg: gate/leased-pg.log line 1 does not name the head SHA"
-    for name in LEASED_TESTS:
-        if not any(re.search(rf"::{name}\s+PASSED\b", ln) for ln in lines[1:]):
-            return f"leased-pg: {name} not PASSED (missing or skipped)"
+        return f"{tag}: gate/{log_name} line 1 does not name the head SHA"
+    for nodeid in node_ids:
+        found = rf"(?:^|\s){re.escape(nodeid)}" if "::" in nodeid else rf"::{re.escape(nodeid)}"
+        if not any(re.search(rf"{found}\s+PASSED\b", ln) for ln in lines[1:]):
+            return f"{tag}: {nodeid} not PASSED (missing or skipped)"
     return None
+
+
+# --- council and must-cover (0.5.0 spec §4.0) -------------------------------------------------------------------------
+
+FAMILIES = {  # model family -> words of a model id (the parenthesised part of a Reviewer line)
+    "anthropic": ("claude", "opus", "sonnet", "haiku", "fable"),
+    "openai": ("codex", "gpt"),
+    "google": ("gemini", "argon"),
+}
+REVIEWER_LINE = re.compile(r"^Reviewer:\s*[\w.-]+\s*\(([^)]+)\)\s*:\s*(.*)$", re.MULTILINE)  # harness (model): ran
+VERDICT_LINE = re.compile(r"^\W*verdict\s*:\s*(.*?)\s*$", re.IGNORECASE | re.MULTILINE)
+COUNCIL_APPROVED = ("APPROVE", "APPROVE WITH NITS")  # APPROVE WITH CHANGES needs a later round that says APPROVE
+COUNCIL_CELLS = {"required": True, "not required": False, "—": False, "-": False}
+TEST_TOKEN = re.compile(r"^(?:[\w./-]+\.py::)?(?:\w+::)*test\w*(?:\[[^\]]*\])?$")
+GOLDEN_SKIP = "post-scan golden absent"  # a must-cover skip that --accept-unverified records as unverified
+ACCEPT_HINT = "(pass --accept-unverified to record it as unverified)"
+
+
+def _lane_row(plan_index: Path, lane: str) -> tuple[dict[str, str] | None, set[str]]:
+    """(the lane's row, every lane id) of PLAN.md's Lanes table: the first table with Lane, Plan file and Council."""
+    for header, rows in _tables(plan_index.read_text(encoding="utf-8")):
+        if {"lane", "plan file", "council"} <= set(header):
+            lanes = {_code(row[0]): dict(zip(header, row, strict=False)) for row in rows}
+            return lanes.get(lane), set(lanes)
+    return None, set()
+
+
+def _council_names_head(opts: Options, token: str) -> bool:
+    """``token`` is a commit whose code is the head's: an ancestor followed only by changes to the lane's evidence."""
+    sha = _resolve(opts.worktree, token)
+    if sha is None or not _is_ancestor(opts.worktree, sha, opts.sha):
+        return False
+    return all(path.startswith(f"{_folder(opts)}/") for path in _diff_paths(opts.worktree, sha, opts.sha))
+
+
+def _families_ran(text: str) -> list[str]:
+    """Model families of the ``Reviewer: <harness> (<model id>): ran...`` lines; ``not run`` and prose never count."""
+    found: set[str] = set()
+    for model, status in REVIEWER_LINE.findall(text):
+        if re.match(r"ran\b", status.strip().lower()):
+            words = set(re.findall(r"[a-z]+", model.lower()))
+            found |= {family for family, names in FAMILIES.items() if words & set(names)}
+    return sorted(found)
+
+
+def _council_refusals(opts: Options) -> list[str]:
+    """council.md is reviewer-owned: read from the integration worktree (the coordinator writes it), never the lane."""
+    path = opts.integration / _folder(opts) / "council.md"
+    if not path.is_file():
+        return [f"council.md: missing at {path} (Council: required for {opts.lane}; the coordinator writes it)"]
+    text = path.read_text(encoding="utf-8")
+    problems: list[str] = []
+    verdicts = VERDICT_LINE.findall(text)
+    if not verdicts or verdicts[-1] not in COUNCIL_APPROVED:  # the last verdict line wins: a later BLOCK refuses
+        last = f"'{verdicts[-1]}'" if verdicts else "none"
+        problems.append(f"council.md: the final VERDICT is not APPROVE or APPROVE WITH NITS (last: {last})")
+    families = _families_ran(text)
+    if len(families) < 2:
+        problems.append(f"council.md: fewer than two model families ran ({', '.join(families) or 'none'})")
+    if not any(_council_names_head(opts, token) for token in re.findall(r"\b[0-9a-f]{7,40}\b", text)):
+        problems.append(f"council.md: does not name the head SHA {opts.sha} (or a commit followed only by evidence)")
+    return problems
+
+
+def must_cover_names(plan_text: str, lane: str, lanes: set[str]) -> list[str] | None:
+    """The tests named in the plan's ``## Must-cover`` section, or None without one. In a multi-lane plan file (a
+    paragraph starts ``<lane id>:``) only the lane's own paragraphs count."""
+    marks = must_cover_marks(plan_text, lane, lanes)
+    return None if marks is None else list(marks)
+
+
+def must_cover_marks(plan_text: str, lane: str, lanes: set[str]) -> dict[str, str] | None:
+    """must_cover_names, each with the plan text after it up to the next test name (where a golden skip is marked)."""
+    found = re.search(r"^## Must-cover[^\n]*\n(.*?)(?=^#{1,2} |\Z)", plan_text, re.MULTILINE | re.DOTALL)
+    if found is None:
+        return None
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", found.group(1)) if p.strip()]
+    owner = {p: m.group(1) for p in paragraphs if (m := re.match(r"([\w.-]+):\s", p)) and m.group(1) in lanes}
+    if owner:
+        paragraphs = [p for p in paragraphs if owner.get(p) == lane]
+    marks: dict[str, str] = {}
+    for paragraph in paragraphs:
+        current: str | None = None
+        for piece in re.split(r"(`[^`]+`)", paragraph):
+            name = piece.strip("`").strip()
+            if piece.startswith("`") and TEST_TOKEN.match(name):
+                current = name
+                marks.setdefault(name, "")
+            elif current is not None:
+                marks[current] += piece
+    return marks
+
+
+def _defined_tests(source: str) -> list[tuple[str, ...]]:
+    """(enclosing class names..., function name) of every function in ``source``."""
+    try:
+        body = ast.parse(source).body
+    except SyntaxError:
+        return []
+    found: list[tuple[str, ...]] = []
+
+    def walk(nodes: list[ast.stmt], classes: tuple[str, ...]) -> None:
+        for node in nodes:
+            if isinstance(node, ast.ClassDef):
+                walk(node.body, (*classes, node.name))
+            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                found.append((*classes, node.name))
+
+    walk(body, ())
+    return found
+
+
+def must_cover_ids(opts: Options, base: str, names: Sequence[str]) -> tuple[list[str], list[str]]:
+    """(node ids, refusals): a full node id must exist at the head; a bare name resolves only among the test files
+    in the lane diff, and is refused when absent or ambiguous."""
+    files = [p for p in _diff_paths(opts.worktree, base, opts.sha) if p.startswith("tests/") and p.endswith(".py")]
+    ids: list[str] = []
+    problems: list[str] = []
+    for name in names:
+        if ".py::" in name:
+            if _test_node(_show(opts.worktree, opts.sha, name.split("::", 1)[0]) or "", name) is None:
+                problems.append(f"must-cover {name}: not at the lane head")
+            else:
+                ids.append(name)
+            continue
+        bare = name.split("[", 1)[0]
+        parts = tuple(bare.split("::"))
+        hits = [
+            "::".join((path, *found)) + name[len(bare) :]
+            for path in files
+            for found in _defined_tests(_show(opts.worktree, opts.sha, path) or "")
+            if found[-len(parts) :] == parts
+        ]
+        if not hits:
+            problems.append(f"must-cover {name}: not defined in a test file of the lane diff")
+        elif len(hits) > 1:
+            problems.append(f"must-cover {name}: ambiguous ({', '.join(hits)}); name it by full node id")
+        else:
+            ids.append(hits[0])
+    return ids, problems
+
+
+def plan_refusals(opts: Options, base: str) -> tuple[list[str], list[str], list[str]]:
+    """(refusals, must-cover node ids, the ids the plan marks ``post-scan golden absent``) from PLAN.md's Lanes table
+    and the lane plan file."""
+    if opts.plan_index is None or not opts.plan_index.is_file():
+        return [f"PLAN.md not found: {opts.plan_index}"], [], []
+    if not _inside(opts.plan_index, opts.integration):  # a lane-written PLAN.md would choose its own rules
+        return [f"PLAN.md must be in the integration worktree ({opts.integration}), not {opts.plan_index}"], [], []
+    row, lanes = _lane_row(opts.plan_index, opts.lane)
+    if row is None:
+        return [f"lane {opts.lane} is not in the Lanes table of {opts.plan_index}"], [], []
+    cell = row.get("council", "").strip()
+    if cell.lower() not in COUNCIL_CELLS:
+        return [f"Council cell for {opts.lane} is '{cell}': write required, not required or —"], [], []
+    problems = _council_refusals(opts) if COUNCIL_CELLS[cell.lower()] else []
+    plan = opts.plan or opts.plan_index.parent / _code(row.get("plan file", ""))
+    if not _inside(plan, opts.integration):
+        return [*problems, f"lane plan {plan} must be in the integration worktree ({opts.integration})"], [], []
+    if not plan.is_file():
+        return [*problems, f"lane plan not found: {plan}"], [], []
+    marks = must_cover_marks(plan.read_text(encoding="utf-8"), opts.lane, lanes)
+    if not marks:
+        return [*problems, f"{plan.name}: no ## Must-cover tests for lane {opts.lane}"], [], []
+    ids, more = must_cover_ids(opts, base, list(marks))
+    golden, _again = must_cover_ids(opts, base, [name for name, text in marks.items() if GOLDEN_SKIP in text])
+    return problems + more, ids, golden
+
+
+def _is_leased(nodeid: str, leased: Sequence[str]) -> bool:
+    """A must-cover id the leased log decides: the same test (or one of its parametrisations), or a 0.4.0 bare name."""
+    bare = nodeid.split("[", 1)[0]
+    return any(
+        nodeid == lid or lid.startswith(f"{nodeid}[") or ("::" not in lid and bare.endswith(f"::{lid}"))
+        for lid in leased
+    )
+
+
+def must_cover_refusals(
+    opts: Options, ids: Sequence[str], run_pytest: PytestRunner, golden: Sequence[str] = ()
+) -> tuple[list[str], list[str]]:
+    """(refusals, unverified): every must-cover test passes at the head. A skip is refused unless the test is leased
+    (the leased log decides) or skipped as ``post-scan golden absent`` under --accept-unverified (then unverified),
+    and that golden skip only for a test the plan marks ``post-scan golden absent`` (``golden``)."""
+    leased = [nodeid for _log, nodeids in LEASED.get(opts.lane, ()) for nodeid in nodeids]
+    problems: list[str] = []
+    unverified: list[str] = []
+    for nodeid, outcomes in _replay(opts, opts.sha, ids, run_pytest).items():
+        for outcome, detail in outcomes:
+            if outcome == "passed" or (outcome == "skipped" and _is_leased(nodeid, leased)):
+                continue
+            if outcome == "skipped" and detail.startswith(GOLDEN_SKIP) and nodeid not in golden:
+                problems.append(f"must-cover {nodeid}: skipped ({detail}); the plan does not mark it {GOLDEN_SKIP}")
+            elif outcome == "skipped" and detail.startswith(GOLDEN_SKIP) and opts.accept_unverified:
+                unverified.append(f"must-cover {nodeid}: skipped ({detail})")
+            elif outcome == "skipped" and detail.startswith(GOLDEN_SKIP):
+                problems.append(f"must-cover {nodeid}: skipped ({detail}) {ACCEPT_HINT}")
+            elif outcome == "skipped":
+                problems.append(f"must-cover {nodeid}: skipped ({detail})")
+            else:
+                problems.append(f"must-cover {nodeid}: {outcome} at the lane head")
+    return problems, unverified
 
 
 # --- red integrity and replay -----------------------------------------------------------------------------------------
@@ -645,16 +1022,17 @@ def red_verdicts(junit: Path, nodeids: Sequence[str], root: Path | None = None) 
 
 @contextlib.contextmanager
 def _temp_tree(opts: Options, sha: str) -> Generator[Path]:
-    """A detached worktree at ``sha`` in a temp folder: only committed files, removed (and pruned) afterwards."""
+    """A detached worktree at ``sha`` in a temp folder: only committed files, removed (pruned if that failed)."""
     scratch = Path(tempfile.mkdtemp(prefix="lane-gate-"))
     tree = scratch / "tree"
     try:
         _git(opts.worktree, "worktree", "add", "--detach", "--quiet", str(tree), sha)
         yield tree
     finally:
-        _git(opts.worktree, "worktree", "remove", "--force", str(tree), check=False)
+        removed = _git(opts.worktree, "worktree", "remove", "--force", str(tree), check=False).returncode == 0
         shutil.rmtree(scratch, ignore_errors=True)
-        _git(opts.worktree, "worktree", "prune", check=False)
+        if not removed:  # a removed worktree leaves no admin entry to prune
+            _git(opts.worktree, "worktree", "prune", check=False)
 
 
 def _replay(opts: Options, sha: str, nodeids: Sequence[str], run_pytest: PytestRunner) -> dict[str, list[Outcome]]:
@@ -689,7 +1067,7 @@ def replay_refusals(opts: Options, reds: Sequence[Red], run_pytest: PytestRunner
 def gate_refusals(opts: Options, run_gate: GateRunner, prepare_env: EnvPreparer) -> list[str]:
     """The four gates in a fresh detached tree at the head, never the implementer's tree or virtualenv (untracked
     files, a planted ``.pth``); the tree's environment is synced from the lane's own lock first."""
-    logs = opts.integration / LANES / opts.lane / "gate"
+    logs = opts.integration / _folder(opts) / "gate"
     logs.mkdir(parents=True, exist_ok=True)
     problems: list[str] = []
     with _temp_tree(opts, opts.sha) as tree:
@@ -740,6 +1118,41 @@ def run_pytest_in(integration: Path) -> PytestRunner:
 # --- entry points -----------------------------------------------------------------------------------------------------
 
 
+def _with_release(opts: Options, result: Result) -> Options | None:
+    """``opts`` with its release resolved (noted) and validated, or None with the refusal recorded."""
+    release, how = (opts.release, "") if opts.release is not None else resolve_release(opts.integration)
+    if release is not None and not RELEASE_NAME.fullmatch(release):  # it becomes a path segment
+        result.refusals.append(f"invalid release name: '{release}'")
+        return None
+    if how:
+        (result.notes if release else result.refusals).append(how)
+    return replace(opts, release=release) if release else None
+
+
+def _worktree_refusals(opts: Options) -> list[str]:
+    problems: list[str] = []
+    if opts.no_rerun and not opts.lane.startswith(FIXTURE_PREFIX):
+        problems.append(f"--no-rerun is only for test fixture lanes ({FIXTURE_PREFIX}-*), not {opts.lane}")
+    head = _git(opts.worktree, "rev-parse", "HEAD").stdout.strip()
+    if head != opts.sha:
+        problems.append(f"{opts.sha} is not the worktree HEAD ({head}); gate the commit you mean")
+    if _git(opts.worktree, "status", "--porcelain", "--untracked-files=no").stdout.strip():
+        problems.append("lane worktree has uncommitted changes")
+    return problems
+
+
+def _record_unverified(opts: Options, result: Result, integrity: _Integrity) -> None:
+    """Non-pytest reds and leased-database gaps: recorded with --accept-unverified, else refused."""
+    unverified = list(integrity.unverified)
+    for log_name, node_ids in LEASED.get(opts.lane, ()):
+        if problem := leased_problem(opts, log_name, node_ids):
+            unverified.append(problem)
+    if opts.accept_unverified:
+        result.unverified = unverified
+    else:
+        result.refusals += [f"{line} {ACCEPT_HINT}" for line in unverified]
+
+
 def evaluate(
     opts: Options,
     *,
@@ -748,36 +1161,36 @@ def evaluate(
     prepare_env: EnvPreparer = lambda tree: (0, ""),
 ) -> Result:
     result = Result()
-    if opts.no_rerun and not opts.lane.startswith(FIXTURE_PREFIX):
-        result.refusals.append(f"--no-rerun is only for test fixture lanes ({FIXTURE_PREFIX}-*), not {opts.lane}")
-    head = _git(opts.worktree, "rev-parse", "HEAD").stdout.strip()
-    if head != opts.sha:
-        result.refusals.append(f"{opts.sha} is not the worktree HEAD ({head}); gate the commit you mean")
-    if _git(opts.worktree, "status", "--porcelain", "--untracked-files=no").stdout.strip():
-        result.refusals.append("lane worktree has uncommitted changes")
+    resolved = _with_release(opts, result)
+    if resolved is None:
+        return result
+    opts = resolved
+    result.refusals += _worktree_refusals(opts)
     integration_head = _git(opts.integration, "rev-parse", "HEAD").stdout.strip()
     base = _git(opts.worktree, "merge-base", integration_head, opts.sha).stdout.strip()
 
-    diff_problems, result.notes = diff_refusals(opts, base)
+    diff_problems, notes = diff_refusals(opts, base)
+    result.notes += notes
     result.refusals += diff_problems
     evidence, texts = evidence_refusals(opts, base)
     result.refusals += evidence
     reds, table_problems = red_tests({name: texts.get(name, "") for name in ("findings.md", "handoff.md")})
     integrity = red_integrity(opts, base, reds)
     result.refusals += table_problems + integrity.problems
-    unverified = list(integrity.unverified)
-    if opts.lane == LEASED_LANE and (problem := leased_pg_problem(opts)):
-        unverified.append(problem)
-    if opts.accept_unverified:
-        result.unverified = unverified
-    else:
-        result.refusals += [f"{line} (pass --accept-unverified to record it as unverified)" for line in unverified]
+    _record_unverified(opts, result, integrity)
+    plan_problems, cover, golden = plan_refusals(opts, base) if opts.plan_index is not None else ([], [], [])
+    result.refusals += plan_problems
     if result.refusals:
         result.refusals.append("red replay and gate re-run skipped: fix the refusals above first")
         return result
     result.refusals += replay_refusals(opts, integrity.replayable, run_pytest)
     if result.refusals:  # keep the last gate logs: a refused replay must not overwrite them
         result.refusals.append("gate re-run skipped: the red replay refused")
+        return result
+    cover_problems, cover_unverified = must_cover_refusals(opts, cover, run_pytest, golden) if cover else ([], [])
+    result.unverified += cover_unverified  # post-scan golden absent under --accept-unverified
+    if cover_problems:
+        result.refusals += [*cover_problems, "gate re-run skipped: a must-cover test refused"]
         return result
     if not opts.no_rerun:
         result.refusals += gate_refusals(opts, run_gate, prepare_env)
@@ -793,12 +1206,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--accept-unverified", action="store_true")
     parser.add_argument("--no-rerun", action="store_true", help="test fixture lanes only")
     parser.add_argument("--allow-path", action="append", default=[], help="protected path this lane may change")
+    parser.add_argument("--release", help="default: the integration branch release/<x>, else refused")
+    parser.add_argument("--plan-index", type=Path, help="PLAN.md (Lanes table); default: the release's plan folder")
+    parser.add_argument("--plan", type=Path, help="the lane plan file; default: PLAN.md's Plan file column")
     args = parser.parse_args(argv)
     integration: Path = args.integration.resolve()
-    worktree: Path = args.worktree or WORKTREE_ROOT / f"0.4.0-{args.lane}"
+    release, how = (args.release, "") if args.release else resolve_release(integration)
+    if release is None or not RELEASE_NAME.fullmatch(release):
+        print(f"REFUSED: {how or f'invalid release name: {release!r}'}")
+        return 1
+    worktree: Path = args.worktree or WORKTREE_ROOT / f"{release}-{args.lane}"
+    plans = sorted(integration.glob(f"docs/superpowers/plans/*-sharpit-{release}/PLAN.md"))
+    plan_index: Path | None = args.plan_index or (plans[0] if len(plans) == 1 else None)
+    if plan_index is None and not args.lane.startswith(FIXTURE_PREFIX):  # council and must-cover need it
+        print(f"REFUSED: no single PLAN.md for release {release} under docs/superpowers/plans/; pass --plan-index")
+        return 1
     sha: str = args.sha or _git(worktree, "rev-parse", "HEAD").stdout.strip()
     allow = tuple(args.allow_path)
-    opts = Options(args.lane, worktree.resolve(), sha, integration, args.accept_unverified, args.no_rerun, allow)
+    opts = Options(
+        args.lane,
+        worktree.resolve(),
+        sha,
+        integration,
+        args.accept_unverified,
+        args.no_rerun,
+        allow,
+        release,
+        plan_index.resolve() if plan_index else None,
+        args.plan.resolve() if args.plan else None,
+    )
     result = evaluate(
         opts,
         run_gate=run_gate_command,

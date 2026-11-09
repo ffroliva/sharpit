@@ -60,7 +60,7 @@
 <PanelShell title={panel.title} loading={report.loading} error={report.error} onretry={report.reload} notice={readOnly}>
   {#snippet controls()}
     {#if !readOnly}
-      <button class="primary push" onclick={read} disabled={reading} aria-busy={reading}>
+      <button class="primary" onclick={read} disabled={reading} aria-busy={reading}>
         {reading ? 'Reading…' : 'Read PostgreSQL'}
       </button>
     {/if}
@@ -91,7 +91,7 @@
           </p>
         {/if}
         {#if db.changes.length}
-          <h3>Since the previous read</h3>
+          <h2>Since the previous read</h2>
           <ul class="sm">
             {#each db.changes as c (c.metric)}
               <li>{c.metric}: <span class="mono">{c.previous} → {c.current}</span> <span class="tag muted">{c.direction}</span></li>
@@ -112,7 +112,7 @@
           </tbody>
         </table>
         {#each rowLists(db) as [title, rows] (title)}
-          <h3>{title}</h3>
+          <h2>{title}</h2>
           <div class="rows">
             <table>
               <thead><tr>{#each Object.keys(rows[0]) as key (key)}<th>{key}</th>{/each}</tr></thead>
@@ -148,9 +148,7 @@
 </PanelShell>
 
 <style>
-  .push { margin-left: auto; }
   .meta { margin: 0; padding: var(--s2) var(--s4); }
-  section.block h2, section.block h3 { padding-bottom: var(--s1); }
   section.block > p, section.block > ul { margin: 0; padding: 0 var(--s4) var(--s2); }
   .hint { display: block; }
   .rows { overflow-x: auto; }

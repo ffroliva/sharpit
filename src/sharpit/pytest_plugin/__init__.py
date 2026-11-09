@@ -26,6 +26,7 @@ from sharpit.engine.advisors.dismissals import DismissalStore
 from sharpit.engine.capture.correlation import TEST
 from sharpit.engine.collectors.restapi.service import assess as assess  # compatibility seam for apps.py
 from sharpit.engine.sources import dispatch, sqlite
+from sharpit.engine.sqltext import load_key
 from sharpit.engine.testsession import gates as gates
 from sharpit.engine.testsession import outcome, report
 from sharpit.engine.testsession.facts import SessionFacts
@@ -198,9 +199,16 @@ def _validate_activation() -> list[str]:
 def _source_state(sink: TestSessionSink, sql_attached: bool) -> None:
     facts = sink.facts
     source = next((s for s in facts.sources if s["name"] == "sqlite3"), None)
+    identity_unavailable = facts.sqlite_seen and sink.masker.identity_key is None
+    if identity_unavailable:
+        reason = "SQLite statement identities are unavailable because sharpit could not load a state key"
+    elif sql_attached:
+        reason = None
+    else:
+        reason = "sqlite3 source did not attach"
     details = {
-        "attached": sql_attached,
-        "reason": None if sql_attached else "sqlite3 source did not attach",
+        "attached": sql_attached and not identity_unavailable,
+        "reason": reason,
         "limitations": sqlite.limitations(),
     }
     if source is None:
@@ -255,12 +263,21 @@ def _attach(config: Any) -> None:
     sink.facts.warnings.extend(settings.warnings)
     handler = _ExceptionHandler(sink)
     dismissals = DismissalStore(Path(settings.state_dir))
+    try:
+        dismissed = dismissals.list()
+        dismissed_pairs = dismissals.dismissed_pairs()
+    except (OSError, ValueError) as exc:
+        dismissed = []
+        dismissed_pairs = set[tuple[str, str]]()
+        sink.facts.sources.append(
+            {"name": "dismissals", "attached": False, "reason": f"dismissals unusable: {exc}", "limitations": []}
+        )
     state = _State(
         options,
         sink,
         settings,
-        dismissals.list(),
-        dismissals.dismissed_pairs(),
+        dismissed,
+        dismissed_pairs,
         {key: entry.observed for key, entry in loaded_baseline.entries.items()} if loaded_baseline else None,
         loaded_baseline,
         False,
@@ -335,13 +352,30 @@ def pytest_sessionstart(session: Any) -> None:
     state = _state(session.config)
     if state is None:
         return
+    key_errors: list[OSError | ValueError] = []
     try:
+        identity_key = (
+            state.settings.identity_key.encode("utf-8")
+            if state.settings.identity_key
+            else load_key(Path(state.settings.state_dir), create=True, on_error=key_errors.append)
+        )
+        state.sink.set_identity_key(identity_key)
+        sqla.set_identity_key(identity_key)
+        if identity_key is None:
+            warning = "SQLite statement identities are unavailable because sharpit could not load a state key"
+            if key_errors:
+                error = key_errors[0]
+                warning += f" ({type(error).__name__}: {error})"
+            if warning not in state.sink.facts.warnings:
+                state.sink.facts.warnings.append(warning)
         worker_id = getattr(session.config, "workerinput", {}).get("workerid")
         if worker_id:
             state.sink.facts.worker = worker_id
-        if not state.sqlalchemy_attached:
-            state.sqlalchemy_attached = sqla.attach_session()
+        attached = sqla.attach_session()
+        if attached and not state.sqlalchemy_attached:
+            state.sqlalchemy_attached = True
             _record_sqlalchemy_source(state)
+        sqla.set_unbounded_read_factor(state.settings.activity_unbounded_read_factor)
     except Exception as exc:  # noqa: BLE001
         _record_hook_failure(state.sink, exc)
 
@@ -374,8 +408,9 @@ def _phase(item: Any, name: str) -> Any:
         current = state.sink.current_test
         if current is None:
             return None
-        if not state.sqlalchemy_attached:
-            state.sqlalchemy_attached = sqla.attach_session()
+        attached = sqla.attach_session()
+        if attached and not state.sqlalchemy_attached:
+            state.sqlalchemy_attached = True
             _record_sqlalchemy_source(state)
         token = TEST.set((item.nodeid, current.key.attempt, name))
         logger_dict = logging.root.manager.loggerDict

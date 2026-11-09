@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -13,10 +14,13 @@ from sqlalchemy import exc, orm  # noqa: E402
 from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship  # noqa: E402
 
 from data_support import spy_on_configure  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.activation import ActivationStatus  # noqa: E402
 from sharpit.engine.collectors import data  # noqa: E402
 from sharpit.engine.context import SharpitContext  # noqa: E402
+from sharpit.engine.sqltext import Dialect  # noqa: E402
 from sharpit.settings import SharpitSettings  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -39,6 +43,45 @@ def make_ctx(*models: object) -> SharpitContext:
     ctx = SharpitContext(SharpitSettings(), ActivationStatus(True, True, "on", ()), None)  # pyright: ignore[reportArgumentType]
     ctx.models = models
     return ctx
+
+
+def test_data_warning_uses_the_application_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    families: list[Dialect | None] = []
+
+    def observe(_error: BaseException, application: Any) -> Dialect:
+        families.append(application())
+        return Dialect.POSTGRESQL
+
+    monkeypatch.setattr(data, "exception_dialect", observe)
+    engine = sa.create_engine(
+        "postgresql+pg8000://db/app", module=SimpleNamespace(paramstyle="format", __version__="1.30.5")
+    )
+    handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[engine])
+    ctx = handle.context
+    error = RuntimeError("failed")
+    text = f"Could not read owner (RuntimeError: {error})"
+    try:
+        data._masked(ctx, text, error)  # noqa: SLF001
+        assert families == [Dialect.POSTGRESQL]
+    finally:
+        handle.uninstall_capture()
+
+
+def test_data_warning_keeps_a_falsy_application_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(Dialect, "__bool__", lambda _self: False, raising=False)
+    seen: list[Dialect] = []
+
+    def spy(_masker: object, text: str, dialect: Dialect) -> str:
+        seen.append(dialect)
+        return text
+
+    monkeypatch.setattr(data, "error_text", spy)
+    handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[sa.create_engine("sqlite://")])
+    try:
+        data._masked(handle.context, "Could not read owner")  # noqa: SLF001
+        assert seen == [Dialect.SQLITE]
+    finally:
+        handle.uninstall_capture()
 
 
 def owner_pet(module: str = __name__, other: str = "Pet", prefix: str = "") -> tuple[type[DeclarativeBase], type, type]:
@@ -594,3 +637,53 @@ def test_registry_subclass_new_mapper_is_not_configured(configure_spy: list[str]
     assert configure_spy == []
     assert report["repositories"][0]["relationships"] is None
     assert not any("Missing" in warning for warning in report["warnings"])
+
+
+class _Unprintable(Exception):
+    def __str__(self) -> str:
+        raise RuntimeError("no text")
+
+
+def _raise_unprintable(_self: object) -> Any:
+    raise _Unprintable
+
+
+# T27 v5 review D4: a warning reads the exception object, never ``str()``; an exception whose ``__str__`` raises must
+# not escape the GET, and the label stays outside the masked text
+UNPRINTABLE = {
+    "field": "Could not read the id type of app.models.Odd (_Unprintable)",
+    "mapper": "Skipping a mapper that could not be read (_Unprintable)",
+    "registry": "Skipping a registry that could not be read (_Unprintable)",
+}
+
+
+@pytest.mark.parametrize("site", ["field", "mapper", "registry"])
+def test_an_unprintable_exception_keeps_the_get(site: str) -> None:
+    # derived: spec §7: user mapping code must not fail the GET
+    if site == "registry":
+        registry: object = type("Registry", (), {"mappers": property(_raise_unprintable)})()
+    else:
+        broken = "primary_key" if site == "field" else "class_"
+        mapper = type(
+            "Odd",
+            (),
+            {
+                "configured": True,
+                "local_table": None,
+                "relationships": (),
+                "primary_key": (),
+                "class_": type("Odd", (), {"__module__": "app.models"}),
+                broken: property(_raise_unprintable),
+            },
+        )()
+        registry = SimpleNamespace(mappers=[mapper])
+
+    escaped: BaseException | None = None
+    warnings: list[str] | None = None
+    try:
+        warnings = data.repositories_report(make_ctx(registry))["warnings"]
+    except Exception as error:  # noqa: BLE001 - the defect is an exception escaping the GET
+        escaped = error
+
+    assert escaped is None
+    assert warnings == [UNPRINTABLE[site]]

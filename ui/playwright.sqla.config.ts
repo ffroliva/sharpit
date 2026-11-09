@@ -26,7 +26,7 @@ const SERVER_ENV: Record<string, string> = {
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  testMatch: 'panels-0.2.0.spec.ts',
+  testMatch: ['panels-0.2.0.spec.ts', 'layout.spec.ts'],
   outputDir: path.join(scratch, 'test-results'),
   reporter: [['list']],
   workers: 1, // one shared server whose captured requests the tests observe
@@ -52,3 +52,4 @@ export default defineConfig({
     },
   },
 });
+

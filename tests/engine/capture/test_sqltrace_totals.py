@@ -6,12 +6,15 @@ from typing import Any
 
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 MASKED = Masker(Exposure.MASKED, True)
 
 
 def _record(recorder: SqlTraceRecorder, sql: str = "select 1", millis: int = 1, **kw: Any) -> None:
-    recorder.record(sql, duration_ns=millis * 1_000_000, thread="main", connection_id="c1", **kw)
+    recorder.record(
+        sql, duration_ns=millis * 1_000_000, thread="main", connection_id="c1", dialect=Dialect.POSTGRESQL, **kw
+    )
 
 
 def test_totals_count_every_statement():

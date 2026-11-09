@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.collectors.health import OPERATION, health_service
+from sharpit.engine.sqla import SHARED_CONNECTION_REFUSED
 from sharpit.fastapi.adapter import SharpitHandle
 
 LOCAL = ("127.0.0.1", 50000)
@@ -66,3 +67,44 @@ def test_executor_created_on_first_check_only():
     assert client.post(CHECK).status_code == 200
     assert service._executor is not None
     assert _health_threads() - before
+
+
+def _open_host_transaction(engine: Any) -> tuple[Any, Any]:
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE t (x INTEGER)")
+    host = engine.connect()
+    transaction = host.begin()
+    host.exec_driver_sql("INSERT INTO t VALUES (1)")
+    return host, transaction
+
+
+def _committed_rows(engine: Any, host: Any, transaction: Any) -> int:
+    transaction.commit()
+    host.close()
+    with engine.connect() as conn:
+        return conn.exec_driver_sql("SELECT count(*) FROM t").scalar()
+
+
+# derived: release council probe p1b_e2e.py: the ping's checkin rolled the host's open transaction back
+def test_check_on_a_sharing_pool_keeps_the_hosts_open_transaction():
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine("sqlite://", poolclass=sa.pool.StaticPool, connect_args={"check_same_thread": False})
+    client, _handle = _client(engines=[engine])
+    host, transaction = _open_host_transaction(engine)
+
+    assert client.post(CHECK).status_code == 200
+
+    assert _committed_rows(engine, host, transaction) == 1
+
+
+# derived: release council fix round 2: a skipped ping says nothing about the database, so never DOWN
+@pytest.mark.parametrize("pool", ["StaticPool", "SingletonThreadPool", "AssertionPool"])
+def test_check_on_a_sharing_pool_is_unknown_with_its_reason(pool: str):
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine("sqlite://", poolclass=getattr(sa.pool, pool), connect_args={"check_same_thread": False})
+    client, _handle = _client(engines=[engine])
+
+    db = next(c for c in client.post(CHECK).json()["components"] if c["name"] == "db")
+
+    (ping,) = db["components"]
+    assert (ping["status"], ping["details"].get("error")) == ("UNKNOWN", SHARED_CONNECTION_REFUSED)

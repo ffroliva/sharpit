@@ -6,6 +6,7 @@ duration (spec §6.4, B4 and B8).
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import inspect
 import threading
@@ -14,11 +15,14 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from sharpit.engine import sqltext
 from sharpit.engine.capture.exceptions import fingerprint
-from sharpit.engine.capture.sqltrace import category_of, normalize
+from sharpit.engine.capture.sqltrace import category_of
 from sharpit.engine.masking import Masker
 from sharpit.engine.sources.dispatch import SqlEvent, TestTag
 from sharpit.engine.spi import ApiModel
+from sharpit.engine.sqla.dialect_source import ExceptionDialectSource, event_dialect
+from sharpit.engine.sqltext import Dialect, DialectContext, resolve
 from sharpit.engine.testsession.facts import PHASES, PhaseFacts, SessionFacts, TestFacts, TestKey
 from sharpit.engine.testsession.filters import filtered_rule
 from sharpit.settings import SharpitSettings
@@ -77,7 +81,9 @@ class TestSessionSink:
         self.facts = SessionFacts(worker)
         self.current_test: TestFacts | None = None  # the test last begun (its window is open until ``end_test``)
         self._masker = masker or report_masker()
-        self._lock = threading.Lock()
+        # SQL repeats all session; per sink, so one masker's results never reach another's
+        self._shape = functools.lru_cache(maxsize=1024)(functools.partial(sqltext.statement_shape, self._masker))
+        self._lock = threading.RLock()
         self._attempts: Counter[str] = Counter()
         self._window: tuple[str, int] | None = None
         self._seen: dict[int, tuple[BaseException, str, str]] = {}  # id -> (strong ref, phase, group)
@@ -88,6 +94,14 @@ class TestSessionSink:
         self._exception_ids: dict[int, BaseException] = {}
         self._orphan_snapshots: dict[str, tuple[str, ApiModel]] = {}
         self._models_by_signature: dict[tuple[str, tuple[tuple[object, ...], ...]], ApiModel] = {}
+
+    @property
+    def masker(self) -> Masker:
+        return self._masker
+
+    def set_identity_key(self, key: bytes | None) -> None:
+        self._masker.identity_key = key
+        self._shape.cache_clear()
 
     def _mask(self, text: str) -> str:
         return self._masker.mask_text(text) or ""
@@ -130,34 +144,44 @@ class TestSessionSink:
     def on_sql(self, event: SqlEvent, test: TestTag | None) -> None:
         try:
             rule = filtered_rule(event.sql)
-            normalized = None if rule else normalize(event.sql)
+            # The test-session sink resolves with no application fallback (`lambda: None`),
+            # so it does not share the recorder's fallback behavior (owner ruling, 2026-11-06).
+            dialect = event_dialect(event, lambda: None)
+            shape = None if rule else self._shape(event.sql, dialect)
             with self._lock:
+                self.facts.sqlite_seen |= dialect is Dialect.SQLITE
                 phase = self._phase_of(test)
-                if normalized is None:
+                if shape is None:
                     self.facts.filtered += 1
                     if phase is not None:
                         phase.filtered += 1
                     return
-                key = self._mask(normalized.fingerprint)  # the raw fingerprint never leaves this call
+                key = shape.fingerprint
+                if key is None:
+                    if phase is not None:
+                        phase.queries += 1
+                    else:
+                        self.facts.unattributed += 1
+                    return
                 if phase is None:
-                    self._count_unattributed(key, normalized.sql)
+                    self._count_unattributed(key, shape.text)
                     return
                 phase.queries += 1
                 if category_of(event.sql) == "SELECT":
                     phase.selects[key] += 1
                     if key not in phase.sql_of:
-                        phase.sql_of[key] = self._mask(normalized.sql)
+                        phase.sql_of[key] = shape.text
         except Exception as exc:  # noqa: BLE001
             self._failed(exc)
 
     def _count_unattributed(self, key: str, sql: str) -> None:
         self.facts.unattributed += 1
         top = self.facts.top_unattributed
-        masked = self._unattributed_by_key.get(key)
-        if masked is None:
+        if key not in self._unattributed_by_key:
             if len(self._unattributed_by_key) >= MAX_UNATTRIBUTED_STATEMENTS:
                 return
-            masked = self._unattributed_by_key[key] = self._mask(sql)
+            self._unattributed_by_key[key] = sql
+        masked = self._unattributed_by_key[key]
         top[masked] = top.get(masked, 0) + 1
 
     def on_exception(self, exc: BaseException, source: str, test: TestTag | None) -> None:
@@ -177,7 +201,13 @@ class TestSessionSink:
                     return
                 group = fingerprint(exc)
                 try:
-                    message = self._mask(str(exc))
+                    dialect = resolve(exc, (ExceptionDialectSource(),), DialectContext(lambda: None))
+                    message = sqltext.error_text(self._masker, exc, dialect) or ""
+                    if message in ("", sqltext.MASK):  # nothing shown: say whether the text could be read at all
+                        try:
+                            str(exc)
+                        except Exception:
+                            message = f"<unprintable {type(exc).__name__}>"
                 except Exception:
                     message = f"<unprintable {type(exc).__name__}>"
                 phase.exception_groups.setdefault(group, (type(exc).__name__, message))

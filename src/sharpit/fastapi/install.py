@@ -9,6 +9,7 @@ import time
 from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from importlib import import_module
+from pathlib import Path
 from typing import Any, cast
 
 from starlette.applications import Starlette
@@ -21,9 +22,12 @@ from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.logtail import LogTailBuffer
 from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import ChangeStream, StreamSlots
-from sharpit.engine.context import SharpitContext
+from sharpit.engine.capture.transactions import TransactionRecorder
+from sharpit.engine.capture.transactions import attach as attach_transactions
+from sharpit.engine.context import SharpitContext, application_family
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
+from sharpit.engine.sqltext import load_key
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import CaptureWiring
 from sharpit.fastapi.introspector import FastApiIntrospector
@@ -50,8 +54,11 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             settings.exceptions_max_occurrences_per_group,
             settings.exceptions_max_stack_frames,
             ctx.masker,
+            application=lambda: application_family(ctx),
         )
     capture.engine_registry = sqla.EngineRegistry(ctx.masker)
+    for engine in ctx.engines:
+        capture.engine_registry.add(engine)
     if panels["sql-trace"].enabled and settings.sql_trace_enabled:
         capture.sql_trace = SqlTraceRecorder(
             ctx.masker,
@@ -63,6 +70,16 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             capture_call_site=settings.sql_trace_capture_call_site,
             recording=settings.sql_trace_recording,
         )
+    if panels["transactions"].enabled and settings.transactions_enabled:
+        capture.transactions = TransactionRecorder(
+            ctx.masker,
+            max_entries=settings.transactions_max_entries,
+            slow_threshold_ms=settings.transactions_slow_transaction_threshold_millis,
+            hold_threshold_ms=settings.transactions_connection_hold_threshold_millis,
+            recording=settings.transactions_recording,
+            application=lambda: application_family(ctx),
+        )
+        capture.attachers.append(lambda: attach_transactions(ctx))
     if panels["activity"].enabled:
         capture.activity_changes = ChangeStream()
         for source in (capture.exchanges, capture.exceptions, capture.sql_trace):
@@ -116,6 +133,26 @@ def _requested(settings: SharpitSettings, profiles: tuple[str, ...]) -> bool:
     return parse_mode(settings.enabled) is None or any(p in profiles for p in settings.enabled_profiles)
 
 
+def _existing_handle(router: Any, mount_type: type) -> Any:
+    """An earlier install's handle on this router, with its warning logged; ``None`` on a first install."""
+    existing = next((r.sharpit_handle for r in router.routes if isinstance(r, mount_type) and r.sharpit_handle), None)
+    if existing is not None:
+        first = (
+            ""
+            if existing.activation.enabled
+            else f" (that install left sharpit inactive: {existing.activation.reason})"
+        )
+        logger.warning("sharpit.install() was already called on this app; ignoring this call%s", first)
+    return existing
+
+
+def _identity_key(settings: SharpitSettings) -> bytes | None:
+    """The configured identity key, or the state directory's, created when missing."""
+    if settings.identity_key:
+        return settings.identity_key.encode("utf-8")
+    return load_key(Path(settings.state_dir), create=True)
+
+
 def install(
     app: Any,
     *,
@@ -134,16 +171,7 @@ def install(
     _not_found = adapter._not_found
     caller_module: str | None = sys._getframe(1).f_globals.get("__name__")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
     router = app.router
-    existing = next(
-        (r.sharpit_handle for r in router.routes if isinstance(r, sharpit_mount_type) and r.sharpit_handle), None
-    )
-    if existing is not None:
-        first = (
-            ""
-            if existing.activation.enabled
-            else f" (that install left sharpit inactive: {existing.activation.reason})"
-        )
-        logger.warning("sharpit.install() was already called on this app; ignoring this call%s", first)
+    if (existing := _existing_handle(router, sharpit_mount_type)) is not None:
         return existing
     app_settings = _app_settings(settings)
     sharpit_settings = load_settings(options, os.environ)
@@ -177,6 +205,10 @@ def install(
         level = logging.WARNING if _requested(sharpit_settings, profiles) else logging.INFO
         logger.log(level, "sharpit inactive: %s", activation.reason)
         return handle
+
+    ctx.masker.identity_key = _identity_key(sharpit_settings)
+    if ctx.masker.identity_key is None:
+        logger.warning("SQLite statement identities are unavailable because sharpit could not load a state key")
 
     wiring = _configure_capture(app, ctx, sharpit_settings)
 
