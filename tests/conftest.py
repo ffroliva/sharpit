@@ -38,6 +38,14 @@ from sharpit.engine.sqltext.identity import load_key
 pytest_plugins = ["pytester", "_shard"]  # _shard: SHARPIT_SHARD=i/n, the CI shards (tests/_shard.py)
 _REPO_STATE_SNAPSHOT: dict[str, tuple[int, int] | None] = {}
 
+
+@pytest.fixture
+def pytester(pytester: pytest.Pytester) -> pytest.Pytester:
+    """Use a fresh interpreter for default nested runs so basenames cannot collide in sys.modules."""
+    pytester._method = "subprocess"  # noqa: SLF001 - the public --runpytest option configures this default
+    return pytester
+
+
 # The property tests run the same examples on every run and every shard, and write no example database: a failure seen
 # once is seen again, and a slow runner is not a failure (design section 8).
 settings.register_profile("sharpit", derandomize=True, deadline=None, database=None, print_blob=False)
