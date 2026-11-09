@@ -14,6 +14,15 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parents[2] / "tests" / "shard_weights.json"
 PLATFORMS = {"windows": "win32", "ubuntu": "linux"}
+JOBS = ("test-shard", "coverage-shard", "lowest-shard", "no-sqlalchemy-shard", "masking-gates", "live", "sharpit-gate")
+
+
+def parse_artifact(name: str) -> tuple[str, str] | None:
+    """Return the pytest job and leg from ``junit-<job>-<leg>`` artifact names."""
+    for job in JOBS:
+        if name.startswith(f"junit-{job}-"):
+            return job, name.removeprefix(f"junit-{job}-")
+    return None
 
 
 def test_file(classname: str) -> str:
@@ -28,10 +37,13 @@ def weights(root: Path) -> dict[str, dict[str, float]]:
     # artifact dirs are junit-<os>-<python>-<job index>: one leg is <os>-<python>
     per_leg: dict[str, dict[str, defaultdict[str, float]]] = defaultdict(dict)
     for report in sorted(root.glob("junit-*/junit.xml")):
-        parts = report.parent.name.split("-")
-        if len(parts) != 5 or parts[1] not in PLATFORMS:
+        parsed = parse_artifact(report.parent.name)
+        if parsed is None or parsed[0] != "test-shard":
             continue  # junit-gates-<os> (masking-gates job) is no shard leg
-        os_name, python = parts[1], parts[3]
+        leg = parsed[1].split("-")
+        if len(leg) < 3 or leg[0] not in PLATFORMS:
+            continue
+        os_name, python = leg[0], leg[2]
         platform = PLATFORMS[os_name]
         leg = per_leg[platform].setdefault(python, defaultdict(float))
         for case in ET.parse(report).iter("testcase"):

@@ -84,6 +84,41 @@ def test_the_required_test_check_still_fails_when_lint_fails() -> None:
     assert 'needs.lint.result }}" = success' in JOBS["test"]
 
 
+def test_the_documented_full_suite_command_collects_every_file() -> None:
+    command = next(
+        line for line in Path("AGENTS.md").read_text(encoding="utf-8").splitlines() if "pytest -q -n auto" in line
+    )
+    assert "--import-mode=importlib" in command
+
+
+def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
+    from scripts.ci.shard_weights import parse_artifact
+
+    pytest_jobs = [
+        name
+        for name, body in JOBS.items()
+        if any(re.search(r"^\s*(?:- )?run:.*pytest\b", line) for line in body.splitlines())
+    ]
+    assert pytest_jobs
+    missing_junit = [
+        name
+        for name in pytest_jobs
+        if any(
+            re.search(r"^\s*(?:- )?run:.*pytest\b", line) and "--junitxml=" not in line
+            for line in JOBS[name].splitlines()
+        )
+    ]
+    assert not missing_junit, f"pytest steps without JUnit XML: {missing_junit}"
+    missing_overhead = [name for name in pytest_jobs if "name: overhead-" not in JOBS[name]]
+    assert not missing_overhead, f"pytest jobs without overhead uploads: {missing_overhead}"
+    for job in pytest_jobs:
+        assert f"name: junit-{job}-" in JOBS[job], job
+        assert f"name: overhead-{job}-" in JOBS[job], job
+        assert "SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl" in JOBS[job], job
+        assert JOBS[job].count("if: always()") >= 2, job
+    assert parse_artifact("junit-test-shard-ubuntu-latest-3.12-0") == ("test-shard", "ubuntu-latest-3.12-0")
+
+
 OWN_JOB_FILES = (  # each alone outweighs a shard ceiling (487, 386, 418 s): one job runs them whole, every row
     "tests/masking/test_masking_scales_linearly.py",
     "tests/masking/test_statement_surfaces.py",
@@ -111,10 +146,3 @@ def test_the_heavy_masking_gates_have_one_job_and_no_shard_collects_them(
     result = pytester.runpytest("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
     for gate in OWN_JOB_FILES:
         assert f"{gate}::test_row" in result.outlines
-
-
-def test_the_documented_full_suite_command_collects_every_file() -> None:
-    command = next(
-        line for line in Path("AGENTS.md").read_text(encoding="utf-8").splitlines() if "pytest -q -n auto" in line
-    )
-    assert "--import-mode=importlib" in command
