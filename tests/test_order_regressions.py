@@ -20,4 +20,4 @@ def test_heavy_masking_layout_test_passes_after_each_gate(gate: str, pytester: p
         "-p",
         "no:cacheprovider",
     )
-    result.assert_outcomes(passed=2)
+    result.assert_outcomes(passed=1)

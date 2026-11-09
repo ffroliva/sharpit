@@ -1,5 +1,6 @@
 """CI layout costs, pinned by count, never by wall clock: where lint runs, how a leg is sharded, the tracer."""
 
+import os
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -153,6 +154,8 @@ OWN_JOB_FILES = (  # each alone outweighs a shard ceiling (487, 386, 418 s): one
 def test_the_heavy_masking_gates_have_one_job_and_no_shard_collects_them(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Nested subprocesses start outside tests/, where the _shard plugin lives.
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join((str(Path(__file__).parent), os.environ.get("PYTHONPATH", ""))))
     for gate in OWN_JOB_FILES:
         assert [name for name, body in JOBS.items() if gate in body] == ["masking-gates"], gate
     for gate in OWN_JOB_FILES:
@@ -162,10 +165,10 @@ def test_the_heavy_masking_gates_have_one_job_and_no_shard_collects_them(
     pytester.makepyfile(test_other="def test_a(): pass")
     for spec in ("1/3", "2/3", "3/3"):
         monkeypatch.setenv("SHARPIT_SHARD", spec)
-        result = pytester.runpytest("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
+        result = pytester.runpytest_subprocess("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
         for gate in OWN_JOB_FILES:
             assert not [line for line in result.outlines if gate in line], f"shard {spec} collects {gate}"
     monkeypatch.delenv("SHARPIT_SHARD")
-    result = pytester.runpytest("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
+    result = pytester.runpytest_subprocess("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
     for gate in OWN_JOB_FILES:
         assert f"{gate}::test_row" in result.outlines

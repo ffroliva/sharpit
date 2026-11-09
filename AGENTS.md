@@ -45,7 +45,7 @@ uv sync --extra test                 # background: first run downloads
 uv run ruff check                    # lint (repo-wide, scripts/ included; vendored pytest_speed excluded)
 uv run ruff format --check           # format (also formats Python blocks in Markdown)
 uv run pyright                       # strict on src/sharpit
-uv run pytest -q -n auto             # full suite, parallel (pytest-xdist): ~448 s on a 22-core machine
+uv run pytest -q -n auto             # full suite, parallel (pytest-xdist): choose -n by machine load
 uv run pytest -q -n auto tests/engine/test_guard.py   # one file, still parallel (see Workflow)
 uv run python scripts/dev/active_plan.py      # where are we?
 ```
