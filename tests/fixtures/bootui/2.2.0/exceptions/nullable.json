@@ -1,0 +1,7 @@
+{
+  "groups[].lastRequestId": "null when the last occurrence ran outside a request, for example one logged from a background thread",
+  "groups[].lastRequestMethod": "null when the last occurrence ran outside a request",
+  "groups[].lastRequestPath": "null when the last occurrence ran outside a request",
+  "groups[].lastHandler": "null when the last occurrence ran outside a request or no route was matched",
+  "groups[].lastExecutionId": "null: sharpit has no execution id; an occurrence is correlated by its request id only"
+}

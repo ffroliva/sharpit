@@ -1,0 +1,77 @@
+name: nightly-live
+# The server oracle and the live fuzz on a version matrix (design section 8, plan Task 20): what a real server returned
+# reaches no output, on more versions than the `live` job's one each. A schedule fires only from the default branch;
+# until a merge puts this file there, it runs by hand (`gh workflow run nightly-live.yml --ref <branch>`).
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      strings:
+        description: Strings per fuzz session
+        default: "100000"
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-latest # Linux only: GitHub's Windows runners cannot run Linux containers
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # key: a live profile server (tests/live/conftest.py); legs: its oracle sessions (test_every_session_leg_ran);
+        # sessions: the fuzz's, each with its control in the same run
+        include:
+          - { key: mysql80, image: "mysql:8.0", legs: 3, sessions: "'' NO_BACKSLASH_ESCAPES" }
+          - { key: mysql84, image: "mysql:8.4", legs: 3, sessions: "'' NO_BACKSLASH_ESCAPES" }
+          - { key: mariadb, image: "mariadb:10.11", legs: 5, sessions: "'' NO_BACKSLASH_ESCAPES MSSQL" }
+          - { key: mariadb, image: "mariadb:11.4", legs: 5, sessions: "'' NO_BACKSLASH_ESCAPES MSSQL" }
+          - { key: mariadb, image: "mariadb:11.8", legs: 5, sessions: "'' NO_BACKSLASH_ESCAPES MSSQL" }
+          - { key: postgresql, image: "postgres:14", legs: 2, sessions: "on off" }
+          - { key: postgresql, image: "postgres:15", legs: 2, sessions: "on off" }
+          - { key: postgresql, image: "postgres:16", legs: 2, sessions: "on off" }
+          - { key: postgresql, image: "postgres:17", legs: 2, sessions: "on off" }
+          - { key: postgresql, image: "postgres:18", legs: 2, sessions: "on off" }
+    name: ${{ matrix.image }}
+    env:
+      IMAGE_VAR: SHARPIT_LIVE_IMAGE_${{ matrix.key }}
+      STRINGS: ${{ inputs.strings || '100000' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the live tests
+      - name: Pick the image
+        shell: bash
+        run: echo "${IMAGE_VAR^^}=${{ matrix.image }}" >> "$GITHUB_ENV"
+      - name: Server oracle
+        run: >-
+          uv run --no-sync pytest tests/live --live -n 0 --junitxml=live.xml -k "${{ matrix.key }} and
+          (test_a_server_answers or test_oracle_row or test_every_session_leg_ran or test_a_refused_statement)"
+      - name: Require executed oracle tests, without skips
+        if: always()
+        run: >-
+          uv run --no-sync python scripts/ci/check_live_tests.py live.xml --require test_a_server_answers=1
+          test_oracle_row test_every_session_leg_ran=${{ matrix.legs }} test_a_refused_statement_keeps_its_value_hidden=1
+      - name: Live fuzz, the build against its control
+        if: always()
+        shell: bash
+        run: |
+          status=0
+          for session in ${{ matrix.sessions }}; do
+            uv run --no-sync python scripts/dev/live_fuzz.py --server "${{ matrix.key }}" --session "$session" \
+              --strings "$STRINGS" --seed "$GITHUB_RUN_NUMBER" --out "fuzz-${session:-default}.jsonl" || status=1
+          done
+          exit $status
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: nightly-${{ matrix.key }}-${{ strategy.job-index }}
+          path: |
+            live.xml
+            fuzz-*.jsonl
+          retention-days: 14

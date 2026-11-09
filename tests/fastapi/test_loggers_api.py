@@ -33,7 +33,9 @@ def test_get_loggers_paged(no_side_effects: SideEffectGuard):
     no_side_effects.unblock_network()  # the Windows Proactor loop TestClient starts connects a self-pipe socketpair
     logging.getLogger("api.pg.one")
     logging.getLogger("api.pg.two")
-    resp = _client().get("/sharpit/api/loggers", params={"q": "api.pg", "offset": 1, "limit": 1})
+    resp = _client(state_dir=str(no_side_effects.state_dir)).get(
+        "/sharpit/api/loggers", params={"q": "api.pg", "offset": 1, "limit": 1}
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert [lg["name"] for lg in body["loggers"]] == ["api.pg.two"]
@@ -43,7 +45,7 @@ def test_get_loggers_paged(no_side_effects: SideEffectGuard):
 
 def test_get_loggers_bad_param_400(no_side_effects: SideEffectGuard):
     no_side_effects.unblock_network()
-    resp = _client().get("/sharpit/api/loggers", params={"limit": "x"})
+    resp = _client(state_dir=str(no_side_effects.state_dir)).get("/sharpit/api/loggers", params={"limit": "x"})
     assert resp.status_code == 400
     assert resp.json() == {"error": "Invalid 'limit' parameter"}
 

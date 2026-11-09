@@ -30,9 +30,9 @@ def test_rule_definition_is_frozen():
 
 def test_failed_result_keeps_first_ten_samples():
     result = RuleResult.evaluate(RULE, [f"GET /items/{i}" for i in range(12)])
-    assert (result.status, result.violation_count, result.dismissed) == ("FAILED", 12, False)
+    assert (result.status, result.violation_count, result.dismissed) == ("VIOLATION", 12, False)
     assert result.sample_violations == tuple(f"GET /items/{i}" for i in range(10))
-    assert RuleResult.evaluate(RULE, []).status == "PASSED"
+    assert RuleResult.evaluate(RULE, []).status == "PASS"
     assert RuleResult.skipped(RULE).status == "SKIPPED"
 
 
@@ -51,5 +51,6 @@ def test_result_dto_keys_match_bootui():
         "recommendation",
         "learnMoreUrl",
         "dismissed",
+        "sampleLocations",
     ]
     assert RuleResult.evaluate(RULE, ["x"]).to_dto()["sampleViolations"] == ["x"]

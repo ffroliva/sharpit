@@ -71,6 +71,40 @@ class SwallowedFact:
 
 
 @dataclass
+class UnboundedReadFact:
+    route: str
+    statement: str
+    entity: str
+    loaded: int
+    page_size: int
+    has_limit: bool
+    location: str | None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "route": self.route,
+            "statement": self.statement,
+            "entity": self.entity,
+            "loaded": self.loaded,
+            "pageSize": self.page_size,
+            "hasLimit": self.has_limit,
+            "location": self.location,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> Self:
+        return cls(
+            data["route"],
+            data["statement"],
+            data["entity"],
+            data["loaded"],
+            data["pageSize"],
+            data["hasLimit"],
+            data.get("location"),
+        )
+
+
+@dataclass
 class PhaseFacts:
     queries: int = 0
     filtered: int = 0
@@ -82,6 +116,9 @@ class PhaseFacts:
     relationship_of: dict[str, tuple[str, bool]] = field(default_factory=dict[str, tuple[str, bool]])
     relationship_sites: dict[str, str | None] = field(default_factory=dict[str, str | None])
     swallowed: list[SwallowedFact] = field(default_factory=list[SwallowedFact])
+    unbounded_reads: list[UnboundedReadFact] = field(default_factory=list[UnboundedReadFact])
+    # repeated-SELECT group -> (first application site, batched-query suggestion), for groups with no relationship
+    statement_sites: dict[str, tuple[str | None, str]] = field(default_factory=dict[str, tuple[str | None, str]])
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -95,6 +132,8 @@ class PhaseFacts:
             "relationshipOf": {k: list(v) for k, v in self.relationship_of.items()},
             "relationshipSites": self.relationship_sites,
             "swallowed": [fact.to_json() for fact in self.swallowed],
+            "unboundedReads": [fact.to_json() for fact in self.unbounded_reads],
+            "statementSites": {k: list(v) for k, v in self.statement_sites.items()},
         }
 
     @classmethod
@@ -110,6 +149,8 @@ class PhaseFacts:
             {k: (v[0], v[1]) for k, v in data.get("relationshipOf", {}).items()},
             dict(data.get("relationshipSites", {})),
             [SwallowedFact.from_json(fact) for fact in data.get("swallowed", [])],
+            [UnboundedReadFact.from_json(fact) for fact in data.get("unboundedReads", [])],
+            {k: (v[0], v[1]) for k, v in data.get("statementSites", {}).items()},
         )
 
 
@@ -137,6 +178,8 @@ class TestFacts:
                 "allowNPlusOne": budget.allow_n_plus_one,
                 "maxExceptions": budget.max_exceptions,
                 "allowSwallowed": budget.allow_swallowed,
+                "allowUnboundedRead": budget.allow_unbounded_read,
+                "unboundedReadFactor": budget.unbounded_read_factor,
             },
             "phases": {name: phase.to_json() for name, phase in self.phases.items()},
             "findings": self.findings,
@@ -156,6 +199,8 @@ class TestFacts:
                 budget["allowNPlusOne"],
                 budget["maxExceptions"],
                 budget.get("allowSwallowed", False),
+                budget.get("allowUnboundedRead", False),
+                budget.get("unboundedReadFactor", 2),
             ),
             list(data["findings"]),
         )
@@ -177,6 +222,7 @@ class SessionFacts:
     advisor_runs: list[AdvisorRun] = field(default_factory=list[AdvisorRun])
     warnings: list[str] = field(default_factory=list[str])
     exceptions_source_ok: bool = True
+    sqlite_seen: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -194,6 +240,7 @@ class SessionFacts:
             "advisorRuns": [r.to_dto() for r in self.advisor_runs],
             "warnings": self.warnings,
             "exceptionsSourceOk": self.exceptions_source_ok,
+            "sqliteSeen": self.sqlite_seen,
         }
 
     @classmethod
@@ -213,4 +260,5 @@ class SessionFacts:
             [_run_from(r) for r in data["advisorRuns"]],
             list(data["warnings"]),
             data["exceptionsSourceOk"],
+            data.get("sqliteSeen", False),
         )

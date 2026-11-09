@@ -27,3 +27,11 @@ export function scrollable(node: HTMLElement) {
     },
   };
 }
+
+export function focusRegion(event: MouseEvent) {
+  const region = (event.currentTarget as HTMLElement).closest<HTMLElement>('.panel-body');
+  if (region) {
+    region.tabIndex = -1;
+    region.focus();
+  }
+}

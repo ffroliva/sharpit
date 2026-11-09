@@ -126,6 +126,40 @@ def test_create_returns_direct_failure_result(monkeypatch: pytest.MonkeyPatch):
     ]
 
 
+@pytest.mark.parametrize(
+    ("stderr", "cause"),
+    [
+        (
+            "failed: dial tcp: lookup production.cloudfront.docker.com: no such host "
+            "https://production.cloudfront.docker.com/file?X-Amz-Signature=secret",
+            "dns",
+        ),
+        ("dial tcp 10.0.0.1:443: connection refused", "network"),
+        ("failed to connect: sandboxd socket not found", "daemon"),
+        ("Error: unauthorized (401); please login", "auth"),
+        ("quota exceeded: vCPU limit exceeded", "quota"),
+        ("insufficient credit: billing required", "credit"),
+        ("create failed for an unclassified reason", "unknown"),
+    ],
+)
+def test_create_failure_cause(stderr: str, cause: str):
+    assert fleet.create_failure_cause(stderr) == cause
+
+
+def test_create_failure_excerpt_keeps_reason_and_drops_signed_query():
+    stderr = (
+        "dial tcp: lookup production.cloudfront.docker.com: no such host https://host/file?X-Amz-Signature=" + "x" * 400
+    )
+    excerpt = fleet.create_failure_excerpt(stderr)
+    assert "no such host" in excerpt
+    assert "X-Amz-Signature" not in excerpt
+
+
+def test_no_box_message_names_create_failure_cause():
+    message = fleet.no_box_message([fleet.BoxResult(1, create_cause="dns")])
+    assert "1 create failure (dns)" in message
+
+
 def test_all_boxes_green_is_exit_0():
     assert fleet.exit_code([ok(1), ok(2)], 2) == 0
 

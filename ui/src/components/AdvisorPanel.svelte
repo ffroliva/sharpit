@@ -6,7 +6,7 @@
   import type { Snippet } from 'svelte';
   import { ApiError, errorText, field } from '../lib/api';
   import { advisorAssessment, scoreBandTone } from '../lib/score';
-  import { scrollable } from '../lib/scrollable';
+  import { focusRegion, scrollable } from '../lib/scrollable';
   import type { AdvisorReport, AdvisorRule, ViolationsPage } from '../lib/types';
 
   /**
@@ -16,7 +16,7 @@
    */
   let {
     title, report, loadError = null, onScan, onDismiss, onRestore, onDismissFinding, loadViolations, readOnlyReason = null,
-    scanDisabledReason = null, vulnerabilities = false, loadDismissed, scanLabel, status, children,
+    scanDisabledReason = null, vulnerabilities = false, loadDismissed, scanLabel, status, onretry, children, after,
   }: {
     title: string;
     report: AdvisorReport | null;
@@ -35,9 +35,11 @@
     readOnlyReason?: string | null;
     /** Disables Scan only (e.g. scanning switched off by configuration). */
     scanDisabledReason?: string | null;
+    onretry?: () => void;
     vulnerabilities?: boolean;
     scanLabel?: (phase: Phase) => string;
     status?: Snippet<[Phase]>;
+    after?: Snippet;
     children?: Snippet<[{ phase: Phase; pending: string | null; toggle: (ruleId: string, dismissed: boolean) => void }]>;
   } = $props();
 
@@ -197,7 +199,7 @@
     {#if phase === 'loading'}
       <table aria-hidden="true"><tbody>{#each { length: 6 } as _}<tr class="skeleton"><td></td><td></td></tr>{/each}</tbody></table>
     {:else if phase === 'load-failed'}
-      <div class="empty" role="alert"><p class="lead danger">Could not load {title}</p><p>{loadError}</p></div>
+      <div class="empty" role="alert"><p class="lead danger">Could not load {title}</p><p>{loadError}</p>{#if onretry}<button onclick={(event) => { focusRegion(event); onretry(); }}>Retry</button>{/if}</div>
     {:else}
       {#if phase === 'failed'}
         <div class="empty" role="alert">
@@ -246,6 +248,7 @@
         {/each}
       {/if}
     {/if}
+    {@render after?.()}
   </div>
 </div>
 

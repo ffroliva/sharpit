@@ -5,6 +5,107 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-08
+
+### Added
+
+- `transactions` panel: SQLAlchemy transactions per request (status, duration, savepoint depth, connection hold time) in a bounded ring, with slow-transaction and connection-hold thresholds; error messages masked; MCP read tool. Settings `transactions_*`.
+- `mysql` panel: MySQL and MariaDB vital signs, sessions, statements, indexes, tables, lock waits, replication and settings, read on an explicit `POST {api}/mysql/read` through a verified read-only session with statement and lock timeouts and row limits; statement text normalised, masked and truncated at 400 characters. Settings `mysql_max_*`. `asyncmy` and `mysqlclient` are untested.
+- `security-logs` panel: 401 and 403 responses recorded as `AUTHENTICATION_FAILURE` / `AUTHORIZATION_FAILURE`, filterable by principal, type and time, with a stream and MCP `get_security_logs`. Needs the capture middleware.
+- `sharpit.record_security_event(type, principal=None, data=None)`: records an audit event (for example `AUTHENTICATION_SUCCESS`) for the current request. It never raises and does nothing outside a request, with sharpit inactive or with the panel disabled.
+- `fastapi-security` panel (BootUI's `spring-security`): routes, their security dependencies and scopes, and an explain view for a path.
+- `security` advisor: 27 rules (21 ported, 6 sharpit-only) over CORS, trusted hosts, auth dependencies, configuration and source literals; the catalogue and the 33 dropped BootUI rules with reasons are in `docs/security-advisor-checks.md`.
+- `database-advisor`: 33 checks over the bounded schema catalog, SQLAlchemy engine and pool settings, mapped models (`install(models=...)`), the SQL Trace window and PostgreSQL/MySQL vendor catalogs; read in one read-only transaction; the 15 dropped BootUI checks are listed with reasons in `docs/database-advisor-checks.md`. Settings `database_advisor_max_*`.
+- `architecture` advisor: 20 `ARCH-*` rules over the application's import graph (package cycles, module isolation, layering, coding practices, `pyproject.toml` import-linter contracts). Settings `architecture_max_files`, `architecture_max_file_bytes`.
+- `fastapi` advisor (BootUI's `spring`): 10 rules over route handlers and the app (blocking calls in async handlers, background tasks, Pydantic models, response models, events, exception handlers); catalogue in `docs/fastapi-advisor-checks.md`.
+- Each advisor scans on `POST {api}/<advisor>/scan` or through the HTTP CLI tool (`POST {api}/cli/tools/<advisor>_scan`, with `-` as `_`; sharpit ships no console script); `GET` returns the last scan, violations page per rule; MCP tools are read-only.
+- SQL Trace insights: `GET {api}/sql-trace/insights`, statement rankings and per-route attribution (top 20 routes, by masked path, joined on the request id); MCP `get_sql_trace_insights` and CLI `sql-trace insights` (sharpit-only). With HTTP exchange capture off, route attribution is unavailable and the rankings stay.
+- `install(app_package=...)` (env `SHARPIT_APP_PACKAGE`): the dotted package the advisors and config scan read, resolved through `sys.modules` only, never imported. Source reads go through one bounded index (file count, size and time limits, no symlinks followed).
+- `sharpit.unbounded-read` gate: during a test, an ORM read that loads at least twice the bound page size in a request to an endpoint with paging parameters is a finding; marker `@pytest.mark.sharpit(allow_unbounded_read=True)` relaxes it. Needs `sharpit.install`.
+- BootUI 2.2.0 capture drift: `http-exchanges` rows carry `route`, `routeSource` (`FRAMEWORK_TEMPLATE` or `MASKED_PATH`) and `requestId`, the report carries `retention`, `GET {api}/http-exchanges?route=` filters by route and `GET {api}/http-exchanges/routes` rolls up per-route counts, errors and p50/p95/p99 (MCP `get_http_routes`, CLI `http routes`); `sql-trace` entries carry `durationMicros`, `requestId`, `executionId`, `threadKind` and `requestPhase` (the last three null) and the report `retention`; `exceptions` groups carry `lastRequestId` and `lastExecutionId` (null); `log-tail` lines carry `messageOmitted`; `GET {api}/exceptions/caught` answers `available: false` (sharpit has no caught-exception sensor); `activity` gains the 2.2.0 profile keys, entry `badges` (empty) and `exceptionGroupId`, the KPIs `latencySampleCount` and `slowestEndpointRoute`, `slowestEndpointRouteId`, `slowestEndpointRouteSource`, `GET {api}/activity/journal` and `GET {api}/activity/resources` (both report unavailable: sharpit keeps no runtime journal and samples no memory or CPU) and MCP `get_request_profile` (CLI `activity profile`); `get_live_activity`, `get_sql_traces` and `get_log_tail` take a query and a limit. Memory keys, the journal clear route and compacted default limits for these tools are not built.
+- BootUI 2.2.0 drift for `vulnerabilities`, `mcp-server` and `rest-api`: the vulnerabilities report and its dependencies carry `runtimeReach`, `advisorySymbols` and `advisorySymbolSource` (reported unavailable, empty and `NONE`), and `get_vulnerabilities_report` returns a compacted view (default limit 10); the `mcp-server` status lists protocol `2026-07-28` ahead of `2025-06-18` and gains `cancellations` (counts `notifications/cancelled`; calls are synchronous, so a cancel cannot stop one) and `progressDropped` (always 0, sharpit sends no progress notifications); the `rest-api` advisor ports `RAPI-RESP-011` (a GET whose declared response is `X | None` with the default status) and does not port `RAPI-RESP-010`, `RAPI-VALID-006` and `RAPI-VER-007`: the reasons are in the rule registry, and no report or panel lists them. CVSS v4.0 score selection and `sampleLocations` are not done: the score falls back to the database label and `sampleLocations` stays `[]`.
+- N+1 findings on a repeated statement that is not a relationship lazy load now give the application line of the repeat.
+- `database-connection-pools` gains `poolLibraryPresent` and `implementation`; `readOnly`/`autoCommit` are nullable; `get_threads` defaults to 25 entries (BootUI 2.2.0).
+- The `pytest --sharpit` terminal summary says which gates and advisors the run checked and which it did not, plus routes and SQL the tests did not exercise and that sharpit does no security testing.
+
+### Changed
+
+- The docs site uses the console's neutral palette and ochre accent; `design/` holds the tokens and rules every surface shares.
+
+- `sql-trace` entry `timestamp` is epoch milliseconds, as the contract says; it was an ISO-8601 string. This also applies to the `sql` rows of a request profile.
+- Advisor rule results use BootUI's status values: `VIOLATION`, `PASS`, `SKIPPED`, `ERROR` (were `FAILED` and `PASSED` in the `rest-api` panel). A rule whose every finding is dismissed reports `PASS`. `sharpit-report/1` (`PASSED/FAILED/UNKNOWN/SKIPPED`) is unchanged.
+- `pytest --sharpit` is about 1.24x the plain run on a query-heavy suite (was about 1.48x): the test-session sink memoises the masked SQL fingerprint of each repeated statement per sink, which halved the suite overhead (2.05 s to 1.02 s on a 12,343-statement suite) and cut the per-statement hook cost from about 50 µs to about 11 µs. Masked output is unchanged, and the memo is never shared across sinks or masker settings.
+- `sharpit.swallowed-exception` gate: a PEP 249 database error (`DatabaseError`, `OperationalError`, `IntegrityError`, `DataError`, `InternalError`, `ProgrammingError`, matched by class name) handled by a broad `except` that neither re-raises nor logs now fails the test, as programming errors already did; it was an INFO note in 0.4.0. `programmingError` in the report stays `false` for these. This widens the 0.4.0 rule.
+- `sharpit.swallowed-exception` gate: a method call counts as logging only on a logger receiver (`log`, `logger`, `logging`, `warnings`, a `getLogger(...)` result, chained structlog loggers, and similar); passing the caught exception to a recognised sink or to a one-level helper in the same module counts as handled. Bare `log(...)`/`warn(...)` calls still count.
+- `beans`: a provider class's `resource` comes from the class object (`__firstlineno__` on Python 3.13+, the first method's line on 3.12) instead of reading the source file; on 3.12 the line can differ by a few lines.
+- `fastapi-security`: scopes are de-duplicated (FastAPI 0.115 accumulates `security_scopes` down the tree).
+- `config`: explicit `config_scan` module names are also found on `sys.path` without importing them; undecodable bytes in a source file are replaced instead of being recorded as a limitation.
+- SQLite test-session baselines use a machine-local identity key by default; set `SHARPIT_IDENTITY_KEY` to the same secret in CI jobs that compare a committed baseline.
+- An unregistered engine that reports the wrong database name in an application using a different single family is read as the name it reports; a comment that family keeps can therefore remain visible.
+- Test-session group keys are built from masked text, so a key changes for a statement the masker edits (`password = ?` reads `password = ****** where id = ?`). N+1 baselines and dismissals on those groups re-flag after an upgrade: 1,396 of 20,000 generic rows and 2,048 of 20,000 MySQL rows in the corpus change.
+- A statement whose database family is unknown or in conflict shows nothing past a `#`, on any line: it is a comment on MySQL, an operator on PostgreSQL and a variable on SQLite.
+- The SQL dialect is resolved per event from what the connection or exception proves; an application using a single database family applies that family to unwired events.
+- A database driver exception shows its class, one structured code, the masked `[SQL: ...]` statement, and `[parameters: ******]` when parameters were bound, and never the driver's free-text message.
+- A statement of an unsupported database family shows `[statement hidden: unsupported database]` at every exposure level, and parameter capture does not reveal it.
+- Under `METADATA_ONLY` exposure, no statement text or database error text is shown; SQL Trace groups keep the masked statement shape (`SELECT ? FROM users WHERE id = ?`), never more than `MASKED` shows.
+
+### Fixed
+
+- Phone layout of the rail and fluid tables, heading styles, and Retry on load errors.
+
+- Route introspection (mappings, rest-api, fastapi-security, beans) no longer drops routes of an `APIRoute` subclass set through `route_class`, no longer raises on an app object without `__dict__`, and classifies an `APIRoute` inside a plain Starlette sub-app as `unknown` instead of inspectable.
+- `sharpit.swallowed-exception`: a handler that passes the exception to a helper that logs it is no longer a finding; an `error(...)` call on a non-logger object no longer counts as logging.
+- A lazy load with no application frame on the stack (for example during FastAPI response serialisation) names the relationship's declaration line instead of "unknown".
+
+### Security
+
+- Introspection reads route, mount and router attributes from the instance `__dict__` and matches route types with `issubclass(type(route), ...)`, so a property or `__class__` defined by the application is never evaluated by a GET or MCP read.
+- MySQL/MariaDB and SQLite reads run only after the session is verified read-only, and are refused on an `AUTOCOMMIT` connection.
+- The database advisor reads only URL key names from an allow-list (`connect_timeout`, `charset`, `sslmode`), never a value and never the password.
+- `security-logs` masks event values when they are read (keys, secret values, `Bearer`, `Basic` and `Token` credentials, `token=` text) and caps stored strings. A value over the length cap is masked at record time, before the cut, so it stays masked under `FULL` exposure; a shorter one follows the exposure setting.
+- In the compacted `get_vulnerabilities_report` view, the scan message and advisory summaries and details are masked, because an OSV failure message can carry proxy credentials.
+- Literals inside square brackets (`ARRAY['x']`, `ARRAY [lower($$x$$)]`, `doc['x']`, `items[3]`, `a[1][2]`) are normalised in SQL Trace and everywhere else the statement scan runs. A bracket that opens with a letter or underscore, holds only word characters and spaces and is no subscript stays readable (`[col name]`). Any other bracket is scanned as a value: `[2024 sales]` shows `[? sales]`, and the apostrophe in `[it's]` opens a string, so the statement reads `[it?` from there on.
+- `mask_text` matches `Bearer`, `Basic` and `Token` in any case, takes the word `token` after a scheme (`bearer token abc123`), and masks the whole value after an `Authorization` key.
+- Masking and the trace error scan no longer take quadratic time on a crafted value (runs of quotes after `token`, closing punctuation at a word's end, repeated `eyJ`, `BEGIN` or `[SQL: `, unclosed `[` or `(` after a key), so a logged client value cannot freeze the host.
+- With parameter capture off, an error with an `[SQL: ` marker is masked, normalised from the marker on and masked again on every surface that shows it: `exceptions`, `log-tail`, `transactions`, `http-probe`, `health`, `alembic`, `postgresql`, `mysql`, `data`, traces, SQL Trace (also for an error raised for another statement) and the test-session report, so `[SQL: SELECT a[1], 'x']` no longer shows `'x'`. The first mask reads the raw text, because the scan turns a key or a token into `?`. They kept its literals before. Quoted values on the message's first line and the lines between it and the block (a `DETAIL:` line) are dropped there too; SQL Trace drops them before the first mask, as 0.4.0 did. An OpenTelemetry statement and the `mysql` panel's query text are masked, normalised and masked the same way.
+- `mask_text` runs the 0.4.0 text pipeline first and a stricter pass over its output, so whatever either masks stays masked: a quoted value spanning lines and a secret inside a token as in 0.4.0, and a sensitive value to the end of its line, so a value with a space, a nested bracket or a closer inside a string no longer shows its tail.
+- `SHARPIT_VULNERABILITIES_OSV_BASE_URI` and `SHARPIT_VULNERABILITIES_EPSS_BASE_URI` accept only `http` and `https`, because the default opener also reads `file:` and `ftp:`. Any other value takes the default and adds a warning that does not repeat the value, as a URI can carry credentials.
+- ruff's `S` (security) rules run on `src/` in CI.
+
+### Known limitations
+
+- Post-scan or post-read goldens are absent (they need captures only the owner can make), so the parity test for each of these panels checks the pre-scan golden and skips the post-scan one: `security`, `database-advisor`, `architecture`, `fastapi`, `mysql` (a post-read golden needs a MySQL datasource on the reference app) and `vulnerabilities` (its golden is a failed-scan capture, so items are unchecked). `data` and `sqlalchemy-statistics` stay unverified: BootUI's golden list for `data` is empty and the reference app has no Hibernate statistics. `docs/reference/PARITY.md` has the per-panel table.
+- `fastapi` advisor: six rules are not built (`docs/fastapi-advisor-checks.md`, "Not yet"): FASTAPI-ASYNC-003, FASTAPI-ASYNC-004, FASTAPI-DEP-001, SPRING-WEB-001, SPRING-CONFIG-002, SPRING-DATA-001. `functools.partial` and library handlers are skipped.
+- `security` advisor: the masker turns `allow_credentials=True` into `******` in the CORS message; any `key="..."` keyword argument of 8 or more characters is a HIGH SEC-SRC-001 false positive.
+- `sharpit.swallowed-exception` matches a database error by class name: a non-database exception named `DataError` or `InternalError` can fail a test, and a driver exception with another name that is not wrapped is missed.
+- `transactions`: a connection held idle after `commit()` adds the idle time to the transaction until the next pool check-in, `begin` or `rollback`.
+- `database-advisor`: models mapped to a view are reported by DB-HIB-002 (the catalog lists no views); tables outside the default schema are not compared; DB-HIB-005 is skipped on SQLite.
+- `app_package` is not honoured by every advisor: `rest-api` ignores it and reads the app's routes. A package that is not imported leaves `fastapi` at `PARTIAL` with 0 handlers.
+- `app_package` widens a dotted name to its top-level package, so the advisors scan sibling subpackages; only the first directory of a namespace package is scanned; `config` may pick a different root than the advisors when `install()` runs outside the package and `app_package` is unset.
+- MariaDB read-only verification is tested with fakes only; the leased test checks MySQL 8.4.
+- SQL Trace insights groups routes by masked path, not by route template; thread and time-window correlation are not offered.
+- `pytest --sharpit` still adds about 11 µs per repeated statement (rule filtering, normalisation and counters), about 1.24x the plain run on a query-heavy suite.
+- `GET {api}/activity/service-map`, `GET {api}/activity/request/{id}/journal` and `GET {api}/rest-api/error-contract` are not built: they answer 404. The BootUI goldens for the first and last stay unchecked.
+- `activity` merges requests, SQL and exceptions only, so `typeCounts` never has `TRANSACTION`, `SECURITY`, `MESSAGING` or `MARKER` keys.
+- `fastapi-security` reports a route guarded by `HTTPBearer(auto_error=False)` plus a check in a dependency as `secured: false` / `permitAll` with `bestEffort: true`, and drops its scopes: an anonymous request passes the scheme, and sharpit does not read the dependency's body.
+- The 2.2.0 capture drift reports `activity` journal and resources, caught exceptions and the reserved retention share as unavailable (null with a reason).
+- Every sharpit read through a pool that shares one connection (`StaticPool`, `SingletonThreadPool`, `AssertionPool`) is refused before the checkout, because returning that connection would roll back the host's open transaction. An in-memory SQLite host gets `SHARED_CONNECTION_REFUSED`: its health ping is `UNKNOWN`, Alembic reports the database unavailable, and the `postgresql` and `mysql` panels and advisor scans that read the database report it as an error. A connection shared through `creator=` on an ordinary pool cannot be detected.
+- MySQL-aware statement normalisation applies where the dialect is known: the `mysql` panel, SQLAlchemy statements in SQL Trace, activity, insights and the test-session report (from the engine's dialect), OpenTelemetry spans that carry `db.system` or `db.system.name`, and on any span a SQL error whose text names a MySQL driver (`pymysql`, `MySQLdb`, `asyncmy`, `mariadb`, `mysql.connector`). Raw `sqlite3` statements, other text on spans without either attribute and the unbounded-read shape of a `Session` built on a binds map keep the generic scan, and their text still goes through the masker.
+- `mask_text` masks a sensitive value to the end of its line: sharpit does not guess where a value ends, so whatever follows it on that line is hidden too, other keys and closing quotes or brackets included, and JSON on one line stops being valid after the first sensitive key. A quoted value is masked whole across lines, as in 0.4.0; an unquoted sensitive value stops at its line. A key's bracketed value is treated as one value up to 256 characters, a bound 0.4.0 did not have; past it the strict pass still masks a sensitive value to the end of its line.
+- A driver error with no `[SQL: ...]` block keeps its values (`Key (email)=(bob@example.com) already exists`), and a MySQL replication error's `Query: '...'` text goes through `mask_text` only. Key-named secrets and credential shapes are masked in both; other literals are not.
+- An error with an `[SQL: ` marker is masked, normalised and masked again. Everything after the marker is normalised, not only the statement: `[parameters: ...]` and the `Background` link too, digits and quoted text read `?`, line breaks collapse, and text past 20,000 characters is dropped. The statements stored by SQL Trace, the test session and the N+1 messages are normalised and then masked, as in 0.4.0.
+- `mask_text` masks the word after `basic` or `bearer` in any case, also in English or SQL (`basic usage` shows `basic ******`, `SELECT basic FROM t` shows `SELECT basic ****** t`), and does not mask `Digest` parameter lists. With no key before it, an ordinary word or a punctuation-only value after `token` stays readable (`Token expired`, `FROM Token WHERE`), so a credential of 16 letters or fewer in one case, or of punctuation alone, is not masked there.
+- On FastAPI 0.16x an `include_router` prefix cannot be recovered from the route, so those routes report `MASKED_PATH` instead of a template.
+- A driver error read from text alone keeps an unquoted driver value visible in four shapes: a SQLite `ATTACH` path or a trigger's `RAISE` message on a driver line with no quote, a chain line planted by a value on the driver line, and a docs-link line planted by a value in a `StatementError` that has no link of its own. Quoted values, the `[SQL: ...]` block and its parameters stay masked.
+- Text an application writes as a statement is read as SQL.
+- In free text, a value with no key name before it can be shown.
+- An unquoted value after `PASSWORD` or `IDENTIFIED BY` is shown as written: PostgreSQL and MySQL reject it as a syntax error, so it appears only on a mistyped, failed statement. A quoted value is hidden.
+- An unproven event from a second database that sharpit has not seen is read as the application's one registered family.
+- Database forks (such as Percona or Aurora) are read as their parent family; no fork runs in the live tests.
+- SQL Server and Oracle statements are hidden (`[statement hidden: unsupported database]`): sharpit has no verified rules for them.
+- On SQLite a `"..."` run is hidden: SQLite reads it as a name, or as a string when no column matches.
+- Live fuzzing with MySQL's ANSI_QUOTES session mode is deferred past 0.5.0.
+
 ## [0.4.0] - 2026-11-02
 
 ### Added
@@ -142,7 +243,8 @@ Listed in section 14 of the design spec. The main ones:
 - Behind a TLS-terminating proxy, uvicorn needs `--proxy-headers` for the Origin check to pass.
 - Masking is name- and shape-based: vendor-prefixed tokens under harmless names (`sk_live_...`, `ghp_...`) can show.
 
-[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ffroliva/sharpit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ffroliva/sharpit/releases/tag/v0.2.0

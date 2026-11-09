@@ -8,6 +8,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from functools import partial
+from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
 
@@ -232,7 +233,7 @@ async def _bad_request(_request: Request, exc: Exception) -> Response:  # NOSONA
 
 async def _json_http_error(_request: Request, exc: Exception) -> Response:  # NOSONAR - Starlette coroutine handler
     """404/405 inside the active sub-app answer in the API's JSON error shape (405 keeps its ``Allow`` header)."""
-    assert isinstance(exc, HTTPException)
+    assert isinstance(exc, HTTPException)  # noqa: S101 - narrows the type; the handler is registered for this class
     response = error(exc.status_code, "Not Found" if exc.status_code == 404 else "Method Not Allowed")
     response.headers.update(exc.headers or {})
     return response
@@ -259,4 +260,33 @@ def _routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
     rules = f"{ctx.settings.api_path[len(ctx.settings.path) :]}/dismissed-rules"
     at = 1 + max((i for i, r in enumerate(routes) if getattr(r, "path", "").startswith(rules)), default=len(routes) - 1)
     routes[at:at] = finding_routes(ctx)
-    return routes
+    return _with_drift_routes(routes, ctx)
+
+
+def _with_drift_routes(routes: list[BaseRoute], ctx: SharpitContext) -> list[BaseRoute]:
+    """The 2.2.0 capture routes (lane D2): one with the same path and methods replaces the base route in place; a new
+    one goes just before its panel's first route, so a literal ``/exceptions/caught`` wins over ``/exceptions/{id}``."""
+    import sharpit.fastapi.routes as package
+    from sharpit.fastapi.routes import exceptions, http_exchanges
+
+    engine_activity = package.activity
+    activity = import_module("sharpit.fastapi.routes.activity")
+    # shortcut: importing the submodule rebinds the package's ``activity`` global, the engine module routes/__init__.py
+    # calls; put it back. Rename the module (or move these routes into routes/__init__.py) once that file may change.
+    package.activity = engine_activity
+    drift = [route for module in (activity, http_exchanges, exceptions) for route in module.build_routes(ctx)]
+
+    def key(route: BaseRoute) -> tuple[object, frozenset[str]]:
+        return getattr(route, "path", None), frozenset(getattr(route, "methods", None) or ())
+
+    api = ctx.settings.api_path[len(ctx.settings.path) :]
+    spliced = list(routes)
+    for route in drift:
+        same = next((i for i, r in enumerate(spliced) if key(r) == key(route)), None)
+        if same is not None:
+            spliced[same] = route
+            continue
+        panel = f"{api}/{getattr(route, 'path', '')[len(api) + 1 :].split('/')[0]}"
+        first = (i for i, r in enumerate(spliced) if f"{getattr(r, 'path', '')}/".startswith(f"{panel}/"))
+        spliced.insert(next(first, len(spliced)), route)
+    return spliced

@@ -47,7 +47,7 @@ def test_panel_implemented_defaults_true() -> None:
 
 def test_unimplemented_panel_gets_have_no_side_effects(no_side_effects: SideEffectGuard, asgi_loop) -> None:
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, config_scan=False)
+    install(app, enabled="ON", show_banner=False, config_scan=False, state_dir=str(no_side_effects.state_dir))
 
     async def check() -> None:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost") as client:

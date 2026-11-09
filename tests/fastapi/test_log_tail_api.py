@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import logging.config
+import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -27,6 +28,7 @@ from sharpit import install
 from sharpit.engine.capture.logtail import LINE_KEYS, LogTailBuffer, SharpitLogHandler
 from sharpit.engine.capture.streams import StreamSlots
 from sharpit.engine.headers import NO_STORE
+from sharpit.fastapi import sse as sse_module
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, several_workers
 from sharpit.fastapi.sse import TOO_MANY_STREAMS, sse_response
@@ -140,7 +142,7 @@ def test_shape_keys_match_bootui():
         logging.getLogger("host.app").warning("hello %s", "log tail")
         lines = client.get(f"{API}/recent").json()
     line = next(line for line in lines if line["message"] == "hello log tail")
-    assert tuple(line) == LINE_KEYS == ("timestamp", "level", "logger", "message", "thread")
+    assert tuple(line) == LINE_KEYS == ("timestamp", "level", "logger", "message", "thread", "messageOmitted")
     assert (line["level"], line["logger"]) == ("WARNING", "host.app")
 
 
@@ -172,10 +174,29 @@ def test_stream_replays_then_ends_with_retry():
 
 
 def _ids(client: TestClient, **kw: Any) -> list[str]:
-    return [e["id"] for e in _events(client.get(f"{API}/stream", **kw).text) if e.get("event") == "log"]
+    """Log ids as EventSource reads them: a stream may end mid-replay (spec §10), so reconnect with the last id seen
+    as Last-Event-ID until a stream brings no line. Bounded: a resume that repeats lines shows up as duplicates."""
+    ids: list[str] = []
+    for _ in range(20):
+        batch = [e["id"] for e in _events(client.get(f"{API}/stream", **kw).text) if e.get("event") == "log"]
+        if not batch:
+            break
+        ids += batch
+        kw = {**kw, "headers": {**kw.get("headers", {}), "Last-Event-ID": batch[-1]}}
+    return ids
 
 
-def test_resume_after_id():
+@pytest.mark.parametrize("frame_seconds", [0.0, 0.03], ids=["idle-loop", "loaded-loop"])
+def test_resume_after_id(frame_seconds: float, monkeypatch: pytest.MonkeyPatch):
+    # CI run 42459653867 (no-sqlalchemy shard 2/3): a loaded runner ended the 0.05 s stream between two replayed
+    # frames; spec §10 lets a stream end there and EventSource resume from Last-Event-ID. 30 ms a frame forces it.
+    frame = sse_module._frame  # pyright: ignore[reportPrivateUsage]
+
+    def slow_frame(*args: Any) -> bytes:
+        time.sleep(frame_seconds)
+        return frame(*args)
+
+    monkeypatch.setattr(sse_module, "_frame", slow_frame)
     app, handle = _handle()
     with _client(app) as client:
         for i in range(3):
@@ -404,3 +425,15 @@ def test_get_log_tail_mcp(no_side_effects: SideEffectGuard):
     entries = result["structuredContent"]["entries"]
     assert [e["message"] for e in entries if e["logger"] == "host.app"] == ["for the agent password=******"]
     assert no_side_effects.violations == []
+
+
+def test_log_tail_recent_golden_parity():
+    from golden import assert_parity
+
+    app, _ = _handle()
+    with _client(app) as client:
+        logging.getLogger("host.app").warning("golden %s", "line")
+        lines = client.get(f"{API}/recent").json()
+    line = next(line for line in lines if line["message"] == "golden line")
+    assert line.get("messageOmitted") is False, "a shown message is not omitted"
+    assert_parity("log-tail", "recent", lines)

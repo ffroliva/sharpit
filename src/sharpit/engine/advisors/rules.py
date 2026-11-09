@@ -10,7 +10,8 @@ SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
 SAMPLE_LIMIT = 10
 
 Severity = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
-Status = Literal["PASSED", "FAILED", "SKIPPED"]
+# BootUI 2.2.0 ``*RuleSupport`` vocabulary (WAVE-B contract; spec §4.3); ERROR is an ``analysisErrors`` row
+Status = Literal["VIOLATION", "PASS", "SKIPPED", "ERROR"]
 
 
 def severity_rank(severity: str) -> int:
@@ -31,14 +32,15 @@ class RuleDefinition:
 
 @dataclass(frozen=True)
 class RuleResult(RuleDefinition):
-    status: Status = "PASSED"
+    status: Status = "PASS"
     violation_count: int = 0
     sample_violations: tuple[str, ...] = ()
     dismissed: bool = False
+    sample_locations: tuple[dict[str, Any], ...] = ()  # BootUI ``sampleLocations``; an advisor fills it
 
     @classmethod
     def evaluate(cls, rule: RuleDefinition, violations: Sequence[str]) -> RuleResult:
-        status: Status = "FAILED" if violations else "PASSED"
+        status: Status = "VIOLATION" if violations else "PASS"
         return cls(
             **_definition(rule),
             status=status,
@@ -63,6 +65,7 @@ class RuleResult(RuleDefinition):
             "recommendation": self.recommendation,
             "learnMoreUrl": self.learn_more_url,
             "dismissed": self.dismissed,
+            "sampleLocations": list(self.sample_locations),
         }
 
 

@@ -75,6 +75,6 @@
   .switch { display: inline-flex; }
   .switch button { border-radius: 0; }
   .switch button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
-  .switch button:last-child { border-radius: 0 var(--radius) var(--radius) 0; margin-left: -1px; }
+  .switch button:last-child { border-radius: 0 var(--radius) var(--radius) 0; margin-left: -1px; } /* optical overlap keeps the joined buttons on one pixel edge */
   .switch button[aria-pressed='true'] { background: var(--sel); border-color: var(--accent); position: relative; }
 </style>

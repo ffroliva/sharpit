@@ -42,7 +42,7 @@
   count={report.data?.alembicPresent ? `${report.data.total} revisions` : null}
 >
   {#snippet controls()}
-    <button class="primary push" onclick={readVersion} disabled={!!readOnly || reading} aria-busy={reading} title={readOnly ?? undefined}>
+    <button class="primary" onclick={readVersion} disabled={!!readOnly || reading} aria-busy={reading} title={readOnly ?? undefined}>
       {reading ? 'Reading…' : 'Read database version'}
     </button>
   {/snippet}
@@ -100,9 +100,7 @@
 </PanelShell>
 
 <style>
-  .push { margin-left: auto; }
   .meta { margin: 0; padding: var(--s2) var(--s4); }
-  section.block h2 { padding-bottom: var(--s1); }
   section.block > p, pre { margin: 0; padding: 0 var(--s4) var(--s2); }
   tr.pending td { background: var(--sel); }
 </style>

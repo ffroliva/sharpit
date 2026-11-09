@@ -133,6 +133,14 @@ it('load failure shows the error', () => {
   expect(target.querySelector('[role="alert"]')?.textContent).toContain('boom');
 });
 
+it('Retry calls onretry and leaves focus in the panel region', () => {
+  const onretry = vi.fn();
+  render({ report: null, loadError: 'boom', onretry });
+  button(/^Retry$/).click();
+  expect(onretry).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(target.querySelector('.panel-body'));
+});
+
 it('loading before the report arrives', () => {
   render({ report: null });
   expect(phase()).toBe('loading');

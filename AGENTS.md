@@ -6,7 +6,7 @@ Single source of truth for every agent working in this repo (Claude Code, Codex,
 ## What sharpit is
 
 An embedded, local-only developer console for Python web apps: a Python port of BootUI (Spring Boot). It is at
-**0.4.0.** It targets FastAPI. One call mounts it:
+**0.5.0.** It targets FastAPI. One call mounts it:
 
 ```python
 import sharpit
@@ -21,9 +21,11 @@ Implementation plan: `docs/superpowers/plans/2026-10-30-sharpit-mvp.md`. BootUI 
 ## Layout
 
 ```
+design/                        shared tokens, cross-surface design rules and slide kit
 src/sharpit/__init__.py        install, __version__ (the only version site)
 src/sharpit/settings.py        SharpitSettings, load_settings (SHARPIT_* env + kwargs)
 src/sharpit/engine/            framework-free core: activation, guard, masking, panels, collectors, paging
+src/sharpit/engine/sqla/       the SQLAlchemy gatekeeper: listeners, events, orm, inspect, readonly (sharpit's own reads)
 src/sharpit/fastapi/           the FastAPI/Starlette adapter: routes, introspection, dev-server signals
 src/sharpit/pytest_plugin/     the pytest adapter: optional plugin entry point and test-session hooks
 src/sharpit/ui/static/         the built UI (committed; CI checks it matches ui/ when ui/ exists)
@@ -43,7 +45,7 @@ uv sync --extra test                 # background: first run downloads
 uv run ruff check                    # lint (repo-wide, scripts/ included; vendored pytest_speed excluded)
 uv run ruff format --check           # format (also formats Python blocks in Markdown)
 uv run pyright                       # strict on src/sharpit
-uv run pytest -q -n auto             # full suite, parallel (pytest-xdist): background it
+uv run pytest -q -n auto             # full suite, parallel (pytest-xdist): choose -n by machine load
 uv run pytest -q -n auto tests/engine/test_guard.py   # one file, still parallel (see Workflow)
 uv run python scripts/dev/active_plan.py      # where are we?
 ```
@@ -60,7 +62,15 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
   fail-safe and adds a warning. Env name = `SHARPIT_` + the BootUI property without `bootui.`, `.`/`-` → `_`, upper case.
 - Every contract DTO key is emitted (nulls included), camelCase, no envelope, epoch ms.
 - Error bodies and reason strings are verbatim from the contract §1/§10 with `BootUI`→`sharpit`.
-- **No GET route and no MCP tool may open a socket, write a file, change a logger level or change `os.environ`.**
+- **Reads have no side effects:** no GET route and no read MCP or CLI tool may open a socket, write a file, change a
+  logger level or change `os.environ`.
+- **Actions follow BootUI** (owner, 2026-11-09: "if BootUI presses the button we do it too"). An action is a POST or
+  DELETE route, or an MCP or CLI tool marked `action`, exactly where BootUI 2.3.0 has the same action. It may have the
+  side effect BootUI's action has, after the gates BootUI applies: MCP or CLI enabled, the guard chain, the panel
+  enabled, the panel not read-only (refused with `PANEL_READ_ONLY`), and single-flight where BootUI's action has it
+  (scans, heap dumps, thread captures, the vulnerability scan; not every action). Defaults (MCP off, each panel's
+  read-only default) are BootUI's. An action with no BootUI counterpart needs `/sharpit:predict` and
+  `/sharpit:llm-council --tier high`.
 - Each ported test cites its BootUI source: `# ported: LocalhostGuardTests.rejectsMalformedHost`.
 - The session cookie name is `SESSION_COOKIE` in `engine/guard.py`; nothing else spells it.
 - Durations accept `Ns`, `Nms` or bare seconds.
@@ -73,9 +83,11 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
 2. **Guard chain on every request**, in order: security headers → trusted source → Host allow-list → cross-site →
    token → panel access. Forwarded headers never grant trust.
 3. **Secrets masked** before filtering and before any output (JSON, errors, MCP, CLI). `FULL` exposure warns.
-4. **No side effects** on reads (above). Tests use the `no_side_effects` fixture.
+4. **No side effects on reads; actions only behind BootUI's gates** (above). Every read uses the `no_side_effects`
+   fixture; every action has a test that a read-only panel refuses it.
 5. **Introspection is defensive**: FastAPI/Starlette internals change between versions; degrade, never crash the host.
-6. **OSV / network** failures are reported in the scan status and release the lock; nothing else needs the network.
+6. **Network** is used only by actions that call out in BootUI too (the OSV/EPSS scan, the GitHub refresh); their
+   failures are reported in the action's status and release the lock.
 
 Any change that could weaken one of these goes through `/sharpit:predict` and `/sharpit:llm-council --tier high`.
 
@@ -91,8 +103,8 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    `CaptureHooks` in `engine/capture/`) and the adapter implements it.
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
    the engine (`context`, `paging`, `spi`, `singleflight`, ...).
-4. **Gatekeepers.** One named file per optional or network library: SQLAlchemy only in `engine/sqla.py`,
-   `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
+4. **Gatekeepers.** One named file (or package) per optional or network library: SQLAlchemy only in the
+   `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
    `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, and
    `urllib.request`/`http.client` only in the OSV and EPSS clients under
    `engine/collectors/vulns/`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
@@ -141,6 +153,12 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
   write the chosen value and the reason in the report. A brief names its `-n` value or says `-n auto`.
 - **Shared resources** (ports, browser sessions) with other agents: the `multi-agent-dev` protocol.
 - **Verify before claiming done** (`superpowers:verification-before-completion`): command output, not belief.
+- **Double-check delegated work.** Never merge on an agent's report alone: rerun its key test, read the diff, and
+  confirm in `agent_watch` which model actually ran (agy falls back to a smaller model on quota).
+- **Every review includes a maintainability pass** (owner, 2026-11-08). It lists refactors that cut complexity or
+  improve readability, ranked, each with its file and complexity before and after (the `Maintainability` persona in
+  `skills/pr-council-review/SKILL.md`). A refactor on a safety path (masking, guard, activation) goes in only with
+  byte-identical output on the gate corpora before and after it. Larger reorganizations go to the next release's plan.
 
 ## Skills index
 

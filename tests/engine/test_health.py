@@ -8,11 +8,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import sys
 import textwrap
 import threading
 from collections.abc import Callable, Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -31,6 +33,7 @@ from sharpit.engine.collectors.health import (
     node,
 )
 from sharpit.engine.masking import MASK
+from sharpit.engine.sqltext import Dialect
 from sharpit.fastapi.adapter import SharpitHandle
 
 SECRET = "hunter2"
@@ -59,7 +62,7 @@ def _components(root: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {c["name"]: c for c in root["components"]}
 
 
-def test_hung_health_worker_does_not_block_interpreter_exit():
+def test_hung_health_worker_does_not_block_interpreter_exit(tmp_path):
     code = textwrap.dedent(
         """
         import asyncio
@@ -75,7 +78,13 @@ def test_hung_health_worker_does_not_block_interpreter_exit():
         print("ready to exit", flush=True)
         """
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=6)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=6,
+        env=os.environ | {"SHARPIT_STATE_DIR": str(tmp_path / "state")},
+    )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "ready to exit"
 
@@ -304,9 +313,9 @@ def test_executor_created_on_first_check_only():
 
 
 @pytest.mark.needs_sqlalchemy
-def test_engine_ping_not_traced():
+def test_engine_ping_not_traced(tmp_path: Any):
     sa = pytest.importorskip("sqlalchemy")
-    engine = sa.create_engine("sqlite://")
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'app.db'}")
     service = _service(engines=[engine], health_checks={"ok": lambda: True})
     report = _check(service)
     db = _components(report)["db"]
@@ -319,9 +328,30 @@ def test_engine_ping_not_traced():
 
 
 @pytest.mark.needs_sqlalchemy
-def test_engine_ping_aiosqlite_up():
+def test_health_failure_uses_the_application_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine.collectors import health as health_module
+
+    sa = pytest.importorskip("sqlalchemy")
+    engine = sa.create_engine(
+        "postgresql+pg8000://db/app", module=SimpleNamespace(paramstyle="format", __version__="1.30.5")
+    )
+    service = _service(engines=[engine])
+    families: list[Dialect | None] = []
+
+    def observe(_error: BaseException, application: Callable[[], Dialect | None]) -> Dialect:
+        families.append(application())
+        return Dialect.POSTGRESQL
+
+    monkeypatch.setattr(health_module, "exception_dialect", observe)
+    service._failure(RuntimeError("failed"))  # noqa: SLF001
+    assert families == [Dialect.POSTGRESQL]
+
+
+@pytest.mark.needs_sqlalchemy
+def test_engine_ping_aiosqlite_up(tmp_path: Any):
     pytest.importorskip("aiosqlite")
-    engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine("sqlite+aiosqlite://")
+    url = f"sqlite+aiosqlite:///{tmp_path / 'app.db'}"
+    engine = pytest.importorskip("sqlalchemy.ext.asyncio").create_async_engine(url)
 
     async def main(service: HealthService) -> dict[str, Any]:
         try:
@@ -341,14 +371,51 @@ def test_engine_ping_failure_down_masked(tmp_path: Any):
     engine = sa.create_engine(f"sqlite:///{missing}")
     (ping,) = _components(_check(_service(engines=[engine])))["db"]["components"]
     assert ping["status"] == "DOWN"
-    assert ping["details"]["error"].startswith("OperationalError")
+    assert ping["details"]["error"].startswith("(sqlite3.OperationalError)")  # owner 2026-11-07: structured codes
 
 
 @pytest.mark.needs_sqlalchemy
-def test_engines_only_guidance():
+def test_engines_only_guidance(tmp_path: Any):
     sa = pytest.importorskip("sqlalchemy")
-    service = _service(engines=[sa.create_engine("sqlite://")])
+    service = _service(engines=[sa.create_engine(f"sqlite:///{tmp_path / 'app.db'}")])
     assert service.report()["guidanceReason"] == ENGINES_ONLY_REASON  # UNKNOWN counts as healthy (BootUI)
     assert service.report(for_mcp=True)["guidanceReason"] == NEVER_CHECKED
     report = _check(service)
     assert (report["status"], report["guidanceReason"]) == ("UP", ENGINES_ONLY_REASON)
+
+
+# derived: Task 27 Opus review r2 #1: a check raising a class with no __module__ is DOWN; the check never raises
+def test_a_check_raising_a_class_with_no_module_is_down() -> None:
+    namespace: dict[str, Any] = {}
+    exec("E = type('Error', (Exception,), {})", namespace)  # noqa: S102 - globals without __name__
+
+    def broken() -> bool:
+        raise namespace["E"]("failed")
+
+    try:
+        report = _check(_service(health_checks={"odd": broken}))
+    except Exception:  # noqa: BLE001 - the defect; pytest cannot render a traceback holding this class
+        report = None
+    assert report is not None
+    assert _components(report)["odd"]["status"] == "DOWN"
+
+
+# derived: Task 27 review 9 (health check failure falls back to class name when error_text returns None); owner ruling
+# 2026-11-07, structured driver codes: a driver with a SQLSTATE shows it, one without falls back to its class name
+HEALTH_ROWS = {
+    "code": ("InvalidTextRepresentation", "(psycopg.errors.InvalidTextRepresentation) 22P02"),
+    "no_code": ("Error", "Error"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(HEALTH_ROWS))
+def test_classified_driver_exception_in_health_falls_back_to_class_name(case: str) -> None:
+    psycopg_errors = pytest.importorskip("psycopg.errors")
+    kind, wanted = HEALTH_ROWS[case]
+
+    def broken() -> bool:
+        raise getattr(psycopg_errors, kind)('invalid input syntax for type integer: "hunter2secret"')
+
+    report = _check(_service(health_checks={"pg": broken}))
+    detail = _components(report)["pg"]["details"]["error"]
+    assert detail == wanted

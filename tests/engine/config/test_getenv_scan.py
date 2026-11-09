@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from sharpit.engine.collectors.config.getenv_scan import GetenvFinding, scan_packages
+from sharpit.engine.appsource import GetenvFinding, scan_packages
 
 CORPUS = Path(__file__).parent.parent.parent / "fixtures" / "getenv_corpus"
 
