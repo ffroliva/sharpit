@@ -38,3 +38,18 @@ def test_cache_first_write(request):
     )
     result = pytester.runpytest("-n", "2", "-q")
     assert result.ret == 0, "\n".join(result.stdout.lines)
+
+
+def test_the_session_hook_runs_without_the_cache_plugin(pytester: pytest.Pytester) -> None:
+    # nested runs and CI legs pass -p no:cacheprovider, which leaves no `cache` attribute on the config
+    repo_root = Path(__file__).resolve().parents[1]
+    pytester.makeconftest(
+        f"""
+import sys
+sys.path.insert(0, {str(repo_root)!r})
+from tests.conftest import pytest_sessionstart
+"""
+    )
+    pytester.makepyfile("def test_ok():\n    pass\n")
+    result = pytester.runpytest("-p", "no:cacheprovider", "-q")
+    assert result.ret == 0, "\n".join(result.stdout.lines)
