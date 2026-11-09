@@ -1,0 +1,3 @@
+{
+  "scan.scannedAt": "NOT_SCANNED has no scan time: BootUI's controller returns null before the first scan (contract §8); the capture's 0 is an artefact."
+}

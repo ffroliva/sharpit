@@ -16,13 +16,15 @@ import threading
 import time
 import traceback
 from collections import deque
-from collections.abc import Generator
-from typing import Any, cast
+from collections.abc import Callable, Generator
+from typing import Any
 
 from sharpit.engine.capture.correlation import RequestInfo
 from sharpit.engine.capture.frames import is_application_frame
 from sharpit.engine.capture.streams import ChangeStream
 from sharpit.engine.masking import Masker
+from sharpit.engine.sqla.dialect_source import exception_dialect
+from sharpit.engine.sqltext import Dialect, error_text, exception_leaves, is_database_exception
 
 MAX_MESSAGE = 2000
 MAX_CAUSES = 5
@@ -30,7 +32,7 @@ STATUSES = ("OPEN", "ACKNOWLEDGED", "RESOLVED")
 GROUP_KEYS = (
     "id", "exceptionClassName", "message", "count", "firstSeen", "lastSeen", "location", "applicationException",
     "lastThread", "lastRequestMethod", "lastRequestPath", "lastHandler", "lastSource", "lastTraceId", "status",
-    "regressionCount", "errorContract",
+    "regressionCount", "errorContract", "lastRequestId", "lastExecutionId",
 )  # fmt: skip
 
 _FALLBACK_MAX = 64
@@ -125,14 +127,6 @@ def fingerprint(exc: BaseException, frames: list[dict[str, Any]] | None = None) 
     return name if frame is None else f"{name}\n{frame['declaringClass']}:{frame['methodName']}:{frame['lineNumber']}"
 
 
-def _leaves(exc: BaseException) -> list[BaseException]:
-    """The leaf exceptions of a group, depth first; any other exception is its own leaf."""
-    if not isinstance(exc, BaseExceptionGroup):
-        return [exc]
-    members = cast("tuple[BaseException, ...]", exc.exceptions)  # pyright: ignore[reportUnknownMemberType]
-    return [leaf for member in members for leaf in _leaves(member)]
-
-
 def _causes(exc: BaseException, extra: list[BaseException]) -> list[BaseException]:
     """``__cause__``, else an unsuppressed ``__context__``; cycle-safe, then the other group leaves, at most five."""
     seen = {id(exc)}
@@ -195,17 +189,43 @@ class _Group:
             "status": self.status,
             "regressionCount": self.regressions,
             "errorContract": None,  # BootUI's Problem Details check is not ported
+            "lastRequestId": last.get("traceId"),  # an occurrence's traceId is sharpit's request id
+            "lastExecutionId": None,
         }
+
+
+CAUGHT_UNAVAILABLE = "Caught exceptions are recorded by the sharpit agent's caught-exceptions sensor."
+
+
+def caught_report() -> dict[str, Any]:
+    """``CaughtExceptionsReport.unavailable``: no sensor in sharpit sees the exceptions application code caught."""
+    return {
+        "available": False,
+        "unavailableReason": CAUGHT_UNAVAILABLE,
+        "limitations": [],
+        "settling": 0,
+        "occurrences": 0,
+        "findings": 0,
+        "rows": [],
+    }
 
 
 class ExceptionStore:
     """Bounded groups (oldest ``lastSeen`` evicted) with bounded occurrences each; thread-safe."""
 
-    def __init__(self, max_groups: int, max_occurrences: int, max_frames: int, masker: Masker) -> None:
+    def __init__(
+        self,
+        max_groups: int,
+        max_occurrences: int,
+        max_frames: int,
+        masker: Masker,
+        application: Callable[[], Dialect | None],
+    ) -> None:
         self.max_groups = max_groups
         self.max_occurrences = max_occurrences
         self.max_frames = max_frames
         self.masker = masker
+        self.application = application
         self.unavailable_reason: str | None = None  # set by the wiring when request capture could not be added
         self.changes = ChangeStream()
         self._groups: dict[str, _Group] = {}
@@ -213,17 +233,21 @@ class ExceptionStore:
         self._order = itertools.count(1)
         self._slot = f"_{next(_SLOTS)}"  # marks are per store: two installed apps each record an exception once
 
-    def _message(self, text: str | None) -> str | None:
-        masked = self.masker.mask_text(text[: 4 * MAX_MESSAGE] if text else None)
+    def _message(self, text: str | None, error: BaseException | None = None) -> str | None:
+        dialect = exception_dialect(error, self.application) if error is not None else self.application()
+        shown = text[: 4 * MAX_MESSAGE] if text else None
+        read_as = Dialect.UNSUPPORTED if dialect is None else dialect
+        masked = None if shown is None else error_text(self.masker, shown, read_as)
         if masked is not None and len(masked) > MAX_MESSAGE:
             masked = masked[: MAX_MESSAGE - 1] + "…"
         return masked
 
     def _text(self, exc: BaseException) -> str | None:
-        try:
-            return self._message(str(exc) or None)
-        except Exception:  # noqa: BLE001 - a broken __str__ leaves the message out
-            return None
+        dialect = exception_dialect(exc, self.application)
+        rendered = error_text(self.masker, exc, dialect)
+        if rendered and len(rendered) > MAX_MESSAGE:
+            return rendered[: MAX_MESSAGE - 1] + "…"
+        return rendered
 
     def record(
         self,
@@ -248,7 +272,7 @@ class ExceptionStore:
         thread: str | None,
         message_override: str | None,
     ) -> None:
-        leaves = _leaves(exc)
+        leaves = exception_leaves(exc)
         exc, extra = (leaves[0], leaves[1:]) if leaves else (exc, [])
         walked = _frames(exc)  # one uncapped walk: fingerprint, location and applicationException agree
         frames = walked[: self.max_frames]
@@ -264,7 +288,7 @@ class ExceptionStore:
                 }
             )
         message = self._text(exc)
-        if message is None and message_override:
+        if message is None and message_override and not is_database_exception(exc):
             message = self._message(message_override)
         key = fingerprint(exc, walked)
         chosen = _chosen(walked)
@@ -310,6 +334,7 @@ class ExceptionStore:
             "maxGroups": self.max_groups,
             "totalExceptions": total,
             "groups": summaries,
+            "caughtInCode": None,  # CaughtExceptionsSummaryDto: null without the caught-exceptions sensor
         }
 
     def request_occurrences(self, request_id: str) -> list[dict[str, Any]]:

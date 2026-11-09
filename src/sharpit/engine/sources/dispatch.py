@@ -9,6 +9,9 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST, TEST
 from sharpit.engine.capture.sqltrace import call_site
+from sharpit.engine.context import application_family
+from sharpit.engine.sqla.dialect_source import event_dialect
+from sharpit.engine.sqltext import Dialect
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -27,6 +30,7 @@ class SqlEvent(NamedTuple):
     error: BaseException | None
     connection_id: str | None
     engine: object | None  # SQLAlchemy only, for the "held by" routing rule
+    dialect: Dialect  # what the source knows it talks to: ``normalize`` reads ``#``, ``"..."`` and ``0x`` by it
 
 
 logger = logging.getLogger("sharpit")
@@ -81,13 +85,24 @@ def _targets(engine: object | None) -> list[SharpitContext]:
 
 def recording(engine: object | None, source: str = "sqlalchemy") -> list[SharpitContext]:
     """The contexts a statement from ``source`` is recorded by: routed, recording, and (sqlite3) switched on."""
-    return [
+    if source == "sqlite3":
+        info = REQUEST.get()
+        for ref in _refs:
+            ctx = ref()
+            if (
+                ctx is not None
+                and ctx.settings.sql_trace_sqlite3_enabled
+                and (info is None or ctx.context_id == info.context_id)
+            ):
+                ctx.capture.raw_sqlite_seen = True
+    targets = [
         c
         for c in _targets(engine)
         if c.capture.sql_trace is not None
         and c.capture.sql_trace.recording
         and (source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled)
     ]
+    return targets
 
 
 def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
@@ -114,6 +129,7 @@ def _record(event: SqlEvent, targets: list[SharpitContext]) -> None:
                 request_id=info.id if info is not None else None,
                 call_site=site,
                 batch_size=event.batch_size,
+                dialect=event_dialect(event, lambda ctx=ctx: application_family(ctx)),
             )
         except Exception as exc:  # noqa: BLE001
             _context_failed(ctx, exc)

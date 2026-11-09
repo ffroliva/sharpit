@@ -1,1 +1,4 @@
 * text=auto eol=lf
+
+# SQL error fixtures are driver output: keep CRLF and lone CR exactly as captured.
+tests/fixtures/sql_errors/** -text

@@ -31,7 +31,7 @@ from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import CAPTURE_TOO_LATE, CAPTURE_TOO_LATE_REASON, CaptureMiddleware
 
 LOCAL = ("127.0.0.1", 50000)
-CAPTURE_PANELS = ("http-exchanges", "exceptions", "sql-trace", "activity")
+CAPTURE_PANELS = ("http-exchanges", "exceptions", "sql-trace", "activity", "security-logs")
 FakeApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 

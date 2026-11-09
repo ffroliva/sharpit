@@ -190,5 +190,5 @@
   mark { background: none; color: var(--accent); font-weight: 600; }
   .none { padding: var(--s3) var(--s4); margin: 0; }
   footer { flex: none; display: flex; justify-content: space-between; gap: var(--s3); padding: var(--s2) var(--s4); border-top: 1px solid var(--line); }
-  kbd { font: inherit; border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; }
+  kbd { font: inherit; border: 1px solid var(--line); border-radius: var(--radius); padding: 0 var(--s1); }
 </style>

@@ -17,7 +17,7 @@
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Type checked: pyright](https://img.shields.io/badge/type%20checked-pyright-blue.svg)](https://github.com/microsoft/pyright)
 
-An embedded, local-only developer console and automated test gate for FastAPI apps.
+A local developer console and pytest gate for FastAPI apps.
 
 ## Gate CI on findings
 
@@ -52,7 +52,7 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI: only 
   `--sharpit-allow-unknown`: report-only relaxes findings, never blindness.
 - **Baselines** match findings by fingerprint. A listed finding is `existing` and never fails, an unlisted one is `new`
   and gates as usual, a listed one not seen is `fixed`. A count gate that grows past its baselined count is `new`.
-  Vulnerability findings are not baselined in 0.4.0, and INFO findings never fail.
+  Vulnerability findings are not baselined, and INFO findings never fail.
 - `--sharpit-write-baseline=PATH` is the only way a baseline is written. It refuses a partial run (`-k`, `-m`, node ids,
   `--lf`, `--deselect`, `-x` stopping early, an interrupt) and a run with any unknown reason.
 - A missing or malformed baseline never switches sharpit off: the session runs and the baseline becomes an unknown
@@ -78,12 +78,12 @@ to gate. The pytest exit code is never masked: the summary step runs `if: always
 summary is rendered by `python -m sharpit.report summary <report.json>`. On Windows runners `runner` and `pytest-args`
 are split in non-POSIX mode so backslashes in paths survive.
 
-### Outside proof: gflow-cli
+### On the author's own project: gflow-cli
 
 Run by sharpit's author on the 0.3.0 integration branch against gflow-cli (a public FastAPI daemon using raw `sqlite3`; see [sharpit's own report](docs/reports/2026-11-01-gflow-cli-sharpit.md)), sharpit ran across **5,662** tests (5 failed by sharpit gates):
 - **0 unattributed SQL statements** across ~53k statements executed (27,997 attributed + 25,092 filtered);
 - **6 N+1 findings**, of which 1 was a real defect, 2 were noise (filtered since 0.3.0), and 3 were expected polling;
-- Proved out-of-code runtime observation without changing production code.
+- Showed out-of-code runtime observation without changing production code.
 
 ## 60 seconds
 
@@ -122,8 +122,7 @@ fastapi dev app.py          # or: uvicorn app:app --reload
 ## Overview
 
 One call mounts a web console at `/sharpit` and a JSON API at `/sharpit/api` inside your own app,
-so a running service becomes understandable in minutes: its configuration and where each value
-came from, every route, the dependency providers, loggers you can retune live, and a vulnerability
+so a running service shows its configuration and where each value came from, every route, the dependency providers, loggers you can retune live, and a vulnerability
 scan of the installed packages.
 
 sharpit is a Python/FastAPI port of [BootUI](https://github.com/jdubois/boot-ui) by Julien Dubois (Apache-2.0),
@@ -133,7 +132,7 @@ the Spring Boot developer console. It ports BootUI's design goals, JSON contract
 
 Every panel in light and dark: [screenshot catalog](https://github.com/ffroliva/sharpit/blob/main/docs/screenshots.md).
 
-> **Status: alpha (0.4.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
+> **Status: alpha (0.5.0, FastAPI only).** Django and Flask are not supported. See [CHANGELOG.md](https://github.com/ffroliva/sharpit/blob/main/CHANGELOG.md).
 
 ## Installation and extras
 
@@ -194,7 +193,7 @@ The full documentation is at **<https://ffroliva.github.io/sharpit/>**:
 - [Safety model](https://ffroliva.github.io/sharpit/safety/): local-only guard, tokens, masking, proxies and workers
 - [How it works](https://ffroliva.github.io/sharpit/how-it-works/) and [Deviations from BootUI](https://ffroliva.github.io/sharpit/deviations/)
 
-## License
+## Licence
 
 Apache License 2.0. See [LICENSE](https://github.com/ffroliva/sharpit/blob/main/LICENSE) and [NOTICE](https://github.com/ffroliva/sharpit/blob/main/NOTICE). sharpit is derived from
 [BootUI](https://github.com/jdubois/boot-ui), Copyright Julien Dubois.

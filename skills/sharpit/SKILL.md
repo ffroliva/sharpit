@@ -4,12 +4,12 @@ version: "0.1"
 description: >
   Use when adding sharpit to a FastAPI app, configuring it with SHARPIT_* environment variables, working out why
   /sharpit answers 404, reading the sharpit JSON API, or connecting an AI agent to sharpit's read-only MCP endpoint.
-  sharpit is a pre-release MVP: an embedded, local-only developer console for Python apps, ported from BootUI.
+  sharpit is a local developer console and pytest gate for FastAPI apps, a Python port of BootUI by Julien Dubois.
 ---
 
 # sharpit: the local developer console for FastAPI apps
 
-> **0.4.0.** APIs, panels and settings can still change before 1.0.
+> **0.5.0.** APIs, panels and settings can still change before 1.0.
 > The design source is `docs/superpowers/specs/2026-10-30-sharpit-mvp-design.md`; when this file and the code
 > disagree, the code wins.
 
@@ -95,7 +95,8 @@ keyword is the same name in lower case.
 | `SHARPIT_EXPOSE_VALUES` | `expose_values` | `MASKED` | `MASKED`, `METADATA_ONLY` or `FULL` (logs a warning) |
 | `SHARPIT_MASK_SECRETS` | `mask_secrets` | `true` | mask secret-looking names and values |
 | `SHARPIT_SHOW_BANNER` | `show_banner` | `true` | print the startup banner to stderr |
-| `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | where dismissals are stored (created on first write) |
+| `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | holds `sharpit.yml` (dismissals, created on first write) and `identity.key` (created by an active `install()` or `pytest --sharpit`, with a `.gitignore` naming it) |
+| `SHARPIT_IDENTITY_KEY` | `identity_key` | unset | optional shared UTF-8 key (at least 32 bytes) for stable SQLite statement identities, overriding `identity.key`; masked by value in every exposure, `FULL` included. One repeated character warns |
 | `SHARPIT_VULNERABILITIES_OSV_ENABLED` | `vulnerabilities_osv_enabled` | `true` | allow the OSV scan |
 | `SHARPIT_MCP_ENABLED` | `mcp_enabled` | `OFF` | turn on the read-only MCP endpoint |
 | `SHARPIT_PANELS_<ID>_ENABLED` / `_READ_ONLY` | `panels={"<id>": {...}}` | on / off | per-panel switches, e.g. `SHARPIT_PANELS_LOGGERS_READ_ONLY=true` |
@@ -206,7 +207,7 @@ A skipped advisor does not make the session `unknown`; a database driver sharpit
   reason (including a broken baseline) still exits 1 unless `--sharpit-allow-unknown`.
 - With `--sharpit-baseline=PATH` each finding gets `baselineState`: `existing` (listed; never fails), `new` (unlisted;
   gates as usual) or `fixed` (listed, not seen). A count gate above its baselined `observed` count is `new`. On a
-  partial run `fixed` is `null` with `fixedReason: "partial run"`. Vulnerability findings are not baselined in 0.4.0.
+  partial run `fixed` is `null` with `fixedReason: "partial run"`. Vulnerability findings are not baselined.
 - `--sharpit-write-baseline=PATH` refuses (file not written) a partial run (`-k`, `-m`, node ids, `--lf`, `--deselect`,
   `-x` stopping early, an interrupt, under xdist too) and a run with any unknown reason.
 - A missing or malformed baseline is an unknown reason, never sharpit off. Renaming a test makes its findings `new`.
@@ -263,7 +264,9 @@ dismissedRules:
 - A rule ID dismisses every finding for that rule.
 - A fingerprint dismisses only that exact occurrence.
 - The web console UI also provides a "dismiss this finding" action in the REST API details drawer.
-- Committing `sharpit.yml` to version control establishes the accepted baseline for CI gates.
+- Committing `sharpit.yml` to version control establishes the accepted baseline for CI gates. Commit that file only:
+  `identity.key`, beside it, is a local secret and stays out (the `.gitignore` sharpit writes next to it says so). On
+  SQLite a fingerprint depends on the key, so a shared baseline needs one `SHARPIT_IDENTITY_KEY` across CI and laptops.
 
 `GET/POST/DELETE {api}/dismissed-findings` keep per-finding dismissals in the same file under `dismissedFindings:`,
 next to `dismissedRules:`. POST and DELETE take `{"ruleId": "...", "identity": "...", "note": "optional, at most 200

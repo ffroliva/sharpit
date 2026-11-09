@@ -17,9 +17,9 @@ from urllib.parse import urlsplit
 from sharpit.engine import otel
 from sharpit.engine.capture import under
 from sharpit.engine.capture.correlation import INTERNAL
-from sharpit.engine.capture.sqltrace import _driver_values_dropped, normalize, normalize_sql  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.capture.streams import SSE_TASK
 from sharpit.engine.masking import MASK, Masker, is_sensitive_key
+from sharpit.engine.sqltext import Dialect, DialectContext, dialect_of_name, error_text, resolve, statement_text
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
@@ -34,11 +34,6 @@ _URL_KEYS = frozenset({"url.full", "http.url"})
 _PLAIN_PATH_KEYS = frozenset({"http.route", "url.path", "http.target"})
 _SQL_KEYS = frozenset({"db.statement", "db.query.text"})
 _HEADER_PREFIXES = ("http.request.header.", "http.response.header.")
-_SQL_ERROR = re.compile(r"\[SQL: (.*?)\]", re.DOTALL)
-_SQL_ERROR_SHAPE = re.compile(
-    r"^(?:sqlalchemy\.(?:exc|engine)\.|(?:psycopg2?|sqlite3|pymysql|MySQLdb|mysql(?:\.connector)?|asyncpg)\.)"
-    r"[\w.]+:"
-)
 _SQL_PARAMETER_KEYS = re.compile(r"(?:^|[._])(?:parameters?|bind_?params?)(?:[._]|$)", re.IGNORECASE)
 
 
@@ -121,16 +116,16 @@ def _header_attribute(masker: Masker, key: str, value: object) -> str | None:
     return _text([masker.mask_text(v) or "" for v in shown]) if shown else None
 
 
-def _sql_attribute(masker: Masker, key: str, value: object) -> str | None:
+def _sql_attribute(masker: Masker, key: str, value: object, dialect: Dialect) -> str | None:
     if _SQL_PARAMETER_KEYS.search(key):
         return _text(value) if masker.capture_parameters else MASK
     text = _text(value)
-    return masker.mask_text(text if masker.capture_parameters else normalize_sql(text))
+    return statement_text(masker, text, dialect)
 
 
-def _url_attribute(masker: Masker, key: str, value: object) -> str | None:
+def _url_attribute(masker: Masker, key: str, value: object, dialect: Dialect) -> str | None:
     if key in {"exception.message", "exception.stacktrace"}:
-        return _sql_message(masker, _text(value))
+        return error_text(masker, value if isinstance(value, (str, BaseException)) else _text(value), dialect)
     if key == "url.query":
         return masker.mask_query(str(value))
     if key in _URL_KEYS or key in _PLAIN_PATH_KEYS:
@@ -138,50 +133,46 @@ def _url_attribute(masker: Masker, key: str, value: object) -> str | None:
     return None
 
 
-def _attribute_value(masker: Masker, key: str, value: object) -> str | None:
+def _attribute_value(masker: Masker, key: str, value: object, dialect: Dialect) -> str | None:
     if key.startswith(_HEADER_PREFIXES):
         return _header_attribute(masker, key, value)
+    if key in _SQL_KEYS and dialect is Dialect.UNSUPPORTED:
+        return "[statement hidden: unsupported database]"
     if _SQL_PARAMETER_KEYS.search(key) or key in _SQL_KEYS:
-        return _sql_attribute(masker, key, value)
+        return _sql_attribute(masker, key, value, dialect)
     if key in {"exception.message", "exception.stacktrace", "url.query", *_URL_KEYS, *_PLAIN_PATH_KEYS}:
-        return _url_attribute(masker, key, value)
+        return _url_attribute(masker, key, value, dialect)
     shown, masked = masker.mask(key, value)
     if shown is None or masked:
         return None if shown is None else str(shown)
     return masker.mask_text(_text(shown))
 
 
-def _traceback_prefix(text: str) -> tuple[str, str]:
-    lines = text.splitlines()
-    if not lines or not lines[0].startswith("Traceback (most recent call last):"):
-        return "", "\n".join(lines)
-    frame_count = 1
-    for line in lines[1:]:
-        if line.startswith("  File ") or (line.startswith("    ") and line.strip()):
-            frame_count += 1
+class SpanDialectSource:
+    def dialect_of(self, event: object, context: DialectContext) -> Dialect | None:
+        del context
+        attributes: Mapping[str, Any] | None
+        if isinstance(event, Mapping):
+            attributes = cast("Mapping[str, Any]", event)
         else:
-            break
-    return "\n".join(lines[:frame_count]), "\n".join(lines[frame_count:])
+            try:
+                raw = object.__getattribute__(event, "attributes")
+            except Exception:
+                raw = None
+            attributes = cast("Mapping[str, Any]", raw) if isinstance(raw, Mapping) else None
+        if attributes is None:
+            return None
+        names = (attributes.get("db.system"), attributes.get("db.system.name"))
+        found = {dialect_of_name(name) for name in names if isinstance(name, str)}
+        found.discard(None)
+        if Dialect.UNSUPPORTED in found or len(found) > 1:
+            return Dialect.UNSUPPORTED
+        return next(iter(found), None)
 
 
-def _redact_sql_errors(text: str) -> str:
-    frames, remainder = _traceback_prefix(text)
-    cleaned = _driver_values_dropped(remainder or text)
-    text = f"{frames}\n{cleaned}" if frames else cleaned
-    return _SQL_ERROR.sub(lambda match: f"[SQL: {normalize(match.group(1)).sql}]", text)
-
-
-def _sql_message(masker: Masker, text: str | None) -> str | None:
-    if text is None:
-        return None
-    if not masker.capture_parameters and (_SQL_ERROR.search(text) or _SQL_ERROR_SHAPE.match(text)):
-        text = _redact_sql_errors(text)
-    return masker.mask_text(text)
-
-
-def _attributes(masker: Masker, attributes: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+def _attributes(masker: Masker, attributes: Mapping[str, Any] | None, dialect: Dialect) -> list[dict[str, Any]]:
     return [
-        {"key": key, "type": _attribute_type(value), "value": _attribute_value(masker, key, value)}
+        {"key": key, "type": _attribute_type(value), "value": _attribute_value(masker, key, value, dialect)}
         for key, value in (attributes or {}).items()
     ]
 
@@ -254,9 +245,16 @@ def _self_relative_path(path: str, root_path: str, self_path: str) -> str:
 
 class SpanBuffer:
     def __init__(
-        self, masker: Masker, *, capacity: int = 1000, self_path: str = "/sharpit", root_path: str = ""
+        self,
+        masker: Masker,
+        *,
+        application: Callable[[], Dialect | None],
+        capacity: int = 1000,
+        self_path: str = "/sharpit",
+        root_path: str = "",
     ) -> None:
         self.masker = masker
+        self.application = application
         self.root_path = root_path
         self.capacity = capacity
         self.self_path = self_path
@@ -386,6 +384,7 @@ class SpanBuffer:
         parent = _parent_id(span)
         end = span.end_time or span.start_time
         scope = getattr(span, "instrumentation_scope", None)
+        dialect = resolve(span, (SpanDialectSource(),), DialectContext(self.application))
         return {
             "traceId": _trace_id(span),
             "spanId": _hex(span.context.span_id, 16),
@@ -398,13 +397,15 @@ class SpanBuffer:
             "endEpochNanos": end,
             "durationNanos": end - span.start_time,
             "statusCode": _status_code(span),
-            "statusMessage": _sql_message(self.masker, span.status.description),
-            "attributes": _attributes(self.masker, span.attributes),
+            "statusMessage": (
+                None if span.status.description is None else error_text(self.masker, span.status.description, dialect)
+            ),
+            "attributes": _attributes(self.masker, span.attributes, dialect),
             "events": [
                 {
                     "name": self.masker.mask_text(e.name),
                     "timeOffsetNanos": e.timestamp - span.start_time,
-                    "attributes": _attributes(self.masker, e.attributes),
+                    "attributes": _attributes(self.masker, e.attributes, dialect),
                 }
                 for e in span.events or ()
             ],
@@ -422,4 +423,9 @@ class SpanBuffer:
 
 def span_buffer(ctx: SharpitContext) -> SpanBuffer:
     """The context's buffer, made on first use (route build); the routes and the MCP tools share it."""
-    return ctx.lazy("traces.buffer", lambda: SpanBuffer(ctx.masker, self_path=ctx.settings.path))
+    from sharpit.engine.context import application_family
+
+    return ctx.lazy(
+        "traces.buffer",
+        lambda: SpanBuffer(ctx.masker, application=lambda: application_family(ctx), self_path=ctx.settings.path),
+    )

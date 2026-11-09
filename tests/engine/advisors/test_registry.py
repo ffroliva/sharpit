@@ -22,7 +22,7 @@ def _owner(rule: str) -> str | None:
 def test_registry_owns_today_ids():
     assert {_owner(rule) for rule in RULE_IDS} == {"rest-api"}
     assert _owner("GHSA-aaaa::pypi:jinja2") == "vulnerabilities"
-    assert _owner("SPRING-WEB-001") is None
+    assert _owner("QUARKUS-WEB-001") is None
     assert _owner("RAPI-NOPE") is None  # an unported RAPI- id has no owner
 
 
@@ -45,7 +45,7 @@ def test_0_4_advisor_specs_are_registered_and_gated():
 
     assert advisor_ids <= set(by_id)
     assert all(by_id[advisor_id].implemented is IMPLEMENTED[advisor_id] for advisor_id in advisor_ids)
-    assert advisor_for("DB-TEST-001") is None
+    assert advisor_for("ZZ-TEST-001") is None
 
 
 @pytest.mark.parametrize(

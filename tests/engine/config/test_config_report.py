@@ -409,9 +409,11 @@ def test_dotenv_in_cwd_not_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert not any(s.startswith("dotenv") for s in body["sources"])
 
 
-def test_config_get_no_side_effects(no_side_effects: SideEffectGuard, monkeypatch: pytest.MonkeyPatch):
+def test_config_get_no_side_effects(
+    no_side_effects: SideEffectGuard, monkeypatch: pytest.MonkeyPatch, tmp_state_dir: Path
+):
     monkeypatch.syspath_prepend(str(CORPUS))
-    client = _client(config_scan=("pkg",))
+    client = _client(config_scan=("pkg",), state_dir=str(tmp_state_dir))
     no_side_effects.unblock_network()  # the Windows Proactor loop TestClient starts connects a self-pipe socketpair
     with client:
         no_side_effects.block_network()

@@ -36,6 +36,26 @@ def test_list_empty_when_file_missing(tmp_path: Path):
     assert DismissalStore(tmp_path).list() == []
 
 
+def test_not_a_directory_state_has_no_dismissals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.write_text("not a directory")
+    read_text = Path.read_text
+
+    def not_a_directory(path: Path, *args: Any, **kwargs: Any) -> str:
+        if path == state_dir / FILE_NAME:
+            raise NotADirectoryError
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", not_a_directory)
+
+    try:
+        dismissed = DismissalStore(state_dir).list()
+    except (OSError, ValueError):
+        dismissed = None
+
+    assert dismissed == []
+
+
 # ported: DismissedRulesStoreTests.dismissPersistsRuleIdsAndIsIdempotent
 def test_add_persists_and_is_idempotent(tmp_path: Path):
     store = DismissalStore(tmp_path)
@@ -191,7 +211,7 @@ def test_rapi_id_accepted_quote_space_slash_refused(tmp_path: Path):
         ("RAPI-NOPE-1", None),
         (A, "vulnerabilities"),
         ("PYSEC-2017-9999::pypi:zope.interface", "vulnerabilities"),
-        ("SPRING-WEB-001", None),
+        ("QUARKUS-WEB-001", None),
         ("rapi-map-001", None),
         ("GHSA-1::pypi:Jinja2", None),
         ("::pypi:jinja2", None),
@@ -206,7 +226,7 @@ def test_owning_panel(rule_id: str, panel: str | None):
 def test_unknown_owner_refused_before_the_file_is_touched(tmp_path: Path):
     store = DismissalStore(tmp_path)
     with pytest.raises(BadRequest):
-        store.add("SPRING-WEB-001")
+        store.add("QUARKUS-WEB-001")
     assert list(tmp_path.iterdir()) == []
 
 
@@ -240,7 +260,7 @@ def _occurrence_report() -> dict[str, Any]:
     result = {
         "id": "RAPI-004",
         "severity": "HIGH",
-        "status": "FAILED",
+        "status": "VIOLATION",
         "violationCount": 3,
         "sampleViolations": ["one", "two", "three"],
         "dismissed": False,
@@ -279,7 +299,7 @@ def test_all_occurrences_dismissed_keeps_rule_restorable():
     assert result["dismissed"] is False
     assert result["violationCount"] == 0
     assert result["sampleViolations"] == []
-    assert result["status"] == "PASSED"
+    assert result["status"] == "PASS"
     assert out["violationsFound"] == 0
     assert {c["severity"]: c["count"] for c in out["severityCounts"]}["HIGH"] == 0
 
@@ -363,7 +383,7 @@ def _refused(call: Any) -> AdvisorViolationError:
 def test_dismissed_findings_note_and_cap_validation(tmp_path: Path):
     file = tmp_path / FILE_NAME
     store = DismissalStore(tmp_path)
-    note = 'it\'s "fine": # really\nsecond line éè \U0001f600 \ end'
+    note = 'it\'s "fine": # really\nsecond line éè \U0001f600 \\ end'
     store.dismiss_finding(RULE, IDENTITY, note)
     assert DismissalStore(tmp_path).list_findings().dismissed == [DismissedFinding(RULE, IDENTITY, note)]
     assert "really" not in file.read_text(encoding="utf-8")

@@ -5,6 +5,7 @@ Derived cases (SQLAlchemy events have no BootUI oracle) unless a ``# ported:`` c
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -25,7 +26,12 @@ from conftest import SideEffectGuard  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
-from sharpit.engine.capture.sqltrace import ENTRY_KEYS, GROUP_KEYS, REPORT_KEYS, STATS_KEYS  # noqa: E402
+from sharpit.engine.capture.sqltrace import (  # noqa: E402
+    ENTRY_KEYS,
+    GROUP_KEYS,
+    REPORT_KEYS,
+    STATS_KEYS,
+)
 from sharpit.engine.masking import MASK  # noqa: E402
 from sharpit.engine.panels import panel_is_implemented  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
@@ -199,13 +205,6 @@ def test_clear_returns_report():
     assert (cleared["entries"], cleared["totalCaptured"]) == ([], 1)
 
 
-def test_insights_404():
-    app = FastAPI()
-    _install(app)
-    resp = _client(app).get(f"{API}/insights")
-    assert (resp.status_code, resp.json()) == (404, {"error": "Not Found"})
-
-
 def test_recording_post_read_only_403():
     app = FastAPI()
     _install(app, panels={"sql-trace": {"read_only": True}})
@@ -226,7 +225,7 @@ def test_shape_keys_match_bootui():
     report = client.get(API).json()
     assert tuple(report) == REPORT_KEYS == (
         "available", "unavailableReason", "capturing", "captureParameters", "bufferSize", "totalCaptured",
-        "slowQueryThresholdMillis", "dataSources", "stats", "entries", "topStatements", "warnings",
+        "slowQueryThresholdMillis", "dataSources", "stats", "entries", "topStatements", "warnings", "retention",
     )  # fmt: skip
     assert tuple(report["stats"]) == STATS_KEYS == (
         "totalQueries", "totalDurationMillis", "maxDurationMillis", "avgDurationMillis", "slowQueries",
@@ -234,8 +233,9 @@ def test_shape_keys_match_bootui():
         "evicted",
     )  # fmt: skip
     assert tuple(report["entries"][0]) == ENTRY_KEYS == (
-        "id", "timestamp", "sql", "statementType", "category", "durationMillis", "success", "errorMessage",
-        "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId", "callSite",
+        "id", "timestamp", "sql", "statementType", "category", "durationMicros", "durationMillis", "success",
+        "errorMessage", "affectedRows", "batchSize", "connectionId", "thread", "slow", "parameters", "traceId",
+        "callSite", "requestId", "executionId", "threadKind", "requestPhase",
     )  # fmt: skip
     assert tuple(report["topStatements"][0]) == GROUP_KEYS == (
         "sql", "category", "executions", "totalDurationMillis", "maxDurationMillis", "potentialNPlusOne", "callSites",
@@ -302,7 +302,7 @@ def test_no_lifespan_first_request_attaches_listeners(monkeypatch: pytest.Monkey
     assert [e["sql"] for e in client.get(API).json()["entries"]] == ["select ? + ?"]
 
 
-def test_sqlalchemy_imported_in_lifespan_attached_at_startup():
+def test_sqlalchemy_imported_in_lifespan_attached_at_startup(tmp_path: Path):
     script = textwrap.dedent(
         """
         import sys
@@ -343,7 +343,14 @@ def test_sqlalchemy_imported_in_lifespan_attached_at_startup():
         print("ok")
         """
     )
-    done = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    done = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=os.environ | {"SHARPIT_STATE_DIR": str(tmp_path / "state")},
+    )
     assert (done.returncode, done.stdout.strip()) == (0, "ok"), done.stderr
 
 
@@ -389,3 +396,65 @@ def test_sql_cli_tools_cli_only():
     assert client.post("/sharpit/api/cli/tools/resume_sql_trace_recording", json={}).json()["capturing"] is True
     cleared = client.post("/sharpit/api/cli/tools/clear_sql_traces", json={}).json()
     assert (cleared["entries"], cleared["capturing"]) == ([], True)
+
+
+_MYSQL_LEAKS = ("SELECT 1 # password hunter2", "SELECT 0xDEADBEEF", 'SELECT "hunter2"')
+
+
+def _statements_on_engine(monkeypatch: pytest.MonkeyPatch, dialect: str, **options: Any) -> TestClient:
+    """The real listener on a real engine: only the dialect's name says MySQL, since no server runs here."""
+    engine = sa.create_engine("sqlite://")
+    monkeypatch.setattr(engine.dialect, "name", dialect)
+    app = FastAPI()
+
+    @app.get("/q")
+    def run() -> dict[str, bool]:  # pyright: ignore[reportUnusedFunction]
+        with engine.connect() as conn:
+            for statement in _MYSQL_LEAKS:
+                try:
+                    conn.exec_driver_sql(statement)
+                except sa.exc.OperationalError:
+                    conn.rollback()
+        return {"ok": True}
+
+    _install(app, sql_trace_sqlite3_enabled=False, **options)
+    client = _client(app)
+    client.get("/q")
+    return client
+
+
+# derived: release council probe p11_trace.py: MySQL mode never reached the recorder
+@pytest.mark.parametrize("dialect", ["mysql", "mariadb"])
+def test_mysql_engine_statements_reach_the_trace_normalised(monkeypatch: pytest.MonkeyPatch, dialect: str):
+    client = _statements_on_engine(monkeypatch, dialect)
+
+    shown = [entry["sql"] for entry in client.get(API).json()["entries"]]
+
+    # Task 29: the failed one's SQLite error conflicts with the engine's name, so it is hidden (owner, item 7)
+    assert shown == ["SELECT ?", "SELECT ?", "[statement hidden: unsupported database]"]
+
+
+# derived: release council probe p11_trace.py, the second surface of the same statements
+def test_mysql_engine_statements_reach_the_activity_normalised(monkeypatch: pytest.MonkeyPatch):
+    body = _statements_on_engine(monkeypatch, "mysql").get("/sharpit/api/activity").text
+
+    assert "hunter2" not in body
+    assert "DEADBEEF" not in body
+
+
+# derived: with parameter capture on the insights re-normalise the stored text, which is not yet folded
+def test_mysql_engine_statements_reach_the_insights_normalised(monkeypatch: pytest.MonkeyPatch):
+    body = _statements_on_engine(monkeypatch, "mysql", sql_trace_capture_parameters=True).get(f"{API}/insights").text
+
+    assert "hunter2" not in body
+    assert "DEADBEEF" not in body
+
+
+# derived: every other dialect keeps the generic scan, where ``#`` is an operator
+def test_a_sqlite_engine_keeps_the_generic_scan(monkeypatch: pytest.MonkeyPatch):
+    client = _statements_on_engine(monkeypatch, "sqlite")
+
+    shown = [entry["sql"] for entry in client.get(API).json()["entries"]]
+
+    assert "SELECT ?" in shown
+    assert any("#" in sql for sql in shown)  # ``0x`` is a literal in every mode now: the ``#`` tells the scans apart

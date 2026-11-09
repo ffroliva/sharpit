@@ -197,11 +197,12 @@ def test_shape_keys_match_bootui():
     assert DTO_KEYS == (
         "id", "timestamp", "method", "path", "query", "uri", "status", "statusFamily", "durationMs",
         "responseSizeBytes", "remoteAddress", "principal", "sessionId", "traceId", "requestHeaders", "responseHeaders",
+        "route", "routeSource", "requestId",
     )  # fmt: skip
     buffer = HttpExchangeBuffer(5)
     buffer.add(_row(request_headers=[(b"accept", b"*/*")]))
     report = buffer.report(None, None, None, None, None)
-    assert list(report) == ["total", "recorded", "hiddenSelf", "exchanges", "page", "unavailableReason"]
+    assert list(report) == ["total", "recorded", "hiddenSelf", "exchanges", "page", "unavailableReason", "retention"]
     assert list(report["page"]) == ["total", "matched", "offset", "limit", "returned", "hasMore"]
     dto = report["exchanges"][0]
     assert tuple(dto) == DTO_KEYS
@@ -216,3 +217,27 @@ def test_shape_keys_match_bootui():
     unavailable = buffer.report(None, None, None, None, None)
     assert (unavailable["exchanges"], unavailable["unavailableReason"]) == ([], "nope")
     assert list(unavailable) == list(report)
+
+
+def test_exchange_row_emits_route_route_source_request_id_and_retention():
+    # ported: HttpExchangesServiceTests.recordsRouteAndRetention (BootUI 2.2.0 HttpExchangeDto, CaptureRetentionDto)
+    templated = _row(request_id="t1", path="/pets/7", route="/pets/{id}")
+    assert templated.get("route") == "/pets/{id}", "a matched template is the route"
+    assert (templated["routeSource"], templated["requestId"]) == ("FRAMEWORK_TEMPLATE", "t1")
+    bare = _row(request_id="m1", path=f"/reset/{JWT}/42")
+    assert (bare["route"], bare["routeSource"]) == ("/reset/{value}/{value}", "MASKED_PATH")
+    buffer = HttpExchangeBuffer(2)
+    for row in (templated, bare, _row(request_id="x", path="/pets/8", route="/pets/{id}")):
+        buffer.add(row)
+    report = buffer.report(None, None, None, None, None, route="/pets/{id}")
+    assert [e["id"] for e in report["exchanges"]] == ["x"], "the route filter is exact and runs before paging"
+    assert (report["total"], report["page"]["matched"]) == (2, 1)
+    assert report.get("retention") == {
+        "applicationManaged": False,
+        "capacity": 2,
+        "reservedCapacity": None,
+        "retained": 2,
+        "reserved": None,
+        "evicted": 1,
+        "slowThresholdMillis": None,
+    }

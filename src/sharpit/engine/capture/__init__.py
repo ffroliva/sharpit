@@ -30,6 +30,7 @@ class CaptureState:
     log_tail: LogTailBuffer | None = None
     stream_slots: StreamSlots | None = None
     engine_registry: EngineRegistry | None = None
+    raw_sqlite_seen: bool = False
     loop: asyncio.AbstractEventLoop | None = None
     wiring: CaptureHooks | None = None
     activity_changes: ChangeStream | None = None

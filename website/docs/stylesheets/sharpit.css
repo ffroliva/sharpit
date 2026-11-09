@@ -1,0 +1,69 @@
+[data-md-color-scheme] {
+  --md-primary-fg-color: var(--rail);
+  --md-primary-fg-color--light: var(--rail);
+  --md-primary-fg-color--dark: var(--rail);
+  --md-primary-bg-color: var(--ink);
+  --md-primary-bg-color--light: var(--muted);
+  --md-accent-fg-color: var(--accent);
+  --md-accent-fg-color--light: var(--accent);
+  --md-accent-fg-color--dark: var(--accent);
+  --md-accent-fg-color--transparent: var(--sel);
+  --md-accent-bg-color: var(--sel);
+  --md-accent-bg-color--light: var(--sel);
+  --md-accent-bg-color--dark: var(--accent);
+  --md-default-bg-color: var(--bg);
+  --md-default-fg-color: var(--ink);
+  --md-default-fg-color--light: var(--ink);
+  --md-default-fg-color--lighter: var(--muted);
+  --md-default-fg-color--lightest: var(--line);
+  --md-typeset-color: var(--ink);
+  --md-typeset-a-color: var(--accent);
+  --md-code-bg-color: var(--rail);
+  --md-code-fg-color: var(--ink);
+}
+
+.md-search__input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+@media screen and (min-width: 60em) {
+  .md-search__form {
+    background-color: var(--bg);
+  }
+}
+
+.md-header,
+.md-tabs {
+  border-bottom: 1px solid var(--line);
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--rail);
+  color: var(--ink);
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: 400;
+}
+
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-weight: 600;
+}
+
+.md-nav__link--active {
+  color: var(--accent);
+}
+
+.md-typeset a:not(.headerlink) {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

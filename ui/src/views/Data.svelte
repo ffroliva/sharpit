@@ -65,7 +65,7 @@
     {#if report.data.unavailableReason}
       <p class="muted note">{report.data.unavailableReason}</p>
     {/if}
-    {#each report.data.warnings ?? [] as warning, w (w)}
+    {#each (report.data.warnings ?? []).filter((warning) => warning !== report.data.unavailableReason) as warning, w (w)}
       <p class="muted note">{warning}</p>
     {/each}
     {#if report.data.repositories.length === 0}
@@ -129,7 +129,6 @@
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line); }
   .row { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
-  .detail td { background: var(--surface, transparent); }
   ul { margin: 0; padding-left: var(--s4); }
   pre { margin: 0; }
 </style>

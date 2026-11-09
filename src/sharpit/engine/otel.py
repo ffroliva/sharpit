@@ -70,7 +70,7 @@ class SharpitSpanProcessor:
                 on_start = getattr(sink, "on_start", None)
                 if callable(on_start):
                     on_start(span)
-            except Exception:  # noqa: BLE001 - never break the host's span pipeline
+            except Exception:  # noqa: BLE001, S112 - never break the host's span pipeline
                 continue
 
     def _on_ending(self, span: Any) -> None:  # newer SDKs call it on every processor
