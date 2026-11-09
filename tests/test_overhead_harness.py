@@ -52,6 +52,12 @@ def result(overhead: float) -> Paired:
     return Paired(off=[100.0, 110.0, 120.0], on=[100.0 + overhead, 110.0 + overhead, 120.0 + overhead])
 
 
+@pytest.fixture(autouse=True)
+def isolate_overhead_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SHARPIT_OVERHEAD_LOG", raising=False)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+
 @pytest.fixture
 def records(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:
     log, summary = tmp_path / "log.jsonl", tmp_path / "summary.md"
@@ -147,6 +153,19 @@ def test_nothing_is_written_when_neither_variable_is_set(monkeypatch: pytest.Mon
     with pytest.raises(AssertionError):
         check_budget("hook", measured, BUDGET, "us", 1.0)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_harness_self_tests_leave_the_real_log_alone(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    log = tmp_path / "overhead.jsonl"
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("SHARPIT_OVERHEAD_LOG", str(log))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    result = pytester.runpytest_subprocess(str(Path(__file__).resolve()), "-k", "not leave_the_real_log")
+    assert result.ret == 0
+    assert not log.exists()
+    assert not summary.exists()
 
 
 class _ActiveCoverage:
