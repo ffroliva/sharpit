@@ -346,10 +346,14 @@ def _check_terminate_jvm(mod_name: str, node: ast.AST, out: list[Finding]) -> No
         if isinstance(node.func, ast.Name) and node.func.id in ("exit", "quit"):
             is_exit = True
             name = node.func.id
-        elif isinstance(node.func, ast.Attribute) and node.func.attr in ("exit", "_exit"):
-            if isinstance(node.func.value, ast.Name) and node.func.value.id in ("sys", "os"):
-                is_exit = True
-                name = f"{node.func.value.id}.{node.func.attr}"
+        elif (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("exit", "_exit")
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in ("sys", "os")
+        ):
+            is_exit = True
+            name = f"{node.func.value.id}.{node.func.attr}"
         if is_exit:
             out.append(
                 Finding(
@@ -620,9 +624,12 @@ def _contract_breach(contract: Contract, src_mod: str, tgt_mod: str) -> str | No
         src_idx, tgt_idx = _layer(src_mod, contract.layers), _layer(tgt_mod, contract.layers)
         if src_idx is not None and tgt_idx is not None and src_idx > tgt_idx:
             return "imports higher layer"
-    elif contract.contract_type == "forbidden":
-        if _within(src_mod, contract.source_modules) and _within(tgt_mod, contract.forbidden_modules):
-            return "imports forbidden"
+    elif (
+        contract.contract_type == "forbidden"
+        and _within(src_mod, contract.source_modules)
+        and _within(tgt_mod, contract.forbidden_modules)
+    ):
+        return "imports forbidden"
     return None
 
 
