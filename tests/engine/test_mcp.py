@@ -425,6 +425,37 @@ def test_a_modern_header_without_meta_is_malformed():
     assert body == _err(2, -32602, "Missing required _meta field: io.modelcontextprotocol/protocolVersion")
 
 
+def test_a_modern_header_on_a_batch_gets_the_batch_refusal():
+    status, body = _post(
+        _server(),
+        [_rpc("tools/list", 1)],
+        {**JSON, "MCP-Protocol-Version": "2026-07-28"},
+    )
+    assert status == 400
+    assert body == _err(None, -32600, "JSON-RPC batch requests are not supported by MCP Streamable HTTP transport")
+
+
+def test_a_modern_header_on_a_scalar_gets_missing_meta_refusal():
+    status, body = _post(_server(), 42, {**JSON, "MCP-Protocol-Version": "2026-07-28"})
+    assert status == 400
+    assert body == _err(None, -32602, "Missing required _meta field: io.modelcontextprotocol/protocolVersion")
+
+
+def test_disabled_server_refuses_modern_request_before_disabled_check():
+    status, body = _post(_server(enabled=False), _rpc("tools/list", 1), {**JSON, "MCP-Protocol-Version": "2026-07-28"})
+    assert status == 400
+    assert body == _err(1, -32602, "Missing required _meta field: io.modelcontextprotocol/protocolVersion")
+
+
+def test_disabled_server_accepts_modern_notification():
+    status, body = _post(
+        _server(enabled=False),
+        _rpc("notifications/initialized", None),
+        {**JSON, "MCP-Protocol-Version": "2026-07-28"},
+    )
+    assert (status, body) == (202, None)
+
+
 def test_a_modern_header_on_a_notification_is_accepted():
     status, body = _post(
         _server(), _rpc("notifications/initialized", None), {**JSON, "MCP-Protocol-Version": "2026-07-28"}
