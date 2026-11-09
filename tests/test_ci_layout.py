@@ -127,12 +127,12 @@ def test_live_runs_one_job_per_server() -> None:
         assert f"SHARPIT_LIVE_{key}_URL:" in live
     pytest_steps = [line for line in live.splitlines() if re.search(r"^\s*- run:.*pytest\b", line)]
     assert pytest_steps
-    assert any(re.search(r"(?:^|\s)-n\s+0(?:\s|$)", line) for line in pytest_steps)
+    assert all(not re.search(r"(?:^|\s)-n\s+0(?:\s|$)", line) for line in pytest_steps)
     assert "--health-cmd" in live
     assert "--health-interval" in live
     assert "--health-retries" in live
     assert "matrix.server == 'mariadb' && 'healthcheck.sh --connect --innodb_initialized'" in live
-    assert 'pytest tests/live --live -n 0 -k "$LIVE_FILTER"' in live
+    assert 'pytest tests/live --live -n auto -k "$LIVE_FILTER"' in live
 
 
 @pytest.mark.parametrize("job", ["ui", "vitest"])
