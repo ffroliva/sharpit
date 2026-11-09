@@ -67,7 +67,8 @@ CI (`.github/workflows/ci.yml`) runs the same four gates on Python 3.12–3.14 p
 - **Actions follow BootUI** (owner, 2026-11-09: "if BootUI presses the button we do it too"). An action is a POST or
   DELETE route, or an MCP or CLI tool marked `action`, exactly where BootUI 2.3.0 has the same action. It may have the
   side effect BootUI's action has, after the gates BootUI applies: MCP or CLI enabled, the guard chain, the panel
-  enabled, the panel not read-only (refused with `PANEL_READ_ONLY`), and single-flight. Defaults (MCP off, each panel's
+  enabled, the panel not read-only (refused with `PANEL_READ_ONLY`), and single-flight where BootUI's action has it
+  (scans, heap dumps, thread captures, the vulnerability scan; not every action). Defaults (MCP off, each panel's
   read-only default) are BootUI's. An action with no BootUI counterpart needs `/sharpit:predict` and
   `/sharpit:llm-council --tier high`.
 - Each ported test cites its BootUI source: `# ported: LocalhostGuardTests.rejectsMalformedHost`.

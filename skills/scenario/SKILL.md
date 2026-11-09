@@ -70,8 +70,9 @@ response-size caps (counted in UTF-8 bytes), MCP timeout releasing its semaphore
 
 **D10. MCP and CLI parity.** MCP and `{api}/cli` share `engine/tools.py`: same schema, same caps, same masking. Action tools
 follow BootUI (AGENTS.md): listed on MCP like BootUI's catalogue, refused on a read-only or disabled panel, one at a time
-(single-flight), with no side effect beyond BootUI's. Scenarios: an agent calls an action on a read-only panel (refused,
-`PANEL_READ_ONLY`); two concurrent calls (409 busy); a prompt-injected argument (validated, masked). `SHARPIT_MCP_ENABLED`
+where BootUI's action is single-flight, with no side effect beyond BootUI's. Scenarios: an agent calls an action on a
+read-only panel (refused, `PANEL_READ_ONLY`); two concurrent calls to a single-flight action (409 busy); a
+prompt-injected argument (validated, masked). `SHARPIT_MCP_ENABLED`
 off by default.
 
 ## Worst-case trace (before any code)
