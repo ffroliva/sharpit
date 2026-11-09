@@ -445,9 +445,9 @@ jobs:
         include:
           - { server: mysql84, image: mysql:8.4.10, port: 3306, filter: "mysql84 and not wrong_wired or wrong_wired", legs: "mysql84-default=2150 mysql84-NO_BACKSLASH_ESCAPES=2150 mysql84-ANSI_QUOTES=1388", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_a_wrong_wired_dialect_fails_the_oracle=1" }
           - { server: mysql80, image: mysql:8.0.44, port: 3306, filter: mysql80, legs: "mysql80-default=1995 mysql80-NO_BACKSLASH_ESCAPES=1995 mysql80-ANSI_QUOTES=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
-          - { server: mariadb, image: mariadb:12.3.3, port: 3306, filter: "mariadb or backslash and mysql or bracket and mssql", legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3" }
+          - { server: mariadb, image: mariadb:12.3.3, port: 3306, filter: "mariadb or oracle_control and backslash and mysql or oracle_control and mssql", legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3" }
           - { server: postgresql, image: postgres:18.2, port: 5432, filter: "postgresql or scs_off_no_cut or inverse_plant", legs: "postgresql-on=138 postgresql-off=138", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3 test_example_app_records_its_server_family=1 test_the_inverse_plant_shows_five_rows_on_off=1" }
-          - { server: controls, image: mysql:8.4.10, port: 3306, filter: "sqlite or test_example_app_records_its_server_family and mysql", legs: "sqlite-default=2817", required: "test_example_app_records_its_server_family=1" }
+          - { server: controls, image: mysql:8.4.10, port: 3306, filter: "sqlite or test_example_app_records_its_server_family and mysql", legs: "sqlite-default=2817", required: "test_example_app_records_its_server_family=1 test_a_refused_statement_keeps_its_value_hidden=1" }
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -456,7 +456,7 @@ jobs:
       db:
         image: ${{ matrix.image }}
         options: >-
-          --health-cmd "${{ matrix.server == 'postgresql' && 'pg_isready -U postgres' || 'mysqladmin ping -h 127.0.0.1 -psharpit' }}"
+          --health-cmd "${{ matrix.server == 'mariadb' && 'healthcheck.sh --connect --innodb_initialized' || matrix.server == 'postgresql' && 'pg_isready -U postgres' || 'mysqladmin ping -h 127.0.0.1 -psharpit' }}"
           --health-interval 10s --health-timeout 5s --health-retries 10
         env:
           MYSQL_ROOT_PASSWORD: sharpit
