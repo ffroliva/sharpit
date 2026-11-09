@@ -165,6 +165,7 @@ def _live_leg_filters() -> dict[str, str]:
     return result
 
 
+@pytest.mark.needs_sqlalchemy  # it collects tests/live, which imports the SQLAlchemy stack
 def test_the_live_legs_partition_the_live_tests() -> None:
     root = Path(__file__).parent.parent
     collection_environment = os.environ.copy()
