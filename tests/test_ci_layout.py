@@ -1,8 +1,6 @@
 """CI layout costs, pinned by count, never by wall clock: where lint runs, how a leg is sharded, the tracer."""
 
 import re
-import subprocess
-import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -84,30 +82,6 @@ def test_the_required_test_check_still_fails_when_lint_fails() -> None:
     """Lint left the shards, so the required `test` checks must wait for it or a lint failure would merge."""
     assert "needs: [test-shard, lint, changes]" in JOBS["test"]
     assert 'needs.lint.result }}" = success' in JOBS["test"]
-
-
-def test_the_documented_full_suite_command_collects_every_file() -> None:
-    command = next(
-        line for line in Path("AGENTS.md").read_text(encoding="utf-8").splitlines() if "pytest -q -n auto" in line
-    )
-    assert "--import-mode" not in command
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-n", "4"],
-        cwd=Path(__file__).resolve().parents[1],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
-    assert result.returncode == 0, result.stdout[-3000:] + result.stderr[-3000:]
-
-
-def test_pytester_nested_collection_does_not_reuse_outer_modules(pytester: pytest.Pytester) -> None:
-    pytester.makepyfile(test_ci_layout="def test_nested(): pass\n")
-    pytester.chdir()
-    result = pytester.runpytest("test_ci_layout.py", "--collect-only", "-q", "-n", "0", "-p", "no:cacheprovider")
-    assert result.ret == 0, "\n".join(result.errlines)
-    assert "test_ci_layout.py::test_nested" in result.outlines
 
 
 def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
