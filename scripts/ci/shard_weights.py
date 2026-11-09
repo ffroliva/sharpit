@@ -18,10 +18,14 @@ JOBS = ("test-shard", "coverage-shard", "lowest-shard", "no-sqlalchemy-shard", "
 
 
 def parse_artifact(name: str) -> tuple[str, str] | None:
-    """Return the pytest job and leg from ``junit-<job>-<leg>`` artifact names."""
+    """Return the pytest job and leg from ``junit-`` or ``overhead-`` artifact names."""
+    prefix = next((prefix for prefix in ("junit-", "overhead-") if name.startswith(prefix)), None)
+    if prefix is None:
+        return None
+    artifact = name.removeprefix(prefix)
     for job in JOBS:
-        if name.startswith(f"junit-{job}-"):
-            return job, name.removeprefix(f"junit-{job}-")
+        if artifact.startswith(f"{job}-"):
+            return job, artifact.removeprefix(f"{job}-")
     return None
 
 
@@ -34,7 +38,7 @@ def test_file(classname: str) -> str:
 
 
 def weights(root: Path) -> dict[str, dict[str, float]]:
-    # artifact dirs are junit-<os>-<python>-<job index>: one leg is <os>-<python>
+    # Test-shard JUnit artifacts end in <os>-<python>-<job index>; the middle is the averaging leg.
     per_leg: dict[str, dict[str, defaultdict[str, float]]] = defaultdict(dict)
     for report in sorted(root.glob("junit-*/junit.xml")):
         parsed = parse_artifact(report.parent.name)
