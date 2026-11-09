@@ -153,6 +153,12 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
   write the chosen value and the reason in the report. A brief names its `-n` value or says `-n auto`.
 - **Shared resources** (ports, browser sessions) with other agents: the `multi-agent-dev` protocol.
 - **Verify before claiming done** (`superpowers:verification-before-completion`): command output, not belief.
+- **Double-check delegated work.** Never merge on an agent's report alone: rerun its key test, read the diff, and
+  confirm in `agent_watch` which model actually ran (agy falls back to a smaller model on quota).
+- **Every review includes a maintainability pass** (owner, 2026-11-08). It lists refactors that cut complexity or
+  improve readability, ranked, each with its file and complexity before and after (the `Maintainability` persona in
+  `skills/pr-council-review/SKILL.md`). A refactor on a safety path (masking, guard, activation) goes in only with
+  byte-identical output on the gate corpora before and after it. Larger reorganizations go to the next release's plan.
 
 ## Skills index
 
