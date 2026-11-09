@@ -1721,6 +1721,7 @@ F5B_LEASED = (
 )
 
 
+@pytest.mark.timeout(300)  # builds a git fixture (15+ git calls) and runs the gate twice: 98 s seen under -n 4
 def test_f5b_leased_log_needs_both_leased_tests(tmp_path: Path) -> None:
     assert lane_gate.LEASED["F5b"] == (("leased-mysql.log", F5B_LEASED),)
     fx = _fixture(tmp_path, lane="F5b")
