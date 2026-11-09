@@ -127,11 +127,22 @@ def test_live_runs_one_job_per_server() -> None:
         assert f"SHARPIT_LIVE_{key}_URL:" in live
     pytest_steps = [line for line in live.splitlines() if re.search(r"^\s*- run:.*pytest\b", line)]
     assert pytest_steps
-    assert all(not re.search(r"(?:^|\s)-n\s+0(?:\s|$)", line) for line in pytest_steps)
+    assert any(re.search(r"(?:^|\s)-n\s+0(?:\s|$)", line) for line in pytest_steps)
     assert "--health-cmd" in live
     assert "--health-interval" in live
     assert "--health-retries" in live
     assert "matrix.server == 'mariadb' && 'healthcheck.sh --connect --innodb_initialized'" in live
+    assert 'pytest tests/live --live -n 0 -k "$LIVE_FILTER"' in live
+
+
+@pytest.mark.parametrize("job", ["ui", "vitest"])
+def test_ui_working_directory_steps_are_guarded_for_absent_ui(job: str) -> None:
+    lines = JOBS[job].splitlines()
+    ui_steps = [index for index, line in enumerate(lines) if "working-directory: ui" in line]
+    assert ui_steps
+    for index in ui_steps:
+        step = lines[index - 2 : index + 1]
+        assert any("hashFiles('ui/package.json')" in guard for guard in step), step
 
 
 def test_live_leg_pins_keep_the_old_case_totals() -> None:
@@ -157,7 +168,19 @@ def _live_leg_filters() -> dict[str, str]:
 def test_the_live_legs_partition_the_live_tests() -> None:
     root = Path(__file__).parent.parent
     collected = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-n", "0", "tests/live", "--live"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-W",
+            "ignore::pytest.PytestDeprecationWarning",
+            "-n",
+            "0",
+            "tests/live",
+            "--live",
+        ],
         cwd=root,
         capture_output=True,
         text=True,
@@ -177,6 +200,8 @@ def test_the_live_legs_partition_the_live_tests() -> None:
                 "pytest",
                 "--collect-only",
                 "-q",
+                "-W",
+                "ignore::pytest.PytestDeprecationWarning",
                 "-n",
                 "0",
                 *test_paths,

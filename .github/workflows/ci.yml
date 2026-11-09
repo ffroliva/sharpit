@@ -477,7 +477,7 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --extra test --python 3.14 # NOSONAR - installs sharpit from source for the live tests
       - run: uv pip install asyncpg aiomysql
-      - run: uv run --no-sync pytest tests/live --live -n auto -k "$LIVE_FILTER" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync pytest tests/live --live -n 0 -k "$LIVE_FILTER" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           LIVE_FILTER: ${{ matrix.filter }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -490,7 +490,10 @@ jobs:
         env:
           LEGS: ${{ matrix.legs }}
           REQUIRED_LIVE: ${{ matrix.required }}
-        run: uv run --no-sync python scripts/ci/check_live_tests.py "$RUNNER_TEMP/junit.xml" --legs $LEGS --require $REQUIRED_LIVE
+        run: |
+          read -r -a legs <<< "$LEGS"
+          read -r -a required <<< "$REQUIRED_LIVE"
+          uv run --no-sync python scripts/ci/check_live_tests.py "$RUNNER_TEMP/junit.xml" --legs "${legs[@]}" --require "${required[@]}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -557,9 +560,6 @@ jobs:
     needs: changes
     if: always()
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ui
     steps:
       - if: always()
         run: test "${{ needs.changes.result }}" = success
@@ -570,21 +570,19 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: needs.changes.outputs.code != 'false'
+        if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
         with:
           node-version: 22
-      - if: needs.changes.outputs.code != 'false'
+      - if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
         run: npm ci --ignore-scripts && npm run build
-      - if: needs.changes.outputs.code != 'false'
-        run: git diff --exit-code -- ../src/sharpit/ui/static
+        working-directory: ui
+      - if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
+        run: git diff --exit-code -- src/sharpit/ui/static
 
   vitest:
     needs: changes
     if: always()
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ui
     steps:
       - if: always()
         run: test "${{ needs.changes.result }}" = success
@@ -595,11 +593,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: needs.changes.outputs.code != 'false'
+        if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
         with:
           node-version: 22
-      - if: needs.changes.outputs.code != 'false'
+      - if: needs.changes.outputs.code != 'false' && hashFiles('ui/package.json') != ''
         run: npm ci --ignore-scripts && npm test
+        working-directory: ui
 
   wheel:
     needs: changes
