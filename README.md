@@ -58,6 +58,8 @@ pytest --sharpit --sharpit-baseline=sharpit-baseline.json         # in CI: only 
 - A missing or malformed baseline never switches sharpit off: the session runs and the baseline becomes an unknown
   reason, which fails the run. Own the baseline file in CODEOWNERS, or a PR can baseline its own findings.
 
+See [The safety gate](docs/pytest-safety-gate.md) for exit-status behavior and the baseline workflow.
+
 ### GitHub Action
 
 The repository root is a composite action (`action.yml`) that runs pytest with sharpit and writes a findings summary to
