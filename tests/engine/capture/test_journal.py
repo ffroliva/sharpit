@@ -6,6 +6,7 @@ import json
 import threading
 import time
 from dataclasses import fields
+from typing import Any
 
 from tests.overhead import check_budget, paired
 
@@ -117,24 +118,30 @@ def test_suspended_journal_counts_suspended_drops() -> None:
 
 
 def test_journal_append_overhead_budget() -> None:
-    module = _journal_module()
-    event = {"source": "test", "message": "small event"}
+    """Measured alone (-n 0, Windows 11, CPython 3.13) at 3.6-4.1 µs per accepted offer (three runs); the budget leaves CI room.
 
-    def noop_round() -> float:
+    "off" is the disabled journal (``NULL_SINK``) called the same way, so the overhead is the append itself.
+    """
+    module = _journal_module()
+    event = {"source": "http", "message": "GET /pets 200", "durationMs": 3}
+    per_round = 500
+
+    def round_of(sink: Any) -> float:
         start = time.perf_counter_ns()
-        for _ in range(500):
-            pass
-        return (time.perf_counter_ns() - start) / 500
+        for _ in range(per_round):
+            sink.offer(event)
+        return (time.perf_counter_ns() - start) / per_round
+
+    journals: list[Any] = []
 
     def offer_round() -> float:
-        journal = module.RuntimeJournal(max_events=1000, max_bytes=1_000_000, queue_capacity=1000)
-        start = time.perf_counter_ns()
-        for _ in range(500):
-            journal.offer(event)
-        return (time.perf_counter_ns() - start) / 500
+        journal = module.RuntimeJournal(max_events=1000, max_bytes=1_000_000, queue_capacity=1000, sources=("http",))
+        journals.append(journal)
+        return round_of(journal)
 
-    result = paired(noop_round, offer_round, 15)
-    check_budget("runtime journal offer", result, 100_000, "µs", 1000)
+    result = paired(lambda: round_of(module.NULL_SINK), offer_round, 60)
+    assert all(journal.status()["recorded"] == {"http": per_round} for journal in journals), "timed the reject path"
+    check_budget("runtime journal offer", result, 20_000, "µs", 1000)
 
 
 def test_an_unconfigured_source_is_dropped_and_counted() -> None:
