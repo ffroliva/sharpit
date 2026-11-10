@@ -180,6 +180,7 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
 17 action tools change state, call out or scan. They are reachable only through `POST {api}/cli/tools/<tool>`
 (`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain; the CLI endpoint also serves every read tool above.
+An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.
 
 - Scans and reads that call out: `vulnerabilities_scan` (sends package names and versions to OSV.dev), `rest_api_scan`,
   `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`.

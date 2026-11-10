@@ -76,6 +76,7 @@ Each advisor has a cached report tool and a tool that pages the retained violati
 `tools/list` answer holds the 37 read tools above and nothing else. They are listed here because each is part of the
 tool catalogue, and an action is available only through the CLI endpoint,
 `POST /sharpit/api/cli/tools/<tool>` (`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain.
+An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.
 
 Scans and reads that call out:
 
