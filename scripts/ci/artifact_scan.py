@@ -84,7 +84,7 @@ def _scan_lines(
     hits: list[Hit] = []
     for line_no, line in enumerate(lines, 1):
         for form_name, candidates in forms.items():
-            if any(cand in line for cand in candidates):
+            if any(cand.casefold() in line.casefold() for cand in candidates):
                 hits.append(Hit(file_path, line_no, form_name, v_idx))
     return hits
 

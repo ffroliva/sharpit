@@ -119,3 +119,10 @@ def test_require_fails_without_values(tmp_path: Path, capsys: pytest.CaptureFixt
     assert rc_pass == 0
     captured = capsys.readouterr()
     assert "no planted values in this job" in captured.out
+
+
+def test_scanner_matches_identity_values_case_insensitively(tmp_path: Path) -> None:
+    target = tmp_path / "identity.json"
+    target.write_text("login: SHORTUSER\n", encoding="utf-8")
+    hits = scanner.scan([target], ["shortuser"])
+    assert hits, "identity canaries must match regardless of case"
