@@ -26,25 +26,33 @@ def _import_aliases(tree: ast.Module, modules_to_match: set[str], symbol: str) -
 
 def _frozen_model_config(node: ast.ClassDef) -> bool:
     for statement in node.body:
-        if isinstance(statement, (ast.Assign, ast.AnnAssign)):
-            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
-            if not any(isinstance(target, ast.Name) and target.id == "model_config" for target in targets):
-                continue
-            value = statement.value
-            if isinstance(value, ast.Dict):
-                return any(
-                    isinstance(key, ast.Constant)
-                    and key.value == "frozen"
-                    and isinstance(item, ast.Constant)
-                    and item.value is True
-                    for key, item in zip(value.keys, value.values, strict=True)
-                )
-            if isinstance(value, ast.Call):
-                return any(
-                    keyword.arg == "frozen" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True
-                    for keyword in value.keywords
-                )
+        value = _model_config_value(statement)
+        if isinstance(value, (ast.Dict, ast.Call)):
+            return _sets_frozen(value)
     return False
+
+
+def _model_config_value(statement: ast.stmt) -> ast.expr | None:
+    """The value assigned to ``model_config`` by this statement, if it assigns it."""
+    if isinstance(statement, ast.Assign):
+        targets = statement.targets
+    elif isinstance(statement, ast.AnnAssign):
+        targets = [statement.target]
+    else:
+        return None
+    named = any(isinstance(target, ast.Name) and target.id == "model_config" for target in targets)
+    return statement.value if named else None
+
+
+def _is_true(node: ast.expr | None) -> bool:
+    return isinstance(node, ast.Constant) and node.value is True
+
+
+def _sets_frozen(value: ast.Dict | ast.Call) -> bool:
+    if isinstance(value, ast.Dict):
+        pairs = zip(value.keys, value.values, strict=True)
+        return any(isinstance(key, ast.Constant) and key.value == "frozen" and _is_true(item) for key, item in pairs)
+    return any(keyword.arg == "frozen" and _is_true(keyword.value) for keyword in value.keywords)
 
 
 def _settings_imports(tree: ast.Module) -> tuple[set[str], set[str]]:
