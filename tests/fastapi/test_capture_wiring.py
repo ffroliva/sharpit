@@ -497,6 +497,51 @@ def test_each_capture_hook_suspends_only_itself():
         assert len(_rows(handle)) == 3
 
 
+def test_each_lane_and_sqla_hook_suspends_only_itself():
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+    ctx = handle.context
+    wiring = wiring_of(ctx)
+    assert wiring is not None
+    calls: list[str] = []
+
+    def lane(name: str) -> Callable[[], Callable[[], None]]:
+        def attacher() -> Callable[[], None]:
+            calls.append(f"arm {name}")
+            return lambda: calls.append(f"disarm {name}")
+
+        return attacher
+
+    wiring.add_lane(ctx, "lane-a", lane("a"))
+    wiring.add_lane(ctx, "lane-b", lane("b"))
+    with TestClient(app):
+        assert calls == ["arm a", "arm b"]
+        teardowns = len(ctx.capture.teardowns)
+        _hook(handle, "lane-a").suspend()
+        _hook(handle, "lane-a").suspend()  # idempotent
+        assert calls == ["arm a", "arm b", "disarm a"]
+        assert len(ctx.capture.teardowns) == teardowns - 1
+        _hook(handle, "lane-a").resume()
+        _hook(handle, "lane-a").resume()  # idempotent
+        assert calls == ["arm a", "arm b", "disarm a", "arm a"]
+
+
+@pytest.mark.needs_sqlalchemy
+def test_sqla_hook_suspends_only_sqlalchemy_routing():
+    pytest.importorskip("sqlalchemy")
+    sqla.detach_all()  # earlier tests in this worker may have left contexts behind
+    handle = install(FastAPI(), enabled="ON", show_banner=False)
+    ctx = handle.context
+    assert sqla.routed(ctx) == (True, True)
+    _hook(handle, "sqla-listeners").suspend()
+    assert sqla.routed(ctx) == (False, False)
+    assert "sqlalchemy" in ctx.capture.suspended_sources
+    _hook(handle, "sqla-listeners").resume()
+    assert sqla.routed(ctx) == (True, True)
+    assert "sqlalchemy" not in ctx.capture.suspended_sources
+    handle.uninstall_capture()
+
+
 def test_low_footprint_suspends_and_resumes_registered_capture_hooks():
     app = FastAPI()
     app.get("/host")(lambda: {})
