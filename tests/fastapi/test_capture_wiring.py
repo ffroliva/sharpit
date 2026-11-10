@@ -23,13 +23,14 @@ from starlette.types import Message, Receive, Scope, Send
 from fastapi import FastAPI, Request, WebSocket
 from sharpit import install
 from sharpit.engine import sqla
+from sharpit.engine.capture import Suspendable
 from sharpit.engine.capture.correlation import REQUEST
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.fastapi.adapter import SharpitHandle
-from sharpit.fastapi.capture import CAPTURE_TOO_LATE, CAPTURE_TOO_LATE_REASON, CaptureMiddleware
+from sharpit.fastapi.capture import CAPTURE_TOO_LATE, CAPTURE_TOO_LATE_REASON, CaptureMiddleware, wiring_of
 
 LOCAL = ("127.0.0.1", 50000)
 CAPTURE_PANELS = ("http-exchanges", "exceptions", "sql-trace", "activity", "security-logs")
@@ -460,7 +461,40 @@ def test_every_capture_hook_is_registered():
             "sqla-listeners",
             "sqlite-listeners",
             "traces",
+            "transactions",
         }
+
+
+def _hook(handle: SharpitHandle, name: str) -> Suspendable:
+    return next(h for h in handle.context.capture.hooks.hooks() if h.name == name)
+
+
+def test_each_capture_hook_suspends_only_itself():
+    app = FastAPI()
+    app.get("/host")(lambda: {})
+    handle = install(app, enabled="ON", show_banner=False)
+    ctx = handle.context
+    with TestClient(app) as client:
+        client.get("/host")
+        wiring = wiring_of(ctx)
+        assert wiring is not None
+        routed = sqla.routed(ctx)
+
+        _hook(handle, "log-handler").suspend()
+        client.get("/host")
+        assert len(_rows(handle)) == 2  # the middleware still records
+        assert not wiring.log_handler_on_root()
+        _hook(handle, "log-handler").resume()
+        assert wiring.log_handler_on_root()
+
+        _hook(handle, "capture-middleware").suspend()
+        client.get("/host")
+        assert len(_rows(handle)) == 2  # this request was not recorded
+        assert wiring.log_handler_on_root()  # the log handler stays
+        assert sqla.routed(ctx) == routed  # SQL routing stays
+        _hook(handle, "capture-middleware").resume()
+        client.get("/host")
+        assert len(_rows(handle)) == 3
 
 
 def test_low_footprint_suspends_and_resumes_registered_capture_hooks():
@@ -476,13 +510,12 @@ def test_low_footprint_suspends_and_resumes_registered_capture_hooks():
         service.resume()
         client.get("/host")
         assert len(_rows(handle)) == 2
-        service = LowFootprintService(handle.context.capture.hooks)
-        service.suspend()
-        client.get("/host")
-        assert len(_rows(handle)) == 1
-        service.resume()
+        service.suspend()  # a second cycle: rows only grow, so the counts carry on from 2
         client.get("/host")
         assert len(_rows(handle)) == 2
+        service.resume()
+        client.get("/host")
+        assert len(_rows(handle)) == 3
 
 
 @pytest.mark.needs_sqlalchemy

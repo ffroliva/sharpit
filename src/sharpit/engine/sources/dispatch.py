@@ -101,6 +101,7 @@ def recording(engine: object | None, source: str = "sqlalchemy") -> list[Sharpit
         if c.capture.sql_trace is not None
         and c.capture.sql_trace.recording
         and (source != "sqlite3" or c.settings.sql_trace_sqlite3_enabled)
+        and source not in c.capture.suspended_sources
     ]
     return targets
 
