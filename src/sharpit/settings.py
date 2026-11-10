@@ -23,6 +23,32 @@ _SPECS = _registry.SPECS
 _UNSET = _registry.UNSET
 _bool = _registry.parse_bool
 parse_mode = _registry.parse_mode
+# Keep names that were visible from this module before the parser split.
+_registry_internal = cast(Any, _registry)
+Callable = _registry.Callable
+Iterable = _registry.Iterable
+re = _registry.re
+urlsplit = _registry.urlsplit
+_DURATION = _registry_internal._DURATION
+_FALSE = _registry_internal._FALSE
+_MODULE_NAME = _registry_internal._MODULE_NAME
+_Parser = _registry_internal._Parser
+_TRUE = _registry_internal._TRUE
+_config_scan = _registry_internal._config_scan
+_duration = _registry_internal._duration
+_exposure = _registry_internal._exposure
+_http_uri = _registry_internal._http_uri
+_identity_key = _registry_internal._identity_key
+_int = _registry_internal._int
+_items = _registry_internal._items
+_lower_items = _registry_internal._lower_items
+_min_two_int = _registry_internal._min_two_int
+_mode = _registry_internal._mode
+_module_name = _registry_internal._module_name
+_non_negative_int = _registry_internal._non_negative_int
+_row_limit = _registry_internal._row_limit
+_str = _registry_internal._str
+del _registry_internal
 del _registry
 
 
