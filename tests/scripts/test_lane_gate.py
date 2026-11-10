@@ -7,6 +7,7 @@ and the pytest replays are injected fakes, so these tests never run the real sui
 import contextlib
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -2374,6 +2375,68 @@ def test_lane_gate_command_shapes_reach_real_git(
     }
     observed = {call[: len(shape)] for call in calls for shape in shapes if call[: len(shape)] == shape}
     assert observed == shapes
+
+
+def test_fake_git_matches_real_git_for_lane_gate_commands_and_decisions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fake and real runners agree on lane-gate command results and refusal decisions."""
+    global _USING_REAL_GIT
+    recordings: dict[str, list[tuple[tuple[str, ...], int, str]]] = {}
+    results: dict[str, list[tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]] = {}
+
+    def record_calls(calls: list[tuple[tuple[str, ...], int, str]], root: Path) -> object:
+        original = _run_fake_or_real
+
+        def record(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            done = original(command, **kwargs)
+            output = done.stdout.replace(str(root), "<ROOT>")
+            output = re.sub(r"\b[0-9a-f]{40}\b", "<SHA>", output)
+            if command[1:2] == ["ls-tree"]:
+                output = "\0".join(sorted(output.rstrip("\0").split("\0"))) + "\0"
+            normalized = [re.sub(r"\b[0-9a-f]{40}\b", "<SHA>", arg.replace(str(root), "<ROOT>")) for arg in command[1:]]
+            if normalized[0] == "worktree" and normalized[1] in {"add", "remove"}:
+                normalized[4 if normalized[1] == "add" else -1] = "<TREE>"
+            calls.append((tuple(normalized), 0 if done.returncode == 0 else 1, output))
+            return done
+
+        return record
+
+    for mode, real in (("fake", False), ("real", True)):
+        _USING_REAL_GIT = real
+        calls: list[tuple[tuple[str, ...], int, str]] = []
+        root = tmp_path / mode
+        monkeypatch.setattr(lane_gate, "_GIT_RUNNER", record_calls(calls, tmp_path))
+        root.mkdir()
+        fx = _fixture(root)
+        calls.clear()
+        monkeypatch.setattr(lane_gate, "_READS", {})
+        clean = fx.evaluate()
+        scenarios = [("clean", tuple(clean.refusals))]
+        assert scenarios[-1][1] == ()
+        (fx.worktree / "src/widget.py").write_text("dirty\n", encoding="utf-8")
+        dirty = tuple(fx.evaluate().refusals)
+        scenarios.append(("dirty", dirty))
+        assert any("uncommitted changes" in reason for reason in dirty)
+        (fx.worktree / "src/widget.py").write_text("def widget():\n    return 2\n", encoding="utf-8")
+        _write(fx.worktree, {".superpowers/sdd/0.4.0/lanes/another-lane/PLAN.md": "another lane\n"})
+        fx.commit({".superpowers/sdd/0.4.0/lanes/another-lane/PLAN.md": "another lane\n"}, "docs: touch another lane")
+        fx.review()
+        other_lane = tuple(re.sub(r"\b[0-9a-f]{40}\b", "<SHA>", line) for line in fx.evaluate().refusals)
+        scenarios.append(("other-lane", other_lane))
+        assert any("another-lane" in reason for reason in other_lane)
+        (fx.worktree / fx.folder / "findings.md").unlink()
+        _git(fx.worktree, "add", "-u")
+        _git(fx.worktree, "commit", "-q", "-m", "docs: omit findings evidence")
+        fx.head = _git(fx.worktree, "rev-parse", "HEAD")
+        fx.review()
+        missing_evidence = tuple(re.sub(r"\b[0-9a-f]{40}\b", "<SHA>", line) for line in fx.evaluate().refusals)
+        scenarios.append(("missing-evidence", missing_evidence))
+        assert any("findings.md" in reason for reason in missing_evidence)
+        recordings[mode] = calls
+        results[mode] = scenarios
+    assert recordings["fake"] == recordings["real"]
+    assert results["fake"] == results["real"]
 
 
 def test_a_fixture_commit_spawns_no_maintenance_process(
