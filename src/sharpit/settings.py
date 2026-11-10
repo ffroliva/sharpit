@@ -16,7 +16,19 @@ from typing import Any, cast
 
 from sharpit.engine.masking import Exposure
 from sharpit.engine.panels import PANELS
-from sharpit.settings_registry import FAMILY_SPECS, _NEVER_ECHOED, _UNSET, _bool, parse_mode
+from sharpit.settings_registry import (
+    FAMILY_SPECS,
+    parse_bool,
+)
+from sharpit.settings_registry import (
+    NEVER_ECHOED as _NEVER_ECHOED,
+)
+from sharpit.settings_registry import (
+    UNSET as _UNSET,
+)
+from sharpit.settings_registry import (
+    parse_mode as parse_mode,
+)
 
 
 @dataclass(frozen=True)
@@ -190,7 +202,7 @@ def _panels(kwargs: Mapping[str, object], environ: Mapping[str, str], warnings: 
                     flags[key] = failsafe
                 continue
             try:
-                flags[key] = _bool(raw)
+                flags[key] = parse_bool(raw)
             except ValueError:
                 shown = "" if f"panels.{pid}.{key}" in _NEVER_ECHOED else f" '{raw}'"
                 warnings.append(f"Ignoring invalid {env} value{shown}")
