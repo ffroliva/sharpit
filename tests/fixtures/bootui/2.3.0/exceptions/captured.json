@@ -1,0 +1,30 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "maxGroups": 100,
+  "totalExceptions": 3,
+  "groups": [
+    {
+      "id": "60fbf59e91397f9e",
+      "exceptionClassName": "org.springframework.web.servlet.resource.NoResourceFoundException",
+      "message": "No static resource api/hibernate-statistics for request '/bootui/api/hibernate-statistics'.",
+      "count": 3,
+      "firstSeen": 1700000000000,
+      "lastSeen": 1700000000000,
+      "location": "org.springframework.web.servlet.resource.ResourceHttpRequestHandler.handleRequest(ResourceHttpRequestHandler.java:527)",
+      "applicationException": false,
+      "lastThread": "http-nio-127.0.0.1-8080-exec-9",
+      "lastRequestMethod": "GET",
+      "lastRequestPath": "/bootui/api/hibernate-statistics",
+      "lastHandler": "ResourceHttpRequestHandler",
+      "lastSource": "web",
+      "lastTraceId": null,
+      "status": "OPEN",
+      "regressionCount": 0,
+      "errorContract": null,
+      "lastRequestId": null,
+      "lastExecutionId": null
+    }
+  ],
+  "caughtInCode": null
+}

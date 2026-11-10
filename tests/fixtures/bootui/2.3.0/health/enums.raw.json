@@ -1,0 +1,8 @@
+{
+  "$.status": [
+    "UP"
+  ],
+  "$.components[].status": [
+    "UP"
+  ]
+}

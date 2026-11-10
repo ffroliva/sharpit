@@ -1,0 +1,8 @@
+{
+  "available": false,
+  "unavailableReason": "No JavaMailSender bean is present",
+  "devTrapEnabled": false,
+  "maxEntries": 100,
+  "total": 0,
+  "messages": []
+}

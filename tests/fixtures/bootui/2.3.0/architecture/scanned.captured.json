@@ -1,0 +1,43 @@
+{
+  "localOnly": true,
+  "disclaimer": "Heuristic, project-agnostic architecture rules run against the host application's own classes only. These checks complement, but do not replace, a project-specific ArchUnit test suite or an architecture review.",
+  "basePackages": [
+    "com.ffroliva.tinyledger"
+  ],
+  "classesAnalyzed": 0,
+  "rulesEvaluated": 0,
+  "violationsFound": 0,
+  "severityCounts": [
+    {
+      "severity": "CRITICAL",
+      "count": 0
+    }
+  ],
+  "scan": {
+    "analyzer": "BootUI ArchUnit hygiene",
+    "status": "NOT_SCANNED",
+    "message": "Architecture rules have not run yet. Run architecture checks in the panel, or call architecture_scan (bootui architecture scan), to analyse the application classes.",
+    "scannedAt": null,
+    "rulesEvaluated": 0,
+    "classesAnalyzed": 0,
+    "violationsFound": 0
+  },
+  "results": [],
+  "analysisErrors": [],
+  "evidence": {
+    "usable": false,
+    "coverageComplete": false,
+    "limitations": [
+      "Assessment evidence is unavailable."
+    ]
+  },
+  "violationDetails": {
+    "scanId": null,
+    "total": 0,
+    "retained": 0,
+    "retentionLimit": 0,
+    "truncated": false,
+    "locationNotes": [],
+    "changes": null
+  }
+}

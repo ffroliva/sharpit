@@ -1,0 +1,15 @@
+{
+  "available": false,
+  "unavailableReason": "Requires the BootUI agent's code-paths sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+  "maxActive": 5,
+  "maxInvocations": 20,
+  "windowSeconds": 60,
+  "probes": [],
+  "limitations": [
+    "A probe records each invocation's duration, thread kind, request id, outcome (returned, or the thrown exception's type), and calling frame: never an argument or a return value.",
+    "A probe started with argument and return shapes also records the type of its first nine arguments, taken at entry, and of its return value, with a size for JDK collections, maps, and arrays, and whether an Optional is present, read without running any application method: application collections, proxies, and other objects show their type only, numbers and booleans never their value. A string's length, a char[], byte[], Character[], or Byte[] length, and an enum constant's name need bootui.expose-values=FULL, or MASKED with bootui.mask-secrets=false. MCP and the CLI never see shapes.",
+    "A probe records at most 20 invocations, for at most 60 seconds, five probes at once, and ends with the run (a restart or a live reload); the agent enforces the bounds where the method runs, even if it could not remove its instrumentation afterwards."
+  ],
+  "shapesAvailable": false,
+  "shapesUnavailableReason": "Requires the BootUI agent's code-paths sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel)."
+}

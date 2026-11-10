@@ -1,0 +1,76 @@
+{
+  "name": "application",
+  "status": "UP",
+  "details": null,
+  "components": [
+    {
+      "name": "db",
+      "status": "UP",
+      "details": {
+        "database": "PostgreSQL",
+        "validationQuery": "isValid()"
+      },
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    },
+    {
+      "name": "diskSpace",
+      "status": "UP",
+      "details": {
+        "total": 988310138880,
+        "free": 19554787328,
+        "threshold": 10485760,
+        "path": "/path",
+        "exists": true
+      },
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    },
+    {
+      "name": "livenessState",
+      "status": "UP",
+      "details": {},
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    },
+    {
+      "name": "redis",
+      "status": "UP",
+      "details": {
+        "version": "7.4.12"
+      },
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    },
+    {
+      "name": "ssl",
+      "status": "UP",
+      "details": {
+        "expiringChains": [],
+        "invalidChains": [],
+        "validChains": []
+      },
+      "components": [],
+      "available": true,
+      "unavailableReason": null,
+      "guidanceReason": null,
+      "setup": []
+    }
+  ],
+  "available": true,
+  "unavailableReason": null,
+  "guidanceReason": null,
+  "setup": []
+}

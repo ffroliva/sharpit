@@ -1,0 +1,15 @@
+{
+  "state": "IDLE",
+  "reason": null,
+  "sampler": null,
+  "startedAt": null,
+  "endsAt": null,
+  "finishedAt": null,
+  "maxDurationSeconds": 30,
+  "cpuSamples": 0,
+  "outsideSamples": 0,
+  "requests": 0,
+  "routes": [],
+  "routesOmitted": 0,
+  "limitations": []
+}

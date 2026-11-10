@@ -29,5 +29,775 @@
     "routeCountMethod": "catalog read/action helper calls and all starter src/main/java @*Mapping declarations",
     "testClasses": 1109,
     "testMethods": 10646
+  },
+  "app": "tiny-ledger",
+  "profile": "full",
+  "uncaptured": {
+    "GET /activity/request/conformance-unknown-request": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "conformance probe"
+    },
+    "GET /activity/request/conformance-unknown-request/journal": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "conformance probe"
+    },
+    "GET /code-paths/requests/0000000000000000": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "conformance probe"
+    },
+    "GET /code-paths/route?route=GET%20%2Fnot-a-route": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "conformance probe"
+    },
+    "GET /runtime-insights/impact?symbol=conformanceUnknownSymbol": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "conformance probe"
+    },
+    "GET /runtime-insights/impact/symbols?query=conformanceUnknownSymbol": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "conformance probe"
+    },
+    "GET /runtime-insights/insights/conformance-unknown:0000000000": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "conformance probe"
+    },
+    "GET /code-inventory/methods?status=never-executed": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "conformance probe"
+    },
+    "GET /side-effects/sensor?sensor=processes": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "conformance probe"
+    },
+    "GET /flyway/migrations": {
+      "status": "404",
+      "http": 404,
+      "reason": "HTTP Error 404: "
+    },
+    "GET /hibernate": {
+      "status": "needs-external",
+      "http": null,
+      "reason": "Hibernate ORM is not on the classpath"
+    },
+    "GET /hibernate-statistics": {
+      "status": "404",
+      "http": 404,
+      "reason": "HTTP Error 404: "
+    },
+    "GET /rabbitmq": {
+      "status": "404",
+      "http": 404,
+      "reason": "HTTP Error 404: "
+    },
+    "GET /jms": {
+      "status": "404",
+      "http": 404,
+      "reason": "HTTP Error 404: "
+    },
+    "GET /websockets": {
+      "status": "404",
+      "http": 404,
+      "reason": "HTTP Error 404: "
+    },
+    "GET /activity/request/{id}/journal": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /activity/request/{id}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /crac/dockerfile": {
+      "status": "error",
+      "http": null,
+      "reason": "Expecting value: line 1 column 1 (char 0)"
+    },
+    "GET /crac/entrypoint": {
+      "status": "error",
+      "http": null,
+      "reason": "Expecting value: line 1 column 1 (char 0)"
+    },
+    "GET /exceptions/{id}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /graalvm/dockerfile": {
+      "status": "error",
+      "http": null,
+      "reason": "Expecting value: line 1 column 1 (char 0)"
+    },
+    "GET /runtime-insights/insights/{id}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /code-paths/requests/{requestId}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /code-paths/probes/{id}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /side-effects/sensor": {
+      "status": "error",
+      "http": 400,
+      "reason": "HTTP Error 400: "
+    },
+    "GET /email/{id}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /email/{id}/eml": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /mcp": {
+      "status": "error",
+      "http": 405,
+      "reason": "HTTP Error 405: "
+    },
+    "GET /sessions": {
+      "status": "404",
+      "http": 404,
+      "reason": "HTTP Error 404: "
+    },
+    "GET /dashboard": {
+      "status": "404",
+      "http": 404,
+      "reason": "HTTP Error 404: "
+    },
+    "GET /sessions/{id}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /sessions/{id}/events": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /ai/chats/{spanId}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /database-connection-pools/pools/{name}/snapshot": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /data/repositories/{name}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /dev-services/{id}/logs": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /heap-dump/download": {
+      "status": "error",
+      "http": 400,
+      "reason": "HTTP Error 400: "
+    },
+    "GET /metrics/detail": {
+      "status": "error",
+      "http": 400,
+      "reason": "HTTP Error 400: "
+    },
+    "GET /threads/captures/{id}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /threads/captures/{id}/contention": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /threads/captures/{id}/threads": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /threads/captures/{id}/threads/{observationId}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /threads/captures/{id}/locks/{lockId}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "GET /threads/observations/{id}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "no id in the list response"
+    },
+    "POST /security/scan": {
+      "status": "disabled",
+      "http": 403,
+      "reason": "HTTP Error 403: "
+    },
+    "POST /architecture/scan": {
+      "status": "disabled",
+      "http": 403,
+      "reason": "HTTP Error 403: "
+    },
+    "POST /rest-api/scan": {
+      "status": "disabled",
+      "http": 403,
+      "reason": "HTTP Error 403: "
+    },
+    "POST /vulnerabilities/scan": {
+      "status": "disabled",
+      "http": 403,
+      "reason": "HTTP Error 403: "
+    },
+    "POST /database-advisor/scan": {
+      "status": "disabled",
+      "http": 403,
+      "reason": "HTTP Error 403: "
+    },
+    "POST /hibernate/scan": {
+      "status": "needs-external",
+      "http": null,
+      "reason": "Hibernate ORM is not on the classpath"
+    },
+    "POST /spring/scan": {
+      "status": "disabled",
+      "http": 403,
+      "reason": "HTTP Error 403: "
+    },
+    "POST /memory/scan": {
+      "status": "disabled",
+      "http": 403,
+      "reason": "HTTP Error 403: "
+    },
+    "POST /postgresql/read": {
+      "status": "disabled",
+      "http": 403,
+      "reason": "HTTP Error 403: "
+    },
+    "POST /mysql/read": {
+      "status": "disabled",
+      "http": null,
+      "reason": "No MySQL JDBC datasource is configured. MariaDB requires a separate integration."
+    },
+    "GET /mysql": {
+      "status": "disabled",
+      "http": null,
+      "reason": "No MySQL JDBC datasource is configured. MariaDB requires a separate integration."
+    },
+    "GET /security/rules/{ruleId}/violations?limit=5": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "No rule violations in scan response"
+    },
+    "GET /architecture/rules/{ruleId}/violations?limit=5": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "No rule violations in scan response"
+    },
+    "GET /rest-api/rules/{ruleId}/violations?limit=5": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "No rule violations in scan response"
+    },
+    "GET /vulnerabilities/rules/{ruleId}/violations?limit=5": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "No rule violations in scan response"
+    },
+    "GET /database-advisor/rules/{ruleId}/violations?limit=5": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "No rule violations in scan response"
+    },
+    "GET /hibernate/rules/{ruleId}/violations?limit=5": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "No rule violations in scan response"
+    },
+    "GET /spring/rules/{ruleId}/violations?limit=5": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "No rule violations in scan response"
+    },
+    "GET /memory/rules/{ruleId}/violations?limit=5": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "No rule violations in scan response"
+    },
+    "GET /${bootui.path:/bootui}": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "unresolved base-path mapping"
+    },
+    "GET /${bootui.path:/bootui}/": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "unresolved base-path mapping"
+    },
+    "GET /activity/stream": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "SSE stream route"
+    },
+    "GET /exceptions/stream": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "SSE stream route"
+    },
+    "GET /log-tail/stream": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "SSE stream route"
+    },
+    "GET /rest-client-trace/stream": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "SSE stream route"
+    },
+    "GET /security-logs/stream": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "SSE stream route"
+    },
+    "GET /sessions/{id}/events/{eventId}/raw": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "raw route excluded by capture safety rules"
+    },
+    "GET /sql-trace/stream": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "SSE stream route"
+    },
+    "GET /stream": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "SSE stream route"
+    },
+    "GET /transactions/stream": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "SSE stream route"
+    },
+    "GET /websockets/stream": {
+      "status": "not-probed",
+      "http": null,
+      "reason": "SSE stream route"
+    }
+  },
+  "emptyLists": {
+    "activity/captured.json": [
+      "entries[].badges",
+      "entries[].badges",
+      "warnings"
+    ],
+    "architecture/captured.json": [
+      "results",
+      "analysisErrors",
+      "violationDetails.locationNotes"
+    ],
+    "beans/captured.json": [
+      "beans[].aliases",
+      "beans[].dependencies",
+      "beans[].aliases",
+      "beans[].dependencies",
+      "beans[].aliases",
+      "beans[].aliases"
+    ],
+    "cache/captured.json": [
+      "managers",
+      "operations",
+      "warnings"
+    ],
+    "cli/captured.json": [
+      "tools[].arguments"
+    ],
+    "code-inventory/captured.json": [
+      "limitations"
+    ],
+    "code-paths/captured.json": [
+      "routes",
+      "excludedMethods",
+      "limitations"
+    ],
+    "config/captured.json": [
+      "propertySuggestions[].defaultValue"
+    ],
+    "crac/captured.json": [
+      "runtime.cracJvmArgs",
+      "findings",
+      "warnings"
+    ],
+    "database-advisor/captured.json": [
+      "dataSourceNames",
+      "dataSources",
+      "results",
+      "diagnostics",
+      "violationDetails.locationNotes",
+      "suppression.incompleteRules",
+      "suppression.findings"
+    ],
+    "dev-services/captured.json": [
+      "services[].ports",
+      "warnings"
+    ],
+    "dismissed-findings/captured.json": [
+      "dismissed"
+    ],
+    "dismissed-rules/captured.json": [
+      "dismissed"
+    ],
+    "email/captured.json": [
+      "messages"
+    ],
+    "fastapi/captured.json": [
+      "inspected",
+      "results",
+      "analysisErrors",
+      "violationDetails.locationNotes"
+    ],
+    "fastapi-security/captured.json": [
+      "auth.authenticationProviderTypes",
+      "auth.userDetailsServiceTypes"
+    ],
+    "fault-tolerance/captured.json": [
+      "providers",
+      "policies",
+      "events",
+      "warnings"
+    ],
+    "github/captured.json": [
+      "metrics",
+      "quotas",
+      "pullRequests",
+      "workflowRuns",
+      "workflows",
+      "issueBuckets",
+      "issues",
+      "securitySignals",
+      "warnings"
+    ],
+    "graalvm/captured.json": [
+      "findings",
+      "dependencies",
+      "warnings"
+    ],
+    "health/captured.json": [
+      "components[].components",
+      "components[].setup",
+      "components[].components",
+      "components[].setup",
+      "components[].components",
+      "components[].setup",
+      "components[].components",
+      "components[].setup",
+      "components[].details.expiringChains",
+      "components[].details.invalidChains",
+      "components[].details.validChains",
+      "components[].components",
+      "components[].setup",
+      "setup"
+    ],
+    "heap-dump/captured.json": [
+      "dumps",
+      "topClasses"
+    ],
+    "http-exchanges/captured.json": [
+      "exchanges"
+    ],
+    "http-sessions/captured.json": [
+      "sessions"
+    ],
+    "java-agent/captured.json": [
+      "sensors",
+      "toggles",
+      "messages",
+      "warnings"
+    ],
+    "kafka/captured.json": [
+      "messages"
+    ],
+    "mappings/captured.json": [
+      "contexts.tiny-ledger.mappings.servletFilters[].servletNameMappings",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.consumes",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.headers",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.params",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.produces",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.headers",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.params",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.headers",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.params",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.produces",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.consumes",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.headers",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.consumes",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.headers",
+      "contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.params"
+    ],
+    "memory/captured.json": [
+      "results",
+      "analysisErrors",
+      "violationDetails.locationNotes"
+    ],
+    "metrics/captured.json": [
+      "meters[].availableTags",
+      "meters[].availableTags",
+      "meters[].availableTags",
+      "meters[].availableTags",
+      "meters[].availableTags",
+      "groups[].commonTagKeys",
+      "groups[].families",
+      "groups[].commonTagKeys"
+    ],
+    "mysql/captured.json": [
+      "dataSources",
+      "diagnostics",
+      "limitations"
+    ],
+    "overview/captured.json": [
+      "activation.warnings"
+    ],
+    "pentesting/captured.json": [
+      "findings"
+    ],
+    "postgresql/captured.json": [
+      "databases",
+      "diagnostics",
+      "limitations"
+    ],
+    "rest-api/captured.json": [
+      "results",
+      "violationDetails.locationNotes"
+    ],
+    "rest-client-trace/captured.json": [
+      "clientTypes",
+      "entries",
+      "topCalls",
+      "warnings"
+    ],
+    "runtime-insights/captured.json": [
+      "observations[].exemplarRequestIds"
+    ],
+    "security/captured.json": [
+      "filterChains",
+      "results",
+      "analysisErrors",
+      "violationDetails.locationNotes"
+    ],
+    "security-logs/captured.json": [
+      "typeSummaries",
+      "events"
+    ],
+    "side-effects/captured.json": [
+      "sensors[].hooks"
+    ],
+    "sql-trace/captured.json": [
+      "entries[].parameters",
+      "entries[].parameters",
+      "entries[].parameters",
+      "entries[].parameters",
+      "warnings"
+    ],
+    "startup/captured.json": [
+      "steps[].tags",
+      "steps[].tags"
+    ],
+    "threads/captured.json": [
+      "deadlockedThreadIds",
+      "threads[].stackTrace"
+    ],
+    "transactions/captured.json": [
+      "warnings"
+    ],
+    "vulnerabilities/captured.json": [
+      "coverage.firstPartyArchives",
+      "dependencies[].vulnerabilities"
+    ],
+    "activity/journal.captured.json": [
+      "previousRuns"
+    ],
+    "activity/resources.captured.json": [
+      "points[].familyCpuNanos"
+    ],
+    "activity/service-map.captured.json": [
+      "warnings"
+    ],
+    "ai/chats.captured.json": [
+      ""
+    ],
+    "ai/overview.captured.json": [
+      "recent"
+    ],
+    "architecture/scanned.captured.json": [
+      "results",
+      "analysisErrors",
+      "violationDetails.locationNotes"
+    ],
+    "claude-code/dashboard.captured.json": [
+      "categoryCounts",
+      "modelCounts",
+      "topTools",
+      "activityBuckets",
+      "dailyActivityBuckets",
+      "recentSessions",
+      "warnings"
+    ],
+    "code-inventory/changes.captured.json": [
+      "changes"
+    ],
+    "code-inventory/dependencies.captured.json": [
+      "dependencies"
+    ],
+    "code-inventory/methods.captured.json": [
+      "packages",
+      "classes",
+      "methods"
+    ],
+    "code-paths/beans.captured.json": [
+      "edges",
+      "limitations"
+    ],
+    "code-paths/probes.captured.json": [
+      "probes"
+    ],
+    "code-paths/route.captured.json": [
+      "nodes",
+      "methods",
+      "exemplarRequestIds",
+      "limitations"
+    ],
+    "copilot/dashboard.captured.json": [
+      "categoryCounts",
+      "modelCounts",
+      "topTools",
+      "activityBuckets",
+      "dailyActivityBuckets",
+      "recentSessions",
+      "warnings"
+    ],
+    "data/repositories.captured.json": [
+      "repositories"
+    ],
+    "database-advisor/scanned.captured.json": [
+      "dataSourceNames",
+      "dataSources",
+      "results",
+      "diagnostics",
+      "violationDetails.locationNotes",
+      "suppression.incompleteRules",
+      "suppression.findings"
+    ],
+    "exceptions/caught.captured.json": [
+      "limitations",
+      "rows"
+    ],
+    "fastapi/scanned.captured.json": [
+      "inspected",
+      "results",
+      "analysisErrors",
+      "violationDetails.locationNotes"
+    ],
+    "fastapi-security/endpoints.captured.json": [
+      "endpoints[].roles"
+    ],
+    "fastapi-security/explain.captured.json": [
+      "filters"
+    ],
+    "graalvm/metadata.captured.json": [
+      "reflection"
+    ],
+    "http-exchanges/routes.captured.json": [
+      "routes"
+    ],
+    "liquibase/changesets.captured.json": [
+      "databases[].changeSets[].contexts",
+      "databases[].changeSets[].labels"
+    ],
+    "live-memory/footprint.captured.json": [
+      "components",
+      "warnings"
+    ],
+    "memory/scanned.captured.json": [
+      "results",
+      "analysisErrors",
+      "violationDetails.locationNotes"
+    ],
+    "postgresql/scanned.captured.json": [
+      "databases",
+      "diagnostics",
+      "limitations"
+    ],
+    "rest-api/error-contract.captured.json": [
+      "entries[].produces"
+    ],
+    "rest-api/scanned.captured.json": [
+      "results",
+      "violationDetails.locationNotes"
+    ],
+    "runtime-insights/comparison.captured.json": [
+      "runs",
+      "notComparableReasons",
+      "behavior",
+      "edges",
+      "restartCost.beans",
+      "latency"
+    ],
+    "runtime-insights/impact.captured.json": [
+      "candidates",
+      "observed",
+      "notExercised",
+      "sharedResources",
+      "limitations",
+      "methods",
+      "notObserved",
+      "next"
+    ],
+    "runtime-insights/resource-profile.captured.json": [
+      "routes",
+      "limitations"
+    ],
+    "security/scanned.captured.json": [
+      "filterChains",
+      "results",
+      "analysisErrors",
+      "violationDetails.locationNotes"
+    ],
+    "sql-trace/insights.captured.json": [
+      "attribution.routes"
+    ],
+    "threads/captures.captured.json": [
+      "captures"
+    ],
+    "traces/detail.captured.json": [
+      "spans[].events"
+    ],
+    "vulnerabilities/scanned.captured.json": [
+      "coverage.firstPartyArchives",
+      "dependencies[].vulnerabilities"
+    ]
   }
 }

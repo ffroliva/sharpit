@@ -1,0 +1,41 @@
+{
+  "localOnly": true,
+  "disclaimer": "Heuristic Spring Security rules run against the host application's registered filter chains and security beans only. These checks are review prompts, not verdicts, and should be validated against the application's threat model.",
+  "filterChains": [],
+  "filterChainsAnalyzed": 0,
+  "rulesEvaluated": 0,
+  "violationsFound": 0,
+  "severityCounts": [
+    {
+      "severity": "CRITICAL",
+      "count": 0
+    }
+  ],
+  "scan": {
+    "analyzer": "BootUI Spring Security Advisor",
+    "status": "NOT_SCANNED",
+    "message": "Security Advisor has not run yet. Run security checks in the panel, or call security_scan (bootui security scan), to inspect the filter chains.",
+    "scannedAt": null,
+    "rulesEvaluated": 0,
+    "filterChainsAnalyzed": 0,
+    "violationsFound": 0
+  },
+  "results": [],
+  "analysisErrors": [],
+  "evidence": {
+    "usable": false,
+    "coverageComplete": false,
+    "limitations": [
+      "Assessment evidence is unavailable."
+    ]
+  },
+  "violationDetails": {
+    "scanId": null,
+    "total": 0,
+    "retained": 0,
+    "retentionLimit": 0,
+    "truncated": false,
+    "locationNotes": [],
+    "changes": null
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "generatedAt": 1700000000000,
+  "application": {
+    "id": "app",
+    "kind": "APPLICATION",
+    "protocol": "APPLICATION",
+    "label": "This application",
+    "detail": null,
+    "configured": true,
+    "observed": true,
+    "interactions": 0,
+    "failures": 0,
+    "distinctOperations": null,
+    "lastSeen": null,
+    "outcome": "OBSERVED_OK",
+    "sourcePanelId": null,
+    "sourceRoute": null,
+    "sourceLabel": null,
+    "note": null
+  },
+  "nodes": [
+    {
+      "id": "jdbc:pool:82fd99271410b15793d1441e3dcb3fe3bab6b7519789f6a13f5705cac4cd7580",
+      "kind": "DEPENDENCY",
+      "protocol": "JDBC",
+      "label": "jdbc:postgresql://localhost:5432/tiny_ledger",
+      "detail": "HikariPool-1",
+      "configured": true,
+      "observed": true,
+      "interactions": 86,
+      "failures": 1,
+      "distinctOperations": 6,
+      "lastSeen": 1700000000000,
+      "outcome": "RETAINED_FAILURES",
+      "sourcePanelId": "database-connection-pools",
+      "sourceRoute": "/database-connection-pools",
+      "sourceLabel": "Connection Pools",
+      "note": "Configured connection pool with retained statement evidence."
+    }
+  ],
+  "edges": [
+    {
+      "id": "app->jdbc:pool:82fd99271410b15793d1441e3dcb3fe3bab6b7519789f6a13f5705cac4cd7580",
+      "fromId": "app",
+      "toId": "jdbc:pool:82fd99271410b15793d1441e3dcb3fe3bab6b7519789f6a13f5705cac4cd7580",
+      "protocol": "JDBC",
+      "direction": "OUTBOUND",
+      "interactions": 86,
+      "failures": 1,
+      "lastSeen": 1700000000000,
+      "outcome": "RETAINED_FAILURES",
+      "recentInteractions": [
+        {
+          "id": "sql:86",
+          "timestamp": 1700000000000,
+          "operation": "OTHER",
+          "outcome": "OK",
+          "durationMs": 1,
+          "flowId": "2c264774dbf2be19"
+        }
+      ]
+    }
+  ],
+  "truncation": {
+    "truncated": false,
+    "dependencyLimit": 28,
+    "dependenciesShown": 1,
+    "dependenciesOmitted": 0,
+    "interactionLimit": 6
+  },
+  "sources": [
+    "Connection Pools",
+    "SQL Trace"
+  ],
+  "warnings": []
+}

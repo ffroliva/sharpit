@@ -1,0 +1,323 @@
+{
+  "metricsAvailable": true,
+  "total": 204,
+  "meters": [
+    {
+      "name": "application.ready.time",
+      "description": "Time taken for the application to be ready to service requests",
+      "baseUnit": "seconds",
+      "type": "GAUGE",
+      "availableTags": [
+        {
+          "key": "main.application.class",
+          "values": [
+            "com.ffroliva.tinyledger.TinyLedgerApplication"
+          ],
+          "truncated": false
+        }
+      ],
+      "provenance": {
+        "groupId": "framework",
+        "groupLabel": "Framework and runtime",
+        "contributor": "Application framework and container instrumentation (Spring Boot, Quarkus, Hibernate, servlet containers, loggers, executors)",
+        "familyId": "framework.startup",
+        "familyLabel": "Application startup",
+        "classified": true,
+        "explanation": "Time taken for the application to be ready to service requests",
+        "explanationSource": "NATIVE",
+        "interpretation": "These are recorded once per boot, so treat them as a startup budget rather than a live series."
+      }
+    },
+    {
+      "name": "hikaricp.connections",
+      "description": "Total connections",
+      "baseUnit": null,
+      "type": "GAUGE",
+      "availableTags": [
+        {
+          "key": "pool",
+          "values": [
+            "HikariPool-1"
+          ],
+          "truncated": false
+        }
+      ],
+      "provenance": {
+        "groupId": "datasource",
+        "groupLabel": "Datasource pools",
+        "contributor": "Connection-pool instrumentation (HikariCP, Agroal or Micrometer JDBC)",
+        "familyId": "datasource.hikaricp",
+        "familyLabel": "HikariCP pool",
+        "classified": true,
+        "explanation": "Total connections",
+        "explanationSource": "NATIVE",
+        "interpretation": "Active, idle and pending are gauges for one pool tag, while the timeout counter accumulates: pending above zero with a maxed active gauge means the pool is exhausted."
+      }
+    },
+    {
+      "name": "http.server.requests.active",
+      "description": null,
+      "baseUnit": "seconds",
+      "type": "LONG_TASK_TIMER",
+      "availableTags": [
+        {
+          "key": "exception",
+          "values": [
+            "none"
+          ],
+          "truncated": false
+        }
+      ],
+      "provenance": {
+        "groupId": "http-server",
+        "groupLabel": "HTTP server",
+        "contributor": "Framework HTTP server instrumentation (Spring MVC/WebFlux or Quarkus/Vert.x)",
+        "familyId": "http.server.requests",
+        "familyLabel": "HTTP server requests",
+        "classified": true,
+        "explanation": "Timer over inbound HTTP requests, tagged with method, URI template, status and outcome.",
+        "explanationSource": "CURATED",
+        "interpretation": "Count is requests since start, total is accumulated latency and maximum is the slowest request in the current window; compare per URI template rather than in aggregate."
+      }
+    },
+    {
+      "name": "jvm.classes.loaded",
+      "description": "The number of classes that are currently loaded in the Java virtual machine",
+      "baseUnit": "classes",
+      "type": "GAUGE",
+      "availableTags": [],
+      "provenance": {
+        "groupId": "jvm",
+        "groupLabel": "JVM",
+        "contributor": "Micrometer JVM binders",
+        "familyId": "jvm.classes",
+        "familyLabel": "JVM class loading",
+        "classified": true,
+        "explanation": "The number of classes that are currently loaded in the Java virtual machine",
+        "explanationSource": "NATIVE",
+        "interpretation": "The loaded gauge is instantaneous while the unloaded counter accumulates, so continuous growth in both hints at dynamic class generation."
+      }
+    },
+    {
+      "name": "jvm.gc.overhead",
+      "description": "An approximation of the percent of CPU time used by GC activities over the last lookback period or since monitoring began, whichever is shorter, in the range [0..1]",
+      "baseUnit": null,
+      "type": "GAUGE",
+      "availableTags": [],
+      "provenance": {
+        "groupId": "jvm",
+        "groupLabel": "JVM",
+        "contributor": "Micrometer JVM binders",
+        "familyId": "jvm.gc",
+        "familyLabel": "JVM garbage collection",
+        "classified": true,
+        "explanation": "An approximation of the percent of CPU time used by GC activities over the last lookback period or since monitoring began, whichever is shorter, in the range [0..1]",
+        "explanationSource": "NATIVE",
+        "interpretation": "The pause timer's count is the number of collections since start, its total the accumulated pause time and its maximum the worst pause in the current window."
+      }
+    },
+    {
+      "name": "kafka.app.info.start.time.ms",
+      "description": "Metric indicating start-time-ms",
+      "baseUnit": null,
+      "type": "GAUGE",
+      "availableTags": [
+        {
+          "key": "client.id",
+          "values": [
+            "consumer-tiny-ledger-audit-1"
+          ],
+          "truncated": false
+        }
+      ],
+      "provenance": {
+        "groupId": "application",
+        "groupLabel": "Application / unclassified",
+        "contributor": "Application or unrecognized instrumentation",
+        "familyId": null,
+        "familyLabel": null,
+        "classified": false,
+        "explanation": "Metric indicating start-time-ms",
+        "explanationSource": "NATIVE",
+        "interpretation": null
+      }
+    },
+    {
+      "name": "kafka.consumer.node.request.latency.avg",
+      "description": null,
+      "baseUnit": null,
+      "type": "GAUGE",
+      "availableTags": [
+        {
+          "key": "client.id",
+          "values": [
+            "consumer-tiny-ledger-audit-1"
+          ],
+          "truncated": false
+        }
+      ],
+      "provenance": {
+        "groupId": "messaging",
+        "groupLabel": "Messaging",
+        "contributor": "Messaging client instrumentation (Kafka, RabbitMQ/AMQP or JMS)",
+        "familyId": "messaging.kafka",
+        "familyLabel": "Kafka client",
+        "classified": true,
+        "explanation": "Kafka producer, consumer and listener throughput, lag and timing.",
+        "explanationSource": "CURATED",
+        "interpretation": "The Kafka client mixes cumulative totals with client-computed rate gauges, so check the base unit and prefer the total when comparing intervals."
+      }
+    },
+    {
+      "name": "ledger.audit.dead_lettered",
+      "description": "Records parked on ledger.events.DLT by the audit consumer (spec §6.6)",
+      "baseUnit": null,
+      "type": "COUNTER",
+      "availableTags": [],
+      "provenance": {
+        "groupId": "application",
+        "groupLabel": "Application / unclassified",
+        "contributor": "Application or unrecognized instrumentation",
+        "familyId": null,
+        "familyLabel": null,
+        "classified": false,
+        "explanation": "Records parked on ledger.events.DLT by the audit consumer (spec §6.6)",
+        "explanationSource": "NATIVE",
+        "interpretation": null
+      }
+    },
+    {
+      "name": "ledger.outbox.pending.age.seconds",
+      "description": null,
+      "baseUnit": null,
+      "type": "GAUGE",
+      "availableTags": [],
+      "provenance": {
+        "groupId": "application",
+        "groupLabel": "Application / unclassified",
+        "contributor": "Application or unrecognized instrumentation",
+        "familyId": null,
+        "familyLabel": null,
+        "classified": false,
+        "explanation": null,
+        "explanationSource": "UNKNOWN",
+        "interpretation": null
+      }
+    },
+    {
+      "name": "lettuce",
+      "description": null,
+      "baseUnit": "seconds",
+      "type": "TIMER",
+      "availableTags": [
+        {
+          "key": "db.operation",
+          "values": [
+            "CLIENT",
+            "HELLO",
+            "INFO"
+          ],
+          "truncated": false
+        }
+      ],
+      "provenance": {
+        "groupId": "application",
+        "groupLabel": "Application / unclassified",
+        "contributor": "Application or unrecognized instrumentation",
+        "familyId": null,
+        "familyLabel": null,
+        "classified": false,
+        "explanation": null,
+        "explanationSource": "UNKNOWN",
+        "interpretation": null
+      }
+    },
+    {
+      "name": "spring.security.http.secured.requests.active",
+      "description": null,
+      "baseUnit": "seconds",
+      "type": "LONG_TASK_TIMER",
+      "availableTags": [],
+      "provenance": {
+        "groupId": "framework",
+        "groupLabel": "Framework and runtime",
+        "contributor": "Application framework and container instrumentation (Spring Boot, Quarkus, Hibernate, servlet containers, loggers, executors)",
+        "familyId": "framework.spring.security",
+        "familyLabel": "Spring Security",
+        "classified": true,
+        "explanation": "Authentication, authorization and filter-chain timings from Spring Security.",
+        "explanationSource": "CURATED",
+        "interpretation": "Counters are tagged by outcome and authentication type: a rising failure count with a steady total usually means credential problems rather than load."
+      }
+    }
+  ],
+  "availableTypes": [
+    "COUNTER",
+    "GAUGE",
+    "LONG_TASK_TIMER"
+  ],
+  "page": {
+    "total": 204,
+    "matched": 204,
+    "offset": 0,
+    "limit": 200,
+    "returned": 200,
+    "hasMore": true
+  },
+  "groups": [
+    {
+      "id": "jvm",
+      "label": "JVM",
+      "contributor": "Micrometer JVM binders",
+      "summary": "Memory pools, garbage collection, threads, class loading and buffer pools reported by the JVM itself.",
+      "interpretation": "Gauges are point-in-time readings, while counters and timers accumulate for the whole process lifetime, so read them as totals since start rather than as a current rate.",
+      "meterCount": 24,
+      "describedMeterCount": 24,
+      "families": [
+        "JVM buffer pools",
+        "JVM class loading",
+        "JVM garbage collection"
+      ],
+      "commonTagKeys": [],
+      "baseUnits": [
+        "buffers",
+        "bytes",
+        "classes"
+      ]
+    },
+    {
+      "id": "system",
+      "label": "System",
+      "contributor": "Micrometer system binders",
+      "summary": "Host-level CPU, load average and disk space visible to the JVM.",
+      "interpretation": "These gauges describe the machine rather than the application, so compare them against process gauges before blaming the application for host-wide pressure.",
+      "meterCount": 4,
+      "describedMeterCount": 4,
+      "families": [
+        "Disk space",
+        "System CPU"
+      ],
+      "commonTagKeys": [
+        "path"
+      ],
+      "baseUnits": [
+        "bytes"
+      ]
+    },
+    {
+      "id": "application",
+      "label": "Application / unclassified",
+      "contributor": "Application or unrecognized instrumentation",
+      "summary": "Meters whose names match no known integration convention. They are usually registered by this application or by a library BootUI does not recognize.",
+      "interpretation": "BootUI does not invent documentation for these meters: any description shown here comes from the registry itself, and an absent description simply means none was registered.",
+      "meterCount": 5,
+      "describedMeterCount": 2,
+      "families": [],
+      "commonTagKeys": [],
+      "baseUnits": [
+        "seconds"
+      ]
+    }
+  ],
+  "catalogueVersion": "2026.1"
+}

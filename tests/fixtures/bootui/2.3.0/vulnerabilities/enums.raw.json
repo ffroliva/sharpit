@@ -1,0 +1,19 @@
+{
+  "$.severityCounts[].severity": [
+    "CRITICAL",
+    "HIGH",
+    "LOW",
+    "MEDIUM",
+    "NONE",
+    "UNKNOWN"
+  ],
+  "$.scan.status": [
+    "NOT_SCANNED"
+  ],
+  "$.coverage.status": [
+    "INCOMPLETE"
+  ],
+  "$.dependencies[].highestSeverity": [
+    "NONE"
+  ]
+}
