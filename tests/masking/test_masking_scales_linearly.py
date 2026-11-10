@@ -200,6 +200,33 @@ def test_each_size_is_measured_once_per_attempt(monkeypatch: pytest.MonkeyPatch)
     assert measured == list(SIZES)
 
 
+def test_non_doubling_scan_step_measures_its_own_half(monkeypatch: pytest.MonkeyPatch) -> None:
+    measured: list[int] = []
+
+    def seconds(_entry: Entry, text: str) -> float:
+        measured.append(len(text))
+        return 0.01
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+    _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, SCAN_SIZES)
+
+    assert measured[-2:] == [9_950, 19_900]
+
+
+def test_a_retry_measures_both_sizes_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    measured: list[int] = []
+    durations = iter((0.01, 0.1, 0.01, 0.01))
+
+    def seconds(_entry: Entry, text: str) -> float:
+        measured.append(len(text))
+        return next(durations)
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+    _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, (1_600,))
+
+    assert measured == [800, 1_600, 800, 1_600]
+
+
 def test_a_planted_quadratic_entry_still_fails() -> None:
     def quadratic(text: str) -> None:
         for _ in range(len(text)):
