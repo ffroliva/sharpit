@@ -19,6 +19,7 @@ from sharpit.engine.masking import Exposure
 from sharpit.engine.panels import PANELS
 
 _NEVER_ECHOED = _registry.NEVER_ECHOED
+_JOURNAL_SOURCES = _registry.JOURNAL_SOURCES
 _SPECS = _registry.SPECS
 _UNSET = _registry.UNSET
 _bool = _registry.parse_bool
@@ -127,10 +128,7 @@ class SharpitSettings:
     runtime_journal_max_events: int = 50_000
     runtime_journal_max_bytes: int = 32 * 1024 * 1024
     runtime_journal_queue_capacity: int = 10_000
-    runtime_journal_sources: tuple[str, ...] = (
-        "http", "sql", "transaction", "connection", "exception", "security", "authorization", "rest-client",
-        "cache", "messaging", "scheduled", "log", "mail", "fault-tolerance", "ai", "lifecycle", "gc", "resources",
-    )  # fmt: skip
+    runtime_journal_sources: tuple[str, ...] = _JOURNAL_SOURCES
     # 0.4.0 panels: pre-created by lane F, inert until the owning lane reads them (F-foundation.md interface table)
     security_logs_max_logs: int = 500
     postgresql_max_sessions: int = 100

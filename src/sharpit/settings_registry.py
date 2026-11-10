@@ -81,23 +81,26 @@ def _row_limit(raw: object) -> int:
 def _byte_size(raw: object) -> int:
     if isinstance(raw, int) and not isinstance(raw, bool):
         return _int(raw)
-    if not isinstance(raw, str) or (
-        match := re.fullmatch(r"\s*(\d+)\s*(B|KB?|K|MB?|M|GB?|G)?\s*", raw, re.IGNORECASE)
-    ) is None:
+    if (
+        not isinstance(raw, str)
+        or (match := re.fullmatch(r"\s*(\d+)\s*(B|KB?|K|MB?|M|GB?|G)?\s*", raw, re.IGNORECASE)) is None
+    ):
         raise ValueError(raw)
     units = {None: 1, "B": 1, "K": 1024, "KB": 1024, "M": 1024**2, "MB": 1024**2, "G": 1024**3, "GB": 1024**3}
     return _int(int(match.group(1)) * units[(match.group(2) or "").upper() or None])
 
 
-_JOURNAL_SOURCES = (
+# BootUI's JournalSource names; unset means every one. A new source (a W6 sensor's) is added here, nowhere else.
+JOURNAL_SOURCES = (
     "http", "sql", "transaction", "connection", "exception", "security", "authorization", "rest-client", "cache",
-    "messaging", "scheduled", "log", "mail", "fault-tolerance", "ai", "lifecycle", "gc", "resources",
+    "messaging", "scheduled", "log", "mail", "fault-tolerance", "ai", "lifecycle", "gc", "resources", "app-event",
+    "websocket", "orm", "agent.executors", "agent.caught-exceptions",
 )  # fmt: skip
 
 
 def _journal_sources(raw: object) -> tuple[str, ...]:
-    values = _items(raw)
-    if any(value not in _JOURNAL_SOURCES for value in values):
+    values = _lower_items(raw)  # JournalSource.parse ignores case
+    if any(value not in JOURNAL_SOURCES for value in values):
         raise ValueError(raw)
     return values
 

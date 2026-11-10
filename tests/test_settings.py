@@ -13,6 +13,7 @@ import pytest
 
 from sharpit.engine.masking import Exposure
 from sharpit.settings import _NEVER_ECHOED, PanelSettings, SharpitSettings, load_settings
+from sharpit.settings_registry import JOURNAL_SOURCES
 
 
 def test_defaults():
@@ -281,6 +282,11 @@ PROPERTIES = {
     "bootui.threads.max-stack-frames": ("threads_max_stack_frames", "33"),
     "bootui.advisors.max-retained-violations": ("advisors_max_retained_violations", "34"),
     "bootui.stream.max-seconds": ("stream_max_seconds", "35s"),
+    "bootui.runtime-journal.enabled": ("runtime_journal_enabled", "false"),
+    "bootui.runtime-journal.max-events": ("runtime_journal_max_events", "38"),
+    "bootui.runtime-journal.max-bytes": ("runtime_journal_max_bytes", "39KB"),
+    "bootui.runtime-journal.queue-capacity": ("runtime_journal_queue_capacity", "40"),
+    "bootui.runtime-journal.sources": ("runtime_journal_sources", "SQL,http"),
     # 0.4.0 fields pre-created by lane F
     "bootui.activity.unbounded-read-factor": ("activity_unbounded_read_factor", "36"),
     "bootui.security-logs.max-logs": ("security_logs_max_logs", "37"),
@@ -380,6 +386,11 @@ NEW_FAIL_SAFE: list[tuple[str, str, str, Any]] = [
     ("threads_max_stack_frames", "SHARPIT_THREADS_MAX_STACK_FRAMES", "x", 64),
     ("advisors_max_retained_violations", "SHARPIT_ADVISORS_MAX_RETAINED_VIOLATIONS", "x", 10000),
     ("stream_max_seconds", "SHARPIT_STREAM_MAX_SECONDS", "forever", 3.0),
+    ("runtime_journal_enabled", "SHARPIT_RUNTIME_JOURNAL_ENABLED", "maybe", False),
+    ("runtime_journal_max_events", "SHARPIT_RUNTIME_JOURNAL_MAX_EVENTS", "0", 50_000),
+    ("runtime_journal_max_bytes", "SHARPIT_RUNTIME_JOURNAL_MAX_BYTES", "lots", 32 * 1024 * 1024),
+    ("runtime_journal_queue_capacity", "SHARPIT_RUNTIME_JOURNAL_QUEUE_CAPACITY", "-1", 10_000),
+    ("runtime_journal_sources", "SHARPIT_RUNTIME_JOURNAL_SOURCES", "sql,nope", JOURNAL_SOURCES),
 ]
 
 
@@ -644,6 +655,11 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "THREADS_MAX_STACK_FRAMES",
         "ADVISORS_MAX_RETAINED_VIOLATIONS",
         "STREAM_MAX_SECONDS",
+        "RUNTIME_JOURNAL_ENABLED",
+        "RUNTIME_JOURNAL_MAX_EVENTS",
+        "RUNTIME_JOURNAL_MAX_BYTES",
+        "RUNTIME_JOURNAL_QUEUE_CAPACITY",
+        "RUNTIME_JOURNAL_SOURCES",
         "SECURITY_LOGS_MAX_LOGS",
         "POSTGRESQL_MAX_SESSIONS",
         "POSTGRESQL_MAX_STATEMENTS",
