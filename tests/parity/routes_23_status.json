@@ -1,0 +1,684 @@
+{
+  "fixture": "tests/fixtures/bootui/2.3.0",
+  "counts": {
+    "matched": 16,
+    "partial": 19,
+    "missing": 57,
+    "n-a": 4,
+    "total": 96
+  },
+  "routes": [
+    {
+      "golden": "activity/captured.json",
+      "panel": "activity",
+      "route": "/sharpit/api/activity",
+      "status": "partial",
+      "difference": "activity/captured.json parity: entries: non-empty golden list requires a non-empty payload list; kpis.healthStatus: null in payload, golden has string; not listed in nullable.json; kpis.heapMaxBytes: null in payload, golden has number; not listed in nullable.json; kpis.heapUsedBytes: null in payload, golden has number; not listed in nullable.json; kpis.slowestQueryMs: null in payload, golden has number; not listed in nullable.json; persistenceOption: null in payload, golden has object; not listed in nullable.json; typeCounts.LOG: missing from payload; typeCounts.SQL: missing from payload; typeCounts.TRANSACTION: missing from payload"
+    },
+    {
+      "golden": "activity/journal.captured.json",
+      "panel": "activity",
+      "route": "/sharpit/api/activity/journal",
+      "status": "partial",
+      "difference": "activity/journal.captured.json parity: oldestRetainedAt: null in payload, golden has number; not listed in nullable.json; recorded: null in payload, golden has object; not listed in nullable.json; runId: null in payload, golden has string; not listed in nullable.json"
+    },
+    {
+      "golden": "activity/resources.captured.json",
+      "panel": "activity",
+      "route": "/sharpit/api/activity/resources",
+      "status": "partial",
+      "difference": "activity/resources.captured.json parity: families: non-empty golden list requires a non-empty payload list; points: non-empty golden list requires a non-empty payload list; totals: null in payload, golden has object; not listed in nullable.json"
+    },
+    {
+      "golden": "activity/service-map.captured.json",
+      "panel": "activity",
+      "route": "/sharpit/api/activity/service-map",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/activity/service-map (HTTP 404)"
+    },
+    {
+      "golden": "ai/chats.captured.json",
+      "panel": "ai",
+      "route": "/sharpit/api/ai/chats",
+      "status": "n-a",
+      "difference": "golden is an empty list per emptyLists: cannot close a row from an empty list"
+    },
+    {
+      "golden": "ai/overview.captured.json",
+      "panel": "ai",
+      "route": "/sharpit/api/ai/overview",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/ai/overview (HTTP 404)"
+    },
+    {
+      "golden": "ai/tokens.captured.json",
+      "panel": "ai",
+      "route": "/sharpit/api/ai/tokens",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/ai/tokens (HTTP 404)"
+    },
+    {
+      "golden": "architecture/captured.json",
+      "panel": "architecture",
+      "route": "/sharpit/api/architecture",
+      "status": "partial",
+      "difference": "architecture/captured.json parity: basePackages: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "architecture/scanned.captured.json",
+      "panel": "architecture",
+      "route": "/sharpit/api/architecture/scanned",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/architecture/scanned (HTTP 404)"
+    },
+    {
+      "golden": "beans/captured.json",
+      "panel": "beans",
+      "route": "/sharpit/api/beans",
+      "status": "n-a",
+      "difference": "golden list beans[].dependencies has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec §4.4)"
+    },
+    {
+      "golden": "cache/captured.json",
+      "panel": "cache",
+      "route": "/sharpit/api/cache",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/cache (HTTP 404)"
+    },
+    {
+      "golden": "claude-code/dashboard.captured.json",
+      "panel": "claude-code",
+      "route": "/sharpit/api/claude-code/dashboard",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/claude-code/dashboard (HTTP 404)"
+    },
+    {
+      "golden": "cli/captured.json",
+      "panel": "cli",
+      "route": "/sharpit/api/cli",
+      "status": "n-a",
+      "difference": "golden list tools[].arguments has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec §4.4)"
+    },
+    {
+      "golden": "code-inventory/captured.json",
+      "panel": "code-inventory",
+      "route": "/sharpit/api/code-inventory",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/code-inventory (HTTP 404)"
+    },
+    {
+      "golden": "code-inventory/changes.captured.json",
+      "panel": "code-inventory",
+      "route": "/sharpit/api/code-inventory/changes",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/code-inventory/changes (HTTP 404)"
+    },
+    {
+      "golden": "code-inventory/dependencies.captured.json",
+      "panel": "code-inventory",
+      "route": "/sharpit/api/code-inventory/dependencies",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/code-inventory/dependencies (HTTP 404)"
+    },
+    {
+      "golden": "code-inventory/methods.captured.json",
+      "panel": "code-inventory",
+      "route": "/sharpit/api/code-inventory/methods",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/code-inventory/methods (HTTP 404)"
+    },
+    {
+      "golden": "code-paths/beans.captured.json",
+      "panel": "code-paths",
+      "route": "/sharpit/api/code-paths/beans",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/code-paths/beans (HTTP 404)"
+    },
+    {
+      "golden": "code-paths/captured.json",
+      "panel": "code-paths",
+      "route": "/sharpit/api/code-paths",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/code-paths (HTTP 404)"
+    },
+    {
+      "golden": "code-paths/probes.captured.json",
+      "panel": "code-paths",
+      "route": "/sharpit/api/code-paths/probes",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/code-paths/probes (HTTP 404)"
+    },
+    {
+      "golden": "code-paths/route.captured.json",
+      "panel": "code-paths",
+      "route": "/sharpit/api/code-paths/route",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/code-paths/route (HTTP 404)"
+    },
+    {
+      "golden": "conditions/captured.json",
+      "panel": "conditions",
+      "route": "/sharpit/api/conditions",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/conditions (HTTP 404)"
+    },
+    {
+      "golden": "config/captured.json",
+      "panel": "config",
+      "route": "/sharpit/api/config",
+      "status": "partial",
+      "difference": "config/captured.json parity: activeProfiles: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "copilot/dashboard.captured.json",
+      "panel": "copilot",
+      "route": "/sharpit/api/copilot/dashboard",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/copilot/dashboard (HTTP 404)"
+    },
+    {
+      "golden": "crac/captured.json",
+      "panel": "crac",
+      "route": "/sharpit/api/crac",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/crac (HTTP 404)"
+    },
+    {
+      "golden": "data/repositories.captured.json",
+      "panel": "data",
+      "route": "/sharpit/api/data/repositories",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "database-advisor/captured.json",
+      "panel": "database-advisor",
+      "route": "/sharpit/api/database-advisor",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "database-advisor/scanned.captured.json",
+      "panel": "database-advisor",
+      "route": "/sharpit/api/database-advisor/scanned",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/database-advisor/scanned (HTTP 404)"
+    },
+    {
+      "golden": "database-connection-pools/pools.captured.json",
+      "panel": "database-connection-pools",
+      "route": "/sharpit/api/database-connection-pools/pools",
+      "status": "partial",
+      "difference": "database-connection-pools/pools.captured.json parity: pools: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "dev-services/captured.json",
+      "panel": "dev-services",
+      "route": "/sharpit/api/dev-services",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/dev-services (HTTP 404)"
+    },
+    {
+      "golden": "devtools/captured.json",
+      "panel": "devtools",
+      "route": "/sharpit/api/devtools",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/devtools (HTTP 404)"
+    },
+    {
+      "golden": "dismissed-findings/captured.json",
+      "panel": "dismissed-findings",
+      "route": "/sharpit/api/dismissed-findings",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "dismissed-rules/captured.json",
+      "panel": "dismissed-rules",
+      "route": "/sharpit/api/dismissed-rules",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "email/captured.json",
+      "panel": "email",
+      "route": "/sharpit/api/email",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/email (HTTP 404)"
+    },
+    {
+      "golden": "exceptions/captured.json",
+      "panel": "exceptions",
+      "route": "/sharpit/api/exceptions",
+      "status": "partial",
+      "difference": "exceptions/captured.json parity: groups: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "exceptions/caught.captured.json",
+      "panel": "exceptions",
+      "route": "/sharpit/api/exceptions/caught",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "fastapi/captured.json",
+      "panel": "fastapi",
+      "route": "/sharpit/api/fastapi",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "fastapi/scanned.captured.json",
+      "panel": "fastapi",
+      "route": "/sharpit/api/fastapi/scanned",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/fastapi/scanned (HTTP 404)"
+    },
+    {
+      "golden": "fastapi-security/captured.json",
+      "panel": "fastapi-security",
+      "route": "/sharpit/api/fastapi-security",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "fastapi-security/endpoints.captured.json",
+      "panel": "fastapi-security",
+      "route": "/sharpit/api/fastapi-security/endpoints",
+      "status": "partial",
+      "difference": "fastapi-security/endpoints.captured.json parity: endpoints[].description: null in payload, golden has string; not listed in nullable.json; endpoints[].description: null in payload, golden has string; not listed in nullable.json; endpoints[].description: null in payload, golden has string; not listed in nullable.json; endpoints[].description: null in payload, golden has string; not listed in nullable.json"
+    },
+    {
+      "golden": "fastapi-security/explain.captured.json",
+      "panel": "fastapi-security",
+      "route": "/sharpit/api/fastapi-security/explain",
+      "status": "n-a",
+      "difference": "golden list filters has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec §4.4)"
+    },
+    {
+      "golden": "fault-tolerance/captured.json",
+      "panel": "fault-tolerance",
+      "route": "/sharpit/api/fault-tolerance",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/fault-tolerance (HTTP 404)"
+    },
+    {
+      "golden": "github/captured.json",
+      "panel": "github",
+      "route": "/sharpit/api/github",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/github (HTTP 404)"
+    },
+    {
+      "golden": "graalvm/captured.json",
+      "panel": "graalvm",
+      "route": "/sharpit/api/graalvm",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/graalvm (HTTP 404)"
+    },
+    {
+      "golden": "graalvm/metadata.captured.json",
+      "panel": "graalvm",
+      "route": "/sharpit/api/graalvm/metadata",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/graalvm/metadata (HTTP 404)"
+    },
+    {
+      "golden": "graalvm/scan-progress.captured.json",
+      "panel": "graalvm",
+      "route": "/sharpit/api/graalvm/scan-progress",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/graalvm/scan-progress (HTTP 404)"
+    },
+    {
+      "golden": "health/captured.json",
+      "panel": "health",
+      "route": "/sharpit/api/health",
+      "status": "partial",
+      "difference": "health/captured.json parity: components: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "heap-dump/captured.json",
+      "panel": "heap-dump",
+      "route": "/sharpit/api/heap-dump",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/heap-dump (HTTP 404)"
+    },
+    {
+      "golden": "http-exchanges/captured.json",
+      "panel": "http-exchanges",
+      "route": "/sharpit/api/http-exchanges",
+      "status": "partial",
+      "difference": "http-exchanges/captured.json parity: retention.reserved: null in payload, golden has number; not listed in nullable.json; retention.reservedCapacity: null in payload, golden has number; not listed in nullable.json; retention.slowThresholdMillis: null in payload, golden has number; not listed in nullable.json"
+    },
+    {
+      "golden": "http-exchanges/routes.captured.json",
+      "panel": "http-exchanges",
+      "route": "/sharpit/api/http-exchanges/routes",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "http-sessions/captured.json",
+      "panel": "http-sessions",
+      "route": "/sharpit/api/http-sessions",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/http-sessions (HTTP 404)"
+    },
+    {
+      "golden": "java-agent/captured.json",
+      "panel": "java-agent",
+      "route": "/sharpit/api/java-agent",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/java-agent (HTTP 404)"
+    },
+    {
+      "golden": "jvm-tuning/captured.json",
+      "panel": "jvm-tuning",
+      "route": "/sharpit/api/jvm-tuning",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/jvm-tuning (HTTP 404)"
+    },
+    {
+      "golden": "kafka/captured.json",
+      "panel": "kafka",
+      "route": "/sharpit/api/kafka",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/kafka (HTTP 404)"
+    },
+    {
+      "golden": "liquibase/changesets.captured.json",
+      "panel": "liquibase",
+      "route": "/sharpit/api/liquibase/changesets",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/liquibase/changesets (HTTP 404)"
+    },
+    {
+      "golden": "live-memory/captured.json",
+      "panel": "live-memory",
+      "route": "/sharpit/api/live-memory",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/live-memory (HTTP 404)"
+    },
+    {
+      "golden": "live-memory/footprint.captured.json",
+      "panel": "live-memory",
+      "route": "/sharpit/api/live-memory/footprint",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/live-memory/footprint (HTTP 404)"
+    },
+    {
+      "golden": "log-tail/recent.captured.json",
+      "panel": "log-tail",
+      "route": "/sharpit/api/log-tail/recent",
+      "status": "partial",
+      "difference": "log-tail/recent.captured.json parity: <root>: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "loggers/captured.json",
+      "panel": "loggers",
+      "route": "/sharpit/api/loggers",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "mappings/captured.json",
+      "panel": "mappings",
+      "route": "/sharpit/api/mappings",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/mappings (HTTP 404)"
+    },
+    {
+      "golden": "mappings/flat.captured.json",
+      "panel": "mappings",
+      "route": "/sharpit/api/mappings/flat",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "mcp-server/captured.json",
+      "panel": "mcp-server",
+      "route": "/sharpit/api/mcp-server",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "memory/captured.json",
+      "panel": "memory",
+      "route": "/sharpit/api/memory",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/memory (HTTP 404)"
+    },
+    {
+      "golden": "memory/scanned.captured.json",
+      "panel": "memory",
+      "route": "/sharpit/api/memory/scanned",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/memory/scanned (HTTP 404)"
+    },
+    {
+      "golden": "metrics/captured.json",
+      "panel": "metrics",
+      "route": "/sharpit/api/metrics",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/metrics (HTTP 404)"
+    },
+    {
+      "golden": "mysql/captured.json",
+      "panel": "mysql",
+      "route": "/sharpit/api/mysql",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "overview/captured.json",
+      "panel": "overview",
+      "route": "/sharpit/api/overview",
+      "status": "partial",
+      "difference": "overview/captured.json parity: activeProfiles: non-empty golden list requires a non-empty payload list; contextPath: null in payload, golden has string; not listed in nullable.json; defaultProfiles: non-empty golden list requires a non-empty payload list; managementPort: null in payload, golden has number; not listed in nullable.json"
+    },
+    {
+      "golden": "panels/captured.json",
+      "panel": "panels",
+      "route": "/sharpit/api/panels",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "pentesting/captured.json",
+      "panel": "pentesting",
+      "route": "/sharpit/api/pentesting",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/pentesting (HTTP 404)"
+    },
+    {
+      "golden": "postgresql/captured.json",
+      "panel": "postgresql",
+      "route": "/sharpit/api/postgresql",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "postgresql/scanned.captured.json",
+      "panel": "postgresql",
+      "route": "/sharpit/api/postgresql/scanned",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/postgresql/scanned (HTTP 404)"
+    },
+    {
+      "golden": "profile-diff/captured.json",
+      "panel": "profile-diff",
+      "route": "/sharpit/api/profile-diff",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/profile-diff (HTTP 404)"
+    },
+    {
+      "golden": "rest-api/captured.json",
+      "panel": "rest-api",
+      "route": "/sharpit/api/rest-api",
+      "status": "partial",
+      "difference": "rest-api/captured.json parity: basePackages: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "rest-api/error-contract.captured.json",
+      "panel": "rest-api",
+      "route": "/sharpit/api/rest-api/error-contract",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/rest-api/error-contract (HTTP 404)"
+    },
+    {
+      "golden": "rest-api/scanned.captured.json",
+      "panel": "rest-api",
+      "route": "/sharpit/api/rest-api/scanned",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/rest-api/scanned (HTTP 404)"
+    },
+    {
+      "golden": "rest-client-trace/captured.json",
+      "panel": "rest-client-trace",
+      "route": "/sharpit/api/rest-client-trace",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/rest-client-trace (HTTP 404)"
+    },
+    {
+      "golden": "runtime-insights/captured.json",
+      "panel": "runtime-insights",
+      "route": "/sharpit/api/runtime-insights",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/runtime-insights (HTTP 404)"
+    },
+    {
+      "golden": "runtime-insights/comparison.captured.json",
+      "panel": "runtime-insights",
+      "route": "/sharpit/api/runtime-insights/comparison",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/runtime-insights/comparison (HTTP 404)"
+    },
+    {
+      "golden": "runtime-insights/impact-symbols.captured.json",
+      "panel": "runtime-insights",
+      "route": "/sharpit/api/runtime-insights/impact-symbols",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/runtime-insights/impact-symbols (HTTP 404)"
+    },
+    {
+      "golden": "runtime-insights/impact.captured.json",
+      "panel": "runtime-insights",
+      "route": "/sharpit/api/runtime-insights/impact",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/runtime-insights/impact (HTTP 404)"
+    },
+    {
+      "golden": "runtime-insights/resource-profile.captured.json",
+      "panel": "runtime-insights",
+      "route": "/sharpit/api/runtime-insights/resource-profile",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/runtime-insights/resource-profile (HTTP 404)"
+    },
+    {
+      "golden": "scheduled/captured.json",
+      "panel": "scheduled",
+      "route": "/sharpit/api/scheduled",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/scheduled (HTTP 404)"
+    },
+    {
+      "golden": "security/captured.json",
+      "panel": "security",
+      "route": "/sharpit/api/security",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "security/scanned.captured.json",
+      "panel": "security",
+      "route": "/sharpit/api/security/scanned",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/security/scanned (HTTP 404)"
+    },
+    {
+      "golden": "security-logs/captured.json",
+      "panel": "security-logs",
+      "route": "/sharpit/api/security-logs",
+      "status": "matched",
+      "difference": null
+    },
+    {
+      "golden": "side-effects/captured.json",
+      "panel": "side-effects",
+      "route": "/sharpit/api/side-effects",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/side-effects (HTTP 404)"
+    },
+    {
+      "golden": "sql-trace/captured.json",
+      "panel": "sql-trace",
+      "route": "/sharpit/api/sql-trace",
+      "status": "partial",
+      "difference": "sql-trace/captured.json parity: entries: non-empty golden list requires a non-empty payload list; retention.reserved: null in payload, golden has number; not listed in nullable.json; retention.reservedCapacity: null in payload, golden has number; not listed in nullable.json; topStatements: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "sql-trace/insights.captured.json",
+      "panel": "sql-trace",
+      "route": "/sharpit/api/sql-trace/insights",
+      "status": "partial",
+      "difference": "sql-trace/insights.captured.json parity: statements: non-empty golden list requires a non-empty payload list; window.newestTimestamp: null in payload, golden has number; not listed in nullable.json; window.oldestTimestamp: null in payload, golden has number; not listed in nullable.json"
+    },
+    {
+      "golden": "startup/captured.json",
+      "panel": "startup",
+      "route": "/sharpit/api/startup",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/startup (HTTP 404)"
+    },
+    {
+      "golden": "threads/captured.json",
+      "panel": "threads",
+      "route": "/sharpit/api/threads",
+      "status": "partial",
+      "difference": "threads/captured.json parity: hiddenBootUiThreads: missing from payload; quality: missing from payload; threads[].userTimeMillis: null in payload, golden has number; not listed in nullable.json; threads[].cpuTimeMillis: null in payload, golden has number; not listed in nullable.json; threads[].userTimeMillis: null in payload, golden has number; not listed in nullable.json"
+    },
+    {
+      "golden": "threads/captures.captured.json",
+      "panel": "threads",
+      "route": "/sharpit/api/threads/captures",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/threads/captures (HTTP 404)"
+    },
+    {
+      "golden": "traces/captured.json",
+      "panel": "traces",
+      "route": "/sharpit/api/traces",
+      "status": "partial",
+      "difference": "traces/captured.json parity: traces: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "traces/detail.captured.json",
+      "panel": "traces",
+      "route": "/sharpit/api/traces/detail",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/traces/detail (HTTP 404)"
+    },
+    {
+      "golden": "transactions/captured.json",
+      "panel": "transactions",
+      "route": "/sharpit/api/transactions",
+      "status": "partial",
+      "difference": "transactions/captured.json parity: entries: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "vulnerabilities/captured.json",
+      "panel": "vulnerabilities",
+      "route": "/sharpit/api/vulnerabilities",
+      "status": "partial",
+      "difference": "vulnerabilities/captured.json parity: coverage.unidentifiedArchives: non-empty golden list requires a non-empty payload list"
+    },
+    {
+      "golden": "vulnerabilities/scanned.captured.json",
+      "panel": "vulnerabilities",
+      "route": "/sharpit/api/vulnerabilities/scanned",
+      "status": "missing",
+      "difference": "sharpit has no route at /sharpit/api/vulnerabilities/scanned (HTTP 404)"
+    }
+  ]
+}
