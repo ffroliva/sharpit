@@ -217,26 +217,50 @@ def test_non_doubling_scan_step_measures_its_own_half(monkeypatch: pytest.Monkey
 
 def test_a_retry_measures_both_sizes_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
     measured: list[int] = []
-    durations = iter((0.01, 0.1, 0.01, 0.01))
+    durations = iter((0.1, 0.01, 0.01))
 
     def seconds(_entry: Entry, text: str) -> float:
         measured.append(len(text))
         return next(durations)
 
     monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
-    _step(lambda _size: lambda _text: None, lambda size: "x" * size, 1_600)
+    _step(lambda _size: lambda _text: None, lambda size: "x" * size, 1_600, half=0.01)
 
-    assert measured == [800, 1_600, 800, 1_600]
+    assert measured == [1_600, 800, 1_600]
 
 
 def test_a_planted_quadratic_entry_still_fails() -> None:
     def quadratic(text: str) -> None:
-        for _ in range(len(text)):
+        if len(text) > 1_600:
             for _ in range(len(text)):
-                pass
+                for _ in range(len(text)):
+                    pass
 
     with pytest.raises(AssertionError, match="chars cost .* the half size"):
         _assert_linear(lambda _size: quadratic, lambda size: "x" * size, (800, 1_600, 3_200))
+
+
+def test_retry_carries_the_minimum_full_sample_forward(monkeypatch: pytest.MonkeyPatch) -> None:
+    counts: dict[int, int] = {}
+
+    def seconds(_entry: Entry, text: str) -> float:
+        size = len(text)
+        counts[size] = counts.get(size, 0) + 1
+        if size == 800 and counts[size] == 1:
+            return 0.1
+        if size == 1_600:
+            return 0.04
+        return 0.01
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+
+    with pytest.raises(AssertionError, match="1600 chars cost .* the half size"):
+        _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, (400, 800, 1_600))
+
+
+def test_step_rejects_empty_sizes() -> None:
+    with pytest.raises(AssertionError, match="sizes"):
+        _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, ())
 
 
 def test_overlapping_hidden_spans_are_written_once() -> None:
