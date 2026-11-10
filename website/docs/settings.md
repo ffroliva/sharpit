@@ -22,13 +22,14 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_AUTHENTICATION_TOKEN` | `authentication_token` | generated | bearer token for untrusted sources |
 | `SHARPIT_READ_ONLY` | `read_only` | `false` | refuse every write action |
 | `SHARPIT_PANELS_<ID>_ENABLED` | `panels={"<id>": {"enabled": ...}}` | `true` | per-panel switch |
-| `SHARPIT_PANELS_<ID>_READ_ONLY` | `panels={"<id>": {"read_only": ...}}` | `false` | per-panel read-only; `<ID>` is the panel id in capitals with `-` as `_`: `OVERVIEW`, `CONFIG`, `MAPPINGS`, `LOGGERS`, `BEANS`, `VULNERABILITIES`, `HTTP_EXCHANGES`, `EXCEPTIONS`, `SQL_TRACE`, `ACTIVITY`, `LOG_TAIL`, `ALEMBIC`, `DATABASE_CONNECTION_POOLS`, `HEALTH`, `THREADS`, `REST_API`, `HTTP_PROBE`, `MCP_SERVER`, `CLI` |
+| `SHARPIT_PANELS_<ID>_READ_ONLY` | `panels={"<id>": {"read_only": ...}}` | `false` | per-panel read-only; `<ID>` is the panel id in capitals with `-` as `_`: `OVERVIEW`, `CONFIG`, `MAPPINGS`, `LOGGERS`, `BEANS`, `VULNERABILITIES`, `MCP_SERVER`, `CLI`, `ACTIVITY`, `HTTP_EXCHANGES`, `EXCEPTIONS`, `SQL_TRACE`, `LOG_TAIL`, `ALEMBIC`, `DATABASE_CONNECTION_POOLS`, `HEALTH`, `THREADS`, `REST_API`, `HTTP_PROBE`, `DATA`, `TRANSACTIONS`, `POSTGRESQL`, `MYSQL`, `TRACES`, `SECURITY`, `SECURITY_LOGS`, `DATABASE_ADVISOR`, `ARCHITECTURE`, `SQLALCHEMY_STATISTICS`, `FASTAPI_SECURITY`, `FASTAPI` |
 | `SHARPIT_EXPOSE_VALUES` | `expose_values` | `MASKED` | `MASKED`, `METADATA_ONLY` or `FULL` (FULL logs a warning) |
 | `SHARPIT_MASK_SECRETS` | `mask_secrets` | `true` | mask secret-looking names and values; sharpit's own token is masked even when `false` |
 | `SHARPIT_SHOW_BANNER` | `show_banner` | `true` | print the startup banner to stderr |
 | `SHARPIT_STATE_DIR` | `state_dir` | `.sharpit` | holds `sharpit.yml` (dismissed rules and findings, created on first write) and `identity.key` (created by an active `install()` or `pytest --sharpit`, with a `.gitignore` naming it: never commit the key) |
 | `SHARPIT_IDENTITY_KEY` | `identity_key` | unset | optional shared key (at least 32 UTF-8 bytes) for stable SQLite statement identities, overriding `identity.key`, so CI and laptops share baselines; masked by value in every exposure, `FULL` included. One repeated character warns |
 | `SHARPIT_CONFIG_SCAN` | `config_scan` | `true` | `true` scans your top-level package for `os.getenv` keys, `false` disables, or a list of package names |
+| `SHARPIT_APP_PACKAGE` | `app_package` | unset | the dotted package the advisors and the Config scan read; resolved through `sys.modules` only, never imported. Unset: sharpit infers it from the app |
 | `SHARPIT_VULNERABILITIES_OSV_ENABLED` | `vulnerabilities_osv_enabled` | `true` | allow the OSV scan |
 | `SHARPIT_VULNERABILITIES_OSV_BASE_URI` | `vulnerabilities_osv_base_uri` | `https://api.osv.dev` | OSV endpoint, `http` or `https` only |
 | `SHARPIT_VULNERABILITIES_EPSS_ENABLED` | `vulnerabilities_epss_enabled` | `true` | enrich findings with EPSS scores |
@@ -63,6 +64,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_ACTIVITY_MAX_ENTRIES` | `activity_max_entries` | `200` | max entries returned by activity queries |
 | `SHARPIT_ACTIVITY_REQUEST_SLOW_THRESHOLD_MS` | `activity_request_slow_threshold_ms` | `1000` | slow request threshold in milliseconds |
 | `SHARPIT_ACTIVITY_N_PLUS_ONE_THRESHOLD` | `activity_n_plus_one_threshold` | `5` | per-request query threshold for N+1 detection (min 2) |
+| `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR` | `activity_unbounded_read_factor` | `2` | the `sharpit.unbounded-read` test gate flags an ORM read that loads at least this many times the bound page size in a request to an endpoint with paging parameters (min 2) |
 | `SHARPIT_LOG_TAIL_MAX_LINES` | `log_tail_max_lines` | `500` | max lines kept in log tail buffer |
 | `SHARPIT_LOG_TAIL_MAX_BYTES` | `log_tail_max_bytes` | `1048576` | max memory in bytes for log tail buffer (must be > 0) |
 | `SHARPIT_ALEMBIC_CONFIG` | `alembic_config` | `alembic.ini` | path to Alembic configuration file |
@@ -71,6 +73,36 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_THREADS_MAX_STACK_FRAMES` | `threads_max_stack_frames` | `64` | max stack frames per thread or task |
 | `SHARPIT_ADVISORS_MAX_RETAINED_VIOLATIONS` | `advisors_max_retained_violations` | `10000` | max retained violations per advisor scan |
 | `SHARPIT_STREAM_MAX_SECONDS` | `stream_max_seconds` | `3s` | duration before closing and rotating SSE streams |
+| `SHARPIT_SECURITY_LOGS_MAX_LOGS` | `security_logs_max_logs` | `500` | authentication and authorization audit events kept by the Security Logs panel |
+| `SHARPIT_TRANSACTIONS_ENABLED` | `transactions_enabled` | `true` | capture SQLAlchemy transactions for the Transactions panel |
+| `SHARPIT_TRANSACTIONS_RECORDING` | `transactions_recording` | `true` | initial transaction recording state |
+| `SHARPIT_TRANSACTIONS_MAX_ENTRIES` | `transactions_max_entries` | `200` | transactions ring buffer size |
+| `SHARPIT_TRANSACTIONS_SLOW_TRANSACTION_THRESHOLD_MILLIS` | `transactions_slow_transaction_threshold_millis` | `200` | a transaction at least this long (milliseconds) is slow |
+| `SHARPIT_TRANSACTIONS_CONNECTION_HOLD_THRESHOLD_MILLIS` | `transactions_connection_hold_threshold_millis` | `500` | a connection held at least this long (milliseconds) is flagged |
+| `SHARPIT_POSTGRESQL_MAX_SESSIONS` | `postgresql_max_sessions` | `100` | sessions listed by one PostgreSQL read |
+| `SHARPIT_POSTGRESQL_MAX_STATEMENTS` | `postgresql_max_statements` | `100` | top statements listed |
+| `SHARPIT_POSTGRESQL_MAX_INDEXES` | `postgresql_max_indexes` | `500` | indexes listed |
+| `SHARPIT_POSTGRESQL_MAX_TABLES` | `postgresql_max_tables` | `200` | tables listed |
+| `SHARPIT_POSTGRESQL_MAX_VACUUM_TABLES` | `postgresql_max_vacuum_tables` | `200` | tables listed in the autovacuum section |
+| `SHARPIT_POSTGRESQL_MAX_REPLICAS` | `postgresql_max_replicas` | `10` | replication standbys listed |
+| `SHARPIT_POSTGRESQL_MAX_SETTINGS` | `postgresql_max_settings` | `40` | server settings listed |
+| `SHARPIT_MYSQL_MAX_SESSIONS` | `mysql_max_sessions` | `100` | sessions listed by one MySQL read |
+| `SHARPIT_MYSQL_MAX_STATEMENTS` | `mysql_max_statements` | `100` | top statements listed |
+| `SHARPIT_MYSQL_MAX_INDEXES` | `mysql_max_indexes` | `500` | indexes listed |
+| `SHARPIT_MYSQL_MAX_TABLES` | `mysql_max_tables` | `200` | tables listed |
+| `SHARPIT_MYSQL_MAX_LOCK_WAITS` | `mysql_max_lock_waits` | `100` | lock waits listed |
+| `SHARPIT_MYSQL_MAX_REPLICATION_CHANNELS` | `mysql_max_replication_channels` | `10` | replication channels listed |
+| `SHARPIT_MYSQL_MAX_SETTINGS` | `mysql_max_settings` | `40` | server variables listed |
+| `SHARPIT_DATABASE_ADVISOR_MAX_TABLES` | `database_advisor_max_tables` | `300` | tables the Database Advisor scan reads |
+| `SHARPIT_DATABASE_ADVISOR_MAX_COLUMNS` | `database_advisor_max_columns` | `300` | columns read per table |
+| `SHARPIT_DATABASE_ADVISOR_MAX_INDEXES_PER_TABLE` | `database_advisor_max_indexes_per_table` | `100` | indexes read per table |
+| `SHARPIT_DATABASE_ADVISOR_MAX_VENDOR_ROWS` | `database_advisor_max_vendor_rows` | `500` | rows read from each vendor catalog query |
+| `SHARPIT_ARCHITECTURE_MAX_FILES` | `architecture_max_files` | `2000` | source files the app-source index reads; also bounds the security and FastAPI advisor scans |
+| `SHARPIT_ARCHITECTURE_MAX_FILE_BYTES` | `architecture_max_file_bytes` | `524288` | largest source file the index reads, in bytes |
+
+The PostgreSQL and MySQL limits take a whole number from 1 to 2147483646; the other sizes and thresholds take a whole
+number above 0 (the N+1 thresholds and `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR` count anything below 2 as 2, and
+`SHARPIT_SQL_TRACE_SLOW_QUERY_THRESHOLD_MILLIS` accepts 0 to switch the check off).
 
 The first Config load scans your package's source for `os.getenv` keys and caches the result. On a large application
 that one-time scan can take several seconds. Set `SHARPIT_CONFIG_SCAN=false` to skip it, or narrow it to the smaller
