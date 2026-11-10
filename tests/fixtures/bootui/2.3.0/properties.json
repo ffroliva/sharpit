@@ -366,18 +366,6 @@
       "defaultValueSource": "BootUiProperties.java:2644"
     },
     {
-      "name": "bootui.cli.max-payload-bytes",
-      "type": "java.lang.Object",
-      "defaultValue": 1048576,
-      "defaultValueSource": "BootUiProperties.java:2638 (1 * 1024 * 1024)"
-    },
-    {
-      "name": "bootui.cli.max-response-bytes",
-      "type": "java.lang.Object",
-      "defaultValue": 4194304,
-      "defaultValueSource": "BootUiProperties.java:2650 (4 * 1024 * 1024)"
-    },
-    {
       "name": "bootui.cli.max-results",
       "type": "java.lang.Integer",
       "description": "Maximum number of items returned by paginated read tools in a single call. Mirrors {@code bootui.mcp.max-results} but is tracked separately so command-line traffic can be tuned without changing what agents see.",

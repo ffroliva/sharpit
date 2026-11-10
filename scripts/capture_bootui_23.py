@@ -573,18 +573,10 @@ HAND_FILLED = {
         "defaultValue": 65536,
         "defaultValueSource": "BootUiProperties.java:761 (64 * 1024)",
     },
-    "bootui.cli.max-payload-bytes": {
-        "defaultValue": 1048576,
-        "defaultValueSource": "BootUiProperties.java:2638 (1 * 1024 * 1024)",
-    },
     "bootui.cli.max-concurrent-calls": {"defaultValue": 20, "defaultValueSource": "BootUiProperties.java:2644"},
     "bootui.cli.execution-timeout": {
         "defaultValue": "30s",
         "defaultValueSource": "BootUiProperties.java:2647 (Duration.ofSeconds(30))",
-    },
-    "bootui.cli.max-response-bytes": {
-        "defaultValue": 4194304,
-        "defaultValueSource": "BootUiProperties.java:2650 (4 * 1024 * 1024)",
     },
     "bootui.mcp.max-payload-bytes": {
         "defaultValue": 1048576,
