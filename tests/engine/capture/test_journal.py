@@ -253,8 +253,9 @@ def test_records_show_sql_without_literals() -> None:
         return _masked_record(sql=text)["sql"]
 
     assert sql("select * from t where a = 'x' and b = 'y'") == "select * from t where a = ? and b = ?"
-    assert "sk_live_EXAMPLE" not in str(sql("SELECT 'C:', 'sk_live_EXAMPLE'"))
-    assert "sk_live_EXAMPLE" not in str(sql("select * from t where a = 'it's sk_live_EXAMPLE' and b = 1"))
+    assert "sk_live_EXAMPLE" not in str(sql(r"SELECT 'C:\', 'sk_live_EXAMPLE'"))
+    assert "sk_live_EXAMPLE" not in str(sql(r"select * from t where a = 'it\'s sk_live_EXAMPLE' and b = 1"))
+    assert "trailing" not in str(sql(r"select * from t where a = E'password=x\' trailing sk_live_EXAMPLE' and b = 1"))
     assert sql('select * from t where a = "x\\"sk_live_EXAMPLE"') == "select * from t where a = ?"
     assert "hunter2pass" not in str(sql('insert into users(pw) values("x\\"hunter2pass")'))
     assert sql("INSERT INTO api_keys(value) # '\nVALUES ('sk_live_EXAMPLE')") == "INSERT INTO api_keys(value) ?"
