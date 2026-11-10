@@ -191,7 +191,18 @@ def test_activity_journal_golden_parity():
     resp = _client(app).get(f"{API}/journal")
     assert resp.status_code == 200, "GET /activity/journal is served"
     assert_parity("activity", "journal", resp.json())
-    assert resp.json()["enabled"] is False, "sharpit keeps no runtime journal"
+    assert resp.json()["enabled"] is True, "journal status reflects the allocated runtime journal"
+
+
+def test_activity_journal_get_no_side_effects(no_side_effects: SideEffectGuard):
+    app = create_app(show_banner=False, state_dir=str(no_side_effects.state_dir))
+    no_side_effects.unblock_network()
+    with _client(app) as client:
+        no_side_effects.block_network()
+        response = client.get(f"{API}/journal")
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert no_side_effects.violations == []
 
 
 def test_activity_resources_golden_parity():
