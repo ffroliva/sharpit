@@ -3,9 +3,21 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 from threading import RLock
-from typing import Any
+from typing import Any, cast
 
 TOOL_IDS = (3, 4)
+
+
+def _clear_callbacks(monitoring: Any, tool_id: int) -> None:
+    events = monitoring.events
+    if isinstance(events, dict):
+        callbacks: dict[tuple[int, int], object] = monitoring.callbacks
+        event_ids = {event for owner, event in callbacks if owner == tool_id}
+    else:
+        event_values = cast(dict[str, object], vars(events))
+        event_ids = {value for value in event_values.values() if isinstance(value, int) and value}
+    for event in event_ids:
+        monitoring.register_callback(tool_id, event, None)
 
 
 class MonitoringTool:
@@ -36,6 +48,9 @@ class MonitoringTool:
             if self._released:
                 return
             self._released = True
+            if self.monitoring.get_tool(self.tool_id) != "sharpit":
+                self._claimed.discard(self.tool_id)
+                return
             errors: list[BaseException] = []
             try:
                 self.monitoring.set_events(self.tool_id, 0)
@@ -79,6 +94,17 @@ class MonitoringToolAllocator:
                     self.monitoring.use_tool_id(tool_id, "sharpit")
                 except ValueError:
                     continue
+                try:
+                    clear_tool_id = getattr(self.monitoring, "clear_tool_id", None)
+                    if clear_tool_id is not None:
+                        clear_tool_id(tool_id)
+                    if clear_tool_id is None:
+                        # shortcut: local events of a previous owner stay set on <3.14 but have no callback; clear_tool_id when 3.14 is the floor  # noqa: E501
+                        _clear_callbacks(self.monitoring, tool_id)
+                    self.monitoring.set_events(tool_id, 0)
+                except BaseException:
+                    self.monitoring.free_tool_id(tool_id)
+                    raise
                 self._claimed.add(tool_id)
                 return MonitoringTool(self.monitoring, tool_id, self._lock, self._claimed)
         return None
