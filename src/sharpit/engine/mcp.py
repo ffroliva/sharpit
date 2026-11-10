@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -333,39 +333,47 @@ class McpServer:
         return response
 
     def _dispatch(self, method: str, params: dict[str, object], scope: Mapping[str, object]) -> dict[str, Any]:
-        if method == "initialize":  # a known revision is echoed, anything else gets the default
-            requested = params.get("protocolVersion")
-            return {
-                "protocolVersion": requested if requested in KNOWN_PROTOCOL_VERSIONS else PROTOCOL_VERSION,
-                "capabilities": {"tools": {"listChanged": False}, "prompts": {"listChanged": False}},
-                "serverInfo": {"name": SERVER_NAME, "version": __version__},
-                "instructions": INSTRUCTIONS,
-            }
-        if method == "ping":
-            return {}
-        if method == "notifications/cancelled":
-            # shortcut: calls run synchronously, so the cancel cannot stop one; it is counted, as BootUI's status does
-            with self._lock:
-                self.cancellations += 1
-            return {}
-        if method == "tools/list":
-            return {"tools": [_describe(t) for t in self.tools if not t.action]}
-        if method == "tools/call":
-            arguments = params.get("arguments", {})
-            payload = call_tool(
-                CallContext(self.ctx, scope), params.get("name"), arguments, via="mcp", tools=self.tools
-            )
-            try:
-                text = _dumps(payload)
-            except (TypeError, ValueError):
-                logger.exception("sharpit MCP failure while serializing a tool result")
-                raise RpcError(INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE) from None
-            return {"content": [{"type": "text", "text": text}], "structuredContent": payload, "isError": False}
-        if method == "prompts/list":
-            return {"prompts": [{"name": p.name, "description": p.description, "arguments": []} for p in PROMPTS]}
-        if method == "prompts/get":
-            return _get_prompt(params.get("name"))
-        raise RpcError(METHOD_NOT_FOUND, f"Unknown method: {method}")
+        handlers: dict[str, Callable[[dict[str, object], Mapping[str, object]], dict[str, Any]]] = {
+            "initialize": self._initialize,
+            "ping": lambda _params, _scope: {},
+            "notifications/cancelled": self._cancelled,
+            "tools/list": lambda _params, _scope: {"tools": [_describe(t) for t in self.tools if not t.action]},
+            "tools/call": self._call_tool,
+            "prompts/list": lambda _params, _scope: {
+                "prompts": [{"name": p.name, "description": p.description, "arguments": []} for p in PROMPTS]
+            },
+            "prompts/get": lambda values, _scope: _get_prompt(values.get("name")),
+        }
+        handler = handlers.get(method)
+        if handler is None:
+            raise RpcError(METHOD_NOT_FOUND, f"Unknown method: {method}")
+        return handler(params, scope)
+
+    def _initialize(self, params: dict[str, object], _scope: Mapping[str, object]) -> dict[str, Any]:
+        requested = params.get("protocolVersion")
+        return {
+            "protocolVersion": requested if requested in KNOWN_PROTOCOL_VERSIONS else PROTOCOL_VERSION,
+            "capabilities": {"tools": {"listChanged": False}, "prompts": {"listChanged": False}},
+            "serverInfo": {"name": SERVER_NAME, "version": __version__},
+            "instructions": INSTRUCTIONS,
+        }
+
+    def _cancelled(self, _params: dict[str, object], _scope: Mapping[str, object]) -> dict[str, Any]:
+        # shortcut: calls run synchronously, so the cancel cannot stop one; it is counted, as BootUI's status does
+        with self._lock:
+            self.cancellations += 1
+        return {}
+
+    def _call_tool(self, params: dict[str, object], scope: Mapping[str, object]) -> dict[str, Any]:
+        payload = call_tool(
+            CallContext(self.ctx, scope), params.get("name"), params.get("arguments", {}), via="mcp", tools=self.tools
+        )
+        try:
+            text = _dumps(payload)
+        except (TypeError, ValueError):
+            logger.exception("sharpit MCP failure while serializing a tool result")
+            raise RpcError(INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE) from None
+        return {"content": [{"type": "text", "text": text}], "structuredContent": payload, "isError": False}
 
 
 def _get_prompt(name: object) -> dict[str, Any]:
