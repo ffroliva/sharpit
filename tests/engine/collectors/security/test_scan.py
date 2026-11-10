@@ -134,8 +134,9 @@ def test_scan_uses_the_one_package_root_resolver(tmp_path: Path, monkeypatch: py
 def test_view_reads_profiles_and_levels_without_creating_loggers():
     settings = load_settings({}, {})
     loggers = logging.Logger.manager.loggerDict
-    absent = [name for name in FRAMEWORK_LOGGERS if name not in loggers]
+    # The test creates "uvicorn" itself, so it is taken before the absent list: only view_of must create none.
     uvicorn = logging.getLogger("uvicorn")
+    absent = [name for name in FRAMEWORK_LOGGERS if name not in loggers]
     level = uvicorn.level
     uvicorn.setLevel(logging.DEBUG)
     try:

@@ -260,7 +260,7 @@ def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path
     start = lines.index("        run: |", lines.index("      - id: filter")) + 1
     end = next(index for index in range(start, len(lines)) if lines[index].startswith("  lint:"))
     run = textwrap.dedent("\n".join(lines[start:end]))
-    output = Path(f"{tmp_path.name}-change-output")
+    output = tmp_path / "change-output"  # absolute: the step runs in the repo root, shared by every xdist worker
     result = subprocess.run(
         [shutil.which("bash") or "bash", "-e", "-c", run],
         cwd=CI_PATH.parents[2],
@@ -269,13 +269,14 @@ def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path
             "BASE": "not-a-commit",
             "HEAD": "HEAD",
             "GITHUB_EVENT_NAME": "push",
-            "GITHUB_OUTPUT": output.name,
+            "GITHUB_OUTPUT": output.as_posix(),
         },
         capture_output=True,
         text=True,
         check=False,
     )
     try:
+        assert not (CI_PATH.parents[2] / output.name).exists(), "the step wrote its output into the repository root"
         assert result.returncode == 0
         assert "code=true" in output.read_text(encoding="utf-8")
     finally:
