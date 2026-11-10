@@ -156,3 +156,65 @@ def test_low_footprint_discards_each_hook_once_and_disable_does_not_restore_data
     assert buffered.discards == 1
     service.resume()
     assert buffered.items == []
+
+
+def test_low_footprint_hold_is_raised_before_first_hook_is_paused() -> None:
+    # ported: LowFootprintServiceTests.theResumeHoldIsRaisedBeforeTheFirstComponentIsPaused
+    from sharpit.engine.lowfootprint import LowFootprintService
+
+    observed = []
+
+    class Hook:
+        name = "capture"
+
+        def suspend(self) -> None:
+            observed.append(service.enabled)
+
+        def resume(self) -> None:
+            pass
+
+    registry = capture.HookRegistry()
+    registry.register(Hook())
+    service = LowFootprintService(registry)
+    service.suspend()
+    assert observed == [True]
+
+
+def test_runtime_journal_discard_clears_events_on_enable() -> None:
+    # ported: LowFootprintServiceTests.enablePausesEveryComponentThenOffloadsThenRequestsAGcAndDisableResumesThem
+    from sharpit.engine.capture.journal import RuntimeJournal
+    from sharpit.engine.lowfootprint import LowFootprintService
+
+    journal = RuntimeJournal()
+    journal.offer({"source": "http", "event": "before"})
+    registry = capture.HookRegistry()
+    registry.register(journal)
+    LowFootprintService(registry).suspend()
+    assert journal.status()["retainedEvents"] == 0
+
+
+def test_failed_disable_warning_says_resume() -> None:
+    # ported: LowFootprintServiceTests.aFailingResumeIsReportedAndTheModeStillTurnsOff
+    from sharpit.engine.context import SharpitContext
+    from sharpit.engine.lowfootprint import LowFootprintService
+    from sharpit.engine.tools import CallContext, call_tool
+    from sharpit.settings import load_settings
+
+    settings = load_settings({"enabled": "ON", "show_banner": False, "config_scan": False}, {})
+    ctx = SharpitContext(settings=settings, activation=None, introspector=None)  # type: ignore[arg-type]
+
+    class Hook:
+        name = "capture"
+
+        def suspend(self) -> None:
+            pass
+
+        def resume(self) -> None:
+            raise RuntimeError("boom")
+
+    ctx.capture.hooks.register(Hook())
+    ctx.lazy("low-footprint", lambda: LowFootprintService(ctx.capture.hooks))
+    call = CallContext(ctx, {})
+    call_tool(call, "enable_low_footprint", {}, via="cli")
+    result = call_tool(call, "disable_low_footprint", {}, via="cli")
+    assert result["warnings"] == ["Could not resume capture: RuntimeError: boom"]

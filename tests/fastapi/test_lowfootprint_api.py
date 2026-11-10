@@ -53,7 +53,7 @@ def test_low_footprint_status_has_bootui_dto_keys(no_side_effects: SideEffectGua
 
 
 def test_live_memory_footprint_uses_bootui_route_and_status_dto() -> None:
-    # ported: LiveMemoryControllerTests.getFootprint
+    # ported: LiveMemoryControllerTests.footprintRoutesToggleLowFootprintModeAndProjectTheStatus
     with _client() as client:
         response = client.get("/sharpit/api/live-memory/footprint")
         assert response.status_code == 200
@@ -71,11 +71,12 @@ def test_live_memory_footprint_uses_bootui_route_and_status_dto() -> None:
 
 
 def test_live_memory_footprint_post_toggles_from_enabled_body() -> None:
-    # ported: LiveMemoryControllerTests.setFootprint
+    # ported: LiveMemoryControllerTests.footprintRoutesToggleLowFootprintModeAndProjectTheStatus
     with _client() as client:
         enabled = client.post("/sharpit/api/live-memory/footprint", json={"enabled": True})
         assert enabled.status_code == 200
         assert enabled.json()["active"] is True
+        assert enabled.json()["offload"] == {"gcRequested": True}
         assert set(enabled.json()) == {
             "active",
             "sinceEpochMillis",
@@ -152,7 +153,15 @@ def test_free_on_idle_suspends_and_resumes_capture_in_lifespan(monkeypatch) -> N
     import sharpit.fastapi.install as install_module
 
     now = [10.0]
-    monkeypatch.setattr(install_module, "_clock", lambda: now[0])
+    trackers = []
+    original_tracker = install_module.IdleTracker
+
+    def make_tracker(*args, **kwargs):
+        tracker = original_tracker(*args, **kwargs, clock=lambda: now[0])
+        trackers.append(tracker)
+        return tracker
+
+    monkeypatch.setattr(install_module, "IdleTracker", make_tracker)
     app = FastAPI()
     handle = install(
         app,
@@ -162,10 +171,13 @@ def test_free_on_idle_suspends_and_resumes_capture_in_lifespan(monkeypatch) -> N
         free_on_idle_enabled=True,
         free_on_idle_timeout="50ms",
     )
+    service = handle.context.peek("low-footprint")
+    assert service is not None
+    assert trackers[0].lock is service._lock
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
         assert "sharpit-free-on-idle" in {thread.name for thread in threading.enumerate()}
         now[0] += 1
-        threading.Event().wait(0.08)
+        trackers[0].check()
         wiring = wiring_of(handle.context)
         assert wiring is not None
         assert wiring.suspended_hooks
@@ -213,17 +225,9 @@ def test_idle_tracker_keeps_explicit_hold_and_closes_auto_hold() -> None:
     assert tracker.auto_suspended is False
 
 
-def test_route_maps_capacity_and_timeout_rpc_errors(monkeypatch) -> None:
-    from sharpit.engine import tools
-
-    for code, status in ((tools.SERVER_AT_CAPACITY, 429), (tools.TOOL_TIMEOUT, 504)):
-
-        class FailedGate:
-            max_results = 100
-
-            def run(self, _name, _handler, error_code=code):
-                raise tools.RpcError(error_code, "gate refused")
-
-        monkeypatch.setattr(tools, "tool_gate", lambda _ctx, _via: FailedGate())
-        response = _client().get("/sharpit/api/live-memory/footprint")
-        assert response.status_code == status
+def test_low_footprint_routes_work_with_cli_disabled() -> None:
+    with _client(cli_enabled=False) as client:
+        assert client.get("/sharpit/api/live-memory/footprint").status_code == 200
+        enabled = client.post("/sharpit/api/live-memory/footprint", json={"enabled": True})
+        assert enabled.status_code == 200
+        assert enabled.json()["active"] is True

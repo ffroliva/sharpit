@@ -106,9 +106,7 @@ def test_mcp_server_status_shape():
     assert (body["enabled"], body["configuredMode"], body["overridden"]) == (True, "ON", False)
     assert (body["serverName"], body["serverVersion"], body["transport"]) == ("sharpit", __version__, "http")
     assert (body["endpoint"], body["protocolVersion"], body["maxResults"]) == ("/sharpit/api/mcp", "2025-06-18", 200)
-    assert body["toolCount"] == len(
-        expected_mcp_tool_names()
-    )  # base read tools, implemented 0.4 reads, and low-footprint
+    assert body["toolCount"] == len(expected_mcp_tool_names())  # 18 base read tools plus implemented 0.4 ones
     assert [t["name"] for t in body["tools"]] == expected_mcp_tool_names()
     # get_exceptions, get_exception_detail, get_sql_traces, get_live_activity, get_alembic_migrations, get_health,
     # get_database_connection_pools, get_threads, get_rest_api_report and get_rest_api_rule_violations

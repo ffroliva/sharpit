@@ -131,3 +131,26 @@ def test_low_footprint_status_masks_registry_failures() -> None:
     status = call_tool(CallContext(ctx, {}), "enable_low_footprint", {}, via="cli")
     assert "low-footprint-secret" not in str(status)
     assert status["warnings"] == ["Could not pause capture: RuntimeError: password=******"]
+
+
+def test_resume_recording_refusal_matches_bootui_hint() -> None:
+    # ported: McpLowFootprintTests.resumesAndNewProbesAreRefusedBeforeTheirHandlerButRunAfterTheHoldIsReleased
+    from sharpit.engine.context import SharpitContext
+    from sharpit.engine.lowfootprint import LowFootprintService
+    from sharpit.engine.tools import CallContext, ToolCallError, call_tool
+
+    settings = load_settings({"enabled": "ON", "show_banner": False, "config_scan": False}, {})
+    ctx = SharpitContext(settings=settings, activation=None, introspector=None)  # type: ignore[arg-type]
+    ctx.lazy("low-footprint", lambda: LowFootprintService(ctx.capture.hooks)).suspend()
+    try:
+        call_tool(CallContext(ctx, {}), "resume_sql_trace_recording", {}, via="cli")
+    except ToolCallError as exc:
+        assert exc.status == 409
+        assert exc.message == (
+            "Cannot run resume_sql_trace_recording. "
+            "Recording is held by low-footprint mode, not a quiet application. "
+            "Call disable_low_footprint (bootui low-footprint disable) to resume; cleared data is gone. "
+            "Native statistics and Java-agent instrumentation may still run."
+        )
+    else:
+        raise AssertionError("resume action ran while low-footprint was active")
