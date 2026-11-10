@@ -135,3 +135,29 @@ def test_journal_append_overhead_budget() -> None:
 
     result = paired(noop_round, offer_round, 15)
     check_budget("runtime journal offer", result, 100_000, "µs", 1000)
+
+
+def test_an_unconfigured_source_is_dropped_and_counted() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, queue_capacity=10, sources=("sql",))
+    assert journal.offer({"source": "processes", "pid": 1}) is False
+    status = journal.status()
+    assert status["dropped"] == {"source-disabled": 1}
+    assert status["recorded"] == {"sql": 0}
+
+
+def test_a_new_journal_source_is_refused_by_settings_until_it_is_catalogued() -> None:
+    settings = load_settings({}, {"SHARPIT_RUNTIME_JOURNAL_SOURCES": "sql,processes"})
+    assert "Ignoring invalid SHARPIT_RUNTIME_JOURNAL_SOURCES value 'sql,processes'" in settings.warnings
+    assert "processes" not in settings.runtime_journal_sources
+    assert "sql" in settings.runtime_journal_sources
+
+
+def test_offer_never_raises_into_the_host() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, queue_capacity=10)
+
+    class Broken(dict):
+        def items(self):
+            raise RuntimeError("a source built a bad event")
+
+    assert journal.offer(Broken(source="test", payload={"x": 1})) is False
+    assert journal.status()["dropped"] == {"failed": 1}
