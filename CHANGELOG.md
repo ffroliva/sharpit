@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The golden sanitiser now validates nested capture versions from the source, rejects encoded and provider token variants, and limits 2.3.0 raw enum snapshots to 64 enum constants per key path; versioned shaping retains the 0.6.0 default for existing callers.
 - CI can be dispatched manually for attempt-1 noise measurements, and an always-running `live-check` now aggregates
   every live leg. The workflow must first reach the default branch for GitHub to dispatch it.
 - The Ubuntu 3.14 test-shard and masking-gates legs install the `full-extras` dependency group and publish JUnit evidence

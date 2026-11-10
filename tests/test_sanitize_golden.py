@@ -143,3 +143,157 @@ def test_main_layout_follows_the_source_folder_name(tmp_path: Path):
     forced, forced_dst = _tree(tmp_path / "forced", {"overview/captured.json": {"a": 1}}, name="x", layout="nested")
     assert forced is None
     assert (forced_dst / "overview" / "captured.json").is_file()
+
+
+def test_sanitiser_merges_meta_for_the_target_version(tmp_path: Path):
+    source_meta = Path(__file__).parent / "fixtures" / "bootui" / "2.3.0" / "meta.json"
+    error, dst = _tree(
+        tmp_path / "rerun",
+        {"overview/captured.json": {"name": "x"}},
+        name="2.3.0",
+        version="2.3.0",
+    )
+    assert error is None
+    # Reuse the real lane B metadata in an isolated destination.
+    (dst / "meta.json").write_text(source_meta.read_text(encoding="utf-8"), encoding="utf-8")
+    src = tmp_path / "rerun" / "replica" / "evidence" / "2.3.0"
+    (src / "uncaptured.json").write_text('{"overview": "not served"}', encoding="utf-8")
+    module.main(src, dst, repo=tmp_path / "rerun", version="2.3.0")
+    meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
+    assert meta["bootuiVersion"] == "2.3.0"
+    for key, value in json.loads(source_meta.read_text(encoding="utf-8")).items():
+        assert meta[key] == value
+    for key in ("app", "profile", "captured", "uncaptured"):
+        assert key in meta
+    assert "2.2.0" not in json.dumps(meta)
+
+
+def test_sanitiser_refuses_vendor_tokens_anywhere():
+    tokens = (
+        "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        "gho_abcdefghijklmnopqrstuvwxyz0123456789",
+        "ghu_abcdefghijklmnopqrstuvwxyz0123456789",
+        "ghs_abcdefghijklmnopqrstuvwxyz0123456789",
+        "ghr_abcdefghijklmnopqrstuvwxyz0123456789",
+        "github_pat_abcdefghijklmnopqrstuvwxyz0123456789",
+        "sk-12345678901234567890123456789012",
+        "sk-ant-12345678901234567890123456789012",
+        "Bearer abcdefghijklmnopqrstuvwxyz0123456789",
+    )
+    for token in tokens:
+        assert module.find_secrets({"description": token}) == ["$.description"]
+        assert module.find_secrets({"summary": f"captured {token} in prose"}) == ["$.summary"]
+    assert module.find_secrets({"description": "task-list and disk-usage; Bearer is a scheme"}) == []
+
+
+@pytest.mark.parametrize(
+    "token",
+    (
+        "sk-proj-Ab1_cD2-" + "x" * 24,
+        "sk-svcacct-" + "x" * 24,
+        "token%3Dghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        "TOKEN_ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        "KEY_sk-ant-abcdefghijklmnopqrstuvwxyz0123456789",
+        "bearer abcdefghijklmnopqrstuvwxyz0123456789",
+        "BEARER abcdefghijklmnopqrstuvwxyz0123456789",
+        "Bearer%20abcdefghijklmnopqrstuvwxyz0123456789",
+        "Bearer+abcdefghijklmnopqrstuvwxyz0123456789",
+    ),
+)
+def test_find_secrets_refuses_encoded_and_prefixed_tokens(token: str):
+    assert module.find_secrets({"description": token}) == ["$.description"]
+
+
+def test_find_secrets_handles_long_strings_quickly():
+    import time
+
+    started = time.perf_counter()
+    assert module.find_secrets({"description": "x" * 200_000}) == []
+    assert time.perf_counter() - started < 1
+
+
+def test_enums_come_from_the_raw_capture(tmp_path: Path):
+    error, dst = _tree(
+        tmp_path,
+        {"agent/captured.json": {"items": [{"state": "ACTIVE"}, {"state": "PAUSED"}]}},
+        name="2.3.0",
+    )
+    assert error is None
+    enums_path = dst / "agent" / "enums.raw.json"
+    assert enums_path.is_file()
+    enums = json.loads(enums_path.read_text(encoding="utf-8"))
+    assert enums["$.items[].state"] == ["ACTIVE", "PAUSED"]
+
+
+def test_enums_only_publish_enum_constants_from_raw_capture(tmp_path: Path):
+    error, dst = _tree(
+        tmp_path,
+        {
+            "agent/captured.json": {
+                "message": "user alice@corp.example logged in from host WS-ALICE-01",
+                "status": "UP",
+            }
+        },
+        name="2.3.0",
+    )
+    assert error is None
+    enums = json.loads((dst / "agent" / "enums.raw.json").read_text(encoding="utf-8"))
+    assert enums == {"$.status": ["UP"]}
+
+
+def test_enums_cap_distinct_values_per_key_path(tmp_path: Path):
+    error, dst = _tree(
+        tmp_path,
+        {"agent/captured.json": {"status": [f"STATE_{i}" for i in range(65)]}},
+        name="2.3.0",
+    )
+    assert error is None
+    enums = json.loads((dst / "agent" / "enums.raw.json").read_text(encoding="utf-8"))
+    assert len(enums["$.status[]"]) == 64
+
+
+def test_version_comes_from_source_and_rejects_unknown_versions(tmp_path: Path):
+    src = tmp_path / "replica" / "evidence" / "2.2.0"
+    dst = tmp_path / "tests" / "fixtures" / "bootui" / "scratch"
+    src.mkdir(parents=True)
+    dst.mkdir(parents=True)
+    (src / "agent").mkdir()
+    (src / "agent" / "captured.json").write_text('{"status":"UP"}', encoding="utf-8")
+    module.main(src, dst, repo=tmp_path)
+    meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
+    assert meta["bootuiVersion"] == "2.2.0"
+    assert json.loads((dst / "agent" / "captured.json").read_text(encoding="utf-8")) == {"status": "UP"}
+    assert not (dst / "agent" / "enums.raw.json").exists()
+    with pytest.raises(ValueError, match="version must be '2.2.0' or '2.3.0'"):
+        module.main(src, dst, repo=tmp_path, version="scratch")
+
+
+def test_shaping_keeps_every_key_path():
+    raw = {
+        "items": [
+            "one",
+            "two",
+            "three",
+            {"outer": {"first": "a"}},
+            {"outer": {"second": "b"}},
+        ]
+    }
+    shaped = module._shape_key_paths(raw)
+
+    def key_paths(node: object, path: str = "$") -> set[str]:
+        if isinstance(node, dict):
+            return {f"{path}.{key}" for key, value in node.items()} | {
+                item for key, value in node.items() for item in key_paths(value, f"{path}.{key}")
+            }
+        if isinstance(node, list):
+            return set().union(*(key_paths(value, f"{path}[]") for value in node))
+        return set()
+
+    assert key_paths(shaped) == key_paths(raw)
+
+
+def test_2_2_meta_content_remains_unchanged(tmp_path: Path):
+    error, dst = _tree(tmp_path, {}, name="2.2.0")
+    assert error is None
+    meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
+    assert meta == module.META_2_2_0 | {"uncaptured": {}, "provisional": []}
