@@ -12,12 +12,22 @@ from sharpit.engine.collectors.restapi.rules_common import (
     Violation,
     shared_describe,
     shared_segments,
+    shared_static,
 )
 from sharpit.engine.spi import ApiRouteInfo
 
+DOCUMENTATION_SEGMENTS = frozenset({"api-docs", "swagger-ui"})
+
+
+def _is_api(route: ApiRouteInfo) -> bool:
+    """BootUI ``isNonApiEndpoint``: an operational first segment, or generated docs anywhere (``/v3/api-docs``)."""
+    statics = [s.lower() for s in shared_static(route.path)]
+    operational = bool(statics) and statics[0] in NON_API_SEGMENTS  # a variable-only path stays an API handler
+    return bool(shared_segments(route.path)) and not operational and DOCUMENTATION_SEGMENTS.isdisjoint(statics)
+
 
 def _ver001(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Violation]:
-    api = [r for r in routes if shared_segments(r.path) and shared_segments(r.path)[0].lower() not in NON_API_SEGMENTS]
+    api = [r for r in routes if _is_api(r)]
     unversioned = [r for r in api if not any(VERSION.fullmatch(s) for s in shared_segments(r.path))]
     if not unversioned:
         return []
