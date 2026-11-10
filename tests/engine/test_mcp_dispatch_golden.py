@@ -84,6 +84,16 @@ CASES: dict[str, tuple[bool, dict[str, object]]] = {
 }
 
 
+def reply_text(status: int, body: Any, headers: Any) -> str:
+    """The reply as JSON text; only the two ``result.serverInfo.version`` values become ``<version>``."""
+    reply: Any = json.loads(json.dumps(body, ensure_ascii=False))  # a copy to edit
+    result: Any = reply.get("result") if isinstance(reply, dict) else None  # pyright: ignore[reportUnknownMemberType]
+    info: Any = result.get("serverInfo") if isinstance(result, dict) else None  # pyright: ignore[reportUnknownMemberType]
+    if isinstance(info, dict) and info.get("version") == __version__:  # pyright: ignore[reportUnknownMemberType]
+        info["version"] = "<version>"
+    return json.dumps([status, reply, headers], ensure_ascii=False)
+
+
 def replies() -> dict[str, str]:
     """Each case's ``(status, body, headers)`` as JSON text, from one fresh server per case."""
     out: dict[str, str] = {}
@@ -96,8 +106,16 @@ def replies() -> dict[str, str]:
         server = McpServer(ctx, tools=TOOLS)
         server.enabled = enabled
         status, body, headers = server.handle(json.dumps(request).encode(), JSON, SCOPE)
-        out[name] = json.dumps([status, body, headers], ensure_ascii=False).replace(__version__, "<version>")
+        out[name] = reply_text(status, body, headers)
     return out
+
+
+def test_only_the_server_info_version_is_normalised() -> None:
+    """A version string anywhere else in a reply is a real change, not the golden's own version."""
+    body = {"result": {"serverInfo": {"name": "sharpit", "version": __version__}, "instructions": f"v{__version__}"}}
+    out = json.loads(reply_text(200, body, []))[1]
+    assert out["result"]["serverInfo"]["version"] == "<version>"
+    assert out["result"]["instructions"] == f"v{__version__}"
 
 
 def test_mcp_dispatch_replies_are_byte_identical() -> None:
