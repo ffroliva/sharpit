@@ -58,7 +58,10 @@ def test_unreadable_baseline_fails_closed_in_report_only(pytester: pytest.Pytest
     assert any("baseline unusable" in reason for reason in report["unknownReasons"])
 
 
-def test_baseline_allows_existing_finding_but_gates_new_one(pytester: pytest.Pytester) -> None:
+def test_baseline_allows_existing_finding_but_gates_new_one(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SHARPIT_IDENTITY_KEY", "pytest-safety-gate-baseline-key")
     pytester.makepyfile(_test_source("test_existing"))
     pytester.runpytest_inprocess(*_SQL_GATE, "--sharpit-write-baseline=baseline.json")
     pytester.makepyfile(_test_source("test_existing", "test_new"))
