@@ -12,6 +12,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - The Ubuntu 3.14 test-shard and masking-gates legs install the `full-extras` dependency group and publish JUnit evidence
   under the artifact names the reader already accepts; the live legs install the same locked driver versions through
   that group.
+- Every CI artifact upload is scanned for planted canary values before upload; an artifact carrying a canary in any
+  form (raw, URL-encoded, JSON-escaped, base64) is withheld and skips the upload.
 
 ### Documentation
 

@@ -48,9 +48,10 @@ def test_the_artifact_scan_finds_every_form_of_a_value(tmp_path: Path) -> None:
     )
 
     # Plant json-escaped and base64 forms in a JSONL file
+    # Placing token in json.dumps() produces the JSON-escaped form in the file
     jsonl_path = tmp_path / "overhead.jsonl"
     jsonl_path.write_text(
-        json.dumps({"event": "query", "sql": f"SELECT '{json_val}'"})
+        json.dumps({"event": "query", "sql": f"SELECT '{token}'"})
         + "\n"
         + json.dumps({"event": "auth", "token": b64_val})
         + "\n",

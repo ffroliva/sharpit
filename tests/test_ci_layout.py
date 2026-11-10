@@ -492,12 +492,17 @@ def _assert_job_upload_steps_scanned(job_name: str, job_body: str) -> None:
         assert "--values-file" in run_cmd, f"{job_name}: scan step {scan_id} must pass --values-file"
 
         upload_path = step.get("path", "")
-        if upload_path and upload_path != "|":
+        if upload_path and upload_path not in ("|", ">"):
             assert upload_path in run_cmd, f"{job_name}: scan step {scan_id} missing path {upload_path}"
-        elif upload_path == "|":
+        else:
             for path_line in step["raw"].split("path:", 1)[1].splitlines():
                 p = path_line.strip()
-                if p and not p.startswith("retention-days") and not p.startswith("if-no-files-found"):
+                if (
+                    p
+                    and p not in ("|", ">")
+                    and not p.startswith("retention-days")
+                    and not p.startswith("if-no-files-found")
+                ):
                     assert p in run_cmd, f"{job_name}: scan step {scan_id} missing path {p}"
     assert upload_steps_found > 0, f"{job_name}: expected upload steps"
 
