@@ -26,6 +26,10 @@ import pytest
 os.environ.setdefault("HYPOTHESIS_STORAGE_DIRECTORY", str(Path(tempfile.gettempdir()) / "sharpit-hypothesis"))
 # pytest's session hooks run before function-scoped fixtures, so give them an out-of-tree state location too.
 os.environ["SHARPIT_STATE_DIR"] = str(Path(tempfile.gettempdir()) / f"sharpit-pytest-{os.getpid()}")
+os.environ["SHARPIT_COPILOT_SESSION_STATE_DIR"] = str(Path(tempfile.gettempdir()) / f"sharpit-copilot-{os.getpid()}")
+os.environ["SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR"] = str(
+    Path(tempfile.gettempdir()) / f"sharpit-claude-code-{os.getpid()}"
+)
 
 from hypothesis import settings  # noqa: E402
 
