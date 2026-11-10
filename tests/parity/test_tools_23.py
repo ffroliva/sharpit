@@ -1,3 +1,4 @@
+import ast
 import json
 from pathlib import Path
 from typing import Any
@@ -175,6 +176,84 @@ CLI_COMMAND_DIFFERENCES = (
     "resume_transaction_recording",
 )
 MATCHED_CLI = tuple((BOOTUI[name]["command"], name) for name in MATCHED_TOOLS if name not in CLI_COMMAND_DIFFERENCES)
+
+pytestmark = [
+    pytest.mark.bootui("cli:architecture report"),
+    pytest.mark.bootui("cli:architecture scan"),
+    pytest.mark.bootui("cli:db mysql read"),
+    pytest.mark.bootui("cli:db mysql report"),
+    pytest.mark.bootui("cli:db pools"),
+    pytest.mark.bootui("cli:db postgres read"),
+    pytest.mark.bootui("cli:db postgres report"),
+    pytest.mark.bootui("cli:db report"),
+    pytest.mark.bootui("cli:db scan"),
+    pytest.mark.bootui("cli:exceptions clear"),
+    pytest.mark.bootui("cli:exceptions list"),
+    pytest.mark.bootui("cli:exceptions show"),
+    pytest.mark.bootui("cli:health"),
+    pytest.mark.bootui("cli:overview"),
+    pytest.mark.bootui("cli:rest-api report"),
+    pytest.mark.bootui("cli:rest-api scan"),
+    pytest.mark.bootui("cli:security report"),
+    pytest.mark.bootui("cli:security scan"),
+    pytest.mark.bootui("cli:sql clear"),
+    pytest.mark.bootui("cli:sql pause"),
+    pytest.mark.bootui("cli:sql resume"),
+    pytest.mark.bootui("cli:traces clear"),
+    pytest.mark.bootui("cli:vulnerabilities scan"),
+    pytest.mark.bootui("tool:architecture_scan"),
+    pytest.mark.bootui("tool:clear_exceptions"),
+    pytest.mark.bootui("tool:clear_sql_traces"),
+    pytest.mark.bootui("tool:clear_traces"),
+    pytest.mark.bootui("tool:clear_transactions"),
+    pytest.mark.bootui("tool:database_advisor_scan"),
+    pytest.mark.bootui("tool:get_architecture_report"),
+    pytest.mark.bootui("tool:get_database_advisor_report"),
+    pytest.mark.bootui("tool:get_database_connection_pools"),
+    pytest.mark.bootui("tool:get_exception_detail"),
+    pytest.mark.bootui("tool:get_exceptions"),
+    pytest.mark.bootui("tool:get_health"),
+    pytest.mark.bootui("tool:get_mysql_report"),
+    pytest.mark.bootui("tool:get_overview"),
+    pytest.mark.bootui("tool:get_postgresql_report"),
+    pytest.mark.bootui("tool:get_request_profile"),
+    pytest.mark.bootui("tool:get_rest_api_report"),
+    pytest.mark.bootui("tool:get_security_report"),
+    pytest.mark.bootui("tool:get_transactions"),
+    pytest.mark.bootui("tool:mysql_read"),
+    pytest.mark.bootui("tool:pause_sql_trace_recording"),
+    pytest.mark.bootui("tool:pause_transaction_recording"),
+    pytest.mark.bootui("tool:postgresql_read"),
+    pytest.mark.bootui("tool:rest_api_scan"),
+    pytest.mark.bootui("tool:resume_sql_trace_recording"),
+    pytest.mark.bootui("tool:resume_transaction_recording"),
+    pytest.mark.bootui("tool:security_scan"),
+    pytest.mark.bootui("tool:vulnerabilities_scan"),
+]
+
+
+def test_bootui_marks_equal_the_matched_rows() -> None:
+    source = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    assignment = next(
+        (
+            node
+            for node in source.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in node.targets)
+        ),
+        None,
+    )
+    marked = {
+        call.args[0].value
+        for call in ast.walk(assignment.value if assignment is not None else ast.List(elts=[], ctx=ast.Load()))
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "bootui"
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+    }
+    assert marked == {"tool:" + name for name in MATCHED_TOOLS} | {"cli:" + command for command, _ in MATCHED_CLI}
 
 
 @pytest.mark.parametrize("name", MATCHED_TOOLS, ids=lambda name: f"tool:{name}")
