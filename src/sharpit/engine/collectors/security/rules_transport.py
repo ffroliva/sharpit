@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from sharpit.engine.collectors.security import Inputs, SecurityRule, Violation, rule, simple
+from sharpit.engine.collectors.security.rules_common import _production_only
 from sharpit.engine.spi import MiddlewareFacts
 
 _SESSION_MANAGEMENT = "Session management"
@@ -34,11 +35,15 @@ def _flagged(kind: str, test: Callable[[tuple[str, ...]], bool], message: str) -
     return check
 
 
-_session_insecure = _flagged(
-    "SessionMiddleware",
-    lambda f: "https_only" not in f,
-    "SessionMiddleware sends the session cookie without the Secure flag (https_only is off).",
+_session_insecure = _production_only(
+    _flagged(
+        "SessionMiddleware",
+        lambda f: "https_only" not in f,
+        "SessionMiddleware sends the session cookie without the Secure flag (https_only is off).",
+    )
 )
+
+
 _session_same_site = _flagged(
     "SessionMiddleware",
     lambda f: "same_site_none" in f,
@@ -80,7 +85,7 @@ def _insecure_urls(fields: tuple[str, ...], kind: str | None) -> Callable[[Input
             if u.insecure and u.field in fields and (kind is None or simple(u.scheme) == kind)
         ]
 
-    return check
+    return _production_only(check)
 
 
 def _host_header(inputs: Inputs) -> list[Violation]:
