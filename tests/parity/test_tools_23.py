@@ -167,15 +167,14 @@ SHARPIT_ONLY = (
     "get_fastapi_report",
     "get_fastapi_security",
 )
-MATCHED_CLI = tuple(
-    (oracle["command"], name)
-    for name, oracle in BOOTUI.items()
-    if name in COMMANDS
-    and COMMANDS[name] == oracle["command"]
-    and SHARPIT[name].default_limit == oracle.get("defaultLimit")
-    and SHARPIT[name].action is oracle["action"]
-    and SHARPIT[name].panel == oracle["panel"]
+CLI_COMMAND_DIFFERENCES = (
+    "get_request_profile",
+    "clear_transactions",
+    "get_transactions",
+    "pause_transaction_recording",
+    "resume_transaction_recording",
 )
+MATCHED_CLI = tuple((BOOTUI[name]["command"], name) for name in MATCHED_TOOLS if name not in CLI_COMMAND_DIFFERENCES)
 
 
 @pytest.mark.parametrize("name", MATCHED_TOOLS, ids=lambda name: f"tool:{name}")
@@ -217,7 +216,8 @@ def test_tool_coverage_matches_fixture() -> None:
 
 @pytest.mark.parametrize(("command", "name"), MATCHED_CLI, ids=lambda value: str(value))
 def test_cli_path_maps_to_bootui_tool(command: str, name: str) -> None:
-    tools = {tool["name"]: tool for tool in _client().get("/sharpit/api/cli").json()["tools"]}
+    response = _client().get("/sharpit/api/cli").json()
+    tools = {tool["name"]: tool for tool in response["tools"]}
     local = tools[name]
     oracle = BOOTUI[name]
     assert local["name"] == oracle["name"]
@@ -225,4 +225,8 @@ def test_cli_path_maps_to_bootui_tool(command: str, name: str) -> None:
     assert local["command"] == command
     assert local["action"] is oracle["action"]
     assert local["panel"] == oracle["panel"]
-    assert SHARPIT[name].default_limit == oracle.get("defaultLimit")
+
+
+def test_cli_default_limit_matches_bootui_23() -> None:
+    # CliServerStatus exposes the effective CLI result limit, not each tool's input defaultLimit.
+    assert _client().get("/sharpit/api/cli").json()["maxResults"] == 200
