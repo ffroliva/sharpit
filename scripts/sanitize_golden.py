@@ -14,7 +14,7 @@ shaping. BootUI 2.3.0+ captures add ``enums.raw.json`` from pre-shaped values. B
 list of volatile values, then abort on anything that looks like a secret.
 
 Layout: nested for source folders named ``2.2.0`` or ``2.3.0``, else flat; force it with the third argument.
-The target version comes from ``--version`` or the destination folder name. ``meta.json`` keeps existing keys and
+The nested target version comes from ``--version`` or the source folder name. ``meta.json`` keeps existing keys and
 takes ``uncaptured`` from ``<src>/uncaptured.json``.
 """
 
@@ -79,9 +79,10 @@ SECRET_VALUE = re.compile(
     r"eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]+"  # JWT
     r"|-----BEGIN [A-Z ]*PRIVATE KEY-----"  # PEM private key
     r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"  # AWS access key id
-    r"|\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"  # GitHub tokens
-    r"|\bsk-ant-[A-Za-z0-9_-]{20,}\b|(?<![A-Za-z0-9])sk-[A-Za-z0-9]{20,}\b"  # AI provider tokens
-    r"|\bBearer\s+[A-Za-z0-9._~+/-]{16,}={0,2}\b"  # bearer credentials
+    r"|(?<![A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})(?![A-Za-z0-9_])"  # GitHub tokens
+    r"|%3[Dd]gh[pousr]_[A-Za-z0-9]{20,}(?![A-Za-z0-9_])"  # URL-encoded equals before GitHub token
+    r"|(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])"  # AI provider tokens
+    r"|(?i:bearer)(?:\s|%20|\+)+[A-Za-z0-9._~+/-]{16,}={0,2}(?![A-Za-z0-9._~+/-])"  # bearer credentials
     r"|://(?!user:password@)[^/\s:@]+:[^/\s@]+@"  # URL userinfo (docs placeholder user:password allowed)
 )
 SENSITIVE_NAME = re.compile(r"(?:passw(?:or)?d|secret|token|api[-_.]?key|credential|private[-_.]?key)", re.IGNORECASE)
@@ -150,33 +151,40 @@ def _contains_object(value: Any) -> bool:
     return isinstance(value, dict) or (isinstance(value, list) and any(_contains_object(child) for child in value))
 
 
-def _signature(item: dict[str, Any], preserve_key_paths: bool = True) -> tuple[tuple[str, Any], ...]:
-    return tuple(
-        sorted((key, _shape_signature(value) if preserve_key_paths else _kind(value)) for key, value in item.items())
-    )
+def _signature(item: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    return tuple(sorted((key, _kind(value)) for key, value in item.items()))
 
 
-def _reduce(items: list[Any], preserve_key_paths: bool = True) -> list[Any]:
-    if preserve_key_paths and any(_contains_object(item) for item in items):
+def _reduce(items: list[Any]) -> list[Any]:
+    if items and all(isinstance(i, dict) for i in items):  # pyright: ignore[reportUnknownVariableType]
         seen: dict[Any, Any] = {}
         for item in items:
-            seen.setdefault(_shape_signature(item), item)
-        return list(seen.values())
-    if items and all(isinstance(i, dict) for i in items):  # pyright: ignore[reportUnknownVariableType]
-        seen: dict[tuple[tuple[str, Any], ...], dict[str, Any]] = {}
-        for item in items:
-            seen.setdefault(_signature(item, preserve_key_paths), item)
+            seen.setdefault(_signature(item), item)
         return list(seen.values())
     return items[:3]
 
 
-def shape_golden(node: Any, preserve_key_paths: bool = True) -> Any:
+def shape_golden(node: Any) -> Any:
     """Keep one item per distinct shape (key set + per-key JSON kind, null its own kind) in every list; real nulls and
     every type variant survive. Lists of scalars keep their first 3. Scalars and keys are untouched."""
     if isinstance(node, dict):
-        return {k: shape_golden(v, preserve_key_paths) for k, v in node.items()}  # pyright: ignore[reportUnknownVariableType]
+        return {k: shape_golden(v) for k, v in node.items()}  # pyright: ignore[reportUnknownVariableType]
     if isinstance(node, list):
-        return _reduce([shape_golden(i, preserve_key_paths) for i in node], preserve_key_paths)  # pyright: ignore[reportUnknownVariableType]
+        return _reduce([shape_golden(i) for i in node])  # pyright: ignore[reportUnknownVariableType]
+    return node
+
+
+def _shape_key_paths(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {k: _shape_key_paths(v) for k, v in node.items()}  # pyright: ignore[reportUnknownVariableType]
+    if isinstance(node, list):
+        shaped = [_shape_key_paths(i) for i in node]
+        if any(_contains_object(item) for item in shaped):
+            seen: dict[Any, Any] = {}
+            for item in shaped:
+                seen.setdefault(_shape_signature(item), item)
+            return list(seen.values())
+        return shaped[:3]
     return node
 
 
@@ -213,7 +221,7 @@ def _collect_enums(node: Any, path: str, enums: dict[str, set[str]]) -> None:
     elif isinstance(node, list):
         for value in node:
             _collect_enums(value, f"{path}[]", enums)
-    elif isinstance(node, str):
+    elif isinstance(node, str) and re.fullmatch(r"[A-Z][A-Z0-9_]*", node):
         enums.setdefault(path, set()).add(node)
 
 
@@ -221,7 +229,7 @@ def _write_enums(dst: Path, enums_by_id: dict[str, dict[str, set[str]]]) -> None
     for sharpit_id, enums in enums_by_id.items():
         enum_path = dst / sharpit_id / "enums.raw.json"
         enum_path.write_text(
-            json.dumps({key: sorted(values) for key, values in enums.items()}, indent=2, ensure_ascii=False) + NL,
+            json.dumps({key: sorted(values)[:64] for key, values in enums.items()}, indent=2, ensure_ascii=False) + NL,
             encoding="utf-8",
             newline=NL,
         )
@@ -238,7 +246,7 @@ def _emit(
     if nested:
         if version != "2.2.0":
             _collect_enums(data, "$", enums_by_id.setdefault(path.parent.name, {}))
-        data = shape_golden(data, preserve_key_paths=version != "2.2.0")
+        data = shape_golden(data) if version == "2.2.0" else _shape_key_paths(data)
         leaks += find_secrets(data, name)
     if leaks:
         sys.exit(f"refusing to write {name}: possible secret at {', '.join(leaks[:5])}")
@@ -272,7 +280,7 @@ def _resolve(src: Path, dst: Path, repo: Path, layout: str | None) -> tuple[Path
     layout = layout or ("nested" if src.name in {"2.2.0", "2.3.0"} else "flat")
     if layout not in ("nested", "flat"):
         raise ValueError(f"layout must be 'nested' or 'flat', got {layout!r}")
-    return src, dst, layout == "nested", dst.name
+    return src, dst, layout == "nested", src.name
 
 
 def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = None, version: str | None = None) -> None:
@@ -282,6 +290,15 @@ def main(src: Path, dst: Path, repo: Path | None = None, layout: str | None = No
     (default: this repository; tests pass a temporary one)."""
     src, dst, nested, target_version = _resolve(src, dst, repo or Path(__file__).resolve().parents[1], layout)
     target_version = version or target_version
+    if (
+        nested
+        and version is None
+        and target_version not in {"2.2.0", "2.3.0"}
+        and not re.fullmatch(r"\d+(?:\.\d+)+", target_version)
+    ):
+        target_version = "2.2.0"
+    if nested and target_version not in {"2.2.0", "2.3.0"}:
+        raise ValueError("version must be '2.2.0' or '2.3.0'")
     dst.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     enums_by_id: dict[str, dict[str, set[str]]] = {}

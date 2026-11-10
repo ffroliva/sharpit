@@ -278,7 +278,7 @@ def test_shaping_keeps_every_key_path():
             {"outer": {"second": "b"}},
         ]
     }
-    shaped = module.shape_golden(raw)
+    shaped = module._shape_key_paths(raw)
 
     def key_paths(node: object, path: str = "$") -> set[str]:
         if isinstance(node, dict):
