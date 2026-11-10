@@ -118,6 +118,65 @@ def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
     assert parse_artifact("junit-test-shard-ubuntu-latest-3.12-0") == ("test-shard", "ubuntu-latest-3.12-0")
 
 
+def test_full_extras_installs_every_optional_gatekeeper_distribution() -> None:
+    from tests.engine.test_import_boundary import GATEKEEPERS
+
+    distributions = {
+        "sqlalchemy": "sqlalchemy",
+        "alembic": "alembic",
+        "pydantic_settings": "pydantic-settings",
+        "opentelemetry": "opentelemetry-sdk",
+        "pytest": "pytest",
+        "_pytest": "pytest",
+        "asyncpg": "asyncpg",
+        "aiomysql": "aiomysql",
+    }
+    groups = {"test": set(), "full-extras": set()}
+    section = ""
+    for line in Path(__file__).parents[1].joinpath("pyproject.toml").read_text(encoding="utf-8").splitlines():
+        if line.startswith("["):
+            section = line
+        elif section == "[project.optional-dependencies]" and line.startswith("test = ["):
+            section = "test"
+        elif section == "[dependency-groups]" and line.startswith("full-extras = ["):
+            section = "full-extras"
+        elif section in groups and '"' in line:
+            groups[section].add(line.split('"')[1].split(">=")[0].split("[")[0])
+    missing = {
+        distribution
+        for key, distribution in distributions.items()
+        if key in GATEKEEPERS or key in {"asyncpg", "aiomysql"}
+        if not any(distribution in group for group in groups.values())
+    }
+    assert not missing, f"optional gatekeeper distributions absent from test/full-extras: {sorted(missing)}"
+
+
+def test_the_full_extras_leg_uploads_a_parsed_junit() -> None:
+    from scripts.ci.shard_weights import parse_artifact
+
+    shard_body = JOBS["test-shard"]
+    sync_lines = [line for line in shard_body.splitlines() if "uv sync" in line]
+    assert sync_lines
+    assert "matrix.os == 'ubuntu-latest' && matrix.python == '3.14'" in sync_lines[0]
+    assert "--group full-extras" in sync_lines[0]
+    assert "name: junit-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}" in shard_body
+    assert parse_artifact("junit-test-shard-ubuntu-latest-3.14-0") == (
+        "test-shard",
+        "ubuntu-latest-3.14-0",
+    )
+    masking = JOBS["masking-gates"]
+    masking_sync = next(line for line in masking.splitlines() if "uv sync" in line)
+    assert "matrix.os == 'ubuntu-latest'" in masking_sync
+    assert "--group full-extras" in masking_sync
+    assert "name: junit-masking-gates-${{ matrix.os }}" in masking
+    assert parse_artifact("junit-masking-gates-ubuntu-latest") == ("masking-gates", "ubuntu-latest")
+
+
+def test_junit_never_carries_captured_output() -> None:
+    assert re.search(r"(?m)^\s*junit_logging\s*=\s*['\"]no['\"]\s*$", Path("pyproject.toml").read_text())
+    assert not re.search(r"-o\s+junit_logging=", CI)
+
+
 def test_live_runs_one_job_per_server() -> None:
     live = JOBS["live"]
     for server in ("mysql84", "mysql80", "mariadb", "postgresql", "controls"):

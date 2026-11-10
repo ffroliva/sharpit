@@ -9,6 +9,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - CI can be dispatched manually for attempt-1 noise measurements, and an always-running `live-check` now aggregates
   every live leg. The workflow must first reach the default branch for GitHub to dispatch it.
+- The Ubuntu 3.14 test-shard and masking-gates legs install the `full-extras` dependency group and publish JUnit evidence
+  under the artifact names the reader already accepts; the live legs install the same locked driver versions through
+  that group.
 
 ### Documentation
 
