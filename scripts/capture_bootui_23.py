@@ -449,17 +449,37 @@ check_md_files = glob.glob(f"{bootui_root}/docs/*-CHECKS.md")
 for fpath in check_md_files:
     fname = os.path.basename(fpath)
     with open(fpath, encoding="utf-8") as fp:
-        for line in fp:
+        text = fp.read()
+        sections = {
+            match.group(1): match.group(2)
+            for match in re.finditer(r"(?ms)^###\s+([A-Z0-9_\-\.]+)\s+-.*?\n(.*?)(?=^###\s+|\Z)", text)
+        }
+        for line in text.splitlines():
             m = re.match(r"^###\s+([A-Z0-9_\-\.]+)\s+-\s+(.*)", line.strip())
             if m:
                 rid, rtitle = m.groups()
-                doc_rules[rid] = {"id": rid, "title": rtitle, "source": fname}
-            # Also catch table rows for retired rules: | ARCH-CODE-005 | ...
+                section = sections.get(rid, "")
+                retirement = re.search(r"(?ms)^(\*\*Retired\.\*\*|Retired:)(.*?)(?=\n\s*\n|\Z)", section)
+                explanation = " ".join((retirement.group(1) + retirement.group(2)).split()) if retirement else None
+                doc_rules[rid] = {
+                    "id": rid,
+                    "title": rtitle,
+                    "source": fname,
+                    "retired": explanation is not None,
+                    "retiredExplanation": explanation,
+                }
             tm = re.match(r"^\|\s*([A-Z0-9_\-\.]+)\s*\|\s*([^|]+)\|\s*([^|]+)\|", line.strip())
-            if tm:
+            if tm and re.match(r"^[A-Z]+-[A-Z0-9]+-\d+$", tm.group(1).strip()):
                 trid = tm.group(1).strip()
-                if re.match(r"^[A-Z]+-[A-Z0-9]+-\d+$", trid):
-                    doc_rules[trid] = {"id": trid, "title": tm.group(2).strip(), "source": fname, "retired": True}
+                status = tm.group(2).strip()
+                explanation = f"Retired: {tm.group(3).strip()}" if status == "Retired" else None
+                doc_rules[trid] = {
+                    "id": trid,
+                    "title": status,
+                    "source": fname,
+                    "retired": explanation is not None,
+                    "retiredExplanation": explanation,
+                }
 
 java_rules = {}
 java_files = glob.glob(f"{bootui_root}/**/src/main/java/**/*.java", recursive=True)
@@ -494,12 +514,73 @@ for rid in all_rule_ids:
             "inDocs": rid in doc_rules,
             "inJava": rid in java_rules,
             "retired": r_info.get("retired", False),
+            "retiredExplanation": r_info.get("retiredExplanation"),
         }
     )
 
+reviewer_rule_id = re.compile(r"[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{3}")
+reviewer_docs = {}
+for fpath in glob.glob(f"{bootui_root}/docs/**/*.md", recursive=True):
+    content = Path(fpath).read_text(encoding="utf-8")
+    for match in re.finditer(rf"^###\s+({reviewer_rule_id.pattern})\b", content, re.MULTILINE):
+        reviewer_docs[match.group(1)] = Path(fpath).relative_to(bootui_root).as_posix()
+reviewer_java = {}
+for fpath in glob.glob(f"{bootui_root}/**/src/main/java/**/*.java", recursive=True):
+    content = Path(fpath).read_text(encoding="utf-8", errors="ignore")
+    for match in re.finditer(rf'"({reviewer_rule_id.pattern})"', content):
+        reviewer_java[match.group(1)] = Path(fpath).relative_to(bootui_root).as_posix()
+reviewer_union = set(reviewer_docs) | set(reviewer_java)
+fixture_rule_ids = {rule["id"] for rule in rules_list}
+rule_exclusions = []
+for rid in sorted(reviewer_union - fixture_rule_ids):
+    if rid == "SHA-256":
+        reason = "SHA-256 is an algorithm label in Java test inputs, not a rule identifier."
+        source = reviewer_java[rid]
+    elif f"SPRING-{rid}" in fixture_rule_ids and any(
+        path.endswith("SpringRules.java") for path in reviewer_java.values()
+    ):
+        source = next(path for path in reviewer_java.values() if path.endswith("SpringRules.java"))
+        reason = (
+            "SpringRules stores the shorthand; AbstractSpringRule adds the SPRING- prefix, "
+            f"so the canonical entry is SPRING-{rid}."
+        )
+    else:
+        raise ValueError(f"Unclassified independent rule id: {rid}")
+    rule_exclusions.append({"id": rid, "source": source, "reason": reason})
+rule_additions = []
+for rid in sorted(fixture_rule_ids - reviewer_union):
+    source = next(
+        (
+            Path(fpath).relative_to(bootui_root).as_posix()
+            for fpath in check_md_files
+            if re.search(rf"^\|\s*{re.escape(rid)}\s*\|", Path(fpath).read_text(encoding="utf-8"), re.MULTILINE)
+        ),
+        None,
+    )
+    if source:
+        reason = "Documented in a rule table; the independent counter scans headings and Java literals only."
+    elif not reviewer_rule_id.fullmatch(rid):
+        source = java_rules.get(rid)
+        reason = "Valid non-numeric Quarkus security identifier; the independent counter requires a three-digit suffix."
+    else:
+        raise ValueError(f"Unclassified fixture-only rule id: {rid}")
+    rule_additions.append({"id": rid, "source": source, "reason": reason})
+rule_reconciliation = {
+    "independentUnionCount": len(reviewer_union),
+    "fixtureCount": len(fixture_rule_ids),
+    "independentIdsExcluded": rule_exclusions,
+    "fixtureIdsOutsideIndependentCounter": rule_additions,
+    "method": (
+        "All docs/**/*.md heading IDs plus src/main/java quoted IDs matching the independent "
+        "counter pattern; table-only and non-three-digit fixture IDs are listed with reasons"
+    ),
+}
 with open(f"{output_dir}/rule-ids.json", "w", encoding="utf-8") as f:
-    json.dump({"rules": rules_list, "total": len(rules_list)}, f, indent=2)
-print(f"Wrote rule-ids.json ({len(rules_list)} rules)")
+    json.dump({"rules": rules_list, "total": len(rules_list), "reconciliation": rule_reconciliation}, f, indent=2)
+print(
+    f"Wrote rule-ids.json ({len(rules_list)} rules; {len(rule_exclusions)} exclusions, "
+    f"{len(rule_additions)} additional fixture IDs)"
+)
 
 # Diff explanation
 in_doc_only = sorted(set(doc_rules.keys()) - set(java_rules.keys()))
@@ -509,7 +590,7 @@ diff_explanations = {}
 for rid in in_doc_only:
     r_info = doc_rules.get(rid, {})
     if r_info.get("retired"):
-        diff_explanations[rid] = "Documented as retired rule in checks markdown"
+        diff_explanations[rid] = r_info["retiredExplanation"]
     elif "HIB" in rid:
         diff_explanations[rid] = "Documented Hibernate check; retired or Jakarta Persistence implicit default"
     elif "DB-" in rid:

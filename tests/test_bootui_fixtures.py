@@ -389,3 +389,50 @@ def test_bootui_23_fixtures_contain_no_machine_paths() -> None:
         contents = path.read_text(encoding="utf-8")
         assert not re.search(r"(?<![A-Za-z0-9])[A-Za-z]:[/\\]", contents), f"Machine-specific path in {path.name}"
         assert "Files\\Amazon Corretto" not in contents, f"Machine-specific path in {path.name}"
+
+
+def test_bootui_23_properties_exclude_nonexistent_cli_properties() -> None:
+    names = {prop["name"] for prop in _load_json("properties.json")["properties"]}
+    assert "bootui.cli.max-payload-bytes" not in names
+    assert "bootui.cli.max-response-bytes" not in names
+
+
+def test_bootui_23_test_catalog_is_fully_qualified_and_unambiguous() -> None:
+    catalog = _load_json("bootui-tests.json")
+    classes = catalog["testClasses"]
+    assert catalog["totalClasses"] == 1103
+    assert len(catalog["simpleNameIndex"]) == 1100
+    assert all(re.fullmatch(r"[\w$]+(?:\.[\w$]+)+", name) for name in classes)
+    for name in (
+        "CodeInventoryServiceTests",
+        "ActuatorMappingsControllerTests",
+    ):
+        assert any(key.endswith(f".{name}") for key in classes)
+    assert any(entry["ambiguous"] for entry in catalog["simpleNameIndex"].values())
+
+
+def test_bootui_23_retired_doc_rules_are_marked_and_explained() -> None:
+    rules = {rule["id"]: rule for rule in _load_json("rule-ids.json")["rules"]}
+    explanations = _load_json("rule-ids-diff.json")["explanations"]
+    retired = [rid for rid in explanations if rid.startswith(("HIB-", "DB-"))]
+    assert len(retired) == 13
+    for rid in retired:
+        assert rules[rid]["retired"] is True
+        assert explanations[rid] == rules[rid]["retiredExplanation"]
+        assert explanations[rid].startswith(("Retired:", "**Retired.**"))
+        assert len(explanations[rid]) > len("Retired")
+    assert rules["QA-CFG-001"]["retired"] is True
+    assert "ConfigMapping is recommended" in rules["QA-CFG-001"]["retiredExplanation"]
+
+
+def test_bootui_23_rule_id_independent_counter_is_reconciled() -> None:
+    rules_data = _load_json("rule-ids.json")
+    reconciliation = rules_data["reconciliation"]
+    exclusions = reconciliation["independentIdsExcluded"]
+    additions = reconciliation["fixtureIdsOutsideIndependentCounter"]
+    assert reconciliation["independentUnionCount"] == 619
+    assert reconciliation["fixtureCount"] == len(rules_data["rules"]) == 603
+    assert len(exclusions) == 42
+    assert len(additions) == 26
+    assert all(item["source"] and item["reason"] for item in [*exclusions, *additions])
+    assert reconciliation["independentUnionCount"] == reconciliation["fixtureCount"] + len(exclusions) - len(additions)
