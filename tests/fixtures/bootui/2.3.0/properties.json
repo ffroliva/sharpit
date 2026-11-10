@@ -1,0 +1,1534 @@
+{
+  "properties": [
+    {
+      "name": "bootui.activity.feed-source",
+      "type": "java.lang.String",
+      "description": "Where the activity stream comes from: {@code journal}, rendering the runtime journal's retained events with every child nested by request or execution id. {@code buffers}, 1.x's feed, was removed in 2.0.0 and fails the start; with the journal disabled, the panel buffers serve the feed on their own. A request may override it with {@code ?source=}.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Activity",
+      "defaultValue": "journal"
+    },
+    {
+      "name": "bootui.activity.max-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of normalized entries returned in a single activity-stream page after merging and sorting all sources.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Activity",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.activity.max-scheduled-task-runs",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of recent {@code @Scheduled} task executions retained for the {@code SCHEDULED} entries in the activity stream.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Activity",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.activity.n-plus-one-threshold",
+      "type": "java.lang.Integer",
+      "description": "Number of identical normalized SELECT statements correlated to a single request above which an N+1 hint is surfaced in the per-request profile.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Activity",
+      "defaultValue": 5
+    },
+    {
+      "name": "bootui.activity.persistence.buffer-max-entries",
+      "type": "java.lang.Integer",
+      "description": "Capacity of both the in-memory hot read cache (entries visible immediately, even before their scheduled flush) and the pending-flush queue (entries awaiting their first durable write).",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.activity.persistence.data-source-mode",
+      "type": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence$DataSourceMode",
+      "description": "Where the durable store gets its JDBC connections from: {@code SHARED} reuses the host application's own {@code DataSource} bean (the same one BootUI's SQL Trace panel may already be tracing), {@code DEDICATED} opens a small, non-pooled connection of BootUI's own using the {@code dedicated-*} properties below.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": "shared"
+    },
+    {
+      "name": "bootui.activity.persistence.dedicated-driver-class-name",
+      "type": "java.lang.String",
+      "description": "Optional explicit JDBC driver class to load for {@code data-source-mode=DEDICATED}; blank lets the driver auto-register itself from the classpath (the usual case for a modern JDBC 4+ driver).",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:3390"
+    },
+    {
+      "name": "bootui.activity.persistence.dedicated-jdbc-url",
+      "type": "java.lang.String",
+      "description": "JDBC URL for {@code data-source-mode=DEDICATED}, otherwise ignored.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:3377"
+    },
+    {
+      "name": "bootui.activity.persistence.dedicated-password",
+      "type": "java.lang.String",
+      "description": "Password for {@code data-source-mode=DEDICATED}, otherwise ignored.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:3383"
+    },
+    {
+      "name": "bootui.activity.persistence.dedicated-username",
+      "type": "java.lang.String",
+      "description": "Username for {@code data-source-mode=DEDICATED}, otherwise ignored.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:3380"
+    },
+    {
+      "name": "bootui.activity.persistence.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether captured Live Activity entries are also durably persisted, in addition to today's in-memory-only default. Disabled by default: no background thread, connection or bean beyond what already exists is created while this is {@code false}.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.activity.persistence.flush-interval",
+      "type": "java.time.Duration",
+      "description": "How often buffered entries are flushed to durable storage.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": "5s"
+    },
+    {
+      "name": "bootui.activity.persistence.instance-id",
+      "type": "java.lang.String",
+      "description": "The multi-tenant partition key this running instance writes and reads its rows under, so several BootUI instances can safely share one database table. Defaults to the {@code HOSTNAME} environment variable (a natural, stable identity for a container/Kubernetes pod) or else a generated {@code <app-name>-<random>} id, computed once at startup.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:3421"
+    },
+    {
+      "name": "bootui.activity.persistence.retention",
+      "type": "java.time.Duration",
+      "description": "How long persisted rows are kept before being pruned; entries older than this are eligible for deletion on this instance's own next prune pass. Only this instance's own rows are ever pruned.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": "7d"
+    },
+    {
+      "name": "bootui.activity.persistence.table-name",
+      "type": "java.lang.String",
+      "description": "Table name every BootUI instance pointed at the same database shares. Must be a plain SQL identifier; created automatically on first use if it does not already exist.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ActivityPersistence",
+      "defaultValue": "bootui_activity"
+    },
+    {
+      "name": "bootui.activity.request-slow-threshold-ms",
+      "type": "java.lang.Long",
+      "description": "Duration in milliseconds at or above which a request is slow, on every stack: it sets the {@code SLOW} severity of Live Activity request and scheduled-task entries, and classifies HTTP exchanges for the reserved share of the HTTP Exchanges buffer. Set to {@code 0} to disable slow classification.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Activity",
+      "defaultValue": 1000
+    },
+    {
+      "name": "bootui.advisors.max-retained-violations",
+      "type": "java.lang.Integer",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Advisors",
+      "defaultValue": 10000
+    },
+    {
+      "name": "bootui.agent.allow-in-disabled-profiles",
+      "type": "java.lang.Boolean",
+      "description": "Whether this application claims the BootUI agent when {@code bootui.enabled=ON} forces BootUI on despite an active {@code bootui.disabled-profiles} entry, such as {@code prod}. Off by default: the agent must never be attached to a production JVM.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.agent.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether this application claims the BootUI agent when the JVM runs with it attached.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.agent.executors.max-handoff",
+      "type": "java.time.Duration",
+      "description": "How long a task's work is attributed to the request that handed it over; work recorded later, and tasks ending later, are not.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent$Executors",
+      "defaultValue": "5m",
+      "defaultValueSource": "BootUiProperties.java:3094 (AgentHandoffs.DEFAULT_MAX_HANDOFF)"
+    },
+    {
+      "name": "bootui.agent.executors.skip-tasks",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Task class-name prefixes the sensor never propagates, because they already carry their context, such as Micrometer's and Spring's context-propagating wrappers.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent$Executors",
+      "defaultValue": [
+        "io.github.jdubois.bootui.engine.correlation.ManagedTasks",
+        "io.micrometer.context.",
+        "org.springframework.core.task.support.ContextPropagatingTaskDecorator",
+        "jdk.internal.",
+        "sun.",
+        "java.lang.ProcessHandleImpl",
+        "com.zaxxer.hikari.",
+        "com.github.benmanes.caffeine."
+      ],
+      "defaultValueSource": "BootUiProperties.java:3082 (AgentSensorSettings.DEFAULT_SKIP_TASKS)"
+    },
+    {
+      "name": "bootui.agent.executors.skip-threads",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Worker thread-name prefixes the sensor never propagates to, because their executor carries the context itself. With Reactor's automatic context propagation on, Reactor's scheduler threads are added.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent$Executors",
+      "defaultValue": [
+        "vert.x-",
+        "bootui-"
+      ],
+      "defaultValueSource": "BootUiProperties.java:3088 (AgentSensorSettings.DEFAULT_SKIP_THREADS)"
+    },
+    {
+      "name": "bootui.agent.mode",
+      "type": "java.lang.String",
+      "description": "The claim's mode: {@code dev}, {@code test}, or {@code auto}, which is {@code test} when the application starts under JUnit, TestNG, Cucumber, or Spring Boot's test support. A development application takes the agent over from a test one.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent",
+      "defaultValue": "auto"
+    },
+    {
+      "name": "bootui.agent.packages",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Application package prefixes the agent may instrument, in addition to the main application class's package and the auto-configuration packages.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent",
+      "defaultValue": [],
+      "defaultValueSource": "BootUiProperties.java:2955"
+    },
+    {
+      "name": "bootui.agent.ring-capacity",
+      "type": "java.lang.Integer",
+      "description": "The records the agent's transport ring holds before it drops new ones, clamped to 1,024 to 4,194,304 and rounded up to a power of two. Each record takes 64 bytes; the first claim of the JVM sizes the ring.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent",
+      "defaultValue": 65536,
+      "defaultValueSource": "BootUiProperties.java:2989 (AgentSensorSettings.DEFAULT_RING_CAPACITY)"
+    },
+    {
+      "name": "bootui.agent.security-sinks.request-values",
+      "type": "java.lang.Boolean",
+      "description": "Whether the current request's query and path parameter values of at least 4 characters are held while the request runs, so a sink it reaches (SQL text, a command, a file path, an outbound URL) can be checked for one appearing verbatim. Opt-in. The values are compared, never stored, logged, or displayed, and are forgotten when the response completes. Needs the {@code security-sinks} sensor.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent$SecuritySinks",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.agent.sensors",
+      "type": "java.util.List<java.lang.String>",
+      "description": "The agent sensors this application asks for. {@code executors} propagates a request's context through the JDK's executors, so work handed to a raw thread pool or {@code CompletableFuture} is owned by its request. {@code inventory} records which application methods ran in this run and which jars loaded classes. {@code code-paths} times the application's bean methods per request, as call trees. {@code processes} records the processes the application starts, for Side Effects: the command's file name, never its arguments or environment. {@code network} records the hosts the application connects to, the datagrams it sends, and the names the JVM resolves, for Side Effects: a host and port, never a byte sent or received. {@code files} records the files the application opens, deletes, moves, and copies, as path patterns, never contents. {@code blocking} records {@code Thread.sleep}, {@code Object.wait}, {@code LockSupport.park}, and the network and files sensors' blocking operations started on an event loop, for Side Effects. {@code resources} reports the sockets, file streams, and channels a request or a job left open past the request or never closed before the collector reclaimed them, never contents. An unknown sensor id fails the application's start. {@code threads}, opt-in, also propagates a request's context into threads started from application code and into virtual threads. {@code environment}, opt-in, records the names of the environment variables and system properties the application reads, never their values. {@code caught-exceptions}, opt-in, reports the exceptions application code catches and which of them are thrown again, never their message, to the runtime journal.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Agent",
+      "defaultValue": [
+        "executors",
+        "inventory",
+        "code-paths",
+        "processes",
+        "network",
+        "files",
+        "blocking",
+        "resources"
+      ],
+      "defaultValueSource": "BootUiProperties.java:2983 (AgentSensorSettings.DEFAULT_SENSORS)"
+    },
+    {
+      "name": "bootui.ai.max-recent-chats",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of recent chat completions surfaced by the AI panel.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Ai",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.ai.show-content-capture-banner",
+      "type": "java.lang.Boolean",
+      "description": "When true, BootUI surfaces a banner explaining that prompt/completion content is not captured by default.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Ai",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.ai.token-series-minutes",
+      "type": "java.lang.Integer",
+      "description": "Number of minutes retained in the per-minute token-usage series.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Ai",
+      "defaultValue": 60
+    },
+    {
+      "name": "bootui.allow-non-localhost",
+      "type": "java.lang.Boolean",
+      "description": "Allow non-loopback requests (explicit opt-out of safety).",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.allowed-hosts",
+      "type": "java.lang.String[]",
+      "description": "Additional Host header values accepted by the loopback safety filter, beyond the built-in loopback names (localhost, 127.0.0.1, ::1). Used to defend against DNS-rebinding attacks while still allowing custom local hostnames.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": []
+    },
+    {
+      "name": "bootui.api-path",
+      "type": "java.lang.String",
+      "description": "Internal API base path. Defaults to {@code bootui.path + \"/api\"}. Override only when the API must be served at a different sub-path from the UI (rare).",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": "/bootui/api",
+      "defaultValueSource": "BootUiProperties.java:49,273"
+    },
+    {
+      "name": "bootui.authentication.token",
+      "type": "java.lang.String",
+      "description": "Optional bearer token for non-loopback API access. When blank, BootUI generates one at startup.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Authentication",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:3524"
+    },
+    {
+      "name": "bootui.cache.activity-capture-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether BootUI wraps {@code CacheManager} beans to capture hit/miss/put/evict/clear accesses into the Live Activity panel's {@code CACHE} event type. Cache keys are always hashed, never recorded raw, regardless of value exposure. When {@code false}, no {@code CacheManager} is wrapped and cache accesses never appear in Live Activity.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cache",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.cache.activity-max-events",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of recent cache accesses retained in the in-memory ring buffer feeding Live Activity.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cache",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.cache.clear-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow BootUI to clear application caches from the Cache panel.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cache",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.claude-code.allow-raw-reveal",
+      "type": "java.lang.Boolean",
+      "description": "Allow the opt-in raw-event reveal endpoint. When {@code false}, the endpoint returns HTTP 404 even on the loopback interface.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ClaudeCode",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.claude-code.enabled",
+      "type": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mode",
+      "description": "Enable the Copilot panel. AUTO activates only when the session-state directory exists.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ClaudeCode",
+      "defaultValue": "auto"
+    },
+    {
+      "name": "bootui.claude-code.max-events-per-session",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of activity events retained per session in memory.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ClaudeCode",
+      "defaultValue": 2000
+    },
+    {
+      "name": "bootui.claude-code.max-parsed-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of recent session files parsed and retained in memory.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ClaudeCode",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.claude-code.max-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of recent sessions returned to the session explorer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ClaudeCode",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.claude-code.session-state-dir",
+      "type": "java.lang.String",
+      "description": "Override the directory scanned for Copilot CLI session-state directories. When {@code null}, defaults to {@code ${user.home}/.copilot/session-state}.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ClaudeCode",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:2455"
+    },
+    {
+      "name": "bootui.claude-code.stream-debounce",
+      "type": "java.time.Duration",
+      "description": "Debounce window applied to file-system events before refreshing parsed sessions and notifying SSE subscribers.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ClaudeCode",
+      "defaultValue": "400ms"
+    },
+    {
+      "name": "bootui.cli.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether {@code /bootui/api/cli} answers. {@code true} by default; {@code false} returns 503.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cli",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.cli.execution-timeout",
+      "type": "java.time.Duration",
+      "description": "Maximum wall-clock duration of one command-line tool invocation; default 30 seconds (504 on expiry).",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cli",
+      "defaultValue": "30s",
+      "defaultValueSource": "BootUiProperties.java:2647 (Duration.ofSeconds(30))"
+    },
+    {
+      "name": "bootui.cli.max-concurrent-calls",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of concurrent command-line tool invocations; default 20. Excess calls get a 429.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cli",
+      "defaultValue": 20,
+      "defaultValueSource": "BootUiProperties.java:2644"
+    },
+    {
+      "name": "bootui.cli.max-payload-bytes",
+      "type": "java.lang.Object",
+      "defaultValue": 1048576,
+      "defaultValueSource": "BootUiProperties.java:2638 (1 * 1024 * 1024)"
+    },
+    {
+      "name": "bootui.cli.max-response-bytes",
+      "type": "java.lang.Object",
+      "defaultValue": 4194304,
+      "defaultValueSource": "BootUiProperties.java:2650 (4 * 1024 * 1024)"
+    },
+    {
+      "name": "bootui.cli.max-results",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of items returned by paginated read tools in a single call. Mirrors {@code bootui.mcp.max-results} but is tracked separately so command-line traffic can be tuned without changing what agents see.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Cli",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.code-inventory.max-classes",
+      "type": "java.lang.Integer",
+      "description": "Most application classes the scan of the application's class files hashes; past it the scan is partial.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$CodeInventory",
+      "defaultValue": 20000,
+      "defaultValueSource": "BootUiProperties.java:2791 (CodeInventorySettings.DEFAULT_MAX_CLASSES)"
+    },
+    {
+      "name": "bootui.code-inventory.scan-timeout",
+      "type": "java.time.Duration",
+      "description": "Deadline of that scan, which runs off the request path once per run; past it the scan is partial.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$CodeInventory",
+      "defaultValue": "30s",
+      "defaultValueSource": "BootUiProperties.java:2794 (CodeInventorySettings.DEFAULT_SCAN_TIMEOUT)"
+    },
+    {
+      "name": "bootui.copilot.allow-raw-reveal",
+      "type": "java.lang.Boolean",
+      "description": "Allow the opt-in raw-event reveal endpoint. When {@code false}, the endpoint returns HTTP 404 even on the loopback interface.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Copilot",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.copilot.enabled",
+      "type": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mode",
+      "description": "Enable the Copilot panel. AUTO activates only when the session-state directory exists.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Copilot",
+      "defaultValue": "auto"
+    },
+    {
+      "name": "bootui.copilot.max-events-per-session",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of activity events retained per session in memory.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Copilot",
+      "defaultValue": 2000
+    },
+    {
+      "name": "bootui.copilot.max-parsed-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of recent session files parsed and retained in memory.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Copilot",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.copilot.max-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of recent sessions returned to the session explorer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Copilot",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.copilot.session-state-dir",
+      "type": "java.lang.String",
+      "description": "Override the directory scanned for Copilot CLI session-state directories. When {@code null}, defaults to {@code ${user.home}/.copilot/session-state}.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Copilot",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:2455"
+    },
+    {
+      "name": "bootui.copilot.stream-debounce",
+      "type": "java.time.Duration",
+      "description": "Debounce window applied to file-system events before refreshing parsed sessions and notifying SSE subscribers.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Copilot",
+      "defaultValue": "400ms"
+    },
+    {
+      "name": "bootui.dev-services.log-tail-bytes",
+      "type": "java.lang.Integer",
+      "description": "Maximum bytes returned by a single Dev Services log request.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$DevServices",
+      "defaultValue": 65536,
+      "defaultValueSource": "BootUiProperties.java:761 (64 * 1024)"
+    },
+    {
+      "name": "bootui.dev-services.restart-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow BootUI to restart Testcontainers-backed services.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$DevServices",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.disabled-profiles",
+      "type": "java.lang.String[]",
+      "description": "Profiles that force BootUI off, even when enabled by other rules.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": [
+        "prod",
+        "production"
+      ],
+      "defaultValueSource": "BootUiProperties.java:107 (BootUiDefaults.DISABLED_PROFILES)"
+    },
+    {
+      "name": "bootui.email.dev-trap",
+      "type": "java.lang.Boolean",
+      "description": "When {@code true}, captured messages are recorded but never actually handed to the real mail transport (like MailDev/GreenMail's dev-trap behavior). Off by default, so BootUI never silently swallows application mail.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Email",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.email.mask-content",
+      "type": "java.lang.Boolean",
+      "description": "When {@code true}, captured recipients/subject/body are masked unless {@code bootui.expose- values=FULL}, matching BootUI's config/secret masking. Off by default: email content is ordinary application data (not credentials), so it is revealed by default \u2014 like Laravel Telescope's Mail watcher and like BootUI's own HTTP Exchanges/SQL Trace panels \u2014 decoupled from the global secret-exposure flag so reading a test email never requires exposing unrelated production secrets (or vice versa).",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Email",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.email.max-body-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of characters retained per captured text/HTML body; a longer body is truncated at capture time. Bounds memory for a single oversized message the same way {@link #maxEntries} bounds the number of retained messages (attachment content is never captured in the first place, so only bodies need this cap).",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Email",
+      "defaultValue": 200000
+    },
+    {
+      "name": "bootui.email.max-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of captured messages retained; the oldest is evicted once full.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Email",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.enabled",
+      "type": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mode",
+      "description": "Enable BootUI. AUTO activates only in dev/local contexts.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": "auto"
+    },
+    {
+      "name": "bootui.enabled-profiles",
+      "type": "java.lang.String[]",
+      "description": "Profiles that trigger auto-activation.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": [
+        "dev",
+        "local"
+      ],
+      "defaultValueSource": "BootUiProperties.java:103 (BootUiDefaults.ENABLED_PROFILES)"
+    },
+    {
+      "name": "bootui.exceptions.max-groups",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of distinct exception groups retained by the Exceptions panel. When the limit is reached the group with the oldest most-recent occurrence is evicted.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Exceptions",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.exceptions.max-occurrences-per-group",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of recent occurrences retained per exception group.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Exceptions",
+      "defaultValue": 25
+    },
+    {
+      "name": "bootui.exceptions.max-stack-frames",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of stack-trace frames retained per exception (and per cause).",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Exceptions",
+      "defaultValue": 50
+    },
+    {
+      "name": "bootui.expose-values",
+      "type": "io.github.jdubois.bootui.core.ValueExposure",
+      "description": "How configuration values are exposed in the Config panel.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": "masked"
+    },
+    {
+      "name": "bootui.fault-tolerance.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether BootUI subscribes to the fault tolerance libraries' own event publishers and listeners. When {@code false}, declared policies are still listed but no outcome is captured and no {@code FAULT_TOLERANCE} entry reaches Live Activity.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$FaultTolerance",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.fault-tolerance.max-events",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of captured fault tolerance outcomes retained in the in-memory ring buffer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$FaultTolerance",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.force-web",
+      "type": "java.lang.Boolean",
+      "description": "While BootUI is active, force a non-web (command-line) application into a servlet web application so the BootUI console can be served. Has no effect on applications that are already servlet web applications or that are explicitly configured as reactive. Set to false to leave the host application's web-application type untouched.",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.free-on-idle.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether BootUI releases its live in-memory diagnostic buffers (captured SQL, ingested traces, and the request/security correlation windows) after the console has been idle for {@code timeout}, and stops recording into them until the console is used again. The Exceptions and Log Tail buffers are kept so a recent error is still visible when you open the console. Has no effect in production, where BootUI is inactive.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$FreeOnIdle",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.free-on-idle.timeout",
+      "type": "java.time.Duration",
+      "description": "How long the console may go without any request before its live buffers are released. The timer resets on every BootUI request (loading the UI, API polling, or opening a stream), so an open console never reclaims; only a genuinely unused one does. Clamped to a minimum of one second.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$FreeOnIdle",
+      "defaultValue": "5m"
+    },
+    {
+      "name": "bootui.github.allowed-api-hosts",
+      "type": "java.lang.String[]",
+      "description": "Additional allowed GitHub API hosts. GitHub.com is allowed by default.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$GitHub",
+      "defaultValue": [
+        "api.github.com"
+      ]
+    },
+    {
+      "name": "bootui.github.api-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow the GitHub panel refresh action to call GitHub APIs.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$GitHub",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.github.max-api-calls",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of GitHub API calls issued by one refresh.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$GitHub",
+      "defaultValue": 17
+    },
+    {
+      "name": "bootui.github.max-issues",
+      "type": "java.lang.Integer",
+      "description": "Maximum issues returned in one dashboard refresh.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$GitHub",
+      "defaultValue": 25
+    },
+    {
+      "name": "bootui.github.max-pull-requests",
+      "type": "java.lang.Integer",
+      "description": "Maximum pull requests returned in one dashboard refresh.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$GitHub",
+      "defaultValue": 10
+    },
+    {
+      "name": "bootui.github.max-security-alerts",
+      "type": "java.lang.Integer",
+      "description": "Maximum Dependabot alert details listed in one dashboard refresh. The alert count is still exact; only the inlined detail list is capped. Code scanning and secret scanning remain count-only and never inline alert details.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$GitHub",
+      "defaultValue": 50
+    },
+    {
+      "name": "bootui.github.max-workflow-runs",
+      "type": "java.lang.Integer",
+      "description": "Maximum workflow runs returned in one dashboard refresh.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$GitHub",
+      "defaultValue": 20
+    },
+    {
+      "name": "bootui.github.quota-safety-threshold",
+      "type": "java.lang.Integer",
+      "description": "Safety threshold below which optional GitHub calls are skipped.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$GitHub",
+      "defaultValue": 10
+    },
+    {
+      "name": "bootui.github.request-timeout",
+      "type": "java.time.Duration",
+      "description": "Timeout applied to each GitHub API request and local credential lookup.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$GitHub",
+      "defaultValue": "5s"
+    },
+    {
+      "name": "bootui.graalvm.max-repository-lookups",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of distinct dependency coordinates looked up against the reachability metadata repository in a single scan.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Graalvm",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.graalvm.repository-lookup-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow the GraalVM dependency survey to look up Oracle's GraalVM reachability metadata repository for per-version coverage of classpath dependencies. The lookup is the panel's only outbound network call and is performed only during a user-initiated dependency scan.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Graalvm",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.graalvm.repository-lookup-timeout",
+      "type": "java.time.Duration",
+      "description": "Timeout applied to each reachability metadata repository request.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Graalvm",
+      "defaultValue": "2s"
+    },
+    {
+      "name": "bootui.heap-dump.allow-raw-download",
+      "type": "java.lang.Boolean",
+      "description": "Allow downloading the raw {@code .hprof} file over HTTP. Disabled by default because the raw dump contains unmasked secrets.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$HeapDump",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.heap-dump.capture-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow on-demand heap dump capture. When {@code false}, the panel still exposes the live class histogram analysis but the capture endpoint is rejected.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$HeapDump",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.heap-dump.max-classes",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of classes retained in memory after a histogram analysis, ordered by retained bytes. Capping this value prevents very large heaps from exhausting memory. Must be &ge; {@code top-classes}.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$HeapDump",
+      "defaultValue": 1000
+    },
+    {
+      "name": "bootui.heap-dump.max-dumps",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of heap dump files retained on disk. Oldest dumps are deleted first.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$HeapDump",
+      "defaultValue": 5
+    },
+    {
+      "name": "bootui.heap-dump.output-dir",
+      "type": "java.lang.String",
+      "description": "Directory where captured heap dumps are written.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$HeapDump",
+      "defaultValue": ".bootui/heap-dumps"
+    },
+    {
+      "name": "bootui.heap-dump.top-classes",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of classes returned in the class histogram, ordered by retained bytes.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$HeapDump",
+      "defaultValue": 25
+    },
+    {
+      "name": "bootui.http-exchanges.max-exchanges",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of HTTP exchanges retained in the in-memory repository.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$HttpExchanges",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.http-exchanges.reserved-share-percent",
+      "type": "java.lang.Integer",
+      "description": "Percentage of the retained exchanges reserved for the most recent 5xx and slow exchanges (at or above {@code bootui.activity.request-slow-threshold-ms}), so routine traffic is evicted first. Taken out of {@code max-exchanges}, never added to it. Set to {@code 0} to evict strictly oldest first. Applies only when BootUI owns the repository.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$HttpExchanges",
+      "defaultValue": 25
+    },
+    {
+      "name": "bootui.http-sessions.max-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of active HTTP sessions returned by the HTTP Sessions panel.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$HttpSessions",
+      "defaultValue": 50
+    },
+    {
+      "name": "bootui.jms.capture-message-id",
+      "type": "java.lang.Boolean",
+      "description": "Whether a provider-assigned JMS message ID is retained as a truncated SHA-256 hash. The raw message ID is never stored.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Jms",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.jms.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether BootUI captures {@link org.springframework.jms.core.JmsTemplate} sends and {@code @JmsListener} deliveries into the Live Activity stream as {@code MESSAGING} entries. When {@code false}, no JMS bean is post-processed. Only takes effect when {@code spring-jms} is on the classpath.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Jms",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.jms.max-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of JMS messages retained in the in-memory ring buffer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Jms",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.jms.max-message-id-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained length of the JMS message ID's hex-encoded SHA-256 hash.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Jms",
+      "defaultValue": 16
+    },
+    {
+      "name": "bootui.kafka.capture-key",
+      "type": "java.lang.Boolean",
+      "description": "Whether a SHA-256 hash of the message key is retained alongside each captured entry (truncated to {@link #maxKeyLength}). The raw key is never retained. On by default since a Kafka key is typically a correlation/partitioning id rather than a secret, but this lets an application disable even the hash when its keys carry sensitive data. The message value/payload is never captured at all.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Kafka",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.kafka.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether BootUI captures {@code KafkaTemplate} sends and {@code @KafkaListener} deliveries into the Live Activity stream as {@code MESSAGING} entries. When {@code false}, no {@code KafkaTemplate}/listener container factory bean is post-processed. Only takes effect when {@code spring-kafka} is on the classpath.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Kafka",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.kafka.max-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of captured messages retained in the in-memory ring buffer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Kafka",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.kafka.max-key-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained length of the message key's hex-encoded SHA-256 hash.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Kafka",
+      "defaultValue": 16
+    },
+    {
+      "name": "bootui.log-tail.max-bytes",
+      "type": "java.lang.Long",
+      "description": "Approximate retained-byte budget for the in-memory Log Tail ring buffer, bounding it alongside its fixed line cap (oldest evicted first when either bound trips). {@code 0} (the default) means unbounded \u2014 preserving the Spring adapter's historical behaviour \u2014 and matches the Quarkus adapter's {@code bootui.log-tail.max-bytes} default, so the same key sizes the buffer identically on both frameworks.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$LogTail",
+      "defaultValue": 0
+    },
+    {
+      "name": "bootui.mask-secrets",
+      "type": "java.lang.Boolean",
+      "description": "Mask secret-like configuration values.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.mcp.enabled",
+      "type": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mode",
+      "description": "Initial state of the local MCP server. {@link Mode#OFF} by default (fail closed); {@link Mode#ON} starts the server enabled. {@link Mode#AUTO} is treated the same as {@link Mode#OFF} so the server is never silently exposed. The MCP Server panel can override this at runtime.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mcp",
+      "defaultValue": "off"
+    },
+    {
+      "name": "bootui.mcp.execution-timeout",
+      "type": "java.time.Duration",
+      "description": "Maximum wall-clock duration of one MCP tool invocation; default 30 seconds.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mcp",
+      "defaultValue": "30s",
+      "defaultValueSource": "BootUiProperties.java:2728 (McpProtocol.DEFAULT_EXECUTION_TIMEOUT_MILLIS)"
+    },
+    {
+      "name": "bootui.mcp.max-concurrent-calls",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of concurrent MCP tool invocations; default 20. Excess requests get a JSON-RPC error immediately.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mcp",
+      "defaultValue": 20,
+      "defaultValueSource": "BootUiProperties.java:2725 (McpProtocol.DEFAULT_MAX_CONCURRENT_CALLS)"
+    },
+    {
+      "name": "bootui.mcp.max-payload-bytes",
+      "type": "java.lang.Integer",
+      "description": "Maximum request payload bytes; default 1MB. Requests exceeding this are rejected before parsing.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mcp",
+      "defaultValue": 1048576,
+      "defaultValueSource": "BootUiProperties.java:2638 (1 * 1024 * 1024)"
+    },
+    {
+      "name": "bootui.mcp.max-response-bytes",
+      "type": "java.lang.Integer",
+      "description": "Maximum rendered JSON-RPC response size; default 4MB.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mcp",
+      "defaultValue": 4194304,
+      "defaultValueSource": "BootUiProperties.java:2650 (4 * 1024 * 1024)"
+    },
+    {
+      "name": "bootui.mcp.max-results",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of items returned by paginated read tools (config, beans, mappings, security logs, traces, HTTP exchanges) in a single call.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mcp",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.monitoring.exclude-self",
+      "type": "java.lang.Boolean",
+      "description": "Hide BootUI's own runtime data from monitoring panels.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Monitoring",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.mysql.max-indexes",
+      "type": "java.lang.Integer",
+      "description": "Maximum index activity rows per datasource. Requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mysql",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.mysql.max-lock-waits",
+      "type": "java.lang.Integer",
+      "description": "Maximum lock-wait observations per datasource. Requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mysql",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.mysql.max-replication-channels",
+      "type": "java.lang.Integer",
+      "description": "Maximum local replication channels per datasource. Requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mysql",
+      "defaultValue": 10
+    },
+    {
+      "name": "bootui.mysql.max-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum session rows per datasource; positive and below 2147483647. Requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mysql",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.mysql.max-settings",
+      "type": "java.lang.Integer",
+      "description": "Maximum displayed settings from the fixed allow-list. Requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mysql",
+      "defaultValue": 40
+    },
+    {
+      "name": "bootui.mysql.max-statements",
+      "type": "java.lang.Integer",
+      "description": "Maximum normalized statements ranked by total execution time. Requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mysql",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.mysql.max-tables",
+      "type": "java.lang.Integer",
+      "description": "Maximum table rows per datasource. Requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mysql",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.overrides-file",
+      "type": "java.lang.String",
+      "description": "Where local runtime overrides are persisted.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": ".bootui/application-bootui.properties"
+    },
+    {
+      "name": "bootui.panels",
+      "type": "java.util.Map<java.lang.String,io.github.jdubois.bootui.autoconfigure.BootUiProperties$Panel>",
+      "description": "Per-panel visibility and action settings keyed by panel id.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:82"
+    },
+    {
+      "name": "bootui.path",
+      "type": "java.lang.String",
+      "description": "UI base path. Must be an absolute path (starting with {@code /}), not {@code /}, and must not contain path-traversal, query, or fragment components. Trailing slashes are stripped. The API path is automatically derived as {@code path + \"/api\"} unless {@code bootui.api-path} is also set.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": "/bootui"
+    },
+    {
+      "name": "bootui.postgresql.max-indexes",
+      "type": "java.lang.Integer",
+      "description": "Maximum index rows per datasource. Must be between 1 and 2147483646; requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Postgresql",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.postgresql.max-replicas",
+      "type": "java.lang.Integer",
+      "description": "Maximum replica rows per datasource. Must be between 1 and 2147483646; requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Postgresql",
+      "defaultValue": 10
+    },
+    {
+      "name": "bootui.postgresql.max-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum session rows per datasource. Must be between 1 and 2147483646; requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Postgresql",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.postgresql.max-settings",
+      "type": "java.lang.Integer",
+      "description": "Maximum curated setting rows per datasource. Must be between 1 and 2147483646; requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Postgresql",
+      "defaultValue": 40
+    },
+    {
+      "name": "bootui.postgresql.max-statements",
+      "type": "java.lang.Integer",
+      "description": "Maximum statements ranked by total execution time. Must be between 1 and 2147483646; requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Postgresql",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.postgresql.max-tables",
+      "type": "java.lang.Integer",
+      "description": "Maximum table rows per datasource. Must be between 1 and 2147483646; requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Postgresql",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.postgresql.max-vacuum-tables",
+      "type": "java.lang.Integer",
+      "description": "Maximum autovacuum table rows per datasource. Must be between 1 and 2147483646; requires restart.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Postgresql",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.rabbitmq.capture-correlation-id",
+      "type": "java.lang.Boolean",
+      "description": "Whether the AMQP correlation ID is retained (as a short SHA-256 hash, truncated to {@link #maxCorrelationIdLength}) alongside each captured entry. Off by default since correlation IDs in AMQP messages can carry business-sensitive identifiers (order IDs, user IDs, etc.). When enabled, only the hash is stored \u2014 never the raw value.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Rabbitmq",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.rabbitmq.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether BootUI captures {@code RabbitTemplate} publishes and {@code @RabbitListener} deliveries into the Live Activity stream as {@code MESSAGING} entries. When {@code false}, no {@code RabbitTemplate}/listener container factory bean is post-processed. Only takes effect when {@code spring-boot-starter-amqp} (and thus {@code spring-rabbit}) is on the classpath.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Rabbitmq",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.rabbitmq.max-correlation-id-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained length of a captured correlation ID hash; longer hashes are truncated.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Rabbitmq",
+      "defaultValue": 16
+    },
+    {
+      "name": "bootui.rabbitmq.max-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of captured messages retained in the in-memory ring buffer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Rabbitmq",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.read-only",
+      "type": "java.lang.Boolean",
+      "description": "Disable every browser-triggered action while keeping read-only panel data visible.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.resources.jfr.max-duration",
+      "type": "java.time.Duration",
+      "description": "How long a session records once the developer starts it. Between 1 s and 10 min.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Resources$Jfr",
+      "defaultValue": "30s",
+      "defaultValueSource": "BootUiProperties.java:3168 (ResourceSettings.DEFAULT_JFR_MAX_DURATION)"
+    },
+    {
+      "name": "bootui.resources.max-threads",
+      "type": "java.lang.Integer",
+      "description": "The most platform threads one sweep reads; the CPU time of the others counts as the JVM's own work.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Resources",
+      "defaultValue": 500,
+      "defaultValueSource": "BootUiProperties.java:3135 (ResourceSettings.DEFAULT_MAX_THREADS)"
+    },
+    {
+      "name": "bootui.resources.sample-interval",
+      "type": "java.time.Duration",
+      "description": "How often the sampler sweeps the JVM's threads, CPU time, and heap. At least 100 ms.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Resources",
+      "defaultValue": "1s",
+      "defaultValueSource": "BootUiProperties.java:3132 (ResourceSettings.DEFAULT_SAMPLE_INTERVAL)"
+    },
+    {
+      "name": "bootui.rest-client-trace.capture-call-site",
+      "type": "java.lang.Boolean",
+      "description": "Whether each captured call records the first application stack frame that triggered it (e.g. {@code OrderClient.findAll(OrderClient.java:42)}), shown per call and aggregated per group so a flagged chatty group shows exactly where in the code to go fix it. On by default: unlike headers, a call site names only the application's own code (class/method/line), never a value, so it carries no sensitive-data risk \u2014 this toggle is purely about the small per-call stack-walk cost, not privacy.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.rest-client-trace.capture-headers",
+      "type": "java.lang.Boolean",
+      "description": "Whether request headers are captured alongside each call. Off by default because header values may contain sensitive data; when enabled, values are captured as-is (subject to truncation) and then masked by header name (e.g. {@code Authorization}) at read/report time according to the live exposure policy.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.rest-client-trace.chatty-call-threshold",
+      "type": "java.lang.Integer",
+      "description": "Number of calls to the same method/host/path (with numeric and UUID path segments normalized) within the buffer before the group is flagged as a likely chatty (repeated-call) access pattern. Minimum {@code 2}.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": 5
+    },
+    {
+      "name": "bootui.rest-client-trace.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether BootUI instruments Spring's {@code RestClient}, {@code RestTemplate}, and {@code WebClient} beans to capture outbound HTTP calls. When {@code false}, no customizer is registered.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.rest-client-trace.max-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of outbound calls retained in the in-memory ring buffer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.rest-client-trace.max-header-value-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained length of a single captured header value.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.rest-client-trace.max-uri-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained length of the request URI and path; longer values are truncated.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": 2000
+    },
+    {
+      "name": "bootui.rest-client-trace.recording",
+      "type": "java.lang.Boolean",
+      "description": "Whether new calls are recorded into the in-memory buffer. Recording can be paused and resumed at runtime from the panel without removing the client instrumentation; this sets the initial state.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.rest-client-trace.reserved-share-percent",
+      "type": "java.lang.Integer",
+      "description": "Percentage of the retained calls reserved for the most recent failed, error-response ({@code 4xx}/{@code 5xx}), and slow calls, so routine calls are evicted first. Taken out of {@code max-entries}, never added to it. Set to {@code 0} to evict strictly oldest first.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": 25
+    },
+    {
+      "name": "bootui.rest-client-trace.slow-call-threshold-millis",
+      "type": "java.lang.Long",
+      "description": "Calls taking at least this many milliseconds are flagged as slow. Set to {@code 0} to disable slow-call flagging. Defaults higher than SQL Trace's threshold since outbound HTTP calls are typically slower than a single SQL execution.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RestClientTrace",
+      "defaultValue": 1000
+    },
+    {
+      "name": "bootui.runtime-insights.ai-token-threshold",
+      "type": "java.lang.Long",
+      "description": "Tokens of one model call above which AI usage by route reports the route from that call alone, rather than from three operations.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RuntimeInsights",
+      "defaultValue": 8000,
+      "defaultValueSource": "BootUiProperties.java:2776 (AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD)"
+    },
+    {
+      "name": "bootui.runtime-journal.agent-evidence-max-bytes",
+      "type": "org.springframework.util.unit.DataSize",
+      "description": "Maximum memory the BootUI agent's evidence kept outside the journal may use, estimated: Code Paths' request and route trees, Code Inventory's first calls, and Side Effects' rows. Unset means about 68 MB, the sum of their fixed caps; a smaller value shrinks Code Paths' trees and Side Effects' rows in proportion, and Code Inventory's first calls, bounded by the agent's method limit, are only counted.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RuntimeJournal",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:2844"
+    },
+    {
+      "name": "bootui.runtime-journal.baseline-file",
+      "type": "java.lang.String",
+      "description": "File that keeps the summary of the last run across a full JVM restart, such as {@code target/bootui-baseline.bin}: written when a run ends and read at the next start when this JVM keeps no previous run. It holds route templates, statement fingerprints, edges, counts, and histograms only. Relative to the working directory; its directory must exist. Unset writes and reads nothing.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RuntimeJournal",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:2866"
+    },
+    {
+      "name": "bootui.runtime-journal.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the journal records runtime events.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RuntimeJournal",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.runtime-journal.max-bytes",
+      "type": "org.springframework.util.unit.DataSize",
+      "description": "Maximum memory the retained events may use, estimated per event. Unset means the smaller of 32 MB and 5 % of the maximum heap.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RuntimeJournal",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:2836"
+    },
+    {
+      "name": "bootui.runtime-journal.max-events",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of events retained as evidence. Aggregates count every event, retained or not.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RuntimeJournal",
+      "defaultValue": 50000,
+      "defaultValueSource": "BootUiProperties.java:2830 (RuntimeJournalSettings.DEFAULT_MAX_EVENTS)"
+    },
+    {
+      "name": "bootui.runtime-journal.queue-capacity",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events; beyond it, events are dropped and counted, and the application thread never waits.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RuntimeJournal",
+      "defaultValue": 10000,
+      "defaultValueSource": "BootUiProperties.java:2850 (RuntimeJournalSettings.DEFAULT_QUEUE_CAPACITY)"
+    },
+    {
+      "name": "bootui.runtime-journal.sources",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Sources to record: {@code http}, {@code sql}, {@code transaction}, {@code connection}, {@code exception}, {@code security}, {@code authorization}, {@code rest-client}, {@code cache}, {@code messaging}, {@code scheduled}, {@code log}, {@code mail}, {@code fault-tolerance}, {@code ai}, {@code lifecycle}, {@code gc}, and {@code resources}. Unset means every source; an unknown name fails startup.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$RuntimeJournal",
+      "defaultValue": null,
+      "defaultValueSource": "BootUiProperties.java:2858"
+    },
+    {
+      "name": "bootui.security-logs.max-logs",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of recent audit events retained in a single Security Logs response.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SecurityLogs",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.show-banner",
+      "type": "java.lang.Boolean",
+      "description": "Print the BootUI URL on application startup.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.sql-trace.capture-call-site",
+      "type": "java.lang.Boolean",
+      "description": "Whether each captured statement records the first application stack frame that triggered it (e.g. {@code OrderRepository.findByCustomer(OrderRepository.java:42)}), shown per execution and aggregated per group so a flagged N+1 group shows exactly where in the code to go fix it. On by default: unlike bound parameters, a call site names only the application's own code (class/method/line), never a value, so it carries no sensitive-data risk \u2014 this toggle is purely about the small per-statement stack-walk cost, not privacy.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.sql-trace.capture-parameters",
+      "type": "java.lang.Boolean",
+      "description": "Whether bound statement parameters are captured alongside the SQL text. Off by default because parameter values may contain sensitive data; metadata-only value exposure additionally suppresses parameters even when this is enabled.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.sql-trace.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether BootUI wraps {@code DataSource} beans with its hand-written JDBC tracing proxy to capture executed SQL. When {@code false}, no data source is wrapped.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.sql-trace.max-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of executed statements retained in the in-memory ring buffer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.sql-trace.max-parameter-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained length of a single captured parameter value.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.sql-trace.max-sql-length",
+      "type": "java.lang.Integer",
+      "description": "Maximum retained SQL text length; longer statements are truncated.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": 2000
+    },
+    {
+      "name": "bootui.sql-trace.n-plus-one-threshold",
+      "type": "java.lang.Integer",
+      "description": "Number of times an identical {@code SELECT} must repeat within the buffer before it is flagged as a likely N+1 access pattern. Minimum {@code 2}.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": 5
+    },
+    {
+      "name": "bootui.sql-trace.recording",
+      "type": "java.lang.Boolean",
+      "description": "Whether new executions are recorded into the in-memory buffer. Recording can be paused and resumed at runtime from the panel without unwrapping {@code DataSource} beans; this sets the initial state.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.sql-trace.reserved-share-percent",
+      "type": "java.lang.Integer",
+      "description": "Percentage of the retained executions reserved for the most recent failed and slow executions, so routine executions are evicted first. Taken out of {@code max-entries}, never added to it. Set to {@code 0} to evict strictly oldest first.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": 25
+    },
+    {
+      "name": "bootui.sql-trace.slow-query-threshold-millis",
+      "type": "java.lang.Long",
+      "description": "Executions taking at least this many milliseconds are flagged as slow. Set to {@code 0} to disable slow-query flagging.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$SqlTrace",
+      "defaultValue": 100
+    },
+    {
+      "name": "bootui.startup.capacity",
+      "type": "java.lang.Integer",
+      "description": "Maximum startup steps retained by BootUI's auto-installed startup buffer. Values less than or equal to zero disable the buffer.",
+      "defaultValue": 4096
+    },
+    {
+      "name": "bootui.startup.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Install a BufferingApplicationStartup automatically while BootUI is active so the Startup Timeline panel has data.",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.telemetry.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Capture local trace spans and accept OTLP/HTTP trace payloads at the BootUI OTLP endpoint.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Telemetry",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.telemetry.enrich",
+      "type": "java.lang.Boolean",
+      "description": "Stamp BootUI {@code bootui.*} enrichment attributes on request spans (service identity, SQL volume / N+1 suspicion, exception presence) so a cross-service trace waterfall carries BootUI depth. On by default when telemetry is enabled; set to {@code false} to leave capture on but suppress enrichment.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Telemetry",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.telemetry.exclude-self-spans",
+      "type": "java.lang.Boolean",
+      "description": "Drop spans whose route/path attribute starts with the BootUI API path.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Telemetry",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.telemetry.max-attribute-value-bytes",
+      "type": "java.lang.Integer",
+      "description": "Maximum length of a single attribute string value before truncation.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Telemetry",
+      "defaultValue": 4096,
+      "defaultValueSource": "BootUiProperties.java:2307 (4 * 1024)"
+    },
+    {
+      "name": "bootui.telemetry.max-request-bytes",
+      "type": "java.lang.Integer",
+      "description": "Maximum payload size (bytes) accepted by the OTLP receiver.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Telemetry",
+      "defaultValue": 8388608,
+      "defaultValueSource": "BootUiProperties.java:2325 (8 * 1024 * 1024)"
+    },
+    {
+      "name": "bootui.telemetry.max-spans-per-trace",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of spans retained per trace.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Telemetry",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.telemetry.max-traces",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of distinct traces retained in memory. Oldest are evicted.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Telemetry",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.threads.capture-deadline-millis",
+      "type": "java.lang.Long",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 2000
+    },
+    {
+      "name": "bootui.threads.include-synchronizers",
+      "type": "java.lang.Boolean",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": false
+    },
+    {
+      "name": "bootui.threads.max-capture-bytes",
+      "type": "java.lang.Long",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 4194304,
+      "defaultValueSource": "BootUiProperties.java:2067 (4 * 1024 * 1024L)"
+    },
+    {
+      "name": "bootui.threads.max-captures",
+      "type": "java.lang.Integer",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 6
+    },
+    {
+      "name": "bootui.threads.max-owned-locks",
+      "type": "java.lang.Integer",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 256
+    },
+    {
+      "name": "bootui.threads.max-retained-bytes",
+      "type": "java.lang.Long",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 16777216,
+      "defaultValueSource": "BootUiProperties.java:2066 (16 * 1024 * 1024L)"
+    },
+    {
+      "name": "bootui.threads.max-stack-depth",
+      "type": "java.lang.Integer",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 128
+    },
+    {
+      "name": "bootui.threads.max-threads",
+      "type": "java.lang.Integer",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 2048,
+      "defaultValueSource": "BootUiProperties.java:2060"
+    },
+    {
+      "name": "bootui.threads.observation-interval-millis",
+      "type": "java.lang.Long",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 5000
+    },
+    {
+      "name": "bootui.threads.observation-samples",
+      "type": "java.lang.Integer",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 3
+    },
+    {
+      "name": "bootui.threads.ttl-millis",
+      "type": "java.lang.Long",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Threads",
+      "defaultValue": 300000
+    },
+    {
+      "name": "bootui.transactions.connection-hold-threshold-millis",
+      "type": "java.lang.Long",
+      "description": "Transactions taking at least this many milliseconds are flagged as holding a pooled connection too long. Set to {@code 0} to disable connection-hold flagging.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Transactions",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.transactions.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether BootUI registers its transaction-execution listener against {@code PlatformTransactionManager} beans to capture transaction boundaries. When {@code false}, no listener is registered.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Transactions",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.transactions.max-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of completed transactions retained in the in-memory ring buffer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Transactions",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.transactions.recording",
+      "type": "java.lang.Boolean",
+      "description": "Whether new transactions are recorded into the in-memory buffer. Recording can be paused and resumed at runtime from the panel without unregistering the listener; this sets the initial state.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Transactions",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.transactions.slow-transaction-threshold-millis",
+      "type": "java.lang.Long",
+      "description": "Transactions taking at least this many milliseconds are flagged as slow. Set to {@code 0} to disable slow-transaction flagging.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Transactions",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.trust-container-gateway",
+      "type": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Mode",
+      "description": "Trust the auto-detected container default gateway as a single /32 so BootUI can be reached inside a container with a published port (host->container traffic is SNAT'd to the gateway) without a broad bootui.trusted-proxies CIDR. Defaults to OFF (fail closed); AUTO and ON are explicit opt-ins. OFF never trusts it; AUTO trusts it only when running inside a container; ON trusts a detected gateway even if container heuristics are inconclusive. Relaxes only the source-address check; the Host allow-list and cross-site write protections stay in force.",
+      "defaultValue": "OFF"
+    },
+    {
+      "name": "bootui.trusted-proxies",
+      "type": "java.lang.String[]",
+      "description": "Source IP ranges (CIDR notation, e.g. {@code 172.16.0.0/12}) that are trusted in addition to loopback by the safety filter. Lets local Docker-bridge callers reach BootUI without disabling the Host allow-list (DNS-rebinding defense) or the cross-site write protection (CSRF defense), unlike the all-or-nothing {@code bootui.allow-non-localhost}. Empty by default.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties",
+      "defaultValue": []
+    },
+    {
+      "name": "bootui.vulnerabilities.epss-base-uri",
+      "type": "java.lang.String",
+      "description": "Base URI of the FIRST.org EPSS API queried during a scan. Configurable mainly so tests can point at a local stub; defaults to the public EPSS endpoint, and matches the Quarkus adapter's {@code bootui.vulnerabilities.epss-base-uri} key.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Vulnerabilities",
+      "defaultValue": "https://api.first.org"
+    },
+    {
+      "name": "bootui.vulnerabilities.epss-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow enriching CVE-aliased advisories with FIRST.org EPSS (exploit-probability) scores during a scan. Same on-demand-only network behaviour as {@code osvEnabled}: only called from the user-initiated scan action, never on page render.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Vulnerabilities",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.vulnerabilities.max-advisories",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of advisory details fetched after the package query.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Vulnerabilities",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.vulnerabilities.max-packages",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of dependency packages included in one OSV batch query. Packages beyond this bound are reported as {@code scan.packagesSkipped} rather than silently dropped. The default is sized to cover a typical Spring Boot application's full JAR set, which commonly exceeds 300 dependencies.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Vulnerabilities",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.vulnerabilities.osv-base-uri",
+      "type": "java.lang.String",
+      "description": "Base URI of the OSV.dev API queried during a scan. Configurable mainly so tests can point at a local stub; defaults to the public OSV endpoint, preserving the panel's existing network behaviour, and matches the Quarkus adapter's {@code bootui.vulnerabilities.osv-base-uri} key.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Vulnerabilities",
+      "defaultValue": "https://api.osv.dev"
+    },
+    {
+      "name": "bootui.vulnerabilities.osv-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow on-demand vulnerability scans against OSV.dev.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Vulnerabilities",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.vulnerabilities.request-timeout",
+      "type": "java.time.Duration",
+      "description": "Timeout applied to each OSV request.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$Vulnerabilities",
+      "defaultValue": "10s"
+    },
+    {
+      "name": "bootui.websockets.capturing",
+      "type": "java.lang.Boolean",
+      "description": "Whether activity capture starts in the recording state. Toggleable at runtime from the panel.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$WebSockets",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.websockets.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the WebSockets panel installs its capture bindings at all. When {@code false} no decorator or channel interceptor is contributed, and the panel reports endpoints only.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$WebSockets",
+      "defaultValue": true
+    },
+    {
+      "name": "bootui.websockets.max-activity-entries",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of activity entries retained in the bounded in-memory buffer.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$WebSockets",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.websockets.max-endpoints",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of endpoints serialized into one report.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$WebSockets",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.websockets.max-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of sessions serialized into one report.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$WebSockets",
+      "defaultValue": 200
+    },
+    {
+      "name": "bootui.websockets.max-subscriptions",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of STOMP subscriptions serialized into one report.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$WebSockets",
+      "defaultValue": 500
+    },
+    {
+      "name": "bootui.websockets.max-tracked-sessions",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of sessions for which per-session counters are retained.",
+      "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$WebSockets",
+      "defaultValue": 2000
+    }
+  ]
+}

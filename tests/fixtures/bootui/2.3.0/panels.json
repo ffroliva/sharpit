@@ -1,0 +1,520 @@
+{
+  "panels": [
+    {
+      "id": "overview",
+      "title": "Scorecard",
+      "actionCapable": false,
+      "apiPrefixes": []
+    },
+    {
+      "id": "health",
+      "title": "Health",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/health"
+      ]
+    },
+    {
+      "id": "http-sessions",
+      "title": "HTTP Sessions",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/http-sessions"
+      ]
+    },
+    {
+      "id": "metrics",
+      "title": "Metrics",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/metrics"
+      ]
+    },
+    {
+      "id": "live-memory",
+      "title": "Live Memory",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/live-memory"
+      ]
+    },
+    {
+      "id": "jvm-tuning",
+      "title": "JVM Tuning",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/jvm-tuning"
+      ]
+    },
+    {
+      "id": "heap-dump",
+      "title": "Heap Dump",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/heap-dump"
+      ]
+    },
+    {
+      "id": "threads",
+      "title": "Threads",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/threads"
+      ]
+    },
+    {
+      "id": "memory",
+      "title": "Memory",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/memory"
+      ]
+    },
+    {
+      "id": "startup",
+      "title": "Startup Timeline",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/startup"
+      ]
+    },
+    {
+      "id": "graalvm",
+      "title": "GraalVM",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/graalvm"
+      ]
+    },
+    {
+      "id": "config",
+      "title": "Configuration",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/config"
+      ]
+    },
+    {
+      "id": "profile-diff",
+      "title": "Profile Diff",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/profile-diff"
+      ]
+    },
+    {
+      "id": "loggers",
+      "title": "Loggers",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/loggers"
+      ]
+    },
+    {
+      "id": "beans",
+      "title": "Beans",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/beans"
+      ]
+    },
+    {
+      "id": "conditions",
+      "title": "Conditions",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/conditions"
+      ]
+    },
+    {
+      "id": "mappings",
+      "title": "Mappings",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/mappings"
+      ]
+    },
+    {
+      "id": "spring-security",
+      "title": "Spring Security",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/spring-security"
+      ]
+    },
+    {
+      "id": "security",
+      "title": "Security",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/security"
+      ]
+    },
+    {
+      "id": "security-logs",
+      "title": "Security Logs",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/security-logs"
+      ]
+    },
+    {
+      "id": "pentesting",
+      "title": "Pentesting",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/pentesting"
+      ]
+    },
+    {
+      "id": "scheduled",
+      "title": "Scheduled Tasks",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/scheduled"
+      ]
+    },
+    {
+      "id": "database-connection-pools",
+      "title": "Database Connection Pools",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/database-connection-pools"
+      ]
+    },
+    {
+      "id": "postgresql",
+      "title": "PostgreSQL",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/postgresql"
+      ]
+    },
+    {
+      "id": "mysql",
+      "title": "MySQL",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/mysql"
+      ]
+    },
+    {
+      "id": "transactions",
+      "title": "Transactions",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/transactions"
+      ]
+    },
+    {
+      "id": "data",
+      "title": "Spring Data",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/data"
+      ]
+    },
+    {
+      "id": "hibernate",
+      "title": "Hibernate",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/hibernate"
+      ]
+    },
+    {
+      "id": "hibernate-statistics",
+      "title": "Hibernate Statistics",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/hibernate-statistics"
+      ]
+    },
+    {
+      "id": "database-advisor",
+      "title": "Database",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/database-advisor"
+      ]
+    },
+    {
+      "id": "cache",
+      "title": "Cache",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/cache"
+      ]
+    },
+    {
+      "id": "traces",
+      "title": "Traces",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/traces"
+      ]
+    },
+    {
+      "id": "log-tail",
+      "title": "Log Tail",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/log-tail"
+      ]
+    },
+    {
+      "id": "exceptions",
+      "title": "Exceptions",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/exceptions"
+      ]
+    },
+    {
+      "id": "http-exchanges",
+      "title": "HTTP Exchanges",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/http-exchanges"
+      ]
+    },
+    {
+      "id": "http-probe",
+      "title": "HTTP Probe",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/http-probe"
+      ]
+    },
+    {
+      "id": "architecture",
+      "title": "Architecture",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/architecture"
+      ]
+    },
+    {
+      "id": "vulnerabilities",
+      "title": "Vulnerabilities",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/vulnerabilities"
+      ]
+    },
+    {
+      "id": "devtools",
+      "title": "Spring DevTools",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/devtools"
+      ]
+    },
+    {
+      "id": "dev-services",
+      "title": "Dev Services",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/dev-services"
+      ]
+    },
+    {
+      "id": "copilot",
+      "title": "Copilot",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/copilot"
+      ]
+    },
+    {
+      "id": "claude-code",
+      "title": "Claude Code",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/claude-code"
+      ]
+    },
+    {
+      "id": "flyway",
+      "title": "Flyway",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/flyway"
+      ]
+    },
+    {
+      "id": "liquibase",
+      "title": "Liquibase",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/liquibase"
+      ]
+    },
+    {
+      "id": "github",
+      "title": "GitHub",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/github"
+      ]
+    },
+    {
+      "id": "rest-api",
+      "title": "REST API",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/rest-api"
+      ]
+    },
+    {
+      "id": "spring",
+      "title": "Spring",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/spring"
+      ]
+    },
+    {
+      "id": "crac",
+      "title": "CRaC",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/crac"
+      ]
+    },
+    {
+      "id": "sql-trace",
+      "title": "SQL Trace",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/sql-trace"
+      ]
+    },
+    {
+      "id": "rest-client-trace",
+      "title": "REST Client",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/rest-client-trace"
+      ]
+    },
+    {
+      "id": "ai",
+      "title": "AI Framework",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/ai"
+      ]
+    },
+    {
+      "id": "mcp-server",
+      "title": "MCP Server",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/mcp-server"
+      ]
+    },
+    {
+      "id": "cli",
+      "title": "Command Line",
+      "actionCapable": false,
+      "apiPrefixes": []
+    },
+    {
+      "id": "java-agent",
+      "title": "Java Agent",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/java-agent"
+      ]
+    },
+    {
+      "id": "activity",
+      "title": "Live Activity",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/activity"
+      ]
+    },
+    {
+      "id": "runtime-insights",
+      "title": "Runtime Insights",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/runtime-insights"
+      ]
+    },
+    {
+      "id": "code-inventory",
+      "title": "Code Inventory",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/code-inventory"
+      ]
+    },
+    {
+      "id": "code-paths",
+      "title": "Code Paths",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/code-paths"
+      ]
+    },
+    {
+      "id": "side-effects",
+      "title": "Side Effects",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/side-effects"
+      ]
+    },
+    {
+      "id": "email",
+      "title": "Email",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/email"
+      ]
+    },
+    {
+      "id": "kafka",
+      "title": "Kafka",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/kafka"
+      ]
+    },
+    {
+      "id": "rabbitmq",
+      "title": "RabbitMQ",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/rabbitmq"
+      ]
+    },
+    {
+      "id": "jms",
+      "title": "JMS",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/jms"
+      ]
+    },
+    {
+      "id": "fault-tolerance",
+      "title": "Fault Tolerance",
+      "actionCapable": false,
+      "apiPrefixes": [
+        "/fault-tolerance"
+      ]
+    },
+    {
+      "id": "websockets",
+      "title": "WebSockets",
+      "actionCapable": true,
+      "apiPrefixes": [
+        "/websockets"
+      ]
+    }
+  ]
+}

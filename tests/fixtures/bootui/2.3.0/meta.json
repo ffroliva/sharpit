@@ -1,0 +1,19 @@
+{
+  "bootuiVersion": "2.3.0",
+  "commit": "7c89042c6a0a47e1cb22d2df7412d2177d7416d1",
+  "tag": "v2.3.0",
+  "command": "powershell scripts/capture_bootui_23.ps1",
+  "mavenCommand": "mvn -pl bootui-spring-boot-starter -am -DskipTests -Dmaven.compiler.proc=full compile",
+  "jdk": "Amazon Corretto 25.0.3_9 (target release 17)",
+  "captured": "2026-11-10",
+  "fixtures": [
+    "meta.json",
+    "panels.json",
+    "routes.json",
+    "tools.json",
+    "rule-ids.json",
+    "rule-ids-diff.json",
+    "properties.json",
+    "bootui-tests.json"
+  ]
+}

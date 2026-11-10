@@ -1,0 +1,3479 @@
+{
+  "reads": [
+    {
+      "method": "GET",
+      "path": "/overview",
+      "panel": "overview",
+      "operationId": "read_overview",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "panel": "health",
+      "operationId": "read_health",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/http-sessions",
+      "panel": "http-sessions",
+      "operationId": "read_http_sessions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "panel": "metrics",
+      "operationId": "read_metrics",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/live-memory",
+      "panel": "live-memory",
+      "operationId": "read_live_memory",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/jvm-tuning",
+      "panel": "jvm-tuning",
+      "operationId": "read_jvm_tuning",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/heap-dump",
+      "panel": "heap-dump",
+      "operationId": "read_heap_dump",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/threads",
+      "panel": "threads",
+      "operationId": "read_threads",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/memory",
+      "panel": "memory",
+      "operationId": "read_memory",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/startup",
+      "panel": "startup",
+      "operationId": "read_startup",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/graalvm",
+      "panel": "graalvm",
+      "operationId": "read_graalvm",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/scheduled",
+      "panel": "scheduled",
+      "operationId": "read_scheduled",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/fault-tolerance",
+      "panel": "fault-tolerance",
+      "operationId": "read_fault_tolerance",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/config",
+      "panel": "config",
+      "operationId": "read_config",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/profile-diff",
+      "panel": "profile-diff",
+      "operationId": "read_profile_diff",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/loggers",
+      "panel": "loggers",
+      "operationId": "read_loggers",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/beans",
+      "panel": "beans",
+      "operationId": "read_beans",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/conditions",
+      "panel": "conditions",
+      "operationId": "read_conditions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/mappings/flat",
+      "panel": "mappings",
+      "operationId": "read_mappings",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/data/repositories",
+      "panel": "data",
+      "operationId": "read_data",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/flyway/migrations",
+      "panel": "flyway",
+      "operationId": "read_flyway",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/liquibase/changesets",
+      "panel": "liquibase",
+      "operationId": "read_liquibase",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/database-connection-pools/pools",
+      "panel": "database-connection-pools",
+      "operationId": "read_database_connection_pools",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/postgresql",
+      "panel": "postgresql",
+      "operationId": "read_postgresql",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/mysql",
+      "panel": "mysql",
+      "operationId": "read_mysql",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/hibernate-statistics",
+      "panel": "hibernate-statistics",
+      "operationId": "read_hibernate_statistics",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/cache",
+      "panel": "cache",
+      "operationId": "read_cache",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/spring-security",
+      "panel": "spring-security",
+      "operationId": "read_spring_security",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/security",
+      "panel": "security",
+      "operationId": "read_security",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/security-logs",
+      "panel": "security-logs",
+      "operationId": "read_security_logs",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/pentesting",
+      "panel": "pentesting",
+      "operationId": "read_pentesting",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/ai/overview",
+      "panel": "ai",
+      "operationId": "read_ai",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/traces",
+      "panel": "traces",
+      "operationId": "read_traces",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/exceptions",
+      "panel": "exceptions",
+      "operationId": "read_exceptions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/http-exchanges",
+      "panel": "http-exchanges",
+      "operationId": "read_http_exchanges",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/vulnerabilities",
+      "panel": "vulnerabilities",
+      "operationId": "read_vulnerabilities",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/dev-services",
+      "panel": "dev-services",
+      "operationId": "read_dev_services",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/devtools",
+      "panel": "devtools",
+      "operationId": "read_devtools",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/copilot/dashboard",
+      "panel": "copilot",
+      "operationId": "read_copilot",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/claude-code/dashboard",
+      "panel": "claude-code",
+      "operationId": "read_claude_code",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/github",
+      "panel": "github",
+      "operationId": "read_github",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/spring",
+      "panel": "spring",
+      "operationId": "read_spring",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/crac",
+      "panel": "crac",
+      "operationId": "read_crac",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/sql-trace",
+      "panel": "sql-trace",
+      "operationId": "read_sql_trace",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/transactions",
+      "panel": "transactions",
+      "operationId": "read_transactions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/rest-client-trace",
+      "panel": "rest-client-trace",
+      "operationId": "read_rest_client_trace",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/mcp-server",
+      "panel": "mcp-server",
+      "operationId": "read_mcp_server",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/cli",
+      "panel": "cli",
+      "operationId": "read_cli",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/activity",
+      "panel": "activity",
+      "operationId": "read_activity",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/runtime-insights",
+      "panel": "runtime-insights",
+      "operationId": "read_runtime_insights",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/java-agent",
+      "panel": "java-agent",
+      "operationId": "read_java_agent",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/code-inventory",
+      "panel": "code-inventory",
+      "operationId": "read_code_inventory",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/code-paths",
+      "panel": "code-paths",
+      "operationId": "read_code_paths",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/side-effects",
+      "panel": "side-effects",
+      "operationId": "read_side_effects",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/email",
+      "panel": "email",
+      "operationId": "read_email",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/kafka",
+      "panel": "kafka",
+      "operationId": "read_kafka",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/rabbitmq",
+      "panel": "rabbitmq",
+      "operationId": "read_rabbitmq",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/jms",
+      "panel": "jms",
+      "operationId": "read_jms",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/websockets",
+      "panel": "websockets",
+      "operationId": "read_websockets",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/activity/request/conformance-unknown-request",
+      "panel": "activity",
+      "operationId": "read_activity",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/activity/journal",
+      "panel": "activity",
+      "operationId": "read_activity",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/activity/resources",
+      "panel": "activity",
+      "operationId": "read_activity",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/code-inventory/changes",
+      "panel": "code-inventory",
+      "operationId": "read_code_inventory",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/code-inventory/methods?status=never-executed",
+      "panel": "code-inventory",
+      "operationId": "read_code_inventory",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/code-inventory/dependencies",
+      "panel": "code-inventory",
+      "operationId": "read_code_inventory",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/exceptions/caught",
+      "panel": "exceptions",
+      "operationId": "read_exceptions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/side-effects/sensor?sensor=processes",
+      "panel": "side-effects",
+      "operationId": "read_side_effects",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/code-paths/route?route=GET%20%2Fnot-a-route",
+      "panel": "code-paths",
+      "operationId": "read_code_paths",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/code-paths/requests/0000000000000000",
+      "panel": "code-paths",
+      "operationId": "read_code_paths",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/code-paths/beans",
+      "panel": "code-paths",
+      "operationId": "read_code_paths",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/code-paths/probes",
+      "panel": "code-paths",
+      "operationId": "read_code_paths",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/runtime-insights/insights/conformance-unknown:0000000000",
+      "panel": "runtime-insights",
+      "operationId": "read_runtime_insights",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/runtime-insights/comparison",
+      "panel": "runtime-insights",
+      "operationId": "read_runtime_insights",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/runtime-insights/resource-profile",
+      "panel": "runtime-insights",
+      "operationId": "read_runtime_insights",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/runtime-insights/impact?symbol=conformanceUnknownSymbol",
+      "panel": "runtime-insights",
+      "operationId": "read_runtime_insights",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/runtime-insights/impact/symbols?query=conformanceUnknownSymbol",
+      "panel": "runtime-insights",
+      "operationId": "read_runtime_insights",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/activity/request/conformance-unknown-request/journal",
+      "panel": "activity",
+      "operationId": "read_activity",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "id": "http-sessions.clear",
+      "method": "POST",
+      "path": "/http-sessions/session-key/clear",
+      "panel": "http-sessions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "http-sessions.invalidate",
+      "method": "POST",
+      "path": "/http-sessions/session-key/invalidate",
+      "panel": "http-sessions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "live-memory.offload",
+      "method": "POST",
+      "path": "/live-memory/offload",
+      "panel": "live-memory",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "live-memory.footprint",
+      "method": "POST",
+      "path": "/live-memory/footprint",
+      "panel": "live-memory",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "heap-dump.capture",
+      "method": "POST",
+      "path": "/heap-dump/capture",
+      "panel": "heap-dump",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "heap-dump.analyze",
+      "method": "POST",
+      "path": "/heap-dump/analyze",
+      "panel": "heap-dump",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "heap-dump.delete",
+      "method": "POST",
+      "path": "/heap-dump/delete",
+      "panel": "heap-dump",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "threads.download",
+      "method": "POST",
+      "path": "/threads/download",
+      "panel": "threads",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "threads.capture",
+      "method": "POST",
+      "path": "/threads/captures",
+      "panel": "threads",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "threads.clear",
+      "method": "POST",
+      "path": "/threads/captures/clear",
+      "panel": "threads",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "threads.export",
+      "method": "POST",
+      "path": "/threads/captures/00000000-0000-0000-0000-000000000000/export",
+      "panel": "threads",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "threads.observe",
+      "method": "POST",
+      "path": "/threads/observations",
+      "panel": "threads",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "threads.cancel",
+      "method": "POST",
+      "path": "/threads/observations/00000000-0000-0000-0000-000000000000/cancel",
+      "panel": "threads",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "memory.scan",
+      "method": "POST",
+      "path": "/memory/scan",
+      "panel": "memory",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "runtime-insights.resource-profile",
+      "method": "POST",
+      "path": "/runtime-insights/resource-profile",
+      "panel": "runtime-insights",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "runtime-insights.resource-profile.stop",
+      "method": "POST",
+      "path": "/runtime-insights/resource-profile/stop",
+      "panel": "runtime-insights",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "graalvm.scan.cancel",
+      "method": "POST",
+      "path": "/graalvm/scan/cancel",
+      "panel": "graalvm",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "graalvm.scan",
+      "method": "POST",
+      "path": "/graalvm/scan",
+      "panel": "graalvm",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "graalvm.install",
+      "method": "POST",
+      "path": "/graalvm/install",
+      "panel": "graalvm",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "graalvm.install-all",
+      "method": "POST",
+      "path": "/graalvm/install/all",
+      "panel": "graalvm",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "graalvm.dockerfile.install",
+      "method": "POST",
+      "path": "/graalvm/dockerfile/install",
+      "panel": "graalvm",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "config.override.put",
+      "method": "POST",
+      "path": "/config/overrides",
+      "panel": "config",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "config.override.delete",
+      "method": "DELETE",
+      "path": "/config/overrides/conformance.key",
+      "panel": "config",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "loggers.level",
+      "method": "POST",
+      "path": "/loggers/io.github.jdubois.bootui.conformance",
+      "panel": "loggers",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "security.scan",
+      "method": "POST",
+      "path": "/security/scan",
+      "panel": "security",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "pentesting.scan",
+      "method": "POST",
+      "path": "/pentesting/scan",
+      "panel": "pentesting",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "hibernate.scan",
+      "method": "POST",
+      "path": "/hibernate/scan",
+      "panel": "hibernate",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "hibernate-statistics.enable",
+      "method": "POST",
+      "path": "/hibernate-statistics/enable",
+      "panel": "hibernate-statistics",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "database-advisor.scan",
+      "method": "POST",
+      "path": "/database-advisor/scan",
+      "panel": "database-advisor",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "postgresql.read",
+      "method": "POST",
+      "path": "/postgresql/read",
+      "panel": "postgresql",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "mysql.read",
+      "method": "POST",
+      "path": "/mysql/read",
+      "panel": "mysql",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "cache.clear",
+      "method": "POST",
+      "path": "/cache/clear",
+      "panel": "cache",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "traces.clear",
+      "method": "DELETE",
+      "path": "/traces",
+      "panel": "traces",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "exceptions.clear",
+      "method": "DELETE",
+      "path": "/exceptions",
+      "panel": "exceptions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "exceptions.status",
+      "method": "POST",
+      "path": "/exceptions/conformance-unknown-fingerprint/status",
+      "panel": "exceptions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "code-paths.probe.start",
+      "method": "POST",
+      "path": "/code-paths/probes",
+      "panel": "code-paths",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "code-paths.probe.stop",
+      "method": "POST",
+      "path": "/code-paths/probes/0/stop",
+      "panel": "code-paths",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "code-paths.probe.delete",
+      "method": "DELETE",
+      "path": "/code-paths/probes/0",
+      "panel": "code-paths",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "java-agent.sensor.switch",
+      "method": "POST",
+      "path": "/java-agent/sensors/environment",
+      "panel": "java-agent",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "http-probe.execute",
+      "method": "POST",
+      "path": "/http-probe",
+      "panel": "http-probe",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "architecture.scan",
+      "method": "POST",
+      "path": "/architecture/scan",
+      "panel": "architecture",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "vulnerabilities.scan",
+      "method": "POST",
+      "path": "/vulnerabilities/scan",
+      "panel": "vulnerabilities",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "devtools.livereload",
+      "method": "POST",
+      "path": "/devtools/livereload",
+      "panel": "devtools",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "devtools.restart",
+      "method": "POST",
+      "path": "/devtools/restart",
+      "panel": "devtools",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "dev-services.restart",
+      "method": "POST",
+      "path": "/dev-services/services/conformance/restart",
+      "panel": "dev-services",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "dev-services.restart",
+      "method": "POST",
+      "path": "/dev-services/conformance/restart",
+      "panel": "dev-services",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "flyway.migrate",
+      "method": "POST",
+      "path": "/flyway/migrate",
+      "panel": "flyway",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "flyway.clean",
+      "method": "POST",
+      "path": "/flyway/clean",
+      "panel": "flyway",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "liquibase.update",
+      "method": "POST",
+      "path": "/liquibase/update",
+      "panel": "liquibase",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "github.refresh",
+      "method": "POST",
+      "path": "/github/refresh",
+      "panel": "github",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "rest-api.scan",
+      "method": "POST",
+      "path": "/rest-api/scan",
+      "panel": "rest-api",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "spring.scan",
+      "method": "POST",
+      "path": "/spring/scan",
+      "panel": "spring",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "crac.scan",
+      "method": "POST",
+      "path": "/crac/scan",
+      "panel": "crac",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "crac.dockerfile.install",
+      "method": "POST",
+      "path": "/crac/dockerfile/install",
+      "panel": "crac",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "crac.entrypoint.install",
+      "method": "POST",
+      "path": "/crac/entrypoint/install",
+      "panel": "crac",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "crac.install-all",
+      "method": "POST",
+      "path": "/crac/install/all",
+      "panel": "crac",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "sql-trace.clear",
+      "method": "POST",
+      "path": "/sql-trace/clear",
+      "panel": "sql-trace",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "sql-trace.recording",
+      "method": "POST",
+      "path": "/sql-trace/recording",
+      "panel": "sql-trace",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "transactions.clear",
+      "method": "POST",
+      "path": "/transactions/clear",
+      "panel": "transactions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "transactions.recording",
+      "method": "POST",
+      "path": "/transactions/recording",
+      "panel": "transactions",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "rest-client-trace.clear",
+      "method": "POST",
+      "path": "/rest-client-trace/clear",
+      "panel": "rest-client-trace",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "rest-client-trace.recording",
+      "method": "POST",
+      "path": "/rest-client-trace/recording",
+      "panel": "rest-client-trace",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "mcp-server.toggle",
+      "method": "POST",
+      "path": "/mcp-server/toggle",
+      "panel": "mcp-server",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "activity.use-existing-datasource",
+      "method": "POST",
+      "path": "/activity/use-existing-datasource",
+      "panel": "activity",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "activity.clear-recording",
+      "method": "POST",
+      "path": "/activity/journal/clear",
+      "panel": "activity",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "email.clear",
+      "method": "DELETE",
+      "path": "/email",
+      "panel": "email",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "kafka.clear",
+      "method": "DELETE",
+      "path": "/kafka",
+      "panel": "kafka",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "rabbitmq.clear",
+      "method": "DELETE",
+      "path": "/rabbitmq",
+      "panel": "rabbitmq",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "jms.clear",
+      "method": "DELETE",
+      "path": "/jms",
+      "panel": "jms",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "websockets.clear",
+      "method": "DELETE",
+      "path": "/websockets",
+      "panel": "websockets",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "websockets.capture",
+      "method": "POST",
+      "path": "/websockets/capture",
+      "panel": "websockets",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "dismissed-rules.dismiss",
+      "method": "POST",
+      "path": "/dismissed-rules/conformance-rule",
+      "panel": null,
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "dismissed-rules.restore",
+      "method": "DELETE",
+      "path": "/dismissed-rules/conformance-rule",
+      "panel": null,
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "dismissed-findings.dismiss",
+      "method": "POST",
+      "path": "/dismissed-findings",
+      "panel": null,
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "dismissed-findings.restore",
+      "method": "DELETE",
+      "path": "/dismissed-findings",
+      "panel": null,
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "mcp.bridge",
+      "method": "POST",
+      "path": "/mcp",
+      "panel": null,
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "cli.tool",
+      "method": "POST",
+      "path": "/cli/tools/get_overview",
+      "panel": null,
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "id": "otlp.ingest",
+      "method": "POST",
+      "path": "/otlp/v1/traces",
+      "panel": null,
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    }
+  ],
+  "crossCheck": {
+    "starterMappingsCount": 350,
+    "starterMappings": [
+      {
+        "controller": "LiveActivityController.java",
+        "verb": "ANY",
+        "path": "/activity${bootui.api-path:${bootui.path:/bootui}/api}/activity"
+      },
+      {
+        "controller": "LiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity"
+      },
+      {
+        "controller": "LiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/journal"
+      },
+      {
+        "controller": "LiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/resources"
+      },
+      {
+        "controller": "LiveActivityController.java",
+        "verb": "POST",
+        "path": "/activity/journal/clear"
+      },
+      {
+        "controller": "LiveActivityController.java",
+        "verb": "POST",
+        "path": "/activity/use-existing-datasource"
+      },
+      {
+        "controller": "LiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/request/{id}/journal"
+      },
+      {
+        "controller": "LiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/request/{id}"
+      },
+      {
+        "controller": "LiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/stream"
+      },
+      {
+        "controller": "LiveServiceMapController.java",
+        "verb": "ANY",
+        "path": "/activity${bootui.api-path:${bootui.path:/bootui}/api}/activity"
+      },
+      {
+        "controller": "LiveServiceMapController.java",
+        "verb": "GET",
+        "path": "/activity/service-map"
+      },
+      {
+        "controller": "ArchitectureController.java",
+        "verb": "ANY",
+        "path": "/architecture${bootui.api-path:${bootui.path:/bootui}/api}/architecture"
+      },
+      {
+        "controller": "ArchitectureController.java",
+        "verb": "GET",
+        "path": "/architecture"
+      },
+      {
+        "controller": "ArchitectureController.java",
+        "verb": "POST",
+        "path": "/architecture/scan"
+      },
+      {
+        "controller": "BootUiCliController.java",
+        "verb": "ANY",
+        "path": "/cli${bootui.api-path:${bootui.path:/bootui}/api}/cli"
+      },
+      {
+        "controller": "BootUiCliController.java",
+        "verb": "GET",
+        "path": "/cli"
+      },
+      {
+        "controller": "BootUiCliController.java",
+        "verb": "POST",
+        "path": "/cli/tools/{name}"
+      },
+      {
+        "controller": "CracController.java",
+        "verb": "ANY",
+        "path": "/crac${bootui.api-path:${bootui.path:/bootui}/api}/crac"
+      },
+      {
+        "controller": "CracController.java",
+        "verb": "GET",
+        "path": "/crac"
+      },
+      {
+        "controller": "CracController.java",
+        "verb": "POST",
+        "path": "/crac/scan"
+      },
+      {
+        "controller": "CracController.java",
+        "verb": "GET",
+        "path": "/crac/dockerfile"
+      },
+      {
+        "controller": "CracController.java",
+        "verb": "GET",
+        "path": "/crac/entrypoint"
+      },
+      {
+        "controller": "CracController.java",
+        "verb": "POST",
+        "path": "/crac/dockerfile/install"
+      },
+      {
+        "controller": "CracController.java",
+        "verb": "POST",
+        "path": "/crac/entrypoint/install"
+      },
+      {
+        "controller": "CracController.java",
+        "verb": "POST",
+        "path": "/crac/install/all"
+      },
+      {
+        "controller": "DatabaseAdvisorController.java",
+        "verb": "ANY",
+        "path": "/database-advisor${bootui.api-path:${bootui.path:/bootui}/api}/database-advisor"
+      },
+      {
+        "controller": "DatabaseAdvisorController.java",
+        "verb": "GET",
+        "path": "/database-advisor"
+      },
+      {
+        "controller": "DatabaseAdvisorController.java",
+        "verb": "POST",
+        "path": "/database-advisor/scan"
+      },
+      {
+        "controller": "ExceptionsController.java",
+        "verb": "ANY",
+        "path": "/exceptions${bootui.api-path:${bootui.path:/bootui}/api}/exceptions"
+      },
+      {
+        "controller": "ExceptionsController.java",
+        "verb": "GET",
+        "path": "/exceptions"
+      },
+      {
+        "controller": "ExceptionsController.java",
+        "verb": "GET",
+        "path": "/exceptions/caught"
+      },
+      {
+        "controller": "ExceptionsController.java",
+        "verb": "GET",
+        "path": "/exceptions/{id}"
+      },
+      {
+        "controller": "ExceptionsController.java",
+        "verb": "DELETE",
+        "path": "/exceptions"
+      },
+      {
+        "controller": "ExceptionsController.java",
+        "verb": "POST",
+        "path": "/exceptions/{id}/status"
+      },
+      {
+        "controller": "ExceptionsController.java",
+        "verb": "GET",
+        "path": "/exceptions/stream"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "ANY",
+        "path": "/graalvm${bootui.api-path:${bootui.path:/bootui}/api}/graalvm"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "GET",
+        "path": "/graalvm"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "GET",
+        "path": "/graalvm/scan/progress"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "POST",
+        "path": "/graalvm/scan/cancel"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "POST",
+        "path": "/graalvm/scan"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "GET",
+        "path": "/graalvm/metadata"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "POST",
+        "path": "/graalvm/install"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "POST",
+        "path": "/graalvm/install/all"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "GET",
+        "path": "/graalvm/dockerfile"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "verb": "POST",
+        "path": "/graalvm/dockerfile/install"
+      },
+      {
+        "controller": "HibernateController.java",
+        "verb": "ANY",
+        "path": "/hibernate${bootui.api-path:${bootui.path:/bootui}/api}/hibernate"
+      },
+      {
+        "controller": "HibernateController.java",
+        "verb": "GET",
+        "path": "/hibernate"
+      },
+      {
+        "controller": "HibernateController.java",
+        "verb": "POST",
+        "path": "/hibernate/scan"
+      },
+      {
+        "controller": "HibernateStatisticsController.java",
+        "verb": "ANY",
+        "path": "/hibernate-statistics${bootui.api-path:${bootui.path:/bootui}/api}/hibernate-statistics"
+      },
+      {
+        "controller": "HibernateStatisticsController.java",
+        "verb": "GET",
+        "path": "/hibernate-statistics"
+      },
+      {
+        "controller": "HibernateStatisticsController.java",
+        "verb": "POST",
+        "path": "/hibernate-statistics/enable"
+      },
+      {
+        "controller": "RuntimeInsightsController.java",
+        "verb": "ANY",
+        "path": "/runtime-insights${bootui.api-path:${bootui.path:/bootui}/api}/runtime-insights"
+      },
+      {
+        "controller": "RuntimeInsightsController.java",
+        "verb": "GET",
+        "path": "/runtime-insights"
+      },
+      {
+        "controller": "RuntimeInsightsController.java",
+        "verb": "GET",
+        "path": "/runtime-insights/insights/{id}"
+      },
+      {
+        "controller": "RuntimeInsightsController.java",
+        "verb": "GET",
+        "path": "/runtime-insights/impact"
+      },
+      {
+        "controller": "RuntimeInsightsController.java",
+        "verb": "GET",
+        "path": "/runtime-insights/impact/symbols"
+      },
+      {
+        "controller": "RuntimeInsightsController.java",
+        "verb": "GET",
+        "path": "/runtime-insights/resource-profile"
+      },
+      {
+        "controller": "RuntimeInsightsController.java",
+        "verb": "POST",
+        "path": "/runtime-insights/resource-profile"
+      },
+      {
+        "controller": "RuntimeInsightsController.java",
+        "verb": "POST",
+        "path": "/runtime-insights/resource-profile/stop"
+      },
+      {
+        "controller": "RuntimeInsightsController.java",
+        "verb": "GET",
+        "path": "/runtime-insights/comparison"
+      },
+      {
+        "controller": "CodeInventoryController.java",
+        "verb": "ANY",
+        "path": "/code-inventory${bootui.api-path:${bootui.path:/bootui}/api}/code-inventory"
+      },
+      {
+        "controller": "CodeInventoryController.java",
+        "verb": "GET",
+        "path": "/code-inventory"
+      },
+      {
+        "controller": "CodeInventoryController.java",
+        "verb": "GET",
+        "path": "/code-inventory/changes"
+      },
+      {
+        "controller": "CodeInventoryController.java",
+        "verb": "GET",
+        "path": "/code-inventory/methods"
+      },
+      {
+        "controller": "CodeInventoryController.java",
+        "verb": "GET",
+        "path": "/code-inventory/dependencies"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "ANY",
+        "path": "/code-paths${bootui.api-path:${bootui.path:/bootui}/api}/code-paths"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "GET",
+        "path": "/code-paths"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "GET",
+        "path": "/code-paths/route"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "GET",
+        "path": "/code-paths/beans"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "GET",
+        "path": "/code-paths/requests/{requestId}"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "GET",
+        "path": "/code-paths/probes"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "POST",
+        "path": "/code-paths/probes"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "GET",
+        "path": "/code-paths/probes/{id}"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "POST",
+        "path": "/code-paths/probes/{id}/stop"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "verb": "DELETE",
+        "path": "/code-paths/probes/{id}"
+      },
+      {
+        "controller": "JavaAgentController.java",
+        "verb": "ANY",
+        "path": "/java-agent${bootui.api-path:${bootui.path:/bootui}/api}/java-agent"
+      },
+      {
+        "controller": "JavaAgentController.java",
+        "verb": "GET",
+        "path": "/java-agent"
+      },
+      {
+        "controller": "JavaAgentController.java",
+        "verb": "POST",
+        "path": "/java-agent/sensors/{id}"
+      },
+      {
+        "controller": "SideEffectsController.java",
+        "verb": "ANY",
+        "path": "/side-effects${bootui.api-path:${bootui.path:/bootui}/api}/side-effects"
+      },
+      {
+        "controller": "SideEffectsController.java",
+        "verb": "GET",
+        "path": "/side-effects"
+      },
+      {
+        "controller": "SideEffectsController.java",
+        "verb": "GET",
+        "path": "/side-effects/sensor"
+      },
+      {
+        "controller": "JmsController.java",
+        "verb": "ANY",
+        "path": "/jms${bootui.api-path:${bootui.path:/bootui}/api}/jms"
+      },
+      {
+        "controller": "JmsController.java",
+        "verb": "GET",
+        "path": "/jms"
+      },
+      {
+        "controller": "JmsController.java",
+        "verb": "DELETE",
+        "path": "/jms"
+      },
+      {
+        "controller": "KafkaController.java",
+        "verb": "ANY",
+        "path": "/kafka${bootui.api-path:${bootui.path:/bootui}/api}/kafka"
+      },
+      {
+        "controller": "KafkaController.java",
+        "verb": "GET",
+        "path": "/kafka"
+      },
+      {
+        "controller": "KafkaController.java",
+        "verb": "DELETE",
+        "path": "/kafka"
+      },
+      {
+        "controller": "EmailController.java",
+        "verb": "ANY",
+        "path": "/email${bootui.api-path:${bootui.path:/bootui}/api}/email"
+      },
+      {
+        "controller": "EmailController.java",
+        "verb": "GET",
+        "path": "/email"
+      },
+      {
+        "controller": "EmailController.java",
+        "verb": "GET",
+        "path": "/email/{id}"
+      },
+      {
+        "controller": "EmailController.java",
+        "verb": "GET",
+        "path": "/email/{id}/eml"
+      },
+      {
+        "controller": "EmailController.java",
+        "verb": "DELETE",
+        "path": "/email"
+      },
+      {
+        "controller": "BootUiMcpController.java",
+        "verb": "ANY",
+        "path": "/mcp${bootui.api-path:${bootui.path:/bootui}/api}/mcp"
+      },
+      {
+        "controller": "BootUiMcpController.java",
+        "verb": "POST",
+        "path": "/mcp"
+      },
+      {
+        "controller": "BootUiMcpController.java",
+        "verb": "GET",
+        "path": "/mcp"
+      },
+      {
+        "controller": "McpServerController.java",
+        "verb": "ANY",
+        "path": "/mcp-server${bootui.api-path:${bootui.path:/bootui}/api}/mcp-server"
+      },
+      {
+        "controller": "McpServerController.java",
+        "verb": "GET",
+        "path": "/mcp-server"
+      },
+      {
+        "controller": "McpServerController.java",
+        "verb": "POST",
+        "path": "/mcp-server/toggle"
+      },
+      {
+        "controller": "MemoryController.java",
+        "verb": "ANY",
+        "path": "/memory${bootui.api-path:${bootui.path:/bootui}/api}/memory"
+      },
+      {
+        "controller": "MemoryController.java",
+        "verb": "GET",
+        "path": "/memory"
+      },
+      {
+        "controller": "MemoryController.java",
+        "verb": "POST",
+        "path": "/memory/scan"
+      },
+      {
+        "controller": "MySqlController.java",
+        "verb": "ANY",
+        "path": "/mysql${bootui.api-path:${bootui.path:/bootui}/api}/mysql"
+      },
+      {
+        "controller": "MySqlController.java",
+        "verb": "GET",
+        "path": "/mysql"
+      },
+      {
+        "controller": "MySqlController.java",
+        "verb": "POST",
+        "path": "/mysql/read"
+      },
+      {
+        "controller": "PentestingController.java",
+        "verb": "ANY",
+        "path": "/pentesting${bootui.api-path:${bootui.path:/bootui}/api}/pentesting"
+      },
+      {
+        "controller": "PentestingController.java",
+        "verb": "GET",
+        "path": "/pentesting"
+      },
+      {
+        "controller": "PentestingController.java",
+        "verb": "POST",
+        "path": "/pentesting/scan"
+      },
+      {
+        "controller": "PostgresqlController.java",
+        "verb": "ANY",
+        "path": "/postgresql${bootui.api-path:${bootui.path:/bootui}/api}/postgresql"
+      },
+      {
+        "controller": "PostgresqlController.java",
+        "verb": "GET",
+        "path": "/postgresql"
+      },
+      {
+        "controller": "PostgresqlController.java",
+        "verb": "POST",
+        "path": "/postgresql/read"
+      },
+      {
+        "controller": "RabbitController.java",
+        "verb": "ANY",
+        "path": "/rabbitmq${bootui.api-path:${bootui.path:/bootui}/api}/rabbitmq"
+      },
+      {
+        "controller": "RabbitController.java",
+        "verb": "GET",
+        "path": "/rabbitmq"
+      },
+      {
+        "controller": "RabbitController.java",
+        "verb": "DELETE",
+        "path": "/rabbitmq"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "verb": "ANY",
+        "path": "/"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "verb": "GET",
+        "path": "/sessions"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "verb": "GET",
+        "path": "/dashboard"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "verb": "GET",
+        "path": "/sessions/{id}"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "verb": "GET",
+        "path": "/sessions/{id}/events"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "verb": "GET",
+        "path": "/sessions/{id}/events/{eventId}/raw"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "verb": "GET",
+        "path": "/stream"
+      },
+      {
+        "controller": "ReactiveBootUiCliController.java",
+        "verb": "ANY",
+        "path": "/cli${bootui.api-path:${bootui.path:/bootui}/api}/cli"
+      },
+      {
+        "controller": "ReactiveBootUiCliController.java",
+        "verb": "GET",
+        "path": "/cli"
+      },
+      {
+        "controller": "ReactiveBootUiCliController.java",
+        "verb": "POST",
+        "path": "/cli/tools/{name}"
+      },
+      {
+        "controller": "ReactiveBootUiIndexController.java",
+        "verb": "GET",
+        "path": "/\"${bootui.path:/bootui"
+      },
+      {
+        "controller": "ReactiveBootUiMcpController.java",
+        "verb": "ANY",
+        "path": "/mcp${bootui.api-path:${bootui.path:/bootui}/api}/mcp"
+      },
+      {
+        "controller": "ReactiveBootUiMcpController.java",
+        "verb": "POST",
+        "path": "/mcp"
+      },
+      {
+        "controller": "ReactiveBootUiMcpController.java",
+        "verb": "GET",
+        "path": "/mcp"
+      },
+      {
+        "controller": "ReactiveBootUiMcpServerController.java",
+        "verb": "ANY",
+        "path": "/mcp-server${bootui.api-path:${bootui.path:/bootui}/api}/mcp-server"
+      },
+      {
+        "controller": "ReactiveBootUiMcpServerController.java",
+        "verb": "GET",
+        "path": "/mcp-server"
+      },
+      {
+        "controller": "ReactiveBootUiMcpServerController.java",
+        "verb": "POST",
+        "path": "/mcp-server/toggle"
+      },
+      {
+        "controller": "ReactiveClaudeCodeController.java",
+        "verb": "ANY",
+        "path": "/claude-code${bootui.api-path:${bootui.path:/bootui}/api}/claude-code"
+      },
+      {
+        "controller": "ReactiveCopilotController.java",
+        "verb": "ANY",
+        "path": "/copilot${bootui.api-path:${bootui.path:/bootui}/api}/copilot"
+      },
+      {
+        "controller": "ReactiveExceptionsController.java",
+        "verb": "ANY",
+        "path": "/exceptions${bootui.api-path:${bootui.path:/bootui}/api}/exceptions"
+      },
+      {
+        "controller": "ReactiveExceptionsController.java",
+        "verb": "GET",
+        "path": "/exceptions"
+      },
+      {
+        "controller": "ReactiveExceptionsController.java",
+        "verb": "GET",
+        "path": "/exceptions/caught"
+      },
+      {
+        "controller": "ReactiveExceptionsController.java",
+        "verb": "GET",
+        "path": "/exceptions/{id}"
+      },
+      {
+        "controller": "ReactiveExceptionsController.java",
+        "verb": "DELETE",
+        "path": "/exceptions"
+      },
+      {
+        "controller": "ReactiveExceptionsController.java",
+        "verb": "POST",
+        "path": "/exceptions/{id}/status"
+      },
+      {
+        "controller": "ReactiveExceptionsController.java",
+        "verb": "GET",
+        "path": "/exceptions/stream"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "verb": "ANY",
+        "path": "/activity${bootui.api-path:${bootui.path:/bootui}/api}/activity"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/journal"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/resources"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "verb": "POST",
+        "path": "/activity/journal/clear"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "verb": "POST",
+        "path": "/activity/use-existing-datasource"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/request/{id}/journal"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/request/{id}"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "verb": "GET",
+        "path": "/activity/stream"
+      },
+      {
+        "controller": "ReactiveLogTailController.java",
+        "verb": "ANY",
+        "path": "/log-tail${bootui.api-path:${bootui.path:/bootui}/api}/log-tail"
+      },
+      {
+        "controller": "ReactiveLogTailController.java",
+        "verb": "GET",
+        "path": "/log-tail/recent"
+      },
+      {
+        "controller": "ReactiveLogTailController.java",
+        "verb": "GET",
+        "path": "/log-tail/stream"
+      },
+      {
+        "controller": "ReactiveRestClientTraceController.java",
+        "verb": "ANY",
+        "path": "/rest-client-trace${bootui.api-path:/bootui/api}/rest-client-trace"
+      },
+      {
+        "controller": "ReactiveRestClientTraceController.java",
+        "verb": "GET",
+        "path": "/rest-client-trace"
+      },
+      {
+        "controller": "ReactiveRestClientTraceController.java",
+        "verb": "POST",
+        "path": "/rest-client-trace/clear"
+      },
+      {
+        "controller": "ReactiveRestClientTraceController.java",
+        "verb": "POST",
+        "path": "/rest-client-trace/recording"
+      },
+      {
+        "controller": "ReactiveRestClientTraceController.java",
+        "verb": "GET",
+        "path": "/rest-client-trace/stream"
+      },
+      {
+        "controller": "ReactiveSecurityController.java",
+        "verb": "ANY",
+        "path": "/security${bootui.api-path:${bootui.path:/bootui}/api}/security"
+      },
+      {
+        "controller": "ReactiveSecurityController.java",
+        "verb": "GET",
+        "path": "/security"
+      },
+      {
+        "controller": "ReactiveSecurityController.java",
+        "verb": "POST",
+        "path": "/security/scan"
+      },
+      {
+        "controller": "ReactiveSecurityLogsController.java",
+        "verb": "ANY",
+        "path": "/security-logs${bootui.api-path:${bootui.path:/bootui}/api}/security-logs"
+      },
+      {
+        "controller": "ReactiveSecurityLogsController.java",
+        "verb": "GET",
+        "path": "/security-logs"
+      },
+      {
+        "controller": "ReactiveSecurityLogsController.java",
+        "verb": "GET",
+        "path": "/security-logs/stream"
+      },
+      {
+        "controller": "ReactiveSpringSecurityController.java",
+        "verb": "ANY",
+        "path": "/spring-security${bootui.api-path:/bootui/api}/spring-security"
+      },
+      {
+        "controller": "ReactiveSpringSecurityController.java",
+        "verb": "GET",
+        "path": "/spring-security"
+      },
+      {
+        "controller": "ReactiveSpringSecurityController.java",
+        "verb": "GET",
+        "path": "/spring-security/explain"
+      },
+      {
+        "controller": "ReactiveSpringSecurityController.java",
+        "verb": "GET",
+        "path": "/spring-security/endpoints"
+      },
+      {
+        "controller": "ReactiveSqlTraceController.java",
+        "verb": "ANY",
+        "path": "/sql-trace${bootui.api-path:${bootui.path:/bootui}/api}/sql-trace"
+      },
+      {
+        "controller": "ReactiveSqlTraceController.java",
+        "verb": "GET",
+        "path": "/sql-trace"
+      },
+      {
+        "controller": "ReactiveSqlTraceController.java",
+        "verb": "GET",
+        "path": "/sql-trace/insights"
+      },
+      {
+        "controller": "ReactiveSqlTraceController.java",
+        "verb": "POST",
+        "path": "/sql-trace/clear"
+      },
+      {
+        "controller": "ReactiveSqlTraceController.java",
+        "verb": "POST",
+        "path": "/sql-trace/recording"
+      },
+      {
+        "controller": "ReactiveSqlTraceController.java",
+        "verb": "GET",
+        "path": "/sql-trace/stream"
+      },
+      {
+        "controller": "ReactiveTransactionsController.java",
+        "verb": "ANY",
+        "path": "/transactions${bootui.api-path:${bootui.path:/bootui}/api}/transactions"
+      },
+      {
+        "controller": "ReactiveTransactionsController.java",
+        "verb": "GET",
+        "path": "/transactions"
+      },
+      {
+        "controller": "ReactiveTransactionsController.java",
+        "verb": "POST",
+        "path": "/transactions/clear"
+      },
+      {
+        "controller": "ReactiveTransactionsController.java",
+        "verb": "POST",
+        "path": "/transactions/recording"
+      },
+      {
+        "controller": "ReactiveTransactionsController.java",
+        "verb": "GET",
+        "path": "/transactions/stream"
+      },
+      {
+        "controller": "ReactiveWebSocketController.java",
+        "verb": "ANY",
+        "path": "/websockets${bootui.api-path:/bootui/api}/websockets"
+      },
+      {
+        "controller": "ReactiveWebSocketController.java",
+        "verb": "GET",
+        "path": "/websockets"
+      },
+      {
+        "controller": "ReactiveWebSocketController.java",
+        "verb": "DELETE",
+        "path": "/websockets"
+      },
+      {
+        "controller": "ReactiveWebSocketController.java",
+        "verb": "POST",
+        "path": "/websockets/capture"
+      },
+      {
+        "controller": "ReactiveWebSocketController.java",
+        "verb": "GET",
+        "path": "/websockets/stream"
+      },
+      {
+        "controller": "RestApiController.java",
+        "verb": "ANY",
+        "path": "/rest-api${bootui.api-path:${bootui.path:/bootui}/api}/rest-api"
+      },
+      {
+        "controller": "RestApiController.java",
+        "verb": "GET",
+        "path": "/rest-api"
+      },
+      {
+        "controller": "RestApiController.java",
+        "verb": "GET",
+        "path": "/rest-api/error-contract"
+      },
+      {
+        "controller": "RestApiController.java",
+        "verb": "POST",
+        "path": "/rest-api/scan"
+      },
+      {
+        "controller": "RestClientTraceController.java",
+        "verb": "ANY",
+        "path": "/rest-client-trace${bootui.api-path:${bootui.path:/bootui}/api}/rest-client-trace"
+      },
+      {
+        "controller": "RestClientTraceController.java",
+        "verb": "GET",
+        "path": "/rest-client-trace"
+      },
+      {
+        "controller": "RestClientTraceController.java",
+        "verb": "POST",
+        "path": "/rest-client-trace/clear"
+      },
+      {
+        "controller": "RestClientTraceController.java",
+        "verb": "POST",
+        "path": "/rest-client-trace/recording"
+      },
+      {
+        "controller": "RestClientTraceController.java",
+        "verb": "GET",
+        "path": "/rest-client-trace/stream"
+      },
+      {
+        "controller": "SecurityController.java",
+        "verb": "ANY",
+        "path": "/security${bootui.api-path:${bootui.path:/bootui}/api}/security"
+      },
+      {
+        "controller": "SecurityController.java",
+        "verb": "GET",
+        "path": "/security"
+      },
+      {
+        "controller": "SecurityController.java",
+        "verb": "POST",
+        "path": "/security/scan"
+      },
+      {
+        "controller": "SpringController.java",
+        "verb": "ANY",
+        "path": "/spring${bootui.api-path:${bootui.path:/bootui}/api}/spring"
+      },
+      {
+        "controller": "SpringController.java",
+        "verb": "GET",
+        "path": "/spring"
+      },
+      {
+        "controller": "SpringController.java",
+        "verb": "POST",
+        "path": "/spring/scan"
+      },
+      {
+        "controller": "SqlTraceController.java",
+        "verb": "ANY",
+        "path": "/sql-trace${bootui.api-path:${bootui.path:/bootui}/api}/sql-trace"
+      },
+      {
+        "controller": "SqlTraceController.java",
+        "verb": "GET",
+        "path": "/sql-trace"
+      },
+      {
+        "controller": "SqlTraceController.java",
+        "verb": "GET",
+        "path": "/sql-trace/insights"
+      },
+      {
+        "controller": "SqlTraceController.java",
+        "verb": "POST",
+        "path": "/sql-trace/clear"
+      },
+      {
+        "controller": "SqlTraceController.java",
+        "verb": "POST",
+        "path": "/sql-trace/recording"
+      },
+      {
+        "controller": "SqlTraceController.java",
+        "verb": "GET",
+        "path": "/sql-trace/stream"
+      },
+      {
+        "controller": "TransactionsController.java",
+        "verb": "ANY",
+        "path": "/transactions${bootui.api-path:${bootui.path:/bootui}/api}/transactions"
+      },
+      {
+        "controller": "TransactionsController.java",
+        "verb": "GET",
+        "path": "/transactions"
+      },
+      {
+        "controller": "TransactionsController.java",
+        "verb": "POST",
+        "path": "/transactions/clear"
+      },
+      {
+        "controller": "TransactionsController.java",
+        "verb": "POST",
+        "path": "/transactions/recording"
+      },
+      {
+        "controller": "TransactionsController.java",
+        "verb": "GET",
+        "path": "/transactions/stream"
+      },
+      {
+        "controller": "ActuatorMappingsController.java",
+        "verb": "ANY",
+        "path": "/mappings${bootui.api-path:${bootui.path:/bootui}/api}/mappings"
+      },
+      {
+        "controller": "ActuatorMappingsController.java",
+        "verb": "GET",
+        "path": "/mappings"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "verb": "ANY",
+        "path": "/"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "verb": "GET",
+        "path": "/sessions"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "verb": "GET",
+        "path": "/dashboard"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "verb": "GET",
+        "path": "/sessions/{id}"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "verb": "GET",
+        "path": "/sessions/{id}/events"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "verb": "GET",
+        "path": "/sessions/{id}/events/{eventId}/raw"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "verb": "GET",
+        "path": "/stream"
+      },
+      {
+        "controller": "AiController.java",
+        "verb": "ANY",
+        "path": "/ai${bootui.api-path:${bootui.path:/bootui}/api}/ai"
+      },
+      {
+        "controller": "AiController.java",
+        "verb": "GET",
+        "path": "/ai/overview"
+      },
+      {
+        "controller": "AiController.java",
+        "verb": "GET",
+        "path": "/ai/chats"
+      },
+      {
+        "controller": "AiController.java",
+        "verb": "GET",
+        "path": "/ai/chats/{spanId}"
+      },
+      {
+        "controller": "AiController.java",
+        "verb": "GET",
+        "path": "/ai/tokens"
+      },
+      {
+        "controller": "BeansController.java",
+        "verb": "ANY",
+        "path": "/beans${bootui.api-path:${bootui.path:/bootui}/api}/beans"
+      },
+      {
+        "controller": "BeansController.java",
+        "verb": "GET",
+        "path": "/beans"
+      },
+      {
+        "controller": "BootUiIndexController.java",
+        "verb": "GET",
+        "path": "/\"${bootui.path:/bootui"
+      },
+      {
+        "controller": "ClaudeCodeController.java",
+        "verb": "ANY",
+        "path": "/claude-code${bootui.api-path:${bootui.path:/bootui}/api}/claude-code"
+      },
+      {
+        "controller": "ConditionsController.java",
+        "verb": "ANY",
+        "path": "/conditions${bootui.api-path:${bootui.path:/bootui}/api}/conditions"
+      },
+      {
+        "controller": "ConditionsController.java",
+        "verb": "GET",
+        "path": "/conditions"
+      },
+      {
+        "controller": "ConfigController.java",
+        "verb": "ANY",
+        "path": "/config${bootui.api-path:${bootui.path:/bootui}/api}/config"
+      },
+      {
+        "controller": "ConfigController.java",
+        "verb": "GET",
+        "path": "/config"
+      },
+      {
+        "controller": "ConfigController.java",
+        "verb": "POST",
+        "path": "/config/overrides"
+      },
+      {
+        "controller": "ConfigController.java",
+        "verb": "DELETE",
+        "path": "/config/overrides/{name}"
+      },
+      {
+        "controller": "CopilotController.java",
+        "verb": "ANY",
+        "path": "/copilot${bootui.api-path:${bootui.path:/bootui}/api}/copilot"
+      },
+      {
+        "controller": "DatabaseConnectionPoolsController.java",
+        "verb": "ANY",
+        "path": "/database-connection-pools${bootui.api-path:${bootui.path:/bootui}/api}/database-connection-pools"
+      },
+      {
+        "controller": "DatabaseConnectionPoolsController.java",
+        "verb": "GET",
+        "path": "/database-connection-pools/pools"
+      },
+      {
+        "controller": "DatabaseConnectionPoolsController.java",
+        "verb": "GET",
+        "path": "/database-connection-pools/pools/{name}/snapshot"
+      },
+      {
+        "controller": "DataController.java",
+        "verb": "ANY",
+        "path": "/data${bootui.api-path:${bootui.path:/bootui}/api}/data"
+      },
+      {
+        "controller": "DataController.java",
+        "verb": "GET",
+        "path": "/data/repositories"
+      },
+      {
+        "controller": "DataController.java",
+        "verb": "GET",
+        "path": "/data/repositories/{name}"
+      },
+      {
+        "controller": "DevServicesController.java",
+        "verb": "ANY",
+        "path": "/dev-services${bootui.api-path:${bootui.path:/bootui}/api}/dev-services"
+      },
+      {
+        "controller": "DevServicesController.java",
+        "verb": "GET",
+        "path": "/dev-services"
+      },
+      {
+        "controller": "DevServicesController.java",
+        "verb": "GET",
+        "path": "/dev-services/{id}/logs"
+      },
+      {
+        "controller": "DevServicesController.java",
+        "verb": "POST",
+        "path": "/dev-services/{id}/restart"
+      },
+      {
+        "controller": "DevToolsController.java",
+        "verb": "ANY",
+        "path": "/devtools${bootui.api-path:${bootui.path:/bootui}/api}/devtools"
+      },
+      {
+        "controller": "DevToolsController.java",
+        "verb": "GET",
+        "path": "/devtools"
+      },
+      {
+        "controller": "DevToolsController.java",
+        "verb": "POST",
+        "path": "/devtools/livereload"
+      },
+      {
+        "controller": "DevToolsController.java",
+        "verb": "POST",
+        "path": "/devtools/restart"
+      },
+      {
+        "controller": "DismissedFindingsController.java",
+        "verb": "ANY",
+        "path": "/dismissed-findings${bootui.api-path:${bootui.path:/bootui}/api}/dismissed-findings"
+      },
+      {
+        "controller": "DismissedFindingsController.java",
+        "verb": "GET",
+        "path": "/dismissed-findings"
+      },
+      {
+        "controller": "DismissedFindingsController.java",
+        "verb": "POST",
+        "path": "/dismissed-findings"
+      },
+      {
+        "controller": "DismissedFindingsController.java",
+        "verb": "DELETE",
+        "path": "/dismissed-findings"
+      },
+      {
+        "controller": "DismissedRulesController.java",
+        "verb": "ANY",
+        "path": "/dismissed-rules${bootui.api-path:${bootui.path:/bootui}/api}/dismissed-rules"
+      },
+      {
+        "controller": "DismissedRulesController.java",
+        "verb": "GET",
+        "path": "/dismissed-rules"
+      },
+      {
+        "controller": "DismissedRulesController.java",
+        "verb": "POST",
+        "path": "/dismissed-rules/{ruleId}"
+      },
+      {
+        "controller": "DismissedRulesController.java",
+        "verb": "DELETE",
+        "path": "/dismissed-rules/{ruleId}"
+      },
+      {
+        "controller": "FaultToleranceController.java",
+        "verb": "ANY",
+        "path": "/fault-tolerance${bootui.api-path:${bootui.path:/bootui}/api}/fault-tolerance"
+      },
+      {
+        "controller": "FaultToleranceController.java",
+        "verb": "GET",
+        "path": "/fault-tolerance"
+      },
+      {
+        "controller": "FlywayController.java",
+        "verb": "ANY",
+        "path": "/flyway${bootui.api-path:${bootui.path:/bootui}/api}/flyway"
+      },
+      {
+        "controller": "FlywayController.java",
+        "verb": "GET",
+        "path": "/flyway/migrations"
+      },
+      {
+        "controller": "FlywayController.java",
+        "verb": "POST",
+        "path": "/flyway/migrate"
+      },
+      {
+        "controller": "FlywayController.java",
+        "verb": "POST",
+        "path": "/flyway/clean"
+      },
+      {
+        "controller": "GitHubController.java",
+        "verb": "ANY",
+        "path": "/github${bootui.api-path:${bootui.path:/bootui}/api}/github"
+      },
+      {
+        "controller": "GitHubController.java",
+        "verb": "GET",
+        "path": "/github"
+      },
+      {
+        "controller": "GitHubController.java",
+        "verb": "POST",
+        "path": "/github/refresh"
+      },
+      {
+        "controller": "HealthController.java",
+        "verb": "ANY",
+        "path": "/health${bootui.api-path:${bootui.path:/bootui}/api}/health"
+      },
+      {
+        "controller": "HealthController.java",
+        "verb": "GET",
+        "path": "/health"
+      },
+      {
+        "controller": "HeapDumpController.java",
+        "verb": "ANY",
+        "path": "/heap-dump${bootui.api-path:${bootui.path:/bootui}/api}/heap-dump"
+      },
+      {
+        "controller": "HeapDumpController.java",
+        "verb": "GET",
+        "path": "/heap-dump"
+      },
+      {
+        "controller": "HeapDumpController.java",
+        "verb": "POST",
+        "path": "/heap-dump/capture"
+      },
+      {
+        "controller": "HeapDumpController.java",
+        "verb": "POST",
+        "path": "/heap-dump/analyze"
+      },
+      {
+        "controller": "HeapDumpController.java",
+        "verb": "POST",
+        "path": "/heap-dump/delete"
+      },
+      {
+        "controller": "HeapDumpController.java",
+        "verb": "GET",
+        "path": "/heap-dump/download"
+      },
+      {
+        "controller": "HttpExchangesController.java",
+        "verb": "ANY",
+        "path": "/http-exchanges${bootui.api-path:${bootui.path:/bootui}/api}/http-exchanges"
+      },
+      {
+        "controller": "HttpExchangesController.java",
+        "verb": "GET",
+        "path": "/http-exchanges"
+      },
+      {
+        "controller": "HttpExchangesController.java",
+        "verb": "GET",
+        "path": "/http-exchanges/routes"
+      },
+      {
+        "controller": "HttpProbeController.java",
+        "verb": "ANY",
+        "path": "/http-probe${bootui.api-path:${bootui.path:/bootui}/api}/http-probe"
+      },
+      {
+        "controller": "HttpProbeController.java",
+        "verb": "POST",
+        "path": "/http-probe"
+      },
+      {
+        "controller": "HttpSessionsController.java",
+        "verb": "ANY",
+        "path": "/http-sessions${bootui.api-path:${bootui.path:/bootui}/api}/http-sessions"
+      },
+      {
+        "controller": "HttpSessionsController.java",
+        "verb": "GET",
+        "path": "/http-sessions"
+      },
+      {
+        "controller": "HttpSessionsController.java",
+        "verb": "POST",
+        "path": "/http-sessions/{sessionKey}/clear"
+      },
+      {
+        "controller": "HttpSessionsController.java",
+        "verb": "POST",
+        "path": "/http-sessions/{sessionKey}/invalidate"
+      },
+      {
+        "controller": "JvmTuningController.java",
+        "verb": "ANY",
+        "path": "/jvm-tuning${bootui.api-path:${bootui.path:/bootui}/api}/jvm-tuning"
+      },
+      {
+        "controller": "JvmTuningController.java",
+        "verb": "GET",
+        "path": "/jvm-tuning"
+      },
+      {
+        "controller": "LiquibaseController.java",
+        "verb": "ANY",
+        "path": "/liquibase${bootui.api-path:${bootui.path:/bootui}/api}/liquibase"
+      },
+      {
+        "controller": "LiquibaseController.java",
+        "verb": "GET",
+        "path": "/liquibase/changesets"
+      },
+      {
+        "controller": "LiquibaseController.java",
+        "verb": "POST",
+        "path": "/liquibase/update"
+      },
+      {
+        "controller": "LiveMemoryController.java",
+        "verb": "ANY",
+        "path": "/live-memory${bootui.api-path:${bootui.path:/bootui}/api}/live-memory"
+      },
+      {
+        "controller": "LiveMemoryController.java",
+        "verb": "GET",
+        "path": "/live-memory"
+      },
+      {
+        "controller": "LiveMemoryController.java",
+        "verb": "POST",
+        "path": "/live-memory/offload"
+      },
+      {
+        "controller": "LiveMemoryController.java",
+        "verb": "GET",
+        "path": "/live-memory/footprint"
+      },
+      {
+        "controller": "LiveMemoryController.java",
+        "verb": "POST",
+        "path": "/live-memory/footprint"
+      },
+      {
+        "controller": "LoggersController.java",
+        "verb": "ANY",
+        "path": "/loggers${bootui.api-path:${bootui.path:/bootui}/api}/loggers"
+      },
+      {
+        "controller": "LoggersController.java",
+        "verb": "GET",
+        "path": "/loggers"
+      },
+      {
+        "controller": "LoggersController.java",
+        "verb": "POST",
+        "path": "/loggers/{name}"
+      },
+      {
+        "controller": "LogTailController.java",
+        "verb": "ANY",
+        "path": "/log-tail${bootui.api-path:${bootui.path:/bootui}/api}/log-tail"
+      },
+      {
+        "controller": "LogTailController.java",
+        "verb": "GET",
+        "path": "/log-tail/recent"
+      },
+      {
+        "controller": "LogTailController.java",
+        "verb": "GET",
+        "path": "/log-tail/stream"
+      },
+      {
+        "controller": "MappingsController.java",
+        "verb": "ANY",
+        "path": "/mappings${bootui.api-path:${bootui.path:/bootui}/api}/mappings"
+      },
+      {
+        "controller": "MappingsController.java",
+        "verb": "GET",
+        "path": "/mappings/flat"
+      },
+      {
+        "controller": "MetricsController.java",
+        "verb": "ANY",
+        "path": "/metrics${bootui.api-path:${bootui.path:/bootui}/api}/metrics"
+      },
+      {
+        "controller": "MetricsController.java",
+        "verb": "GET",
+        "path": "/metrics"
+      },
+      {
+        "controller": "MetricsController.java",
+        "verb": "GET",
+        "path": "/metrics/detail"
+      },
+      {
+        "controller": "OtlpReceiverController.java",
+        "verb": "ANY",
+        "path": "/otlp${bootui.api-path:${bootui.path:/bootui}/api}/otlp"
+      },
+      {
+        "controller": "OtlpReceiverController.java",
+        "verb": "POST",
+        "path": "/otlp/v1/traces"
+      },
+      {
+        "controller": "OverviewController.java",
+        "verb": "ANY",
+        "path": "/overview${bootui.api-path:${bootui.path:/bootui}/api}/overview"
+      },
+      {
+        "controller": "OverviewController.java",
+        "verb": "GET",
+        "path": "/overview"
+      },
+      {
+        "controller": "PanelsController.java",
+        "verb": "ANY",
+        "path": "/panels${bootui.api-path:${bootui.path:/bootui}/api}/panels"
+      },
+      {
+        "controller": "PanelsController.java",
+        "verb": "GET",
+        "path": "/panels"
+      },
+      {
+        "controller": "ProfileDiffController.java",
+        "verb": "ANY",
+        "path": "/profile-diff${bootui.api-path:${bootui.path:/bootui}/api}/profile-diff"
+      },
+      {
+        "controller": "ProfileDiffController.java",
+        "verb": "GET",
+        "path": "/profile-diff"
+      },
+      {
+        "controller": "ScheduledController.java",
+        "verb": "ANY",
+        "path": "/scheduled${bootui.api-path:${bootui.path:/bootui}/api}/scheduled"
+      },
+      {
+        "controller": "ScheduledController.java",
+        "verb": "GET",
+        "path": "/scheduled"
+      },
+      {
+        "controller": "SecurityLogsController.java",
+        "verb": "ANY",
+        "path": "/security-logs${bootui.api-path:${bootui.path:/bootui}/api}/security-logs"
+      },
+      {
+        "controller": "SecurityLogsController.java",
+        "verb": "GET",
+        "path": "/security-logs"
+      },
+      {
+        "controller": "SecurityLogsController.java",
+        "verb": "GET",
+        "path": "/security-logs/stream"
+      },
+      {
+        "controller": "SpringCacheController.java",
+        "verb": "ANY",
+        "path": "/cache${bootui.api-path:${bootui.path:/bootui}/api}/cache"
+      },
+      {
+        "controller": "SpringCacheController.java",
+        "verb": "GET",
+        "path": "/cache"
+      },
+      {
+        "controller": "SpringCacheController.java",
+        "verb": "POST",
+        "path": "/cache/clear"
+      },
+      {
+        "controller": "SpringSecurityController.java",
+        "verb": "ANY",
+        "path": "/spring-security${bootui.api-path:${bootui.path:/bootui}/api}/spring-security"
+      },
+      {
+        "controller": "SpringSecurityController.java",
+        "verb": "GET",
+        "path": "/spring-security"
+      },
+      {
+        "controller": "SpringSecurityController.java",
+        "verb": "GET",
+        "path": "/spring-security/explain"
+      },
+      {
+        "controller": "SpringSecurityController.java",
+        "verb": "GET",
+        "path": "/spring-security/endpoints"
+      },
+      {
+        "controller": "StartupController.java",
+        "verb": "ANY",
+        "path": "/startup${bootui.api-path:${bootui.path:/bootui}/api}/startup"
+      },
+      {
+        "controller": "StartupController.java",
+        "verb": "GET",
+        "path": "/startup"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "ANY",
+        "path": "/threads${bootui.api-path:${bootui.path:/bootui}/api}/threads"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "GET",
+        "path": "/threads"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "POST",
+        "path": "/threads/download"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "POST",
+        "path": "/threads/captures"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "GET",
+        "path": "/threads/captures"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "GET",
+        "path": "/threads\"/captures/{id"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "GET",
+        "path": "/threads/captures/{id}/threads"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "GET",
+        "path": "/threads/captures/{id}/threads/{observationId}"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "GET",
+        "path": "/threads/captures/{id}/locks/{lockId}"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "POST",
+        "path": "/threads/captures/clear"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "POST",
+        "path": "/threads/captures/{id}/export"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "POST",
+        "path": "/threads/observations"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "GET",
+        "path": "/threads/observations/{id}"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "verb": "POST",
+        "path": "/threads/observations/{id}/cancel"
+      },
+      {
+        "controller": "TracesController.java",
+        "verb": "ANY",
+        "path": "/traces${bootui.api-path:${bootui.path:/bootui}/api}/traces"
+      },
+      {
+        "controller": "TracesController.java",
+        "verb": "GET",
+        "path": "/traces"
+      },
+      {
+        "controller": "TracesController.java",
+        "verb": "GET",
+        "path": "/traces/{traceId}"
+      },
+      {
+        "controller": "TracesController.java",
+        "verb": "DELETE",
+        "path": "/traces"
+      },
+      {
+        "controller": "VulnerabilitiesController.java",
+        "verb": "ANY",
+        "path": "/vulnerabilities${bootui.api-path:${bootui.path:/bootui}/api}/vulnerabilities"
+      },
+      {
+        "controller": "VulnerabilitiesController.java",
+        "verb": "GET",
+        "path": "/vulnerabilities"
+      },
+      {
+        "controller": "VulnerabilitiesController.java",
+        "verb": "POST",
+        "path": "/vulnerabilities/scan"
+      },
+      {
+        "controller": "WebSocketController.java",
+        "verb": "ANY",
+        "path": "/websockets${bootui.api-path:${bootui.path:/bootui}/api}/websockets"
+      },
+      {
+        "controller": "WebSocketController.java",
+        "verb": "GET",
+        "path": "/websockets"
+      },
+      {
+        "controller": "WebSocketController.java",
+        "verb": "DELETE",
+        "path": "/websockets"
+      },
+      {
+        "controller": "WebSocketController.java",
+        "verb": "POST",
+        "path": "/websockets/capture"
+      },
+      {
+        "controller": "WebSocketController.java",
+        "verb": "GET",
+        "path": "/websockets/stream"
+      }
+    ],
+    "unpanelledRoutes": [
+      {
+        "method": "POST",
+        "path": "/otlp/v1/traces",
+        "controller": "OtlpReceiverController.java",
+        "reason": "OTLP telemetry receiver mounted under /bootui/api/otlp; un-panelled infrastructure receiver"
+      }
+    ],
+    "gaps": [
+      "OTLP receiver /otlp/v1/traces is un-panelled infrastructure POST route",
+      "GET /overview is shell chrome data source with no panel API prefix gating",
+      "GET /cli and POST /cli/tools/{name} are command-line transport endpoints gated by bootui.cli.enabled"
+    ]
+  }
+}
