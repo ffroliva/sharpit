@@ -7,7 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- CI can be dispatched manually for attempt-1 noise measurements; the workflow must first reach the default branch for GitHub to dispatch it.
+- CI can be dispatched manually for attempt-1 noise measurements, and an always-running `live-check` now aggregates
+  every live leg. The workflow must first reach the default branch for GitHub to dispatch it.
 
 ### Documentation
 
