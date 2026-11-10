@@ -276,6 +276,7 @@ def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path
         check=False,
     )
     try:
+        assert not (CI_PATH.parents[2] / output.name).exists(), "the step wrote its output into the repository root"
         assert result.returncode == 0
         assert "code=true" in output.read_text(encoding="utf-8")
     finally:
