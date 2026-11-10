@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+import sys
+from collections.abc import Callable
+from threading import RLock
+from typing import Any
+
+TOOL_IDS = (3, 4)
+
+
+class MonitoringTool:
+    def __init__(self, monitoring: Any, tool_id: int, lock: RLock, claimed: set[int]) -> None:
+        self.monitoring = monitoring
+        self.tool_id = tool_id
+        self._lock = lock
+        self._claimed = claimed
+        self._events: set[int] = set()
+        self._released = False
+
+    def register_callback(self, event: int, callback: Callable[..., object] | None) -> None:
+        with self._lock:
+            if not self._released:
+                if callback is None:
+                    self._events.discard(event)
+                else:
+                    self._events.add(event)
+                self.monitoring.register_callback(self.tool_id, event, callback)
+
+    def set_events(self, events: int) -> None:
+        with self._lock:
+            if not self._released:
+                self.monitoring.set_events(self.tool_id, events)
+
+    def release(self) -> None:
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+            errors: list[BaseException] = []
+            try:
+                self.monitoring.set_events(self.tool_id, 0)
+            except BaseException as error:
+                errors.append(error)
+            for event in self._events:
+                try:
+                    self.monitoring.register_callback(self.tool_id, event, None)
+                except BaseException as error:
+                    errors.append(error)
+            clear_tool_id = getattr(self.monitoring, "clear_tool_id", None)
+            if clear_tool_id is not None:
+                try:
+                    clear_tool_id(self.tool_id)
+                except BaseException as error:
+                    errors.append(error)
+            try:
+                self.monitoring.free_tool_id(self.tool_id)
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                self._claimed.discard(self.tool_id)
+            if errors:
+                raise errors[0]
+
+
+class MonitoringToolAllocator:
+    def __init__(self, monitoring: Any | None = None) -> None:
+        self.monitoring = monitoring if monitoring is not None else getattr(sys, "monitoring", None)
+        self._lock = RLock()
+        self._claimed: set[int] = set()
+
+    def claim(self) -> MonitoringTool | None:
+        if self.monitoring is None:
+            return None
+        with self._lock:
+            for tool_id in TOOL_IDS:
+                if tool_id in self._claimed or self.monitoring.get_tool(tool_id) is not None:
+                    continue
+                try:
+                    self.monitoring.use_tool_id(tool_id, "sharpit")
+                except ValueError:
+                    continue
+                self._claimed.add(tool_id)
+                return MonitoringTool(self.monitoring, tool_id, self._lock, self._claimed)
+        return None
+
+
+allocator = MonitoringToolAllocator()
