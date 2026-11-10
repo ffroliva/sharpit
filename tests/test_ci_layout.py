@@ -295,6 +295,38 @@ def test_required_jobs_fail_when_change_detection_did_not_succeed(job: str) -> N
     assert "needs.changes.outputs.code == 'true'" not in JOBS[job], job
 
 
+def _assert_gate_aggregator(job: str, matrix_job: str) -> None:
+    assert "if: always()" in job
+    assert f"needs: [{matrix_job}, changes]" in job
+    assert 'test "${{ needs.changes.result }}" = success' in job
+    assert 'if [ "$CODE_CHANGED" = false ]; then exit 0; fi' in job
+    assert f'test "${{{{ needs.{matrix_job}.result }}}}" = success' in job
+
+
+def test_live_check_fails_when_a_live_leg_did_not_succeed() -> None:
+    assert "live-check" in JOBS, "live-check aggregator is missing"
+    assert 'test "${{ needs.live.result }}" = success' in JOBS["live-check"]
+
+
+def test_every_gate_aggregator_runs_always_and_requires_success() -> None:
+    assert "live-check" in JOBS, "live-check aggregator is missing"
+    for name, matrix_job in (("masking-gates-check", "masking-gates"), ("live-check", "live")):
+        body = JOBS[name]
+        _assert_gate_aggregator(body, matrix_job)
+        expected = f'test "${{{{ needs.{matrix_job}.result }}}}" = success'
+        refused_result_check = body.replace(expected, expected.replace("= success", "= failure || true"))
+        with pytest.raises(AssertionError):
+            _assert_gate_aggregator(refused_result_check, matrix_job)
+        refused_always_condition = body.replace("if: always()", "if: true")
+        with pytest.raises(AssertionError):
+            _assert_gate_aggregator(refused_always_condition, matrix_job)
+
+
+def test_ci_can_be_dispatched_and_dispatch_runs_every_job() -> None:
+    assert re.search(r"^  workflow_dispatch:", CI, re.MULTILINE), "CI cannot be dispatched for noise runs"
+    assert '"$GITHUB_EVENT_NAME" != pull_request && "$GITHUB_EVENT_NAME" != push' in JOBS["changes"]
+
+
 OWN_JOB_FILES = (  # each alone outweighs a shard ceiling (487, 386, 418 s): one job runs them whole, every row
     "tests/masking/test_masking_scales_linearly.py",
     "tests/masking/test_statement_surfaces.py",

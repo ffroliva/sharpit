@@ -3,6 +3,7 @@ on:
   push:
     branches: [main, mvp]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -507,6 +508,18 @@ jobs:
           path: ${{ runner.temp }}/overhead.jsonl
           if-no-files-found: ignore
           retention-days: 7
+
+  live-check:
+    needs: [live, changes]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
+        run: |
+          test "${{ needs.changes.result }}" = success
+          if [ "$CODE_CHANGED" = false ]; then exit 0; fi
+          test "${{ needs.live.result }}" = success
 
   sharpit-gate:
     # Dogfood: the example's fixed route must pass `pytest --sharpit`, its planted N+1 must fail it.
