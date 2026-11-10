@@ -185,8 +185,12 @@ def test_tool_counts_in_docs_match_registry() -> None:
     for doc in (MCP_DOC, SKILL):
         text = _read(doc)
         label = doc.relative_to(ROOT).as_posix()
-        assert f"{reads} read" in text or f"{reads} **read" in text, f"{label}: read-tool count is not {reads}"
-        assert f"{actions} action tools" in text, f"{label}: action-tool count is not {actions}"
+        read_counts = {int(n) for n in re.findall(r"\b(\d+) (?:\*\*)?read(?:-only)?(?:\*\*)? tools", text)}
+        action_counts = {int(n) for n in re.findall(r"\b(\d+) action tools", text)}
+        assert read_counts == {reads}, f"{label}: read-tool counts {sorted(read_counts)}, registry has {reads}"
+        assert action_counts == {actions}, (
+            f"{label}: action-tool counts {sorted(action_counts)}, registry has {actions}"
+        )
 
 
 def test_actions_sections_state_the_read_only_refusal() -> None:
