@@ -87,7 +87,7 @@ meta = {
         "bootui-tests.json",
     ],
 }
-with open(f"{output_dir}/meta.json", "w", encoding="utf-8") as f:
+with open(f"{output_dir}/meta.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump(meta, f, indent=2)
 print("Wrote meta.json")
 
@@ -109,7 +109,7 @@ for m in panel_regex.finditer(panels_code):
         prefixes = re.findall(r'"([^"]+)"', prefix_expr)
     panels_list.append({"id": panel_id, "title": title, "actionCapable": action, "apiPrefixes": prefixes})
 
-with open(f"{output_dir}/panels.json", "w", encoding="utf-8") as f:
+with open(f"{output_dir}/panels.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump({"panels": panels_list}, f, indent=2)
 print(f"Wrote panels.json ({len(panels_list)} panels)")
 
@@ -236,7 +236,7 @@ for t in raw_tools:
     t_copy["inputSchema"] = get_input_schema(name, schema_name)
     decorated_tools.append(t_copy)
 
-with open(f"{output_dir}/tools.json", "w", encoding="utf-8") as f:
+with open(f"{output_dir}/tools.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump({"tools": decorated_tools}, f, indent=2)
 print(f"Wrote tools.json ({len(decorated_tools)} tools)")
 
@@ -432,7 +432,7 @@ routes_data = {
         "gaps": [{"category": "starter-without-catalog", **mapping} for mapping in unmatched] + route_gaps,
     },
 }
-with open(f"{output_dir}/routes.json", "w", encoding="utf-8") as f:
+with open(f"{output_dir}/routes.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump(routes_data, f, indent=2)
 print(f"Wrote routes.json ({len(reads)} reads, {len(actions)} actions)")
 meta["counts"] = {
@@ -602,7 +602,7 @@ rule_reconciliation = {
         "counter pattern; table-only and non-three-digit fixture IDs are listed with reasons"
     ),
 }
-with open(f"{output_dir}/rule-ids.json", "w", encoding="utf-8") as f:
+with open(f"{output_dir}/rule-ids.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump({"rules": rules_list, "total": len(rules_list), "reconciliation": rule_reconciliation}, f, indent=2)
 print(
     f"Wrote rule-ids.json ({len(rules_list)} rules; {len(rule_exclusions)} exclusions, "
@@ -642,7 +642,7 @@ diff_obj = {
     "inJavaOnly": in_java_only,
     "explanations": diff_explanations,
 }
-with open(f"{output_dir}/rule-ids-diff.json", "w", encoding="utf-8") as f:
+with open(f"{output_dir}/rule-ids-diff.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump(diff_obj, f, indent=2)
 print(f"Wrote rule-ids-diff.json (doc only: {len(in_doc_only)}, java only: {len(in_java_only)})")
 
@@ -835,12 +835,12 @@ for name, patch in HAND_FILLED.items():
         }
 
 final_properties = sorted(props_dict.values(), key=lambda p: p["name"])
-with open(f"{output_dir}/properties.json", "w", encoding="utf-8") as f:
+with open(f"{output_dir}/properties.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump({"properties": final_properties}, f, indent=2)
 print(f"Wrote properties.json ({len(final_properties)} properties)")
 
 # 8. bootui-tests.json from test classes and methods
-test_files = glob.glob(f"{bootui_root}/**/src/test/java/**/*.java", recursive=True)
+test_files = sorted(glob.glob(f"{bootui_root}/**/*.java", recursive=True))
 method_regex = re.compile(
     r"@(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b(?:\([^)]*\))?"
     r"(?:\s*@\w+(?:\([^)]*\))?)*"
@@ -859,7 +859,12 @@ for tf in test_files:
 
     clean = re.sub(r"/\*.*?\*/|//[^\n]*|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", " ", tcode, flags=re.DOTALL)
     package = re.search(r"^\s*package\s+([\w.]+)\s*;", clean, re.MULTILINE)
-    cmatches = list(re.finditer(r"(?:public\s+)?(?:static\s+)?(?:final\s+)?class\s+(\w+)", clean))
+    cmatches = list(
+        re.finditer(
+            r"(?:\b(?:public|protected|private|static|final|abstract|sealed|non-sealed)\s+)*class\s+(\w+)",
+            clean,
+        )
+    )
     if not cmatches or not package:
         continue
     top_c = f"{package.group(1)}.{cmatches[0].group(1)}"
@@ -873,25 +878,30 @@ for tf in test_files:
     if meths:
         test_classes[top_c] = sorted(meths)
 
+sorted_test_classes = {cls: test_classes[cls] for cls in sorted(test_classes)}
+
 simple_names = {}
-for fqcn in test_classes:
+for fqcn in sorted_test_classes:
     simple_names.setdefault(fqcn.rsplit(".", 1)[-1], []).append(fqcn)
 simple_name_index = {
     name: {"classes": sorted(classes), "ambiguous": len(classes) > 1} for name, classes in sorted(simple_names.items())
 }
 
-with open(f"{output_dir}/bootui-tests.json", "w", encoding="utf-8") as f:
+with open(f"{output_dir}/bootui-tests.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump(
         {
-            "testClasses": test_classes,
+            "testClasses": sorted_test_classes,
             "simpleNameIndex": simple_name_index,
-            "totalClasses": len(test_classes),
-            "totalMethods": sum(len(m) for m in test_classes.values()),
+            "totalClasses": len(sorted_test_classes),
+            "totalMethods": sum(len(m) for m in sorted_test_classes.values()),
         },
         f,
         indent=2,
     )
-print(f"Wrote bootui-tests.json ({len(test_classes)} test classes)")
+print(f"Wrote bootui-tests.json ({len(sorted_test_classes)} test classes)")
 
-with open(f"{output_dir}/meta.json", "w", encoding="utf-8") as f:
+meta["counts"]["testClasses"] = len(sorted_test_classes)
+meta["counts"]["testMethods"] = sum(len(m) for m in sorted_test_classes.values())
+
+with open(f"{output_dir}/meta.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump(meta, f, indent=2)
