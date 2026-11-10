@@ -297,3 +297,15 @@ def test_2_2_meta_content_remains_unchanged(tmp_path: Path):
     assert error is None
     meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
     assert meta == module.META_2_2_0 | {"uncaptured": {}, "provisional": []}
+
+
+def test_numeric_token_counts_are_not_secrets() -> None:
+    assert module.find_secrets({"totalInputTokens": 120, "maxTokens": 4096, "tokenCount": 3}) == []
+
+
+def test_numbers_under_other_sensitive_keys_stay_refused() -> None:
+    assert module.find_secrets({"password": 1234}) == ["$.password"]
+
+
+def test_strings_under_token_count_keys_stay_refused() -> None:
+    assert module.find_secrets({"totalInputTokens": "abc123"}) == ["$.totalInputTokens"]
