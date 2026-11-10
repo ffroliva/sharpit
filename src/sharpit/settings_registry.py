@@ -78,6 +78,30 @@ def _row_limit(raw: object) -> int:
     return n
 
 
+def _byte_size(raw: object) -> int:
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return _int(raw)
+    if not isinstance(raw, str) or (
+        match := re.fullmatch(r"\s*(\d+)\s*(B|KB?|K|MB?|M|GB?|G)?\s*", raw, re.IGNORECASE)
+    ) is None:
+        raise ValueError(raw)
+    units = {None: 1, "B": 1, "K": 1024, "KB": 1024, "M": 1024**2, "MB": 1024**2, "G": 1024**3, "GB": 1024**3}
+    return _int(int(match.group(1)) * units[(match.group(2) or "").upper() or None])
+
+
+_JOURNAL_SOURCES = (
+    "http", "sql", "transaction", "connection", "exception", "security", "authorization", "rest-client", "cache",
+    "messaging", "scheduled", "log", "mail", "fault-tolerance", "ai", "lifecycle", "gc", "resources",
+)  # fmt: skip
+
+
+def _journal_sources(raw: object) -> tuple[str, ...]:
+    values = _items(raw)
+    if any(value not in _JOURNAL_SOURCES for value in values):
+        raise ValueError(raw)
+    return values
+
+
 def _duration(raw: object) -> float:
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
         seconds = float(raw)
@@ -222,6 +246,11 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "threads_max_stack_frames": (_int, None),
     "advisors_max_retained_violations": (_int, None),
     "stream_max_seconds": (_duration, None),
+    "runtime_journal_enabled": (parse_bool, False),
+    "runtime_journal_max_events": (_int, 50_000),
+    "runtime_journal_max_bytes": (_byte_size, 32 * 1024 * 1024),
+    "runtime_journal_queue_capacity": (_int, 10_000),
+    "runtime_journal_sources": (_journal_sources, None),
     "security_logs_max_logs": (_int, None),
     "postgresql_max_sessions": (_row_limit, None),
     "postgresql_max_statements": (_row_limit, None),
@@ -322,6 +351,11 @@ _NON_CREDENTIAL_FIELDS = {
     "threads_max_stack_frames": "Stack frame limit, not a credential.",
     "advisors_max_retained_violations": "Violation count limit, not a credential.",
     "stream_max_seconds": "Stream duration limit, not a credential.",
+    "runtime_journal_enabled": _FLAG,
+    "runtime_journal_max_events": "Journal event count limit, not a credential.",
+    "runtime_journal_max_bytes": "Journal byte limit, not a credential.",
+    "runtime_journal_queue_capacity": "Journal queue count limit, not a credential.",
+    "runtime_journal_sources": "Journal source names, not credentials.",
     "security_logs_max_logs": "Log count limit, not a credential.",
     "postgresql_max_sessions": "Session count limit, not a credential.",
     "postgresql_max_statements": "Statement count limit, not a credential.",

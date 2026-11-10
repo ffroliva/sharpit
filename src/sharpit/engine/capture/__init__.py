@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 if TYPE_CHECKING:  # later tasks add these modules; the adapter owns the wiring
     from sharpit.engine.capture.exceptions import ExceptionStore
     from sharpit.engine.capture.exchanges import HttpExchangeBuffer
+    from sharpit.engine.capture.journal import RuntimeJournal
     from sharpit.engine.capture.logtail import LogTailBuffer
     from sharpit.engine.capture.sqltrace import SqlTraceRecorder  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
     from sharpit.engine.capture.streams import ChangeStream, StreamSlots
@@ -65,6 +66,7 @@ class CaptureState:
     exceptions: ExceptionStore | None = None
     sql_trace: SqlTraceRecorder | None = None
     log_tail: LogTailBuffer | None = None
+    journal: RuntimeJournal | None = None
     stream_slots: StreamSlots | None = None
     engine_registry: EngineRegistry | None = None
     raw_sqlite_seen: bool = False

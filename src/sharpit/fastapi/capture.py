@@ -27,6 +27,7 @@ from sharpit.engine import sqla
 from sharpit.engine.capture import route_path, under
 from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_request_id
 from sharpit.engine.capture.exchanges import exchange_row
+from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
 from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
@@ -314,6 +315,15 @@ class CaptureWiring:
             return
         self.app = app
         self._context = ctx
+        if ctx.settings.runtime_journal_enabled:
+            journal = ctx.capture.journal = RuntimeJournal(
+                max_events=ctx.settings.runtime_journal_max_events,
+                max_bytes=ctx.settings.runtime_journal_max_bytes,
+                queue_capacity=ctx.settings.runtime_journal_queue_capacity,
+                sources=ctx.settings.runtime_journal_sources,
+                masker=ctx.masker,
+            )
+            ctx.capture.hooks.register(journal)
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
         if any(_panel_enabled(ctx, p) for p in LOG_PANELS):

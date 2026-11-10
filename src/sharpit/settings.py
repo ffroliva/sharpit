@@ -123,6 +123,14 @@ class SharpitSettings:
     threads_max_stack_frames: int = 64
     advisors_max_retained_violations: int = 10000
     stream_max_seconds: float = 3.0
+    runtime_journal_enabled: bool = True
+    runtime_journal_max_events: int = 50_000
+    runtime_journal_max_bytes: int = 32 * 1024 * 1024
+    runtime_journal_queue_capacity: int = 10_000
+    runtime_journal_sources: tuple[str, ...] = (
+        "http", "sql", "transaction", "connection", "exception", "security", "authorization", "rest-client",
+        "cache", "messaging", "scheduled", "log", "mail", "fault-tolerance", "ai", "lifecycle", "gc", "resources",
+    )  # fmt: skip
     # 0.4.0 panels: pre-created by lane F, inert until the owning lane reads them (F-foundation.md interface table)
     security_logs_max_logs: int = 500
     postgresql_max_sessions: int = 100

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from sharpit.engine import sqla
 from sharpit.engine.capture.exchanges import DTO_KEYS as EXCHANGE_KEYS
+from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.capture.sqltrace import entry_dto
 from sharpit.engine.sqltext import Dialect
 
@@ -353,8 +354,10 @@ def request_profile(ctx: SharpitContext, request_id: str) -> dict[str, Any]:
     }
 
 
-def journal_status_dto() -> dict[str, Any]:
-    """``RuntimeJournalStatusDto`` of a journal that does not exist: disabled, empty, and saying why."""
+def journal_status_dto(journal: RuntimeJournal | None = None) -> dict[str, Any]:
+    """``RuntimeJournalStatusDto`` from the retained journal, or its disabled status when it is off."""
+    if journal is not None:
+        return journal.status()
     return {
         "enabled": False,
         "runId": None,
@@ -369,11 +372,11 @@ def journal_status_dto() -> dict[str, Any]:
         "oldestRetainedAt": None,
         "queueDepth": 0,
         "queueCapacity": 0,
-        "recorded": None,
+        "recorded": {},
         "dropped": {},
         "droppedEvents": 0,
         "previousRuns": [],
-        "previousRunsUnavailable": NO_JOURNAL,
+        "previousRunsUnavailable": None,
         "agentEvidence": None,
     }
 
