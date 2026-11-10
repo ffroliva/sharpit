@@ -1,23 +1,22 @@
-"""The 21 ported REST API rules (port of BootUI ``RestApiRules`` heuristics and ``docs/REST-API-CHECKS.md`` names).
-
-Rules read ``ApiRouteInfo`` metadata only. Spring/JAX-RS wording is rewritten for FastAPI; severities and categories
-keep BootUI's calibration. sharpit adaptations: a "controller" is the endpoint's module, a handler is described as
-``module:qualname [METHODS path]``, MAP-001 flags one route that serves GET together with a mutating method (FastAPI
-has no method-less mapping), and name heuristics also split snake_case and kebab-case words.
-"""
+"""The REST API rule metadata and stable public evaluation API."""
 
 from __future__ import annotations
 
-import collections.abc as abc
-import re
 import sys
-import types
-import typing
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, NamedTuple
 
 from sharpit.engine.advisors.rules import RuleDefinition, RuleResult
+from sharpit.engine.collectors.restapi import (
+    rules_dto,
+    rules_errors_docs,
+    rules_mapping,
+    rules_naming,
+    rules_pagination,
+    rules_responses,
+    rules_versioning,
+)
+from sharpit.engine.collectors.restapi.rules_common import Violation, shared_is_framework
 from sharpit.engine.spi import ApiRouteInfo
 from sharpit.engine.testsession.swallowed import swallowing_lines
 
@@ -298,484 +297,44 @@ RULE_IDS = frozenset(r.id for r in RULES)
 
 # --- heuristics (RestApiRules constants) ----------------------------------------------------------------------------
 
-_FRAMEWORK_MODULES = frozenset({"fastapi", "starlette", "sharpit"})
-_MUTATING = ("POST", "PUT", "PATCH", "DELETE")
-_VERBS = frozenset(
-    [
-        "get",
-        "create",
-        "update",
-        "delete",
-        "remove",
-        "save",
-        "add",
-        "fetch",
-        "insert",
-        "modify",
-        "post",
-        "put",
-        "patch",
-        "read",
-    ]
-)
-_VERB_STANDALONE = frozenset(
-    ["get", "create", "update", "delete", "remove", "save", "add", "fetch", "insert", "modify"]
-)
-_CREATION_PREFIXES = frozenset(["create", "add", "save", "insert", "register", "new"])
-_STATE_CHANGING_PREFIXES = frozenset(
-    [
-        "create",
-        "update",
-        "delete",
-        "remove",
-        "save",
-        "add",
-        "insert",
-        "modify",
-        "patch",
-        "put",
-        "post",
-        "register",
-        "edit",
-    ]
-)
-_NON_MUTATING_PREFIXES = ("postprocess", "putaside", "patchversion")
-_IRREGULAR_PLURALS = frozenset(
-    [
-        "people",
-        "children",
-        "men",
-        "women",
-        "media",
-        "data",
-        "criteria",
-        "indices",
-        "vertices",
-        "feet",
-        "teeth",
-        "geese",
-        "mice",
-        "series",
-        "species",
-    ]
-)
-_UNCOUNTABLE = frozenset(
-    [
-        "history",
-        "inventory",
-        "staff",
-        "info",
-        "information",
-        "search",
-        "news",
-        "status",
-        "metadata",
-        "feedback",
-        "content",
-        "equipment",
-        "software",
-        "hardware",
-        "analytics",
-        "reporting",
-        "billing",
-        "processing",
-        "shipping",
-        "access",
-    ]
-)
-_NON_API_SEGMENTS = frozenset(
-    [
-        "health",
-        "info",
-        "ready",
-        "readiness",
-        "live",
-        "liveness",
-        "metrics",
-        "prometheus",
-        "error",
-        "login",
-        "logout",
-        "oauth",
-        "oauth2",
-        "token",
-        "docs",
-        "redoc",
-        "openapi.json",
-        "swagger-ui",
-        "swagger",
-        "api-docs",
-        "favicon.ico",
-        "static",
-    ]
-)
-_VERSION = re.compile(r"v\d+", re.IGNORECASE)
-_DOUBLE_SLASH = re.compile(r"//")
-_CATCH_ALL = re.compile(r"\{[^}]*:path\}")
-_WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+")
-_PAGING_PARAMS = frozenset({"limit", "offset", "page", "cursor", "size"})
-_COLLECTIONS: tuple[object, ...] = (
-    list,
-    tuple,
-    set,
-    frozenset,
-    abc.Sequence,
-    abc.MutableSequence,
-    abc.Set,
-    abc.MutableSet,
-    abc.Collection,
-    abc.Iterable,
-    abc.Iterator,
-)
-_UNTYPED: tuple[object, ...] = (Any, object, dict, abc.Mapping, abc.MutableMapping)
-_NONE = type(None)
-_MAX_TYPE_DEPTH = 8
 
-
-def _is_framework(route: ApiRouteInfo) -> bool:
-    return route.handler.partition(":")[0].partition(".")[0] in _FRAMEWORK_MODULES
-
-
-def _route_target(route: ApiRouteInfo) -> str:
-    """``"<METHOD> <path> <module:qualname>"``; several methods are each named, sorted and joined with ``" | "``.
-
-    The handler keeps two handlers on one method and path apart (a fingerprint dismisses one finding)."""
-    return " | ".join(f"{method} {route.path}" for method in sorted(route.methods)) + f" {route.handler}"
-
-
-def _describe(route: ApiRouteInfo, suffix: str | None = None) -> str:
-    base = f"{route.handler} [{' '.join(route.methods)} {route.path}]"
-    return f"{base} — {suffix}" if suffix else base
-
-
-def _function(route: ApiRouteInfo) -> str:
-    return route.handler.rpartition(":")[2].rpartition(".")[2]
-
-
-def _words(name: str) -> list[str]:
-    return [w.lower() for w in _WORDS.findall(name)]
-
-
-def _first_word(name: str) -> str | None:
-    words = _words(name)
-    return words[0] if words else None
-
-
-def _segments(path: str) -> list[str]:
-    return [s for s in path.split("/") if s]
-
-
-def _is_variable(segment: str) -> bool:
-    return segment.startswith("{") and segment.endswith("}")
-
-
-def _static(path: str) -> list[str]:
-    return [s for s in _segments(path) if not _is_variable(s)]
-
-
-def _unwrap(tp: object) -> object:
-    """``Optional[X]``, ``X | None`` and ``Annotated[X, ...]`` -> ``X``."""
-    for _ in range(_MAX_TYPE_DEPTH):
-        origin = typing.get_origin(tp)
-        if origin is typing.Annotated:
-            tp = typing.get_args(tp)[0]
-        elif origin is typing.Union or origin is types.UnionType:
-            args = [a for a in typing.get_args(tp) if a is not _NONE]
-            if len(args) != 1:
-                return tp
-            tp = args[0]
-        else:
-            return tp
-    return tp
-
-
-def _origin(tp: object) -> object:
-    tp = _unwrap(tp)
-    return typing.get_origin(tp) or tp
-
-
-def _response_type(route: ApiRouteInfo) -> object | None:
-    return route.response_model if route.response_model is not None else route.return_annotation
-
-
-def _is_collection(route: ApiRouteInfo) -> bool:
-    tp = _response_type(route)
-    return tp is not None and any(_origin(tp) is c for c in _COLLECTIONS)
-
-
-def _all_types(tp: object, depth: int = 0) -> Iterator[object]:
-    yield tp
-    if depth < _MAX_TYPE_DEPTH:
-        for arg in typing.get_args(tp):
-            yield from _all_types(arg, depth + 1)
-
-
-def _persistence_class(route: ApiRouteInfo) -> type | None:
-    for root in (route.response_model, route.return_annotation):
-        for tp in _all_types(root):
-            if isinstance(tp, type) and (hasattr(tp, "__table__") or hasattr(tp, "__mapper__")):
-                return tp
-    return None
-
-
-def _has_body_type(route: ApiRouteInfo) -> bool:
-    return route.response_model is not None or route.return_annotation not in (None, _NONE)
-
-
-# --- rules (RestApiRules doEvaluate) --------------------------------------------------------------------------------
-
-APPLICATION = "application"  # the target of a rule about the whole app rather than one route
-
-
-class Violation(NamedTuple):
-    """One occurrence of a rule: what it is about (``target``) and today's violation string (``message``).
-
-    Counts never appear in a target, so a fingerprint survives a route being added or removed elsewhere."""
-
-    target: str
-    message: str
-
-
-Check = Callable[[Sequence[ApiRouteInfo], Sequence[str]], list[Violation]]
-
-
-def _each(predicate: Callable[[ApiRouteInfo], str | None]) -> Check:
-    """One violation per route for which ``predicate`` returns a suffix (BootUI ``handlersMatching``)."""
-
-    def check(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Violation]:
-        out: list[Violation] = []
-        for route in routes:
-            suffix = predicate(route)
-            if suffix is not None:
-                out.append(Violation(_route_target(route), _describe(route, suffix)))
-        return out
-
-    return check
-
-
-def _map001(route: ApiRouteInfo) -> str | None:
-    mutating = [m for m in route.methods if m in _MUTATING]
-    return f"GET combined with {', '.join(mutating)}" if "GET" in route.methods and mutating else None
-
-
-def _map002(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Violation]:
-    by_route: dict[tuple[str, str], list[str]] = {}
-    for route in routes:
-        for method in route.methods:
-            by_route.setdefault((method, route.path), []).append(route.handler)
-    return [
-        Violation(
-            f"{method} {path}", f"{method} {path} with matching dispatch conditions handled by {', '.join(handlers)}"
-        )
-        for (method, path), handlers in by_route.items()
-        if len(handlers) > 1
-    ]
-
-
-def _map003(route: ApiRouteInfo) -> str | None:
-    name = _function(route)
-    if "GET" not in route.methods or name.replace("_", "").lower().startswith(_NON_MUTATING_PREFIXES):
-        return None
-    return "mutation-like name on GET" if _first_word(name) in _STATE_CHANGING_PREFIXES else None
-
-
-def _map005(route: ApiRouteInfo) -> str | None:
-    outside = re.sub(r"\{[^}]*\}", "", route.path)
-    if _DOUBLE_SLASH.search(outside):
-        return "doubled slash"
-    return "trailing slash" if len(route.path) > 1 and route.path.endswith("/") else None
-
-
-def _map007(route: ApiRouteInfo) -> str | None:
-    methods = [m for m in route.methods if m in ("GET", "HEAD", "DELETE")]
-    return f"request body on {', '.join(methods)}" if route.has_body and methods else None
-
-
-def _map010(route: ApiRouteInfo) -> str | None:
-    return "catch-all path parameter" if _CATCH_ALL.search(route.path) else None
-
-
-def _map011(route: ApiRouteInfo) -> str | None:
-    segments = _segments(route.path)
-    depth = sum(1 for a, b in zip(segments, segments[1:], strict=False) if not _is_variable(a) and _is_variable(b))
-    return f"{depth} levels of collection/{{id}} nesting" if depth > 3 else None
-
-
-def _name001(route: ApiRouteInfo) -> str | None:
-    for segment in _static(route.path):
-        words = _words(segment)
-        if segment.lower() in _VERB_STANDALONE or (len(words) > 1 and words[0] in _VERBS):
-            return "verb in path"
-    return None
-
-
-def _name002(route: ApiRouteInfo) -> str | None:
-    if "GET" not in route.methods or not _is_collection(route):
-        return None
-    static = [s for s in _static(route.path) if not _VERSION.fullmatch(s)]
-    if not static:
-        return None
-    words = _words(static[-1])
-    noun = words[-1] if words else ""
-    if not noun.isalpha() or noun.endswith("s") or noun in _IRREGULAR_PLURALS or noun in _UNCOUNTABLE:
-        return None
-    return f"singular collection name '{static[-1]}'"
-
-
-def _name003(route: ApiRouteInfo) -> str | None:
-    for segment in _static(route.path):
-        if segment != segment.lower() or "_" in segment:
-            return f"segment '{segment}' is not lowercase kebab-case"
-    return None
-
-
-def _resp001(route: ApiRouteInfo) -> str | None:
-    if "POST" not in route.methods or route.status_code is not None or route.dynamic_response:
-        return None
-    return (
-        "creation-like POST with the default 200 status"
-        if _first_word(_function(route)) in _CREATION_PREFIXES
-        else None
-    )
-
-
-def _resp002(route: ApiRouteInfo) -> str | None:
-    if "DELETE" not in route.methods or route.status_code is not None or route.dynamic_response:
-        return None
-    return None if _has_body_type(route) else "DELETE with the default 200 status and no response body"
-
-
-def _resp006(route: ApiRouteInfo) -> str | None:
-    if route.status_code != 204 or route.dynamic_response:
-        return None
-    return "204 declared with a content-capable return type" if _has_body_type(route) else None
-
-
-def _resp011(route: ApiRouteInfo) -> str | None:
-    if "GET" not in route.methods or route.status_code not in (None, 200) or route.dynamic_response:
-        return None
-    tp = _response_type(route)
-    while typing.get_origin(tp) is typing.Annotated:
-        tp = typing.get_args(tp)[0]
-    args = typing.get_args(tp)
-    optional = typing.get_origin(tp) in (typing.Union, types.UnionType) and _NONE in args and len(args) > 1
-    return "Optional return served as 200 with a null body" if optional else None
-
-
-def _dto001(route: ApiRouteInfo) -> str | None:
-    cls = _persistence_class(route)
-    return f"returns persistence class {cls.__name__}" if cls is not None else None
-
-
-def _dto002(route: ApiRouteInfo) -> str | None:
-    if route.dynamic_response or route.status_code in (204, 304):
-        return None
-    tp = _response_type(route)
-    if tp is None:
-        return "no response model or return annotation"
-    return "untyped response body" if any(_origin(tp) is u for u in _UNTYPED) else None
-
-
-def _page001(route: ApiRouteInfo) -> str | None:
-    if "GET" not in route.methods or not _is_collection(route):
-        return None
-    if _PAGING_PARAMS & {p.lower() for p in route.query_params}:
-        return None
-    return "collection response without limit/offset/page/cursor parameters"
-
-
-def _ver001(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Violation]:
-    api = [r for r in routes if _segments(r.path) and _segments(r.path)[0].lower() not in _NON_API_SEGMENTS]
-    unversioned = [r for r in api if not any(_VERSION.fullmatch(s) for s in _segments(r.path))]
-    if not unversioned:
-        return []
-    if len(unversioned) == len(api):
-        return [
-            Violation(
-                APPLICATION,
-                "No API version signal (no /vN path, version header/param, or versioned media type) was detected"
-                f" across {len(api)} handler(s).",
-            )
-        ]
-    examples = ", ".join(_describe(r) for r in unversioned[:5])
-    return [
-        Violation(
-            APPLICATION,
-            f"Versioning is applied inconsistently: {len(unversioned)} of {len(api)} API handler(s) have no version"
-            f" signal while others do. Unversioned example(s): {examples}",
-        )
-    ]
-
-
-def _err001(routes: Sequence[ApiRouteInfo], handlers: Sequence[str]) -> list[Violation]:
-    app_handlers = [h for h in handlers if h.partition(":")[0].partition(".")[0] not in _FRAMEWORK_MODULES]
-    if not routes or app_handlers:
-        return []
-    return [
-        Violation(
-            APPLICATION,
-            "No application-wide exception handler was registered in app.exception_handlers for"
-            f" {len(routes)} route handler(s).",
-        )
-    ]
-
-
-def _doc001(route: ApiRouteInfo) -> str | None:
-    return None if (route.summary or "").strip() or (route.description or "").strip() else "no summary or description"
-
-
-def _doc002(route: ApiRouteInfo) -> str | None:
-    return None if route.tags else "no tags"
-
-
-_CHECKS: dict[str, Check] = {
-    "RAPI-MAP-001": _each(_map001),
-    "RAPI-MAP-002": _map002,
-    "RAPI-MAP-003": _each(_map003),
-    "RAPI-MAP-005": _each(_map005),
-    "RAPI-MAP-007": _each(_map007),
-    "RAPI-MAP-010": _each(_map010),
-    "RAPI-MAP-011": _each(_map011),
-    "RAPI-NAME-001": _each(_name001),
-    "RAPI-NAME-002": _each(_name002),
-    "RAPI-NAME-003": _each(_name003),
-    "RAPI-RESP-001": _each(_resp001),
-    "RAPI-RESP-002": _each(_resp002),
-    "RAPI-RESP-006": _each(_resp006),
-    "RAPI-RESP-011": _each(_resp011),
-    "RAPI-DTO-001": _each(_dto001),
-    "RAPI-DTO-002": _each(_dto002),
-    "RAPI-PAGE-001": _each(_page001),
-    "RAPI-VER-001": _ver001,
-    "RAPI-ERR-001": _err001,
-    "RAPI-DOC-001": _each(_doc001),
-    "RAPI-DOC-002": _each(_doc002),
+_CHECKS = {
+    **rules_mapping.CHECKS,
+    **rules_naming.CHECKS,
+    **rules_responses.CHECKS,
+    **rules_dto.CHECKS,
+    **rules_pagination.CHECKS,
+    **rules_versioning.CHECKS,
+    **rules_errors_docs.CHECKS,
 }
 
 
 def application_routes(routes: Sequence[ApiRouteInfo]) -> list[ApiRouteInfo]:
-    """The host's own handlers: FastAPI's docs routes, Starlette apps and sharpit's routes are not reviewed."""
-    return [r for r in routes if not _is_framework(r)]
+    """The host's own handlers (BootUI's application handlers): framework routes are not reviewed."""
+    return [route for route in routes if not shared_is_framework(route)]
 
 
 def evaluate(
     routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]
 ) -> tuple[dict[str, list[Violation]], set[str]]:
-    """Every ported rule's violations, in ``RULES`` order, and the ids of rules that raised (BootUI ``evaluate``)."""
+    """Every ported rule's violations in ``RULES`` order, and ids that raised (BootUI ``evaluate``)."""
     own = application_routes(routes)
     found: dict[str, list[Violation]] = {}
     errored: set[str] = set()
     for rule in RULES:
         try:
             found[rule.id] = _CHECKS[rule.id](own, exception_handlers)
-        except Exception:  # a broken model (e.g. a lazy proxy) fails its rule, never the scan
+        except Exception:  # a broken model fails its rule, never the scan
             found[rule.id] = []
             errored.add(rule.id)
     return found, errored
 
 
 def violations(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> dict[str, list[str]]:
-    """Every ported rule's violations, in ``RULES`` order. Pure: reads the given metadata only."""
+    """Every ported rule's violations in ``RULES`` order.
+
+    Pure: reads the given metadata only (BootUI ``violations``).
+    """
     return {rule_id: [v.message for v in items] for rule_id, items in evaluate(routes, exception_handlers)[0].items()}
 
 
@@ -784,7 +343,6 @@ def scan(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> l
     return [RuleResult.evaluate(rule, found[rule.id]) for rule in RULES]
 
 
-# N (new, not ported): the static half of spec 0.4.0 §5.5 F1; not in RULES, which stays BootUI's 20.
 FASTAPI_ERR_001 = RuleDefinition(
     "FASTAPI-ERR-001",
     "Do not swallow exceptions in route handler modules",
