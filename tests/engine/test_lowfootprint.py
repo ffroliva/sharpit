@@ -79,3 +79,35 @@ def test_concurrent_suspend_and_resume_keep_each_hook_in_balance() -> None:
     assert hook.seen <= {0, 1}, f"a hook was suspended or resumed twice in a row: depths {sorted(hook.seen)}"
     assert hook.depth == 0
     assert service.status()["enabled"] is False
+
+
+def test_a_hook_that_raises_on_suspend_does_not_strand_the_others() -> None:
+    """Review: BootUI's LowFootprintService catches each component's failure and carries on; resume still works."""
+    from sharpit.engine.lowfootprint import LowFootprintService
+
+    class Hook:
+        def __init__(self, name: str, *, fails: bool = False) -> None:
+            self.name = name
+            self.fails = fails
+            self.attached = True
+
+        def suspend(self) -> None:
+            if self.fails:
+                raise RuntimeError("boom")
+            self.attached = False
+
+        def resume(self) -> None:
+            self.attached = True
+
+    hooks = [Hook("a"), Hook("bad", fails=True), Hook("c")]
+    registry = capture.HookRegistry()
+    for hook in hooks:
+        registry.register(hook)
+    service = LowFootprintService(registry)
+    status = service.suspend()
+    assert [hook.attached for hook in hooks] == [False, True, False]
+    assert status["enabled"] is True
+    assert status["failures"] == ["bad: RuntimeError: boom"]
+    status = service.resume()
+    assert [hook.attached for hook in hooks] == [True, True, True]
+    assert status["enabled"] is False

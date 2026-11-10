@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -35,6 +35,7 @@ class HookRegistry:
 
     def __init__(self) -> None:
         self._hooks: dict[str, Suspendable] = {}
+        self.failures: list[str] = []  # the last suspend/resume's per-hook failures, as ``name: Type: message``
 
     def register(self, hook: Suspendable) -> None:
         self._hooks[hook.name] = hook
@@ -43,12 +44,19 @@ class HookRegistry:
         return tuple(self._hooks.values())
 
     def suspend(self) -> None:
-        for hook in reversed(self.hooks()):
-            hook.suspend()
+        self._each(reversed(self.hooks()), "suspend")
 
     def resume(self) -> None:
-        for hook in self.hooks():
-            hook.resume()
+        self._each(self.hooks(), "resume")
+
+    def _each(self, hooks: Iterable[Suspendable], action: str) -> None:
+        """Run ``action`` on every hook; one hook's failure is recorded and the rest carry on (as BootUI)."""
+        self.failures = []
+        for hook in hooks:
+            try:
+                getattr(hook, action)()
+            except Exception as exc:  # noqa: BLE001 - a failing hook never strands the others
+                self.failures.append(f"{hook.name}: {type(exc).__name__}: {exc}")
 
 
 @dataclass(eq=False)

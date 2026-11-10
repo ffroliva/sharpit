@@ -28,4 +28,8 @@ class LowFootprintService:
             return self.status()
 
     def status(self) -> dict[str, object]:
-        return {"enabled": self.enabled, "hooks": [hook.name for hook in self.registry.hooks()]}
+        return {
+            "enabled": self.enabled,
+            "hooks": [hook.name for hook in self.registry.hooks()],
+            "failures": list(self.registry.failures),
+        }
