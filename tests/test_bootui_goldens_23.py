@@ -63,9 +63,10 @@ def _empty_list_paths(value: Any, path: str = "") -> list[str]:
 
 
 def _computed_empty_lists() -> dict[str, list[str]]:
+    files = sorted(FIXTURES.glob("*/captured.json")) + sorted(FIXTURES.glob("*/**/*.captured.json"))
     return {
         path.relative_to(FIXTURES).as_posix(): _empty_list_paths(_json(path))
-        for path in sorted(FIXTURES.glob("*/**/*.captured.json"))
+        for path in files
         if _empty_list_paths(_json(path))
     }
 
