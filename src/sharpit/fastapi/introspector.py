@@ -15,7 +15,6 @@ from enum import Enum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Literal, cast
-from urllib.parse import urlsplit
 
 from starlette.applications import Starlette
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -29,12 +28,38 @@ from sharpit.engine.spi import (
     MiddlewareFacts,
     ProviderInfo,
     RouteInfo,
-    SchemeUrl,
     SecuredRoute,
     SecurityChain,
     SecurityFacts,
     SecurityModel,
     SecurityScheme,
+)
+from sharpit.fastapi.introspection_common import (
+    MAX_DEPTH,
+)
+from sharpit.fastapi.introspection_common import (
+    OWN_MODULE_PREFIX as _OWN_MODULE_PREFIX,
+)
+from sharpit.fastapi.introspection_common import (
+    as_objects as _as_objects,
+)
+from sharpit.fastapi.introspection_common import (
+    attrs as _attrs,
+)
+from sharpit.fastapi.introspection_common import (
+    dotted as _dotted,
+)
+from sharpit.fastapi.introspection_security import (
+    FLAG_READERS as _FLAG_READERS,
+)
+from sharpit.fastapi.introspection_security import (
+    middleware_facts as _middleware_facts,
+)
+from sharpit.fastapi.introspection_security import (
+    scheme_objects as _scheme_objects,
+)
+from sharpit.fastapi.introspection_security import (
+    scheme_urls as _scheme_urls,
 )
 
 
@@ -51,19 +76,6 @@ def _fastapi_classes() -> tuple[tuple[type, ...], tuple[type, ...], tuple[type, 
 _FASTAPI_APPS, _API_ROUTES, _API_WEBSOCKET_ROUTES = _fastapi_classes()
 
 
-def _attrs(obj: object) -> dict[str, object]:
-    """``obj``'s own attributes, read statically; ``{}`` for an object without ``__dict__``.
-
-    ``object.__getattribute__`` skips a user ``__getattribute__`` and never falls back to ``__getattr__`` (``vars()``
-    does both).
-    """
-    try:
-        values = object.__getattribute__(obj, "__dict__")
-    except Exception:  # noqa: BLE001 - __slots__ (a SQLAlchemy AsyncEngine passed as the app); a built-in; a drift
-        return {}
-    return cast(dict[str, object], values) if isinstance(values, dict | types.MappingProxyType) else {}
-
-
 def _version(dist: str) -> str | None:
     try:
         return version(dist)
@@ -71,8 +83,6 @@ def _version(dist: str) -> str | None:
         return None
 
 
-MAX_DEPTH = 32
-_OWN_MODULE_PREFIX = "sharpit."
 _MOUNT_SUFFIX = "/{path}"
 _UNEXPANDED_ROUTER = "<unexpanded include_router>"
 _ANY_PATH = "(any)"
@@ -245,10 +255,6 @@ def _framework(handler: str) -> bool:
 NOT_FASTAPI = "FastAPI security dependencies are not available: the app is not a FastAPI app"
 
 
-def _dotted(cls: object) -> str:
-    return f"{getattr(cls, '__module__', None) or '?'}.{getattr(cls, '__qualname__', '?')}"
-
-
 def _backend(entry: object) -> object | None:
     """``AuthenticationMiddleware``'s backend: the only option read, and only its type leaves."""
     kwargs: Any = getattr(entry, "kwargs", None)
@@ -342,14 +348,6 @@ def _path_regex(path: str, prefix_only: bool) -> str | None:
         return pattern.removesuffix("$").removesuffix("/") + "(?:/.*)?$"
     except Exception:  # noqa: BLE001 - an unknown convertor: the route cannot be matched statically
         return None
-
-
-def _as_objects(value: object) -> tuple[object, ...]:
-    if isinstance(value, list):
-        return tuple(cast(list[object], value))
-    if isinstance(value, tuple):
-        return cast(tuple[object, ...], value)
-    return ()
 
 
 def _route_list(app: object) -> list[BaseRoute]:
@@ -860,140 +858,3 @@ class FastApiIntrospector:
                     found.extend(_middleware_facts(inner, limitations, label))
                     pending.append((inner, here, depth + 1))
         return found
-
-
-# ---- security advisor facts (B-security): option values are read here and leave only as fact names ------------------
-
-_LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
-_PROBE_ORIGINS = ("https://attacker.invalid", "http://evil.example.net")
-_FLOW_FIELDS = ("authorizationUrl", "tokenUrl", "refreshUrl")
-
-
-def _strings(value: object) -> tuple[str, ...]:
-    """Exact ``str``/``list``/``tuple``/``set``/``frozenset`` only: a user subclass's ``__iter__`` never runs."""
-    if type(value) is str:
-        return tuple(part.strip() for part in value.split(","))
-    if type(value) in (list, tuple, set, frozenset):
-        return tuple(item for item in cast("tuple[object, ...]", tuple(cast("Any", value))) if type(item) is str)
-    return ()
-
-
-def _broad_regex(pattern: object) -> bool:
-    if type(pattern) is not str:
-        return False
-    try:
-        compiled = re.compile(pattern)
-    except re.error:
-        return False
-    return any(compiled.fullmatch(origin) is not None for origin in _PROBE_ORIGINS)
-
-
-def _cors_flags(options: dict[str, object]) -> set[str]:
-    flags: set[str] = set()
-    if "*" in _strings(options.get("allow_origins")):
-        flags.add("any_origin")
-    if options.get("allow_credentials") is True:
-        flags.add("credentials")
-    if _broad_regex(options.get("allow_origin_regex")):
-        flags.add("broad_origin_regex")
-    return flags
-
-
-_SECRET_FIELDS = {("starlette.datastructures", "Secret"): "_value", ("pydantic.types", "SecretStr"): "_secret_value"}
-
-
-def _secret_text(value: object) -> object:
-    """A Starlette ``Secret`` or pydantic ``SecretStr`` unwrapped from its instance dict (no ``str()`` runs)."""
-    field = _SECRET_FIELDS.get((type(value).__module__, type(value).__qualname__))
-    return _attrs(value).get(field) if field is not None else value
-
-
-def _session_flags(options: dict[str, object]) -> set[str]:
-    flags: set[str] = set()
-    if options.get("https_only") is True:
-        flags.add("https_only")
-    same_site = options.get("same_site")
-    if type(same_site) is str and same_site.lower() == "none":
-        flags.add("same_site_none")
-    secret = _secret_text(options.get("secret_key"))
-    if type(secret) is str and len(secret) < 32:  # noqa: PLR2004 - the length is the fact; never the value
-        flags.add("short_secret")
-    return flags
-
-
-def _host_flags(options: dict[str, object]) -> set[str]:
-    hosts = options.get("allowed_hosts")
-    return {"any_host"} if hosts is None or "*" in _strings(hosts) else set()  # Starlette: None allows every host
-
-
-def _proxy_flags(options: dict[str, object]) -> set[str]:
-    return {"trust_any_proxy"} if "*" in _strings(options.get("trusted_hosts", "127.0.0.1")) else set()
-
-
-_FLAG_READERS = {
-    "CORSMiddleware": _cors_flags,
-    "SessionMiddleware": _session_flags,
-    "TrustedHostMiddleware": _host_flags,
-    "ProxyHeadersMiddleware": _proxy_flags,
-}
-
-
-def _option_flags(name: str, options: dict[str, object]) -> tuple[str, ...]:
-    reader = _FLAG_READERS.get(name.rpartition(".")[2])
-    return tuple(sorted(reader(options))) if reader is not None else ()
-
-
-def _middleware_facts(app: object, limitations: list[str], mount: str | None = None) -> tuple[MiddlewareFacts, ...]:
-    entries: Any = inspect.getattr_static(app, "user_middleware", None)
-    listed: list[object] = list(cast(list[object], entries)) if type(entries) is list else []
-    found: list[MiddlewareFacts] = []
-    for entry in listed:
-        values = _attrs(entry)
-        cls = values.get("cls")
-        if cls is None or str(_attrs(cls).get("__module__", "")).startswith(
-            _OWN_MODULE_PREFIX
-        ):  # sharpit's own: hidden
-            continue
-        name = _dotted(cls)
-        options = values.get("kwargs")
-        if values.get("args"):
-            limitations.append(f"{name.rpartition('.')[2]} options passed positionally were not read.")
-        found.append(
-            MiddlewareFacts(
-                name, _option_flags(name, cast(dict[str, object], options) if type(options) is dict else {}), mount
-            )
-        )
-    return tuple(found)
-
-
-def _scheme_objects(node: object, depth: int, base: type, out: dict[int, object]) -> None:
-    call: object = getattr(node, "call", None)  # FastAPI's slotted ``Dependant``, as ``_schemes_in`` reads it
-    if issubclass(type(call), base):
-        out.setdefault(id(call), call)
-        return
-    if depth < MAX_DEPTH:
-        for sub in _as_objects(getattr(node, "dependencies", None)):
-            _scheme_objects(sub, depth + 1, base, out)
-
-
-def _insecure_url(value: object) -> bool:
-    if type(value) is not str:
-        return False
-    try:
-        parts = urlsplit(value)
-        host = (parts.hostname or "").lower()
-    except ValueError:
-        return False
-    return parts.scheme.lower() == "http" and bool(host) and host not in _LOOPBACK and not host.endswith(".localhost")
-
-
-def _scheme_urls(scheme: object) -> list[SchemeUrl]:
-    name = _dotted(type(scheme))
-    model = _attrs(_attrs(scheme).get("model"))
-    found: list[SchemeUrl] = []
-    if "openIdConnectUrl" in model:
-        found.append(SchemeUrl(name, "openIdConnectUrl", _insecure_url(model["openIdConnectUrl"])))
-    for flow in _attrs(model.get("flows")).values():
-        flow_values = _attrs(flow)
-        found.extend(SchemeUrl(name, f, _insecure_url(flow_values[f])) for f in _FLOW_FIELDS if f in flow_values)
-    return found
