@@ -98,14 +98,20 @@ jobs:
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-junit
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit.outcome == 'success'
         with: # per-file timings: pytest-speed's `rank` and the shard weights (tests/shard_weights.json) read these
           name: junit-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
           path: ${{ runner.temp }}/junit.xml
           retention-days: 7
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-overhead
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
         with:
           name: overhead-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
           path: ${{ runner.temp }}/overhead.jsonl
@@ -161,15 +167,21 @@ jobs:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
         run: uv run pytest -q -n auto --cov=sharpit --cov-report= --junitxml="${{ runner.temp }}/junit.xml"
       - run: cp "$RUNNER_TEMP/.coverage" "coverage-${{ strategy.job-index }}.data" # a visible name: upload skips dotfiles
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-junit
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit.outcome == 'success'
         with:
           name: junit-coverage-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/junit.xml
           if-no-files-found: ignore
           retention-days: 7
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-overhead
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
         with:
           name: overhead-coverage-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/overhead.jsonl
@@ -306,15 +318,21 @@ jobs:
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-junit
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit.outcome == 'success'
         with:
           name: junit-lowest-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/junit.xml
           if-no-files-found: ignore
           retention-days: 7
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-overhead
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
         with:
           name: overhead-lowest-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/overhead.jsonl
@@ -358,15 +376,21 @@ jobs:
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-junit
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit.outcome == 'success'
         with:
           name: junit-no-sqlalchemy-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/junit.xml
           if-no-files-found: ignore
           retention-days: 7
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-overhead
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
         with:
           name: overhead-no-sqlalchemy-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/overhead.jsonl
@@ -411,14 +435,20 @@ jobs:
       - run: uv run --no-sync pytest tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py tests/masking/test_gates_bite.py -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-junit
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit.outcome == 'success'
         with: # ci_review.py globs junit-*
           name: junit-masking-gates-${{ matrix.os }}
           path: ${{ runner.temp }}/junit.xml
           retention-days: 7
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-overhead
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
         with:
           name: overhead-masking-gates-${{ matrix.os }}
           path: ${{ runner.temp }}/overhead.jsonl
@@ -494,14 +524,20 @@ jobs:
           read -r -a legs <<< "$LEGS"
           read -r -a required <<< "$REQUIRED_LIVE"
           uv run --no-sync python scripts/ci/check_live_tests.py "$RUNNER_TEMP/junit.xml" --legs "${legs[@]}" --require "${required[@]}"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-junit
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit.outcome == 'success'
         with:
           name: junit-live-${{ matrix.server }}
           path: ${{ runner.temp }}/junit.xml
           retention-days: 7
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-overhead
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
         with:
           name: overhead-live-${{ matrix.server }}
           path: ${{ runner.temp }}/overhead.jsonl
@@ -536,14 +572,20 @@ jobs:
       - run: uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml --junitxml="${{ runner.temp }}/junit-fixed.xml"
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-junit-fixed
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-fixed.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-fixed.outcome == 'success'
         with:
           name: junit-sharpit-gate-fixed
           path: ${{ runner.temp }}/junit-fixed.xml
           retention-days: 7
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-sharpit-gate-reports
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" sharpit-report.json sharpit-junit.xml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-sharpit-gate-reports.outcome == 'success'
         with:
           name: sharpit-gate-reports
           path: |
@@ -554,14 +596,20 @@ jobs:
         run: "! uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit --sharpit-report=planted-report.json --junitxml=\"$RUNNER_TEMP/junit-planted.xml\""
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-junit-planted
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-planted.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-planted.outcome == 'success'
         with:
           name: junit-sharpit-gate-planted
           path: ${{ runner.temp }}/junit-planted.xml
           retention-days: 7
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - id: scan-overhead
         if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
         with:
           name: overhead-sharpit-gate-single
           path: ${{ runner.temp }}/overhead.jsonl
