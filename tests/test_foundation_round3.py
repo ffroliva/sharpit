@@ -41,8 +41,8 @@ def test_golden_list_without_shape_information_warns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shapes: list[Any]
 ) -> None:
     monkeypatch.setattr(golden, "ROOT", tmp_path)
-    (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "captured.json").write_text(json.dumps({"items": shapes}), encoding="utf-8")
+    (tmp_path / "2.2.0" / "data").mkdir(parents=True)
+    (tmp_path / "2.2.0" / "data" / "captured.json").write_text(json.dumps({"items": shapes}), encoding="utf-8")
 
     with warnings.catch_warnings(record=True) as seen:
         warnings.simplefilter("always")

@@ -291,3 +291,12 @@ def test_golden_loader_documented_nulls_rejected_without_reason(fixtures: Path) 
     error_ws = _parity_error("data", "data", {"title": None})
     assert error_ws is not None
     assert "reason" in error_ws
+
+
+def test_patched_root_still_selects_the_fixture_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(golden, "ROOT", tmp_path)
+    _write(tmp_path / "2.2.0" / "x" / "captured.json", {"version": "2.2.0"})
+    _write(tmp_path / "2.3.0" / "x" / "captured.json", {"version": "2.3.0"})
+
+    assert golden._folder("x", "2.3.0") == tmp_path / "2.3.0" / "x"
+    assert_parity("x", "captured", {"version": "2.3.0"}, fixture_version="2.3.0")
