@@ -1,7 +1,7 @@
 """scripts/dev/lane_gate.py: the mechanical 0.4.0 merge gate (spec §10.3, council C2/F1c/F1f/R2/R7/round 4).
 
-Each test builds a throwaway integration repo plus a lane worktree in ``tmp_path``. Git runs for real; the four gates
-and the pytest replays are injected fakes, so these tests never run the real suite.
+Each test builds a throwaway integration repo plus a lane worktree in ``tmp_path``. Most Git calls use ``FakeGit``;
+real-Git tests cover fixture preparation, command shapes, and parity. Gates and pytest replays remain faked.
 """
 
 import contextlib
@@ -10,7 +10,7 @@ import json
 import re
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -180,9 +180,12 @@ class FakeGit:
         kwargs: dict[str, object],
     ) -> subprocess.CompletedProcess[str]:
         current = {name: (root / name).read_text(encoding="utf-8") for name in tree if (root / name).is_file()}
-        return self._result(
-            command, kwargs, "".join(f" M {name}\n" for name in tree if tree[name] != current.get(name))
+        changes = "".join(
+            f" D {name}\n" if name not in current else f" M {name}\n"
+            for name in sorted(tree)
+            if tree.get(name) != current.get(name)
         )
+        return self._result(command, kwargs, changes)
 
     def _merge_base(
         self,
@@ -232,7 +235,7 @@ class FakeGit:
     ) -> subprocess.CompletedProcess[str]:
         files = self.trees[args[-1]]
         entries = "\0".join(
-            f"100644 blob {hashlib.sha1(body.encode()).hexdigest()}\t{name}" for name, body in files.items()
+            f"100644 blob {hashlib.sha1(body.encode()).hexdigest()}\t{name}" for name, body in sorted(files.items())
         )
         return self._result(command, kwargs, entries + "\0")
 
@@ -254,7 +257,7 @@ class FakeGit:
             for body in files.values():
                 if hashlib.sha1(body.encode()).hexdigest() == blob:
                     return self._result(command, kwargs, body)
-        return self._result(command, kwargs, code=1)
+        return self._result(command, kwargs, code=128)
 
     def _show(
         self,
@@ -384,10 +387,13 @@ def _run_fake_or_real(command: Sequence[str], **kwargs: object) -> subprocess.Co
 
 
 @pytest.fixture(autouse=True)
-def fake_git(monkeypatch: pytest.MonkeyPatch) -> None:
+def fake_git(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     global _USING_REAL_GIT
+    _FAKE_PATHS.clear()
     _USING_REAL_GIT = False
     monkeypatch.setattr(lane_gate, "_GIT_RUNNER", _run_fake_or_real)
+    yield
+    _FAKE_PATHS.clear()
 
 
 def test_fake_git_replay_binding_keeps_commit_ancestry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2410,6 +2416,8 @@ def test_fake_git_matches_real_git_for_lane_gate_commands_and_decisions(
         root.mkdir()
         fx = _fixture(root)
         calls.clear()
+        lane_gate._git(fx.worktree, "cat-file", "-e", "HEAD:missing.txt", check=False)
+        lane_gate._git(fx.worktree, "cat-file", "blob", "0" * 40, check=False)
         monkeypatch.setattr(lane_gate, "_READS", {})
         clean = fx.evaluate()
         scenarios = [("clean", tuple(clean.refusals))]
