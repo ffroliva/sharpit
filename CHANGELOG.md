@@ -19,6 +19,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- In test fixtures, `golden._folder()` honours `fixture_version` when `ROOT` has been patched, selecting the versioned fixture folder instead of an unversioned one.
 - BootUI 2.3.0 test catalog lists test classes outside `src/test`, including abstract base classes in the `bootui-conformance` module (`AbstractMcpConformanceTest`, `AbstractBootUiApiConformanceTest`, `AbstractCliConformanceTest`, `AbstractCorrelationCoverageTest`).
 - MCP negotiates only protocol revision `2025-06-18`, while retaining BootUI's supported-version list in status. A `2026-07-28` header is now refused as BootUI refuses it (it used to be accepted).
 

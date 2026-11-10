@@ -37,7 +37,7 @@ class UnverifiedParityWarning(UserWarning):
 
 def _folder(sharpit_id: str, fixture_version: str) -> Path:
     if ROOT != _INITIAL_ROOT:
-        return ROOT / sharpit_id
+        return ROOT / fixture_version / sharpit_id
     return BOOTUI_FIXTURES_DIR / fixture_version / sharpit_id
 
 

@@ -224,8 +224,8 @@ def test_golden_loader_prefers_named_provisional_over_shared_capture(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(golden, "ROOT", tmp_path)
-    folder = tmp_path / "postgresql"
-    folder.mkdir()
+    folder = tmp_path / "2.2.0" / "postgresql"
+    folder.mkdir(parents=True)
     (folder / "captured.json").write_text(json.dumps({"version": "16"}), encoding="utf-8")
     (folder / "sessions.provisional.json").write_text(json.dumps({"sessions": []}), encoding="utf-8")
 
