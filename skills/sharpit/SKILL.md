@@ -232,6 +232,8 @@ A skipped advisor does not make the session `unknown`; a database driver sharpit
 
 ### Report-only mode and baselines
 
+For complete gate behavior, exit statuses and the adoption workflow, see [The safety gate](../../docs/pytest-safety-gate.md).
+
 - `--sharpit-report-only`: findings do not fail tests, JUnit cases or the session. The terminal ends with
   `sharpit report-only: N tests would fail, status <status>`. Report-only relaxes findings, never blindness: any unknown
   reason (including a broken baseline) still exits 1 unless `--sharpit-allow-unknown`.
