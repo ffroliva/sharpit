@@ -310,14 +310,14 @@ _CHECKS = {
 
 
 def application_routes(routes: Sequence[ApiRouteInfo]) -> list[ApiRouteInfo]:
-    """The host's own handlers: FastAPI's docs, Starlette apps and sharpit's routes are not reviewed."""
+    """The host's own handlers (BootUI's application handlers): framework routes are not reviewed."""
     return [route for route in routes if not shared_is_framework(route)]
 
 
 def evaluate(
     routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]
 ) -> tuple[dict[str, list[Violation]], set[str]]:
-    """Every ported rule's violations, in ``RULES`` order, and ids of rules that raised."""
+    """Every ported rule's violations in ``RULES`` order, and ids that raised (BootUI ``evaluate``)."""
     own = application_routes(routes)
     found: dict[str, list[Violation]] = {}
     errored: set[str] = set()
@@ -331,7 +331,10 @@ def evaluate(
 
 
 def violations(routes: Sequence[ApiRouteInfo], exception_handlers: Sequence[str]) -> dict[str, list[str]]:
-    """Every ported rule's violations in ``RULES`` order."""
+    """Every ported rule's violations in ``RULES`` order.
+
+    Pure: reads the given metadata only (BootUI ``violations``).
+    """
     return {rule_id: [v.message for v in items] for rule_id, items in evaluate(routes, exception_handlers)[0].items()}
 
 

@@ -237,7 +237,9 @@ APPLICATION = "application"
 
 
 class Violation(NamedTuple):
-    """One rule occurrence and its display strings."""
+    """One rule occurrence: what it is about (``target``) and today's violation string (``message``).
+
+    Counts never appear in a target, so a fingerprint survives a route being added or removed elsewhere."""
 
     target: str
     message: str
@@ -247,6 +249,8 @@ Check = Callable[[Sequence[ApiRouteInfo], Sequence[str]], list[Violation]]
 
 
 def each(predicate: Callable[[ApiRouteInfo], str | None]) -> Check:
+    """One violation per matching route (BootUI ``handlersMatching``)."""
+
     def check(routes: Sequence[ApiRouteInfo], _handlers: Sequence[str]) -> list[Violation]:
         out: list[Violation] = []
         for route in routes:
