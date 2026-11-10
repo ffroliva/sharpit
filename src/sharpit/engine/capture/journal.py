@@ -28,7 +28,7 @@ from collections import Counter, deque
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Protocol, cast
 
-from sharpit.engine.capture import sqlscan
+from sharpit.engine import sqltext
 from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
@@ -88,6 +88,7 @@ _ALTERNATIVE_QUOTE = re.compile(r"(?i)(?<![\w$])n?q'")
 _DOUBLE_QUOTED = re.compile(r'"(?:[^"]|"")*+"?')
 _UNREAD_NUMBER = re.compile(r"(?<![\w$.?])\.\d\w*+|\?[xXbB_]\w*+")
 _UNTERMINATED_DOLLAR_QUOTE = re.compile(r"\$[^\W\d]\w*+\$.*+|\$\$.*+", re.DOTALL)
+_READ_MASKER = Masker(Exposure.MASKED, True)  # compares two readings of a statement; never shown
 _QUOTED_KEY = re.compile(r"`(\w++)`(?=\s*+[:=])|\[(\w++)\](?=\s*+[:=])")
 
 
@@ -122,12 +123,17 @@ def _ambiguous(sql: str) -> bool:
         return True
     if "\\" not in sql:
         return False
-    plain = sqlscan.normalize_sql(sql.replace("\\", ""), Dialect.POSTGRESQL)
-    return '"' in sql or plain != sqlscan.normalize_sql(sql, Dialect.POSTGRESQL)
+    plain = _statement(sql.replace("\\", ""), _READ_MASKER)
+    return '"' in sql or plain != _statement(sql, _READ_MASKER)
+
+
+def _statement(sql: str, masker: Masker) -> str:
+    """The statement through the approved SQL text facade (A10): literals as ``?``, secrets masked."""
+    return sqltext.statement_shape(masker, sql, Dialect.POSTGRESQL).text
 
 
 def _literal_free(sql: str, masker: Masker) -> str:
-    shape = _DOUBLE_QUOTED.sub("?", sqlscan.normalize_sql(sql, Dialect.POSTGRESQL))
+    shape = _DOUBLE_QUOTED.sub("?", _statement(sql, masker))
     shape = _UNTERMINATED_DOLLAR_QUOTE.sub("?", _UNREAD_NUMBER.sub("?", shape))
     if (stray := shape.find("'")) >= 0:  # a quote the normalizer left open: nothing after it is shown
         shape = shape[:stray] + "?"
