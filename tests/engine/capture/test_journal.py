@@ -298,3 +298,14 @@ def test_records_are_verbatim_with_masking_off() -> None:
     journal = _journal_module().RuntimeJournal(masker=Masker(Exposure.FULL, False))
     journal.offer({"source": "sql", "sql": "select 'x'", "path": "/a;code=1"})
     assert journal.records("sql") == ({"source": "sql", "sql": "select 'x'", "path": "/a;code=1"},)
+
+
+def test_a_later_host_mutation_changes_neither_the_stored_event_nor_its_bytes() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096)
+    payload = {"k": "v", "rows": ["a"]}
+    assert journal.offer({"source": "http", "payload": payload}) is True
+    charged = journal.status()["retainedBytes"]
+    payload["k"] = "x" * 10_000
+    payload["rows"].append("y" * 10_000)  # pyright: ignore[reportAttributeAccessIssue]
+    assert journal.records("http")[0]["payload"] == {"k": "v", "rows": ["a"]}
+    assert journal.status()["retainedBytes"] == charged
