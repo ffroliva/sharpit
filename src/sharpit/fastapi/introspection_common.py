@@ -17,7 +17,8 @@ def attrs(obj: object) -> dict[str, object]:
     """
     try:
         values = object.__getattribute__(obj, "__dict__")
-    except Exception:  # noqa: BLE001 - slots, built-ins, and framework drift degrade to no attributes
+    # __slots__ (a SQLAlchemy AsyncEngine passed as the app), a built-in, or framework drift: no attributes
+    except Exception:  # noqa: BLE001
         return {}
     return cast(dict[str, object], values) if isinstance(values, dict | types.MappingProxyType) else {}
 
