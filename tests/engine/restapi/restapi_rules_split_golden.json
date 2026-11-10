@@ -1,0 +1,22 @@
+[
+  {
+    "ruleId": "RAPI-MAP-003",
+    "message": "other.owners:delete_owner [GET /v1/owners/{id}] \u2014 mutation-like name on GET",
+    "location": "GET /v1/owners/{id} other.owners:delete_owner"
+  },
+  {
+    "ruleId": "RAPI-NAME-001",
+    "message": "app.pets:read_pets [GET /v1/get-pets] \u2014 verb in path",
+    "location": "GET /v1/get-pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-NAME-003",
+    "message": "app.types:read_types [GET /v1/petTypes] \u2014 segment 'petTypes' is not lowercase kebab-case",
+    "location": "GET /v1/petTypes app.types:read_types"
+  },
+  {
+    "ruleId": "RAPI-DOC-002",
+    "message": "other.owners:read_owners [GET /v1/owners] \u2014 no tags",
+    "location": "GET /v1/owners other.owners:read_owners"
+  }
+]
