@@ -205,6 +205,7 @@ def test_tool_coverage_matches_fixture() -> None:
     classified = set(MATCHED_TOOLS) | set(PARTIAL_TOOLS) | set(MISSING_TOOLS)
     assert classified == set(BOOTUI)
     assert len(BOOTUI_TOOLS) == 116
+    assert set(SHARPIT) - set(BOOTUI) == set(SHARPIT_ONLY)
     assert set(COMMANDS) - set(BOOTUI) == set(SHARPIT_ONLY)
     cli_paths = {(BOOTUI[name]["command"], name) for name in (*MATCHED_TOOLS, *PARTIAL_TOOLS, *MISSING_TOOLS)}
     assert cli_paths == {(tool["command"], tool["name"]) for tool in BOOTUI_TOOLS}
