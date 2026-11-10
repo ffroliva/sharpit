@@ -1,0 +1,23 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "window": {
+    "retainedExchanges": 0,
+    "bufferSize": 200,
+    "evicted": 0,
+    "hiddenSelfExchanges": 0,
+    "summarizedExchanges": 0,
+    "timedExchanges": 0,
+    "oldestTimestamp": null,
+    "newestTimestamp": null,
+    "totalDurationMs": 0
+  },
+  "routes": [],
+  "topPerCriterion": 25,
+  "routesTruncated": false,
+  "distinctRoutes": 0,
+  "notes": [
+    "Every figure covers only the 0 retained, visible exchanges. These are diagnostic evidence for this window, not lifetime or service-level metrics, and a route with few requests has few samples behind its percentiles.",
+    "Routes use the template the framework matched, then the single best route the application declares, then the path with every value-like segment masked. Query strings are never used, and every segment a declared route marks as a parameter is masked."
+  ]
+}

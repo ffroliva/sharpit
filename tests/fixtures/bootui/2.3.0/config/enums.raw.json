@@ -1,0 +1,40 @@
+{
+  "$.properties[].name": [
+    "APPLICATION_NAME",
+    "CONSOLE_LOG_CHARSET",
+    "CONSOLE_LOG_STRUCTURED_FORMAT",
+    "FILE_LOG_CHARSET",
+    "HOME",
+    "JAVA_HOME",
+    "LOGGED_APPLICATION_NAME",
+    "LOG_CORRELATION_PATTERN",
+    "PATH",
+    "PID",
+    "TEMP",
+    "TMP",
+    "USERNAME",
+    "USERPROFILE"
+  ],
+  "$.properties[].value": [
+    "DELETE",
+    "INFO",
+    "ON"
+  ],
+  "$.propertySuggestions[].defaultValue": [
+    "DATABASECHANGELOG",
+    "DATABASECHANGELOGLOCK",
+    "OFF",
+    "RS256",
+    "TLS",
+    "TRACE"
+  ],
+  "$.propertySuggestions[].defaultValue[]": [
+    "B3",
+    "B3_MULTI",
+    "DOWN",
+    "OUT_OF_SERVICE",
+    "UNKNOWN",
+    "UP",
+    "W3C"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "available": false,
+  "unavailableReason": "Requires the BootUI agent's code-paths sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+  "route": null,
+  "found": false,
+  "assemblyOnly": false,
+  "warmRequests": 0,
+  "firstRequestMillis": null,
+  "firstRequestId": null,
+  "ownMillis": 0.0,
+  "handlerMillis": null,
+  "shareOf": "handler",
+  "depth": 8,
+  "nodes": [],
+  "methods": [],
+  "exemplarRequestIds": [],
+  "page": {
+    "total": 0,
+    "matched": 0,
+    "offset": 0,
+    "limit": 200,
+    "returned": 0,
+    "hasMore": false
+  },
+  "limitations": []
+}

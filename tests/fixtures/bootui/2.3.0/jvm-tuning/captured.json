@@ -1,0 +1,77 @@
+{
+  "heap": {
+    "name": "Heap",
+    "usedBytes": 72504056,
+    "committedBytes": 125829120,
+    "maxBytes": 8447328256,
+    "usedPercent": 0
+  },
+  "nonHeap": {
+    "name": "Non-Heap",
+    "usedBytes": 151387272,
+    "committedBytes": 154402816,
+    "maxBytes": -1,
+    "usedPercent": 98
+  },
+  "pools": [
+    {
+      "name": "CodeHeap 'non-nmethods'",
+      "usedBytes": 3083904,
+      "committedBytes": 4128768,
+      "maxBytes": 7667712,
+      "usedPercent": 40
+    }
+  ],
+  "jvmInputArguments": [
+    "-Duser.home=/path",
+    "-Duser.name=dev",
+    "-Djava.io.tmpdir=/path"
+  ],
+  "suggestedJvmOptions": "-Xms83m -Xmx83m -XX:MaxMetaspaceSize=165m -XX:ReservedCodeCacheSize=240m -Xss1024k",
+  "calculation": {
+    "totalMemoryBytes": 872415232,
+    "heapBytes": 87870669,
+    "metaspaceBytes": 173015040,
+    "codeCacheBytes": 251658240,
+    "directMemoryBytes": 10485760,
+    "stackBytesPerThread": 1048576,
+    "stackBytesTotal": 262144000,
+    "headRoomBytes": 87241523,
+    "fixedRegionsBytes": 697303040,
+    "threadCount": 250,
+    "loadedClasses": 21405,
+    "liveThreadCount": 57,
+    "liveLoadedClassCount": 21405,
+    "headRoomPercent": 10,
+    "virtualThreadsEnabled": false,
+    "virtualThreadsProperty": "spring.threads.virtual.enabled",
+    "jvmOptions": "-Xms83m -Xmx83m -XX:MaxMetaspaceSize=165m -XX:ReservedCodeCacheSize=240m -Xss1024k",
+    "valid": true,
+    "error": null
+  },
+  "kubernetes": {
+    "requestMemoryBytes": 872415232,
+    "limitMemoryBytes": 872415232,
+    "burstableRequestMemoryBytes": 402653184,
+    "currentSnapshotBytes": 280242177,
+    "detectedContainerLimitBytes": null,
+    "requestMemory": "832Mi",
+    "limitMemory": "832Mi",
+    "burstableRequestMemory": "384Mi",
+    "currentSnapshotMemory": "268Mi",
+    "detectedContainerLimitMemory": null,
+    "qosClass": "Depends on CPU",
+    "confidence": "Low",
+    "warnings": [
+      "Memory request equals memory limit. Kubernetes Guaranteed QoS additionally requires equal, non-zero CPU request and limit for every container in the Pod.",
+      "Health probes use the framework's default paths and the named container port \"http\"; verify both against custom application or management-server settings.",
+      "JAVA_TOOL_OPTIONS uses MaxRAMPercentage, MinRAMPercentage, and InitialRAMPercentage against JVM-visible RAM, not the memory request. Verify container support and the generated limit; existing -Xmx, -Xms, or RAM-sizing overrides can change the result."
+    ],
+    "yaml": "resources:\n  requests:\n    memory: \"832Mi\"\n  limits:\n    memory: \"832Mi\"\nenv:\n  - name: JAVA_TOOL_OPTIONS\n    value: >-\n      -XX:MaxRAMPercentage=10.072 -XX:MinRAMPercentage=10.072 -XX:InitialRAMPercentage=10.072 -XX:MaxMetaspaceSize=165m -XX:ReservedCodeCacheSize=240m -Xss1024k\n  - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED\n    value: \"true\"\nstartupProbe:\n  httpGet:\n    path: /actuator/health/liveness\n    port: http\n  failureThreshold: 30\n  periodSeconds: 10\nreadinessProbe:\n  httpGet:\n    path: /actuator/health/readiness\n    port: http\n  periodSeconds: 10\n  timeoutSeconds: 5\n  failureThreshold: 3\nlivenessProbe:\n  httpGet:\n    path: /actuator/health/liveness\n    port: http\n  periodSeconds: 15\n  timeoutSeconds: 5\n  failureThreshold: 3",
+    "maxRamPercentage": 10.072,
+    "initialRamPercentage": 10.072,
+    "javaToolOptions": "-XX:MaxRAMPercentage=10.072 -XX:MinRAMPercentage=10.072 -XX:InitialRAMPercentage=10.072 -XX:MaxMetaspaceSize=165m -XX:ReservedCodeCacheSize=240m -Xss1024k",
+    "burstableEnabled": false,
+    "healthProbesEnabled": true
+  }
+}

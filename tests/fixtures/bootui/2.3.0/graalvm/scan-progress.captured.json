@@ -1,0 +1,7 @@
+{
+  "running": false,
+  "phase": "idle",
+  "message": "No GraalVM readiness scan is running.",
+  "dependenciesScanned": 0,
+  "dependenciesTotal": 0
+}

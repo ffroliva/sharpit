@@ -1,0 +1,23 @@
+{
+  "available": false,
+  "unavailableReason": "Requires the BootUI agent: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+  "sensors": [
+    {
+      "id": "network",
+      "group": "Network",
+      "label": "Hosts the application connects to",
+      "state": "unavailable",
+      "reason": "Requires the BootUI agent: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+      "rows": 0,
+      "occurrences": 0,
+      "dropped": 0,
+      "hooks": [],
+      "toggle": null
+    }
+  ],
+  "limitations": [
+    "Side Effects records only what the BootUI agent's side-effect sensors hook: this version records the processes the application starts, through ProcessBuilder.start, which Runtime.exec and ProcessBuilder.startPipeline also reach; its network: connects, datagram sends, and the host names the JVM resolves; the blocking calls started on an event loop; the streams, channels, and sockets a request or a job left open (resources); the files it opens, deletes, moves, and copies, through FileInputStream, FileOutputStream, RandomAccessFile, the Files methods, and FileChannel.open; and, opt-in, the environment variables and system properties it reads by name through System.getenv and System.getProperty; and, opt-in, the threads it starts and the executors it creates; and, opt-in, the thread locals a request or a job left set on its pooled thread, and request input reaching SQL text, a command, a file path, or an outbound URL unchanged, deserialization without a filter, weak algorithms, and trust managers and hostname verifiers (security sinks).",
+    "A process row shows the command's file name only, never its arguments or its environment, which can hold secrets; its exit status and lifetime come from Process.onExit, whose JDK stage runs on the common ForkJoin pool before BootUI's own thread records the exit. On Windows, the JDK waits for each watched live process on a reaper thread of its own, so up to 1,024 such threads. A file row shows a path pattern, never the file's contents: the working directory as ./, the temporary directory as $TMPDIR, the home as ~, ids and digits collapsed ({n}, {hex}, {uuid}, {id}, {token}), and a segment the secret detector recognizes (a JWT, a PEM key, an AWS key, a credential URL) masked; a short secret matching none of these rules is kept. An environment row shows the name read, never its value or a default.",
+    "A network row shows a host and port, never a byte sent or received, nor a URL's path or query. A non-blocking connect's time is known once it finishes. A name lookup is recorded only when the JVM's address cache misses it (networkaddress.cache.ttl, 30 s by default), so its time is the name service's. Asynchronous socket channels, a connected datagram channel's writes, and connects made by native code are not seen. Datagrams a thread sends are counted in its table and may lag until its next send."
+  ]
+}

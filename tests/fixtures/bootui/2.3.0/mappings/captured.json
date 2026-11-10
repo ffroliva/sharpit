@@ -1,0 +1,188 @@
+{
+  "contexts": {
+    "tiny-ledger": {
+      "mappings": {
+        "servletFilters": [
+          {
+            "className": "org.springframework.boot.servlet.filter.OrderedRequestContextFilter",
+            "name": "requestContextFilter",
+            "servletNameMappings": [],
+            "urlPatternMappings": [
+              "/*"
+            ]
+          }
+        ],
+        "dispatcherServlets": {
+          "dispatcherServlet": [
+            {
+              "details": {
+                "handlerFunction": null,
+                "handlerMethod": {
+                  "className": "io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController",
+                  "descriptor": "()Lio/github/jdubois/bootui/core/dto/RestClientTraceReport;",
+                  "name": "trace"
+                },
+                "requestMappingConditions": {
+                  "consumes": [],
+                  "headers": [],
+                  "methods": [
+                    "GET"
+                  ],
+                  "params": [],
+                  "patterns": [
+                    "/bootui/api/rest-client-trace"
+                  ],
+                  "produces": []
+                }
+              },
+              "handler": "io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController#trace()",
+              "predicate": "{GET [/bootui/api/rest-client-trace]}"
+            },
+            {
+              "details": {
+                "handlerFunction": null,
+                "handlerMethod": {
+                  "className": "com.ffroliva.tinyledger.ledger.adapter.in.web.LedgerController",
+                  "descriptor": "(Ljava/util/UUID;Ljava/util/UUID;Lcom/ffroliva/tinyledger/api/generated/model/MovementRequest;)Lorg/springframework/http/ResponseEntity;",
+                  "name": "putDeposit"
+                },
+                "requestMappingConditions": {
+                  "consumes": [
+                    {
+                      "mediaType": "application/json",
+                      "negated": false
+                    }
+                  ],
+                  "headers": [],
+                  "methods": [
+                    "PUT"
+                  ],
+                  "params": [],
+                  "patterns": [
+                    "/api/v1/accounts/{accountUid}/deposits/{depositUid}"
+                  ],
+                  "produces": [
+                    {
+                      "mediaType": "application/json",
+                      "negated": false
+                    }
+                  ]
+                }
+              },
+              "handler": "com.ffroliva.tinyledger.ledger.adapter.in.web.LedgerController#putDeposit(UUID, UUID, MovementRequest)",
+              "predicate": "{PUT [/api/v1/accounts/{accountUid}/deposits/{depositUid}], consumes [application/json], produces [application/json || application/problem+json]}"
+            },
+            {
+              "details": {
+                "handlerFunction": null,
+                "handlerMethod": {
+                  "className": "io.github.jdubois.bootui.autoconfigure.web.DismissedFindingsController",
+                  "descriptor": "([B)Lio/github/jdubois/bootui/core/dto/DismissedFindingsDto;",
+                  "name": "dismiss"
+                },
+                "requestMappingConditions": {
+                  "consumes": [
+                    {
+                      "mediaType": "application/json",
+                      "negated": false
+                    }
+                  ],
+                  "headers": [],
+                  "methods": [
+                    "POST"
+                  ],
+                  "params": [],
+                  "patterns": [
+                    "/bootui/api/dismissed-findings"
+                  ],
+                  "produces": []
+                }
+              },
+              "handler": "io.github.jdubois.bootui.autoconfigure.web.DismissedFindingsController#dismiss(byte[])",
+              "predicate": "{POST [/bootui/api/dismissed-findings], consumes [application/json]}"
+            },
+            {
+              "details": {
+                "handlerFunction": null,
+                "handlerMethod": {
+                  "className": "com.ffroliva.tinyledger.ledger.adapter.in.web.LedgerController",
+                  "descriptor": "(Ljava/util/UUID;)Lorg/springframework/http/ResponseEntity;",
+                  "name": "getStrongBalance"
+                },
+                "requestMappingConditions": {
+                  "consumes": [],
+                  "headers": [],
+                  "methods": [
+                    "GET"
+                  ],
+                  "params": [
+                    {
+                      "name": "consistency",
+                      "negated": false,
+                      "value": "strong"
+                    }
+                  ],
+                  "patterns": [
+                    "/api/v1/accounts/{accountUid}/balance"
+                  ],
+                  "produces": [
+                    {
+                      "mediaType": "application/json",
+                      "negated": false
+                    }
+                  ]
+                }
+              },
+              "handler": "com.ffroliva.tinyledger.ledger.adapter.in.web.LedgerController#getStrongBalance(UUID)",
+              "predicate": "{GET [/api/v1/accounts/{accountUid}/balance], params [consistency=strong], produces [application/json || application/problem+json]}"
+            },
+            {
+              "details": {
+                "handlerFunction": null,
+                "handlerMethod": {
+                  "className": "io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController",
+                  "descriptor": "()Lorg/springframework/web/servlet/mvc/method/annotation/SseEmitter;",
+                  "name": "stream"
+                },
+                "requestMappingConditions": {
+                  "consumes": [],
+                  "headers": [],
+                  "methods": [
+                    "GET"
+                  ],
+                  "params": [],
+                  "patterns": [
+                    "/bootui/api/activity/stream"
+                  ],
+                  "produces": [
+                    {
+                      "mediaType": "text/event-stream",
+                      "negated": false
+                    }
+                  ]
+                }
+              },
+              "handler": "io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController#stream()",
+              "predicate": "{GET [/bootui/api/activity/stream], produces [text/event-stream]}"
+            },
+            {
+              "details": null,
+              "handler": "ResourceHttpRequestHandler [classpath [META-INF/resources/webjars/]]",
+              "predicate": "/webjars/**"
+            }
+          ]
+        },
+        "servlets": [
+          {
+            "className": "org.springframework.web.servlet.DispatcherServlet",
+            "mappings": [
+              "/"
+            ],
+            "name": "dispatcherServlet"
+          }
+        ]
+      },
+      "parentId": null
+    }
+  }
+}

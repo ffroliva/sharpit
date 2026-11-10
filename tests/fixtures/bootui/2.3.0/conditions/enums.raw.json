@@ -1,0 +1,9 @@
+{
+  "$.positiveMatches[].outcome": [
+    "MATCH",
+    "PARTIAL"
+  ],
+  "$.negativeMatches[].outcome": [
+    "NO_MATCH"
+  ]
+}

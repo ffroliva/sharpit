@@ -1,0 +1,31 @@
+{
+  "liquibasePresent": true,
+  "total": 6,
+  "databases": [
+    {
+      "name": "liquibase",
+      "applied": 6,
+      "pending": 0,
+      "total": 6,
+      "changeSets": [
+        {
+          "id": "1-init-event-store",
+          "author": "flavio",
+          "changeLog": "db/changelog/changes/001-init-event-store.sql",
+          "description": "sql",
+          "comments": "",
+          "execType": "EXECUTED",
+          "dateExecuted": "2026-11-10T09:44:33.015Z",
+          "orderExecuted": 1,
+          "checksum": "9:69127e7fb3526344a45d059cfe481755",
+          "tag": null,
+          "deploymentId": "4303866839",
+          "contexts": [],
+          "labels": []
+        }
+      ],
+      "updateEnabled": true,
+      "updateDisabledReason": null
+    }
+  ]
+}

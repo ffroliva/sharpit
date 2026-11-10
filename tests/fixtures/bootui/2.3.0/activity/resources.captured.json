@@ -1,0 +1,68 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "families": [
+    "BootUI",
+    "Reference Handler",
+    "Finalizer"
+  ],
+  "points": [
+    {
+      "epochMillis": 1700000000000,
+      "sequence": 83,
+      "intervalNanos": 1018163100,
+      "processCpuNanos": 1515625000,
+      "requestCpuNanos": 0,
+      "internalCpuNanos": 968750000,
+      "familyCpuNanos": [
+        15625000,
+        0,
+        0
+      ],
+      "unreadThreads": 0,
+      "heapUsedBytes": 95391784,
+      "heapCommittedBytes": 109051904,
+      "heapAfterGcBytes": 33856320,
+      "allocatedBytes": 33398032,
+      "liveThreads": 22,
+      "daemonThreads": 18
+    },
+    {
+      "epochMillis": 1700000000000,
+      "sequence": 97,
+      "intervalNanos": 1010715300,
+      "processCpuNanos": 0,
+      "requestCpuNanos": 0,
+      "internalCpuNanos": 0,
+      "familyCpuNanos": [],
+      "unreadThreads": 0,
+      "heapUsedBytes": 71979456,
+      "heapCommittedBytes": 117440512,
+      "heapAfterGcBytes": 55202240,
+      "allocatedBytes": 51768,
+      "liveThreads": 54,
+      "daemonThreads": 44
+    }
+  ],
+  "totals": {
+    "sweeps": 149,
+    "processCpuNanos": 22453125000,
+    "requestCpuNanos": 0,
+    "internalCpuNanos": 12765625000,
+    "familyCpuNanos": {
+      "BootUI": 234375000,
+      "Notification Thread": 15625000,
+      "BatchSpanProcessor_WorkerThread-N": 15625000,
+      "BatchLogRecordProcessor_WorkerThread-N": 15625000,
+      "Catalina-utility-N": 125000000,
+      "HikariPool-N:housekeeper": 15625000,
+      "lettuce-timer-N-N": 265625000,
+      "main": 3203125000,
+      "http-nio-N.N.N.N-N-exec-N": 3593750000,
+      "http-nio-N.N.N.N-N-Poller": 62500000,
+      "http-nio-N.N.N.N-N-Acceptor": 31250000,
+      "org.springframework.kafka.KafkaListenerEndpointContainer#N-N-C-N": 1875000000,
+      "kafka-coordinator-heartbeat-thread | tiny-ledger-audit": 234375000
+    }
+  }
+}

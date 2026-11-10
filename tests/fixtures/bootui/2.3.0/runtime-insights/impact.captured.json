@@ -1,0 +1,22 @@
+{
+  "status": "NOT_FOUND",
+  "reason": "Name a route, a bean, a class, a method, a repository, a table, a cache, or a host.",
+  "symbol": "",
+  "node": null,
+  "candidates": [],
+  "structuralReach": 0,
+  "observed": [],
+  "observedTotal": 0,
+  "notExercised": [],
+  "notExercisedTotal": 0,
+  "sharedResources": [],
+  "sharedResourcesTotal": 0,
+  "limitations": [],
+  "notExercisedUndetermined": false,
+  "observedFrom": null,
+  "methods": [],
+  "methodStatus": null,
+  "notObserved": [],
+  "notObservedTotal": 0,
+  "next": []
+}

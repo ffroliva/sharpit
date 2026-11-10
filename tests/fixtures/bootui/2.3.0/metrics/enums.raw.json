@@ -1,0 +1,33 @@
+{
+  "$.meters[].type": [
+    "COUNTER",
+    "GAUGE",
+    "LONG_TASK_TIMER",
+    "TIMER"
+  ],
+  "$.meters[].provenance.explanationSource": [
+    "CURATED",
+    "NATIVE",
+    "UNKNOWN"
+  ],
+  "$.meters[].availableTags[].values[]": [
+    "CLIENT",
+    "GET",
+    "HELLO",
+    "INFO",
+    "SUCCESS",
+    "UNKNOWN"
+  ],
+  "$.meters[].provenance.groupLabel": [
+    "JVM"
+  ],
+  "$.availableTypes[]": [
+    "COUNTER",
+    "GAUGE",
+    "LONG_TASK_TIMER",
+    "TIMER"
+  ],
+  "$.groups[].label": [
+    "JVM"
+  ]
+}

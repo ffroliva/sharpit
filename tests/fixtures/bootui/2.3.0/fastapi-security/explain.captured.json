@@ -1,0 +1,7 @@
+{
+  "matched": false,
+  "bestEffort": true,
+  "chainIndex": null,
+  "matcherDescription": "Chain 1 matcher threw IllegalArgumentException — requires more request context than available",
+  "filters": []
+}

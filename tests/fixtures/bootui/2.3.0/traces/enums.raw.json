@@ -1,0 +1,11 @@
+{
+  "$.spans[].kind": [
+    "CLIENT"
+  ],
+  "$.spans[].statusCode": [
+    "OK"
+  ],
+  "$.spans[].attributes[].value": [
+    "INFO"
+  ]
+}

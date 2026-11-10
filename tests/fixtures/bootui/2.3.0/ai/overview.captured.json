@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "springAiDetected": false,
+  "langChain4jDetected": false,
+  "aiFrameworkDetected": false,
+  "totalChats": 0,
+  "totalInputTokens": 0,
+  "totalOutputTokens": 0,
+  "tokensByModel": {},
+  "callsByModel": {},
+  "errorCount": 0,
+  "averageDurationNanos": 0,
+  "toolCallCount": 0,
+  "vectorOperationCount": 0,
+  "embeddingCount": 0,
+  "recent": [],
+  "contentBanner": null
+}
