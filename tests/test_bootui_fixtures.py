@@ -394,8 +394,10 @@ def test_bootui_23_route_completeness_check_rejects_removed_route() -> None:
         routes = json.loads(copy.read_text(encoding="utf-8"))
         routes["reads"].pop()
         copy.write_text(json.dumps(routes), encoding="utf-8")
+        mutated = json.loads(copy.read_text(encoding="utf-8"))
+        counts = _load_json("meta.json")["counts"]
         with pytest.raises(AssertionError, match="read route count changed"):
-            _assert_route_completeness(json.loads(copy.read_text(encoding="utf-8")), _load_json("meta.json")["counts"])
+            _assert_route_completeness(mutated, counts)
 
 
 def test_bootui_23_fixtures_contain_no_machine_paths() -> None:
