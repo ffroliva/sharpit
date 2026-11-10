@@ -1,0 +1,142 @@
+[
+  {
+    "ruleId": "RAPI-MAP-003",
+    "message": "other.owners:delete_owner [GET /v1/owners/{id}] \u2014 mutation-like name on GET",
+    "location": "GET /v1/owners/{id} other.owners:delete_owner"
+  },
+  {
+    "ruleId": "RAPI-NAME-001",
+    "message": "app.pets:read_pets [GET /v1/get-pets] \u2014 verb in path",
+    "location": "GET /v1/get-pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-NAME-003",
+    "message": "app.types:read_types [GET /v1/petTypes] \u2014 segment 'petTypes' is not lowercase kebab-case",
+    "location": "GET /v1/petTypes app.types:read_types"
+  },
+  {
+    "ruleId": "RAPI-DOC-002",
+    "message": "other.owners:read_owners [GET /v1/owners] \u2014 no tags",
+    "location": "GET /v1/owners other.owners:read_owners"
+  },
+  {
+    "ruleId": "RAPI-MAP-001",
+    "message": "app.pets:read_pets [POST GET /v1/pets] \u2014 GET combined with POST",
+    "location": "GET /v1/pets | POST /v1/pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-MAP-002",
+    "message": "GET /v1/pets with matching dispatch conditions handled by app.pets:read_pets, app.pets:again",
+    "location": "GET /v1/pets"
+  },
+  {
+    "ruleId": "RAPI-MAP-003",
+    "message": "app.pets:delete_pet [GET /v1/pets] \u2014 mutation-like name on GET",
+    "location": "GET /v1/pets app.pets:delete_pet"
+  },
+  {
+    "ruleId": "RAPI-MAP-005",
+    "message": "app.pets:read_pets [GET /v1/pets/] \u2014 trailing slash",
+    "location": "GET /v1/pets/ app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-MAP-007",
+    "message": "app.pets:read_pets [DELETE /v1/pets] \u2014 request body on DELETE",
+    "location": "DELETE /v1/pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-MAP-010",
+    "message": "app.pets:read_pets [GET /v1/files/{rest:path}] \u2014 catch-all path parameter",
+    "location": "GET /v1/files/{rest:path} app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-MAP-005",
+    "message": "app.pets:read_pets [GET /v1/a/{a}/b/{b}/c/{c}/d/{d}] \u2014 doubled slash",
+    "location": "GET /v1/a/{a}/b/{b}/c/{c}/d/{d} app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-MAP-011",
+    "message": "app.pets:read_pets [GET /v1/a/{a}/b/{b}/c/{c}/d/{d}] \u2014 4 levels of collection/{id} nesting",
+    "location": "GET /v1/a/{a}/b/{b}/c/{c}/d/{d} app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-NAME-001",
+    "message": "app.pets:read_pets [GET /v1/getPets] \u2014 verb in path",
+    "location": "GET /v1/getPets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-NAME-003",
+    "message": "app.pets:read_pets [GET /v1/getPets] \u2014 segment 'getPets' is not lowercase kebab-case",
+    "location": "GET /v1/getPets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-NAME-002",
+    "message": "app.pets:read_pets [GET /v1/pet] \u2014 singular collection name 'pet'",
+    "location": "GET /v1/pet app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-PAGE-001",
+    "message": "app.pets:read_pets [GET /v1/pet] \u2014 collection response without limit/offset/page/cursor parameters",
+    "location": "GET /v1/pet app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-NAME-003",
+    "message": "app.pets:read_pets [GET /v1/petTypes] \u2014 segment 'petTypes' is not lowercase kebab-case",
+    "location": "GET /v1/petTypes app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-RESP-001",
+    "message": "app.pets:create_pet [POST /v1/pets] \u2014 creation-like POST with the default 200 status",
+    "location": "POST /v1/pets app.pets:create_pet"
+  },
+  {
+    "ruleId": "RAPI-RESP-002",
+    "message": "app.pets:read_pets [DELETE /v1/pets] \u2014 DELETE with the default 200 status and no response body",
+    "location": "DELETE /v1/pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-RESP-006",
+    "message": "app.pets:read_pets [GET /v1/pets] \u2014 204 declared with a content-capable return type",
+    "location": "GET /v1/pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-RESP-011",
+    "message": "app.pets:read_pets [GET /v1/pets] \u2014 Optional return served as 200 with a null body",
+    "location": "GET /v1/pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-DTO-001",
+    "message": "app.pets:read_pets [GET /v1/pets] \u2014 returns persistence class PetTable",
+    "location": "GET /v1/pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-DTO-002",
+    "message": "app.pets:read_pets [GET /v1/pets] \u2014 no response model or return annotation",
+    "location": "GET /v1/pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-PAGE-001",
+    "message": "app.pets:read_pets [GET /v1/pets] \u2014 collection response without limit/offset/page/cursor parameters",
+    "location": "GET /v1/pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-VER-001",
+    "message": "No API version signal (no /vN path, version header/param, or versioned media type) was detected across 1 handler(s).",
+    "location": "application"
+  },
+  {
+    "ruleId": "RAPI-ERR-001",
+    "message": "No application-wide exception handler was registered in app.exception_handlers for 1 route handler(s).",
+    "location": "application"
+  },
+  {
+    "ruleId": "RAPI-DOC-001",
+    "message": "app.pets:read_pets [GET /v1/pets] \u2014 no summary or description",
+    "location": "GET /v1/pets app.pets:read_pets"
+  },
+  {
+    "ruleId": "RAPI-DOC-002",
+    "message": "app.pets:read_pets [GET /v1/pets] \u2014 no tags",
+    "location": "GET /v1/pets app.pets:read_pets"
+  }
+]
