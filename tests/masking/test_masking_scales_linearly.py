@@ -156,22 +156,22 @@ def _seconds(entry: Entry, text: str) -> float:
 def _step(
     entry_at: Callable[[int], Entry], make: Callable[[int], str], size: int, half: float | None = None
 ) -> tuple[float, float]:
-    """How many times the half size ``size`` costs: a busy machine can fail a step, a quadratic pass fails every one."""
+    """Return the minimum ratio and full-size sample; ``half`` reuses the prior step's full-size sample."""
     half_entry, full_entry = entry_at(size // 2), entry_at(size)
     step = float("inf")
-    first_full = 0.0
+    minimum_full = float("inf")
     for attempt in range(ATTEMPTS):
         half_seconds = half if attempt == 0 and half is not None else _seconds(half_entry, make(size // 2))
         full = _seconds(full_entry, make(size))
-        if attempt == 0:
-            first_full = full
+        minimum_full = min(minimum_full, full)
         step = min(step, (full + FLOOR_SECONDS) / (half_seconds + FLOOR_SECONDS))
         if step < MAX_STEP:
             break
-    return step, first_full
+    return step, minimum_full
 
 
 def _assert_linear(entry_at: Callable[[int], Entry], make: Callable[[int], str], sizes: tuple[int, ...]) -> None:
+    assert sizes, "sizes must not be empty"
     gc_was_on = gc.isenabled()
     gc.disable()
     try:
@@ -193,7 +193,7 @@ def test_each_size_is_measured_once_per_attempt(monkeypatch: pytest.MonkeyPatch)
     measured: list[int] = []
 
     def seconds(_entry: Entry, text: str) -> float:
-        measured.append(len(text.split(" ", 1)[0]))
+        measured.append(len(text))
         return 0.01
 
     monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
@@ -229,15 +229,26 @@ def test_a_retry_measures_both_sizes_fresh(monkeypatch: pytest.MonkeyPatch) -> N
     assert measured == [1_600, 800, 1_600]
 
 
-def test_a_planted_quadratic_entry_still_fails() -> None:
+def test_a_planted_quadratic_entry_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    measured: list[int] = []
+
     def quadratic(text: str) -> None:
         if len(text) > 1_600:
             for _ in range(len(text)):
                 for _ in range(len(text)):
                     pass
 
-    with pytest.raises(AssertionError, match="chars cost .* the half size"):
+    def seconds(entry: Entry, text: str) -> float:
+        measured.append(len(text))
+        entry(text)
+        return 0.1 if len(text) > 1_600 else 0.01
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+
+    with pytest.raises(AssertionError, match="3200 chars cost .* the half size"):
         _assert_linear(lambda _size: quadratic, lambda size: "x" * size, (800, 1_600, 3_200))
+
+    assert measured == [400, 800, 1_600, 3_200, 1_600, 3_200, 1_600, 3_200]
 
 
 def test_retry_carries_the_minimum_full_sample_forward(monkeypatch: pytest.MonkeyPatch) -> None:
