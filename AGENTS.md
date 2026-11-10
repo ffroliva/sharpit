@@ -108,6 +108,7 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, and
    `urllib.request`/`http.client` only in the OSV and EPSS clients under
    `engine/collectors/vulns/`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
+   Interpreter-state mutation calls (including audit hooks, `sys.monitoring`, and process launch/exec calls) live only under `engine/sensors/`, except `pytest_plugin/swallowed.py` until lane S1 moves it.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
    SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked
    slow or deselected (a measurement nobody runs detects nothing). See `docs/development/overhead-budgets.md` for what
