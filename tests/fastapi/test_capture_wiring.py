@@ -611,3 +611,21 @@ def test_install_creates_no_threads():
     asyncio.run(main())
     assert set(threading.enumerate()) <= before
     assert len(_rows(handle)) == 1
+
+
+@pytest.mark.parametrize("shutdown", ["uninstall", "lifespan"])
+def test_suspending_sqla_on_a_detached_context_keeps_it_out_of_dispatch(shutdown: str):
+    """Review R1: after a shutdown, suspending sqla-listeners alone must not route raw sqlite3 here again."""
+    from sharpit.engine.sources import dispatch
+
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+    ctx = handle.context
+    if shutdown == "uninstall":
+        handle.uninstall_capture()
+    else:
+        with TestClient(app):
+            pass
+    assert ctx.context_id not in dispatch._contexts  # pyright: ignore[reportPrivateUsage]
+    _hook(handle, "sqla-listeners").suspend()
+    assert ctx.context_id not in dispatch._contexts, "a detached context was re-added to dispatch"  # pyright: ignore[reportPrivateUsage]
