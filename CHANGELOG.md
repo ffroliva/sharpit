@@ -19,6 +19,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Machine values leak gate generator (`scripts/dev/machine_values.py`) collecting workstation identifiers and environment secrets to gate fixture commits via `scripts/ci/artifact_scan.py --values-file`.
 - Sanitised BootUI 2.3.0 live goldens with route completeness and empty-list metadata.
 
+- A bounded in-memory runtime journal behind a `JournalSink` port (`NULL_SINK` when off), with the
+  `runtime-journal.enabled/max-events/max-bytes/queue-capacity/sources` settings (BootUI defaults; `max-bytes` is a
+  fixed 32 MiB), drop counters by reason, read-time masking, and a live `GET /activity/journal` status. It is a
+  capture-hook registry entry (`runtime-journal`): suspending it refuses events and counts them.
+
 ### Changed
 
 - Added an engine-owned capture-hook registry and low-footprint suspend/resume service; each capture hook the FastAPI wiring installs (middleware recording, exception handlers, log handler, security-log hook, SQLAlchemy and sqlite3 listeners, traces and transactions lanes) is its own registry entry, suspended and resumed alone.

@@ -3,7 +3,9 @@
 Deviations from BootUI, for the owner's list:
 
 - No drain thread: BootUI's ``JournalQueue`` hands events to a dispatcher thread; here ``offer`` appends to a
-  ``deque`` under a lock in the caller's thread, so ``queueDepth`` is always 0 and ``queue-capacity`` bounds retention.
+  ``deque`` under a lock in the caller's thread, so ``queueDepth`` is always 0. ``queue-capacity`` caps the retained
+  events and refuses (counts as ``queue-capacity``) every offer once reached: with the defaults (10,000 < 50,000) the
+  journal fills once and count eviction never runs. Open for the owner: drop the cap or evict at it.
 - Byte bound: BootUI's unset ``max-bytes`` is the smaller of 32 MB and 5 % of the maximum heap. Python exposes no
   stable, portable heap limit for an in-memory buffer, so sharpit uses the fixed 32 MiB cap.
 - ``dropped`` is keyed by reason (``reentrant``, ``suspended``, ``source-disabled``, ``max-bytes``,
