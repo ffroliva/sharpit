@@ -466,3 +466,19 @@ def test_bootui_23_rule_id_independent_counter_is_reconciled() -> None:
     assert len(additions) == 26
     assert all(item["source"] and item["reason"] for item in [*exclusions, *additions])
     assert reconciliation["independentUnionCount"] == reconciliation["fixtureCount"] + len(exclusions) - len(additions)
+
+
+def test_catalog_includes_conformance_test_classes() -> None:
+    """The catalog lists test classes outside src/test, e.g. the bootui-conformance base classes in src/main."""
+    classes = _load_json("bootui-tests.json")["testClasses"]
+    name = "io.github.jdubois.bootui.conformance.AbstractMcpConformanceTest"
+    assert name in classes, f"{name} is missing from the test catalog"
+    methods = set(classes[name])
+    for method in (
+        "testMcpValidatesJsonrpc",
+        "testMcpRequiresJsonContentType",
+        "testMcpRejectsBatchRequests",
+        "testMcpRejectsOversizedRequestBeforeParsing",
+        "testMcpRejectsUnsupportedProtocolVersionHeader",
+    ):
+        assert method in methods, f"{method} is missing from {name}"
