@@ -42,8 +42,10 @@ def test_journal_bounds_and_counts_drops() -> None:
     for worker in workers:
         worker.join()
     status = journal.status()
-    assert status["retainedEvents"] <= 25
-    assert status["droppedEvents"] > 0
+    assert status["retainedEvents"] <= 100
+    assert status["retainedBytes"] <= 4096
+    assert status["evictedEvents"] + status["retainedEvents"] == 10_000, "every event is retained or counted evicted"
+    assert status["droppedEvents"] == 0, "queue-capacity refuses nothing: there is no queue"
     assert sum(status["dropped"].values()) == status["droppedEvents"]
 
 
@@ -191,3 +193,26 @@ def test_offer_never_raises_into_the_host() -> None:
 
     assert journal.offer(Broken(source="test", payload={"x": 1})) is False
     assert journal.status()["dropped"] == {"failed": 1}
+
+
+def test_the_journal_is_a_ring_that_keeps_the_newest_events() -> None:
+    journal = _journal_module().RuntimeJournal(max_events=50, max_bytes=1_000_000, queue_capacity=10)
+    accepted = [journal.offer({"source": "http", "i": i}) for i in range(57)]
+    status = journal.status()
+    assert all(accepted), "a full journal evicts; it never refuses"
+    assert [event["i"] for event in journal.records("http")] == list(range(7, 57))
+    assert status["evictedEvents"] == 7
+    assert status["bindingBound"] == "COUNT"
+    assert status["droppedEvents"] == 0
+
+
+def test_the_byte_bound_evicts_the_oldest_events() -> None:
+    event = {"source": "http", "message": "x" * 100}  # 6 + 4 + 7 + 100 = 117 estimated bytes
+    journal = _journal_module().RuntimeJournal(max_events=1000, max_bytes=117 * 3, queue_capacity=1)
+    accepted = [journal.offer(event) for _ in range(5)]
+    status = journal.status()
+    assert all(accepted)
+    assert status["retainedEvents"] == 3
+    assert status["retainedBytes"] <= 117 * 3
+    assert status["evictedEvents"] == 2
+    assert status["bindingBound"] == "BYTES"
