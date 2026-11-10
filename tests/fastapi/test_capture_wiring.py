@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
 
 import httpx
@@ -30,7 +30,13 @@ from sharpit.engine.context import SharpitContext
 from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.fastapi.adapter import SharpitHandle
-from sharpit.fastapi.capture import CAPTURE_TOO_LATE, CAPTURE_TOO_LATE_REASON, CaptureMiddleware, wiring_of
+from sharpit.fastapi.capture import (
+    CAPTURE_TOO_LATE,
+    CAPTURE_TOO_LATE_REASON,
+    HOOK_NAMES,
+    CaptureMiddleware,
+    wiring_of,
+)
 
 LOCAL = ("127.0.0.1", 50000)
 CAPTURE_PANELS = ("http-exchanges", "exceptions", "sql-trace", "activity", "security-logs")
@@ -641,3 +647,138 @@ def test_every_registered_hook_name_is_a_named_constant():
         names = {hook.name for hook in handle.context.capture.hooks.hooks()}
     known = getattr(capture_module, "HOOK_NAMES", frozenset[str]())
     assert names <= known, f"hook names without a constant: {sorted(names - known)}"
+
+
+class _Teapot(Exception):
+    pass
+
+
+def _probe_app() -> tuple[FastAPI, SharpitHandle]:
+    import sqlite3
+
+    from fastapi.responses import JSONResponse
+
+    app = FastAPI()
+    app.get("/host")(lambda: {})
+
+    @app.get("/denied")
+    async def denied() -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        return JSONResponse({}, status_code=401)
+
+    @app.get("/teapot")
+    async def teapot() -> None:  # pyright: ignore[reportUnusedFunction]
+        raise _Teapot
+
+    @app.get("/sql")
+    def sql() -> dict[str, bool]:  # pyright: ignore[reportUnusedFunction]
+        connection = sqlite3.connect(":memory:")  # in a request: only this app's context records it
+        connection.execute("select 1")
+        connection.close()
+        return {}
+
+    @app.exception_handler(_Teapot)
+    async def on_teapot(_request: Request, _exc: _Teapot) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        return JSONResponse({}, status_code=418)
+
+    return app, install(app, enabled="ON", show_banner=False)
+
+
+def _recording(handle: SharpitHandle, client: TestClient) -> dict[str, bool]:
+    """Hook name -> whether that hook still records, each probed by what it captures (lanes: armed)."""
+    from sharpit.engine import tools
+    from sharpit.engine.capture.securitylogs import SecurityEventBuffer
+
+    ctx = handle.context
+    capture = ctx.capture
+    wiring = wiring_of(ctx)
+    assert wiring is not None
+    assert capture.exceptions is not None
+    assert isinstance(capture.security_logs, SecurityEventBuffer)
+
+    rows, events = len(_rows(handle)), len(capture.security_logs.snapshot())
+    raised = capture.exceptions.report()["totalExceptions"]
+    traced = len(tools.sql_trace_report(ctx)["entries"])
+    client.get("/denied")
+    client.get("/teapot")
+    client.get("/sql")
+    armed = {wiring._lane_of[id(a)] for a in capture.attachers if id(a) in wiring._armed}  # pyright: ignore[reportPrivateUsage]
+    return {
+        "capture-middleware": len(_rows(handle)) > rows,
+        "security-log": len(capture.security_logs.snapshot()) > events,
+        "exception-handlers": capture.exceptions.report()["totalExceptions"] > raised,
+        "log-handler": wiring.log_handler_on_root(),
+        "sqla-listeners": sqla.routed(ctx) == (True, True),
+        "sqlite-listeners": len(tools.sql_trace_report(ctx)["entries"]) > traced,
+        "traces": "traces" in armed,
+        "transactions": "transactions" in armed,
+    }
+
+
+# the 401/403 hook is called by the capture middleware: a suspended middleware sees no exchange to report
+RIDES_ON = {"capture-middleware": ("security-log",)}
+
+
+class _Provider:
+    def add_span_processor(self, _processor: object) -> None:
+        return None
+
+
+@pytest.fixture
+def _probe_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """A planted OpenTelemetry SDK provider (the traces lane arms on it) and a clean SQL slate."""
+    import sqlite3
+    import sys
+    from types import ModuleType
+
+    from sharpit.engine import otel
+    from sharpit.engine.sources import sqlite
+
+    planted = _Provider()
+    trace = ModuleType("opentelemetry.trace")
+    trace.get_tracer_provider = lambda: planted  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "opentelemetry.trace", trace)
+    monkeypatch.setitem(sys.modules, "opentelemetry.sdk.trace", ModuleType("opentelemetry.sdk.trace"))
+    monkeypatch.setattr(otel, "PROCESSOR", otel.SharpitSpanProcessor())
+    real = sqlite3.connect
+    sqla.detach_all()  # earlier tests in this worker may have left contexts behind
+    yield
+    sqlite.detach_all()
+    sqlite3.connect = real
+    sqla.detach_all()
+
+
+@pytest.mark.needs_sqlalchemy
+@pytest.mark.usefixtures("_probe_env")
+@pytest.mark.parametrize("name", sorted(HOOK_NAMES))
+def test_a_suspended_hook_stays_off_across_a_restart_and_its_siblings_keep_recording(name: str):
+    """Review R4: suspending one hook leaves every sibling recording, and a lifespan restart keeps it off."""
+    pytest.importorskip("sqlalchemy")
+    app, handle = _probe_app()
+    everything = dict.fromkeys(HOOK_NAMES, True)
+    expected = everything | dict.fromkeys({name, *RIDES_ON.get(name, ())}, False)
+    with TestClient(app) as client:
+        assert _recording(handle, client) == everything
+        _hook(handle, name).suspend()
+        assert _recording(handle, client) == expected
+    with TestClient(app) as client:  # a lifespan restart
+        assert _recording(handle, client) == expected
+        _hook(handle, name).resume()
+        assert _recording(handle, client) == everything
+    handle.uninstall_capture()
+
+
+@pytest.mark.needs_sqlalchemy
+@pytest.mark.usefixtures("_probe_env")
+@pytest.mark.parametrize("name", sorted(HOOK_NAMES))
+def test_suspending_a_hook_in_one_context_leaves_another_recording(name: str):
+    """Review R4: hooks share process-wide state (root logger, sqlite3.connect, Engine listeners, the span processor);
+    suspending one context's hook never silences another context."""
+    pytest.importorskip("sqlalchemy")
+    (first_app, first), (second_app, second) = _probe_app(), _probe_app()
+    everything = dict.fromkeys(HOOK_NAMES, True)
+    with TestClient(first_app) as first_client, TestClient(second_app) as second_client:
+        _hook(first, name).suspend()
+        assert _recording(first, first_client)[name] is False
+        assert _recording(second, second_client) == everything
+    first.uninstall_capture()
+    second.uninstall_capture()
