@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI
+from sharpit.engine.collectors.security.report import RULES as SECURITY_RULES
 
 RuleRun = Callable[..., list[tuple[str, str]]]
 STRIPE_KEY = "sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc"  # in pieces: GitHub push protection
@@ -66,3 +67,25 @@ def test_literal_secret_in_source_message_has_no_value(run_rule: RuleRun, tmp_pa
     assert found != []
     assert STRIPE_KEY not in repr(found)
     assert NAMED_SECRET not in repr(found)
+
+
+def test_jwt_decode_with_audience_verification_disabled_fires(run_rule: RuleRun, tmp_path: Path):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text(
+        'import jwt\nclaims = jwt.decode(token, key, audience="api", options={"verify_aud": False})\n',
+        encoding="utf-8",
+    )
+    found = run_rule("SEC-OAUTH-002", FastAPI(), source=package)
+    assert _targets(found) == ["shop/auth.py:2"]
+    assert "jwt.decode disables audience validation with verify_aud=False." in found[0][1]
+
+
+def test_jwt_decode_with_audience_verification_enabled_does_not_fire(run_rule: RuleRun, tmp_path: Path):
+    assert "SEC-OAUTH-002" in {rule.definition.id for rule in SECURITY_RULES}
+    package = _package(tmp_path)
+    (package / "auth.py").write_text(
+        'import jwt\nclaims = jwt.decode(token, key, audience="api", options={"verify_aud": True})\n',
+        encoding="utf-8",
+    )
+    found = run_rule("SEC-OAUTH-002", FastAPI(), source=package)
+    assert found == []

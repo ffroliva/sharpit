@@ -13,6 +13,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from fastapi import Depends, FastAPI, Security
+from sharpit.engine.collectors.security import View
 
 RuleRun = Callable[..., list[tuple[str, str]]]
 
@@ -48,16 +49,22 @@ def _with(scheme: Any, *, method: str = "get", path: str = "/items", https: bool
 
 
 def test_http_basic_without_https(run_rule: RuleRun):
-    # ported: SecurityRulesTests.basicAuthWithoutTls
-    found = [_targets(run_rule("SEC-AUTH-007", _with(HTTPBasic(), https=h))) for h in (False, True)]
-    assert found == [["GET /items"], []]
+    # ported: SecurityRulesTests.basicAuthWithoutTlsFiresInProduction
+    # ported: SecurityRulesTests.basicAuthWithoutTlsIsIgnoredOutsideProduction
+    app = _with(HTTPBasic())
+    assert _targets(run_rule("SEC-AUTH-007", app)) == []
+    assert _targets(run_rule("SEC-AUTH-007", app, view=View(production=True))) == ["GET /items"]
+    assert _targets(run_rule("SEC-AUTH-007", _with(HTTPBasic(), https=True), view=View(production=True))) == []
 
 
 def test_password_form_login_without_https(run_rule: RuleRun):
-    # ported: SecurityRulesTests.formLoginWithoutTls
+    # ported: SecurityRulesTests.formLoginWithoutTlsFiresInProduction
+    # ported: SecurityRulesTests.formLoginWithoutTlsIsIgnoredOutsideProduction
     bearer = OAuth2PasswordBearer(tokenUrl="token")
-    found = [_targets(run_rule("SEC-AUTH-010", _with(bearer, https=h))) for h in (False, True)]
-    assert found == [["GET /items"], []]
+    app = _with(bearer)
+    assert _targets(run_rule("SEC-AUTH-010", app)) == []
+    assert _targets(run_rule("SEC-AUTH-010", app, view=View(production=True))) == ["GET /items"]
+    assert _targets(run_rule("SEC-AUTH-010", _with(bearer, https=True), view=View(production=True))) == []
 
 
 def _scoped_app() -> FastAPI:
