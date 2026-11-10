@@ -14,6 +14,7 @@ from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.report import evidence
 from sharpit.engine.advisors.rules import RuleResult
 from sharpit.engine.advisors.scan import AdvisorScan, Evaluation, ScanSpec, Scope
+from sharpit.engine.collectors.architecture.common import ADVISOR
 from sharpit.engine.collectors.architecture.contracts import read_contracts
 from sharpit.engine.collectors.architecture.graph import build_graph
 from sharpit.engine.collectors.architecture.rules import RULES, evaluate_rules
@@ -23,7 +24,6 @@ from sharpit.engine.singleflight import SingleFlight
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
 
-ADVISOR = "architecture"
 ANALYZER = "sharpit architecture hygiene"
 DISCLAIMER = (
     "Heuristic, project-agnostic architecture rules run against the host application's own classes only. These checks "
