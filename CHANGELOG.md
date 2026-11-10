@@ -21,7 +21,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - A bounded in-memory runtime journal behind a `JournalSink` port (`NULL_SINK` when off), with the
   `runtime-journal.enabled/max-events/max-bytes/queue-capacity/sources` settings (BootUI defaults; `max-bytes` is a
-  fixed 32 MiB), drop counters by reason, read-time masking, and a live `GET /activity/journal` status. It is a
+  fixed 32 MiB), drop counters by source, read-time masking, and a live `GET /activity/journal` status. It is a
   capture-hook registry entry (`runtime-journal`): suspending it refuses events and counts them.
 
 ### Changed

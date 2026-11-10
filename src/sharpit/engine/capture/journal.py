@@ -8,8 +8,10 @@ Deviations from BootUI, for the owner's list:
   it. Retention is a ring: at ``max-events`` or ``max-bytes`` the oldest event is evicted and counted.
 - Byte bound: BootUI's unset ``max-bytes`` is the smaller of 32 MB and 5 % of the maximum heap. Python exposes no
   stable, portable heap limit for an in-memory buffer, so sharpit uses the fixed 32 MiB cap.
-- ``dropped`` is keyed by reason (``reentrant``, ``suspended``, ``source-disabled``, ``max-bytes`` for one event over
-  the whole byte bound, ``failed``), not by source, and counts filtered and suspended offers BootUI returns uncounted.
+- ``dropped`` is keyed by source, as BootUI's is, but also counts the offers BootUI returns uncounted: while
+  suspended, from a source not configured, and one event larger than the whole byte bound. An offer whose source
+  cannot be read is counted under a key no source has: ``reentrant`` (made from inside an offer) or ``failed`` (a
+  non-string source, or an event that raised or nested too deep while it was copied).
 
 Sources: the wiring passes ``runtime_journal_sources`` (``settings_registry.JOURNAL_SOURCES`` when unset). A new
 source, such as a W6 sensor's (``processes``, ``files``, ``network``, ``code-paths``), is added to
@@ -31,6 +33,7 @@ from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
 DEFAULT_MAX_BYTES = 32 * 1024 * 1024
+REENTRANT, FAILED = "reentrant", "failed"  # the dropped keys of offers without a readable source
 _MAX_DEPTH = 32  # deeper than any event a sensor builds: a cycle
 _SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
 
@@ -204,29 +207,29 @@ class RuntimeJournal:
 
     def offer(self, event: Event) -> bool:
         if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse
-            self._dropped["reentrant"] += 1
+            self._dropped[REENTRANT] += 1
             return False
         with self._lock:
             self._busy.active = True
             try:
                 return self._append(event)
             except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
-                self._dropped["failed"] += 1
+                self._dropped[FAILED] += 1
                 return False
             finally:
                 self._busy.active = False
 
     def _append(self, event: Event) -> bool:
-        if not self._accepting:
-            self._dropped["suspended"] += 1
-            return False
         source = event.get("source")
-        if not isinstance(source, str) or (self.sources is not None and source not in self.sources):
-            self._dropped["source-disabled"] += 1
+        if not isinstance(source, str):
+            self._dropped[FAILED] += 1
+            return False
+        if not self._accepting or (self.sources is not None and source not in self.sources):
+            self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
             return False
         stored, size = _snapshot(event)
         if size > self.max_bytes:
-            self._dropped["max-bytes"] += 1
+            self._dropped[source] += 1  # one event larger than the whole byte bound
             return False
         stamp = time.time_ns() // 1_000_000
         while self._events and (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes):
