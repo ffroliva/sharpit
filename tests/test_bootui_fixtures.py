@@ -255,3 +255,39 @@ def test_bootui_23_rule_ids_diff_has_all_explanations() -> None:
     for rid in in_java_only:
         assert rid in explanations, f"Missing explanation for java-only rule {rid}"
         assert len(explanations[rid]) > 0
+
+
+def test_bootui_23_fixtures_reject_incomplete_catalogs_and_machine_paths() -> None:
+    meta = _load_json("meta.json")
+    assert "javaVersionOutput" in meta, "metadata must record actual java -version output"
+    assert "mavenVersionOutput" in meta, "metadata must record actual mvn -v output"
+    assert "settingsOverride" in meta, "metadata must record the Maven settings override"
+    assert meta["counts"] == {
+        "panels": 65,
+        "reads": 64,
+        "actions": 18,
+        "tools": 116,
+        "rules": 0,
+        "properties": 0,
+        "defaultedProperties": 44,
+        "testClasses": 0,
+        "testMethods": 0,
+    }
+    routes = _load_json("routes.json")
+    assert len(routes["reads"]) == 64
+    assert len(routes["actions"]) == 18
+    assert all(route["path"] != "/missing" for route in routes["reads"])
+    assert all("classification" in route for route in routes["crossCheck"]["starterMappings"])
+    tools = _load_json("tools.json")["tools"]
+    assert {tool["name"]: tool["defaultLimit"] for tool in tools if "defaultLimit" in tool}["get_metrics"] == 25
+    assert {tool["name"]: tool["defaultLimit"] for tool in tools if "defaultLimit" in tool}["get_log_tail"] == 50
+    props = {prop["name"] for prop in _load_json("properties.json")["properties"]}
+    assert "bootui.cli.max-payload-bytes" not in props
+    assert "bootui.cli.max-response-bytes" not in props
+    catalog = _load_json("bootui-tests.json")
+    assert all("." in name for name in catalog["testClasses"])
+    assert all(
+        "C:/development" not in rule["javaSource"]
+        for rule in _load_json("rule-ids.json")["rules"]
+        if rule.get("javaSource")
+    )
