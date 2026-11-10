@@ -119,27 +119,6 @@ def test_suspended_journal_counts_suspended_drops() -> None:
     assert journal.offer({"source": "test"}) is True
 
 
-def test_journal_append_overhead_budget() -> None:
-    module = _journal_module()
-    event = {"source": "test", "message": "small event"}
-
-    def noop_round() -> float:
-        start = time.perf_counter_ns()
-        for _ in range(500):
-            pass
-        return (time.perf_counter_ns() - start) / 500
-
-    def offer_round() -> float:
-        journal = module.RuntimeJournal(max_events=1000, max_bytes=1_000_000, queue_capacity=1000)
-        start = time.perf_counter_ns()
-        for _ in range(500):
-            journal.offer(event)
-        return (time.perf_counter_ns() - start) / 500
-
-    result = paired(noop_round, offer_round, 15)
-    check_budget("runtime journal offer", result, 100_000, "µs", 1000)
-
-
 def test_journal_accepted_offer_overhead_budget() -> None:
     """Measured alone (-n 0, Windows 11, CPython 3.13): 3.6-4.1 µs per accepted offer over three runs.
 
