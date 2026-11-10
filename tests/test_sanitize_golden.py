@@ -51,7 +51,7 @@ def _tree(tmp_path: Path, files: dict[str, object], name: str = "2.2.0", **kwarg
     error: object = None
     try:
         module.main(src, dst, repo=tmp_path, **kwargs)
-    except (ValueError, SystemExit) as exc:
+    except (TypeError, ValueError, SystemExit) as exc:
         error = exc
     return error, dst
 
@@ -143,3 +143,77 @@ def test_main_layout_follows_the_source_folder_name(tmp_path: Path):
     forced, forced_dst = _tree(tmp_path / "forced", {"overview/captured.json": {"a": 1}}, name="x", layout="nested")
     assert forced is None
     assert (forced_dst / "overview" / "captured.json").is_file()
+
+
+def test_sanitiser_merges_meta_for_the_target_version(tmp_path: Path):
+    source_meta = Path(__file__).parent / "fixtures" / "bootui" / "2.3.0" / "meta.json"
+    error, dst = _tree(
+        tmp_path / "rerun",
+        {"overview/captured.json": {"name": "x"}},
+        name="2.3.0",
+        version="2.3.0",
+    )
+    # Reuse the real lane B metadata in an isolated destination.
+    (dst / "meta.json").write_text(source_meta.read_text(encoding="utf-8"), encoding="utf-8")
+    src = tmp_path / "rerun" / "replica" / "evidence" / "2.3.0"
+    (src / "uncaptured.json").write_text('{"overview": "not served"}', encoding="utf-8")
+    module.main(src, dst, repo=tmp_path / "rerun", version="2.3.0")
+    meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
+    assert meta["bootuiVersion"] == "2.3.0"
+    for key in ("commit", "tag", "tagObject", "mavenCommand", "jdk", "counts"):
+        assert key in meta
+    for key in ("app", "profile", "captured", "uncaptured"):
+        assert key in meta
+    assert "2.2.0" not in json.dumps(meta)
+
+
+def test_sanitiser_refuses_vendor_tokens_anywhere():
+    tokens = (
+        "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        "gho_abcdefghijklmnopqrstuvwxyz0123456789",
+        "ghu_abcdefghijklmnopqrstuvwxyz0123456789",
+        "ghs_abcdefghijklmnopqrstuvwxyz0123456789",
+        "ghr_abcdefghijklmnopqrstuvwxyz0123456789",
+        "github_pat_abcdefghijklmnopqrstuvwxyz0123456789",
+        "sk-12345678901234567890123456789012",
+        "sk-ant-12345678901234567890123456789012",
+        "Bearer abcdefghijklmnopqrstuvwxyz0123456789",
+    )
+    for token in tokens:
+        assert module.find_secrets({"description": token}) == ["$.description"]
+        assert module.find_secrets({"summary": f"captured {token} in prose"}) == ["$.summary"]
+    assert module.find_secrets({"description": "task-list and disk-usage; Bearer is a scheme"}) == []
+
+
+def test_enums_come_from_the_raw_capture(tmp_path: Path):
+    error, dst = _tree(
+        tmp_path,
+        {"agent/captured.json": {"items": [{"state": "ACTIVE"}, {"state": "PAUSED"}]}},
+        name="2.3.0",
+    )
+    assert error is None
+    enums = json.loads((dst / "agent" / "enums.raw.json").read_text(encoding="utf-8"))
+    assert enums["$.items[].state"] == ["ACTIVE", "PAUSED"]
+
+
+def test_shaping_keeps_every_key_path():
+    raw = {"items": [{"outer": {"first": "a"}}, {"outer": {"second": "b"}}]}
+    shaped = module.shape_golden(raw)
+
+    def key_paths(node: object, path: str = "$") -> set[str]:
+        if isinstance(node, dict):
+            return {f"{path}.{key}" for key, value in node.items()} | {
+                item for key, value in node.items() for item in key_paths(value, f"{path}.{key}")
+            }
+        if isinstance(node, list):
+            return set().union(*(key_paths(value, f"{path}[]") for value in node))
+        return set()
+
+    assert key_paths(shaped) == key_paths(raw)
+
+
+def test_2_2_meta_content_remains_unchanged(tmp_path: Path):
+    error, dst = _tree(tmp_path, {}, name="2.2.0")
+    assert error is None
+    meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
+    assert meta == module.META_2_2_0 | {"uncaptured": {}, "provisional": []}
