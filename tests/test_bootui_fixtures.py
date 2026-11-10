@@ -290,8 +290,8 @@ def test_bootui_23_tests_catalog_resolves_ported_citations() -> None:
     assert isinstance(tests_data, dict)
     test_classes = tests_data["testClasses"]
 
-    assert "BootUiActivationConditionTests" in test_classes
-    methods = test_classes["BootUiActivationConditionTests"]
+    activation_class = tests_data["simpleNameIndex"]["BootUiActivationConditionTests"]["classes"][0]
+    methods = test_classes[activation_class]
     assert "autoEnablesOnEnabledProfile" in methods
     assert "autoDisablesWithoutEnabledProfileAndWithoutDevtools" in methods
     assert "disabledProfileForcesOffByDefault" in methods

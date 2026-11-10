@@ -749,24 +749,34 @@ for tf in test_files:
     with open(tf, encoding="utf-8", errors="ignore") as f:
         tcode = f.read()
 
-    cmatches = list(re.finditer(r"(?:public\s+)?(?:static\s+)?(?:final\s+)?class\s+(\w+)", tcode))
-    if not cmatches:
+    clean = re.sub(r"/\*.*?\*/|//[^\n]*|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", " ", tcode, flags=re.DOTALL)
+    package = re.search(r"^\s*package\s+([\w.]+)\s*;", clean, re.MULTILINE)
+    cmatches = list(re.finditer(r"(?:public\s+)?(?:static\s+)?(?:final\s+)?class\s+(\w+)", clean))
+    if not cmatches or not package:
         continue
-    top_c = cmatches[0].group(1)
+    top_c = f"{package.group(1)}.{cmatches[0].group(1)}"
 
     meths = set()
-    for mm in method_regex.finditer(tcode):
+    for mm in method_regex.finditer(clean):
         meths.add(mm.group(1))
-    for mm in arch_regex.finditer(tcode):
+    for mm in arch_regex.finditer(clean):
         meths.add(mm.group(1))
 
     if meths:
         test_classes[top_c] = sorted(meths)
 
+simple_names = {}
+for fqcn in test_classes:
+    simple_names.setdefault(fqcn.rsplit(".", 1)[-1], []).append(fqcn)
+simple_name_index = {
+    name: {"classes": sorted(classes), "ambiguous": len(classes) > 1} for name, classes in sorted(simple_names.items())
+}
+
 with open(f"{output_dir}/bootui-tests.json", "w", encoding="utf-8") as f:
     json.dump(
         {
             "testClasses": test_classes,
+            "simpleNameIndex": simple_name_index,
             "totalClasses": len(test_classes),
             "totalMethods": sum(len(m) for m in test_classes.values()),
         },
