@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+
+_SQL = "import sqlite3\nconn = sqlite3.connect(':memory:')\nfor _ in range(5): conn.execute('SELECT 1').fetchone()"
+_GATE = ["--sharpit", "--sharpit-no-advisors", "-q"]
+_SQL_GATE = [*_GATE, "--sharpit-allow-unknown"]
+
+
+def _test_source(*names: str) -> str:
+    body = _SQL.replace("\n", "\n    ")
+    return "\n\n".join(f"def {name}():\n    {body}" for name in names)
+
+
+def test_gate_failure_exits_nonzero(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(_test_source("test_repeated_selects"))
+
+    result = pytester.runpytest_inprocess(*_SQL_GATE, "--sharpit-report=report.json")
+
+    assert result.ret == 1
+    assert "sharpit: sharpit.n-plus-one" in result.stdout.str()
+
+
+def test_gate_does_not_hide_a_failing_test(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(_test_source("test_repeated_selects") + "\n    assert False, 'pytest failure'")
+
+    result = pytester.runpytest_inprocess(*_SQL_GATE, "--sharpit-report=report.json")
+
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    assert "pytest failure" in result.stdout.str()
+    assert "sharpit: sharpit.n-plus-one" in result.stdout.str()
+
+
+def test_report_only_preserves_pytest_test_failure(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(_test_source("test_repeated_selects") + "\n    assert False, 'pytest failure'")
+
+    result = pytester.runpytest_inprocess(*_SQL_GATE, "--sharpit-report-only", "--sharpit-report=report.json")
+
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    assert "sharpit report-only" in result.stdout.str()
+
+
+def test_unreadable_baseline_fails_closed_in_report_only(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("def test_clean(): pass")
+    (pytester.path / "baseline.json").mkdir()
+
+    result = pytester.runpytest_inprocess(
+        *_GATE,
+        "--sharpit-report-only",
+        "--sharpit-baseline=baseline.json",
+        "--sharpit-report=report.json",
+    )
+
+    assert result.ret == 1
+    report = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
+    assert any("baseline unusable" in reason for reason in report["unknownReasons"])
+
+
+def test_baseline_allows_existing_finding_but_gates_new_one(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile(_test_source("test_existing"))
+    pytester.runpytest_inprocess(*_SQL_GATE, "--sharpit-write-baseline=baseline.json")
+    pytester.makepyfile(_test_source("test_existing", "test_new"))
+
+    result = pytester.runpytest_inprocess(
+        *_SQL_GATE, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json"
+    )
+
+    assert result.ret == 1
+    report = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
+    assert {finding["baselineState"] for finding in report["findings"]} == {"existing", "new"}
