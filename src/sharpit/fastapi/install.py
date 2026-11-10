@@ -45,6 +45,36 @@ _Lifespan = Callable[[Any], AbstractAsyncContextManager[Any]]
 _clock = time.monotonic
 
 
+class IdleTracker:
+    def __init__(
+        self, hooks: Any, timeout: float, held: Callable[[], bool], clock: Callable[[], float] = _clock
+    ) -> None:
+        self.hooks, self.timeout, self.held, self.clock = hooks, timeout, held, clock
+        self.last_active = clock()
+        self.auto_suspended = False
+        self.lock = threading.Lock()
+
+    def mark_active(self) -> None:
+        with self.lock:
+            self.last_active = self.clock()
+            if self.auto_suspended and not self.held():
+                self.hooks.resume()
+                self.auto_suspended = False
+
+    def check(self) -> None:
+        with self.lock:
+            if self.clock() - self.last_active >= self.timeout and not self.auto_suspended and not self.held():
+                self.hooks.suspend()
+                self.hooks.discard()
+                self.auto_suspended = True
+
+    def close(self) -> None:
+        with self.lock:
+            if self.auto_suspended and not self.held():
+                self.hooks.resume()
+            self.auto_suspended = False
+
+
 def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings) -> CaptureWiring:
     capture = ctx.capture
     wiring = capture.wiring = CaptureWiring()
@@ -166,8 +196,7 @@ async def _lifespan(
     ctx: SharpitContext,
     wiring: CaptureWiring,
     settings: SharpitSettings,
-    idle_activity: list[float],
-    auto_suspended: list[bool],
+    idle_tracker: IdleTracker | None,
 ) -> AsyncGenerator[Any]:
     timer: threading.Thread | None = None
     stop = threading.Event()
@@ -176,20 +205,13 @@ async def _lifespan(
             if ctx.startup_time_ms is None:
                 ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
             wiring.on_startup(ctx)  # after the host's own startup (spec §6.1)
-            if settings.free_on_idle_enabled:
-                low_footprint = ctx.lazy("low-footprint", lambda: LowFootprintService(ctx.capture.hooks))
-                idle_activity[0] = _clock()
+            if idle_tracker is not None:
+                idle_tracker.mark_active()
 
                 def monitor_idle() -> None:
                     interval = max(0.05, min(settings.free_on_idle_timeout, 1.0))
                     while not stop.wait(interval):
-                        if (
-                            _clock() - idle_activity[0] >= settings.free_on_idle_timeout
-                            and not low_footprint.enabled
-                            and not auto_suspended[0]
-                        ):
-                            ctx.capture.hooks.suspend()
-                            auto_suspended[0] = True
+                        idle_tracker.check()
 
                 timer = threading.Thread(target=monitor_idle, name="sharpit-free-on-idle", daemon=True)
                 timer.start()
@@ -198,6 +220,8 @@ async def _lifespan(
         if timer is not None:
             stop.set()
             timer.join()
+        if idle_tracker is not None:
+            idle_tracker.close()
         wiring.detach(ctx)
 
 
@@ -242,8 +266,7 @@ def install(
         models=_models(models),
     )
     handle = sharpit_handle_type(sharpit_settings, activation, ctx, original)
-    idle_activity = [_clock()]
-    auto_suspended = [False]
+    idle_tracker: IdleTracker | None = None
     for warning in activation.warnings:  # the overview panel shows them too, but not while sharpit is inactive
         logger.warning("%s", warning)
 
@@ -264,15 +287,18 @@ def install(
 
     middleware = [Middleware(guard_middleware, ctx=ctx)]
     if sharpit_settings.free_on_idle_enabled:
-        middleware.append(_activity_middleware(ctx, idle_activity, auto_suspended))
+        low_footprint = ctx.lazy("low-footprint", lambda: LowFootprintService(ctx.capture.hooks))
+        idle_tracker = IdleTracker(
+            ctx.capture.hooks, sharpit_settings.free_on_idle_timeout, lambda: low_footprint.enabled
+        )
+        middleware.append(_activity_middleware(ctx, idle_tracker))
     router.lifespan_context = partial(
         _lifespan,
         original=original,
         ctx=ctx,
         wiring=wiring,
         settings=sharpit_settings,
-        idle_activity=idle_activity,
-        auto_suspended=auto_suspended,
+        idle_tracker=idle_tracker,
     )
     sub_app = Starlette(
         routes=adapter._routes(ctx, app),
@@ -289,22 +315,20 @@ def install(
     return handle
 
 
-def _activity_middleware(ctx: SharpitContext, idle_activity: list[float], auto_suspended: list[bool]) -> Middleware:
+def _activity_middleware(ctx: SharpitContext, tracker: IdleTracker) -> Middleware:
     """Resume automatically suspended hooks after the guard accepts a sharpit API request."""
 
-    class ActivityTracker:
-        def __init__(self, app: Any, ctx: SharpitContext) -> None:
+    class ActivityMiddleware:
+        def __init__(self, app: Any, ctx: SharpitContext, tracker: IdleTracker) -> None:
             self.app = app
             self.ctx = ctx
+            self.tracker = tracker
             self.api_prefix = ctx.settings.api_path[len(ctx.settings.path) :]
 
         async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
             path = route_path(scope)
             if path == self.api_prefix or path.startswith(self.api_prefix + "/"):
-                idle_activity[0] = _clock()
-                if auto_suspended[0]:
-                    self.ctx.capture.hooks.resume()
-                    auto_suspended[0] = False
+                self.tracker.mark_active()
             await self.app(scope, receive, send)
 
-    return Middleware(ActivityTracker, ctx=ctx)
+    return Middleware(ActivityMiddleware, ctx=ctx, tracker=tracker)

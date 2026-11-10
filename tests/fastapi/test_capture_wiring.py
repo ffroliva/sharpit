@@ -564,6 +564,25 @@ def test_low_footprint_suspends_and_resumes_registered_capture_hooks():
         client.get("/host")
         assert len(_rows(handle)) == 1
         assert _rows(handle)[0]["path"] == "/host"
+        service.suspend()
+        client.get("/host")
+        assert len(_rows(handle)) == 0
+        service.resume()
+        client.get("/host")
+        assert len(_rows(handle)) == 1
+        assert _rows(handle)[0]["path"] == "/host"
+
+
+def test_low_footprint_disable_preserves_individually_paused_sql_trace() -> None:
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+    recorder = handle.context.capture.sql_trace
+    assert recorder is not None
+    recorder.set_recording(False)
+    service = LowFootprintService(handle.context.capture.hooks)
+    service.suspend()
+    service.resume()
+    assert recorder.recording is False
 
 
 @pytest.mark.needs_sqlalchemy

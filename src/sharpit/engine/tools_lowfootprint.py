@@ -16,9 +16,16 @@ def _service(call: Any) -> LowFootprintService:
 
 def _status(call: Any, _args: dict[str, Any]) -> dict[str, Any]:
     service = _service(call)
-    state = service.status()
+    return _status_after(service.status(), call)
+
+
+def _status_after(state: dict[str, object], call: Any) -> dict[str, Any]:
+    service = _service(call)
     raw_failures = cast(list[str], state["failures"])
-    failures = [call.ctx.masker.mask_text(failure) for failure in raw_failures]
+    failures: list[str] = []
+    for failure in raw_failures:
+        name, _, detail = failure.partition(": ")
+        failures.append(call.ctx.masker.mask_text(f"Could not pause {name}: {detail}"))
     hooks = cast(list[str], state["hooks"])
     return {
         "active": cast(bool, state["enabled"]),
@@ -69,10 +76,6 @@ def _enable(call: Any, _args: dict[str, Any]) -> dict[str, Any]:
 
 def _disable(call: Any, _args: dict[str, Any]) -> dict[str, Any]:
     return _ack("disabled", _status_after(_service(call).resume(), call))
-
-
-def _status_after(_state: dict[str, object], call: Any) -> dict[str, Any]:
-    return _status(call, {})
 
 
 def tool_definitions(tool_type: Any) -> tuple[Any, ...]:

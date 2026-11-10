@@ -40,6 +40,7 @@ from sharpit.engine.collectors.vulns.inventory import inventory
 from sharpit.engine.collectors.vulns.osv import OsvClient
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.paging import paged
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.sources import sqlite
@@ -263,6 +264,13 @@ def _sql_trace_action(ctx: SharpitContext, action: Callable[[SqlTraceRecorder], 
     return sql_trace_report(ctx)
 
 
+def _resume_sql_trace(ctx: SharpitContext) -> dict[str, Any]:
+    service = ctx.peek("low-footprint")
+    if isinstance(service, LowFootprintService) and service.enabled:
+        raise ToolCallError("Low-footprint mode is active; disable it before resuming recording", 409)
+    return _sql_trace_action(ctx, lambda recorder: recorder.set_recording(True))
+
+
 def http_exchanges_report(
     ctx: SharpitContext,
     q: str | None,
@@ -479,7 +487,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         _NONE,
         "sql-trace",
         True,
-        lambda c, _a: _sql_trace_action(c.ctx, lambda r: r.set_recording(True)),
+        lambda c, _a: _resume_sql_trace(c.ctx),
     ),
     Tool(
         "get_live_activity",

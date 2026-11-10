@@ -16,7 +16,7 @@ Then point a streamable-HTTP MCP client at `http://127.0.0.1:8000/sharpit/api/mc
 
 ## Tools
 
-37 read tools, grouped by what they answer. Search tools take a `query` and a `limit`; every result is capped by
+38 read tools, grouped by what they answer. Search tools take a `query` and a `limit`; every result is capped by
 `SHARPIT_MCP_MAX_RESULTS`. The names and the read or action split match BootUI 2.3.0 wherever BootUI has the same
 tool.
 
@@ -56,6 +56,7 @@ tool.
 - `get_health`: the cached health tree (database pings and your own checks). Never runs a check.
 - `get_threads`: threads and asyncio tasks with their stacks, and the request each task serves. No variable values.
 - `get_traces`: the OpenTelemetry traces the app recorded, newest first, with masked span attributes. Needs the app's own SDK `TracerProvider`.
+- `get_low_footprint`: low-footprint mode status and capture hook outcomes.
 
 ### Advisors and security
 
@@ -72,9 +73,9 @@ Each advisor has a cached report tool and a tool that pages the retained violati
 
 ## Actions
 
-17 action tools change state, send data off the machine, or start a scan. **They are not served over MCP**: the
-`tools/list` answer holds the 37 read tools above and nothing else. They are listed here because each is part of the
-tool catalogue, and an action is available only through the CLI endpoint,
+19 action tools change state, send data off the machine, or start a scan. **They are not served over MCP**: the
+`tools/list` answer holds the 38 read tools above and nothing else. They are listed here because each is part of the
+tool catalogue. Actions are available through the CLI endpoint,
 `POST /sharpit/api/cli/tools/<tool>` (`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain.
 An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.
 
@@ -97,11 +98,12 @@ Buffers and recording, which only touch sharpit's own bounded in-memory capture:
 - `clear_transactions`: clear the retained transactions.
 - `pause_transaction_recording`, `resume_transaction_recording`: stop and restart transaction recording.
 - `clear_traces`: clear the span buffer. The app's tracer provider and exporters are untouched.
+- `enable_low_footprint`, `disable_low_footprint`: pause/resume sharpit's capture hooks; enabling also discards retained buffers. These are CLI and guarded API actions, not MCP tools.
 - `enable_sqlalchemy_statistics`: acknowledge statistics collection. Statistics are always on while SQL Trace records, so nothing changes.
 
 ## What an agent cannot do
 
-Over MCP an agent cannot change a logger level, clear a buffer, pause SQL recording or start a scan of any kind. Those
+Over MCP an agent cannot change a logger level, clear a buffer, pause SQL recording, operate Live Memory controls or start a scan of any kind. Those
 stay in the UI, or a plain HTTP call to `POST /sharpit/api/cli/tools/<tool>`, so anything that changes state or sends
 data off the machine needs a person.
 

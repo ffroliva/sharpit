@@ -81,6 +81,23 @@ def test_low_footprint_tool_reads_and_toggles_registry() -> None:
     assert hook.running is True
 
 
+def test_resume_recording_actions_refuse_while_low_footprint_is_active() -> None:
+    from sharpit.engine.tools import CallContext, ToolCallError, call_tool
+    from sharpit.engine.tools_lowfootprint import _service
+
+    settings = load_settings({"enabled": "ON", "show_banner": False, "config_scan": False}, {})
+    ctx = SharpitContext(settings=settings, activation=None, introspector=None)  # type: ignore[arg-type]
+    call = CallContext(ctx, {})
+    _service(call).suspend()
+    for name in ("resume_sql_trace_recording", "resume_transaction_recording"):
+        try:
+            call_tool(call, name, {}, via="cli")
+        except ToolCallError as exc:
+            assert exc.status == 409
+        else:
+            raise AssertionError(f"{name} resumed while low-footprint was active")
+
+
 def test_enable_low_footprint_requests_gc_once(monkeypatch) -> None:
     settings = load_settings({"enabled": "ON", "show_banner": False, "config_scan": False}, {})
     ctx = SharpitContext(settings=settings, activation=None, introspector=None)  # type: ignore[arg-type]
@@ -113,3 +130,4 @@ def test_low_footprint_status_masks_registry_failures() -> None:
 
     status = call_tool(CallContext(ctx, {}), "enable_low_footprint", {}, via="cli")
     assert "low-footprint-secret" not in str(status)
+    assert status["warnings"] == ["Could not pause capture: RuntimeError: password=******"]

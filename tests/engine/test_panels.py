@@ -122,5 +122,5 @@ def test_live_memory_panel_owns_low_footprint_controls():
     panel = next(p for p in PANELS if p.id == "live-memory")
     assert panel.title == "Live Memory"
     assert panel.action_capable is True
-    assert panel.api_prefix == "/low-footprint"
+    assert panel.api_prefix == "/live-memory"
     assert panel.implemented is True

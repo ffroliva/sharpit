@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from sharpit.engine.tools import CallContext, ToolCallError, call_tool
+from sharpit.engine.tools import CallContext, cli_invoke
 from sharpit.fastapi.routes import error, json_response
 
 
@@ -16,24 +16,27 @@ def build_routes(ctx: Any) -> list[Route]:
     api = ctx.settings.api_path[len(ctx.settings.path) :]
 
     def status(_request: Request) -> Response:
-        try:
-            body = call_tool(CallContext(ctx, _request.scope), "get_low_footprint", {}, via="cli")
-        except ToolCallError as exc:
-            return error(exc.status, exc.message)
-        return json_response(body)
+        status_code, body = cli_invoke(CallContext(ctx, _request.scope), "get_low_footprint", {})
+        return json_response(body) if status_code == 200 else error(status_code, body["error"])
 
     async def toggle(request: Request) -> Response:
-        action = request.path_params["action"]
-        if action not in {"enable", "disable"}:
-            return error(404, "Not found")
-        name = "enable_low_footprint" if action == "enable" else "disable_low_footprint"
         try:
-            result = call_tool(CallContext(ctx, request.scope), name, {}, via="cli")
-        except ToolCallError as exc:
-            return error(exc.status, exc.message)
-        return json_response(result)
+            raw_body = await request.json()
+        except (ValueError, UnicodeDecodeError):
+            return error(400, "Invalid request body")
+        if not isinstance(raw_body, dict):
+            return error(400, "enabled must be a boolean")
+        body = cast(dict[str, object], raw_body)
+        if not isinstance(body.get("enabled"), bool):
+            return error(400, "enabled must be a boolean")
+        name = "enable_low_footprint" if body["enabled"] else "disable_low_footprint"
+        call_status, result = cli_invoke(CallContext(ctx, request.scope), name, {})
+        if call_status != 200:
+            return error(call_status, result["error"])
+        status_code, result = cli_invoke(CallContext(ctx, request.scope), "get_low_footprint", {})
+        return json_response(result) if status_code == 200 else error(status_code, result["error"])
 
     return [
-        Route(f"{api}/low-footprint", status, methods=["GET"]),
-        Route(f"{api}/low-footprint/{{action}}", toggle, methods=["POST"]),
+        Route(f"{api}/live-memory/footprint", status, methods=["GET"]),
+        Route(f"{api}/live-memory/footprint", toggle, methods=["POST"]),
     ]

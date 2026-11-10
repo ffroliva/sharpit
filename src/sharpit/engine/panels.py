@@ -18,8 +18,8 @@ class Panel:
 
     @property
     def implemented(self) -> bool:
-        """Live Memory is built here; 0.4 panel flags remain dynamic."""
-        return self.id == "live-memory" or panel_is_implemented(self.id)
+        """0.4 panel flags remain dynamic."""
+        return panel_is_implemented(self.id)
 
 
 # overview and cli register no API prefix, as in BootUI: GET {api}/overview is the shell's chrome data source and the
@@ -45,7 +45,7 @@ PANELS: tuple[Panel, ...] = (
     Panel("threads", "Threads", False, "/threads"),
     Panel("rest-api", "REST API", True, "/rest-api"),
     Panel("http-probe", "HTTP Probe", True, "/http-probe"),
-    Panel("live-memory", "Live Memory", True, "/low-footprint"),
+    Panel("live-memory", "Live Memory", True, "/live-memory"),
     # 0.4.0 panels are registered now but remain absent until their owner flips its local flag.
     Panel("data", "Data", False, "/data"),
     Panel("transactions", "Transactions", True, "/transactions"),

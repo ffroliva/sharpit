@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import threading
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -18,7 +20,9 @@ def _client(**options: object) -> TestClient:
 
 def test_low_footprint_toggle_refused_read_only() -> None:
     # ported: McpDispatcherTests.lowFootprintUsesLiveMemoryPolicyForAllControlsWithoutInvokingRefusedActions
-    response = _client(panels={"live-memory": {"read_only": True}}).post("/sharpit/api/low-footprint/enable")
+    response = _client(panels={"live-memory": {"read_only": True}}).post(
+        "/sharpit/api/live-memory/footprint", json={"enabled": True}
+    )
     assert response.status_code == 403
     assert response.json()["reason"] == "Panel is read-only via SHARPIT_PANELS_LIVE_MEMORY_READ_ONLY=true"
 
@@ -34,7 +38,7 @@ def test_low_footprint_route_obeys_authentication_guard() -> None:
         allow_non_localhost=True,
     )
     client = TestClient(app, base_url="http://localhost", client=("10.0.0.5", 50000))
-    response = client.get("/sharpit/api/low-footprint")
+    response = client.get("/sharpit/api/live-memory/footprint")
     assert response.status_code == 401
 
 
@@ -42,10 +46,47 @@ def test_low_footprint_status_has_bootui_dto_keys(no_side_effects: SideEffectGua
     no_side_effects.unblock_network()
     with _client(state_dir=str(no_side_effects.state_dir)) as client:
         no_side_effects.block_network()
-        response = client.get("/sharpit/api/low-footprint")
+        response = client.get("/sharpit/api/live-memory/footprint")
     assert response.status_code == 200
     assert set(response.json()) == {"active", "sinceEpochMillis", "agentAttached", "components", "warnings", "offload"}
     assert no_side_effects.violations == []
+
+
+def test_live_memory_footprint_uses_bootui_route_and_status_dto() -> None:
+    # ported: LiveMemoryControllerTests.getFootprint
+    with _client() as client:
+        response = client.get("/sharpit/api/live-memory/footprint")
+        assert response.status_code == 200
+        assert set(response.json()) == {
+            "active",
+            "sinceEpochMillis",
+            "agentAttached",
+            "components",
+            "warnings",
+            "offload",
+        }
+        fixture = Path(__file__).parents[1] / "fixtures/bootui/2.3.0/live-memory/footprint.captured.json"
+        assert response.json() == json.loads(fixture.read_text(encoding="utf-8"))
+        assert client.get("/sharpit/api/low-footprint").status_code == 404
+
+
+def test_live_memory_footprint_post_toggles_from_enabled_body() -> None:
+    # ported: LiveMemoryControllerTests.setFootprint
+    with _client() as client:
+        enabled = client.post("/sharpit/api/live-memory/footprint", json={"enabled": True})
+        assert enabled.status_code == 200
+        assert enabled.json()["active"] is True
+        assert set(enabled.json()) == {
+            "active",
+            "sinceEpochMillis",
+            "agentAttached",
+            "components",
+            "warnings",
+            "offload",
+        }
+        disabled = client.post("/sharpit/api/live-memory/footprint", json={"enabled": False})
+        assert disabled.status_code == 200
+        assert disabled.json()["active"] is False
 
 
 def test_enabling_low_footprint_clears_each_capture_panel_feed() -> None:
@@ -94,7 +135,7 @@ def test_enabling_low_footprint_clears_each_capture_panel_feed() -> None:
 
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
         client.get("/seed")
-        enabled = client.post("/sharpit/api/low-footprint/enable")
+        enabled = client.post("/sharpit/api/live-memory/footprint", json={"enabled": True})
 
         assert enabled.status_code == 200
         assert client.get("/sharpit/api/http-exchanges").json()["total"] == 0
@@ -102,6 +143,7 @@ def test_enabling_low_footprint_clears_each_capture_panel_feed() -> None:
         assert client.get("/sharpit/api/security-logs").json()["events"] == []
         assert client.get("/sharpit/api/log-tail/recent").json() == []
         assert client.get("/sharpit/api/sql-trace/insights").json()["window"]["retainedStatements"] == 0
+        assert client.get("/sharpit/api/sql-trace/insights").json()["capturing"] is False
         assert client.get("/sharpit/api/traces").json()["retained"] == 0
         assert client.get("/sharpit/api/transactions").json()["entries"] == []
 
@@ -127,10 +169,10 @@ def test_free_on_idle_suspends_and_resumes_capture_in_lifespan(monkeypatch) -> N
         wiring = wiring_of(handle.context)
         assert wiring is not None
         assert wiring.suspended_hooks
-        denied = client.get("/sharpit/api/low-footprint", headers={"Sec-Fetch-Site": "cross-site"})
+        denied = client.get("/sharpit/api/live-memory/footprint", headers={"Sec-Fetch-Site": "cross-site"})
         assert denied.status_code == 403
         assert wiring.suspended_hooks
-        assert client.get("/sharpit/api/low-footprint").json()["active"] is False
+        assert client.get("/sharpit/api/live-memory/footprint").json()["active"] is False
         assert wiring.suspended_hooks == set()
     assert "sharpit-free-on-idle" not in {thread.name for thread in threading.enumerate()}
 
@@ -142,3 +184,46 @@ def test_free_on_idle_disabled_starts_no_thread() -> None:
         before = {thread.ident for thread in threading.enumerate()}
         threading.Event().wait(0.04)
         assert {thread.ident for thread in threading.enumerate()} == before
+
+
+def test_idle_tracker_keeps_explicit_hold_and_closes_auto_hold() -> None:
+    from sharpit.fastapi.install import IdleTracker
+
+    now = [0.0]
+    held = [False]
+    events: list[str] = []
+
+    class Hooks:
+        def suspend(self) -> None:
+            events.append("suspend")
+            held[0] = True  # deterministic enable interleaving after check's held() read
+
+        def discard(self) -> None:
+            events.append("discard")
+
+        def resume(self) -> None:
+            events.append("resume")
+
+    tracker = IdleTracker(Hooks(), 5.0, lambda: held[0], lambda: now[0])
+    now[0] = 6.0
+    tracker.check()
+    tracker.mark_active()
+    assert events == ["suspend", "discard"]
+    tracker.close()
+    assert tracker.auto_suspended is False
+
+
+def test_route_maps_capacity_and_timeout_rpc_errors(monkeypatch) -> None:
+    from sharpit.engine import tools
+
+    for code, status in ((tools.SERVER_AT_CAPACITY, 429), (tools.TOOL_TIMEOUT, 504)):
+
+        class FailedGate:
+            max_results = 100
+
+            def run(self, _name, _handler, error_code=code):
+                raise tools.RpcError(error_code, "gate refused")
+
+        monkeypatch.setattr(tools, "tool_gate", lambda _ctx, _via: FailedGate())
+        response = _client().get("/sharpit/api/live-memory/footprint")
+        assert response.status_code == status

@@ -136,7 +136,7 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Loggers | `GET {api}/loggers`, `POST {api}/loggers/{name}` | change a level at runtime (write action) |
 | Beans | `GET {api}/beans` | dependency providers and their `dependencies` |
 | Vulnerabilities | `GET {api}/vulnerabilities`, `POST {api}/vulnerabilities/scan` | installed distributions against OSV, scored with EPSS |
-| Live Memory | `GET {api}/low-footprint`, `POST {api}/low-footprint/{enable|disable}` | inspect or pause sharpit's capture hooks; status is available over MCP and CLI, while enable/disable are CLI and route actions only |
+| Live Memory | `GET {api}/live-memory/footprint`, `POST {api}/live-memory/footprint` (`{"enabled": bool}`) | inspect or pause sharpit's capture hooks; status is available over MCP and CLI, while enable/disable are CLI and route actions only |
 | MCP server | `GET {api}/mcp-server`, `POST {api}/mcp` | read-only MCP for agents |
 | CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 19 action tools (see Actions below), over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
@@ -160,8 +160,7 @@ Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": ".
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-  `http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 38 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or
-start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 38 read-only tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
 `query` and `limit` (capped by `SHARPIT_MCP_MAX_RESULTS`). The names and the read or action split match BootUI 2.3.0
 where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
@@ -178,19 +177,20 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
   `get_architecture_report`, `get_architecture_rule_violations`; `get_fastapi_report`,
   `get_fastapi_rule_violations`; `get_fastapi_security`.
 
-### Actions (CLI endpoint only, never MCP)
+### Actions
 
-19 action tools change state, call out or scan. They are reachable only through `POST {api}/cli/tools/<tool>`
-(`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain; the CLI endpoint also serves every read tool above.
+19 action tools change state, call out or scan. They are reachable through `POST {api}/cli/tools/<tool>`
+(`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain; Live Memory controls are also available through its guarded API route, and the CLI endpoint serves every read tool above.
 An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.
 
 - Scans and reads that call out: `vulnerabilities_scan` (sends package names and versions to OSV.dev), `rest_api_scan`,
   `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`.
 - Buffers and recording (sharpit's own in-memory capture only): `clear_exceptions`, `clear_sql_traces`,
   `pause_sql_trace_recording`, `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
-  `resume_transaction_recording`, `clear_traces`, `enable_sqlalchemy_statistics`.
+  `resume_transaction_recording`, `clear_traces`, `enable_sqlalchemy_statistics`, `enable_low_footprint`,
+  `disable_low_footprint` (CLI and guarded API only).
 
-Live Memory also accepts `POST {api}/low-footprint/enable` and `/disable`; its `get_low_footprint` status tool is on MCP and CLI, while the two action tools are CLI and route only. `SHARPIT_FREE_ON_IDLE_ENABLED` defaults to `true`; `SHARPIT_FREE_ON_IDLE_TIMEOUT` defaults to 300 seconds.
+Live Memory also accepts `POST {api}/live-memory/footprint` with `{"enabled": bool}`; its `get_low_footprint` status tool is on MCP and CLI, while the two action tools are CLI and route only. `SHARPIT_FREE_ON_IDLE_ENABLED` defaults to `true`; `SHARPIT_FREE_ON_IDLE_TIMEOUT` defaults to 300 seconds.
 
 ## Running test gates (`pytest --sharpit`)
 
@@ -235,6 +235,8 @@ sharpit: no application found; rest-api skipped (pass --sharpit-app module:attr)
 A skipped advisor does not make the session `unknown`; a database driver sharpit cannot trace still does.
 
 ### Report-only mode and baselines
+
+For complete gate behavior, exit statuses and the adoption workflow, see [The safety gate](../../docs/pytest-safety-gate.md).
 
 - `--sharpit-report-only`: findings do not fail tests, JUnit cases or the session. The terminal ends with
   `sharpit report-only: N tests would fail, status <status>`. Report-only relaxes findings, never blindness: any unknown
