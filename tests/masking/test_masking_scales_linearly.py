@@ -176,10 +176,12 @@ def _assert_linear(entry_at: Callable[[int], Entry], make: Callable[[int], str],
     gc.disable()
     try:
         half = None
+        previous_size = 0
         largest = 0.0
         for size in sizes:  # smallest first: a quadratic pass fails before it runs into the test timeout
-            step, largest = _step(entry_at, make, size, half)
+            step, largest = _step(entry_at, make, size, half if size // 2 == previous_size else None)
             half = largest
+            previous_size = size
             assert step < MAX_STEP, f"{size} chars cost {step:.1f}x the half size"
     finally:
         if gc_was_on:
@@ -222,7 +224,7 @@ def test_a_retry_measures_both_sizes_fresh(monkeypatch: pytest.MonkeyPatch) -> N
         return next(durations)
 
     monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
-    _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, (1_600,))
+    _step(lambda _size: lambda _text: None, lambda size: "x" * size, 1_600)
 
     assert measured == [800, 1_600, 800, 1_600]
 
