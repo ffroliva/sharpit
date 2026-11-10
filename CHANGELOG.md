@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- BootUI 2.3.0 parity tests and tracker markers for architecture advisor rules (`ARCH-*`) in `tests/parity/test_rules_architecture_23.py`.
+- Architecture rules ARCH-CODE-009 (uses of PEP 702 deprecated application symbols, incl. same-module and relative imports) and ARCH-SPRING-015 (mutable pydantic `BaseSettings` fields, per field, subclasses included), Python analogues of BootUI's rules.
 - BootUI 2.3.0 rule markers and source citations for existing REST API fire/pass tests.
 - BootUI 2.3.0 REST API rule parity tests (`tests/parity/test_rules_rapi_23.py`): fire and pass cases per rule, 2.3.0 severities, handler locations, and a planted-secret leak test.
 - REST API RAPI-VER-001 no longer counts generated documentation routes (`/v3/api-docs`, `swagger-ui`) as API handlers (BootUI 2.3.0 `isNonApiEndpoint`).
