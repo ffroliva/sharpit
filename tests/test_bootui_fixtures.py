@@ -324,6 +324,8 @@ def test_bootui_23_fixtures_reject_incomplete_catalogs_and_machine_paths() -> No
     assert "settingsOverride" in meta, "metadata must record the Maven settings override"
     assert meta["counts"]["reads"] == 82
     assert meta["counts"]["actions"] == 78
+    assert meta["counts"]["testClasses"] == 1109
+    assert meta["counts"]["testMethods"] == 10646
 
 
 def test_bootui_capture_pin_check_is_not_an_optimizable_assert() -> None:
@@ -416,9 +418,9 @@ def test_bootui_23_properties_exclude_nonexistent_cli_properties() -> None:
 def test_bootui_23_test_catalog_is_fully_qualified_and_unambiguous() -> None:
     catalog = _load_json("bootui-tests.json")
     classes = catalog["testClasses"]
-    assert catalog["totalClasses"] == 1103
-    assert len(classes) == 1103
-    assert len(catalog["simpleNameIndex"]) == 1100
+    assert catalog["totalClasses"] == 1109
+    assert len(classes) == 1109
+    assert len(catalog["simpleNameIndex"]) == 1106
     assert all(re.fullmatch(r"[\w$]+(?:\.[\w$]+)+", name) for name in classes)
     for name in (
         "CodeInventoryServiceTests",

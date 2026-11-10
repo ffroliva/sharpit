@@ -26,6 +26,8 @@
     "starterMappings": 267,
     "gaps": 76,
     "unpanelledRoutes": 73,
-    "routeCountMethod": "catalog read/action helper calls and all starter src/main/java @*Mapping declarations"
+    "routeCountMethod": "catalog read/action helper calls and all starter src/main/java @*Mapping declarations",
+    "testClasses": 1109,
+    "testMethods": 10646
   }
 }
