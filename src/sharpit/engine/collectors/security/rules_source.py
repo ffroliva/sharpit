@@ -145,50 +145,71 @@ def _literal_secrets(inputs: Inputs) -> list[Violation]:
     return sorted(found.values(), key=lambda v: (v.target.rpartition(":")[0], int(v.target.rpartition(":")[2])))
 
 
+def _jwt_aliases(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """Names bound to the ``jwt`` module and to ``jwt.decode`` by top-level imports."""
+    module_aliases = {"jwt"}
+    decode_aliases: set[str] = set()
+    for statement in tree.body:
+        if isinstance(statement, ast.Import):
+            module_aliases.update(
+                alias.asname or alias.name.split(".")[0] for alias in statement.names if alias.name == "jwt"
+            )
+        elif isinstance(statement, ast.ImportFrom) and statement.module == "jwt":
+            decode_aliases.update(alias.asname or alias.name for alias in statement.names if alias.name == "decode")
+    return module_aliases, decode_aliases
+
+
+def _is_jwt_decode(func: ast.expr, module_aliases: set[str], decode_aliases: set[str]) -> bool:
+    if isinstance(func, ast.Name):
+        return func.id in decode_aliases
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "decode"
+        and isinstance(func.value, ast.Name)
+        and func.value.id in module_aliases
+    )
+
+
+def _disables_audience(call: ast.Call) -> bool:
+    options = _keyword(call, "options")
+    if not isinstance(options, ast.Dict):
+        return False
+    return any(
+        isinstance(key, ast.Constant)
+        and key.value == "verify_aud"
+        and isinstance(value, ast.Constant)
+        and value.value is False
+        for key, value in zip(options.keys, options.values, strict=True)
+    )
+
+
+def _passes_audience(call: ast.Call) -> bool:
+    """An explicit non-None ``audience=``, or ``**kwargs`` that may carry one."""
+    audience = _keyword(call, "audience")
+    if audience is not None and not (isinstance(audience, ast.Constant) and audience.value is None):
+        return True
+    return any(keyword.arg is None for keyword in call.keywords)
+
+
+def _audience_message(call: ast.Call) -> str | None:
+    if _disables_audience(call):
+        return "jwt.decode disables audience validation with verify_aud=False."
+    if not _passes_audience(call):
+        return "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim."
+    return None
+
+
 def _jwt_audience(inputs: Inputs) -> list[Violation]:
     found: list[Violation] = []
     for module in source_modules(inputs):
         where = source_file(module)
-        module_aliases = {"jwt"}
-        decode_aliases: set[str] = set()
-        for statement in module.tree.body:
-            if isinstance(statement, ast.Import):
-                module_aliases.update(
-                    alias.asname or alias.name.split(".")[0] for alias in statement.names if alias.name == "jwt"
-                )
-            elif isinstance(statement, ast.ImportFrom) and statement.module == "jwt":
-                decode_aliases.update(alias.asname or alias.name for alias in statement.names if alias.name == "decode")
+        module_aliases, decode_aliases = _jwt_aliases(module.tree)
         for node in ast.walk(module.tree):
-            if not isinstance(node, ast.Call):
+            if not (isinstance(node, ast.Call) and _is_jwt_decode(node.func, module_aliases, decode_aliases)):
                 continue
-            func = node.func
-            is_decode = isinstance(func, ast.Name) and func.id in decode_aliases
-            is_decode |= (
-                isinstance(func, ast.Attribute)
-                and func.attr == "decode"
-                and isinstance(func.value, ast.Name)
-                and func.value.id in module_aliases
-            )
-            if not is_decode:
-                continue
-            at = f"{where}:{node.lineno}"
-            options = _keyword(node, "options")
-            disabled = isinstance(options, ast.Dict) and any(
-                isinstance(key, ast.Constant)
-                and key.value == "verify_aud"
-                and isinstance(value, ast.Constant)
-                and value.value is False
-                for key, value in zip(options.keys, options.values, strict=True)
-            )
-            audience = _keyword(node, "audience")
-            has_audience = audience is not None and not (isinstance(audience, ast.Constant) and audience.value is None)
-            unknown_keywords = any(keyword.arg is None for keyword in node.keywords)
-            if disabled or (not has_audience and not unknown_keywords):
-                message = (
-                    "jwt.decode disables audience validation with verify_aud=False."
-                    if disabled
-                    else "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim."
-                )
+            message = _audience_message(node)
+            if message is not None:
+                at = f"{where}:{node.lineno}"
                 found.append(Violation(at, f"{at}: {message}"))
     return found
 
