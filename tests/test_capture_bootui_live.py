@@ -14,6 +14,7 @@ from scripts.capture_bootui_live import (
     POST_ALLOW_LIST,
     REPO_ROOT,
     Step,
+    build_default_opener,
     build_plan,
     run,
 )
@@ -214,3 +215,20 @@ def test_plan_covers_every_starter_get() -> None:
             or (path == "/rules/{ruleId}/violations" and any("/rules/{ruleId}/violations" in s.path for s in plan))
         )
         assert covered, f"starter GET {path} is neither in plan nor in EXCLUDED_ROUTES"
+
+
+def test_default_opener_captures_through_urlopen_with_a_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple[str, object, str | None]] = []
+
+    def fake_urlopen(req: Any, timeout: object = None) -> StubResponse:
+        seen.append((req.full_url, timeout, req.get_header("Authorization")))
+        return StubResponse({"status": "UP"})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    token = tmp_path / "token"
+    token.write_text("t0k3n", encoding="utf-8")
+    plan = [Step("pre-scan GET", "GET", "/health", "health", "health")]
+    result = run(plan, build_default_opener(token), tmp_path / "raw")
+    assert result.get("GET /health") is None, f"the default opener must capture: {result.get('GET /health')}"
+    assert (tmp_path / "raw" / "health").is_dir()
+    assert seen == [("http://127.0.0.1:8080/bootui/api/health", 30, "Bearer t0k3n")]
