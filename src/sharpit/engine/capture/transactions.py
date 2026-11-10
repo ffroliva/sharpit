@@ -325,6 +325,8 @@ def _targets(conn: Any) -> list[SharpitContext]:
         fallback = dispatch._targets(engine)  # pyright: ignore[reportPrivateUsage]  # SQL Trace fallback for unregistered engines
     except Exception as exc:  # noqa: BLE001 - transaction listeners must not affect the host
         dispatch.routing_failed(exc)
+    # a context whose transactions hook is suspended (low-footprint) is out of every fallback
+    fallback = [ctx for ctx in fallback if SOURCE not in getattr(ctx.capture, "suspended_sources", ())]
     return fallback or (contexts if len(contexts) == 1 else [])
 
 
@@ -503,6 +505,7 @@ CONNECTION_CALLBACKS: dict[str, Callable[..., None]] = {
 _attach_lock = threading.Lock()
 _attach_count = 0
 _attach_removers: list[Callable[[], None]] = []
+SOURCE = "transactions"  # the capture registry entry's name, and its mark in ``CaptureState.suspended_sources``
 _contexts_lock = threading.Lock()
 _contexts: weakref.WeakValueDictionary[str, SharpitContext] = weakref.WeakValueDictionary()
 _context_attachments: dict[str, int] = {}  # live attachments per context id: one remove() must not unroute the rest

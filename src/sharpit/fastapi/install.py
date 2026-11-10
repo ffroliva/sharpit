@@ -29,7 +29,7 @@ from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqltext import load_key
 from sharpit.fastapi.adapter import SharpitHandle
-from sharpit.fastapi.capture import CaptureWiring
+from sharpit.fastapi.capture import HOOK_TRANSACTIONS, CaptureWiring
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
@@ -42,6 +42,7 @@ _Lifespan = Callable[[Any], AbstractAsyncContextManager[Any]]
 
 def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings) -> CaptureWiring:
     capture = ctx.capture
+    wiring = capture.wiring = CaptureWiring()
     capture.stream_slots = StreamSlots()
     if settings.panels["log-tail"].enabled:
         capture.log_tail = LogTailBuffer(settings.log_tail_max_lines, settings.log_tail_max_bytes)
@@ -79,13 +80,12 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             recording=settings.transactions_recording,
             application=lambda: application_family(ctx),
         )
-        capture.attachers.append(lambda: attach_transactions(ctx))
+        wiring.add_lane(ctx, HOOK_TRANSACTIONS, lambda: attach_transactions(ctx))
     if panels["activity"].enabled:
         capture.activity_changes = ChangeStream()
         for source in (capture.exchanges, capture.exceptions, capture.sql_trace):
             if source is not None:
                 source.changes.forward_to(capture.activity_changes)
-    wiring = capture.wiring = CaptureWiring()
     wiring.attach_at_install(app, ctx)
     return wiring
 

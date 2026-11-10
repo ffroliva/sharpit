@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -22,6 +22,43 @@ class CaptureHooks(Protocol):
     def hook_failed(self, hook: str, exc: BaseException) -> None: ...
 
 
+class Suspendable(Protocol):
+    name: str
+
+    def suspend(self) -> None: ...
+
+    def resume(self) -> None: ...
+
+
+class HookRegistry:
+    """Engine-owned, insertion-ordered set of installed capture hooks."""
+
+    def __init__(self) -> None:
+        self._hooks: dict[str, Suspendable] = {}
+        self.failures: list[str] = []  # the last suspend/resume's per-hook failures, as ``name: Type: message``
+
+    def register(self, hook: Suspendable) -> None:
+        self._hooks[hook.name] = hook
+
+    def hooks(self) -> tuple[Suspendable, ...]:
+        return tuple(self._hooks.values())
+
+    def suspend(self) -> None:
+        self._each(reversed(self.hooks()), "suspend")
+
+    def resume(self) -> None:
+        self._each(self.hooks(), "resume")
+
+    def _each(self, hooks: Iterable[Suspendable], action: str) -> None:
+        """Run ``action`` on every hook; one hook's failure is recorded and the rest carry on (as BootUI)."""
+        self.failures = []
+        for hook in hooks:
+            try:
+                getattr(hook, action)()
+            except Exception as exc:  # noqa: BLE001 - a failing hook never strands the others
+                self.failures.append(f"{hook.name}: {type(exc).__name__}: {exc}")
+
+
 @dataclass(eq=False)
 class CaptureState:
     exchanges: HttpExchangeBuffer | None = None
@@ -33,6 +70,8 @@ class CaptureState:
     raw_sqlite_seen: bool = False
     loop: asyncio.AbstractEventLoop | None = None
     wiring: CaptureHooks | None = None
+    hooks: HookRegistry = field(default_factory=HookRegistry)
+    suspended_sources: set[str] = field(default_factory=set[str])  # SQL sources a suspended hook stops routing here
     activity_changes: ChangeStream | None = None
     # 0.4.0 slots (lane F), inert until their lanes fill them
     security_logs: Any | None = None  # B-security-logs' bounded audit buffer

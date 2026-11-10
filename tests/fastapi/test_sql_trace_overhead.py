@@ -154,3 +154,22 @@ def test_recorder_cache_miss_on_a_large_statement_within_budget(handle: SharpitH
     assert recorder is not None
     assert recorder.report([])["totalCaptured"] == LARGE_ROUNDS * LARGE_PER_ROUND
     check_budget("SQL listener per distinct 138 KB statement", result, LARGE_MISS_BUDGET_NS, "ms", 1_000_000)
+
+
+def test_suspended_statement_overhead_budget(handle: SharpitHandle):
+    """Plan scenario 2: with the sqla-listeners hook suspended (low-footprint), a statement stays in budget."""
+    engine = handle.context.engines[0]
+    stock = sa.create_engine("sqlite://")  # never held by any context
+    statement = sa.text("select * from (select 1 as n) where n = :n")
+    hook = next(h for h in handle.context.capture.hooks.hooks() if h.name == "sqla-listeners")
+    recorder = handle.context.capture.sql_trace
+    assert recorder is not None
+    with engine.connect() as conn, stock.connect() as stock_conn:  # type: ignore[attr-defined]
+        _round(conn, statement)  # warm the statement cache and the normaliser cache
+        _round(stock_conn, statement)
+        captured = recorder.report([])["totalCaptured"]
+        hook.suspend()
+        result = paired(lambda: _round(stock_conn, statement), lambda: _round(conn, statement), ROUNDS)
+    stock.dispose()
+    assert recorder.report([])["totalCaptured"] == captured, "the suspended path recorded"
+    check_budget("SQL listener per statement, suspended", result, BUDGET_NS, "µs", 1000)

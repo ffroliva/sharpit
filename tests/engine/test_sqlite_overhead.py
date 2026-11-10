@@ -55,3 +55,20 @@ def test_sqlite_statement_overhead_budget(handle: SharpitHandle):
     check_budget("sqlite3 source per statement", result, BUDGET_NS, "µs", 1000)
     traced.close()
     stock.close()
+
+
+def test_suspended_sqlite_statement_overhead_budget(handle: SharpitHandle):
+    """Plan scenario 2: a connection patched before the sqlite-listeners hook was suspended stays in budget."""
+    traced = sqlite3.connect(":memory:")  # patched now: suspension stops its routing, not its wrapper
+    stock = REAL_CONNECT(":memory:")
+    next(h for h in handle.context.capture.hooks.hooks() if h.name == "sqlite-listeners").suspend()
+    _round(traced)
+    _round(stock)
+
+    result = paired(lambda: _round(stock), lambda: _round(traced), ROUNDS)
+    recorder = handle.context.capture.sql_trace
+    assert recorder is not None
+    assert recorder.report([])["totalCaptured"] == 0, "the suspended path recorded"
+    check_budget("sqlite3 source per statement, suspended", result, BUDGET_NS, "µs", 1000)
+    traced.close()
+    stock.close()

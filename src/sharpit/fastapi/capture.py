@@ -29,6 +29,7 @@ from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_r
 from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
+from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
 from sharpit.engine.context import application_family
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sources import dispatch, sqlite
@@ -66,6 +67,27 @@ SEVERAL_WORKERS = (
 PROBE_HEADER = b"x-sharpit-probe"
 PROBE_EXTENSION = "sharpit.probe"
 MAX_MOUNT_DEPTH = 32  # a sub-app mounted inside itself must not loop the walk
+# low-footprint registry entries: each name is spelled only here
+HOOK_CAPTURE_MIDDLEWARE = "capture-middleware"
+HOOK_SECURITY_LOG = "security-log"
+HOOK_EXCEPTION_HANDLERS = "exception-handlers"
+HOOK_LOG_HANDLER = "log-handler"
+HOOK_SQLA_LISTENERS = "sqla-listeners"
+HOOK_SQLITE_LISTENERS = "sqlite-listeners"
+HOOK_TRACES = "traces"
+HOOK_TRANSACTIONS = TRANSACTIONS_SOURCE
+HOOK_NAMES = frozenset(
+    {
+        HOOK_CAPTURE_MIDDLEWARE,
+        HOOK_SECURITY_LOG,
+        HOOK_EXCEPTION_HANDLERS,
+        HOOK_LOG_HANDLER,
+        HOOK_SQLA_LISTENERS,
+        HOOK_SQLITE_LISTENERS,
+        HOOK_TRACES,
+        HOOK_TRANSACTIONS,
+    }
+)
 
 
 def several_workers(environ: Mapping[str, str], argv: Sequence[str]) -> bool:
@@ -145,7 +167,7 @@ def _wrapped_key(key: object) -> bool:
 
 def _wrap_handler(original: Callable[..., Any], wiring: CaptureWiring, store: ExceptionStore) -> Callable[..., Any]:
     def record(conn: Any, exc: Exception) -> None:
-        if wiring.detached:  # the built stack keeps this wrapper after uninstall: it only passes through
+        if wiring.detached or HOOK_EXCEPTION_HANDLERS in wiring.suspended_hooks:  # the built stack keeps this wrapper
             return
         try:
             if (sink := dispatch.session_sink()) is not None:
@@ -212,9 +234,31 @@ def sqlite_holder(ctx: SharpitContext) -> str:
     return f"console:{ctx.context_id}"
 
 
+def _sqlite_traced(ctx: SharpitContext) -> bool:
+    return ctx.capture.sql_trace is not None and ctx.settings.sql_trace_sqlite3_enabled
+
+
+def _nothing() -> None:
+    return None
+
+
 def wiring_of(ctx: SharpitContext) -> CaptureWiring | None:
     """The context's wiring as this adapter's own type (the engine only knows the ``CaptureHooks`` port)."""
     return cast("CaptureWiring | None", ctx.capture.wiring)
+
+
+class _WiringHook:
+    """One installed capture hook as a ``HookRegistry`` entry: suspends and resumes only itself."""
+
+    def __init__(self, name: str, wiring: CaptureWiring) -> None:
+        self.name = name
+        self.wiring = wiring
+
+    def suspend(self) -> None:
+        self.wiring.suspend_hook(self.name)
+
+    def resume(self) -> None:
+        self.wiring.resume_hook(self.name)
 
 
 class CaptureWiring:
@@ -236,11 +280,40 @@ class CaptureWiring:
         self.on_security_event: Callable[[Scope, int], None] | None = None  # B-security-logs: 401/403 exchanges
         self.span_processor: object | None = None  # A-traces: one lazily re-armed SDK span processor
         self._armed: set[int] = set()  # id() of each CaptureState.attachers entry whose remover is in teardowns
+        self.suspended_hooks: set[str] = set()  # registry entries suspended by name (low-footprint)
+        self._context: SharpitContext | None = None
+        self._lane_of: dict[int, str] = {}  # id() of a lane attacher -> its registry name
+        self._removers: dict[int, Callable[[], None]] = {}  # id() of an armed lane attacher -> its remover
+        self._actions: dict[str, tuple[Callable[[], None], Callable[[], None]]] = {}  # name -> (suspend, resume)
+
+    def _register(self, ctx: SharpitContext, name: str) -> None:
+        ctx.capture.hooks.register(_WiringHook(name, self))
+
+    def add_lane(self, ctx: SharpitContext, name: str, attacher: Callable[[], Callable[[], None] | None]) -> None:
+        """A lane's attacher (``CaptureState.attachers``) that is its own registry entry ``name``."""
+        ctx.capture.attachers.append(attacher)
+        self._lane_of[id(attacher)] = name
+        self._actions[name] = (lambda: self._suspend_lane(ctx, name), lambda: self._run_attachers(ctx, name))
+        self._register(ctx, name)
+
+    def _register_installed(self, ctx: SharpitContext) -> None:
+        """One registry entry per hook installed at install time (the middleware and lanes register themselves)."""
+        installed = {
+            HOOK_SECURITY_LOG: self.on_security_event is not None,
+            HOOK_LOG_HANDLER: self.log_handler is not None,
+            HOOK_EXCEPTION_HANDLERS: ctx.capture.exceptions is not None,
+            HOOK_SQLA_LISTENERS: True,
+            HOOK_SQLITE_LISTENERS: _sqlite_traced(ctx),
+        }
+        for name, present in installed.items():
+            if present:
+                self._register(ctx, name)
 
     def attach_at_install(self, app: Any, ctx: SharpitContext) -> None:
         if self.app is not None:
             return
         self.app = app
+        self._context = ctx
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
         if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
@@ -250,6 +323,8 @@ class CaptureWiring:
             if store is not None:
                 self.log_handler.on_exc_info = lambda record: _record_logged(store, record)
             self._attach_non_propagating()  # root waits for the end of startup, so the app's basicConfig() works
+        self._register_installed(ctx)
+        self._add_actions(ctx)
         self._wrap_handlers(ctx)  # step 2 (spec §6.1), before the middleware: a too-late install still wraps
         self._attach_sql(ctx)  # steps 4a/4b: listeners trace outside requests too, so a too-late install still traces
         self._run_attachers(ctx)
@@ -265,14 +340,18 @@ class CaptureWiring:
                 store.unavailable_reason = CAPTURE_TOO_LATE_REASON
             return
         self.middleware_added = True
+        self._register(ctx, HOOK_CAPTURE_MIDDLEWARE)
 
     def _wrap_handlers(self, ctx: SharpitContext) -> None:
         store = ctx.capture.exceptions
         handlers = getattr(self.app, "exception_handlers", None)
+        if HOOK_EXCEPTION_HANDLERS in self.suspended_hooks:
+            return
         if store is not None and isinstance(handlers, dict) and not isinstance(handlers, WrappingHandlers):
             self.app.exception_handlers = WrappingHandlers(cast("dict[Any, Any]", handlers), self, store)
 
     def on_startup(self, ctx: SharpitContext) -> None:
+        self._context = ctx
         self.detached = False
         self._wrap_handlers(ctx)  # again after a shutdown restored the plain dict
         self._first_run(ctx)
@@ -290,10 +369,7 @@ class CaptureWiring:
         sqla.remove(ctx)
         sqlite.detach(sqlite_holder(ctx))
         unwrap_exception_handlers(self.app)
-        if self.log_handler is not None:
-            for attached in self.log_attached:
-                attached.removeHandler(self.log_handler)
-        self.log_attached.clear()
+        self._detach_logging()
         teardowns = ctx.capture.teardowns
         while teardowns:  # lanes' listener/processor removers (R17): newest first, once each, a failure stops none
             try:
@@ -301,12 +377,78 @@ class CaptureWiring:
             except Exception as exc:  # noqa: BLE001
                 self.hook_failed("teardown", exc)
         self._armed.clear()  # the next startup re-runs every attacher
+        self._removers.clear()
         self.detached = True
 
-    def _run_attachers(self, ctx: SharpitContext) -> None:
-        """Run each lane attacher not yet armed; a remover arms it, ``None`` leaves it for the next chance."""
+    def suspend_hook(self, name: str) -> None:
+        """Detach the one hook ``name`` (or switch it to its pass-through); idempotent, kept across restarts."""
+        if name in self.suspended_hooks or self._context is None:
+            return
+        self.suspended_hooks.add(name)
+        self._actions.get(name, (_nothing, _nothing))[0]()
+
+    def resume_hook(self, name: str) -> None:
+        """Re-attach the one hook ``name``; while shut down or uninstalled, the next startup attaches it."""
+        if name not in self.suspended_hooks or self._context is None:
+            return
+        self.suspended_hooks.discard(name)
+        self._context.capture.suspended_sources.discard(name)  # a lane's mark (``_suspend_lane``), even while detached
+        if not self.detached:
+            self._actions.get(name, (_nothing, _nothing))[1]()
+
+    def _add_actions(self, ctx: SharpitContext) -> None:
+        """``(suspend, resume)`` for each install-time registry entry, built once (``add_lane`` adds each lane's). The
+        middleware and the security hook read ``suspended_hooks`` at their call sites; a lane (de)arms only itself."""
+        self._actions |= {
+            HOOK_CAPTURE_MIDDLEWARE: (_nothing, _nothing),
+            HOOK_SECURITY_LOG: (_nothing, _nothing),
+            HOOK_EXCEPTION_HANDLERS: (lambda: unwrap_exception_handlers(self.app), lambda: self._wrap_handlers(ctx)),
+            HOOK_LOG_HANDLER: (self._detach_logging, self._attach_logging),
+            HOOK_SQLA_LISTENERS: (lambda: self._suspend_sqla(ctx), lambda: self._attach_sqla(ctx)),
+            HOOK_SQLITE_LISTENERS: (lambda: self._suspend_sqlite(ctx), lambda: self._attach_sqlite(ctx)),
+        }
+
+    def _suspend_sqla(self, ctx: SharpitContext) -> None:
+        ctx.capture.suspended_sources.add("sqlalchemy")
+        sqla.remove(ctx)
+        if self.detached:  # shut down: nothing routes here until the next startup
+            return
+        if _sqlite_traced(ctx) and HOOK_SQLITE_LISTENERS not in self.suspended_hooks:
+            dispatch.add_context(ctx)  # raw sqlite3 still routes here
+
+    def _suspend_sqlite(self, ctx: SharpitContext) -> None:
+        ctx.capture.suspended_sources.add("sqlite3")  # connections opened before stay patched: stop routing them
+        sqlite.detach(sqlite_holder(ctx))
+        if HOOK_SQLA_LISTENERS in self.suspended_hooks:
+            dispatch.remove_context(ctx)
+
+    def _suspend_lane(self, ctx: SharpitContext, name: str) -> None:
+        ctx.capture.suspended_sources.add(name)  # shared listeners another context keeps must not route here either
+        self._disarm_lane(ctx, name)
+
+    def _disarm_lane(self, ctx: SharpitContext, name: str) -> None:
         for attacher in ctx.capture.attachers:
-            if id(attacher) in self._armed:
+            if self._lane_of.get(id(attacher)) == name:
+                self._disarm(ctx, attacher)
+
+    def _disarm(self, ctx: SharpitContext, attacher: object) -> None:
+        self._armed.discard(id(attacher))
+        remover = self._removers.pop(id(attacher), None)
+        if remover is None:
+            return
+        with contextlib.suppress(ValueError):
+            ctx.capture.teardowns.remove(remover)
+        try:
+            remover()
+        except Exception as exc:  # noqa: BLE001
+            self.hook_failed("teardown", exc)
+
+    def _run_attachers(self, ctx: SharpitContext, lane: str | None = None) -> None:
+        """Run each lane attacher (or only ``lane``'s) not yet armed nor suspended; a remover arms it, ``None`` leaves
+        it for the next chance."""
+        for attacher in ctx.capture.attachers:
+            name = self._lane_of.get(id(attacher))
+            if id(attacher) in self._armed or name in self.suspended_hooks or (lane is not None and name != lane):
                 continue
             try:
                 remover = attacher()
@@ -315,21 +457,42 @@ class CaptureWiring:
                 continue
             if remover is not None:
                 self._armed.add(id(attacher))
+                self._removers[id(attacher)] = remover
                 ctx.capture.teardowns.append(remover)
 
     def _attach_sql(self, ctx: SharpitContext) -> None:
         """Step 4a (engine discovery) when a database panel is enabled, 4b (statements) when tracing is on."""
+        self._attach_sqla(ctx)
+        self._attach_sqlite(ctx)
+
+    def _attach_sqla(self, ctx: SharpitContext) -> None:
+        if HOOK_SQLA_LISTENERS in self.suspended_hooks:
+            return
+        ctx.capture.suspended_sources.discard("sqlalchemy")
         try:
             discovery = any(_panel_enabled(ctx, p) for p in sqla.DISCOVERY_PANELS)
             sqla.add(ctx, statements=ctx.capture.sql_trace is not None, discovery=discovery)
-            if ctx.capture.sql_trace is not None and ctx.settings.sql_trace_sqlite3_enabled:
-                dispatch.add_context(ctx)  # raw sqlite3 needs no SQLAlchemy: route its statements here too
-                sqlite.attach(sqlite_holder(ctx))
+        except Exception as exc:  # noqa: BLE001 - the host's startup never fails on sharpit
+            self.hook_failed("sql listeners", exc)
+
+    def _attach_sqlite(self, ctx: SharpitContext) -> None:
+        if not _sqlite_traced(ctx) or HOOK_SQLITE_LISTENERS in self.suspended_hooks:
+            return
+        ctx.capture.suspended_sources.discard("sqlite3")
+        try:
+            dispatch.add_context(ctx)  # raw sqlite3 needs no SQLAlchemy: route its statements here too
+            sqlite.attach(sqlite_holder(ctx))
         except Exception as exc:  # noqa: BLE001 - the host's startup never fails on sharpit
             self.hook_failed("sql listeners", exc)
 
     def log_handler_on_root(self) -> bool:
         return self.log_handler is not None and self.log_handler in logging.root.handlers
+
+    def _detach_logging(self) -> None:
+        if self.log_handler is not None:
+            for attached in self.log_attached:
+                attached.removeHandler(self.log_handler)
+        self.log_attached.clear()
 
     def _attach(self, target: logging.Logger) -> None:
         assert self.log_handler is not None  # noqa: S101 - narrows the type; set before any attach
@@ -346,7 +509,7 @@ class CaptureWiring:
                 self._attach(candidate)
 
     def _attach_logging(self) -> None:
-        if self.log_handler is not None:
+        if self.log_handler is not None and HOOK_LOG_HANDLER not in self.suspended_hooks:
             self._attach(logging.root)
             self._attach_non_propagating()  # again: uvicorn's dictConfig after install() dropped the handler
 
@@ -382,7 +545,12 @@ class CaptureMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         wiring = wiring_of(self.ctx)
-        if scope["type"] != "http" or wiring is None or wiring.detached:
+        if (
+            scope["type"] != "http"
+            or wiring is None
+            or wiring.detached
+            or HOOK_CAPTURE_MIDDLEWARE in wiring.suspended_hooks
+        ):
             await self.app(scope, receive, send)
             return
         buffer = self.ctx.capture.exchanges
@@ -460,9 +628,10 @@ class CaptureMiddleware:
             raise
         finally:
             sent = cast("int | None", status)  # set by capture_send; pyright cannot see the closure
-            if sent in (401, 403) and wiring.on_security_event is not None:  # before reset: REQUEST names it (R12)
+            security = None if HOOK_SECURITY_LOG in wiring.suspended_hooks else wiring.on_security_event
+            if sent in (401, 403) and security is not None:  # before reset: REQUEST names it (R12)
                 try:
-                    wiring.on_security_event(scope, sent)
+                    security(scope, sent)
                 except Exception as exc:  # noqa: BLE001
                     wiring.hook_failed("security event", exc)
             REQUEST.reset(token)
