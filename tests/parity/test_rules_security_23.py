@@ -518,7 +518,7 @@ def test_sec_oauth_002_jwt_decode_requires_audience(tmp_path: Path):
 
 @pytest.mark.bootui("rule:SEC-OAUTH-006")
 def test_sec_oauth_006_insecure_oauth2_client_endpoint():
-    # ported: SecurityRulesTests.plainHttpClientProviderEndpointsAreReportedOnlyWhenLinkedToARegistration
+    # BootUI's linked-registration case has no FastAPI analogue; this covers the development-profile case.
     # ported: SecurityRulesTests.plainHttpClientProviderEndpointsAreNotFlaggedInDevelopment
     scheme = OAuth2AuthorizationCodeBearer(
         authorizationUrl="http://remote.idp.example/auth",
@@ -569,6 +569,9 @@ def test_sec_session_002_cookie_secure_flag():
     evaluation2 = _evaluate(app2, view=View(production=True))
     findings2 = _findings(evaluation2, "SEC-SESSION-002")
     assert findings2 == []
+
+    # ported: SecurityRulesTests.unsetSessionCookieSecurePassesForStatelessChainInProduction
+    assert _findings(_evaluate(FastAPI(), view=View(production=True)), "SEC-SESSION-002") == []
 
 
 @pytest.mark.bootui("rule:SEC-SESSION-004")

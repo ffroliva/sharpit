@@ -89,3 +89,39 @@ def test_jwt_decode_with_audience_verification_enabled_does_not_fire(run_rule: R
     )
     found = run_rule("SEC-OAUTH-002", FastAPI(), source=package)
     assert found == []
+
+
+def test_jwt_decode_with_explicit_none_audience_fires(run_rule: RuleRun, tmp_path: Path):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text("import jwt\njwt.decode(token, key, audience=None)\n", encoding="utf-8")
+    assert _targets(run_rule("SEC-OAUTH-002", FastAPI(), source=package)) == ["shop/auth.py:2"]
+
+
+def test_jwt_decode_with_kwargs_skips_unknown_audience(run_rule: RuleRun, tmp_path: Path):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text("import jwt\njwt.decode(token, key, **kwargs)\n", encoding="utf-8")
+    assert run_rule("SEC-OAUTH-002", FastAPI(), source=package) == []
+
+
+def test_jwt_decode_module_alias_fires(run_rule: RuleRun, tmp_path: Path):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text("import jwt as pyjwt\npyjwt.decode(token, key)\n", encoding="utf-8")
+    assert _targets(run_rule("SEC-OAUTH-002", FastAPI(), source=package)) == ["shop/auth.py:2"]
+
+
+def test_jwt_decode_imported_name_fires(run_rule: RuleRun, tmp_path: Path):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text("from jwt import decode\ndecode(token, key)\n", encoding="utf-8")
+    assert _targets(run_rule("SEC-OAUTH-002", FastAPI(), source=package)) == ["shop/auth.py:2"]
+
+
+def test_jwt_decode_import_alias_fires(run_rule: RuleRun, tmp_path: Path):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text("from jwt import decode as d\nd(token, key)\n", encoding="utf-8")
+    assert _targets(run_rule("SEC-OAUTH-002", FastAPI(), source=package)) == ["shop/auth.py:2"]
+
+
+def test_unrelated_decode_does_not_fire(run_rule: RuleRun, tmp_path: Path):
+    package = _package(tmp_path)
+    (package / "auth.py").write_text("from other import decode\ndecode(token, key)\n", encoding="utf-8")
+    assert run_rule("SEC-OAUTH-002", FastAPI(), source=package) == []

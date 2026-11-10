@@ -31,7 +31,7 @@ Titles of P rows are BootUI's, verbatim.
 | SEC-AUTH-008 | hideUserNotFoundExceptions should stay enabled | Authentication | MEDIUM | D | [JVM] a `DaoAuthenticationProvider` flag |
 | SEC-AUTH-009 | Do not run production on Spring Boot's auto-generated default user | Authentication | HIGH | D | [JVM] Spring Boot's generated user |
 | SEC-AUTH-010 | Form login should run only over HTTPS | Authentication | HIGH | P | production-like profile; a route requires `OAuth2PasswordBearer` (password form login) and its stack has no `HTTPSRedirectMiddleware` |
-| SEC-AUTHZ-001 | Every filter chain should enforce authorization | Authorization | INFO | P | partial parity: same trigger as BootUI but severity differs (BootUI HIGH); an unsafe-method route (POST, PUT, PATCH, DELETE) with no security dependency in an app whose other routes are secured |
+| SEC-AUTHZ-001 | Every filter chain should enforce authorization | Authorization | INFO | P | deviation, pending owner: same trigger as BootUI but severity differs (BootUI HIGH); an unsafe-method route (POST, PUT, PATCH, DELETE) with no security dependency in an app whose other routes are secured |
 | SEC-AUTHZ-002 | Avoid blanket permitAll authorization | Authorization | HIGH | P | the app has routes and none is secured: no required scheme, no custom dependency, no `AuthenticationMiddleware` |
 | SEC-AUTHZ-003 | Application security should not be effectively disabled | Authorization | HIGH | D | merged into SEC-AUTHZ-002 because one Python signal represents both rules |
 | SEC-AUTHZ-004 | Catch-all filter chains should be ordered last | Authorization | INFO | D | [JVM] filter-chain ordering |
