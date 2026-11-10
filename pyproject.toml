@@ -66,6 +66,10 @@ test = [
 
 [dependency-groups]
 dev = ["ruff>=0.6", "pyright>=1.1.380", "pydantic-settings>=2.4"]
+full-extras = [
+    "asyncpg>=0.30",
+    "aiomysql>=0.2",
+]
 
 [tool.hatch.version]
 path = "src/sharpit/__init__.py"
@@ -125,6 +129,7 @@ pythonVersion = "3.12"
 testpaths = ["tests"]
 pythonpath = ["."]  # examples/ (the sample app) imports as a package
 timeout = 60
+junit_logging = "no"
 markers = [
     "needs_sqlalchemy: needs SQLAlchemy, aiosqlite or greenlet installed (the no-sqlalchemy CI job deselects it)",
     "live: runs against a real database server (tests/live, collected only with --live)",
