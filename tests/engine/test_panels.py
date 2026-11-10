@@ -1,3 +1,4 @@
+from conftest import SideEffectGuard
 from sharpit.engine.panels import PANELS, panel_for_api_path, panels_report
 
 RO = "sharpit is read-only via SHARPIT_READ_ONLY=true"
@@ -88,3 +89,29 @@ def test_dismissed_rules_prefix_unchanged():
 def test_overview_panel_title_is_scorecard():
     titles = {panel["id"]: panel["title"] for panel in panels_report(True, {}, {})["panels"]}
     assert titles["overview"] == "Scorecard"
+
+
+def test_w5b_wave1_panel_rows_match_bootui(no_side_effects: SideEffectGuard):
+    from fastapi.testclient import TestClient
+
+    from fastapi import FastAPI
+    from sharpit import install
+
+    expected = {
+        "metrics": ("Metrics", False, "/metrics"),
+        "startup": ("Startup Timeline", False, "/startup"),
+        "profile-diff": ("Profile Diff", False, "/profile-diff"),
+        "scheduled": ("Scheduled Tasks", False, "/scheduled"),
+    }
+    assert {
+        panel.id: (panel.title, panel.action_capable, panel.api_prefix) for panel in PANELS if panel.id in expected
+    } == expected
+
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
+    no_side_effects.unblock_network()
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        no_side_effects.block_network()
+        listed = {panel["id"] for panel in client.get("/sharpit/api/panels").json()["panels"]}
+    assert listed.isdisjoint(expected)
+    assert no_side_effects.violations == []
