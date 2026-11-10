@@ -247,6 +247,14 @@ def test_bootui_23_tools_mcp_annotations_and_schemas() -> None:
     assert thread_snap_tool.get("defaultLimit") == 6
 
 
+def test_bootui_23_tool_default_limits_match_tag_constants() -> None:
+    tools = _load_json("tools.json")["tools"]
+    limits = {tool["name"]: tool["defaultLimit"] for tool in tools if "defaultLimit" in tool}
+    assert limits["get_metrics"] == 25
+    assert limits["get_log_tail"] == 50
+    assert limits["get_startup_timeline"] == 25
+
+
 def test_bootui_23_properties_hand_filled_citations() -> None:
     """Verifies hand-filled properties cite BootUiProperties.java line numbers."""
     props_data = _load_json("properties.json")

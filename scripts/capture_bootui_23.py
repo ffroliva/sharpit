@@ -117,30 +117,24 @@ tools_file = f"{bootui_root}/bootui-cli/src/main/resources/bootui-tools.json"
 with open(tools_file, encoding="utf-8") as f:
     raw_tools = json.load(f).get("tools", [])
 
-DEFAULT_LIMITS = {
-    "get_thread_snapshots": 6,
-    "get_thread_analysis": 25,
-    "get_thread_observation": 25,
-    "cancel_thread_observation": 25,
-    "get_runtime_insights": 25,
-    "get_code_inventory": 200,
-    "get_code_paths": 50,
-    "get_side_effects": 25,
-    "get_sql_traces": 25,
-    "get_rest_client_traces": 25,
-    "get_startup_timeline": 200,
-    "get_log_tail": 100,
-    "get_copilot_sessions": 25,
-    "get_claude_code_sessions": 25,
-    "get_vulnerabilities_report": 10,
-    "get_live_activity": 25,
-    "get_http_exchanges": 50,
-    "get_beans": 50,
-    "get_metrics": 50,
-    "get_conditions": 50,
-    "get_config": 50,
-    "get_threads": 50,
-}
+tool_catalog = Path(bootui_root) / "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/mcp/McpToolCatalog.java"
+tool_catalog_code = tool_catalog.read_text(encoding="utf-8")
+limits_block = re.search(r"DEFAULT_LIMITS\s*=\s*Map\.ofEntries\((.*?)\);", tool_catalog_code, re.DOTALL)
+assert limits_block, "Could not find BootUI McpToolCatalog.DEFAULT_LIMITS"
+source_constants = {}
+for source_file in glob.glob(f"{bootui_root}/**/src/main/java/**/*.java", recursive=True):
+    source = Path(source_file).read_text(encoding="utf-8", errors="ignore")
+    class_match = re.search(r"\b(?:class|record|enum)\s+(\w+)", source)
+    if class_match:
+        for name, value in re.findall(r"static\s+final\s+int\s+(\w+)\s*=\s*(\d+)\s*;", source):
+            source_constants.setdefault(class_match.group(1), {})[name] = int(value)
+DEFAULT_LIMITS = {}
+for name, expression in re.findall(r'Map\.entry\("([^"]+)",\s*([\w.]+)\)', limits_block.group(1)):
+    if expression.isdecimal():
+        DEFAULT_LIMITS[name] = int(expression)
+    else:
+        owner, constant = expression.rsplit(".", 1)
+        DEFAULT_LIMITS[name] = source_constants[owner][constant]
 
 OPEN_WORLD = {"vulnerabilities_scan"}
 

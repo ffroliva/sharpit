@@ -293,7 +293,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 50,
+      "defaultLimit": 25,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -304,8 +304,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 50,
-            "description": "Optional maximum number of items to return; default 50, capped by the bootui.mcp.max-results server limit."
+            "default": 25,
+            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -358,7 +358,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 200,
+      "defaultLimit": 25,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -369,8 +369,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 200,
-            "description": "Optional maximum number of items to return; default 200, capped by the bootui.mcp.max-results server limit."
+            "default": 25,
+            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -397,7 +397,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 50,
+      "defaultLimit": 10,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -408,8 +408,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 50,
-            "description": "Optional maximum number of items to return; default 50, capped by the bootui.mcp.max-results server limit."
+            "default": 10,
+            "description": "Optional maximum number of items to return; default 10, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -434,7 +434,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 50,
+      "defaultLimit": 25,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -445,8 +445,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 50,
-            "description": "Optional maximum number of items to return; default 50, capped by the bootui.mcp.max-results server limit."
+            "default": 25,
+            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -472,7 +472,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 50,
+      "defaultLimit": 25,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -483,8 +483,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 50,
-            "description": "Optional maximum number of items to return; default 50, capped by the bootui.mcp.max-results server limit."
+            "default": 25,
+            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -1271,15 +1271,15 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 50,
+      "defaultLimit": 25,
       "inputSchema": {
         "type": "object",
         "properties": {
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 50,
-            "description": "Optional maximum number of items to return; default 50, capped by the bootui.mcp.max-results server limit."
+            "default": 25,
+            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -1430,7 +1430,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 25,
+      "defaultLimit": 8,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1441,8 +1441,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 25,
-            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
+            "default": 8,
+            "description": "Optional maximum number of items to return; default 8, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -1618,7 +1618,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 100,
+      "defaultLimit": 50,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1629,8 +1629,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 100,
-            "description": "Optional maximum number of items to return; default 100, capped by the bootui.mcp.max-results server limit."
+            "default": 50,
+            "description": "Optional maximum number of items to return; default 50, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -1981,7 +1981,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 50,
+      "defaultLimit": 25,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1992,8 +1992,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 50,
-            "description": "Optional maximum number of items to return; default 50, capped by the bootui.mcp.max-results server limit."
+            "default": 25,
+            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -2464,7 +2464,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 25,
+      "defaultLimit": 20,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2475,8 +2475,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 25,
-            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
+            "default": 20,
+            "description": "Optional maximum number of items to return; default 20, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -2693,7 +2693,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 25,
+      "defaultLimit": 10,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2704,8 +2704,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 25,
-            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
+            "default": 10,
+            "description": "Optional maximum number of items to return; default 10, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -2732,7 +2732,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 25,
+      "defaultLimit": 10,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2743,8 +2743,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 25,
-            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
+            "default": 10,
+            "description": "Optional maximum number of items to return; default 10, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -2771,7 +2771,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 25,
+      "defaultLimit": 20,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2782,8 +2782,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 25,
-            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
+            "default": 20,
+            "description": "Optional maximum number of items to return; default 20, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -2994,7 +2994,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 25,
+      "defaultLimit": 20,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3005,8 +3005,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 25,
-            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
+            "default": 20,
+            "description": "Optional maximum number of items to return; default 20, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -3032,7 +3032,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 200,
+      "defaultLimit": 25,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3043,8 +3043,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 200,
-            "description": "Optional maximum number of items to return; default 200, capped by the bootui.mcp.max-results server limit."
+            "default": 25,
+            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
@@ -3319,7 +3319,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "defaultLimit": 50,
+      "defaultLimit": 25,
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3330,8 +3330,8 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "default": 50,
-            "description": "Optional maximum number of items to return; default 50, capped by the bootui.mcp.max-results server limit."
+            "default": 25,
+            "description": "Optional maximum number of items to return; default 25, capped by the bootui.mcp.max-results server limit."
           }
         },
         "additionalProperties": false
