@@ -29,7 +29,7 @@ from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqltext import load_key
 from sharpit.fastapi.adapter import SharpitHandle
-from sharpit.fastapi.capture import CaptureWiring
+from sharpit.fastapi.capture import HOOK_TRANSACTIONS, CaptureWiring
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
@@ -80,7 +80,7 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             recording=settings.transactions_recording,
             application=lambda: application_family(ctx),
         )
-        wiring.add_lane(ctx, "transactions", lambda: attach_transactions(ctx))
+        wiring.add_lane(ctx, HOOK_TRANSACTIONS, lambda: attach_transactions(ctx))
     if panels["activity"].enabled:
         capture.activity_changes = ChangeStream()
         for source in (capture.exchanges, capture.exceptions, capture.sql_trace):
