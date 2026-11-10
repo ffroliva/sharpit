@@ -34,7 +34,7 @@ def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
         return json_response(report)
 
     def journal(_request: Request) -> Response:
-        return json_response(activity.journal_status_dto())
+        return json_response(activity.journal_status_dto(ctx.capture.journal))
 
     def resources(_request: Request) -> Response:
         return json_response(activity.resources_dto())
