@@ -694,3 +694,44 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         if warning.startswith("Ignoring invalid")
     ]
     assert observed == expected
+
+
+# The runtime-journal byte-size grammar (BootUI DataSize plus the K/M/G short units): digits, then an optional unit,
+# any case, with surrounding blanks. The table pins it so a rewrite of the parser cannot change what it accepts.
+BYTE_SIZES_ACCEPTED = [
+    ("1", 1),
+    (" 2 ", 2),
+    ("5B", 5),
+    ("5b", 5),
+    ("3K", 3 * 1024),
+    ("3kb", 3 * 1024),
+    ("39KB", 39 * 1024),
+    ("7M", 7 * 1024**2),
+    ("2MB", 2 * 1024**2),
+    ("2 mb", 2 * 1024**2),
+    ("4G", 4 * 1024**3),
+    ("4gb", 4 * 1024**3),
+    ("\t8 KB\n", 8 * 1024),
+    ("0010MB", 10 * 1024**2),
+]
+BYTE_SIZES_REJECTED = ["0", "0MB", "-1", "+1", "1.5MB", "1TB", "1 M B", "1MBB", "MB", "abc", "1e3", "1_000", "1KiB"]
+
+
+@pytest.mark.parametrize(("raw", "expected"), BYTE_SIZES_ACCEPTED)
+def test_runtime_journal_max_bytes_accepts(raw: str, expected: int) -> None:
+    s = load_settings({}, {"SHARPIT_RUNTIME_JOURNAL_MAX_BYTES": raw})
+    assert s.runtime_journal_max_bytes == expected
+    assert s.warnings == ()
+
+
+@pytest.mark.parametrize("raw", BYTE_SIZES_REJECTED)
+def test_runtime_journal_max_bytes_rejects(raw: str) -> None:
+    s = load_settings({}, {"SHARPIT_RUNTIME_JOURNAL_MAX_BYTES": raw})
+    assert s.runtime_journal_max_bytes == 32 * 1024 * 1024
+    assert f"Ignoring invalid SHARPIT_RUNTIME_JOURNAL_MAX_BYTES value '{raw}'" in s.warnings
+
+
+def test_runtime_journal_max_bytes_kwarg_int_and_bool() -> None:
+    assert load_settings({"runtime_journal_max_bytes": 4096}, {}).runtime_journal_max_bytes == 4096
+    rejected = load_settings({"runtime_journal_max_bytes": True}, {})
+    assert rejected.runtime_journal_max_bytes == 32 * 1024 * 1024
