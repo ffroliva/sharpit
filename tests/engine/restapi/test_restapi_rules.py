@@ -125,13 +125,41 @@ def test_clean_routes_pass_every_rule():
         ("RAPI-DOC-002", route(tags=()), route(tags=("pets",))),
     ],
 )
+# ported: RestApiRulesTests.routingRulesFlagBadController
+# ported: RestApiRulesTests.phase2RulesFlagBadPhase2Controller
+# ported: RestApiRulesTests.namingRulesFlagVerbsAndCase
+# ported: RestApiRulesTests.name001DoesNotFlagAmbiguousNounSegments
+# ported: RestApiRulesTests.name002DoesNotFlagUncountableNouns
+# ported: RestApiRulesTests.responseRulesFlagCreationAndScalarReads
+# ported: RestApiRulesTests.responseEdgeRulesFlagStatusMismatches
+# ported: RestApiRulesTests.payloadRulesFlagEntitiesAndCollections
+# ported: RestApiRulesTests.paginationRuleFlagsUnpaginatedCollectionRead
+# ported: RestApiRulesTests.documentationRulesAreSkippedWithoutSpringdocAndFireWithIt
+@pytest.mark.bootui("rule:RAPI-MAP-001")
+@pytest.mark.bootui("rule:RAPI-MAP-003")
+@pytest.mark.bootui("rule:RAPI-MAP-005")
+@pytest.mark.bootui("rule:RAPI-MAP-007")
+@pytest.mark.bootui("rule:RAPI-MAP-010")
+@pytest.mark.bootui("rule:RAPI-MAP-011")
+@pytest.mark.bootui("rule:RAPI-NAME-001")
+@pytest.mark.bootui("rule:RAPI-NAME-002")
+@pytest.mark.bootui("rule:RAPI-NAME-003")
+@pytest.mark.bootui("rule:RAPI-RESP-001")
+@pytest.mark.bootui("rule:RAPI-RESP-002")
+@pytest.mark.bootui("rule:RAPI-RESP-006")
+@pytest.mark.bootui("rule:RAPI-DTO-001")
+@pytest.mark.bootui("rule:RAPI-DTO-002")
+@pytest.mark.bootui("rule:RAPI-PAGE-001")
+@pytest.mark.bootui("rule:RAPI-DOC-001")
+@pytest.mark.bootui("rule:RAPI-DOC-002")
 def test_rule_positive_and_negative(rule_id: str, bad: ApiRouteInfo, good: ApiRouteInfo):
     assert len(found(rule_id, [bad])) == 1, found(rule_id, [bad])
     assert found(rule_id, [good]) == []
 
 
+@pytest.mark.bootui("rule:RAPI-MAP-002")
 def test_duplicate_route_mapping():
-    # ported: routingRulesFlagBadController (MAP-002 message shape)
+    # ported: RestApiRulesTests.routingRulesFlagBadController
     first = route("/v1/pets", name="read_pets")
     second = route("/v1/pets", name="read_pets_again")
     assert found("RAPI-MAP-002", [first, second]) == [
