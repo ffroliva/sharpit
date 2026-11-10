@@ -7,13 +7,18 @@ docs/development/overhead-budgets.md.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from types import SimpleNamespace
+
+from fastapi import FastAPI
 
 from tests.overhead import check_budget, paired
 
+from sharpit import install
 from sharpit.engine import otel
 from sharpit.engine.capture.traces import SpanBuffer
 from sharpit.engine.masking import Exposure, Masker
+from sharpit.fastapi.capture import wiring_of
 
 BUDGET_NS = 20_000
 ROUNDS, PER_ROUND = 45, 2_000
@@ -40,8 +45,19 @@ def test_suspended_on_end_overhead_budget():
     """Plan scenario 2: the traces hook suspended disarms its sink (the lane's remover); ``on_end`` stays in budget."""
     buffer = SpanBuffer(Masker(Exposure.MASKED, True), application=lambda: None, capacity=1000)
     idle, suspended = otel.SharpitSpanProcessor(), otel.SharpitSpanProcessor()
-    suspended.sinks = (buffer,)
-    otel.disarm(buffer, suspended)  # what suspending the traces registry entry runs
+    handle = install(FastAPI(), enabled="ON", show_banner=False)
+    wiring = wiring_of(handle.context)
+    assert wiring is not None
+
+    def arm() -> Callable[[], None]:
+        suspended.sinks = (buffer,)
+        return lambda: otel.disarm(buffer, suspended)
+
+    wiring.add_lane(handle.context, "traces", arm)
+    wiring.on_first_request(handle.context)  # arms the lane's sink
+    assert suspended.sinks == (buffer,)
+    next(h for h in handle.context.capture.hooks.hooks() if h.name == "traces").suspend()  # the registry hook
+    assert suspended.sinks == ()
     result = paired(lambda: _round(idle), lambda: _round(suspended), ROUNDS)
     assert len(buffer._spans) == 0, "the suspended path recorded"  # pyright: ignore[reportPrivateUsage]
     check_budget("span processor per ended span, suspended", result, BUDGET_NS, "µs", 1000)
