@@ -29,6 +29,7 @@ from sharpit.engine.capture.correlation import REQUEST, TEST, RequestInfo, new_r
 from sharpit.engine.capture.exchanges import exchange_row
 from sharpit.engine.capture.logtail import SharpitLogHandler
 from sharpit.engine.capture.securitylogs import attach as attach_security_logs
+from sharpit.engine.capture.transactions import SOURCE as TRANSACTIONS_SOURCE
 from sharpit.engine.context import application_family
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.engine.sources import dispatch, sqlite
@@ -74,7 +75,7 @@ HOOK_LOG_HANDLER = "log-handler"
 HOOK_SQLA_LISTENERS = "sqla-listeners"
 HOOK_SQLITE_LISTENERS = "sqlite-listeners"
 HOOK_TRACES = "traces"
-HOOK_TRANSACTIONS = "transactions"
+HOOK_TRANSACTIONS = TRANSACTIONS_SOURCE
 HOOK_NAMES = frozenset(
     {
         HOOK_CAPTURE_MIDDLEWARE,
@@ -292,7 +293,7 @@ class CaptureWiring:
         """A lane's attacher (``CaptureState.attachers``) that is its own registry entry ``name``."""
         ctx.capture.attachers.append(attacher)
         self._lane_of[id(attacher)] = name
-        self._actions[name] = (lambda: self._disarm_lane(ctx, name), lambda: self._run_attachers(ctx, name))
+        self._actions[name] = (lambda: self._suspend_lane(ctx, name), lambda: self._run_attachers(ctx, name))
         self._register(ctx, name)
 
     def _register_installed(self, ctx: SharpitContext) -> None:
@@ -391,6 +392,7 @@ class CaptureWiring:
         if name not in self.suspended_hooks or self._context is None:
             return
         self.suspended_hooks.discard(name)
+        self._context.capture.suspended_sources.discard(name)  # a lane's mark (``_suspend_lane``), even while detached
         if not self.detached:
             self._actions.get(name, (_nothing, _nothing))[1]()
 
@@ -419,6 +421,10 @@ class CaptureWiring:
         sqlite.detach(sqlite_holder(ctx))
         if HOOK_SQLA_LISTENERS in self.suspended_hooks:
             dispatch.remove_context(ctx)
+
+    def _suspend_lane(self, ctx: SharpitContext, name: str) -> None:
+        ctx.capture.suspended_sources.add(name)  # shared listeners another context keeps must not route here either
+        self._disarm_lane(ctx, name)
 
     def _disarm_lane(self, ctx: SharpitContext, name: str) -> None:
         for attacher in ctx.capture.attachers:
