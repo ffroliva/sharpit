@@ -21,6 +21,7 @@ import sys
 import types
 from collections.abc import Callable
 from dataclasses import fields
+from functools import cache
 from pathlib import Path
 from typing import NamedTuple
 
@@ -283,17 +284,21 @@ def _mutate(copy: Path, mutant: Mutant) -> Path:
     return target
 
 
+def _worker_env(src: Path) -> dict[str, str]:
+    return {**os.environ, "PYTHONPATH": str(src), "SHARPIT_MUTANT_SRC": str(src), "PYTHONDONTWRITEBYTECODE": "1"}
+
+
 def _run_worker(src: Path, surface: str, seeds: tuple[int, ...] = SEEDS) -> dict[str, int]:
     spec = json.dumps({"surface": surface, "rows": ROWS, "seeds": seeds})
-    env = {**os.environ, "PYTHONPATH": str(src), "SHARPIT_MUTANT_SRC": str(src), "PYTHONDONTWRITEBYTECODE": "1"}
     done = subprocess.run(
         [sys.executable, "-m", "tests.masking.mutant_worker", spec],
-        cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=100,
+        cwd=ROOT, env=_worker_env(src), capture_output=True, text=True, check=False, timeout=100,
     )  # fmt: skip
     assert done.returncode == 0, done.stderr[-2000:]
     return json.loads(done.stdout.strip().splitlines()[-1])
 
 
+@cache
 def _base(surface: str, seeds: tuple[int, ...] = SEEDS) -> dict[str, int]:
     return mutant_worker.counts(surface, mutant_worker.rows_for(surface, ROWS, seeds))
 
@@ -303,6 +308,66 @@ def _kill(mutant: Mutant, tmp: Path, seeds: tuple[int, ...] = SEEDS) -> tuple[in
     copy = _scratch_copy(tmp)
     _mutate(copy, mutant)
     return _base(mutant.surface, seeds)[mutant.gate], _run_worker(tmp / "src", mutant.surface, seeds)[mutant.gate]
+
+
+def test_each_mutant_runs_on_an_otherwise_pristine_tree(tmp_path: Path) -> None:
+    package = Path(sqltrace.__file__).resolve().parents[2]
+    copy = _scratch_copy(tmp_path)
+    target = _mutate(copy, MUTANTS["array_space"]).relative_to(copy)
+    expected = {
+        path.relative_to(package): path.read_bytes()
+        for path in package.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and "static" not in path.parts
+    }
+    actual = {path.relative_to(copy): path.read_bytes() for path in copy.rglob("*") if path.is_file()}
+    assert {path: contents for path, contents in actual.items() if path != target} == {
+        path: contents for path, contents in expected.items() if path != target
+    }
+
+
+def test_the_mutated_module_is_never_loaded_from_cached_bytecode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutant = MUTANTS["array_space"]
+    copy = _scratch_copy(tmp_path)
+    target = _mutate(copy, mutant)
+    module = ".".join(target.relative_to(copy).with_suffix("").parts)
+    marker = mutant.replacement
+    prefix = tmp_path / "pycache"
+    monkeypatch.setenv("PYTHONPYCACHEPREFIX", str(prefix))
+    env = _worker_env(copy.parent)
+    probe = (
+        "import importlib,json,pathlib,sys; m=importlib.import_module('sharpit." + module + "'); "
+        "print(json.dumps({'file':m.__file__,'cached':m.__cached__,'marker':"
+        + repr(marker)
+        + " in pathlib.Path(m.__file__).read_text(encoding='utf-8'),'prefix':sys.pycache_prefix}))"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", probe], cwd=ROOT, env=env, capture_output=True, text=True, check=False, timeout=30
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    loaded = json.loads(done.stdout.strip().splitlines()[-1])
+    assert Path(loaded["file"]).resolve() == target.resolve(), "mutated module did not load from scratch source"
+    assert loaded["marker"], "loaded source does not contain the mutation marker"
+    assert not list(copy.parent.rglob("*.pyc")), "bytecode was written under the scratch tree"
+    assert loaded["prefix"] == str(prefix), "probe did not use the worker's pycache prefix"
+    assert not list(prefix.rglob("*.pyc")), "bytecode was written under pycache prefix"
+
+
+def test_the_unmutated_counts_are_computed_once_per_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _base.cache_clear()
+    calls = 0
+    counts = mutant_worker.counts
+
+    def counted(surface: str, rows: object) -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return counts(surface, rows)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(mutant_worker, "counts", counted)
+    for index, name in enumerate(("true", "false", "hash")):
+        _kill(MUTANTS[name], tmp_path / str(index))
+    assert calls == 2, "one unmutated baseline is required for each surface"
 
 
 # mutants the seeded rows cannot reach (the cut hides what they change): a named unit test must fail on the mutated copy
