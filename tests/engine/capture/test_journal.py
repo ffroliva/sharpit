@@ -118,7 +118,9 @@ def test_suspended_journal_counts_suspended_drops() -> None:
 
 
 def test_journal_append_overhead_budget() -> None:
-    """Measured alone (-n 0, Windows 11, CPython 3.13) at 3.6-4.1 µs per accepted offer (three runs); the budget leaves CI room.
+    """Measured alone (-n 0, Windows 11, CPython 3.13): 3.6-4.1 µs per accepted offer over three runs.
+
+    The budget leaves room for slower CI runners.
 
     "off" is the disabled journal (``NULL_SINK``) called the same way, so the overhead is the append itself.
     """

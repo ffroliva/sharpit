@@ -77,6 +77,7 @@ HOOK_SQLA_LISTENERS = "sqla-listeners"
 HOOK_SQLITE_LISTENERS = "sqlite-listeners"
 HOOK_TRACES = "traces"
 HOOK_TRANSACTIONS = TRANSACTIONS_SOURCE
+HOOK_RUNTIME_JOURNAL = RuntimeJournal.name
 HOOK_NAMES = frozenset(
     {
         HOOK_CAPTURE_MIDDLEWARE,
@@ -87,6 +88,7 @@ HOOK_NAMES = frozenset(
         HOOK_SQLITE_LISTENERS,
         HOOK_TRACES,
         HOOK_TRANSACTIONS,
+        HOOK_RUNTIME_JOURNAL,
     }
 )
 

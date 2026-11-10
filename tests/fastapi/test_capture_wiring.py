@@ -463,6 +463,7 @@ def test_every_capture_hook_is_registered():
             "capture-middleware",
             "exception-handlers",
             "log-handler",
+            "runtime-journal",
             "security-log",
             "sqla-listeners",
             "sqlite-listeners",
@@ -719,6 +720,7 @@ def _recording(handle: SharpitHandle, client: TestClient) -> dict[str, bool]:
         "sqlite-listeners": traced("raw_probe") > raw,
         "traces": "traces" in armed,
         "transactions": "transactions" in armed,
+        "runtime-journal": capture.journal is not None and capture.journal.offer({"source": "http", "probe": True}),
     }
 
 
