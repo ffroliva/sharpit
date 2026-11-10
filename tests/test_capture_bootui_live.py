@@ -10,17 +10,13 @@ from typing import Any
 
 import pytest
 from scripts.capture_bootui_live import (
+    EXCLUDED_ROUTES,
     POST_ALLOW_LIST,
     REPO_ROOT,
     Step,
     build_plan,
     run,
 )
-
-try:
-    from scripts.capture_bootui_live import EXCLUDED_ROUTES
-except ImportError:
-    EXCLUDED_ROUTES = {}
 
 
 class StubResponse:
@@ -89,13 +85,51 @@ def test_uncaptured_entries_carry_a_status(tmp_path: Path) -> None:
     uncaptured_file = out_dir / "uncaptured.json"
     assert uncaptured_file.is_file(), "uncaptured.json must be written"
     data = json.loads(uncaptured_file.read_text(encoding="utf-8"))
-    assert len(data) > 0, "uncaptured.json must not be empty"
+    assert "GET /flyway/migrations" in data, "uncaptured entries must use route keys"
     allowed_statuses = {"404", 404, "disabled", "error", "needs-external", "not-probed"}
     for item_id, entry in data.items():
         assert entry["status"] in allowed_statuses, f"invalid status {entry['status']} for {item_id}"
         assert isinstance(entry["reason"], str)
         assert len(entry["reason"]) > 0
         assert entry["http"] is None or isinstance(entry["http"], int)
+
+
+def test_run_rejects_unsafe_method_before_request(tmp_path: Path) -> None:
+    calls: list[Any] = []
+    step = Step("pre-scan GET", "DELETE", "/security/scan", "security", "security")
+    with pytest.raises(ValueError, match="method/path not allowed"):
+        run([step], lambda req: calls.append(req), tmp_path / "raw")
+    assert calls == [], "unsafe method must be rejected before any request"
+
+
+def test_uncaptured_subroutes_do_not_collide(tmp_path: Path) -> None:
+    def fail(req: Any) -> Any:
+        raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, io.BytesIO(b""))
+
+    plan = [
+        Step("pre-scan GET", "GET", "/panel/a", "panel", "panel"),
+        Step("pre-scan GET", "GET", "/panel/b", "panel", "panel"),
+    ]
+    result = run(plan, fail, tmp_path / "raw")
+    assert "GET /panel/a" in result, "first route failure must be retained"
+    assert "GET /panel/b" in result, "second route failure must not overwrite first"
+
+
+def test_scanner_records_parameterized_route_ids(tmp_path: Path) -> None:
+    requested: list[str] = []
+
+    def stub(req: Any) -> StubResponse:
+        requested.append(req.full_url)
+        if req.full_url.endswith("/exceptions"):
+            return StubResponse([{"id": "found-id"}])
+        return StubResponse({"detail": "captured"})
+
+    plan = [
+        Step("pre-scan GET", "GET", "/exceptions", "exceptions", "exceptions"),
+        Step("pre-scan GET", "GET", "/exceptions/{id}", "exceptions", "exceptions", "detail"),
+    ]
+    run(plan, stub, tmp_path / "raw")
+    assert any(url.endswith("/exceptions/found-id") for url in requested), "list response id must fill detail route"
 
 
 def test_plan_covers_every_starter_get() -> None:
