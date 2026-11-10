@@ -21,6 +21,7 @@ import sys
 import types
 from collections.abc import Callable
 from dataclasses import fields
+from functools import cache
 from pathlib import Path
 from typing import NamedTuple
 
@@ -294,6 +295,7 @@ def _run_worker(src: Path, surface: str, seeds: tuple[int, ...] = SEEDS) -> dict
     return json.loads(done.stdout.strip().splitlines()[-1])
 
 
+@cache
 def _base(surface: str, seeds: tuple[int, ...] = SEEDS) -> dict[str, int]:
     return mutant_worker.counts(surface, mutant_worker.rows_for(surface, ROWS, seeds))
 
