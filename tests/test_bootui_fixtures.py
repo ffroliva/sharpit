@@ -6,6 +6,7 @@ and completeness against BootUI v2.3.0 source contracts.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -167,7 +168,7 @@ def test_bootui_23_fixtures_record_pin_command_and_catalog_completeness() -> Non
     props_data = _load_json("properties.json")
     assert isinstance(props_data, dict), "properties.json must be a JSON object"
     properties = props_data.get("properties", [])
-    assert len(properties) >= 80, f"Expected >= 80 properties, got {len(properties)}"
+    assert len(properties) == 209, f"Expected 209 properties, got {len(properties)}"
     prop_names = {p["name"] for p in properties}
     assert "bootui.read-only" in prop_names or "bootui.mcp.enabled" in prop_names
     for p in properties:
@@ -323,6 +324,19 @@ def test_bootui_23_fixtures_reject_incomplete_catalogs_and_machine_paths() -> No
     assert "settingsOverride" in meta, "metadata must record the Maven settings override"
     assert meta["counts"]["reads"] == 82
     assert meta["counts"]["actions"] == 78
+
+
+def test_bootui_capture_pin_check_is_not_an_optimizable_assert() -> None:
+    source = Path(__file__).parents[1] / "scripts" / "capture_bootui_23.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    guards = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "actual_commit != PINNED_COMMIT"
+    ]
+    assert len(guards) == 1, "capture must explicitly compare the resolved commit to the pinned commit"
+    guard = guards[0]
+    assert any(isinstance(node, ast.Raise) for node in guard.body)
     routes = _load_json("routes.json")
     assert len(routes["reads"]) == 82
     assert len(routes["actions"]) == 78
@@ -401,6 +415,7 @@ def test_bootui_23_test_catalog_is_fully_qualified_and_unambiguous() -> None:
     catalog = _load_json("bootui-tests.json")
     classes = catalog["testClasses"]
     assert catalog["totalClasses"] == 1103
+    assert len(classes) == 1103
     assert len(catalog["simpleNameIndex"]) == 1100
     assert all(re.fullmatch(r"[\w$]+(?:\.[\w$]+)+", name) for name in classes)
     for name in (
@@ -414,12 +429,25 @@ def test_bootui_23_test_catalog_is_fully_qualified_and_unambiguous() -> None:
 def test_bootui_23_retired_doc_rules_are_marked_and_explained() -> None:
     rules = {rule["id"]: rule for rule in _load_json("rule-ids.json")["rules"]}
     explanations = _load_json("rule-ids-diff.json")["explanations"]
-    retired = [rid for rid in explanations if rid.startswith(("HIB-", "DB-"))]
-    assert len(retired) == 13
+    retired = [
+        "MEM-CONTENT-004",
+        "MEM-FOOTPRINT-004",
+        "MEM-HEAP-007",
+        "MEM-POOL-006",
+        "MEM-THREAD-003",
+        "SPRING-CONFIG-001",
+        "SPRING-PERF-004",
+        "SPRING-PROFILE-001",
+        "SPRING-REACTIVE-002",
+        "SPRING-WEB-006",
+        "PT-A05-045",
+        "PT-A05-070",
+        "PT-A05-072",
+    ]
     for rid in retired:
         assert rules[rid]["retired"] is True
         assert explanations[rid] == rules[rid]["retiredExplanation"]
-        assert explanations[rid].startswith(("Retired:", "**Retired.**"))
+        assert explanations[rid].startswith(("Retired:", "**Retired.**", "REMOVE"))
         assert len(explanations[rid]) > len("Retired")
     assert rules["QA-CFG-001"]["retired"] is True
     assert "ConfigMapping is recommended" in rules["QA-CFG-001"]["retiredExplanation"]

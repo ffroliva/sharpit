@@ -42,13 +42,13 @@
     },
     {
       "id": "ARCH-CODE-005",
-      "title": "`Throwable.printStackTrace(PrintStream/PrintWriter)`",
+      "title": "Retired",
       "docSource": "ARCHITECTURE-CHECKS.md",
       "javaSource": "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/architecture/ArchitectureRuleRegistry.java",
       "inDocs": true,
       "inJava": true,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: `printStackTrace(System.err)` already reads `System.err`, which ARCH-CODE-001 reports. The remaining matches were mostly the legitimate `StringWriter` capture idiom or a stream the author chose deliberately."
     },
     {
       "id": "ARCH-CODE-006",
@@ -102,13 +102,13 @@
     },
     {
       "id": "ARCH-CODE-011",
-      "title": "Interfaces named with an `Interface` suffix",
+      "title": "Retired",
       "docSource": "ARCHITECTURE-CHECKS.md",
       "javaSource": "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/architecture/ArchitectureRuleRegistry.java",
       "inDocs": true,
       "inJava": true,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: A naming opinion with no authoritative source and false positives on domain nouns such as `UserInterface` or `NetworkInterface`."
     },
     {
       "id": "ARCH-CODE-012",
@@ -242,13 +242,13 @@
     },
     {
       "id": "ARCH-SPRING-005",
-      "title": "Spring stereotypes in the default package",
+      "title": "Retired",
       "docSource": "ARCHITECTURE-CHECKS.md",
       "javaSource": "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/architecture/ArchitectureRuleRegistry.java",
       "inDocs": true,
       "inJava": true,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Unreachable: imports are bounded to named base packages, a blank base package fails the Spring scan, and Quarkus discovery drops the default package. The live Spring advisor's SPRING-WIRING-008 inspects registered beans instead."
     },
     {
       "id": "ARCH-SPRING-006",
@@ -352,13 +352,13 @@
     },
     {
       "id": "ARCH-SPRING-016",
-      "title": "Layered web \u2192 service \u2192 repository dependencies",
+      "title": "Retired",
       "docSource": "ARCHITECTURE-CHECKS.md",
       "javaSource": "bootui-engine/src/main/java/io/github/jdubois/bootui/engine/architecture/ArchitectureRuleRegistry.java",
       "inDocs": true,
       "inJava": true,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Its violations were exactly the union of ARCH-SPRING-002, ARCH-SPRING-003, ARCH-SPRING-006, and ARCH-SPRING-007, so every finding was reported twice."
     },
     {
       "id": "ARCH-SPRING-017",
@@ -2242,13 +2242,13 @@
     },
     {
       "id": "MEM-CONTENT-004",
-      "title": "Arrays dominate the sampled heap",
+      "title": "Retired",
       "docSource": "MEMORY-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Arrays at 50% or more of shallow bytes is the ordinary shape of a Java heap (compact-string `byte[]`, collection `Object[]`); a healthy JVM sample measured 57%. MEM-CONTENT-001 to 003 remain for big objects, collections, and a dominant non-array class."
     },
     {
       "id": "MEM-FOOTPRINT-001",
@@ -2282,13 +2282,13 @@
     },
     {
       "id": "MEM-FOOTPRINT-004",
-      "title": "High system or environment swap utilization",
+      "title": "Retired",
       "docSource": "MEMORY-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Host-wide swap is not attributable to this JVM and does not show active paging; macOS dynamic swap files routinely exceed 50% on developer laptops, BootUI's normal context."
     },
     {
       "id": "MEM-GC-001",
@@ -2432,13 +2432,13 @@
     },
     {
       "id": "MEM-HEAP-007",
-      "title": "Committed heap is far above observed heap usage",
+      "title": "Retired",
       "docSource": "MEMORY-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: After the histogram request, used heap approximates the live set, and G1's default `MinHeapFreeRatio`/`MaxHeapFreeRatio` (40/70) keep committed heap about 1.7-3.3 times that. Equal `-Xms`/`-Xmx`, which MEM-HEAP-005 and the JVM Tuning calculator produce, always matched. It flagged healthy GC headroom and admitted it was not a sizing recommendation."
     },
     {
       "id": "MEM-HEAP-008",
@@ -2502,13 +2502,13 @@
     },
     {
       "id": "MEM-POOL-006",
-      "title": "JIT compiler is disabled or capped below full optimisation",
+      "title": "Retired",
       "docSource": "MEMORY-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Compiler policy, not a memory signal. IntelliJ's Spring Boot launch optimisation adds `-XX:TieredStopAtLevel=1`, so it fired on deliberate development configuration. Real code-cache pressure stays covered by MEM-POOL-002."
     },
     {
       "id": "MEM-POOL-007",
@@ -2542,13 +2542,13 @@
     },
     {
       "id": "MEM-THREAD-003",
-      "title": "Peak thread count was far above the current count",
+      "title": "Retired",
       "docSource": "MEMORY-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: A peak since start or the last reset far above the current count is normal pool elasticity after a burst, not a leak or exhaustion. Current stack reservation stays covered by MEM-FOOTPRINT-002."
     },
     {
       "id": "MEM-THREAD-004",
@@ -3052,13 +3052,13 @@
     },
     {
       "id": "PT-A05-045",
-      "title": "REMOVE",
+      "title": "Retired",
       "docSource": "PENTEST-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Ordinary caller-known error-path metadata; Boot 4.1 default is always. Never reuse this ID."
     },
     {
       "id": "PT-A05-046",
@@ -3272,23 +3272,23 @@
     },
     {
       "id": "PT-A05-070",
-      "title": "REMOVE",
+      "title": "Retired",
       "docSource": "PENTEST-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Duplicated QS-CORS-001/002, which always run on Quarkus; delivered CORS stays covered by the synthetic preflight."
     },
     {
       "id": "PT-A05-072",
-      "title": "REMOVE",
+      "title": "Retired",
       "docSource": "PENTEST-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Duplicated QS-TLS-001 at a conflicting severity and ignored the `client-auth=required` default."
     },
     {
       "id": "PT-A07-001",
@@ -5582,13 +5582,13 @@
     },
     {
       "id": "SPRING-CONFIG-001",
-      "title": "Consider lazy initialization for large contexts",
+      "title": "Retired",
       "docSource": "SPRING-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: More than 300 bean definitions is not a startup-cost measurement and is exceeded by almost every web, Actuator and data application (BootUI's own beans included). Boot advises against enabling lazy initialization by default because it delays failures and first-request work."
     },
     {
       "id": "SPRING-CONFIG-002",
@@ -5762,13 +5762,13 @@
     },
     {
       "id": "SPRING-PERF-004",
-      "title": "Hikari default may bottleneck virtual threads",
+      "title": "Retired",
       "docSource": "SPRING-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Property absence cannot establish an unreviewed/undersized pool. Explicitly writing the default 10 changes no runtime behavior; size against database capacity and observed load."
     },
     {
       "id": "SPRING-PERF-005",
@@ -5802,13 +5802,13 @@
     },
     {
       "id": "SPRING-PROFILE-001",
-      "title": "Require an explicit active profile",
+      "title": "Retired",
       "docSource": "SPRING-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: Profiles are optional; configured default profiles and profile-free external configuration are valid."
     },
     {
       "id": "SPRING-PROFILE-002",
@@ -5842,13 +5842,13 @@
     },
     {
       "id": "SPRING-REACTIVE-002",
-      "title": "Increase the default codec buffer",
+      "title": "Retired",
       "docSource": "SPRING-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: A safe bounded default is not a defect, and `spring.codec.*` is stale in Boot 4. The new unlimited-aggregation check addresses a different condition."
     },
     {
       "id": "SPRING-REACTIVE-003",
@@ -5912,13 +5912,13 @@
     },
     {
       "id": "SPRING-WEB-006",
-      "title": "Forwarded headers from a production profile",
+      "title": "Retired",
       "docSource": "SPRING-CHECKS.md",
       "javaSource": null,
       "inDocs": true,
       "inJava": false,
-      "retired": false,
-      "retiredExplanation": null
+      "retired": true,
+      "retiredExplanation": "Retired: A profile name cannot establish a trusted proxy. Changing header trust needs deployment evidence."
     },
     {
       "id": "SPRING-WEB-007",

@@ -16,7 +16,8 @@ repo = Path(os.environ.get("BOOTUI_GIT", REPO.parents[1] / "boot-ui"))
 actual_commit = subprocess.check_output(
     ["git", "-C", str(repo), "rev-parse", f"{PINNED_TAG}^{{commit}}"], text=True
 ).strip()
-assert actual_commit == PINNED_COMMIT, f"Pinned tag resolves to {actual_commit}, expected {PINNED_COMMIT}"
+if actual_commit != PINNED_COMMIT:
+    raise RuntimeError(f"Pinned tag resolves to {actual_commit}, expected {PINNED_COMMIT}")
 tag_object = subprocess.check_output(["git", "-C", str(repo), "rev-parse", PINNED_TAG], text=True).strip()
 bootui_root = tempfile.mkdtemp(prefix="bootui-2.3.0-")
 atexit.register(shutil.rmtree, bootui_root, ignore_errors=True)
@@ -480,6 +481,32 @@ for fpath in check_md_files:
                     "retired": explanation is not None,
                     "retiredExplanation": explanation,
                 }
+
+        for heading in ("Retired rules", "Retired rule IDs"):
+            retired_section = re.search(rf"(?ms)^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)", text)
+            if retired_section:
+                for row in re.finditer(
+                    r"(?m)^\|\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s*\|([^\n]+)", retired_section.group(1)
+                ):
+                    rid, columns = row.groups()
+                    explanation = "Retired: " + " ".join(columns.strip().strip("|").split("|")[-1].split())
+                    doc_rules[rid] = {
+                        "id": rid,
+                        "title": "Retired",
+                        "source": fname,
+                        "retired": True,
+                        "retiredExplanation": explanation,
+                    }
+        for row in re.finditer(r"(?m)^\|\s*(PT-[A-Z0-9-]+)\s*\|\s*REMOVE\s*\|([^\n]+)", text):
+            rid, columns = row.groups()
+            explanation = "Retired: " + " ".join(columns.strip().strip("|").split("|")[0].split())
+            doc_rules[rid] = {
+                "id": rid,
+                "title": "Retired",
+                "source": fname,
+                "retired": True,
+                "retiredExplanation": explanation,
+            }
 
 java_rules = {}
 java_files = glob.glob(f"{bootui_root}/**/src/main/java/**/*.java", recursive=True)
