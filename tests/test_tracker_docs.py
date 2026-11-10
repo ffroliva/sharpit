@@ -177,3 +177,23 @@ def test_extras_table_matches_panels() -> None:
             if not any(library in r[library_col] for r in rows_for_panel):
                 missing.append(f"{panel} -> {library}")
     assert not missing, f"panels that need an optional library are not in the table: {missing}"
+
+
+def test_tool_counts_in_docs_match_registry() -> None:
+    reads = sum(not t.action for t in TOOLS)
+    actions = sum(t.action for t in TOOLS)
+    for doc in (MCP_DOC, SKILL):
+        text = _read(doc)
+        label = doc.relative_to(ROOT).as_posix()
+        assert f"{reads} read" in text or f"{reads} **read" in text, f"{label}: read-tool count is not {reads}"
+        assert f"{actions} action tools" in text, f"{label}: action-tool count is not {actions}"
+
+
+def test_actions_sections_state_the_read_only_refusal() -> None:
+    for doc in (MCP_DOC, SKILL):
+        actions = _actions_section(_read(doc))
+        label = doc.relative_to(ROOT).as_posix()
+        assert "SHARPIT_READ_ONLY" in actions, f"{label}: Actions section does not say global read-only refuses actions"
+        assert "_READ_ONLY" in actions.replace("SHARPIT_READ_ONLY", ""), (
+            f"{label}: Actions section omits the per-panel read-only refusal"
+        )
