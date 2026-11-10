@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from sharpit.engine.masking import Exposure
-from sharpit.settings import PanelSettings, SharpitSettings, load_settings
+from sharpit.settings import PanelSettings, SharpitSettings, _NEVER_ECHOED, load_settings
 
 
 def test_defaults():
@@ -520,3 +520,56 @@ def test_explicit_empty_list_kwarg_clears_the_default(empty: tuple[str, ...] | l
     # code review #14: only a blank env/string value falls back; an explicit empty sequence means "none"
     s = load_settings({"enabled_profiles": empty, "profile_vars": empty}, {})
     assert (s.enabled_profiles, s.profile_vars) == ((), ())
+
+
+def test_settings_split_preserves_flat_kwargs_env_precedence_and_failsafe():
+    import importlib.util
+
+    assert importlib.util.find_spec("sharpit.settings_registry") is not None, "settings families need an aggregated registry"
+
+    from sharpit.settings import _SPECS
+    from sharpit.settings_registry import FAMILY_SPECS
+
+    registered = {name for family in FAMILY_SPECS.values() for name in family}
+    fields = {f.name for f in dataclasses.fields(SharpitSettings)}
+    assert registered == set(_SPECS)
+    assert fields - registered == {"panels", "warnings", "path", "api_path"}
+
+    settings = load_settings(
+        {"vulnerabilities_max_packages": 3, "mysql_max_sessions": 15, "authentication_token": "kw-token"},
+        {"SHARPIT_VULNERABILITIES_MAX_PACKAGES": "7", "SHARPIT_MYSQL_MAX_SESSIONS": "0", "SHARPIT_AUTHENTICATION_TOKEN": "env-token"},
+    )
+    assert settings.vulnerabilities_max_packages == 7
+    assert settings.mysql_max_sessions == 100
+    assert settings.authentication_token == "env-token"
+    assert "vulnerabilities_max_packages" in registered
+
+
+@pytest.mark.parametrize(
+    "field",
+    sorted(_NEVER_ECHOED),
+)
+def test_invalid_sensitive_settings_never_echo_for_any_family(field: str):
+    class Canary:
+        def __str__(self) -> str:
+            return "sensitive-warning-canary"
+
+    raw = Canary()
+    if field.startswith("panels."):
+        panel, flag = field.removeprefix("panels.").split(".")
+        assert f"panels.{panel}.{flag}" in _NEVER_ECHOED
+        settings = load_settings({"panels": {panel: {flag: raw}}}, {})
+    else:
+        assert field in _NEVER_ECHOED
+        settings = load_settings({field: raw}, {})
+    assert settings.warnings
+    assert all(str(raw) not in warning for warning in settings.warnings)
+
+
+def test_credential_like_settings_are_registered_as_never_echoed():
+    from sharpit.settings import _NEVER_ECHOED
+
+    credential_words = ("token", "secret", "password", "credential", "api_key", "base_uri")
+    fields = {f.name for f in dataclasses.fields(SharpitSettings)}
+    credential_fields = {name for name in fields if any(word in name.lower() for word in credential_words)}
+    assert credential_fields <= _NEVER_ECHOED
