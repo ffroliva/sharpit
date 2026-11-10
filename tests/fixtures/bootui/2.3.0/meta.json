@@ -1,0 +1,31 @@
+{
+  "bootuiVersion": "2.3.0",
+  "commit": "7c89042c6a0a47e1cb22d2df7412d2177d7416d1",
+  "tag": "v2.3.0",
+  "command": "python scripts/capture_bootui_23.py",
+  "tagObject": "e61e2064e3821eaf8bf693504982e36020fe6a8a",
+  "mavenCommand": "mvn -pl bootui-spring-boot-starter -am -DskipTests -U -Dmaven.compiler.release=17 -Dmaven.compiler.proc=full compile -s <temporary settings override>",
+  "javaVersionOutput": "openjdk version \"25.0.3\" 2026-04-21 LTS\nOpenJDK Runtime Environment Corretto-25.0.3.9.1 (build 25.0.3+9-LTS)\nOpenJDK 64-Bit Server VM Corretto-25.0.3.9.1 (build 25.0.3+9-LTS, mixed mode, sharing)",
+  "mavenVersionOutput": "Apache Maven 3.9.9 (8e8579a9e76f7d015ee5ec7bfcdc97d260186937)\nMaven home: <local-path>\nJava version: 25.0.3, vendor: Amazon.com Inc., runtime: <local-path>\nDefault locale: en_GB, platform encoding: UTF-8\nOS name: \"windows 11\", version: \"10.0\", arch: \"amd64\", family: \"windows\"\nWARNING: A restricted method in java.lang.System has been called\nWARNING: java.lang.System::load has been called by org.fusesource.jansi.internal.JansiLoader in an unnamed module (file:/<local-path>)\nWARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module\nWARNING: Restricted methods will be blocked in a future release unless native access is enabled",
+  "settingsOverride": "temporary settings.xml mirrors all repositories to Maven Central",
+  "jdk": "openjdk version \"25.0.3\" 2026-04-21 LTS\nOpenJDK Runtime Environment Corretto-25.0.3.9.1 (build 25.0.3+9-LTS)\nOpenJDK 64-Bit Server VM Corretto-25.0.3.9.1 (build 25.0.3+9-LTS, mixed mode, sharing)",
+  "captured": "2026-11-10",
+  "fixtures": [
+    "meta.json",
+    "panels.json",
+    "routes.json",
+    "tools.json",
+    "rule-ids.json",
+    "rule-ids-diff.json",
+    "properties.json",
+    "bootui-tests.json"
+  ],
+  "counts": {
+    "reads": 82,
+    "actions": 78,
+    "starterMappings": 267,
+    "gaps": 76,
+    "unpanelledRoutes": 73,
+    "routeCountMethod": "catalog read/action helper calls and all starter src/main/java @*Mapping declarations"
+  }
+}
