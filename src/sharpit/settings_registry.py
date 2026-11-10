@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
+from dataclasses import fields
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -158,10 +159,10 @@ def _config_scan(raw: object) -> tuple[str, ...] | bool:
         return _items(raw)
 
 
-# field -> (parser, fail-safe override). None falls back to the default; _UNSET makes the field None.
-_UNSET = object()
+# field -> (parser, fail-safe override). None falls back to the default; UNSET makes the field None.
+UNSET = object()
 _Parser = Callable[[object], Any]
-_SPECS: dict[str, tuple[_Parser, Any]] = {
+SPECS: dict[str, tuple[_Parser, Any]] = {
     "enabled": (_mode, None),  # handled specially: an invalid value is kept raw so decide() can report it
     "enabled_profiles": (_lower_items, None),
     "disabled_profiles": (_lower_items, None),
@@ -215,7 +216,7 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "activity_unbounded_read_factor": (_min_two_int, None),
     "log_tail_max_lines": (_int, None),
     "log_tail_max_bytes": (_int, None),
-    "alembic_config": (_str, _UNSET),
+    "alembic_config": (_str, UNSET),
     "alembic_timeout": (_duration, None),
     "health_timeout": (_duration, None),
     "threads_max_stack_frames": (_int, None),
@@ -250,52 +251,104 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "app_package": (_module_name, None),
 }
 
-_SECURITY_FIELDS = {
-    "allow_non_localhost",
-    "allowed_hosts",
-    "trusted_proxies",
-    "trust_container_gateway",
-    "authentication_token",
-    "identity_key",
-    "read_only",
-    "expose_values",
-    "mask_secrets",
-}
-_FAMILY_PREFIXES = {
-    "vulnerabilities": "vulnerabilities_",
-    "mcp": "mcp_",
-    "cli": "cli_",
-    "http_exchanges": "http_exchanges_",
-    "exceptions": "exceptions_",
-    "sql_trace": "sql_trace_",
-    "activity": "activity_",
-    "log_tail": "log_tail_",
-    "alembic": "alembic_",
-    "health": "health_",
-    "threads": "threads_",
-    "advisors": "advisors_",
-    "stream": "stream_",
-    "security_logs": "security_logs_",
-    "postgresql": "postgresql_",
-    "transactions": "transactions_",
-    "mysql": "mysql_",
-    "database_advisor": "database_advisor_",
-    "architecture": "architecture_",
-}
-FAMILY_SPECS: dict[str, dict[str, tuple[_Parser, Any]]] = {}
-for _name, _spec in _SPECS.items():
-    _family = (
-        "security"
-        if _name in _SECURITY_FIELDS
-        else next((family for family, prefix in _FAMILY_PREFIXES.items() if _name.startswith(prefix)), "core")
-    )
-    FAMILY_SPECS.setdefault(_family, {})[_name] = _spec
-
-_NEVER_ECHOED = {
+NEVER_ECHOED = {
     "authentication_token",
     "identity_key",
     "vulnerabilities_osv_base_uri",
     "vulnerabilities_epss_base_uri",
 }
-NEVER_ECHOED = _NEVER_ECHOED
-UNSET = _UNSET
+
+_NON_CREDENTIAL_FIELDS = {
+    "enabled": "Activation mode, not a credential.",
+    "enabled_profiles": "Profile names, not credentials.",
+    "disabled_profiles": "Profile names, not credentials.",
+    "profile_vars": "Environment variable names, not credentials.",
+    "path": "Mount path, not a credential.",
+    "api_path": "API mount path, not a credential.",
+    "allow_non_localhost": "Boolean access policy, not a credential.",
+    "allowed_hosts": "Host names, not credentials.",
+    "trusted_proxies": "Proxy addresses, not credentials.",
+    "trust_container_gateway": "Boolean trust policy, not a credential.",
+    "state_dir": "Local data directory, not a credential.",
+    "read_only": "Boolean panel policy, not a credential.",
+    "panels": "Panel enablement flags, not credentials.",
+    "expose_values": "Exposure mode, not a credential.",
+    "mask_secrets": "Boolean masking policy, not a credential.",
+    "show_banner": "Boolean display option, not a credential.",
+    "config_scan": "Configuration scan selection, not credentials.",
+    "vulnerabilities_osv_enabled": "Boolean feature flag, not a credential.",
+    "vulnerabilities_request_timeout": "Request timeout, not a credential.",
+    "vulnerabilities_max_packages": "Package count limit, not a credential.",
+    "vulnerabilities_max_advisories": "Advisory count limit, not a credential.",
+    "vulnerabilities_epss_enabled": "Boolean feature flag, not a credential.",
+    "mcp_enabled": "Boolean feature mode, not a credential.",
+    "mcp_max_results": "Result count limit, not a credential.",
+    "mcp_max_payload_bytes": "Payload size limit, not a credential.",
+    "mcp_max_concurrent_calls": "Concurrency limit, not a credential.",
+    "mcp_execution_timeout": "Execution timeout, not a credential.",
+    "mcp_max_response_bytes": "Response size limit, not a credential.",
+    "cli_enabled": "Boolean feature flag, not a credential.",
+    "cli_max_results": "Result count limit, not a credential.",
+    "cli_max_concurrent_calls": "Concurrency limit, not a credential.",
+    "cli_execution_timeout": "Execution timeout, not a credential.",
+    "http_exchanges_max_exchanges": "Exchange count limit, not a credential.",
+    "exceptions_max_groups": "Exception group limit, not a credential.",
+    "exceptions_max_occurrences_per_group": "Occurrence count limit, not a credential.",
+    "exceptions_max_stack_frames": "Stack frame limit, not a credential.",
+    "sql_trace_enabled": "Boolean feature flag, not a credential.",
+    "sql_trace_sqlite3_enabled": "Boolean feature flag, not a credential.",
+    "sql_trace_recording": "Boolean recording option, not a credential.",
+    "sql_trace_capture_parameters": "Boolean capture option, not a credential.",
+    "sql_trace_capture_call_site": "Boolean capture option, not a credential.",
+    "sql_trace_max_entries": "Entry count limit, not a credential.",
+    "sql_trace_slow_query_threshold_millis": "Query duration threshold, not a credential.",
+    "sql_trace_max_sql_length": "SQL text size limit, not a credential.",
+    "sql_trace_max_parameter_length": "Parameter text size limit, not a credential.",
+    "sql_trace_n_plus_one_threshold": "Query count threshold, not a credential.",
+    "activity_max_entries": "Entry count limit, not a credential.",
+    "activity_request_slow_threshold_ms": "Request duration threshold, not a credential.",
+    "activity_n_plus_one_threshold": "Query count threshold, not a credential.",
+    "activity_unbounded_read_factor": "Read size factor, not a credential.",
+    "log_tail_max_lines": "Log line count limit, not a credential.",
+    "log_tail_max_bytes": "Log size limit, not a credential.",
+    "alembic_timeout": "Migration timeout, not a credential.",
+    "alembic_config": "Migration config path, not a credential.",
+    "health_timeout": "Health check timeout, not a credential.",
+    "threads_max_stack_frames": "Stack frame limit, not a credential.",
+    "advisors_max_retained_violations": "Violation count limit, not a credential.",
+    "stream_max_seconds": "Stream duration limit, not a credential.",
+    "security_logs_max_logs": "Log count limit, not a credential.",
+    "postgresql_max_sessions": "Session count limit, not a credential.",
+    "postgresql_max_statements": "Statement count limit, not a credential.",
+    "postgresql_max_indexes": "Index count limit, not a credential.",
+    "postgresql_max_tables": "Table count limit, not a credential.",
+    "postgresql_max_vacuum_tables": "Vacuum table count limit, not a credential.",
+    "postgresql_max_replicas": "Replica count limit, not a credential.",
+    "postgresql_max_settings": "Setting count limit, not a credential.",
+    "transactions_enabled": "Boolean feature flag, not a credential.",
+    "transactions_recording": "Boolean recording option, not a credential.",
+    "transactions_max_entries": "Entry count limit, not a credential.",
+    "transactions_slow_transaction_threshold_millis": "Transaction duration threshold, not a credential.",
+    "transactions_connection_hold_threshold_millis": "Connection duration threshold, not a credential.",
+    "mysql_max_sessions": "Session count limit, not a credential.",
+    "mysql_max_statements": "Statement count limit, not a credential.",
+    "mysql_max_indexes": "Index count limit, not a credential.",
+    "mysql_max_tables": "Table count limit, not a credential.",
+    "mysql_max_lock_waits": "Lock wait count limit, not a credential.",
+    "mysql_max_replication_channels": "Replication channel count limit, not a credential.",
+    "mysql_max_settings": "Setting count limit, not a credential.",
+    "database_advisor_max_tables": "Table count limit, not a credential.",
+    "database_advisor_max_columns": "Column count limit, not a credential.",
+    "database_advisor_max_indexes_per_table": "Index count limit, not a credential.",
+    "database_advisor_max_vendor_rows": "Vendor row count limit, not a credential.",
+    "architecture_max_files": "File count limit, not a credential.",
+    "architecture_max_file_bytes": "File size limit, not a credential.",
+    "app_package": "Python package name, not a credential.",
+    "warnings": "Diagnostic messages, not a credential.",
+}
+
+
+def unclassified_settings_fields(settings_type: object) -> set[str]:
+    """Return fields without an explicit credential or non-credential classification."""
+    names = {field.name for field in fields(cast(Any, settings_type))}
+    return names - NEVER_ECHOED - _NON_CREDENTIAL_FIELDS.keys()

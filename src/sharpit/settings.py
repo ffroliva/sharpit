@@ -14,21 +14,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from sharpit import settings_registry as _registry
 from sharpit.engine.masking import Exposure
 from sharpit.engine.panels import PANELS
-from sharpit.settings_registry import (
-    FAMILY_SPECS,
-    parse_bool,
-)
-from sharpit.settings_registry import (
-    NEVER_ECHOED as _NEVER_ECHOED,
-)
-from sharpit.settings_registry import (
-    UNSET as _UNSET,
-)
-from sharpit.settings_registry import (
-    parse_mode as parse_mode,
-)
+
+_NEVER_ECHOED = _registry.NEVER_ECHOED
+_SPECS = _registry.SPECS
+_UNSET = _registry.UNSET
+_bool = _registry.parse_bool
+parse_mode = _registry.parse_mode
+del _registry
 
 
 @dataclass(frozen=True)
@@ -135,7 +130,6 @@ class SharpitSettings:
     warnings: tuple[str, ...] = ()
 
 
-_SPECS = {name: spec for family in FAMILY_SPECS.values() for name, spec in family.items()}
 _DEFAULTS = SharpitSettings()
 WEAK_IDENTITY_KEY = "SHARPIT_IDENTITY_KEY is one character repeated: a weak key"
 # owner 2026-11-07, item 7: capture on shows more than bound values, so install says so, as FULL does
@@ -202,9 +196,9 @@ def _panels(kwargs: Mapping[str, object], environ: Mapping[str, str], warnings: 
                     flags[key] = failsafe
                 continue
             try:
-                flags[key] = parse_bool(raw)
+                flags[key] = _bool(raw)
             except ValueError:
-                shown = "" if f"panels.{pid}.{key}" in _NEVER_ECHOED else f" '{raw}'"
+                shown = f" '{raw}'"
                 warnings.append(f"Ignoring invalid {env} value{shown}")
                 flags[key] = failsafe
         out[pid] = PanelSettings(enabled=bool(flags["enabled"]), read_only=bool(flags["read_only"]))

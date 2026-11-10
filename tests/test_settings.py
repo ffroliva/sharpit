@@ -530,10 +530,11 @@ def test_settings_split_preserves_flat_kwargs_env_precedence_and_failsafe():
     )
 
     from sharpit.settings import _SPECS
-    from sharpit.settings_registry import FAMILY_SPECS
+    from sharpit.settings_registry import SPECS as registry_specs
 
-    registered = {name for family in FAMILY_SPECS.values() for name in family}
+    registered = set(registry_specs)
     fields = {f.name for f in dataclasses.fields(SharpitSettings)}
+    assert registry_specs is _SPECS
     assert registered == set(_SPECS)
     assert fields - registered == {"panels", "warnings", "path", "api_path"}
 
@@ -561,23 +562,119 @@ def test_invalid_sensitive_settings_never_echo_for_any_family(field: str):
             return "sensitive-warning-canary"
 
     raw = Canary()
-    if field.startswith("panels."):
-        panel, flag = field.removeprefix("panels.").split(".")
-        assert f"panels.{panel}.{flag}" in _NEVER_ECHOED
-        settings = load_settings({"panels": {panel: {flag: raw}}}, {})
-    else:
-        assert field in _NEVER_ECHOED
-        settings = load_settings({field: raw}, {})
+    assert field in _NEVER_ECHOED
+    settings = load_settings({field: raw}, {})
     assert settings.warnings
     assert all(str(raw) not in warning for warning in settings.warnings)
 
 
 def test_credential_like_settings_are_registered_as_never_echoed():
-    from sharpit.settings import _NEVER_ECHOED
+    import sharpit.settings_registry as registry
 
-    credential_words = ("token", "password", "credential", "api_key", "base_uri")
-    fields = {f.name for f in dataclasses.fields(SharpitSettings)}
-    credential_fields = {name for name in fields if any(word in name.lower() for word in credential_words)}
-    assert credential_fields <= _NEVER_ECHOED
-    assert "mask_secrets" in fields - credential_fields
-    assert "mask_secrets" not in _NEVER_ECHOED
+    classify = getattr(registry, "unclassified_settings_fields", lambda _: {"classifier is missing"})
+
+    assert not classify(SharpitSettings)
+
+
+def test_new_unclassified_settings_field_is_reported():
+    import sharpit.settings_registry as registry
+
+    classify = getattr(
+        registry, "unclassified_settings_fields", lambda settings: {f.name for f in dataclasses.fields(settings)}
+    )
+    extended = dataclasses.make_dataclass(
+        "ExtendedSettings", [("future_secret", str, None)], bases=(SharpitSettings,), frozen=True
+    )
+
+    assert classify(extended) == {"future_secret"}
+
+
+def test_invalid_settings_warning_order_matches_pre_split_registry():
+    from sharpit.settings import _SPECS
+
+    settings = load_settings({}, {f"SHARPIT_{name.upper()}": "zz-bad" for name in _SPECS})
+    expected = [
+        "ENABLED",
+        "ALLOW_NON_LOCALHOST",
+        "TRUST_CONTAINER_GATEWAY",
+        "IDENTITY_KEY",
+        "READ_ONLY",
+        "EXPOSE_VALUES",
+        "MASK_SECRETS",
+        "SHOW_BANNER",
+        "VULNERABILITIES_OSV_ENABLED",
+        "VULNERABILITIES_REQUEST_TIMEOUT",
+        "VULNERABILITIES_MAX_PACKAGES",
+        "VULNERABILITIES_MAX_ADVISORIES",
+        "VULNERABILITIES_OSV_BASE_URI",
+        "VULNERABILITIES_EPSS_ENABLED",
+        "VULNERABILITIES_EPSS_BASE_URI",
+        "MCP_ENABLED",
+        "MCP_MAX_RESULTS",
+        "MCP_MAX_PAYLOAD_BYTES",
+        "MCP_MAX_CONCURRENT_CALLS",
+        "MCP_EXECUTION_TIMEOUT",
+        "MCP_MAX_RESPONSE_BYTES",
+        "CLI_ENABLED",
+        "CLI_MAX_RESULTS",
+        "CLI_MAX_CONCURRENT_CALLS",
+        "CLI_EXECUTION_TIMEOUT",
+        "HTTP_EXCHANGES_MAX_EXCHANGES",
+        "EXCEPTIONS_MAX_GROUPS",
+        "EXCEPTIONS_MAX_OCCURRENCES_PER_GROUP",
+        "EXCEPTIONS_MAX_STACK_FRAMES",
+        "SQL_TRACE_ENABLED",
+        "SQL_TRACE_SQLITE3_ENABLED",
+        "SQL_TRACE_RECORDING",
+        "SQL_TRACE_CAPTURE_PARAMETERS",
+        "SQL_TRACE_CAPTURE_CALL_SITE",
+        "SQL_TRACE_MAX_ENTRIES",
+        "SQL_TRACE_SLOW_QUERY_THRESHOLD_MILLIS",
+        "SQL_TRACE_MAX_SQL_LENGTH",
+        "SQL_TRACE_MAX_PARAMETER_LENGTH",
+        "SQL_TRACE_N_PLUS_ONE_THRESHOLD",
+        "ACTIVITY_MAX_ENTRIES",
+        "ACTIVITY_REQUEST_SLOW_THRESHOLD_MS",
+        "ACTIVITY_N_PLUS_ONE_THRESHOLD",
+        "ACTIVITY_UNBOUNDED_READ_FACTOR",
+        "LOG_TAIL_MAX_LINES",
+        "LOG_TAIL_MAX_BYTES",
+        "ALEMBIC_TIMEOUT",
+        "HEALTH_TIMEOUT",
+        "THREADS_MAX_STACK_FRAMES",
+        "ADVISORS_MAX_RETAINED_VIOLATIONS",
+        "STREAM_MAX_SECONDS",
+        "SECURITY_LOGS_MAX_LOGS",
+        "POSTGRESQL_MAX_SESSIONS",
+        "POSTGRESQL_MAX_STATEMENTS",
+        "POSTGRESQL_MAX_INDEXES",
+        "POSTGRESQL_MAX_TABLES",
+        "POSTGRESQL_MAX_VACUUM_TABLES",
+        "POSTGRESQL_MAX_REPLICAS",
+        "POSTGRESQL_MAX_SETTINGS",
+        "TRANSACTIONS_ENABLED",
+        "TRANSACTIONS_RECORDING",
+        "TRANSACTIONS_MAX_ENTRIES",
+        "TRANSACTIONS_SLOW_TRANSACTION_THRESHOLD_MILLIS",
+        "TRANSACTIONS_CONNECTION_HOLD_THRESHOLD_MILLIS",
+        "MYSQL_MAX_SESSIONS",
+        "MYSQL_MAX_STATEMENTS",
+        "MYSQL_MAX_INDEXES",
+        "MYSQL_MAX_TABLES",
+        "MYSQL_MAX_LOCK_WAITS",
+        "MYSQL_MAX_REPLICATION_CHANNELS",
+        "MYSQL_MAX_SETTINGS",
+        "DATABASE_ADVISOR_MAX_TABLES",
+        "DATABASE_ADVISOR_MAX_COLUMNS",
+        "DATABASE_ADVISOR_MAX_INDEXES_PER_TABLE",
+        "DATABASE_ADVISOR_MAX_VENDOR_ROWS",
+        "ARCHITECTURE_MAX_FILES",
+        "ARCHITECTURE_MAX_FILE_BYTES",
+        "APP_PACKAGE",
+    ]
+    observed = [
+        warning.removeprefix("Ignoring invalid SHARPIT_").split(" value")[0]
+        for warning in settings.warnings
+        if warning.startswith("Ignoring invalid")
+    ]
+    assert observed == expected
