@@ -216,3 +216,84 @@ def test_the_byte_bound_evicts_the_oldest_events() -> None:
     assert status["retainedBytes"] <= 117 * 3
     assert status["evictedEvents"] == 2
     assert status["bindingBound"] == "BYTES"
+
+
+def _masked_record(**fields: object) -> dict[str, object]:
+    journal = _journal_module().RuntimeJournal(masker=Masker(Exposure.MASKED, True))
+    assert journal.offer({"source": "sql", **fields}) is True
+    return journal.records("sql")[0]
+
+
+class _Opaque:
+    def __init__(self, secret: str) -> None:
+        self.secret = secret
+
+    def __repr__(self) -> str:
+        return f"Opaque(password={self.secret})"
+
+    __str__ = __repr__
+
+
+def test_records_mask_bytes_sets_objects_and_nested_values() -> None:
+    canary = "c4n4ry0123456789abcdef"
+    record = _masked_record(
+        raw=f"password={canary}".encode(),
+        tags={f"token={canary}"},
+        frozen=frozenset({f"secret={canary}"}),
+        obj=_Opaque(canary),
+        nested={"deep": [{"inner": (f"password={canary}".encode(), _Opaque(canary))}]},
+    )
+    shown = json.dumps(record, default=repr)  # what any serialiser of a leftover object would show
+    assert canary not in shown
+
+
+def test_records_show_sql_without_literals() -> None:
+    # ported: JournalTextExposureTests.sqlWhoseBackslashesReadDifferentlyByDialectShowsNothingAfterItsFirstQuote
+    def sql(text: str) -> object:
+        return _masked_record(sql=text)["sql"]
+
+    assert sql("select * from t where a = 'x' and b = 'y'") == "select * from t where a = ? and b = ?"
+    assert "sk_live_EXAMPLE" not in str(sql("SELECT 'C:', 'sk_live_EXAMPLE'"))
+    assert "sk_live_EXAMPLE" not in str(sql("select * from t where a = 'it's sk_live_EXAMPLE' and b = 1"))
+    assert sql('select * from t where a = "x\\"sk_live_EXAMPLE"') == "select * from t where a = ?"
+    assert "hunter2pass" not in str(sql('insert into users(pw) values("x\\"hunter2pass")'))
+    assert sql("INSERT INTO api_keys(value) # '\nVALUES ('sk_live_EXAMPLE')") == "INSERT INTO api_keys(value) ?"
+
+
+def test_records_never_show_sql_that_reads_like_a_value() -> None:
+    # ported: JournalTextExposureTests.sqlThatCannotBeToldApartFromAValueIsNeverShownMasked
+    def sql(text: str) -> str:
+        return str(_masked_record(sql=text)["sql"])
+
+    for text, secret in [
+        ("select * from t where body = $$top secret$$", "top secret"),
+        ("select * from t where body = $tag$top secret (truncated", "top secret"),
+        ("select * from t where body = $$top secret", "top secret"),
+        ('select * from t where name = "alice"', "alice"),
+        ("select * from api_keys where credential = $$prefix sk_live_EXAMPLE$$", "sk_live_EXAMPLE"),
+        ("select * from api_keys where credential = $k$prefix sk_live_EXAMPLE$k$", "sk_live_EXAMPLE"),
+        ("select * from t where password = :password and api_key = sk_live_EXAMPLE", "sk_live_EXAMPLE"),
+        ("SELECT 1 # password=?sk_live_EXAMPLE", "sk_live_EXAMPLE"),
+        ("UPDATE t SET `password`=sk_live_EXAMPLE", "sk_live_EXAMPLE"),
+        ("SELECT [password]=sk_live_EXAMPLE FROM t", "sk_live_EXAMPLE"),
+        ("SELECT /* outer /* inner */ ' */ 'sk_live_EXAMPLE'", "sk_live_EXAMPLE"),
+        ("SELECT $é$sk_live_EXAMPLE", "sk_live_EXAMPLE"),
+        ("SELECT q'[it's sk_live_EXAMPLE]' FROM dual", "sk_live_EXAMPLE"),
+    ]:
+        assert secret not in sql(text), text
+    assert sql("select * from t where id = $1") == "select * from t where id = $1"
+    assert sql("SELECT 123_456, 1.5e-3 FROM t") == "SELECT ?, ? FROM t"
+    assert sql("SELECT .123456 FROM t") == "SELECT ? FROM t"
+    assert sql("SELECT 0x736b5f6c6976655f4558414d504c45, 0b1011 FROM t") == "SELECT ?, ? FROM t"
+
+
+def test_records_mask_path_matrix_parameters() -> None:
+    # ported: JournalTextExposureTests.metadataOnlyMasksEveryMatrixParameterValueWhateverItsName (masked whole, as the
+    # traces panel does: session ids live in matrix parameters)
+    assert _masked_record(path="/callback;code=opaqueCredential/x;flag")["path"] == "/callback;code=******/x;******"
+
+
+def test_records_are_verbatim_with_masking_off() -> None:
+    journal = _journal_module().RuntimeJournal(masker=Masker(Exposure.FULL, False))
+    journal.offer({"source": "sql", "sql": "select 'x'", "path": "/a;code=1"})
+    assert journal.records("sql") == ({"source": "sql", "sql": "select 'x'", "path": "/a;code=1"},)
