@@ -31,6 +31,7 @@ from sharpit.engine.masking import MASK, Exposure, Masker
 from sharpit.engine.sqltext import Dialect
 
 DEFAULT_MAX_BYTES = 32 * 1024 * 1024
+_MAX_DEPTH = 32  # deeper than any event a sensor builds: a cycle
 _SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
 
 Event = Mapping[str, object]
@@ -55,14 +56,28 @@ class _NullSink:
 NULL_SINK: JournalSink = _NullSink()
 
 
-def _size(value: object) -> int:
-    if isinstance(value, str | bytes):
-        return len(value)
-    if isinstance(value, Mapping):
-        return sum(_size(key) + _size(item) for key, item in cast("Mapping[object, object]", value).items())
-    if isinstance(value, Sequence):
-        return sum(_size(item) for item in cast("Sequence[object]", value))
-    return _SCALAR_BYTES
+def _snapshot(value: object, depth: int = 0) -> tuple[object, int]:
+    """A deep, plain copy of ``value`` and its estimated size, in one walk.
+
+    A host changing what it offered later changes neither the stored event nor its charged bytes. Too deep a value (a
+    cycle) raises, and the offer is counted failed.
+    """
+    if depth > _MAX_DEPTH:
+        raise ValueError("journal event nested too deep")
+    plain = _plain(value)
+    if isinstance(plain, str):
+        return plain, len(plain)
+    if isinstance(plain, Mapping):
+        copied: dict[str, object] = {}
+        size = 0
+        for key, item in cast("Mapping[object, object]", plain).items():
+            copied[str(key)], item_size = _snapshot(item, depth + 1)
+            size += len(str(key)) + item_size
+        return copied, size
+    if isinstance(plain, list | tuple):
+        items = [_snapshot(item, depth + 1) for item in cast("Sequence[object]", plain)]
+        return [item for item, _ in items], sum(size for _, size in items)
+    return plain, _SCALAR_BYTES
 
 
 # ported: JournalTextExposure: the runs a SQL shape keeps but cannot tell apart from a value, and what reads two ways
@@ -209,7 +224,7 @@ class RuntimeJournal:
         if not isinstance(source, str) or (self.sources is not None and source not in self.sources):
             self._dropped["source-disabled"] += 1
             return False
-        size = _size(event)
+        stored, size = _snapshot(event)
         if size > self.max_bytes:
             self._dropped["max-bytes"] += 1
             return False
@@ -219,7 +234,7 @@ class RuntimeJournal:
             _, removed, _ = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
             self._bytes -= removed
             self._evicted += 1
-        self._events.append((dict(event), size, stamp))
+        self._events.append((cast("dict[str, object]", stored), size, stamp))
         self._bytes += size
         self._accepted[source] += 1
         return True
