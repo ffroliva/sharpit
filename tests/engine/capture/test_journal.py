@@ -174,7 +174,7 @@ def test_an_unconfigured_source_is_dropped_and_counted() -> None:
     assert journal.offer({"source": "processes", "pid": 1}) is False
     status = journal.status()
     assert status["dropped"] == {"source-disabled": 1}
-    assert status["recorded"] == {"sql": 0}
+    assert status["recorded"] == {}
 
 
 def test_a_new_journal_source_is_refused_by_settings_until_it_is_catalogued() -> None:
@@ -309,3 +309,10 @@ def test_a_later_host_mutation_changes_neither_the_stored_event_nor_its_bytes() 
     payload["rows"].append("y" * 10_000)  # pyright: ignore[reportAttributeAccessIssue]
     assert journal.records("http")[0]["payload"] == {"k": "v", "rows": ["a"]}
     assert journal.status()["retainedBytes"] == charged
+
+
+def test_recorded_lists_only_sources_with_events() -> None:
+    # ported: RuntimeJournalService.byPropertyName keeps a source only when it has a count
+    journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, sources=("sql", "http", "log"))
+    journal.offer({"source": "http"})
+    assert journal.status()["recorded"] == {"http": 1}

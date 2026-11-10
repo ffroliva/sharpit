@@ -6,6 +6,7 @@ Derived cases: BootUI's oracle for the merge itself is ported in ``tests/engine/
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Iterator
 from typing import Any
 
@@ -185,10 +186,17 @@ def test_get_live_activity_mcp_no_side_effects(no_side_effects: SideEffectGuard)
 
 
 def test_activity_journal_golden_parity():
-    from golden import assert_parity
+    from golden import BOOTUI_FIXTURES_DIR, assert_parity
 
-    app, _ = _app()
-    resp = _client(app).get(f"{API}/journal")
+    app, handle = _app()
+    with _client(app) as client:
+        # recorded lists only sources with events (BootUI): give each source the golden counts one, as its app did
+        journal = handle.context.capture.journal
+        assert journal is not None
+        golden = json.loads((BOOTUI_FIXTURES_DIR / "2.2.0" / "activity" / "journal.captured.json").read_text())
+        for source in golden["recorded"]:
+            assert journal.offer({"source": source}) is True
+        resp = client.get(f"{API}/journal")
     assert resp.status_code == 200, "GET /activity/journal is served"
     assert_parity("activity", "journal", resp.json())
     assert resp.json()["enabled"] is True, "journal status reflects the allocated runtime journal"
