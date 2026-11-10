@@ -444,14 +444,38 @@ def test_uninstall_capture_removes_hooks():
     assert len(_rows(handle)) == 1
 
 
-def test_low_footprint_suspends_and_resumes_registered_capture_hooks():
+def test_every_capture_hook_is_registered():
     app = FastAPI()
     app.get("/host")(lambda: {})
     handle = install(app, enabled="ON", show_banner=False)
     with TestClient(app) as client:
         client.get("/host")
         hooks = handle.context.capture.hooks.hooks()
-        assert [hook.name for hook in hooks] == ["fastapi capture wiring"]
+        names = {hook.name for hook in hooks}
+        assert names == {
+            "capture-middleware",
+            "exception-handlers",
+            "log-handler",
+            "security-log",
+            "sqla-listeners",
+            "sqlite-listeners",
+            "traces",
+        }
+
+
+def test_low_footprint_suspends_and_resumes_registered_capture_hooks():
+    app = FastAPI()
+    app.get("/host")(lambda: {})
+    handle = install(app, enabled="ON", show_banner=False)
+    with TestClient(app) as client:
+        client.get("/host")
+        service = LowFootprintService(handle.context.capture.hooks)
+        service.suspend()
+        client.get("/host")
+        assert len(_rows(handle)) == 1
+        service.resume()
+        client.get("/host")
+        assert len(_rows(handle)) == 2
         service = LowFootprintService(handle.context.capture.hooks)
         service.suspend()
         client.get("/host")
