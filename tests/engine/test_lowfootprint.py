@@ -111,3 +111,48 @@ def test_a_hook_that_raises_on_suspend_does_not_strand_the_others() -> None:
     status = service.resume()
     assert [hook.attached for hook in hooks] == [True, True, True]
     assert status["enabled"] is False
+
+
+def test_low_footprint_discards_each_hook_once_and_disable_does_not_restore_data() -> None:
+    # ported: LowFootprintServiceTests.enablingTwiceAndDisablingTwiceChangeNothingTheSecondTime
+    from sharpit.engine.lowfootprint import LowFootprintService
+
+    class BufferedHook:
+        name = "buffered"
+
+        def __init__(self) -> None:
+            self.items = ["diagnostic"]
+            self.discards = 0
+
+        def suspend(self) -> None:
+            pass
+
+        def resume(self) -> None:
+            pass
+
+        def discard(self) -> None:
+            self.discards += 1
+            self.items.clear()
+
+    class LegacyHook:
+        name = "no-discard"
+
+        def suspend(self) -> None:
+            pass
+
+        def resume(self) -> None:
+            pass
+
+    registry = capture.HookRegistry()
+    buffered = BufferedHook()
+    registry.register(buffered)
+    registry.register(LegacyHook())
+    service = LowFootprintService(registry)
+
+    service.suspend()
+    service.suspend()
+
+    assert buffered.items == []
+    assert buffered.discards == 1
+    service.resume()
+    assert buffered.items == []

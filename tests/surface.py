@@ -32,6 +32,7 @@ BASE_PANEL_IDS = [
     "threads",
     "rest-api",
     "http-probe",
+    "live-memory",
 ]
 BASE_MCP_TOOL_NAMES = [
     "get_overview",
@@ -99,11 +100,17 @@ def expected_panel_ids() -> list[str]:
 
 
 def expected_mcp_tool_names() -> list[str]:
-    return [*BASE_MCP_TOOL_NAMES, *(t.name for t in lane_tools() if not t.action)]
+    return [*BASE_MCP_TOOL_NAMES, *(t.name for t in lane_tools() if not t.action), "get_low_footprint"]
 
 
 def expected_cli_commands() -> dict[str, str]:
-    return {**BASE_CLI_COMMANDS, **lane_commands()}
+    return {
+        **BASE_CLI_COMMANDS,
+        **lane_commands(),
+        "get_low_footprint": "low-footprint status",
+        "enable_low_footprint": "low-footprint enable",
+        "disable_low_footprint": "low-footprint disable",
+    }
 
 
 def lane_route_paths(ctx: Any) -> list[str]:

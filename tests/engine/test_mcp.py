@@ -221,7 +221,7 @@ def test_tools_list_has_no_action_tool():
     tools = body["result"]["tools"]
     names = [t["name"] for t in tools]
     assert names[: len(BASE_MCP_TOOL_NAMES)] == BASE_MCP_TOOL_NAMES
-    assert names == expected_mcp_tool_names()  # plus each implemented 0.4 panel's read tools
+    assert names == expected_mcp_tool_names()  # plus implemented 0.4 panel reads and low-footprint status
     assert "rest_api_scan" not in {t["name"] for t in tools}
     first = tools[0]
     assert set(first) == {"name", "description", "inputSchema", "outputSchema"}
