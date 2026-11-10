@@ -41,14 +41,18 @@ def test_leak_gate_refuses_machine_values(tmp_path: Path) -> None:
 
 def test_machine_values_never_written_inside_the_repo(tmp_path: Path) -> None:
     # Must refuse write inside the repository root
-    with pytest.raises(ValueError, match="inside the git repo"):
-        write_machine_values(REPO_ROOT / "temp_leak_values.txt")
+    inside_repo = REPO_ROOT / "temp_leak_values.txt"
+    try:
+        with pytest.raises(ValueError, match="inside the git repo"):
+            write_machine_values(inside_repo, values=["stub_machine_value"])
+    finally:
+        inside_repo.unlink(missing_ok=True)
 
     out_file = tmp_path / "machine_values.txt"
-    write_machine_values(out_file)
+    write_machine_values(out_file, values=["stub_machine_value"])
     assert out_file.is_file(), "output file must be written"
     lines = [line.strip() for line in out_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-    assert len(lines) > 0, "output file must contain machine values"
+    assert lines == ["stub_machine_value"], "output must contain only supplied stub values"
 
 
 def test_machine_values_collection(monkeypatch: pytest.MonkeyPatch) -> None:

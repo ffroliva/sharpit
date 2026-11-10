@@ -102,6 +102,14 @@ def test_run_rejects_unsafe_method_before_request(tmp_path: Path) -> None:
     assert calls == [], "unsafe method must be rejected before any request"
 
 
+def test_run_rejects_raw_path_before_request(tmp_path: Path) -> None:
+    calls: list[Any] = []
+    step = Step("pre-scan GET", "GET", "/sessions/id/events/evt/raw", "sessions", "sessions")
+    with pytest.raises(ValueError, match="method/path not allowed"):
+        run([step], lambda req: calls.append(req), tmp_path / "raw")
+    assert calls == [], "raw path must be rejected before any request"
+
+
 def test_uncaptured_subroutes_do_not_collide(tmp_path: Path) -> None:
     def fail(req: Any) -> Any:
         raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, io.BytesIO(b""))
@@ -121,7 +129,7 @@ def test_scanner_records_parameterized_route_ids(tmp_path: Path) -> None:
     def stub(req: Any) -> StubResponse:
         requested.append(req.full_url)
         if req.full_url.endswith("/exceptions"):
-            return StubResponse([{"id": "found-id"}])
+            return StubResponse([{"id": "found/id"}])
         return StubResponse({"detail": "captured"})
 
     plan = [
@@ -129,7 +137,65 @@ def test_scanner_records_parameterized_route_ids(tmp_path: Path) -> None:
         Step("pre-scan GET", "GET", "/exceptions/{id}", "exceptions", "exceptions", "detail"),
     ]
     run(plan, stub, tmp_path / "raw")
-    assert any(url.endswith("/exceptions/found-id") for url in requested), "list response id must fill detail route"
+    assert any(url.endswith("/exceptions/found%2Fid") for url in requested), "rule id must be URL-quoted"
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected", "response"),
+    [
+        ("404", "404", "missing"),
+        ("disabled", "disabled", "disabled"),
+        ("error", "error", "error"),
+        ("needs-external", "needs-external", "external"),
+    ],
+)
+def test_uncaptured_status_comes_from_stubbed_response(tmp_path: Path, kind: str, expected: str, response: str) -> None:
+    target = Step("pre-scan GET", "GET", "/example", "example", "example")
+    reason = "No external tool is available" if response == "external" else "Panel disabled by configuration"
+    panels = (
+        [{"id": "example", "available": False, "unavailableReason": reason}]
+        if response in ("disabled", "external")
+        else []
+    )
+
+    def stub(req: Any) -> StubResponse:
+        if req.full_url.endswith("/panels"):
+            return StubResponse({"panels": panels})
+        if response == "missing":
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, io.BytesIO(b""))
+        if response == "error":
+            raise urllib.error.HTTPError(req.full_url, 500, "Server Error", {}, io.BytesIO(b""))
+        return StubResponse({"ok": True})
+
+    plan = [Step("pre-scan GET", "GET", "/panels", "panels", "panels"), target]
+    result = run(plan, stub, tmp_path / kind)
+    assert "GET /example" in result, "unavailable panel route must be recorded"
+    assert result["GET /example"]["status"] == expected
+    if response in ("disabled", "external"):
+        assert result["GET /example"]["reason"] == panels[0]["unavailableReason"]
+
+
+def test_uncaptured_parameterized_route_without_list_id(tmp_path: Path) -> None:
+    plan = [
+        Step("pre-scan GET", "GET", "/exceptions", "exceptions", "exceptions"),
+        Step("pre-scan GET", "GET", "/exceptions/{id}", "exceptions", "exceptions", "detail"),
+    ]
+    result = run(plan, lambda req: StubResponse([]), tmp_path / "raw")
+    assert result["GET /exceptions/{id}"]["status"] == "not-probed"
+
+
+def test_rule_id_is_quoted_before_request(tmp_path: Path) -> None:
+    requested: list[str] = []
+
+    def stub(req: Any) -> StubResponse:
+        requested.append(req.full_url)
+        return StubResponse({"violations": []})
+
+    step = Step("violations", "GET", "/example/rules/{ruleId}/violations?limit=5", "example", "example")
+    from scripts.capture_bootui_live import _run_violations
+
+    _run_violations(step, {"example": {"rules": [{"id": "rule/id"}]}}, stub, "http://stub/api", tmp_path, {})
+    assert requested == ["http://stub/api/example/rules/rule%2Fid/violations?limit=5"]
 
 
 def test_plan_covers_every_starter_get() -> None:
