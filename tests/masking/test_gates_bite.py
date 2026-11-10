@@ -305,6 +305,48 @@ def _kill(mutant: Mutant, tmp: Path, seeds: tuple[int, ...] = SEEDS) -> tuple[in
     return _base(mutant.surface, seeds)[mutant.gate], _run_worker(tmp / "src", mutant.surface, seeds)[mutant.gate]
 
 
+def test_each_mutant_runs_on_an_otherwise_pristine_tree(tmp_path: Path) -> None:
+    package = Path(sqltrace.__file__).resolve().parents[2]
+    copy = _scratch_copy(tmp_path)
+    target = _mutate(copy, MUTANTS["array_space"]).relative_to(copy)
+    expected = {
+        path.relative_to(package): path.read_bytes()
+        for path in package.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and "static" not in path.parts
+    }
+    actual = {path.relative_to(copy): path.read_bytes() for path in copy.rglob("*") if path.is_file()}
+    assert {path: contents for path, contents in actual.items() if path != target} == {
+        path: contents for path, contents in expected.items() if path != target
+    }
+
+
+def test_the_mutated_module_is_never_loaded_from_cached_bytecode(tmp_path: Path) -> None:
+    mutant = MUTANTS["array_space"]
+    copy = _scratch_copy(tmp_path)
+    _mutate(copy, mutant)
+    assert not list(copy.rglob("*.pyc"))
+    _run_worker(tmp_path / "src", mutant.surface)
+    assert not list(copy.rglob("*.pyc"))
+
+
+def test_the_unmutated_counts_are_computed_once_per_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    clear_cache = getattr(_base, "cache_clear", None)
+    if clear_cache is not None:
+        clear_cache()
+    calls = 0
+    counts = mutant_worker.counts
+
+    def counted(surface: str, rows: object) -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return counts(surface, rows)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(mutant_worker, "counts", counted)
+    for index, name in enumerate(("true", "false")):
+        _kill(MUTANTS[name], tmp_path / str(index))
+    assert calls == 1
+
+
 # mutants the seeded rows cannot reach (the cut hides what they change): a named unit test must fail on the mutated copy
 NEVER_CLOSES = Mutant(
     f"end = {CLOSER}",
