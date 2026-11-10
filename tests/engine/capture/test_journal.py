@@ -22,10 +22,25 @@ def _journal_module():
 
 
 def test_journal_off_allocates_nothing() -> None:
-    before = threading.enumerate()
+    from fastapi.testclient import TestClient
+
+    from fastapi import FastAPI
+    from sharpit import install
+
     assert getattr(CaptureState(), "journal", None) is None
-    assert threading.enumerate() == before
     assert _journal_module().NULL_SINK.offer({"source": "test"}) is False
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, runtime_journal_enabled=False)
+    try:
+        before = {thread.ident for thread in threading.enumerate()}
+        with TestClient(app) as client:
+            client.get("/sharpit/api/activity/journal")
+            names = {hook.name for hook in handle.context.capture.hooks.hooks()}
+            assert handle.context.capture.journal is None
+            assert "runtime-journal" not in names
+        assert {thread.ident for thread in threading.enumerate()} == before
+    finally:
+        handle.uninstall_capture()
 
 
 def test_journal_bounds_and_counts_drops() -> None:
