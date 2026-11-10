@@ -78,3 +78,26 @@ def test_request_overhead_budget():
     assert exchanges is not None
     assert exchanges.report(None, None, None, None, None)["total"] > 0, "capture never ran: the number means nothing"
     check_budget("capture per request", result, BUDGET_MS * 1e6, "ms", 1e6)
+
+
+def test_suspended_request_overhead_budget():
+    """Plan scenario 2: with the capture-middleware hook suspended (low-footprint), the pass-through stays in budget."""
+    (off_app, _), (on_app, on_handle) = _app(False), _app(True)
+    hook = next(h for h in on_handle.context.capture.hooks.hooks() if h.name == "capture-middleware")
+    loop = asyncio.new_event_loop()
+    try:
+        for app in (off_app, on_app):
+            loop.run_until_complete(app(dict(SCOPE), _receive, _send))  # builds the middleware stack outside the timing
+        exchanges = on_handle.context.capture.exchanges
+        assert exchanges is not None
+        recorded = exchanges.report(None, None, None, None, None)["total"]
+        hook.suspend()
+        result = paired(
+            lambda: loop.run_until_complete(_round_ns(off_app)),
+            lambda: loop.run_until_complete(_round_ns(on_app)),
+            ROUNDS,
+        )
+    finally:
+        loop.close()
+    assert exchanges.report(None, None, None, None, None)["total"] == recorded, "the suspended path recorded"
+    check_budget("capture per request, suspended", result, BUDGET_MS * 1e6, "ms", 1e6)

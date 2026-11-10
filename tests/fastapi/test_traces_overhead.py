@@ -34,3 +34,14 @@ def test_on_end_overhead_budget():
     result = paired(lambda: _round(idle), lambda: _round(armed), ROUNDS)
     assert len(buffer._spans) == 1000  # pyright: ignore[reportPrivateUsage] - every span reached the bounded buffer
     check_budget("span processor per ended span", result, BUDGET_NS, "µs", 1000)
+
+
+def test_suspended_on_end_overhead_budget():
+    """Plan scenario 2: the traces hook suspended disarms its sink (the lane's remover); ``on_end`` stays in budget."""
+    buffer = SpanBuffer(Masker(Exposure.MASKED, True), application=lambda: None, capacity=1000)
+    idle, suspended = otel.SharpitSpanProcessor(), otel.SharpitSpanProcessor()
+    suspended.sinks = (buffer,)
+    otel.disarm(buffer, suspended)  # what suspending the traces registry entry runs
+    result = paired(lambda: _round(idle), lambda: _round(suspended), ROUNDS)
+    assert len(buffer._spans) == 0, "the suspended path recorded"  # pyright: ignore[reportPrivateUsage]
+    check_budget("span processor per ended span, suspended", result, BUDGET_NS, "µs", 1000)

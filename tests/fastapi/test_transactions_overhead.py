@@ -89,3 +89,36 @@ def test_overhead_measures_production_contexts_path(
         pass
     assert recorder.report([])["totalCaptured"] == 1, "the attached side must record the transaction"
     assert fallback_calls == [], "the attached side must route through the panel's own contexts, not SQL Trace's"
+
+
+def test_suspended_transaction_overhead_budget(handle: tuple[SharpitHandle, Any, Any]) -> None:
+    """Plan scenario 2: with the transactions hook suspended (low-footprint), begin plus commit stays in budget."""
+    installed, engine, recorder = handle
+    hook = next(h for h in installed.context.capture.hooks.hooks() if h.name == "transactions")
+    with engine.connect() as connection:
+        with connection.begin():  # warm SQLAlchemy's event path
+            pass
+        captured = recorder.report([])["totalCaptured"]
+        hook.suspend()
+
+        def round_transactions() -> int:
+            started = time.perf_counter_ns()
+            for _ in range(PER_ROUND):
+                with connection.begin():
+                    pass
+            return (time.perf_counter_ns() - started) // PER_ROUND
+
+        stock = sa.create_engine("sqlite://")  # never routed to any context
+        with stock.connect() as stock_connection:
+
+            def stock_round() -> int:
+                started = time.perf_counter_ns()
+                for _ in range(PER_ROUND):
+                    with stock_connection.begin():
+                        pass
+                return (time.perf_counter_ns() - started) // PER_ROUND
+
+            result = paired(stock_round, round_transactions, ROUNDS)
+        stock.dispose()
+    assert recorder.report([])["totalCaptured"] == captured, "the suspended path recorded"
+    check_budget("SQLAlchemy transaction listener pair, suspended", result, BUDGET_NS, "µs", 1000)
