@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -76,7 +77,7 @@ class JobTimings:
 
 @dataclass(frozen=True)
 class Walls:
-    a: float = 0.0
+    a: float | None = 0.0
     b: float = 0.0
     max_queue: float = 0.0
     event: str = ""
@@ -100,7 +101,7 @@ def _step_timings(
     test_step: dict[str, Any] | None = None
     for s in valid_steps:
         sn = s.get("name", "").lower()
-        if any(k in sn for k in ["pytest", "vitest", "sonarcloud scan", "npm run build"]):
+        if any(k in sn for k in ["pytest", "vitest", "sonarcloud scan", "npm run build", "test", "build"]):
             test_step = s
             break
 
@@ -115,32 +116,16 @@ def _step_timings(
     return 0.0, total_dur, 0.0
 
 
-def walls(
-    run: dict[str, Any],
-    jobs: list[dict[str, Any]] | None = None,
-    required: Collection[str] | None = None,
-) -> Walls:
-    """Compute attempt-1 critical path walls (a) and (b), queue, and step timings."""
-    run_dict: dict[str, Any] = run.get("run", run) if isinstance(run, dict) else run
-    if jobs is None and "jobs" in run:
-        jobs = run["jobs"]
-    if jobs is None:
-        jobs = []
-
-    attempt = run_dict.get("run_attempt", 1)
+def _parse_run(run: dict[str, Any]) -> datetime:
+    attempt = run.get("run_attempt", 1)
     if attempt != 1:
         msg = f"walls only measures attempt 1, got attempt {attempt}"
         raise ValueError(msg)
+    return parse_ts(run["created_at"])
 
-    req_set = DEFAULT_REQUIRED if required is None else frozenset(required)
-    run_created = parse_ts(run_dict["created_at"])
-    run_event = run_dict.get("event", "")
-    run_conclusion = run_dict.get("conclusion", "")
-    run_id = run_dict.get("id", "")
 
-    per_job: dict[str, JobTimings] = {}
-    completed_jobs: list[tuple[dict[str, Any], datetime, datetime]] = []
-
+def _parse_jobs(jobs: Sequence[dict[str, Any]]) -> list[tuple[dict[str, Any], datetime, datetime]]:
+    completed: list[tuple[dict[str, Any], datetime, datetime]] = []
     for j in jobs:
         j_attempt = j.get("run_attempt")
         if j_attempt not in (None, 1):
@@ -148,22 +133,16 @@ def walls(
             raise ValueError(msg)
         if not j.get("completed_at") or not j.get("started_at"):
             continue
-        j_start = parse_ts(j["started_at"])
-        j_end = parse_ts(j["completed_at"])
-        completed_jobs.append((j, j_start, j_end))
+        completed.append((j, parse_ts(j["started_at"]), parse_ts(j["completed_at"])))
+    return completed
 
-    if not completed_jobs:
-        return Walls(event=run_event, conclusion=run_conclusion, run_id=run_id)
 
-    b = (max(end for _, _, end in completed_jobs) - run_created).total_seconds()
-
-    req_jobs = [(j, start, end) for j, start, end in completed_jobs if j["name"] in req_set]
-    a = (max(end for _, _, end in req_jobs) - run_created).total_seconds() if req_jobs else 0.0
-
-    max_queue = max((start - run_created).total_seconds() for _, start, _ in completed_jobs)
-
+def _per_job_timings(
+    run_created: datetime,
+    completed_jobs: Sequence[tuple[dict[str, Any], datetime, datetime]],
+) -> tuple[dict[str, JobTimings], dict[str, str]]:
+    per_job: dict[str, JobTimings] = {}
     latest_per_os: dict[str, tuple[str, datetime]] = {}
-
     for j, j_start, j_end in completed_jobs:
         name = j["name"]
         os_name = j.get("os") or runner_os(j.get("labels", []))
@@ -183,52 +162,57 @@ def walls(
             wall=wall,
             conclusion=j.get("conclusion", ""),
         )
-
         if os_name not in latest_per_os or j_end > latest_per_os[os_name][1]:
             latest_per_os[os_name] = (name, j_end)
+    return per_job, {os_name: name for os_name, (name, _) in latest_per_os.items()}
 
-    per_os_critical = {os_key: job_name for os_key, (job_name, _) in latest_per_os.items()}
 
+def _aggregate_walls(
+    run: dict[str, Any],
+    run_created: datetime,
+    jobs: Sequence[dict[str, Any]],
+    completed_jobs: Sequence[tuple[dict[str, Any], datetime, datetime]],
+    required: Collection[str],
+    per_job: dict[str, JobTimings],
+    per_os_critical: dict[str, str],
+) -> Walls:
+    if not completed_jobs:
+        return Walls(event=run.get("event", ""), conclusion=run.get("conclusion", ""), run_id=run.get("id", ""))
+    required_jobs = [job for job in jobs if job["name"] in required]
+    if any(job.get("conclusion") != "success" for job in required_jobs):
+        a = None
+    else:
+        required_ends = [end for job, _, end in completed_jobs if job["name"] in required]
+        a = (max(required_ends) - run_created).total_seconds() if required_ends else 0.0
+    b = (max(end for _, _, end in completed_jobs) - run_created).total_seconds()
+    max_queue = max((start - run_created).total_seconds() for _, start, _ in completed_jobs)
     return Walls(
         a=a,
         b=b,
         max_queue=max_queue,
-        event=run_event,
-        conclusion=run_conclusion,
-        run_id=run_id,
+        event=run.get("event", ""),
+        conclusion=run.get("conclusion", ""),
+        run_id=run.get("id", ""),
         per_job=per_job,
         per_os_critical=per_os_critical,
     )
 
 
-def _extract_job_durations(r: Any) -> list[tuple[str, float]]:
-    """Extract (job_name, duration) pairs from a run representation."""
-    if isinstance(r, Walls):
-        return [(name, jt.duration) for name, jt in r.per_job.items()]
-    if not isinstance(r, dict):
-        return []
-    if "jobs" in r:
-        pairs: list[tuple[str, float]] = []
-        for j in r["jobs"]:
-            if j.get("started_at") and j.get("completed_at"):
-                dur = (parse_ts(j["completed_at"]) - parse_ts(j["started_at"])).total_seconds()
-                pairs.append((j["name"], dur))
-        return pairs
-    if "per_job" in r:
-        pairs = []
-        for name, jt in r["per_job"].items():
-            dur = jt.duration if isinstance(jt, JobTimings) else jt.get("duration", 0.0)
-            pairs.append((name, dur))
-        return pairs
-    return []
+def walls(run: dict[str, Any], jobs: Sequence[dict[str, Any]], required: Collection[str] | None = None) -> Walls:
+    """Compute attempt-1 critical path walls (a) and (b), queue, and step timings."""
+    run_created = _parse_run(run)
+    completed_jobs = _parse_jobs(jobs)
+    per_job, per_os_critical = _per_job_timings(run_created, completed_jobs)
+    req_set = DEFAULT_REQUIRED if required is None else frozenset(required)
+    return _aggregate_walls(run, run_created, jobs, completed_jobs, req_set, per_job, per_os_critical)
 
 
-def noise(runs: Sequence[Any]) -> dict[str, float]:
+def noise(runs: Sequence[Walls]) -> dict[str, float]:
     """Return max - min duration per job across the runs."""
     durations_per_job: dict[str, list[float]] = {}
-    for r in runs:
-        for name, dur in _extract_job_durations(r):
-            durations_per_job.setdefault(name, []).append(dur)
+    for run in runs:
+        for name, timings in run.per_job.items():
+            durations_per_job.setdefault(name, []).append(timings.duration)
 
     result: dict[str, float] = {}
     for name, durs in durations_per_job.items():
@@ -237,27 +221,11 @@ def noise(runs: Sequence[Any]) -> dict[str, float]:
     return result
 
 
-def _extract_values(items: Sequence[float | Any]) -> list[float]:
-    values: list[float] = []
-    for item in items:
-        if isinstance(item, (int, float)):
-            values.append(float(item))
-        elif hasattr(item, "b"):
-            values.append(float(item.b))
-        elif isinstance(item, dict) and "b" in item:
-            values.append(float(item["b"]))
-        else:
-            values.append(float(item))
-    return values
-
-
-def gain(before: Sequence[float | Any], after: Sequence[float | Any]) -> bool:
+def gain(before: Sequence[float], after: Sequence[float]) -> bool:
     """Return True if and only if after-max < before-min."""
-    b_vals = _extract_values(before)
-    a_vals = _extract_values(after)
-    if not b_vals or not a_vals:
+    if not before or not after:
         return False
-    return max(a_vals) < min(b_vals)
+    return max(after) < min(before)
 
 
 def _fetch_gh_json(*args: str) -> Any:
@@ -285,8 +253,9 @@ def main() -> None:
         try:
             prot = _fetch_gh_json("api", "repos/ffroliva/sharpit/branches/main/protection/required_status_checks")
             required = frozenset(prot.get("contexts", []))
-        except subprocess.CalledProcessError:
-            pass
+        except subprocess.CalledProcessError as exc:
+            print(f"warning: failed to read required checks from branch protection: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
 
     wall_runs: list[Walls] = []
     for run_arg in args.run_ids:
@@ -304,9 +273,10 @@ def main() -> None:
 
         slowest = sorted(w.per_job.values(), key=lambda j: j.duration, reverse=True)[:4]
         slow_str = ", ".join(f"{j.name} {int(j.duration)}s" for j in slowest)
+        a_str = "undefined" if w.a is None else f"{int(w.a)}s ({w.a / 60:.2f} min)"
         print(
-            f"{w.run_id} {w.conclusion}: (a) {int(w.a)}s ({w.a / 60:.2f} min) "
-            f"(b) {int(w.b)}s ({w.b / 60:.2f} min) max-queue {int(w.max_queue)}s | slowest: {slow_str}"
+            f"{w.run_id} {w.conclusion}: (a) {a_str} (b) {int(w.b)}s ({w.b / 60:.2f} min) max-queue "
+            f"{int(w.max_queue)}s | slowest: {slow_str}"
         )
 
     if len(wall_runs) > 1:

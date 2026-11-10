@@ -7,8 +7,10 @@ noise measurement, and the noise gain rule (after-max < before-min).
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
+import pytest
 from _load import load_script
 
 ci_walls = load_script("scripts/ci/ci_walls.py")
@@ -33,12 +35,8 @@ def test_walls_match_the_step0_table_for_three_runs() -> None:
 def test_walls_rejects_an_attempt_other_than_one() -> None:
     fixture = json.loads((FIXTURES / "42742037589.json").read_text(encoding="utf-8"))
     bad_run = dict(fixture["run"], run_attempt=2)
-    raised = False
-    try:
+    with pytest.raises(ValueError, match="attempt 2"):
         ci_walls.walls(bad_run, fixture["jobs"], REQUIRED)
-    except ValueError:
-        raised = True
-    assert raised
 
 
 def test_walls_reports_the_event_of_the_run() -> None:
@@ -75,3 +73,77 @@ def test_walls_computes_queue_breakdown_and_per_os_critical() -> None:
     assert jt.teardown == 7.0
     assert jt.duration == 555.0
     assert w.per_os_critical["windows"] == "masking gates (windows-latest)"
+    assert w.per_os_critical["ubuntu"] == "masking-gates-check"
+
+
+def test_required_job_not_success_makes_required_wall_undefined() -> None:
+    run = {"created_at": "2026-11-10T00:00:00Z", "run_attempt": 1}
+    jobs = [
+        {
+            "name": next(iter(REQUIRED)),
+            "started_at": "2026-11-10T00:00:01Z",
+            "completed_at": "2026-11-10T00:00:02Z",
+            "conclusion": "failure",
+        }
+    ]
+
+    assert ci_walls.walls(run, jobs).a is None
+
+
+def test_required_none_uses_default_required_set() -> None:
+    fixture = json.loads((FIXTURES / "42742037589.json").read_text(encoding="utf-8"))
+
+    assert ci_walls.walls(fixture["run"], fixture["jobs"], None).a == 310.0
+
+
+def test_protection_lookup_failure_warns_and_exits(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail_lookup(*args: str) -> object:
+        raise ci_walls.subprocess.CalledProcessError(1, args)
+
+    monkeypatch.setattr(ci_walls, "_fetch_gh_json", fail_lookup)
+    monkeypatch.setattr(sys, "argv", ["ci_walls.py", str(FIXTURES / "42742037589.json"), "--required-from-protection"])
+
+    with pytest.raises(SystemExit) as exc:
+        ci_walls.main()
+
+    assert exc.value.code != 0
+    assert "warning" in capsys.readouterr().err.lower()
+
+
+def test_fixture_steps_are_scrubbed_and_have_only_safe_fields() -> None:
+    allowed = {"name", "started_at", "completed_at", "conclusion"}
+    for path in FIXTURES.glob("*.json"):
+        fixture = json.loads(path.read_text(encoding="utf-8"))
+        assert "head_branch" not in fixture["run"]
+        assert "head_sha" not in fixture["run"]
+        for job in fixture["jobs"]:
+            for step in job.get("steps", []):
+                assert set(step) == allowed
+                assert "/home/runner" not in json.dumps(step)
+                assert "$RUNNER_TEMP" not in json.dumps(step)
+                assert "if [[" not in step["name"]
+                assert "uv run" not in step["name"]
+
+
+@pytest.mark.parametrize(
+    ("run_id", "ubuntu_timings", "windows_timings"),
+    [
+        ("42742037589", (304.0, 2.0, 0.0, 2.0), (85.0, 22.0, 526.0, 7.0)),
+        ("42738503931", (247.0, 1.0, 0.0, 3.0), (27.0, 22.0, 611.0, 6.0)),
+        ("42721024336", (281.0, 1.0, 0.0, 2.0), (137.0, 16.0, 462.0, 5.0)),
+    ],
+)
+def test_per_job_timings_cover_each_os_for_each_run(
+    run_id: str, ubuntu_timings: tuple[float, ...], windows_timings: tuple[float, ...]
+) -> None:
+    fixture = json.loads((FIXTURES / f"{run_id}.json").read_text(encoding="utf-8"))
+    w = ci_walls.walls(fixture["run"], fixture["jobs"])
+
+    for name, expected in (
+        ("test (ubuntu-latest, 3.14)", ubuntu_timings),
+        ("masking gates (windows-latest)", windows_timings),
+    ):
+        jt = w.per_job[name]
+        assert (jt.queue, jt.setup, jt.test, jt.teardown) == expected
