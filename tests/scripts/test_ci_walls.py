@@ -166,4 +166,4 @@ def test_per_job_timings_cover_each_os_for_each_run(
         ("masking gates (windows-latest)", windows_timings),
     ):
         jt = w.per_job[name]
-        assert (jt.queue, jt.setup, jt.test, jt.teardown) == expected
+        assert expected == (jt.queue, jt.setup, jt.test, jt.teardown)
