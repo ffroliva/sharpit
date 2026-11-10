@@ -759,28 +759,28 @@
     },
     {
       "name": "bootui.runtime-journal.enabled",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for runtime_journal_enabled"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.runtime-journal.max-bytes",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for runtime_journal_max_bytes"
+      "status": "partial",
+      "difference": "default differs: BootUI=None; sharpit=33554432"
     },
     {
       "name": "bootui.runtime-journal.max-events",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for runtime_journal_max_events"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.runtime-journal.queue-capacity",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for runtime_journal_queue_capacity"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.runtime-journal.sources",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for runtime_journal_sources"
+      "status": "partial",
+      "difference": "default differs: BootUI=None; sharpit=('http', 'sql', 'transaction', 'connection', 'exception', 'security', 'authorization', 'rest-client', 'cache', 'messaging', 'scheduled', 'log', 'mail', 'fault-tolerance', 'ai', 'lifecycle', 'gc', 'resources', 'app-event', 'websocket', 'orm', 'agent.executors', 'agent.caught-exceptions')"
     },
     {
       "name": "bootui.security-logs.max-logs",
