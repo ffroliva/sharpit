@@ -155,8 +155,11 @@ class Red:
 # --- git helpers ------------------------------------------------------------------------------------------------------
 
 
+_GIT_RUNNER = subprocess.run
+
+
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    return _GIT_RUNNER(
         ["git", *args], cwd=cwd, check=check, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape"
     )
 
