@@ -576,6 +576,7 @@ def test_rapi_ver_001_fires_when_no_handler_is_versioned() -> None:
     assert finding.target == "application"
 
 
+# Guard, not a port: BootUI has no case for a path with no fixed segment; it must stay an API handler.
 def test_rapi_ver_001_counts_a_variable_only_path_as_an_api_handler() -> None:
     # BootUI isNonApiEndpoint: a path with no static segment is not operational or documentation, so it is an API
     # handler (regression guard for the api-docs fix, which reads static segments)
