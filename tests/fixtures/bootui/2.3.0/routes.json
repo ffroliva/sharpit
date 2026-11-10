@@ -255,6 +255,28 @@
     },
     {
       "method": "GET",
+      "path": "/hibernate",
+      "panel": "hibernate",
+      "operationId": "read_hibernate",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/database-advisor",
+      "panel": "database-advisor",
+      "operationId": "read_database_advisor",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/postgresql",
       "panel": "postgresql",
       "operationId": "read_postgresql",
@@ -365,6 +387,17 @@
     },
     {
       "method": "GET",
+      "path": "/log-tail/recent",
+      "panel": "log-tail",
+      "operationId": "read_log_tail",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/exceptions",
       "panel": "exceptions",
       "operationId": "read_exceptions",
@@ -379,6 +412,28 @@
       "path": "/http-exchanges",
       "panel": "http-exchanges",
       "operationId": "read_http_exchanges",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/architecture",
+      "panel": "architecture",
+      "operationId": "read_architecture",
+      "runtimes": [
+        "SPRING_MVC",
+        "SPRING_WEBFLUX",
+        "QUARKUS"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/rest-api",
+      "panel": "rest-api",
+      "operationId": "read_rest_api",
       "runtimes": [
         "SPRING_MVC",
         "SPRING_WEBFLUX",
@@ -1709,1771 +1764,3656 @@
     }
   ],
   "crossCheck": {
-    "starterMappingsCount": 350,
+    "starterMappingsCount": 267,
     "starterMappings": [
       {
         "controller": "LiveActivityController.java",
-        "verb": "ANY",
-        "path": "/activity${bootui.api-path:${bootui.path:/bootui}/api}/activity"
-      },
-      {
-        "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 298,
         "verb": "GET",
         "path": "/activity"
       },
       {
         "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 452,
         "verb": "GET",
         "path": "/activity/journal"
       },
       {
         "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 458,
         "verb": "GET",
         "path": "/activity/resources"
       },
       {
         "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 464,
         "verb": "POST",
         "path": "/activity/journal/clear"
       },
       {
         "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 472,
         "verb": "POST",
         "path": "/activity/use-existing-datasource"
       },
       {
         "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 494,
         "verb": "GET",
         "path": "/activity/request/{id}/journal"
       },
       {
         "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 509,
         "verb": "GET",
         "path": "/activity/request/{id}"
       },
       {
         "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 519,
         "verb": "GET",
-        "path": "/activity/stream"
+        "path": "/activity/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "LiveServiceMapController.java",
-        "verb": "ANY",
-        "path": "/activity${bootui.api-path:${bootui.path:/bootui}/api}/activity"
-      },
-      {
-        "controller": "LiveServiceMapController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveServiceMapController.java",
+        "line": 51,
         "verb": "GET",
-        "path": "/activity/service-map"
+        "path": "/activity/service-map",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ArchitectureController.java",
-        "verb": "ANY",
-        "path": "/architecture${bootui.api-path:${bootui.path:/bootui}/api}/architecture"
-      },
-      {
-        "controller": "ArchitectureController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureController.java",
+        "line": 27,
         "verb": "GET",
         "path": "/architecture"
       },
       {
         "controller": "ArchitectureController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/architecture/ArchitectureController.java",
+        "line": 32,
         "verb": "POST",
         "path": "/architecture/scan"
       },
       {
         "controller": "BootUiCliController.java",
-        "verb": "ANY",
-        "path": "/cli${bootui.api-path:${bootui.path:/bootui}/api}/cli"
-      },
-      {
-        "controller": "BootUiCliController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/cli/BootUiCliController.java",
+        "line": 30,
         "verb": "GET",
         "path": "/cli"
       },
       {
         "controller": "BootUiCliController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/cli/BootUiCliController.java",
+        "line": 36,
         "verb": "POST",
         "path": "/cli/tools/{name}"
       },
       {
         "controller": "CracController.java",
-        "verb": "ANY",
-        "path": "/crac${bootui.api-path:${bootui.path:/bootui}/api}/crac"
-      },
-      {
-        "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 68,
         "verb": "GET",
         "path": "/crac"
       },
       {
         "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 73,
         "verb": "POST",
         "path": "/crac/scan"
       },
       {
         "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 80,
         "verb": "GET",
-        "path": "/crac/dockerfile"
+        "path": "/crac/dockerfile",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 89,
         "verb": "GET",
-        "path": "/crac/entrypoint"
+        "path": "/crac/entrypoint",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 98,
         "verb": "POST",
         "path": "/crac/dockerfile/install"
       },
       {
         "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 103,
         "verb": "POST",
         "path": "/crac/entrypoint/install"
       },
       {
         "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 108,
         "verb": "POST",
         "path": "/crac/install/all"
       },
       {
         "controller": "DatabaseAdvisorController.java",
-        "verb": "ANY",
-        "path": "/database-advisor${bootui.api-path:${bootui.path:/bootui}/api}/database-advisor"
-      },
-      {
-        "controller": "DatabaseAdvisorController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/databaseadvisor/DatabaseAdvisorController.java",
+        "line": 27,
         "verb": "GET",
         "path": "/database-advisor"
       },
       {
         "controller": "DatabaseAdvisorController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/databaseadvisor/DatabaseAdvisorController.java",
+        "line": 32,
         "verb": "POST",
         "path": "/database-advisor/scan"
       },
       {
         "controller": "ExceptionsController.java",
-        "verb": "ANY",
-        "path": "/exceptions${bootui.api-path:${bootui.path:/bootui}/api}/exceptions"
-      },
-      {
-        "controller": "ExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/exceptions/ExceptionsController.java",
+        "line": 84,
         "verb": "GET",
         "path": "/exceptions"
       },
       {
         "controller": "ExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/exceptions/ExceptionsController.java",
+        "line": 90,
         "verb": "GET",
         "path": "/exceptions/caught"
       },
       {
         "controller": "ExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/exceptions/ExceptionsController.java",
+        "line": 95,
         "verb": "GET",
         "path": "/exceptions/{id}"
       },
       {
         "controller": "ExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/exceptions/ExceptionsController.java",
+        "line": 100,
         "verb": "DELETE",
         "path": "/exceptions"
       },
       {
         "controller": "ExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/exceptions/ExceptionsController.java",
+        "line": 106,
         "verb": "POST",
         "path": "/exceptions/{id}/status"
       },
       {
         "controller": "ExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/exceptions/ExceptionsController.java",
+        "line": 118,
         "verb": "GET",
-        "path": "/exceptions/stream"
+        "path": "/exceptions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "GraalVmController.java",
-        "verb": "ANY",
-        "path": "/graalvm${bootui.api-path:${bootui.path:/bootui}/api}/graalvm"
-      },
-      {
-        "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 59,
         "verb": "GET",
         "path": "/graalvm"
       },
       {
         "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 64,
         "verb": "GET",
-        "path": "/graalvm/scan/progress"
+        "path": "/graalvm/scan/progress",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 69,
         "verb": "POST",
         "path": "/graalvm/scan/cancel"
       },
       {
         "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 75,
         "verb": "POST",
         "path": "/graalvm/scan"
       },
       {
         "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 83,
         "verb": "GET",
-        "path": "/graalvm/metadata"
+        "path": "/graalvm/metadata",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 93,
         "verb": "POST",
         "path": "/graalvm/install"
       },
       {
         "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 99,
         "verb": "POST",
         "path": "/graalvm/install/all"
       },
       {
         "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 113,
         "verb": "GET",
-        "path": "/graalvm/dockerfile"
+        "path": "/graalvm/dockerfile",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 122,
         "verb": "POST",
         "path": "/graalvm/dockerfile/install"
       },
       {
         "controller": "HibernateController.java",
-        "verb": "ANY",
-        "path": "/hibernate${bootui.api-path:${bootui.path:/bootui}/api}/hibernate"
-      },
-      {
-        "controller": "HibernateController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/hibernate/HibernateController.java",
+        "line": 29,
         "verb": "GET",
         "path": "/hibernate"
       },
       {
         "controller": "HibernateController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/hibernate/HibernateController.java",
+        "line": 34,
         "verb": "POST",
         "path": "/hibernate/scan"
       },
       {
         "controller": "HibernateStatisticsController.java",
-        "verb": "ANY",
-        "path": "/hibernate-statistics${bootui.api-path:${bootui.path:/bootui}/api}/hibernate-statistics"
-      },
-      {
-        "controller": "HibernateStatisticsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/hibernate/HibernateStatisticsController.java",
+        "line": 23,
         "verb": "GET",
         "path": "/hibernate-statistics"
       },
       {
         "controller": "HibernateStatisticsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/hibernate/HibernateStatisticsController.java",
+        "line": 28,
         "verb": "POST",
         "path": "/hibernate-statistics/enable"
       },
       {
         "controller": "RuntimeInsightsController.java",
-        "verb": "ANY",
-        "path": "/runtime-insights${bootui.api-path:${bootui.path:/bootui}/api}/runtime-insights"
-      },
-      {
-        "controller": "RuntimeInsightsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/insights/RuntimeInsightsController.java",
+        "line": 173,
         "verb": "GET",
         "path": "/runtime-insights"
       },
       {
         "controller": "RuntimeInsightsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/insights/RuntimeInsightsController.java",
+        "line": 178,
         "verb": "GET",
         "path": "/runtime-insights/insights/{id}"
       },
       {
         "controller": "RuntimeInsightsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/insights/RuntimeInsightsController.java",
+        "line": 184,
         "verb": "GET",
         "path": "/runtime-insights/impact"
       },
       {
         "controller": "RuntimeInsightsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/insights/RuntimeInsightsController.java",
+        "line": 190,
         "verb": "GET",
         "path": "/runtime-insights/impact/symbols"
       },
       {
         "controller": "RuntimeInsightsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/insights/RuntimeInsightsController.java",
+        "line": 196,
         "verb": "GET",
         "path": "/runtime-insights/resource-profile"
       },
       {
         "controller": "RuntimeInsightsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/insights/RuntimeInsightsController.java",
+        "line": 202,
         "verb": "POST",
         "path": "/runtime-insights/resource-profile"
       },
       {
         "controller": "RuntimeInsightsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/insights/RuntimeInsightsController.java",
+        "line": 208,
         "verb": "POST",
         "path": "/runtime-insights/resource-profile/stop"
       },
       {
         "controller": "RuntimeInsightsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/insights/RuntimeInsightsController.java",
+        "line": 214,
         "verb": "GET",
         "path": "/runtime-insights/comparison"
       },
       {
         "controller": "CodeInventoryController.java",
-        "verb": "ANY",
-        "path": "/code-inventory${bootui.api-path:${bootui.path:/bootui}/api}/code-inventory"
-      },
-      {
-        "controller": "CodeInventoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodeInventoryController.java",
+        "line": 25,
         "verb": "GET",
         "path": "/code-inventory"
       },
       {
         "controller": "CodeInventoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodeInventoryController.java",
+        "line": 30,
         "verb": "GET",
         "path": "/code-inventory/changes"
       },
       {
         "controller": "CodeInventoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodeInventoryController.java",
+        "line": 37,
         "verb": "GET",
         "path": "/code-inventory/methods"
       },
       {
         "controller": "CodeInventoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodeInventoryController.java",
+        "line": 47,
         "verb": "GET",
         "path": "/code-inventory/dependencies"
       },
       {
         "controller": "CodePathsController.java",
-        "verb": "ANY",
-        "path": "/code-paths${bootui.api-path:${bootui.path:/bootui}/api}/code-paths"
-      },
-      {
-        "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 39,
         "verb": "GET",
         "path": "/code-paths"
       },
       {
         "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 44,
         "verb": "GET",
         "path": "/code-paths/route"
       },
       {
         "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 53,
         "verb": "GET",
         "path": "/code-paths/beans"
       },
       {
         "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 58,
         "verb": "GET",
         "path": "/code-paths/requests/{requestId}"
       },
       {
         "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 63,
         "verb": "GET",
         "path": "/code-paths/probes"
       },
       {
         "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 68,
         "verb": "POST",
         "path": "/code-paths/probes"
       },
       {
         "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 76,
         "verb": "GET",
-        "path": "/code-paths/probes/{id}"
+        "path": "/code-paths/probes/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 81,
         "verb": "POST",
         "path": "/code-paths/probes/{id}/stop"
       },
       {
         "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 86,
         "verb": "DELETE",
         "path": "/code-paths/probes/{id}"
       },
       {
         "controller": "JavaAgentController.java",
-        "verb": "ANY",
-        "path": "/java-agent${bootui.api-path:${bootui.path:/bootui}/api}/java-agent"
-      },
-      {
-        "controller": "JavaAgentController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/JavaAgentController.java",
+        "line": 28,
         "verb": "GET",
         "path": "/java-agent"
       },
       {
         "controller": "JavaAgentController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/JavaAgentController.java",
+        "line": 34,
         "verb": "POST",
         "path": "/java-agent/sensors/{id}"
       },
       {
         "controller": "SideEffectsController.java",
-        "verb": "ANY",
-        "path": "/side-effects${bootui.api-path:${bootui.path:/bootui}/api}/side-effects"
-      },
-      {
-        "controller": "SideEffectsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/SideEffectsController.java",
+        "line": 27,
         "verb": "GET",
         "path": "/side-effects"
       },
       {
         "controller": "SideEffectsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/SideEffectsController.java",
+        "line": 32,
         "verb": "GET",
         "path": "/side-effects/sensor"
       },
       {
         "controller": "JmsController.java",
-        "verb": "ANY",
-        "path": "/jms${bootui.api-path:${bootui.path:/bootui}/api}/jms"
-      },
-      {
-        "controller": "JmsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/jms/JmsController.java",
+        "line": 40,
         "verb": "GET",
         "path": "/jms"
       },
       {
         "controller": "JmsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/jms/JmsController.java",
+        "line": 54,
         "verb": "DELETE",
         "path": "/jms"
       },
       {
         "controller": "KafkaController.java",
-        "verb": "ANY",
-        "path": "/kafka${bootui.api-path:${bootui.path:/bootui}/api}/kafka"
-      },
-      {
-        "controller": "KafkaController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/kafka/KafkaController.java",
+        "line": 36,
         "verb": "GET",
         "path": "/kafka"
       },
       {
         "controller": "KafkaController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/kafka/KafkaController.java",
+        "line": 46,
         "verb": "DELETE",
         "path": "/kafka"
       },
       {
         "controller": "EmailController.java",
-        "verb": "ANY",
-        "path": "/email${bootui.api-path:${bootui.path:/bootui}/api}/email"
-      },
-      {
-        "controller": "EmailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mail/EmailController.java",
+        "line": 43,
         "verb": "GET",
         "path": "/email"
       },
       {
         "controller": "EmailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mail/EmailController.java",
+        "line": 53,
         "verb": "GET",
-        "path": "/email/{id}"
+        "path": "/email/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "EmailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mail/EmailController.java",
+        "line": 59,
         "verb": "GET",
-        "path": "/email/{id}/eml"
+        "path": "/email/{id}/eml",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "EmailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mail/EmailController.java",
+        "line": 69,
         "verb": "DELETE",
         "path": "/email"
       },
       {
         "controller": "BootUiMcpController.java",
-        "verb": "ANY",
-        "path": "/mcp${bootui.api-path:${bootui.path:/bootui}/api}/mcp"
-      },
-      {
-        "controller": "BootUiMcpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mcp/BootUiMcpController.java",
+        "line": 56,
         "verb": "POST",
         "path": "/mcp"
       },
       {
         "controller": "BootUiMcpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mcp/BootUiMcpController.java",
+        "line": 174,
         "verb": "GET",
-        "path": "/mcp"
+        "path": "/mcp",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
       },
       {
         "controller": "McpServerController.java",
-        "verb": "ANY",
-        "path": "/mcp-server${bootui.api-path:${bootui.path:/bootui}/api}/mcp-server"
-      },
-      {
-        "controller": "McpServerController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mcp/McpServerController.java",
+        "line": 34,
         "verb": "GET",
         "path": "/mcp-server"
       },
       {
         "controller": "McpServerController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mcp/McpServerController.java",
+        "line": 39,
         "verb": "POST",
         "path": "/mcp-server/toggle"
       },
       {
         "controller": "MemoryController.java",
-        "verb": "ANY",
-        "path": "/memory${bootui.api-path:${bootui.path:/bootui}/api}/memory"
-      },
-      {
-        "controller": "MemoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/memory/MemoryController.java",
+        "line": 29,
         "verb": "GET",
         "path": "/memory"
       },
       {
         "controller": "MemoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/memory/MemoryController.java",
+        "line": 34,
         "verb": "POST",
         "path": "/memory/scan"
       },
       {
         "controller": "MySqlController.java",
-        "verb": "ANY",
-        "path": "/mysql${bootui.api-path:${bootui.path:/bootui}/api}/mysql"
-      },
-      {
-        "controller": "MySqlController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mysql/MySqlController.java",
+        "line": 21,
         "verb": "GET",
         "path": "/mysql"
       },
       {
         "controller": "MySqlController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mysql/MySqlController.java",
+        "line": 26,
         "verb": "POST",
         "path": "/mysql/read"
       },
       {
         "controller": "PentestingController.java",
-        "verb": "ANY",
-        "path": "/pentesting${bootui.api-path:${bootui.path:/bootui}/api}/pentesting"
-      },
-      {
-        "controller": "PentestingController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/pentesting/PentestingController.java",
+        "line": 29,
         "verb": "GET",
         "path": "/pentesting"
       },
       {
         "controller": "PentestingController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/pentesting/PentestingController.java",
+        "line": 34,
         "verb": "POST",
         "path": "/pentesting/scan"
       },
       {
         "controller": "PostgresqlController.java",
-        "verb": "ANY",
-        "path": "/postgresql${bootui.api-path:${bootui.path:/bootui}/api}/postgresql"
-      },
-      {
-        "controller": "PostgresqlController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/postgres/PostgresqlController.java",
+        "line": 24,
         "verb": "GET",
         "path": "/postgresql"
       },
       {
         "controller": "PostgresqlController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/postgres/PostgresqlController.java",
+        "line": 29,
         "verb": "POST",
         "path": "/postgresql/read"
       },
       {
         "controller": "RabbitController.java",
-        "verb": "ANY",
-        "path": "/rabbitmq${bootui.api-path:${bootui.path:/bootui}/api}/rabbitmq"
-      },
-      {
-        "controller": "RabbitController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/rabbit/RabbitController.java",
+        "line": 36,
         "verb": "GET",
         "path": "/rabbitmq"
       },
       {
         "controller": "RabbitController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/rabbit/RabbitController.java",
+        "line": 47,
         "verb": "DELETE",
         "path": "/rabbitmq"
       },
       {
         "controller": "ReactiveAgentSessionController.java",
-        "verb": "ANY",
-        "path": "/"
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 39,
+        "verb": "GET",
+        "path": "/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
       },
       {
         "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 46,
         "verb": "GET",
-        "path": "/sessions"
+        "path": "/dashboard",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 51,
         "verb": "GET",
-        "path": "/dashboard"
+        "path": "/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
       },
       {
         "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 60,
         "verb": "GET",
-        "path": "/sessions/{id}"
+        "path": "/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
       },
       {
         "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 75,
         "verb": "GET",
-        "path": "/sessions/{id}/events"
+        "path": "/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
       },
       {
         "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 92,
         "verb": "GET",
-        "path": "/sessions/{id}/events/{eventId}/raw"
-      },
-      {
-        "controller": "ReactiveAgentSessionController.java",
-        "verb": "GET",
-        "path": "/stream"
+        "path": "/stream",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
       },
       {
         "controller": "ReactiveBootUiCliController.java",
-        "verb": "ANY",
-        "path": "/cli${bootui.api-path:${bootui.path:/bootui}/api}/cli"
-      },
-      {
-        "controller": "ReactiveBootUiCliController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiCliController.java",
+        "line": 32,
         "verb": "GET",
         "path": "/cli"
       },
       {
         "controller": "ReactiveBootUiCliController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiCliController.java",
+        "line": 37,
         "verb": "POST",
         "path": "/cli/tools/{name}"
       },
       {
         "controller": "ReactiveBootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiIndexController.java",
+        "line": 40,
         "verb": "GET",
-        "path": "/\"${bootui.path:/bootui"
+        "path": "/${bootui.path:/bootui}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveBootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiIndexController.java",
+        "line": 40,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}/",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveBootUiMcpController.java",
-        "verb": "ANY",
-        "path": "/mcp${bootui.api-path:${bootui.path:/bootui}/api}/mcp"
-      },
-      {
-        "controller": "ReactiveBootUiMcpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiMcpController.java",
+        "line": 64,
         "verb": "POST",
         "path": "/mcp"
       },
       {
         "controller": "ReactiveBootUiMcpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiMcpController.java",
+        "line": 97,
         "verb": "GET",
-        "path": "/mcp"
+        "path": "/mcp",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
       },
       {
         "controller": "ReactiveBootUiMcpServerController.java",
-        "verb": "ANY",
-        "path": "/mcp-server${bootui.api-path:${bootui.path:/bootui}/api}/mcp-server"
-      },
-      {
-        "controller": "ReactiveBootUiMcpServerController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiMcpServerController.java",
+        "line": 37,
         "verb": "GET",
         "path": "/mcp-server"
       },
       {
         "controller": "ReactiveBootUiMcpServerController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiMcpServerController.java",
+        "line": 42,
         "verb": "POST",
         "path": "/mcp-server/toggle"
       },
       {
-        "controller": "ReactiveClaudeCodeController.java",
-        "verb": "ANY",
-        "path": "/claude-code${bootui.api-path:${bootui.path:/bootui}/api}/claude-code"
-      },
-      {
-        "controller": "ReactiveCopilotController.java",
-        "verb": "ANY",
-        "path": "/copilot${bootui.api-path:${bootui.path:/bootui}/api}/copilot"
-      },
-      {
         "controller": "ReactiveExceptionsController.java",
-        "verb": "ANY",
-        "path": "/exceptions${bootui.api-path:${bootui.path:/bootui}/api}/exceptions"
-      },
-      {
-        "controller": "ReactiveExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveExceptionsController.java",
+        "line": 85,
         "verb": "GET",
         "path": "/exceptions"
       },
       {
         "controller": "ReactiveExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveExceptionsController.java",
+        "line": 91,
         "verb": "GET",
         "path": "/exceptions/caught"
       },
       {
         "controller": "ReactiveExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveExceptionsController.java",
+        "line": 96,
         "verb": "GET",
         "path": "/exceptions/{id}"
       },
       {
         "controller": "ReactiveExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveExceptionsController.java",
+        "line": 101,
         "verb": "DELETE",
         "path": "/exceptions"
       },
       {
         "controller": "ReactiveExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveExceptionsController.java",
+        "line": 107,
         "verb": "POST",
         "path": "/exceptions/{id}/status"
       },
       {
         "controller": "ReactiveExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveExceptionsController.java",
+        "line": 119,
         "verb": "GET",
-        "path": "/exceptions/stream"
+        "path": "/exceptions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveLiveActivityController.java",
-        "verb": "ANY",
-        "path": "/activity${bootui.api-path:${bootui.path:/bootui}/api}/activity"
-      },
-      {
-        "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 299,
         "verb": "GET",
         "path": "/activity"
       },
       {
         "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 447,
         "verb": "GET",
         "path": "/activity/journal"
       },
       {
         "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 453,
         "verb": "GET",
         "path": "/activity/resources"
       },
       {
         "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 459,
         "verb": "POST",
         "path": "/activity/journal/clear"
       },
       {
         "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 467,
         "verb": "POST",
         "path": "/activity/use-existing-datasource"
       },
       {
         "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 490,
         "verb": "GET",
         "path": "/activity/request/{id}/journal"
       },
       {
         "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 509,
         "verb": "GET",
         "path": "/activity/request/{id}"
       },
       {
         "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 577,
         "verb": "GET",
-        "path": "/activity/stream"
+        "path": "/activity/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveLogTailController.java",
-        "verb": "ANY",
-        "path": "/log-tail${bootui.api-path:${bootui.path:/bootui}/api}/log-tail"
-      },
-      {
-        "controller": "ReactiveLogTailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLogTailController.java",
+        "line": 56,
         "verb": "GET",
         "path": "/log-tail/recent"
       },
       {
         "controller": "ReactiveLogTailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLogTailController.java",
+        "line": 62,
         "verb": "GET",
-        "path": "/log-tail/stream"
+        "path": "/log-tail/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveRestClientTraceController.java",
-        "verb": "ANY",
-        "path": "/rest-client-trace${bootui.api-path:/bootui/api}/rest-client-trace"
-      },
-      {
-        "controller": "ReactiveRestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveRestClientTraceController.java",
+        "line": 52,
         "verb": "GET",
         "path": "/rest-client-trace"
       },
       {
         "controller": "ReactiveRestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveRestClientTraceController.java",
+        "line": 57,
         "verb": "POST",
         "path": "/rest-client-trace/clear"
       },
       {
         "controller": "ReactiveRestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveRestClientTraceController.java",
+        "line": 62,
         "verb": "POST",
         "path": "/rest-client-trace/recording"
       },
       {
         "controller": "ReactiveRestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveRestClientTraceController.java",
+        "line": 68,
         "verb": "GET",
-        "path": "/rest-client-trace/stream"
+        "path": "/rest-client-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveSecurityController.java",
-        "verb": "ANY",
-        "path": "/security${bootui.api-path:${bootui.path:/bootui}/api}/security"
-      },
-      {
-        "controller": "ReactiveSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSecurityController.java",
+        "line": 28,
         "verb": "GET",
         "path": "/security"
       },
       {
         "controller": "ReactiveSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSecurityController.java",
+        "line": 39,
         "verb": "POST",
         "path": "/security/scan"
       },
       {
         "controller": "ReactiveSecurityLogsController.java",
-        "verb": "ANY",
-        "path": "/security-logs${bootui.api-path:${bootui.path:/bootui}/api}/security-logs"
-      },
-      {
-        "controller": "ReactiveSecurityLogsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSecurityLogsController.java",
+        "line": 89,
         "verb": "GET",
         "path": "/security-logs"
       },
       {
         "controller": "ReactiveSecurityLogsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSecurityLogsController.java",
+        "line": 142,
         "verb": "GET",
-        "path": "/security-logs/stream"
+        "path": "/security-logs/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveSpringSecurityController.java",
-        "verb": "ANY",
-        "path": "/spring-security${bootui.api-path:/bootui/api}/spring-security"
-      },
-      {
-        "controller": "ReactiveSpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSpringSecurityController.java",
+        "line": 69,
         "verb": "GET",
         "path": "/spring-security"
       },
       {
         "controller": "ReactiveSpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSpringSecurityController.java",
+        "line": 74,
         "verb": "GET",
-        "path": "/spring-security/explain"
+        "path": "/spring-security/explain",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveSpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSpringSecurityController.java",
+        "line": 82,
         "verb": "GET",
-        "path": "/spring-security/endpoints"
+        "path": "/spring-security/endpoints",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveSqlTraceController.java",
-        "verb": "ANY",
-        "path": "/sql-trace${bootui.api-path:${bootui.path:/bootui}/api}/sql-trace"
-      },
-      {
-        "controller": "ReactiveSqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSqlTraceController.java",
+        "line": 67,
         "verb": "GET",
         "path": "/sql-trace"
       },
       {
         "controller": "ReactiveSqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSqlTraceController.java",
+        "line": 73,
         "verb": "GET",
-        "path": "/sql-trace/insights"
+        "path": "/sql-trace/insights",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveSqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSqlTraceController.java",
+        "line": 78,
         "verb": "POST",
         "path": "/sql-trace/clear"
       },
       {
         "controller": "ReactiveSqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSqlTraceController.java",
+        "line": 83,
         "verb": "POST",
         "path": "/sql-trace/recording"
       },
       {
         "controller": "ReactiveSqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSqlTraceController.java",
+        "line": 89,
         "verb": "GET",
-        "path": "/sql-trace/stream"
+        "path": "/sql-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveTransactionsController.java",
-        "verb": "ANY",
-        "path": "/transactions${bootui.api-path:${bootui.path:/bootui}/api}/transactions"
-      },
-      {
-        "controller": "ReactiveTransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveTransactionsController.java",
+        "line": 53,
         "verb": "GET",
         "path": "/transactions"
       },
       {
         "controller": "ReactiveTransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveTransactionsController.java",
+        "line": 58,
         "verb": "POST",
         "path": "/transactions/clear"
       },
       {
         "controller": "ReactiveTransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveTransactionsController.java",
+        "line": 63,
         "verb": "POST",
         "path": "/transactions/recording"
       },
       {
         "controller": "ReactiveTransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveTransactionsController.java",
+        "line": 69,
         "verb": "GET",
-        "path": "/transactions/stream"
+        "path": "/transactions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ReactiveWebSocketController.java",
-        "verb": "ANY",
-        "path": "/websockets${bootui.api-path:/bootui/api}/websockets"
-      },
-      {
-        "controller": "ReactiveWebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveWebSocketController.java",
+        "line": 54,
         "verb": "GET",
         "path": "/websockets"
       },
       {
         "controller": "ReactiveWebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveWebSocketController.java",
+        "line": 59,
         "verb": "DELETE",
         "path": "/websockets"
       },
       {
         "controller": "ReactiveWebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveWebSocketController.java",
+        "line": 64,
         "verb": "POST",
         "path": "/websockets/capture"
       },
       {
         "controller": "ReactiveWebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveWebSocketController.java",
+        "line": 70,
         "verb": "GET",
-        "path": "/websockets/stream"
+        "path": "/websockets/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "RestApiController.java",
-        "verb": "ANY",
-        "path": "/rest-api${bootui.api-path:${bootui.path:/bootui}/api}/rest-api"
-      },
-      {
-        "controller": "RestApiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiController.java",
+        "line": 34,
         "verb": "GET",
         "path": "/rest-api"
       },
       {
         "controller": "RestApiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiController.java",
+        "line": 40,
         "verb": "GET",
-        "path": "/rest-api/error-contract"
+        "path": "/rest-api/error-contract",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "RestApiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiController.java",
+        "line": 48,
         "verb": "POST",
         "path": "/rest-api/scan"
       },
       {
         "controller": "RestClientTraceController.java",
-        "verb": "ANY",
-        "path": "/rest-client-trace${bootui.api-path:${bootui.path:/bootui}/api}/rest-client-trace"
-      },
-      {
-        "controller": "RestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restclienttrace/RestClientTraceController.java",
+        "line": 50,
         "verb": "GET",
         "path": "/rest-client-trace"
       },
       {
         "controller": "RestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restclienttrace/RestClientTraceController.java",
+        "line": 55,
         "verb": "POST",
         "path": "/rest-client-trace/clear"
       },
       {
         "controller": "RestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restclienttrace/RestClientTraceController.java",
+        "line": 60,
         "verb": "POST",
         "path": "/rest-client-trace/recording"
       },
       {
         "controller": "RestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restclienttrace/RestClientTraceController.java",
+        "line": 66,
         "verb": "GET",
-        "path": "/rest-client-trace/stream"
+        "path": "/rest-client-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "SecurityController.java",
-        "verb": "ANY",
-        "path": "/security${bootui.api-path:${bootui.path:/bootui}/api}/security"
-      },
-      {
-        "controller": "SecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/security/SecurityController.java",
+        "line": 46,
         "verb": "GET",
         "path": "/security"
       },
       {
         "controller": "SecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/security/SecurityController.java",
+        "line": 51,
         "verb": "POST",
         "path": "/security/scan"
       },
       {
         "controller": "SpringController.java",
-        "verb": "ANY",
-        "path": "/spring${bootui.api-path:${bootui.path:/bootui}/api}/spring"
-      },
-      {
-        "controller": "SpringController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/spring/SpringController.java",
+        "line": 60,
         "verb": "GET",
         "path": "/spring"
       },
       {
         "controller": "SpringController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/spring/SpringController.java",
+        "line": 65,
         "verb": "POST",
         "path": "/spring/scan"
       },
       {
         "controller": "SqlTraceController.java",
-        "verb": "ANY",
-        "path": "/sql-trace${bootui.api-path:${bootui.path:/bootui}/api}/sql-trace"
-      },
-      {
-        "controller": "SqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/sqltrace/SqlTraceController.java",
+        "line": 64,
         "verb": "GET",
         "path": "/sql-trace"
       },
       {
         "controller": "SqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/sqltrace/SqlTraceController.java",
+        "line": 70,
         "verb": "GET",
-        "path": "/sql-trace/insights"
+        "path": "/sql-trace/insights",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "SqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/sqltrace/SqlTraceController.java",
+        "line": 75,
         "verb": "POST",
         "path": "/sql-trace/clear"
       },
       {
         "controller": "SqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/sqltrace/SqlTraceController.java",
+        "line": 80,
         "verb": "POST",
         "path": "/sql-trace/recording"
       },
       {
         "controller": "SqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/sqltrace/SqlTraceController.java",
+        "line": 86,
         "verb": "GET",
-        "path": "/sql-trace/stream"
+        "path": "/sql-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "TransactionsController.java",
-        "verb": "ANY",
-        "path": "/transactions${bootui.api-path:${bootui.path:/bootui}/api}/transactions"
-      },
-      {
-        "controller": "TransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/transactions/TransactionsController.java",
+        "line": 51,
         "verb": "GET",
         "path": "/transactions"
       },
       {
         "controller": "TransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/transactions/TransactionsController.java",
+        "line": 56,
         "verb": "POST",
         "path": "/transactions/clear"
       },
       {
         "controller": "TransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/transactions/TransactionsController.java",
+        "line": 61,
         "verb": "POST",
         "path": "/transactions/recording"
       },
       {
         "controller": "TransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/transactions/TransactionsController.java",
+        "line": 67,
         "verb": "GET",
-        "path": "/transactions/stream"
+        "path": "/transactions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ActuatorMappingsController.java",
-        "verb": "ANY",
-        "path": "/mappings${bootui.api-path:${bootui.path:/bootui}/api}/mappings"
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ActuatorMappingsController.java",
+        "line": 22,
+        "verb": "GET",
+        "path": "/mappings",
+        "classification": "framework-introspection",
+        "reason": "Framework introspection metadata endpoint"
       },
       {
-        "controller": "ActuatorMappingsController.java",
+        "controller": "AdvisorViolationsEndpoint.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AdvisorViolationsEndpoint.java",
+        "line": 12,
         "verb": "GET",
-        "path": "/mappings"
+        "path": "/rules/{ruleId}/violations",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "AgentSessionController.java",
-        "verb": "ANY",
-        "path": "/"
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 43,
+        "verb": "GET",
+        "path": "/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
       },
       {
         "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 50,
         "verb": "GET",
-        "path": "/sessions"
+        "path": "/dashboard",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 55,
         "verb": "GET",
-        "path": "/dashboard"
+        "path": "/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
       },
       {
         "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 64,
         "verb": "GET",
-        "path": "/sessions/{id}"
+        "path": "/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
       },
       {
         "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 79,
         "verb": "GET",
-        "path": "/sessions/{id}/events"
+        "path": "/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
       },
       {
         "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 95,
         "verb": "GET",
-        "path": "/sessions/{id}/events/{eventId}/raw"
-      },
-      {
-        "controller": "AgentSessionController.java",
-        "verb": "GET",
-        "path": "/stream"
+        "path": "/stream",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
       },
       {
         "controller": "AiController.java",
-        "verb": "ANY",
-        "path": "/ai${bootui.api-path:${bootui.path:/bootui}/api}/ai"
-      },
-      {
-        "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 46,
         "verb": "GET",
         "path": "/ai/overview"
       },
       {
         "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 51,
         "verb": "GET",
-        "path": "/ai/chats"
+        "path": "/ai/chats",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 57,
         "verb": "GET",
-        "path": "/ai/chats/{spanId}"
+        "path": "/ai/chats/{spanId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 64,
         "verb": "GET",
-        "path": "/ai/tokens"
+        "path": "/ai/tokens",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "BeansController.java",
-        "verb": "ANY",
-        "path": "/beans${bootui.api-path:${bootui.path:/bootui}/api}/beans"
-      },
-      {
-        "controller": "BeansController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/BeansController.java",
+        "line": 21,
         "verb": "GET",
         "path": "/beans"
       },
       {
         "controller": "BootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/BootUiIndexController.java",
+        "line": 53,
         "verb": "GET",
-        "path": "/\"${bootui.path:/bootui"
+        "path": "/${bootui.path:/bootui}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
-        "controller": "ClaudeCodeController.java",
-        "verb": "ANY",
-        "path": "/claude-code${bootui.api-path:${bootui.path:/bootui}/api}/claude-code"
+        "controller": "BootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/BootUiIndexController.java",
+        "line": 53,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}/",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ConditionsController.java",
-        "verb": "ANY",
-        "path": "/conditions${bootui.api-path:${bootui.path:/bootui}/api}/conditions"
-      },
-      {
-        "controller": "ConditionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ConditionsController.java",
+        "line": 44,
         "verb": "GET",
         "path": "/conditions"
       },
       {
         "controller": "ConfigController.java",
-        "verb": "ANY",
-        "path": "/config${bootui.api-path:${bootui.path:/bootui}/api}/config"
-      },
-      {
-        "controller": "ConfigController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ConfigController.java",
+        "line": 31,
         "verb": "GET",
         "path": "/config"
       },
       {
         "controller": "ConfigController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ConfigController.java",
+        "line": 41,
         "verb": "POST",
         "path": "/config/overrides"
       },
       {
         "controller": "ConfigController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ConfigController.java",
+        "line": 49,
         "verb": "DELETE",
         "path": "/config/overrides/{name}"
       },
       {
-        "controller": "CopilotController.java",
-        "verb": "ANY",
-        "path": "/copilot${bootui.api-path:${bootui.path:/bootui}/api}/copilot"
-      },
-      {
         "controller": "DatabaseConnectionPoolsController.java",
-        "verb": "ANY",
-        "path": "/database-connection-pools${bootui.api-path:${bootui.path:/bootui}/api}/database-connection-pools"
-      },
-      {
-        "controller": "DatabaseConnectionPoolsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DatabaseConnectionPoolsController.java",
+        "line": 28,
         "verb": "GET",
         "path": "/database-connection-pools/pools"
       },
       {
         "controller": "DatabaseConnectionPoolsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DatabaseConnectionPoolsController.java",
+        "line": 33,
         "verb": "GET",
-        "path": "/database-connection-pools/pools/{name}/snapshot"
+        "path": "/database-connection-pools/pools/{name}/snapshot",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "DataController.java",
-        "verb": "ANY",
-        "path": "/data${bootui.api-path:${bootui.path:/bootui}/api}/data"
-      },
-      {
-        "controller": "DataController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DataController.java",
+        "line": 35,
         "verb": "GET",
         "path": "/data/repositories"
       },
       {
         "controller": "DataController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DataController.java",
+        "line": 46,
         "verb": "GET",
-        "path": "/data/repositories/{name}"
+        "path": "/data/repositories/{name}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "DevServicesController.java",
-        "verb": "ANY",
-        "path": "/dev-services${bootui.api-path:${bootui.path:/bootui}/api}/dev-services"
-      },
-      {
-        "controller": "DevServicesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DevServicesController.java",
+        "line": 35,
         "verb": "GET",
         "path": "/dev-services"
       },
       {
         "controller": "DevServicesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DevServicesController.java",
+        "line": 40,
         "verb": "GET",
-        "path": "/dev-services/{id}/logs"
+        "path": "/dev-services/{id}/logs",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "DevServicesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DevServicesController.java",
+        "line": 45,
         "verb": "POST",
         "path": "/dev-services/{id}/restart"
       },
       {
         "controller": "DevToolsController.java",
-        "verb": "ANY",
-        "path": "/devtools${bootui.api-path:${bootui.path:/bootui}/api}/devtools"
-      },
-      {
-        "controller": "DevToolsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DevToolsController.java",
+        "line": 21,
         "verb": "GET",
         "path": "/devtools"
       },
       {
         "controller": "DevToolsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DevToolsController.java",
+        "line": 26,
         "verb": "POST",
         "path": "/devtools/livereload"
       },
       {
         "controller": "DevToolsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DevToolsController.java",
+        "line": 32,
         "verb": "POST",
         "path": "/devtools/restart"
       },
       {
         "controller": "DismissedFindingsController.java",
-        "verb": "ANY",
-        "path": "/dismissed-findings${bootui.api-path:${bootui.path:/bootui}/api}/dismissed-findings"
-      },
-      {
-        "controller": "DismissedFindingsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedFindingsController.java",
+        "line": 31,
         "verb": "GET",
-        "path": "/dismissed-findings"
+        "path": "/dismissed-findings",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "DismissedFindingsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedFindingsController.java",
+        "line": 36,
         "verb": "POST",
         "path": "/dismissed-findings"
       },
       {
         "controller": "DismissedFindingsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedFindingsController.java",
+        "line": 43,
         "verb": "DELETE",
         "path": "/dismissed-findings"
       },
       {
         "controller": "DismissedRulesController.java",
-        "verb": "ANY",
-        "path": "/dismissed-rules${bootui.api-path:${bootui.path:/bootui}/api}/dismissed-rules"
-      },
-      {
-        "controller": "DismissedRulesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedRulesController.java",
+        "line": 27,
         "verb": "GET",
-        "path": "/dismissed-rules"
+        "path": "/dismissed-rules",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "DismissedRulesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedRulesController.java",
+        "line": 32,
         "verb": "POST",
         "path": "/dismissed-rules/{ruleId}"
       },
       {
         "controller": "DismissedRulesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedRulesController.java",
+        "line": 37,
         "verb": "DELETE",
         "path": "/dismissed-rules/{ruleId}"
       },
       {
         "controller": "FaultToleranceController.java",
-        "verb": "ANY",
-        "path": "/fault-tolerance${bootui.api-path:${bootui.path:/bootui}/api}/fault-tolerance"
-      },
-      {
-        "controller": "FaultToleranceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/FaultToleranceController.java",
+        "line": 20,
         "verb": "GET",
         "path": "/fault-tolerance"
       },
       {
         "controller": "FlywayController.java",
-        "verb": "ANY",
-        "path": "/flyway${bootui.api-path:${bootui.path:/bootui}/api}/flyway"
-      },
-      {
-        "controller": "FlywayController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/FlywayController.java",
+        "line": 30,
         "verb": "GET",
         "path": "/flyway/migrations"
       },
       {
         "controller": "FlywayController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/FlywayController.java",
+        "line": 35,
         "verb": "POST",
         "path": "/flyway/migrate"
       },
       {
         "controller": "FlywayController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/FlywayController.java",
+        "line": 41,
         "verb": "POST",
         "path": "/flyway/clean"
       },
       {
         "controller": "GitHubController.java",
-        "verb": "ANY",
-        "path": "/github${bootui.api-path:${bootui.path:/bootui}/api}/github"
-      },
-      {
-        "controller": "GitHubController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/GitHubController.java",
+        "line": 44,
         "verb": "GET",
         "path": "/github"
       },
       {
         "controller": "GitHubController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/GitHubController.java",
+        "line": 49,
         "verb": "POST",
         "path": "/github/refresh"
       },
       {
         "controller": "HealthController.java",
-        "verb": "ANY",
-        "path": "/health${bootui.api-path:${bootui.path:/bootui}/api}/health"
-      },
-      {
-        "controller": "HealthController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HealthController.java",
+        "line": 20,
         "verb": "GET",
         "path": "/health"
       },
       {
         "controller": "HeapDumpController.java",
-        "verb": "ANY",
-        "path": "/heap-dump${bootui.api-path:${bootui.path:/bootui}/api}/heap-dump"
-      },
-      {
-        "controller": "HeapDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HeapDumpController.java",
+        "line": 28,
         "verb": "GET",
         "path": "/heap-dump"
       },
       {
         "controller": "HeapDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HeapDumpController.java",
+        "line": 35,
         "verb": "POST",
         "path": "/heap-dump/capture"
       },
       {
         "controller": "HeapDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HeapDumpController.java",
+        "line": 40,
         "verb": "POST",
         "path": "/heap-dump/analyze"
       },
       {
         "controller": "HeapDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HeapDumpController.java",
+        "line": 45,
         "verb": "POST",
         "path": "/heap-dump/delete"
       },
       {
         "controller": "HeapDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HeapDumpController.java",
+        "line": 50,
         "verb": "GET",
-        "path": "/heap-dump/download"
+        "path": "/heap-dump/download",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "HttpExchangesController.java",
-        "verb": "ANY",
-        "path": "/http-exchanges${bootui.api-path:${bootui.path:/bootui}/api}/http-exchanges"
-      },
-      {
-        "controller": "HttpExchangesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HttpExchangesController.java",
+        "line": 104,
         "verb": "GET",
         "path": "/http-exchanges"
       },
       {
         "controller": "HttpExchangesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HttpExchangesController.java",
+        "line": 138,
         "verb": "GET",
-        "path": "/http-exchanges/routes"
+        "path": "/http-exchanges/routes",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "HttpProbeController.java",
-        "verb": "ANY",
-        "path": "/http-probe${bootui.api-path:${bootui.path:/bootui}/api}/http-probe"
-      },
-      {
-        "controller": "HttpProbeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HttpProbeController.java",
+        "line": 27,
         "verb": "POST",
         "path": "/http-probe"
       },
       {
         "controller": "HttpSessionsController.java",
-        "verb": "ANY",
-        "path": "/http-sessions${bootui.api-path:${bootui.path:/bootui}/api}/http-sessions"
-      },
-      {
-        "controller": "HttpSessionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HttpSessionsController.java",
+        "line": 37,
         "verb": "GET",
         "path": "/http-sessions"
       },
       {
         "controller": "HttpSessionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HttpSessionsController.java",
+        "line": 42,
         "verb": "POST",
         "path": "/http-sessions/{sessionKey}/clear"
       },
       {
         "controller": "HttpSessionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HttpSessionsController.java",
+        "line": 48,
         "verb": "POST",
         "path": "/http-sessions/{sessionKey}/invalidate"
       },
       {
         "controller": "JvmTuningController.java",
-        "verb": "ANY",
-        "path": "/jvm-tuning${bootui.api-path:${bootui.path:/bootui}/api}/jvm-tuning"
-      },
-      {
-        "controller": "JvmTuningController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/JvmTuningController.java",
+        "line": 20,
         "verb": "GET",
         "path": "/jvm-tuning"
       },
       {
         "controller": "LiquibaseController.java",
-        "verb": "ANY",
-        "path": "/liquibase${bootui.api-path:${bootui.path:/bootui}/api}/liquibase"
-      },
-      {
-        "controller": "LiquibaseController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LiquibaseController.java",
+        "line": 31,
         "verb": "GET",
         "path": "/liquibase/changesets"
       },
       {
         "controller": "LiquibaseController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LiquibaseController.java",
+        "line": 36,
         "verb": "POST",
         "path": "/liquibase/update"
       },
       {
         "controller": "LiveMemoryController.java",
-        "verb": "ANY",
-        "path": "/live-memory${bootui.api-path:${bootui.path:/bootui}/api}/live-memory"
-      },
-      {
-        "controller": "LiveMemoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LiveMemoryController.java",
+        "line": 35,
         "verb": "GET",
         "path": "/live-memory"
       },
       {
         "controller": "LiveMemoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LiveMemoryController.java",
+        "line": 47,
         "verb": "POST",
         "path": "/live-memory/offload"
       },
       {
         "controller": "LiveMemoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LiveMemoryController.java",
+        "line": 53,
         "verb": "GET",
-        "path": "/live-memory/footprint"
+        "path": "/live-memory/footprint",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "LiveMemoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LiveMemoryController.java",
+        "line": 59,
         "verb": "POST",
         "path": "/live-memory/footprint"
       },
       {
         "controller": "LoggersController.java",
-        "verb": "ANY",
-        "path": "/loggers${bootui.api-path:${bootui.path:/bootui}/api}/loggers"
-      },
-      {
-        "controller": "LoggersController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LoggersController.java",
+        "line": 29,
         "verb": "GET",
         "path": "/loggers"
       },
       {
         "controller": "LoggersController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LoggersController.java",
+        "line": 37,
         "verb": "POST",
         "path": "/loggers/{name}"
       },
       {
         "controller": "LogTailController.java",
-        "verb": "ANY",
-        "path": "/log-tail${bootui.api-path:${bootui.path:/bootui}/api}/log-tail"
-      },
-      {
-        "controller": "LogTailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LogTailController.java",
+        "line": 95,
         "verb": "GET",
         "path": "/log-tail/recent"
       },
       {
         "controller": "LogTailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LogTailController.java",
+        "line": 100,
         "verb": "GET",
-        "path": "/log-tail/stream"
+        "path": "/log-tail/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "MappingsController.java",
-        "verb": "ANY",
-        "path": "/mappings${bootui.api-path:${bootui.path:/bootui}/api}/mappings"
-      },
-      {
-        "controller": "MappingsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/MappingsController.java",
+        "line": 21,
         "verb": "GET",
         "path": "/mappings/flat"
       },
       {
         "controller": "MetricsController.java",
-        "verb": "ANY",
-        "path": "/metrics${bootui.api-path:${bootui.path:/bootui}/api}/metrics"
-      },
-      {
-        "controller": "MetricsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/MetricsController.java",
+        "line": 26,
         "verb": "GET",
         "path": "/metrics"
       },
       {
         "controller": "MetricsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/MetricsController.java",
+        "line": 38,
         "verb": "GET",
-        "path": "/metrics/detail"
+        "path": "/metrics/detail",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "OtlpReceiverController.java",
-        "verb": "ANY",
-        "path": "/otlp${bootui.api-path:${bootui.path:/bootui}/api}/otlp"
-      },
-      {
-        "controller": "OtlpReceiverController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/OtlpReceiverController.java",
+        "line": 119,
         "verb": "POST",
         "path": "/otlp/v1/traces"
       },
       {
-        "controller": "OverviewController.java",
-        "verb": "ANY",
-        "path": "/overview${bootui.api-path:${bootui.path:/bootui}/api}/overview"
+        "controller": "OtlpReceiverController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/OtlpReceiverController.java",
+        "line": 119,
+        "verb": "POST",
+        "path": "/otlpapplication/x-protobuf",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "OtlpReceiverController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/OtlpReceiverController.java",
+        "line": 119,
+        "verb": "POST",
+        "path": "/otlpapplication/octet-stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "OverviewController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/OverviewController.java",
+        "line": 43,
         "verb": "GET",
         "path": "/overview"
       },
       {
         "controller": "PanelsController.java",
-        "verb": "ANY",
-        "path": "/panels${bootui.api-path:${bootui.path:/bootui}/api}/panels"
-      },
-      {
-        "controller": "PanelsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/PanelsController.java",
+        "line": 69,
         "verb": "GET",
-        "path": "/panels"
+        "path": "/panels",
+        "classification": "framework-introspection",
+        "reason": "Framework introspection metadata endpoint"
       },
       {
         "controller": "ProfileDiffController.java",
-        "verb": "ANY",
-        "path": "/profile-diff${bootui.api-path:${bootui.path:/bootui}/api}/profile-diff"
-      },
-      {
-        "controller": "ProfileDiffController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ProfileDiffController.java",
+        "line": 20,
         "verb": "GET",
         "path": "/profile-diff"
       },
       {
         "controller": "ScheduledController.java",
-        "verb": "ANY",
-        "path": "/scheduled${bootui.api-path:${bootui.path:/bootui}/api}/scheduled"
-      },
-      {
-        "controller": "ScheduledController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ScheduledController.java",
+        "line": 22,
         "verb": "GET",
         "path": "/scheduled"
       },
       {
         "controller": "SecurityLogsController.java",
-        "verb": "ANY",
-        "path": "/security-logs${bootui.api-path:${bootui.path:/bootui}/api}/security-logs"
-      },
-      {
-        "controller": "SecurityLogsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SecurityLogsController.java",
+        "line": 72,
         "verb": "GET",
         "path": "/security-logs"
       },
       {
         "controller": "SecurityLogsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SecurityLogsController.java",
+        "line": 118,
         "verb": "GET",
-        "path": "/security-logs/stream"
+        "path": "/security-logs/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "SpringCacheController.java",
-        "verb": "ANY",
-        "path": "/cache${bootui.api-path:${bootui.path:/bootui}/api}/cache"
-      },
-      {
-        "controller": "SpringCacheController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SpringCacheController.java",
+        "line": 29,
         "verb": "GET",
         "path": "/cache"
       },
       {
         "controller": "SpringCacheController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SpringCacheController.java",
+        "line": 34,
         "verb": "POST",
         "path": "/cache/clear"
       },
       {
         "controller": "SpringSecurityController.java",
-        "verb": "ANY",
-        "path": "/spring-security${bootui.api-path:${bootui.path:/bootui}/api}/spring-security"
-      },
-      {
-        "controller": "SpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SpringSecurityController.java",
+        "line": 65,
         "verb": "GET",
         "path": "/spring-security"
       },
       {
         "controller": "SpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SpringSecurityController.java",
+        "line": 70,
         "verb": "GET",
-        "path": "/spring-security/explain"
+        "path": "/spring-security/explain",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "SpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SpringSecurityController.java",
+        "line": 76,
         "verb": "GET",
-        "path": "/spring-security/endpoints"
+        "path": "/spring-security/endpoints",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "StartupController.java",
-        "verb": "ANY",
-        "path": "/startup${bootui.api-path:${bootui.path:/bootui}/api}/startup"
-      },
-      {
-        "controller": "StartupController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/StartupController.java",
+        "line": 39,
         "verb": "GET",
         "path": "/startup"
       },
       {
         "controller": "ThreadDumpController.java",
-        "verb": "ANY",
-        "path": "/threads${bootui.api-path:${bootui.path:/bootui}/api}/threads"
-      },
-      {
-        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 47,
         "verb": "GET",
         "path": "/threads"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 61,
         "verb": "POST",
         "path": "/threads/download"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 74,
         "verb": "POST",
         "path": "/threads/captures"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 79,
         "verb": "GET",
-        "path": "/threads/captures"
+        "path": "/threads/captures",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 84,
         "verb": "GET",
-        "path": "/threads\"/captures/{id"
+        "path": "/threads/captures/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 84,
         "verb": "GET",
-        "path": "/threads/captures/{id}/threads"
+        "path": "/threads/captures/{id}/contention",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 92,
         "verb": "GET",
-        "path": "/threads/captures/{id}/threads/{observationId}"
+        "path": "/threads/captures/{id}/threads",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 105,
         "verb": "GET",
-        "path": "/threads/captures/{id}/locks/{lockId}"
+        "path": "/threads/captures/{id}/threads/{observationId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 113,
+        "verb": "GET",
+        "path": "/threads/captures/{id}/locks/{lockId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 122,
         "verb": "POST",
         "path": "/threads/captures/clear"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 127,
         "verb": "POST",
         "path": "/threads/captures/{id}/export"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 139,
         "verb": "POST",
         "path": "/threads/observations"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 149,
         "verb": "GET",
-        "path": "/threads/observations/{id}"
+        "path": "/threads/observations/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 158,
         "verb": "POST",
         "path": "/threads/observations/{id}/cancel"
       },
       {
         "controller": "TracesController.java",
-        "verb": "ANY",
-        "path": "/traces${bootui.api-path:${bootui.path:/bootui}/api}/traces"
-      },
-      {
-        "controller": "TracesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/TracesController.java",
+        "line": 43,
         "verb": "GET",
         "path": "/traces"
       },
       {
         "controller": "TracesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/TracesController.java",
+        "line": 48,
         "verb": "GET",
-        "path": "/traces/{traceId}"
+        "path": "/traces/{traceId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       },
       {
         "controller": "TracesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/TracesController.java",
+        "line": 55,
         "verb": "DELETE",
         "path": "/traces"
       },
       {
         "controller": "VulnerabilitiesController.java",
-        "verb": "ANY",
-        "path": "/vulnerabilities${bootui.api-path:${bootui.path:/bootui}/api}/vulnerabilities"
-      },
-      {
-        "controller": "VulnerabilitiesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/VulnerabilitiesController.java",
+        "line": 89,
         "verb": "GET",
         "path": "/vulnerabilities"
       },
       {
         "controller": "VulnerabilitiesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/VulnerabilitiesController.java",
+        "line": 108,
         "verb": "POST",
         "path": "/vulnerabilities/scan"
       },
       {
         "controller": "WebSocketController.java",
-        "verb": "ANY",
-        "path": "/websockets${bootui.api-path:${bootui.path:/bootui}/api}/websockets"
-      },
-      {
-        "controller": "WebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/websocket/WebSocketController.java",
+        "line": 52,
         "verb": "GET",
         "path": "/websockets"
       },
       {
         "controller": "WebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/websocket/WebSocketController.java",
+        "line": 57,
         "verb": "DELETE",
         "path": "/websockets"
       },
       {
         "controller": "WebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/websocket/WebSocketController.java",
+        "line": 62,
         "verb": "POST",
         "path": "/websockets/capture"
       },
       {
         "controller": "WebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/websocket/WebSocketController.java",
+        "line": 68,
         "verb": "GET",
-        "path": "/websockets/stream"
+        "path": "/websockets/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      }
+    ],
+    "inheritedMappings": [
+      {
+        "controller": "ReactiveClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveClaudeCodeController.java",
+        "line": 39,
+        "verb": "GET",
+        "path": "/claude-code/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveClaudeCodeController.java",
+        "line": 46,
+        "verb": "GET",
+        "path": "/claude-code/dashboard"
+      },
+      {
+        "controller": "ReactiveClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveClaudeCodeController.java",
+        "line": 51,
+        "verb": "GET",
+        "path": "/claude-code/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveClaudeCodeController.java",
+        "line": 60,
+        "verb": "GET",
+        "path": "/claude-code/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveClaudeCodeController.java",
+        "line": 75,
+        "verb": "GET",
+        "path": "/claude-code/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveClaudeCodeController.java",
+        "line": 92,
+        "verb": "GET",
+        "path": "/claude-code/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveCopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveCopilotController.java",
+        "line": 39,
+        "verb": "GET",
+        "path": "/copilot/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveCopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveCopilotController.java",
+        "line": 46,
+        "verb": "GET",
+        "path": "/copilot/dashboard"
+      },
+      {
+        "controller": "ReactiveCopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveCopilotController.java",
+        "line": 51,
+        "verb": "GET",
+        "path": "/copilot/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveCopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveCopilotController.java",
+        "line": 60,
+        "verb": "GET",
+        "path": "/copilot/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveCopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveCopilotController.java",
+        "line": 75,
+        "verb": "GET",
+        "path": "/copilot/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveCopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveCopilotController.java",
+        "line": 92,
+        "verb": "GET",
+        "path": "/copilot/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ClaudeCodeController.java",
+        "line": 43,
+        "verb": "GET",
+        "path": "/claude-code/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ClaudeCodeController.java",
+        "line": 50,
+        "verb": "GET",
+        "path": "/claude-code/dashboard"
+      },
+      {
+        "controller": "ClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ClaudeCodeController.java",
+        "line": 55,
+        "verb": "GET",
+        "path": "/claude-code/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ClaudeCodeController.java",
+        "line": 64,
+        "verb": "GET",
+        "path": "/claude-code/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ClaudeCodeController.java",
+        "line": 79,
+        "verb": "GET",
+        "path": "/claude-code/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ClaudeCodeController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ClaudeCodeController.java",
+        "line": 95,
+        "verb": "GET",
+        "path": "/claude-code/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "CopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/CopilotController.java",
+        "line": 43,
+        "verb": "GET",
+        "path": "/copilot/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "CopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/CopilotController.java",
+        "line": 50,
+        "verb": "GET",
+        "path": "/copilot/dashboard"
+      },
+      {
+        "controller": "CopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/CopilotController.java",
+        "line": 55,
+        "verb": "GET",
+        "path": "/copilot/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "CopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/CopilotController.java",
+        "line": 64,
+        "verb": "GET",
+        "path": "/copilot/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "CopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/CopilotController.java",
+        "line": 79,
+        "verb": "GET",
+        "path": "/copilot/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "CopilotController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/CopilotController.java",
+        "line": 95,
+        "verb": "GET",
+        "path": "/copilot/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       }
     ],
     "unpanelledRoutes": [
       {
-        "method": "POST",
-        "path": "/otlp/v1/traces",
-        "controller": "OtlpReceiverController.java",
-        "reason": "OTLP telemetry receiver mounted under /bootui/api/otlp; un-panelled infrastructure receiver"
+        "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 519,
+        "verb": "GET",
+        "path": "/activity/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "LiveServiceMapController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveServiceMapController.java",
+        "line": 51,
+        "verb": "GET",
+        "path": "/activity/service-map",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 80,
+        "verb": "GET",
+        "path": "/crac/dockerfile",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 89,
+        "verb": "GET",
+        "path": "/crac/entrypoint",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/exceptions/ExceptionsController.java",
+        "line": 118,
+        "verb": "GET",
+        "path": "/exceptions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 64,
+        "verb": "GET",
+        "path": "/graalvm/scan/progress",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 83,
+        "verb": "GET",
+        "path": "/graalvm/metadata",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 113,
+        "verb": "GET",
+        "path": "/graalvm/dockerfile",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 76,
+        "verb": "GET",
+        "path": "/code-paths/probes/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "EmailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mail/EmailController.java",
+        "line": 53,
+        "verb": "GET",
+        "path": "/email/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "EmailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mail/EmailController.java",
+        "line": 59,
+        "verb": "GET",
+        "path": "/email/{id}/eml",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "BootUiMcpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mcp/BootUiMcpController.java",
+        "line": 174,
+        "verb": "GET",
+        "path": "/mcp",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 39,
+        "verb": "GET",
+        "path": "/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 46,
+        "verb": "GET",
+        "path": "/dashboard",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 51,
+        "verb": "GET",
+        "path": "/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 60,
+        "verb": "GET",
+        "path": "/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 75,
+        "verb": "GET",
+        "path": "/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 92,
+        "verb": "GET",
+        "path": "/stream",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
+      },
+      {
+        "controller": "ReactiveBootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiIndexController.java",
+        "line": 40,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveBootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiIndexController.java",
+        "line": 40,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}/",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveBootUiMcpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiMcpController.java",
+        "line": 97,
+        "verb": "GET",
+        "path": "/mcp",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
+      },
+      {
+        "controller": "ReactiveExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveExceptionsController.java",
+        "line": 119,
+        "verb": "GET",
+        "path": "/exceptions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 577,
+        "verb": "GET",
+        "path": "/activity/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveLogTailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLogTailController.java",
+        "line": 62,
+        "verb": "GET",
+        "path": "/log-tail/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveRestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveRestClientTraceController.java",
+        "line": 68,
+        "verb": "GET",
+        "path": "/rest-client-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveSecurityLogsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSecurityLogsController.java",
+        "line": 142,
+        "verb": "GET",
+        "path": "/security-logs/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveSpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSpringSecurityController.java",
+        "line": 74,
+        "verb": "GET",
+        "path": "/spring-security/explain",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveSpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSpringSecurityController.java",
+        "line": 82,
+        "verb": "GET",
+        "path": "/spring-security/endpoints",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveSqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSqlTraceController.java",
+        "line": 73,
+        "verb": "GET",
+        "path": "/sql-trace/insights",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveSqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSqlTraceController.java",
+        "line": 89,
+        "verb": "GET",
+        "path": "/sql-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveTransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveTransactionsController.java",
+        "line": 69,
+        "verb": "GET",
+        "path": "/transactions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ReactiveWebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveWebSocketController.java",
+        "line": 70,
+        "verb": "GET",
+        "path": "/websockets/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "RestApiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiController.java",
+        "line": 40,
+        "verb": "GET",
+        "path": "/rest-api/error-contract",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "RestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restclienttrace/RestClientTraceController.java",
+        "line": 66,
+        "verb": "GET",
+        "path": "/rest-client-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "SqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/sqltrace/SqlTraceController.java",
+        "line": 70,
+        "verb": "GET",
+        "path": "/sql-trace/insights",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "SqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/sqltrace/SqlTraceController.java",
+        "line": 86,
+        "verb": "GET",
+        "path": "/sql-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "TransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/transactions/TransactionsController.java",
+        "line": 67,
+        "verb": "GET",
+        "path": "/transactions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ActuatorMappingsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ActuatorMappingsController.java",
+        "line": 22,
+        "verb": "GET",
+        "path": "/mappings",
+        "classification": "framework-introspection",
+        "reason": "Framework introspection metadata endpoint"
+      },
+      {
+        "controller": "AdvisorViolationsEndpoint.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AdvisorViolationsEndpoint.java",
+        "line": 12,
+        "verb": "GET",
+        "path": "/rules/{ruleId}/violations",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 43,
+        "verb": "GET",
+        "path": "/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 50,
+        "verb": "GET",
+        "path": "/dashboard",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 55,
+        "verb": "GET",
+        "path": "/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 64,
+        "verb": "GET",
+        "path": "/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 79,
+        "verb": "GET",
+        "path": "/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 95,
+        "verb": "GET",
+        "path": "/stream",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
+      },
+      {
+        "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 51,
+        "verb": "GET",
+        "path": "/ai/chats",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 57,
+        "verb": "GET",
+        "path": "/ai/chats/{spanId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 64,
+        "verb": "GET",
+        "path": "/ai/tokens",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "BootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/BootUiIndexController.java",
+        "line": 53,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "BootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/BootUiIndexController.java",
+        "line": 53,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}/",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "DatabaseConnectionPoolsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DatabaseConnectionPoolsController.java",
+        "line": 33,
+        "verb": "GET",
+        "path": "/database-connection-pools/pools/{name}/snapshot",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "DataController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DataController.java",
+        "line": 46,
+        "verb": "GET",
+        "path": "/data/repositories/{name}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "DevServicesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DevServicesController.java",
+        "line": 40,
+        "verb": "GET",
+        "path": "/dev-services/{id}/logs",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "DismissedFindingsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedFindingsController.java",
+        "line": 31,
+        "verb": "GET",
+        "path": "/dismissed-findings",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "DismissedRulesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedRulesController.java",
+        "line": 27,
+        "verb": "GET",
+        "path": "/dismissed-rules",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "HeapDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HeapDumpController.java",
+        "line": 50,
+        "verb": "GET",
+        "path": "/heap-dump/download",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "HttpExchangesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HttpExchangesController.java",
+        "line": 138,
+        "verb": "GET",
+        "path": "/http-exchanges/routes",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "LiveMemoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LiveMemoryController.java",
+        "line": 53,
+        "verb": "GET",
+        "path": "/live-memory/footprint",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "LogTailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LogTailController.java",
+        "line": 100,
+        "verb": "GET",
+        "path": "/log-tail/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "MetricsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/MetricsController.java",
+        "line": 38,
+        "verb": "GET",
+        "path": "/metrics/detail",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "PanelsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/PanelsController.java",
+        "line": 69,
+        "verb": "GET",
+        "path": "/panels",
+        "classification": "framework-introspection",
+        "reason": "Framework introspection metadata endpoint"
+      },
+      {
+        "controller": "SecurityLogsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SecurityLogsController.java",
+        "line": 118,
+        "verb": "GET",
+        "path": "/security-logs/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "SpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SpringSecurityController.java",
+        "line": 70,
+        "verb": "GET",
+        "path": "/spring-security/explain",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "SpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SpringSecurityController.java",
+        "line": 76,
+        "verb": "GET",
+        "path": "/spring-security/endpoints",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 79,
+        "verb": "GET",
+        "path": "/threads/captures",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 84,
+        "verb": "GET",
+        "path": "/threads/captures/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 84,
+        "verb": "GET",
+        "path": "/threads/captures/{id}/contention",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 92,
+        "verb": "GET",
+        "path": "/threads/captures/{id}/threads",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 105,
+        "verb": "GET",
+        "path": "/threads/captures/{id}/threads/{observationId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 113,
+        "verb": "GET",
+        "path": "/threads/captures/{id}/locks/{lockId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 149,
+        "verb": "GET",
+        "path": "/threads/observations/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "TracesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/TracesController.java",
+        "line": 48,
+        "verb": "GET",
+        "path": "/traces/{traceId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "controller": "WebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/websocket/WebSocketController.java",
+        "line": 68,
+        "verb": "GET",
+        "path": "/websockets/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
       }
     ],
     "gaps": [
-      "OTLP receiver /otlp/v1/traces is un-panelled infrastructure POST route",
-      "GET /overview is shell chrome data source with no panel API prefix gating",
-      "GET /cli and POST /cli/tools/{name} are command-line transport endpoints gated by bootui.cli.enabled"
+      {
+        "category": "starter-without-catalog",
+        "controller": "LiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveActivityController.java",
+        "line": 519,
+        "verb": "GET",
+        "path": "/activity/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "LiveServiceMapController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/activity/LiveServiceMapController.java",
+        "line": 51,
+        "verb": "GET",
+        "path": "/activity/service-map",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 80,
+        "verb": "GET",
+        "path": "/crac/dockerfile",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "CracController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/crac/CracController.java",
+        "line": 89,
+        "verb": "GET",
+        "path": "/crac/entrypoint",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/exceptions/ExceptionsController.java",
+        "line": 118,
+        "verb": "GET",
+        "path": "/exceptions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 64,
+        "verb": "GET",
+        "path": "/graalvm/scan/progress",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 83,
+        "verb": "GET",
+        "path": "/graalvm/metadata",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "GraalVmController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/GraalVmController.java",
+        "line": 113,
+        "verb": "GET",
+        "path": "/graalvm/dockerfile",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "CodePathsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/javaagent/CodePathsController.java",
+        "line": 76,
+        "verb": "GET",
+        "path": "/code-paths/probes/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "EmailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mail/EmailController.java",
+        "line": 53,
+        "verb": "GET",
+        "path": "/email/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "EmailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mail/EmailController.java",
+        "line": 59,
+        "verb": "GET",
+        "path": "/email/{id}/eml",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "BootUiMcpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/mcp/BootUiMcpController.java",
+        "line": 174,
+        "verb": "GET",
+        "path": "/mcp",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 39,
+        "verb": "GET",
+        "path": "/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 46,
+        "verb": "GET",
+        "path": "/dashboard",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 51,
+        "verb": "GET",
+        "path": "/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 60,
+        "verb": "GET",
+        "path": "/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 75,
+        "verb": "GET",
+        "path": "/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveAgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveAgentSessionController.java",
+        "line": 92,
+        "verb": "GET",
+        "path": "/stream",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveBootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiIndexController.java",
+        "line": 40,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveBootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiIndexController.java",
+        "line": 40,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}/",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveBootUiMcpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveBootUiMcpController.java",
+        "line": 97,
+        "verb": "GET",
+        "path": "/mcp",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveExceptionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveExceptionsController.java",
+        "line": 119,
+        "verb": "GET",
+        "path": "/exceptions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveLiveActivityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLiveActivityController.java",
+        "line": 577,
+        "verb": "GET",
+        "path": "/activity/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveLogTailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveLogTailController.java",
+        "line": 62,
+        "verb": "GET",
+        "path": "/log-tail/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveRestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveRestClientTraceController.java",
+        "line": 68,
+        "verb": "GET",
+        "path": "/rest-client-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveSecurityLogsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSecurityLogsController.java",
+        "line": 142,
+        "verb": "GET",
+        "path": "/security-logs/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveSpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSpringSecurityController.java",
+        "line": 74,
+        "verb": "GET",
+        "path": "/spring-security/explain",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveSpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSpringSecurityController.java",
+        "line": 82,
+        "verb": "GET",
+        "path": "/spring-security/endpoints",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveSqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSqlTraceController.java",
+        "line": 73,
+        "verb": "GET",
+        "path": "/sql-trace/insights",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveSqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveSqlTraceController.java",
+        "line": 89,
+        "verb": "GET",
+        "path": "/sql-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveTransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveTransactionsController.java",
+        "line": 69,
+        "verb": "GET",
+        "path": "/transactions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ReactiveWebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/reactive/ReactiveWebSocketController.java",
+        "line": 70,
+        "verb": "GET",
+        "path": "/websockets/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "RestApiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restapi/RestApiController.java",
+        "line": 40,
+        "verb": "GET",
+        "path": "/rest-api/error-contract",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "RestClientTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/restclienttrace/RestClientTraceController.java",
+        "line": 66,
+        "verb": "GET",
+        "path": "/rest-client-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "SqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/sqltrace/SqlTraceController.java",
+        "line": 70,
+        "verb": "GET",
+        "path": "/sql-trace/insights",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "SqlTraceController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/sqltrace/SqlTraceController.java",
+        "line": 86,
+        "verb": "GET",
+        "path": "/sql-trace/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "TransactionsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/transactions/TransactionsController.java",
+        "line": 67,
+        "verb": "GET",
+        "path": "/transactions/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ActuatorMappingsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ActuatorMappingsController.java",
+        "line": 22,
+        "verb": "GET",
+        "path": "/mappings",
+        "classification": "framework-introspection",
+        "reason": "Framework introspection metadata endpoint"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AdvisorViolationsEndpoint.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AdvisorViolationsEndpoint.java",
+        "line": 12,
+        "verb": "GET",
+        "path": "/rules/{ruleId}/violations",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 43,
+        "verb": "GET",
+        "path": "/sessions",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 50,
+        "verb": "GET",
+        "path": "/dashboard",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 55,
+        "verb": "GET",
+        "path": "/sessions/{id}",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 64,
+        "verb": "GET",
+        "path": "/sessions/{id}/events",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 79,
+        "verb": "GET",
+        "path": "/sessions/{id}/events/{eventId}/raw",
+        "classification": "session-management",
+        "reason": "Session management endpoint outside catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AgentSessionController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AgentSessionController.java",
+        "line": 95,
+        "verb": "GET",
+        "path": "/stream",
+        "classification": "transport",
+        "reason": "Protocol transport endpoint, not a panel read/action"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 51,
+        "verb": "GET",
+        "path": "/ai/chats",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 57,
+        "verb": "GET",
+        "path": "/ai/chats/{spanId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "AiController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/AiController.java",
+        "line": 64,
+        "verb": "GET",
+        "path": "/ai/tokens",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "BootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/BootUiIndexController.java",
+        "line": 53,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "BootUiIndexController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/BootUiIndexController.java",
+        "line": 53,
+        "verb": "GET",
+        "path": "/${bootui.path:/bootui}/",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "DatabaseConnectionPoolsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DatabaseConnectionPoolsController.java",
+        "line": 33,
+        "verb": "GET",
+        "path": "/database-connection-pools/pools/{name}/snapshot",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "DataController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DataController.java",
+        "line": 46,
+        "verb": "GET",
+        "path": "/data/repositories/{name}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "DevServicesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DevServicesController.java",
+        "line": 40,
+        "verb": "GET",
+        "path": "/dev-services/{id}/logs",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "DismissedFindingsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedFindingsController.java",
+        "line": 31,
+        "verb": "GET",
+        "path": "/dismissed-findings",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "DismissedRulesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DismissedRulesController.java",
+        "line": 27,
+        "verb": "GET",
+        "path": "/dismissed-rules",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "HeapDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HeapDumpController.java",
+        "line": 50,
+        "verb": "GET",
+        "path": "/heap-dump/download",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "HttpExchangesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/HttpExchangesController.java",
+        "line": 138,
+        "verb": "GET",
+        "path": "/http-exchanges/routes",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "LiveMemoryController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LiveMemoryController.java",
+        "line": 53,
+        "verb": "GET",
+        "path": "/live-memory/footprint",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "LogTailController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/LogTailController.java",
+        "line": 100,
+        "verb": "GET",
+        "path": "/log-tail/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "MetricsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/MetricsController.java",
+        "line": 38,
+        "verb": "GET",
+        "path": "/metrics/detail",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "OtlpReceiverController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/OtlpReceiverController.java",
+        "line": 119,
+        "verb": "POST",
+        "path": "/otlpapplication/x-protobuf",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "OtlpReceiverController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/OtlpReceiverController.java",
+        "line": 119,
+        "verb": "POST",
+        "path": "/otlpapplication/octet-stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "PanelsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/PanelsController.java",
+        "line": 69,
+        "verb": "GET",
+        "path": "/panels",
+        "classification": "framework-introspection",
+        "reason": "Framework introspection metadata endpoint"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "SecurityLogsController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SecurityLogsController.java",
+        "line": 118,
+        "verb": "GET",
+        "path": "/security-logs/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "SpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SpringSecurityController.java",
+        "line": 70,
+        "verb": "GET",
+        "path": "/spring-security/explain",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "SpringSecurityController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/SpringSecurityController.java",
+        "line": 76,
+        "verb": "GET",
+        "path": "/spring-security/endpoints",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 79,
+        "verb": "GET",
+        "path": "/threads/captures",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 84,
+        "verb": "GET",
+        "path": "/threads/captures/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 84,
+        "verb": "GET",
+        "path": "/threads/captures/{id}/contention",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 92,
+        "verb": "GET",
+        "path": "/threads/captures/{id}/threads",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 105,
+        "verb": "GET",
+        "path": "/threads/captures/{id}/threads/{observationId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 113,
+        "verb": "GET",
+        "path": "/threads/captures/{id}/locks/{lockId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "ThreadDumpController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/ThreadDumpController.java",
+        "line": 149,
+        "verb": "GET",
+        "path": "/threads/observations/{id}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "TracesController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/TracesController.java",
+        "line": 48,
+        "verb": "GET",
+        "path": "/traces/{traceId}",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "starter-without-catalog",
+        "controller": "WebSocketController.java",
+        "source": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/websocket/WebSocketController.java",
+        "line": 68,
+        "verb": "GET",
+        "path": "/websockets/stream",
+        "classification": "uncatalogued-starter-endpoint",
+        "reason": "Starter mapping absent from BootUI contract catalog"
+      },
+      {
+        "category": "catalog-without-mapping",
+        "method": "POST",
+        "path": "/dev-services/services/conformance/restart",
+        "catalogSource": "bootui-conformance/src/main/java/io/github/jdubois/bootui/conformance/BootUiApiContractCatalog.java:910",
+        "starterSource": "bootui-spring-boot-starter/src/main/java/io/github/jdubois/bootui/autoconfigure/web/DevServicesController.java:45",
+        "reason": "BootUI catalog names the conformance service while the starter mapping accepts an id"
+      }
     ]
   }
 }

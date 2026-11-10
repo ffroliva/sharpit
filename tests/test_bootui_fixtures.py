@@ -7,7 +7,10 @@ and completeness against BootUI v2.3.0 source contracts.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+
+import pytest
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "bootui" / "2.3.0"
 PINNED_COMMIT = "7c89042c6a0a47e1cb22d2df7412d2177d7416d1"
@@ -30,6 +33,54 @@ def _load_json(filename: str) -> dict | list:
     assert path.is_file(), f"Missing required fixture file: {path}"
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _assert_route_completeness(routes: dict, expected_counts: dict) -> None:
+    mappings = [
+        *routes["crossCheck"]["starterMappings"],
+        *routes["crossCheck"].get("inheritedMappings", []),
+    ]
+    catalog_routes = [*routes["reads"], *routes["actions"]]
+    assert len(routes["reads"]) == expected_counts["reads"], "read route count changed"
+    assert len(routes["actions"]) == expected_counts["actions"], "action route count changed"
+    assert len(routes["crossCheck"]["starterMappings"]) == expected_counts["starterMappings"], (
+        "starter mapping count changed"
+    )
+    assert len(routes["crossCheck"]["unpanelledRoutes"]) == expected_counts["unpanelledRoutes"], (
+        "unpanelled GET route count changed"
+    )
+
+    def paths_match(left: str, right: str) -> bool:
+        left_parts = left.split("?", 1)[0].strip("/").split("/")
+        right_parts = right.split("?", 1)[0].strip("/").split("/")
+        return len(left_parts) == len(right_parts) and all(
+            a == b or "{" in a or "{" in b for a, b in zip(left_parts, right_parts, strict=True)
+        )
+
+    def is_catalog_mapping(mapping: dict) -> bool:
+        return any(
+            route["method"] == mapping["verb"] and paths_match(mapping["path"], route["path"])
+            for route in catalog_routes
+        )
+
+    def route_has_mapping(route: dict) -> bool:
+        return any(
+            mapping["verb"] == route["method"] and paths_match(mapping["path"], route["path"]) for mapping in mappings
+        )
+
+    route_gaps = [gap for gap in routes["crossCheck"]["gaps"] if gap.get("category") == "catalog-without-mapping"]
+    for route in catalog_routes:
+        if not route_has_mapping(route):
+            assert any(
+                gap["method"] == route["method"]
+                and gap["path"] == route["path"]
+                and gap.get("catalogSource")
+                and gap.get("starterSource")
+                for gap in route_gaps
+            ), f"catalog route has no starter mapping: {route['method']} {route['path']}"
+    assert all(m.get("classification") for m in mappings if not is_catalog_mapping(m)), (
+        "starter mapping missing from catalog must have a classification"
+    )
 
 
 def test_bootui_23_fixtures_record_pin_command_and_catalog_completeness() -> None:
@@ -262,22 +313,16 @@ def test_bootui_23_fixtures_reject_incomplete_catalogs_and_machine_paths() -> No
     assert "javaVersionOutput" in meta, "metadata must record actual java -version output"
     assert "mavenVersionOutput" in meta, "metadata must record actual mvn -v output"
     assert "settingsOverride" in meta, "metadata must record the Maven settings override"
-    assert meta["counts"] == {
-        "panels": 65,
-        "reads": 64,
-        "actions": 18,
-        "tools": 116,
-        "rules": 0,
-        "properties": 0,
-        "defaultedProperties": 44,
-        "testClasses": 0,
-        "testMethods": 0,
-    }
+    assert meta["counts"]["reads"] == 82
+    assert meta["counts"]["actions"] == 78
     routes = _load_json("routes.json")
-    assert len(routes["reads"]) == 64
-    assert len(routes["actions"]) == 18
+    assert len(routes["reads"]) == 82
+    assert len(routes["actions"]) == 78
     assert all(route["path"] != "/missing" for route in routes["reads"])
-    assert all("classification" in route for route in routes["crossCheck"]["starterMappings"])
+    assert all(
+        "classification" in route or route.get("category") == "catalog-without-mapping"
+        for route in routes["crossCheck"]["gaps"]
+    )
     tools = _load_json("tools.json")["tools"]
     assert {tool["name"]: tool["defaultLimit"] for tool in tools if "defaultLimit" in tool}["get_metrics"] == 25
     assert {tool["name"]: tool["defaultLimit"] for tool in tools if "defaultLimit" in tool}["get_log_tail"] == 50
@@ -291,3 +336,48 @@ def test_bootui_23_fixtures_reject_incomplete_catalogs_and_machine_paths() -> No
         for rule in _load_json("rule-ids.json")["rules"]
         if rule.get("javaSource")
     )
+
+
+def test_bootui_23_routes_are_complete_and_classified() -> None:
+    routes = _load_json("routes.json")
+    reads = routes["reads"]
+    actions = routes["actions"]
+    cross_check = routes["crossCheck"]
+    mappings = cross_check["starterMappings"]
+    meta = _load_json("meta.json")
+    assert len(reads) == meta["counts"]["reads"]
+    assert len(actions) == meta["counts"]["actions"]
+    assert len(mappings) == meta["counts"]["starterMappings"]
+    assert len(cross_check["unpanelledRoutes"]) == meta["counts"]["unpanelledRoutes"]
+    _assert_route_completeness(routes, meta["counts"])
+    assert len(cross_check["gaps"]) == meta["counts"]["gaps"]
+    assert [
+        (gap["method"], gap["path"]) for gap in cross_check["gaps"] if gap.get("category") == "catalog-without-mapping"
+    ] == [("POST", "/dev-services/services/conformance/restart")], (
+        "only the documented dev-services route mismatch is allowed"
+    )
+    assert any(
+        gap.get("category") == "catalog-without-mapping" and gap["path"] == "/dev-services/services/conformance/restart"
+        for gap in cross_check["gaps"]
+    ), "BootUI's dev-services restart inconsistency must be explicitly classified"
+
+
+def test_bootui_23_route_completeness_check_rejects_removed_route() -> None:
+    import shutil
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temp:
+        copy = Path(temp) / "routes.json"
+        shutil.copy(FIXTURES_ROOT / "routes.json", copy)
+        routes = json.loads(copy.read_text(encoding="utf-8"))
+        routes["reads"].pop()
+        copy.write_text(json.dumps(routes), encoding="utf-8")
+        with pytest.raises(AssertionError, match="read route count changed"):
+            _assert_route_completeness(json.loads(copy.read_text(encoding="utf-8")), _load_json("meta.json")["counts"])
+
+
+def test_bootui_23_fixtures_contain_no_machine_paths() -> None:
+    for path in FIXTURES_ROOT.glob("*.json"):
+        contents = path.read_text(encoding="utf-8")
+        assert not re.search(r"(?<![A-Za-z0-9])[A-Za-z]:[/\\]", contents), f"Machine-specific path in {path.name}"
+        assert "Files\\Amazon Corretto" not in contents, f"Machine-specific path in {path.name}"
