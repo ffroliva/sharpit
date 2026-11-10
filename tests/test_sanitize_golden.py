@@ -51,7 +51,7 @@ def _tree(tmp_path: Path, files: dict[str, object], name: str = "2.2.0", **kwarg
     error: object = None
     try:
         module.main(src, dst, repo=tmp_path, **kwargs)
-    except (TypeError, ValueError, SystemExit) as exc:
+    except (ValueError, SystemExit) as exc:
         error = exc
     return error, dst
 
@@ -186,6 +186,32 @@ def test_sanitiser_refuses_vendor_tokens_anywhere():
     assert module.find_secrets({"description": "task-list and disk-usage; Bearer is a scheme"}) == []
 
 
+@pytest.mark.parametrize(
+    "token",
+    (
+        "sk-proj-Ab1_cD2-" + "x" * 24,
+        "sk-svcacct-" + "x" * 24,
+        "token%3Dghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        "TOKEN_ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        "KEY_sk-ant-abcdefghijklmnopqrstuvwxyz0123456789",
+        "bearer abcdefghijklmnopqrstuvwxyz0123456789",
+        "BEARER abcdefghijklmnopqrstuvwxyz0123456789",
+        "Bearer%20abcdefghijklmnopqrstuvwxyz0123456789",
+        "Bearer+abcdefghijklmnopqrstuvwxyz0123456789",
+    ),
+)
+def test_find_secrets_refuses_encoded_and_prefixed_tokens(token: str):
+    assert module.find_secrets({"description": token}) == ["$.description"]
+
+
+def test_find_secrets_handles_long_strings_quickly():
+    import time
+
+    started = time.perf_counter()
+    assert module.find_secrets({"description": "x" * 200_000}) == []
+    assert time.perf_counter() - started < 1
+
+
 def test_enums_come_from_the_raw_capture(tmp_path: Path):
     error, dst = _tree(
         tmp_path,
@@ -197,6 +223,49 @@ def test_enums_come_from_the_raw_capture(tmp_path: Path):
     assert enums_path.is_file()
     enums = json.loads(enums_path.read_text(encoding="utf-8"))
     assert enums["$.items[].state"] == ["ACTIVE", "PAUSED"]
+
+
+def test_enums_only_publish_enum_constants_from_raw_capture(tmp_path: Path):
+    error, dst = _tree(
+        tmp_path,
+        {
+            "agent/captured.json": {
+                "message": "user alice@corp.example logged in from host WS-ALICE-01",
+                "status": "UP",
+            }
+        },
+        name="2.3.0",
+    )
+    assert error is None
+    enums = json.loads((dst / "agent" / "enums.raw.json").read_text(encoding="utf-8"))
+    assert enums == {"$.status": ["UP"]}
+
+
+def test_enums_cap_distinct_values_per_key_path(tmp_path: Path):
+    error, dst = _tree(
+        tmp_path,
+        {"agent/captured.json": {"status": [f"STATE_{i}" for i in range(65)]}},
+        name="2.3.0",
+    )
+    assert error is None
+    enums = json.loads((dst / "agent" / "enums.raw.json").read_text(encoding="utf-8"))
+    assert len(enums["$.status[]"]) == 64
+
+
+def test_version_comes_from_source_and_rejects_unknown_versions(tmp_path: Path):
+    src = tmp_path / "replica" / "evidence" / "2.2.0"
+    dst = tmp_path / "tests" / "fixtures" / "bootui" / "scratch"
+    src.mkdir(parents=True)
+    dst.mkdir(parents=True)
+    (src / "agent").mkdir()
+    (src / "agent" / "captured.json").write_text('{"status":"UP"}', encoding="utf-8")
+    module.main(src, dst, repo=tmp_path)
+    meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
+    assert meta["bootuiVersion"] == "2.2.0"
+    assert json.loads((dst / "agent" / "captured.json").read_text(encoding="utf-8")) == {"status": "UP"}
+    assert not (dst / "agent" / "enums.raw.json").exists()
+    with pytest.raises(ValueError, match="version must be '2.2.0' or '2.3.0'"):
+        module.main(src, dst, repo=tmp_path, version="scratch")
 
 
 def test_shaping_keeps_every_key_path():
