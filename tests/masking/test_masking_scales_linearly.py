@@ -8,6 +8,7 @@ A new heuristic only has to survive these generators to ship; add the input that
 from __future__ import annotations
 
 import gc
+import sys
 import time
 from collections.abc import Callable
 from functools import partial
@@ -152,31 +153,61 @@ def _seconds(entry: Entry, text: str) -> float:
     return best
 
 
-def _step(entry_at: Callable[[int], Entry], make: Callable[[int], str], size: int) -> float:
+def _step(
+    entry_at: Callable[[int], Entry], make: Callable[[int], str], size: int, half: float | None = None
+) -> tuple[float, float]:
     """How many times the half size ``size`` costs: a busy machine can fail a step, a quadratic pass fails every one."""
     half_entry, full_entry = entry_at(size // 2), entry_at(size)
     step = float("inf")
-    for _ in range(ATTEMPTS):
-        half = _seconds(half_entry, make(size // 2))
+    first_full = 0.0
+    for attempt in range(ATTEMPTS):
+        half_seconds = half if attempt == 0 and half is not None else _seconds(half_entry, make(size // 2))
         full = _seconds(full_entry, make(size))
-        step = min(step, (full + FLOOR_SECONDS) / (half + FLOOR_SECONDS))
+        if attempt == 0:
+            first_full = full
+        step = min(step, (full + FLOOR_SECONDS) / (half_seconds + FLOOR_SECONDS))
         if step < MAX_STEP:
             break
-    return step
+    return step, first_full
 
 
 def _assert_linear(entry_at: Callable[[int], Entry], make: Callable[[int], str], sizes: tuple[int, ...]) -> None:
     gc_was_on = gc.isenabled()
     gc.disable()
     try:
+        half = None
+        largest = 0.0
         for size in sizes:  # smallest first: a quadratic pass fails before it runs into the test timeout
-            step = _step(entry_at, make, size)
+            step, largest = _step(entry_at, make, size, half)
+            half = largest
             assert step < MAX_STEP, f"{size} chars cost {step:.1f}x the half size"
-        largest = _seconds(entry_at(sizes[-1]), make(sizes[-1]))
     finally:
         if gc_was_on:
             gc.enable()
     assert largest < MAX_SECONDS
+
+
+def test_each_size_is_measured_once_per_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    measured: list[int] = []
+
+    def seconds(_entry: Entry, text: str) -> float:
+        measured.append(len(text.split(" ", 1)[0]))
+        return 0.01
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+    _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, SIZES[1:])
+
+    assert measured == list(SIZES)
+
+
+def test_a_planted_quadratic_entry_still_fails() -> None:
+    def quadratic(text: str) -> None:
+        for _ in range(len(text)):
+            for _ in range(len(text)):
+                pass
+
+    with pytest.raises(AssertionError, match="chars cost .* the half size"):
+        _assert_linear(lambda _size: quadratic, lambda size: "x" * size, (800, 1_600, 3_200))
 
 
 def test_overlapping_hidden_spans_are_written_once() -> None:
