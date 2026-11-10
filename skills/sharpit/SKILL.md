@@ -25,6 +25,10 @@ Python 3.12+. Runtime dependencies are only `starlette` and `packaging`; FastAPI
 uv add "sharpit[fastapi]"           # or: pip install "sharpit[fastapi]"
 ```
 
+The extras are `fastapi`, `settings` (pydantic-settings, for Config provenance) and `test`. SQLAlchemy, a database driver
+and OpenTelemetry have no extra: sharpit reads them from your app if it imported them. The panel to library to extra
+table is in `website/docs/installation.md`.
+
 ## Add it to an app
 
 ```python
@@ -102,7 +106,7 @@ keyword is the same name in lower case.
 | `SHARPIT_PANELS_<ID>_ENABLED` / `_READ_ONLY` | `panels={"<id>": {...}}` | on / off | per-panel switches, e.g. `SHARPIT_PANELS_LOGGERS_READ_ONLY=true` |
 
 The full list (`SHARPIT_MCP_*`, `SHARPIT_CLI_*`, `SHARPIT_VULNERABILITIES_*`, `SHARPIT_TRUST_CONTAINER_GATEWAY`,
-`SHARPIT_CONFIG_SCAN`, ...) is in the README settings table and `src/sharpit/settings.py`. Durations accept `10s`, `500ms` or a bare number of seconds.
+`SHARPIT_CONFIG_SCAN`, ...) is in `website/docs/settings.md` and `src/sharpit/settings.py`. Durations accept `10s`, `500ms` or a bare number of seconds.
 
 ## Safety model
 
@@ -132,7 +136,7 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | Beans | `GET {api}/beans` | dependency providers and their `dependencies` |
 | Vulnerabilities | `GET {api}/vulnerabilities`, `POST {api}/vulnerabilities/scan` | installed distributions against OSV, scored with EPSS |
 | MCP server | `GET {api}/mcp-server`, `POST {api}/mcp` | read-only MCP for agents |
-| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the scan, over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
+| CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 17 action tools (see Actions below), over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
 | PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
 
@@ -154,9 +158,34 @@ Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": ".
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes **read-only** tools: `get_overview`, `get_config`,
-`get_mappings`, `get_loggers`, `get_beans`, `get_vulnerabilities_report`. There is no action tool: an agent cannot
-change a logger or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token.
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 37 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or
+start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
+`query` and `limit` (capped by `SHARPIT_MCP_MAX_RESULTS`). The names and the read or action split match BootUI 2.3.0
+where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
+
+- The app: `get_overview` (call it first), `get_config`, `get_mappings`, `get_beans`, `get_loggers`,
+  `get_data_repositories`.
+- Requests and errors: `get_live_activity`, `get_request_profile`, `get_http_exchanges`, `get_http_routes`,
+  `get_exceptions`, `get_exception_detail`, `get_log_tail`, `get_security_logs`.
+- Database: `get_sql_traces`, `get_sql_trace_insights`, `get_sqlalchemy_statistics`, `get_transactions`,
+  `get_database_connection_pools`, `get_alembic_migrations`, `get_postgresql_report`, `get_mysql_report`.
+- Runtime: `get_health`, `get_threads`, `get_traces`.
+- Advisors and security (a report tool and a per-rule violations tool each, neither starts a scan):
+  `get_vulnerabilities_report`; `get_rest_api_report`, `get_rest_api_rule_violations`; `get_security_report`,
+  `get_security_rule_violations`; `get_database_advisor_report`, `get_database_advisor_rule_violations`;
+  `get_architecture_report`, `get_architecture_rule_violations`; `get_fastapi_report`,
+  `get_fastapi_rule_violations`; `get_fastapi_security`.
+
+### Actions (CLI endpoint only, never MCP)
+
+17 action tools change state, call out or scan. They are reachable only through `POST {api}/cli/tools/<tool>`
+(`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain; the CLI endpoint also serves every read tool above.
+
+- Scans and reads that call out: `vulnerabilities_scan` (sends package names and versions to OSV.dev), `rest_api_scan`,
+  `security_scan`, `database_advisor_scan`, `architecture_scan`, `fastapi_scan`, `postgresql_read`, `mysql_read`.
+- Buffers and recording (sharpit's own in-memory capture only): `clear_exceptions`, `clear_sql_traces`,
+  `pause_sql_trace_recording`, `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
+  `resume_transaction_recording`, `clear_traces`, `enable_sqlalchemy_statistics`.
 
 ## Running test gates (`pytest --sharpit`)
 

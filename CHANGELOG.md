@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+
+- Every MCP tool and every setting is documented, and the installation page has the panel to library to extra table: the MCP page lists the 37 read tools and, separately, the 17 action tools (CLI endpoint only, never MCP); the settings page lists the 28 settings it was missing (`SHARPIT_APP_PACKAGE`, `SHARPIT_TRANSACTIONS_*`, `SHARPIT_POSTGRESQL_MAX_*`, `SHARPIT_MYSQL_MAX_*`, `SHARPIT_DATABASE_ADVISOR_MAX_*`, `SHARPIT_ARCHITECTURE_MAX_*`, `SHARPIT_SECURITY_LOGS_MAX_LOGS`, `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR`) and all 31 panel ids; `tests/test_tracker_docs.py` fails when a registered tool, a setting or an extra is missing from the docs.
+
 ### Fixed
 
 - MCP negotiates only protocol revision `2025-06-18`, while retaining BootUI's supported-version list in status. A `2026-07-28` header is now refused as BootUI refuses it (it used to be accepted).
