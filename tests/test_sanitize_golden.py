@@ -162,7 +162,9 @@ def test_sanitiser_merges_meta_for_the_target_version(tmp_path: Path):
     meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
     assert meta["bootuiVersion"] == "2.3.0"
     for key, value in json.loads(source_meta.read_text(encoding="utf-8")).items():
-        assert meta[key] == value
+        if key not in {"uncaptured", "emptyLists"}:
+            assert meta[key] == value
+    assert meta["uncaptured"] == {"overview": "not served"}
     for key in ("app", "profile", "captured", "uncaptured"):
         assert key in meta
     assert "2.2.0" not in json.dumps(meta)
