@@ -101,8 +101,7 @@ def test_concurrent_claims_get_distinct_ids() -> None:
 
     monitoring.get_tool_barrier = None
     claimed = [tool for tool in tools if tool is not None]
-    assert len(claimed) >= 1
-    assert len(claimed) <= 2
+    assert len(claimed) == 2  # both claims succeed: two free ids, one each
     assert len({tool.tool_id for tool in claimed}) == len(claimed)
     for tool in claimed:
         tool.release()

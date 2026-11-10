@@ -98,7 +98,7 @@ class MonitoringToolAllocator:
                     clear_tool_id = getattr(self.monitoring, "clear_tool_id", None)
                     if clear_tool_id is not None:
                         clear_tool_id(tool_id)
-                    if clear_tool_id is None:
+                    else:
                         # shortcut: local events of a previous owner stay set on <3.14 but have no callback; clear_tool_id when 3.14 is the floor  # noqa: E501
                         _clear_callbacks(self.monitoring, tool_id)
                     self.monitoring.set_events(tool_id, 0)
