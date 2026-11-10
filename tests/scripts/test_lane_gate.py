@@ -256,6 +256,37 @@ def test_fixture_copy_never_writes_into_its_template(tmp_path: Path) -> None:
 # --- controls ---------------------------------------------------------------------------------------------------------
 
 
+def test_git_helper_uses_the_replaceable_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def runner(command: Sequence[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(command))
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(lane_gate, "_GIT_RUNNER", runner, raising=False)
+    monkeypatch.setattr(
+        lane_gate.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr=""),
+    )
+    assert lane_gate._git(tmp_path, "status").stdout == "ok\n"
+    assert calls == [("git", "status")]
+
+
+@pytest.fixture
+def real_git(monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, ...]], object]:
+    """Record commands sent through lane_gate's real runner for command-shape coverage tests."""
+    calls: list[tuple[str, ...]] = []
+    real_runner = lane_gate._GIT_RUNNER
+
+    def recording_runner(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(tuple(command[1:]))
+        return real_runner(command, **kwargs)
+
+    monkeypatch.setattr(lane_gate, "_GIT_RUNNER", recording_runner)
+    return calls, real_runner
+
+
 def test_lane_gate_reads_a_file_at_a_commit_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A `git show` per read made `git show` half of this file's time: 515 of ~1000 spawns (T-suite-speed)."""
     monkeypatch.setattr(lane_gate, "_READS", {})  # reads are shared across repos: start cold, or this counts nothing
@@ -1907,6 +1938,37 @@ def test_lane_fixture_copy_uses_at_most_one_git_call(tmp_path: Path, monkeypatch
     _fixture(copy_root)
     git_calls = len(calls)
     assert git_calls <= 1, f"copying a prepared lane fixture used {git_calls} git subprocesses; expected at most 1"
+
+
+def test_lane_gate_command_shapes_reach_real_git(
+    tmp_path: Path,
+    real_git: tuple[list[tuple[str, ...]], object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls, _runner = real_git
+    fx = _fixture(tmp_path)
+    monkeypatch.setattr(lane_gate, "_READS", {})
+    assert _refusals(fx.evaluate()) == []
+    lane_gate._show(fx.worktree, "HEAD", "src/widget.py")
+    lane_gate._git(fx.worktree, "worktree", "prune", check=False)
+    shapes = {
+        ("branch", "--show-current"),
+        ("rev-parse", "--verify", "--quiet"),
+        ("rev-parse", "HEAD"),
+        ("status", "--porcelain", "--untracked-files=no"),
+        ("merge-base", "--is-ancestor"),
+        ("merge-base",),
+        ("diff", "--name-only", "--no-renames"),
+        ("ls-tree", "-r", "-z", "--full-tree"),
+        ("cat-file", "blob"),
+        ("show",),
+        ("cat-file", "-e"),
+        ("worktree", "add", "--detach", "--quiet"),
+        ("worktree", "remove", "--force"),
+        ("worktree", "prune"),
+    }
+    observed = {call[: len(shape)] for call in calls for shape in shapes if call[: len(shape)] == shape}
+    assert observed == shapes
 
 
 def test_a_fixture_commit_spawns_no_maintenance_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
