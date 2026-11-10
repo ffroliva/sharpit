@@ -153,6 +153,7 @@ def test_sanitiser_merges_meta_for_the_target_version(tmp_path: Path):
         name="2.3.0",
         version="2.3.0",
     )
+    assert error is None
     # Reuse the real lane B metadata in an isolated destination.
     (dst / "meta.json").write_text(source_meta.read_text(encoding="utf-8"), encoding="utf-8")
     src = tmp_path / "rerun" / "replica" / "evidence" / "2.3.0"
@@ -160,8 +161,8 @@ def test_sanitiser_merges_meta_for_the_target_version(tmp_path: Path):
     module.main(src, dst, repo=tmp_path / "rerun", version="2.3.0")
     meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
     assert meta["bootuiVersion"] == "2.3.0"
-    for key in ("commit", "tag", "tagObject", "mavenCommand", "jdk", "counts"):
-        assert key in meta
+    for key, value in json.loads(source_meta.read_text(encoding="utf-8")).items():
+        assert meta[key] == value
     for key in ("app", "profile", "captured", "uncaptured"):
         assert key in meta
     assert "2.2.0" not in json.dumps(meta)
@@ -192,12 +193,22 @@ def test_enums_come_from_the_raw_capture(tmp_path: Path):
         name="2.3.0",
     )
     assert error is None
-    enums = json.loads((dst / "agent" / "enums.raw.json").read_text(encoding="utf-8"))
+    enums_path = dst / "agent" / "enums.raw.json"
+    assert enums_path.is_file()
+    enums = json.loads(enums_path.read_text(encoding="utf-8"))
     assert enums["$.items[].state"] == ["ACTIVE", "PAUSED"]
 
 
 def test_shaping_keeps_every_key_path():
-    raw = {"items": [{"outer": {"first": "a"}}, {"outer": {"second": "b"}}]}
+    raw = {
+        "items": [
+            "one",
+            "two",
+            "three",
+            {"outer": {"first": "a"}},
+            {"outer": {"second": "b"}},
+        ]
+    }
     shaped = module.shape_golden(raw)
 
     def key_paths(node: object, path: str = "$") -> set[str]:

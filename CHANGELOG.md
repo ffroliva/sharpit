@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The golden sanitiser now preserves versioned capture metadata, rejects common vendor tokens, and retains raw enum values and every key path for newer nested captures.
 - CI can be dispatched manually for attempt-1 noise measurements, and an always-running `live-check` now aggregates
   every live leg. The workflow must first reach the default branch for GitHub to dispatch it.
 - The Ubuntu 3.14 test-shard and masking-gates legs install the `full-extras` dependency group and publish JUnit evidence
