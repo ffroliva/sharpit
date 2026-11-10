@@ -253,9 +253,8 @@ class RuntimeJournal:
             self._accepting = True
 
     def status(self) -> dict[str, Any]:
-        """``RuntimeJournalStatusDto``; ``recorded`` lists every configured source, zero included."""
+        """``RuntimeJournalStatusDto``; ``recorded`` lists only sources with events (``byPropertyName``)."""
         with self._lock:
-            recorded = dict.fromkeys(sorted(self.sources or ()), 0) | dict(self._accepted)
             return {
                 "enabled": True,
                 "runId": self.run_id,
@@ -270,7 +269,7 @@ class RuntimeJournal:
                 "oldestRetainedAt": self._events[0][2] if self._events else None,
                 "queueDepth": 0,
                 "queueCapacity": self.queue_capacity,
-                "recorded": recorded,
+                "recorded": dict(self._accepted),
                 "dropped": dict(self._dropped),
                 "droppedEvents": sum(self._dropped.values()),
                 "previousRuns": [],
