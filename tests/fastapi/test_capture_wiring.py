@@ -629,3 +629,15 @@ def test_suspending_sqla_on_a_detached_context_keeps_it_out_of_dispatch(shutdown
     assert ctx.context_id not in dispatch._contexts  # pyright: ignore[reportPrivateUsage]
     _hook(handle, "sqla-listeners").suspend()
     assert ctx.context_id not in dispatch._contexts, "a detached context was re-added to dispatch"  # pyright: ignore[reportPrivateUsage]
+
+
+def test_every_registered_hook_name_is_a_named_constant():
+    """Review R2: hook names are spelled once, as constants; registration, actions and call sites use them."""
+    import sharpit.fastapi.capture as capture_module
+
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+    with TestClient(app):
+        names = {hook.name for hook in handle.context.capture.hooks.hooks()}
+    known = getattr(capture_module, "HOOK_NAMES", frozenset[str]())
+    assert names <= known, f"hook names without a constant: {sorted(names - known)}"
