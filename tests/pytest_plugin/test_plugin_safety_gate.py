@@ -61,17 +61,18 @@ def test_unreadable_baseline_fails_closed_in_report_only(pytester: pytest.Pytest
 def test_baseline_allows_existing_finding_but_gates_new_one(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Subprocesses: a driver another test imported into this worker would make the write run refuse (unknown).
     # A shared key (>= 32 chars) keeps SQLite fingerprints stable between the write and the gated run on any machine.
     monkeypatch.setenv("SHARPIT_IDENTITY_KEY", "pytest-safety-gate-baseline-identity-key0")
     pytester.makepyfile(_test_source("test_existing"))
-    written = pytester.runpytest_inprocess(
+    written = pytester.runpytest_subprocess(
         *_SQL_GATE, "--sharpit-write-baseline=baseline.json", "--sharpit-report=write.json"
     )
     write_report = json.loads((pytester.path / "write.json").read_text(encoding="utf-8"))
     assert (pytester.path / "baseline.json").is_file(), (written.ret, write_report["unknownReasons"])
     pytester.makepyfile(_test_source("test_existing", "test_new"))
 
-    result = pytester.runpytest_inprocess(
+    result = pytester.runpytest_subprocess(
         *_SQL_GATE, "--sharpit-baseline=baseline.json", "--sharpit-report=report.json"
     )
 
