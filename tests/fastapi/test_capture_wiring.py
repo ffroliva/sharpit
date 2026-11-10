@@ -787,10 +787,10 @@ def test_suspending_a_hook_in_one_context_leaves_another_recording(name: str):
     with TestClient(first_app) as first_client, TestClient(second_app) as second_client:
         _hook(first, name).suspend()
         mine = _recording(first, first_client)
-        if name == "capture-middleware":  # an untagged request's raw sqlite3 has two candidate contexts: none records
-            assert mine[name] is False
-        else:
-            assert mine == everything | {name: False}
+        # the middleware also feeds the security log, and an untagged request's raw sqlite3 has two candidate
+        # contexts (so none records); every other hook is independent of it
+        silenced = {name, "security-log", "sqlite-listeners"} if name == "capture-middleware" else {name}
+        assert mine == everything | dict.fromkeys(silenced, False)
         assert _recording(second, second_client) == everything
     first.uninstall_capture()
     second.uninstall_capture()
