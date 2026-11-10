@@ -78,16 +78,21 @@ def _row_limit(raw: object) -> int:
     return n
 
 
+_BYTE_UNITS = {"": 1, "B": 1, "K": 1024, "KB": 1024, "M": 1024**2, "MB": 1024**2, "G": 1024**3, "GB": 1024**3}
+
+
 def _byte_size(raw: object) -> int:
+    """Digits, then an optional unit (any case), blanks around either: a scan, no regex to backtrack."""
     if isinstance(raw, int) and not isinstance(raw, bool):
         return _int(raw)
-    if (
-        not isinstance(raw, str)
-        or (match := re.fullmatch(r"\s*(\d+)\s*(B|KB?|K|MB?|M|GB?|G)?\s*", raw, re.IGNORECASE)) is None
-    ):
+    if not isinstance(raw, str):
         raise ValueError(raw)
-    units = {None: 1, "B": 1, "K": 1024, "KB": 1024, "M": 1024**2, "MB": 1024**2, "G": 1024**3, "GB": 1024**3}
-    return _int(int(match.group(1)) * units[(match.group(2) or "").upper() or None])
+    text = raw.strip()
+    digits = next((i for i, char in enumerate(text) if not char.isdecimal()), len(text))
+    unit = text[digits:].strip().upper()
+    if not digits or unit not in _BYTE_UNITS:
+        raise ValueError(raw)
+    return _int(int(text[:digits]) * _BYTE_UNITS[unit])
 
 
 # BootUI's JournalSource names; unset means every one. A new source (a W6 sensor's) is added here, nowhere else.
