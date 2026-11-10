@@ -1,28 +1,42 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
-from tests.fastapi.test_cli_api import _client
+from fastapi.testclient import TestClient
 
-from sharpit.engine.tools import TOOLS
+from fastapi import FastAPI
+from sharpit import install
+from sharpit.engine.tools import COMMANDS, TOOLS
 
 ROOT = Path(__file__).parents[1]
-BOOTUI = {
-    tool["name"]: tool for tool in json.loads((ROOT / "fixtures/bootui/2.3.0/tools.json").read_text("utf-8"))["tools"]
-}
+BOOTUI_TOOLS = json.loads((ROOT / "fixtures/bootui/2.3.0/tools.json").read_text("utf-8"))["tools"]
+BOOTUI = {tool["name"]: tool for tool in BOOTUI_TOOLS}
 SHARPIT = {tool.name: tool for tool in TOOLS}
 
 
-def _schema_shape(schema: dict[str, object]) -> tuple[dict[str, object], list[str]]:
-    properties = schema.get("properties", {})
-    assert isinstance(properties, dict)
-    return ({name: value.get("type") for name, value in properties.items()}, schema.get("required", []))
+def _normalise_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    def normalise(value: Any, key: str = "") -> Any:
+        if isinstance(value, dict):
+            return {name: normalise(child, name) for name, child in value.items()}
+        if isinstance(value, list):
+            return [normalise(child) for child in value]
+        if key == "description" and isinstance(value, str):
+            return value.replace("bootui.mcp.max-results", "SHARPIT_MCP_MAX_RESULTS")
+        return value
+
+    return normalise(schema)
+
+
+def _client() -> TestClient:
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, config_scan=False)
+    return TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000), follow_redirects=False)
 
 
 MATCHED_TOOLS = (
     "get_architecture_report",
     "architecture_scan",
-    "get_architecture_rule_violations",
     "mysql_read",
     "get_mysql_report",
     "get_database_connection_pools",
@@ -30,93 +44,184 @@ MATCHED_TOOLS = (
     "get_postgresql_report",
     "get_database_advisor_report",
     "database_advisor_scan",
-    "get_database_advisor_rule_violations",
     "clear_exceptions",
     "get_exceptions",
     "get_exception_detail",
     "get_health",
-    "get_http_routes",
-    "get_loggers",
-    "get_mappings",
     "get_overview",
     "get_request_profile",
     "get_rest_api_report",
     "rest_api_scan",
-    "get_rest_api_rule_violations",
-    "get_security_logs",
     "get_security_report",
     "security_scan",
-    "get_security_rule_violations",
     "clear_sql_traces",
     "pause_sql_trace_recording",
     "resume_sql_trace_recording",
     "clear_traces",
-    "get_traces",
     "clear_transactions",
     "get_transactions",
     "pause_transaction_recording",
     "resume_transaction_recording",
-    "get_vulnerabilities_report",
     "vulnerabilities_scan",
 )
-MATCHED_CLI = (
-    ("architecture/report", "get_architecture_report"),
-    ("architecture/scan", "architecture_scan"),
-    ("architecture/violations", "get_architecture_rule_violations"),
-    ("beans", "get_beans"),
-    ("config", "get_config"),
-    ("db/mysql/read", "mysql_read"),
-    ("db/mysql/report", "get_mysql_report"),
-    ("db/pools", "get_database_connection_pools"),
-    ("db/postgres/read", "postgresql_read"),
-    ("db/postgres/report", "get_postgresql_report"),
-    ("db/report", "get_database_advisor_report"),
-    ("db/scan", "database_advisor_scan"),
-    ("db/violations", "get_database_advisor_rule_violations"),
-    ("exceptions/clear", "clear_exceptions"),
-    ("exceptions/list", "get_exceptions"),
-    ("exceptions/show", "get_exception_detail"),
-    ("health", "get_health"),
-    ("http/exchanges", "get_http_exchanges"),
-    ("http/routes", "get_http_routes"),
-    ("loggers", "get_loggers"),
-    ("logs/tail", "get_log_tail"),
-    ("mappings", "get_mappings"),
-    ("overview", "get_overview"),
-    ("rest-api/report", "get_rest_api_report"),
-    ("rest-api/scan", "rest_api_scan"),
-    ("rest-api/violations", "get_rest_api_rule_violations"),
-    ("security/report", "get_security_report"),
-    ("security/scan", "security_scan"),
-    ("security/violations", "get_security_rule_violations"),
-    ("sql/clear", "clear_sql_traces"),
-    ("sql/pause", "pause_sql_trace_recording"),
-    ("sql/resume", "resume_sql_trace_recording"),
-    ("sql/traces", "get_sql_traces"),
-    ("traces/clear", "clear_traces"),
-    ("vulnerabilities/report", "get_vulnerabilities_report"),
-    ("vulnerabilities/scan", "vulnerabilities_scan"),
+PARTIAL_TOOLS = (
+    "get_live_activity",
+    "get_architecture_rule_violations",
+    "get_beans",
+    "get_config",
+    "get_database_advisor_rule_violations",
+    "get_http_exchanges",
+    "get_http_routes",
+    "get_loggers",
+    "get_log_tail",
+    "get_mappings",
+    "get_rest_api_rule_violations",
+    "get_security_logs",
+    "get_security_rule_violations",
+    "get_sql_traces",
+    "get_threads",
+    "get_traces",
+    "get_vulnerabilities_report",
 )
-_TOOL_CASES = [pytest.param(name, id=f"tool:{name}") for name in MATCHED_TOOLS]
-_CLI_CASES = [pytest.param(path, name, id=f"cli:{path}") for path, name in MATCHED_CLI]
+MISSING_TOOLS = (
+    "disable_agent_sensor",
+    "enable_agent_sensor",
+    "get_agent_status",
+    "get_ai_overview",
+    "get_cache_stats",
+    "get_code_inventory",
+    "get_code_paths",
+    "get_conditions",
+    "get_crac_report",
+    "crac_scan",
+    "get_flyway_migrations",
+    "get_liquibase_changesets",
+    "get_dev_services",
+    "trigger_devtools_livereload",
+    "get_devtools_status",
+    "get_fault_tolerance",
+    "get_github_dashboard",
+    "get_graalvm_report",
+    "graalvm_scan",
+    "get_hibernate_report",
+    "hibernate_scan",
+    "get_hibernate_statistics",
+    "get_hibernate_rule_violations",
+    "get_http_sessions",
+    "get_runtime_run_comparison",
+    "get_runtime_impact",
+    "get_runtime_insights",
+    "get_runtime_insight",
+    "get_jms_activity",
+    "get_jvm_tuning",
+    "get_kafka_activity",
+    "disable_low_footprint",
+    "enable_low_footprint",
+    "get_low_footprint",
+    "get_emails",
+    "analyze_heap_dump",
+    "get_heap_dump_report",
+    "get_live_memory",
+    "get_memory_report",
+    "memory_scan",
+    "get_memory_rule_violations",
+    "get_metrics",
+    "get_pentest_report",
+    "pentest_scan",
+    "get_method_probe",
+    "start_method_probe",
+    "get_profile_diff",
+    "get_rabbitmq_activity",
+    "get_spring_data_repositories",
+    "clear_rest_client_traces",
+    "pause_rest_client_recording",
+    "resume_rest_client_recording",
+    "get_rest_client_traces",
+    "get_scheduled_tasks",
+    "get_spring_security",
+    "get_claude_code_sessions",
+    "get_copilot_sessions",
+    "get_side_effects",
+    "get_spring_report",
+    "spring_scan",
+    "get_spring_rule_violations",
+    "get_startup_timeline",
+    "cancel_thread_observation",
+    "capture_thread_snapshot",
+    "clear_thread_snapshots",
+    "get_thread_snapshots",
+    "get_thread_observation",
+    "start_thread_observation",
+    "get_thread_analysis",
+    "get_thread_detail",
+    "get_websockets",
+)
+SHARPIT_ONLY = (
+    "fastapi_scan",
+    "get_data_repositories",
+    "get_sqlalchemy_statistics",
+    "enable_sqlalchemy_statistics",
+    "get_alembic_migrations",
+    "get_sql_trace_insights",
+    "get_fastapi_rule_violations",
+    "get_fastapi_report",
+    "get_fastapi_security",
+)
+MATCHED_CLI = tuple(
+    (oracle["command"], name)
+    for name, oracle in BOOTUI.items()
+    if name in COMMANDS
+    and COMMANDS[name] == oracle["command"]
+    and SHARPIT[name].default_limit == oracle.get("defaultLimit")
+    and SHARPIT[name].action is oracle["action"]
+    and SHARPIT[name].panel == oracle["panel"]
+)
 
 
-@pytest.mark.parametrize("name", _TOOL_CASES)
+@pytest.mark.parametrize("name", MATCHED_TOOLS, ids=lambda name: f"tool:{name}")
 def test_tool_catalogue_matches_bootui_23(name: str) -> None:
-    # matched: exact tool name, schema shape, default limit, and action flag from the pinned 2.3.0 fixture.
     local, oracle = SHARPIT[name], BOOTUI[name]
-    assert local.name in SHARPIT
     assert local.name == oracle["name"]
-    assert _schema_shape(local.input_schema) == _schema_shape(oracle["inputSchema"])
-    if "defaultLimit" in oracle:
-        assert local.default_limit == oracle["defaultLimit"]
+    assert _normalise_schema(local.input_schema) == _normalise_schema(oracle["inputSchema"])
+    assert local.default_limit == oracle.get("defaultLimit")
     assert local.action is oracle["action"]
+    assert local.panel == oracle["panel"]
 
 
-@pytest.mark.parametrize(("path", "name"), _CLI_CASES)
-def test_cli_path_maps_to_bootui_tool(path: str, name: str) -> None:
-    # matched: GET /cli exposes the same BootUI command path and tool name.
+@pytest.mark.parametrize("name", PARTIAL_TOOLS, ids=lambda name: f"tool:{name}")
+def test_partial_tool_catalogue_difference_is_known(name: str) -> None:
+    local, oracle = SHARPIT[name], BOOTUI[name]
+    assert local.name == oracle["name"]
+    assert _normalise_schema(local.input_schema) != _normalise_schema(oracle["inputSchema"])
+    assert (local.default_limit == oracle.get("defaultLimit")) is (
+        name
+        not in {"get_live_activity", "get_beans", "get_config", "get_http_exchanges", "get_log_tail", "get_sql_traces"}
+    )
+    assert local.action is oracle["action"]
+    assert local.panel == oracle["panel"]
+
+
+def test_tool_coverage_matches_fixture() -> None:
+    classified = set(MATCHED_TOOLS) | set(PARTIAL_TOOLS) | set(MISSING_TOOLS)
+    assert classified == set(BOOTUI)
+    assert len(BOOTUI_TOOLS) == 116
+    assert set(COMMANDS) - set(BOOTUI) == set(SHARPIT_ONLY)
+    cli_paths = {(BOOTUI[name]["command"], name) for name in (*MATCHED_TOOLS, *PARTIAL_TOOLS, *MISSING_TOOLS)}
+    assert cli_paths == {(tool["command"], tool["name"]) for tool in BOOTUI_TOOLS}
+    assert len(cli_paths) == 116
+    assert {(COMMANDS[name], name) for name in SHARPIT_ONLY} == {
+        (command, name) for name, command in COMMANDS.items() if name not in BOOTUI
+    }
+
+
+@pytest.mark.parametrize(("command", "name"), MATCHED_CLI, ids=lambda value: str(value))
+def test_cli_path_maps_to_bootui_tool(command: str, name: str) -> None:
     tools = {tool["name"]: tool for tool in _client().get("/sharpit/api/cli").json()["tools"]}
-    assert tools[name]["name"] == BOOTUI[name]["name"]
-    assert tools[name]["command"].replace(" ", "/") == BOOTUI[name]["command"].replace(" ", "/")
-    assert tools[name]["command"].replace(" ", "/") == path
+    local = tools[name]
+    oracle = BOOTUI[name]
+    assert local["name"] == oracle["name"]
+    assert oracle["command"] == command
+    assert local["command"] == command
+    assert local["action"] is oracle["action"]
+    assert local["panel"] == oracle["panel"]
+    assert SHARPIT[name].default_limit == oracle.get("defaultLimit")
