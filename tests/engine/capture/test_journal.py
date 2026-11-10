@@ -283,7 +283,8 @@ def test_records_never_show_sql_that_reads_like_a_value() -> None:
 
 
 def test_records_mask_path_matrix_parameters() -> None:
-    # ported: JournalTextExposureTests.metadataOnlyMasksEveryMatrixParameterValueWhateverItsName (masked whole, as the
+    # adapted: JournalTextExposureTests.metadataOnlyMasksEveryMatrixParameterValueWhateverItsName;
+    # BootUI does this under METADATA_ONLY only, sharpit under MASKED too (stricter: masked whole, as the
     # traces panel does: session ids live in matrix parameters)
     assert _masked_record(path="/callback;code=opaqueCredential/x;flag")["path"] == "/callback;code=******/x;******"
 
@@ -306,14 +307,16 @@ def test_a_later_host_mutation_changes_neither_the_stored_event_nor_its_bytes() 
 
 
 def test_recorded_lists_only_sources_with_events() -> None:
-    # ported: RuntimeJournalService.byPropertyName keeps a source only when it has a count
+    # ported: RuntimeJournalServiceTests.reportsTheJournalsBoundsCountsAndDropsByPropertyName
+    # (recorded: only sources with a count)
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=4096, sources=("sql", "http", "log"))
     journal.offer({"source": "http"})
     assert journal.status()["recorded"] == {"http": 1}
 
 
 def test_dropped_is_keyed_by_source_and_unattributed_drops_by_reason() -> None:
-    # ported: RuntimeJournalService.status (dropped, per source); reentrant and failed offers have no source to read
+    # ported: RuntimeJournalServiceTests.reportsTheJournalsBoundsCountsAndDropsByPropertyName (dropped, per source);
+    # reentrant and failed offers have no source to read
     journal = _journal_module().RuntimeJournal(max_events=10, max_bytes=64)
     assert journal.offer({"source": "sql", "sql": "x" * 100}) is False  # larger than the whole byte bound
     assert journal.offer({"source": 7}) is False
