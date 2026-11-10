@@ -147,44 +147,53 @@ def _literal_secrets(inputs: Inputs) -> list[Violation]:
 
 def _jwt_audience(inputs: Inputs) -> list[Violation]:
     found: list[Violation] = []
-    for at, node in _calls(inputs):
-        if not _called(node, "decode") or not isinstance(node.func, ast.Attribute):
-            continue
-        if not isinstance(node.func.value, ast.Name) or node.func.value.id != "jwt":
-            continue
-        options = _keyword(node, "options")
-        disabled = isinstance(options, ast.Dict) and any(
-            isinstance(key, ast.Constant)
-            and key.value == "verify_aud"
-            and isinstance(value, ast.Constant)
-            and value.value is False
-            for key, value in zip(options.keys, options.values, strict=True)
-        )
-        if disabled or _keyword(node, "audience") is None:
-            message = (
-                "jwt.decode disables audience validation with verify_aud=False."
-                if disabled
-                else "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim."
+    for module in source_modules(inputs):
+        where = source_file(module)
+        module_aliases = {"jwt"}
+        decode_aliases: set[str] = set()
+        for statement in module.tree.body:
+            if isinstance(statement, ast.Import):
+                module_aliases.update(
+                    alias.asname or alias.name.split(".")[0] for alias in statement.names if alias.name == "jwt"
+                )
+            elif isinstance(statement, ast.ImportFrom) and statement.module == "jwt":
+                decode_aliases.update(alias.asname or alias.name for alias in statement.names if alias.name == "decode")
+        for node in ast.walk(module.tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            is_decode = isinstance(func, ast.Name) and func.id in decode_aliases
+            is_decode |= (
+                isinstance(func, ast.Attribute)
+                and func.attr == "decode"
+                and isinstance(func.value, ast.Name)
+                and func.value.id in module_aliases
             )
-            found.append(Violation(at, f"{at}: {message}"))
+            if not is_decode:
+                continue
+            at = f"{where}:{node.lineno}"
+            options = _keyword(node, "options")
+            disabled = isinstance(options, ast.Dict) and any(
+                isinstance(key, ast.Constant)
+                and key.value == "verify_aud"
+                and isinstance(value, ast.Constant)
+                and value.value is False
+                for key, value in zip(options.keys, options.values, strict=True)
+            )
+            audience = _keyword(node, "audience")
+            has_audience = audience is not None and not (isinstance(audience, ast.Constant) and audience.value is None)
+            unknown_keywords = any(keyword.arg is None for keyword in node.keywords)
+            if disabled or (not has_audience and not unknown_keywords):
+                message = (
+                    "jwt.decode disables audience validation with verify_aud=False."
+                    if disabled
+                    else "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim."
+                )
+                found.append(Violation(at, f"{at}: {message}"))
     return found
 
 
 RULES: tuple[SecurityRule, ...] = (
-    SecurityRule(
-        rule(
-            "SEC-OAUTH-002",
-            "Validate the JWT audience claim",
-            "OAuth2 / JWT",
-            "INFO",
-            "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim; "
-            "verify_aud=False disables audience validation.",
-            "Pass the expected audience to jwt.decode and leave verify_aud enabled.",
-            "https://pyjwt.readthedocs.io/en/stable/api.html#jwt.decode",
-        ),
-        _jwt_audience,
-        needs_source=True,
-    ),
     SecurityRule(
         rule(
             "SEC-AUTH-001",
@@ -225,6 +234,20 @@ RULES: tuple[SecurityRule, ...] = (
             _PASSLIB,
         ),
         _cheap_bcrypt,
+        needs_source=True,
+    ),
+    SecurityRule(
+        rule(
+            "SEC-OAUTH-002",
+            "Validate the JWT audience claim",
+            "OAuth2 / JWT",
+            "INFO",
+            "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim; "
+            "verify_aud=False disables audience validation.",
+            "Pass the expected audience to jwt.decode and leave verify_aud enabled.",
+            "https://pyjwt.readthedocs.io/en/stable/api.html#jwt.decode",
+        ),
+        _jwt_audience,
         needs_source=True,
     ),
     SecurityRule(
