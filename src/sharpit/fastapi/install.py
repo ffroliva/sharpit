@@ -47,12 +47,18 @@ _clock = time.monotonic
 
 class IdleTracker:
     def __init__(
-        self, hooks: Any, timeout: float, held: Callable[[], bool], clock: Callable[[], float] = _clock
+        self,
+        hooks: Any,
+        timeout: float,
+        held: Callable[[], bool],
+        clock: Callable[[], float] | None = None,
+        lock: Any | None = None,
     ) -> None:
-        self.hooks, self.timeout, self.held, self.clock = hooks, timeout, held, clock
-        self.last_active = clock()
+        self.hooks, self.timeout, self.held = hooks, timeout, held
+        self.clock = clock or time.monotonic
+        self.last_active = self.clock()
         self.auto_suspended = False
-        self.lock = threading.Lock()
+        self.lock = lock or threading.Lock()
 
     def mark_active(self) -> None:
         with self.lock:
@@ -289,7 +295,10 @@ def install(
     if sharpit_settings.free_on_idle_enabled:
         low_footprint = ctx.lazy("low-footprint", lambda: LowFootprintService(ctx.capture.hooks))
         idle_tracker = IdleTracker(
-            ctx.capture.hooks, sharpit_settings.free_on_idle_timeout, lambda: low_footprint.enabled
+            ctx.capture.hooks,
+            sharpit_settings.free_on_idle_timeout,
+            lambda: low_footprint.enabled,
+            lock=low_footprint._lock,  # pyright: ignore[reportPrivateUsage]
         )
         middleware.append(_activity_middleware(ctx, idle_tracker))
     router.lifespan_context = partial(

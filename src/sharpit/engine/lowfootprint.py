@@ -22,10 +22,10 @@ class LowFootprintService:
         with self._lock:
             changed = not self.enabled
             if changed:
-                self.registry.suspend()
-                self.registry.discard()
                 self.enabled = True
                 self.since_epoch_millis = int(time.time() * 1000)
+                self.registry.suspend()
+                self.registry.discard()
             status = self.status()
         return status, changed
 

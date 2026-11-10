@@ -16,16 +16,23 @@ def _service(call: Any) -> LowFootprintService:
 
 def _status(call: Any, _args: dict[str, Any]) -> dict[str, Any]:
     service = _service(call)
-    return _status_after(service.status(), call)
+    return low_footprint_status(service, service.status(), call)
 
 
-def _status_after(state: dict[str, object], call: Any) -> dict[str, Any]:
-    service = _service(call)
+def low_footprint_status(
+    service: LowFootprintService,
+    state: dict[str, object],
+    call: Any,
+    *,
+    gc_requested: bool | None = None,
+) -> dict[str, Any]:
     raw_failures = cast(list[str], state["failures"])
     failures: list[str] = []
     for failure in raw_failures:
         name, _, detail = failure.partition(": ")
-        failures.append(call.ctx.masker.mask_text(f"Could not pause {name}: {detail}"))
+        failures.append(
+            call.ctx.masker.mask_text(f"Could not {'pause' if state['enabled'] else 'resume'} {name}: {detail}")
+        )
     hooks = cast(list[str], state["hooks"])
     return {
         "active": cast(bool, state["enabled"]),
@@ -50,7 +57,7 @@ def _status_after(state: dict[str, object], call: Any) -> dict[str, Any]:
         if state["enabled"]
         else [],
         "warnings": failures,
-        "offload": None,
+        "offload": None if gc_requested is None else {"gcRequested": gc_requested},
     }
 
 
@@ -68,14 +75,16 @@ def _ack(action: str, status: dict[str, Any]) -> dict[str, Any]:
 
 
 def _enable(call: Any, _args: dict[str, Any]) -> dict[str, Any]:
-    state, changed = _service(call).suspend_with_transition()
+    service = _service(call)
+    state, changed = service.suspend_with_transition()
     if changed:
         gc.collect()
-    return _ack("enabled", _status_after(state, call))
+    return _ack("enabled", low_footprint_status(service, state, call, gc_requested=True))
 
 
 def _disable(call: Any, _args: dict[str, Any]) -> dict[str, Any]:
-    return _ack("disabled", _status_after(_service(call).resume(), call))
+    service = _service(call)
+    return _ack("disabled", low_footprint_status(service, service.resume(), call, gc_requested=False))
 
 
 def tool_definitions(tool_type: Any) -> tuple[Any, ...]:

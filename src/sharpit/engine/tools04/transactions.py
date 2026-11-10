@@ -4,7 +4,7 @@ from typing import Any
 
 from sharpit.engine.capture.transactions import TransactionRecorder, context_report
 from sharpit.engine.lowfootprint import LowFootprintService
-from sharpit.engine.tools import Tool, ToolCallError
+from sharpit.engine.tools import Tool, low_footprint_resume_error
 
 _NONE: dict[str, Any] = {"type": "object", "properties": {}, "additionalProperties": False}
 
@@ -19,7 +19,7 @@ def _clear(ctx: Any) -> dict[str, Any]:
 def _recording(ctx: Any, enabled: bool) -> dict[str, Any]:
     service = ctx.peek("low-footprint")
     if enabled and isinstance(service, LowFootprintService) and service.enabled:
-        raise ToolCallError("Low-footprint mode is active; disable it before resuming recording", 409)
+        raise low_footprint_resume_error("resume_transaction_recording")
     recorder = ctx.capture.transactions
     if isinstance(recorder, TransactionRecorder):
         recorder.set_recording(enabled)

@@ -84,6 +84,17 @@ class ToolCallError(Exception):
         self.status = status
 
 
+RESUME_HINT = (
+    "Recording is held by low-footprint mode, not a quiet application. "
+    "Call disable_low_footprint (bootui low-footprint disable) to resume; cleared data is gone. "
+    "Native statistics and Java-agent instrumentation may still run."
+)
+
+
+def low_footprint_resume_error(tool_name: str) -> ToolCallError:
+    return ToolCallError(f"Cannot run {tool_name}. {RESUME_HINT}", 409)
+
+
 @dataclass(frozen=True)
 class CallContext:
     ctx: SharpitContext
@@ -267,7 +278,7 @@ def _sql_trace_action(ctx: SharpitContext, action: Callable[[SqlTraceRecorder], 
 def _resume_sql_trace(ctx: SharpitContext) -> dict[str, Any]:
     service = ctx.peek("low-footprint")
     if isinstance(service, LowFootprintService) and service.enabled:
-        raise ToolCallError("Low-footprint mode is active; disable it before resuming recording", 409)
+        raise low_footprint_resume_error("resume_sql_trace_recording")
     return _sql_trace_action(ctx, lambda recorder: recorder.set_recording(True))
 
 

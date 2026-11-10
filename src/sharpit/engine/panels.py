@@ -18,7 +18,7 @@ class Panel:
 
     @property
     def implemented(self) -> bool:
-        """0.4 panel flags remain dynamic."""
+        """Read from the panel flag at call time (``panels04``): a flip or a monkeypatch is seen everywhere."""
         return panel_is_implemented(self.id)
 
 
