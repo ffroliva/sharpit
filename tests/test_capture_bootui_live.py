@@ -217,7 +217,9 @@ def test_plan_covers_every_starter_get() -> None:
         assert covered, f"starter GET {path} is neither in plan nor in EXCLUDED_ROUTES"
 
 
-def test_default_opener_captures_through_urlopen_with_a_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_opener_captures_through_urlopen_with_a_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     seen: list[tuple[str, object, str | None]] = []
 
     def fake_urlopen(req: Any, timeout: object = None) -> StubResponse:

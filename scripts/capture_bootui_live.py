@@ -445,12 +445,12 @@ def build_default_opener(token_file: Path | str | None = None) -> Any:
         headers["Authorization"] = f"Bearer {token}"
 
     class HeaderOpener:
-        def open(self, req: urllib.request.Request | str) -> Any:
+        def open(self, req: urllib.request.Request | str, timeout: float = 30) -> Any:
             if isinstance(req, str):
                 req = urllib.request.Request(req)
             for k, v in headers.items():
                 req.add_header(k, v)
-            return urllib.request.urlopen(req)
+            return urllib.request.urlopen(req, timeout=timeout)
 
     return HeaderOpener()
 
