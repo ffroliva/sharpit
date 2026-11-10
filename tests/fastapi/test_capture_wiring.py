@@ -656,9 +656,11 @@ class _Teapot(Exception):
 def _probe_app() -> tuple[FastAPI, SharpitHandle]:
     import sqlite3
 
+    import sqlalchemy as sa
     from fastapi.responses import JSONResponse
 
     app = FastAPI()
+    engine = sa.create_engine("sqlite://")
     app.get("/host")(lambda: {})
 
     @app.get("/denied")
@@ -672,15 +674,17 @@ def _probe_app() -> tuple[FastAPI, SharpitHandle]:
     @app.get("/sql")
     def sql() -> dict[str, bool]:  # pyright: ignore[reportUnusedFunction]
         connection = sqlite3.connect(":memory:")  # in a request: only this app's context records it
-        connection.execute("select 1")
+        connection.execute("select 1 as raw_probe")
         connection.close()
+        with engine.connect() as orm:
+            orm.execute(sa.text("select 1 as sqla_probe"))
         return {}
 
     @app.exception_handler(_Teapot)
     async def on_teapot(_request: Request, _exc: _Teapot) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         return JSONResponse({}, status_code=418)
 
-    return app, install(app, enabled="ON", show_banner=False)
+    return app, install(app, enabled="ON", show_banner=False, engines=[engine])
 
 
 def _recording(handle: SharpitHandle, client: TestClient) -> dict[str, bool]:
@@ -697,7 +701,11 @@ def _recording(handle: SharpitHandle, client: TestClient) -> dict[str, bool]:
 
     rows, events = len(_rows(handle)), len(capture.security_logs.snapshot())
     raised = capture.exceptions.report()["totalExceptions"]
-    traced = len(tools.sql_trace_report(ctx)["entries"])
+
+    def traced(alias: str) -> int:
+        return sum(alias in entry["sql"] for entry in tools.sql_trace_report(ctx)["entries"])
+
+    raw, orm = traced("raw_probe"), traced("sqla_probe")
     client.get("/denied")
     client.get("/teapot")
     client.get("/sql")
@@ -707,8 +715,8 @@ def _recording(handle: SharpitHandle, client: TestClient) -> dict[str, bool]:
         "security-log": len(capture.security_logs.snapshot()) > events,
         "exception-handlers": capture.exceptions.report()["totalExceptions"] > raised,
         "log-handler": wiring.log_handler_on_root(),
-        "sqla-listeners": sqla.routed(ctx) == (True, True),
-        "sqlite-listeners": len(tools.sql_trace_report(ctx)["entries"]) > traced,
+        "sqla-listeners": traced("sqla_probe") > orm,
+        "sqlite-listeners": traced("raw_probe") > raw,
         "traces": "traces" in armed,
         "transactions": "transactions" in armed,
     }
@@ -778,7 +786,47 @@ def test_suspending_a_hook_in_one_context_leaves_another_recording(name: str):
     everything = dict.fromkeys(HOOK_NAMES, True)
     with TestClient(first_app) as first_client, TestClient(second_app) as second_client:
         _hook(first, name).suspend()
-        assert _recording(first, first_client)[name] is False
+        mine = _recording(first, first_client)
+        if name == "capture-middleware":  # an untagged request's raw sqlite3 has two candidate contexts: none records
+            assert mine[name] is False
+        else:
+            assert mine == everything | {name: False}
         assert _recording(second, second_client) == everything
     first.uninstall_capture()
     second.uninstall_capture()
+
+
+def test_shutting_down_after_suspending_sqla_takes_the_context_out_of_dispatch():
+    """Review R1, the other order: suspend sqla-listeners while live (raw sqlite3 keeps routing), then shut down."""
+    from sharpit.engine.sources import dispatch
+
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+    ctx = handle.context
+    with TestClient(app):
+        _hook(handle, "sqla-listeners").suspend()
+        assert ctx.context_id in dispatch._contexts  # pyright: ignore[reportPrivateUsage]
+    assert ctx.context_id not in dispatch._contexts, "a shut-down context is still in dispatch"  # pyright: ignore[reportPrivateUsage]
+    handle.uninstall_capture()
+
+
+@pytest.mark.needs_sqlalchemy
+def test_a_suspended_transactions_hook_records_nothing_while_another_context_keeps_the_listeners():
+    """Found by the suspended transactions budget under xdist: the SQL Trace fallback still routed to a context
+    whose transactions hook was suspended, once another context kept the shared listeners attached."""
+    sa = pytest.importorskip("sqlalchemy")
+    from sharpit.engine.capture.transactions import TransactionRecorder
+
+    engine = sa.create_engine("sqlite://")
+    handle = install(FastAPI(), enabled="ON", show_banner=False, engines=[engine])
+    other = install(FastAPI(), enabled="ON", show_banner=False)  # keeps the class listeners attached
+    recorder = handle.context.capture.transactions
+    assert isinstance(recorder, TransactionRecorder)
+    _hook(handle, "transactions").suspend()
+    with engine.connect() as connection, connection.begin():
+        pass
+    recorded = recorder.report([])["totalCaptured"]
+    handle.uninstall_capture()
+    other.uninstall_capture()
+    engine.dispose()
+    assert recorded == 0, "a suspended transactions hook still recorded"
