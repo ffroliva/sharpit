@@ -94,6 +94,6 @@ def test_machine_values_collection(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "C:/Users/test_dev_user_xyz" in values, "slash-normalized home path must be retained"
     assert "file:/C:/Users/test_dev_user_xyz" in values, "file URL home path must be retained"
     assert "my_super_secret_token_value" in values
-    assert "C:\\custom_secret_tool_dir" in values
+    assert CUSTOM_TOOL_DIR in values
     assert "abc" not in values, "short values (<6) must be excluded"
     assert "C:\\Windows" not in values, "common system value must be excluded"
