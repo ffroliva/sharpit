@@ -50,9 +50,11 @@ class JournalSink(Protocol):
 
 class _NullSink:
     def offer(self, event: Event) -> bool:
+        del event  # the port's signature; the null sink takes nothing
         return False
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
+        del source  # the port's signature; the null sink holds nothing
         return ()
 
 
