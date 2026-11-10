@@ -76,7 +76,11 @@ def test_walls_computes_queue_breakdown_and_per_os_critical() -> None:
     assert w.per_os_critical["ubuntu"] == "masking-gates-check"
 
 
-def test_required_job_not_success_makes_required_wall_undefined() -> None:
+def test_required_wall_is_reported_separately_from_all_green() -> None:
+    fixture = json.loads((FIXTURES / "42738503931.json").read_text(encoding="utf-8"))
+    failed_run = ci_walls.walls(fixture["run"], fixture["jobs"], REQUIRED)
+    assert failed_run.a_green is None
+
     run = {"created_at": "2026-11-10T00:00:00Z", "run_attempt": 1}
     jobs = [
         {
@@ -87,7 +91,23 @@ def test_required_job_not_success_makes_required_wall_undefined() -> None:
         }
     ]
 
-    assert ci_walls.walls(run, jobs).a is None
+    failed = ci_walls.walls(run, jobs, REQUIRED.intersection({jobs[0]["name"]}))
+    assert failed.a == 2.0
+    assert failed.a_green is None
+
+    pending = ci_walls.walls(
+        run,
+        [dict(jobs[0], started_at=None, completed_at=None)],
+        REQUIRED.intersection({jobs[0]["name"]}),
+    )
+    assert pending.a_green is None
+
+    successful = ci_walls.walls(
+        run,
+        [dict(jobs[0], conclusion="success")],
+        REQUIRED.intersection({jobs[0]["name"]}),
+    )
+    assert successful.a_green == successful.a
 
 
 def test_required_none_uses_default_required_set() -> None:

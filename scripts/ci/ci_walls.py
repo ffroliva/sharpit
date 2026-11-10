@@ -1,8 +1,8 @@
-"""Wall (a) last required check green and (b) last job done, attempt 1, per spec §7.1.
+"""Wall (a) last required job completion and (b) last job done, attempt 1, per spec §7.1.
 
 Metrics (from W0b-step0.md §2.1):
-- Metric (a): Wall clock time in seconds from run created_at until the last required check
-  turns green (or completes). The required checks enforced by GitHub branch protection are:
+- Metric (a): Wall clock time in seconds from run created_at until the last required job
+  completes, whatever its conclusion. The required checks enforced by GitHub branch protection are:
   test (ubuntu-latest, 3.12), test (ubuntu-latest, 3.13), test (ubuntu-latest, 3.14),
   test (windows-latest, 3.14), lowest, no-sqlalchemy, ui, vitest, wheel, coverage, sonar.
 - Metric (b): Wall clock time in seconds from run created_at until the last job in the
@@ -78,6 +78,7 @@ class JobTimings:
 @dataclass(frozen=True)
 class Walls:
     a: float | None = 0.0
+    a_green: float | None = 0.0
     b: float = 0.0
     max_queue: float = 0.0
     event: str = ""
@@ -176,18 +177,23 @@ def _aggregate_walls(
     per_job: dict[str, JobTimings],
     per_os_critical: dict[str, str],
 ) -> Walls:
-    if not completed_jobs:
-        return Walls(event=run.get("event", ""), conclusion=run.get("conclusion", ""), run_id=run.get("id", ""))
     required_jobs = [job for job in jobs if job["name"] in required]
-    if any(job.get("conclusion") != "success" for job in required_jobs):
-        a = None
-    else:
-        required_ends = [end for job, _, end in completed_jobs if job["name"] in required]
-        a = (max(required_ends) - run_created).total_seconds() if required_ends else 0.0
+    if not completed_jobs:
+        a_green = 0.0 if all(job.get("conclusion") == "success" for job in required_jobs) else None
+        return Walls(
+            a_green=a_green,
+            event=run.get("event", ""),
+            conclusion=run.get("conclusion", ""),
+            run_id=run.get("id", ""),
+        )
+    required_ends = [end for job, _, end in completed_jobs if job["name"] in required]
+    a = (max(required_ends) - run_created).total_seconds() if required_ends else 0.0
+    a_green = a if all(job.get("conclusion") == "success" for job in required_jobs) else None
     b = (max(end for _, _, end in completed_jobs) - run_created).total_seconds()
     max_queue = max((start - run_created).total_seconds() for _, start, _ in completed_jobs)
     return Walls(
         a=a,
+        a_green=a_green,
         b=b,
         max_queue=max_queue,
         event=run.get("event", ""),
