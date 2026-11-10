@@ -142,15 +142,16 @@ def test_resume_recording_refusal_matches_bootui_hint() -> None:
     settings = load_settings({"enabled": "ON", "show_banner": False, "config_scan": False}, {})
     ctx = SharpitContext(settings=settings, activation=None, introspector=None)  # type: ignore[arg-type]
     ctx.lazy("low-footprint", lambda: LowFootprintService(ctx.capture.hooks)).suspend()
-    try:
-        call_tool(CallContext(ctx, {}), "resume_sql_trace_recording", {}, via="cli")
-    except ToolCallError as exc:
-        assert exc.status == 409
-        assert exc.message == (
-            "Cannot run resume_sql_trace_recording. "
-            "Recording is held by low-footprint mode, not a quiet application. "
-            "Call disable_low_footprint (bootui low-footprint disable) to resume; cleared data is gone. "
-            "Native statistics and Java-agent instrumentation may still run."
-        )
-    else:
-        raise AssertionError("resume action ran while low-footprint was active")
+    for name in ("resume_sql_trace_recording", "resume_transaction_recording"):
+        try:
+            call_tool(CallContext(ctx, {}), name, {}, via="cli")
+        except ToolCallError as exc:
+            assert exc.status == 409
+            assert exc.message == (
+                f"Cannot run {name}. "
+                "Recording is held by low-footprint mode, not a quiet application. "
+                "Call disable_low_footprint (bootui low-footprint disable) to resume; cleared data is gone. "
+                "Native statistics and Java-agent instrumentation may still run."
+            )
+        else:
+            raise AssertionError(f"{name} ran while low-footprint was active")
