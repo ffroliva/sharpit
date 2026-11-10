@@ -1,0 +1,40 @@
+{
+  "enabled": true,
+  "serverName": "bootui",
+  "serverVersion": "dev",
+  "endpoint": "/bootui/api/cli",
+  "maxResults": 200,
+  "callCount": 0,
+  "totalLatencyMillis": 0,
+  "capacityRefusals": 0,
+  "timeouts": 0,
+  "toolCount": 87,
+  "tools": [
+    {
+      "name": "get_architecture_rule_violations",
+      "command": "architecture violations",
+      "description": "Read one page of retained violations for the exact rule id from get_architecture_report and that cached report's violationDetails.scanId. This never starts a scan. Default offset 0 and limit 100; limit is capped at min(1000, transport max-results). Advance by page.returned while page.hasMore; page.total and page.matched count retained entries, not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding before changing code. A refusal is a tool error whose text says why: an unknown rule (not a rule of this advisor), a rule with no findings in that scan (it passed, was skipped, or failed), or a stale or missing scanId, for which reread the cached report rather than start a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list aligns index-for-index with violations (a null entry has no location); an empty list means no violation on the page has one. A page's violationCount is the scan's total; where its suppressed list is non-empty, entries marked true were dismissed by the developer and no longer count in the report.",
+      "panel": "architecture",
+      "action": false,
+      "schema": "RULE_VIOLATIONS",
+      "arguments": [
+        "id",
+        "scanId",
+        "offset"
+      ],
+      "panelEnabled": true,
+      "panelReadOnly": false
+    },
+    {
+      "name": "architecture_scan",
+      "command": "architecture scan",
+      "description": "Actively scan application classes for architecture and dependency violations. Use for structural reviews; verify each finding against intended module boundaries before changing code. It answers with a compact summary, not the report: scan, findingsFound, severityCounts, at most 10 topFindings (id, title, severity, count), most severe first, moreFindings counting the findings left out, evidence and violationDetails.scanId. Read the cached report with get_architecture_report and page a rule's retained violations with get_architecture_rule_violations, without scanning again.",
+      "panel": "architecture",
+      "action": true,
+      "schema": "NONE",
+      "arguments": [],
+      "panelEnabled": true,
+      "panelReadOnly": false
+    }
+  ]
+}

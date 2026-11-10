@@ -1,0 +1,27 @@
+{
+  "$.severityCounts[].severity": [
+    "CRITICAL",
+    "HIGH",
+    "INFO",
+    "LOW",
+    "MEDIUM"
+  ],
+  "$.scan.status": [
+    "NOT_SCANNED"
+  ],
+  "$.entries[].source": [
+    "SPRING_CONTROLLER_ADVICE"
+  ],
+  "$.entries[].scope": [
+    "GLOBAL"
+  ],
+  "$.entries[].precedenceSource": [
+    "DECLARED"
+  ],
+  "$.entries[].statusSource": [
+    "DYNAMIC"
+  ],
+  "$.entries[].bodyCategory": [
+    "PROBLEM_DETAIL"
+  ]
+}

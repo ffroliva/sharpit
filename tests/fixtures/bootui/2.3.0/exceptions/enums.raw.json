@@ -1,0 +1,8 @@
+{
+  "$.groups[].lastRequestMethod": [
+    "GET"
+  ],
+  "$.groups[].status": [
+    "OPEN"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "traceId": "a566d835fa5ec2e0d63baa8e249a334b",
+  "spans": [
+    {
+      "traceId": "a566d835fa5ec2e0d63baa8e249a334b",
+      "spanId": "65f51c1a7392433f",
+      "parentSpanId": null,
+      "name": "info",
+      "kind": "CLIENT",
+      "serviceName": "tiny-ledger",
+      "scope": "org.springframework.boot",
+      "startEpochNanos": 1794304029703182900,
+      "endEpochNanos": 1794304029708300600,
+      "durationNanos": 5117700,
+      "statusCode": "OK",
+      "statusMessage": null,
+      "attributes": [
+        {
+          "key": "bootui.enriched",
+          "type": "boolean",
+          "value": true
+        },
+        {
+          "key": "bootui.service",
+          "type": "string",
+          "value": "tiny-ledger"
+        }
+      ],
+      "events": []
+    }
+  ]
+}

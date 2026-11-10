@@ -1,0 +1,23 @@
+{
+  "dockerComposePresent": false,
+  "testcontainersPresent": false,
+  "snapshotTimestamp": 1794304032518,
+  "total": 4,
+  "services": [
+    {
+      "id": "connection:jdbcConnectionDetails",
+      "name": "jdbc Connection Details",
+      "type": "Service",
+      "source": "Connection details",
+      "image": null,
+      "status": "AVAILABLE",
+      "host": null,
+      "ports": [],
+      "connectionDetails": {},
+      "restartable": false,
+      "logsAvailable": false,
+      "note": "Spring Boot connection details bean; lifecycle is managed by Docker Compose or Testcontainers."
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {
+      "id": 3,
+      "parentId": 2,
+      "name": "spring.beans.instantiate",
+      "durationMs": 25,
+      "tags": [
+        {
+          "key": "beanName",
+          "value": "org.springframework.boot.autoconfigure.internalCachingMetadataReaderFactory"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "parentId": 0,
+      "name": "spring.context.beans.post-process",
+      "durationMs": 8858,
+      "tags": []
+    },
+    {
+      "id": 0,
+      "parentId": null,
+      "name": "spring.context.refresh",
+      "durationMs": 35204,
+      "tags": []
+    }
+  ]
+}

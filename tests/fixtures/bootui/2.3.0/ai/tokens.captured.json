@@ -1,0 +1,11 @@
+{
+  "minutes": 60,
+  "buckets": [
+    {
+      "epochMinute": 29905008,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "callCount": 0
+    }
+  ]
+}

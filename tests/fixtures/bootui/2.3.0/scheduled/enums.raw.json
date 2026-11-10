@@ -1,0 +1,5 @@
+{
+  "$.tasks[].triggerType": [
+    "CRON"
+  ]
+}

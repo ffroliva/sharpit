@@ -1,0 +1,74 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "window": {
+    "runId": "00000000",
+    "firstEventAt": 1794303865886,
+    "lastEventAt": 1794304033398,
+    "retainedEvents": 103,
+    "requests": 0,
+    "evictedEvents": 0,
+    "droppedEvents": 0
+  },
+  "coverage": [
+    {
+      "source": "sql",
+      "events": 68,
+      "byRequestId": 0,
+      "byExecutionId": 0,
+      "byTraceId": 0,
+      "unlinked": 68,
+      "dropped": 0
+    }
+  ],
+  "checks": [
+    {
+      "kind": "route-time-breakdown",
+      "title": "Route time breakdown",
+      "status": "INSUFFICIENT",
+      "eligibleRequests": 0,
+      "findings": 0,
+      "reason": "No eligible work was recorded for this check."
+    },
+    {
+      "kind": "heap-growth-after-gc",
+      "title": "Heap growth after GC",
+      "status": "EVALUATED",
+      "eligibleRequests": 0,
+      "findings": 1,
+      "reason": null
+    }
+  ],
+  "observations": [
+    {
+      "id": "heap-growth-after-gc:0a8f06cc5f",
+      "kind": "heap-growth-after-gc",
+      "subject": "Heap",
+      "status": "INSUFFICIENT",
+      "sentence": "2 collections reclaimed old-generation space in this run; a trend needs 3.",
+      "eligible": 0,
+      "affected": 0,
+      "minimumTier": "REQUEST_ID",
+      "whatToCheck": [
+        "Keep the application running under its usual load, then refresh."
+      ],
+      "exemplarRequestIds": [],
+      "evidenceRows": 2,
+      "limitations": [
+        "Counts the collections the journal still retains; older ones were evicted with their events.",
+        "Young collections only promote into the old generation, so they are not counted."
+      ],
+      "listed": false,
+      "unlistedReason": "Garbage collection and heap rows are reached from the Memory panel rather than listed by default."
+    }
+  ],
+  "limitations": [
+    "This application defines its own application event multicaster, such as Spring Modulith's event publication registry, so BootUI does not record application events."
+  ],
+  "notExercised": [
+    "GET /api/v1/accounts",
+    "GET /api/v1/accounts/{accountUid}",
+    "GET /api/v1/accounts/{accountUid}/balance"
+  ],
+  "notExercisedOmitted": 0
+}

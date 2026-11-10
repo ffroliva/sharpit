@@ -1,0 +1,14 @@
+{
+  "available": false,
+  "unavailableReason": "Requires the BootUI agent's inventory sensor: This JVM runs without the BootUI agent. BootUI works without it; attach it with one of the setup snippets to add agent-based evidence. Start the application with -javaagent:bootui-agent.jar (see the Java Agent panel).",
+  "counts": null,
+  "dependencies": [],
+  "page": {
+    "total": 0,
+    "matched": 0,
+    "offset": 0,
+    "limit": 0,
+    "returned": 0,
+    "hasMore": false
+  }
+}

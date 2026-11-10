@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "retained": 5,
+  "capacity": 500,
+  "traces": [
+    {
+      "traceId": "a566d835fa5ec2e0d63baa8e249a334b",
+      "rootSpanName": "info",
+      "httpPath": null,
+      "services": [
+        "tiny-ledger"
+      ],
+      "startEpochNanos": 1794304029703182900,
+      "endEpochNanos": 1794304029708300600,
+      "durationNanos": 5117700,
+      "spanCount": 1,
+      "hasError": false,
+      "hasAi": false
+    }
+  ]
+}

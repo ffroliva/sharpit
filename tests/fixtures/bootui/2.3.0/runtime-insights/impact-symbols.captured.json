@@ -1,0 +1,18 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "query": "",
+  "symbols": [
+    {
+      "kind": "ROUTE",
+      "name": "ANY /**",
+      "type": null
+    },
+    {
+      "kind": "BEAN",
+      "name": "auditController",
+      "type": "com.ffroliva.tinyledger.audit.adapter.in.web.AuditController$$SpringCGLIB$$0"
+    }
+  ],
+  "total": 103
+}

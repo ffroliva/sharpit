@@ -1,0 +1,7 @@
+{
+  "$.endpoints[].method": [
+    "GET",
+    "POST",
+    "PUT"
+  ]
+}

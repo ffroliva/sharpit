@@ -1,0 +1,85 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "capturing": true,
+  "window": {
+    "retainedStatements": 86,
+    "bufferSize": 200,
+    "evicted": 0,
+    "totalCaptured": 86,
+    "oldestTimestamp": 1700000000000,
+    "newestTimestamp": 1700000000000,
+    "totalDurationMillis": 489.019
+  },
+  "statements": [
+    {
+      "id": "set local search_path to public, \"$user\",\"public\"",
+      "sql": "SET LOCAL SEARCH_PATH TO public, \"$user\",\"public\"",
+      "category": "OTHER",
+      "executions": 14,
+      "totalDurationMillis": 38.576,
+      "maxDurationMillis": 11.462,
+      "avgDurationMillis": 2.7554285714285713,
+      "errorCount": 0,
+      "p50DurationMillis": 1.957,
+      "p95DurationMillis": 11.462,
+      "p99DurationMillis": 11.462,
+      "shareOfRetainedTimePercent": 7.89,
+      "topFor": [
+        "TOTAL_DURATION",
+        "EXECUTIONS"
+      ],
+      "potentialNPlusOne": false,
+      "callSites": [
+        "liquibase.executor.jvm.JdbcExecutor.execute(JdbcExecutor.java:168)"
+      ],
+      "entryIds": [
+        86,
+        67,
+        64
+      ],
+      "entryIdsTruncated": false
+    }
+  ],
+  "topPerCriterion": 10,
+  "statementsTruncated": true,
+  "distinctStatements": 35,
+  "attribution": {
+    "available": true,
+    "unavailableReason": null,
+    "supportedCorrelations": [
+      "SERVING_THREAD",
+      "TIME_WINDOW",
+      "TRACE_ID"
+    ],
+    "requestsConsidered": 0,
+    "routes": [],
+    "routesTruncated": false,
+    "distinctRoutes": 0,
+    "attributedExecutions": 0,
+    "unattributed": {
+      "executions": 86,
+      "totalDurationMillis": 489.019,
+      "errorCount": 1,
+      "shareOfRetainedTimePercent": 100.0,
+      "reason": "No captured request could have issued these statements: none was in flight for the whole execution, or the request whose trace id the statement carries is no longer retained. Background jobs, scheduled work, startup and schema migrations belong here."
+    },
+    "ambiguous": {
+      "executions": 0,
+      "totalDurationMillis": 0.0,
+      "errorCount": 0,
+      "shareOfRetainedTimePercent": 0.0,
+      "reason": "More than one captured request was an equally plausible source, so BootUI refused to pick one. Concurrent identical requests and a reused inbound trace id both produce this."
+    },
+    "notes": [
+      "No captured HTTP requests were available to attribute against, so every retained statement is reported as unattributed.",
+      "Time-window correlation is used only when exactly one captured request was in flight; overlapping candidates are reported as ambiguous instead.",
+      "Routes are grouped by the route template the runtime reports or the application declares. A path no declared route matches is grouped by a masked path instead, where every segment that does not read like a fixed route word is replaced. Query strings are never used."
+    ]
+  },
+  "notes": [
+    "Rankings cover the 86 statement executions currently retained in the SQL Trace buffer of 200. They are diagnostic evidence for this window, not lifetime metrics.",
+    "Only the top 10 statements per ranking criterion are listed; 35 distinct normalized statements were observed.",
+    "Statements are grouped after normalization: literal values are replaced with placeholders, so equivalent executions aggregate and no bound value is shown."
+  ]
+}

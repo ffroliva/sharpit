@@ -162,7 +162,9 @@ def test_sanitiser_merges_meta_for_the_target_version(tmp_path: Path):
     meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
     assert meta["bootuiVersion"] == "2.3.0"
     for key, value in json.loads(source_meta.read_text(encoding="utf-8")).items():
-        assert meta[key] == value
+        if key not in {"uncaptured", "emptyLists"}:
+            assert meta[key] == value
+    assert meta["uncaptured"] == {"overview": "not served"}
     for key in ("app", "profile", "captured", "uncaptured"):
         assert key in meta
     assert "2.2.0" not in json.dumps(meta)
@@ -297,3 +299,15 @@ def test_2_2_meta_content_remains_unchanged(tmp_path: Path):
     assert error is None
     meta = json.loads((dst / "meta.json").read_text(encoding="utf-8"))
     assert meta == module.META_2_2_0 | {"uncaptured": {}, "provisional": []}
+
+
+def test_numeric_token_counts_are_not_secrets() -> None:
+    assert module.find_secrets({"totalInputTokens": 120, "maxTokens": 4096, "tokenCount": 3}) == []
+
+
+def test_numbers_under_other_sensitive_keys_stay_refused() -> None:
+    assert module.find_secrets({"password": 1234}) == ["$.password"]
+
+
+def test_strings_under_token_count_keys_stay_refused() -> None:
+    assert module.find_secrets({"totalInputTokens": "abc123"}) == ["$.totalInputTokens"]

@@ -1,0 +1,44 @@
+{
+  "available": true,
+  "unavailableReason": null,
+  "capturing": true,
+  "bufferSize": 200,
+  "totalCaptured": 1,
+  "slowTransactionThresholdMillis": 200,
+  "connectionHoldThresholdMillis": 500,
+  "stats": {
+    "totalTransactions": 1,
+    "totalDurationMillis": 34,
+    "maxDurationMillis": 34,
+    "avgDurationMillis": 34.0,
+    "slowTransactions": 0,
+    "connectionHeldTransactions": 0,
+    "committedCount": 1,
+    "rolledBackCount": 0,
+    "unknownCount": 0,
+    "nestedCount": 0,
+    "evicted": 0
+  },
+  "entries": [
+    {
+      "id": 1,
+      "methodName": "org.springframework.modulith.events.jdbc.JdbcEventPublicationRepositoryV2.findIncompletePublications",
+      "propagation": "NEW",
+      "isolation": "UNKNOWN",
+      "status": "COMMITTED",
+      "startTimestamp": 1700000000000,
+      "endTimestamp": 1700000000000,
+      "durationMillis": 34,
+      "parentId": null,
+      "thread": "main",
+      "traceId": null,
+      "sqlStatementCount": 1,
+      "connectionCount": 1,
+      "readOnly": true,
+      "slow": false,
+      "connectionHeld": false,
+      "errorMessage": null
+    }
+  ],
+  "warnings": []
+}

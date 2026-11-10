@@ -1,0 +1,49 @@
+{
+  "$.entries[].type": [
+    "LOG",
+    "SQL",
+    "TRANSACTION"
+  ],
+  "$.entries[].severity": [
+    "ERROR",
+    "OK",
+    "WARN"
+  ],
+  "$.kpis.healthStatus": [
+    "UP"
+  ],
+  "$.application.kind": [
+    "APPLICATION"
+  ],
+  "$.application.protocol": [
+    "APPLICATION"
+  ],
+  "$.application.outcome": [
+    "OBSERVED_OK"
+  ],
+  "$.nodes[].kind": [
+    "DEPENDENCY"
+  ],
+  "$.nodes[].protocol": [
+    "JDBC"
+  ],
+  "$.nodes[].outcome": [
+    "RETAINED_FAILURES"
+  ],
+  "$.edges[].protocol": [
+    "JDBC"
+  ],
+  "$.edges[].direction": [
+    "OUTBOUND"
+  ],
+  "$.edges[].outcome": [
+    "RETAINED_FAILURES"
+  ],
+  "$.edges[].recentInteractions[].operation": [
+    "OTHER",
+    "SELECT"
+  ],
+  "$.edges[].recentInteractions[].outcome": [
+    "OK"
+  ]
+}

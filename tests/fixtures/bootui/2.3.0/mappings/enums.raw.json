@@ -1,0 +1,14 @@
+{
+  "$.contexts.tiny-ledger.mappings.dispatcherServlets.dispatcherServlet[].details.requestMappingConditions.methods[]": [
+    "DELETE",
+    "GET",
+    "POST",
+    "PUT"
+  ],
+  "$.mappings[].method": [
+    "ANY",
+    "GET",
+    "POST",
+    "PUT"
+  ]
+}

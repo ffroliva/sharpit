@@ -1,0 +1,34 @@
+{
+  "available": false,
+  "unavailableReason": "No local git repository was detected",
+  "connected": false,
+  "status": "UNAVAILABLE",
+  "message": "No local git repository was detected",
+  "refreshedAt": null,
+  "repository": null,
+  "credential": {
+    "source": "none",
+    "authenticated": false,
+    "login": null,
+    "scopes": null
+  },
+  "metrics": [],
+  "quotas": [],
+  "pullRequests": [],
+  "workflowRuns": [],
+  "workflows": [],
+  "issueBuckets": [],
+  "issues": [],
+  "securitySignals": [],
+  "copilotUsage": {
+    "status": "UNAVAILABLE",
+    "scope": null,
+    "summary": "Copilot usage report unavailable",
+    "reportStartDay": null,
+    "reportEndDay": null,
+    "downloadLinkCount": null,
+    "documentationUrl": "https://docs.github.com/en/rest/copilot/copilot-usage-metrics",
+    "unavailableReason": "No GitHub repository is available"
+  },
+  "warnings": []
+}

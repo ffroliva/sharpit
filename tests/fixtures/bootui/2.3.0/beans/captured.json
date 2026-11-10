@@ -1,0 +1,66 @@
+{
+  "total": 537,
+  "beans": [
+    {
+      "name": "applicationAvailability",
+      "type": "org.springframework.boot.availability.ApplicationAvailabilityBean",
+      "scope": "singleton",
+      "resource": "class path resource [org/springframework/boot/autoconfigure/availability/ApplicationAvailabilityAutoConfiguration.class]",
+      "dependencies": [
+        "org.springframework.boot.autoconfigure.availability.ApplicationAvailabilityAutoConfiguration"
+      ],
+      "aliases": [],
+      "classification": "FRAMEWORK"
+    },
+    {
+      "name": "applicationTaskExecutor",
+      "type": "org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor",
+      "scope": "singleton",
+      "resource": "class path resource [com/ffroliva/tinyledger/config/FullAdapterConfig.class]",
+      "dependencies": [
+        "fullAdapterConfig"
+      ],
+      "aliases": [
+        "bootstrapExecutor"
+      ],
+      "classification": "FRAMEWORK"
+    },
+    {
+      "name": "bootstrapExecutorAliasPostProcessor",
+      "type": "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$BootstrapExecutorConfiguration$$Lambda/0x0000000097448f38",
+      "scope": "singleton",
+      "resource": "class path resource [org/springframework/boot/autoconfigure/task/TaskExecutorConfigurations$BootstrapExecutorConfiguration.class]",
+      "dependencies": [],
+      "aliases": [],
+      "classification": "FRAMEWORK"
+    },
+    {
+      "name": "errorPageRegistrarBeanPostProcessor",
+      "type": "org.springframework.boot.web.error.ErrorPageRegistrarBeanPostProcessor",
+      "scope": "singleton",
+      "resource": null,
+      "dependencies": [],
+      "aliases": [],
+      "classification": "FRAMEWORK"
+    },
+    {
+      "name": "keyValueMappingContext",
+      "type": "org.springframework.data.redis.core.mapping.RedisMappingContext",
+      "scope": "singleton",
+      "resource": null,
+      "dependencies": [
+        "redisMappingConfiguration#0"
+      ],
+      "aliases": [],
+      "classification": "FRAMEWORK"
+    }
+  ],
+  "page": {
+    "total": 537,
+    "matched": 537,
+    "offset": 0,
+    "limit": 537,
+    "returned": 537,
+    "hasMore": false
+  }
+}

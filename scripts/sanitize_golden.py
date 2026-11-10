@@ -86,6 +86,8 @@ SECRET_VALUE = re.compile(
     r"|://(?!user:password@)[^/\s:@]+:[^/\s@]+@"  # URL userinfo (docs placeholder user:password allowed)
 )
 SENSITIVE_NAME = re.compile(r"(?:passw(?:or)?d|secret|token|api[-_.]?key|credential|private[-_.]?key)", re.IGNORECASE)
+# A count of tokens (AI usage), never a credential: numbers under these names are not secrets.
+TOKEN_COUNT = re.compile(r"(?:tokens|token_?count|token_?usage)$", re.IGNORECASE)
 MASK = "******"
 NL = chr(10)
 
@@ -209,7 +211,7 @@ def find_secrets(node: Any, where: str = "$", key: str = "") -> list[str]:
     elif isinstance(node, str):
         if SECRET_VALUE.search(node) or (key and node not in (MASK, "")):
             found.append(where)
-    elif key and node is not None and not isinstance(node, bool):
+    elif key and node is not None and not isinstance(node, bool) and not TOKEN_COUNT.search(key):
         found.append(where)
     return found
 
