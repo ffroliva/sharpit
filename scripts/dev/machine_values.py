@@ -141,11 +141,12 @@ def _git_identity() -> list[str]:
     return vals
 
 
-def _clean_values(raw_values: list[str]) -> list[str]:
+def _clean_values(raw_values: list[str], identities: list[str]) -> list[str]:
+    identity_values = {v.strip().strip("'\"") for v in identities}
     cleaned: list[str] = []
     for item in raw_values:
         val = item.strip().strip("'\"")
-        if len(val) >= 6 and val not in COMMON_SYSTEM_VALUES:
+        if (len(val) >= 3 if val in identity_values else len(val) >= 6) and val not in COMMON_SYSTEM_VALUES:
             cleaned.append(val)
     return list(dict.fromkeys(cleaned))
 
@@ -155,17 +156,21 @@ def collect_machine_values(env: dict[str, str] | None = None) -> list[str]:
     target_env = env if env is not None else dict(os.environ)
     raw_values: list[str] = []
 
-    raw_values.extend(_system_user_and_host())
+    identities = _system_user_and_host()
+    raw_values.extend(identities)
     for key in ("USERPROFILE", "HOME"):
         val = target_env.get(key)
         if val:
-            raw_values.append(val)
+            identities.append(val)
+            raw_values.extend((val, val.replace("\\", "/"), "file:/" + val.replace("\\", "/").replace(":", ":", 1)))
 
-    raw_values.extend(_git_identity())
-    raw_values.extend(_git_remotes())
+    git_identity = _git_identity()
+    remotes = _git_remotes()
+    identities.extend(git_identity + remotes)
+    raw_values.extend(git_identity + remotes)
     raw_values.extend(_env_entries(target_env))
 
-    return _clean_values(raw_values)
+    return _clean_values(raw_values, identities)
 
 
 def write_machine_values(

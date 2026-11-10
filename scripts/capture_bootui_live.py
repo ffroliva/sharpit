@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import sys
 import urllib.error
@@ -11,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,13 +69,10 @@ EXCLUDED_ROUTES: dict[str, str] = {
     # Parameterized sub-resources requiring runtime ID or external state
     "/activity/request/{id}": "Parameterized route requiring runtime instance id",
     "/activity/request/{id}/journal": "Parameterized route requiring runtime instance id",
-    "/exceptions/{id}": "Parameterized route requiring runtime instance id",
     "/code-paths/requests/{requestId}": "Parameterized route requiring runtime instance id",
     "/code-paths/probes/{id}": "Parameterized route requiring runtime instance id",
     "/email/{id}": "Parameterized route requiring runtime instance id",
     "/email/{id}/eml": "Parameterized route requiring runtime instance id",
-    "/sessions/{id}": "Parameterized route requiring runtime instance id",
-    "/sessions/{id}/events": "Parameterized route requiring runtime instance id",
     "/ai/chats/{spanId}": "Parameterized route requiring runtime instance id",
     "/data/repositories/{name}": "Parameterized route requiring repository name",
     "/database-connection-pools/pools/{name}/snapshot": "Parameterized route requiring pool name",
@@ -84,7 +83,6 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/threads/captures/{id}/threads": "Parameterized route requiring capture id",
     "/threads/captures/{id}/threads/{observationId}": "Parameterized route requiring capture and observation id",
     "/threads/observations/{id}": "Parameterized route requiring observation id",
-    "/traces/{traceId}": "Parameterized route requiring trace id",
     "/runtime-insights/insights/{id}": "Parameterized route requiring insight id",
 }
 
@@ -148,7 +146,11 @@ def _build_prescan_steps(
     )
 
     for path in all_get_sources:
-        if path in seen_paths or path in EXCLUDED_ROUTES or "/raw" in path:
+        if (
+            path in seen_paths
+            or (path in EXCLUDED_ROUTES and not EXCLUDED_ROUTES[path].startswith("Parameterized route"))
+            or "/raw" in path
+        ):
             continue
         if path == "/rules/{ruleId}/violations" or path.startswith("/rules"):
             continue
@@ -231,9 +233,11 @@ def build_plan(routes: dict[str, Any], ids: dict[str, str]) -> list[Step]:
 
 def _resolve_raw_out(raw_out: Path | str) -> Path:
     raw_path = Path(raw_out).resolve()
-    repo_root = REPO_ROOT.resolve()
-    if raw_path == repo_root or repo_root in raw_path.parents or raw_path.is_relative_to(repo_root):
-        raise ValueError(f"raw_out must not be inside the git repo root: {raw_out}")
+    current = raw_path
+    while current != current.parent:
+        if (current / ".git").exists():
+            raise ValueError(f"raw_out must not be inside the git repo root/work tree: {raw_out}")
+        current = current.parent
     raw_path.mkdir(parents=True, exist_ok=True)
     return raw_path
 
@@ -243,11 +247,11 @@ def _fetch(opener: Any, base_url: str, method: str, path: str) -> Any:
     data = b"{}" if method == "POST" else None
     req = urllib.request.Request(url, data=data, method=method)
     if hasattr(opener, "open"):
-        resp = opener.open(req)
+        resp = opener.open(req, timeout=30)
     elif callable(opener):
         resp = opener(req)
     else:
-        resp = urllib.request.urlopen(req)
+        resp = urllib.request.urlopen(req, timeout=30)
     if hasattr(resp, "read"):
         content = resp.read()
         return json.loads(content.decode("utf-8")) if content else {}
@@ -269,6 +273,29 @@ def _record_error(
     else:
         status = "error"
     uncaptured[key] = {"status": status, "http": code, "reason": str(exc)}
+
+
+def _resolve_parameterized_path(path: str, responses: dict[str, Any]) -> str | None:
+    if "{" not in path:
+        return path
+    root = path.split("/{", 1)[0]
+    field = path.split("{", 1)[1].split("}", 1)[0]
+    parent = responses.get(root)
+    items = (
+        parent
+        if isinstance(parent, list)
+        else next(
+            (
+                parent.get(key)
+                for key in ("items", "results", "sessions", "exceptions", "traces")
+                if isinstance(parent, dict) and isinstance(parent.get(key), list)
+            ),
+            [],
+        )
+    )
+    first = items[0] if items and isinstance(items[0], dict) else {}
+    item_id = first.get("id") or first.get("traceId")
+    return path.replace("{" + field + "}", quote(str(item_id), safe=""), 1) if item_id else None
 
 
 def _write_capture(
@@ -294,14 +321,21 @@ def _run_violations(
     post_resp = post_scan_responses.get(step.panel, {})
     rule_ids = _extract_rule_ids(post_resp)
     if not rule_ids:
-        uncaptured[f"{step.sharpit_id}:violations"] = {
+        uncaptured[f"GET {step.path}"] = {
             "status": "not-probed",
             "http": None,
             "reason": "No rule violations in scan response",
         }
         return
     rule_id = rule_ids[0]
-    viol_path = step.path.replace("{ruleId}", rule_id)
+    viol_path = step.path.replace("{ruleId}", quote(rule_id, safe=""))
+    if "/raw" in viol_path:
+        uncaptured[f"GET {step.path}"] = {
+            "status": "not-probed",
+            "http": None,
+            "reason": "final path refused by safety rules",
+        }
+        return
     scan_id = (
         post_resp.get("violationDetails", {}).get("scanId")
         if isinstance(post_resp.get("violationDetails"), dict)
@@ -313,7 +347,38 @@ def _run_violations(
         data = _fetch(opener, base_url, "GET", viol_path)
         _write_capture(raw_out, step.sharpit_id, step.name, data)
     except Exception as exc:
-        _record_error(uncaptured, f"{step.sharpit_id}:violations", exc)
+        _record_error(uncaptured, f"GET {viol_path}", exc)
+
+
+def _run_step(
+    step: Step,
+    opener: Any,
+    base_url: str,
+    raw_path: Path,
+    uncaptured: dict[str, dict[str, Any]],
+    post_scan_responses: dict[str, Any],
+    list_responses: dict[str, Any],
+) -> None:
+    if step.phase == "violations":
+        _run_violations(step, post_scan_responses, opener, base_url, raw_path, uncaptured)
+        return
+    try:
+        path = _resolve_parameterized_path(step.path, list_responses)
+        if path is None:
+            uncaptured[f"{step.method} {step.path}"] = {
+                "status": "not-probed",
+                "http": None,
+                "reason": "no id in the list response",
+            }
+            return
+        data = _fetch(opener, base_url, step.method, path)
+        if step.method == "GET" and "{" not in step.path:
+            list_responses[step.path.rstrip("/")] = data
+        if step.method == "POST" or step.phase == "post-scan GET":
+            post_scan_responses[step.panel] = data
+        _write_capture(raw_path, step.sharpit_id, step.name, data)
+    except Exception as exc:
+        _record_error(uncaptured, f"{step.method} {step.path}", exc)
 
 
 def run(
@@ -326,28 +391,20 @@ def run(
     raw_path = _resolve_raw_out(raw_out)
     uncaptured: dict[str, dict[str, Any]] = {}
     post_scan_responses: dict[str, Any] = {}
+    list_responses: dict[str, Any] = {}
+    for path, reason in EXCLUDED_ROUTES.items():
+        if reason.startswith("Conformance probe"):
+            uncaptured[f"GET {path}"] = {"status": "not-probed", "http": None, "reason": "conformance probe"}
 
     for step in plan:
-        if step.method != "GET" and step.path not in POST_ALLOW_LIST:
-            continue
-        if "/raw" in step.path:
-            continue
+        if (
+            step.method not in ("GET", "POST")
+            or (step.method == "POST" and step.path not in POST_ALLOW_LIST)
+            or "/raw" in step.path
+        ):
+            raise ValueError(f"method/path not allowed: {step.method} {step.path}")
 
-        if step.phase == "violations":
-            _run_violations(step, post_scan_responses, opener, base_url, raw_path, uncaptured)
-            continue
-
-        try:
-            data = _fetch(opener, base_url, step.method, step.path)
-            if step.method == "POST":
-                post_scan_responses[step.panel] = data
-            elif step.phase == "post-scan GET":
-                post_scan_responses[step.panel] = data
-                _write_capture(raw_path, step.sharpit_id, step.name, data)
-            else:
-                _write_capture(raw_path, step.sharpit_id, step.name, data)
-        except Exception as exc:
-            _record_error(uncaptured, step.sharpit_id, exc)
+        _run_step(step, opener, base_url, raw_path, uncaptured, post_scan_responses, list_responses)
 
     uncaptured_file = raw_path / "uncaptured.json"
     uncaptured_file.write_text(json.dumps(uncaptured, indent=2) + "\n", encoding="utf-8")
@@ -360,7 +417,6 @@ def build_default_opener(token_file: Path | str | None = None) -> Any:
     if token_file:
         token = Path(token_file).read_text(encoding="utf-8").strip()
         headers["Authorization"] = f"Bearer {token}"
-        headers["X-BootUI-Token"] = token
 
     class HeaderOpener:
         def open(self, req: urllib.request.Request | str) -> Any:
@@ -389,6 +445,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Path to ids.json.",
     )
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+
+    parsed_base = urlsplit(args.base)
+    try:
+        loopback = parsed_base.hostname in ("localhost", "127.0.0.1", "::1") or (
+            parsed_base.hostname is not None and ipaddress.ip_address(parsed_base.hostname).is_loopback
+        )
+    except ValueError:
+        loopback = False
+    if parsed_base.scheme != "http" or not loopback:
+        parser.error("--base must use http and a loopback host")
 
     routes = json.loads(Path(args.routes).read_text(encoding="utf-8"))
     ids = json.loads(Path(args.ids).read_text(encoding="utf-8")) if Path(args.ids).is_file() else {}
