@@ -239,3 +239,14 @@ def test_get_request_profile_mcp_tool():
     assert "result" in body, body
     profile = body["result"]["structuredContent"]
     assert (profile["available"], profile["request"]["path"]) == (True, "/pets")
+
+
+def test_a_disabled_runtime_journal_allocates_nothing_and_reports_disabled():
+    app, handle = _app(runtime_journal_enabled=False)
+    with _client(app) as client:
+        body = client.get(f"{API}/journal").json()
+        names = {hook.name for hook in handle.context.capture.hooks.hooks()}
+    assert handle.context.capture.journal is None
+    assert "runtime-journal" not in names
+    assert body["enabled"] is False
+    assert body["recorded"] == {}
