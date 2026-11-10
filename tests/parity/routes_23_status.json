@@ -1,10 +1,10 @@
 {
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
-    "matched": 16,
+    "matched": 4,
     "partial": 19,
     "missing": 57,
-    "n-a": 4,
+    "n-a": 16,
     "total": 96
   },
   "routes": [
@@ -187,15 +187,15 @@
       "golden": "data/repositories.captured.json",
       "panel": "data",
       "route": "/sharpit/api/data/repositories",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "database-advisor/captured.json",
       "panel": "database-advisor",
       "route": "/sharpit/api/database-advisor",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "database-advisor/scanned.captured.json",
@@ -229,15 +229,15 @@
       "golden": "dismissed-findings/captured.json",
       "panel": "dismissed-findings",
       "route": "/sharpit/api/dismissed-findings",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "dismissed-rules/captured.json",
       "panel": "dismissed-rules",
       "route": "/sharpit/api/dismissed-rules",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "email/captured.json",
@@ -257,15 +257,15 @@
       "golden": "exceptions/caught.captured.json",
       "panel": "exceptions",
       "route": "/sharpit/api/exceptions/caught",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "fastapi/captured.json",
       "panel": "fastapi",
       "route": "/sharpit/api/fastapi",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "fastapi/scanned.captured.json",
@@ -278,8 +278,8 @@
       "golden": "fastapi-security/captured.json",
       "panel": "fastapi-security",
       "route": "/sharpit/api/fastapi-security",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "fastapi-security/endpoints.captured.json",
@@ -355,8 +355,8 @@
       "golden": "http-exchanges/routes.captured.json",
       "panel": "http-exchanges",
       "route": "/sharpit/api/http-exchanges/routes",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "http-sessions/captured.json",
@@ -467,8 +467,8 @@
       "golden": "mysql/captured.json",
       "panel": "mysql",
       "route": "/sharpit/api/mysql",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "overview/captured.json",
@@ -495,8 +495,8 @@
       "golden": "postgresql/captured.json",
       "panel": "postgresql",
       "route": "/sharpit/api/postgresql",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "postgresql/scanned.captured.json",
@@ -586,8 +586,8 @@
       "golden": "security/captured.json",
       "panel": "security",
       "route": "/sharpit/api/security",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "security/scanned.captured.json",
@@ -600,8 +600,8 @@
       "golden": "security-logs/captured.json",
       "panel": "security-logs",
       "route": "/sharpit/api/security-logs",
-      "status": "matched",
-      "difference": null
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "side-effects/captured.json",
@@ -636,7 +636,7 @@
       "panel": "threads",
       "route": "/sharpit/api/threads",
       "status": "partial",
-      "difference": "threads/captured.json parity: hiddenBootUiThreads: missing from payload; quality: missing from payload; threads[].userTimeMillis: null in payload, golden has number; not listed in nullable.json; threads[].cpuTimeMillis: null in payload, golden has number; not listed in nullable.json; threads[].userTimeMillis: null in payload, golden has number; not listed in nullable.json"
+      "difference": "threads/captured.json parity: hiddenBootUiThreads: missing from payload; quality: missing from payload; threads[].cpuTimeMillis: null in payload, golden has number; not listed in nullable.json; threads[].userTimeMillis: null in payload, golden has number; not listed in nullable.json; threads[].userTimeMillis: null in payload, golden has number; not listed in nullable.json"
     },
     {
       "golden": "threads/captures.captured.json",
