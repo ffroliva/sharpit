@@ -286,6 +286,12 @@ class SideEffectGuard:
         for owner, attr in ((socket.socket, "connect"), *((socket, n) for n in _BLOCKED[1:])):
             self._originals.append((owner, attr, getattr(owner, attr)))
             setattr(owner, attr, self._blocker(f"socket.{attr}"))
+        self._originals.append((sys, "addaudithook", sys.addaudithook))
+        sys.addaudithook = self._blocker("sys.addaudithook")
+        for attr in ("set_events", "set_local_events"):
+            owner = sys.monitoring
+            self._originals.append((owner, attr, getattr(owner, attr)))
+            setattr(owner, attr, self._blocker(f"sys.monitoring.{attr}"))
 
     def _blocker(self, what: str) -> Callable[..., Any]:
         def blocked(*_args: object, **_kwargs: object) -> Any:
