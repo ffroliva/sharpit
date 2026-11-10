@@ -8,7 +8,6 @@ from typing import Any, cast
 from urllib.parse import urlsplit
 
 from sharpit.engine.masking import Exposure
-from sharpit.engine.panels import PANELS
 
 _TRUE = {"true", "yes", "on", "1"}
 _FALSE = {"false", "no", "off", "0"}
@@ -29,7 +28,7 @@ def parse_mode(raw: object) -> str | None:
     return "AUTO" if v == "auto" else None
 
 
-def _bool(raw: object) -> bool:
+def parse_bool(raw: object) -> bool:
     if isinstance(raw, bool):
         return raw
     v = raw.strip().lower() if isinstance(raw, str) else None
@@ -154,7 +153,7 @@ def _identity_key(raw: object) -> str:
 
 def _config_scan(raw: object) -> tuple[str, ...] | bool:
     try:
-        return _bool(raw)
+        return parse_bool(raw)
     except ValueError:
         return _items(raw)
 
@@ -167,24 +166,24 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "enabled_profiles": (_lower_items, None),
     "disabled_profiles": (_lower_items, None),
     "profile_vars": (_items, None),
-    "allow_non_localhost": (_bool, False),
+    "allow_non_localhost": (parse_bool, False),
     "allowed_hosts": (_items, None),
     "trusted_proxies": (_items, None),
     "trust_container_gateway": (_mode, "OFF"),
     "authentication_token": (_str, None),
     "identity_key": (_identity_key, None),
-    "read_only": (_bool, True),
+    "read_only": (parse_bool, True),
     "expose_values": (_exposure, Exposure.MASKED),
-    "mask_secrets": (_bool, True),
-    "show_banner": (_bool, True),
+    "mask_secrets": (parse_bool, True),
+    "show_banner": (parse_bool, True),
     "state_dir": (_str, None),
     "config_scan": (_config_scan, None),
-    "vulnerabilities_osv_enabled": (_bool, False),
+    "vulnerabilities_osv_enabled": (parse_bool, False),
     "vulnerabilities_request_timeout": (_duration, None),
     "vulnerabilities_max_packages": (_int, None),
     "vulnerabilities_max_advisories": (_int, None),
     "vulnerabilities_osv_base_uri": (_http_uri, None),
-    "vulnerabilities_epss_enabled": (_bool, False),
+    "vulnerabilities_epss_enabled": (parse_bool, False),
     "vulnerabilities_epss_base_uri": (_http_uri, None),
     "mcp_enabled": (_mode, "OFF"),
     "mcp_max_results": (_int, None),
@@ -192,7 +191,7 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "mcp_max_concurrent_calls": (_int, None),
     "mcp_execution_timeout": (_duration, None),
     "mcp_max_response_bytes": (_int, None),
-    "cli_enabled": (_bool, False),
+    "cli_enabled": (parse_bool, False),
     "cli_max_results": (_int, None),
     "cli_max_concurrent_calls": (_int, None),
     "cli_execution_timeout": (_duration, None),
@@ -200,11 +199,11 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "exceptions_max_groups": (_int, None),
     "exceptions_max_occurrences_per_group": (_int, None),
     "exceptions_max_stack_frames": (_int, None),
-    "sql_trace_enabled": (_bool, False),
-    "sql_trace_sqlite3_enabled": (_bool, False),
-    "sql_trace_recording": (_bool, False),
-    "sql_trace_capture_parameters": (_bool, False),
-    "sql_trace_capture_call_site": (_bool, None),
+    "sql_trace_enabled": (parse_bool, False),
+    "sql_trace_sqlite3_enabled": (parse_bool, False),
+    "sql_trace_recording": (parse_bool, False),
+    "sql_trace_capture_parameters": (parse_bool, False),
+    "sql_trace_capture_call_site": (parse_bool, None),
     "sql_trace_max_entries": (_int, None),
     "sql_trace_slow_query_threshold_millis": (_non_negative_int, None),
     "sql_trace_max_sql_length": (_int, None),
@@ -230,8 +229,8 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
     "postgresql_max_vacuum_tables": (_row_limit, None),
     "postgresql_max_replicas": (_row_limit, None),
     "postgresql_max_settings": (_row_limit, None),
-    "transactions_enabled": (_bool, False),
-    "transactions_recording": (_bool, False),
+    "transactions_enabled": (parse_bool, False),
+    "transactions_recording": (parse_bool, False),
     "transactions_max_entries": (_int, None),
     "transactions_slow_transaction_threshold_millis": (_int, None),
     "transactions_connection_hold_threshold_millis": (_int, None),
@@ -252,26 +251,51 @@ _SPECS: dict[str, tuple[_Parser, Any]] = {
 }
 
 _SECURITY_FIELDS = {
-    "allow_non_localhost", "allowed_hosts", "trusted_proxies", "trust_container_gateway",
-    "authentication_token", "identity_key", "read_only", "expose_values", "mask_secrets",
+    "allow_non_localhost",
+    "allowed_hosts",
+    "trusted_proxies",
+    "trust_container_gateway",
+    "authentication_token",
+    "identity_key",
+    "read_only",
+    "expose_values",
+    "mask_secrets",
 }
 _FAMILY_PREFIXES = {
-    "vulnerabilities": "vulnerabilities_", "mcp": "mcp_", "cli": "cli_",
-    "http_exchanges": "http_exchanges_", "exceptions": "exceptions_", "sql_trace": "sql_trace_",
-    "activity": "activity_", "log_tail": "log_tail_", "alembic": "alembic_",
-    "health": "health_", "threads": "threads_", "advisors": "advisors_", "stream": "stream_",
-    "security_logs": "security_logs_", "postgresql": "postgresql_", "transactions": "transactions_",
-    "mysql": "mysql_", "database_advisor": "database_advisor_", "architecture": "architecture_",
+    "vulnerabilities": "vulnerabilities_",
+    "mcp": "mcp_",
+    "cli": "cli_",
+    "http_exchanges": "http_exchanges_",
+    "exceptions": "exceptions_",
+    "sql_trace": "sql_trace_",
+    "activity": "activity_",
+    "log_tail": "log_tail_",
+    "alembic": "alembic_",
+    "health": "health_",
+    "threads": "threads_",
+    "advisors": "advisors_",
+    "stream": "stream_",
+    "security_logs": "security_logs_",
+    "postgresql": "postgresql_",
+    "transactions": "transactions_",
+    "mysql": "mysql_",
+    "database_advisor": "database_advisor_",
+    "architecture": "architecture_",
 }
 FAMILY_SPECS: dict[str, dict[str, tuple[_Parser, Any]]] = {}
 for _name, _spec in _SPECS.items():
-    _family = "security" if _name in _SECURITY_FIELDS else next(
-        (family for family, prefix in _FAMILY_PREFIXES.items() if _name.startswith(prefix)), "core"
+    _family = (
+        "security"
+        if _name in _SECURITY_FIELDS
+        else next((family for family, prefix in _FAMILY_PREFIXES.items() if _name.startswith(prefix)), "core")
     )
     FAMILY_SPECS.setdefault(_family, {})[_name] = _spec
 
 _NEVER_ECHOED = {
-    "authentication_token", "identity_key", "mask_secrets",
-    "vulnerabilities_osv_base_uri", "vulnerabilities_epss_base_uri",
-    *(f"panels.{panel.id}.{flag}" for panel in PANELS if panel.implemented for flag in ("enabled", "read_only")),
+    "authentication_token",
+    "identity_key",
+    "vulnerabilities_osv_base_uri",
+    "vulnerabilities_epss_base_uri",
 }
+NEVER_ECHOED = _NEVER_ECHOED
+UNSET = _UNSET
