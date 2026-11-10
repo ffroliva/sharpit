@@ -27,22 +27,22 @@ Titles of P rows are BootUI's, verbatim.
 | SEC-AUTH-002 | Password encoder should not use a weak or legacy algorithm | Authentication | HIGH | P | a `CryptContext` whose default (first) scheme is a legacy one (`md5_crypt`, `des_crypt`, `hex_md5`, `hex_sha1`, ...) |
 | SEC-AUTH-004 | Review the Boot property-backed default account | Authentication | MEDIUM | D | [JVM] `spring.security.user.*` has no FastAPI analogue |
 | SEC-AUTH-006 | BCrypt password encoder should use an adequate work factor | Authentication | LOW | P | `CryptContext(bcrypt__rounds=N)` or `bcrypt.gensalt(rounds=N)` with a literal N below 10 |
-| SEC-AUTH-007 | HTTP Basic authentication should run only over HTTPS | Authentication | HIGH | P | a route requires `HTTPBasic` and its middleware stack has no `HTTPSRedirectMiddleware` |
+| SEC-AUTH-007 | HTTP Basic authentication should run only over HTTPS | Authentication | HIGH | P | production-like profile; a route requires `HTTPBasic` and its middleware stack has no `HTTPSRedirectMiddleware` |
 | SEC-AUTH-008 | hideUserNotFoundExceptions should stay enabled | Authentication | MEDIUM | D | [JVM] a `DaoAuthenticationProvider` flag |
 | SEC-AUTH-009 | Do not run production on Spring Boot's auto-generated default user | Authentication | HIGH | D | [JVM] Spring Boot's generated user |
-| SEC-AUTH-010 | Form login should run only over HTTPS | Authentication | HIGH | P | a route requires `OAuth2PasswordBearer` (password form login) and its stack has no `HTTPSRedirectMiddleware` |
-| SEC-AUTHZ-001 | Every filter chain should enforce authorization | Authorization | INFO | P | an unsafe-method route (POST, PUT, PATCH, DELETE) with no security dependency in an app whose other routes are secured (an ordinary parameter dependency, such as a database session, does not count as one) |
+| SEC-AUTH-010 | Form login should run only over HTTPS | Authentication | HIGH | P | production-like profile; a route requires `OAuth2PasswordBearer` (password form login) and its stack has no `HTTPSRedirectMiddleware` |
+| SEC-AUTHZ-001 | Every filter chain should enforce authorization | Authorization | INFO | P | partial parity: same trigger as BootUI but severity differs (BootUI HIGH); an unsafe-method route (POST, PUT, PATCH, DELETE) with no security dependency in an app whose other routes are secured |
 | SEC-AUTHZ-002 | Avoid blanket permitAll authorization | Authorization | HIGH | P | the app has routes and none is secured: no required scheme, no custom dependency, no `AuthenticationMiddleware` |
-| SEC-AUTHZ-003 | Application security should not be effectively disabled | Authorization | HIGH | D | merged into SEC-AUTHZ-002 (one Python signal) |
+| SEC-AUTHZ-003 | Application security should not be effectively disabled | Authorization | HIGH | D | merged into SEC-AUTHZ-002 because one Python signal represents both rules |
 | SEC-AUTHZ-004 | Catch-all filter chains should be ordered last | Authorization | INFO | D | [JVM] filter-chain ordering |
 | SEC-AUTHZ-005 | Broader authorizeHttpRequests matchers should not shadow narrower ones | Authorization | INFO | D | [JVM] `authorizeHttpRequests` matchers |
 | SEC-CSRF-001 | CSRF protection should stay on for browser-automatic credentials | CSRF | HIGH | P | an unsafe-method route reads `APIKeyCookie` or runs under `SessionMiddleware`, and its stack has no CSRF middleware |
 | SEC-CSRF-002 | CSRF protection should stay on for HTTP Basic authentication | CSRF | MEDIUM | P | an unsafe-method route requires `HTTPBasic` and its stack has no CSRF middleware |
 | SEC-SESSION-001 | Session fixation protection should be enabled | Session management | HIGH | D | [JVM] Starlette's signed-cookie sessions have no server-side session id to fix |
-| SEC-SESSION-002 | Session cookie should set the Secure flag | Session management | MEDIUM | P | `SessionMiddleware` without `https_only=True` |
+| SEC-SESSION-002 | Session cookie should set the Secure flag | Session management | MEDIUM | P | production-like profile; `SessionMiddleware` without `https_only=True` |
 | SEC-SESSION-003 | Session cookie should set the HttpOnly flag | Session management | MEDIUM | D | Starlette always sets `HttpOnly` on the session cookie |
 | SEC-SESSION-004 | Review SameSite=None on the session cookie | Session management | LOW | P | `SessionMiddleware(same_site="none")` |
-| SEC-SESSION-006 | Review bearer authentication saved in sessions | Session management | LOW | D | [JVM] `SecurityContextRepository` |
+| SEC-SESSION-006 | Review bearer authentication saved in sessions | Session management | LOW | D | detecting an Authlib token response copied into `request.session` needs dataflow beyond the source scan's current local AST checks |
 | SEC-SESSION-007 | Consider configuring concurrent session control | Session management | INFO | D | [JVM] `SessionRegistry` |
 | SEC-SESSION-008 | Remember-me signing key should be sufficiently long | Session management | MEDIUM | P | `SessionMiddleware` `secret_key` shorter than 32 characters (the length is read, never the value) |
 | SEC-HEAD-001 | HTTP Strict Transport Security should be emitted | Transport and headers | MEDIUM | D | response headers are set at runtime; the Pentesting panel checks them on live responses |
@@ -65,11 +65,11 @@ Titles of P rows are BootUI's, verbatim.
 | SEC-ACT-005 | The actuator shutdown endpoint should not be enabled | Actuator exposure | HIGH | D | [JVM] Actuator |
 | SEC-ACT-006 | Sensitive actuator endpoints should use an isolated management port | Actuator exposure | INFO | D | [JVM] Actuator |
 | SEC-ACT-007 | Actuator env/configprops values must stay sanitized | Actuator exposure | HIGH | D | [JVM] Actuator; sharpit masks its own output |
-| SEC-OAUTH-002 | Validate the JWT audience claim | OAuth2 / JWT | INFO | D | [JVM] `JwtDecoder` validators; FastAPI leaves token decoding to user code |
-| SEC-OAUTH-003 | Review static verification-key rotation | OAuth2 / JWT | INFO | D | [JVM] `NimbusJwtDecoder` key source |
-| SEC-OAUTH-004 | JWT issuer and JWK endpoints should use HTTPS | OAuth2 / JWT | HIGH | P | an `OpenIdConnect` scheme whose `openIdConnectUrl` is `http://` to a non-loopback host |
-| SEC-OAUTH-005 | Opaque-token introspection must use HTTPS | OAuth2 / JWT | HIGH | D | [JVM] `OpaqueTokenIntrospector` |
-| SEC-OAUTH-006 | OAuth2 client provider endpoints must use HTTPS | OAuth2 / JWT | HIGH | P | an OAuth2 scheme flow URL (`authorizationUrl`, `tokenUrl`, `refreshUrl`) is `http://` to a non-loopback host |
+| SEC-OAUTH-002 | Validate the JWT audience claim | OAuth2 / JWT | INFO | P | partial: the local AST scan flags PyJWT `jwt.decode` without `audience=` or with `verify_aud=False`, while BootUI checks only a framework-managed decoder on an active bearer chain and does not judge custom decoders; without `audience=`, PyJWT rejects tokens carrying `aud`, so the risk is tokens without an `aud` claim |
+| SEC-OAUTH-003 | Review static verification-key rotation | OAuth2 / JWT | INFO | D | a static PEM key may be intentional pinning; rotation intent needs configuration or key-history evidence |
+| SEC-OAUTH-004 | JWT issuer and JWK endpoints should use HTTPS | OAuth2 / JWT | HIGH | P | production-like profile; an `OpenIdConnect` scheme whose `openIdConnectUrl` is `http://` to a non-loopback host |
+| SEC-OAUTH-005 | Opaque-token introspection must use HTTPS | OAuth2 / JWT | HIGH | D | identifying an Authlib URL as an introspection endpoint needs usage context beyond a bare HTTP URL |
+| SEC-OAUTH-006 | OAuth2 client provider endpoints must use HTTPS | OAuth2 / JWT | HIGH | P | production-like profile; an OAuth2 scheme flow URL (`authorizationUrl`, `tokenUrl`, `refreshUrl`) is `http://` to a non-loopback host |
 | SEC-CONFIG-001 | Spring Security debug mode should be off | Configuration | MEDIUM | P | `FastAPI(debug=True)`: Starlette returns tracebacks to the client |
 | SEC-CONFIG-002 | H2 console should not be enabled in production | Configuration | HIGH | D | [JVM] H2 console |
 | SEC-CONFIG-005 | Error responses should not leak stack traces or internal messages | Configuration | MEDIUM | D | merged into SEC-CONFIG-001 (`debug=True` is the Starlette traceback switch) |

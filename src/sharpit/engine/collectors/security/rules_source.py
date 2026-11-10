@@ -145,7 +145,46 @@ def _literal_secrets(inputs: Inputs) -> list[Violation]:
     return sorted(found.values(), key=lambda v: (v.target.rpartition(":")[0], int(v.target.rpartition(":")[2])))
 
 
+def _jwt_audience(inputs: Inputs) -> list[Violation]:
+    found: list[Violation] = []
+    for at, node in _calls(inputs):
+        if not _called(node, "decode") or not isinstance(node.func, ast.Attribute):
+            continue
+        if not isinstance(node.func.value, ast.Name) or node.func.value.id != "jwt":
+            continue
+        options = _keyword(node, "options")
+        disabled = isinstance(options, ast.Dict) and any(
+            isinstance(key, ast.Constant)
+            and key.value == "verify_aud"
+            and isinstance(value, ast.Constant)
+            and value.value is False
+            for key, value in zip(options.keys, options.values, strict=True)
+        )
+        if disabled or _keyword(node, "audience") is None:
+            message = (
+                "jwt.decode disables audience validation with verify_aud=False."
+                if disabled
+                else "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim."
+            )
+            found.append(Violation(at, f"{at}: {message}"))
+    return found
+
+
 RULES: tuple[SecurityRule, ...] = (
+    SecurityRule(
+        rule(
+            "SEC-OAUTH-002",
+            "Validate the JWT audience claim",
+            "OAuth2 / JWT",
+            "INFO",
+            "Without audience=, PyJWT rejects tokens with aud, so the risk is tokens without an aud claim; "
+            "verify_aud=False disables audience validation.",
+            "Pass the expected audience to jwt.decode and leave verify_aud enabled.",
+            "https://pyjwt.readthedocs.io/en/stable/api.html#jwt.decode",
+        ),
+        _jwt_audience,
+        needs_source=True,
+    ),
     SecurityRule(
         rule(
             "SEC-AUTH-001",
