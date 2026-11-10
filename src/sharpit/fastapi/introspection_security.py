@@ -70,7 +70,7 @@ def _session_flags(options: dict[str, object]) -> set[str]:
 
 def _host_flags(options: dict[str, object]) -> set[str]:
     hosts = options.get("allowed_hosts")
-    return {"any_host"} if hosts is None or "*" in _strings(hosts) else set()
+    return {"any_host"} if hosts is None or "*" in _strings(hosts) else set()  # Starlette: None allows every host
 
 
 def _proxy_flags(options: dict[str, object]) -> set[str]:

@@ -10,7 +10,11 @@ OWN_MODULE_PREFIX = "sharpit."
 
 
 def attrs(obj: object) -> dict[str, object]:
-    """Read an object's own attributes without invoking application hooks."""
+    """``obj``'s own attributes, read statically; ``{}`` for an object without ``__dict__``.
+
+    ``object.__getattribute__`` skips a user ``__getattribute__`` and never falls back to ``__getattr__`` (``vars()``
+    does both).
+    """
     try:
         values = object.__getattribute__(obj, "__dict__")
     except Exception:  # noqa: BLE001 - slots, built-ins, and framework drift degrade to no attributes
