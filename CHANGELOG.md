@@ -7,6 +7,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- BootUI tracker row markers on matched property and MCP/CLI parity tests.
+
 - Live BootUI 2.3.0 capture runner (`scripts/capture_bootui_live.py`) with a hard allow-list covering advisor scans and database reads, forbidding raw reveals and destructive actions, and recording uncaptured endpoints with status.
 - Machine values leak gate generator (`scripts/dev/machine_values.py`) collecting workstation identifiers and environment secrets to gate fixture commits via `scripts/ci/artifact_scan.py --values-file`.
 - Sanitised BootUI 2.3.0 live goldens with route completeness and empty-list metadata.

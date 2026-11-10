@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -15,6 +16,100 @@ from sharpit.settings_registry import SPECS, UNSET
 
 _FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0" / "properties.json"
 _STATUS = Path(__file__).with_name("properties_23_status.json")
+
+pytestmark = [
+    pytest.mark.bootui("prop:bootui.activity.max-entries"),
+    pytest.mark.bootui("prop:bootui.activity.n-plus-one-threshold"),
+    pytest.mark.bootui("prop:bootui.activity.request-slow-threshold-ms"),
+    pytest.mark.bootui("prop:bootui.advisors.max-retained-violations"),
+    pytest.mark.bootui("prop:bootui.allow-non-localhost"),
+    pytest.mark.bootui("prop:bootui.allowed-hosts"),
+    pytest.mark.bootui("prop:bootui.authentication.token"),
+    pytest.mark.bootui("prop:bootui.cli.enabled"),
+    pytest.mark.bootui("prop:bootui.cli.execution-timeout"),
+    pytest.mark.bootui("prop:bootui.cli.max-concurrent-calls"),
+    pytest.mark.bootui("prop:bootui.cli.max-results"),
+    pytest.mark.bootui("prop:bootui.disabled-profiles"),
+    pytest.mark.bootui("prop:bootui.enabled"),
+    pytest.mark.bootui("prop:bootui.exceptions.max-groups"),
+    pytest.mark.bootui("prop:bootui.exceptions.max-occurrences-per-group"),
+    pytest.mark.bootui("prop:bootui.exceptions.max-stack-frames"),
+    pytest.mark.bootui("prop:bootui.expose-values"),
+    pytest.mark.bootui("prop:bootui.http-exchanges.max-exchanges"),
+    pytest.mark.bootui("prop:bootui.mask-secrets"),
+    pytest.mark.bootui("prop:bootui.mcp.enabled"),
+    pytest.mark.bootui("prop:bootui.mcp.execution-timeout"),
+    pytest.mark.bootui("prop:bootui.mcp.max-concurrent-calls"),
+    pytest.mark.bootui("prop:bootui.mcp.max-payload-bytes"),
+    pytest.mark.bootui("prop:bootui.mcp.max-response-bytes"),
+    pytest.mark.bootui("prop:bootui.mcp.max-results"),
+    pytest.mark.bootui("prop:bootui.mysql.max-indexes"),
+    pytest.mark.bootui("prop:bootui.mysql.max-lock-waits"),
+    pytest.mark.bootui("prop:bootui.mysql.max-replication-channels"),
+    pytest.mark.bootui("prop:bootui.mysql.max-sessions"),
+    pytest.mark.bootui("prop:bootui.mysql.max-settings"),
+    pytest.mark.bootui("prop:bootui.mysql.max-statements"),
+    pytest.mark.bootui("prop:bootui.mysql.max-tables"),
+    pytest.mark.bootui("prop:bootui.postgresql.max-indexes"),
+    pytest.mark.bootui("prop:bootui.postgresql.max-replicas"),
+    pytest.mark.bootui("prop:bootui.postgresql.max-sessions"),
+    pytest.mark.bootui("prop:bootui.postgresql.max-settings"),
+    pytest.mark.bootui("prop:bootui.postgresql.max-statements"),
+    pytest.mark.bootui("prop:bootui.postgresql.max-tables"),
+    pytest.mark.bootui("prop:bootui.postgresql.max-vacuum-tables"),
+    pytest.mark.bootui("prop:bootui.read-only"),
+    pytest.mark.bootui("prop:bootui.security-logs.max-logs"),
+    pytest.mark.bootui("prop:bootui.show-banner"),
+    pytest.mark.bootui("prop:bootui.sql-trace.capture-call-site"),
+    pytest.mark.bootui("prop:bootui.sql-trace.capture-parameters"),
+    pytest.mark.bootui("prop:bootui.sql-trace.enabled"),
+    pytest.mark.bootui("prop:bootui.sql-trace.max-entries"),
+    pytest.mark.bootui("prop:bootui.sql-trace.max-parameter-length"),
+    pytest.mark.bootui("prop:bootui.sql-trace.max-sql-length"),
+    pytest.mark.bootui("prop:bootui.sql-trace.n-plus-one-threshold"),
+    pytest.mark.bootui("prop:bootui.sql-trace.recording"),
+    pytest.mark.bootui("prop:bootui.sql-trace.slow-query-threshold-millis"),
+    pytest.mark.bootui("prop:bootui.transactions.connection-hold-threshold-millis"),
+    pytest.mark.bootui("prop:bootui.transactions.enabled"),
+    pytest.mark.bootui("prop:bootui.transactions.max-entries"),
+    pytest.mark.bootui("prop:bootui.transactions.recording"),
+    pytest.mark.bootui("prop:bootui.transactions.slow-transaction-threshold-millis"),
+    pytest.mark.bootui("prop:bootui.trust-container-gateway"),
+    pytest.mark.bootui("prop:bootui.trusted-proxies"),
+    pytest.mark.bootui("prop:bootui.vulnerabilities.epss-base-uri"),
+    pytest.mark.bootui("prop:bootui.vulnerabilities.epss-enabled"),
+    pytest.mark.bootui("prop:bootui.vulnerabilities.max-advisories"),
+    pytest.mark.bootui("prop:bootui.vulnerabilities.max-packages"),
+    pytest.mark.bootui("prop:bootui.vulnerabilities.osv-base-uri"),
+    pytest.mark.bootui("prop:bootui.vulnerabilities.osv-enabled"),
+    pytest.mark.bootui("prop:bootui.vulnerabilities.request-timeout"),
+]
+
+
+def test_bootui_marks_equal_the_matched_rows() -> None:
+    source = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    assignment = next(
+        (
+            node
+            for node in source.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in node.targets)
+        ),
+        None,
+    )
+    marked = {
+        call.args[0].value
+        for call in ast.walk(assignment.value if assignment is not None else ast.List(elts=[], ctx=ast.Load()))
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "bootui"
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+    }
+    _, status = _fixture_and_status()
+    matched = {"prop:" + row["name"] for row in status["properties"] if row["status"] == "matched"}
+    assert marked == matched
 
 
 def _field(key: str) -> str:

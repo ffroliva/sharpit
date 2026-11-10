@@ -131,6 +131,7 @@ pythonpath = ["."]  # examples/ (the sample app) imports as a package
 timeout = 60
 junit_logging = "no"
 markers = [
+    "bootui: tracker row key this test is evidence for",
     "needs_sqlalchemy: needs SQLAlchemy, aiosqlite or greenlet installed (the no-sqlalchemy CI job deselects it)",
     "live: runs against a real database server (tests/live, collected only with --live)",
 ]
