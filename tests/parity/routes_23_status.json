@@ -20,7 +20,7 @@
       "panel": "activity",
       "route": "/sharpit/api/activity/journal",
       "status": "partial",
-      "difference": "activity/journal.captured.json parity: oldestRetainedAt: null in payload, golden has number; not listed in nullable.json; recorded: null in payload, golden has object; not listed in nullable.json; runId: null in payload, golden has string; not listed in nullable.json"
+      "difference": "activity/journal.captured.json parity: oldestRetainedAt: null in payload, golden has number; not listed in nullable.json; recorded.connection: missing from payload; recorded.gc: missing from payload; recorded.lifecycle: missing from payload; recorded.log: missing from payload; recorded.sql: missing from payload; recorded.transaction: missing from payload"
     },
     {
       "golden": "activity/resources.captured.json",
