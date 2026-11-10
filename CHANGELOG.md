@@ -5,6 +5,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Live BootUI 2.3.0 capture runner (`scripts/capture_bootui_live.py`) with a hard allow-list covering advisor scans and database reads, forbidding raw reveals and destructive actions, and recording uncaptured endpoints with status.
+- Machine values leak gate generator (`scripts/dev/machine_values.py`) collecting workstation identifiers and environment secrets to gate fixture commits via `scripts/ci/artifact_scan.py --values-file`.
+
 ### Changed
 
 - The golden sanitiser now validates nested capture versions from the source, rejects encoded and provider token variants, and limits 2.3.0 raw enum snapshots to 64 enum constants per key path; versioned shaping retains the 0.6.0 default for existing callers.
