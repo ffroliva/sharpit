@@ -10,10 +10,9 @@ import time
 from collections.abc import Callable
 from types import SimpleNamespace
 
-from fastapi import FastAPI
-
 from tests.overhead import check_budget, paired
 
+from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import otel
 from sharpit.engine.capture.traces import SpanBuffer
