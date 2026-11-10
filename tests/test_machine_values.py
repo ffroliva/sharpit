@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +14,8 @@ from scripts.dev.machine_values import (
     collect_machine_values,
     write_machine_values,
 )
+
+CUSTOM_TOOL_DIR = "/opt/custom_secret_tool_dir"  # no drive letter: a ":" would split it on POSIX
 
 
 def test_leak_gate_refuses_machine_values(tmp_path: Path) -> None:
@@ -75,7 +78,7 @@ def test_machine_values_collection(monkeypatch: pytest.MonkeyPatch) -> None:
     custom_env = {
         "USERPROFILE": "C:\\Users\\test_dev_user_xyz",
         "HOME": "C:\\Users\\test_dev_user_xyz",
-        "PATH": "C:\\Windows\\system32;C:\\custom_secret_tool_dir;C:\\bin",
+        "PATH": os.pathsep.join(["/usr/bin", CUSTOM_TOOL_DIR, "/bin"]),
         "SECRET_ENV_VAR": "my_super_secret_token_value",
         "SHORT": "abc",
         "SYSTEMROOT": "C:\\Windows",
