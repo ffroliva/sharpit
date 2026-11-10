@@ -14,6 +14,7 @@ import contextlib
 import json
 import secrets
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, NamedTuple
 
 import pytest
@@ -117,10 +118,10 @@ def _json(world: World) -> dict[str, str]:
 
 
 def test_journal_records_hide_the_canary_and_show_it_with_masking_off(
-    canary: str, masked: World, tmp_path_factory: pytest.TempPathFactory
+    canary: str, masked: World, tmp_path: Path
 ) -> None:
     assert canary not in json.dumps(masked.journal.records("http"))
-    with _world(canary, str(tmp_path_factory.mktemp("state")), masking_off=True) as exposed:
+    with _world(canary, str(tmp_path), masking_off=True) as exposed:
         assert canary in json.dumps(exposed.journal.records("http"))
 
 
