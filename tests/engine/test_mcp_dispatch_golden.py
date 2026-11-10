@@ -5,8 +5,9 @@ commit's ``src`` (``origin/release/0.6.0``, a scratch worktree removed afterward
 
     PYTHONPATH=<base worktree>/src python tests/engine/test_mcp_dispatch_golden.py <fixture path>
 
-Nothing is normalised: every case uses a fixed id, a fake tool with a constant payload and no clock, so each reply is
-the same bytes on every run.
+Every case uses a fixed id and a fake tool with a constant payload and no clock. One value is normalised: sharpit's
+own version (``serverInfo.version`` in the two ``initialize`` replies) becomes ``<version>``, so a version bump
+does not change the golden; any other byte that moves is a dispatch change.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from sharpit import __version__
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.mcp import PROMPTS, PROTOCOL_VERSION, McpServer
@@ -94,7 +96,7 @@ def replies() -> dict[str, str]:
         server = McpServer(ctx, tools=TOOLS)
         server.enabled = enabled
         status, body, headers = server.handle(json.dumps(request).encode(), JSON, SCOPE)
-        out[name] = json.dumps([status, body, headers], ensure_ascii=False)
+        out[name] = json.dumps([status, body, headers], ensure_ascii=False).replace(__version__, "<version>")
     return out
 
 
