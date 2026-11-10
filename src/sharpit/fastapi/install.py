@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from functools import partial
 from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
@@ -17,6 +19,7 @@ from starlette.middleware import Middleware
 
 from sharpit.engine import guard, sqla
 from sharpit.engine.activation import active_profiles, decide
+from sharpit.engine.capture import route_path
 from sharpit.engine.capture.exceptions import ExceptionStore
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.capture.logtail import LogTailBuffer
@@ -25,6 +28,7 @@ from sharpit.engine.capture.streams import ChangeStream, StreamSlots
 from sharpit.engine.capture.transactions import TransactionRecorder
 from sharpit.engine.capture.transactions import attach as attach_transactions
 from sharpit.engine.context import SharpitContext, application_family
+from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqltext import load_key
@@ -38,6 +42,7 @@ __all__ = ["install", "_configure_capture"]
 
 logger = logging.getLogger("sharpit")
 _Lifespan = Callable[[Any], AbstractAsyncContextManager[Any]]
+_clock = time.monotonic
 
 
 def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings) -> CaptureWiring:
@@ -72,7 +77,7 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             recording=settings.sql_trace_recording,
         )
     if panels["transactions"].enabled and settings.transactions_enabled:
-        capture.transactions = TransactionRecorder(
+        recorder = capture.transactions = TransactionRecorder(
             ctx.masker,
             max_entries=settings.transactions_max_entries,
             slow_threshold_ms=settings.transactions_slow_transaction_threshold_millis,
@@ -80,7 +85,7 @@ def _configure_capture(app: Any, ctx: SharpitContext, settings: SharpitSettings)
             recording=settings.transactions_recording,
             application=lambda: application_family(ctx),
         )
-        wiring.add_lane(ctx, HOOK_TRANSACTIONS, lambda: attach_transactions(ctx))
+        wiring.add_lane(ctx, HOOK_TRANSACTIONS, lambda: attach_transactions(ctx), recorder.clear)
     if panels["activity"].enabled:
         capture.activity_changes = ChangeStream()
         for source in (capture.exchanges, capture.exceptions, capture.sql_trace):
@@ -153,6 +158,49 @@ def _identity_key(settings: SharpitSettings) -> bytes | None:
     return load_key(Path(settings.state_dir), create=True)
 
 
+@asynccontextmanager
+async def _lifespan(
+    host_app: Any,
+    *,
+    original: _Lifespan,
+    ctx: SharpitContext,
+    wiring: CaptureWiring,
+    settings: SharpitSettings,
+    idle_activity: list[float],
+    auto_suspended: list[bool],
+) -> AsyncGenerator[Any]:
+    timer: threading.Thread | None = None
+    stop = threading.Event()
+    try:
+        async with original(host_app) as state:
+            if ctx.startup_time_ms is None:
+                ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
+            wiring.on_startup(ctx)  # after the host's own startup (spec §6.1)
+            if settings.free_on_idle_enabled:
+                low_footprint = ctx.lazy("low-footprint", lambda: LowFootprintService(ctx.capture.hooks))
+                idle_activity[0] = _clock()
+
+                def monitor_idle() -> None:
+                    interval = max(0.05, min(settings.free_on_idle_timeout, 1.0))
+                    while not stop.wait(interval):
+                        if (
+                            _clock() - idle_activity[0] >= settings.free_on_idle_timeout
+                            and not low_footprint.enabled
+                            and not auto_suspended[0]
+                        ):
+                            ctx.capture.hooks.suspend()
+                            auto_suspended[0] = True
+
+                timer = threading.Thread(target=monitor_idle, name="sharpit-free-on-idle", daemon=True)
+                timer.start()
+            yield state
+    finally:
+        if timer is not None:
+            stop.set()
+            timer.join()
+        wiring.detach(ctx)
+
+
 def install(
     app: Any,
     *,
@@ -194,6 +242,8 @@ def install(
         models=_models(models),
     )
     handle = sharpit_handle_type(sharpit_settings, activation, ctx, original)
+    idle_activity = [_clock()]
+    auto_suspended = [False]
     for warning in activation.warnings:  # the overview panel shows them too, but not while sharpit is inactive
         logger.warning("%s", warning)
 
@@ -212,21 +262,21 @@ def install(
 
     wiring = _configure_capture(app, ctx, sharpit_settings)
 
-    @asynccontextmanager
-    async def lifespan(host_app: Any) -> AsyncGenerator[Any]:  # NOSONAR - asynccontextmanager coroutine
-        try:
-            async with original(host_app) as state:
-                if ctx.startup_time_ms is None:
-                    ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
-                wiring.on_startup(ctx)  # after the host's own startup (spec §6.1)
-                yield state
-        finally:
-            wiring.detach(ctx)
-
-    router.lifespan_context = lifespan
+    middleware = [Middleware(guard_middleware, ctx=ctx)]
+    if sharpit_settings.free_on_idle_enabled:
+        middleware.append(_activity_middleware(ctx, idle_activity, auto_suspended))
+    router.lifespan_context = partial(
+        _lifespan,
+        original=original,
+        ctx=ctx,
+        wiring=wiring,
+        settings=sharpit_settings,
+        idle_activity=idle_activity,
+        auto_suspended=auto_suspended,
+    )
     sub_app = Starlette(
         routes=adapter._routes(ctx, app),
-        middleware=[Middleware(guard_middleware, ctx=ctx)],
+        middleware=middleware,
         exception_handlers={404: _json_http_error, 405: _json_http_error, BadRequest: _bad_request},
     )
     mount = sharpit_mount_type(sharpit_settings.path, app=sub_app, name="sharpit")
@@ -237,3 +287,24 @@ def install(
     elif generated:  # nothing else can ever reveal a generated token
         print(f"sharpit authentication token (generated for this process): {token}", file=sys.stderr)
     return handle
+
+
+def _activity_middleware(ctx: SharpitContext, idle_activity: list[float], auto_suspended: list[bool]) -> Middleware:
+    """Resume automatically suspended hooks after the guard accepts a sharpit API request."""
+
+    class ActivityTracker:
+        def __init__(self, app: Any, ctx: SharpitContext) -> None:
+            self.app = app
+            self.ctx = ctx
+            self.api_prefix = ctx.settings.api_path[len(ctx.settings.path) :]
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            path = route_path(scope)
+            if path == self.api_prefix or path.startswith(self.api_prefix + "/"):
+                idle_activity[0] = _clock()
+                if auto_suspended[0]:
+                    self.ctx.capture.hooks.resume()
+                    auto_suspended[0] = False
+            await self.app(scope, receive, send)
+
+    return Middleware(ActivityTracker, ctx=ctx)

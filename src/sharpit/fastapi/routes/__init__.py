@@ -641,6 +641,7 @@ def _panel_04_routes(ctx: SharpitContext, host_app: Any = None) -> list[BaseRout
 
 
 def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
+    low_footprint = import_module("sharpit.fastapi.routes.lowfootprint").build_routes
     return [
         *_root_routes(ctx),
         *_read_routes(ctx),
@@ -659,5 +660,6 @@ def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         *_dismissed_routes(ctx),
         *_mcp_routes(ctx),
         *_cli_routes(ctx),
+        *low_footprint(ctx),
         *_panel_04_routes(ctx, host_app),
     ]

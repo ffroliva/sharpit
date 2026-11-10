@@ -19,6 +19,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Attempt-1 CI critical-path table measurement tool (`scripts/ci/ci_walls.py`) reproducing metrics (a) and (b), queue wait, step timings, and noise gain calculations per spec §7.1.
 - Panel GET route parity tests and classification against BootUI 2.3.0 live goldens (W3 lane C1).
 - Panel GET route parity tests and classification against BootUI 2.3.0 live goldens, excluding fixtures with empty lists from matched parity (W3 lane C1).
+- Low-footprint controls on the Live Memory panel, CLI, and guarded API; idle capture suspension uses a lifespan-managed daemon timer.
 - Live BootUI 2.3.0 capture runner (`scripts/capture_bootui_live.py`) with a hard allow-list covering advisor scans and database reads, forbidding raw reveals and destructive actions, and recording uncaptured endpoints with status.
 - Machine values leak gate generator (`scripts/dev/machine_values.py`) collecting workstation identifiers and environment secrets to gate fixture commits via `scripts/ci/artifact_scan.py --values-file`.
 - Sanitised BootUI 2.3.0 live goldens with route completeness and empty-list metadata.
@@ -45,7 +46,6 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Documentation
 
-- Added user documentation for pytest gate failures, exit statuses, fail-closed unknown results, report-only mode and baselines.
 - Every MCP tool and every setting is documented, and the installation page has the panel to library to extra table: the MCP page lists the 37 read tools and, separately, the 17 action tools (CLI endpoint only, never MCP); the settings page lists the 28 settings it was missing (`SHARPIT_APP_PACKAGE`, `SHARPIT_TRANSACTIONS_*`, `SHARPIT_POSTGRESQL_MAX_*`, `SHARPIT_MYSQL_MAX_*`, `SHARPIT_DATABASE_ADVISOR_MAX_*`, `SHARPIT_ARCHITECTURE_MAX_*`, `SHARPIT_SECURITY_LOGS_MAX_LOGS`, `SHARPIT_ACTIVITY_UNBOUNDED_READ_FACTOR`) and all 31 panel ids; `tests/test_tracker_docs.py` fails when a registered tool, a setting or an extra is missing from the docs.
 
 ### Fixed

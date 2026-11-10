@@ -644,6 +644,8 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
 }
 
 from sharpit.engine.panels04 import tool_definitions as _tool_definitions  # noqa: E402, I001
+from sharpit.engine.tools_lowfootprint import COMMANDS as _LOW_FOOTPRINT_COMMANDS  # noqa: E402
+from sharpit.engine.tools_lowfootprint import tool_definitions as _low_footprint_definitions  # noqa: E402
 
 
 def merge_lane_tools(
@@ -662,7 +664,13 @@ def merge_lane_tools(
 
 
 _PANEL_04_TOOLS, _PANEL_04_COMMANDS = _tool_definitions()
-TOOLS, COMMANDS = merge_lane_tools(_BASE_TOOLS, _BASE_COMMANDS, _PANEL_04_TOOLS, _PANEL_04_COMMANDS)
+_LOW_FOOTPRINT_TOOLS = _low_footprint_definitions(Tool)
+TOOLS, COMMANDS = merge_lane_tools(
+    _BASE_TOOLS,
+    _BASE_COMMANDS,
+    (*_PANEL_04_TOOLS, *_LOW_FOOTPRINT_TOOLS),
+    {**_PANEL_04_COMMANDS, **_LOW_FOOTPRINT_COMMANDS},
+)
 
 from sharpit.engine.tool_dispatch import (  # noqa: E402, I001 - dispatcher imports the catalog built above
     ToolGate as ToolGate,
