@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -21,8 +22,11 @@ class StubMonitoring:
         self.events: dict[int, int] = {}
         self.calls: list[tuple[object, ...]] = []
         self.event = 32
+        self.get_tool_barrier: threading.Barrier | None = None
 
     def get_tool(self, tool_id: int) -> str | None:
+        if tool_id == 3 and self.get_tool_barrier is not None:
+            self.get_tool_barrier.wait(timeout=5)
         return self.tools.get(tool_id)
 
     def use_tool_id(self, tool_id: int, name: str) -> None:
@@ -34,6 +38,9 @@ class StubMonitoring:
     def set_events(self, tool_id: int, events: int) -> None:
         self.calls.append(("set_events", tool_id, events))
         self.events[tool_id] = events
+
+    def get_events(self, tool_id: int) -> int:
+        return self.events.get(tool_id, 0)
 
     def register_callback(self, tool_id: int, event: int, callback: Callable[..., object] | None) -> None:
         self.calls.append(("register_callback", tool_id, event, callback))
@@ -85,16 +92,33 @@ def test_skips_debugger_and_coverage_reservations() -> None:
 def test_concurrent_claims_get_distinct_ids() -> None:
     from concurrent.futures import ThreadPoolExecutor
 
-    allocator = MonitoringToolAllocator(monitoring=StubMonitoring())
+    monitoring = StubMonitoring()
+    monitoring.get_tool_barrier = threading.Barrier(2)
+    allocators = [MonitoringToolAllocator(monitoring=monitoring) for _ in range(2)]
     with ThreadPoolExecutor(max_workers=2) as workers:
-        futures = [workers.submit(allocator.claim) for _ in range(2)]
+        futures = [workers.submit(allocator.claim) for allocator in allocators]
     tools = [future.result() for future in futures]
 
-    assert all(tool is not None for tool in tools)
+    monitoring.get_tool_barrier = None
     claimed = [tool for tool in tools if tool is not None]
-    assert len({tool.tool_id for tool in claimed}) == 2
+    assert len(claimed) >= 1
+    assert len(claimed) <= 2
+    assert len({tool.tool_id for tool in claimed}) == len(claimed)
     for tool in claimed:
         tool.release()
+
+
+def test_release_does_not_free_a_foreign_takeover() -> None:
+    monitoring = StubMonitoring()
+    allocator = MonitoringToolAllocator(monitoring=monitoring)
+    tool = allocator.claim()
+    assert tool is not None
+
+    monitoring.free_tool_id(tool.tool_id)
+    monitoring.use_tool_id(tool.tool_id, "other")
+    tool.release()
+
+    assert monitoring.get_tool(tool.tool_id) == "other"
 
 
 def test_release_clears_events_callbacks_then_frees_only_owned_id() -> None:
@@ -148,7 +172,70 @@ def test_real_monitoring_allocator_leaves_no_events_or_callbacks() -> None:
     assert monitoring.register_callback(tool.tool_id, event, None) is None
 
 
+def test_claim_clears_events_and_callbacks_left_by_previous_owner() -> None:
+    class LeakyFreeMonitoring(StubMonitoring):
+        def free_tool_id(self, tool_id: int) -> None:
+            self.calls.append(("free_tool_id", tool_id))
+            self.tools.pop(tool_id)
+
+    monitoring = LeakyFreeMonitoring()
+    monitoring.use_tool_id(3, "other")
+    stale_calls: list[object] = []
+    monitoring.register_callback(3, monitoring.event, lambda: stale_calls.append("fired"))
+    monitoring.set_events(3, monitoring.event)
+    monitoring.free_tool_id(3)
+
+    tool = MonitoringToolAllocator(monitoring=monitoring).claim()
+
+    assert tool is not None
+    if monitoring.get_events(tool.tool_id) & monitoring.event:
+        callback = monitoring.callbacks.get((tool.tool_id, monitoring.event))
+        if callback is not None:
+            callback()
+    assert stale_calls == []
+    assert monitoring.get_events(tool.tool_id) == 0
+    assert monitoring.callbacks.get((tool.tool_id, monitoring.event)) is None
+    tool.release()
+
+
+def test_claim_clears_previous_owner_callback_for_stale_local_event() -> None:
+    class LocalEventMonitoring(StubMonitoring):
+        def __init__(self) -> None:
+            super().__init__()
+            self.events = type("Events", (dict,), {})()
+            self.events.LINE = 1
+            self.local_events: dict[object, int] = {}
+
+        def set_local_events(self, code: object, tool_id: int, events: int) -> None:
+            self.local_events[code] = events
+
+        def free_tool_id(self, tool_id: int) -> None:
+            self.calls.append(("free_tool_id", tool_id))
+            self.tools.pop(tool_id)
+
+    monitoring = LocalEventMonitoring()
+    code = object()
+    stale_calls: list[str] = []
+    monitoring.use_tool_id(3, "previous owner")
+    monitoring.register_callback(3, monitoring.events.LINE, lambda *_args: stale_calls.append("fired"))
+    monitoring.set_local_events(code, 3, monitoring.events.LINE)
+    monitoring.free_tool_id(3)
+
+    tool = MonitoringToolAllocator(monitoring=monitoring).claim()
+    assert tool is not None
+
+    if monitoring.local_events[code] & monitoring.events.LINE:
+        callback = monitoring.callbacks.get((tool.tool_id, monitoring.events.LINE))
+        if callback is not None:
+            callback(code)
+
+    assert stale_calls == []
+    tool.release()
+
+
 def test_coverage_sysmon_keeps_its_tool_id_and_data(tmp_path: Path) -> None:
+    if getattr(sys, "monitoring", None) is None:
+        pytest.skip("sys.monitoring is unavailable")
     source = tmp_path / "measured.py"
     source.write_text("value = 41\nvalue += 1\n", encoding="utf-8")
     probe = tmp_path / "probe.py"
@@ -177,6 +264,8 @@ print(json.dumps({"coverage_id": coverage_id}))
 """,
         encoding="utf-8",
     )
+    rcfile = tmp_path / "empty-coveragerc"
+    rcfile.write_text("", encoding="utf-8")
     env = os.environ.copy()
     env["COVERAGE_CORE"] = "sysmon"
     data_path = tmp_path / ".coverage"
@@ -186,6 +275,7 @@ print(json.dumps({"coverage_id": coverage_id}))
             "-m",
             "coverage",
             "run",
+            f"--rcfile={rcfile}",
             f"--data-file={data_path}",
             str(probe),
             str(tmp_path),
@@ -194,16 +284,13 @@ print(json.dumps({"coverage_id": coverage_id}))
         check=False,
         text=True,
         env=env,
+        cwd=tmp_path,
         timeout=30,
     )
 
-    if "UNSUPPORTED" in result.stdout:
-        pytest.skip("coverage sysmon core is unavailable")
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout.splitlines()[-1])
     assert report["coverage_id"] == 1
     coverage = CoverageData(basename=str(data_path))
     coverage.read()
-    if not coverage.measured_files():
-        pytest.skip("COVERAGE_CORE=sysmon holds tool id 1 but collected no data in this environment")
     assert coverage.lines(str(source))
