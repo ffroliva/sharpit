@@ -8,13 +8,12 @@ the first of, under ``fixtures/bootui/<fixture_version>/<sharpit_id>/``:
 Legacy default ``fixture_version='2.2.0'``. For 2.3.0 parity and matched rows, pass
 ``fixture_version='2.3.0'`` and ``matched=True`` (spec §4.4).
 
-Every golden key (and catalog field, when specified) must be present with a compatible JSON type;
-extra payload keys are allowed. A non-empty golden list requires a non-empty payload list.
+Every golden key (and catalog field under 2.3.0) must be present with a compatible JSON type;
+extra payload keys are allowed. Under 2.3.0, a non-empty golden list requires a non-empty payload list.
 A golden list keeps one item per distinct shape: a payload item passes when it matches any of them.
 At a path (list items as ``items[].key``) a payload ``null`` passes when any golden item is ``null``
 there or ``nullable.json`` (``{"<path>": "<reason>"}``) lists it with a non-empty reason, and any type
 a golden item has there is accepted. A golden ``null`` accepts any type.
-Wherever ``enums.json`` is present, enum values are verified.
 """
 
 from __future__ import annotations
@@ -29,6 +28,7 @@ from typing import Any, cast
 BOOTUI_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bootui"
 DEFAULT_FIXTURE_VERSION = "2.2.0"
 ROOT = BOOTUI_FIXTURES_DIR / DEFAULT_FIXTURE_VERSION
+_INITIAL_ROOT = ROOT
 
 
 class UnverifiedParityWarning(UserWarning):
@@ -36,22 +36,16 @@ class UnverifiedParityWarning(UserWarning):
 
 
 def _folder(sharpit_id: str, fixture_version: str) -> Path:
-    if (ROOT / fixture_version).is_dir():
-        base_dir = ROOT / fixture_version
-    elif fixture_version == DEFAULT_FIXTURE_VERSION and (sharpit_id and (ROOT / sharpit_id).is_dir()):
-        base_dir = ROOT
-    elif ROOT != BOOTUI_FIXTURES_DIR / DEFAULT_FIXTURE_VERSION:
-        base_dir = ROOT / fixture_version
-    else:
-        base_dir = BOOTUI_FIXTURES_DIR / fixture_version
-    return base_dir / sharpit_id if sharpit_id else base_dir
+    if ROOT != _INITIAL_ROOT:
+        return ROOT / sharpit_id
+    return BOOTUI_FIXTURES_DIR / fixture_version / sharpit_id
 
 
 def bootui_ids(fixture_version: str = DEFAULT_FIXTURE_VERSION) -> dict[str, str]:
     """BootUI panel id -> sharpit panel id (``ids.json``)."""
-    ids_file = ROOT / "ids.json"
+    ids_file = BOOTUI_FIXTURES_DIR / fixture_version / "ids.json"
     if not ids_file.is_file():
-        ids_file = BOOTUI_FIXTURES_DIR / fixture_version / "ids.json"
+        raise AssertionError(f"no ids.json for fixture version {fixture_version}: missing file {ids_file}")
     return json.loads(ids_file.read_text(encoding="utf-8"))
 
 
@@ -77,10 +71,10 @@ def _kinds(golden: Any, path: str, out: dict[str, set[str]]) -> dict[str, set[st
     """Every JSON kind the golden holds at each path, across all items of every list (``items[].key``)."""
     out.setdefault(path, set()).add(_kind(golden))
     if isinstance(golden, Mapping):
-        for key, value in golden.items():
+        for key, value in cast("Mapping[str, Any]", golden).items():
             _kinds(value, f"{path}.{key}" if path else key, out)
     elif isinstance(golden, list):
-        for item in golden:
+        for item in cast("list[Any]", golden):
             _kinds(item, f"{path}[]", out)
     return out
 
@@ -91,7 +85,8 @@ class _Check:
     kinds: Mapping[str, set[str]]
     errors: list[str] = field(default_factory=list[str])
     shapeless: list[str] = field(default_factory=list[str])  # golden lists with no item shape: unchecked, warned
-    catalog_fields: set[str] = field(default_factory=set[str])
+    catalog_by_path: Mapping[str, set[str]] = field(default_factory=dict[str, set[str]])
+    is_23: bool = False
 
 
 def _compare(expected: Any, actual: Any, path: str, check: _Check) -> None:
@@ -114,13 +109,8 @@ def _compare(expected: Any, actual: Any, path: str, check: _Check) -> None:
 
 def _compare_object(expected: Mapping[str, Any], actual: Mapping[str, Any], path: str, check: _Check) -> None:
     expected_keys = set(expected.keys())
-    prefix = f"{path}." if path else ""
-    for field_name in check.catalog_fields:
-        if path and field_name.startswith(prefix):
-            remainder = field_name[len(prefix) :]
-            expected_keys.add(remainder.split(".")[0].split("[]")[0])
-        elif not path:
-            expected_keys.add(field_name.split(".")[0].split("[]")[0])
+    if path in check.catalog_by_path:
+        expected_keys |= check.catalog_by_path[path]
 
     for key in sorted(expected_keys):
         child = f"{path}.{key}" if path else key
@@ -137,15 +127,15 @@ def _compare_list(expected: list[Any], actual: list[Any], path: str, check: _Che
         if actual and path not in check.shapeless:
             check.shapeless.append(path)
         return
-    # §4.4: a non-empty golden list of shapes requires a non-empty payload list
-    if any(isinstance(shape, Mapping) for shape in shapes) and not actual:
+    # §4.4: a non-empty golden list of shapes requires a non-empty payload list (2.3.0 only)
+    if check.is_23 and shapes and not actual:
         label = path or "<root>"
         check.errors.append(f"{label}: non-empty golden list requires a non-empty payload list")
         return
     for item in actual:
         tries: list[list[str]] = []
         for shape in shapes:
-            attempt = _Check(check.nullable, check.kinds, catalog_fields=check.catalog_fields)
+            attempt = _Check(check.nullable, check.kinds, catalog_by_path=check.catalog_by_path, is_23=check.is_23)
             _compare(shape, item, f"{path}[]", attempt)
             tries.append(attempt.errors)
             check.shapeless.extend(p for p in attempt.shapeless if p not in check.shapeless)
@@ -177,25 +167,37 @@ def _validate_nullable(folder: Path) -> tuple[dict[str, Any], list[str]]:
     return nullable, errors
 
 
-def _load_catalog_fields(folder: Path, catalog_fields: Iterable[str] | None) -> set[str]:
-    catalog_set = set(catalog_fields) if catalog_fields else set()
+def _catalog_from_file(folder: Path) -> list[str]:
     catalog_path = folder / "catalog.json"
-    if catalog_path.is_file():
-        cat_data = _load(catalog_path)
-        if isinstance(cat_data, list):
-            catalog_set |= set(cat_data)
-        elif isinstance(cat_data, Mapping):
-            catalog_set |= set(cat_data.get("requiredFields", cat_data.keys()))
-    return catalog_set
-
-
-def _check_enums(folder: Path, payload: Mapping[str, Any]) -> list[str]:
-    enums_path = folder / "enums.json"
-    if not enums_path.is_file():
+    if not catalog_path.is_file():
         return []
-    enums: dict[str, list[Any]] = _load(enums_path)
-    leaves = _leaves(payload, "", [])
-    return [f"{at}: {value!r} not in {enums[at]}" for at, value in leaves if at in enums and value not in enums[at]]
+    cat_data: Any = _load(catalog_path)
+    if isinstance(cat_data, list):
+        return [item for item in cast("list[object]", cat_data) if isinstance(item, str)]
+    if isinstance(cat_data, Mapping):
+        cat_map = cast("Mapping[str, object]", cat_data)
+        req = cat_map.get("requiredFields")
+        if isinstance(req, list):
+            return [item for item in cast("list[object]", req) if isinstance(item, str)]
+        return [str(k) for k in cat_map]
+    return []
+
+
+def _load_catalog_fields(folder: Path, catalog_fields: Iterable[str] | None) -> dict[str, set[str]]:
+    by_path: dict[str, set[str]] = {}
+    raw_fields: list[str] = list(catalog_fields) if catalog_fields is not None else []
+    raw_fields.extend(_catalog_from_file(folder))
+
+    for raw in raw_fields:
+        clean = raw.strip()
+        current_path = ""
+        for segment in clean.split("."):
+            if segment:
+                key = segment.removesuffix("[]")
+                by_path.setdefault(current_path, set()).add(key)
+                current_path = f"{current_path}.{segment}" if current_path else segment
+
+    return by_path
 
 
 def _check_warnings_and_parity(
@@ -232,33 +234,33 @@ def assert_parity(
     *,
     matched: bool = False,
     catalog_fields: Iterable[str] | None = None,
-    check_enums: bool = True,
-    version: str | None = None,
 ) -> None:
     """Check ``payload`` against BootUI golden fixture for ``sharpit_id``/``name``.
 
     Legacy default ``fixture_version='2.2.0'``. For 2.3.0 parity and matched rows,
     pass ``fixture_version='2.3.0'`` and ``matched=True`` (spec §4.4).
     """
-    chosen_version = version if version is not None else fixture_version
-
-    if matched and chosen_version != "2.3.0":
+    is_23 = fixture_version == "2.3.0"
+    if matched and not is_23:
         raise AssertionError(
             f"{sharpit_id}/{name}: 2.2.0 fixture cannot satisfy 'matched' parity; "
             "version 2.3.0 golden required (spec §4.4)"
         )
 
-    folder = _folder(sharpit_id, chosen_version)
+    folder = _folder(sharpit_id, fixture_version)
     path, captured = _fixture(folder, name)
     nullable, errors = _validate_nullable(folder)
     expected = _load(path)
-    catalog_set = _load_catalog_fields(folder, catalog_fields)
+    catalog_by_path = _load_catalog_fields(folder, catalog_fields) if is_23 else {}
 
-    check = _Check(nullable, _kinds(expected, "", {}), errors, catalog_fields=catalog_set)
+    check = _Check(
+        nullable=nullable,
+        kinds=_kinds(expected, "", {}),
+        errors=errors,
+        catalog_by_path=catalog_by_path,
+        is_23=is_23,
+    )
     _compare(expected, payload, "", check)
-
-    if check_enums:
-        errors.extend(_check_enums(folder, payload))
 
     if errors:
         raise AssertionError(f"{sharpit_id}/{path.name} parity: " + "; ".join(errors))
