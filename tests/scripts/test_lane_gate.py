@@ -25,7 +25,7 @@ BASELINE = {"src/a.py": 3, "src/b.py": 2}
 
 
 def _git(cwd: Path, *args: str) -> str:
-    done = subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+    done = lane_gate._GIT_RUNNER(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
     return done.stdout.strip()
 
 
@@ -412,6 +412,7 @@ class Fixture:
     failing_gates: set[str] = field(default_factory=set)
     gate_calls: list[str] = field(default_factory=list)
     replays: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    memory: FakeGit | None = None
 
     @property
     def folder(self) -> str:
@@ -533,6 +534,14 @@ def _build_fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool
     worktree = tmp_path / "lane"
     _git(integration, "worktree", "add", "-q", "-b", f"lane/{lane}", str(worktree))
     fx = Fixture(integration, worktree, lane)
+    if not _USING_REAL_GIT:
+        base = _git(integration, "rev-parse", "HEAD")
+        fx.memory = FakeGit()
+        fx.memory.bind(integration, _base_files(), base)
+        fx.memory.bind(worktree, _base_files(), base)
+        fx.memory.refs["release"] = base
+        _FAKE_PATHS[integration.resolve()] = fx.memory
+        _FAKE_PATHS[worktree.resolve()] = fx.memory
     fx.red = fx.commit(
         {
             "tests/test_widget.py": "from src.widget import widget\n\n\n" + RED_TEST,
@@ -548,7 +557,7 @@ def _build_fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool
 
 
 _TEMPLATE_ROOT: Path | None = None
-_FIXTURE_TEMPLATES: dict[tuple[str, bool], Fixture] = {}
+_FIXTURE_TEMPLATES: dict[tuple[str, bool, bool], Fixture] = {}
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -568,10 +577,10 @@ READS = (("ls-tree", "-r"), ("cat-file", "blob"))  # `git show` is the third way
 def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = True) -> Fixture:
     if _TEMPLATE_ROOT is None:
         raise RuntimeError("lane-gate fixture template root was not initialized")
-    key = (lane, review)
+    key = (lane, review, _USING_REAL_GIT)
     template = _FIXTURE_TEMPLATES.get(key)
     if template is None:
-        template_root = _TEMPLATE_ROOT / f"{lane}-review-{review}"
+        template_root = _TEMPLATE_ROOT / f"{lane}-review-{review}-real-{_USING_REAL_GIT}"
         template_root.mkdir()
         template = _build_fixture(template_root, lane, review=review)
         _FIXTURE_TEMPLATES[key] = template
@@ -581,6 +590,23 @@ def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = Tru
     worktree = copy_root / "lane"
     shutil.copytree(template.integration, integration, ignore=_kept_in_template)
     shutil.copytree(template.worktree, worktree)
+    memory = None
+    if not _USING_REAL_GIT:
+        assert template.memory is not None
+        memory = FakeGit(
+            trees={sha: tree.copy() for sha, tree in template.memory.trees.items()},
+            parents=template.memory.parents.copy(),
+            refs=template.memory.refs.copy(),
+        )
+        memory.bind(
+            integration,
+            memory.trees[memory.refs["release"]],
+            memory.refs["release"],
+            memory.parents[memory.refs["release"]],
+        )
+        memory.bind(worktree, memory.trees[template.head], template.head, memory.parents[template.head])
+        for root in (integration, worktree):
+            _FAKE_PATHS[root.resolve()] = memory
     objects = integration / ".git" / "objects"
     (objects / "info").mkdir(parents=True)
     shared = template.integration / ".git" / "objects"
@@ -599,6 +625,7 @@ def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = Tru
         head=template.head,
         outcomes=template.outcomes.copy(),
         failing_gates=template.failing_gates.copy(),
+        memory=memory,
     )
 
 
@@ -610,10 +637,12 @@ def _refused(result: object, needle: str) -> bool:
     return any(needle in reason for reason in _refusals(result))
 
 
-def test_fixture_copy_never_writes_into_its_template(tmp_path: Path) -> None:
+def test_fixture_copy_never_writes_into_its_template(
+    tmp_path: Path, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     """A commit in a copy must not move the template's branch or dirty its worktree (git 2.47.3 leaked into it)."""
     copy = _fixture(tmp_path)
-    template = _FIXTURE_TEMPLATES[(copy.lane, True)]
+    template = _FIXTURE_TEMPLATES[(copy.lane, True, True)]
     copy.commit({"src/leak.py": "x = 1\n"}, "feat: leak")
     assert _git(template.worktree, "rev-parse", "HEAD") == template.head
     assert _git(template.worktree, "status", "--porcelain") == ""
@@ -643,7 +672,9 @@ def test_git_helper_uses_the_replaceable_runner(tmp_path: Path, monkeypatch: pyt
 def real_git(monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, ...]], object]:
     """Record commands sent through lane_gate's real runner for command-shape coverage tests."""
     calls: list[tuple[str, ...]] = []
-    real_runner = lane_gate._GIT_RUNNER
+    real_runner = _REAL_GIT_RUNNER
+    global _USING_REAL_GIT
+    _USING_REAL_GIT = True
 
     def recording_runner(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(tuple(command[1:]))
@@ -741,7 +772,9 @@ def test_lane_gate_reads_a_commit_the_same_from_a_subfolder(tmp_path: Path, monk
     )
 
 
-def test_lane_gate_reads_past_a_filename_that_is_not_utf8(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lane_gate_reads_past_a_filename_that_is_not_utf8(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     """One such name in a tree crashed every read at that commit; `git show` read one path (code review)."""
     monkeypatch.setattr(lane_gate, "_READS", {})
     fx = _fixture(tmp_path)
@@ -2270,14 +2303,18 @@ def test_plan_index_at_the_integration_root_protects_that_file(tmp_path: Path) -
     assert not _refused(result, "plan file changed: README.md")
 
 
-def test_lane_fixture_copy_leaves_the_objects_in_the_template(tmp_path: Path) -> None:
+def test_lane_fixture_copy_leaves_the_objects_in_the_template(
+    tmp_path: Path, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     """Copied read-only objects were 10k of a full run's 27k temp files, and pytest later deletes them one by one."""
     fx = _fixture(tmp_path)
     objects = fx.integration / ".git" / "objects"
     assert [path for path in objects.rglob("*") if path.is_file() and path.name != "alternates"] == []
 
 
-def test_lane_fixture_commit_stays_in_its_own_copy(tmp_path: Path) -> None:
+def test_lane_fixture_commit_stays_in_its_own_copy(
+    tmp_path: Path, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
     first, second = _fixture(tmp_path / "a"), _fixture(tmp_path / "b")
@@ -2286,7 +2323,9 @@ def test_lane_fixture_commit_stays_in_its_own_copy(tmp_path: Path) -> None:
     assert lane_gate._resolve(second.worktree, sha) is None
 
 
-def test_lane_fixture_copy_uses_at_most_one_git_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lane_fixture_copy_uses_at_most_one_git_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     warm_root = tmp_path / "warm"
     warm_root.mkdir()
     _fixture(warm_root)
@@ -2337,7 +2376,9 @@ def test_lane_gate_command_shapes_reach_real_git(
     assert observed == shapes
 
 
-def test_a_fixture_commit_spawns_no_maintenance_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_fixture_commit_spawns_no_maintenance_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
     """`git commit` ran `git maintenance run --auto` as a child: 52 of 691 git starts in a two-test run (T-spawns)."""
     fx = _fixture(tmp_path)
     trace = tmp_path / "git-trace.txt"
