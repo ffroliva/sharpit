@@ -14,6 +14,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
   that group.
 - Every CI artifact upload is scanned for planted canary values before upload; an artifact carrying a canary in any
   form (raw, URL-encoded, JSON-escaped, base64) is withheld and skips the upload.
+- The masking linearity gate reuses first-attempt timings across adjacent size steps.
 
 ### Documentation
 

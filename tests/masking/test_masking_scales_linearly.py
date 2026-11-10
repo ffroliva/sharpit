@@ -8,6 +8,7 @@ A new heuristic only has to survive these generators to ship; add the input that
 from __future__ import annotations
 
 import gc
+import sys
 import time
 from collections.abc import Callable
 from functools import partial
@@ -152,31 +153,125 @@ def _seconds(entry: Entry, text: str) -> float:
     return best
 
 
-def _step(entry_at: Callable[[int], Entry], make: Callable[[int], str], size: int) -> float:
-    """How many times the half size ``size`` costs: a busy machine can fail a step, a quadratic pass fails every one."""
+def _step(
+    entry_at: Callable[[int], Entry], make: Callable[[int], str], size: int, half: float | None = None
+) -> tuple[float, float]:
+    """Return the minimum ratio and full-size sample; ``half`` reuses the prior step's full-size sample."""
     half_entry, full_entry = entry_at(size // 2), entry_at(size)
     step = float("inf")
-    for _ in range(ATTEMPTS):
-        half = _seconds(half_entry, make(size // 2))
+    minimum_full = float("inf")
+    for attempt in range(ATTEMPTS):
+        half_seconds = half if attempt == 0 and half is not None else _seconds(half_entry, make(size // 2))
         full = _seconds(full_entry, make(size))
-        step = min(step, (full + FLOOR_SECONDS) / (half + FLOOR_SECONDS))
+        minimum_full = min(minimum_full, full)
+        step = min(step, (full + FLOOR_SECONDS) / (half_seconds + FLOOR_SECONDS))
         if step < MAX_STEP:
             break
-    return step
+    return step, minimum_full
 
 
 def _assert_linear(entry_at: Callable[[int], Entry], make: Callable[[int], str], sizes: tuple[int, ...]) -> None:
+    assert sizes, "sizes must not be empty"
     gc_was_on = gc.isenabled()
     gc.disable()
     try:
+        half = None
+        previous_size = 0
+        largest = 0.0
         for size in sizes:  # smallest first: a quadratic pass fails before it runs into the test timeout
-            step = _step(entry_at, make, size)
+            step, largest = _step(entry_at, make, size, half if size // 2 == previous_size else None)
+            half = largest
+            previous_size = size
             assert step < MAX_STEP, f"{size} chars cost {step:.1f}x the half size"
-        largest = _seconds(entry_at(sizes[-1]), make(sizes[-1]))
     finally:
         if gc_was_on:
             gc.enable()
     assert largest < MAX_SECONDS
+
+
+def test_each_size_is_measured_once_per_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    measured: list[int] = []
+
+    def seconds(_entry: Entry, text: str) -> float:
+        measured.append(len(text))
+        return 0.01
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+    _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, SIZES[1:])
+
+    assert measured == list(SIZES)
+
+
+def test_non_doubling_scan_step_measures_its_own_half(monkeypatch: pytest.MonkeyPatch) -> None:
+    measured: list[int] = []
+
+    def seconds(_entry: Entry, text: str) -> float:
+        measured.append(len(text))
+        return 0.01
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+    _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, SCAN_SIZES)
+
+    assert measured[-2:] == [9_950, 19_900]
+
+
+def test_a_retry_measures_both_sizes_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    measured: list[int] = []
+    durations = iter((0.1, 0.01, 0.01))
+
+    def seconds(_entry: Entry, text: str) -> float:
+        measured.append(len(text))
+        return next(durations)
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+    _step(lambda _size: lambda _text: None, lambda size: "x" * size, 1_600, half=0.01)
+
+    assert measured == [1_600, 800, 1_600]
+
+
+def test_a_planted_quadratic_entry_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    measured: list[int] = []
+
+    def quadratic(text: str) -> None:
+        if len(text) > 1_600:
+            for _ in range(len(text)):
+                for _ in range(len(text)):
+                    pass
+
+    def seconds(entry: Entry, text: str) -> float:
+        measured.append(len(text))
+        entry(text)
+        return 0.1 if len(text) > 1_600 else 0.01
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+
+    with pytest.raises(AssertionError, match="3200 chars cost .* the half size"):
+        _assert_linear(lambda _size: quadratic, lambda size: "x" * size, (800, 1_600, 3_200))
+
+    assert measured == [400, 800, 1_600, 3_200, 1_600, 3_200, 1_600, 3_200]
+
+
+def test_retry_carries_the_minimum_full_sample_forward(monkeypatch: pytest.MonkeyPatch) -> None:
+    counts: dict[int, int] = {}
+
+    def seconds(_entry: Entry, text: str) -> float:
+        size = len(text)
+        counts[size] = counts.get(size, 0) + 1
+        if size == 800 and counts[size] == 1:
+            return 0.1
+        if size == 1_600:
+            return 0.04
+        return 0.01
+
+    monkeypatch.setattr(sys.modules[__name__], "_seconds", seconds)
+
+    with pytest.raises(AssertionError, match="1600 chars cost .* the half size"):
+        _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, (400, 800, 1_600))
+
+
+def test_step_rejects_empty_sizes() -> None:
+    with pytest.raises(AssertionError, match="sizes"):
+        _assert_linear(lambda _size: lambda _text: None, lambda size: "x" * size, ())
 
 
 def test_overlapping_hidden_spans_are_written_once() -> None:
