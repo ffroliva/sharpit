@@ -9,6 +9,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - BootUI tracker row markers on matched property and MCP/CLI parity tests.
 
+- Attempt-1 CI critical-path table measurement tool (`scripts/ci/ci_walls.py`) reproducing metrics (a) and (b), queue wait, step timings, and noise gain calculations per spec §7.1.
 - Panel GET route parity tests and classification against BootUI 2.3.0 live goldens (W3 lane C1).
 - Panel GET route parity tests and classification against BootUI 2.3.0 live goldens, excluding fixtures with empty lists from matched parity (W3 lane C1).
 - Live BootUI 2.3.0 capture runner (`scripts/capture_bootui_live.py`) with a hard allow-list covering advisor scans and database reads, forbidding raw reveals and destructive actions, and recording uncaptured endpoints with status.
