@@ -294,6 +294,11 @@ def test_required_jobs_fail_when_change_detection_did_not_succeed(job: str) -> N
     assert "needs.changes.outputs.code == 'true'" not in JOBS[job], job
 
 
+def test_ci_can_be_dispatched_and_dispatch_runs_every_job() -> None:
+    assert re.search(r"^  workflow_dispatch:", CI, re.MULTILINE), "CI cannot be dispatched for noise runs"
+    assert '"$GITHUB_EVENT_NAME" != pull_request && "$GITHUB_EVENT_NAME" != push' in JOBS["changes"]
+
+
 OWN_JOB_FILES = (  # each alone outweighs a shard ceiling (487, 386, 418 s): one job runs them whole, every row
     "tests/masking/test_masking_scales_linearly.py",
     "tests/masking/test_statement_surfaces.py",
