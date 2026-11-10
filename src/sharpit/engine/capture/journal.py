@@ -1,4 +1,8 @@
-"""Bounded runtime journal; unlike BootUI's JournalQueue it uses no drain thread."""
+"""Bounded runtime journal; unlike BootUI's JournalQueue it uses no drain thread.
+
+BootUI's heap-relative default has no Python analogue: Python exposes no stable,
+portable heap limit for this in-memory buffer, so sharpit uses a fixed 32 MiB cap.
+"""
 
 from __future__ import annotations
 
