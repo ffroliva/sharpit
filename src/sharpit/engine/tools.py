@@ -86,7 +86,7 @@ class ToolCallError(Exception):
 
 RESUME_HINT = (
     "Recording is held by low-footprint mode, not a quiet application. "
-    "Call disable_low_footprint (bootui low-footprint disable) to resume; cleared data is gone. "
+    "Call disable_low_footprint (sharpit low-footprint disable) to resume; cleared data is gone. "
     "Native statistics and Java-agent instrumentation may still run."
 )
 

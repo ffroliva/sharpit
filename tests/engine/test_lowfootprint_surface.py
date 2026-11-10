@@ -150,7 +150,7 @@ def test_resume_recording_refusal_matches_bootui_hint() -> None:
             assert exc.message == (
                 f"Cannot run {name}. "
                 "Recording is held by low-footprint mode, not a quiet application. "
-                "Call disable_low_footprint (bootui low-footprint disable) to resume; cleared data is gone. "
+                "Call disable_low_footprint (sharpit low-footprint disable) to resume; cleared data is gone. "
                 "Native statistics and Java-agent instrumentation may still run."
             )
         else:
