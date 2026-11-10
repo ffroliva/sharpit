@@ -433,3 +433,94 @@ def test_a_nested_run_test_outlives_the_default_timeout(path: str, name: str) ->
     marks = [int(found) for line in head for found in re.findall(r"pytest\.mark\.timeout\((\d+)\)", line)]
     assert marks, f"{name} has no timeout mark"
     assert marks[0] >= 300, f"{name} timeout {marks[0]} s"
+
+
+def _split_steps(job_body: str) -> list[str]:
+    steps: list[str] = []
+    current: list[str] = []
+    for line in job_body.splitlines():
+        if re.match(r"^\s*-\s+", line):
+            if current:
+                steps.append("\n".join(current))
+            current = [line]
+        elif current:
+            current.append(line)
+    if current:
+        steps.append("\n".join(current))
+    return steps
+
+
+def _parse_step_fields(step_text: str) -> dict[str, str]:
+    step: dict[str, str] = {"raw": step_text}
+    for field in ("id", "if", "uses", "run", "name", "path"):
+        m = re.search(rf"^\s*(?:-\s+)?{field}:\s*(.+)$", step_text, re.MULTILINE)
+        if m:
+            step[field] = m.group(1).strip()
+    return step
+
+
+def _parse_job_steps(job_body: str) -> list[dict[str, str]]:
+    return [_parse_step_fields(text) for text in _split_steps(job_body)]
+
+
+def _assert_job_upload_steps_scanned(job_name: str, job_body: str) -> None:
+    steps = _parse_job_steps(job_body)
+    upload_steps_found = 0
+    for idx, step in enumerate(steps):
+        if "actions/upload-artifact" not in step.get("uses", ""):
+            continue
+        artifact_name = step.get("name", "")
+        if not (artifact_name.startswith(("junit-", "overhead-")) or artifact_name == "sharpit-gate-reports"):
+            continue
+        upload_steps_found += 1
+
+        step_if = step.get("if", "")
+        m = re.fullmatch(r"always\(\) && steps\.([a-zA-Z0-9_-]+)\.outcome == 'success'", step_if)
+        assert m, (
+            f"{job_name}: upload {artifact_name} if: is {step_if!r}, "
+            f"expected \"always() && steps.<id>.outcome == 'success'\""
+        )
+        scan_id = m.group(1)
+
+        preceding_steps = steps[:idx]
+        matching_scan = [s for s in preceding_steps if s.get("id") == scan_id]
+        assert matching_scan, f"{job_name}: scan step with id {scan_id} not found before upload {artifact_name}"
+        scan_step = matching_scan[-1]
+        assert scan_step.get("if") == "always()", f"{job_name}: scan step {scan_id} must run if: always()"
+        run_cmd = scan_step.get("run", "")
+        assert "scripts/ci/artifact_scan.py" in run_cmd, f"{job_name}: scan step {scan_id} must invoke artifact_scan.py"
+        assert "--values-file" in run_cmd, f"{job_name}: scan step {scan_id} must pass --values-file"
+
+        upload_path = step.get("path", "")
+        if upload_path and upload_path != "|":
+            assert upload_path in run_cmd, f"{job_name}: scan step {scan_id} missing path {upload_path}"
+        elif upload_path == "|":
+            for path_line in step["raw"].split("path:", 1)[1].splitlines():
+                p = path_line.strip()
+                if p and not p.startswith("retention-days") and not p.startswith("if-no-files-found"):
+                    assert p in run_cmd, f"{job_name}: scan step {scan_id} missing path {p}"
+    assert upload_steps_found > 0, f"{job_name}: expected upload steps"
+
+
+def test_every_upload_is_preceded_by_the_artifact_scan() -> None:
+    target_jobs = [
+        name
+        for name, body in JOBS.items()
+        if any(
+            "actions/upload-artifact" in line and any(f"name: {p}" in body for p in ("junit-", "overhead-"))
+            for line in body.splitlines()
+        )
+    ]
+    assert target_jobs, "no jobs found with junit or overhead uploads"
+    for job_name in target_jobs:
+        body = JOBS[job_name]
+        _assert_job_upload_steps_scanned(job_name, body)
+
+        planted_body = re.sub(
+            r"if:\s*always\(\) && steps\.[a-zA-Z0-9_-]+\.outcome == 'success'",
+            "if: always()",
+            body,
+            count=1,
+        )
+        with pytest.raises(AssertionError):
+            _assert_job_upload_steps_scanned(job_name, planted_body)
