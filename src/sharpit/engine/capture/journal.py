@@ -18,6 +18,7 @@ source, such as a W6 sensor's (``processes``, ``files``, ``network``, ``code-pat
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 import uuid
@@ -25,7 +26,9 @@ from collections import Counter, deque
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Protocol, cast
 
-from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.capture import sqlscan
+from sharpit.engine.masking import MASK, Exposure, Masker
+from sharpit.engine.sqltext import Dialect
 
 DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 _SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
@@ -62,12 +65,91 @@ def _size(value: object) -> int:
     return _SCALAR_BYTES
 
 
+# ported: JournalTextExposure: the runs a SQL shape keeps but cannot tell apart from a value, and what reads two ways
+_ALTERNATIVE_QUOTE = re.compile(r"(?i)(?<![\w$])n?q'")
+_DOUBLE_QUOTED = re.compile(r'"(?:[^"]|"")*+"?')
+_UNREAD_NUMBER = re.compile(r"(?<![\w$.?])\.\d\w*+|\?[xXbB_]\w*+")
+_UNTERMINATED_DOLLAR_QUOTE = re.compile(r"\$[^\W\d]\w*+\$.*+|\$\$.*+", re.DOTALL)
+_QUOTED_KEY = re.compile(r"`(\w++)`(?=\s*+[:=])|\[(\w++)\](?=\s*+[:=])")
+
+
+_SHOWN = (str, bool, int, float, Mapping, list, tuple)  # what JSON and the masker read as they are
+
+
+def _plain(value: object) -> object:
+    """A value JSON can show: bytes decoded, sets listed, any other object as its text, so masking can read it."""
+    if isinstance(value, bytes | bytearray):
+        return bytes(value).decode("utf-8", "replace")
+    if isinstance(value, memoryview):
+        return cast("memoryview[int]", value).tobytes().decode("utf-8", "replace")
+    if isinstance(value, set | frozenset):
+        return sorted(cast("Iterable[object]", value), key=repr)
+    return cast("object", value) if value is None or isinstance(value, _SHOWN) else str(value)
+
+
+def _nested_comment(sql: str) -> bool:
+    """A block comment opened inside another: PostgreSQL nests them, the normalizer closes at the first ``*/``."""
+    start = sql.find("/*")
+    while start >= 0:
+        close, inner = sql.find("*/", start + 2), sql.find("/*", start + 2)
+        if inner >= 0 and (close < 0 or inner < close):
+            return True
+        start = -1 if close < 0 else sql.find("/*", close + 2)
+    return False
+
+
+def _ambiguous(sql: str) -> bool:
+    """A statement that reads differently by dialect (``JournalTextExposure.isAmbiguous``)."""
+    if _ALTERNATIVE_QUOTE.search(sql) or _nested_comment(sql):
+        return True
+    if "\\" not in sql:
+        return False
+    plain = sqlscan.normalize_sql(sql.replace("\\", ""), Dialect.POSTGRESQL)
+    return '"' in sql or plain != sqlscan.normalize_sql(sql, Dialect.POSTGRESQL)
+
+
+def _literal_free(sql: str, masker: Masker) -> str:
+    shape = _DOUBLE_QUOTED.sub("?", sqlscan.normalize_sql(sql, Dialect.POSTGRESQL))
+    shape = _UNTERMINATED_DOLLAR_QUOTE.sub("?", _UNREAD_NUMBER.sub("?", shape))
+    if (stray := shape.find("'")) >= 0:  # a quote the normalizer left open: nothing after it is shown
+        shape = shape[:stray] + "?"
+    return masker.mask_text(_QUOTED_KEY.sub(lambda m: m.group(1) or m.group(2), shape)) or ""
+
+
+def _sql(sql: str, masker: Masker) -> str:
+    """``JournalTextExposure.sql`` under MASKED: the literal-free shape, nothing after an ambiguous first quote."""
+    quotes = [i for i in (sql.find("'"), sql.find('"')) if i >= 0]
+    first_quote = min(quotes, default=-1)
+    cut = sql.find("#")  # a MySQL comment, an operator elsewhere: nothing after it is shown
+    if first_quote >= 0 and (cut < 0 or first_quote < cut) and _ambiguous(sql):
+        cut = first_quote
+    return _literal_free(sql, masker) if cut < 0 else _literal_free(sql[:cut], masker) + " ?"
+
+
+def _path(path: str, masker: Masker) -> str:
+    """Secret-like segments masked, and every ``;name=value`` matrix parameter masked whole (session ids live there)."""
+    segments: list[str] = []
+    for segment in masker.mask_path(path).split("/"):
+        head, *params = segment.split(";")
+        segments.append(";".join([head, *(f"{p.partition('=')[0]}={MASK}" if "=" in p else MASK for p in params)]))
+    return "/".join(segments)
+
+
+def _verbatim(masker: Masker) -> bool:
+    """FULL exposure or secret masking off: text is shown as recorded (sharpit's own token still hidden)."""
+    shown, hidden = masker.mask("password", "x")
+    return shown is not None and not hidden
+
+
 def _mask(value: object, name: str, masker: Masker) -> object:
-    shown, hidden = masker.mask(name, value)
+    shown, hidden = masker.mask(name, _plain(value))
     if hidden or shown is None:
         return shown
     if isinstance(shown, str):
-        return masker.mask_text(shown)
+        if _verbatim(masker):
+            return masker.mask_text(shown)
+        rule = {"sql": _sql, "path": _path}.get(name.lower())
+        return rule(shown, masker) if rule else masker.mask_text(shown)
     if isinstance(shown, Mapping):
         return {str(key): _mask(item, str(key), masker) for key, item in cast("Mapping[object, object]", shown).items()}
     if isinstance(shown, list | tuple):
