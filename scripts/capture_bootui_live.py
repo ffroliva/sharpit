@@ -298,6 +298,21 @@ def _resolve_parameterized_path(path: str, responses: dict[str, Any]) -> str | N
     return path.replace("{" + field + "}", quote(str(item_id), safe=""), 1) if item_id else None
 
 
+def _unavailable_panel(panel: str, responses: dict[str, Any]) -> dict[str, Any] | None:
+    payload = responses.get("/panels")
+    panels = payload.get("panels", []) if isinstance(payload, dict) else payload
+    if not isinstance(panels, list):
+        return None
+    return next(
+        (
+            item
+            for item in panels
+            if isinstance(item, dict) and item.get("id") == panel and item.get("available") is False
+        ),
+        None,
+    )
+
+
 def _write_capture(
     raw_out: Path,
     sharpit_id: str,
@@ -361,6 +376,17 @@ def _run_step(
 ) -> None:
     if step.phase == "violations":
         _run_violations(step, post_scan_responses, opener, base_url, raw_path, uncaptured)
+        return
+    panel = _unavailable_panel(step.panel, list_responses)
+    if panel is not None:
+        reason = str(panel.get("unavailableReason") or "Panel unavailable")
+        # Missing agents, tools, libraries, or integrations are external prerequisites.
+        external = any(word in reason.casefold() for word in ("agent", "tool", "classpath", "bean", "not available"))
+        uncaptured[f"{step.method} {step.path}"] = {
+            "status": "needs-external" if external else "disabled",
+            "http": None,
+            "reason": reason,
+        }
         return
     try:
         path = _resolve_parameterized_path(step.path, list_responses)
