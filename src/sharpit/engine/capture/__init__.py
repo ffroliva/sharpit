@@ -22,6 +22,35 @@ class CaptureHooks(Protocol):
     def hook_failed(self, hook: str, exc: BaseException) -> None: ...
 
 
+class Suspendable(Protocol):
+    name: str
+
+    def suspend(self) -> None: ...
+
+    def resume(self) -> None: ...
+
+
+class HookRegistry:
+    """Engine-owned, insertion-ordered set of installed capture hooks."""
+
+    def __init__(self) -> None:
+        self._hooks: dict[str, Suspendable] = {}
+
+    def register(self, hook: Suspendable) -> None:
+        self._hooks[hook.name] = hook
+
+    def hooks(self) -> tuple[Suspendable, ...]:
+        return tuple(self._hooks.values())
+
+    def suspend(self) -> None:
+        for hook in reversed(self.hooks()):
+            hook.suspend()
+
+    def resume(self) -> None:
+        for hook in self.hooks():
+            hook.resume()
+
+
 @dataclass(eq=False)
 class CaptureState:
     exchanges: HttpExchangeBuffer | None = None
@@ -33,6 +62,7 @@ class CaptureState:
     raw_sqlite_seen: bool = False
     loop: asyncio.AbstractEventLoop | None = None
     wiring: CaptureHooks | None = None
+    hooks: HookRegistry = field(default_factory=HookRegistry)
     activity_changes: ChangeStream | None = None
     # 0.4.0 slots (lane F), inert until their lanes fill them
     security_logs: Any | None = None  # B-security-logs' bounded audit buffer

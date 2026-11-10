@@ -26,6 +26,7 @@ from sharpit.engine import sqla
 from sharpit.engine.capture.correlation import REQUEST
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.panels import panel_is_implemented
 from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import CAPTURE_TOO_LATE, CAPTURE_TOO_LATE_REASON, CaptureMiddleware
@@ -441,6 +442,23 @@ def test_uninstall_capture_removes_hooks():
     assert seen[0] is not None
     assert seen[1] is None
     assert len(_rows(handle)) == 1
+
+
+def test_low_footprint_suspends_and_resumes_registered_capture_hooks():
+    app = FastAPI()
+    app.get("/host")(lambda: {})
+    handle = install(app, enabled="ON", show_banner=False)
+    with TestClient(app) as client:
+        client.get("/host")
+        hooks = handle.context.capture.hooks.hooks()
+        assert [hook.name for hook in hooks] == ["fastapi capture wiring"]
+        service = LowFootprintService(handle.context.capture.hooks)
+        service.suspend()
+        client.get("/host")
+        assert len(_rows(handle)) == 1
+        service.resume()
+        client.get("/host")
+        assert len(_rows(handle)) == 2
 
 
 @pytest.mark.needs_sqlalchemy

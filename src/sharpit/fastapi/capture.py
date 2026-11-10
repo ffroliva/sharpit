@@ -236,11 +236,16 @@ class CaptureWiring:
         self.on_security_event: Callable[[Scope, int], None] | None = None  # B-security-logs: 401/403 exchanges
         self.span_processor: object | None = None  # A-traces: one lazily re-armed SDK span processor
         self._armed: set[int] = set()  # id() of each CaptureState.attachers entry whose remover is in teardowns
+        self._suspended = False
+        self._context: SharpitContext | None = None
+        self.name = "fastapi capture wiring"
 
     def attach_at_install(self, app: Any, ctx: SharpitContext) -> None:
         if self.app is not None:
             return
         self.app = app
+        self._context = ctx
+        ctx.capture.hooks.register(self)
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
         if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
@@ -273,6 +278,9 @@ class CaptureWiring:
             self.app.exception_handlers = WrappingHandlers(cast("dict[Any, Any]", handlers), self, store)
 
     def on_startup(self, ctx: SharpitContext) -> None:
+        self._context = ctx
+        if self._suspended:
+            return
         self.detached = False
         self._wrap_handlers(ctx)  # again after a shutdown restored the plain dict
         self._first_run(ctx)
@@ -281,6 +289,8 @@ class CaptureWiring:
         self._run_attachers(ctx)  # likewise for the lanes' hooks
 
     def on_first_request(self, ctx: SharpitContext) -> None:
+        if self._suspended:
+            return
         self._first_run(ctx)
         self._attach_logging()
         self._attach_sql(ctx)  # no lifespan: the first request is the last chance to find SQLAlchemy imported
@@ -302,6 +312,20 @@ class CaptureWiring:
                 self.hook_failed("teardown", exc)
         self._armed.clear()  # the next startup re-runs every attacher
         self.detached = True
+
+    def suspend(self) -> None:
+        if not self._suspended and self._context is not None:
+            self.detach(self._context)
+            self._suspended = True
+
+    def resume(self) -> None:
+        if self._suspended and self._context is not None:
+            self._suspended = False
+            self.on_startup(self._context)
+
+    @property
+    def suspended(self) -> bool:
+        return self._suspended
 
     def _run_attachers(self, ctx: SharpitContext) -> None:
         """Run each lane attacher not yet armed; a remover arms it, ``None`` leaves it for the next chance."""
@@ -382,7 +406,7 @@ class CaptureMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         wiring = wiring_of(self.ctx)
-        if scope["type"] != "http" or wiring is None or wiring.detached:
+        if scope["type"] != "http" or wiring is None or wiring.detached or wiring.suspended:
             await self.app(scope, receive, send)
             return
         buffer = self.ctx.capture.exchanges
