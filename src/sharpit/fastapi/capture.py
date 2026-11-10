@@ -217,6 +217,18 @@ def wiring_of(ctx: SharpitContext) -> CaptureWiring | None:
     return cast("CaptureWiring | None", ctx.capture.wiring)
 
 
+class _WiringHook:
+    def __init__(self, name: str, wiring: CaptureWiring) -> None:
+        self.name = name
+        self.wiring = wiring
+
+    def suspend(self) -> None:
+        self.wiring.suspend()
+
+    def resume(self) -> None:
+        self.wiring.resume()
+
+
 class CaptureWiring:
     """Owns which capture hooks are attached for one context; every method is idempotent.
 
@@ -238,14 +250,25 @@ class CaptureWiring:
         self._armed: set[int] = set()  # id() of each CaptureState.attachers entry whose remover is in teardowns
         self._suspended = False
         self._context: SharpitContext | None = None
-        self.name = "fastapi capture wiring"
+        self._registered = False
 
     def attach_at_install(self, app: Any, ctx: SharpitContext) -> None:
         if self.app is not None:
             return
         self.app = app
         self._context = ctx
-        ctx.capture.hooks.register(self)
+        if not self._registered:
+            for name in (
+                "capture-middleware",
+                "exception-handlers",
+                "log-handler",
+                "security-log",
+                "sqla-listeners",
+                "sqlite-listeners",
+                "traces",
+            ):
+                ctx.capture.hooks.register(_WiringHook(name, self))
+            self._registered = True
         self.on_security_event = attach_security_logs(ctx)  # B-security-logs: buffer, context, 401/403 hook
         store = ctx.capture.exceptions
         if any(_panel_enabled(ctx, p) for p in LOG_PANELS):
