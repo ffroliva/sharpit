@@ -3,13 +3,13 @@
 Deviations from BootUI, for the owner's list:
 
 - No drain thread: BootUI's ``JournalQueue`` hands events to a dispatcher thread; here ``offer`` appends to a
-  ``deque`` under a lock in the caller's thread, so ``queueDepth`` is always 0. ``queue-capacity`` caps the retained
-  events and refuses (counts as ``queue-capacity``) every offer once reached: with the defaults (10,000 < 50,000) the
-  journal fills once and count eviction never runs. Open for the owner: drop the cap or evict at it.
+  ``deque`` under a lock in the caller's thread, so ``queueDepth`` is always 0 and ``queue-capacity`` is unused: it is
+  parsed with BootUI's default and reported as ``queueCapacity``, but nothing waits in a queue, so nothing is refused at
+  it. Retention is a ring: at ``max-events`` or ``max-bytes`` the oldest event is evicted and counted.
 - Byte bound: BootUI's unset ``max-bytes`` is the smaller of 32 MB and 5 % of the maximum heap. Python exposes no
   stable, portable heap limit for an in-memory buffer, so sharpit uses the fixed 32 MiB cap.
-- ``dropped`` is keyed by reason (``reentrant``, ``suspended``, ``source-disabled``, ``max-bytes``,
-  ``queue-capacity``, ``failed``), not by source, and counts filtered and suspended offers BootUI returns uncounted.
+- ``dropped`` is keyed by reason (``reentrant``, ``suspended``, ``source-disabled``, ``max-bytes`` for one event over
+  the whole byte bound, ``failed``), not by source, and counts filtered and suspended offers BootUI returns uncounted.
 
 Sources: the wiring passes ``runtime_journal_sources`` (``settings_registry.JOURNAL_SOURCES`` when unset). A new
 source, such as a W6 sensor's (``processes``, ``files``, ``network``, ``code-paths``), is added to
@@ -131,15 +131,12 @@ class RuntimeJournal:
         if size > self.max_bytes:
             self._dropped["max-bytes"] += 1
             return False
-        if len(self._events) >= self.queue_capacity:
-            self._dropped["queue-capacity"] += 1
-            return False
         stamp = time.time_ns() // 1_000_000
         while self._events and (len(self._events) >= self.max_events or self._bytes + size > self.max_bytes):
-            _, removed, _ = self._events.popleft()
+            self._binding_bound = "COUNT" if len(self._events) >= self.max_events else "BYTES"
+            _, removed, _ = self._events.popleft()  # a ring: the oldest event makes room, counted as evicted
             self._bytes -= removed
             self._evicted += 1
-            self._binding_bound = "COUNT" if len(self._events) + 1 >= self.max_events else "BYTES"
         self._events.append((dict(event), size, stamp))
         self._bytes += size
         self._accepted[source] += 1
