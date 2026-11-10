@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -14,9 +13,8 @@ from sharpit.engine.masking import Exposure
 from sharpit.settings import load_settings
 from sharpit.settings_registry import SPECS, UNSET
 
-_SOURCE_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0" / "properties.json"
-_FIXTURE = Path(os.environ.get("SHARPIT_PROPERTIES_FIXTURE", _SOURCE_FIXTURE))
-_ROWS = Path(__file__).resolve().parents[2].parent / "briefs-0.6.0" / "W3-A1-rows.txt"
+_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0" / "properties.json"
+_STATUS = Path(__file__).with_name("properties_23_status.json")
 
 
 def _field(key: str) -> str:
@@ -26,84 +24,129 @@ def _field(key: str) -> str:
 def _expected_default(value: Any) -> Any:
     if isinstance(value, list):
         return tuple(value)
-    if isinstance(value, str) and re.fullmatch(r"\d+(?:\.\d+)?(?:ms|s)?", value):
-        number, unit = re.fullmatch(r"(\d+(?:\.\d+)?)(ms|s)?", value).groups()  # type: ignore[union-attr]
-        return float(number) / 1000 if unit == "ms" else float(number)
-    if value in {"auto", "off", "on"}:
+    if isinstance(value, str) and (match := re.fullmatch(r"(\d+(?:\.\d+)?)(ms|s)?", value)):
+        return float(match.group(1)) / 1000 if match.group(2) == "ms" else float(match.group(1))
+    if isinstance(value, str) and value in {"auto", "off", "on"}:
         return value.upper()
     if isinstance(value, str) and value in {"masked", "metadata_only", "full"}:
         return Exposure(value.upper())
     return value
 
 
-def _samples(default: Any, field: str) -> tuple[str, str | None] | None:
+def _samples(default: Any, field: str) -> tuple[str, Any, str | None] | None:
     if isinstance(default, bool):
-        return ("false" if default else "true"), "invalid-bool"
+        return ("false" if default else "true"), not default, "invalid-bool"
     if isinstance(default, int):
-        return str(default + 1), "invalid-int"
+        return str(default + 1), default + 1, "invalid-int"
     if isinstance(default, float):
-        return f"{default + 1}s", "invalid-duration"
+        return f"{default + 1}s", default + 1, "invalid-duration"
     if isinstance(default, tuple) or field == "authentication_token":
-        return "parity-item", None
+        return "parity-item", ("parity-item",) if isinstance(default, tuple) else "parity-item", None
     if field in {"enabled", "trust_container_gateway", "mcp_enabled"}:
-        return "ON", "invalid-mode"
+        return "ON", "ON", "invalid-mode"
     if field == "expose_values":
-        return "FULL", "invalid-exposure"
+        return "FULL", Exposure.FULL, "invalid-exposure"
     if field in {"vulnerabilities_osv_base_uri", "vulnerabilities_epss_base_uri"}:
-        return "https://parity.test", "file:///invalid"
+        return "https://parity.test", "https://parity.test", "file:///invalid"
     return None
 
 
-def _cases() -> list[tuple[str, str, Any, Any]]:
-    fixture = json.loads(_SOURCE_FIXTURE.read_text(encoding="utf-8"))
-    properties = {item["name"]: item for item in fixture["properties"]}
+def _fixture_and_status() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    return (
+        json.loads(_FIXTURE.read_text(encoding="utf-8"))["properties"],
+        json.loads(_STATUS.read_text(encoding="utf-8")),
+    )
+
+
+def _classification(item: dict[str, Any], settings: Any) -> tuple[str, str | None]:
+    key = item["name"]
+    field = _field(key)
+    expected = _expected_default(item.get("defaultValue"))
+    if field in {"path", "api_path"}:
+        actual = getattr(settings, field)
+    elif field not in SPECS or field not in vars(settings):
+        return "missing", f"No sharpit setting field/parser for {field}"
+    else:
+        actual = getattr(settings, field)
+    if actual != expected:
+        return "partial", f"default differs: BootUI={expected!r}; sharpit={actual!r}"
+    if _samples(expected, field) is None:
+        return "partial", "No valid environment sample is defined"
+    return "matched", None
+
+
+def test_fixture_properties_are_fully_classified() -> None:
+    fixture, status = _fixture_and_status()
+    properties = status["properties"]
+    names = [item["name"] for item in fixture]
+    assert [row["name"] for row in properties] == names
+    classified = {row["name"] for row in properties if row["status"] in {"matched", "partial", "missing"}}
+    assert classified == set(names)
     settings = load_settings({}, {})
-    rows = [line.strip()[5:] for line in _ROWS.read_text(encoding="utf-8").splitlines()]
+    for item, row in zip(fixture, properties, strict=True):
+        actual_status, difference = _classification(item, settings)
+        assert row["status"] == actual_status
+        assert row["difference"] == difference
+    assert status["panel_map_rule"] == (
+        "bootui.panels is the sole fixture entry for panel configuration; bootui.panels.* keys are map members, "
+        "not property rows, and are not synthesized from the settings registry."
+    )
+    panels = next(item for item in fixture if item["name"] == "bootui.panels")
+    assert panels["defaultValue"] is None
+    assert not any(name.startswith("bootui.panels.") for name in names)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("auto", "AUTO"), ("off", "OFF"), ("on", "ON"), ("31s", 31.0), ("250ms", 0.25), (["a", "b"], ("a", "b"))],
+)
+def test_expected_default_conversions(value: Any, expected: Any) -> None:
+    assert _expected_default(value) == expected
+
+
+def _matched_cases() -> list[tuple[str, str, str, Any, Any, str | None, Any]]:
+    fixture, status = _fixture_and_status()
+    settings = load_settings({}, {})
     cases = []
-    for key in rows:
-        item = properties.get(key)
-        field = _field(key)
-        if item is None or field not in SPECS or field not in vars(settings):
+    rows = {row["name"]: row for row in status["properties"]}
+    for item in fixture:
+        row = rows.get(item["name"])
+        if row is None or row["status"] != "matched":
             continue
+        field = _field(item["name"])
         default = _expected_default(item.get("defaultValue"))
-        if getattr(settings, field) != default:
-            continue
-        env = "SHARPIT_" + re.sub(r"[.-]", "_", key.removeprefix("bootui.")).upper()
-        samples = _samples(default, field)
-        if samples is None:
-            continue
-        valid, invalid = samples
+        sample = _samples(default, field)
+        assert sample is not None
+        raw, expected, invalid = sample
+        env = "SHARPIT_" + re.sub(r"[.-]", "_", item["name"].removeprefix("bootui.")).upper()
         failsafe = SPECS[field][1]
-        expected_failsafe = getattr(settings, field) if failsafe is None else None if failsafe is UNSET else failsafe
         if field == "enabled":
-            expected_failsafe = "invalid-mode"
-        if invalid is None:
-            cases.append((key, field, (env, valid), None))
-            continue
-        cases.append((key, field, (env, valid), (env, invalid, expected_failsafe)))
+            failsafe = invalid  # settings.py retains the invalid text so activation can report it
+        elif failsafe is None:
+            failsafe = getattr(settings, field)
+        elif failsafe is UNSET:
+            failsafe = None
+        cases.append((item["name"], field, env, raw, expected, invalid, failsafe))
     return cases
 
 
-_CASES = _cases()
-
-
-@pytest.mark.parametrize("key,field,valid,invalid", _CASES, ids=[f"prop:{case[0]}" for case in _CASES])
-def test_property_matches_bootui_23_fixture(
-    key: str, field: str, valid: tuple[str, str], invalid: tuple[str, str, Any] | None
-):
-    fixture = json.loads(_FIXTURE.read_text(encoding="utf-8"))
-    entry = next(item for item in fixture["properties"] if item["name"] == key)
+@pytest.mark.parametrize(
+    "key,field,env,raw,expected,invalid,failsafe",
+    _matched_cases(),
+    ids=lambda v: v if isinstance(v, str) and v.startswith("bootui.") else None,
+)
+def test_matched_property_default_and_values(
+    key: str, field: str, env: str, raw: str, expected: Any, invalid: str | None, failsafe: Any
+) -> None:
+    fixture, _ = _fixture_and_status()
+    entry = next(item for item in fixture if item["name"] == key)
     default = _expected_default(entry.get("defaultValue"))
     settings = load_settings({}, {})
     assert getattr(settings, field) == default
-
-    env, raw = valid
     loaded = load_settings({}, {env: raw})
-    assert getattr(loaded, field) != default
-
+    assert getattr(loaded, field) == expected
     if invalid is None:
         return
-    env, raw, failsafe = invalid
-    rejected = load_settings({}, {env: raw})
+    rejected = load_settings({}, {env: invalid})
     assert getattr(rejected, field) == failsafe
     assert f"Ignoring invalid {env} value" in " ".join(rejected.warnings)
