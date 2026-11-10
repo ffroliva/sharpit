@@ -386,6 +386,8 @@ class CaptureWiring:
     def _suspend_sqla(self, ctx: SharpitContext) -> None:
         ctx.capture.suspended_sources.add("sqlalchemy")
         sqla.remove(ctx)
+        if self.detached:  # shut down: nothing routes here until the next startup
+            return
         if _sqlite_traced(ctx) and "sqlite-listeners" not in self.suspended_hooks:
             dispatch.add_context(ctx)  # raw sqlite3 still routes here
 
