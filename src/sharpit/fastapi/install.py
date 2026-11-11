@@ -12,7 +12,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from functools import partial
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -33,12 +33,10 @@ from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqltext import load_key
 from sharpit.fastapi.capture import HOOK_TRANSACTIONS, CaptureWiring
+from sharpit.fastapi.handle import SharpitHandle  # not from adapter: it imports this module at its end
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
 from sharpit.settings import SharpitSettings, load_settings, parse_mode
-
-if TYPE_CHECKING:  # the adapter imports this module at its end: a runtime import here would be a cycle
-    from sharpit.fastapi.adapter import SharpitHandle
 
 __all__ = ["install", "_configure_capture"]
 
