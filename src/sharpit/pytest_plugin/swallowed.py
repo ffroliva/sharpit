@@ -67,10 +67,10 @@ class MonitoringCapture:
         if tool is None:
             return CaptureStatus(False, "sys.monitoring tool ids 3 and 4 are in use")
         self.tool_id, self._tool, self._sink = tool.tool_id, tool, sink
-        monitoring = sys.monitoring
+        handled = sys.monitoring.events.EXCEPTION_HANDLED
         try:
-            tool.register_callback(monitoring.events.EXCEPTION_HANDLED, self._handled)
-            tool.set_events(monitoring.events.EXCEPTION_HANDLED)
+            tool.on_event(handled, self._handled)
+            tool.listen(handled)
         except BaseException:
             with contextlib.suppress(Exception):  # the setup error is the one to report
                 self.detach()

@@ -129,8 +129,8 @@ def test_release_clears_events_callbacks_then_frees_only_owned_id() -> None:
     def callback() -> None:
         return None
 
-    tool.register_callback(monitoring.event, callback)
-    tool.set_events(monitoring.event)
+    tool.on_event(monitoring.event, callback)
+    tool.listen(monitoring.event)
 
     tool.release()
     tool.release()
@@ -163,8 +163,8 @@ def test_real_monitoring_allocator_leaves_no_events_or_callbacks() -> None:
     if tool is None:
         pytest.skip("tool ids 3 and 4 are occupied")
     event = monitoring.events.EXCEPTION_HANDLED
-    tool.register_callback(event, lambda *_args: None)
-    tool.set_events(event)
+    tool.on_event(event, lambda *_args: None)
+    tool.listen(event)
     tool.release()
 
     assert monitoring.get_events(tool.tool_id) == 0
@@ -254,8 +254,8 @@ if coverage_id is None:
 before = monitoring.get_tool(coverage_id)
 tool = MonitoringToolAllocator().claim()
 assert tool is not None
-tool.register_callback(monitoring.events.LINE, lambda *_args: None)
-tool.set_events(monitoring.events.LINE)
+tool.on_event(monitoring.events.LINE, lambda *_args: None)
+tool.listen(monitoring.events.LINE)
 import measured
 tool.release()
 assert monitoring.get_tool(coverage_id) == before

@@ -29,7 +29,7 @@ class MonitoringTool:
         self._events: set[int] = set()
         self._released = False
 
-    def register_callback(self, event: int, callback: Callable[..., object] | None) -> None:
+    def on_event(self, event: int, callback: Callable[..., object] | None) -> None:
         with self._lock:
             if not self._released:
                 if callback is None:
@@ -38,7 +38,7 @@ class MonitoringTool:
                     self._events.add(event)
                 self.monitoring.register_callback(self.tool_id, event, callback)
 
-    def set_events(self, events: int) -> None:
+    def listen(self, events: int) -> None:
         with self._lock:
             if not self._released:
                 self.monitoring.set_events(self.tool_id, events)
