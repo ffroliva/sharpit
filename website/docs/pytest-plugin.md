@@ -167,6 +167,7 @@ never accepts a finding that meets the gate.
 | `0` | `fail` | `1` |
 | `0` | `unknown` | `1`, or `0` with `--sharpit-allow-unknown` |
 | non-zero (failed tests, interrupted, internal or usage error, no tests collected, `pytest.exit(returncode=N)`) | any | pytest's own, unchanged |
+| any | `--sharpit-write-baseline` refused (partial or `unknown` run) | `4` (usage error); the report is still written, the baseline is not |
 
 A gate failure only ever turns a `0` into a `1`. It never replaces or lowers a non-zero status pytest already chose, so
 a failing test's exit code is never hidden behind the gate's. An internal sharpit error follows the same rule: it turns

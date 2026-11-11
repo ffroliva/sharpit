@@ -171,11 +171,13 @@ log, for code-scanning tools. Under pytest-xdist only the controller writes it, 
   `warning`, `LOW`/`INFO` → `note`), the masked message, and `properties` with the advisor, severity and test node id.
 - `partialFingerprints["sharpitFingerprint/v1"]` is the report's `fingerprint`: it holds no path or timestamp, so a
   finding keeps its identity when code moves. The `/v1` suffix changes if the fingerprint's recipe ever does.
-- A finding that is `existing` in the baseline carries a `suppressions` entry (`kind: external`), so code-scanning
-  tools show it as accepted rather than open.
+- A finding that is dismissed, or `existing` in the baseline, carries a `suppressions` entry (`kind: external`), so
+  code-scanning tools show it as accepted rather than open; neither fails the gate.
 - Locations: a finding with a source file gets a `physicalLocation` whose URI is relative to `%SRCROOT%`, POSIX
-  separators, percent-encoded. A path that is absolute, has a drive letter or URI scheme, or climbs out with `..` is
-  dropped and the finding is kept. Every result also carries its target (a route, a test, a statement) as a
+  separators, percent-encoded. A path that is absolute, has a drive letter or URI scheme, climbs out with `..`, or
+  that the masker would change is dropped and the finding is kept. Every result also carries its target (a route, a test, a statement) as a
   `logicalLocations` entry; today's findings carry no source file, so they have the logical location only, and a tool
   that requires a file location may not display them.
-- Every text in the file (message, target, test node id, path) goes through the masker again before it is written.
+- Every text in the file (message, target, test node id) goes through the masker again before it is written.
+- A SARIF file that cannot be written makes the run `unknown`, with `SARIF write failed: ...` in the JSON report's
+  `unknownReasons` and `warnings`.

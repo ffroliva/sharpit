@@ -3,7 +3,8 @@
 Every text goes through the report masker again, even though the sink masked it once: SARIF is uploaded to code
 hosts, so a finding message is never trusted to be clean. A finding's file location, when it has one, becomes a
 ``%SRCROOT%``-relative POSIX URI; a path that is absolute, has a drive or scheme, or climbs out with ``..`` loses its
-location and keeps the finding. A finding without a file location carries its target as a logical location.
+location and keeps the finding, and so does a path the masker changed. A finding without a file location carries
+its target as a logical location.
 """
 
 from __future__ import annotations
@@ -46,7 +47,8 @@ def _location(finding: Mapping[str, Any], masker: Masker) -> dict[str, Any]:
     if isinstance(place, Mapping):
         place = cast("Mapping[str, Any]", place)
         path = place.get("path")
-        uri = artifact_uri(_text(masker, path)) if isinstance(path, str) else None
+        # a path masking changed names no real file: drop it rather than point at one that does not exist
+        uri = artifact_uri(path) if isinstance(path, str) and _text(masker, path) == path else None
         if uri is not None:
             physical: dict[str, Any] = {"artifactLocation": {"uri": uri, "uriBaseId": SOURCE_ROOT}}
             line = place.get("line")
@@ -70,7 +72,9 @@ def _result(finding: Mapping[str, Any], masker: Masker) -> dict[str, Any]:
             "testNodeId": None if finding.get("testNodeId") is None else _text(masker, finding["testNodeId"]),
         },
     }
-    if finding.get("baselineState") == "existing":
+    if finding.get("dismissed"):
+        result["suppressions"] = [{"kind": "external", "justification": "dismissed in sharpit"}]
+    elif finding.get("baselineState") == "existing":
         result["suppressions"] = [{"kind": "external", "justification": "accepted in the sharpit baseline"}]
     return result
 
