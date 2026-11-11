@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import Any
+
 from conftest import SideEffectGuard
 from sharpit.engine.collectors.startup import StartupTimeline
+from sharpit.engine.context import SharpitContext
+from sharpit.engine.tools import CallContext, call_tool
 from sharpit.engine.tools04.startup import COMMANDS, TOOLS
 from sharpit.settings import load_settings
 
@@ -42,9 +46,7 @@ def test_startup_query_and_limit_filter_steps(no_side_effects: SideEffectGuard) 
     timeline.record("asgi.lifespan.startup", 2)
     timeline.record("sharpit.install", 1)
 
-    assert timeline.report("startup", 1)["steps"][0]["name"] == "asgi.lifespan.startup"
-    assert timeline.report()["steps"] == timeline.report("startup")["steps"]
-    assert all(step["name"] != "sharpit.install" for step in timeline.report()["steps"])
+    assert [step["name"] for step in timeline.report()["steps"]] == ["asgi.lifespan.startup", "sharpit.install"]
     no_side_effects.verify()
 
 
@@ -89,3 +91,54 @@ def test_startup_tool_uses_bootui_name_default_and_cli_path() -> None:
     assert tool.name == "get_startup_timeline"
     assert tool.default_limit == 25
     assert COMMANDS[tool.name] == "startup"
+
+
+Record = tuple[str, int, list[tuple[str, str]]]
+
+
+def _mcp(records: list[Record], **args: Any) -> dict[str, Any]:
+    settings = load_settings({"config_scan": False}, {})
+    ctx = SharpitContext(settings=settings, activation=None, introspector=None)  # type: ignore[arg-type]
+    for name, duration, tags in records:
+        ctx.startup.record(name, duration, tags)
+    return call_tool(CallContext(ctx, {}), "get_startup_timeline", args, via="cli")
+
+
+BEANS: list[Record] = [
+    ("spring.context.refresh", 900, []),
+    ("spring.beans.instantiate", 40, [("beanName", "orders")]),
+    ("spring.beans.instantiate", 300, [("beanName", "db")]),
+]
+
+
+# ported: McpAgentViewsTests.startupListsTheSlowestMatchingStepsFirst
+def test_startup_tool_lists_slowest_matching_steps_first_with_page() -> None:
+    slowest = _mcp(BEANS, limit=2)
+
+    assert [step["id"] for step in slowest["steps"]] == [0, 2]
+    assert slowest["page"] == {"total": 3, "matched": 3, "offset": 0, "limit": 2, "returned": 2, "hasMore": True}
+    assert set(slowest) == {"steps", "page"}
+
+
+# ported: McpAgentViewsTests.startupListsTheSlowestMatchingStepsFirst
+def test_startup_tool_query_matches_tag_values() -> None:
+    bean = _mcp(BEANS, query="orders", limit=25)
+
+    assert [step["id"] for step in bean["steps"]] == [1]
+
+
+def test_startup_tool_query_drops_nonmatching_steps_and_limit_truncates() -> None:
+    records: list[Record] = [("asgi.lifespan.startup", 5, []), ("warmup.cache", 9, []), ("warmup.pool", 7, [])]
+
+    assert [s["name"] for s in _mcp(records, query="warmup", limit=25)["steps"]] == ["warmup.cache", "warmup.pool"]
+    assert [s["name"] for s in _mcp(records, limit=1)["steps"]] == ["warmup.cache"]
+    assert _mcp(records, query="nothing", limit=25)["steps"] == []
+
+
+def test_startup_report_hands_out_fresh_step_dicts() -> None:
+    timeline = StartupTimeline(4)
+    timeline.record("asgi.lifespan.startup", 5)
+
+    timeline.report()["steps"][0]["tags"].append({"key": "x", "value": "y"})
+
+    assert timeline.report()["steps"][0]["tags"] == []

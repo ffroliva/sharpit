@@ -22,7 +22,7 @@ class StartupTimeline:
         self._steps: list[StartupStep] = []
         self._lock = Lock()
 
-    def record(self, name: str, duration_ms: int | None) -> None:
+    def record(self, name: str, duration_ms: int | None, tags: list[tuple[str, str]] | None = None) -> None:  # noqa: ARG002
         if self.capacity <= 0:
             return
         with self._lock:
