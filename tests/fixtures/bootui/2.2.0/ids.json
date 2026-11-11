@@ -38,6 +38,7 @@
   "code-inventory": "code-inventory",
   "code-paths": "code-paths",
   "side-effects": "side-effects",
+  "runtime-insights": "runtime-insights",
   "metrics": "metrics",
   "startup": "startup",
   "profile-diff": "profile-diff",

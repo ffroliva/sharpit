@@ -22,6 +22,7 @@ from . import (
     mysql,
     postgresql,
     profile_diff,
+    runtime_insights,
     scheduled,
     security,
     security_logs,
@@ -59,6 +60,7 @@ IMPLEMENTED = {
     "side-effects": side_effects.IMPLEMENTED,
     "cache": cache.IMPLEMENTED,
     "dev-services": dev_services.IMPLEMENTED,
+    "runtime-insights": runtime_insights.IMPLEMENTED,
 }
 PANEL_04_IDS = tuple(IMPLEMENTED)
 # panels with per-panel route/tool modules (fastapi/routes/<id>.py, engine/tools04/<id>.py): every 0.4 id plus the

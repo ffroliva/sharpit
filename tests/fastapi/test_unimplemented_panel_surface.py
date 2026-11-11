@@ -39,6 +39,7 @@ ALL_PANEL_IDS = {
     "side-effects",
     "cache",
     "dev-services",
+    "runtime-insights",
 }
 EXPECTED_IDS = {panel_id for panel_id, implemented in ALL_IMPLEMENTED.items() if not implemented}
 PANEL_IDS = EXPECTED_IDS  # whichever 0.4 panels are still unimplemented: flip-safe

@@ -32,6 +32,7 @@ ALL_PANEL_IDS = {
     "side-effects",
     "cache",
     "dev-services",
+    "runtime-insights",
 }
 
 
