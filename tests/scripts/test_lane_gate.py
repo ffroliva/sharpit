@@ -10,7 +10,7 @@ import json
 import re
 import shutil
 import subprocess
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -770,8 +770,12 @@ def test_lane_gate_sha_read_in_one_repo_stays_absent_in_another(
         second.evaluate(sha=only_in_first)
 
 
-def test_lane_gate_reads_a_commit_the_same_from_a_subfolder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`git ls-tree` lists relative to the cwd where `git show sha:path` never did (code review, T-suite-speed)."""
+def test_lane_gate_reads_a_commit_the_same_from_a_subfolder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
+    """`git ls-tree` lists relative to the cwd where `git show sha:path` never did (code review, T-suite-speed).
+
+    Real git: the fake lists every path from the root whatever the cwd, so a missing `--full-tree` passed it."""
     monkeypatch.setattr(lane_gate, "_READS", {})
     fx = _fixture(tmp_path)
     assert lane_gate._show(fx.worktree / "src", fx.head, "src/widget.py") == lane_gate._show(
@@ -2358,11 +2362,20 @@ def test_lane_gate_command_shapes_reach_real_git(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls, _runner = real_git
+    recording = lane_gate._GIT_RUNNER  # the real runner, recording every command into ``calls``
     fx = _fixture(tmp_path)
     monkeypatch.setattr(lane_gate, "_READS", {})
     assert _refusals(fx.evaluate()) == []
-    lane_gate._show(fx.worktree, "HEAD", "src/widget.py")
-    lane_gate._git(fx.worktree, "worktree", "prune", check=False)
+    lane_gate._show(fx.worktree, "HEAD", "src/widget.py")  # `git show` is reached only with a rev that is no object id
+
+    def remove_fails(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        done = recording(command, **kwargs)
+        if command[1:3] == ["worktree", "remove"]:
+            return subprocess.CompletedProcess(command, 1, "", "error: cannot remove")
+        return done
+
+    monkeypatch.setattr(lane_gate, "_GIT_RUNNER", remove_fails)
+    assert _refusals(fx.evaluate()) == []  # lane_gate itself runs `worktree prune` after the failed remove
     shapes = {
         ("branch", "--show-current"),
         ("rev-parse", "--verify", "--quiet"),
@@ -2391,16 +2404,17 @@ def test_fake_git_matches_real_git_for_lane_gate_commands_and_decisions(
     recordings: dict[str, list[tuple[tuple[str, ...], int, str]]] = {}
     results: dict[str, list[tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]] = {}
 
-    def record_calls(calls: list[tuple[tuple[str, ...], int, str]], root: Path) -> object:
+    def record_calls(calls: list[tuple[tuple[str, ...], int, str]], root: Path, label: Callable[[str], str]) -> object:
         original = _run_fake_or_real
 
         def record(command: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             done = original(command, **kwargs)
+            normalized = [label(arg.replace(str(root), "<ROOT>")) for arg in command[1:]]
             output = done.stdout.replace(str(root), "<ROOT>")
-            output = re.sub(r"\b[0-9a-f]{40}\b", "<SHA>", output)
-            if command[1:2] == ["ls-tree"]:
-                output = "\0".join(sorted(output.rstrip("\0").split("\0"))) + "\0"
-            normalized = [re.sub(r"\b[0-9a-f]{40}\b", "<SHA>", arg.replace(str(root), "<ROOT>")) for arg in command[1:]]
+            if command[1:2] == ["ls-tree"]:  # ordered by path: sorting by id would differ between the two gits
+                entries = sorted(output.rstrip("\0").split("\0"), key=lambda entry: entry.split("\t", 1)[-1])
+                output = "\0".join(entries) + "\0"
+            output = label(output)
             if normalized[0] == "worktree" and normalized[1] in {"add", "remove"}:
                 normalized[4 if normalized[1] == "add" else -1] = "<TREE>"
             calls.append((tuple(normalized), 0 if done.returncode == 0 else 1, output))
@@ -2411,11 +2425,18 @@ def test_fake_git_matches_real_git_for_lane_gate_commands_and_decisions(
     for mode, real in (("fake", False), ("real", True)):
         _USING_REAL_GIT = real
         calls: list[tuple[tuple[str, ...], int, str]] = []
+        labels: dict[str, str] = {}
+
+        def label(text: str, labels: dict[str, str] = labels) -> str:
+            """``<SHA1>``, ``<SHA2>``... by first appearance: two different commits never compare equal."""
+            return re.sub(r"\b[0-9a-f]{40}\b", lambda m: labels.setdefault(m.group(), f"<SHA{len(labels) + 1}>"), text)
+
         root = tmp_path / mode
-        monkeypatch.setattr(lane_gate, "_GIT_RUNNER", record_calls(calls, tmp_path))
+        monkeypatch.setattr(lane_gate, "_GIT_RUNNER", record_calls(calls, tmp_path, label))
         root.mkdir()
         fx = _fixture(root)
         calls.clear()
+        labels.clear()  # numbered from here: building the fixture is not the part being compared
         lane_gate._git(fx.worktree, "cat-file", "-e", "HEAD:missing.txt", check=False)
         lane_gate._git(fx.worktree, "cat-file", "blob", "0" * 40, check=False)
         monkeypatch.setattr(lane_gate, "_READS", {})
@@ -2430,7 +2451,7 @@ def test_fake_git_matches_real_git_for_lane_gate_commands_and_decisions(
         _write(fx.worktree, {".superpowers/sdd/0.4.0/lanes/another-lane/PLAN.md": "another lane\n"})
         fx.commit({".superpowers/sdd/0.4.0/lanes/another-lane/PLAN.md": "another lane\n"}, "docs: touch another lane")
         fx.review()
-        other_lane = tuple(re.sub(r"\b[0-9a-f]{40}\b", "<SHA>", line) for line in fx.evaluate().refusals)
+        other_lane = tuple(label(line) for line in fx.evaluate().refusals)
         scenarios.append(("other-lane", other_lane))
         assert any("another-lane" in reason for reason in other_lane)
         (fx.worktree / fx.folder / "findings.md").unlink()
@@ -2438,9 +2459,19 @@ def test_fake_git_matches_real_git_for_lane_gate_commands_and_decisions(
         _git(fx.worktree, "commit", "-q", "-m", "docs: omit findings evidence")
         fx.head = _git(fx.worktree, "rev-parse", "HEAD")
         fx.review()
-        missing_evidence = tuple(re.sub(r"\b[0-9a-f]{40}\b", "<SHA>", line) for line in fx.evaluate().refusals)
+        missing_evidence = tuple(label(line) for line in fx.evaluate().refusals)
         scenarios.append(("missing-evidence", missing_evidence))
         assert any("findings.md" in reason for reason in missing_evidence)
+        _write(fx.integration, {"moved.txt": "the integration branch moved on\n"})
+        _git(fx.integration, "add", "moved.txt")
+        _git(fx.integration, "commit", "-q", "-m", "integration moves")
+        _git(fx.worktree, "merge", "-q", "--no-edit", "release")  # a real 3-way merge commit in the lane
+        fx.head = _git(fx.worktree, "rev-parse", "HEAD")
+        lane_gate._git(fx.worktree, "merge-base", "release", "HEAD")
+        lane_gate._git(fx.worktree, "merge-base", "--is-ancestor", "release", "HEAD", check=False)
+        fx.review()
+        merged = tuple(label(line) for line in fx.evaluate().refusals)
+        scenarios.append(("merged", merged))
         recordings[mode] = calls
         results[mode] = scenarios
     assert recordings["fake"] == recordings["real"]
@@ -2458,3 +2489,115 @@ def test_a_fixture_commit_spawns_no_maintenance_process(
     started = [line for line in trace.read_text(encoding="utf-8").splitlines() if "trace: built-in" in line]
     assert [line for line in started if "maintenance" in line] == []
     assert len(started) == 3  # add, commit, rev-parse: the fixture's own three
+
+
+# --- round 4 council: unquoted diff names, and a fake that models only what real git does the same way -------------
+
+
+def test_lane_diff_refuses_a_non_ascii_path_in_another_lane_folder(
+    tmp_path: Path, real_git: tuple[list[tuple[str, ...]], object]
+) -> None:
+    """Without -z, `diff --name-only` quotes `né.md` with octal escapes: no path rule matched, the gate accepted."""
+    fx = _fixture(tmp_path, review=False)
+    planted = ".superpowers/sdd/0.4.0/lanes/another-lane/né.md"
+    fx.commit({planted: "planted\n"}, "docs: plant")
+    fx.review()
+    assert _refused(fx.evaluate(), f"not the lane's own evidence folder: {planted}")
+
+
+def _fake_at(tmp_path: Path, tree: dict[str, str], sha: str = "S0") -> tuple[FakeGit, Path]:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _write(root, tree)
+    fake = FakeGit()
+    fake.bind(root, tree, sha)
+    return fake, root.resolve()
+
+
+def _fake_run(fake: FakeGit, root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return fake.run(["git", *args], cwd=root, check=False)
+
+
+def _fake_refuses(fake: FakeGit, root: Path, *args: str) -> bool:
+    """True when the fake raises ``AssertionError``: it models no such git behaviour and says so, never guesses."""
+    try:
+        fake.run(["git", *args], cwd=root, check=False)
+    except AssertionError:
+        return True
+    return False
+
+
+def _fork(tmp_path: Path, base: dict[str, str], ours: dict[str, str], theirs: dict[str, str]) -> tuple[FakeGit, Path]:
+    """HEAD is ``ours``; ref ``other`` is ``theirs``; both are children of ``base``."""
+    fake, root = _fake_at(tmp_path, ours, "OURS")
+    fake.trees.update({"BASE": base, "THEIRS": theirs})
+    fake.parents.update({"OURS": ("BASE",), "THEIRS": ("BASE",), "BASE": ()})
+    fake.refs["other"] = "THEIRS"
+    return fake, root
+
+
+def test_fake_git_merge_combines_changes_made_on_different_paths(tmp_path: Path) -> None:
+    fake, root = _fork(tmp_path, {"a": "1", "b": "1"}, {"a": "2", "b": "1"}, {"a": "1", "b": "2"})
+    _fake_run(fake, root, "merge", "-q", "--no-edit", "other")
+    assert fake.trees[fake.heads[root]] == {"a": "2", "b": "2"}
+
+
+def test_fake_git_refuses_a_merge_of_an_unknown_ref(tmp_path: Path) -> None:
+    fake, root = _fork(tmp_path, {"a": "1"}, {"a": "2"}, {"a": "1"})
+    assert _fake_refuses(fake, root, "merge", "-q", "--no-edit", "no-such-ref")
+
+
+def test_fake_git_refuses_a_merge_that_changes_a_path_on_both_sides(tmp_path: Path) -> None:
+    fake, root = _fork(tmp_path, {"a": "1"}, {"a": "2"}, {"a": "3"})
+    assert _fake_refuses(fake, root, "merge", "-q", "--no-edit", "other")
+
+
+def test_fake_git_refuses_ff_only_when_head_is_not_an_ancestor(tmp_path: Path) -> None:
+    fake, root = _fork(tmp_path, {"a": "1"}, {"a": "2"}, {"b": "1"})
+    assert _fake_refuses(fake, root, "merge", "-q", "--ff-only", "other")
+
+
+def test_fake_git_add_stages_and_commit_takes_only_what_is_staged(tmp_path: Path) -> None:
+    fake, root = _fake_at(tmp_path, {"a": "1"})
+    _write(root, {"new.txt": "x"})
+    assert _fake_run(fake, root, "commit", "-q", "-m", "nothing staged").returncode != 0  # real git: nothing to commit
+
+
+def test_fake_git_status_lists_a_staged_new_file(tmp_path: Path) -> None:
+    fake, root = _fake_at(tmp_path, {"a": "1"})
+    _write(root, {"new.txt": "x"})
+    _fake_run(fake, root, "add", "new.txt")
+    assert _fake_run(fake, root, "status", "--porcelain", "--untracked-files=no").stdout == "A  new.txt\n"
+
+
+def test_fake_git_merge_base_is_the_best_common_ancestor(tmp_path: Path) -> None:
+    """History B0 <- R1, L1, S1; M1 = (L1, R1); M2 = (M1, S1): git says R1, an older ancestor B0 is not the base."""
+    fake, root = _fake_at(tmp_path, {"a": "1"}, "M2")
+    fake.trees.update({name: {"a": "1"} for name in ("B0", "R1", "L1", "S1", "M1")})
+    fake.parents.update({"B0": (), "R1": ("B0",), "L1": ("B0",), "S1": ("B0",), "M1": ("L1", "R1"), "M2": ("M1", "S1")})
+    assert _fake_run(fake, root, "merge-base", "R1", "M2").stdout == "R1\n"
+
+
+def test_fake_git_is_ancestor_resolves_the_older_ref_too(tmp_path: Path) -> None:
+    """`_sha_problem` asks whether a red is already in `release`: a ref name on the left never matched a sha."""
+    fake, root = _fake_at(tmp_path, {"a": "1"}, "CHILD")
+    fake.trees["PARENT"] = {"a": "0"}
+    fake.parents["CHILD"] = ("PARENT",)
+    fake.refs["release"] = "PARENT"
+    assert _fake_run(fake, root, "merge-base", "--is-ancestor", "release", "HEAD").returncode == 0
+
+
+def test_fake_git_refuses_a_flag_it_does_not_model(tmp_path: Path) -> None:
+    fake, root = _fake_at(tmp_path, {"a": "1"})
+    assert _fake_refuses(fake, root, "status", "--porcelain", "--untracked-files=all")
+
+
+def test_fake_git_rev_parse_verify_reads_its_flags_in_either_order(tmp_path: Path) -> None:
+    fake, root = _fake_at(tmp_path, {"a": "1"}, "S0")
+    done = _fake_run(fake, root, "rev-parse", "--quiet", "--verify", "HEAD")
+    assert (done.returncode, done.stdout) == (0, "S0\n")
+
+
+def test_fixture_binds_the_lane_branch_to_the_lane_name(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, "other-lane")
+    assert _git(fx.worktree, "branch", "--show-current") == "lane/other-lane"
