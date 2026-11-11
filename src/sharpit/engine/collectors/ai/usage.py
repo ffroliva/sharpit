@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from sharpit.engine.capture.traces import SpanBuffer
-from sharpit.engine.masking import Exposure, Masker
+from sharpit.engine.masking import MASK, Exposure, Masker
 
 from . import AiSettings, recognizer
 
@@ -115,6 +115,17 @@ def _chats(spans: list[Any]) -> list[Any]:
     )
 
 
+_SECRET_SHAPE = Masker(Exposure.MASKED, True)  # reads whether a name looks like a secret; never shown
+
+
+def _name(masker: Masker, name: str | None) -> str | None:
+    """A provider, model or finish-reason name: metadata, so METADATA_ONLY shows it unless it is secret-shaped."""
+    if name is None or getattr(masker, "_exposure", None) is not Exposure.METADATA_ONLY:
+        return masker.mask_text(name)
+    secrets_masked = getattr(masker, "_mask_secrets", True)
+    return MASK if secrets_masked and _SECRET_SHAPE.mask_text(name) != name else name
+
+
 def _preferred_model(attributes: Mapping[str, Any]) -> str:
     return recognizer.response_model(attributes) or recognizer.request_model(attributes) or "unknown"
 
@@ -132,13 +143,13 @@ def _summary(span: Any, siblings: list[Any], masker: Masker) -> dict[str, Any]:
         "spanId": _id(span, "span_id", 16),
         "startEpochNanos": getattr(span, "start_time", 0),
         "durationNanos": _duration(span),
-        "provider": masker.mask_text(recognizer.provider(attributes)),
-        "requestModel": masker.mask_text(recognizer.request_model(attributes)),
-        "responseModel": masker.mask_text(recognizer.response_model(attributes)),
+        "provider": _name(masker, recognizer.provider(attributes)),
+        "requestModel": _name(masker, recognizer.request_model(attributes)),
+        "responseModel": _name(masker, recognizer.response_model(attributes)),
         "inputTokens": recognizer.input_tokens(attributes),
         "outputTokens": recognizer.output_tokens(attributes),
         "totalTokens": recognizer.total_tokens(attributes),
-        "finishReason": masker.mask_text(recognizer.finish_reason(attributes)),
+        "finishReason": _name(masker, recognizer.finish_reason(attributes)),
         "statusCode": _status(span),
         "operation": "chat",
         "toolCallCount": tool_count,
@@ -156,7 +167,7 @@ def ai_overview(buffer: SpanBuffer, settings: AiSettings, now_ns: int) -> dict[s
         attributes = _attributes(chat)
         input_count = recognizer.input_tokens(attributes) or 0
         output_count = recognizer.output_tokens(attributes) or 0
-        model = buffer.masker.mask_text(_preferred_model(attributes)) or "unknown"
+        model = _name(buffer.masker, _preferred_model(attributes)) or "unknown"
         total_input += input_count
         total_output += output_count
         duration += _duration(chat)
