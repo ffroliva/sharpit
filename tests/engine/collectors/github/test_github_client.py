@@ -36,8 +36,10 @@ class _Output(io.BytesIO):
 
     consumed = 0
     block: threading.Event | None = None
+    delay = 0.0
 
     def read(self, size: int | None = -1, /) -> bytes:
+        time.sleep(self.delay)
         if self.block is not None:
             self.block.wait(3.0)
             return b""
@@ -52,17 +54,25 @@ class FakeProc:
     def __init__(self, stdout: bytes, returncode: int, hangs: bool, blocks: str = "") -> None:
         self.stdout = _Output(stdout)
         self.returncode = returncode
-        self.hangs = hangs or bool(blocks)
+        self.hangs = hangs or blocks in {"until-killed", "forever", "slow"}
+        self.slow = blocks == "slow"
         self.waited: list[float | None] = []
         self.kills = 0
         self.killed = threading.Event()
-        if blocks:
-            # "until-killed": the read ends when kill() runs; "forever": a shim's child keeps stdout open past the
-            # kill (bounded at 3 s so a regression cannot hang the suite)
-            self.stdout.block = self.killed if blocks == "until-killed" else threading.Event()
+        # "until-killed": the read ends when kill() runs; "forever": a shim's child keeps stdout open past the kill;
+        # "exited": the shim has exited (poll() answers) but its child holds stdout until the tree is killed; all
+        # bounded at 3 s so a regression cannot hang the suite. "slow": the read takes 0.3 s, wait() sleeps its timeout
+        if blocks in {"until-killed", "exited"}:
+            self.stdout.block = self.killed
+        elif blocks == "forever":
+            self.stdout.block = threading.Event()
+        elif blocks == "slow":
+            self.stdout.delay = 0.3
 
     def wait(self, timeout: float | None = None) -> int:
         self.waited.append(timeout)
+        if self.slow and not self.kills:
+            time.sleep(min(timeout or 0.0, 2.0))
         if self.hangs and not self.kills:
             raise subprocess.TimeoutExpired(["gh"], timeout or 0)
         return self.returncode
@@ -155,7 +165,8 @@ def test_an_empty_environment_never_yields_an_environment_sourced_token(gh_env: 
     assert kwargs["shell"] is False
     assert kwargs["stderr"] == subprocess.DEVNULL
     assert kwargs["stdin"] == subprocess.DEVNULL
-    assert runner.procs[0].waited == [0.5]
+    ((waited,),) = [runner.procs[0].waited]
+    assert 0.0 < waited <= 0.5  # what is left of the 0.5 s lookup
 
 
 @pytest.mark.parametrize(
@@ -188,7 +199,8 @@ def test_a_missing_or_non_positive_timeout_falls_back_to_the_default_instead_of_
     for timeout in (None, 0.0, -1.0):
         runner = Runner()
         resolve_token(timeout, gh_env, runner)
-        assert runner.procs[0].waited == [5.0]
+        ((waited,),) = [runner.procs[0].waited]
+        assert 4.0 < waited <= 5.0
 
 
 def test_create_reads_the_real_process_environment_without_throwing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -242,6 +254,47 @@ def test_an_extended_length_path_entry_cannot_reach_the_working_directory(
     runner = Runner()
     assert resolve_token(5.0, {"PATH": "\\\\?\\" + str(app)}, runner) is None
     assert runner.calls == []
+
+
+def _same_dir_forms(app: Path) -> list[str]:
+    plain = str(app)
+    return [
+        "\\\\?\\GLOBALROOT\\??\\" + plain,  # an NT object-manager path to the same directory
+        "\\\\localhost\\" + plain[0] + "$" + plain[2:],  # the admin share of the same drive
+    ]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="NT object and admin-share paths are Windows-only")
+@pytest.mark.parametrize("form", [0, 1], ids=["globalroot", "admin-share"])
+def test_another_spelling_of_the_working_directory_is_refused(
+    form: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _gh_dir(tmp_path / "app")
+    monkeypatch.chdir(app)
+    entry = _same_dir_forms(app)[form]
+    if not os.path.isdir(entry):
+        pytest.skip(f"{entry} is not reachable on this machine")
+    runner = Runner()
+    assert resolve_token(5.0, {"PATH": entry}, runner) is None
+    assert runner.calls == []
+
+
+def test_a_shim_that_exits_but_leaves_a_child_on_stdout_is_killed_and_closed(gh_env: dict[str, str]) -> None:
+    runner = Runner(blocks="exited")
+    started = time.monotonic()
+    assert resolve_token(0.3, gh_env, runner) is None
+    assert time.monotonic() - started < 1.5
+    proc = runner.procs[0]
+    assert proc.kills >= 1  # the tree is killed although the shim itself already exited
+    assert proc.stdout.closed  # the reader ended (the kill released the pipe) and the pipe was closed
+
+
+def test_the_whole_token_lookup_is_bounded_by_its_timeout(gh_env: dict[str, str]) -> None:
+    runner = Runner(blocks="slow")  # the read takes 0.3 s, then wait() sleeps whatever it is given
+    started = time.monotonic()
+    resolve_token(0.5, gh_env, runner)
+    elapsed = time.monotonic() - started
+    assert elapsed < 0.75  # read 0.3 + wait capped at the 0.2 left (+ slack), not read 0.3 + a fresh 0.5 wait
 
 
 # ---- client ------------------------------------------------------------------------------------------------------
@@ -665,6 +718,17 @@ def test_github_non_https_api_base_never_sends_the_token(no_side_effects) -> Non
         (f"{REPO}/actions/artifacts", '{"total_count": "42"}', "actions-artifacts", "used", 42),
         (f"{REPO}/actions/artifacts", '{"total_count": "1.5"}', "actions-artifacts", "used", None),
         (f"{REPO}/actions/artifacts", '{"total_count": 7.9}', "actions-artifacts", "used", 7),
+        (
+            f"{REPO}/actions/artifacts",
+            '{"total_count": 9.223372036854775807e18}',
+            "actions-artifacts",
+            "used",
+            2**63 - 1,
+        ),
+        (f"{REPO}/actions/artifacts", '{"total_count": "+5"}', "actions-artifacts", "used", 5),
+        (f"{REPO}/actions/artifacts", '{"total_count": "\\u0663"}', "actions-artifacts", "used", None),
+        (f"{REPO}/actions/artifacts", '{"total_count": "' + "1" * 5000 + '"}', "actions-artifacts", "used", None),
+        (f"{REPO}/actions/artifacts", '{"total_count": ' + "1" * 5000 + "}", "actions-artifacts", "used", None),
     ],
     ids=[
         "inf",
@@ -676,6 +740,11 @@ def test_github_non_https_api_base_never_sends_the_token(no_side_effects) -> Non
         "int-string",
         "fraction-string",
         "fraction",
+        "long-edge-float",
+        "plus-string",
+        "arabic-digit",
+        "5000-digit-string",
+        "5000-digit-number",
     ],
 )
 def test_github_numbers_out_of_long_range_give_the_jackson_default(
