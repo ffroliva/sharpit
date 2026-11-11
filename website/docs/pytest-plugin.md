@@ -33,6 +33,7 @@ continue to use `SHARPIT_*` environment variables.
 | `--sharpit` | `sharpit = true` | off | Turn the plugin on for this session |
 | `--sharpit-report=PATH` | `sharpit_report` | `sharpit-report.json` | Path to write the JSON report (controller only) |
 | `--sharpit-junit=PATH` | `sharpit_junit` | none | Path to write the JUnit XML report; omitted when unset |
+| `--sharpit-sarif=PATH` | `sharpit_sarif` | none | Path to write the findings as SARIF 2.1.0 (controller only); omitted when unset |
 | `--sharpit-max-queries=N` | `sharpit_max_queries` | none | Default per-test query budget for the call phase |
 | `--sharpit-fail-on=SEV` | `sharpit_fail_on` | `HIGH` | Minimum advisor finding severity that fails the session |
 | `--sharpit-allow-unknown` | `sharpit_allow_unknown = true` | off | Allow `unknown` run status without failing the build |

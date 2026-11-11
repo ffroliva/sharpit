@@ -10,7 +10,7 @@ import pytest
 
 from sharpit import __version__
 from sharpit.engine.testsession import baseline as baseline_io
-from sharpit.engine.testsession import outcome, report
+from sharpit.engine.testsession import outcome, report, sarif
 from sharpit.engine.testsession.facts import finding_from
 from sharpit.engine.testsession.finish import GateOptions, finish
 
@@ -57,6 +57,8 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
         report.write_json(state.options.report, data)
         if state.options.junit:
             report.write_junit(state.options.junit, data, allow_unknown=state.options.allow_unknown)
+        if state.options.sarif:
+            sarif.write_sarif(state.options.sarif, data, sink.masker)
         if refusal:
             raise pytest.UsageError(refusal)
         if exitstatus == 0 and outcome.exit_fails(
