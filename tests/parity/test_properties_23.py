@@ -72,6 +72,8 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.sql-trace.n-plus-one-threshold"),
     pytest.mark.bootui("prop:bootui.sql-trace.recording"),
     pytest.mark.bootui("prop:bootui.sql-trace.slow-query-threshold-millis"),
+    pytest.mark.bootui("prop:bootui.startup.capacity"),
+    pytest.mark.bootui("prop:bootui.startup.enabled"),
     pytest.mark.bootui("prop:bootui.transactions.connection-hold-threshold-millis"),
     pytest.mark.bootui("prop:bootui.transactions.enabled"),
     pytest.mark.bootui("prop:bootui.transactions.max-entries"),

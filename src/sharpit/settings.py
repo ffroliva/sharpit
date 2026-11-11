@@ -158,6 +158,8 @@ class SharpitSettings:
     database_advisor_max_vendor_rows: int = 500
     architecture_max_files: int = 2000
     architecture_max_file_bytes: int = 524288
+    startup_enabled: bool = True
+    startup_capacity: int = 0
     app_package: str | None = None  # dotted name, resolved through sys.modules only (never imported)
     warnings: tuple[str, ...] = ()
 

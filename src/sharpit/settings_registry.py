@@ -286,6 +286,8 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "architecture_max_files": (_int, None),
     "architecture_max_file_bytes": (_int, None),
     "app_package": (_module_name, None),
+    "startup_enabled": (lambda _raw: True, True),
+    "startup_capacity": (lambda _raw: 0, 0),
 }
 
 NEVER_ECHOED = {
@@ -390,6 +392,8 @@ _NON_CREDENTIAL_FIELDS = {
     "database_advisor_max_vendor_rows": "Vendor row count limit, not a credential.",
     "architecture_max_files": "File count limit, not a credential.",
     "architecture_max_file_bytes": "File size limit, not a credential.",
+    "startup_enabled": _FLAG,
+    "startup_capacity": "Startup step count limit, not a credential.",
     "app_package": "Python package name, not a credential.",
     "warnings": "Diagnostic messages, not a credential.",
 }
