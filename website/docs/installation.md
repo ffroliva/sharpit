@@ -35,6 +35,7 @@ FastAPI and pydantic-settings have an extra; every other library is one your app
 | `postgresql` | SQLAlchemy 2.0+ and a PostgreSQL driver | none: your app brings them | tested with psycopg 3 |
 | `mysql` | SQLAlchemy 2.0+ and a MySQL or MariaDB driver | none: your app brings them | tested with PyMySQL; `asyncmy` and `mysqlclient` are untested |
 | `traces` | OpenTelemetry SDK (`opentelemetry-sdk`) | none: your app brings it | needs the app's own SDK `TracerProvider`; sharpit installs none |
+| `metrics` | `prometheus-client` | none: your app brings it | collects the already-imported registry on request (running host collectors); masks label values and HELP text |
 | none (running sharpit's own tests) | the test dependencies of the repository | `sharpit[test]` | contributors only; no panel needs it |
 
 The `alembic` panel needs no library: it reads `alembic.ini` (or `[tool.alembic]`) and the revision files.

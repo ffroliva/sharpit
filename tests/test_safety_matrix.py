@@ -675,13 +675,19 @@ def _sweep_app(variant: str, state_dir: str, **options: Any) -> tuple[FastAPI, C
 
 
 ADVISOR_VIOLATIONS = re.compile(r"/sharpit/api/[^/]+/rules/[^/]+/violations")
+METRICS_DETAIL = "/sharpit/api/metrics/detail"
 NO_SCAN_ID = {"error": "Advisor scan ID must not be blank."}  # contract: the 400 of a violations read without scanId
+NO_METRIC_NAME = {
+    "error": "Metric name must not be blank"
+}  # BootUI MetricsControllerTests.missingDetailNameIsMappedToCanonicalBadRequest
 
 
 def _get_problem(path: str, resp: httpx.Response) -> str | None:
     """Why a swept GET's answer is wrong, or None."""
     if ADVISOR_VIOLATIONS.fullmatch(path):  # any advisor's violations route needs a scanId: without one, 400, no scan
         ok = resp.status_code == 400 and resp.json() == NO_SCAN_ID
+    elif path == METRICS_DETAIL:  # BootUI requires a nonblank name; this error is returned before registry access
+        ok = resp.status_code == 400 and resp.json() == NO_METRIC_NAME
     else:
         ok = resp.status_code in (200, 307, 404)
     return None if ok else f"{path}: {resp.status_code} {resp.text}"
@@ -806,10 +812,10 @@ def test_400_off_a_violations_route_fails_the_sweep() -> None:
 def test_metrics_detail_missing_name_accepts_only_the_contract_400() -> None:
     resp = httpx.Response(400, json={"error": "Metric name must not be blank"})
 
-    assert _get_problem("/sharpit/api/metrics/detail", resp) is None
+    assert _get_problem(METRICS_DETAIL, resp) is None
 
 
 def test_metrics_detail_400_for_another_reason_fails_the_sweep() -> None:
     resp = httpx.Response(400, json={"error": "Metric name is invalid"})
 
-    assert _get_problem("/sharpit/api/metrics/detail", resp) is not None
+    assert _get_problem(METRICS_DETAIL, resp) is not None
