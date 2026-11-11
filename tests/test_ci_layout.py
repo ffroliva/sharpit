@@ -121,13 +121,17 @@ NO_BUDGETS_ARGS = "@${{ runner.temp }}/no-budgets.args"  # --ignore=<timing file
 def test_the_budget_files_run_alone_after_the_parallel_step(job: str) -> None:
     """Budget tests time capture on vs off: beside xdist workers still draining they fail on CI only, so every leg
     runs them in their own `-n 0` step on its last shard, after the parallel step, which ignores them (each test once).
-    Under coverage the tracer would skip them (tests/overhead.py::paired), so that step has no coverage either."""
+    The coverage leg keeps them in its parallel step (their ordinary tests are coverage input; tests/overhead.py::paired
+    skips the budget assertions under the tracer) and reruns them unmeasured in the budget step."""
     steps = _split_steps(JOBS[job])
     runs = [step for step in steps if re.search(r"run:.*\bpytest\b", step)]
     parallel = [step for step in runs if "-n auto" in step]
     budgets = [step for step in runs if BUDGETS_ARGS in step]
     assert len(parallel) == 1, parallel
-    assert NO_BUDGETS_ARGS in parallel[0]
+    if job == "coverage-shard":
+        assert NO_BUDGETS_ARGS not in parallel[0], "the timing files' ordinary tests left the coverage input"
+    else:
+        assert NO_BUDGETS_ARGS in parallel[0]
     assert len(budgets) == 1, f"{job}: no step runs the timing files alone"
     assert len(runs) == 2, f"{job}: the timing files run only in the parallel step (ignored) and the budget step"
     assert " -n 0 " in budgets[0]
@@ -552,7 +556,10 @@ def test_superseded_pull_request_runs_are_cancelled_and_main_never_is() -> None:
     """A superseded PR run kept its runners busy for the run that replaced it; a push to main runs to completion."""
     header = CI.split("\njobs:\n", 1)[0]
     assert re.search(r"^concurrency:$", header, re.MULTILINE), "no workflow-level concurrency"
-    assert "  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}" in header
+    group = re.search(r"^  group: (.+)$", header, re.MULTILINE)
+    assert group, "no concurrency group"
+    # GitHub cancels a run WAITING in a group even without cancel-in-progress: a push must never share one
+    assert group[1] == "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}"
     assert "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in header
     assert "cancel-in-progress: true" not in CI
 
