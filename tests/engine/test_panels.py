@@ -113,8 +113,9 @@ def test_w5b_wave1_panel_rows_match_bootui(no_side_effects: SideEffectGuard):
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
         no_side_effects.block_network()
         listed = {panel["id"] for panel in client.get("/sharpit/api/panels").json()["panels"]}
-    assert listed.isdisjoint(expected.keys() - {"startup"})
+    assert listed.isdisjoint(expected.keys() - {"startup", "metrics"})
     assert "startup" in listed
+    assert "metrics" in listed
     assert no_side_effects.violations == []
 
 
