@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -22,10 +23,18 @@ _CONTENT_KEYS = frozenset(
         "gen_ai.system_instructions",
         "gen_ai.tool.call.arguments",
         "gen_ai.tool.call.result",
+        "spring.ai.tool.call.arguments",
+        "spring.ai.tool.call.result",
         "db.vector.query.content",
         "db.vector.query.response.documents",
+        # D-A1, stricter than BootUI: OpenInference and Traceloop carry the prompt and completion under these keys
+        "input.value",
+        "output.value",
+        "traceloop.entity.input",
+        "traceloop.entity.output",
     }
 )
+_EVENT_CONTENT_KEYS = _CONTENT_KEYS | {"content", "gen_ai.event.content"}  # span-event message bodies (D-A1)
 _CONTENT_PREFIXES = ("gen_ai.prompt.", "gen_ai.completion.")
 _GENAI_INSTRUMENTATIONS = (
     "opentelemetry.instrumentation.openai_v2",
@@ -134,6 +143,7 @@ def ai_overview(buffer: SpanBuffer, settings: AiSettings, now_ns: int) -> dict[s
         errors += _status(chat) == "ERROR"
         tokens_by_model[model] = tokens_by_model.get(model, 0) + input_count + output_count
         calls_by_model[model] = calls_by_model.get(model, 0) + 1
+    operations = Counter(recognizer.operation(_attributes(span), getattr(span, "name", "")) for span in spans)
     recent_limit = max(0, min(settings.max_recent_chats, _MAX_CHATS))
     recent = [_summary(chat, traces.get(_id(chat, "trace_id", 32), [])) for chat in chats[:recent_limit]]
     spring_ai = langchain4j = False
@@ -159,15 +169,9 @@ def ai_overview(buffer: SpanBuffer, settings: AiSettings, now_ns: int) -> dict[s
         ),
         "errorCount": errors,
         "averageDurationNanos": duration // len(chats) if chats else 0,
-        "toolCallCount": sum(
-            recognizer.operation(_attributes(span), getattr(span, "name", "")) == "tool" for span in spans
-        ),
-        "vectorOperationCount": sum(
-            recognizer.operation(_attributes(span), getattr(span, "name", "")) == "retrieval" for span in spans
-        ),
-        "embeddingCount": sum(
-            recognizer.operation(_attributes(span), getattr(span, "name", "")) == "embeddings" for span in spans
-        ),
+        "toolCallCount": operations["tool"],
+        "vectorOperationCount": operations["retrieval"],
+        "embeddingCount": operations["embeddings"],
         "recent": recent,
         "contentBanner": banner,
     }
@@ -181,8 +185,11 @@ def ai_chats(buffer: SpanBuffer, limit: int | None) -> list[dict[str, Any]]:
     ]
 
 
-def _content_key(key: object) -> bool:
-    return isinstance(key, str) and (key in _CONTENT_KEYS or key.startswith(_CONTENT_PREFIXES))
+def _hide_content(rows: list[dict[str, Any]], keys: frozenset[str] = _CONTENT_KEYS) -> None:
+    for row in rows:
+        key = row.get("key")
+        if isinstance(key, str) and ((name := key.lower()) in keys or name.startswith(_CONTENT_PREFIXES)):
+            row["value"] = None
 
 
 def _captured(attributes: Mapping[str, Any]) -> bool:
@@ -227,13 +234,9 @@ def ai_chat_detail(
     # OQ12 requires FULL even when secret masking is disabled.
     reveals_content = getattr(masker, "_exposure", None) is Exposure.FULL
     if not reveals_content:
-        for row in attributes:
-            if _content_key(row.get("key")):
-                row["value"] = None
+        _hide_content(attributes)
         for event in events:
-            for row in event.get("attributes", []):
-                if _content_key(row.get("key")):
-                    row["value"] = None
+            _hide_content(event.get("attributes", []), _EVENT_CONTENT_KEYS)
     content_captured = _captured(_attributes(chat))
     show_banner = True if settings is None else settings.show_content_capture_banner
     return {

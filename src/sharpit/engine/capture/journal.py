@@ -25,7 +25,7 @@ import threading
 import time
 import uuid
 from collections import Counter, deque
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Protocol, cast
 
 from sharpit.engine import sqltext
@@ -36,6 +36,7 @@ DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 REENTRANT, FAILED = "reentrant", "failed"  # the dropped keys of offers without a readable source
 _MAX_DEPTH = 32  # deeper than any event a sensor builds: a cycle
 _SCALAR_BYTES = 8  # estimate for a number, bool or None: the event's own field lengths, never sys.getsizeof
+_COUNTS = {"ai": frozenset({"inputTokens", "outputTokens"})}  # AiPayload's Long token counts: numbers, not secrets
 
 Event = Mapping[str, object]
 
@@ -61,6 +62,10 @@ class _NullSink:
 NULL_SINK: JournalSink = _NullSink()
 
 
+def _count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _snapshot(value: object, depth: int = 0) -> tuple[object, int]:
     """A deep, plain copy of ``value`` and its estimated size, in one walk.
 
@@ -83,6 +88,13 @@ def _snapshot(value: object, depth: int = 0) -> tuple[object, int]:
         items = [_snapshot(item, depth + 1) for item in cast("Sequence[object]", plain)]
         return [item for item, _ in items], sum(size for _, size in items)
     return plain, _SCALAR_BYTES
+
+
+def _flat(event: Event) -> tuple[object, int]:
+    """``_snapshot``'s size for a flat event of scalars, without the copy: the caller handed the event over."""
+    return event, sum(
+        len(key) + (len(value) if isinstance(value, str) else _SCALAR_BYTES) for key, value in event.items()
+    )
 
 
 # ported: JournalTextExposure: the runs a SQL shape keeps but cannot tell apart from a value, and what reads two ways
@@ -214,20 +226,27 @@ class RuntimeJournal:
         self._busy = threading.local()
 
     def offer(self, event: Event) -> bool:
+        return self._offer(event, _snapshot)
+
+    def offer_flat(self, event: dict[str, str | int | bool | None]) -> bool:
+        """``offer`` for an event of plain scalars the caller hands over and never touches again: no deep copy."""
+        return self._offer(event, _flat)
+
+    def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
         if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse
             self._dropped[REENTRANT] += 1
             return False
         with self._lock:
             self._busy.active = True
             try:
-                return self._append(event)
+                return self._append(event, store)
             except Exception:  # noqa: BLE001 - publishing never raises into the host; the event is dropped and counted
                 self._dropped[FAILED] += 1
                 return False
             finally:
                 self._busy.active = False
 
-    def _append(self, event: Event) -> bool:
+    def _append(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
         source = event.get("source")
         if not isinstance(source, str):
             self._dropped[FAILED] += 1
@@ -235,7 +254,7 @@ class RuntimeJournal:
         if not self._accepting or (self.sources is not None and source not in self.sources):
             self._dropped[source] += 1  # suspended, or a source not configured: counted, never silently lost
             return False
-        stored, size = _snapshot(event)
+        stored, size = store(event)
         if size > self.max_bytes:
             self._dropped[source] += 1  # one event larger than the whole byte bound
             return False
@@ -253,7 +272,14 @@ class RuntimeJournal:
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:
             events = tuple(event for event, _, _ in self._events if event.get("source") == source)
-        return tuple({key: _mask(value, key, self.masker) for key, value in event.items()} for event in events)
+        counts = _COUNTS.get(source, frozenset())
+        return tuple(
+            {
+                key: value if key in counts and _count(value) else _mask(value, key, self.masker)
+                for key, value in event.items()
+            }
+            for event in events
+        )
 
     def suspend(self) -> None:
         with self._lock:

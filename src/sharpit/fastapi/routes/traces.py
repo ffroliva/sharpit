@@ -20,7 +20,12 @@ DEFAULT_LIMIT = 100
 def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
     settings = ctx.settings
     api = settings.api_path[len(settings.path) :]
-    buffer = span_buffer(ctx, ai_event=ai_journal_event)
+    buffer = span_buffer(ctx)
+    journal = ctx.capture.journal
+    if journal is not None and (journal.sources is None or "ai" in journal.sources):
+        # set on the shared buffer whichever route made it; the hook first, as add() checks the journal first
+        buffer.ai_event = ai_journal_event
+        buffer.journal = journal
     if settings.panels["traces"].enabled:
         # armed at lifespan startup (or the first request without a lifespan), disarmed by its teardown at shutdown;
         # install's own attach pass ran before the routes were built, so this is the earliest chance

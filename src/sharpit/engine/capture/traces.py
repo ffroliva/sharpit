@@ -244,7 +244,7 @@ def _self_relative_path(path: str, root_path: str, self_path: str) -> str:
     return path
 
 
-def _no_ai_event(_span: Any) -> Mapping[str, object]:
+def _no_ai_event(_span: Any) -> dict[str, str | int | bool | None]:
     return {}
 
 
@@ -257,8 +257,6 @@ class SpanBuffer:
         capacity: int = 1000,
         self_path: str = "/sharpit",
         root_path: str = "",
-        journal: RuntimeJournal | None = None,
-        ai_event: Callable[[Any], Mapping[str, object]] | None = None,
     ) -> None:
         self.masker = masker
         self.application = application
@@ -270,8 +268,8 @@ class SpanBuffer:
         self.detached = False
         self._self_trace_ids: set[int] = set()
         self._spans: deque[Any] = deque(maxlen=capacity)  # bounded by spans: memory is what a span buffer costs
-        self.journal = journal
-        self.ai_event = ai_event or _no_ai_event
+        self.journal: RuntimeJournal | None = None  # set with ai_event by the traces wiring when the journal records ai
+        self.ai_event: Callable[[Any], dict[str, str | int | bool | None]] = _no_ai_event
 
     def on_start(self, span: Any) -> None:
         found = _raw_path(span) if getattr(getattr(span, "kind", None), "name", None) == "SERVER" else None
@@ -304,7 +302,7 @@ class SpanBuffer:
             return
         event = self.ai_event(span)
         if event:
-            self.journal.offer(event)
+            self.journal.offer_flat(event)
 
     def arm(self) -> Callable[[], None] | None:
         """A ``CaptureState.attachers`` entry: arm on the SDK provider, or ``None`` to be retried later."""
@@ -449,24 +447,11 @@ class SpanBuffer:
         }
 
 
-def span_buffer(
-    ctx: SharpitContext,
-    *,
-    ai_event: Callable[[Any], Mapping[str, object]] | None = None,
-) -> SpanBuffer:
+def span_buffer(ctx: SharpitContext) -> SpanBuffer:
     """The context's buffer, made on first use (route build); the routes and the MCP tools share it."""
     from sharpit.engine.context import application_family
 
-    journal = ctx.capture.journal
-    if journal is not None and (ai_event is None or (journal.sources is not None and "ai" not in journal.sources)):
-        journal = None
     return ctx.lazy(
         "traces.buffer",
-        lambda: SpanBuffer(
-            ctx.masker,
-            application=lambda: application_family(ctx),
-            self_path=ctx.settings.path,
-            journal=journal,
-            ai_event=ai_event,
-        ),
+        lambda: SpanBuffer(ctx.masker, application=lambda: application_family(ctx), self_path=ctx.settings.path),
     )

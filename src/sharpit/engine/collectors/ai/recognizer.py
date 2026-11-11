@@ -4,6 +4,8 @@ import time
 from collections.abc import Mapping
 from typing import Any, cast
 
+_TOOL_SPAN_PREFIXES = ("spring.ai.tool", "execute_tool")
+
 
 def _string(attributes: Mapping[str, Any], key: str) -> str | None:
     value = attributes.get(key)
@@ -21,7 +23,7 @@ def operation(attributes: Mapping[str, Any], name: str) -> str | None:
         return "chat"
     if op == "embeddings":
         return "embeddings"
-    if op in {"execute_tool", "tool"} or name.startswith(("spring.ai.tool", "execute_tool")):
+    if op in {"execute_tool", "tool"} or name.startswith(_TOOL_SPAN_PREFIXES):
         return "tool"
     db = (_string(attributes, "db.system") or "").lower()
     kind = (_string(attributes, "spring.ai.kind") or "").lower()
@@ -91,19 +93,25 @@ def journal_finish_reason(attributes: Mapping[str, Any]) -> str | None:
     return first.lower() or None
 
 
-def ai_journal_event(span: Any) -> dict[str, Any]:
+def ai_journal_event(span: Any) -> dict[str, str | int | bool | None]:
     raw = getattr(span, "attributes", None)
-    if not isinstance(raw, Mapping):
-        return {}
-    attributes = cast(Mapping[str, Any], raw)
     name = getattr(span, "name", "")
     if not isinstance(name, str):
         name = ""
+    # cheap reject on the span path: without one of the keys operation() reads first, no span is a GenAI span
+    if not isinstance(raw, Mapping) or not (
+        "gen_ai.operation.name" in raw
+        or "db.system" in raw
+        or "spring.ai.kind" in raw
+        or "db.operation.name" in raw
+        or name.startswith(_TOOL_SPAN_PREFIXES)
+    ):
+        return {}
+    attributes = cast(Mapping[str, Any], raw)
     operation_name = operation(attributes, name)
     if operation_name is None:
         return {}
-    context = getattr(span, "context", None)
-    span_id = getattr(context, "span_id", None)
+    span_id = getattr(getattr(span, "context", None), "span_id", None)
     status = getattr(getattr(getattr(span, "status", None), "status_code", None), "name", None)
     return {
         "source": "ai",
