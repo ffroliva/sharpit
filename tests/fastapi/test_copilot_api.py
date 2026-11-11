@@ -290,6 +290,13 @@ def test_sessions_reads_start_no_sharpit_thread(tmp_path: Path, monkeypatch: pyt
         client.get("/sharpit/api/copilot/dashboard")
         client.get("/sharpit/api/copilot/sessions/s1")
         client.get("/sharpit/api/copilot/sessions/s1/events")
+        client.get("/sharpit/api/copilot/stream")
+
+        client.get("/sharpit/api/claude-code/sessions")
+        client.get("/sharpit/api/claude-code/dashboard")
+        client.get("/sharpit/api/claude-code/sessions/s1")
+        client.get("/sharpit/api/claude-code/sessions/s1/events")
+        client.get("/sharpit/api/claude-code/stream")
 
         call = CallContext(handle.context, {})
         tool = next(t for t in COPILOT_TOOLS if t.name == "get_copilot_sessions")
