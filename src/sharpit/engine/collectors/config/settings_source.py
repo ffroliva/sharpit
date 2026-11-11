@@ -1,12 +1,18 @@
 """pydantic-settings provenance: which source supplied each settings field (no side effects)."""
 
+import contextlib
 import dataclasses
+import datetime
+import decimal
 import importlib
+import pathlib
 import types
+import uuid
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Any, Union, cast, get_args, get_origin
+from typing import Annotated, Any, Literal, Union, cast, get_args, get_origin
 
 _MISSING = object()
 
@@ -145,15 +151,134 @@ def _settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[lis
     return entries, [label for label, _ in sources]
 
 
+_SAFE_SCALARS: tuple[type, ...] = (
+    str,
+    int,
+    float,
+    bool,
+    type(None),
+    pathlib.Path,
+    datetime.datetime,
+    datetime.date,
+    datetime.time,
+    datetime.timedelta,
+    decimal.Decimal,
+    uuid.UUID,
+)
+
+
+def is_provably_safe(annotation: object) -> bool:
+    """Whether an annotation is provably free of secrets (allow-list of plain scalars)."""
+    if annotation is None or annotation is type(None):
+        return True
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        args = get_args(annotation)
+        if not args:
+            return False
+        if any(
+            type(m).__name__ in ("Json", "Secret", "SecretStr", "SecretBytes")
+            or getattr(m, "__name__", "") in ("Json", "Secret", "SecretStr", "SecretBytes")
+            for m in args[1:]
+        ):
+            return False
+        return is_provably_safe(args[0])
+    if origin in (Union, types.UnionType):
+        args = get_args(annotation)
+        if not args:
+            return False
+        return all(is_provably_safe(arg) for arg in args)
+    if origin is Literal:
+        return True
+    if origin in (list, tuple, set, frozenset):
+        args = get_args(annotation)
+        if not args:
+            return False
+        return all(is_provably_safe(arg) for arg in args if arg is not Ellipsis)
+    if isinstance(annotation, type) and annotation in _SAFE_SCALARS:
+        return True
+    return bool(isinstance(annotation, type) and issubclass(annotation, Enum))
+
+
+def is_secret_scalar(annotation: object) -> bool:
+    """Whether an annotation represents a plain secret scalar (SecretStr, SecretBytes, Secret[...])."""
+    if annotation is None or annotation is type(None):
+        return False
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        args = get_args(annotation)
+        return is_secret_scalar(args[0]) if args else False
+    if origin in (Union, types.UnionType):
+        args = [a for a in get_args(annotation) if a is not None and a is not type(None)]
+        return bool(args) and any(is_secret_scalar(a) for a in args)
+    try:
+        import pydantic
+        from pydantic import SecretBytes, SecretStr
+    except ImportError:
+        return False
+    Secret = getattr(pydantic, "Secret", None)
+    if origin is not None and Secret is not None and origin is Secret:
+        return True
+    if isinstance(annotation, type):
+        if issubclass(annotation, (SecretStr, SecretBytes)):
+            return True
+        if Secret is not None and issubclass(annotation, Secret):
+            return True
+    return False
+
+
+class KeySafety(Enum):
+    SAFE = "SAFE"
+    UNSAFE_SCALAR = "UNSAFE_SCALAR"
+    UNSAFE_COMPLEX = "UNSAFE_COMPLEX"
+
+
+@dataclass
+class ModelFieldRule:
+    exact_names: set[str] = dataclasses.field(default_factory=set[str])
+    delimited_prefixes: set[str] = dataclasses.field(default_factory=set[str])
+    case_sensitive: bool = False
+    is_safe: bool = False
+    is_secret_scalar: bool = False
+
+
 @dataclass
 class ProfileSourceDescriptor:
     path: Path
     encoding: str = "utf-8"
-    exact_secret_names: set[str] = dataclasses.field(default_factory=set[str])
-    case_insensitive_secret_names: set[str] = dataclasses.field(default_factory=set[str])
+    rules: list[ModelFieldRule] = dataclasses.field(default_factory=list[ModelFieldRule])
+
+    def classify(self, key: str) -> KeySafety:
+        # Check exact matches first
+        matched_exact: list[ModelFieldRule] = []
+        for rule in self.rules:
+            test_key = key if rule.case_sensitive else key.upper()
+            if test_key in rule.exact_names:
+                matched_exact.append(rule)
+        if matched_exact:
+            if any(not r.is_safe for r in matched_exact):
+                if any(r.is_secret_scalar for r in matched_exact):
+                    return KeySafety.UNSAFE_SCALAR
+                return KeySafety.UNSAFE_COMPLEX
+            return KeySafety.SAFE
+
+        # Check delimited prefixes next
+        matched_delim: list[ModelFieldRule] = []
+        for rule in self.rules:
+            test_key = key if rule.case_sensitive else key.upper()
+            for prefix in rule.delimited_prefixes:
+                if test_key.startswith(prefix):
+                    matched_delim.append(rule)
+                    break
+        if matched_delim:
+            if any(not r.is_safe for r in matched_delim):
+                return KeySafety.UNSAFE_COMPLEX
+            return KeySafety.SAFE
+
+        return KeySafety.SAFE
 
     def is_secret(self, key: str) -> bool:
-        return key in self.exact_secret_names or key.upper() in self.case_insensitive_secret_names
+        return self.classify(key) is not KeySafety.SAFE
 
 
 def parse_env(content: str) -> list[tuple[str, str | None]]:
@@ -168,21 +293,25 @@ def parse_env(content: str) -> list[tuple[str, str | None]]:
     return list(data.items())
 
 
-def _model_secret_names(cls: type[Any], instance: object | None = None) -> tuple[set[str], bool]:
+def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
     try:
-        from pydantic import BaseModel, SecretBytes, SecretStr
         from pydantic_settings import BaseSettings, EnvSettingsSource
     except ImportError:
-        return set(), False
+        return []
 
     if not issubclass(cls, BaseSettings):
-        return set(), False
+        return []
 
     cfg = getattr(cls, "model_config", None)
     case_sensitive = bool(
         cast(Mapping[str, object], cfg).get("case_sensitive", False)
         if isinstance(cfg, Mapping)
         else getattr(cfg, "case_sensitive", False)
+    )
+    env_prefix = str(
+        cast(Mapping[str, object], cfg).get("env_prefix", "")
+        if isinstance(cfg, Mapping)
+        else getattr(cfg, "env_prefix", "") or ""
     )
 
     class _Env(EnvSettingsSource):
@@ -191,51 +320,64 @@ def _model_secret_names(cls: type[Any], instance: object | None = None) -> tuple
 
     env_src = _Env(cls)
     delimiter = env_src.env_nested_delimiter
-    secret_names: set[str] = set()
 
-    def secret_type(annotation: object, seen: set[type[Any]] | None = None) -> type[Any] | None:
-        visited: set[type[Any]] = seen if seen is not None else set()
-        for arg in get_args(annotation):
-            found = secret_type(arg, visited)
-            if found is not None:
-                return found
-        for candidate in _classes(annotation):
-            if issubclass(candidate, (SecretStr, SecretBytes)):
-                return candidate
-            if issubclass(candidate, BaseModel) and candidate not in visited:
-                visited.add(candidate)
-                for nested in candidate.model_fields.values():
-                    found = secret_type(nested.annotation, visited)
-                    if found is not None:
-                        return found
-        return None
-
-    def collect(name: str, field: Any, val: object) -> None:
-        models = [m for m in _classes(field.annotation) if issubclass(m, BaseModel)]
-        if secret_type(field.annotation) is not None:
-            secret_names.add(name if case_sensitive else name.upper())
-        if delimiter and models:
-            for sub_model in models:
-                for sub, sub_field in sub_model.model_fields.items():
-                    sub_attr = getattr(val, sub, None) if isinstance(val, BaseModel) else None
-                    collect(f"{name}{delimiter}{sub}", sub_field, sub_attr)
-            return
-        secret = secret_type(field.annotation) is not None or isinstance(val, (SecretStr, SecretBytes))
-        if secret:
-            secret_names.add(name if case_sensitive else name.upper())
+    rules: list[ModelFieldRule] = []
 
     for fname, field in cls.model_fields.items():
-        val = getattr(instance, fname, None) if instance is not None else None
-        for item in env_src._extract_field_info(field, fname):  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-            collect(item[1], field, val)
-            if item[0] != item[1]:
-                collect(item[0], field, val)
+        is_safe = is_provably_safe(field.annotation)
+        secret_scalar = is_secret_scalar(field.annotation)
 
-    return secret_names, case_sensitive
+        candidate_names: set[str] = set()
+        candidate_names.add(fname)
+        candidate_names.add(fname.upper())
+        candidate_names.add(fname.lower())
+        if env_prefix:
+            candidate_names.add(f"{env_prefix}{fname}")
+            candidate_names.add(f"{env_prefix}{fname}".upper())
+            candidate_names.add(f"{env_prefix}{fname}".lower())
+
+        if field.alias:
+            candidate_names.add(field.alias)
+
+        val_alias = getattr(field, "validation_alias", None)
+        if isinstance(val_alias, str):
+            candidate_names.add(val_alias)
+        elif val_alias is not None and hasattr(val_alias, "choices"):
+            for c in getattr(val_alias, "choices", []):
+                if isinstance(c, str):
+                    candidate_names.add(c)
+
+        with contextlib.suppress(Exception):
+            for item in env_src._extract_field_info(field, fname):  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+                if item[0]:
+                    candidate_names.add(item[0])
+                if item[1]:
+                    candidate_names.add(item[1])
+
+        norm_exact: set[str] = set()
+        norm_delim: set[str] = set()
+        for name in candidate_names:
+            norm_name = name if case_sensitive else name.upper()
+            norm_exact.add(norm_name)
+            if delimiter:
+                delim_prefix = f"{name}{delimiter}"
+                norm_delim.add(delim_prefix if case_sensitive else delim_prefix.upper())
+
+        rules.append(
+            ModelFieldRule(
+                exact_names=norm_exact,
+                delimited_prefixes=norm_delim,
+                case_sensitive=case_sensitive,
+                is_safe=is_safe,
+                is_secret_scalar=secret_scalar,
+            )
+        )
+
+    return rules
 
 
 def declared_profile_sources(models: Iterable[object]) -> list[ProfileSourceDescriptor]:
-    """All declared profile sources with their encoding and secret-typed field names."""
+    """All declared profile sources with their encoding and field safety rules."""
     try:
         from pydantic_settings import BaseSettings
     except ImportError:
@@ -258,19 +400,15 @@ def declared_profile_sources(models: Iterable[object]) -> list[ProfileSourceDesc
             else getattr(cfg, "env_file_encoding", None)
         )
         encoding = str(raw_encoding or "utf-8")
-        secret_names, case_sensitive = _model_secret_names(cls, m if not isinstance(m, type) else None)
+        rules = _model_rules(cls)
 
         for p in _paths(env_file):
             if p not in by_path:
-                desc = ProfileSourceDescriptor(p, encoding)
+                desc = ProfileSourceDescriptor(p, encoding, list(rules))
                 by_path[p] = desc
                 result.append(desc)
             else:
-                desc = by_path[p]
-            if case_sensitive:
-                desc.exact_secret_names.update(secret_names)
-            else:
-                desc.case_insensitive_secret_names.update(secret_names)
+                by_path[p].rules.extend(rules)
     return result
 
 

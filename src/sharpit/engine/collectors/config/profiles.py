@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from sharpit.engine.collectors.config import _display  # pyright: ignore[reportPrivateUsage]
-from sharpit.engine.collectors.config.settings_source import declared_profile_sources, parse_env
+from sharpit.engine.collectors.config.settings_source import (
+    KeySafety,
+    ProfileSourceDescriptor,
+    declared_profile_sources,
+    parse_env,
+)
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.masking import Exposure
 
@@ -53,14 +57,29 @@ def _source_properties(
     ctx: SharpitContext,
     source_name: str,
     content: str,
-    is_secret_key: Callable[[str], bool],
+    descriptor: ProfileSourceDescriptor,
 ) -> list[dict[str, Any]]:
     props: list[dict[str, Any]] = []
+    exposure = ctx.settings.expose_values
     for key, val in parse_env(content):
-        secret_typed = is_secret_key(key)
-        if secret_typed and ctx.settings.expose_values is Exposure.FULL:
-            val = "**********"
-        display_val, masked = _display(ctx, key, val, secret_typed)
+        safety = descriptor.classify(key)
+        if safety is KeySafety.SAFE:
+            display_val, masked = _display(ctx, key, val, False)
+        elif safety is KeySafety.UNSAFE_SCALAR:
+            if val is None or exposure is Exposure.METADATA_ONLY:
+                display_val, masked = None, False
+            elif exposure is Exposure.FULL:
+                display_val, masked = "**********", False
+            else:  # Exposure.MASKED
+                display_val, masked = "******", True
+        else:  # KeySafety.UNSAFE_COMPLEX
+            if val is None or exposure is Exposure.METADATA_ONLY:
+                display_val, masked = None, False
+            elif exposure is Exposure.FULL:
+                display_val, masked = "******", True
+            else:  # Exposure.MASKED
+                display_val, masked = "******", True
+
         props.append(
             {
                 "name": key,
@@ -94,7 +113,7 @@ def profiles_report(ctx: SharpitContext) -> dict[str, Any]:
         content = _read(target, descriptor.encoding)
         if content is None:
             continue
-        props = _source_properties(ctx, str(declared), content, descriptor.is_secret)
+        props = _source_properties(ctx, str(declared), content, descriptor)
         if props:
             profile_sources.append(
                 {
