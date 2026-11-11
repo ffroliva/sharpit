@@ -40,6 +40,11 @@ _TOUCHED = (
     "BAR",
     "STALE_VAR",
     "CASEVAR",
+    "V",
+    "GOOD1",
+    "good1",
+    "E1",
+    "E2",
 )
 
 
@@ -604,3 +609,88 @@ def test_read_never_creates_overrides_file(tmp_path: Path) -> None:
     assert service.overrides() == {}
     assert not service.has_override("some.key")
     assert not file.exists()
+
+
+# --- values the OS environment cannot hold ---
+
+_UNREPRESENTABLE = [pytest.param("a" * 40000, id="40000-chars"), pytest.param("\ud800", id="lone-surrogate")]
+
+
+@pytest.mark.parametrize("value", _UNREPRESENTABLE)
+def test_put_refuses_values_the_environment_cannot_hold(tmp_path: Path, value: str) -> None:
+    file = tmp_path / "overrides.env"
+    service = ConfigOverrideService(overrides_file=file)
+    error = _raised(lambda: service.put("V", value))
+    assert isinstance(error, ValueError)
+    assert "V" not in os.environ
+    assert not file.exists()
+
+
+@pytest.mark.parametrize("raw", ['"' + "a" * 40000 + '"', r'"\ud800"'], ids=["40000-chars", "lone-surrogate"])
+def test_file_value_the_environment_cannot_hold_applies_nothing(tmp_path: Path, raw: str) -> None:
+    file = tmp_path / "overrides.env"
+    file.write_text(f'FOO="ok"\nV={raw}\n', encoding="utf-8")
+    holder: list[Any] = []
+    error = _raised(lambda: holder.append(_install(file)))
+    assert error is None
+    assert "FOO" not in os.environ
+    assert "V" not in os.environ
+    assert any("overrides" in w for w in holder[0].settings.warnings)
+
+
+def _fail_nth_environ_write(monkeypatch: pytest.MonkeyPatch, n: int) -> None:
+    real = os._Environ.__setitem__
+    calls = {"n": 0}
+
+    def flaky(self: Any, key: str, value: str) -> None:
+        calls["n"] += 1
+        if calls["n"] == n:
+            raise OSError("environment write refused")
+        real(self, key, value)
+
+    monkeypatch.setattr(os._Environ, "__setitem__", flaky)
+
+
+def test_failing_env_write_at_startup_applies_nothing_and_never_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    file = tmp_path / "overrides.env"
+    file.write_text('E1="one"\nE2="two"\n', encoding="utf-8")
+    monkeypatch.setenv("E1", "orig")
+    _fail_nth_environ_write(monkeypatch, 2)
+    holder: list[Any] = []
+    error = _raised(lambda: holder.append(_install(file)))
+    assert error is None
+    assert os.environ["E1"] == "orig"
+    assert "E2" not in os.environ
+    assert overrides_mod._ORIGINAL_ENVIRON == {}
+    assert any("overrides" in w for w in holder[0].settings.warnings)
+    assert not any("one" in w or "two" in w for w in holder[0].settings.warnings)
+
+
+def test_failing_env_write_in_put_restores_file_map_and_originals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    file = tmp_path / "overrides.env"
+    service = ConfigOverrideService(overrides_file=file)
+    service.put("keep.me", "1")
+    before = file.read_bytes()
+    originals = dict(overrides_mod._ORIGINAL_ENVIRON)
+    _fail_nth_environ_write(monkeypatch, 1)
+    error = _raised(lambda: service.put("E1", "new"))
+    assert isinstance(error, RuntimeError)
+    assert "E1" not in os.environ
+    assert service.overrides() == {"keep.me": "1"}
+    assert file.read_bytes() == before
+    assert overrides_mod._ORIGINAL_ENVIRON == originals
+
+
+@pytest.mark.skipif(os.name != "nt", reason="env names are case-insensitive on Windows only")
+def test_windows_case_duplicates_in_a_file_apply_nothing(tmp_path: Path) -> None:
+    file = tmp_path / "overrides.env"
+    file.write_text('GOOD1="a"\ngood1="b"\n', encoding="utf-8")
+    holder: list[Any] = []
+    error = _raised(lambda: holder.append(_install(file)))
+    assert error is None
+    assert "GOOD1" not in os.environ
+    assert any("overrides" in w for w in holder[0].settings.warnings)
