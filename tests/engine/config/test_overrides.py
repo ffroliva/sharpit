@@ -486,9 +486,11 @@ def test_hostile_file_value_applies_nothing_and_never_raises(tmp_path: Path, raw
 def test_oversized_file_value_applies_nothing(tmp_path: Path) -> None:
     file = tmp_path / "overrides.env"
     file.write_text('FOO="ok"\nBAR="' + "x" * (64 * 1024 + 1) + '"\n', encoding="utf-8")
-    handle = _install(file)
+    holder: list[Any] = []
+    error = _raised(lambda: holder.append(_install(file)))
+    assert error is None
     assert "FOO" not in os.environ
-    assert any("overrides" in w for w in handle.settings.warnings)
+    assert any("overrides" in w for w in holder[0].settings.warnings)
 
 
 def test_service_constructor_never_raises_on_a_bad_file(tmp_path: Path) -> None:
@@ -546,7 +548,10 @@ def test_malformed_file_warning_names_only_the_line_number(tmp_path: Path, line:
 def test_load_accepts_a_utf8_bom(tmp_path: Path) -> None:
     file = tmp_path / "overrides.env"
     file.write_bytes(b'\xef\xbb\xbfFOO="bar"\n')
-    assert ConfigOverridesFileStore(file).load() == {"FOO": "bar"}
+    holder: list[dict[str, str]] = []
+    error = _raised(lambda: holder.append(ConfigOverridesFileStore(file).load()))
+    assert error is None
+    assert holder == [{"FOO": "bar"}]
 
 
 def test_load_refuses_an_oversized_file(tmp_path: Path) -> None:
