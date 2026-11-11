@@ -126,6 +126,9 @@ class SharpitSettings:
     threads_max_stack_frames: int = 64
     advisors_max_retained_violations: int = 10000
     stream_max_seconds: float = 3.0
+    ai_token_series_minutes: int = 60
+    ai_max_recent_chats: int = 100
+    ai_show_content_capture_banner: bool = True
     runtime_journal_enabled: bool = True
     runtime_journal_max_events: int = 50_000
     runtime_journal_max_bytes: int = 32 * 1024 * 1024

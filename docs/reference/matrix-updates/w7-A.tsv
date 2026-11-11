@@ -1,0 +1,9 @@
+route:GET /ai/overview	n-a	2.3.0 capture has no chats (recent is empty); test asserts the DTO keys/defaults
+route:GET /ai/tokens	matched	2.3.0 captured token-series shape and values match; tests/parity/test_routes_23.py
+tool:get_ai_overview	matched	NONE read tool schema and result match tools.json; tests/parity/test_tools_23.py
+cli:ai/overview	matched	CLI command path is ai overview; tests/parity/test_tools_23.py
+panel:ai	partial	Shared content-key rule on the traces path remains in fork (Fk); D-A1/OQ12
+prop:bootui.ai.token-series-minutes	matched	Default, env parsing and fail-safe covered by tests/test_settings.py
+prop:bootui.ai.max-recent-chats	matched	Default, env parsing and fail-safe covered by tests/test_settings.py
+prop:bootui.ai.show-content-capture-banner	matched	Default, env parsing and fail-safe covered by tests/test_settings.py
+prop:bootui.panels.ai.enabled	matched	Panel slot and guarded route refusal covered by AI safety tests
