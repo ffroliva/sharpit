@@ -110,7 +110,7 @@ def test_result_carries_rule_id_and_the_versioned_location_free_fingerprint() ->
 def test_baselined_finding_is_suppressed() -> None:
     (result,) = _results(_finding(baselineState="existing"))
 
-    assert [s["kind"] for s in result["suppressions"]] == ["external"]
+    assert [s["kind"] for s in result.get("suppressions", [])] == ["external"]
 
 
 @pytest.mark.parametrize("state", [None, "new"])
@@ -125,15 +125,15 @@ def test_location_less_finding_keeps_its_target_as_a_logical_location() -> None:
 
     (location,) = result["locations"]
     assert "physicalLocation" not in location
-    assert location["logicalLocations"] == [{"fullyQualifiedName": "GET /pets"}]
+    assert location.get("logicalLocations") == [{"fullyQualifiedName": "GET /pets"}]
 
 
 def test_location_is_root_relative() -> None:
     (result,) = _results(_finding(location={"path": "src/app/main.py", "line": 7}))
 
-    physical = result["locations"][0]["physicalLocation"]
-    assert physical["artifactLocation"] == {"uri": "src/app/main.py", "uriBaseId": "%SRCROOT%"}
-    assert physical["region"] == {"startLine": 7}
+    physical = result["locations"][0].get("physicalLocation", {})
+    assert physical.get("artifactLocation") == {"uri": "src/app/main.py", "uriBaseId": "%SRCROOT%"}
+    assert physical.get("region") == {"startLine": 7}
 
 
 @pytest.mark.parametrize(
