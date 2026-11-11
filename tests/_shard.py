@@ -24,7 +24,12 @@ _SPEC = pytest.StashKey[tuple[int, int]]()
 
 
 HEAVY_SECONDS = 30.0  # a file this costly (measured test seconds) competes with a timing test for the runner's cores
-HEAVY_PATHS: tuple[str, ...] = ()  # CPU-heavy files not measured yet: heavy from day one (none: the table has them all)
+# CPU-heavy files the CI weight understates: each starts nested pytest runs, so on an 8-vCPU sbx box it burned
+# ~2x its weight beside the budget tests (box 5 of 5, 427 CPU-s against ~200 on the others, b3478880, 2026-11-11)
+HEAVY_PATHS: tuple[str, ...] = (
+    "tests/pytest_plugin/test_plugin_xdist.py",
+    "tests/scripts/test_red_check.py",
+)
 OWN_JOB = (  # each heavier than a shard ceiling alone (487, 386, 418 s): the CI job masking-gates runs them whole
     "tests/masking/test_masking_scales_linearly.py",
     "tests/masking/test_statement_surfaces.py",
