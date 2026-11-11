@@ -271,6 +271,7 @@ class SideEffectGuard:
         self.state_dir = state_dir
         self.violations: list[str] = []
         self._originals: list[tuple[Any, str, Any]] = []
+        self._runtime_originals: list[tuple[Any, str, Any]] = []
         self.cwd = Path.cwd()  # the test's cwd at setup; a later chdir does not move the snapshot
         self._source_roots: list[str] = []
         self._spies: list[tuple[Any, str, Any]] = []
@@ -290,6 +291,38 @@ class SideEffectGuard:
         for owner, attr in ((socket.socket, "connect"), *((socket, n) for n in _BLOCKED[1:])):
             self._originals.append((owner, attr, getattr(owner, attr)))
             setattr(owner, attr, self._blocker(f"socket.{attr}"))
+        self._runtime_originals.append((sys, "addaudithook", sys.addaudithook))
+        sys.addaudithook = self._runtime_spy("sys.addaudithook", sys.addaudithook)
+        for attr in (
+            "use_tool_id",
+            "free_tool_id",
+            "clear_tool_id",
+            "set_events",
+            "set_local_events",
+            "register_callback",
+            "restart_events",
+        ):
+            owner = sys.monitoring
+            if not hasattr(owner, attr):
+                continue
+            original = getattr(owner, attr)
+            self._runtime_originals.append((owner, attr, original))
+            setattr(owner, attr, self._runtime_spy(f"sys.monitoring.{attr}", original))
+
+    def _runtime_spy(self, what: str, original: Callable[..., Any]) -> Callable[..., Any]:
+        def spy(*args: object, **kwargs: object) -> Any:
+            caller = sys._getframe(1).f_code.co_filename.replace("\\", "/")
+            try:
+                coverage_tool = bool(
+                    args and isinstance(args[0], int) and sys.monitoring.get_tool(args[0]) == "coverage.py"
+                )
+            except ValueError:
+                coverage_tool = False
+            if "/src/sharpit/" in caller and not coverage_tool:
+                self.violations.append(what)
+            return original(*args, **kwargs)
+
+        return spy
 
     def _blocker(self, what: str) -> Callable[..., Any]:
         def blocked(*_args: object, **_kwargs: object) -> Any:
@@ -302,6 +335,11 @@ class SideEffectGuard:
         for owner, attr, original in reversed(self._originals):
             setattr(owner, attr, original)
         self._originals.clear()
+
+    def restore_runtime_state(self) -> None:
+        for owner, attr, original in reversed(self._runtime_originals):
+            setattr(owner, attr, original)
+        self._runtime_originals.clear()
 
     def watch_sources(self, root: Path) -> None:
         """Report every file opened under ``root`` (the app's source tree) until ``unwatch_sources``."""
@@ -389,7 +427,10 @@ def no_side_effects(tmp_state_dir: Path) -> Iterator[SideEffectGuard]:
     finally:
         guard.unblock_network()
         guard.unwatch_sources()
-    guard.verify()
+        try:
+            guard.verify()
+        finally:
+            guard.restore_runtime_state()
 
 
 # --- SSE streams held open on the ASGI app (TestClient buffers a body until the stream ends) -----------------------
@@ -460,6 +501,30 @@ def restore_logging() -> Iterator[None]:
         lg = logging.getLogger(None if name == "root" else name)
         lg.disabled, lg.level, lg.propagate = disabled, level, propagate
         lg.handlers[:] = handlers
+
+
+_RUNTIME_NAMES = ("addaudithook",)
+_MONITORING_NAMES = ("use_tool_id", "free_tool_id", "clear_tool_id", "set_events", "set_local_events")
+_MONITORING_NAMES += ("register_callback", "restart_events")
+_RUNTIME_ORIGINALS = {f"sys.{n}": getattr(sys, n) for n in _RUNTIME_NAMES} | {
+    f"sys.monitoring.{n}": getattr(sys.monitoring, n) for n in _MONITORING_NAMES if hasattr(sys.monitoring, n)
+}
+
+
+def leaked_runtime_spies() -> list[str]:
+    """The SideEffectGuard runtime functions that are not the interpreter's own (a guard left its spy behind)."""
+    owners = {"sys": sys, "sys.monitoring": sys.monitoring}
+    return [
+        name
+        for name, original in _RUNTIME_ORIGINALS.items()
+        if getattr(owners[name.rpartition(".")[0]], name.rpartition(".")[2]) is not original
+    ]
+
+
+@pytest.fixture(autouse=True)
+def _no_runtime_spy_leak() -> Iterator[None]:
+    yield
+    assert leaked_runtime_spies() == [], "test left a SideEffectGuard spy installed (call restore_runtime_state)"
 
 
 @pytest.fixture(autouse=True)

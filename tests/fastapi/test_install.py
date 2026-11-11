@@ -183,7 +183,11 @@ def test_panels_platform_fastapi_and_ids():
     assert resp.status_code == 200
     body = resp.json()
     assert body["platform"] == "fastapi"
-    assert [p["id"] for p in body["panels"]] == expected_panel_ids()  # the base 19, then implemented 0.4 panels
+    assert [p["id"] for p in body["panels"]] == expected_panel_ids()  # the base panels, then implemented 0.4 panels
+    live_memory = next(p for p in body["panels"] if p["id"] == "live-memory")
+    assert live_memory["title"] == "Live Memory"
+    assert live_memory["enabled"] is True
+    assert live_memory["readOnly"] is False
     loggers = body["panels"][3]
     assert loggers["readOnly"] is True
     assert loggers["readOnlyReason"] == "Panel is read-only via SHARPIT_PANELS_LOGGERS_READ_ONLY=true"
@@ -196,7 +200,7 @@ def test_mvp_panels_stay_available():
     # database-connection-pools depends on whether SQLAlchemy is imported: test_panel_availability covers both states
     excluded = ("sql-trace", "alembic", "database-connection-pools")
     mvp = [p for p in body["panels"] if p["id"] in BASE_PANEL_IDS and p["id"] not in excluded]
-    assert len(mvp) == 16  # the 8 MVP panels, http-exchanges (Task 2), log-tail (Task 3), exceptions (Task 4),
+    assert len(mvp) == 17  # the live-memory panel is included alongside the 0.2.0 additions
     # activity (Task 6), health (Task 7), threads (Task 8), rest-api (Task 10), http-probe (Task 11)
     assert all(p["available"] and p["unavailableReason"] is None for p in mvp)
 

@@ -50,12 +50,18 @@ class HookRegistry:
     def resume(self) -> None:
         self._each(self.hooks(), "resume")
 
-    def _each(self, hooks: Iterable[Suspendable], action: str) -> None:
+    def discard(self) -> None:
+        self._each(self.hooks(), "discard", reset=False)
+
+    def _each(self, hooks: Iterable[Suspendable], action: str, *, reset: bool = True) -> None:
         """Run ``action`` on every hook; one hook's failure is recorded and the rest carry on (as BootUI)."""
-        self.failures = []
+        if reset:
+            self.failures = []
         for hook in hooks:
             try:
-                getattr(hook, action)()
+                method = getattr(hook, action, None)
+                if method is not None:
+                    method()
             except Exception as exc:  # noqa: BLE001 - a failing hook never strands the others
                 self.failures.append(f"{hook.name}: {type(exc).__name__}: {exc}")
 

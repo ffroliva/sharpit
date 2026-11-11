@@ -45,6 +45,7 @@ PANELS: tuple[Panel, ...] = (
     Panel("threads", "Threads", False, "/threads"),
     Panel("rest-api", "REST API", True, "/rest-api"),
     Panel("http-probe", "HTTP Probe", True, "/http-probe"),
+    Panel("live-memory", "Live Memory", True, "/live-memory"),
     # 0.4.0 panels are registered now but remain absent until their owner flips its local flag.
     Panel("data", "Data", False, "/data"),
     Panel("transactions", "Transactions", True, "/transactions"),

@@ -14,6 +14,7 @@ if root_conftest.is_file():
                 "SideEffectGuard",
                 "_PATH_PARAMS",
                 "get_paths",
+                "leaked_runtime_spies",
                 "golden",
                 "sqlalchemy_imports_without_marker",
             )
