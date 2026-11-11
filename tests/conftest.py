@@ -106,11 +106,18 @@ def needs_sqlalchemy_marker(source: str) -> bool:
     )
 
 
-def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> None:
-    del parent
-    found = sqlalchemy_imports_without_marker(module_path.read_text(encoding="utf-8"))
-    if found:
-        pytest.fail(f"{module_path.name} {NEEDS_SQLALCHEMY_MISSING.format(', '.join(found))}", pytrace=False)
+class _SqlaCheckedModule(pytest.Module):
+    """Checks the mark when pytest collects the module (before import), not for every sibling ``Dir.collect`` builds."""
+
+    def collect(self) -> Any:
+        found = sqlalchemy_imports_without_marker(self.path.read_text(encoding="utf-8"))
+        if found:
+            pytest.fail(f"{self.path.name} {NEEDS_SQLALCHEMY_MISSING.format(', '.join(found))}", pytrace=False)
+        return super().collect()
+
+
+def pytest_pycollect_makemodule(module_path: Path, parent: Any) -> pytest.Module:
+    return _SqlaCheckedModule.from_parent(parent, path=module_path)
 
 
 TIMING_MODULES = (
