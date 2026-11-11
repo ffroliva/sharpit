@@ -628,8 +628,8 @@
       "golden": "startup/captured.json",
       "panel": "startup",
       "route": "/sharpit/api/startup",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/startup (HTTP 404)"
+      "status": "partial",
+      "difference": "startup/captured.json parity: steps: non-empty golden list requires a non-empty payload list"
     },
     {
       "golden": "threads/captured.json",

@@ -8,6 +8,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - REST API error contract (GET /rest-api/error-contract): the app's exception handlers by type, scope and declared status, read from declarations only (BootUI 2.3.0).
+- Startup Timeline panel (GET /startup, get_startup_timeline, CLI startup) with SHARPIT_STARTUP_ENABLED and SHARPIT_STARTUP_CAPACITY: host lifespan startup timing.
 - Low-footprint controls on the Live Memory panel, CLI, and guarded API; idle capture suspension uses a lifespan-managed daemon timer.
 
 - BootUI 2.3.0 parity tests for the security advisor rules with location-only assertions and leak prevention.

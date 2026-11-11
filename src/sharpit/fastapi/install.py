@@ -207,9 +207,11 @@ async def _lifespan(
     timer: threading.Thread | None = None
     stop = threading.Event()
     try:
+        startup_started_at = time.monotonic()
         async with original(host_app) as state:
             if ctx.startup_time_ms is None:
                 ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
+                ctx.startup.record("asgi.lifespan.startup", round((time.monotonic() - startup_started_at) * 1000))
             wiring.on_startup(ctx)  # after the host's own startup (spec §6.1)
             if idle_tracker is not None:
                 idle_tracker.mark_active()

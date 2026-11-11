@@ -79,10 +79,7 @@ INTERPRETER_STATE_CALLS: frozenset[str] = frozenset(
         *(f"sys.monitoring.{m}" for m in _MONITORING),
     }
 )
-RUNTIME_STATE_MODULES = {
-    "sharpit/engine/sensors",
-    "sharpit/pytest_plugin/swallowed.py",
-}  # swallowed.py moves behind engine/sensors in lane S1
+RUNTIME_STATE_MODULES = {"sharpit/engine/sensors"}
 SESSION_MODULES = {"sharpit/pytest_plugin", "sharpit/engine/testsession"}
 _STRICT_RUNTIME_STATE_CALLS = frozenset(
     {
@@ -420,7 +417,6 @@ def test_interpreter_state_call_sites_only_in_session_modules(tmp_path: Path, mo
         folder.mkdir(parents=True)
     (engine / "collectors" / "probe.py").write_text(STATE_PROBE, encoding="utf-8")
     (engine / "testsession" / "memory.py").write_text("import tracemalloc\ntracemalloc.start()\n", encoding="utf-8")
-    (plugin / "swallowed.py").write_text("import sys\nsys.monitoring.use_tool_id(3, 'sharpit')\n", encoding="utf-8")
 
     planted = interpreter_state_violations()
     monkeypatch.undo()
@@ -475,16 +471,16 @@ def test_runtime_state_calls_inside_sensors_are_allowed(tmp_path: Path, monkeypa
     assert interpreter_state_violations() == []
 
 
-def test_only_swallowed_plugin_module_keeps_its_runtime_state_exception(
+def test_swallowed_plugin_module_has_no_runtime_state_exception(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # W6 S1 moved swallowed.py's sys.monitoring use behind engine/sensors: only the sensors package may call it now
     monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
     plugin = tmp_path / "src" / "sharpit" / "pytest_plugin"
     plugin.mkdir(parents=True)
     (plugin / "swallowed.py").write_text("import sys\nsys.monitoring.use_tool_id(3, 'sharpit')\n", encoding="utf-8")
-    (plugin / "other.py").write_text("import sys\nsys.addaudithook(print)\n", encoding="utf-8")
 
-    assert interpreter_state_violations() == ["sharpit/pytest_plugin/other.py:2 calls sys.addaudithook"]
+    assert interpreter_state_violations() == ["sharpit/pytest_plugin/swallowed.py:2 calls sys.monitoring.use_tool_id"]
 
 
 @pytest.mark.parametrize(
@@ -517,9 +513,7 @@ def test_runtime_state_getattr_names_are_rejected(tmp_path: Path, monkeypatch: p
     assert any(f"calls sys.{name}" in item for item in interpreter_state_violations())
 
 
-def test_strict_runtime_calls_are_rejected_outside_sensors_and_swallowed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_strict_runtime_calls_are_rejected_outside_sensors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
     for rel in ("sharpit/pytest_plugin/other.py", "sharpit/engine/testsession/other.py"):
         path = tmp_path / "src" / rel
