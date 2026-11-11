@@ -531,8 +531,9 @@ def test_strict_runtime_calls_are_rejected_outside_sensors_and_swallowed(
 
 def test_side_effect_guard_blocks_audit_hook_install(no_side_effects) -> None:
     source = Path(__file__).resolve().parents[2] / "src" / "sharpit" / "probe.py"
+    code = compile("import sys\nsys.addaudithook()", str(source), "exec")
     with pytest.raises(TypeError):  # the spy calls the original: a bad call installs nothing that outlives the test
-        exec(compile("import sys\nsys.addaudithook()", str(source), "exec"))
+        exec(code)
     with pytest.raises(AssertionError, match="sys.addaudithook"):
         no_side_effects.verify()
     no_side_effects.rebaseline()
@@ -562,8 +563,9 @@ def test_side_effect_guard_records_additional_monitoring_calls_after_network_unb
 ) -> None:
     no_side_effects.unblock_network()
     source = Path(__file__).resolve().parents[2] / "src" / "sharpit" / "probe.py"
+    code = compile(f"import sys\nsys.monitoring.{method}({arguments})", str(source), "exec")
     with pytest.raises(TypeError):  # the spy calls the original: bad arguments change nothing
-        exec(compile(f"import sys\nsys.monitoring.{method}({arguments})", str(source), "exec"))
+        exec(code)
 
     with pytest.raises(AssertionError, match=f"sys.monitoring.{method}"):
         no_side_effects.verify()

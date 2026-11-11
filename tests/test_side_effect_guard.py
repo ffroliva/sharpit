@@ -171,8 +171,9 @@ def test_side_effect_guard_reports_sharpit_monitoring_call_without_swallowing_it
     guard.block_network()
     source = Path(__file__).resolve().parents[1] / "src" / "sharpit" / "probe.py"
     try:
+        code = compile("import sys\nsys.monitoring.set_events(5, 0)", str(source), "exec")
         with pytest.raises(ValueError, match="tool"):
-            exec(compile("import sys\nsys.monitoring.set_events(5, 0)", str(source), "exec"))  # noqa: S102
+            exec(code)  # noqa: S102
     finally:
         guard.unblock_network()
         guard.restore_runtime_state()
