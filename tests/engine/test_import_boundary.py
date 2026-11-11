@@ -41,6 +41,9 @@ GATEKEEPERS: dict[str, set[str]] = {
     "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
     "socket": set(),
     "ssl": set(),
+    "apscheduler": {"sharpit/engine/collectors/scheduled/apscheduler.py"},  # observed via sys.modules (W5b lane C)
+    "celery": {"sharpit/engine/collectors/scheduled/celery.py"},
+    "arq": {"sharpit/engine/collectors/scheduled/arq.py"},
     "pytest": {"sharpit/pytest_plugin"},
     "_pytest": {"sharpit/pytest_plugin"},
 }
@@ -723,6 +726,26 @@ def test_planted_sqlalchemy_import_outside_package_fails(tmp_path: Path, monkeyp
     assert violations == [
         "sharpit/engine/models.py imports sqlalchemy.engine",
         "sharpit/engine/sqla_extra.py imports sqlalchemy.orm",
+    ]
+
+
+def test_scheduler_libraries_stay_behind_their_gatekeepers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W5b lane C: APScheduler, Celery and arq each have one gatekeeper module under ``collectors/scheduled/``."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    scheduled = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "scheduled"
+    scheduled.mkdir(parents=True)
+    for lib in ("apscheduler", "arq", "celery"):
+        (scheduled / f"{lib}.py").write_text(f"import {lib}\n", encoding="utf-8")
+    (scheduled / "__init__.py").write_text(
+        "import apscheduler.job\nimport celery.schedules\nimport arq.cron\n", "utf-8"
+    )
+
+    violations = [v.split(":")[0] for v in gatekeeper_violations()]
+
+    assert violations == [
+        "sharpit/engine/collectors/scheduled/__init__.py imports apscheduler.job",
+        "sharpit/engine/collectors/scheduled/__init__.py imports celery.schedules",
+        "sharpit/engine/collectors/scheduled/__init__.py imports arq.cron",
     ]
 
 
