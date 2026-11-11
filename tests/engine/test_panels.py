@@ -8,7 +8,7 @@ def test_registry_rows_0_2_0():
     # spec §13.1: MVP rows first, then the 0.2.0 rows; health is action-capable, threads and activity are not
     assert [(p.id, p.title, p.action_capable, p.api_prefix) for p in PANELS[:19]] == [
         ("overview", "Scorecard", None, None),
-        ("config", "Configuration", False, "/config"),
+        ("config", "Configuration", True, "/config"),  # W8 A0: BootUiPanels.java:105
         ("mappings", "Mappings", False, "/mappings"),
         ("loggers", "Loggers", True, "/loggers"),
         ("beans", "Beans", False, "/beans"),
@@ -38,8 +38,8 @@ def test_read_only_only_for_action_capable():
     assert report["platform"] == "fastapi"
     panels = _by_id(report)
     assert panels["overview"]["readOnly"] is False
-    assert panels["config"]["readOnly"] is False
-    assert panels["config"]["readOnlyReason"] is None
+    assert panels["mappings"]["readOnly"] is False
+    assert panels["mappings"]["readOnlyReason"] is None
     assert panels["loggers"] == {
         "id": "loggers",
         "title": "Loggers",
@@ -155,3 +155,35 @@ def test_live_memory_panel_owns_low_footprint_controls():
     assert panel.action_capable is True
     assert panel.api_prefix == "/live-memory"
     assert panel.implemented is True
+
+
+# W8 A0: BootUiPanels.java:105,124,133,136 declares config, cache, dev-services and flyway action-capable; sharpit's
+# alembic is BootUI's flyway (matrix :143). Without the flag the read-only gate never refuses their W8 actions.
+W8_ACTION_PANELS = {"config": "config", "alembic": "flyway", "cache": "cache", "dev-services": "dev-services"}
+
+
+def test_write_action_panels_are_action_capable():
+    import json
+    from pathlib import Path
+
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "bootui" / "2.3.0" / "panels.json"
+    bootui = {p["id"]: p["actionCapable"] for p in json.loads(fixture.read_text(encoding="utf-8"))["panels"]}
+    ours = {p.id: p.action_capable for p in PANELS}
+    for sharpit_id, bootui_id in W8_ACTION_PANELS.items():
+        assert bootui[bootui_id] is True, bootui_id
+        assert ours.get(sharpit_id) is True, sharpit_id
+
+
+def test_w8_slots_registered_unimplemented_with_bootui_rows():
+    # cache (W5b K) and dev-services (W7 D) own the read side; A0 only reserves the slots behind their flags
+    expected = {"cache": ("Cache", True, "/cache"), "dev-services": ("Dev Services", True, "/dev-services")}
+    rows = {p.id: (p.title, p.action_capable, p.api_prefix) for p in PANELS if p.id in expected}
+    assert rows == expected
+    implemented = {p.id: p.implemented for p in PANELS if p.id in expected}
+    assert implemented == {"cache": False, "dev-services": False}
+
+
+def test_config_read_only_reported_under_global_read_only():
+    config = _by_id(panels_report(True, {}, {}))["config"]
+    assert config["readOnly"] is True
+    assert config["readOnlyReason"] == RO

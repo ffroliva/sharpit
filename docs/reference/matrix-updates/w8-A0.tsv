@@ -1,0 +1,3 @@
+prop:bootui.cache.clear-enabled	matched	SHARPIT_CACHE_CLEAR_ENABLED default true, invalid fails closed; the clear action lands in W8 K1
+prop:bootui.dev-services.restart-enabled	matched	SHARPIT_DEV_SERVICES_RESTART_ENABLED default false; the restart action lands in W8 D1
+prop:bootui.overrides-file	partial	SHARPIT_OVERRIDES_FILE default {state_dir}/overrides.env (BootUI .bootui/application-bootui.properties); the override layer lands in W8 O1
