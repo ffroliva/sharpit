@@ -294,6 +294,11 @@ class RuntimeJournal:
             self._events.clear()
             self._bytes = 0
 
+    def newest_at(self) -> int | None:
+        """Epoch ms of the newest retained event (read-only: Runtime Insights' window), or ``None`` when empty."""
+        with self._lock:
+            return self._events[-1][2] if self._events else None
+
     def status(self) -> dict[str, Any]:
         """``RuntimeJournalStatusDto``; ``recorded`` lists only sources with events (``byPropertyName``)."""
         with self._lock:

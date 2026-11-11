@@ -65,7 +65,7 @@ def test_enabled_but_unproduced_source_is_not_applicable() -> None:
 
 
 def test_produced_sources_are_a_subset_of_the_journal_sources() -> None:
-    assert snapshot_module.PRODUCED_SOURCES <= set(JOURNAL_SOURCES)
+    assert snapshot_module.PRODUCED_SOURCES.issubset(JOURNAL_SOURCES)
     assert "ai" in snapshot_module.PRODUCED_SOURCES
 
 

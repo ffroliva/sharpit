@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
+from typing import Any
 
 # BootUI CorrelationTier, strongest first (E/web/CorrelationTier.java)
 TIERS = ("REQUEST_ID", "PROPAGATED", "TRACE_ID", "SERVING_THREAD", "TIME_WINDOW")
@@ -32,6 +33,11 @@ class KindSpec:
     reads: frozenset[str]
     optional_reads: frozenset[str]
     module: ModuleType
+
+    @property
+    def evaluate(self) -> Any:
+        """The kind module's ``evaluate(snapshot) -> Evaluation``, or ``None`` while the kind is a stub."""
+        return getattr(self.module, "evaluate", None)
 
     @property
     def implemented(self) -> bool:
