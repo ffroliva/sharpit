@@ -8,9 +8,10 @@ on:
 permissions:
   contents: read
 
-# A new push to a PR cancels its superseded run; pushes to main never cancel.
+# A new push to a PR cancels its superseded run. Every push gets its own group (run_id): GitHub cancels a run
+# waiting in a group even without cancel-in-progress, so a shared group would drop and serialise main's runs.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -41,8 +42,8 @@ jobs:
 
   coverage-shard:
     # The 3.13 leg of the suite, run once under coverage for SonarCloud. Overhead budget tests time capture on vs off,
-    # which the coverage tracer distorts: tests/overhead.py::paired skips every one of them while a tracer runs, so the
-    # 5/5 row reruns the budget files (tests/_shard.py timing_files) without coverage to keep them enforced on 3.13.
+    # which the coverage tracer distorts: tests/overhead.py::paired skips their budget assertions while a tracer runs, so
+    # the 5/5 row reruns the budget files (tests/_shard.py timing_files) without coverage to keep them enforced on 3.13.
     name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -72,7 +73,7 @@ jobs:
           COVERAGE_CORE: sysmon # sys.monitoring tracer (Python 3.12+): same report, a fraction of the classic tracer's cost
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-        run: uv run python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" --cov=sharpit --cov-report= -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+        run: uv run python -m pytest -q -n auto --cov=sharpit --cov-report= -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
       - run: cp "$RUNNER_TEMP/.coverage" "coverage-${{ strategy.job-index }}.data" # a visible name: upload skips dotfiles
       - id: scan-junit
         if: always()
@@ -110,11 +111,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards a leg, because the costliest shard
-  # sets the leg's wall (the ceiling is pinned in tests/test_ci_layout.py).
-  # Each leg's shards together run every test exactly once (tests/test_shard.py).
-      # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
-      # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
+      # The budget tests alone (-n 0) after the parallel step: next to xdist workers still draining they fail on CI
+      # only. The coverage run above keeps these files (their ordinary tests are coverage input; the tracer skips only
+      # the budget assertions), so they run again here, unmeasured: no coverage, no SHARPIT_SHARD.
       - if: ${{ !cancelled() && (matrix.shard == '5/5') }}
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
@@ -149,6 +148,10 @@ jobs:
           path: ${{ runner.temp }}/speed/*-budgets.*
           if-no-files-found: ignore
           retention-days: 7
+
+  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards a leg, because the costliest shard
+  # sets the leg's wall (the ceiling is pinned in tests/test_ci_layout.py).
+  # Each leg's shards together run every test exactly once (tests/test_shard.py).
   test-shard:
     name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
     strategy:
