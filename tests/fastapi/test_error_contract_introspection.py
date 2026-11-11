@@ -20,19 +20,6 @@ async def _source_index_handler(_request: object, _exc: ValueError) -> JSONRespo
     return JSONResponse({"detail": "x"}, status_code=400)
 
 
-def test_error_contract_keeps_app_handler_for_framework_exception() -> None:
-    # ported: ErrorContractServiceTests.stillReportsAnApplicationHandlerForAFrameworkException
-    app = FastAPI()
-
-    @app.exception_handler(HTTPException)
-    async def host_http_error(_request: object, _exc: HTTPException) -> JSONResponse:
-        return JSONResponse({"detail": "hidden-value"}, status_code=418)
-
-    model = FastApiIntrospector(app).api_model()
-    handlers = getattr(model, "error_handlers", ())
-    assert any(handler.handler.endswith("host_http_error") for handler in handlers)
-
-
 def test_error_contract_scopes_mounted_subapp_handlers() -> None:
     subapp = FastAPI()
 
@@ -126,9 +113,92 @@ def test_error_contract_one_bad_handler_does_not_hide_its_siblings() -> None:
 
 def test_error_contract_exception_name_is_dotted() -> None:
     app = FastAPI()
+
+    class CustomHostError(Exception):
+        pass
+
     app.exception_handlers[ValueError] = lambda _request, _exc: None
+    app.exception_handlers[CustomHostError] = lambda _request, _exc: None
     handlers = FastApiIntrospector(app).api_model().error_handlers
-    assert any(handler.key_type == "builtins.ValueError" for handler in handlers)
+    assert any(handler.key_type == "ValueError" for handler in handlers)
+    assert any(
+        handler.key_type is not None and handler.key_type.endswith(".CustomHostError") for handler in handlers
+    )
+
+
+def test_error_contract_installed_app_still_reports_exception_handlers(tmp_path) -> None:
+    app = FastAPI()
+
+    async def custom_handler(_request: object, _exc: ValueError) -> JSONResponse:
+        return JSONResponse({"error": "test"}, status_code=400)
+
+    app.exception_handlers[ValueError] = custom_handler
+    handle = install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        state_dir=str(tmp_path / "state"),
+    )
+    try:
+        model = FastApiIntrospector(app).api_model()
+        assert any(h.endswith("custom_handler") for h in model.exception_handlers)
+    finally:
+        handle.uninstall_capture()
+
+
+def test_error_contract_unwrapping_never_accesses_host_attributes() -> None:
+    ran: list[tuple[str, str]] = []
+
+    class Host:
+        def __getattr__(self, name: str) -> None:
+            ran.append(("getattr", name))
+            raise AttributeError(name)
+
+        @property
+        def __module__(self) -> str:
+            ran.append(("prop", "__module__"))
+            return "host_module"
+
+    async def host_handler(_request: object, _exc: Exception) -> JSONResponse:
+        return JSONResponse({})
+
+    host_handler.__wrapped__ = Host()  # type: ignore[attr-defined]
+    app = FastAPI()
+    app.exception_handlers[ValueError] = host_handler
+    model = FastApiIntrospector(app).api_model()
+    assert ran == []
+    assert any(h.handler.endswith("host_handler") for h in model.error_handlers)
+
+
+def test_error_contract_int_key_in_subapps_retains_mount_path() -> None:
+    subapp1, subapp2 = FastAPI(), FastAPI()
+
+    async def not_found(_request: object, _exc: Exception) -> JSONResponse:
+        return JSONResponse({}, status_code=404)
+
+    subapp1.exception_handlers[404] = not_found
+    subapp2.exception_handlers[404] = not_found
+    app = FastAPI()
+    app.mount("/a", subapp1)
+    app.mount("/b", subapp2)
+    handlers = FastApiIntrospector(app).api_model().error_handlers
+    mounts = [h.scope_target for h in handlers if h.key_status == 404]
+    assert mounts == ["/a", "/b"]
+
+
+def test_error_contract_custom_metaclass_exception_records_limitation() -> None:
+    class Meta(type):
+        pass
+
+    class OddError(Exception, metaclass=Meta):
+        pass
+
+    app = FastAPI()
+    app.exception_handlers[OddError] = lambda _request, _exc: None
+    model = FastApiIntrospector(app).api_model()
+    assert any(h.key_type is None and h.key_status is None for h in model.error_handlers)
+    assert any("could not be inspected" in limitation for limitation in model.limitations)
 
 
 def test_error_contract_same_subapp_is_reported_at_each_mount() -> None:
@@ -248,6 +318,7 @@ def test_error_contract_still_reports_application_handler_for_framework_exceptio
 
     handlers = FastApiIntrospector(app).api_model().error_handlers
     assert any(handler.key_type == "starlette.exceptions.HTTPException" for handler in handlers)
+    assert any(handler.handler.endswith("application_http_error") for handler in handlers)
 
 
 def test_error_contract_route_derives_body_from_source_index_without_inspect(tmp_path, monkeypatch) -> None:

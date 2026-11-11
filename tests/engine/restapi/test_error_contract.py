@@ -39,17 +39,23 @@ def test_an_application_without_handlers_is_available_and_empty() -> None:
 
 def test_one_declaration_per_handled_exception_type_is_catalogued() -> None:
     # ported: ErrorContractServiceTests.oneDeclarationPerHandledExceptionTypeIsCatalogued
-    result = entries(_model(("example.NotFound", None, "app.errors:handle", "GLOBAL", None)), None)
+    result = entries(_model(("example.NotFound", None, "app.errors.handle", "GLOBAL", None)), None)
     assert len(result) == 1
     assert result[0].exception_type == "example.NotFound"
+
+
+def test_lone_global_handler_has_precedence_one() -> None:
+    result = entries(_model(("example.Failure", None, "app.errors.handle", "GLOBAL", None)), None)
+    assert len(result) == 1
+    assert result[0].precedence == 1
 
 
 def test_a_controller_local_handler_outranks_an_application_wide_one() -> None:
     # ported: ErrorContractServiceTests.aControllerLocalHandlerOutranksAnApplicationWideOne
     result = entries(
         _model(
-            ("example.Failure", None, "app.errors:global_handler", "GLOBAL", None),
-            ("example.Failure", None, "app.orders:local_handler", "SCOPED", "/orders"),
+            ("example.Failure", None, "app.errors.global_handler", "GLOBAL", None),
+            ("example.Failure", None, "app.orders.local_handler", "SCOPED", "/orders"),
         ),
         None,
     )
@@ -63,12 +69,24 @@ def test_a_controller_local_handler_outranks_an_application_wide_one() -> None:
 def test_disjoint_scoped_handlers_share_precedence_one() -> None:
     result = entries(
         _model(
-            ("example.Failure", None, "app.a:handle", "SCOPED", "/a"),
-            ("example.Failure", None, "app.b:handle", "SCOPED", "/b"),
+            ("example.Failure", None, "app.a.handle", "SCOPED", "/a"),
+            ("example.Failure", None, "app.b.handle", "SCOPED", "/b"),
         ),
         None,
     )
     assert [item.precedence for item in result] == [1, 1]
+
+
+def test_scoped_tie_then_global_handler_precedence_ranks() -> None:
+    result = entries(
+        _model(
+            ("example.Failure", None, "app.a.handle", "SCOPED", "/a"),
+            ("example.Failure", None, "app.b.handle", "SCOPED", "/b"),
+            ("example.Failure", None, "app.errors.handle", "GLOBAL", None),
+        ),
+        None,
+    )
+    assert [item.precedence for item in result] == [1, 1, 3]
 
 
 def test_body_categories_are_derived_from_the_declaration_only() -> None:
@@ -82,7 +100,7 @@ def empty(): return Response()
 def dynamic(): return JSONResponse(payload)
 """
     handlers = [
-        ("example.Failure", None, f"app.errors:{name}", "GLOBAL", None)
+        ("example.Failure", None, f"app.errors.{name}", "GLOBAL", None)
         for name in ("problem", "custom", "text", "empty", "dynamic")
     ]
     result = entries(_model(*handlers), _index(source))
@@ -98,8 +116,8 @@ def dynamic(): return JSONResponse({}, status_code=status)
 """
     result = entries(
         _model(
-            ("example.NotFound", None, "app.errors:annotated", "GLOBAL", None),
-            ("example.Conflict", None, "app.errors:dynamic", "GLOBAL", None),
+            ("example.NotFound", None, "app.errors.annotated", "GLOBAL", None),
+            ("example.Conflict", None, "app.errors.dynamic", "GLOBAL", None),
         ),
         _index(source),
     )
@@ -114,7 +132,7 @@ def dynamic(): return JSONResponse({}, status_code=status)
 
 def test_the_query_and_paging_run_on_the_server() -> None:
     # ported: ErrorContractServiceTests.theQueryAndPagingRunOnTheServer
-    model = _model(*[(f"example.Failure{i}", None, f"app.errors:handle{i}", "GLOBAL", None) for i in range(12)])
+    model = _model(*[(f"example.Failure{i}", None, f"app.errors.handle{i}", "GLOBAL", None) for i in range(12)])
     page = error_contract_report(model, None, "Failure7", 0, 5)
     assert len(page["entries"]) == 1
     assert page["page"]["matched"] == 1
@@ -122,7 +140,7 @@ def test_the_query_and_paging_run_on_the_server() -> None:
 
 def test_the_catalogue_is_bounded_and_says_so_when_it_truncates() -> None:
     # ported: ErrorContractServiceTests.theCatalogueIsBoundedAndSaysSoWhenItTruncates
-    model = _model(*[(f"example.Failure{i}", None, f"app.errors:handle{i}", "GLOBAL", None) for i in range(501)])
+    model = _model(*[(f"example.Failure{i}", None, f"app.errors.handle{i}", "GLOBAL", None) for i in range(501)])
     report = error_contract_report(model, None, None, 0, None)
     assert report["maxEntries"] == 500
     assert report["truncated"] is True
@@ -130,14 +148,14 @@ def test_the_catalogue_is_bounded_and_says_so_when_it_truncates() -> None:
 
 def test_error_contract_never_emits_handler_literals() -> None:
     source = 'def handle(): return {"detail": "secret-password"}'
-    model = _model(("example.Failure", None, "app.errors:handle", "GLOBAL", None))
+    model = _model(("example.Failure", None, "app.errors.handle", "GLOBAL", None))
     report = error_contract_report(model, _index(source), None, 0, None)
     assert report["available"] is True
     assert "secret-password" not in repr(report)
 
 
 def test_handler_body_reads_only_the_source_index(monkeypatch) -> None:
-    model = _model(("example.Failure", None, "app.errors:handle", "GLOBAL", None))
+    model = _model(("example.Failure", None, "app.errors.handle", "GLOBAL", None))
     monkeypatch.setattr(inspect, "getsource", lambda *_args: (_ for _ in ()).throw(AssertionError("source read")))
     result = entries(model, _index('def handle(): return "body"'))
     assert len(result) == 1
@@ -152,19 +170,19 @@ def test_handler_body_resolves_the_full_nested_qualname() -> None:
             "    def handle(): return 'right'",
         )
     )
-    result = entries(_model(("example.Failure", None, "app.errors:Outer.handle", "GLOBAL", None)), _index(source))
+    result = entries(_model(("example.Failure", None, "app.errors.Outer.handle", "GLOBAL", None)), _index(source))
     assert result[0].body_category == "STRING"
 
 
 def test_error_contract_unresolved_handler_is_partial() -> None:
-    model = _model(("example.Failure", None, "app.errors:partial_handler", "GLOBAL", None))
+    model = _model(("example.Failure", None, "app.errors.partial_handler", "GLOBAL", None))
     result = entries(model, None)
     assert len(result) == 1
     assert result[0].body_category == "UNRESOLVED"
 
 
 def test_bound_partial_handler_stays_unresolved_even_with_source_index() -> None:
-    model = _model(("example.Failure", None, "app.errors:handle", "GLOBAL", None))
+    model = _model(("example.Failure", None, "app.errors.handle", "GLOBAL", None))
     model.error_handlers[0].is_partial = True
     result = entries(model, _index('def handle(): return "body"'))
     assert result[0].body_category == "UNRESOLVED"
@@ -173,12 +191,13 @@ def test_bound_partial_handler_stays_unresolved_even_with_source_index() -> None
 def test_error_contract_sorts_by_exception_simple_name() -> None:
     result = entries(
         _model(
-            ("z.Zebra", None, "app.errors:z", "GLOBAL", None),
-            ("a.Alpha", None, "app.errors:a", "GLOBAL", None),
+            ("a.Zebra", None, "app.errors.z", "GLOBAL", None),
+            ("z.Alpha", None, "app.errors.a", "GLOBAL", None),
         ),
         None,
     )
     assert [item.exception_simple_name for item in result] == ["Alpha", "Zebra"]
+    assert [item.exception_type for item in result] == ["z.Alpha", "a.Zebra"]
 
 
 def test_error_contract_uses_positional_response_status() -> None:
@@ -189,8 +208,8 @@ def plain_error(): return Response(b'', 404)
 """
     result = entries(
         _model(
-            ("a.JsonError", None, "app.errors:json_error", "GLOBAL", None),
-            ("b.PlainError", None, "app.errors:plain_error", "GLOBAL", None),
+            ("a.JsonError", None, "app.errors.json_error", "GLOBAL", None),
+            ("b.PlainError", None, "app.errors.plain_error", "GLOBAL", None),
         ),
         _index(source),
     )
