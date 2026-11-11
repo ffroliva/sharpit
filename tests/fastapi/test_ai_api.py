@@ -271,18 +271,22 @@ def test_ai_chat_detail_keeps_allow_listed_metadata_under_masked():
     assert values["gen_ai.request.temperature"] == "0.5"
 
 
-def _install_chats(models: list[str], expose_values: str) -> tuple[FastAPI, Any]:
+def _install_chats(models: list[str], expose_values: str, **options: Any) -> tuple[FastAPI, Any]:
     app = FastAPI()
-    handle = install(app, enabled="ON", show_banner=False, config_scan=False, expose_values=expose_values)
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, expose_values=expose_values, **options)
     for span_id, model in enumerate(models, start=1):
         span_buffer(handle.context).add(
             SimpleNamespace(
                 context=SimpleNamespace(trace_id=span_id, span_id=span_id),
+                parent=None,
                 kind=SimpleNamespace(name="CLIENT"),
                 name="chat",
+                resource=SimpleNamespace(attributes={"service.name": "api"}),
+                instrumentation_scope=SimpleNamespace(name="openai"),
                 start_time=span_id * 1_000,
                 end_time=span_id * 1_000 + 500,
-                status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET")),
+                status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET"), description=None),
+                events=[],
                 attributes={
                     "gen_ai.operation.name": "chat",
                     "gen_ai.request.model": model,
@@ -318,3 +322,61 @@ def test_get_ai_overview_tool_masks_model_names():
     result = tool.handler(CallContext(handle.context, {}), {})
     assert "s3cret" not in json.dumps(result)
     assert set(result["callsByModel"]) == {"gpt-4o", "claude-x", "https://******@h/m"}
+
+
+AUTH_TOKEN = "Zq81mWv3kTnR6yHc"  # random-looking: only the never-shown rule can hide it
+
+
+@pytest.mark.parametrize("exposure", ["METADATA_ONLY", "MASKED"])
+@pytest.mark.parametrize("path", ["ai/chats", f"ai/chats/{1:016x}", "ai/overview"])
+def test_ai_model_name_never_shows_the_authentication_token(exposure: str, path: str):
+    # finding W7-A r2e B: the METADATA_ONLY name check used a masker without sharpit's never-shown secrets
+    app, _ = _install_chats([f"model-{AUTH_TOKEN}"], exposure, authentication_token=AUTH_TOKEN)
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        response = client.get(f"{API}/{path}", headers={"Authorization": f"Bearer {AUTH_TOKEN}"})
+    assert response.status_code == 200
+    assert AUTH_TOKEN not in response.text
+
+
+def _chat_with_siblings(attributes: dict[str, Any]) -> TestClient:
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, expose_values="MASKED")
+    buffer = span_buffer(handle.context)
+    spans = [
+        ("chat", {"gen_ai.operation.name": "chat", **attributes}),
+        ("execute_tool https://bob:s3cret@h", {"gen_ai.operation.name": "execute_tool"}),
+        ("query", {"db.system": "vector", "db.collection.name": "https://bob:s3cret@h/c"}),
+    ]
+    for span_id, (name, span_attributes) in enumerate(spans, start=1):
+        buffer.add(
+            SimpleNamespace(
+                context=SimpleNamespace(trace_id=1, span_id=span_id),
+                parent=None,
+                name=name,
+                kind=SimpleNamespace(name="CLIENT"),
+                resource=SimpleNamespace(attributes={"service.name": "api"}),
+                instrumentation_scope=SimpleNamespace(name="openai"),
+                start_time=1_000 + span_id,
+                end_time=2_000,
+                status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET"), description=None),
+                attributes=span_attributes,
+                events=[],
+            )
+        )
+    return TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+
+def test_ai_chat_detail_masks_tool_and_collection_names():
+    # finding W7-A r2e nit: toolCalls[].name (span-name fallback) and vectorOperations[].collectionName
+    with _chat_with_siblings({}) as client:
+        detail = client.get(f"{API}/ai/chats/{1:016x}").json()
+    assert detail["toolCalls"][0]["name"] == "https://******@h"
+    assert detail["vectorOperations"][0]["collectionName"] == "https://******@h/c"
+
+
+def test_ai_chat_detail_nulls_a_mixed_array_on_raw_types():
+    # finding W7-A r2e nit: the rendered type reads only the first element; (1, "PROMPT") carries a string
+    with _chat_with_siblings({"app.mixed": (1, "R2E_MIXED_PROMPT")}) as client:
+        response = client.get(f"{API}/ai/chats/{1:016x}")
+    assert response.status_code == 200
+    assert "R2E_MIXED_PROMPT" not in response.text
