@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 
 def _string(attributes: Mapping[str, Any], key: str) -> str | None:
@@ -84,7 +85,38 @@ def finish_reason(attributes: Mapping[str, Any]) -> str | None:
 
 def journal_finish_reason(attributes: Mapping[str, Any]) -> str | None:
     value = finish_reason(attributes)
-    return value.strip().lower() or None if value is not None else None
+    if value is None:
+        return None
+    first = value.replace("[", "").replace("]", "").replace('"', "").split(",", maxsplit=1)[0].strip()
+    return first.lower() or None
+
+
+def ai_journal_event(span: Any) -> dict[str, Any]:
+    raw = getattr(span, "attributes", None)
+    if not isinstance(raw, Mapping):
+        return {}
+    attributes = cast(Mapping[str, Any], raw)
+    name = getattr(span, "name", "")
+    if not isinstance(name, str):
+        name = ""
+    operation_name = operation(attributes, name)
+    if operation_name is None:
+        return {}
+    context = getattr(span, "context", None)
+    span_id = getattr(context, "span_id", None)
+    status = getattr(getattr(getattr(span, "status", None), "status_code", None), "name", None)
+    return {
+        "operation": operation_name,
+        "provider": provider(attributes),
+        "model": response_model(attributes) or request_model(attributes),
+        "inputTokens": input_tokens(attributes),
+        "outputTokens": output_tokens(attributes),
+        "finishReason": journal_finish_reason(attributes),
+        "failed": status == "ERROR",
+        "spanId": f"{span_id:016x}" if isinstance(span_id, int) else None,
+        "completedNanos": time.perf_counter_ns(),
+        "codePathStamp": 0,
+    }
 
 
 def tool_name(attributes: Mapping[str, Any], name: str) -> str | None:

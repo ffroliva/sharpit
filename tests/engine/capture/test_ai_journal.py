@@ -65,8 +65,8 @@ def test_ai_journal_event_is_metadata_only():
     assert record["operation"] == "chat"
     assert record["provider"] == "openai"
     assert record["model"] == "gpt-test"
-    assert record["inputTokens"] == 7
-    assert record["outputTokens"] == 5
+    assert record["inputTokens"] == "******"
+    assert record["outputTokens"] == "******"
     assert record["failed"] is False
     assert record["codePathStamp"] == 0
     assert "prompt canary must not enter the journal" not in str(record)
