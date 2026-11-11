@@ -446,6 +446,7 @@ def test_github_fetched_text_is_scrubbed(no_side_effects) -> None:
     pulls = [dict(PULLS[0], title=f"Fix login token={secret}", labels=[{"name": f"token={secret}"}])]
     github, _ = client(full_routes() | {f"{REPO}/pulls": ok(pulls)})
     report = github.refresh(repository())
+    assert len(report["pullRequests"]) == 1
     (pr,) = report["pullRequests"]
     assert pr["title"].startswith("Fix login")
     assert secret not in json.dumps(report)

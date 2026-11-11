@@ -146,6 +146,7 @@ def test_github_token_never_in_output(
         monkeypatch.setenv(source, CANARY)
     client, transport, handle = _app(monkeypatch, tmp_path, full_routes() | {"/rate_limit": rate}, mcp_enabled="ON")
     refreshed = client.post(REFRESH)
+    assert refreshed.status_code == 200
     assert refreshed.json()["status"] == "ERROR"
     assert transport.requests[0].get_header("Authorization") == f"Bearer {CANARY}"
     outputs = [
@@ -162,7 +163,9 @@ def test_github_token_never_in_output_after_a_cached_refresh(tmp_path: Path, mon
     _repo(tmp_path)
     monkeypatch.setenv("GITHUB_TOKEN", CANARY)
     client, _, handle = _app(monkeypatch, tmp_path, full_routes(), mcp_enabled="ON")
-    assert client.post(REFRESH).json()["status"] == "CONNECTED"
+    refreshed = client.post(REFRESH)
+    assert refreshed.status_code == 200
+    assert refreshed.json()["status"] == "CONNECTED"
     cached = json.dumps(call_tool(CallContext(handle.context, {}), "get_github_dashboard", {}, via="mcp"))
     assert '"status": "CONNECTED"' in cached
     assert CANARY not in cached
