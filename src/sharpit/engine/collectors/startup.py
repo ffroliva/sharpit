@@ -18,18 +18,18 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class StartupStep:
     id: int
-    parentId: int | None
+    parent_id: int | None
     name: str
-    durationMs: int
+    duration_ms: int
     tags: tuple[tuple[str, str], ...]
 
     def dto(self) -> dict[str, Any]:
         """A fresh dict per call: a caller mutating it never touches the stored step."""
         return {
             "id": self.id,
-            "parentId": self.parentId,
+            "parentId": self.parent_id,
             "name": self.name,
-            "durationMs": self.durationMs,
+            "durationMs": self.duration_ms,
             "tags": [{"key": key, "value": value} for key, value in self.tags],
         }
 
