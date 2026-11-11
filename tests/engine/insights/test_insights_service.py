@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 
 from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.collectors.insights import snapshot as snapshot_module
 from sharpit.engine.collectors.insights.finding import Evaluation, Finding
+from sharpit.engine.collectors.insights.registry import KindSpec
 from sharpit.engine.collectors.insights.service import DISABLED, InsightsService, id_of
 from sharpit.settings_registry import JOURNAL_SOURCES
 
@@ -70,9 +74,14 @@ def test_produced_sources_are_a_subset_of_the_journal_sources() -> None:
 
 
 def test_every_produced_source_has_a_producer_test() -> None:
-    # a producer lane adds its source to PRODUCED_SOURCES and its test row here in the same PR
-    producer_tests = {"ai": "tests/engine/capture/test_ai_journal.py"}
+    # a producer lane adds its source to PRODUCED_SOURCES and its (file, test function) row here in the same PR
+    producer_tests = {"ai": ("tests/engine/capture/test_ai_journal.py", "test_ai_journal_event_is_metadata_only")}
     assert set(producer_tests) == snapshot_module.PRODUCED_SOURCES
+    root = Path(__file__).resolve().parents[3]
+    for source, (path, name) in producer_tests.items():
+        file = root / path
+        assert file.is_file(), f"{source}: {path} does not exist"
+        assert f"def {name}(" in file.read_text(encoding="utf-8"), f"{source}: {name} is not in {path}"
 
 
 def test_a_source_disabled_in_the_journal_is_not_recorded_even_when_produced() -> None:
@@ -165,10 +174,13 @@ def test_insights_report_golden_keys_23() -> None:
     assert list(report["window"]) == [
         "runId", "firstEventAt", "lastEventAt", "retainedEvents", "requests", "evictedEvents", "droppedEvents",
     ]  # fmt: skip
-    assert list(report["coverage"][0]) == [
-        "source", "events", "byRequestId", "byExecutionId", "byTraceId", "unlinked", "dropped",
-    ]  # fmt: skip
-    assert list(report["checks"][0]) == ["kind", "title", "status", "eligibleRequests", "findings", "reason"]
+    assert {tuple(row) for row in report["coverage"]} == {
+        ("source", "events", "byRequestId", "byExecutionId", "byTraceId", "unlinked", "dropped")
+    }
+    assert len(report["checks"]) == 28
+    assert {tuple(check) for check in report["checks"]} == {
+        ("kind", "title", "status", "eligibleRequests", "findings", "reason")
+    }
     finding = Finding("k", "s", True, "t", 1, 1, [], [], [], [], [])
     shown = InsightsService(journal, [FakeKind(evaluate=lambda _s: Evaluation(1, [finding]))]).report()
     assert list(shown["observations"][0]) == [
@@ -177,8 +189,8 @@ def test_insights_report_golden_keys_23() -> None:
     ]  # fmt: skip
 
 
-# ported: InsightsReadBudgetTests.aFullJournalIsProjectedAndEvaluatedWellWithinTheReadBudget
 def test_a_full_journal_is_projected_and_evaluated_well_within_the_read_budget() -> None:
+    """Times projection and coverage over a full journal with stub kinds; not BootUI's budget test."""
     journal = _journal(max_events=50_000)
     for i in range(50_000):
         journal.offer_flat({"source": "ai", "operation": "chat", "inputTokens": i, "requestId": f"r{i % 700}"})
@@ -217,7 +229,76 @@ def test_a_kind_that_raises_is_unavailable_and_the_others_still_run() -> None:
     journal = _journal()
     journal.offer(AI)
     kinds = [FakeKind(kind="a", evaluate=boom), FakeKind(kind="b", evaluate=lambda _s: Evaluation(2, []))]
-    checks = InsightsService(journal, kinds).report()["checks"]
+    report = InsightsService(journal, kinds).report()
+    checks = report["checks"]
+    assert "secret detail" not in json.dumps(report)
     a, b = checks[0], checks[1]
     assert (a["status"], a["reason"]) == ("UNAVAILABLE", "This observation could not be evaluated.")
     assert (b["status"], b["eligibleRequests"]) == ("EVALUATED", 2)
+
+
+class _TearingJournal(RuntimeJournal):
+    """A capture write lands right after each of the separate reads the old projection made."""
+
+    def _tear(self) -> None:
+        if not getattr(self, "torn", False):
+            self.torn = True
+            self.offer(AI)
+
+    def status(self) -> dict[str, object]:
+        status = super().status()
+        self._tear()
+        return status
+
+    def records(self, source: str) -> tuple[dict[str, object], ...]:
+        records = super().records(source)
+        self._tear()
+        return records
+
+
+def test_the_snapshot_is_one_copy_so_the_window_equals_the_coverage() -> None:
+    journal = _TearingJournal(sources=JOURNAL_SOURCES)
+    journal.offer(AI)
+    report = InsightsService(journal).report()
+    assert report["window"]["retainedEvents"] == sum(row["events"] for row in report["coverage"])
+
+
+def test_the_window_ends_at_the_newest_timestamp_not_the_last_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    stamps = iter([100_000_000, 90_000_000])  # time.time_ns() // 1_000_000 -> 100 then 90 (ns)
+    monkeypatch.setattr("sharpit.engine.capture.journal.time.time_ns", lambda: next(stamps) * 1_000)
+    journal = _journal()
+    journal.offer(AI)
+    journal.offer(AI)
+    window = InsightsService(journal).report()["window"]
+    assert window["firstEventAt"] == 100_000
+    assert window["lastEventAt"] == 100_000
+
+
+def _secret_finding() -> Finding:
+    text = "leaked password=hunter2hunter2 here"
+    return Finding("k", text, True, text, 1, 1, [], [], [], [], [text])
+
+
+def test_finding_text_is_masked_in_the_report() -> None:
+    kind = FakeKind(evaluate=lambda _s: Evaluation(1, [_secret_finding()], "uncounted password=hunter2hunter2"))
+    journal = _journal()
+    journal.offer(AI)
+    report = InsightsService(journal, [kind]).report()
+    assert "hunter2hunter2" not in json.dumps(report)
+
+
+def test_a_kind_that_raises_logs_only_its_id(caplog: pytest.LogCaptureFixture) -> None:
+    def boom(_snapshot: object) -> Evaluation:
+        raise RuntimeError("secret detail")
+
+    journal = _journal()
+    journal.offer(AI)
+    with caplog.at_level(logging.DEBUG, logger="sharpit"):
+        InsightsService(journal, [FakeKind(kind="a-kind", evaluate=boom)]).report()
+    assert "a-kind" in caplog.text
+    assert "secret detail" not in caplog.text
+
+
+def test_the_kind_spec_evaluate_is_typed_as_a_callable() -> None:
+    annotation = KindSpec.evaluate.fget.__annotations__["return"]  # type: ignore[union-attr]
+    assert annotation == "Callable[[Snapshot], Evaluation] | None"
