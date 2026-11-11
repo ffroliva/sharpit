@@ -9,7 +9,8 @@
     "metrics": "not captured from BootUI 2.2.0; this W5b panel is compared with the BootUI 2.3.0 golden",
     "startup": "not captured from BootUI 2.2.0; this W5b panel is compared with the BootUI 2.3.0 golden",
     "profile-diff": "not captured from BootUI 2.2.0; this W5b panel is compared with the BootUI 2.3.0 golden",
-    "scheduled": "not captured from BootUI 2.2.0; this W5b panel is compared with the BootUI 2.3.0 golden"
+    "scheduled": "not captured from BootUI 2.2.0; this W5b panel is compared with the BootUI 2.3.0 golden",
+    "live-memory": "not captured from BootUI 2.2.0; this W4 panel serves only GET /live-memory/footprint, classified against the BootUI 2.3.0 footprint golden in tests/parity/routes_23_status.json"
   },
   "provisional": []
 }

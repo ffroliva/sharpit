@@ -369,13 +369,13 @@
     },
     {
       "name": "bootui.free-on-idle.enabled",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for free_on_idle_enabled"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.free-on-idle.timeout",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for free_on_idle_timeout"
+      "status": "partial",
+      "difference": "default differs: BootUI='5m'; sharpit=300.0"
     },
     {
       "name": "bootui.github.allowed-api-hosts",

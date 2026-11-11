@@ -116,3 +116,12 @@ def test_w5b_wave1_panel_rows_match_bootui(no_side_effects: SideEffectGuard):
     assert listed.isdisjoint(expected.keys() - {"startup"})
     assert "startup" in listed
     assert no_side_effects.violations == []
+
+
+def test_live_memory_panel_owns_low_footprint_controls():
+    assert "live-memory" in {p.id for p in PANELS}
+    panel = next(p for p in PANELS if p.id == "live-memory")
+    assert panel.title == "Live Memory"
+    assert panel.action_capable is True
+    assert panel.api_prefix == "/live-memory"
+    assert panel.implemented is True
