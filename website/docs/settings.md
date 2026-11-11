@@ -22,7 +22,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_AUTHENTICATION_TOKEN` | `authentication_token` | generated | bearer token for untrusted sources |
 | `SHARPIT_READ_ONLY` | `read_only` | `false` | refuse every write action |
 | `SHARPIT_PANELS_<ID>_ENABLED` | `panels={"<id>": {"enabled": ...}}` | `true` | per-panel switch |
-| `SHARPIT_PANELS_<ID>_READ_ONLY` | `panels={"<id>": {"read_only": ...}}` | `false` | per-panel read-only; `<ID>` is the panel id in capitals with `-` as `_`: `OVERVIEW`, `CONFIG`, `MAPPINGS`, `LOGGERS`, `BEANS`, `VULNERABILITIES`, `MCP_SERVER`, `CLI`, `ACTIVITY`, `HTTP_EXCHANGES`, `EXCEPTIONS`, `SQL_TRACE`, `LOG_TAIL`, `ALEMBIC`, `DATABASE_CONNECTION_POOLS`, `HEALTH`, `THREADS`, `REST_API`, `HTTP_PROBE`, `DATA`, `TRANSACTIONS`, `POSTGRESQL`, `MYSQL`, `TRACES`, `SECURITY`, `SECURITY_LOGS`, `DATABASE_ADVISOR`, `ARCHITECTURE`, `SQLALCHEMY_STATISTICS`, `FASTAPI_SECURITY`, `FASTAPI`, `LIVE_MEMORY`, `STARTUP`, `AI` |
+| `SHARPIT_PANELS_<ID>_READ_ONLY` | `panels={"<id>": {"read_only": ...}}` | `false` | per-panel read-only; `<ID>` is the panel id in capitals with `-` as `_`: `OVERVIEW`, `CONFIG`, `MAPPINGS`, `LOGGERS`, `BEANS`, `VULNERABILITIES`, `MCP_SERVER`, `CLI`, `ACTIVITY`, `HTTP_EXCHANGES`, `EXCEPTIONS`, `SQL_TRACE`, `LOG_TAIL`, `ALEMBIC`, `DATABASE_CONNECTION_POOLS`, `HEALTH`, `THREADS`, `REST_API`, `HTTP_PROBE`, `DATA`, `TRANSACTIONS`, `POSTGRESQL`, `MYSQL`, `TRACES`, `SECURITY`, `SECURITY_LOGS`, `DATABASE_ADVISOR`, `ARCHITECTURE`, `SQLALCHEMY_STATISTICS`, `FASTAPI_SECURITY`, `FASTAPI`, `LIVE_MEMORY`, `STARTUP`, `COPILOT`, `CLAUDE_CODE`, `AI` |
 | `SHARPIT_EXPOSE_VALUES` | `expose_values` | `MASKED` | `MASKED`, `METADATA_ONLY` or `FULL` (FULL logs a warning) |
 | `SHARPIT_MASK_SECRETS` | `mask_secrets` | `true` | mask secret-looking names and values; sharpit's own token is masked even when `false` |
 | `SHARPIT_SHOW_BANNER` | `show_banner` | `true` | print the startup banner to stderr |
@@ -85,6 +85,20 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_RUNTIME_JOURNAL_SOURCES` | `runtime_journal_sources` | every source | comma-separated BootUI journal sources to record (`http`, `sql`, `log`, ...); a list naming an unknown source is ignored whole (every source) with a warning |
 | `SHARPIT_STARTUP_ENABLED` | `startup_enabled` | `true` | record the host's startup timeline for the Startup panel |
 | `SHARPIT_STARTUP_CAPACITY` | `startup_capacity` | `4096` | startup steps the timeline retains |
+| `SHARPIT_COPILOT_ENABLED` | `copilot_enabled` | `AUTO` | Copilot panel; `AUTO` turns it on only when the session-state directory exists |
+| `SHARPIT_COPILOT_SESSION_STATE_DIR` | `copilot_session_state_dir` | `~/.copilot/session-state` | directory scanned for Copilot CLI sessions |
+| `SHARPIT_COPILOT_MAX_EVENTS_PER_SESSION` | `copilot_max_events_per_session` | `2000` | activity events retained per session |
+| `SHARPIT_COPILOT_MAX_SESSIONS` | `copilot_max_sessions` | `100` | recent sessions returned to the session explorer |
+| `SHARPIT_COPILOT_MAX_PARSED_SESSIONS` | `copilot_max_parsed_sessions` | `100` | recent session files parsed and kept in memory |
+| `SHARPIT_COPILOT_STREAM_DEBOUNCE` | `copilot_stream_debounce` | `400ms` | wait after a file change before refreshing sessions and notifying stream subscribers |
+| `SHARPIT_COPILOT_ALLOW_RAW_REVEAL` | `copilot_allow_raw_reveal` | `false` | serve the opt-in raw-event endpoint; `false` answers 404 |
+| `SHARPIT_CLAUDE_CODE_ENABLED` | `claude_code_enabled` | `AUTO` | Claude Code panel; `AUTO` turns it on only when the session directory exists |
+| `SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR` | `claude_code_session_state_dir` | `~/.claude/projects` | directory scanned for Claude Code sessions |
+| `SHARPIT_CLAUDE_CODE_MAX_EVENTS_PER_SESSION` | `claude_code_max_events_per_session` | `2000` | activity events retained per session |
+| `SHARPIT_CLAUDE_CODE_MAX_SESSIONS` | `claude_code_max_sessions` | `100` | recent sessions returned to the session explorer |
+| `SHARPIT_CLAUDE_CODE_MAX_PARSED_SESSIONS` | `claude_code_max_parsed_sessions` | `100` | recent session files parsed and kept in memory |
+| `SHARPIT_CLAUDE_CODE_STREAM_DEBOUNCE` | `claude_code_stream_debounce` | `400ms` | wait after a file change before refreshing sessions and notifying stream subscribers |
+| `SHARPIT_CLAUDE_CODE_ALLOW_RAW_REVEAL` | `claude_code_allow_raw_reveal` | `false` | serve the opt-in raw-event endpoint; `false` answers 404 |
 | `SHARPIT_SECURITY_LOGS_MAX_LOGS` | `security_logs_max_logs` | `500` | authentication and authorization audit events kept by the Security Logs panel |
 | `SHARPIT_TRANSACTIONS_ENABLED` | `transactions_enabled` | `true` | capture SQLAlchemy transactions for the Transactions panel |
 | `SHARPIT_TRANSACTIONS_RECORDING` | `transactions_recording` | `true` | initial transaction recording state |
