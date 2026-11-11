@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -10,6 +11,7 @@ from sharpit.engine.collectors.github.detector import Repository, detect_reposit
 from sharpit.settings import SharpitSettings
 
 _READY_MESSAGE = "Click Connect to load live GitHub metrics and quota state."
+_DISABLED_MESSAGE = "GitHub API calls are disabled. Set SHARPIT_GITHUB_API_ENABLED=true to allow the refresh action."
 _COPILOT_DOCS = "https://docs.github.com/en/rest/copilot/copilot-usage-metrics"
 
 
@@ -38,12 +40,19 @@ class GitHubDashboard:
             cached_repo: object = cached.get("repository")
             if isinstance(cached_repo, dict) and cast(dict[str, Any], cached_repo).get("fullName") == repo.full_name:
                 return cached
-        return self._ready(repo)
+        return self._ready(repo, _READY_MESSAGE)
 
     def refresh(self) -> dict[str, Any]:
         repo = self._repository()
         if not isinstance(repo, Repository):
             return self._unavailable(repo)
+        if not self._settings.github_api_enabled:
+            report = self._ready(repo, _DISABLED_MESSAGE) | {
+                "status": "DISABLED",
+                "refreshedAt": int(time.time() * 1000),
+            }
+            self.last_report = report
+            return report
         if self._client is None:
             return self.dashboard()
         report = self._client.refresh(repo)
@@ -59,7 +68,7 @@ class GitHubDashboard:
         return _report(False, reason, "UNAVAILABLE", reason, None, "none", "No GitHub repository is available")
 
     @staticmethod
-    def _ready(repo: Repository) -> dict[str, Any]:
+    def _ready(repo: Repository, message: str) -> dict[str, Any]:
         repository = {
             "owner": repo.owner,
             "name": repo.name,
@@ -82,7 +91,7 @@ class GitHubDashboard:
             "latestRelease": None,
         }
         copilot_reason = "Connect to GitHub to probe Copilot usage reports"
-        return _report(True, None, "READY", _READY_MESSAGE, repository, "not connected", copilot_reason)
+        return _report(True, None, "READY", message, repository, "not connected", copilot_reason)
 
 
 def _report(

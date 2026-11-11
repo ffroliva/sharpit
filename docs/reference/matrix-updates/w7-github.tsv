@@ -10,4 +10,5 @@ prop:bootui.github.max-security-alerts	matched	positive security alert limit
 prop:bootui.github.max-workflow-runs	matched	positive workflow run limit
 prop:bootui.github.quota-safety-threshold	matched	positive quota safety threshold
 prop:bootui.github.request-timeout	matched	5 second default and duration parser
-panel:github	partial	GET and read tool implemented; panel row held until G2 adds the BootUI refresh action
+panel:github	matched	GET, read tool and the REST-only refresh action (G2) implemented; masking corpus rows for fetched text wait on Fk
+op:github.refresh	matched	POST /github/refresh: BootUI call order, budget, quota protection, 2 MiB cap, no redirects; tests/engine/collectors/github/test_github_client.py, tests/fastapi/test_github_refresh_api.py

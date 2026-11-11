@@ -34,8 +34,13 @@ GATEKEEPERS: dict[str, set[str]] = {
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
     "opentelemetry": {"sharpit/engine/otel.py"},
-    "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},
-    "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
+    "urllib.request": {
+        "sharpit/engine/collectors/vulns/osv.py",
+        "sharpit/engine/collectors/vulns/epss.py",
+        "sharpit/engine/collectors/github/client.py",
+    },
+    "http.client": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/github/client.py"},
+    "subprocess": {"sharpit/engine/collectors/github/token.py"},  # gh auth token, the GitHub refresh action only
     "socket": set(),
     "ssl": set(),
     "pytest": {"sharpit/pytest_plugin"},

@@ -2,13 +2,19 @@
 
 from pathlib import Path
 
+from sharpit.engine.collectors.github.client import GitHubApiClient
 from sharpit.engine.collectors.github.dashboard import GitHubDashboard
+from sharpit.engine.collectors.github.token import resolve_token
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.tools import Tool
 
 
 def github_dashboard(ctx: SharpitContext) -> GitHubDashboard:
-    return ctx.lazy("github-dashboard", lambda: GitHubDashboard(Path.cwd, ctx.settings))
+    def build() -> GitHubDashboard:
+        client = GitHubApiClient(ctx.settings, resolve_token, scrub=ctx.masker.mask_text)
+        return GitHubDashboard(Path.cwd, ctx.settings, client)
+
+    return ctx.lazy("github-dashboard", build)
 
 
 TOOLS = (

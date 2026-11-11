@@ -1,4 +1,8 @@
-"""Read-only ``GET {api}/github`` route."""
+"""``GET {api}/github`` (local state only) and the REST-only ``POST {api}/github/refresh`` action.
+
+The guard refuses the POST when the panel is disabled or read-only before this handler runs. The handler is sync, so
+Starlette runs the bounded network refresh in its threadpool. BootUI has no single-flight on this action.
+"""
 
 from __future__ import annotations
 
@@ -21,4 +25,10 @@ def build_routes(ctx: SharpitContext, _host_app: object = None) -> list[BaseRout
     def report(_request: Request):
         return json_response(github_dashboard(ctx).dashboard())
 
-    return [Route(f"{api}/github", report, methods=["GET"])]
+    def refresh(_request: Request):
+        return json_response(github_dashboard(ctx).refresh())
+
+    return [
+        Route(f"{api}/github", report, methods=["GET"]),
+        Route(f"{api}/github/refresh", refresh, methods=["POST"]),
+    ]
