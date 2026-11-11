@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 from sharpit.engine.collectors.agentsessions.dashboard import build_dashboard
 from sharpit.engine.collectors.agentsessions.parser import Layout, ParsedSession, parse_session
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sharpit")  # never create a PlaceHolder under sharpit.*; see test_own_logger_refused
 
 
 def resolve_dir(configured: str | None, default_sub: str) -> Path:

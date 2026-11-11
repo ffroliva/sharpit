@@ -29,7 +29,8 @@ def make_agent_sessions_tools(layout: Layout) -> tuple[tuple[Tool, ...], dict[st
     tool_name = "get_copilot_sessions" if layout == Layout.COPILOT else "get_claude_code_sessions"
     panel_name = "copilot" if layout == Layout.COPILOT else "claude-code"
     cli_cmd = "sessions copilot" if layout == Layout.COPILOT else "sessions claude"
-    prop_key = f"bootui.{panel_name}.max-parsed-sessions"
+    # BootUI names the property bootui.<panel>.max-parsed-sessions; sharpit names its env variable.
+    prop_key = f"SHARPIT_{panel_name.replace('-', '_').upper()}_MAX_PARSED_SESSIONS"
 
     description = (
         f"Return the bounded, sanitized {source_name} session inventory parsed from local session files. "
