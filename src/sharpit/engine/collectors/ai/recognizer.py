@@ -5,6 +5,25 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 _TOOL_SPAN_PREFIXES = ("spring.ai.tool", "execute_tool")
+_FINISH_REASONS = frozenset(
+    {
+        "stop",
+        "length",
+        "tool_calls",
+        "function_call",
+        "content_filter",
+        "end_turn",
+        "max_tokens",
+        "stop_sequence",
+        "tool_use",
+        "pause_turn",
+        "refusal",
+        "safety",
+        "recitation",
+        "error",
+        "other",
+    }
+)
 
 
 def _string(attributes: Mapping[str, Any], key: str) -> str | None:
@@ -90,7 +109,9 @@ def journal_finish_reason(attributes: Mapping[str, Any]) -> str | None:
     if value is None:
         return None
     first = value.replace("[", "").replace("]", "").replace('"', "").split(",", maxsplit=1)[0].strip()
-    return first.lower() or None
+    # only a known reason is lower-cased (BootUI lower-cases all): any other text keeps its case, so the journal's
+    # read-time masking still finds a never-shown secret in it (that check is case-sensitive)
+    return first.lower() if first.lower() in _FINISH_REASONS else first or None
 
 
 def ai_journal_event(span: Any) -> dict[str, str | int | bool | None]:

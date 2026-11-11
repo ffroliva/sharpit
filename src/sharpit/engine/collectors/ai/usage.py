@@ -56,7 +56,25 @@ _METADATA_KEYS = frozenset(
         "index",
     }
 )
-_NUMERIC_TYPES = frozenset({"BOOLEAN", "LONG", "DOUBLE", "BOOLEAN_ARRAY", "LONG_ARRAY", "DOUBLE_ARRAY"})
+_NUMERIC_METADATA_KEYS = frozenset(  # allow-listed keys whose value is a number: text there is null
+    {
+        "gen_ai.request.temperature",
+        "gen_ai.request.max_tokens",
+        "gen_ai.request.top_p",
+        "gen_ai.request.top_k",
+        "gen_ai.request.frequency_penalty",
+        "gen_ai.request.presence_penalty",
+        "gen_ai.request.seed",
+        "gen_ai.request.choice.count",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "gen_ai.usage.total_tokens",
+        "gen_ai.usage.prompt_tokens",
+        "gen_ai.usage.completion_tokens",
+        "server.port",
+        "index",
+    }
+)
 _GENAI_INSTRUMENTATIONS = (
     "opentelemetry.instrumentation.openai_v2",
     "opentelemetry.instrumentation.genai.agno",
@@ -229,9 +247,12 @@ def _metadata_only(rows: list[dict[str, Any]], raw: Mapping[str, Any], masker: M
         if not isinstance(key, str) or key.lower() not in _METADATA_KEYS:
             if not _numbers_only(value):
                 row["value"] = None
+        elif key.lower() in _NUMERIC_METADATA_KEYS:
+            # BootUI leaves numbers as they are (a token count is not a secret token); text here is not metadata
+            numeric = type(value) in (int, float) and row.get("value") is not None
+            row["value"] = str(value) if numeric else None
         elif row.get("value") is not None:
-            # BootUI leaves numbers as they are (a token count is not a secret token); text is a masked name
-            row["value"] = str(value) if type(value) in (int, float) else _name(masker, row["value"])
+            row["value"] = _name(masker, row["value"])
 
 
 def _captured(attributes: Mapping[str, Any]) -> bool:
