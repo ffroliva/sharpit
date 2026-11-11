@@ -65,6 +65,14 @@ def _non_negative_int(raw: object) -> int:
     return 0 if zero else _int(raw)
 
 
+def _signed_int(raw: object) -> int:
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str) and re.fullmatch(r"\s*-?\d+\s*", raw):
+        return int(raw)
+    raise ValueError(raw)
+
+
 def _min_two_int(raw: object) -> int:
     """N+1 thresholds: one repeat is not a pattern, so anything below 2 counts as 2."""
     return max(2, _non_negative_int(raw))
@@ -285,9 +293,9 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "database_advisor_max_vendor_rows": (_int, None),
     "architecture_max_files": (_int, None),
     "architecture_max_file_bytes": (_int, None),
+    "startup_enabled": (parse_bool, False),
+    "startup_capacity": (_signed_int, None),
     "app_package": (_module_name, None),
-    "startup_enabled": (lambda _raw: True, True),
-    "startup_capacity": (lambda _raw: 0, 0),
 }
 
 NEVER_ECHOED = {

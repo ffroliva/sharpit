@@ -215,9 +215,11 @@ def install(
     @asynccontextmanager
     async def lifespan(host_app: Any) -> AsyncGenerator[Any]:  # NOSONAR - asynccontextmanager coroutine
         try:
+            startup_started_at = time.monotonic()
             async with original(host_app) as state:
                 if ctx.startup_time_ms is None:
                     ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
+                    ctx.startup.record("asgi.lifespan.startup", round((time.monotonic() - startup_started_at) * 1000))
                 wiring.on_startup(ctx)  # after the host's own startup (spec §6.1)
                 yield state
         finally:
