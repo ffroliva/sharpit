@@ -157,6 +157,7 @@ def test_insights_report_golden_keys_23() -> None:
     journal = _journal()
     journal.offer(AI)
     report = InsightsService(journal).report()
+    assert report["available"] is True
     assert list(report) == [
         "available", "unavailableReason", "window", "coverage", "checks", "observations", "limitations",
         "notExercised", "notExercisedOmitted",
@@ -197,3 +198,25 @@ def test_the_window_counts_http_requests_only_when_http_is_produced(monkeypatch:
     assert InsightsService(journal).report()["window"]["requests"] == 0
     monkeypatch.setattr(snapshot_module, "PRODUCED_SOURCES", frozenset({"ai", "http"}))
     assert InsightsService(journal).report()["window"]["requests"] == 1
+
+
+def test_the_window_spans_the_retained_events() -> None:
+    journal = _journal()
+    journal.offer(AI)
+    journal.offer(AI)
+    window = InsightsService(journal).report()["window"]
+    assert window["retainedEvents"] == 2
+    assert window["firstEventAt"] is not None
+    assert window["lastEventAt"] >= window["firstEventAt"]
+
+
+def test_a_kind_that_raises_is_unavailable_and_the_others_still_run() -> None:
+    def boom(_snapshot: object) -> Evaluation:
+        raise RuntimeError("secret detail")
+
+    journal = _journal()
+    journal.offer(AI)
+    kinds = [FakeKind(kind="a", evaluate=boom), FakeKind(kind="b", evaluate=lambda _s: Evaluation(2, []))]
+    a, b = InsightsService(journal, kinds).report()["checks"]
+    assert (a["status"], a["reason"]) == ("UNAVAILABLE", "This observation could not be evaluated.")
+    assert (b["status"], b["eligibleRequests"]) == ("EVALUATED", 2)
