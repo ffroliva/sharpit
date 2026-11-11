@@ -106,6 +106,7 @@ def ai_journal_event(span: Any) -> dict[str, Any]:
     span_id = getattr(context, "span_id", None)
     status = getattr(getattr(getattr(span, "status", None), "status_code", None), "name", None)
     return {
+        "source": "ai",
         "operation": operation_name,
         "provider": provider(attributes),
         "model": response_model(attributes) or request_model(attributes),

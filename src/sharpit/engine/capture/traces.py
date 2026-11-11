@@ -304,7 +304,7 @@ class SpanBuffer:
             return
         event = self.ai_event(span)
         if event:
-            self.journal.offer({"source": "ai", **event})
+            self.journal.offer(event)
 
     def arm(self) -> Callable[[], None] | None:
         """A ``CaptureState.attachers`` entry: arm on the SDK provider, or ``None`` to be retried later."""
