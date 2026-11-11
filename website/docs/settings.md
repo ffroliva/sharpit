@@ -101,6 +101,15 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_CLAUDE_CODE_MAX_PARSED_SESSIONS` | `claude_code_max_parsed_sessions` | `100` | recent session files parsed and kept in memory |
 | `SHARPIT_CLAUDE_CODE_STREAM_DEBOUNCE` | `claude_code_stream_debounce` | `400ms` | wait after a file change before refreshing sessions and notifying stream subscribers |
 | `SHARPIT_CLAUDE_CODE_ALLOW_RAW_REVEAL` | `claude_code_allow_raw_reveal` | `false` | serve the opt-in raw-event endpoint; `false` answers 404 |
+| `SHARPIT_GITHUB_API_ENABLED` | `github_api_enabled` | `true` | allow the GitHub refresh action to call GitHub APIs |
+| `SHARPIT_GITHUB_REQUEST_TIMEOUT` | `github_request_timeout` | `5s` | timeout per GitHub API request |
+| `SHARPIT_GITHUB_MAX_PULL_REQUESTS` | `github_max_pull_requests` | `10` | pull requests returned by a dashboard refresh |
+| `SHARPIT_GITHUB_MAX_ISSUES` | `github_max_issues` | `25` | issues returned by a dashboard refresh |
+| `SHARPIT_GITHUB_MAX_SECURITY_ALERTS` | `github_max_security_alerts` | `50` | Dependabot alert details listed by one refresh |
+| `SHARPIT_GITHUB_MAX_WORKFLOW_RUNS` | `github_max_workflow_runs` | `20` | workflow runs returned by one refresh |
+| `SHARPIT_GITHUB_QUOTA_SAFETY_THRESHOLD` | `github_quota_safety_threshold` | `10` | threshold below which optional API calls are skipped |
+| `SHARPIT_GITHUB_MAX_API_CALLS` | `github_max_api_calls` | `17` | API requests issued by one refresh |
+| `SHARPIT_GITHUB_ALLOWED_API_HOSTS` | `github_allowed_api_hosts` | `api.github.com` | comma-separated, lower-cased GitHub Enterprise API hosts |
 | `SHARPIT_OVERRIDES_FILE` | `overrides_file` | `{state_dir}/overrides.env` | file the Configuration panel's runtime overrides persist to; never read by sharpit's own settings |
 | `SHARPIT_ALEMBIC_CLEAN_ENABLED` | `alembic_clean_enabled` | `false` | allow the Alembic panel's clean action (`downgrade base`); an invalid value keeps it off |
 | `SHARPIT_DEV_SERVICES_RESTART_ENABLED` | `dev_services_restart_enabled` | `false` | allow restarting a dev-services container; an invalid value keeps it off |

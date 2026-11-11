@@ -2,8 +2,8 @@
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
     "matched": 5,
-    "partial": 24,
-    "missing": 47,
+    "partial": 25,
+    "missing": 46,
     "n-a": 20,
     "total": 96
   },
@@ -306,8 +306,8 @@
       "golden": "github/captured.json",
       "panel": "github",
       "route": "/sharpit/api/github",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/github (HTTP 404)"
+      "status": "partial",
+      "difference": "github/captured.json parity: unavailableReason: null in payload, golden has string; not listed in nullable.json"
     },
     {
       "golden": "graalvm/captured.json",
