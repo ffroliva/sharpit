@@ -94,7 +94,8 @@ jobs:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install ${{ matrix.python }}
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.14' && '--group full-extras' || '' }} --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
-      - run: uv run pytest -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run pytest -q -n auto -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -115,6 +116,16 @@ jobs:
         with:
           name: overhead-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
           path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/speed
           if-no-files-found: ignore
           retention-days: 7
 
@@ -159,13 +170,14 @@ jobs:
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python 3.13 # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
       # coverage's per-worker data files would land in the repo, which the side-effect checks report as a change
       - env:
           COVERAGE_FILE: ${{ runner.temp }}/.coverage
           COVERAGE_CORE: sysmon # sys.monitoring tracer (Python 3.12+): same report, a fraction of the classic tracer's cost
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-        run: uv run pytest -q -n auto --cov=sharpit --cov-report= --junitxml="${{ runner.temp }}/junit.xml"
+        run: uv run pytest -q -n auto --cov=sharpit --cov-report= -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
       - run: cp "$RUNNER_TEMP/.coverage" "coverage-${{ strategy.job-index }}.data" # a visible name: upload skips dotfiles
       - id: scan-junit
         if: always()
@@ -192,6 +204,16 @@ jobs:
           name: coverage-data-${{ strategy.job-index }}
           path: coverage-${{ strategy.job-index }}.data
           retention-days: 1
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-coverage-shard-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
 
   coverage:
     # Combines the shards' data into the coverage.xml sonar reads; required check, fails unless every shard passed.
@@ -313,8 +335,9 @@ jobs:
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
-      - run: uv run --no-sync pytest -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync pytest -q -n auto -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -336,6 +359,16 @@ jobs:
         with:
           name: overhead-lowest-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-lowest-shard-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/speed
           if-no-files-found: ignore
           retention-days: 7
 
@@ -372,7 +405,8 @@ jobs:
       - run: >-
           uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
           --no-install-package alembic --no-install-package greenlet # NOSONAR - this job installs sharpit from source and excludes optional dependencies
-      - run: uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -394,6 +428,16 @@ jobs:
         with:
           name: overhead-no-sqlalchemy-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-no-sqlalchemy-shard-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/speed
           if-no-files-found: ignore
           retention-days: 7
 
@@ -432,7 +476,8 @@ jobs:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install 3.14
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && '--group full-extras' || '' }} --python 3.14 # NOSONAR - installs sharpit from source for the gate
-      - run: uv run --no-sync pytest tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py tests/masking/test_gates_bite.py -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync pytest tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py tests/masking/test_gates_bite.py -q -n auto -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
       - id: scan-junit
@@ -452,6 +497,16 @@ jobs:
         with:
           name: overhead-masking-gates-${{ matrix.os }}
           path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-masking-gates-${{ matrix.os }}
+          path: ${{ runner.temp }}/speed
           if-no-files-found: ignore
           retention-days: 7
 
@@ -507,7 +562,8 @@ jobs:
           enable-cache: true
       - run: uv python install 3.14
       - run: uv sync --locked --extra test --group full-extras --python 3.14 # NOSONAR - installs sharpit from source and every live driver
-      - run: uv run --no-sync pytest tests/live --live -n auto -k "$LIVE_FILTER" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync pytest tests/live --live -n auto -k "$LIVE_FILTER" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           LIVE_FILTER: ${{ matrix.filter }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -543,6 +599,16 @@ jobs:
           path: ${{ runner.temp }}/overhead.jsonl
           if-no-files-found: ignore
           retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-live-${{ matrix.server }}
+          path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
 
   live-check:
     needs: [live, changes]
@@ -569,7 +635,8 @@ jobs:
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python 3.13 # NOSONAR - installs sharpit from source for the gate
-      - run: uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml --junitxml="${{ runner.temp }}/junit-fixed.xml"
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-fixed.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-fixed.json" --junitxml="${{ runner.temp }}/junit-fixed.xml"
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
       - id: scan-junit-fixed
@@ -593,7 +660,7 @@ jobs:
             sharpit-junit.xml
           retention-days: 7
       - name: The planted N+1 must fail the gate
-        run: "! uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit --sharpit-report=planted-report.json --junitxml=\"$RUNNER_TEMP/junit-planted.xml\""
+        run: "! uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit --sharpit-report=planted-report.json -p scripts.pytest_speed.fixture_timer --fixture-times=\"$RUNNER_TEMP/speed/ft-planted.jsonl\" -p scripts.pytest_speed.rebuild_log --rebuild-log=\"$RUNNER_TEMP/speed/rb-planted.json\" --junitxml=\"$RUNNER_TEMP/junit-planted.xml\""
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
       - id: scan-junit-planted
@@ -613,6 +680,16 @@ jobs:
         with:
           name: overhead-sharpit-gate-single
           path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-sharpit-gate-single
+          path: ${{ runner.temp }}/speed
           if-no-files-found: ignore
           retention-days: 7
 
