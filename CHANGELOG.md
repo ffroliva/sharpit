@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- SQL Trace `requestPhase` is `STARTUP` or `SHUTDOWN` for statements outside a request while sharpit observes the host's lifespan in that phase; null (unknown) otherwise.
 - `pytest --sharpit-sarif=PATH` (ini `sharpit_sarif`) writes the findings as SARIF 2.1.0: masked text, root-relative URIs, location-free fingerprints, baselined findings as suppressions; written by the xdist controller only.
 - Copilot panel (GET /copilot/*, get_copilot_sessions, CLI sessions copilot): local Copilot CLI sessions, allow-listed fields only, no watcher thread; raw reveal off by default.
 - Claude Code panel (GET /claude-code/*, get_claude_code_sessions, CLI sessions claude) and the session streams (GET /copilot/stream, /claude-code/stream), polled per stream with no background thread.

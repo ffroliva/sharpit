@@ -194,6 +194,12 @@ def _identity_key(settings: SharpitSettings) -> bytes | None:
     return load_key(Path(settings.state_dir), create=True)
 
 
+def _lifespan_phase(ctx: SharpitContext, phase: str | None) -> None:
+    """Label SQL Trace statements outside a request with the lifespan phase sharpit observes (ruling (h))."""
+    if (recorder := ctx.capture.sql_trace) is not None:
+        recorder.lifespan_phase = phase
+
+
 @asynccontextmanager
 async def _lifespan(
     host_app: Any,
@@ -208,7 +214,9 @@ async def _lifespan(
     stop = threading.Event()
     try:
         startup_started_at = time.monotonic()
+        _lifespan_phase(ctx, "STARTUP")
         async with original(host_app) as state:
+            _lifespan_phase(ctx, None)
             if ctx.startup_time_ms is None:
                 ctx.startup_time_ms = round((time.monotonic() - ctx.installed_at) * 1000)
                 ctx.startup.record("asgi.lifespan.startup", round((time.monotonic() - startup_started_at) * 1000))
@@ -223,8 +231,12 @@ async def _lifespan(
 
                 timer = threading.Thread(target=monitor_idle, name="sharpit-free-on-idle", daemon=True)
                 timer.start()
-            yield state
+            try:
+                yield state
+            finally:
+                _lifespan_phase(ctx, "SHUTDOWN")  # the host's shutdown runs as the ``async with`` exits
     finally:
+        _lifespan_phase(ctx, None)
         if timer is not None:
             stop.set()
             timer.join()
