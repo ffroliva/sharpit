@@ -6,7 +6,7 @@ import dataclasses
 import json
 from enum import Enum, Flag, StrEnum
 from pathlib import Path
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import pydantic
 import pytest
@@ -1317,3 +1317,35 @@ def test_profile_diff_validator_rewritten_value_masked_in_every_profile_file_get
     for report in (route, mcp):
         shown = {(s["profile"], p["value"], p["masked"]) for s in report for p in s["properties"] if p["name"] == "F"}
         assert shown == {("prod", "******", True), ("stage", "******", True)}
+
+
+def test_profile_diff_masks_fields_of_a_model_with_custom_sources_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A custom source rewrites the dotenv value into a URL with credentials, which Configuration masks.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("F=zqx\n", encoding="utf-8")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod")
+        f: str | None = None
+
+        @classmethod
+        def settings_customise_sources(  # pyright: ignore[reportIncompatibleMethodOverride]
+            cls,
+            settings_cls: object,
+            init_settings: Any,
+            env_settings: Any,
+            dotenv_settings: Any,
+            file_secret_settings: Any,
+        ) -> tuple[Any, ...]:
+            def rewritten() -> dict[str, object]:
+                return {k: _to_url(v) for k, v in dotenv_settings().items()}
+
+            return (init_settings, env_settings, rewritten, file_secret_settings)
+
+    settings = S()
+    cfg = config_report(_ctx(settings=(settings,)), None, None, False, None, None)
+    assert next(p for p in cfg["properties"] if p["name"] == "F")["masked"] is True
+    _assert_profile_key_masked((settings,), "F")
