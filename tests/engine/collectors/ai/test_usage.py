@@ -35,7 +35,7 @@ class SpanBuffer:
             output = []
             for key, value in attributes.items():
                 shown, hidden = self.masker.mask(key, value)
-                output.append({"key": key, "type": "STRING", "value": None if hidden else str(shown)})
+                output.append({"key": key, "type": "STRING", "value": None if hidden or shown is None else str(shown)})
             return output
 
         return (
@@ -66,6 +66,7 @@ def _span(
     return SimpleNamespace(
         context=SimpleNamespace(trace_id=trace_id, span_id=span_id),
         name=name or operation,
+        kind=SimpleNamespace(name="INTERNAL"),
         attributes={"gen_ai.operation.name": operation, **attributes},
         start_time=start,
         end_time=end,
@@ -176,7 +177,7 @@ def test_ai_chat_detail_returns_linked_tools_and_vector_operations():
     assert len(detail["toolCalls"]) == 1
     assert len(detail["vectorOperations"]) == 1
     assert detail["contentCaptured"] is True
-    assert detail["attributes"][0]["value"] == "hello"
+    assert next(item["value"] for item in detail["attributes"] if item["key"] == "gen_ai.input.messages") == "hello"
 
 
 def test_ai_content_keys_null_unless_full():

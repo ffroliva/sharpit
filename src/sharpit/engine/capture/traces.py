@@ -317,6 +317,9 @@ class SpanBuffer:
             traces.setdefault(_trace_id(span), []).append(span)
         return {tid: spans for tid, spans in traces.items() if not self._is_self(spans)}
 
+    def trace_spans(self) -> dict[str, list[Any]]:
+        return self._traces()
+
     def _is_self(self, spans: Iterable[Any]) -> bool:
         for span in spans:
             found = _raw_path(span) if _kind(span) == "SERVER" else None
@@ -385,6 +388,7 @@ class SpanBuffer:
         end = span.end_time or span.start_time
         scope = getattr(span, "instrumentation_scope", None)
         dialect = resolve(span, (SpanDialectSource(),), DialectContext(self.application))
+        attributes, events = self._render_attributes(span, dialect)
         return {
             "traceId": _trace_id(span),
             "spanId": _hex(span.context.span_id, 16),
@@ -400,8 +404,18 @@ class SpanBuffer:
             "statusMessage": (
                 None if span.status.description is None else error_text(self.masker, span.status.description, dialect)
             ),
-            "attributes": _attributes(self.masker, span.attributes, dialect),
-            "events": [
+            "attributes": attributes,
+            "events": events,
+        }
+
+    def render_attributes(self, span: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        dialect = resolve(span, (SpanDialectSource(),), DialectContext(self.application))
+        return self._render_attributes(span, dialect)
+
+    def _render_attributes(self, span: Any, dialect: Dialect) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        return (
+            _attributes(self.masker, span.attributes, dialect),
+            [
                 {
                     "name": self.masker.mask_text(e.name),
                     "timeOffsetNanos": e.timestamp - span.start_time,
@@ -409,7 +423,7 @@ class SpanBuffer:
                 }
                 for e in span.events or ()
             ],
-        }
+        )
 
     def detail(self, trace_id: str) -> dict[str, Any] | None:
         spans = self._traces().get(trace_id.lower())
