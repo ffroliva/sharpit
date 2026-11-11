@@ -21,8 +21,7 @@ import types
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
-from sharpit.engine.sources import dispatch
-from sharpit.engine.sources.dispatch import SqlEvent
+from sharpit.engine.sources import dispatch  # the module, not its names: dispatch imports engine.sqla, which imports us
 from sharpit.engine.sqltext import Dialect, DialectContext
 
 if TYPE_CHECKING:
@@ -104,7 +103,7 @@ def _event(
     error: BaseException | None,
 ) -> None:
     dispatch.emit(
-        SqlEvent(
+        dispatch.SqlEvent(
             "sqlite3",
             sql,
             parameters,
