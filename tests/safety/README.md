@@ -1,7 +1,8 @@
 # tests/safety: per-lane safety rows
 
 Each 0.4 panel lane adds `tests/safety/test_<lane_id>_safety.py` (lane id in lower case with `_`, e.g.
-`test_a_data_safety.py`) and never edits `tests/test_safety_matrix.py` or `tests/conftest.py`. The file exports:
+`test_a_data_safety.py`) and never edits `tests/test_safety_matrix.py` or `tests/conftest.py`, except that base-route rows
+belong in `tests/test_safety_matrix.py`. The file exports:
 
 ```python
 PANEL = "data"  # the panel id (a 0.4 id or sql-trace) whose flag gates these rows; omit it for base-route tests
@@ -30,3 +31,21 @@ panel is disabled, every write answers 403 under global and per-panel read-only 
 A file with a bad `PANEL` or row shape fails the route-table tests naming it; a file that cannot import (or skips at
 module level) adds no rows and is named when the live table then shows an undocumented route. The same file holds the
 lane's own safety tests.
+
+## W8 write rows (example)
+
+A W8 action lane (`tests/safety/test_w8_<lane>_safety.py`) documents only its own actions. A panel with a per-panel
+module (`cache`, `dev-services`) declares them as rows; the panel is already `actionCapable` (lane A0), so the matrix
+proves the read-only refusal for every row:
+
+```python
+PANEL = "cache"
+GET_ROWS = []  # the read side's GETs stay in the read lane's file
+WRITE_ROWS = [("POST", "/sharpit/api/cache/clear")]
+```
+
+`config` and `alembic` are base panels with no per-panel module, so a `PANEL` naming them is refused; their write
+routes go into `WRITES` in `tests/test_safety_matrix.py` (one row per route, with the panel id) and the lane file keeps
+`PANEL` unset. Either way the lane file also holds one refusal test per gate (inactive 404, guard, panel disabled 403,
+global and panel read-only 403 `PANEL_READ_ONLY`, the action's own setting or confirmation), each asserting the
+action's handler spy recorded zero calls.

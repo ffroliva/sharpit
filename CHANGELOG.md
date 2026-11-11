@@ -8,6 +8,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
+- REST API error contract (GET /rest-api/error-contract): the app's exception handlers by type, scope and declared status, read from declarations only (BootUI 2.3.0).
 - Profile Diff panel (GET /profile-diff, get_profile_diff, CLI profile diff): the app's .env.<profile> files, masked like Configuration.
 - Copilot panel (GET /copilot/*, get_copilot_sessions, CLI sessions copilot): local Copilot CLI sessions, allow-listed fields only, no watcher thread; raw reveal off by default.
 - Claude Code panel (GET /claude-code/*, get_claude_code_sessions, CLI sessions claude) and the session streams (GET /copilot/stream, /claude-code/stream), polled per stream with no background thread.
@@ -15,6 +16,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Runtime journal records ai events (operation, provider, model, tokens, finish reason) from GenAI spans.
 - Startup Timeline panel (GET /startup, get_startup_timeline, CLI startup) with SHARPIT_STARTUP_ENABLED and SHARPIT_STARTUP_CAPACITY: host lifespan startup timing.
 - Low-footprint controls on the Live Memory panel, CLI, and guarded API; idle capture suspension uses a lifespan-managed daemon timer.
+- W8 action groundwork: the Configuration panel is action-capable as in BootUI (read-only now reports and refuses its writes), Cache and Dev Services panel slots, and SHARPIT_OVERRIDES_FILE, SHARPIT_ALEMBIC_CLEAN_ENABLED, SHARPIT_DEV_SERVICES_RESTART_ENABLED, SHARPIT_CACHE_CLEAR_ENABLED.
 
 - BootUI 2.3.0 parity tests for the security advisor rules with location-only assertions and leak prevention.
 - Production-gated the five security rules BootUI suppresses outside production and added a partial local JWT audience check.
