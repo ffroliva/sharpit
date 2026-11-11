@@ -1185,3 +1185,22 @@ def test_profile_diff_compound_value_check_keeps_plain_values_in_clear_get_and_m
         assert route[name]["value"] == value, name
         assert via_mcp[name]["masked"] is False, name
         assert via_mcp[name]["value"] == value, name
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        pytest.param(Json[str] | None, id="K41-optional-json-str"),
+        pytest.param(Json[str], id="top-level-json-str"),
+    ],
+)
+def test_profile_diff_json_field_masked_whatever_its_inner_type_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, annotation: object
+) -> None:
+    # Json[...] anywhere in the annotation is not provably safe: the value is masked, whatever its inner type.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("F='\"zqx41\"'\n", encoding="utf-8")
+    settings = _settings_class({"f": annotation}, ".env.prod")()
+
+    _assert_profile_key_masked((settings,), "F")
