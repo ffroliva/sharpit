@@ -8,6 +8,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Profile Diff panel (GET /profile-diff, get_profile_diff, CLI profile diff): the app's .env.<profile> files, masked like Configuration.
+- Copilot panel (GET /copilot/*, get_copilot_sessions, CLI sessions copilot): local Copilot CLI sessions, allow-listed fields only, no watcher thread; raw reveal off by default.
+- Claude Code panel (GET /claude-code/*, get_claude_code_sessions, CLI sessions claude) and the session streams (GET /copilot/stream, /claude-code/stream), polled per stream with no background thread.
 - AI Framework panel (GET /ai/overview, /ai/chats, /ai/chats/{spanId}, /ai/tokens, get_ai_overview, CLI ai overview): GenAI spans from the app's own OpenTelemetry SDK; prompt and completion content hidden unless SHARPIT_EXPOSE_VALUES=FULL.
 - Runtime journal records ai events (operation, provider, model, tokens, finish reason) from GenAI spans.
 - Startup Timeline panel (GET /startup, get_startup_timeline, CLI startup) with SHARPIT_STARTUP_ENABLED and SHARPIT_STARTUP_CAPACITY: host lifespan startup timing.

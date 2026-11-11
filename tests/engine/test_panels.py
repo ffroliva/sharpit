@@ -141,7 +141,9 @@ def test_w7_wave1_panel_rows_match_bootui(no_side_effects: SideEffectGuard):
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
         no_side_effects.block_network()
         listed = {panel["id"] for panel in client.get("/sharpit/api/panels").json()["panels"]}
-    assert listed.isdisjoint(expected.keys() - {"ai"})
+    assert listed.isdisjoint(expected.keys() - {"copilot", "claude-code", "ai"})
+    assert "copilot" in listed
+    assert "claude-code" in listed
     assert "ai" in listed  # W7 A implements the AI Framework panel
     assert no_side_effects.violations == []
 
