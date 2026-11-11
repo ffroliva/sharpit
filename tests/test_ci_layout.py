@@ -112,17 +112,39 @@ def test_the_required_test_checks_need_the_coverage_leg() -> None:
     assert 'test "${{ needs.coverage-shard.result }}" = success' in body.split(DOCS_ONLY_EXIT, 1)[1]
 
 
-def test_the_313_budgets_run_without_coverage() -> None:
-    """The tracer skips every overhead budget (tests/overhead.py::paired), so 5/5 reruns them with no coverage."""
-    steps = [step for step in _split_steps(JOBS["coverage-shard"]) if "timing_files()" in step]
-    assert len(steps) == 1
-    budgets = steps[0]
-    assert "if: matrix.shard == '5/5'" in budgets
-    assert "--cov" not in budgets
-    assert "COVERAGE_" not in budgets
-    assert "SHARPIT_SHARD" not in budgets
+BUDGET_JOBS = ("test-shard", "coverage-shard", "lowest-shard", "no-sqlalchemy-shard")
+BUDGETS_ARGS = "@${{ runner.temp }}/budgets.args"  # the timing files (tests/_shard.py timing_files), one per line
+NO_BUDGETS_ARGS = "@${{ runner.temp }}/no-budgets.args"  # --ignore=<timing file>, one per line
+
+
+@pytest.mark.parametrize("job", BUDGET_JOBS)
+def test_the_budget_files_run_alone_after_the_parallel_step(job: str) -> None:
+    """Budget tests time capture on vs off: beside xdist workers still draining they fail on CI only, so every leg
+    runs them in their own `-n 0` step on its last shard, after the parallel step, which ignores them (each test once).
+    Under coverage the tracer would skip them (tests/overhead.py::paired), so that step has no coverage either."""
+    steps = _split_steps(JOBS[job])
+    runs = [step for step in steps if re.search(r"run:.*\bpytest\b", step)]
+    parallel = [step for step in runs if "-n auto" in step]
+    budgets = [step for step in runs if BUDGETS_ARGS in step]
+    assert len(parallel) == 1, parallel
+    assert NO_BUDGETS_ARGS in parallel[0]
+    assert len(budgets) == 1, f"{job}: no step runs the timing files alone"
+    assert len(runs) == 2, f"{job}: the timing files run only in the parallel step (ignored) and the budget step"
+    assert " -n 0 " in budgets[0]
+    assert steps.index(budgets[0]) > steps.index(parallel[0])
+    assert "SHARPIT_SHARD" not in budgets[0]
+    assert "--cov" not in budgets[0]
+    assert "COVERAGE_" not in budgets[0]
+    for marker in re.findall(r' -m "[^"]+"', parallel[0]):
+        assert marker in budgets[0], marker
+    lasts = {n for entries in _legs(job).values() for _, n in entries}
+    for n in sorted(lasts):
+        assert f"matrix.shard == '{n}/{n}'" in budgets[0], n
+    writer = 'scripts/ci/timing_files.py "${{ runner.temp }}"'
+    assert writer in JOBS[job]
+    assert JOBS[job].index(writer) < JOBS[job].index(parallel[0])
     for kind in ("junit", "overhead", "speed"):
-        assert f"name: {kind}-coverage-shard-budgets" in JOBS["coverage-shard"], kind
+        assert re.search(rf"name: {kind}-{job}-\S*budgets$", JOBS[job], re.MULTILINE), kind
 
 
 def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
