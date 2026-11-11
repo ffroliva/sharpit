@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import sys
 from collections import Counter
 from collections.abc import Mapping
@@ -115,15 +116,13 @@ def _chats(spans: list[Any]) -> list[Any]:
     )
 
 
-_SECRET_SHAPE = Masker(Exposure.MASKED, True)  # reads whether a name looks like a secret; never shown
-
-
 def _name(masker: Masker, name: str | None) -> str | None:
-    """A provider, model or finish-reason name: metadata, so METADATA_ONLY shows it unless it is secret-shaped."""
+    """A provider, model, tool or collection name: metadata, so METADATA_ONLY shows it unless it is secret-shaped."""
     if name is None or getattr(masker, "_exposure", None) is not Exposure.METADATA_ONLY:
         return masker.mask_text(name)
-    secrets_masked = getattr(masker, "_mask_secrets", True)
-    return MASK if secrets_masked and _SECRET_SHAPE.mask_text(name) != name else name
+    shape = copy.copy(masker)  # the live never-shown secrets and policy; only the exposure is switched
+    setattr(shape, "_exposure", Exposure.MASKED)  # noqa: B010 - a private field, set on the copy only
+    return MASK if shape.mask_text(name) != name else name
 
 
 def _preferred_model(attributes: Mapping[str, Any]) -> str:
@@ -216,15 +215,23 @@ def ai_chats(buffer: SpanBuffer, limit: int | None) -> list[dict[str, Any]]:
     ]
 
 
-def _metadata_only(rows: list[dict[str, Any]], raw: Mapping[str, Any]) -> None:
+def _numbers_only(value: object) -> bool:
+    """Read on the raw value, every element: the rendered type names only an array's first element."""
+    if isinstance(value, list | tuple):
+        return all(type(item) in (bool, int, float) for item in cast("list[object]", value))
+    return type(value) in (bool, int, float)
+
+
+def _metadata_only(rows: list[dict[str, Any]], raw: Mapping[str, Any], masker: Masker) -> None:
     for row in rows:
         key = row.get("key")
-        name = key.lower() if isinstance(key, str) else ""
-        if name not in _METADATA_KEYS:
-            if row.get("type") not in _NUMERIC_TYPES:
+        value = raw.get(key) if isinstance(key, str) else None
+        if not isinstance(key, str) or key.lower() not in _METADATA_KEYS:
+            if not _numbers_only(value):
                 row["value"] = None
-        elif row.get("value") is not None and type(value := raw.get(cast(str, key))) in (int, float):
-            row["value"] = str(value)  # BootUI leaves numbers as they are: a token count is not a secret token
+        elif row.get("value") is not None:
+            # BootUI leaves numbers as they are (a token count is not a secret token); text is a masked name
+            row["value"] = str(value) if type(value) in (int, float) else _name(masker, row["value"])
 
 
 def _captured(attributes: Mapping[str, Any]) -> bool:
@@ -234,23 +241,23 @@ def _captured(attributes: Mapping[str, Any]) -> bool:
     )
 
 
-def _tool(span: Any) -> dict[str, Any]:
+def _tool(span: Any, masker: Masker) -> dict[str, Any]:
     attributes = _attributes(span)
     return {
         "spanId": _id(span, "span_id", 16),
-        "name": recognizer.tool_name(attributes, getattr(span, "name", "")),
+        "name": _name(masker, recognizer.tool_name(attributes, getattr(span, "name", ""))),
         "startEpochNanos": getattr(span, "start_time", 0),
         "durationNanos": _duration(span),
         "statusCode": _status(span),
     }
 
 
-def _vector(span: Any) -> dict[str, Any]:
+def _vector(span: Any, masker: Masker) -> dict[str, Any]:
     attributes = _attributes(span)
     return {
         "spanId": _id(span, "span_id", 16),
         "operation": recognizer.vector_operation(attributes),
-        "collectionName": recognizer.vector_collection(attributes),
+        "collectionName": _name(masker, recognizer.vector_collection(attributes)),
         "startEpochNanos": getattr(span, "start_time", 0),
         "durationNanos": _duration(span),
         "statusCode": _status(span),
@@ -269,16 +276,16 @@ def ai_chat_detail(
     # OQ12 requires FULL even when secret masking is disabled.
     reveals_content = getattr(masker, "_exposure", None) is Exposure.FULL
     if not reveals_content:
-        _metadata_only(attributes, _attributes(chat))
-        for event in events:
-            _metadata_only(event.get("attributes", []), {})
+        _metadata_only(attributes, _attributes(chat), masker)
+        for event, raw_event in zip(events, getattr(chat, "events", None) or (), strict=False):
+            _metadata_only(event.get("attributes", []), _attributes(raw_event), masker)
     content_captured = _captured(_attributes(chat))
     show_banner = True if settings is None else settings.show_content_capture_banner
     return {
         "summary": _summary(chat, siblings, masker),
         "toolCalls": sorted(
             (
-                _tool(span)
+                _tool(span, masker)
                 for span in siblings
                 if recognizer.operation(_attributes(span), getattr(span, "name", "")) == "tool"
             ),
@@ -286,7 +293,7 @@ def ai_chat_detail(
         ),
         "vectorOperations": sorted(
             (
-                _vector(span)
+                _vector(span, masker)
                 for span in siblings
                 if recognizer.operation(_attributes(span), getattr(span, "name", "")) == "retrieval"
             ),
