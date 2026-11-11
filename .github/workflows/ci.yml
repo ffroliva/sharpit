@@ -519,14 +519,16 @@ jobs:
     # test_gates_bite.py (488 s on Windows, 279 s on Linux). The shards leave them out (tests/_shard.py OWN_JOB) and
     # this job runs them whole. No job timeout is set, so GitHub's 6 h default covers them.
     # Owner decision (2026-11-11, overriding pytest-speed's "no shards as the fix"): one job per gate file group on
-    # Windows, since what is left is work the tests need. Split by file in the matrix, never by an environment variable:
+    # both OSes, since what is left is work the tests need. Split by file in the matrix, never by an environment variable:
     # the gates' own nested pytest runs inherit os.environ. Ceiling per row: tests/test_ci_layout.py GATE_SECONDS.
     name: masking gates (${{ matrix.os }}, ${{ matrix.part }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, part: all, files: "tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py tests/masking/test_gates_bite.py" }
+          - { os: ubuntu-latest, part: gates-bite, files: "tests/masking/test_gates_bite.py" }
+          - { os: ubuntu-latest, part: scales, files: "tests/masking/test_masking_scales_linearly.py" }
+          - { os: ubuntu-latest, part: surfaces-lane, files: "tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py" }
           - { os: windows-latest, part: gates-bite, files: "tests/masking/test_gates_bite.py" }
           - { os: windows-latest, part: scales, files: "tests/masking/test_masking_scales_linearly.py" }
           - { os: windows-latest, part: surfaces-lane, files: "tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py" }
