@@ -154,3 +154,27 @@ def test_live_memory_panel_owns_low_footprint_controls():
     assert panel.action_capable is True
     assert panel.api_prefix == "/live-memory"
     assert panel.implemented is True
+
+
+def test_runtime_insights_panel_registered_action_capable(no_side_effects: SideEffectGuard):
+    """BootUI ``BootUiPanels.java:77,155``: "Runtime Insights", action-capable, ``/runtime-insights`` (W5c I0 slot)."""
+    from fastapi.testclient import TestClient
+
+    from fastapi import FastAPI
+    from sharpit import install
+    from sharpit.engine import panels04
+
+    rows = {p.id: (p.title, p.action_capable, p.api_prefix) for p in PANELS if p.id == "runtime-insights"}
+    assert rows == {"runtime-insights": ("Runtime Insights", True, "/runtime-insights")}
+    assert panels04.IMPLEMENTED.get("runtime-insights") is False  # a slot: I2 flips it
+
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
+    no_side_effects.unblock_network()
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        no_side_effects.block_network()
+        listed = {panel["id"] for panel in client.get("/sharpit/api/panels").json()["panels"]}
+        insights = client.get("/sharpit/api/runtime-insights")
+    assert "runtime-insights" not in listed
+    assert insights.status_code == 404
+    assert no_side_effects.violations == []

@@ -823,3 +823,45 @@ def test_runtime_journal_max_bytes_kwarg_int_and_bool() -> None:
     assert load_settings({"runtime_journal_max_bytes": 4096}, {}).runtime_journal_max_bytes == 4096
     rejected = load_settings({"runtime_journal_max_bytes": True}, {})
     assert rejected.runtime_journal_max_bytes == 32 * 1024 * 1024
+
+
+# W5c I0: bootui.runtime-insights.ai-token-threshold (positive, AiUsageByRoute.java:55-60) and
+# bootui.resources.jfr.max-duration (1s..10m, ResourceSettings.java:18-35); BootUI fails startup, sharpit fails safe.
+def test_runtime_insights_settings_defaults():
+    s = load_settings({}, {})
+    assert getattr(s, "runtime_insights_ai_token_threshold", None) == 8000
+    assert getattr(s, "resources_jfr_max_duration", None) == 30.0
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "raw", "expected"),
+    [
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "1", 1),
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "9000", 9000),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "1s", 1.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "45s", 45.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "600", 600.0),
+    ],
+)
+def test_runtime_insights_settings_env_values(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field, None) == expected
+    assert s.warnings == ()
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "raw", "expected"),
+    [
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "0", 8000),
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "-1", 8000),
+        ("runtime_insights_ai_token_threshold", "SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD", "many", 8000),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "999ms", 30.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "601s", 30.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "soon", 30.0),
+        ("resources_jfr_max_duration", "SHARPIT_RESOURCES_JFR_MAX_DURATION", "10m", 30.0),
+    ],
+)
+def test_runtime_insights_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field, None) == expected
+    assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
