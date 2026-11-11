@@ -23,7 +23,7 @@ from sharpit.settings import load_settings
 
 ServiceFor = Callable[[Callable[[], Inputs]], SecurityService]
 InputsOf = Callable[..., Inputs]
-SOURCE_RULES = 5  # SEC-AUTH-001/002/006, SEC-CONFIG-007, SEC-SRC-001
+SOURCE_RULES = 6  # SEC-OAUTH-002, SEC-AUTH-001/002/006, SEC-CONFIG-007, SEC-SRC-001
 FRAMEWORK_LOGGERS = ("fastapi", "starlette", "uvicorn", "sqlalchemy.engine")
 PARTIAL_TAIL = " Unsupported or incomplete evidence remains unknown; skipped checks are not security passes."
 
@@ -96,7 +96,8 @@ def test_unreadable_source_is_a_limitation(service_for: ServiceFor, inputs_of: I
     # ported: SecurityScannerTests.noApplicableTargetsAndUnavailableDiscoveryNeverCompleteChecks
     reason = "the application is defined in __main__ (a script run directly): not scanned; set app_package"
     scanned = service_for(lambda: replace(inputs_of(_violating_app()), limitations=(reason,))).scan()
-    assert scanned["rulesEvaluated"] == len(report.RULES) - SOURCE_RULES
+    assert sum(rule.needs_source for rule in report.RULES) == SOURCE_RULES
+    assert scanned["rulesEvaluated"] == len(report.RULES) - sum(rule.needs_source for rule in report.RULES)
     assert scanned["evidence"]["limitations"] == [f"application source: {reason}"]
     assert scanned["scan"]["status"] == "PARTIAL"
 

@@ -29,5 +29,10 @@
   "architecture": "architecture",
   "hibernate-statistics": "sqlalchemy-statistics",
   "spring-security": "fastapi-security",
-  "spring": "fastapi"
+  "spring": "fastapi",
+  "metrics": "metrics",
+  "startup": "startup",
+  "profile-diff": "profile-diff",
+  "scheduled": "scheduled",
+  "live-memory": "live-memory"
 }

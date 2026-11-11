@@ -45,6 +45,7 @@ PANELS: tuple[Panel, ...] = (
     Panel("threads", "Threads", False, "/threads"),
     Panel("rest-api", "REST API", True, "/rest-api"),
     Panel("http-probe", "HTTP Probe", True, "/http-probe"),
+    Panel("live-memory", "Live Memory", True, "/live-memory"),
     # 0.4.0 panels are registered now but remain absent until their owner flips its local flag.
     Panel("data", "Data", False, "/data"),
     Panel("transactions", "Transactions", True, "/transactions"),
@@ -58,6 +59,11 @@ PANELS: tuple[Panel, ...] = (
     Panel("sqlalchemy-statistics", "SQLAlchemy Statistics", True, "/sqlalchemy-statistics"),
     Panel("fastapi-security", "FastAPI Security", False, "/fastapi-security"),
     Panel("fastapi", "FastAPI", True, "/fastapi"),
+    # 0.6.0 wave 1: registered behind per-panel implementation flags.
+    Panel("metrics", "Metrics", False, "/metrics"),
+    Panel("startup", "Startup Timeline", False, "/startup"),
+    Panel("profile-diff", "Profile Diff", False, "/profile-diff"),
+    Panel("scheduled", "Scheduled Tasks", False, "/scheduled"),
 )
 
 

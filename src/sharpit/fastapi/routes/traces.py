@@ -24,7 +24,7 @@ def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
         # armed at lifespan startup (or the first request without a lifespan), disarmed by its teardown at shutdown;
         # install's own attach pass ran before the routes were built, so this is the earliest chance
         if ctx.capture.wiring is not None:
-            ctx.capture.wiring.add_lane(ctx, HOOK_TRACES, buffer.arm)
+            ctx.capture.wiring.add_lane(ctx, HOOK_TRACES, buffer.arm, buffer.clear)
             ctx.capture.wiring.span_processor = otel.PROCESSOR
         else:
             ctx.capture.attachers.append(buffer.arm)

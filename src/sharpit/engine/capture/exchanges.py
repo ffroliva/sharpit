@@ -159,6 +159,11 @@ class HttpExchangeBuffer:
             self._rows.append(row)
         self.changes.signal()
 
+    def clear(self) -> None:
+        with self._lock:
+            self._rows.clear()
+        self.changes.signal()
+
     def count_hidden_self(self) -> None:
         with self._lock:
             self.hidden_self += 1

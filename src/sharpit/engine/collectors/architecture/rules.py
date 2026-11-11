@@ -8,10 +8,11 @@ from collections.abc import Sequence
 from sharpit.engine.advisors.findings import Finding
 from sharpit.engine.advisors.rules import RuleDefinition
 from sharpit.engine.appsource import ModuleInfo, SourceIndex
+from sharpit.engine.collectors.architecture.common import ADVISOR
 from sharpit.engine.collectors.architecture.contracts import Contract
+from sharpit.engine.collectors.architecture.deprecated_settings import eval_deprecated, eval_settings
 from sharpit.engine.collectors.architecture.graph import ImportEdge, ImportGraph
 
-ADVISOR = "architecture"
 _PACKAGE_STRUCTURE = "Package structure"
 _CODING_PRACTICES = "Coding practices"
 _SHARPIT_URL = "https://github.com/ffroliva/sharpit"
@@ -97,6 +98,15 @@ RULES: tuple[RuleDefinition, ...] = (
         severity="INFO",
         description="datetime.utcnow() and utcfromtimestamp() are deprecated in Python 3.12.",
         recommendation="Use datetime.now(timezone.utc) or datetime.fromtimestamp(..., tz=timezone.utc).",
+        learn_more_url=_SHARPIT_URL,
+    ),
+    RuleDefinition(
+        id="ARCH-CODE-009",
+        name="Classes should not use deprecated APIs",
+        category=_CODING_PRACTICES,
+        severity="INFO",
+        description="Uses of application symbols marked with PEP 702 deprecated decorators should be replaced.",
+        recommendation="Migrate uses of deprecated application symbols to their supported replacements.",
         learn_more_url=_SHARPIT_URL,
     ),
     RuleDefinition(
@@ -206,6 +216,15 @@ RULES: tuple[RuleDefinition, ...] = (
             "Domain services and repositories should be transport-agnostic and not import Request or Response objects."
         ),
         recommendation="Pass domain parameters or DTOs to services instead of framework Request types.",
+        learn_more_url=_SHARPIT_URL,
+    ),
+    RuleDefinition(
+        id="ARCH-SPRING-015",
+        name="Configuration properties classes should be immutable",
+        category="Spring stereotypes",
+        severity="INFO",
+        description="Pydantic BaseSettings models should freeze their configuration with model_config.",
+        recommendation="Set model_config frozen=True on BaseSettings models.",
         learn_more_url=_SHARPIT_URL,
     ),
     RuleDefinition(
@@ -661,6 +680,9 @@ def evaluate_rules(
     base_pkgs = {m.partition(".")[0] for m in index.modules if m}
     for mod_name, mod_info in index.modules.items():
         _eval_module_ast(mod_name, mod_info, base_pkgs, findings)
+
+    eval_settings(index, findings)
+    eval_deprecated(index, findings)
 
     _eval_layering(graph, findings)
     _eval_contracts(graph, contracts, findings.setdefault("ARCH-PY-001", []))
