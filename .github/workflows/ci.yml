@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR cancels its superseded run. Every push gets its own group (run_id): GitHub cancels a run
+# waiting in a group even without cancel-in-progress, so a shared group would drop and serialise main's runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -34,120 +40,20 @@ jobs:
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
 
-  lint:
-    # ruff, format, pyright and the mirror-link grep are version-independent (pyright pins 3.12): one job, in parallel
-    # with the test shards, so no shard carries lint on its critical path.
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
-      - run: uv sync --locked --extra test --python 3.12 # NOSONAR - installs sharpit from source; pyright resolves it
-      - run: uv run --no-sync ruff check
-      - run: "! git grep -n 'cloud[n]s' -- ." # links must point at github.com, never a mirror
-        shell: bash
-      - run: uv run --no-sync ruff format --check
-      - run: uv run --no-sync pyright
-
-  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards a leg, because the costliest shard
-  # sets the leg's wall (the ceiling is pinned in tests/test_ci_layout.py).
-  # Each leg's shards together run every test exactly once (tests/test_shard.py).
-  test-shard:
+  coverage-shard:
+    # The 3.13 leg of the suite, run once under coverage for SonarCloud. Overhead budget tests time capture on vs off,
+    # which the coverage tracer distorts: tests/overhead.py::paired skips their budget assertions while a tracer runs, so
+    # the 5/5 row reruns the budget files (tests/_shard.py timing_files) without coverage to keep them enforced on 3.13.
     name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, python: "3.12", shard: 1/5 }
-          - { os: ubuntu-latest, python: "3.12", shard: 2/5 }
-          - { os: ubuntu-latest, python: "3.12", shard: 3/5 }
-          - { os: ubuntu-latest, python: "3.12", shard: 4/5 }
-          - { os: ubuntu-latest, python: "3.12", shard: 5/5 }
           - { os: ubuntu-latest, python: "3.13", shard: 1/5 }
           - { os: ubuntu-latest, python: "3.13", shard: 2/5 }
           - { os: ubuntu-latest, python: "3.13", shard: 3/5 }
           - { os: ubuntu-latest, python: "3.13", shard: 4/5 }
           - { os: ubuntu-latest, python: "3.13", shard: 5/5 }
-          - { os: ubuntu-latest, python: "3.14", shard: 1/5 }
-          - { os: ubuntu-latest, python: "3.14", shard: 2/5 }
-          - { os: ubuntu-latest, python: "3.14", shard: 3/5 }
-          - { os: ubuntu-latest, python: "3.14", shard: 4/5 }
-          - { os: ubuntu-latest, python: "3.14", shard: 5/5 }
-          - { os: windows-latest, python: "3.14", shard: 1/4 }
-          - { os: windows-latest, python: "3.14", shard: 2/4 }
-          - { os: windows-latest, python: "3.14", shard: 3/4 }
-          - { os: windows-latest, python: "3.14", shard: 4/4 }
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
-      - run: uv python install ${{ matrix.python }}
-      - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.14' && '--group full-extras' || '' }} --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
-      - run: uv run pytest -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
-        env:
-          SHARPIT_SHARD: ${{ matrix.shard }}
-          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-      - id: scan-junit
-        if: always()
-        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && steps.scan-junit.outcome == 'success'
-        with: # per-file timings: pytest-speed's `rank` and the shard weights (tests/shard_weights.json) read these
-          name: junit-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
-          path: ${{ runner.temp }}/junit.xml
-          retention-days: 7
-      - id: scan-overhead
-        if: always()
-        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && steps.scan-overhead.outcome == 'success'
-        with:
-          name: overhead-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
-          path: ${{ runner.temp }}/overhead.jsonl
-          if-no-files-found: ignore
-          retention-days: 7
-
-  test:
-    # The required checks keep their names: each passes only when every test shard passed (always(): a skipped
-    # required check would count as green). Stricter than per leg: one failed shard, or lint, fails all four.
-    needs: [test-shard, lint, changes]
-    if: always()
-    strategy:
-      fail-fast: false # each required check reports, none shows as cancelled
-      matrix:
-        os: [ubuntu-latest]
-        python: ["3.12", "3.13", "3.14"]
-        include:
-          - os: windows-latest
-            python: "3.14"
-    runs-on: ubuntu-latest
-    steps:
-      - env:
-          CODE_CHANGED: ${{ needs.changes.outputs.code }}
-        run: |
-          test "${{ needs.changes.result }}" = success
-          if [ "$CODE_CHANGED" = false ]; then exit 0; fi
-          test "${{ needs.test-shard.result }}" = success && test "${{ needs.lint.result }}" = success
-
-  coverage-shard:
-    # Coverage for SonarCloud. Overhead budget tests time capture on vs off, which the coverage tracer distorts:
-    # tests/overhead.py::paired skips every one of them while a tracer runs; the plain test matrix above enforces them.
-    name: coverage shard (${{ matrix.shard }})
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1/4, 2/4, 3/4, 4/4]
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -158,14 +64,16 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
-      - run: uv sync --locked --extra test --python 3.13 # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
+      - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
       # coverage's per-worker data files would land in the repo, which the side-effect checks report as a change
       - env:
           COVERAGE_FILE: ${{ runner.temp }}/.coverage
           COVERAGE_CORE: sysmon # sys.monitoring tracer (Python 3.12+): same report, a fraction of the classic tracer's cost
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-        run: uv run pytest -q -n auto --cov=sharpit --cov-report= --junitxml="${{ runner.temp }}/junit.xml"
+        run: uv run python -m pytest -q -n auto --cov=sharpit --cov-report= -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
       - run: cp "$RUNNER_TEMP/.coverage" "coverage-${{ strategy.job-index }}.data" # a visible name: upload skips dotfiles
       - id: scan-junit
         if: always()
@@ -192,9 +100,269 @@ jobs:
           name: coverage-data-${{ strategy.job-index }}
           path: coverage-${{ strategy.job-index }}.data
           retention-days: 1
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-coverage-shard-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # The budget tests alone (-n 0) after the parallel step: next to xdist workers still draining they fail on CI
+      # only. The coverage run above keeps these files (their ordinary tests are coverage input; the tracer skips only
+      # the budget assertions), so they run again here, unmeasured: no coverage, no SHARPIT_SHARD.
+      - if: ${{ !cancelled() && (matrix.shard == '5/5') }}
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
+        run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
+      - id: scan-junit-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-budgets.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-budgets.outcome == 'success'
+        with:
+          name: junit-coverage-shard-budgets
+          path: ${{ runner.temp }}/junit-budgets.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-overhead-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead-budgets.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead-budgets.outcome == 'success'
+        with:
+          name: overhead-coverage-shard-budgets
+          path: ${{ runner.temp }}/overhead-budgets.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed-budgets.outcome == 'success'
+        with:
+          name: speed-coverage-shard-budgets
+          path: ${{ runner.temp }}/speed/*-budgets.*
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards a leg, because the costliest shard
+  # sets the leg's wall (the ceiling is pinned in tests/test_ci_layout.py).
+  # Each leg's shards together run every test exactly once (tests/test_shard.py).
+  test-shard:
+    name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.12", shard: 1/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 2/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 3/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 4/5 }
+          - { os: ubuntu-latest, python: "3.12", shard: 5/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 1/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 2/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 3/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 4/5 }
+          - { os: ubuntu-latest, python: "3.14", shard: 5/5 }
+          - { os: windows-latest, python: "3.14", shard: 1/4 }
+          - { os: windows-latest, python: "3.14", shard: 2/4 }
+          - { os: windows-latest, python: "3.14", shard: 3/4 }
+          - { os: windows-latest, python: "3.14", shard: 4/4 }
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv python install ${{ matrix.python }}
+      - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.14' && '--group full-extras' || '' }} --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
+      - run: uv run python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+        env:
+          SHARPIT_SHARD: ${{ matrix.shard }}
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+      - id: scan-junit
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit.outcome == 'success'
+        with: # per-file timings: pytest-speed's `rank` and the shard weights (tests/shard_weights.json) read these
+          name: junit-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/junit.xml
+          retention-days: 7
+      - id: scan-overhead
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
+        with:
+          name: overhead-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+      # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
+      # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
+      - if: ${{ !cancelled() && (matrix.shard == '5/5' || matrix.shard == '4/4') }}
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
+        run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
+      - id: scan-junit-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-budgets.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-budgets.outcome == 'success'
+        with:
+          name: junit-test-shard-${{matrix.os}}-${{matrix.python}}-budgets
+          path: ${{ runner.temp }}/junit-budgets.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-overhead-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead-budgets.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead-budgets.outcome == 'success'
+        with:
+          name: overhead-test-shard-${{matrix.os}}-${{matrix.python}}-budgets
+          path: ${{ runner.temp }}/overhead-budgets.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed-budgets.outcome == 'success'
+        with:
+          name: speed-test-shard-${{matrix.os}}-${{matrix.python}}-budgets
+          path: ${{ runner.temp }}/speed/*-budgets.*
+          if-no-files-found: ignore
+          retention-days: 7
+
+  lint:
+    # ruff, format, pyright, the mirror-link grep, the workflow linters and the sharpit gate dogfood: one job (each
+    # was 11-23 s of work on its own runner; pyright pins 3.12), in parallel with the shards, off their critical path.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - run: uv sync --locked --extra test --python 3.12 # NOSONAR - installs sharpit from source; pyright resolves it
+      - run: uv run --no-sync ruff check
+      - run: "! git grep -n 'cloud[n]s' -- ." # links must point at github.com, never a mirror
+        shell: bash
+      - run: uv run --no-sync ruff format --check
+      - run: uv run --no-sync pyright
+      - run: uvx --from actionlint-py==1.7.12.25 actionlint
+      - run: uvx zizmor@1.32.0 --offline --min-severity medium .github/workflows
+      # Dogfood: the example's fixed route must pass `pytest --sharpit`, its planted N+1 must fail it.
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python -m pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-fixed.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-fixed.json" --junitxml="${{ runner.temp }}/junit-fixed.xml"
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+      - id: scan-junit-fixed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-fixed.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-fixed.outcome == 'success'
+        with:
+          name: junit-lint-sharpit-gate-fixed
+          path: ${{ runner.temp }}/junit-fixed.xml
+          retention-days: 7
+      - id: scan-sharpit-gate-reports
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" sharpit-report.json sharpit-junit.xml
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-sharpit-gate-reports.outcome == 'success'
+        with:
+          name: sharpit-gate-reports
+          path: |
+            sharpit-report.json
+            sharpit-junit.xml
+          retention-days: 7
+      - name: The planted N+1 must fail the gate
+        run: "! uv run --no-sync python -m pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit --sharpit-report=planted-report.json -p scripts.pytest_speed.fixture_timer --fixture-times=\"$RUNNER_TEMP/speed/ft-planted.jsonl\" -p scripts.pytest_speed.rebuild_log --rebuild-log=\"$RUNNER_TEMP/speed/rb-planted.json\" --junitxml=\"$RUNNER_TEMP/junit-planted.xml\""
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+      - id: scan-junit-planted
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-planted.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-planted.outcome == 'success'
+        with:
+          name: junit-lint-sharpit-gate-planted
+          path: ${{ runner.temp }}/junit-planted.xml
+          retention-days: 7
+      - id: scan-overhead
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
+        with:
+          name: overhead-lint-sharpit-gate
+          path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-lint-sharpit-gate
+          path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+
+  test:
+    # The required checks keep their names: each passes only when every test shard passed (always(): a skipped
+    # required check would count as green). Stricter than per leg: one failed shard, or lint, fails all four.
+    # The 3.13 leg is coverage-shard (it runs the suite once, under coverage).
+    needs: [test-shard, coverage-shard, lint, changes]
+    if: always()
+    strategy:
+      fail-fast: false # each required check reports, none shows as cancelled
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.12", "3.13", "3.14"]
+        include:
+          - os: windows-latest
+            python: "3.14"
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
+        run: |
+          test "${{ needs.changes.result }}" = success
+          if [ "$CODE_CHANGED" = false ]; then exit 0; fi
+          test "${{ needs.test-shard.result }}" = success && test "${{ needs.coverage-shard.result }}" = success
+          test "${{ needs.lint.result }}" = success
 
   coverage:
-    # Combines the shards' data into the coverage.xml sonar reads; required check, fails unless every shard passed.
+    # Required check, fails unless every coverage shard passed; combines their data into coverage.xml for people.
+    # sonar combines the same data itself, so it never waits for this job.
     needs: [coverage-shard, changes]
     if: always()
     runs-on: ubuntu-latest
@@ -230,7 +398,9 @@ jobs:
           retention-days: 1
 
   sonar:
-    needs: [coverage, changes]
+    # Combines the coverage leg's data itself (one job, no handoff), then the quality gate (sonar.qualitygate.wait)
+    # and the ratchet: both stay in this required check, so a PR cannot merge until both pass.
+    needs: [coverage-shard, changes]
     runs-on: ubuntu-latest
     # always(): report change-detection and coverage failures in this required check too.
     if: always()
@@ -243,16 +413,25 @@ jobs:
       - if: needs.changes.outputs.code == 'false'
         run: echo "Docs-only change; Sonar check is a no-op."
       - if: needs.changes.outputs.code != 'false'
-        run: test "${{ needs.coverage.result }}" = success
+        run: test "${{ needs.coverage-shard.result }}" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: needs.changes.outputs.code != 'false'
         with:
           persist-credentials: false
           fetch-depth: 0 # blame and new-code detection need full history
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: needs.changes.outputs.code != 'false'
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - if: needs.changes.outputs.code != 'false'
+        run: uv sync --locked --extra test --python 3.13 # NOSONAR - the report reads sharpit's sources and coverage's config
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.changes.outputs.code != 'false'
         with:
-          name: coverage-xml
+          pattern: coverage-data-*
+          merge-multiple: true
+      - if: needs.changes.outputs.code != 'false'
+        run: uv run --no-sync coverage combine coverage-*.data && uv run --no-sync coverage xml
       - name: Read project version
         id: version
         if: needs.changes.outputs.code != 'false'
@@ -269,6 +448,15 @@ jobs:
             echo "up=false" >> "$GITHUB_OUTPUT"
             echo "::warning::SonarCloud is unreachable; scan skipped for this run (not a code failure)."
           fi
+      - name: Cache the Sonar scanner (JRE and analyzers)
+        if: >-
+          needs.changes.outputs.code != 'false' && steps.health.outputs.up == 'true' &&
+          github.actor != 'dependabot[bot]' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.sonar/cache
+          key: sonar-${{ runner.os }}-v8.4.1 # the scan action's version: a new pin downloads a fresh scanner
       - name: SonarCloud scan
         if: >-
           needs.changes.outputs.code != 'false' && steps.health.outputs.up == 'true' &&
@@ -313,8 +501,10 @@ jobs:
         with:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
-      - run: uv run --no-sync pytest -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -336,6 +526,52 @@ jobs:
         with:
           name: overhead-lowest-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-lowest-shard-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+      # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
+      # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
+      - if: ${{ !cancelled() && (matrix.shard == '4/4') }}
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
+        run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
+      - id: scan-junit-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-budgets.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-budgets.outcome == 'success'
+        with:
+          name: junit-lowest-shard-budgets
+          path: ${{ runner.temp }}/junit-budgets.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-overhead-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead-budgets.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead-budgets.outcome == 'success'
+        with:
+          name: overhead-lowest-shard-budgets
+          path: ${{ runner.temp }}/overhead-budgets.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed-budgets.outcome == 'success'
+        with:
+          name: speed-lowest-shard-budgets
+          path: ${{ runner.temp }}/speed/*-budgets.*
           if-no-files-found: ignore
           retention-days: 7
 
@@ -372,7 +608,9 @@ jobs:
       - run: >-
           uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
           --no-install-package alembic --no-install-package greenlet # NOSONAR - this job installs sharpit from source and excludes optional dependencies
-      - run: uv run --no-sync pytest -q -n auto -m "not needs_sqlalchemy" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
+      - run: uv run --no-sync python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -m "not needs_sqlalchemy" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -396,6 +634,52 @@ jobs:
           path: ${{ runner.temp }}/overhead.jsonl
           if-no-files-found: ignore
           retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-no-sqlalchemy-shard-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+      # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
+      # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
+      - if: ${{ !cancelled() && (matrix.shard == '3/3') }}
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
+        run: uv run --no-sync python -m pytest -q -n 0 -m "not needs_sqlalchemy" "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
+      - id: scan-junit-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-budgets.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-budgets.outcome == 'success'
+        with:
+          name: junit-no-sqlalchemy-shard-budgets
+          path: ${{ runner.temp }}/junit-budgets.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-overhead-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead-budgets.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead-budgets.outcome == 'success'
+        with:
+          name: overhead-no-sqlalchemy-shard-budgets
+          path: ${{ runner.temp }}/overhead-budgets.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed-budgets.outcome == 'success'
+        with:
+          name: speed-no-sqlalchemy-shard-budgets
+          path: ${{ runner.temp }}/speed/*-budgets.*
+          if-no-files-found: ignore
+          retention-days: 7
 
   no-sqlalchemy:
     # required check: passes only when every no-sqlalchemy shard passed (always(): a skipped required check counts as green)
@@ -415,11 +699,20 @@ jobs:
     # time on Linux), test_statement_surfaces.py (386 s on Windows), test_lane_gate.py (418 s on Windows) and
     # test_gates_bite.py (488 s on Windows, 279 s on Linux). The shards leave them out (tests/_shard.py OWN_JOB) and
     # this job runs them whole. No job timeout is set, so GitHub's 6 h default covers them.
-    name: masking gates (${{ matrix.os }})
+    # Owner decision (2026-11-11, overriding pytest-speed's "no shards as the fix"): one job per gate file group on
+    # both OSes, since what is left is work the tests need. Split by file in the matrix, never by an environment variable:
+    # the gates' own nested pytest runs inherit os.environ. Ceiling per row: tests/test_ci_layout.py GATE_SECONDS.
+    name: masking gates (${{ matrix.os }}, ${{ matrix.part }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - { os: ubuntu-latest, part: gates-bite, files: "tests/masking/test_gates_bite.py" }
+          - { os: ubuntu-latest, part: scales, files: "tests/masking/test_masking_scales_linearly.py" }
+          - { os: ubuntu-latest, part: surfaces-lane, files: "tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py" }
+          - { os: windows-latest, part: gates-bite, files: "tests/masking/test_gates_bite.py" }
+          - { os: windows-latest, part: scales, files: "tests/masking/test_masking_scales_linearly.py" }
+          - { os: windows-latest, part: surfaces-lane, files: "tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py" }
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
@@ -432,7 +725,8 @@ jobs:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv python install 3.14
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && '--group full-extras' || '' }} --python 3.14 # NOSONAR - installs sharpit from source for the gate
-      - run: uv run --no-sync pytest tests/masking/test_masking_scales_linearly.py tests/masking/test_statement_surfaces.py tests/scripts/test_lane_gate.py tests/masking/test_gates_bite.py -q -n auto --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python -m pytest ${{ matrix.files }} -q -n auto -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
       - id: scan-junit
@@ -441,7 +735,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && steps.scan-junit.outcome == 'success'
         with: # ci_review.py globs junit-*
-          name: junit-masking-gates-${{ matrix.os }}
+          name: junit-masking-gates-${{ matrix.os }}-${{ matrix.part }}
           path: ${{ runner.temp }}/junit.xml
           retention-days: 7
       - id: scan-overhead
@@ -450,8 +744,18 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && steps.scan-overhead.outcome == 'success'
         with:
-          name: overhead-masking-gates-${{ matrix.os }}
+          name: overhead-masking-gates-${{ matrix.os }}-${{ matrix.part }}
           path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-masking-gates-${{ matrix.os }}-${{ matrix.part }}
+          path: ${{ runner.temp }}/speed
           if-no-files-found: ignore
           retention-days: 7
 
@@ -467,154 +771,6 @@ jobs:
           test "${{ needs.changes.result }}" = success
           if [ "$CODE_CHANGED" = false ]; then exit 0; fi
           test "${{ needs.masking-gates.result }}" = success
-
-  live:
-    name: live (${{ matrix.server }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { server: mysql84, image: mysql:8.4.10, port: 3306, filter: "mysql84 and not wrong_wired or wrong_wired", legs: "mysql84-default=2150 mysql84-NO_BACKSLASH_ESCAPES=2150 mysql84-ANSI_QUOTES=1388", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_a_wrong_wired_dialect_fails_the_oracle=1" }
-          - { server: mysql80, image: mysql:8.0.44, port: 3306, filter: mysql80, legs: "mysql80-default=1995 mysql80-NO_BACKSLASH_ESCAPES=1995 mysql80-ANSI_QUOTES=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
-          - { server: mariadb, image: mariadb:12.3.3, port: 3306, filter: "mariadb or oracle_control and backslash and mysql or oracle_control and mssql", legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3" }
-          - { server: postgresql, image: postgres:18.2, port: 5432, filter: "postgresql or scs_off_no_cut or inverse_plant", legs: "postgresql-on=138 postgresql-off=138", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3 test_example_app_records_its_server_family=1 test_the_inverse_plant_shows_five_rows_on_off=1" }
-          - { server: controls, image: mysql:8.4.10, port: 3306, filter: "sqlite or test_example_app_records_its_server_family and mysql", legs: "sqlite-default=2817", required: "test_example_app_records_its_server_family=1 test_a_refused_statement_keeps_its_value_hidden=1" }
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    services:
-      db:
-        image: ${{ matrix.image }}
-        options: >-
-          --health-cmd "${{ matrix.server == 'mariadb' && 'healthcheck.sh --connect --innodb_initialized' || matrix.server == 'postgresql' && 'pg_isready -U postgres' || 'mysqladmin ping -h 127.0.0.1 -psharpit' }}"
-          --health-interval 10s --health-timeout 5s --health-retries 10
-        env:
-          MYSQL_ROOT_PASSWORD: sharpit
-          MYSQL_DATABASE: sharpit
-          MARIADB_ROOT_PASSWORD: sharpit
-          MARIADB_DATABASE: sharpit
-          POSTGRES_PASSWORD: sharpit
-          POSTGRES_DB: sharpit
-        ports:
-          - ${{ matrix.port }}:${{ matrix.port }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          enable-cache: true
-      - run: uv python install 3.14
-      - run: uv sync --locked --extra test --group full-extras --python 3.14 # NOSONAR - installs sharpit from source and every live driver
-      - run: uv run --no-sync pytest tests/live --live -n auto -k "$LIVE_FILTER" --junitxml="${{ runner.temp }}/junit.xml"
-        env:
-          LIVE_FILTER: ${{ matrix.filter }}
-          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-          SHARPIT_LIVE_MYSQL84_URL: ${{ (matrix.server == 'mysql84' || matrix.server == 'controls') && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
-          SHARPIT_LIVE_MYSQL80_URL: ${{ matrix.server == 'mysql80' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
-          SHARPIT_LIVE_MARIADB_URL: ${{ matrix.server == 'mariadb' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
-          SHARPIT_LIVE_POSTGRESQL_URL: ${{ matrix.server == 'postgresql' && format('postgresql+psycopg://postgres:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
-      - name: Require executed live tests, without skips
-        if: always()
-        env:
-          LEGS: ${{ matrix.legs }}
-          REQUIRED_LIVE: ${{ matrix.required }}
-        run: |
-          read -r -a legs <<< "$LEGS"
-          read -r -a required <<< "$REQUIRED_LIVE"
-          uv run --no-sync python scripts/ci/check_live_tests.py "$RUNNER_TEMP/junit.xml" --legs "${legs[@]}" --require "${required[@]}"
-      - id: scan-junit
-        if: always()
-        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && steps.scan-junit.outcome == 'success'
-        with:
-          name: junit-live-${{ matrix.server }}
-          path: ${{ runner.temp }}/junit.xml
-          retention-days: 7
-      - id: scan-overhead
-        if: always()
-        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && steps.scan-overhead.outcome == 'success'
-        with:
-          name: overhead-live-${{ matrix.server }}
-          path: ${{ runner.temp }}/overhead.jsonl
-          if-no-files-found: ignore
-          retention-days: 7
-
-  live-check:
-    needs: [live, changes]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - env:
-          CODE_CHANGED: ${{ needs.changes.outputs.code }}
-        run: |
-          test "${{ needs.changes.result }}" = success
-          if [ "$CODE_CHANGED" = false ]; then exit 0; fi
-          test "${{ needs.live.result }}" = success
-
-  sharpit-gate:
-    # Dogfood: the example's fixed route must pass `pytest --sharpit`, its planted N+1 must fail it.
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
-      - run: uv sync --locked --extra test --python 3.13 # NOSONAR - installs sharpit from source for the gate
-      - run: uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml --junitxml="${{ runner.temp }}/junit-fixed.xml"
-        env:
-          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-      - id: scan-junit-fixed
-        if: always()
-        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-fixed.xml"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && steps.scan-junit-fixed.outcome == 'success'
-        with:
-          name: junit-sharpit-gate-fixed
-          path: ${{ runner.temp }}/junit-fixed.xml
-          retention-days: 7
-      - id: scan-sharpit-gate-reports
-        if: always()
-        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" sharpit-report.json sharpit-junit.xml
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && steps.scan-sharpit-gate-reports.outcome == 'success'
-        with:
-          name: sharpit-gate-reports
-          path: |
-            sharpit-report.json
-            sharpit-junit.xml
-          retention-days: 7
-      - name: The planted N+1 must fail the gate
-        run: "! uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit --sharpit-report=planted-report.json --junitxml=\"$RUNNER_TEMP/junit-planted.xml\""
-        env:
-          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-      - id: scan-junit-planted
-        if: always()
-        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-planted.xml"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && steps.scan-junit-planted.outcome == 'success'
-        with:
-          name: junit-sharpit-gate-planted
-          path: ${{ runner.temp }}/junit-planted.xml
-          retention-days: 7
-      - id: scan-overhead
-        if: always()
-        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && steps.scan-overhead.outcome == 'success'
-        with:
-          name: overhead-sharpit-gate-single
-          path: ${{ runner.temp }}/overhead.jsonl
-          if-no-files-found: ignore
-          retention-days: 7
 
   ui:
     needs: changes
@@ -688,14 +844,101 @@ jobs:
           uv pip install --python "$RUNNER_TEMP/smoke/bin/python" "$RUNNER_TEMP"/dist/sharpit-*.whl fastapi pydantic-settings uvicorn httpx
           PYTHONPATH=. "$RUNNER_TEMP/smoke/bin/python" scripts/ci/wheel_smoke.py
 
-  workflow-lint:
+  live:
+    name: live (${{ matrix.server }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { server: mysql84, image: mysql:8.4.10, port: 3306, filter: "mysql84 and not wrong_wired or wrong_wired", legs: "mysql84-default=2150 mysql84-NO_BACKSLASH_ESCAPES=2150 mysql84-ANSI_QUOTES=1388", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_a_wrong_wired_dialect_fails_the_oracle=1" }
+          - { server: mysql80, image: mysql:8.0.44, port: 3306, filter: mysql80, legs: "mysql80-default=1995 mysql80-NO_BACKSLASH_ESCAPES=1995 mysql80-ANSI_QUOTES=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row" }
+          - { server: mariadb, image: mariadb:12.3.3, port: 3306, filter: "mariadb or oracle_control and backslash and mysql or oracle_control and mssql", legs: "mariadb-default=1996 mariadb-NO_BACKSLASH_ESCAPES=1996 mariadb-ANSI_QUOTES=1233 mariadb-MSSQL=1403 mariadb-ORACLE=1233", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3" }
+          - { server: postgresql, image: postgres:18.2, port: 5432, filter: "postgresql or scs_off_no_cut or inverse_plant", legs: "postgresql-on=138 postgresql-off=138", required: "test_a_server_answers=1 test_a_refused_statement_keeps_its_value_hidden=1 test_oracle_row test_oracle_control=3 test_example_app_records_its_server_family=1 test_the_inverse_plant_shows_five_rows_on_off=1" }
+          - { server: controls, image: mysql:8.4.10, port: 3306, filter: "sqlite or test_example_app_records_its_server_family and mysql", legs: "sqlite-default=2817", required: "test_example_app_records_its_server_family=1 test_a_refused_statement_keeps_its_value_hidden=1" }
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      db:
+        image: ${{ matrix.image }}
+        options: >-
+          --health-cmd "${{ matrix.server == 'mariadb' && 'healthcheck.sh --connect --innodb_initialized' || matrix.server == 'postgresql' && 'pg_isready -U postgres' || 'mysqladmin ping -h 127.0.0.1 -psharpit' }}"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+        env:
+          MYSQL_ROOT_PASSWORD: sharpit
+          MYSQL_DATABASE: sharpit
+          MARIADB_ROOT_PASSWORD: sharpit
+          MARIADB_DATABASE: sharpit
+          POSTGRES_PASSWORD: sharpit
+          POSTGRES_DB: sharpit
+        ports:
+          - ${{ matrix.port }}:${{ matrix.port }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      - run: uvx --from actionlint-py==1.7.12.25 actionlint
-      - run: uvx zizmor@1.32.0 --offline --min-severity medium .github/workflows
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv sync --locked --extra test --group full-extras --python 3.14 # NOSONAR - installs sharpit from source and every live driver
+      - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python -m pytest tests/live --live -n auto -k "$LIVE_FILTER" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+        env:
+          LIVE_FILTER: ${{ matrix.filter }}
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
+          SHARPIT_LIVE_MYSQL84_URL: ${{ (matrix.server == 'mysql84' || matrix.server == 'controls') && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
+          SHARPIT_LIVE_MYSQL80_URL: ${{ matrix.server == 'mysql80' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
+          SHARPIT_LIVE_MARIADB_URL: ${{ matrix.server == 'mariadb' && format('mysql+pymysql://root:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
+          SHARPIT_LIVE_POSTGRESQL_URL: ${{ matrix.server == 'postgresql' && format('postgresql+psycopg://postgres:sharpit@127.0.0.1:{0}/sharpit', matrix.port) || '' }}
+      - name: Require executed live tests, without skips
+        if: always()
+        env:
+          LEGS: ${{ matrix.legs }}
+          REQUIRED_LIVE: ${{ matrix.required }}
+        run: |
+          read -r -a legs <<< "$LEGS"
+          read -r -a required <<< "$REQUIRED_LIVE"
+          uv run --no-sync python scripts/ci/check_live_tests.py "$RUNNER_TEMP/junit.xml" --legs "${legs[@]}" --require "${required[@]}"
+      - id: scan-junit
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit.outcome == 'success'
+        with:
+          name: junit-live-${{ matrix.server }}
+          path: ${{ runner.temp }}/junit.xml
+          retention-days: 7
+      - id: scan-overhead
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead.outcome == 'success'
+        with:
+          name: overhead-live-${{ matrix.server }}
+          path: ${{ runner.temp }}/overhead.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed.outcome == 'success'
+        with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
+          name: speed-live-${{ matrix.server }}
+          path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+
+  live-check:
+    needs: [live, changes]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
+        run: |
+          test "${{ needs.changes.result }}" = success
+          if [ "$CODE_CHANGED" = false ]; then exit 0; fi
+          test "${{ needs.live.result }}" = success

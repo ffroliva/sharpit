@@ -32,8 +32,8 @@ from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.sources import dispatch
 from sharpit.engine.sqltext import load_key
-from sharpit.fastapi.adapter import SharpitHandle
 from sharpit.fastapi.capture import HOOK_TRANSACTIONS, CaptureWiring
+from sharpit.fastapi.handle import SharpitHandle  # not from adapter: it imports this module at its end
 from sharpit.fastapi.introspector import FastApiIntrospector
 from sharpit.fastapi.signals import dev_server_signal
 from sharpit.settings import SharpitSettings, load_settings, parse_mode

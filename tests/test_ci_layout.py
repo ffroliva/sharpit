@@ -86,8 +86,69 @@ def test_no_test_shard_carries_more_weighted_test_time_than_the_ceiling(leg: str
 
 def test_the_required_test_check_still_fails_when_lint_fails() -> None:
     """Lint left the shards, so the required `test` checks must wait for it or a lint failure would merge."""
-    assert "needs: [test-shard, lint, changes]" in JOBS["test"]
+    assert "needs: [test-shard, coverage-shard, lint, changes]" in JOBS["test"]
     assert 'needs.lint.result }}" = success' in JOBS["test"]
+
+
+DOCS_ONLY_EXIT = 'if [ "$CODE_CHANGED" = false ]; then exit 0; fi'
+DOCS_ONLY_SONAR = "Docs-only change; Sonar check is a no-op."
+
+
+def test_the_313_leg_runs_only_under_coverage() -> None:
+    """The 3.13 suite ran twice on the same install: plain in test-shard and again under coverage."""
+    assert "ubuntu-latest3.13" not in _legs("test-shard")
+
+
+def test_the_coverage_leg_is_the_313_leg_in_five_shards() -> None:
+    assert _legs("coverage-shard") == {"ubuntu-latest3.13": [(i, 5) for i in range(1, 6)]}
+    assert "--cov=sharpit --cov-report=" in JOBS["coverage-shard"]
+
+
+def test_the_required_test_checks_need_the_coverage_leg() -> None:
+    """The 3.13 leg runs only under coverage now, so `test` fails when it fails, docs-only changes still exit 0."""
+    body = JOBS["test"]
+    assert "coverage-shard" in body.split("needs:", 1)[1].splitlines()[0]
+    assert DOCS_ONLY_EXIT in body
+    assert 'test "${{ needs.coverage-shard.result }}" = success' in body.split(DOCS_ONLY_EXIT, 1)[1]
+
+
+BUDGET_JOBS = ("test-shard", "coverage-shard", "lowest-shard", "no-sqlalchemy-shard")
+BUDGETS_ARGS = "@${{ runner.temp }}/budgets.args"  # the timing files (tests/_shard.py timing_files), one per line
+NO_BUDGETS_ARGS = "@${{ runner.temp }}/no-budgets.args"  # --ignore=<timing file>, one per line
+
+
+@pytest.mark.parametrize("job", BUDGET_JOBS)
+def test_the_budget_files_run_alone_after_the_parallel_step(job: str) -> None:
+    """Budget tests time capture on vs off: beside xdist workers still draining they fail on CI only, so every leg
+    runs them in their own `-n 0` step on its last shard, after the parallel step, which ignores them (each test once).
+    The coverage leg keeps them in its parallel step (their ordinary tests are coverage input; tests/overhead.py::paired
+    skips the budget assertions under the tracer) and reruns them unmeasured in the budget step."""
+    steps = _split_steps(JOBS[job])
+    runs = [step for step in steps if re.search(r"run:.*\bpytest\b", step)]
+    parallel = [step for step in runs if "-n auto" in step]
+    budgets = [step for step in runs if BUDGETS_ARGS in step]
+    assert len(parallel) == 1, parallel
+    if job == "coverage-shard":
+        assert NO_BUDGETS_ARGS not in parallel[0], "the timing files' ordinary tests left the coverage input"
+    else:
+        assert NO_BUDGETS_ARGS in parallel[0]
+    assert len(budgets) == 1, f"{job}: no step runs the timing files alone"
+    assert len(runs) == 2, f"{job}: the timing files run only in the parallel step (ignored) and the budget step"
+    assert " -n 0 " in budgets[0]
+    assert steps.index(budgets[0]) > steps.index(parallel[0])
+    assert "SHARPIT_SHARD" not in budgets[0]
+    assert "--cov" not in budgets[0]
+    assert "COVERAGE_" not in budgets[0]
+    for marker in re.findall(r' -m "[^"]+"', parallel[0]):
+        assert marker in budgets[0], marker
+    lasts = {n for entries in _legs(job).values() for _, n in entries}
+    for n in sorted(lasts):
+        assert f"matrix.shard == '{n}/{n}'" in budgets[0], n
+    writer = 'scripts/ci/timing_files.py "${{ runner.temp }}"'
+    assert writer in JOBS[job]
+    assert JOBS[job].index(writer) < JOBS[job].index(parallel[0])
+    for kind in ("junit", "overhead", "speed"):
+        assert re.search(rf"name: {kind}-{job}-\S*budgets$", JOBS[job], re.MULTILINE), kind
 
 
 def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
@@ -116,6 +177,43 @@ def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
         assert "SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl" in JOBS[job], job
         assert JOBS[job].count("if: always()") >= 2, job
     assert parse_artifact("junit-test-shard-ubuntu-latest-3.12-0") == ("test-shard", "ubuntu-latest-3.12-0")
+
+
+SPEED_DIR = "${{ runner.temp }}/speed"
+
+
+PYTEST_JOBS = [name for name, body in JOBS.items() if re.search(r"^\s*(?:- )?run:.*\bpytest\b", body, re.MULTILINE)]
+
+
+@pytest.mark.parametrize("job", PYTEST_JOBS)
+def test_every_pytest_job_records_fixture_times_and_rebuilds_and_uploads_them(job: str) -> None:
+    """pytest-speed step 1 ranks CI's own runs: each pytest run writes fixture times and rebuild counts."""
+    runs = [line for line in JOBS[job].splitlines() if re.search(r"^\s*(?:- )?run:.*\bpytest\b", line)]
+    assert runs
+    for line in runs:
+        assert "-p scripts.pytest_speed.fixture_timer --fixture-times=" in line, line
+        assert "-p scripts.pytest_speed.rebuild_log --rebuild-log=" in line, line
+        assert re.search(r"--fixture-times=\\?\"?(?:\$\{\{ runner\.temp \}\}|\$RUNNER_TEMP)/speed/", line), line
+        assert re.search(r"--rebuild-log=\\?\"?(?:\$\{\{ runner\.temp \}\}|\$RUNNER_TEMP)/speed/", line), line
+    body = JOBS[job]
+    assert body.index(f'os.makedirs(sys.argv[1], exist_ok=True)" "{SPEED_DIR}"') < body.index(runs[0])
+    assert f'--values-file "${{{{ runner.temp }}}}/sharpit-canary.txt" "{SPEED_DIR}"' in body
+    upload = body.split(f"name: speed-{job}", 1)
+    assert len(upload) == 2, f"{job} uploads no speed-{job}-* artifact"
+    tail = upload[1].split("\n      - ", 1)[0]
+    assert f"path: {SPEED_DIR}" in tail
+    assert "retention-days: 7" in tail
+    assert "steps.scan-speed.outcome == 'success'" in upload[0].rsplit("\n      - ", 1)[1]
+
+
+@pytest.mark.parametrize("job", PYTEST_JOBS)
+def test_every_pytest_step_that_loads_a_scripts_plugin_can_import_scripts(job: str) -> None:
+    """`-p scripts.…` is imported before pytest applies `pythonpath`: only `python -m pytest` puts the repo root on
+    sys.path first (PR #135: `No module named 'scripts'` at startup on most shards)."""
+    runs = [line for line in JOBS[job].splitlines() if "-p scripts." in line]
+    assert runs
+    bare = [line.strip() for line in runs if not re.search(r"\bpython -m pytest\b", line)]
+    assert not bare, bare
 
 
 def test_full_extras_installs_every_optional_gatekeeper_distribution() -> None:
@@ -168,8 +266,8 @@ def test_the_full_extras_leg_uploads_a_parsed_junit() -> None:
     masking_sync = next(line for line in masking.splitlines() if "uv sync" in line)
     assert "matrix.os == 'ubuntu-latest'" in masking_sync
     assert "--group full-extras" in masking_sync
-    assert "name: junit-masking-gates-${{ matrix.os }}" in masking
-    assert parse_artifact("junit-masking-gates-ubuntu-latest") == ("masking-gates", "ubuntu-latest")
+    assert "name: junit-masking-gates-${{ matrix.os }}-${{ matrix.part }}" in masking
+    assert parse_artifact("junit-masking-gates-ubuntu-latest-scales") == ("masking-gates", "ubuntu-latest-scales")
 
 
 def test_junit_never_carries_captured_output() -> None:
@@ -308,8 +406,6 @@ def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None
         "no-sqlalchemy-shard",
         "masking-gates",
         "live",
-        "sharpit-gate",
-        "workflow-lint",
     ):
         assert "if: needs.changes.outputs.code == 'true'" in JOBS[job], job
 
@@ -317,7 +413,7 @@ def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None
 def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path: Path) -> None:
     lines = CI.splitlines()
     start = lines.index("        run: |", lines.index("      - id: filter")) + 1
-    end = next(index for index in range(start, len(lines)) if lines[index].startswith("  lint:"))
+    end = next(index for index in range(start, len(lines)) if re.fullmatch(r"  [a-z-]+:", lines[index]))
     run = textwrap.dedent("\n".join(lines[start:end]))
     output = tmp_path / "change-output"  # absolute: the step runs in the repo root, shared by every xdist worker
     result = subprocess.run(
@@ -415,6 +511,161 @@ def test_the_heavy_masking_gates_have_one_job_and_no_shard_collects_them(
     result = pytester.runpytest_subprocess("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
     for gate in OWN_JOB_FILES:
         assert f"{gate}::test_row" in result.outlines
+
+
+def test_sonar_needs_the_coverage_leg_not_the_coverage_job() -> None:
+    """A separate combine job put its setup and a handoff on the required wall between the coverage leg and Sonar."""
+    assert JOBS["sonar"].split("needs:", 1)[1].splitlines()[0].strip() == "[coverage-shard, changes]"
+
+
+def test_sonar_combines_then_scans_then_ratchets_in_one_job() -> None:
+    body = JOBS["sonar"]
+    order = [
+        DOCS_ONLY_SONAR,
+        'test "${{ needs.coverage-shard.result }}" = success',
+        "pattern: coverage-data-*",
+        "coverage combine coverage-*.data",
+        "coverage xml",
+        "uses: actions/cache@",
+        "uses: SonarSource/sonarqube-scan-action@",
+        "scripts/ci/sonar_ratchet.py --pull-request",
+    ]
+    missing = [marker for marker in order if marker not in body]
+    assert not missing, missing
+    positions = [body.index(marker) for marker in order]
+    assert positions == sorted(positions), dict(zip(order, positions, strict=True))
+
+
+def test_the_sonar_scanner_cache_is_keyed_and_pinned() -> None:
+    body = JOBS["sonar"]
+    scan_version = re.search(r"sonarqube-scan-action@[0-9a-f]{40} # (v[\d.]+)", body)
+    assert scan_version, "the scan action is not pinned to a SHA"
+    cache = next((step for step in _split_steps(body) if "actions/cache@" in step), "")
+    assert re.search(r"uses: actions/cache@[0-9a-f]{40} # v[\d.]+", cache), cache
+    assert "path: ~/.sonar/cache" in cache
+    assert f"key: sonar-${{{{ runner.os }}}}-{scan_version[1]}" in cache
+
+
+def test_coverage_still_checks_the_coverage_leg_after_the_docs_only_exit() -> None:
+    body = JOBS["coverage"]
+    assert "Docs-only change; coverage check is a no-op." in body
+    assert 'test "${{ needs.coverage-shard.result }}" = success' in body.split("Docs-only change", 1)[1]
+
+
+def test_superseded_pull_request_runs_are_cancelled_and_main_never_is() -> None:
+    """A superseded PR run kept its runners busy for the run that replaced it; a push to main runs to completion."""
+    header = CI.split("\njobs:\n", 1)[0]
+    assert re.search(r"^concurrency:$", header, re.MULTILINE), "no workflow-level concurrency"
+    group = re.search(r"^  group: (.+)$", header, re.MULTILINE)
+    assert group, "no concurrency group"
+    # GitHub cancels a run WAITING in a group even without cancel-in-progress: a push must never share one
+    assert group[1] == "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}"
+    assert "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in header
+    assert "cancel-in-progress: true" not in CI
+
+
+def test_workflow_lint_and_the_sharpit_gate_run_inside_lint() -> None:
+    """Each took a runner and its setup for 11-16 s of work; their steps moved into lint, none removed."""
+    assert "workflow-lint" not in JOBS
+    assert "sharpit-gate" not in JOBS
+    lint = JOBS["lint"]
+    for step in (
+        "uvx --from actionlint-py==1.7.12.25 actionlint",
+        "uvx zizmor@1.32.0 --offline --min-severity medium .github/workflows",
+        "pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml",
+        '"! uv run --no-sync python -m pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit',
+    ):
+        assert step in lint, step
+
+
+def _matrix_jobs(body: str) -> int:
+    """Jobs a matrix expands to: the product of its list keys plus its include rows (each a new combination here)."""
+    lines = body.splitlines()
+    if "      matrix:" not in lines:
+        return 1
+    block = []
+    for line in lines[lines.index("      matrix:") + 1 :]:
+        if len(line) - len(line.lstrip()) <= 6:
+            break
+        block.append(line)
+    lists = [len(m[1].split(",")) for line in block if (m := re.fullmatch(r" {8}\w+: \[(.*)\]", line))]
+    product = 1 if lists else 0
+    for size in lists:
+        product *= size
+    return product + sum(1 for line in block if line.startswith("          - "))
+
+
+def test_the_job_count_never_rises() -> None:
+    """Every job pays setup and a slot in a 20-runner pool: lower these pins when a job goes, never raise them."""
+    assert len(JOBS) == 18
+    assert sum(_matrix_jobs(body) for body in JOBS.values()) == 52
+
+
+def test_the_required_critical_path_is_listed_before_live() -> None:
+    """The coverage leg and the shards set the required wall: listed first, the not-required live legs last."""
+    names = list(JOBS)
+    assert names[:4] == ["changes", "coverage-shard", "test-shard", "lint"]
+    assert names[-2:] == ["live", "live-check"]
+
+
+# CI test-seconds per gate file (spec §1, the report's run). A file cannot be split across rows (an env partition would
+# leak into the gates' own nested pytest runs), so the heaviest file on an OS is the ceiling for any row on that OS.
+GATE_SECONDS = {
+    "windows-latest": {
+        "tests/masking/test_gates_bite.py": 745,
+        "tests/masking/test_masking_scales_linearly.py": 556,
+        "tests/masking/test_statement_surfaces.py": 330,
+        "tests/scripts/test_lane_gate.py": 101,
+    },
+    "ubuntu-latest": {
+        "tests/masking/test_gates_bite.py": 294,
+        "tests/masking/test_masking_scales_linearly.py": 438,
+        "tests/masking/test_statement_surfaces.py": 160,
+        "tests/scripts/test_lane_gate.py": 6,
+    },
+}
+GATE_ROW_OSES = ("windows-latest", "ubuntu-latest")  # one gate file group per job on both (owner decision)
+
+
+def _gate_rows(os_name: str) -> list[list[str]]:
+    """The gate files each masking-gates job on ``os_name`` runs: its matrix row's files put into the pytest line."""
+    body = JOBS["masking-gates"]
+    run = next(line for line in body.splitlines() if re.search(r"run:.*\bpytest\b", line))
+    rows = re.findall(r"\{ os: ([\w-]+), part: [\w+-]+, files: \"([^\"]+)\" \}", body)
+    if not rows and (oses := re.search(r"^\s+os: \[([^\]]+)\]", body, re.MULTILINE)):
+        rows = [(name, "") for name in oses[1].split(", ")]
+    return [
+        re.findall(r"tests/\S+\.py", run.replace("${{ matrix.files }}", files))
+        for name, files in rows
+        if name == os_name
+    ]
+
+
+@pytest.mark.parametrize("os_name", GATE_ROW_OSES)
+def test_each_os_runs_every_gate_file_in_exactly_one_row(os_name: str) -> None:
+    files = [file for row in _gate_rows(os_name) for file in row]
+    assert sorted(files) == sorted(OWN_JOB_FILES), os_name
+
+
+@pytest.mark.parametrize("os_name", GATE_ROW_OSES)
+def test_no_gate_row_outweighs_the_heaviest_gate_file(os_name: str) -> None:
+    """Rows run in parallel, so the heaviest row sets the wall: no row may carry more than the heaviest file."""
+    seconds = GATE_SECONDS[os_name]
+    loads = [sum(seconds[file] for file in row) for row in _gate_rows(os_name)]
+    assert loads, os_name
+    assert max(loads) <= max(seconds.values()), f"{os_name}: row loads {loads}"
+
+
+def test_masking_gate_artifacts_are_unique_per_row() -> None:
+    from scripts.ci.shard_weights import parse_artifact
+
+    body = JOBS["masking-gates"]
+    for kind in ("junit", "overhead", "speed"):
+        assert f"name: {kind}-masking-gates-${{{{ matrix.os }}}}-${{{{ matrix.part }}}}" in body, kind
+    assert parse_artifact("overhead-masking-gates-windows-latest-gates-bite") == (
+        "masking-gates",
+        "windows-latest-gates-bite",
+    )
 
 
 # Windows has no SIGALRM: pytest-timeout's thread method calls os._exit at the deadline, and xdist reports the dead
