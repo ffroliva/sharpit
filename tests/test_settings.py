@@ -295,6 +295,9 @@ PROPERTIES = {
     "bootui.threads.max-stack-frames": ("threads_max_stack_frames", "33"),
     "bootui.advisors.max-retained-violations": ("advisors_max_retained_violations", "34"),
     "bootui.stream.max-seconds": ("stream_max_seconds", "35s"),
+    "bootui.ai.token-series-minutes": ("ai_token_series_minutes", "24"),
+    "bootui.ai.max-recent-chats": ("ai_max_recent_chats", "12"),
+    "bootui.ai.show-content-capture-banner": ("ai_show_content_capture_banner", "false"),
     "bootui.runtime-journal.enabled": ("runtime_journal_enabled", "false"),
     "bootui.runtime-journal.max-events": ("runtime_journal_max_events", "38"),
     "bootui.runtime-journal.max-bytes": ("runtime_journal_max_bytes", "39KB"),
@@ -383,6 +386,41 @@ def test_new_settings_defaults():
     s = load_settings({}, {})
     assert {name: getattr(s, name) for name in NEW_DEFAULTS_0_2_0} == NEW_DEFAULTS_0_2_0
     assert s.warnings == ()
+
+
+def test_w7_ai_settings_defaults():
+    s = load_settings({}, {})
+    assert getattr(s, "ai_token_series_minutes", None) == 60
+    assert getattr(s, "ai_max_recent_chats", None) == 100
+    assert getattr(s, "ai_show_content_capture_banner", None) is True
+
+
+def test_w7_ai_settings_env_values():
+    s = load_settings(
+        {},
+        {
+            "SHARPIT_AI_TOKEN_SERIES_MINUTES": "24",
+            "SHARPIT_AI_MAX_RECENT_CHATS": "12",
+            "SHARPIT_AI_SHOW_CONTENT_CAPTURE_BANNER": "false",
+        },
+    )
+    assert getattr(s, "ai_token_series_minutes", None) == 24
+    assert getattr(s, "ai_max_recent_chats", None) == 12
+    assert getattr(s, "ai_show_content_capture_banner", None) is False
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "raw", "expected"),
+    [
+        ("ai_token_series_minutes", "SHARPIT_AI_TOKEN_SERIES_MINUTES", "many", 60),
+        ("ai_max_recent_chats", "SHARPIT_AI_MAX_RECENT_CHATS", "many", 100),
+        ("ai_show_content_capture_banner", "SHARPIT_AI_SHOW_CONTENT_CAPTURE_BANNER", "maybe", True),
+    ],
+)
+def test_w7_ai_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field, None) == expected
+    assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
 
 
 def test_new_settings_env_names():
@@ -688,6 +726,9 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "THREADS_MAX_STACK_FRAMES",
         "ADVISORS_MAX_RETAINED_VIOLATIONS",
         "STREAM_MAX_SECONDS",
+        "AI_TOKEN_SERIES_MINUTES",
+        "AI_MAX_RECENT_CHATS",
+        "AI_SHOW_CONTENT_CAPTURE_BANNER",
         "RUNTIME_JOURNAL_ENABLED",
         "RUNTIME_JOURNAL_MAX_EVENTS",
         "RUNTIME_JOURNAL_MAX_BYTES",

@@ -30,7 +30,7 @@ from sharpit.fastapi.adapter import SharpitMount
 MASKING_OFF: dict[str, Any] = {"expose_values": "FULL", "mask_secrets": False}
 TOKEN = "test-token"
 PARAM_SAMPLES = {"file": "app.js", "id": "0123456789abcdef", "name": "nope", "rule_id": "RAPI-MAP-001"}
-PARAM_SAMPLES |= {"tool": "get_overview", "eventId": "0"}
+PARAM_SAMPLES |= {"tool": "get_overview", "eventId": "0", "spanId": "0" * 16}
 NETWORK = ("/vulnerabilities/scan", "vulnerabilities_scan")  # the OSV scan calls out
 DESTRUCTIVE = ("/clear", "clear_", "enable_low_footprint")  # run last: they empty the stores the other calls read
 

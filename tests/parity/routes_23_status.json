@@ -1,10 +1,10 @@
 {
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
-    "matched": 4,
+    "matched": 5,
     "partial": 20,
-    "missing": 53,
-    "n-a": 19,
+    "missing": 51,
+    "n-a": 20,
     "total": 96
   },
   "routes": [
@@ -47,15 +47,15 @@
       "golden": "ai/overview.captured.json",
       "panel": "ai",
       "route": "/sharpit/api/ai/overview",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/ai/overview (HTTP 404)"
+      "status": "n-a",
+      "difference": "2.3.0 capture has no chats (recent is empty); DTO keys/defaults are asserted by test_ai_overview_golden_shape_23"
     },
     {
       "golden": "ai/tokens.captured.json",
       "panel": "ai",
       "route": "/sharpit/api/ai/tokens",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/ai/tokens (HTTP 404)"
+      "status": "matched",
+      "difference": null
     },
     {
       "golden": "architecture/captured.json",
