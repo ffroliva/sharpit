@@ -11,7 +11,17 @@ from typing import Annotated, TypedDict
 import pydantic
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import AliasChoices, BaseModel, Field, Json, SecretStr
+from pydantic import (
+    AfterValidator,
+    AliasChoices,
+    BaseModel,
+    BeforeValidator,
+    Field,
+    Json,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic.dataclasses import dataclass as pdataclass
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -1242,3 +1252,68 @@ def test_profile_diff_value_whose_text_differs_from_parsed_value_masked_get_and_
     cfg = config_report(_ctx(settings=(settings,)), None, None, False, None, None)
     assert next(p for p in cfg["properties"] if p["name"] == "F")["masked"] is True
     _assert_profile_key_masked((settings,), "F")
+
+
+def _to_url(v: object) -> object:
+    return f"postgres://u:{v}@h/db" if isinstance(v, str) else v
+
+
+def _url_settings(annotation: object, namespace: dict[str, object], env: object = ".env.prod") -> BaseSettings:
+    """A settings model whose validators turn an innocent raw value into a URL with credentials."""
+    body: dict[str, object] = {
+        "__annotations__": {"f": annotation},
+        "f": None,
+        "model_config": SettingsConfigDict(extra="ignore", env_file=env),
+        **namespace,
+    }
+    return type("S", (BaseSettings,), body)()
+
+
+_FIELD_VALIDATOR = {"v": field_validator("f")(classmethod(lambda cls, v: _to_url(v)))}  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+_MODEL_VALIDATOR = {
+    "mv": model_validator(mode="after")(
+        lambda self: (setattr(self, "f", _to_url(self.f)) or self) if self.f else self  # pyright: ignore[reportUnknownLambdaType, reportUnknownMemberType, reportUnknownArgumentType]
+    )
+}
+
+
+@pytest.mark.parametrize(
+    ("annotation", "namespace"),
+    [
+        pytest.param(str | None, _FIELD_VALIDATOR, id="V01-field-validator"),
+        pytest.param(Annotated[str | None, AfterValidator(_to_url)], {}, id="V02-top-level-after-validator"),
+        pytest.param(Annotated[str | None, BeforeValidator(_to_url)], {}, id="V03-top-level-before-validator"),
+        pytest.param(str | None, _MODEL_VALIDATOR, id="V04-model-validator-after"),
+    ],
+)
+def test_profile_diff_value_a_validator_rewrites_is_masked_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, annotation: object, namespace: dict[str, object]
+) -> None:
+    # Configuration shows the validated value (a URL with credentials); the raw text "zqx" looks innocent.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("F=zqx\n", encoding="utf-8")
+    settings = _url_settings(annotation, namespace)
+
+    cfg = config_report(_ctx(settings=(settings,)), None, None, False, None, None)
+    assert next(p for p in cfg["properties"] if p["name"] == "F")["masked"] is True
+    _assert_profile_key_masked((settings,), "F")
+
+
+def test_profile_diff_validator_rewritten_value_masked_in_every_profile_file_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "stage")
+    (tmp_path / ".env.prod").write_text("F=zqx\n", encoding="utf-8")
+    (tmp_path / ".env.stage").write_text("F=hello\n", encoding="utf-8")
+    settings = _url_settings(str | None, _FIELD_VALIDATOR, (".env.prod", ".env.stage"))
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=settings)
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    route = client.get("/sharpit/api/profile-diff").json()["profileSources"]
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")["profileSources"]
+    for report in (route, mcp):
+        shown = {(s["profile"], p["value"], p["masked"]) for s in report for p in s["properties"] if p["name"] == "F"}
+        assert shown == {("prod", "******", True), ("stage", "******", True)}
