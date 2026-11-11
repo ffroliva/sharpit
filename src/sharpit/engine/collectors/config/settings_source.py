@@ -203,25 +203,62 @@ def is_provably_safe(annotation: object) -> bool:
     return bool(isinstance(annotation, type) and issubclass(annotation, Enum))
 
 
-_PLAIN: tuple[object, ...] = (str, int, float, bool, type(None))
+_CONTAINERS = (list, tuple, set, frozenset)
 
 
-def compound_shape(annotation: object) -> tuple[bool, list[type[Enum]]]:
-    """For an allow-listed annotation: whether Configuration renders its value as compound text (anything but a plain
-    str/int/float/bool), and the Enum classes among its leaves (Configuration shows a member as ``Cls.NAME``)."""
+def parsed_candidates(annotation: object, raw: object, decoded: bool = False) -> list[object]:
+    """Every value pydantic-settings could validate ``raw`` into for an allow-listed annotation; [] when unsure.
+
+    Never runs host code: an Enum is matched by member value (no ``_missing_``, no Flag combination), metadata
+    (``Annotated``) is refused, and only pydantic's own scalar types are validated. A collection is JSON-decoded first,
+    as pydantic-settings decodes a complex field. [] means the caller masks."""
     origin = get_origin(annotation)
-    args = [a for a in get_args(annotation) if a is not Ellipsis]
-    if origin is Annotated:  # Json[...] and other metadata: checked as compound, the safe side
-        return True, compound_shape(args[0])[1] if args else []
+    args = get_args(annotation)
+    if annotation is None or annotation is type(None):
+        return [None] if raw is None else []
+    if origin in (Union, types.UnionType):
+        return [c for arg in args for c in parsed_candidates(arg, raw, decoded)]
     if origin is Literal:
-        return False, []
-    if origin in (Union, types.UnionType, list, tuple, set, frozenset):
-        shapes = [compound_shape(a) for a in args]
-        enums = [e for _, es in shapes for e in es]
-        return origin not in (Union, types.UnionType) or any(c for c, _ in shapes), enums
+        return [v for v in args if v == raw or (not decoded and isinstance(v, (str, int)) and str(v) == raw)]
+    if origin in _CONTAINERS:
+        return _parsed_container(origin, args, raw, decoded)
     if isinstance(annotation, type) and issubclass(annotation, Enum):
-        return True, [annotation]
-    return annotation not in _PLAIN, []
+        return [m for m in annotation if m.value == raw or (not decoded and str(m.value) == raw)]
+    if annotation is str or annotation is pathlib.Path:
+        return [annotation(raw)] if isinstance(raw, str) else []
+    if isinstance(annotation, type) and annotation in _SAFE_SCALARS:
+        try:
+            from pydantic import TypeAdapter
+
+            return [TypeAdapter(annotation).validate_python(raw)]
+        except Exception:
+            return []
+    return []
+
+
+def _parsed_container(origin: object, args: tuple[object, ...], raw: object, decoded: bool) -> list[object]:
+    items: object = raw
+    if not decoded:
+        try:
+            items = json.loads(cast(str, raw))
+        except (TypeError, ValueError, RecursionError):
+            return []
+    if not isinstance(items, list) or not args:
+        return []
+    values = cast(list[object], items)
+    variadic = origin is not tuple or (len(args) == 2 and args[1] is Ellipsis)
+    if not variadic and len(args) != len(values):
+        return []
+    parsed: list[object] = []
+    for i, item in enumerate(values):
+        found = parsed_candidates(args[0] if variadic else args[i], item, True)
+        if len(found) != 1:  # none, or ambiguous inside a collection: the caller masks
+            return []
+        parsed.append(found[0])
+    try:
+        return [cast(Any, origin)(parsed)]
+    except TypeError:  # an unhashable member in a set
+        return []
 
 
 def is_secret_scalar(annotation: object) -> bool:
@@ -266,8 +303,7 @@ class ModelFieldRule:
     is_secret_scalar: bool = False
     # every name the field answers to; may over-include env_prefix + fname on an aliased field (only masks more)
     names: set[str] = dataclasses.field(default_factory=set[str])
-    value_checked: bool = False  # allow-listed but compound: Configuration masks by the value's text
-    enums: list[type[Enum]] = dataclasses.field(default_factory=list[type[Enum]])
+    annotation: object = None
 
 
 @dataclass
@@ -299,18 +335,19 @@ class ProfileSourceDescriptor:
         """Every name the fields matching ``key`` answer to; Configuration masks by these, not the .env key."""
         return {name for rule, _ in self._matches(key) for name in rule.names}
 
-    def value_texts(self, key: str, value: str | None) -> list[str]:
-        """The texts Configuration's compound check sees for a compound allow-listed field; [] for a plain one."""
-        rules = [rule for rule, _ in self._matches(key) if rule.value_checked]
-        if not rules or value is None:
-            return []
-        tokens = {value}
-        with contextlib.suppress(ValueError, RecursionError):
-            parsed = json.loads(value)
-            if isinstance(parsed, list):
-                tokens |= {str(item) for item in cast(list[object], parsed)}
-        members = [m for rule in rules for e in rule.enums for m in e if m.name in tokens or str(m.value) in tokens]
-        return [value, *(str(m) for m in members)]
+    def parsed_values(self, key: str, value: str) -> list[object] | None:
+        """The values the safe fields named exactly by ``key`` parse ``value`` into (Configuration displays these);
+        None when no safe field matches exactly, [] when any of them cannot be parsed for sure (the caller masks)."""
+        rules = [rule for rule, exact in self._matches(key) if exact and rule.is_safe]
+        if not rules:
+            return None
+        parsed: list[object] = []
+        for rule in rules:
+            found = parsed_candidates(rule.annotation, value)
+            if not found:
+                return []
+            parsed.extend(found)
+        return parsed
 
 
 def parse_env(content: str) -> list[tuple[str, str | None]]:
@@ -359,7 +396,6 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
         # FieldInfo moves a top-level Annotated's metadata (a top-level Json[...]) out of the annotation
         is_safe = is_provably_safe(field.annotation) and not any(is_json_marker(m) for m in field.metadata)
         secret_scalar = is_secret_scalar(field.annotation)
-        value_checked, enums = compound_shape(field.annotation) if is_safe else (False, [])
 
         candidate_names: set[str] = set()
         candidate_names.add(fname)
@@ -405,8 +441,7 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
                 is_safe=is_safe,
                 is_secret_scalar=secret_scalar,
                 names=candidate_names,
-                value_checked=value_checked,
-                enums=enums,
+                annotation=field.annotation,
             )
         )
 

@@ -65,12 +65,17 @@ def _source_properties(
         safety = descriptor.classify(key)
         if safety is KeySafety.SAFE:
             display_val, masked = _display(ctx, key, val, False)
-            # Configuration masks by the field's own names, and a compound value by its text: mask if any masks
-            if not masked and (
-                any(_display(ctx, name, val, False)[1] for name in descriptor.field_names(key))
-                or any(ctx.masker.mask(text, text)[1] for text in descriptor.value_texts(key, val))
-            ):
-                display_val, masked = MASK, True
+            if not masked and val is not None and exposure is not Exposure.METADATA_ONLY:
+                names = {key, *descriptor.field_names(key)}
+                parsed = descriptor.parsed_values(key, val)
+                # Configuration's own display decides, by the field's names, on the raw text and on every value it
+                # parses into; a value that cannot be parsed for sure is masked
+                if (
+                    parsed == []
+                    or any(_display(ctx, name, val, False)[1] for name in names)
+                    or any(_display(ctx, name, value, False)[1] for name in names for value in parsed or ())
+                ):
+                    display_val, masked = MASK, True
         elif val is None or exposure is Exposure.METADATA_ONLY:
             display_val, masked = None, False
         elif exposure is Exposure.FULL and safety is KeySafety.UNSAFE_SCALAR:
