@@ -157,7 +157,7 @@ class InsightsService:
         return _report(True, None, _window(snapshot), _coverage(snapshot), checks, rows, _limitations(snapshot))
 
     def insight(self, observation_id: str) -> Row:
-        return {}
+        return dict.fromkeys(("available", "unavailableReason", "observation", "columns", "rows", "truncated"))
 
     def _evaluate(self, observation: Observation, snapshot: Snapshot) -> tuple[Row, list[Row]]:
         missing = next((s for s in sorted(observation.reads) if not snapshot.recorded(s)), None)

@@ -1,7 +1,7 @@
 """Runtime Insights (W5c): I2 adds the report, one observation and the resource-profile floor.
 
 Every GET runs under ``no_side_effects`` in the shared sweeps; the two POSTs are the panel's only actions and the
-matrix proves the read-only refusal for both. The floor starts nothing (``tests/engine/insights/test_insights_profile``).
+matrix proves the read-only refusal for both. The floor starts nothing (``test_insights_profile.py``).
 """
 
 from __future__ import annotations

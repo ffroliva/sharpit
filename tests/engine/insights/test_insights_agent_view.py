@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from sharpit.engine.collectors.insights.agent_view import UnknownObservation, Steps, agent_detail, agent_list
+from sharpit.engine.collectors.insights.agent_view import Steps, UnknownObservation, agent_detail, agent_list
 from sharpit.engine.tools import COMMANDS
 
 STEPS = Steps(COMMANDS)
@@ -22,7 +22,9 @@ def _observation(i: int, kind: str, subject: str, sentence: str, **extra: Any) -
     }  # fmt: skip
 
 
-def _report(observations: list[dict[str, Any]], *, requests: int = 12, evicted: int = 0, **extra: Any) -> dict[str, Any]:
+def _report(
+    observations: list[dict[str, Any]], *, requests: int = 12, evicted: int = 0, **extra: Any
+) -> dict[str, Any]:
     window = {
         "runId": "run-1", "firstEventAt": 1, "lastEventAt": 2, "retainedEvents": 100, "requests": requests,
         "evictedEvents": evicted, "droppedEvents": 0,
@@ -123,7 +125,8 @@ def test_next_steps_name_only_tools_the_application_advertises() -> None:
 
 
 def test_detail_of_an_unknown_id_is_a_tool_error_naming_the_list_call() -> None:
-    unknown = {"available": False, "unavailableReason": "No observation x:1 in this run's retained events: it may have been evicted or cleared.", "observation": None, "columns": [], "rows": [], "truncated": 0}  # fmt: skip
+    reason = "No observation x:1 in this run's retained events: it may have been evicted or cleared."
+    unknown = {"available": False, "unavailableReason": reason, "observation": None, "columns": [], "rows": []}
     with pytest.raises(UnknownObservation) as raised:
         agent_detail(unknown, STEPS)
     assert str(raised.value).endswith("List the current observation ids with get_runtime_insights.")
@@ -132,7 +135,9 @@ def test_detail_of_an_unknown_id_is_a_tool_error_naming_the_list_call() -> None:
 def test_detail_of_an_unlisted_observation_says_why_first_among_its_limitations() -> None:
     observation = _observation(1, "gc-inflated-latency", "GET /x", "slow", listed=False, unlistedReason="In Memory.")
     observation["limitations"] = ["Own limit."]
-    detail = {"available": True, "unavailableReason": None, "observation": observation, "columns": ["a"], "rows": [{"cells": ["1"]}], "truncated": 4}  # fmt: skip
+    rows = [{"cells": ["1"]}]
+    detail = {"available": True, "unavailableReason": None, "observation": observation, "columns": ["a"], "rows": rows}
+    detail["truncated"] = 4
     shown = agent_detail(detail, STEPS)
     assert list(shown) == [
         "available", "unavailableReason", "observation", "whatToCheck", "limitations", "columns", "rows", "truncated",

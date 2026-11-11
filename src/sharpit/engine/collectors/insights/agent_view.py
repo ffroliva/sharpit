@@ -20,8 +20,16 @@ class Steps:
 
 
 def agent_list(report: Row, query: str | None, limit: int | None, steps: Steps) -> Row:
-    return {}
+    keys = (
+        "available", "unavailableReason", "query", "requests", "coverage", "checksNotRun", "observations", "omitted",
+        "notExercised", "notExercisedOmitted", "limitations", "next",
+    )  # fmt: skip
+    return dict.fromkeys(keys)
 
 
 def agent_detail(detail: Row, steps: Steps) -> Row:
-    return {}
+    keys = (
+        "available", "unavailableReason", "observation", "whatToCheck", "limitations", "columns", "rows", "truncated",
+        "next",
+    )  # fmt: skip
+    return dict.fromkeys(keys)

@@ -56,7 +56,7 @@ def _client(*, seeded: bool = False, **options: Any) -> tuple[TestClient, Any]:
 
 def _mcp(client: TestClient, tool: str, **arguments: Any) -> dict[str, Any]:
     call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
-    return client.post("/sharpit/api/mcp", json=call).json()["result"]
+    return client.post("/sharpit/api/mcp", json=call).json().get("result", {})
 
 
 def test_get_returns_the_report_with_every_bootui_key() -> None:
@@ -77,14 +77,18 @@ def test_the_panel_is_listed_now_that_it_is_implemented() -> None:
 
 def test_get_with_the_journal_disabled_is_unavailable_with_the_setting_to_set() -> None:
     client, _ = _client(runtime_journal_enabled=False)
-    body = client.get(API).json()
+    response = client.get(API)
+    assert response.status_code == 200
+    body = response.json()
     assert body["available"] is False
     assert "SHARPIT_RUNTIME_JOURNAL_ENABLED" in body["unavailableReason"]
 
 
 def test_insight_by_id_returns_the_observation_and_its_evidence() -> None:
     client, _ = _client(seeded=True)
-    observation = client.get(API).json()["observations"][0]
+    listed = client.get(API)
+    assert listed.status_code == 200
+    observation = listed.json()["observations"][0]
     detail = client.get(f"{API}/insights/{observation['id']}").json()
     assert detail["available"] is True
     assert detail["observation"] == observation
@@ -96,13 +100,16 @@ def test_insight_unknown_id_answers_bootui_not_found() -> None:
     response = client.get(f"{API}/insights/conformance-unknown:0000000000")
     assert response.status_code == 200
     assert response.json()["unavailableReason"] == (
-        "No observation conformance-unknown:0000000000 in this run's retained events: it may have been evicted or cleared."
+        "No observation conformance-unknown:0000000000 in this run's retained events: "
+        "it may have been evicted or cleared."
     )
 
 
 def test_resource_profile_get_is_the_unavailable_floor() -> None:
     client, _ = _client()
-    body = client.get(PROFILE).json()
+    response = client.get(PROFILE)
+    assert response.status_code == 200
+    body = response.json()
     assert body["state"] == "UNAVAILABLE"
     assert body["maxDurationSeconds"] == 30
     assert body["reason"] == profile.RESOURCES_OFF
@@ -162,6 +169,7 @@ def test_resource_profile_post_is_404_when_sharpit_is_inactive(spy: list[str], s
 @pytest.mark.parametrize("suffix", ["", "/stop"])
 def test_resource_profile_post_is_refused_from_another_site(spy: list[str], suffix: str) -> None:
     client, _ = _client()
+    assert client.get(PROFILE).status_code == 200  # the route is served: the refusal below is the guard's
     response = client.post(PROFILE + suffix, headers={"Origin": "http://evil.example", "Sec-Fetch-Site": "cross-site"})
     assert response.status_code == 403
     assert spy == []
@@ -174,19 +182,21 @@ def test_no_read_starts_anything(no_side_effects: SideEffectGuard) -> None:
     with client:
         no_side_effects.block_network()
         threads = threading.active_count()
-        observation = client.get(API).json()["observations"][0]
-        client.get(f"{API}/insights/{observation['id']}")
-        client.get(PROFILE)
-        assert _mcp(client, "get_runtime_insights")["isError"] is False
-        assert _mcp(client, "get_runtime_insight", id=observation["id"])["isError"] is False
+        listed = client.get(API)
+        assert listed.status_code == 200
+        observation = listed.json()["observations"][0]
+        assert client.get(f"{API}/insights/{observation['id']}").status_code == 200
+        assert client.get(PROFILE).status_code == 200
+        assert _mcp(client, "get_runtime_insights").get("isError") is False
+        assert _mcp(client, "get_runtime_insight", id=observation["id"]).get("isError") is False
         assert threading.active_count() == threads
     assert no_side_effects.violations == []
 
 
 def test_insights_tool_answers_the_agent_list_with_the_bootui_default_limit() -> None:
     client, _ = _client(seeded=True, mcp_enabled="ON")
-    listed = _mcp(client, "get_runtime_insights")["structuredContent"]
-    assert listed["available"] is True
+    listed = _mcp(client, "get_runtime_insights").get("structuredContent", {})
+    assert listed.get("available") is True
     assert [o["kind"] for o in listed["observations"]] == ["uncounted-work"]
     assert listed["observations"][0]["exemplarRequestId"] == "r-1"
     assert listed["observations"][0]["verify"] == "Check the call site."
@@ -197,9 +207,11 @@ def test_insights_tool_answers_the_agent_list_with_the_bootui_default_limit() ->
 
 def test_insight_tool_answers_the_agent_detail() -> None:
     client, _ = _client(seeded=True, mcp_enabled="ON")
-    observation = client.get(API).json()["observations"][0]
-    shown = _mcp(client, "get_runtime_insight", id=observation["id"])["structuredContent"]
-    assert shown["available"] is True
+    listed = client.get(API)
+    assert listed.status_code == 200
+    observation = listed.json()["observations"][0]
+    shown = _mcp(client, "get_runtime_insight", id=observation["id"]).get("structuredContent", {})
+    assert shown.get("available") is True
     assert shown["observation"]["id"] == observation["id"]
     assert shown["whatToCheck"] == ["Check the call site."]
     assert shown["rows"] == [{"cells": ["a.py:1"]}]
@@ -208,12 +220,14 @@ def test_insight_tool_answers_the_agent_detail() -> None:
 def test_insight_tool_unknown_id_is_a_tool_error_naming_the_list_call() -> None:
     client, _ = _client(seeded=True, mcp_enabled="ON")
     result = _mcp(client, "get_runtime_insight", id="x:0000000000")
-    assert result["isError"] is True
-    assert "List the current observation ids with get_runtime_insights." in result["content"][0]["text"]
+    assert result.get("isError") is True
+    assert "List the current observation ids with get_runtime_insights." in result.get("content", [{}])[0].get(
+        "text", ""
+    )
 
 
 def test_cli_insights_list_and_show_are_registered() -> None:
     client, _ = _client(cli_enabled=True)
     commands = {tool["name"]: tool["command"] for tool in client.get("/sharpit/api/cli").json()["tools"]}
-    assert commands["get_runtime_insights"] == "insights list"
-    assert commands["get_runtime_insight"] == "insights show"
+    assert commands.get("get_runtime_insights") == "insights list"
+    assert commands.get("get_runtime_insight") == "insights show"

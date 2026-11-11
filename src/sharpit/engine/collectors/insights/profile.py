@@ -11,13 +11,21 @@ class ResourceProfile:
         self.max_duration = max_duration
 
     def status(self) -> dict[str, Any]:
-        return {}
+        return self._floor()
 
     def start(self) -> dict[str, Any]:
-        return {}
+        return self._floor()
 
     def stop(self) -> dict[str, Any]:
-        return {}
+        return self._floor()
+
+    def _floor(self) -> dict[str, Any]:
+        keys = (
+            "state", "reason", "sampler", "startedAt", "endsAt", "finishedAt", "maxDurationSeconds", "cpuSamples",
+            "outsideSamples", "requests", "routes", "routesOmitted", "limitations",
+        )  # fmt: skip
+        return dict.fromkeys(keys)
+
 
 RESOURCES_OFF = ""
 NO_SAMPLER = ""
