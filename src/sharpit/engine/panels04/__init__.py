@@ -4,11 +4,15 @@ from importlib import import_module
 from typing import Any
 
 from . import (
+    ai,
     architecture,
+    claude_code,
+    copilot,
     data,
     database_advisor,
     fastapi,
     fastapi_security,
+    github,
     metrics,
     mysql,
     postgresql,
@@ -39,6 +43,10 @@ IMPLEMENTED = {
     "startup": startup.IMPLEMENTED,
     "profile-diff": profile_diff.IMPLEMENTED,
     "scheduled": scheduled.IMPLEMENTED,
+    "copilot": copilot.IMPLEMENTED,
+    "claude-code": claude_code.IMPLEMENTED,
+    "github": github.IMPLEMENTED,
+    "ai": ai.IMPLEMENTED,
 }
 PANEL_04_IDS = tuple(IMPLEMENTED)
 # panels with per-panel route/tool modules (fastapi/routes/<id>.py, engine/tools04/<id>.py): every 0.4 id plus the

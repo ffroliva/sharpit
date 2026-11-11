@@ -22,6 +22,10 @@ ALL_PANEL_IDS = {
     "startup",
     "profile-diff",
     "scheduled",
+    "copilot",
+    "claude-code",
+    "github",
+    "ai",
 }
 
 
