@@ -2,8 +2,8 @@
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
     "matched": 5,
-    "partial": 21,
-    "missing": 50,
+    "partial": 22,
+    "missing": 49,
     "n-a": 20,
     "total": 96
   },
@@ -523,8 +523,8 @@
       "golden": "rest-api/error-contract.captured.json",
       "panel": "rest-api",
       "route": "/sharpit/api/rest-api/error-contract",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/rest-api/error-contract (HTTP 404)"
+      "status": "partial",
+      "difference": "rest-api/error-contract.captured.json parity: entries: non-empty golden list requires a non-empty payload list"
     },
     {
       "golden": "rest-api/scanned.captured.json",

@@ -194,7 +194,6 @@ EXTRA_2_2_0_PANELS = ("overview", "panels", "dismissed-rules", "dismissed-findin
 # golden -> why no sharpit payload is checked against it
 NOT_LIVE_2_2_0 = {
     "activity/service-map.captured.json": "the route is not built (CHANGELOG 0.5.0 Known limitations)",
-    "rest-api/error-contract.captured.json": "the route is not built (CHANGELOG 0.5.0 Known limitations)",
 }
 # these test assert_parity itself on made-up payloads, so a call there proves nothing about an endpoint
 PARITY_HELPER_TESTS = {

@@ -39,5 +39,7 @@
   "startup": "startup",
   "profile-diff": "profile-diff",
   "scheduled": "scheduled",
-  "live-memory": "live-memory"
+  "live-memory": "live-memory",
+  "cache": "cache",
+  "dev-services": "dev-services"
 }

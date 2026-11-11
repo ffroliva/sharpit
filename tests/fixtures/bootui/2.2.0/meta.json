@@ -14,8 +14,10 @@
     "claude-code": "not captured from BootUI 2.2.0; this W7 panel is compared with the BootUI 2.3.0 golden",
     "github": "not captured from BootUI 2.2.0; this W7 panel is compared with the BootUI 2.3.0 golden",
     "ai": "not captured from BootUI 2.2.0; this W7 panel is compared with the BootUI 2.3.0 golden",
-    "runtime-insights": "not captured from BootUI 2.2.0; this W5c panel is compared with the BootUI 2.3.0 golden",
-    "live-memory": "not captured from BootUI 2.2.0; this W4 panel serves only GET /live-memory/footprint, classified against the BootUI 2.3.0 footprint golden in tests/parity/routes_23_status.json"
+    "live-memory": "not captured from BootUI 2.2.0; this W4 panel serves only GET /live-memory/footprint, classified against the BootUI 2.3.0 footprint golden in tests/parity/routes_23_status.json",
+    "cache": "not captured from BootUI 2.2.0; this W8 slot (read side W5b K) is compared with the BootUI 2.3.0 golden",
+    "dev-services": "not captured from BootUI 2.2.0; this W8 slot (read side W7 D) is compared with the BootUI 2.3.0 golden",
+    "runtime-insights": "not captured from BootUI 2.2.0; this W5c panel is compared with the BootUI 2.3.0 golden"
   },
   "provisional": []
 }
