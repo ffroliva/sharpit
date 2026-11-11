@@ -37,8 +37,21 @@ def _write(root: Path, files: dict[str, str]) -> None:
         path.write_text(body, encoding="utf-8")
 
 
+def _expect(args: tuple[str, ...], prefix: tuple[str, ...], length: int) -> None:
+    """The exact flags and operand count a fake handler models: anything else is a shape nobody checked."""
+    assert (args[: len(prefix)], len(args)) == (prefix, length), f"unmodelled git call: {args}"
+
+
 @dataclass
 class FakeGit:
+    """An in-memory git for the calls lane_gate and these tests make, and nothing more.
+
+    Every handler asserts the exact flags it models and every behaviour it does not model (an unknown ref, a merge that
+    needs a conflict resolved, ``--ff-only`` on a diverged branch, a merge base that is not unique) raises
+    ``AssertionError``: a new call shape fails loudly instead of answering as if it were real git. The fake-vs-real
+    parity test below keeps the modelled answers honest.
+    """
+
     trees: dict[str, dict[str, str]] = field(default_factory=dict)
     parents: dict[str, tuple[str, ...]] = field(default_factory=dict)
     refs: dict[str, str] = field(default_factory=dict)
@@ -46,13 +59,17 @@ class FakeGit:
     paths: dict[Path, Path] = field(default_factory=dict)
     branches: dict[Path, str] = field(default_factory=dict)
     worktrees: list[Path] = field(default_factory=list)
+    staged: dict[Path, dict[str, str | None]] = field(default_factory=dict)  # path -> content, None: deleted
 
-    def bind(self, root: Path, tree: dict[str, str], sha: str, parent: tuple[str, ...] = ()) -> None:
-        self.paths[root.resolve()] = root.resolve()
-        self.heads[root.resolve()] = sha
-        self.branches[root.resolve()] = "release" if root.name == "integration" else "lane/test-fixture-x"
-        if root.resolve() not in self.worktrees:
-            self.worktrees.append(root.resolve())
+    def bind(self, root: Path, tree: dict[str, str], sha: str, parent: tuple[str, ...] = (), *, branch: str) -> None:
+        """Make ``root`` a worktree at ``sha`` on ``branch`` ("" is a detached HEAD)."""
+        root = root.resolve()
+        self.paths[root] = root
+        self.heads[root] = sha
+        self.branches[root] = branch
+        self.staged[root] = {}
+        if root not in self.worktrees:
+            self.worktrees.append(root)
         self.trees.setdefault(sha, tree.copy())
         self.parents.setdefault(sha, parent)
 
@@ -64,313 +81,262 @@ class FakeGit:
 
     def run(self, command: Sequence[str], *, cwd: Path, **kwargs: object) -> subprocess.CompletedProcess[str]:
         args = tuple(command[1:])
-        root = self.repo(cwd)
-        head = self.heads[root]
-        tree = self.trees[head]
-        handler = {
-            "init": self._noop,
-            "config": self._noop,
-            "add": self._noop,
-            "commit": self._commit,
-            "rev-parse": self._rev_parse,
-            "branch": self._branch,
-            "status": self._status,
-            "merge-base": self._merge_base,
-            "ls-tree": self._ls_tree,
-            "cat-file": self._cat_file,
-            "show": self._show,
-            "diff": self._diff,
-            "worktree": self._worktree,
-            "rm": self._rm,
-            "merge": self._merge,
-            "switch": self._switch,
-        }.get(args[0], self._unknown)
-        return handler(command, args, root, head, tree, kwargs)
-
-    @staticmethod
-    def _result(
-        command: Sequence[str], kwargs: dict[str, object], stdout: str = "", code: int = 0
-    ) -> subprocess.CompletedProcess[str]:
+        handler = getattr(self, "_git_" + args[0].replace("-", "_"), None)
+        assert handler, f"unhandled fake git command: {args}"
+        stdout, code = handler(args, self.repo(cwd))
         if code and kwargs.get("check", True):
             raise subprocess.CalledProcessError(code, command, output=stdout, stderr="")
         return subprocess.CompletedProcess(command, code, stdout=stdout, stderr="")
+
+    # --- the object model ---------------------------------------------------------------------------------------------
 
     def _resolve(self, root: Path, ref: str) -> str | None:
         if ref == "HEAD":
             return self.heads[root]
         return self.refs.get(ref, ref if ref in self.trees else None)
 
-    def _noop(
-        self,
-        command: Sequence[str],
-        _args: tuple[str, ...],
-        _root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        return self._result(command, kwargs)
+    def _ancestors(self, sha: str) -> set[str]:
+        """``sha`` and every commit reachable from it, walked breadth first."""
+        seen = {sha}
+        queue = [sha]
+        while queue:
+            for parent in self.parents.get(queue.pop(0), ()):
+                if parent not in seen:
+                    seen.add(parent)
+                    queue.append(parent)
+        return seen
 
-    def _commit(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        current = {
-            p.relative_to(root).as_posix(): p.read_text(encoding="utf-8")
-            for p in root.rglob("*")
-            if p.is_file() and ".git" not in p.parts
-        }
-        digest = hashlib.sha1((head + repr(sorted(current.items())) + repr(args)).encode()).hexdigest()
-        self.trees[digest] = current
-        self.parents[digest] = (head,)
-        self.heads[root] = digest
+    def _best_common_ancestor(self, left: str, right: str) -> str | None:
+        """git's merge base: a common ancestor that no other common ancestor descends from."""
+        common = self._ancestors(left) & self._ancestors(right)
+        best = {sha for sha in common if not any(sha != other and sha in self._ancestors(other) for other in common)}
+        assert len(best) <= 1, f"fake git models one merge base, found {sorted(best)}"
+        return next(iter(best), None)
+
+    def _index(self, root: Path) -> dict[str, str]:
+        """HEAD's files with the staged changes applied."""
+        index = self.trees[self.heads[root]].copy()
+        for name, body in self.staged[root].items():
+            if body is None:
+                index.pop(name, None)
+            else:
+                index[name] = body
+        return index
+
+    @staticmethod
+    def _on_disk(root: Path, name: str) -> str | None:
+        path = root / name
+        return path.read_text(encoding="utf-8") if path.is_file() else None
+
+    def _checkout(self, root: Path, new: dict[str, str]) -> None:
+        for name in set(self.trees[self.heads[root]]) - set(new):
+            (root / name).unlink(missing_ok=True)
+        _write(root, new)
+
+    def _advance(self, root: Path, sha: str, tree: dict[str, str], parents: tuple[str, ...]) -> None:
+        """Record commit ``sha`` and move HEAD (and its branch) there."""
+        self.trees[sha] = tree
+        self.parents[sha] = parents
+        self.heads[root] = sha
         if self.branches[root]:
-            self.refs[self.branches[root]] = digest
-        return self._result(command, kwargs)
+            self.refs[self.branches[root]] = sha
 
-    def _rev_parse(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        if args[1] == "HEAD":
-            return self._result(command, kwargs, head + "\n")
-        if args[1] == "--verify":
-            sha = self._resolve(root, args[3].removesuffix("^{commit}"))
-            return self._result(command, kwargs, (sha + "\n") if sha else "", 0 if sha else 1)
-        if ":" in args[1]:
-            rev, rel = args[1].split(":", 1)
-            sha = self._resolve(root, rev)
+    # --- git commands -------------------------------------------------------------------------------------------------
+
+    def _git_add(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        assert len(args) >= 2, f"unmodelled add: {args}"
+        assert "--" not in args, f"unmodelled add: {args}"
+        index = self._index(root)
+        if args[1:] == ("-u",):
+            names = sorted(index)
+        elif args[1:] == (".",):
+            disk = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() and ".git" not in p.parts}
+            names = sorted(disk | set(index))
+        else:
+            assert not any(a.startswith("-") for a in args[1:]), f"unmodelled add flag: {args}"
+            names = list(args[1:])
+            assert all(self._on_disk(root, n) is not None or n in index for n in names), (
+                f"pathspec matches nothing: {args}"
+            )
+        for name in names:
+            self.staged[root][name] = self._on_disk(root, name)
+        return "", 0
+
+    def _git_rm(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("rm", "-q"), 3)
+        assert args[2] in self._index(root), f"pathspec matches nothing: {args}"
+        (root / args[2]).unlink(missing_ok=True)
+        self.staged[root][args[2]] = None
+        return "", 0
+
+    def _git_commit(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("commit", "-q", "-m"), 4)
+        head, tree = self.heads[root], self._index(root)
+        if tree == self.trees[head]:
+            return "nothing to commit\n", 1
+        digest = hashlib.sha1((head + repr(sorted(tree.items())) + args[3]).encode()).hexdigest()
+        self._advance(root, digest, tree, (head,))
+        self.staged[root] = {}
+        return "", 0
+
+    def _git_rev_parse(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        flags = [a for a in args[1:] if a.startswith("--")]
+        rest = [a for a in args[1:] if not a.startswith("--")]
+        assert len(rest) == 1, f"unmodelled rev-parse: {args}"
+        assert flags in ([], ["--verify"], ["--verify", "--quiet"], ["--quiet", "--verify"]), f"unmodelled: {args}"
+        rev = rest[0].removesuffix("^{commit}") if flags else rest[0]
+        if ":" in rev:
+            sha, rel = self._resolve(root, rev.split(":", 1)[0]), rev.split(":", 1)[1]
             body = self.trees.get(sha or "", {}).get(rel)
-            output = (hashlib.sha1(body.encode()).hexdigest() + "\n") if body is not None else ""
-            return self._result(command, kwargs, output, 0 if body is not None else 1)
-        sha = self._resolve(root, args[1])
-        return self._result(command, kwargs, (sha + "\n") if sha else "", 0 if sha else 1)
+            return ("", 1) if body is None else (hashlib.sha1(body.encode()).hexdigest() + "\n", 0)
+        sha = self._resolve(root, rev)
+        return (sha + "\n", 0) if sha else ("", 1)
 
-    def _branch(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        if args[1] == "--show-current":
-            return self._result(command, kwargs, self.branches[root] + "\n")
-        self.refs.pop(args[-1], None)
-        return self._result(command, kwargs)
+    def _git_branch(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        if args == ("branch", "--show-current"):
+            return self.branches[root] + "\n", 0
+        _expect(args, ("branch", "-q", "-D"), 4)
+        assert args[3] in self.refs, f"branch not found: {args}"
+        assert args[3] not in self.branches.values(), f"cannot delete a checked-out branch: {args}"
+        del self.refs[args[3]]
+        return "", 0
 
-    def _status(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        _head: str,
-        tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        current = {name: (root / name).read_text(encoding="utf-8") for name in tree if (root / name).is_file()}
-        changes = "".join(
-            f" D {name}\n" if name not in current else f" M {name}\n"
-            for name in sorted(tree)
-            if tree.get(name) != current.get(name)
+    def _git_status(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        assert args == ("status", "--porcelain", "--untracked-files=no"), f"unmodelled status: {args}"
+        head, index = self.trees[self.heads[root]], self._index(root)
+        lines = []
+        for name in sorted(set(head) | set(index)):
+            staged = (
+                " "
+                if head.get(name) == index.get(name)
+                else "A"
+                if name not in head
+                else "D"
+                if name not in index
+                else "M"
+            )
+            disk = self._on_disk(root, name)
+            local = " " if disk == index.get(name) else "D" if disk is None else "M"
+            if (staged, local) != (" ", " "):
+                lines.append(f"{staged}{local} {name}\n")
+        return "".join(lines), 0
+
+    def _git_merge_base(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        ancestry = args[1] == "--is-ancestor"
+        assert len(args) == (4 if ancestry else 3), f"unmodelled merge-base: {args}"
+        left, right = (self._resolve(root, ref) for ref in args[-2:])
+        if not (left and right):
+            return "", 128  # git: not a valid object name
+        if ancestry:
+            return "", 0 if left in self._ancestors(right) else 1
+        base = self._best_common_ancestor(left, right)
+        return (base + "\n", 0) if base else ("", 1)
+
+    def _git_ls_tree(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("ls-tree", "-r", "-z", "--full-tree"), 5)
+        sha = self._resolve(root, args[4])
+        if sha is None:
+            return "", 128
+        entries = (
+            f"100644 blob {hashlib.sha1(b.encode()).hexdigest()}\t{n}" for n, b in sorted(self.trees[sha].items())
         )
-        return self._result(command, kwargs, changes)
+        return "".join(entry + "\0" for entry in entries), 0
 
-    def _merge_base(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        if args[1] == "--is-ancestor":
-            older, newer = args[2:]
-            pending = [self._resolve(root, newer)]
-            while pending:
-                sha = pending.pop()
-                if sha == older:
-                    return self._result(command, kwargs)
-                pending.extend(self.parents.get(sha or "", ()))
-            return self._result(command, kwargs, code=1)
-        left, right = args[1:]
-        ancestors: set[str] = set()
-        pending = [self._resolve(root, left)]
-        while pending:
-            sha = pending.pop()
-            if sha and sha not in ancestors:
-                ancestors.add(sha)
-                pending.extend(self.parents.get(sha, ()))
-        pending = [self._resolve(root, right)]
-        seen: set[str] = set()
-        while pending:
-            sha = pending.pop()
-            if sha and sha not in seen:
-                if sha in ancestors:
-                    return self._result(command, kwargs, sha + "\n")
-                seen.add(sha)
-                pending.extend(self.parents.get(sha, ()))
-        return self._result(command, kwargs, code=1)
-
-    def _ls_tree(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        _root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        files = self.trees[args[-1]]
-        entries = "\0".join(
-            f"100644 blob {hashlib.sha1(body.encode()).hexdigest()}\t{name}" for name, body in sorted(files.items())
-        )
-        return self._result(command, kwargs, entries + "\0")
-
-    def _cat_file(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
+    def _git_cat_file(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, args[:2], 3)
+        assert args[1] in {"-e", "blob"}, f"unmodelled cat-file: {args}"
         if args[1] == "-e":
             rev, rel = args[2].split(":", 1)
-            exists = rel in self.trees.get(self._resolve(root, rev) or "", {})
-            return self._result(command, kwargs, code=0 if exists else 1)
-        blob = args[2]
+            return "", 0 if rel in self.trees.get(self._resolve(root, rev) or "", {}) else 128
         for files in self.trees.values():
             for body in files.values():
-                if hashlib.sha1(body.encode()).hexdigest() == blob:
-                    return self._result(command, kwargs, body)
-        return self._result(command, kwargs, code=128)
+                if hashlib.sha1(body.encode()).hexdigest() == args[2]:
+                    return body, 0
+        return "", 128
 
-    def _show(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
+    def _git_show(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, args[:1], 2)
+        assert ":" in args[1], f"unmodelled show: {args}"
         rev, rel = args[1].split(":", 1)
         body = self.trees.get(self._resolve(root, rev) or "", {}).get(rel)
-        return self._result(command, kwargs, body or "", 0 if body is not None else 1)
+        return ("", 128) if body is None else (body, 0)
 
-    def _diff(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        _root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        before, after = (self.trees[sha] for sha in args[-2:])
+    def _git_diff(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("diff", "--name-only", "-z", "--no-renames"), 6)
+        shas = [self._resolve(root, ref) for ref in args[4:]]
+        if None in shas:
+            return "", 128
+        before, after = (self.trees[sha or ""] for sha in shas)
         changed = sorted(name for name in set(before) | set(after) if before.get(name) != after.get(name))
-        return self._result(command, kwargs, "".join(name + "\n" for name in changed))
+        return "".join(name + "\0" for name in changed), 0
 
-    def _worktree(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        _root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        path = Path(args[-2]) if args[1] == "add" else Path(args[-1])
-        if args[1] == "add":
-            sha = args[-1]
-            self.bind(path, self.trees[sha], sha)
+    def _git_worktree(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        if args[1:4] == ("add", "--detach", "--quiet") and len(args) == 6:
+            path, sha = Path(args[4]), args[5]
+            self.bind(path, self.trees[sha], sha, branch="")
             _FAKE_PATHS[path.resolve()] = self
             _write(path, self.trees[sha])
-            return self._result(command, kwargs)
-        if args[1] == "remove":
-            self.heads.pop(path.resolve(), None)
-            self.paths.pop(path.resolve(), None)
-            _FAKE_PATHS.pop(path.resolve(), None)
-            if path.resolve() in self.worktrees:
-                self.worktrees.remove(path.resolve())
-            return self._result(command, kwargs)
-        if args[1] == "list":
-            output = "".join(f"worktree {entry.as_posix()}\n" for entry in self.worktrees)
-            return self._result(command, kwargs, output)
-        return self._result(command, kwargs)
+            return "", 0
+        if args[1:3] == ("remove", "--force") and len(args) == 4:
+            self._forget(Path(args[3]).resolve())
+            shutil.rmtree(args[3], ignore_errors=True)
+            return "", 0
+        if args == ("worktree", "prune"):
+            for path in [p for p in self.worktrees if not p.exists()]:
+                self._forget(path)
+            return "", 0
+        assert args in {("worktree", "list"), ("worktree", "list", "--porcelain")}, f"unmodelled worktree: {args}"
+        if args[-1] == "--porcelain":
+            return "".join(f"worktree {path.as_posix()}\n" for path in self.worktrees), 0
+        return "".join(f"{path.as_posix()} {self.heads[path][:7]}\n" for path in self.worktrees), 0
 
-    def _rm(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        (root / args[-1]).unlink(missing_ok=True)
-        return self._result(command, kwargs)
+    def _forget(self, path: Path) -> None:
+        for table in (self.heads, self.paths, self.branches, self.staged, _FAKE_PATHS):
+            table.pop(path, None)  # type: ignore[arg-type]
+        if path in self.worktrees:
+            self.worktrees.remove(path)
 
-    def _merge(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        head: str,
-        tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        incoming = self._resolve(root, args[-1])
-        if incoming:
-            merged = self.trees[incoming].copy()
-            merged.update(tree)
-            digest = hashlib.sha1((head + incoming + repr(sorted(merged.items()))).encode()).hexdigest()
-            self.trees[digest] = merged
-            self.parents[digest] = (head, incoming)
-            self.heads[root] = digest
-            _write(root, merged)
-        return self._result(command, kwargs)
-
-    def _switch(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        if "--detach" in args:
+    def _git_switch(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        if args == ("switch", "-q", "--detach"):
             self.branches[root] = ""
         else:
-            self.branches[root] = args[-1]
-            self.refs[self.branches[root]] = self.heads[root]
-        return self._result(command, kwargs)
+            _expect(args, ("switch", "-q", "-c"), 4)
+            assert args[3] not in self.refs, f"branch exists: {args}"
+            self.branches[root] = args[3]
+            self.refs[args[3]] = self.heads[root]
+        return "", 0
 
-    def _unknown(
-        self,
-        command: Sequence[str],
-        args: tuple[str, ...],
-        _root: Path,
-        _head: str,
-        _tree: dict[str, str],
-        _kwargs: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
-        raise AssertionError(f"unhandled fake git command: {args}")
+    def _git_merge(self, args: tuple[str, ...], root: Path) -> tuple[str, int]:
+        _expect(args, ("merge", "-q"), 4)
+        assert args[2] in {"--no-edit", "--ff-only"}, f"unmodelled merge flag: {args}"
+        head, incoming = self.heads[root], self._resolve(root, args[3])
+        assert incoming, f"merge of an unknown ref: {args}"
+        if incoming in self._ancestors(head):
+            return "", 0  # already up to date
+        theirs = self.trees[incoming]
+        if head in self._ancestors(incoming):  # git fast-forwards
+            self._checkout(root, theirs)
+            self._advance(root, incoming, theirs, self.parents[incoming])
+            return "", 0
+        assert args[2] != "--ff-only", f"--ff-only on a diverged branch: {args}"
+        base = self._best_common_ancestor(head, incoming)
+        assert base, f"merge of unrelated histories: {args}"
+        merged = self._three_way(self.trees[base], self.trees[head], theirs)
+        digest = hashlib.sha1((head + incoming + repr(sorted(merged.items()))).encode()).hexdigest()
+        self._checkout(root, merged)
+        self._advance(root, digest, merged, (head, incoming))
+        return "", 0
+
+    @staticmethod
+    def _three_way(base: dict[str, str], ours: dict[str, str], theirs: dict[str, str]) -> dict[str, str]:
+        merged: dict[str, str] = {}
+        for name in set(base) | set(ours) | set(theirs):
+            b, o, t = base.get(name), ours.get(name), theirs.get(name)
+            assert o == t or b in (o, t), f"merge conflict on {name}: fake git resolves none"
+            winner = o if b == t or o == t else t
+            if winner is not None:
+                merged[name] = winner
+        return merged
 
 
 _FAKE_PATHS: dict[Path, FakeGit] = {}
@@ -400,7 +366,7 @@ def test_fake_git_replay_binding_keeps_commit_ancestry(tmp_path: Path, monkeypat
     parent, child = "a" * 40, "b" * 40
     fake = FakeGit(trees={parent: {"x": "old"}, child: {"x": "new"}}, parents={child: (parent,)})
     replay = tmp_path / "replay"
-    fake.bind(replay, fake.trees[child], child)
+    fake.bind(replay, fake.trees[child], child, branch="")
     monkeypatch.setitem(_FAKE_PATHS, replay.resolve(), fake)
 
     done = lane_gate._git(replay, "merge-base", "--is-ancestor", parent, child, check=False)
@@ -544,8 +510,8 @@ def _build_fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool
     if not _USING_REAL_GIT:
         base = _git(integration, "rev-parse", "HEAD")
         fx.memory = FakeGit()
-        fx.memory.bind(integration, _base_files(), base)
-        fx.memory.bind(worktree, _base_files(), base)
+        fx.memory.bind(integration, _base_files(), base, branch="release")
+        fx.memory.bind(worktree, _base_files(), base, branch=f"lane/{lane}")
         fx.memory.refs["release"] = base
         _FAKE_PATHS[integration.resolve()] = fx.memory
         _FAKE_PATHS[worktree.resolve()] = fx.memory
@@ -610,8 +576,11 @@ def _fixture(tmp_path: Path, lane: str = "test-fixture-x", *, review: bool = Tru
             memory.trees[memory.refs["release"]],
             memory.refs["release"],
             memory.parents[memory.refs["release"]],
+            branch="release",
         )
-        memory.bind(worktree, memory.trees[template.head], template.head, memory.parents[template.head])
+        memory.bind(
+            worktree, memory.trees[template.head], template.head, memory.parents[template.head], branch=f"lane/{lane}"
+        )
         for root in (integration, worktree):
             _FAKE_PATHS[root.resolve()] = memory
     objects = integration / ".git" / "objects"
@@ -2383,7 +2352,7 @@ def test_lane_gate_command_shapes_reach_real_git(
         ("status", "--porcelain", "--untracked-files=no"),
         ("merge-base", "--is-ancestor"),
         ("merge-base",),
-        ("diff", "--name-only", "--no-renames"),
+        ("diff", "--name-only", "-z", "--no-renames"),
         ("ls-tree", "-r", "-z", "--full-tree"),
         ("cat-file", "blob"),
         ("show",),
@@ -2510,7 +2479,7 @@ def _fake_at(tmp_path: Path, tree: dict[str, str], sha: str = "S0") -> tuple[Fak
     root.mkdir()
     _write(root, tree)
     fake = FakeGit()
-    fake.bind(root, tree, sha)
+    fake.bind(root, tree, sha, branch="lane/test-fixture-x")
     return fake, root.resolve()
 
 
