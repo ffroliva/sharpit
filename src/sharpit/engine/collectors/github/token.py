@@ -99,8 +99,12 @@ class _Tree:
         self.pid: int | None = int(proc.pid) if isinstance(proc, _POPEN) else None
         self.job: int | None = None
         if sys.platform == "win32" and self.pid is not None:
-            # shortcut: a process gh starts before this assignment escapes the job; Popen returns before gh (or a
-            # cmd.exe shim) has loaded, so none in practice; a failed assignment falls back to taskkill /T
+            # shortcut (race): gh runs from the moment Popen returns, so a process it starts before this assignment
+            # escapes the job and survives TerminateJobObject; Popen returns before gh or a cmd.exe shim has loaded,
+            # so none in practice. Upgrade to a CREATE_SUSPENDED start + resume if a shim ever loses that race.
+            # KILL_ON_JOB_CLOSE is deliberately not set: kill() terminates the job explicitly, and a host crash
+            # mid-lookup leaves gh running rather than tying gh's life to a handle in a dying host.
+            # A failed assignment falls back to taskkill /T (see _taskkill for its limit).
             self.job = _job_for(self.pid)
 
     def kill(self, timeout: float) -> None:
@@ -148,6 +152,11 @@ if sys.platform == "win32":
         return int(job)
 
     def _taskkill(pid: int, timeout: float) -> None:
+        """Fallback when no job object could be made. Limit: taskkill /T walks the tree from a live ``pid``; once gh
+        (a shim) has exited, a grandchild it left holding stdout is orphaned and NOT reached. Only the job-object
+        path kills that case."""
+        if timeout <= 0:
+            return  # out of budget: never overrun the lookup's bound
         system = os.environ.get("SYSTEMROOT", "C:\\Windows")
         taskkill = os.path.join(system, "System32", "taskkill.exe")  # absolute: never a planted taskkill
         subprocess.run(  # noqa: S603 (absolute system taskkill, fixed arguments)
@@ -155,7 +164,7 @@ if sys.platform == "win32":
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=max(0.1, timeout),
+            timeout=timeout,
             check=False,
         )
 
@@ -184,18 +193,20 @@ def _gh_token(gh: str, timeout: float, run: Runner) -> Token | None:
         )
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    tree = _Tree(proc)
+    tree: _Tree | None = None
+    reader: threading.Thread | None = None
     box: list[bytes] = []
-    # the read runs in a daemon thread: a pipe a grandchild keeps open cannot hold the refresh past the timeout
-    reader = threading.Thread(target=_read_output, args=(proc, box), name="sharpit-gh-token", daemon=True)
-    reader.start()
-    reader.join(max(0.0, left() - min(_KILL_RESERVE, timeout / 5)))  # keep time to kill and reap
     try:
+        tree = _Tree(proc)
+        # the read runs in a daemon thread: a pipe a grandchild keeps open cannot hold the refresh past the timeout
+        reader = threading.Thread(target=_read_output, args=(proc, box), name="sharpit-gh-token", daemon=True)
+        reader.start()
+        reader.join(max(0.0, left() - min(_KILL_RESERVE, timeout / 5)))  # keep time to kill and reap
         if reader.is_alive() or not box or len(box[0]) > MAX_OUTPUT_BYTES:
             return None
         if proc.wait(left()) != 0:
             return None
-    except (OSError, subprocess.SubprocessError, ValueError):
+    except (OSError, subprocess.SubprocessError, ValueError, RuntimeError):  # RuntimeError: a thread cannot start
         return None
     finally:
         _release(proc, tree, reader, left)
@@ -203,14 +214,23 @@ def _gh_token(gh: str, timeout: float, run: Runner) -> Token | None:
     return Token(value, "gh auth token") if value else None
 
 
-def _release(proc: Any, tree: _Tree, reader: threading.Thread, left: Callable[[], float]) -> None:
-    """Kill the tree when gh still runs or anything still holds its stdout, then reap, end the reader, close."""
-    if reader.is_alive() or proc.poll() is None:
-        tree.kill(left())
+def _release(proc: Any, tree: _Tree | None, reader: threading.Thread | None, left: Callable[[], float]) -> None:
+    """Kill the tree when gh still runs or anything still holds its stdout, then reap, end the reader, close.
+    ``tree`` or ``reader`` is ``None`` when the lookup failed before making it."""
+    alive = reader is not None and reader.is_alive()
+    if alive or proc.poll() is None:
+        if tree is not None:
+            tree.kill(left())
+        else:
+            with contextlib.suppress(OSError):
+                proc.kill()
         with contextlib.suppress(OSError, subprocess.SubprocessError):
             proc.wait(left())
-        reader.join(left())
-    if not reader.is_alive():
+        if reader is not None and alive:
+            reader.join(left())
+            alive = reader.is_alive()
+    if not alive:
         with contextlib.suppress(OSError):
             proc.stdout.close()
-    tree.close()
+    if tree is not None:
+        tree.close()
