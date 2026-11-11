@@ -6,8 +6,10 @@ process running this file has imported everything already.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -168,3 +170,36 @@ def test_pyright_rejects_an_unknown_sharpit_name(tmp_path: Path) -> None:
 
     assert ("reportAttributeAccessIssue", '"typo" is unknown import symbol') in rules
     assert any("-> SharpitHandle" in message for _, message in rules), rules
+
+
+@pytest.mark.parametrize("name", ["install", "attach_sql_sources", "detach_sql_sources", "record_security_event"])
+def test_each_public_name_loads_when_it_is_the_first_use(name: str) -> None:
+    # found in the blast radius: the eager package import had hidden a dispatch <-> sqla import cycle
+    done = _python(f"import sharpit\nsharpit.{name}\n")
+
+    assert done.returncode == 0, done.stderr[-2000:]
+
+
+def test_the_sqlite_source_imports_first_for_an_early_attach() -> None:
+    # the sitecustomize pattern of test_early_attach_failure_does_not_interrupt_session
+    done = _python("from sharpit.engine.sources import sqlite\n")
+
+    assert done.returncode == 0, done.stderr[-2000:]
+
+
+SRC = ROOT / "src"
+MODULES = sorted(
+    ".".join(path.relative_to(SRC).with_suffix("").parts).removesuffix(".__init__")
+    for path in (SRC / "sharpit").rglob("*.py")
+)
+
+
+@pytest.mark.parametrize("module", MODULES)
+def test_every_module_imports_as_the_first_sharpit_import(module: str) -> None:
+    # base had none failing: the eager package import loaded the adapter first and hid the cycles
+    done = _python(f"import {module}\n")
+    missing = re.search(r"ModuleNotFoundError: No module named '([^'.]+)", done.stderr)
+    if done.returncode and missing and importlib.util.find_spec(missing[1]) is None:
+        pytest.skip(f"{module} needs the optional {missing[1]!r}, which this environment lacks")
+
+    assert done.returncode == 0, done.stderr[-2000:]
