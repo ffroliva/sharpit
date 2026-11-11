@@ -304,6 +304,7 @@ class ModelFieldRule:
     # every name the field answers to; may over-include env_prefix + fname on an aliased field (only masks more)
     names: set[str] = dataclasses.field(default_factory=set[str])
     annotation: object = None
+    rewritten: bool = False  # host code may change the value Configuration shows: the diff cannot decide, so masks
 
 
 @dataclass
@@ -343,7 +344,7 @@ class ProfileSourceDescriptor:
             return None
         parsed: list[object] = []
         for rule in rules:
-            found = parsed_candidates(rule.annotation, value)
+            found = [] if rule.rewritten else parsed_candidates(rule.annotation, value)
             if not found:
                 return []
             parsed.extend(found)
@@ -360,6 +361,33 @@ def parse_env(content: str) -> list[tuple[str, str | None]]:
 
     data = dotenv_values(stream=io.StringIO(content), interpolate=False)
     return list(data.items())
+
+
+_REWRITING_CONFIG = ("str_strip_whitespace", "str_to_lower", "str_to_upper", "use_enum_values")
+_PYDANTIC_MODULES = ("pydantic.", "pydantic_settings.")
+
+
+def _rewritten_fields(cls: type[Any], cfg: object) -> tuple[bool, set[str]]:
+    """Read statically, never called: whether host code may rewrite every field of ``cls`` (a model validator, a
+    user ``__init__``/``model_post_init``, a transforming config flag), and the fields a field validator names."""
+    decorators = getattr(cls, "__pydantic_decorators__", None)
+    if decorators is None:
+        return True, set()
+    every = bool(getattr(decorators, "model_validators", None) or getattr(decorators, "root_validators", None))
+    every = every or any(
+        bool(cast(Mapping[str, object], cfg).get(flag) if isinstance(cfg, Mapping) else getattr(cfg, flag, False))
+        for flag in _REWRITING_CONFIG
+    )
+    every = every or any(
+        ("__init__" in vars(k) or "model_post_init" in vars(k))
+        for k in cls.__mro__
+        if k is not object and not k.__module__.startswith(_PYDANTIC_MODULES)
+    )
+    named: set[str] = set()
+    for group in ("field_validators", "validators"):  # every mode: before, after, wrap, plain
+        for decorator in cast(Mapping[str, Any], getattr(decorators, group, None) or {}).values():
+            named.update(str(f) for f in getattr(getattr(decorator, "info", None), "fields", ()) or ())
+    return every, named
 
 
 def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
@@ -391,6 +419,7 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
     delimiter = env_src.env_nested_delimiter
 
     rules: list[ModelFieldRule] = []
+    rewrites_every, validated = _rewritten_fields(cls, cast(object, cfg))
 
     for fname, field in cls.model_fields.items():
         # FieldInfo moves a top-level Annotated's metadata (a top-level Json[...]) out of the annotation
@@ -442,6 +471,8 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
                 is_secret_scalar=secret_scalar,
                 names=candidate_names,
                 annotation=field.annotation,
+                # any metadata (a top-level Annotated validator lives here) or a validator naming the field
+                rewritten=rewrites_every or bool(field.metadata) or fname in validated or "*" in validated,
             )
         )
 
