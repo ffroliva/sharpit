@@ -156,6 +156,9 @@ class InsightsService:
         rows.sort(key=lambda row: (row["status"] == "INSUFFICIENT", -int(str(row["affected"])), str(row["id"])))
         return _report(True, None, _window(snapshot), _coverage(snapshot), checks, rows, _limitations(snapshot))
 
+    def insight(self, observation_id: str) -> Row:
+        return {}
+
     def _evaluate(self, observation: Observation, snapshot: Snapshot) -> tuple[Row, list[Row]]:
         missing = next((s for s in sorted(observation.reads) if not snapshot.recorded(s)), None)
         if missing is not None:

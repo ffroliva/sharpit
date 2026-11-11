@@ -199,7 +199,7 @@ def test_runtime_insights_panel_registered_action_capable(no_side_effects: SideE
 
     rows = {p.id: (p.title, p.action_capable, p.api_prefix) for p in PANELS if p.id == "runtime-insights"}
     assert rows == {"runtime-insights": ("Runtime Insights", True, "/runtime-insights")}
-    assert panels04.IMPLEMENTED.get("runtime-insights") is False  # a slot: I2 flips it
+    assert panels04.IMPLEMENTED.get("runtime-insights") is True  # I2 flipped the slot
 
     app = FastAPI()
     install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
@@ -208,6 +208,6 @@ def test_runtime_insights_panel_registered_action_capable(no_side_effects: SideE
         no_side_effects.block_network()
         listed = {panel["id"] for panel in client.get("/sharpit/api/panels").json()["panels"]}
         insights = client.get("/sharpit/api/runtime-insights")
-    assert "runtime-insights" not in listed
-    assert insights.status_code == 404
+    assert "runtime-insights" in listed
+    assert insights.status_code == 200
     assert no_side_effects.violations == []
