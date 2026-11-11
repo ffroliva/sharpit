@@ -102,6 +102,23 @@ def test_error_contract_rejects_host_mapping_without_iterating_it() -> None:
     assert handlers == ()
 
 
+def test_error_contract_one_bad_handler_does_not_hide_its_siblings() -> None:
+    app = FastAPI()
+
+    async def opaque_handler(_request: object, _exc: Exception) -> JSONResponse:
+        return JSONResponse({})
+
+    async def valid_handler(_request: object, _exc: Exception) -> JSONResponse:
+        return JSONResponse({})
+
+    opaque_handler.__wrapped__ = opaque_handler
+    app.exception_handlers[ValueError] = opaque_handler
+    app.exception_handlers[LookupError] = valid_handler
+    model = FastApiIntrospector(app).api_model()
+    assert any(handler.key_type == "builtins.LookupError" for handler in model.error_handlers)
+    assert any("could not be inspected" in note for note in model.limitations)
+
+
 def test_error_contract_exception_name_is_dotted() -> None:
     app = FastAPI()
     app.exception_handlers[ValueError] = lambda _request, _exc: None
