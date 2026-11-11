@@ -310,13 +310,12 @@ class SideEffectGuard:
             caller = sys._getframe(1).f_code.co_filename.replace("\\", "/")
             try:
                 coverage_tool = bool(
-                    args and isinstance(args[0], int) and sys.monitoring.get_tool(args[0]) == "coverage"
+                    args and isinstance(args[0], int) and sys.monitoring.get_tool(args[0]) == "coverage.py"
                 )
             except ValueError:
                 coverage_tool = False
             if "/src/sharpit/" in caller and not coverage_tool:
                 self.violations.append(what)
-                return None
             return original(*args, **kwargs)
 
         return spy

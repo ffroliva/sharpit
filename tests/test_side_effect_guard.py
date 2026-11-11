@@ -256,6 +256,7 @@ def _sweep_error(
     finally:
         guard.unblock_network()
         guard.unwatch_sources()
+        guard.restore_runtime_state()
     return _verify_error(guard)
 
 
