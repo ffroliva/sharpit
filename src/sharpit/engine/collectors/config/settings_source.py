@@ -168,6 +168,15 @@ _SAFE_SCALARS: tuple[type, ...] = (
 )
 
 
+def is_json_marker(metadata: object) -> bool:
+    """Whether an ``Annotated`` metadata item is pydantic's ``Json`` (``Json[X]`` is ``Annotated[X, Json]``)."""
+    try:
+        from pydantic import Json
+    except ImportError:
+        return False
+    return metadata is Json or isinstance(metadata, cast(type, Json))
+
+
 def is_provably_safe(annotation: object) -> bool:
     """Whether an annotation is provably free of secrets (allow-list of plain scalars)."""
     if annotation is None or annotation is type(None):
@@ -175,7 +184,8 @@ def is_provably_safe(annotation: object) -> bool:
     origin = get_origin(annotation)
     if origin is Annotated:
         args = get_args(annotation)
-        return is_provably_safe(args[0]) if args else False
+        # Json[...] anywhere is never provably safe, whatever its inner type
+        return bool(args) and not any(is_json_marker(m) for m in args[1:]) and is_provably_safe(args[0])
     if origin in (Union, types.UnionType):
         args = get_args(annotation)
         if not args:
@@ -346,7 +356,8 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
     rules: list[ModelFieldRule] = []
 
     for fname, field in cls.model_fields.items():
-        is_safe = is_provably_safe(field.annotation)
+        # FieldInfo moves a top-level Annotated's metadata (a top-level Json[...]) out of the annotation
+        is_safe = is_provably_safe(field.annotation) and not any(is_json_marker(m) for m in field.metadata)
         secret_scalar = is_secret_scalar(field.annotation)
         value_checked, enums = compound_shape(field.annotation) if is_safe else (False, [])
 
