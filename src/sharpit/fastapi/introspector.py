@@ -49,6 +49,7 @@ from sharpit.fastapi.introspection_common import (
 from sharpit.fastapi.introspection_common import (
     dotted as _dotted,
 )
+from sharpit.fastapi.introspection_errors import error_handler_infos
 from sharpit.fastapi.introspection_security import (
     FLAG_READERS as _FLAG_READERS,
 )
@@ -439,7 +440,8 @@ class FastApiIntrospector:
         handlers: Any = _attrs(self.app).get("exception_handlers") or {}
         # sharpit's exception capture wraps each handler: report the host's own function
         names = tuple(_qualified(getattr(h, "__sharpit_original__", h)) for h in list(handlers.values()))
-        return ApiModel(tuple(routes), names, tuple(limitations))
+        error_handlers, error_limitations = error_handler_infos(self.app, self.exclude_mount)
+        return ApiModel(tuple(routes), names, (*limitations, *error_limitations), error_handlers)
 
     def _entries(self) -> Iterator[tuple[RouteInfo, object | None]]:
         routes = _route_list(self.app)

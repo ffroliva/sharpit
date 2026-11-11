@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from collections.abc import Callable
 from functools import partial
 from importlib import import_module
@@ -16,7 +17,7 @@ from starlette.responses import FileResponse, Response
 from starlette.routing import BaseRoute, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from sharpit.engine import guard, tools
+from sharpit.engine import appsource, guard, tools
 from sharpit.engine import probe as probe_engine
 from sharpit.engine.advisors.retention import MAX_PAGE_LIMIT, AdvisorViolationError, parse_integer
 from sharpit.engine.capture import activity
@@ -30,6 +31,7 @@ from sharpit.engine.collectors.health import health_service
 from sharpit.engine.collectors.loggers import loggers_report, set_level
 from sharpit.engine.collectors.mappings import mappings_flat
 from sharpit.engine.collectors.overview import overview_dto
+from sharpit.engine.collectors.restapi.error_contract import error_contract_report
 from sharpit.engine.collectors.threads import threads_report
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext, application_family
@@ -524,8 +526,27 @@ def _rest_api_routes(ctx: SharpitContext) -> list[BaseRoute]:
             return json_response({"error": exc.message}, exc.status)
         return json_response(page)
 
+    def rest_api_error_contract(request: Request) -> Response:
+        params = request.query_params
+        try:
+            offset = parse_int_param(params.get("offset"), "offset") or 0
+            limit = parse_int_param(params.get("limit"), "limit")
+        except BadRequest as exc:
+            return json_response({"error": str(exc)}, 400)
+        introspector = cast(Any, ctx.introspector)
+        reasons: list[str] = []
+        root = appsource.resolve_package_root(
+            introspector.app,
+            sys.modules,
+            app_package=settings.app_package,
+            reasons=reasons,
+        )
+        index = appsource.build_index(root) if root is not None else None
+        return json_response(error_contract_report(introspector.api_model(), index, params.get("q"), offset, limit))
+
     return [
         Route(f"{api}/rest-api", rest_api, methods=["GET"]),
+        Route(f"{api}/rest-api/error-contract", rest_api_error_contract, methods=["GET"]),
         Route(f"{api}/rest-api/scan", rest_api_scan, methods=["POST"]),
         Route(f"{api}/rest-api/rules/{{rule_id}}/violations", rest_api_violations, methods=["GET"]),
     ]

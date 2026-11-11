@@ -115,3 +115,21 @@ def test_rest_api_error_contract_has_no_write_routes(tmp_path) -> None:
             assert response.status_code == 405
     finally:
         handle.uninstall_capture()
+
+
+def test_error_contract_reports_the_host_function_under_capture(tmp_path) -> None:
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, state_dir=str(tmp_path / "state"))
+    try:
+
+        @app.exception_handler(ValueError)
+        async def late_host_handler(_request: object, _exc: ValueError) -> JSONResponse:
+            return JSONResponse({"detail": "x"}, status_code=400)
+
+        with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+            entries = client.get("/sharpit/api/rest-api/error-contract").json()["entries"]
+            handlers = {f"{entry['component']}:{entry['method']}" for entry in entries}
+            assert any(h.endswith("late_host_handler") for h in handlers)
+            assert not any("sync_wrapper" in h or "async_wrapper" in h for h in handlers)
+    finally:
+        handle.uninstall_capture()

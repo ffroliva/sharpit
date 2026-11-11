@@ -83,6 +83,7 @@ ROWS = [
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
     ("rest-api", "GET", "/sharpit/api/rest-api", 200, True),
     ("rest-api-violations", "GET", "/sharpit/api/rest-api/rules/RAPI-MAP-001/violations", 400, True),  # no scanId
+    ("rest-api-error-contract", "GET", "/sharpit/api/rest-api/error-contract", 200, True),
     ("mcp-server", "GET", "/sharpit/api/mcp-server", 200, True),
     ("dismissed-rules", "GET", "/sharpit/api/dismissed-rules", 200, True),
     ("dismissed-findings", "GET", "/sharpit/api/dismissed-findings", 200, True),
