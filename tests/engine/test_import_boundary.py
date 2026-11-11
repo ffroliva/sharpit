@@ -375,7 +375,7 @@ def test_subprocess_import_is_confined_to_github_token(tmp_path: Path, monkeypat
     monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
 
     assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
-        "sharpit/engine/collectors/github/dashboard.py imports subprocess.run"
+        "sharpit/engine/collectors/github/dashboard.py imports subprocess"
     ]
 
 
