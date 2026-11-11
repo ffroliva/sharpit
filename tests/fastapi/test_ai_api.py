@@ -380,3 +380,40 @@ def test_ai_chat_detail_nulls_a_mixed_array_on_raw_types():
         response = client.get(f"{API}/ai/chats/{1:016x}")
     assert response.status_code == 200
     assert "R2E_MIXED_PROMPT" not in response.text
+
+
+@pytest.mark.parametrize("exposure", ["MASKED", "METADATA_ONLY"])
+def test_ai_chats_finish_reason_never_shows_the_authentication_token(exposure: str):
+    # finding W7-A r2f #1 (read side): the summary's finish reason goes through the live masker
+    app = FastAPI()
+    handle = install(
+        app,
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        expose_values=exposure,
+        authentication_token=AUTH_TOKEN,
+    )
+    span_buffer(handle.context).add(
+        SimpleNamespace(
+            context=SimpleNamespace(trace_id=1, span_id=1),
+            kind=SimpleNamespace(name="CLIENT"),
+            name="chat",
+            start_time=1_000,
+            end_time=2_000,
+            status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET")),
+            attributes={"gen_ai.operation.name": "chat", "gen_ai.response.finish_reasons": (f"STOP-{AUTH_TOKEN}",)},
+        )
+    )
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        response = client.get(f"{API}/ai/chats", headers={"Authorization": f"Bearer {AUTH_TOKEN}"})
+    assert response.status_code == 200
+    assert AUTH_TOKEN.lower() not in response.text.lower()
+
+
+def test_ai_chat_detail_nulls_text_on_an_allow_listed_numeric_key():
+    # finding W7-A r2f #2: a numeric metadata key holding text bypassed the null rule
+    with _chat_with_siblings({"gen_ai.request.temperature": "R2F_PROMPT text"}) as client:
+        response = client.get(f"{API}/ai/chats/{1:016x}")
+    assert response.status_code == 200
+    assert "R2F_PROMPT" not in response.text

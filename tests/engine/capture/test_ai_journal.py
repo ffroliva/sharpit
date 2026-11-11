@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.capture.traces import span_buffer
@@ -29,7 +31,9 @@ def _span(attributes: dict[str, Any] | None = None) -> Any:
     )
 
 
-def _records(sources: tuple[str, ...], *, ai_enabled: bool = True) -> tuple[dict[str, object], ...]:
+def _records(
+    sources: tuple[str, ...], *, ai_enabled: bool = True, span: Any = None, **options: Any
+) -> tuple[dict[str, object], ...]:
     app = FastAPI()
     handle = install(
         app,
@@ -38,8 +42,9 @@ def _records(sources: tuple[str, ...], *, ai_enabled: bool = True) -> tuple[dict
         config_scan=False,
         runtime_journal_sources=sources,
         panels={"ai": {"enabled": ai_enabled}},
+        **options,
     )
-    span_buffer(handle.context).add(_span())
+    span_buffer(handle.context).add(span or _span())
     journal = handle.context.capture.journal
     assert journal is not None
     return journal.records("ai")
@@ -97,3 +102,16 @@ def test_journal_keeps_only_the_ai_token_counts_numeric():
     assert ai_record["outputTokens"] == 5
     assert ai_record["totalTokens"] == "******"
     assert sql_record["inputTokens"] == "******"
+
+
+AUTH_TOKEN = "Zq81mWv3kTnR6yHc"  # random-looking, mixed case: only the never-shown rule can hide it
+
+
+@pytest.mark.parametrize("exposure", ["MASKED", "METADATA_ONLY"])
+def test_ai_journal_finish_reason_never_shows_the_authentication_token(exposure: str):
+    # finding W7-A r2f #1: the finish reason was lower-cased before masking, so the case-sensitive
+    # never-shown check missed the token
+    span = _span({"gen_ai.response.finish_reasons": [f"stop-{AUTH_TOKEN}"]})
+    records = _records(("ai",), span=span, authentication_token=AUTH_TOKEN, expose_values=exposure)
+    assert len(records) == 1
+    assert AUTH_TOKEN.lower() not in str(records).lower()
