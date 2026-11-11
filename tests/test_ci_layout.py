@@ -229,8 +229,8 @@ def test_the_full_extras_leg_uploads_a_parsed_junit() -> None:
     masking_sync = next(line for line in masking.splitlines() if "uv sync" in line)
     assert "matrix.os == 'ubuntu-latest'" in masking_sync
     assert "--group full-extras" in masking_sync
-    assert "name: junit-masking-gates-${{ matrix.os }}" in masking
-    assert parse_artifact("junit-masking-gates-ubuntu-latest") == ("masking-gates", "ubuntu-latest")
+    assert "name: junit-masking-gates-${{ matrix.os }}-${{ matrix.part }}" in masking
+    assert parse_artifact("junit-masking-gates-ubuntu-latest-scales") == ("masking-gates", "ubuntu-latest-scales")
 
 
 def test_junit_never_carries_captured_output() -> None:
@@ -476,6 +476,66 @@ def test_the_heavy_masking_gates_have_one_job_and_no_shard_collects_them(
     result = pytester.runpytest_subprocess("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
     for gate in OWN_JOB_FILES:
         assert f"{gate}::test_row" in result.outlines
+
+
+# CI test-seconds per gate file (spec §1, the report's run). A file cannot be split across rows (an env partition would
+# leak into the gates' own nested pytest runs), so the heaviest file on an OS is the ceiling for any row on that OS.
+GATE_SECONDS = {
+    "windows-latest": {
+        "tests/masking/test_gates_bite.py": 745,
+        "tests/masking/test_masking_scales_linearly.py": 556,
+        "tests/masking/test_statement_surfaces.py": 330,
+        "tests/scripts/test_lane_gate.py": 101,
+    },
+    "ubuntu-latest": {
+        "tests/masking/test_gates_bite.py": 294,
+        "tests/masking/test_masking_scales_linearly.py": 438,
+        "tests/masking/test_statement_surfaces.py": 160,
+        "tests/scripts/test_lane_gate.py": 6,
+    },
+}
+GATE_ROW_OSES = ("windows-latest",)  # the OSes whose masking gates run one gate file group per job (owner decision)
+
+
+def _gate_rows(os_name: str) -> list[list[str]]:
+    """The gate files each masking-gates job on ``os_name`` runs: its matrix row's files put into the pytest line."""
+    body = JOBS["masking-gates"]
+    run = next(line for line in body.splitlines() if re.search(r"run:.*\bpytest\b", line))
+    rows = re.findall(r"\{ os: ([\w-]+), part: [\w+-]+, files: \"([^\"]+)\" \}", body)
+    if not rows and (oses := re.search(r"^\s+os: \[([^\]]+)\]", body, re.MULTILINE)):
+        rows = [(name, "") for name in oses[1].split(", ")]
+    return [
+        re.findall(r"tests/\S+\.py", run.replace("${{ matrix.files }}", files))
+        for name, files in rows
+        if name == os_name
+    ]
+
+
+@pytest.mark.parametrize("os_name", GATE_ROW_OSES)
+def test_each_os_runs_every_gate_file_in_exactly_one_row(os_name: str) -> None:
+    files = [file for row in _gate_rows(os_name) for file in row]
+    assert sorted(files) == sorted(OWN_JOB_FILES), os_name
+
+
+@pytest.mark.parametrize("os_name", GATE_ROW_OSES)
+def test_no_gate_row_outweighs_the_heaviest_gate_file(os_name: str) -> None:
+    """Rows run in parallel, so the heaviest row sets the wall: no row may carry more than the heaviest file."""
+    seconds = GATE_SECONDS[os_name]
+    loads = [sum(seconds[file] for file in row) for row in _gate_rows(os_name)]
+    assert loads, os_name
+    assert max(loads) <= max(seconds.values()), f"{os_name}: row loads {loads}"
+
+
+def test_masking_gate_artifacts_are_unique_per_row() -> None:
+    from scripts.ci.shard_weights import parse_artifact
+
+    body = JOBS["masking-gates"]
+    for kind in ("junit", "overhead", "speed"):
+        assert f"name: {kind}-masking-gates-${{{{ matrix.os }}}}-${{{{ matrix.part }}}}" in body, kind
+    assert parse_artifact("overhead-masking-gates-windows-latest-gates-bite") == (
+        "masking-gates",
+        "windows-latest-gates-bite",
+    )
 
 
 # Windows has no SIGALRM: pytest-timeout's thread method calls os._exit at the deadline, and xdist reports the dead
