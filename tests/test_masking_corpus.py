@@ -23,6 +23,7 @@ from urllib.parse import quote
 import pytest
 from examples.fastapi_sample.app import SignedSessionMiddleware, create_app
 from fastapi.testclient import TestClient
+from prometheus_client import CollectorRegistry, Gauge
 from starlette.requests import Request
 
 from conftest import get_paths
@@ -30,6 +31,7 @@ from engine.vulns.vulnfakes import FakeOpener
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.advisors.dismissals import DismissalStore
+from sharpit.engine.collectors.metrics import prometheus as metrics_prometheus
 from sharpit.engine.collectors.vulns.epss import EpssClient
 from sharpit.engine.collectors.vulns.inventory import Package
 from sharpit.engine.collectors.vulns.osv import OsvClient
@@ -139,6 +141,12 @@ def corpus_app(
         ctx.single_flight,
     )
     assert ctx.lazy("vulnerabilities", lambda: service) is service
+    registry = CollectorRegistry()
+    labels = ["value", "password", "token", "api_key"]
+    Gauge("masking_canary", f"dsn postgres://u:{SENTINEL}@db/metrics", labels, registry=registry).labels(
+        f"postgres://u:{SENTINEL}@db/metrics", SENTINEL, SENTINEL, SENTINEL
+    ).set(1)
+    monkeypatch.setattr(metrics_prometheus, "REGISTRY", registry)
     return app, ctx
 
 

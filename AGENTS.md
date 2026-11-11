@@ -102,14 +102,16 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    the engine needs something from an adapter, it declares a `Protocol` port (`AppIntrospector` in `engine/spi.py`,
    `CaptureHooks` in `engine/capture/`) and the adapter implements it.
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
-   the engine (`context`, `paging`, `spi`, `singleflight`, ...).
+   the engine (`context`, `paging`, `spi`, `singleflight`, ...). Inside `engine/collectors/insights/` the rule holds per
+   kind: a module under `kinds/` never imports another kind; shared code goes in the insights package.
 4. **Gatekeepers.** One named file (or package) per optional or network library: SQLAlchemy only in the
-   `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
-   `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, and
-   `urllib.request`/`http.client` only in the OSV and EPSS clients under
+   `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` and `dotenv` only in
+   `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, `prometheus_client` only in
+   `engine/collectors/metrics/prometheus.py`, `urllib.request`/`http.client` only in the OSV and EPSS clients under
    `engine/collectors/vulns/` and the GitHub client `engine/collectors/github/client.py`, `subprocess` only in
-   `engine/collectors/github/token.py` (`gh auth token`), and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
-   The AST gate covers `sys.addaudithook`, `sys.monitoring.use_tool_id`, `free_tool_id`, `clear_tool_id`, `set_events`, `set_local_events`, `register_callback`, and `restart_events`, plus `os.system`, `os.spawn*`, and `os.exec*`; these calls live only under `engine/sensors/`. `sys.settrace` and mutations of `gc.callbacks` are allowed only in `pytest_plugin/` and `engine/testsession/`. `os.posix_spawn`, `os.fork`, and `os.popen` are not gated (`subprocess` is an import gatekeeper above).
+   `engine/collectors/github/token.py` (`gh auth token`), APScheduler, Celery and arq only in their own module under
+   `engine/collectors/scheduled/` (observed through `sys.modules`, never imported), and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
+   The AST gate covers `sys.addaudithook`, `sys.monitoring.use_tool_id`, `free_tool_id`, `clear_tool_id`, `set_events`, `set_local_events`, `register_callback`, and `restart_events`, plus `os.system`, `os.spawn*`, and `os.exec*`; these calls live only under `engine/sensors/`. `sys.settrace` and mutations of `gc.callbacks` are allowed only in `pytest_plugin/` and `engine/testsession/`. `subprocess`, `os.posix_spawn`, `os.fork`, and `os.popen` are not gated.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
    SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked
    slow or deselected (a measurement nobody runs detects nothing). See `docs/development/overhead-budgets.md` for what

@@ -184,8 +184,8 @@
     },
     {
       "name": "bootui.cache.clear-enabled",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for cache_clear_enabled"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.claude-code.allow-raw-reveal",
@@ -297,8 +297,8 @@
     },
     {
       "name": "bootui.dev-services.restart-enabled",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for dev_services_restart_enabled"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.disabled-profiles",
@@ -607,8 +607,8 @@
     },
     {
       "name": "bootui.overrides-file",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for overrides_file"
+      "status": "partial",
+      "difference": "default differs: BootUI='.bootui/application-bootui.properties'; sharpit='.sharpit/overrides.env'"
     },
     {
       "name": "bootui.panels",
@@ -682,8 +682,8 @@
     },
     {
       "name": "bootui.resources.jfr.max-duration",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for resources_jfr_max_duration"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.resources.max-threads",
@@ -747,8 +747,8 @@
     },
     {
       "name": "bootui.runtime-insights.ai-token-threshold",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for runtime_insights_ai_token_threshold"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.runtime-journal.agent-evidence-max-bytes",

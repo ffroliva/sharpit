@@ -3,7 +3,8 @@
 1. The engine is framework-free: no FastAPI or Starlette import (a ``TYPE_CHECKING`` block is allowed).
 2. The engine never imports an adapter (``sharpit.fastapi``, ``sharpit.ui``): adapters depend on the engine only.
 3. Each collector under ``engine/collectors/`` is a module of its own and never imports another collector. Shared
-   code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector.
+   code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector. Inside the Runtime
+   Insights collector the same holds per kind: a module under ``insights/kinds/`` never imports another kind.
 4. Gatekeepers: an optional dependency or a network client is imported by one named file only, so the rest of the
    package works without it (CI's ``no-sqlalchemy`` job) and nothing else can reach the network (safety model).
 5. Interpreter state (0.5.0 spec §4.4, §9): calls that change it (``tracemalloc.start``, ``gc.callbacks`` mutation,
@@ -33,7 +34,9 @@ GATEKEEPERS: dict[str, set[str]] = {
     "sqlite3": {"sharpit/engine/sources/sqlite.py"},
     "alembic": set(),
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
+    "dotenv": {"sharpit/engine/collectors/config/settings_source.py"},
     "opentelemetry": {"sharpit/engine/otel.py"},
+    "prometheus_client": {"sharpit/engine/collectors/metrics/prometheus.py"},
     "urllib.request": {
         "sharpit/engine/collectors/vulns/osv.py",
         "sharpit/engine/collectors/vulns/epss.py",
@@ -43,6 +46,9 @@ GATEKEEPERS: dict[str, set[str]] = {
     "subprocess": {"sharpit/engine/collectors/github/token.py"},  # gh auth token, the GitHub refresh action only
     "socket": set(),
     "ssl": set(),
+    "apscheduler": {"sharpit/engine/collectors/scheduled/apscheduler.py"},  # observed via sys.modules (W5b lane C)
+    "celery": {"sharpit/engine/collectors/scheduled/celery.py"},
+    "arq": {"sharpit/engine/collectors/scheduled/arq.py"},
     "pytest": {"sharpit/pytest_plugin"},
     "_pytest": {"sharpit/pytest_plugin"},
 }
@@ -186,7 +192,18 @@ def collector_violations(root: Path = COLLECTORS) -> list[str]:
             other = _collector(name)
             if own and other and other != own:
                 found.append(f"{_rel(path)} imports {name}: collector {own!r} reaches into {other!r}")
+            elif (kind := _insight_kind(_module_name(path))) and (target := _insight_kind(name)) and target != kind:
+                found.append(f"{_rel(path)} imports {name}: insight kind {kind!r} reaches into {target!r}")
     return found
+
+
+def _insight_kind(module: str) -> str | None:
+    """The Runtime Insights kind a module is (``engine/collectors/insights/kinds/<kind>``): rule 3 inside insights."""
+    parts = module.split(".")
+    return parts[5] if parts[:5] == [*_INSIGHT_KINDS] and len(parts) > 5 else None
+
+
+_INSIGHT_KINDS = ("sharpit", "engine", "collectors", "insights", "kinds")
 
 
 def _gatekeeper_allows(rel: str, allowed: set[str]) -> bool:
@@ -323,12 +340,50 @@ def interpreter_state_violations(root: Path | None = None) -> list[str]:
     return found
 
 
+def package_name_violations(root: Path = ENGINE) -> list[str]:
+    """Engine imports of a ``sharpit`` package name other than ``__version__``: the others load the adapter lazily."""
+    found: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        package = _module_name(path) if path.name == "__init__.py" else _module_name(path).rpartition(".")[0]
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import) and any(alias.name == "sharpit" for alias in node.names):
+                found.append(f"{_rel(path)} imports sharpit: the engine may import only __version__")
+            elif isinstance(node, ast.ImportFrom):
+                source = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
+                source = (f"{source}.{node.module}" if node.module else source) if node.level else node.module
+                found += [
+                    f"{_rel(path)} imports {alias.name} from sharpit: the engine may import only __version__"
+                    for alias in node.names
+                    if source == "sharpit" and alias.name != "__version__"
+                ]
+    return found
+
+
 def test_engine_modules_do_not_import_fastapi_or_starlette():
     assert framework_violations() == []
 
 
 def test_engine_never_imports_an_adapter():
     assert adapter_violations() == []
+
+
+def test_the_engine_imports_only_the_version_from_the_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    live = package_name_violations()
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    engine = tmp_path / "src" / "sharpit" / "engine"
+    (engine / "collectors").mkdir(parents=True)
+    (engine / "mcp.py").write_text("from sharpit import __version__\n", encoding="utf-8")
+    (engine / "tools.py").write_text("from sharpit import __version__, install\nimport sharpit\n", encoding="utf-8")
+    (engine / "collectors" / "x.py").write_text("from ... import install\n", encoding="utf-8")
+
+    planted = package_name_violations(engine)
+
+    assert live == []
+    assert planted == [
+        "sharpit/engine/collectors/x.py imports install from sharpit: the engine may import only __version__",
+        "sharpit/engine/tools.py imports install from sharpit: the engine may import only __version__",
+        "sharpit/engine/tools.py imports sharpit: the engine may import only __version__",
+    ]
 
 
 def test_collectors_never_import_each_other():
@@ -398,6 +453,23 @@ def test_github_network_imports_are_confined_to_github_client(tmp_path: Path, mo
     ]
 
 
+def test_prometheus_client_import_is_confined_to_metrics_gatekeeper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "src"
+    engine = source / "sharpit" / "engine"
+    collectors = engine / "collectors" / "metrics"
+    collectors.mkdir(parents=True)
+    (collectors / "prometheus.py").write_text("import prometheus_client\n", encoding="utf-8")
+    (engine / "tools.py").write_text("import prometheus_client\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    violations = gatekeeper_violations()
+
+    allowed = "only ['sharpit/engine/collectors/metrics/prometheus.py'] may import prometheus_client"
+    assert violations == [f"sharpit/engine/tools.py imports prometheus_client: {allowed}"]
+
+
 def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Each rule fails on a planted import, so a green run means the boundaries hold, not that the scan saw nothing."""
     monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
@@ -409,6 +481,9 @@ def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     plant("collectors/loggers/__init__.py", "from ..health import health_report\n")
     plant("collectors/beans.py", "from sharpit.engine.collectors.mappings import x\n")
+    (engine / "collectors" / "insights" / "kinds").mkdir(parents=True)
+    plant("collectors/insights/kinds/slow_flush.py", "")
+    plant("collectors/insights/kinds/orm_auto_flush.py", "from . import slow_flush\n")
     plant("tools.py", "import starlette.requests\nfrom sharpit.fastapi.adapter import y\nimport urllib.request\n")
     (engine / "sqla").mkdir()
     plant("sqla/listeners.py", "import sqlalchemy.pool\n")
@@ -417,10 +492,38 @@ def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert adapter_violations(engine) == ["sharpit/engine/tools.py imports sharpit.fastapi.adapter"]
     assert [v.split(": ")[1] for v in collector_violations(engine / "collectors")] == [
         "collector 'beans' reaches into 'mappings'",
+        "insight kind 'orm_auto_flush' reaches into 'slow_flush'",
         "collector 'loggers' reaches into 'health'",
     ]
     assert [v.split(":")[0] for v in gatekeeper_violations(engine)] == [
         "sharpit/engine/tools.py imports urllib.request"
+    ]
+
+
+def test_insight_kind_may_not_import_another_kind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W5c: one module per Runtime Insights kind. The registry and a kind may use the shared insights modules; a kind
+    never imports another kind, in any import form."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    insights = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "insights"
+    (insights / "kinds").mkdir(parents=True)
+    files = {
+        "__init__.py": "",
+        "snapshot.py": "",
+        "registry.py": "from .kinds import slow_flush, orm_auto_flush\n",
+        "kinds/__init__.py": "",
+        "kinds/slow_flush.py": "from ..snapshot import x\n",
+        "kinds/orm_auto_flush.py": "from sharpit.engine.collectors.insights.kinds.slow_flush import y\n",
+        "kinds/heap_growth_after_gc.py": "import sharpit.engine.collectors.insights.kinds.slow_flush\n",
+    }
+    for rel, code in files.items():
+        (insights / rel).write_text(code, encoding="utf-8")
+
+    assert collector_violations(insights.parent) == [
+        "sharpit/engine/collectors/insights/kinds/heap_growth_after_gc.py imports"
+        " sharpit.engine.collectors.insights.kinds.slow_flush: insight kind 'heap_growth_after_gc' reaches into"
+        " 'slow_flush'",
+        "sharpit/engine/collectors/insights/kinds/orm_auto_flush.py imports"
+        " sharpit.engine.collectors.insights.kinds.slow_flush: insight kind 'orm_auto_flush' reaches into 'slow_flush'",
     ]
 
 
@@ -654,6 +757,26 @@ def test_planted_sqlalchemy_import_outside_package_fails(tmp_path: Path, monkeyp
     assert violations == [
         "sharpit/engine/models.py imports sqlalchemy.engine",
         "sharpit/engine/sqla_extra.py imports sqlalchemy.orm",
+    ]
+
+
+def test_scheduler_libraries_stay_behind_their_gatekeepers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W5b lane C: APScheduler, Celery and arq each have one gatekeeper module under ``collectors/scheduled/``."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    scheduled = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "scheduled"
+    scheduled.mkdir(parents=True)
+    for lib in ("apscheduler", "arq", "celery"):
+        (scheduled / f"{lib}.py").write_text(f"import {lib}\n", encoding="utf-8")
+    (scheduled / "__init__.py").write_text(
+        "import apscheduler.job\nimport celery.schedules\nimport arq.cron\n", "utf-8"
+    )
+
+    violations = [v.split(":")[0] for v in gatekeeper_violations()]
+
+    assert violations == [
+        "sharpit/engine/collectors/scheduled/__init__.py imports apscheduler.job",
+        "sharpit/engine/collectors/scheduled/__init__.py imports celery.schedules",
+        "sharpit/engine/collectors/scheduled/__init__.py imports arq.cron",
     ]
 
 

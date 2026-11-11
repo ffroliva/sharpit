@@ -160,3 +160,24 @@ Specify `--sharpit-junit=PATH` to generate a standard JUnit XML file representin
 - Each finding in the report appears as a `<testcase>` with a `severity` property (`classname` is the advisor, `name` is the finding fingerprint). Only non-dismissed findings at or above `--sharpit-fail-on` carry a `<failure type="<ruleId>" message="...">`; dismissed and lower-severity findings are passing cases.
 - A `<testcase name="sharpit.status">` records overall session state, failing if the run status is `fail` or `unknown` (without `--sharpit-allow-unknown`).
 - The JUnit file contains findings only and does not duplicate the application tests (standard pytest `--junitxml` covers individual test results).
+
+## SARIF report
+
+Specify `--sharpit-sarif=PATH` (ini `sharpit_sarif`) to write the findings as a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+log, for code-scanning tools. Under pytest-xdist only the controller writes it, once, with every worker's findings.
+
+- One run whose `tool.driver` is `sharpit` with its version; `rules` lists each `ruleId` once.
+- One result per finding in the report: `ruleId`, `level` from the severity (`CRITICAL`/`HIGH` → `error`, `MEDIUM` →
+  `warning`, `LOW`/`INFO` → `note`), the masked message, and `properties` with the advisor, severity and test node id.
+- `partialFingerprints["sharpitFingerprint/v1"]` is the report's `fingerprint`: it holds no path or timestamp, so a
+  finding keeps its identity when code moves. The `/v1` suffix changes if the fingerprint's recipe ever does.
+- A finding that is dismissed, or `existing` in the baseline, carries a `suppressions` entry (`kind: external`), so
+  code-scanning tools show it as accepted rather than open; neither fails the gate.
+- Locations: a finding with a source file gets a `physicalLocation` whose URI is relative to `%SRCROOT%`, POSIX
+  separators, percent-encoded. A path that is absolute, has a drive letter or URI scheme, climbs out with `..`, or
+  that the masker would change is dropped and the finding is kept. Every result also carries its target (a route, a test, a statement) as a
+  `logicalLocations` entry; today's findings carry no source file, so they have the logical location only, and a tool
+  that requires a file location may not display them.
+- Every text in the file (message, target, test node id) goes through the masker again before it is written.
+- A SARIF file that cannot be written makes the run `unknown`, with `SARIF write failed: ...` in the JSON report's
+  `unknownReasons` and `warnings`.
