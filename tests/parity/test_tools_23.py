@@ -61,6 +61,7 @@ MATCHED_TOOLS = (
     "resume_sql_trace_recording",
     "clear_traces",
     "clear_transactions",
+    "get_profile_diff",
     "get_transactions",
     "pause_transaction_recording",
     "resume_transaction_recording",
@@ -135,7 +136,6 @@ MISSING_TOOLS = (
     "pentest_scan",
     "get_method_probe",
     "start_method_probe",
-    "get_profile_diff",
     "get_rabbitmq_activity",
     "get_spring_data_repositories",
     "clear_rest_client_traces",
@@ -178,6 +178,7 @@ CLI_COMMAND_DIFFERENCES = (
 MATCHED_CLI = tuple((BOOTUI[name]["command"], name) for name in MATCHED_TOOLS if name not in CLI_COMMAND_DIFFERENCES)
 
 pytestmark = [
+    pytest.mark.bootui("cli:ai overview"),
     pytest.mark.bootui("cli:architecture report"),
     pytest.mark.bootui("cli:architecture scan"),
     pytest.mark.bootui("cli:db mysql read"),
@@ -192,7 +193,7 @@ pytestmark = [
     pytest.mark.bootui("cli:exceptions show"),
     pytest.mark.bootui("cli:health"),
     pytest.mark.bootui("cli:overview"),
-    pytest.mark.bootui("cli:ai overview"),
+    pytest.mark.bootui("cli:profile diff"),
     pytest.mark.bootui("cli:rest-api report"),
     pytest.mark.bootui("cli:rest-api scan"),
     pytest.mark.bootui("cli:security report"),
@@ -224,6 +225,7 @@ pytestmark = [
     pytest.mark.bootui("tool:get_mysql_report"),
     pytest.mark.bootui("tool:get_overview"),
     pytest.mark.bootui("tool:get_postgresql_report"),
+    pytest.mark.bootui("tool:get_profile_diff"),
     pytest.mark.bootui("tool:get_request_profile"),
     pytest.mark.bootui("tool:get_rest_api_report"),
     pytest.mark.bootui("tool:get_security_report"),
