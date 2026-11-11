@@ -26,6 +26,7 @@ _MISSING = [r for r in _ROUTES if r["status"] == "missing"]
 _NA = [r for r in _ROUTES if r["status"] == "n-a"]
 
 pytestmark = [
+    pytest.mark.bootui("route:GET /ai/tokens"),
     pytest.mark.bootui("route:GET /loggers"),
     pytest.mark.bootui("route:GET /mappings/flat"),
     pytest.mark.bootui("route:GET /mcp-server"),
