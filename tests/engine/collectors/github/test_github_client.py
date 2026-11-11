@@ -13,6 +13,8 @@ import logging
 import os
 import subprocess
 import sys
+import threading
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -33,8 +35,12 @@ class _Output(io.BytesIO):
     """gh's stdout; ``consumed`` survives ``close()``."""
 
     consumed = 0
+    block: threading.Event | None = None
 
     def read(self, size: int | None = -1, /) -> bytes:
+        if self.block is not None:
+            self.block.wait(3.0)
+            return b""
         data = super().read(size)
         self.consumed += len(data)
         return data
@@ -43,12 +49,17 @@ class _Output(io.BytesIO):
 class FakeProc:
     """A ``subprocess.Popen`` result: ``stdout`` to read, ``wait`` records its timeout, ``kill`` is counted."""
 
-    def __init__(self, stdout: bytes, returncode: int, hangs: bool) -> None:
+    def __init__(self, stdout: bytes, returncode: int, hangs: bool, blocks: str = "") -> None:
         self.stdout = _Output(stdout)
         self.returncode = returncode
-        self.hangs = hangs
+        self.hangs = hangs or bool(blocks)
         self.waited: list[float | None] = []
         self.kills = 0
+        self.killed = threading.Event()
+        if blocks:
+            # "until-killed": the read ends when kill() runs; "forever": a shim's child keeps stdout open past the
+            # kill (bounded at 3 s so a regression cannot hang the suite)
+            self.stdout.block = self.killed if blocks == "until-killed" else threading.Event()
 
     def wait(self, timeout: float | None = None) -> int:
         self.waited.append(timeout)
@@ -61,6 +72,7 @@ class FakeProc:
 
     def kill(self) -> None:
         self.kills += 1
+        self.killed.set()
 
 
 class Runner:
@@ -72,8 +84,10 @@ class Runner:
         returncode: int = 0,
         raises: BaseException | None = None,
         hangs: bool = False,
+        blocks: str = "",
     ) -> None:
         self.stdout, self.returncode, self.raises, self.hangs = stdout, returncode, raises, hangs
+        self.blocks = blocks
         self.calls: list[tuple[Any, dict[str, Any]]] = []
         self.procs: list[FakeProc] = []
 
@@ -81,7 +95,7 @@ class Runner:
         self.calls.append((args, kwargs))
         if self.raises is not None:
             raise self.raises
-        self.procs.append(FakeProc(self.stdout, self.returncode, self.hangs))
+        self.procs.append(FakeProc(self.stdout, self.returncode, self.hangs, self.blocks))
         return self.procs[-1]
 
 
@@ -207,6 +221,27 @@ def test_gh_is_resolved_to_an_absolute_path_outside_the_working_directory(
     token = resolve_token(5.0, {"PATH": os.pathsep.join([str(app), str(real)])}, runner)
     assert token == Token("cli-token", "gh auth token")
     assert Path(runner.calls[0][0][0]).parent == real
+
+
+@pytest.mark.parametrize("blocks", ["until-killed", "forever"])
+def test_a_gh_whose_stdout_never_closes_gives_no_token_within_the_timeout(blocks: str, gh_env: dict[str, str]) -> None:
+    runner = Runner(blocks=blocks)
+    started = time.monotonic()
+    assert resolve_token(0.2, gh_env, runner) is None
+    elapsed = time.monotonic() - started
+    assert elapsed < 1.5  # the read is abandoned at the 0.2 s timeout, not when the pipe finally closes (3 s)
+    assert runner.procs[0].kills >= 1
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="extended-length paths are Windows-only")
+def test_an_extended_length_path_entry_cannot_reach_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _gh_dir(tmp_path / "app")
+    monkeypatch.chdir(app)
+    runner = Runner()
+    assert resolve_token(5.0, {"PATH": "\\\\?\\" + str(app)}, runner) is None
+    assert runner.calls == []
 
 
 # ---- client ------------------------------------------------------------------------------------------------------
@@ -606,39 +641,95 @@ def test_github_non_https_api_base_never_sends_the_token(no_side_effects) -> Non
     assert transport.requests == []
 
 
-JAVA_LONG_MAX = 2**63 - 1
-
-
 @pytest.mark.parametrize(
     ("route", "body", "key", "field", "value"),
     [
-        (f"{REPO}/actions/artifacts", '{"total_count": 1e999}', "actions-artifacts", "used", JAVA_LONG_MAX),
+        (f"{REPO}/actions/artifacts", '{"total_count": 1e999}', "actions-artifacts", "used", None),
         (f"{REPO}/actions/cache/usage", '{"active_caches_size_in_bytes": -1e999}', "actions-cache", "used", None),
         (
             f"/orgs/{ORG}/settings/billing/actions",
             '{"included_minutes": 1e999, "total_minutes_used": 5}',
             "actions-minutes",
             "limit",
-            JAVA_LONG_MAX,
+            None,
         ),
-        (f"{REPO}/actions/artifacts", '{"total_count": 1e30}', "actions-artifacts", "used", JAVA_LONG_MAX),
+        (f"{REPO}/actions/artifacts", '{"total_count": 1e30}', "actions-artifacts", "used", None),
         (
             f"{REPO}/actions/artifacts",
-            '{"total_count": 99999999999999999999999}',
+            '{"total_count": 1000000000000000000000000000000}',
             "actions-artifacts",
             "used",
-            JAVA_LONG_MAX,
+            None,
         ),
+        (f"{REPO}/actions/artifacts", '{"total_count": 9223372036854775807}', "actions-artifacts", "used", 2**63 - 1),
+        (f"{REPO}/actions/artifacts", '{"total_count": "42"}', "actions-artifacts", "used", 42),
+        (f"{REPO}/actions/artifacts", '{"total_count": "1.5"}', "actions-artifacts", "used", None),
+        (f"{REPO}/actions/artifacts", '{"total_count": 7.9}', "actions-artifacts", "used", 7),
     ],
-    ids=["inf", "minus-inf", "billing-inf", "huge-float", "huge-int"],
+    ids=[
+        "inf",
+        "minus-inf",
+        "billing-inf",
+        "huge-float",
+        "huge-int",
+        "long-max",
+        "int-string",
+        "fraction-string",
+        "fraction",
+    ],
 )
-def test_github_huge_numbers_saturate_like_jackson_as_long(
+def test_github_numbers_out_of_long_range_give_the_jackson_default(
     route: str, body: str, key: str, field: str, value: int | None, no_side_effects
 ) -> None:
+    """Jackson 3.1.7 ``asLong(-1)`` (probed): out of range, a non-integer string or a boolean gives the default -1,
+    which BootUI's ``nullable`` turns into null; an integer string is parsed and a fraction truncated."""
     github, _ = client(full_routes() | {route: ok(body)})
     report = _refresh(github)
     assert report["status"] == "CONNECTED"
     assert _one(report["quotas"], "key", key)[field] == value
+
+
+@pytest.mark.parametrize(
+    ("route", "body"),
+    [
+        (f"{REPO}/actions/runs", '{"workflow_runs": [{"id": "x", "workflow_id": 1}]}'),
+        (f"{REPO}/actions/workflows", '{"workflows": [{"id": {}}]}'),
+        (f"{REPO}/actions/runs", '{"workflow_runs": [{"id": 1e30}]}'),
+        (f"{REPO}/pulls", '[{"number": 3000000000}]'),
+        (f"{REPO}/issues", '[{"number": true}]'),
+        (f"{REPO}/dependabot/alerts", '[{"number": "seven"}]'),
+    ],
+    ids=[
+        "run-id-string",
+        "workflow-id-object",
+        "run-id-huge",
+        "pr-number-over-int",
+        "issue-number-bool",
+        "alert-number",
+    ],
+)
+def test_github_strict_numbers_fail_the_refresh_like_jackson(route: str, body: str, no_side_effects) -> None:
+    """BootUI reads ids with ``asLong()`` and numbers with ``asInt()`` (no default): Jackson 3.1.7 throws
+    ``JsonNodeException`` on a non-numeric or out-of-range node, which escapes BootUI's refresh (a 500). sharpit
+    reports the whole refresh as ERROR with the fixed text instead."""
+    github, _ = client(full_routes() | {route: ok(body)}, token=CANARY)
+    report = _refresh(github)
+    assert report["status"] == "ERROR"
+    assert report["message"] == client_module.UNEXPECTED_FAILURE
+    assert CANARY not in json.dumps(report)
+
+
+def test_github_lenient_numbers_follow_jackson(no_side_effects) -> None:
+    """``asInt()``/``asLong()`` on null or a missing field give 0; an integer string is parsed."""
+    routes = full_routes() | {
+        f"{REPO}/pulls": ok([{"number": "42"}, {"number": None}, {}]),
+        f"{REPO}/actions/workflows": ok({"workflows": [{"id": None, "name": "n"}]}),
+    }
+    github, _ = client(routes)
+    report = _refresh(github)
+    assert report["status"] == "CONNECTED"
+    assert [pr["number"] for pr in report["pullRequests"]] == [42, 0, 0]
+    assert [w["id"] for w in report["workflows"]] == [0]
 
 
 @pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
@@ -676,13 +767,26 @@ class Clock:
 
 
 def test_github_refresh_has_an_overall_deadline(no_side_effects) -> None:
-    github, transport = client(full_routes())
+    # the read timeout (100 s) is above the deadline, so every read must be capped by the time left
+    github, transport = client(full_routes(), github_request_timeout=100.0)
     github.clock = Clock()  # pyright: ignore[reportAttributeAccessIssue]
     report = _refresh(github)
-    assert len(transport.requests) < 13
     assert report["status"] == "PARTIAL"
     skipped = [w for w in report["warnings"] if w.endswith("because the GitHub refresh time limit was reached.")]
     assert skipped
-    assert [r.timeout is not None and r.timeout <= client_module.REFRESH_DEADLINE for r in transport.requests] == [
-        True
-    ] * len(transport.requests)
+    # clock reads: start 11 (deadline 41), token 22, first read 33 -> 8 s left, second read 44 -> skipped
+    assert [r.timeout for r in transport.requests] == [8.0]
+
+
+def test_github_token_lookup_respects_the_refresh_deadline(no_side_effects) -> None:
+    seen: list[float] = []
+
+    def tokens(timeout: float) -> Token | None:
+        seen.append(timeout)
+        return None
+
+    github, _ = client(full_routes(), github_request_timeout=100.0)
+    github._token = tokens  # pyright: ignore[reportPrivateUsage]
+    github.clock = Clock()  # pyright: ignore[reportAttributeAccessIssue]
+    _refresh(github)
+    assert seen == [19.0]  # deadline 41 minus the clock read 22, not the 100 s read timeout
