@@ -68,6 +68,8 @@ PANELS: tuple[Panel, ...] = (
     Panel("claude-code", "Claude Code", False, "/claude-code"),
     Panel("github", "GitHub", True, "/github"),
     Panel("ai", "AI Framework", False, "/ai"),
+    # W5c: Runtime Insights over the runtime journal (BootUiPanels.java:155)
+    Panel("runtime-insights", "Runtime Insights", True, "/runtime-insights"),
 )
 
 

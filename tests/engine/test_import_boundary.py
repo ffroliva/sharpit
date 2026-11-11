@@ -3,7 +3,8 @@
 1. The engine is framework-free: no FastAPI or Starlette import (a ``TYPE_CHECKING`` block is allowed).
 2. The engine never imports an adapter (``sharpit.fastapi``, ``sharpit.ui``): adapters depend on the engine only.
 3. Each collector under ``engine/collectors/`` is a module of its own and never imports another collector. Shared
-   code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector.
+   code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector. Inside the Runtime
+   Insights collector the same holds per kind: a module under ``insights/kinds/`` never imports another kind.
 4. Gatekeepers: an optional dependency or a network client is imported by one named file only, so the rest of the
    package works without it (CI's ``no-sqlalchemy`` job) and nothing else can reach the network (safety model).
 5. Interpreter state (0.5.0 spec §4.4, §9): calls that change it (``tracemalloc.start``, ``gc.callbacks`` mutation,
@@ -181,7 +182,18 @@ def collector_violations(root: Path = COLLECTORS) -> list[str]:
             other = _collector(name)
             if own and other and other != own:
                 found.append(f"{_rel(path)} imports {name}: collector {own!r} reaches into {other!r}")
+            elif (kind := _insight_kind(_module_name(path))) and (target := _insight_kind(name)) and target != kind:
+                found.append(f"{_rel(path)} imports {name}: insight kind {kind!r} reaches into {target!r}")
     return found
+
+
+def _insight_kind(module: str) -> str | None:
+    """The Runtime Insights kind a module is (``engine/collectors/insights/kinds/<kind>``): rule 3 inside insights."""
+    parts = module.split(".")
+    return parts[5] if parts[:5] == [*_INSIGHT_KINDS] and len(parts) > 5 else None
+
+
+_INSIGHT_KINDS = ("sharpit", "engine", "collectors", "insights", "kinds")
 
 
 def _gatekeeper_allows(rel: str, allowed: set[str]) -> bool:

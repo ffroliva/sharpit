@@ -26,6 +26,7 @@ ALL_PANEL_IDS = {
     "claude-code",
     "github",
     "ai",
+    "runtime-insights",
 }
 
 

@@ -43,7 +43,9 @@ def _parity_error(
 
 def test_golden_id_mapping_covers_panel_ids() -> None:
     ids = bootui_ids()
-    bootui_panel_ids = {panel["id"] for panel in legacy_golden("panels")["panels"]}
+    # the legacy capture predates BootUI 2.3.0's new panels (runtime-insights): those come from the 2.3.0 enumeration
+    bootui_23 = json.loads((golden.BOOTUI_FIXTURES_DIR / "2.3.0" / "panels.json").read_text(encoding="utf-8"))
+    bootui_panel_ids = {panel["id"] for panel in (*legacy_golden("panels")["panels"], *bootui_23["panels"])}
     assert set(ids.values()) == {panel.id for panel in PANELS}
     assert set(ids) <= bootui_panel_ids
     assert ids["hibernate-statistics"] == "sqlalchemy-statistics"

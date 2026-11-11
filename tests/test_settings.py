@@ -303,6 +303,8 @@ PROPERTIES = {
     "bootui.runtime-journal.max-bytes": ("runtime_journal_max_bytes", "39KB"),
     "bootui.runtime-journal.queue-capacity": ("runtime_journal_queue_capacity", "40"),
     "bootui.runtime-journal.sources": ("runtime_journal_sources", "SQL,http"),
+    "bootui.runtime-insights.ai-token-threshold": ("runtime_insights_ai_token_threshold", "9000"),
+    "bootui.resources.jfr.max-duration": ("resources_jfr_max_duration", "45s"),
     # 0.4.0 fields pre-created by lane F
     "bootui.activity.unbounded-read-factor": ("activity_unbounded_read_factor", "36"),
     "bootui.security-logs.max-logs": ("security_logs_max_logs", "37"),
@@ -734,6 +736,8 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "RUNTIME_JOURNAL_MAX_BYTES",
         "RUNTIME_JOURNAL_QUEUE_CAPACITY",
         "RUNTIME_JOURNAL_SOURCES",
+        "RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD",
+        "RESOURCES_JFR_MAX_DURATION",
         "SECURITY_LOGS_MAX_LOGS",
         "POSTGRESQL_MAX_SESSIONS",
         "POSTGRESQL_MAX_STATEMENTS",

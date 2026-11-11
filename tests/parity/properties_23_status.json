@@ -682,8 +682,8 @@
     },
     {
       "name": "bootui.resources.jfr.max-duration",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for resources_jfr_max_duration"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.resources.max-threads",
@@ -747,8 +747,8 @@
     },
     {
       "name": "bootui.runtime-insights.ai-token-threshold",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for runtime_insights_ai_token_threshold"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.runtime-journal.agent-evidence-max-bytes",
