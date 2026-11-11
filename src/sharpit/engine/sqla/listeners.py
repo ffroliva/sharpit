@@ -13,8 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from sharpit.engine import sqla as _sqla
 from sharpit.engine.capture.correlation import INTERNAL, REQUEST
-from sharpit.engine.sources import dispatch
-from sharpit.engine.sources.dispatch import SqlEvent
+from sharpit.engine.sources import dispatch  # the module, not its names: dispatch imports this package
 from sharpit.engine.sqla import _lock
 from sharpit.engine.sqla import orm as _orm
 from sharpit.engine.sqla.dialect_source import engine_dialect
@@ -136,7 +135,7 @@ def _emit(
     # replaced, so the check proves the engine did not move, not which server answered.
     dialect = engine_dialect(conn)
     dispatch.deliver(
-        SqlEvent(
+        dispatch.SqlEvent(
             "sqlalchemy",
             statement,
             parameters,

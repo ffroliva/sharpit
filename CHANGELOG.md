@@ -8,6 +8,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - GitHub dashboard (`GET /github`, `get_github_dashboard`, CLI `github`): local repository identity and cached report, read without network access.
+- Profile Diff panel (GET /profile-diff, get_profile_diff, CLI profile diff): the app's .env.<profile> files, masked like Configuration.
 - Copilot panel (GET /copilot/*, get_copilot_sessions, CLI sessions copilot): local Copilot CLI sessions, allow-listed fields only, no watcher thread; raw reveal off by default.
 - Claude Code panel (GET /claude-code/*, get_claude_code_sessions, CLI sessions claude) and the session streams (GET /copilot/stream, /claude-code/stream), polled per stream with no background thread.
 - AI Framework panel (GET /ai/overview, /ai/chats, /ai/chats/{spanId}, /ai/tokens, get_ai_overview, CLI ai overview): GenAI spans from the app's own OpenTelemetry SDK; prompt and completion content hidden unless SHARPIT_EXPOSE_VALUES=FULL.
@@ -38,6 +39,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `import sharpit` no longer imports `sharpit.fastapi` or FastAPI: `sharpit.install`, `attach_sql_sources`,
+  `detach_sql_sources` and `record_security_event` are imported on first access, so the pytest plugin starts faster.
 - Added an engine-owned capture-hook registry and low-footprint suspend/resume service; each capture hook the FastAPI wiring installs (middleware recording, exception handlers, log handler, security-log hook, SQLAlchemy and sqlite3 listeners, traces and transactions lanes) is its own registry entry, suspended and resumed alone.
 - MCP method dispatch now uses a method-to-handler table while preserving existing response construction.
 - The golden sanitiser now validates nested capture versions from the source, rejects encoded and provider token variants, and limits 2.3.0 raw enum snapshots to 64 enum constants per key path; versioned shaping retains the 0.6.0 default for existing callers.
