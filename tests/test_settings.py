@@ -170,6 +170,17 @@ def test_expose_metadata_only_no_warning():
     assert s.warnings == ()
 
 
+def test_session_dirs_isolated_in_tests():
+    import os
+    import tempfile
+    from pathlib import Path
+
+    for name in ("SHARPIT_COPILOT_SESSION_STATE_DIR", "SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR"):
+        path = Path(os.environ.get(name, ""))
+        assert path.is_relative_to(tempfile.gettempdir())
+        assert not path.exists() or not list(path.iterdir())
+
+
 def test_path_must_start_with_slash():
     with pytest.raises(ValueError, match="path"):
         load_settings({"path": "sharpit"}, {})

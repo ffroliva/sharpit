@@ -64,6 +64,10 @@ PANELS: tuple[Panel, ...] = (
     Panel("startup", "Startup Timeline", False, "/startup"),
     Panel("profile-diff", "Profile Diff", False, "/profile-diff"),
     Panel("scheduled", "Scheduled Tasks", False, "/scheduled"),
+    Panel("copilot", "Copilot", False, "/copilot"),
+    Panel("claude-code", "Claude Code", False, "/claude-code"),
+    Panel("github", "GitHub", True, "/github"),
+    Panel("ai", "AI Framework", False, "/ai"),
 )
 
 

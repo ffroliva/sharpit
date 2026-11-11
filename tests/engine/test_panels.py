@@ -118,6 +118,32 @@ def test_w5b_wave1_panel_rows_match_bootui(no_side_effects: SideEffectGuard):
     assert no_side_effects.violations == []
 
 
+def test_w7_wave1_panel_rows_match_bootui(no_side_effects: SideEffectGuard):
+    from fastapi.testclient import TestClient
+
+    from fastapi import FastAPI
+    from sharpit import install
+
+    expected = {
+        "copilot": ("Copilot", False, "/copilot"),
+        "claude-code": ("Claude Code", False, "/claude-code"),
+        "github": ("GitHub", True, "/github"),
+        "ai": ("AI Framework", False, "/ai"),
+    }
+    assert {
+        panel.id: (panel.title, panel.action_capable, panel.api_prefix) for panel in PANELS if panel.id in expected
+    } == expected
+
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, state_dir=str(no_side_effects.state_dir))
+    no_side_effects.unblock_network()
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        no_side_effects.block_network()
+        listed = {panel["id"] for panel in client.get("/sharpit/api/panels").json()["panels"]}
+    assert listed.isdisjoint(expected)
+    assert no_side_effects.violations == []
+
+
 def test_live_memory_panel_owns_low_footprint_controls():
     assert "live-memory" in {p.id for p in PANELS}
     panel = next(p for p in PANELS if p.id == "live-memory")
