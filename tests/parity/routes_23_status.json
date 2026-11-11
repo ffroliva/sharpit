@@ -2,9 +2,9 @@
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
     "matched": 5,
-    "partial": 20,
+    "partial": 21,
     "missing": 41,
-    "n-a": 30,
+    "n-a": 29,
     "total": 96
   },
   "routes": [
@@ -104,56 +104,56 @@
       "panel": "code-inventory",
       "route": "/sharpit/api/code-inventory",
       "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-inventory/changes.captured.json",
       "panel": "code-inventory",
       "route": "/sharpit/api/code-inventory/changes",
       "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-inventory/dependencies.captured.json",
       "panel": "code-inventory",
       "route": "/sharpit/api/code-inventory/dependencies",
       "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-inventory/methods.captured.json",
       "panel": "code-inventory",
       "route": "/sharpit/api/code-inventory/methods",
       "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-paths/beans.captured.json",
       "panel": "code-paths",
       "route": "/sharpit/api/code-paths/beans",
       "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-paths/captured.json",
       "panel": "code-paths",
       "route": "/sharpit/api/code-paths",
       "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-paths/probes.captured.json",
       "panel": "code-paths",
       "route": "/sharpit/api/code-paths/probes",
       "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "code-paths/route.captured.json",
       "panel": "code-paths",
       "route": "/sharpit/api/code-paths/route",
       "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "conditions/captured.json",
@@ -369,8 +369,8 @@
       "golden": "java-agent/captured.json",
       "panel": "java-agent",
       "route": "/sharpit/api/java-agent",
-      "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "status": "partial",
+      "difference": "java-agent/captured.json parity: setup.jarPath: null in payload, golden has string; not listed in nullable.json; setup.snippets: non-empty golden list requires a non-empty payload list"
     },
     {
       "golden": "jvm-tuning/captured.json",
@@ -608,7 +608,7 @@
       "panel": "side-effects",
       "route": "/sharpit/api/side-effects",
       "status": "n-a",
-      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet); the golden is BootUI's without-the-agent answer with empty lists, so it cannot close the row; tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
+      "difference": "W6 floor: sharpit answers this DTO unavailable (no agent sensors yet) and it passes shape parity with no gap, so it cannot be a partial row (which records a diff); the golden holds empty lists, so it cannot be matched either; the matrix row stays partial (docs/reference/matrix-updates/w6-S2.tsv) and tests/fastapi/test_w6_sensor_floor_api.py asserts its keys"
     },
     {
       "golden": "sql-trace/captured.json",

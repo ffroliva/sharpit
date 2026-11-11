@@ -60,5 +60,5 @@ def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
         Route(f"{api}/code-paths/probes", probes, methods=["GET"]),
         Route(f"{api}/code-paths/probes", start, methods=["POST"]),
         Route(f"{api}/code-paths/probes/{{id}}/stop", stop, methods=["POST"]),
-        Route(f"{api}/code-paths/probes/{{id}}", stop, methods=["DELETE"]),
+        Route(f"{api}/code-paths/probes/{{id}}", stop, methods=["GET", "DELETE"]),
     ]

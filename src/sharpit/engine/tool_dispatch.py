@@ -12,7 +12,7 @@ from sharpit import __version__
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.paging import BadRequest
 from sharpit.engine.panels import PANELS, disabled_reason, read_only_reason
-from sharpit.engine.sensors.floor import AGENT_SENSOR_TOOLS, PANEL_REASONS
+from sharpit.engine.sensors.floor import AGENT_SENSOR_TOOLS, ID_SOURCES, PANEL_REASONS
 from sharpit.engine.singleflight import ActionBusy
 from sharpit.settings import PanelSettings
 
@@ -190,7 +190,9 @@ def _normalized_arguments(tool: Tool, checked: dict[str, Any], max_results: int,
     raw_id = checked.get("id")
     gid = raw_id.strip() if isinstance(raw_id, str) else ""
     if "id" in tool.input_schema["properties"] and not gid:  # BootUI: after the panel gates
-        raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing required argument: id")
+        source = ID_SOURCES.get(tool.name)  # McpProtocol.missingArgumentMessage: where the id comes from
+        suffix = f" ({source})" if source else ""
+        raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing required argument: id" + suffix)
     normalized = {"query": query, "limit": limit, **({"id": gid} if "id" in tool.input_schema["properties"] else {})}
     if "scanId" in tool.input_schema["properties"]:  # RULE_VIOLATIONS: checked only on the tool that declares them
         normalized.update(_rule_violation_arguments(checked, raw_limit, max_results))

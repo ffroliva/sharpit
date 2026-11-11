@@ -8,6 +8,7 @@ and each action is BootUI's refusal. Nothing here reads host state: no read open
 from __future__ import annotations
 
 import json
+import re
 import sys
 from typing import Any, cast
 
@@ -61,11 +62,34 @@ SIDE_EFFECT_SENSORS = (
         " algorithms, and trust managers",
     ),
 )
-SIDE_EFFECTS_LIMITATION = "Side Effects records only what the sharpit agent's side-effect sensors hook."
-PROBE_LIMITATION = (  # MethodProbeService.LIMITATION_METADATA
-    "A probe records each invocation's duration, thread kind, request id, outcome (returned, or the thrown"
-    " exception's type), and calling frame: never an argument or a return value."
+# SideEffectsService.LIMITATION_SCOPE, _VALUES, _NETWORK: the minimisation the sensors will keep, BootUI -> sharpit
+SIDE_EFFECTS_LIMITATIONS = (
+    "Side Effects records only what the sharpit agent's side-effect sensors hook.",
+    "A process row shows the command's file name only, never its arguments or its environment, which can hold"
+    " secrets. A file row shows a path pattern, never the file's contents. An environment row shows the name read,"
+    " never its value or a default.",
+    "A network row shows a host and port, never a byte sent or received, nor a URL's path or query.",
 )
+# MethodProbeService.LIMITATION_METADATA, _BOUNDS, _CALLER, BootUI -> sharpit (no JVM, no instrumentation)
+PROBE_LIMITATIONS = (
+    "A probe records each invocation's duration, thread kind, request id, outcome (returned, or the thrown"
+    " exception's type), and calling frame: never an argument or a return value.",
+    "A probe records at most 20 invocations, for at most 60 seconds, five probes at once, and ends with the run (a"
+    " restart or a reload).",
+    "The calling frame is the first frame of the application's packages above the method, past wrappers and"
+    " decorators, else the frame right above it.",
+)
+# McpToolGuide.ID_SOURCES for the sensor switches, BootUI -> sharpit
+SENSOR_ID_SOURCE = (
+    "a switchable sharpit agent sensor id (threads, files, environment, thread-activity, thread-locals, or"
+    " security-sinks)"
+)
+ID_SOURCES = {"enable_agent_sensor": SENSOR_ID_SOURCE, "disable_agent_sensor": SENSOR_ID_SOURCE}
+# Sonar S1192: the keys every unavailable DTO repeats
+AVAILABLE, UNAVAILABLE_REASON, LIMITATIONS = "available", "unavailableReason", "limitations"
+_JAVA_LONG = re.compile(r"[+-]?\d+")  # Long.parseLong: an optional sign and decimal digits (Character.digit)
+_LONG_MIN, _LONG_MAX = -(2**63), 2**63 - 1
+_JAVA_TRIM = "".join(map(chr, range(33)))  # String.trim: every char up to U+0020
 # CodePathsService / SideEffectsService / MethodProbeService bounds
 CODE_PATHS_DEFAULT_LIMIT, CODE_PATHS_MAX_LIMIT, CODE_PATHS_DEFAULT_DEPTH, CODE_PATHS_MAX_DEPTH = 200, 500, 8, 33
 SIDE_EFFECTS_DEFAULT_LIMIT, SIDE_EFFECTS_MAX_LIMIT = 100, 500
@@ -150,22 +174,22 @@ def switch_sensor_for_agents(sensor_id: str) -> dict[str, Any]:
 def code_inventory_report() -> dict[str, Any]:
     """``CodeInventoryReport.unavailable``."""
     return {
-        "available": False,
-        "unavailableReason": INVENTORY_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: INVENTORY_REASON,
         "run": None,
         "scan": None,
         "methods": None,
         "changes": None,
         "dependencies": None,
-        "limitations": [],
+        LIMITATIONS: [],
         "recordingClearedAt": None,
     }
 
 
 def code_inventory_changes(limit: int | None) -> dict[str, Any]:
     return {
-        "available": False,
-        "unavailableReason": INVENTORY_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: INVENTORY_REASON,
         "counts": None,
         "changes": [],
         "page": _empty_page(limit),
@@ -174,8 +198,8 @@ def code_inventory_changes(limit: int | None) -> dict[str, Any]:
 
 def code_inventory_methods(limit: int | None) -> dict[str, Any]:
     return {
-        "available": False,
-        "unavailableReason": INVENTORY_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: INVENTORY_REASON,
         "packages": [],
         "classes": [],
         "methods": [],
@@ -185,8 +209,8 @@ def code_inventory_methods(limit: int | None) -> dict[str, Any]:
 
 def code_inventory_dependencies(limit: int | None) -> dict[str, Any]:
     return {
-        "available": False,
-        "unavailableReason": INVENTORY_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: INVENTORY_REASON,
         "counts": None,
         "dependencies": [],
         "page": _empty_page(limit),
@@ -196,12 +220,12 @@ def code_inventory_dependencies(limit: int | None) -> dict[str, Any]:
 def code_paths_report() -> dict[str, Any]:
     """``CodePathsReport.unavailable``."""
     return {
-        "available": False,
-        "unavailableReason": CODE_PATHS_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: CODE_PATHS_REASON,
         "status": None,
         "routes": [],
         "excludedMethods": [],
-        "limitations": [],
+        LIMITATIONS: [],
     }
 
 
@@ -210,8 +234,8 @@ def code_paths_route(route: str | None, depth: int | None, limit: int | None) ->
     max_depth = CODE_PATHS_DEFAULT_DEPTH if depth is None or depth < 0 else min(depth, CODE_PATHS_MAX_DEPTH)
     size = CODE_PATHS_DEFAULT_LIMIT if limit is None or limit <= 0 else min(limit, CODE_PATHS_MAX_LIMIT)
     return {
-        "available": False,
-        "unavailableReason": CODE_PATHS_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: CODE_PATHS_REASON,
         "route": route,
         "found": False,
         "assemblyOnly": False,
@@ -226,30 +250,30 @@ def code_paths_route(route: str | None, depth: int | None, limit: int | None) ->
         "methods": [],
         "exemplarRequestIds": [],
         "page": _page(size),
-        "limitations": [],
+        LIMITATIONS: [],
     }
 
 
 def code_paths_beans() -> dict[str, Any]:
     """``CodePathsBeansReport.unavailable``."""
     return {
-        "available": False,
-        "unavailableReason": CODE_PATHS_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: CODE_PATHS_REASON,
         "beansAvailable": False,
         "edges": [],
         "observedEdges": 0,
         "declaredEdges": 0,
         "notCalled": 0,
         "omitted": 0,
-        "limitations": [],
+        LIMITATIONS: [],
     }
 
 
 def code_paths_request(request_id: str) -> dict[str, Any]:
     """``CodePathsRequestTreeReport.empty(false, reason, requestId)``."""
     return {
-        "available": False,
-        "unavailableReason": CODE_PATHS_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: CODE_PATHS_REASON,
         "requestId": request_id,
         "found": False,
         "route": None,
@@ -260,20 +284,20 @@ def code_paths_request(request_id: str) -> dict[str, Any]:
         "droppedCalls": 0,
         "nodes": [],
         "topMethods": [],
-        "limitations": [],
+        LIMITATIONS: [],
     }
 
 
 def code_paths_probes() -> dict[str, Any]:
     """``CodePathsProbesReport`` without the agent: no probes, shapes unavailable for the same reason."""
     return {
-        "available": False,
-        "unavailableReason": CODE_PATHS_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: CODE_PATHS_REASON,
         "maxActive": PROBE_MAX_ACTIVE,
         "maxInvocations": PROBE_MAX_INVOCATIONS,
         "windowSeconds": PROBE_WINDOW_SECONDS,
         "probes": [],
-        "limitations": [PROBE_LIMITATION],
+        LIMITATIONS: list(PROBE_LIMITATIONS),
         "shapesAvailable": False,
         "shapesUnavailableReason": CODE_PATHS_REASON,
     }
@@ -286,12 +310,19 @@ def start_probe(method: object) -> dict[str, Any]:
     raise SensorRefusal(409, CODE_PATHS_REASON)
 
 
+def _parse_probe_id(probe_id: str) -> int:
+    """``MethodProbeService.parseId``: ``Long.parseLong(id.trim())``, else 400."""
+    trimmed = probe_id.strip(_JAVA_TRIM)
+    value = int(trimmed) if _JAVA_LONG.fullmatch(trimmed) else None
+    if value is None or not _LONG_MIN <= value <= _LONG_MAX:
+        raise SensorRefusal(400, f"A method probe id is a number, as get_method_probe returns it: {probe_id}")
+    return value
+
+
 def stop_probe(probe_id: str) -> dict[str, Any]:
-    """``MethodProbeService.stop`` (and DELETE): 400 for a non-numeric id, else 404, this run has no probes."""
-    try:
-        int(probe_id.strip())
-    except ValueError:
-        raise SensorRefusal(400, f"A method probe id is a number, as get_method_probe returns it: {probe_id}") from None
+    """``MethodProbeService.stop`` (and DELETE, and ``probe`` for GET): 400 for a non-number id, else 404, this run
+    has no probes (the panel is shown, so ``probe`` reaches the run lookup)."""
+    _parse_probe_id(probe_id)
     raise SensorRefusal(404, f"This run has no method probe {probe_id}.")
 
 
@@ -313,10 +344,10 @@ def _side_effect_sensor(sensor_id: str, group: str, label: str) -> dict[str, Any
 def side_effects_report() -> dict[str, Any]:
     """``SideEffectsReport`` without the agent: every sensor listed, unavailable with the Java Agent panel's reason."""
     return {
-        "available": False,
-        "unavailableReason": SIDE_EFFECTS_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: SIDE_EFFECTS_REASON,
         "sensors": [_side_effect_sensor(*sensor) for sensor in SIDE_EFFECT_SENSORS],
-        "limitations": [SIDE_EFFECTS_LIMITATION],
+        LIMITATIONS: list(SIDE_EFFECTS_LIMITATIONS),
     }
 
 
@@ -332,10 +363,10 @@ def side_effects_sensor(sensor_id: str | None, offset: int | None, limit: int | 
         raise SensorRefusal(400, "offset and limit must not be negative.")
     size = SIDE_EFFECTS_DEFAULT_LIMIT if not limit else min(limit, SIDE_EFFECTS_MAX_LIMIT)
     return {
-        "available": False,
-        "unavailableReason": SIDE_EFFECTS_REASON,
+        AVAILABLE: False,
+        UNAVAILABLE_REASON: SIDE_EFFECTS_REASON,
         "sensor": _side_effect_sensor(*sensor),
         "rows": [],
         "page": _page(size),
-        "limitations": [SIDE_EFFECTS_LIMITATION],
+        LIMITATIONS: list(SIDE_EFFECTS_LIMITATIONS),
     }
