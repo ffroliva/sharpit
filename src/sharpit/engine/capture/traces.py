@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from sharpit.engine import otel
 from sharpit.engine.capture import under
 from sharpit.engine.capture.correlation import INTERNAL
+from sharpit.engine.capture.journal import RuntimeJournal
 from sharpit.engine.capture.streams import SSE_TASK
 from sharpit.engine.masking import MASK, Masker, is_sensitive_key
 from sharpit.engine.sqltext import Dialect, DialectContext, dialect_of_name, error_text, resolve, statement_text
@@ -243,6 +244,10 @@ def _self_relative_path(path: str, root_path: str, self_path: str) -> str:
     return path
 
 
+def _no_ai_event(_span: Any) -> dict[str, str | int | bool | None]:
+    return {}
+
+
 class SpanBuffer:
     def __init__(
         self,
@@ -263,6 +268,8 @@ class SpanBuffer:
         self.detached = False
         self._self_trace_ids: set[int] = set()
         self._spans: deque[Any] = deque(maxlen=capacity)  # bounded by spans: memory is what a span buffer costs
+        self.journal: RuntimeJournal | None = None  # set with ai_event by the traces wiring when the journal records ai
+        self.ai_event: Callable[[Any], dict[str, str | int | bool | None]] = _no_ai_event
 
     def on_start(self, span: Any) -> None:
         found = _raw_path(span) if getattr(getattr(span, "kind", None), "name", None) == "SERVER" else None
@@ -291,6 +298,11 @@ class SpanBuffer:
         ):
             return
         self._spans.append(span)
+        if self.journal is None:
+            return
+        event = self.ai_event(span)
+        if event:
+            self.journal.offer_flat(event)
 
     def arm(self) -> Callable[[], None] | None:
         """A ``CaptureState.attachers`` entry: arm on the SDK provider, or ``None`` to be retried later."""
@@ -316,6 +328,9 @@ class SpanBuffer:
         for span in self._spans.copy():  # deque.copy is atomic: on_end may append concurrently
             traces.setdefault(_trace_id(span), []).append(span)
         return {tid: spans for tid, spans in traces.items() if not self._is_self(spans)}
+
+    def trace_spans(self) -> dict[str, list[Any]]:
+        return self._traces()
 
     def _is_self(self, spans: Iterable[Any]) -> bool:
         for span in spans:
@@ -385,6 +400,7 @@ class SpanBuffer:
         end = span.end_time or span.start_time
         scope = getattr(span, "instrumentation_scope", None)
         dialect = resolve(span, (SpanDialectSource(),), DialectContext(self.application))
+        attributes, events = self._render_attributes(span, dialect)
         return {
             "traceId": _trace_id(span),
             "spanId": _hex(span.context.span_id, 16),
@@ -400,8 +416,18 @@ class SpanBuffer:
             "statusMessage": (
                 None if span.status.description is None else error_text(self.masker, span.status.description, dialect)
             ),
-            "attributes": _attributes(self.masker, span.attributes, dialect),
-            "events": [
+            "attributes": attributes,
+            "events": events,
+        }
+
+    def render_attributes(self, span: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        dialect = resolve(span, (SpanDialectSource(),), DialectContext(self.application))
+        return self._render_attributes(span, dialect)
+
+    def _render_attributes(self, span: Any, dialect: Dialect) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        return (
+            _attributes(self.masker, span.attributes, dialect),
+            [
                 {
                     "name": self.masker.mask_text(e.name),
                     "timeOffsetNanos": e.timestamp - span.start_time,
@@ -409,7 +435,7 @@ class SpanBuffer:
                 }
                 for e in span.events or ()
             ],
-        }
+        )
 
     def detail(self, trace_id: str) -> dict[str, Any] | None:
         spans = self._traces().get(trace_id.lower())

@@ -41,6 +41,7 @@ MATCHED_TOOLS = (
     "mysql_read",
     "get_mysql_report",
     "get_database_connection_pools",
+    "get_ai_overview",
     "postgresql_read",
     "get_postgresql_report",
     "get_database_advisor_report",
@@ -90,7 +91,6 @@ MISSING_TOOLS = (
     "disable_agent_sensor",
     "enable_agent_sensor",
     "get_agent_status",
-    "get_ai_overview",
     "get_cache_stats",
     "get_code_inventory",
     "get_code_paths",
@@ -193,6 +193,7 @@ pytestmark = [
     pytest.mark.bootui("cli:github"),
     pytest.mark.bootui("cli:health"),
     pytest.mark.bootui("cli:overview"),
+    pytest.mark.bootui("cli:ai overview"),
     pytest.mark.bootui("cli:rest-api report"),
     pytest.mark.bootui("cli:rest-api scan"),
     pytest.mark.bootui("cli:security report"),
@@ -210,6 +211,7 @@ pytestmark = [
     pytest.mark.bootui("tool:clear_transactions"),
     pytest.mark.bootui("tool:database_advisor_scan"),
     pytest.mark.bootui("tool:get_architecture_report"),
+    pytest.mark.bootui("tool:get_ai_overview"),
     pytest.mark.bootui("tool:get_database_advisor_report"),
     pytest.mark.bootui("tool:get_database_connection_pools"),
     pytest.mark.bootui("tool:get_exception_detail"),
@@ -234,6 +236,11 @@ pytestmark = [
     pytest.mark.bootui("tool:security_scan"),
     pytest.mark.bootui("tool:vulnerabilities_scan"),
 ]
+
+
+def test_w7_ai_overview_tool_and_command_are_registered() -> None:
+    assert "get_ai_overview" in SHARPIT
+    assert COMMANDS.get("get_ai_overview") == "ai overview"
 
 
 def test_bootui_marks_equal_the_matched_rows() -> None:

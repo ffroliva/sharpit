@@ -16,7 +16,7 @@ Then point a streamable-HTTP MCP client at `http://127.0.0.1:8000/sharpit/api/mc
 
 ## Tools
 
-40 read tools, grouped by what they answer. Search tools take a `query` and a `limit`; every result is capped by
+41 read tools, grouped by what they answer. Search tools take a `query` and a `limit`; every result is capped by
 `SHARPIT_MCP_MAX_RESULTS`. The names and the read or action split match BootUI 2.3.0 wherever BootUI has the same
 tool.
 
@@ -63,6 +63,10 @@ tool.
 - `get_traces`: the OpenTelemetry traces the app recorded, newest first, with masked span attributes. Needs the app's own SDK `TracerProvider`.
 - `get_low_footprint`: low-footprint mode status and capture hook outcomes.
 
+### AI Framework
+
+- `get_ai_overview`: GenAI usage from the app's recorded OpenTelemetry spans; CLI alias `ai overview`.
+
 ### Advisors and security
 
 Each advisor has a cached report tool and a tool that pages the retained violations of one rule
@@ -79,7 +83,7 @@ Each advisor has a cached report tool and a tool that pages the retained violati
 ## Actions
 
 19 action tools change state, send data off the machine, or start a scan. **They are not served over MCP**: the
-`tools/list` answer holds the 40 read tools above and nothing else. They are listed here because each is part of the
+`tools/list` answer holds the 41 read tools above and nothing else. They are listed here because each is part of the
 tool catalogue. Actions are available through the CLI endpoint,
 `POST /sharpit/api/cli/tools/<tool>` (`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain.
 An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.

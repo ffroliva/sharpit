@@ -8,6 +8,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - GitHub dashboard (`GET /github`, `get_github_dashboard`, CLI `github`): local repository identity and cached report, read without network access.
+- AI Framework panel (GET /ai/overview, /ai/chats, /ai/chats/{spanId}, /ai/tokens, get_ai_overview, CLI ai overview): GenAI spans from the app's own OpenTelemetry SDK; prompt and completion content hidden unless SHARPIT_EXPOSE_VALUES=FULL.
+- Runtime journal records ai events (operation, provider, model, tokens, finish reason) from GenAI spans.
 - Startup Timeline panel (GET /startup, get_startup_timeline, CLI startup) with SHARPIT_STARTUP_ENABLED and SHARPIT_STARTUP_CAPACITY: host lifespan startup timing.
 - Low-footprint controls on the Live Memory panel, CLI, and guarded API; idle capture suspension uses a lifespan-managed daemon timer.
 
