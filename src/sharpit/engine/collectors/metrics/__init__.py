@@ -99,7 +99,9 @@ def _text(ctx: Any, value: object) -> str | None:
 def _name(ctx: Any, value: str) -> str:
     """Meter names and units are metadata, shown under ``METADATA_ONLY`` too, but a secret-shaped one stays hidden."""
     shown = ctx.masker.mask_text(value)
-    return shown if shown is not None else (MASK if is_secret_value(value) else value)
+    if shown is not None:
+        return shown
+    return MASK if is_secret_value(value) else value
 
 
 def _unavailable(ctx: Any, collector: object) -> dict[str, Any]:
@@ -254,6 +256,44 @@ def _metadata(total: int, matched: int, offset: int, limit: int, returned: int) 
     }
 
 
+def _filters(
+    type: str | None, group: str | None, provenance: str | None, explanation: str | None
+) -> tuple[str, str, str]:
+    """The validated type, provenance and explanation filters, each ``""`` when unset; the group only validates."""
+    requested_type = type.strip().upper() if type else ""
+    if requested_type and requested_type not in _TYPES:
+        raise MetricsRequestError("Metric type must be one of: " + ", ".join(_TYPES))
+    requested_group = group.strip().lower() if group else ""
+    if requested_group and requested_group != "application":
+        raise MetricsRequestError("Metric group must be one of: application")
+    requested_provenance = provenance.strip().lower() if provenance else ""
+    if provenance and requested_provenance not in {"classified", "unclassified"}:
+        raise MetricsRequestError("Metric provenance must be one of: classified, unclassified")
+    requested_explanation = explanation.strip().upper() if explanation else ""
+    if requested_explanation and requested_explanation not in {"CURATED", "NATIVE", "UNKNOWN"}:
+        raise MetricsRequestError("Metric explanation source must be one of: CURATED, NATIVE, UNKNOWN")
+    return requested_type, requested_provenance, requested_explanation
+
+
+def _groups(matching: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not matching:
+        return []
+    return [
+        {
+            "id": "application",
+            "label": "Application / unclassified",
+            "contributor": "Application or unrecognized instrumentation",
+            "summary": "Meters whose names match no known integration convention.",
+            "interpretation": None,
+            "meterCount": len(matching),
+            "describedMeterCount": sum(m["description"] is not None for m in matching),
+            "families": [],
+            "commonTagKeys": _common_tag_keys(matching),
+            "baseUnits": sorted({m["baseUnit"] for m in matching if m["baseUnit"]}),
+        }
+    ]
+
+
 def metrics_report(
     ctx: Any,
     query: str | None = None,
@@ -265,17 +305,7 @@ def metrics_report(
     limit: str | None = None,
 ) -> dict[str, Any]:
     start, size = _page(offset, limit, DEFAULT_LIMIT)
-    requested_type = type.strip().upper() if type else ""
-    if requested_type and requested_type not in _TYPES:
-        raise MetricsRequestError("Metric type must be one of: " + ", ".join(_TYPES))
-    requested_group = group.strip().lower() if group else ""
-    if requested_group and requested_group != "application":
-        raise MetricsRequestError("Metric group must be one of: application")
-    if provenance and provenance.strip().lower() not in {"classified", "unclassified"}:
-        raise MetricsRequestError("Metric provenance must be one of: classified, unclassified")
-    requested_explanation = explanation.strip().upper() if explanation else ""
-    if requested_explanation and requested_explanation not in {"CURATED", "NATIVE", "UNKNOWN"}:
-        raise MetricsRequestError("Metric explanation source must be one of: CURATED, NATIVE, UNKNOWN")
+    requested_type, requested_provenance, requested_explanation = _filters(type, group, provenance, explanation)
     items = _families(ctx)
     available = registry() is not None
     q = query.strip().lower() if query else ""
@@ -284,7 +314,7 @@ def metrics_report(
         for m in items
         if (not q or q in m["name"].lower() or q in (m["description"] or "").lower())
         and (not requested_type or requested_type == m["type"])
-        and (not provenance or provenance.strip().lower() == "unclassified")
+        and (not requested_provenance or requested_provenance == "unclassified")
         and (not requested_explanation or requested_explanation == m["source"])
     ]
     names = [
@@ -298,31 +328,13 @@ def metrics_report(
         }
         for m in matching
     ]
-    groups = (
-        []
-        if not matching
-        else [
-            {
-                "id": "application",
-                "label": "Application / unclassified",
-                "contributor": "Application or unrecognized instrumentation",
-                "summary": "Meters whose names match no known integration convention.",
-                "interpretation": None,
-                "meterCount": len(matching),
-                "describedMeterCount": sum(m["description"] is not None for m in matching),
-                "families": [],
-                "commonTagKeys": _common_tag_keys(matching),
-                "baseUnits": sorted({m["baseUnit"] for m in matching if m["baseUnit"]}),
-            }
-        ]
-    )
     return {
         "metricsAvailable": available,
         "total": len(items),
         "meters": names[start : start + size],
         "availableTypes": sorted({m["type"] for m in items}),
         "page": _metadata(len(items), len(matching), start, size, len(names[start : start + size])),
-        "groups": groups,
+        "groups": _groups(matching),
         "catalogueVersion": None,
     }
 

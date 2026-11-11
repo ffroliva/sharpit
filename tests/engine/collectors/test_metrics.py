@@ -53,9 +53,10 @@ def test_metrics_filters_pages_in_name_order(registry: CollectorRegistry) -> Non
 def test_metrics_bounded_defaults_and_rejects_invalid_paging(registry: CollectorRegistry) -> None:
     # ported: MetricsReportProviderTests.metricsUsesBoundedDefaultsAndRejectsInvalidPaging
     Gauge("depth", "", registry=registry).set(1)
-    assert metrics_report(_ctx())["page"]["limit"] == 200
+    ctx = _ctx()
+    assert metrics_report(ctx)["page"]["limit"] == 200
     with pytest.raises(ValueError, match="Metric limit must be between 1 and 1000"):
-        metrics_report(_ctx(), limit="1001")
+        metrics_report(ctx, limit="1001")
 
 
 def test_detail_filters_tags_and_aggregates_finite_measurements(registry: CollectorRegistry) -> None:
@@ -91,16 +92,18 @@ def test_detail_accepts_colon_in_tag_values(registry: CollectorRegistry) -> None
 
 def test_detail_rejects_malformed_tag_filters(registry: CollectorRegistry) -> None:
     # ported: MetricsReportProviderTests.detailRejectsMalformedTagFilters
+    ctx = _ctx()
     with pytest.raises(ValueError, match="Metric tag filters must use key:value syntax"):
-        metric_detail(_ctx(), "x", ["bad"])
+        metric_detail(ctx, "x", ["bad"])
 
 
 def test_detail_rejects_blank_name_and_invalid_paging(registry: CollectorRegistry) -> None:
     # ported: MetricsReportProviderTests.detailRejectsBlankNameAndInvalidPaging
+    ctx = _ctx()
     with pytest.raises(ValueError, match="Metric name must not be blank"):
-        metric_detail(_ctx(), " ")
+        metric_detail(ctx, " ")
     with pytest.raises(ValueError, match="Metric offset must be 0 or greater"):
-        metric_detail(_ctx(), "x", offset="-1")
+        metric_detail(ctx, "x", offset="-1")
 
 
 def test_metrics_unavailable_without_registry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,8 +124,9 @@ def test_detail_unavailable_without_registry(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_metrics_rejects_unknown_provenance_filter(registry: CollectorRegistry) -> None:
     # ported: MetricsReportProviderTests.metricsRejectsUnknownProvenanceFiltersCanonically
+    ctx = _ctx()
     with pytest.raises(ValueError, match="Metric provenance must be one of: classified, unclassified"):
-        metrics_report(_ctx(), provenance="invented")
+        metrics_report(ctx, provenance="invented")
 
 
 def test_metrics_groups_cover_all_matching_names(registry: CollectorRegistry) -> None:
