@@ -16,7 +16,7 @@ Then point a streamable-HTTP MCP client at `http://127.0.0.1:8000/sharpit/api/mc
 
 ## Tools
 
-43 read tools, grouped by what they answer. Search tools take a `query` and a `limit`; every result is capped by
+44 read tools, grouped by what they answer. Search tools take a `query` and a `limit`; every result is capped by
 `SHARPIT_MCP_MAX_RESULTS`. The names and the read or action split match BootUI 2.3.0 wherever BootUI has the same
 tool.
 
@@ -24,6 +24,7 @@ tool.
 
 - `get_overview`: app identity, Python and package versions, active profiles and sharpit's status. Call it first.
 - `get_config`: search the effective configuration by name or value, with the source each value came from. Secrets are masked.
+- `get_profile_diff`: compare configuration across active profiles using masked local data.
 - `get_mappings`: search routes and their handlers by path, HTTP method or handler name.
 - `get_beans`: search dependency providers, middleware and the lifespan handler, to check how the app is wired.
 - `get_loggers`: search loggers and read their configured and effective levels.
@@ -85,7 +86,7 @@ Each advisor has a cached report tool and a tool that pages the retained violati
 ## Actions
 
 19 action tools change state, send data off the machine, or start a scan. **They are not served over MCP**: the
-`tools/list` answer holds the 43 read tools above and nothing else. They are listed here because each is part of the
+`tools/list` answer holds the 44 read tools above and nothing else. They are listed here because each is part of the
 tool catalogue. Actions are available through the CLI endpoint,
 `POST /sharpit/api/cli/tools/<tool>` (`SHARPIT_CLI_ENABLED`, on by default), behind the same guard chain.
 An action is refused when sharpit is read-only (`SHARPIT_READ_ONLY=true`: "sharpit is read-only via SHARPIT_READ_ONLY=true") or its panel is read-only (`SHARPIT_PANELS_<ID>_READ_ONLY=true`: "Panel is read-only via SHARPIT_PANELS_<ID>_READ_ONLY=true"), and when its panel is disabled; a read tool still answers on a read-only panel.

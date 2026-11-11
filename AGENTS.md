@@ -104,7 +104,7 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
 3. **One module per collector.** A collector under `engine/collectors/` never imports another. Shared code moves to
    the engine (`context`, `paging`, `spi`, `singleflight`, ...).
 4. **Gatekeepers.** One named file (or package) per optional or network library: SQLAlchemy only in the
-   `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
+   `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` and `dotenv` only in
    `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, `prometheus_client` only in
    `engine/collectors/metrics/prometheus.py`, `urllib.request`/`http.client` only in the OSV and EPSS clients under
    `engine/collectors/vulns/`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
