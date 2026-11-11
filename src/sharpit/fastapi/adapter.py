@@ -27,6 +27,7 @@ from sharpit.engine.collectors import alembic
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.headers import security_headers
 from sharpit.engine.paging import parse_int_param
+from sharpit.engine.sensors.floor import PANEL_REASONS
 from sharpit.fastapi.capture import LOG_TAIL_DETACHED_REASON, wiring_of
 from sharpit.fastapi.http import error, json_response
 from sharpit.settings import SharpitSettings
@@ -196,6 +197,7 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
 
     claude = session_store(ctx, Layout.CLAUDE_CODE)
     reasons["claude-code"] = None if claude.is_available() else claude.unavailable_reason()
+    reasons.update(PANEL_REASONS)  # the agent-sensor panels: no agent sensors in this version
     return reasons
 
 

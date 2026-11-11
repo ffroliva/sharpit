@@ -33,6 +33,10 @@ ALL_PANEL_IDS = {
     "claude-code",
     "github",
     "ai",
+    "java-agent",
+    "code-inventory",
+    "code-paths",
+    "side-effects",
 }
 EXPECTED_IDS = {panel_id for panel_id, implemented in ALL_IMPLEMENTED.items() if not implemented}
 PANEL_IDS = EXPECTED_IDS  # whichever 0.4 panels are still unimplemented: flip-safe

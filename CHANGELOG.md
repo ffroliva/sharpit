@@ -10,6 +10,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Copilot panel (GET /copilot/*, get_copilot_sessions, CLI sessions copilot): local Copilot CLI sessions, allow-listed fields only, no watcher thread; raw reveal off by default.
 - Claude Code panel (GET /claude-code/*, get_claude_code_sessions, CLI sessions claude) and the session streams (GET /copilot/stream, /claude-code/stream), polled per stream with no background thread.
 - AI Framework panel (GET /ai/overview, /ai/chats, /ai/chats/{spanId}, /ai/tokens, get_ai_overview, CLI ai overview): GenAI spans from the app's own OpenTelemetry SDK; prompt and completion content hidden unless SHARPIT_EXPOSE_VALUES=FULL.
+- Agent-sensor panel floor (Java Agent, Code Inventory, Code Paths, Side Effects; get_agent_status, enable/disable_agent_sensor, CLI agent status): BootUI's shapes, unavailable with the reason; sensor actions refused as BootUI refuses them without the agent.
 - Runtime journal records ai events (operation, provider, model, tokens, finish reason) from GenAI spans.
 - Startup Timeline panel (GET /startup, get_startup_timeline, CLI startup) with SHARPIT_STARTUP_ENABLED and SHARPIT_STARTUP_CAPACITY: host lifespan startup timing.
 - Low-footprint controls on the Live Memory panel, CLI, and guarded API; idle capture suspension uses a lifespan-managed daemon timer.

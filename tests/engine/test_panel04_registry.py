@@ -26,6 +26,10 @@ ALL_PANEL_IDS = {
     "claude-code",
     "github",
     "ai",
+    "java-agent",
+    "code-inventory",
+    "code-paths",
+    "side-effects",
 }
 
 
