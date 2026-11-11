@@ -83,6 +83,8 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_RUNTIME_JOURNAL_MAX_BYTES` | `runtime_journal_max_bytes` | `32MB` | estimated bytes the retained events may use (`B`, `KB`, `MB`, `GB`) |
 | `SHARPIT_RUNTIME_JOURNAL_QUEUE_CAPACITY` | `runtime_journal_queue_capacity` | `10000` | parsed for BootUI parity; unused, since sharpit records in the caller's thread with no queue |
 | `SHARPIT_RUNTIME_JOURNAL_SOURCES` | `runtime_journal_sources` | every source | comma-separated BootUI journal sources to record (`http`, `sql`, `log`, ...); a list naming an unknown source is ignored whole (every source) with a warning |
+| `SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD` | `runtime_insights_ai_token_threshold` | `8000` | tokens of one model call above which Runtime Insights' AI usage by route reports the route from that call alone; must be positive |
+| `SHARPIT_RESOURCES_JFR_MAX_DURATION` | `resources_jfr_max_duration` | `30s` | how long a Runtime Insights resource profile records once started, `1s` to `600s` (outside the range: the default, with a warning); sharpit has no sampler yet, so no profile starts |
 | `SHARPIT_STARTUP_ENABLED` | `startup_enabled` | `true` | record the host's startup timeline for the Startup panel |
 | `SHARPIT_STARTUP_CAPACITY` | `startup_capacity` | `4096` | startup steps the timeline retains |
 | `SHARPIT_COPILOT_ENABLED` | `copilot_enabled` | `AUTO` | Copilot panel; `AUTO` turns it on only when the session-state directory exists |

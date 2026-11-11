@@ -28,6 +28,7 @@ ALL_PANEL_IDS = {
     "ai",
     "cache",
     "dev-services",
+    "runtime-insights",
 }
 
 
