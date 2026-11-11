@@ -369,6 +369,41 @@ def test_new_settings_defaults():
     assert s.warnings == ()
 
 
+def test_w7_ai_settings_defaults():
+    s = load_settings({}, {})
+    assert getattr(s, "ai_token_series_minutes", None) == 60
+    assert getattr(s, "ai_max_recent_chats", None) == 100
+    assert getattr(s, "ai_show_content_capture_banner", None) is True
+
+
+def test_w7_ai_settings_env_values():
+    s = load_settings(
+        {},
+        {
+            "SHARPIT_AI_TOKEN_SERIES_MINUTES": "24",
+            "SHARPIT_AI_MAX_RECENT_CHATS": "12",
+            "SHARPIT_AI_SHOW_CONTENT_CAPTURE_BANNER": "false",
+        },
+    )
+    assert getattr(s, "ai_token_series_minutes", None) == 24
+    assert getattr(s, "ai_max_recent_chats", None) == 12
+    assert getattr(s, "ai_show_content_capture_banner", None) is False
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "raw", "expected"),
+    [
+        ("ai_token_series_minutes", "SHARPIT_AI_TOKEN_SERIES_MINUTES", "many", 60),
+        ("ai_max_recent_chats", "SHARPIT_AI_MAX_RECENT_CHATS", "many", 100),
+        ("ai_show_content_capture_banner", "SHARPIT_AI_SHOW_CONTENT_CAPTURE_BANNER", "maybe", True),
+    ],
+)
+def test_w7_ai_settings_invalid_values_fail_safe(field: str, env: str, raw: str, expected: Any):
+    s = load_settings({}, {env: raw})
+    assert getattr(s, field, None) == expected
+    assert f"Ignoring invalid {env} value '{raw}'" in s.warnings
+
+
 def test_new_settings_env_names():
     # every spec §12 env var is in the env-name table, so test_env_name_table checks its spelling and parsing
     covered = {field for field, _ in PROPERTIES.values()}
