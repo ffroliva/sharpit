@@ -411,6 +411,49 @@ def _rewritten_fields(cls: type[Any], cfg: object) -> tuple[bool, set[str]]:
     return every, named
 
 
+def _candidate_names(field: Any, fname: str, env_prefix: str, env_src: Any) -> set[str]:
+    """Every environment name pydantic-settings may read ``fname`` from."""
+    candidate_names: set[str] = set()
+    candidate_names.add(fname)
+    candidate_names.add(fname.upper())
+    candidate_names.add(fname.lower())
+    if env_prefix:
+        candidate_names.add(f"{env_prefix}{fname}")
+        candidate_names.add(f"{env_prefix}{fname}".upper())
+        candidate_names.add(f"{env_prefix}{fname}".lower())
+
+    if field.alias:
+        candidate_names.add(field.alias)
+
+    val_alias = getattr(field, "validation_alias", None)
+    if isinstance(val_alias, str):
+        candidate_names.add(val_alias)
+    elif val_alias is not None and hasattr(val_alias, "choices"):
+        for c in getattr(val_alias, "choices", []):
+            if isinstance(c, str):
+                candidate_names.add(c)
+
+    with contextlib.suppress(Exception):
+        for item in env_src._extract_field_info(field, fname):  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+            if item[0]:
+                candidate_names.add(item[0])
+            if item[1]:
+                candidate_names.add(item[1])
+    return candidate_names
+
+
+def _normalized_names(candidate_names: set[str], case_sensitive: bool, delimiter: Any) -> tuple[set[str], set[str]]:
+    norm_exact: set[str] = set()
+    norm_delim: set[str] = set()
+    for name in candidate_names:
+        norm_name = name if case_sensitive else name.upper()
+        norm_exact.add(norm_name)
+        if delimiter:
+            delim_prefix = f"{name}{delimiter}"
+            norm_delim.add(delim_prefix if case_sensitive else delim_prefix.upper())
+    return norm_exact, norm_delim
+
+
 def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
     try:
         from pydantic_settings import BaseSettings, EnvSettingsSource
@@ -447,41 +490,8 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
         is_safe = is_provably_safe(field.annotation) and not any(is_json_marker(m) for m in field.metadata)
         secret_scalar = is_secret_scalar(field.annotation)
 
-        candidate_names: set[str] = set()
-        candidate_names.add(fname)
-        candidate_names.add(fname.upper())
-        candidate_names.add(fname.lower())
-        if env_prefix:
-            candidate_names.add(f"{env_prefix}{fname}")
-            candidate_names.add(f"{env_prefix}{fname}".upper())
-            candidate_names.add(f"{env_prefix}{fname}".lower())
-
-        if field.alias:
-            candidate_names.add(field.alias)
-
-        val_alias = getattr(field, "validation_alias", None)
-        if isinstance(val_alias, str):
-            candidate_names.add(val_alias)
-        elif val_alias is not None and hasattr(val_alias, "choices"):
-            for c in getattr(val_alias, "choices", []):
-                if isinstance(c, str):
-                    candidate_names.add(c)
-
-        with contextlib.suppress(Exception):
-            for item in env_src._extract_field_info(field, fname):  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-                if item[0]:
-                    candidate_names.add(item[0])
-                if item[1]:
-                    candidate_names.add(item[1])
-
-        norm_exact: set[str] = set()
-        norm_delim: set[str] = set()
-        for name in candidate_names:
-            norm_name = name if case_sensitive else name.upper()
-            norm_exact.add(norm_name)
-            if delimiter:
-                delim_prefix = f"{name}{delimiter}"
-                norm_delim.add(delim_prefix if case_sensitive else delim_prefix.upper())
+        candidate_names = _candidate_names(field, fname, env_prefix, env_src)
+        norm_exact, norm_delim = _normalized_names(candidate_names, case_sensitive, delimiter)
 
         rules.append(
             ModelFieldRule(
