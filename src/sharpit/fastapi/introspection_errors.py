@@ -14,6 +14,8 @@ from sharpit.engine.spi import ErrorHandlerInfo
 from sharpit.fastapi.capture import WrappingHandlers
 from sharpit.fastapi.introspection_common import MAX_DEPTH, attrs
 
+_FOLLOWED_WRAPPED = (types.FunctionType, types.MethodType, functools.partial)
+
 
 def _safe_unwrap(handler: object) -> tuple[object, bool]:
     orig = inspect.getattr_static(handler, "__sharpit_original__", None)
@@ -22,52 +24,39 @@ def _safe_unwrap(handler: object) -> tuple[object, bool]:
     is_partial = False
     seen: set[int] = {id(handler)}
     for _ in range(MAX_DEPTH):
-        if type(handler) is functools.partial:
+        kind = type(handler)
+        if kind is functools.partial:
             is_partial = True
-            handler = cast(Any, handler).func
-            if id(handler) in seen:
-                raise ValueError("wrapper loop")
-            seen.add(id(handler))
-            continue
-        if type(handler) is types.MethodType:
-            handler = cast(Any, handler).__func__
-            if id(handler) in seen:
-                raise ValueError("wrapper loop")
-            seen.add(id(handler))
-            continue
-        wrapped = inspect.getattr_static(handler, "__wrapped__", None)
-        if wrapped is not None:
-            if id(wrapped) in seen:
-                raise ValueError("wrapper loop")
-            if type(wrapped) in (types.FunctionType, types.MethodType, functools.partial):
-                seen.add(id(wrapped))
-                handler = wrapped
-                continue
-        break
+            nxt = cast(Any, handler).func
+        elif kind is types.MethodType:
+            nxt = cast(Any, handler).__func__
+        else:
+            nxt = inspect.getattr_static(handler, "__wrapped__", None)
+            if nxt is None or (id(nxt) not in seen and type(nxt) not in _FOLLOWED_WRAPPED):
+                break
+        if id(nxt) in seen:
+            raise ValueError("wrapper loop")
+        seen.add(id(nxt))
+        handler = nxt
     return handler, is_partial
 
 
-def _handler_name(handler: object) -> tuple[str, bool]:
+def handler_name(handler: object) -> tuple[str, bool]:
+    """``module.qualname`` of a handler (its class for an instance) and whether a partial wrapped it; no host code runs.
+
+    Raises ``ValueError`` on a wrapper loop.
+    """
     handler, is_partial = _safe_unwrap(handler)
-    if type(handler) in (types.FunctionType, types.BuiltinFunctionType):
-        func = cast(Any, handler)
-        module = getattr(func, "__module__", None)
-        qualname = getattr(func, "__qualname__", None)
-        mod_str = module if type(module) is str else "?"
-        qual_str = qualname if type(qualname) is str else "?"
-        return f"{mod_str}.{qual_str}", is_partial
     if type(handler) not in (types.FunctionType, types.BuiltinFunctionType, type):
         handler = type(handler)
-    if isinstance(handler, type):
-        try:
-            module = type.__getattribute__(handler, "__module__")
-            qualname = type.__getattribute__(handler, "__qualname__")
-            mod_str = module if type(module) is str else "?"
-            qual_str = qualname if type(qualname) is str else "?"
-            return f"{mod_str}.{qual_str}", is_partial
-        except Exception:
-            return "UNRESOLVED", is_partial
-    return "UNRESOLVED", is_partial
+    # the slot getters, never the object's own: a host ``__getattribute__`` or ``__module__`` property never runs
+    getter: Any = type.__getattribute__ if issubclass(type(handler), type) else object.__getattribute__
+    try:
+        module = getter(handler, "__module__")
+        qualname = getter(handler, "__qualname__")
+    except Exception:  # noqa: BLE001
+        return "UNRESOLVED", is_partial
+    return f"{module if type(module) is str else '?'}.{qualname if type(qualname) is str else '?'}", is_partial
 
 
 def _key(key: object) -> tuple[str | None, int | None]:
@@ -104,7 +93,7 @@ def _handlers(app: object, scope: str, target: str | None) -> tuple[list[ErrorHa
                 row_target = (
                     target if target is not None else (f"status={key_status}" if key_status is not None else None)
                 )
-                name, is_partial = _handler_name(handler)
+                name, is_partial = handler_name(handler)
                 rows.append(ErrorHandlerInfo(key_type, key_status, name, row_scope, row_target, is_partial))
             except Exception:  # noqa: BLE001 - one opaque host handler must not hide its siblings
                 limitations.append(f"An exception handler at {target or '/'} could not be inspected.")
@@ -120,7 +109,9 @@ def _mount_entry(route: object, target: str | None, excluded: str) -> tuple[tupl
         return None, None
     mount = attrs(route)
     path = mount.get("path")
-    child = mount.get("_base_app") or mount.get("app")
+    child = mount.get("_base_app")
+    if child is None:  # never ``or``: a host app's ``__bool__`` must not run
+        child = mount.get("app")
     if type(path) is not str or child is None:
         return None, "A mounted application's exception handlers could not be inspected."
     full_path = f"{target or ''}{path}"

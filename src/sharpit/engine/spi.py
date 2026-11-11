@@ -46,7 +46,7 @@ class ApiRouteInfo:
 @dataclass(frozen=True)
 class ApiModel:
     routes: tuple[ApiRouteInfo, ...]
-    exception_handlers: tuple[str, ...]  # ``module:qualname`` of each registered exception handler
+    exception_handlers: tuple[str, ...]  # ``module.qualname`` of each registered exception handler
     limitations: tuple[str, ...]  # what could not be inspected (an opaque mounted app)
     error_handlers: tuple[ErrorHandlerInfo, ...] = ()
 

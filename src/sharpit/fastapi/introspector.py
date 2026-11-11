@@ -50,7 +50,7 @@ from sharpit.fastapi.introspection_common import (
 from sharpit.fastapi.introspection_common import (
     dotted as _dotted,
 )
-from sharpit.fastapi.introspection_errors import error_handler_infos
+from sharpit.fastapi.introspection_errors import error_handler_infos, handler_name
 from sharpit.fastapi.introspection_security import (
     FLAG_READERS as _FLAG_READERS,
 )
@@ -99,6 +99,13 @@ def _qualified(obj: object) -> str:
     if inspect.getattr_static(obj, "__qualname__", None) is None:  # static: an instance's ``__getattr__`` never runs
         obj = type(obj)
     return f"{getattr(obj, '__module__', None) or '?'}:{getattr(obj, '__qualname__', '?')}"
+
+
+def _exception_handler_name(handler: object) -> str:
+    try:
+        return handler_name(handler)[0]  # sharpit's capture wrapper is unwrapped to the host's own handler
+    except ValueError:  # a ``__wrapped__`` loop
+        return "UNRESOLVED"
 
 
 def _source_target(obj: object) -> object:
@@ -439,10 +446,9 @@ class FastApiIntrospector:
             elif not issubclass(type(route), WebSocketRoute) and _attrs(route).get("endpoint") is not None:
                 routes.append(_api_route(info, route))
         handlers: Any = _attrs(self.app).get("exception_handlers")
-        # sharpit's exception capture wraps each handler: report the host's own function
         handler_map = cast(dict[object, object], handlers)
         names = (
-            tuple(_qualified(inspect.getattr_static(h, "__sharpit_original__", h)) for h in handler_map.values())
+            tuple(_exception_handler_name(h) for h in handler_map.values())
             if type(handlers) is dict or type(handlers) is WrappingHandlers
             else ()
         )
