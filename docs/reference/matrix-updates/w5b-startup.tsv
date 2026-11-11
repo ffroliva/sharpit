@@ -1,0 +1,4 @@
+route:GET /startup	partial	Host lifespan startup timing; process-start step waits on Wave 2 engine/procmem.py
+prop:bootui.startup.enabled	matched	StartupTimelineTests and SHARPIT_STARTUP_ENABLED parity
+prop:bootui.startup.capacity	matched	StartupTimelineTests and SHARPIT_STARTUP_CAPACITY parity
+tool:get_startup_timeline	matched	schema, default limit 25, slowest-first order, name-or-tag query and page proven by test_tools_23 and McpAgentViewsTests.startupListsTheSlowestMatchingStepsFirst
