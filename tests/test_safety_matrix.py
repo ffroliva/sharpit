@@ -801,3 +801,15 @@ def test_400_off_a_violations_route_fails_the_sweep() -> None:
     resp = httpx.Response(400, json={"error": "Advisor scan ID must not be blank."})
 
     assert _get_problem("/sharpit/api/architecture/rules/ARCH-001", resp) is not None
+
+
+def test_metrics_detail_missing_name_accepts_only_the_contract_400() -> None:
+    resp = httpx.Response(400, json={"error": "Metric name must not be blank"})
+
+    assert _get_problem("/sharpit/api/metrics/detail", resp) is None
+
+
+def test_metrics_detail_400_for_another_reason_fails_the_sweep() -> None:
+    resp = httpx.Response(400, json={"error": "Metric name is invalid"})
+
+    assert _get_problem("/sharpit/api/metrics/detail", resp) is not None
