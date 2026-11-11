@@ -86,8 +86,42 @@ def test_no_test_shard_carries_more_weighted_test_time_than_the_ceiling(leg: str
 
 def test_the_required_test_check_still_fails_when_lint_fails() -> None:
     """Lint left the shards, so the required `test` checks must wait for it or a lint failure would merge."""
-    assert "needs: [test-shard, lint, changes]" in JOBS["test"]
+    assert "needs: [test-shard, coverage-shard, lint, changes]" in JOBS["test"]
     assert 'needs.lint.result }}" = success' in JOBS["test"]
+
+
+DOCS_ONLY_EXIT = 'if [ "$CODE_CHANGED" = false ]; then exit 0; fi'
+
+
+def test_the_313_leg_runs_only_under_coverage() -> None:
+    """The 3.13 suite ran twice on the same install: plain in test-shard and again under coverage."""
+    assert "ubuntu-latest3.13" not in _legs("test-shard")
+
+
+def test_the_coverage_leg_is_the_313_leg_in_five_shards() -> None:
+    assert _legs("coverage-shard") == {"ubuntu-latest3.13": [(i, 5) for i in range(1, 6)]}
+    assert "--cov=sharpit --cov-report=" in JOBS["coverage-shard"]
+
+
+def test_the_required_test_checks_need_the_coverage_leg() -> None:
+    """The 3.13 leg runs only under coverage now, so `test` fails when it fails, docs-only changes still exit 0."""
+    body = JOBS["test"]
+    assert "coverage-shard" in body.split("needs:", 1)[1].splitlines()[0]
+    assert DOCS_ONLY_EXIT in body
+    assert 'test "${{ needs.coverage-shard.result }}" = success' in body.split(DOCS_ONLY_EXIT, 1)[1]
+
+
+def test_the_313_budgets_run_without_coverage() -> None:
+    """The tracer skips every overhead budget (tests/overhead.py::paired), so 5/5 reruns them with no coverage."""
+    steps = [step for step in _split_steps(JOBS["coverage-shard"]) if "timing_files()" in step]
+    assert len(steps) == 1
+    budgets = steps[0]
+    assert "if: matrix.shard == '5/5'" in budgets
+    assert "--cov" not in budgets
+    assert "COVERAGE_" not in budgets
+    assert "SHARPIT_SHARD" not in budgets
+    for kind in ("junit", "overhead", "speed"):
+        assert f"name: {kind}-coverage-shard-budgets" in JOBS["coverage-shard"], kind
 
 
 def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
