@@ -385,3 +385,66 @@ def test_error_contract_reports_the_host_function_under_capture(tmp_path) -> Non
             assert not any("sync_wrapper" in h or "async_wrapper" in h for h in handlers)
     finally:
         handle.uninstall_capture()
+
+
+_PANEL_GETS = ("/sharpit/api/rest-api", "/sharpit/api/rest-api/error-contract")
+
+
+def _armed_gets(app: FastAPI, tmp_path: Path, armed: list[bool]) -> list[int]:
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, state_dir=str(tmp_path / "state"))
+    try:
+        with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+            armed[0] = True
+            statuses = [client.get(path).status_code for path in _PANEL_GETS]
+            armed[0] = False
+    finally:
+        handle.uninstall_capture()
+    return statuses
+
+
+def test_panel_gets_never_run_a_callable_handler_class_code(tmp_path) -> None:
+    armed = [False]
+    ran: list[str] = []
+
+    class RecordingHandler:
+        def __getattribute__(self, name: str) -> object:
+            if armed[0]:
+                ran.append(name)
+            return object.__getattribute__(self, name)
+
+        @property
+        def __module__(self) -> str:  # pyright: ignore[reportIncompatibleVariableOverride]
+            if armed[0]:
+                ran.append("__module__ property")
+            return "host_module"
+
+        async def __call__(self, _request: object, _exc: Exception) -> JSONResponse:
+            return JSONResponse({})
+
+    app = FastAPI()
+    app.exception_handlers[KeyError] = RecordingHandler()
+    assert _armed_gets(app, tmp_path, armed) == [200, 200]
+    assert ran == []
+
+
+def test_error_contract_get_never_truth_tests_a_mounted_app(tmp_path) -> None:
+    armed = [False]
+    ran: list[str] = []
+
+    class TruthyApp(FastAPI):
+        def __len__(self) -> int:
+            if armed[0]:
+                ran.append("__len__")
+            return 0
+
+        def __bool__(self) -> bool:
+            if armed[0]:
+                ran.append("__bool__")
+            return False
+
+    sub = TruthyApp()
+    sub.exception_handlers[KeyError] = _source_index_handler
+    app = FastAPI()
+    app.mount("/a", sub)
+    assert _armed_gets(app, tmp_path, armed) == [200, 200]
+    assert ran == []
