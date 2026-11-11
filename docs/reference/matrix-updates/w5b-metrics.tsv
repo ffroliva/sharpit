@@ -1,4 +1,4 @@
-route:GET /metrics	partial	GET report over already imported prometheus_client registry; D5 catalogue and classified provenance are unavailable, D6 label values and HELP are masked
+route:GET /metrics	partial	GET report over already imported prometheus_client registry, each read running every host collector once as Micrometer function gauges do; a raising collector is listed unavailable with a fixed text; D5 catalogue and classified provenance are unavailable, D6 label values and HELP are masked
 tool:get_metrics	matched	BootUI tool name, QUERY_LIMIT schema, default 25, passive read
 cli:metrics	matched	BootUI CLI command for get_metrics
 panel:metrics	matched	View only Metrics panel and guarded GET routes

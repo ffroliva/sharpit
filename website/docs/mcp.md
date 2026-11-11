@@ -57,7 +57,7 @@ tool.
 - `get_threads`: threads and asyncio tasks with their stacks, and the request each task serves. No variable values.
 - `get_startup_timeline`: the host's startup steps in order, with their durations; search by `query`, capped by `limit`.
 - `get_traces`: the OpenTelemetry traces the app recorded, newest first, with masked span attributes. Needs the app's own SDK `TracerProvider`.
-- `get_metrics`: the host's already-imported Prometheus registry, collected on request, with label values and HELP text masked.
+- `get_metrics`: the host's already-imported Prometheus registry, collected on request (each read runs every host collector once), with label values and HELP text masked.
 - `get_low_footprint`: low-footprint mode status and capture hook outcomes.
 
 ### Advisors and security
