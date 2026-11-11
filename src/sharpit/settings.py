@@ -163,6 +163,13 @@ class SharpitSettings:
     startup_enabled: bool = True
     startup_capacity: int = 4096
     app_package: str | None = None  # dotted name, resolved through sys.modules only (never imported)
+    copilot_enabled: str = "AUTO"
+    copilot_session_state_dir: str | None = None
+    copilot_max_events_per_session: int = 2000
+    copilot_max_sessions: int = 100
+    copilot_max_parsed_sessions: int = 100
+    copilot_stream_debounce: float = 0.4
+    copilot_allow_raw_reveal: bool = True
     warnings: tuple[str, ...] = ()
 
 
