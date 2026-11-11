@@ -315,6 +315,10 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "claude_code_max_parsed_sessions": (_int, None),
     "claude_code_stream_debounce": (_duration, None),
     "claude_code_allow_raw_reveal": (parse_bool, False),
+    "overrides_file": (_str, None),
+    "alembic_clean_enabled": (parse_bool, False),
+    "dev_services_restart_enabled": (parse_bool, False),
+    "cache_clear_enabled": (parse_bool, False),
 }
 
 NEVER_ECHOED = {
@@ -442,6 +446,10 @@ _NON_CREDENTIAL_FIELDS = {
     "claude_code_max_parsed_sessions": "Parsed session count limit, not a credential.",
     "claude_code_stream_debounce": "Stream debounce window, not a credential.",
     "claude_code_allow_raw_reveal": "Raw reveal flag, not a credential.",
+    "overrides_file": "Overrides file path, not a credential.",
+    "alembic_clean_enabled": _FLAG,
+    "dev_services_restart_enabled": _FLAG,
+    "cache_clear_enabled": _FLAG,
     "warnings": "Diagnostic messages, not a credential.",
 }
 

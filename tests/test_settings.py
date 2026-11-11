@@ -351,6 +351,11 @@ PROPERTIES = {
     "bootui.claude-code.max-parsed-sessions": ("claude_code_max_parsed_sessions", "50"),
     "bootui.claude-code.stream-debounce": ("claude_code_stream_debounce", "0.5s"),
     "bootui.claude-code.allow-raw-reveal": ("claude_code_allow_raw_reveal", "true"),
+    # 0.6.0 W8 A0: the action gates (P:118,357,1009); alembic clean-enabled is sharpit-only (Q9, P-M2)
+    "bootui.overrides-file": ("overrides_file", "/custom/overrides.env"),
+    "bootui.alembic.clean-enabled": ("alembic_clean_enabled", "true"),
+    "bootui.dev-services.restart-enabled": ("dev_services_restart_enabled", "true"),
+    "bootui.cache.clear-enabled": ("cache_clear_enabled", "false"),
 }
 
 NEW_DEFAULTS_0_2_0: dict[str, Any] = {
@@ -775,6 +780,9 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "CLAUDE_CODE_MAX_PARSED_SESSIONS",
         "CLAUDE_CODE_STREAM_DEBOUNCE",
         "CLAUDE_CODE_ALLOW_RAW_REVEAL",
+        "ALEMBIC_CLEAN_ENABLED",
+        "DEV_SERVICES_RESTART_ENABLED",
+        "CACHE_CLEAR_ENABLED",
     ]
     observed = [
         warning.removeprefix("Ignoring invalid SHARPIT_").split(" value")[0]
@@ -823,3 +831,35 @@ def test_runtime_journal_max_bytes_kwarg_int_and_bool() -> None:
     assert load_settings({"runtime_journal_max_bytes": 4096}, {}).runtime_journal_max_bytes == 4096
     rejected = load_settings({"runtime_journal_max_bytes": True}, {})
     assert rejected.runtime_journal_max_bytes == 32 * 1024 * 1024
+
+
+# --- W8 A0: the write-action settings ----------------------------------------------------------------------------
+
+W8_GATES = {"alembic_clean_enabled": False, "dev_services_restart_enabled": False, "cache_clear_enabled": True}
+
+
+def test_w8_action_settings_defaults():
+    s = load_settings({}, {})
+    assert {name: getattr(s, name, None) for name in W8_GATES} == W8_GATES
+    assert getattr(s, "overrides_file", None) == ".sharpit/overrides.env"
+    assert s.warnings == ()
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_overrides_file_blank_falls_back_to_the_state_dir(blank: str):
+    s = load_settings({"state_dir": "/srv/app-state"}, {"SHARPIT_OVERRIDES_FILE": blank})
+    assert getattr(s, "overrides_file", None) == "/srv/app-state/overrides.env"
+    assert s.warnings == ()
+
+
+def test_overrides_file_env_wins_over_the_state_dir_default():
+    s = load_settings({"state_dir": "/srv/app-state"}, {"SHARPIT_OVERRIDES_FILE": "/x/o.env"})
+    assert getattr(s, "overrides_file", None) == "/x/o.env"
+
+
+@pytest.mark.parametrize("field", sorted(W8_GATES))
+def test_w8_action_gates_invalid_value_fails_closed_and_warns(field: str):
+    env = f"SHARPIT_{field.upper()}"
+    s = load_settings({}, {env: "maybe"})
+    assert getattr(s, field, None) is False
+    assert f"Ignoring invalid {env} value 'maybe'" in s.warnings
