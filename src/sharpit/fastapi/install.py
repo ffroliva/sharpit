@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import sys
@@ -18,7 +19,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 
 from sharpit.engine import guard, sqla
-from sharpit.engine.activation import active_profiles, decide
+from sharpit.engine.activation import ActivationStatus, active_profiles, decide
 from sharpit.engine.capture import route_path
 from sharpit.engine.capture.exceptions import ExceptionStore
 from sharpit.engine.capture.exchanges import HttpExchangeBuffer
@@ -27,6 +28,7 @@ from sharpit.engine.capture.sqltrace import SqlTraceRecorder
 from sharpit.engine.capture.streams import ChangeStream, StreamSlots
 from sharpit.engine.capture.transactions import TransactionRecorder
 from sharpit.engine.capture.transactions import attach as attach_transactions
+from sharpit.engine.collectors.config.overrides import apply_overrides_file
 from sharpit.engine.context import SharpitContext, application_family
 from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.paging import BadRequest
@@ -245,6 +247,20 @@ async def _lifespan(
         wiring.detach(ctx)
 
 
+def _apply_runtime_overrides(
+    settings: SharpitSettings, activation: ActivationStatus
+) -> tuple[SharpitSettings, ActivationStatus]:
+    if not activation.enabled:
+        return settings, activation
+    warnings = apply_overrides_file(settings.overrides_file)
+    if not warnings:
+        return settings, activation
+    return (
+        dataclasses.replace(settings, warnings=(*settings.warnings, *warnings)),
+        dataclasses.replace(activation, warnings=(*activation.warnings, *warnings)),
+    )
+
+
 def install(
     app: Any,
     *,
@@ -271,6 +287,7 @@ def install(
         sink.register_app(app)
     profiles = tuple(active_profiles(sharpit_settings, os.environ))
     activation = decide(sharpit_settings, profiles, dev_server_signal(sys.argv))
+    sharpit_settings, activation = _apply_runtime_overrides(sharpit_settings, activation)
     token, generated = guard.resolve_token(sharpit_settings) if activation.enabled else (None, False)
     original: _Lifespan = router.lifespan_context
     ctx = SharpitContext(
