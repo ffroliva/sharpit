@@ -4,7 +4,7 @@
 |---|---|
 | Overview | app, Python and package versions, active profiles, activation reason and warnings |
 | Configuration | environment, `.env` files, pydantic-settings and `os.getenv` keys, the winning source of each value, masked |
-| Profile Diff | configuration comparison across active profiles from declared `.env.<profile>` files; paths escaping the project root, including relative `../` paths and absolute paths outside it, are refused (fail closed) |
+| Profile Diff | configuration comparison across active profiles from declared `.env.<profile>` files; paths escaping the project root, including relative `../` paths and absolute paths outside it, are refused (fail closed). A value is masked whenever Configuration masks the same field, read from the rows Configuration itself caches (no settings instance is built, nothing runs beyond a Configuration read), or when sharpit cannot be sure what Configuration would show |
 | Mappings | every route of the host app |
 | Loggers | logger tree with levels you can change at runtime |
 | Beans | dependency providers, middleware and lifespan, with their dependencies |

@@ -305,6 +305,7 @@ class ModelFieldRule:
     names: set[str] = dataclasses.field(default_factory=set[str])
     annotation: object = None
     rewritten: bool = False  # host code may change the value Configuration shows: the diff cannot decide, so masks
+    model: type | None = None  # the settings class declaring the field: its Configuration rows are mirrored
 
 
 @dataclass
@@ -331,6 +332,10 @@ class ProfileSourceDescriptor:
         if all(exact and rule.is_secret_scalar for rule, exact in unsafe):
             return KeySafety.UNSAFE_SCALAR
         return KeySafety.UNSAFE_COMPLEX
+
+    def rules_for(self, key: str) -> list[ModelFieldRule]:
+        """Every field rule ``key`` matches, exactly or under a delimited prefix."""
+        return [rule for rule, _ in self._matches(key)]
 
     def field_names(self, key: str) -> set[str]:
         """Every name the fields matching ``key`` answer to; Configuration masks by these, not the .env key."""
@@ -366,7 +371,14 @@ def parse_env(content: str) -> list[tuple[str, str | None]]:
 # env_parse_enums maps member NAMES to members; env_parse_none_str only yields None and env_nested_delimiter only
 # merges into dict/model targets (never allow-listed), so neither can turn a shown value into a masked one
 _REWRITING_CONFIG = ("str_strip_whitespace", "str_to_lower", "str_to_upper", "use_enum_values", "env_parse_enums")
-_REWRITING_METHODS = ("__init__", "model_post_init", "settings_customise_sources")
+_REWRITING_METHODS = (
+    "__init__",
+    "model_post_init",
+    "settings_customise_sources",
+    "__getattribute__",
+    "__get_pydantic_core_schema__",
+    "_settings_build_values",
+)
 _PYDANTIC_MODULES = ("pydantic.", "pydantic_settings.")
 
 
@@ -386,6 +398,11 @@ def _rewritten_fields(cls: type[Any], cfg: object) -> tuple[bool, set[str]]:
         any(name in vars(k) for name in _REWRITING_METHODS)
         for k in cls.__mro__
         if k is not object and not k.__module__.startswith(_PYDANTIC_MODULES)
+    )
+    every = every or any(  # a user metaclass __call__ can rewrite the instance it builds
+        "__call__" in vars(meta)
+        for meta in cast(tuple[type, ...], type(cls).__mro__)
+        if meta not in (type, object) and not meta.__module__.startswith(_PYDANTIC_MODULES)
     )
     named: set[str] = set()
     for group in ("field_validators", "validators"):  # every mode: before, after, wrap, plain
@@ -475,6 +492,7 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
                 is_secret_scalar=secret_scalar,
                 names=candidate_names,
                 annotation=field.annotation,
+                model=cls,
                 # any metadata (a top-level Annotated validator lives here) or a validator naming the field
                 rewritten=rewrites_every or bool(field.metadata) or fname in validated or "*" in validated,
             )
