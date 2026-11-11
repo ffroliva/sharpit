@@ -252,7 +252,7 @@ def _apply_runtime_overrides(
 ) -> tuple[SharpitSettings, ActivationStatus]:
     if not activation.enabled:
         return settings, activation
-    warnings = apply_overrides_file(settings.overrides_file)
+    warnings = apply_overrides_file(settings.overrides_file, settings.profile_vars)
     if not warnings:
         return settings, activation
     return (
