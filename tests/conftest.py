@@ -165,6 +165,7 @@ _PATH_PARAMS = {
     "id": "0123456789abcdef",
     "name": "nope",  # an unknown pool name (404)
     "rule_id": "RAPI-MAP-001",  # rest-api violations without a scanId: 400
+    "spanId": "0" * 16,  # an unknown AI chat span (404)
 }  # a new path parameter fails collection until it gets a value here
 
 
