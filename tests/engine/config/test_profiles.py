@@ -6,13 +6,20 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from conftest import SideEffectGuard
+from fastapi import FastAPI
+from sharpit import install
 from sharpit.engine.activation import ActivationStatus
+from sharpit.engine.collectors.config import config_report
 from sharpit.engine.collectors.config.profiles import parse_env_lines, profiles_report
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.masking import Exposure
+from sharpit.engine.tool_dispatch import call_tool
+from sharpit.engine.tools import CallContext
 from sharpit.settings import SharpitSettings
 
 ACTIVATION = ActivationStatus(True, True, "Enabled by SHARPIT_ENABLED=ON", ())
@@ -281,38 +288,25 @@ def test_profile_diff_canary_secrets_masked_under_innocent_names(
 def test_profile_sources_are_confined_and_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
     monkeypatch.chdir(project_root)
 
-    # 1. Symlink pointing outside project root
-    (outside / ".env.sym").write_text("OUTSIDE_KEY=val\n", encoding="utf-8")
-    symlink_path = project_root / ".env.sym"
-    try:
-        symlink_path.symlink_to(outside / ".env.sym")
-        has_symlink = True
-    except (OSError, NotImplementedError):
-        has_symlink = False
-
-    # 2. Oversized file (> 256 KiB)
+    # 1. Oversized file (> 256 KiB)
     oversized = project_root / ".env.large"
     oversized.write_text("LARGE_KEY=" + "A" * (260 * 1024) + "\n", encoding="utf-8")
 
-    # 3. Undecodable file
+    # 2. Undecodable file
     undecodable = project_root / ".env.bad"
     undecodable.write_bytes(b"KEY=\xff\xfe\x00\x00bad\n")
 
-    # 4. .. path escaping root
+    # 3. .. path escaping root
     escaped_dir = tmp_path / "escaped"
     escaped_dir.mkdir()
     (escaped_dir / ".env.esc").write_text("ESC_KEY=val\n", encoding="utf-8")
 
-    # 5. Legitimate file
+    # 4. Legitimate file
     (project_root / ".env.valid").write_text("VALID_KEY=valid_val\n", encoding="utf-8")
 
     declared = [".env.large", ".env.bad", "../escaped/.env.esc", ".env.valid"]
-    if has_symlink:
-        declared.insert(0, ".env.sym")
 
     class ConfinedSettings(BaseSettings):
         model_config = SettingsConfigDict(extra="allow", env_file=declared)
@@ -325,8 +319,56 @@ def test_profile_sources_are_confined_and_bounded(tmp_path: Path, monkeypatch: p
     assert "large" not in profiles
     assert "bad" not in profiles
     assert "esc" not in profiles
-    if has_symlink:
-        assert "sym" not in profiles
+
+
+def test_profile_sources_confined_symlinks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(project_root)
+
+    outside_file = outside / ".env.symoutside"
+    outside_file.write_text("OUTSIDE_KEY=val\n", encoding="utf-8")
+    symlink_outside = project_root / ".env.symoutside"
+
+    inside_file = project_root / ".env.reallocal"
+    inside_file.write_text("LOCAL_KEY=val\n", encoding="utf-8")
+    symlink_inside = project_root / ".env.symlocal"
+
+    try:
+        symlink_outside.symlink_to(outside_file)
+        symlink_inside.symlink_to(inside_file)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks not supported or permitted on this platform: {exc}")
+
+    class SymlinkSettings(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=[".env.symoutside", ".env.symlocal"])
+
+    ctx = _ctx(profiles=("symoutside", "symlocal"), settings=(SymlinkSettings.__new__(SymlinkSettings),))
+    report = profiles_report(ctx)
+
+    profiles = [s["profile"] for s in report["profileSources"]]
+    assert "symoutside" not in profiles
+    assert "symlocal" in profiles
+
+
+def test_profile_sources_absolute_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.chdir(project_root)
+
+    abs_file = project_root / ".env.abs"
+    abs_file.write_text("ABS_KEY=abs_val\n", encoding="utf-8")
+
+    class AbsSettings(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=abs_file.resolve())
+
+    ctx = _ctx(profiles=("abs",), settings=(AbsSettings.__new__(AbsSettings),))
+    report = profiles_report(ctx)
+
+    profiles = [s["profile"] for s in report["profileSources"]]
+    assert "abs" in profiles
 
 
 def test_profile_sources_follow_the_apps_env_file_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -397,26 +439,180 @@ def test_profile_diff_golden_shape_23(tmp_path: Path, monkeypatch: pytest.Monkey
     golden_doc = json.loads(golden_path.read_text(encoding="utf-8"))
 
     assert set(report.keys()) == set(golden_doc.keys())
+    assert report["activeProfiles"] == golden_doc["activeProfiles"]
     assert len(report["profileSources"]) >= 1
     src = report["profileSources"][0]
     golden_src = golden_doc["profileSources"][0]
     assert set(src.keys()) == set(golden_src.keys())
+    assert src["profile"] == golden_src["profile"]
     prop = src["properties"][0]
     golden_prop = golden_src["properties"][0]
     assert set(prop.keys()) == set(golden_prop.keys())
+    assert prop["name"] == golden_prop["name"]
+    assert prop["value"] == golden_prop["value"]
+    assert prop["masked"] == golden_prop["masked"]
+    assert prop["override"] == golden_prop["override"]
+    assert prop["description"] == golden_prop["description"]
+    assert prop["defaultValue"] == golden_prop["defaultValue"]
+    assert prop["origin"] == golden_prop["origin"]
+    assert prop["source"] == src["sourceName"]
 
 
-def test_profile_diff_has_no_side_effects(
-    no_side_effects: SideEffectGuard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env.dev").write_text("app.name=sample\n", encoding="utf-8")
-
+def test_profile_diff_has_no_side_effects(no_side_effects: SideEffectGuard, tmp_state_dir: Path) -> None:
     class DevSettings(BaseSettings):
         model_config = SettingsConfigDict(extra="allow", env_file=".env.dev")
 
-    ctx = _ctx(profiles=("dev",), settings=(DevSettings(),))
-    no_side_effects.rebaseline()
-    report = profiles_report(ctx)
-    assert report["profileSources"]
-    assert no_side_effects.violations == []
+    app = FastAPI()
+    install(
+        app,
+        show_banner=False,
+        config_scan=False,
+        enabled="ON",
+        state_dir=str(tmp_state_dir),
+        settings=DevSettings(),
+    )
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    no_side_effects.unblock_network()
+    with client:
+        no_side_effects.block_network()
+        no_side_effects.rebaseline()
+        response = client.get("/sharpit/api/profile-diff")
+        assert response.status_code == 200
+        report = response.json()
+        assert "profileSources" in report
+    no_side_effects.verify()
+
+
+def test_secret_str_innocent_name_masked_get_and_mcp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("SIGNING=plainsecretvalue123\n", encoding="utf-8")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.prod")
+        signing: SecretStr
+
+    settings_inst = S(signing="plainsecretvalue123")
+
+    app = FastAPI()
+    handle = install(
+        app,
+        show_banner=False,
+        config_scan=False,
+        enabled="ON",
+        settings=settings_inst,
+    )
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    # 1. GET route
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    report = resp.json()
+    assert len(report["profileSources"]) == 1
+    src = report["profileSources"][0]
+    prop = next(p for p in src["properties"] if p["name"] == "SIGNING")
+    assert prop["masked"] is True
+    assert prop["value"] == "******"
+
+    # 2. MCP tool
+    mcp_report = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    assert len(mcp_report["profileSources"]) == 1
+    mcp_src = mcp_report["profileSources"][0]
+    mcp_prop = next(p for p in mcp_src["properties"] if p["name"] == "SIGNING")
+    assert mcp_prop["masked"] is True
+    assert mcp_prop["value"] == "******"
+
+    # 3. Configuration parity check
+    cfg = config_report(handle.context, None, None, False, None, None)
+    cfg_prop = next(p for p in cfg["properties"] if p["name"] == "SIGNING")
+    assert cfg_prop["masked"] is True
+    assert cfg_prop["value"] == "******"
+
+
+def test_multiline_private_key_env_parsing_get_and_mcp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    content = 'CERT="-----BEGIN RSA PRIVATE KEY-----\n...gunV==\npassword=hunter2\n-----END RSA PRIVATE KEY-----"\n'
+    (tmp_path / ".env.prod").write_text(content, encoding="utf-8")
+
+    class KeySettings(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.prod")
+
+    app = FastAPI()
+    handle = install(
+        app,
+        show_banner=False,
+        config_scan=False,
+        enabled="ON",
+        settings=KeySettings(),
+    )
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    # 1. GET route
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    report = resp.json()
+    assert len(report["profileSources"]) == 1
+    src = report["profileSources"][0]
+    names = [p["name"] for p in src["properties"]]
+    assert names == ["CERT"]
+    cert_prop = src["properties"][0]
+    assert cert_prop["masked"] is True
+    assert "hunter2" not in str(cert_prop["value"])
+    assert "gunV" not in str(cert_prop["value"])
+    assert all(p["name"] != "password" for p in src["properties"])
+    assert all("gunV" not in p["name"] for p in src["properties"])
+
+    # 2. MCP tool
+    mcp_report = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    assert len(mcp_report["profileSources"]) == 1
+    mcp_src = mcp_report["profileSources"][0]
+    mcp_names = [p["name"] for p in mcp_src["properties"]]
+    assert mcp_names == ["CERT"]
+    mcp_cert = mcp_src["properties"][0]
+    assert mcp_cert["masked"] is True
+    assert "hunter2" not in str(mcp_cert["value"])
+    assert all(p["name"] != "password" for p in mcp_src["properties"])
+
+
+def test_env_file_encoding_honoured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "latin,badutf")
+    (tmp_path / ".env.latin").write_bytes("SPECIAL_KEY=café\n".encode("latin-1"))
+    (tmp_path / ".env.badutf").write_bytes(b"BAD=\xff\xfe\x00\x00\n")
+
+    class LatinSettings(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.latin", env_file_encoding="latin-1")
+
+    class BadUtfSettings(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.badutf")
+
+    app = FastAPI()
+    handle = install(
+        app,
+        show_banner=False,
+        config_scan=False,
+        enabled="ON",
+        settings=(LatinSettings.__new__(LatinSettings), BadUtfSettings.__new__(BadUtfSettings)),
+    )
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    # 1. GET route
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    report = resp.json()
+    profiles = [s["profile"] for s in report["profileSources"]]
+    assert "latin" in profiles
+    assert "badutf" not in profiles
+    latin_src = next(s for s in report["profileSources"] if s["profile"] == "latin")
+    prop = next(p for p in latin_src["properties"] if p["name"] == "SPECIAL_KEY")
+    assert prop["value"] == "café"
+
+    # 2. MCP tool
+    mcp_report = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    mcp_profiles = [s["profile"] for s in mcp_report["profileSources"]]
+    assert "latin" in mcp_profiles
+    assert "badutf" not in mcp_profiles
+    mcp_latin_src = next(s for s in mcp_report["profileSources"] if s["profile"] == "latin")
+    mcp_prop = next(p for p in mcp_latin_src["properties"] if p["name"] == "SPECIAL_KEY")
+    assert mcp_prop["value"] == "café"

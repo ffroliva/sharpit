@@ -23,7 +23,14 @@ def _client(**options: object) -> TestClient:
 
 
 def test_profile_diff_has_no_write_routes() -> None:
-    assert WRITE_ROWS == []
+    app = FastAPI()
+    install(app, show_banner=False, config_scan=False, enabled="ON")
+    mount = next(r for r in app.routes if getattr(r, "name", None) == "sharpit")
+    routes = [r for r in mount.app.routes if "profile-diff" in getattr(r, "path", "")]
+    assert len(routes) == 1
+    route = routes[0]
+    assert "GET" in route.methods
+    assert route.methods <= {"GET", "HEAD"}
 
 
 @pytest.mark.parametrize("path", PATHS)
