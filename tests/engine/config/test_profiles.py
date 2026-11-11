@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
+from enum import StrEnum
 from pathlib import Path
+from typing import Annotated, TypedDict
 
+import pydantic
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
+from pydantic import BaseModel, Field, SecretStr
+from pydantic.dataclasses import dataclass as pdataclass
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from conftest import SideEffectGuard
@@ -808,3 +813,234 @@ def test_env_file_encoding_honoured(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     mcp_latin_src = next(s for s in mcp_report["profileSources"] if s["profile"] == "latin")
     mcp_prop = next(p for p in mcp_latin_src["properties"] if p["name"] == "APP_GREETING")
     assert mcp_prop["value"] == "café"
+
+
+def test_profile_diff_leak_row1_dict_model_delim_get_and_mcp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("DB__a__signing=plainsecret_row1\n", encoding="utf-8")
+
+    class Db(BaseModel):
+        signing: SecretStr
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod", env_nested_delimiter="__")
+        db: dict[str, Db] = {}
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S())
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    prop = next(p for p in resp.json()["profileSources"][0]["properties"] if p["name"] == "DB__a__signing")
+    assert prop["masked"] is True
+    assert prop["value"] == "******"
+
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    mcp_prop = next(p for p in mcp["profileSources"][0]["properties"] if p["name"] == "DB__a__signing")
+    assert mcp_prop["masked"] is True
+    assert mcp_prop["value"] == "******"
+
+
+def test_profile_diff_leak_row2_dict_secret_delim_get_and_mcp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("TOKS__a=plainsecret_row2\n", encoding="utf-8")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod", env_nested_delimiter="__")
+        toks: dict[str, SecretStr] = {}
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S())
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    prop = next(p for p in resp.json()["profileSources"][0]["properties"] if p["name"] == "TOKS__a")
+    assert prop["masked"] is True
+    assert prop["value"] == "******"
+
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    mcp_prop = next(p for p in mcp["profileSources"][0]["properties"] if p["name"] == "TOKS__a")
+    assert mcp_prop["masked"] is True
+    assert mcp_prop["value"] == "******"
+
+
+def test_profile_diff_leak_row3_annotated_model_delim_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("DB__SIGNING=plainsecret_row3\n", encoding="utf-8")
+
+    class Db(BaseModel):
+        signing: SecretStr
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod", env_nested_delimiter="__")
+        db: Annotated[Db, Field()] | None = None
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S())
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    prop = next(p for p in resp.json()["profileSources"][0]["properties"] if p["name"] == "DB__SIGNING")
+    assert prop["masked"] is True
+    assert prop["value"] == "******"
+
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    mcp_prop = next(p for p in mcp["profileSources"][0]["properties"] if p["name"] == "DB__SIGNING")
+    assert mcp_prop["masked"] is True
+    assert mcp_prop["value"] == "******"
+
+
+def test_profile_diff_leak_row4_inner_alias_delim_get_and_mcp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("DB__tkn=plainsecret_row4\n", encoding="utf-8")
+
+    class DbAlias(BaseModel):
+        token: SecretStr = Field(alias="tkn")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod", env_nested_delimiter="__")
+        db: DbAlias | None = None
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S())
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    prop = next(p for p in resp.json()["profileSources"][0]["properties"] if p["name"] == "DB__tkn")
+    assert prop["masked"] is True
+    assert prop["value"] == "******"
+
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    mcp_prop = next(p for p in mcp["profileSources"][0]["properties"] if p["name"] == "DB__tkn")
+    assert mcp_prop["masked"] is True
+    assert mcp_prop["value"] == "******"
+
+
+def test_profile_diff_leak_row5_dataclass_typeddict_json_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text(
+        'TD={"token":"plainsecret_td"}\nPDC={"token":"plainsecret_pdc"}\nSDC={"token":"plainsecret_sdc"}\n',
+        encoding="utf-8",
+    )
+
+    class TD(TypedDict):
+        token: SecretStr
+
+    @pdataclass
+    class PDC:
+        token: SecretStr
+
+    @dataclasses.dataclass
+    class SDC:
+        token: SecretStr
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod")
+        td: TD | None = None
+        pdc: PDC | None = None
+        sdc: SDC | None = None
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S())
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    props = {p["name"]: p for p in resp.json()["profileSources"][0]["properties"]}
+    assert props["TD"]["masked"] is True
+    assert props["TD"]["value"] == "******"
+    assert props["PDC"]["masked"] is True
+    assert props["PDC"]["value"] == "******"
+    assert props["SDC"]["masked"] is True
+    assert props["SDC"]["value"] == "******"
+
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    mcp_props = {p["name"]: p for p in mcp["profileSources"][0]["properties"]}
+    assert mcp_props["TD"]["masked"] is True
+    assert mcp_props["TD"]["value"] == "******"
+    assert mcp_props["PDC"]["masked"] is True
+    assert mcp_props["PDC"]["value"] == "******"
+    assert mcp_props["SDC"]["masked"] is True
+    assert mcp_props["SDC"]["value"] == "******"
+
+
+def test_profile_diff_leak_row6_pydantic_secret_get_and_mcp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    Secret = getattr(pydantic, "Secret", None)
+    if Secret is None:
+        pytest.skip("pydantic.Secret not available")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("TOK=plainsecret_row6\n", encoding="utf-8")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod")
+        tok: Secret[str] | None = None  # type: ignore[valid-type]
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S())
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    prop = next(p for p in resp.json()["profileSources"][0]["properties"] if p["name"] == "TOK")
+    assert prop["masked"] is True
+    assert prop["value"] == "******"
+
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    mcp_prop = next(p for p in mcp["profileSources"][0]["properties"] if p["name"] == "TOK")
+    assert mcp_prop["masked"] is True
+    assert mcp_prop["value"] == "******"
+
+
+def test_profile_diff_allow_list_control_get_and_mcp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class EnvEnum(StrEnum):
+        PROD = "prod"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text('PORT=9000\nENV=prod\nTAGS=["web","api"]\n', encoding="utf-8")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod")
+        port: int = 8080
+        env: EnvEnum = EnvEnum.PROD
+        tags: list[str] = []
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S())
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    # 1. GET route
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    props = {p["name"]: p for p in resp.json()["profileSources"][0]["properties"]}
+    assert props["PORT"]["masked"] is False
+    assert props["PORT"]["value"] == "9000"
+    assert props["ENV"]["masked"] is False
+    assert props["ENV"]["value"] == "prod"
+    assert props["TAGS"]["masked"] is False
+    assert props["TAGS"]["value"] == '["web","api"]'
+
+    # 2. MCP tool
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    mcp_props = {p["name"]: p for p in mcp["profileSources"][0]["properties"]}
+    assert mcp_props["PORT"]["masked"] is False
+    assert mcp_props["PORT"]["value"] == "9000"
+    assert mcp_props["ENV"]["masked"] is False
+    assert mcp_props["ENV"]["value"] == "prod"
+    assert mcp_props["TAGS"]["masked"] is False
+    assert mcp_props["TAGS"]["value"] == '["web","api"]'
