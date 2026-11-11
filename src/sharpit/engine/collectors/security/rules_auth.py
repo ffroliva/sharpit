@@ -14,6 +14,7 @@ from sharpit.engine.collectors.security import (
     rule,
     simple,
 )
+from sharpit.engine.collectors.security.rules_common import _production_only
 from sharpit.engine.spi import SecuredRoute
 
 _SECURITY = "https://fastapi.tiangolo.com/tutorial/security/"
@@ -54,7 +55,7 @@ def _without_https(scheme: str) -> Callable[[Inputs], list[Violation]]:
             if scheme in _required(r) and not chain_has(inputs.model, r.chain, "HTTPSRedirectMiddleware")
         ]
 
-    return check
+    return _production_only(check)
 
 
 def _unsecured_writes(inputs: Inputs) -> list[Violation]:

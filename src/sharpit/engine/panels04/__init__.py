@@ -9,11 +9,15 @@ from . import (
     database_advisor,
     fastapi,
     fastapi_security,
+    metrics,
     mysql,
     postgresql,
+    profile_diff,
+    scheduled,
     security,
     security_logs,
     sqlalchemy_statistics,
+    startup,
     traces,
     transactions,
 )
@@ -31,6 +35,10 @@ IMPLEMENTED = {
     "sqlalchemy-statistics": sqlalchemy_statistics.IMPLEMENTED,
     "fastapi-security": fastapi_security.IMPLEMENTED,
     "fastapi": fastapi.IMPLEMENTED,
+    "metrics": metrics.IMPLEMENTED,
+    "startup": startup.IMPLEMENTED,
+    "profile-diff": profile_diff.IMPLEMENTED,
+    "scheduled": scheduled.IMPLEMENTED,
 }
 PANEL_04_IDS = tuple(IMPLEMENTED)
 # panels with per-panel route/tool modules (fastapi/routes/<id>.py, engine/tools04/<id>.py): every 0.4 id plus the

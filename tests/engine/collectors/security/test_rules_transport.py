@@ -12,6 +12,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from fastapi import Depends, FastAPI
+from sharpit.engine.collectors.security import View
 
 RuleRun = Callable[..., list[tuple[str, str]]]
 LONG_SECRET = "x" * 40
@@ -41,10 +42,11 @@ def _targets(found: list[tuple[str, str]]) -> list[str]:
 
 
 def test_session_cookie_without_https_only(run_rule: RuleRun):
-    # ported: SecurityRulesTests.sessionCookieSecureFlag
+    # ported: SecurityRulesTests.sessionCookieSecureReviewsProductionWithoutDirectTls
     plain = _app((SessionMiddleware, {"secret_key": LONG_SECRET}))
     secure = _app((SessionMiddleware, {"secret_key": LONG_SECRET, "https_only": True}))
-    found = [_targets(run_rule("SEC-SESSION-002", app)) for app in (plain, secure)]
+    assert _targets(run_rule("SEC-SESSION-002", plain)) == []
+    found = [_targets(run_rule("SEC-SESSION-002", app, view=View(production=True))) for app in (plain, secure)]
     assert found == [["SessionMiddleware"], []]
 
 
@@ -69,7 +71,7 @@ def test_session_secret_message_has_no_secret(run_rule: RuleRun):
 
 
 def test_cors_wildcard_without_credentials(run_rule: RuleRun):
-    # ported: SecurityRulesTests.corsWildcardOriginWithoutCredentials
+    # derived: SecurityRulesTests.corsWildcardOriginWithoutCredentials
     wildcard = _app((CORSMiddleware, {"allow_origins": ["*"]}))
     credentialed = _app((CORSMiddleware, {"allow_origins": ["*"], "allow_credentials": True}))
     listed = _app((CORSMiddleware, {"allow_origins": ["https://app.example"]}))
@@ -78,7 +80,7 @@ def test_cors_wildcard_without_credentials(run_rule: RuleRun):
 
 
 def test_cors_wildcard_with_credentials(run_rule: RuleRun):
-    # ported: SecurityRulesTests.corsWildcardWithCredentials
+    # derived: SecurityRulesTests.corsWildcardWithCredentials
     credentialed = _app((CORSMiddleware, {"allow_origins": ["*"], "allow_credentials": True}))
     wildcard = _app((CORSMiddleware, {"allow_origins": ["*"]}))
     found = [_targets(run_rule("SEC-CORS-002", app)) for app in (credentialed, wildcard)]
@@ -106,7 +108,8 @@ def test_openid_connect_url_over_http(run_rule: RuleRun):
     remote = _schemed(OpenIdConnect(openIdConnectUrl="http://idp.example/.well-known/openid-configuration"))
     loopback = _schemed(OpenIdConnect(openIdConnectUrl="http://localhost:8080/.well-known/openid-configuration"))
     secure = _schemed(OpenIdConnect(openIdConnectUrl="https://idp.example/.well-known/openid-configuration"))
-    found = [_targets(run_rule("SEC-OAUTH-004", app)) for app in (remote, loopback, secure)]
+    assert _targets(run_rule("SEC-OAUTH-004", remote)) == []
+    found = [_targets(run_rule("SEC-OAUTH-004", app, view=View(production=True))) for app in (remote, loopback, secure)]
     assert found == [["OpenIdConnect openIdConnectUrl"], [], []]
 
 
@@ -114,7 +117,9 @@ def test_oauth2_flow_url_over_http(run_rule: RuleRun):
     scheme = OAuth2AuthorizationCodeBearer(
         authorizationUrl="http://idp.example/authorize", tokenUrl="token", refreshUrl="https://idp.example/refresh"
     )
-    found = _targets(run_rule("SEC-OAUTH-006", _schemed(scheme)))
+    app = _schemed(scheme)
+    assert _targets(run_rule("SEC-OAUTH-006", app)) == []
+    found = _targets(run_rule("SEC-OAUTH-006", app, view=View(production=True)))
     assert found == ["OAuth2AuthorizationCodeBearer authorizationUrl"]
 
 

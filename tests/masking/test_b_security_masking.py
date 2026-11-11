@@ -64,6 +64,8 @@ def _mcp(client: TestClient, name: str, arguments: dict[str, Any]) -> str:
 
 def test_violation_never_contains_literal_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _package(tmp_path, monkeypatch)
+    # SEC-OAUTH-004 fires only under a production-like profile (BootUI's gate); enabled="ON" keeps sharpit active.
+    monkeypatch.setenv("APP_ENV", "prod")
     app = _app()
     install(
         app,

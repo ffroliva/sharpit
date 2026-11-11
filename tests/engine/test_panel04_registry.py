@@ -18,6 +18,10 @@ ALL_PANEL_IDS = {
     "sqlalchemy-statistics",
     "fastapi-security",
     "fastapi",
+    "metrics",
+    "startup",
+    "profile-diff",
+    "scheduled",
 }
 
 

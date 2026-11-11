@@ -7,6 +7,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- BootUI 2.3.0 parity tests for the security advisor rules with location-only assertions and leak prevention.
+- Production-gated the five security rules BootUI suppresses outside production and added a partial local JWT audience check.
+- BootUI 2.3.0 parity tests and tracker markers for architecture advisor rules (`ARCH-*`) in `tests/parity/test_rules_architecture_23.py`.
+- Architecture rules ARCH-CODE-009 (uses of PEP 702 deprecated application symbols, incl. same-module and relative imports) and ARCH-SPRING-015 (mutable pydantic `BaseSettings` fields, per field, subclasses included), Python analogues of BootUI's rules.
 - BootUI 2.3.0 rule markers and source citations for existing REST API fire/pass tests.
 - BootUI 2.3.0 REST API rule parity tests (`tests/parity/test_rules_rapi_23.py`): fire and pass cases per rule, 2.3.0 severities, handler locations, and a planted-secret leak test.
 - REST API RAPI-VER-001 no longer counts generated documentation routes (`/v3/api-docs`, `swagger-ui`) as API handlers (BootUI 2.3.0 `isNonApiEndpoint`).
@@ -18,6 +22,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Live BootUI 2.3.0 capture runner (`scripts/capture_bootui_live.py`) with a hard allow-list covering advisor scans and database reads, forbidding raw reveals and destructive actions, and recording uncaptured endpoints with status.
 - Machine values leak gate generator (`scripts/dev/machine_values.py`) collecting workstation identifiers and environment secrets to gate fixture commits via `scripts/ci/artifact_scan.py --values-file`.
 - Sanitised BootUI 2.3.0 live goldens with route completeness and empty-list metadata.
+
+- A bounded in-memory runtime journal behind a `JournalSink` port (`NULL_SINK` when off), with the
+  `runtime-journal.enabled/max-events/max-bytes/queue-capacity/sources` settings (BootUI defaults; `max-bytes` is a
+  fixed 32 MiB), drop counters by source, read-time masking, and a live `GET /activity/journal` status. It is a
+  capture-hook registry entry (`runtime-journal`): suspending it refuses events and counts them.
 
 ### Changed
 

@@ -73,6 +73,11 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_THREADS_MAX_STACK_FRAMES` | `threads_max_stack_frames` | `64` | max stack frames per thread or task |
 | `SHARPIT_ADVISORS_MAX_RETAINED_VIOLATIONS` | `advisors_max_retained_violations` | `10000` | max retained violations per advisor scan |
 | `SHARPIT_STREAM_MAX_SECONDS` | `stream_max_seconds` | `3s` | duration before closing and rotating SSE streams |
+| `SHARPIT_RUNTIME_JOURNAL_ENABLED` | `runtime_journal_enabled` | `true` | keep the in-memory runtime journal; `false` allocates nothing |
+| `SHARPIT_RUNTIME_JOURNAL_MAX_EVENTS` | `runtime_journal_max_events` | `50000` | events the journal retains |
+| `SHARPIT_RUNTIME_JOURNAL_MAX_BYTES` | `runtime_journal_max_bytes` | `32MB` | estimated bytes the retained events may use (`B`, `KB`, `MB`, `GB`) |
+| `SHARPIT_RUNTIME_JOURNAL_QUEUE_CAPACITY` | `runtime_journal_queue_capacity` | `10000` | parsed for BootUI parity; unused, since sharpit records in the caller's thread with no queue |
+| `SHARPIT_RUNTIME_JOURNAL_SOURCES` | `runtime_journal_sources` | every source | comma-separated BootUI journal sources to record (`http`, `sql`, `log`, ...); a list naming an unknown source is ignored whole (every source) with a warning |
 | `SHARPIT_SECURITY_LOGS_MAX_LOGS` | `security_logs_max_logs` | `500` | authentication and authorization audit events kept by the Security Logs panel |
 | `SHARPIT_TRANSACTIONS_ENABLED` | `transactions_enabled` | `true` | capture SQLAlchemy transactions for the Transactions panel |
 | `SHARPIT_TRANSACTIONS_RECORDING` | `transactions_recording` | `true` | initial transaction recording state |

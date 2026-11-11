@@ -119,6 +119,7 @@ TIMING_MODULES = (
     "test_traces_overhead.py",
     "test_transactions_overhead.py",  # lane R-transactions
     "test_sink_overhead.py",  # lane P-sink-mask-memo
+    "test_journal.py",  # lane W5a-J: the journal append budgets
 )  # every module that times a budget (tests/test_overhead_harness.py keeps this complete)
 
 

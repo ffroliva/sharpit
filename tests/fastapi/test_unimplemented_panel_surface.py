@@ -25,6 +25,10 @@ ALL_PANEL_IDS = {
     "sqlalchemy-statistics",
     "fastapi-security",
     "fastapi",
+    "metrics",
+    "startup",
+    "profile-diff",
+    "scheduled",
 }
 EXPECTED_IDS = {panel_id for panel_id, implemented in ALL_IMPLEMENTED.items() if not implemented}
 PANEL_IDS = EXPECTED_IDS  # whichever 0.4 panels are still unimplemented: flip-safe

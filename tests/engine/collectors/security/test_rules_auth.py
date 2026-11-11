@@ -13,6 +13,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from fastapi import Depends, FastAPI, Security
+from sharpit.engine.collectors.security import View
 
 RuleRun = Callable[..., list[tuple[str, str]]]
 
@@ -48,16 +49,22 @@ def _with(scheme: Any, *, method: str = "get", path: str = "/items", https: bool
 
 
 def test_http_basic_without_https(run_rule: RuleRun):
-    # ported: SecurityRulesTests.basicAuthWithoutTls
-    found = [_targets(run_rule("SEC-AUTH-007", _with(HTTPBasic(), https=h))) for h in (False, True)]
-    assert found == [["GET /items"], []]
+    # ported: SecurityRulesTests.basicAuthWithoutTlsFiresInProduction
+    # ported: SecurityRulesTests.basicAuthWithoutTlsIsIgnoredOutsideProduction
+    app = _with(HTTPBasic())
+    assert _targets(run_rule("SEC-AUTH-007", app)) == []
+    assert _targets(run_rule("SEC-AUTH-007", app, view=View(production=True))) == ["GET /items"]
+    assert _targets(run_rule("SEC-AUTH-007", _with(HTTPBasic(), https=True), view=View(production=True))) == []
 
 
 def test_password_form_login_without_https(run_rule: RuleRun):
-    # ported: SecurityRulesTests.formLoginWithoutTls
+    # ported: SecurityRulesTests.formLoginWithoutTlsFiresInProduction
+    # ported: SecurityRulesTests.formLoginWithoutTlsIsIgnoredOutsideProduction
     bearer = OAuth2PasswordBearer(tokenUrl="token")
-    found = [_targets(run_rule("SEC-AUTH-010", _with(bearer, https=h))) for h in (False, True)]
-    assert found == [["GET /items"], []]
+    app = _with(bearer)
+    assert _targets(run_rule("SEC-AUTH-010", app)) == []
+    assert _targets(run_rule("SEC-AUTH-010", app, view=View(production=True))) == ["GET /items"]
+    assert _targets(run_rule("SEC-AUTH-010", _with(bearer, https=True), view=View(production=True))) == []
 
 
 def _scoped_app() -> FastAPI:
@@ -75,7 +82,7 @@ def _scoped_app() -> FastAPI:
 
 
 def test_unsecured_write_route_in_a_secured_app(run_rule: RuleRun):
-    # ported: SecurityRulesTests.missingAuthorizationFilter (INFO in Python: public write routes can be intended)
+    # derived: SecurityRulesTests.missingAuthorizationFilter (INFO in Python: public write routes can be intended)
     assert _targets(run_rule("SEC-AUTHZ-001", _scoped_app())) == ["POST /public"]
 
 
@@ -87,7 +94,8 @@ def test_scopes_floor_and_newest_classify_same(run_rule: RuleRun):
 
 
 def test_blanket_permit_all(run_rule: RuleRun):
-    # ported: SecurityScannerTests.blanketPermitAllRequiresEveryBoundedPathProbeToBeGranted (static: no route secured)
+    # ported: SecurityScannerTests.blanketPermitAllRequiresEveryBoundedPathProbeToBeGranted
+    # (static: no route secured)
     open_app = FastAPI()
     open_app.add_api_route("/items", _never, methods=["GET", "POST"])
     found = [_targets(run_rule("SEC-AUTHZ-002", app)) for app in (open_app, _scoped_app())]
@@ -107,7 +115,7 @@ def test_wrapped_host_and_static_files_are_never_called_permit_all(run_rule: Rul
 
 
 def test_csrf_for_cookie_credentials(run_rule: RuleRun):
-    # ported: SecurityRulesTests.csrfDisabledStateful
+    # derived: SecurityRulesTests.csrfDisabledStateful
     cookie = APIKeyCookie(name="session")
     unprotected = _with(cookie, method="post")
     protected = _with(cookie, method="post")
@@ -118,7 +126,7 @@ def test_csrf_for_cookie_credentials(run_rule: RuleRun):
 
 
 def test_csrf_for_http_basic(run_rule: RuleRun):
-    # ported: SecurityRulesTests.csrfGloballyDisabled (HTTP Basic credentials are resent by browsers)
+    # derived: SecurityRulesTests.csrfGloballyDisabled (HTTP Basic credentials are resent by browsers)
     found = [_targets(run_rule("SEC-CSRF-002", _with(HTTPBasic(), method=m))) for m in ("put", "get")]
     assert found == [["PUT /items"], []]
 
