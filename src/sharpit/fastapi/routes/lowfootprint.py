@@ -33,7 +33,7 @@ def _panel_error(ctx: Any, *, action: bool = False) -> Response | None:
 async def _enabled(request: Request) -> bool | Response:
     try:
         raw_body = await request.json()
-    except (ValueError, UnicodeDecodeError):
+    except ValueError:  # UnicodeDecodeError is a ValueError
         return error(400, "Invalid request body")
     if not isinstance(raw_body, dict):
         return error(400, "enabled must be a boolean")
