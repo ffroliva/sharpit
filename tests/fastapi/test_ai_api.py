@@ -25,20 +25,14 @@ def _client(**kwargs: Any) -> TestClient:
     return TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
 
 
-def test_ai_overview_without_sdk_is_empty(monkeypatch: pytest.MonkeyPatch):
-    # ported: AiControllerTests.overviewIsEmptyWhenNoSpans
-    monkeypatch.setattr(otel, "otel_sdk", lambda: None)
-    with _client() as client:
-        response = client.get(f"{API}/ai/overview")
-    assert response.status_code == 200
-    assert response.json() == json.loads((FIXTURES / "overview.captured.json").read_text(encoding="utf-8"))
-
-
 def test_ai_overview_golden_shape_23():
+    # ported: AiControllerTests.overviewIsEmptyWhenNoSpans
+    golden = json.loads((FIXTURES / "overview.captured.json").read_text(encoding="utf-8"))
     with _client() as client:
         response = client.get(f"{API}/ai/overview")
     assert response.status_code == 200
-    assert list(response.json()) == list(json.loads((FIXTURES / "overview.captured.json").read_text(encoding="utf-8")))
+    assert response.json() == golden
+    assert list(response.json()) == list(golden)
 
 
 def test_ai_tokens_golden_shape_23():
@@ -145,3 +139,68 @@ def test_ai_spans_recorded_with_ai_panel_disabled():
         response = client.get(f"{API}/traces")
     assert response.status_code == 200
     assert response.json()["traces"][0]["hasAi"] is True
+
+
+CONTENT_ATTRIBUTES = {
+    "spring.ai.tool.call.arguments": "PROMPTLEAK1",
+    "GEN_AI.PROMPT": "PROMPTLEAK2",
+    "spring.ai.tool.call.result": "PROMPTLEAK3",
+    "input.value": "PROMPTLEAK4",
+    "output.value": "PROMPTLEAK5",
+    "traceloop.entity.input": "PROMPTLEAK6",
+    "traceloop.entity.output": "PROMPTLEAK7",
+}
+CONTENT_EVENT_ATTRIBUTES = {"content": "PROMPTLEAK8", "gen_ai.event.content": "PROMPTLEAK9"}
+
+
+@pytest.mark.parametrize(
+    "canary", [*CONTENT_ATTRIBUTES.values(), *CONTENT_EVENT_ATTRIBUTES.values()], ids=lambda canary: canary
+)
+def test_ai_chat_detail_hides_content_under_masked(canary: str):
+    # finding W7-A r2 #1: BootUI's spring.ai tool keys, keys matched case-insensitively, and the OpenInference,
+    # Traceloop and span-event content keys (D-A1, stricter than BootUI) are hidden unless FULL
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, expose_values="MASKED")
+    span_buffer(handle.context).add(
+        SimpleNamespace(
+            context=SimpleNamespace(trace_id=1, span_id=1),
+            parent=None,
+            name="chat",
+            kind=SimpleNamespace(name="CLIENT"),
+            resource=SimpleNamespace(attributes={"service.name": "api"}),
+            instrumentation_scope=SimpleNamespace(name="openai"),
+            start_time=1_000,
+            end_time=2_000,
+            status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET"), description=None),
+            attributes={"gen_ai.operation.name": "chat", **CONTENT_ATTRIBUTES},
+            events=[SimpleNamespace(name="gen_ai.user.message", timestamp=1_500, attributes=CONTENT_EVENT_ATTRIBUTES)],
+        )
+    )
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        response = client.get(f"{API}/ai/chats/{1:016x}")
+    assert response.status_code == 200
+    assert canary not in response.text
+
+
+def test_ai_journal_attached_whichever_route_is_built_first():
+    # finding W7-A r2 #3: the AI route used to build the shared buffer without the journal hook
+    from sharpit.fastapi.routes import ai, traces
+
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, runtime_journal_sources=("ai",))
+    ctx = handle.context
+    ctx._cache.pop("traces.buffer")  # pyright: ignore[reportPrivateUsage] - replay a build where the AI route goes first
+    ai.build_routes(ctx)
+    traces.build_routes(ctx)
+    span_buffer(ctx).add(
+        SimpleNamespace(
+            context=SimpleNamespace(trace_id=1, span_id=1),
+            kind=SimpleNamespace(name="INTERNAL"),
+            name="chat",
+            status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET")),
+            attributes={"gen_ai.operation.name": "chat"},
+        )
+    )
+    journal = ctx.capture.journal
+    assert journal is not None
+    assert len(journal.records("ai")) == 1

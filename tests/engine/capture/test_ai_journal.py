@@ -65,8 +65,8 @@ def test_ai_journal_event_is_metadata_only():
     assert record["operation"] == "chat"
     assert record["provider"] == "openai"
     assert record["model"] == "gpt-test"
-    assert record["inputTokens"] == "******"
-    assert record["outputTokens"] == "******"
+    assert record["inputTokens"] == 7  # finding W7-A r2 #2: AiPayload keeps token counts numeric
+    assert record["outputTokens"] == 5
     assert record["failed"] is False
     assert record["codePathStamp"] == 0
     assert "prompt canary must not enter the journal" not in str(record)
@@ -84,3 +84,16 @@ def test_ai_journal_finish_reason_normalised():
     records = _records(("ai",))
     assert len(records) == 1
     assert records[0]["finishReason"] == "stop"
+
+
+def test_journal_keeps_only_the_ai_token_counts_numeric():
+    from sharpit.engine.capture.journal import RuntimeJournal
+
+    journal = RuntimeJournal(sources=("ai", "sql"))
+    journal.offer({"source": "ai", "inputTokens": "sk-text", "outputTokens": 5, "totalTokens": 12})
+    journal.offer({"source": "sql", "inputTokens": 7})
+    ai_record, sql_record = journal.records("ai")[0], journal.records("sql")[0]
+    assert ai_record["inputTokens"] == "******"
+    assert ai_record["outputTokens"] == 5
+    assert ai_record["totalTokens"] == "******"
+    assert sql_record["inputTokens"] == "******"
