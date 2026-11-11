@@ -217,6 +217,7 @@ def test_a_kind_that_raises_is_unavailable_and_the_others_still_run() -> None:
     journal = _journal()
     journal.offer(AI)
     kinds = [FakeKind(kind="a", evaluate=boom), FakeKind(kind="b", evaluate=lambda _s: Evaluation(2, []))]
-    a, b = InsightsService(journal, kinds).report()["checks"]
+    checks = InsightsService(journal, kinds).report()["checks"]
+    a, b = checks[0], checks[1]
     assert (a["status"], a["reason"]) == ("UNAVAILABLE", "This observation could not be evaluated.")
     assert (b["status"], b["eligibleRequests"]) == ("EVALUATED", 2)
