@@ -10,7 +10,11 @@ import pytest
 
 from sharpit.engine.collectors.agentsessions import AgentSessionSettings, Layout, SessionStore
 from sharpit.engine.collectors.agentsessions.parser import parse_session
-from sharpit.engine.collectors.agentsessions.store import _check_candidate_file, _is_confined
+from sharpit.engine.collectors.agentsessions.store import (
+    _check_candidate_file,
+    _is_confined,
+    _scan_claude_candidates,
+)
 
 
 def test_refresh_parses_only_most_recently_modified_sessions(tmp_path: Path) -> None:
@@ -458,3 +462,21 @@ def test_session_store_reads_under_lock(tmp_path: Path) -> None:
     store._sessions = GuardedDict(real_sessions)
     store.sessions()
     assert lock_held_during_values is True, "store.sessions() must take snapshot while holding store._lock"
+
+
+def test_claude_project_dir_internal_junction_refused(tmp_path: Path) -> None:
+    # An internal junction resolves inside the root, so only the junction check refuses it.
+    if sys.platform != "win32":
+        pytest.skip("Windows junctions only supported on Windows")
+    import _winapi
+
+    real_proj = tmp_path / "real_proj"
+    real_proj.mkdir()
+    (real_proj / "session.jsonl").write_text(
+        '{"type":"assistant","timestamp":"2026-05-28T10:00:00Z"}\n', encoding="utf-8"
+    )
+    _winapi.CreateJunction(str(real_proj), str(tmp_path / "link_proj"))
+
+    # Sessions are keyed by file stem, so the store total would hide a duplicate; check the scan.
+    candidates = _scan_claude_candidates(tmp_path, 32 * 1024 * 1024)
+    assert [c[1] for c in candidates] == [real_proj / "session.jsonl"]
