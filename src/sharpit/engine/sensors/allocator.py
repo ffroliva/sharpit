@@ -51,25 +51,25 @@ class MonitoringTool:
             if self.monitoring.get_tool(self.tool_id) != "sharpit":
                 self._claimed.discard(self.tool_id)
                 return
-            errors: list[BaseException] = []
+            errors: list[Exception] = []
             try:
                 self.monitoring.set_events(self.tool_id, 0)
-            except BaseException as error:
+            except Exception as error:
                 errors.append(error)
             for event in self._events:
                 try:
                     self.monitoring.register_callback(self.tool_id, event, None)
-                except BaseException as error:
+                except Exception as error:
                     errors.append(error)
             clear_tool_id = getattr(self.monitoring, "clear_tool_id", None)
             if clear_tool_id is not None:
                 try:
                     clear_tool_id(self.tool_id)
-                except BaseException as error:
+                except Exception as error:
                     errors.append(error)
             try:
                 self.monitoring.free_tool_id(self.tool_id)
-            except BaseException as error:
+            except Exception as error:
                 errors.append(error)
             finally:
                 self._claimed.discard(self.tool_id)
