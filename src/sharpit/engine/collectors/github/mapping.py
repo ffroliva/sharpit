@@ -7,6 +7,7 @@ title or label never reaches the panel (proposed deviation P-G1: BootUI shows fe
 from __future__ import annotations
 
 import math
+import re
 import time
 from collections.abc import Callable, Iterable
 from datetime import datetime
@@ -39,20 +40,55 @@ def text(node: Json, name: str) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
-_LONG_MIN = -(2**63)
-_LONG_MAX = 2**63 - 1
+_LONG = (-(2**63), 2**63 - 1)
+_INT = (-(2**31), 2**31 - 1)
+_INTEGER = re.compile(r"-?\d+")
+
+
+def _coerce(value: object, bounds: tuple[int, int]) -> int | None:
+    """Jackson 3.1.7 numeric coercion (probed against jackson-databind 3.1.7): an in-range number, a fraction
+    truncated, or an integer string; anything else (out of range, boolean, container, other text) is ``None``."""
+    low, high = bounds
+    number: int | None = None
+    if isinstance(value, float) and math.isfinite(value) and low <= value <= high:
+        number = min(high, int(value))
+    elif isinstance(value, int) and not isinstance(value, bool):
+        number = value
+    elif isinstance(value, str) and _INTEGER.fullmatch(value):
+        number = int(value)
+    return number if number is not None and low <= number <= high else None
 
 
 def as_long(node: Json, name: str, default: int) -> int:
-    """Jackson ``asLong(default)`` for numbers, saturated like Java's ``(long)`` cast; anything else is ``default``."""
+    """Jackson 3 ``asLong(default)``: ``default`` for a missing, null, non-numeric or out-of-long-range value."""
+    number = _coerce(field(node, name), _LONG)
+    return default if number is None else number
+
+
+def as_int(node: Json, name: str, default: int) -> int:
+    """Jackson 3 ``asInt(default)``, the int-range twin of ``as_long``."""
+    number = _coerce(field(node, name), _INT)
+    return default if number is None else number
+
+
+def _strict(node: Json, name: str, bounds: tuple[int, int]) -> int:
+    """Jackson 3 ``asLong()``/``asInt()`` with no default: 0 for missing or null; any other value that does not
+    coerce throws, as ``JsonNodeException`` does in BootUI (it escapes the refresh; sharpit reports ERROR)."""
     value = field(node, name)
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return default
-    if isinstance(value, float) and math.isnan(value):
+    if value is None:
         return 0
-    if isinstance(value, float) and math.isinf(value):
-        return _LONG_MAX if value > 0 else _LONG_MIN
-    return max(_LONG_MIN, min(_LONG_MAX, int(value)))
+    number = _coerce(value, bounds)
+    if number is None:
+        raise ValueError(f"GitHub field {name} is not a number")  # the value itself is never put in the text
+    return number
+
+
+def strict_long(node: Json, name: str) -> int:
+    return _strict(node, name, _LONG)
+
+
+def strict_int(node: Json, name: str) -> int:
+    return _strict(node, name, _INT)
 
 
 def nullable(value: int) -> int | None:
@@ -154,7 +190,7 @@ def _labels(node: Json, scrub: Scrub) -> list[str | None]:
 def pull_requests(root: Json, scrub: Scrub) -> list[dict[str, Any]]:
     return [
         {
-            "number": as_long(item, "number", 0),
+            "number": strict_int(item, "number"),
             "title": scrub(text(item, "title")),
             "author": scrub(text(field(item, "user"), "login")),
             "draft": field(item, "draft") is True,
@@ -180,7 +216,7 @@ def workflow_runs(root: Json, scrub: Scrub) -> list[dict[str, Any]]:
         started = instant_ms(text(item, "run_started_at"))
         runs.append(
             {
-                "id": as_long(item, "id", 0),
+                "id": strict_long(item, "id"),
                 "workflowId": nullable(as_long(item, "workflow_id", -1)),
                 "name": scrub(text(item, "name")),
                 "displayTitle": scrub(text(item, "display_title")),
@@ -237,7 +273,7 @@ def workflows(root: Json, html_url: str, runs: list[dict[str, Any]], scrub: Scru
     latest = _latest((run["workflowId"], run) for run in runs if run["workflowId"] is not None)
     rows: list[dict[str, Any]] = []
     for item in items(field(root, "workflows")):
-        workflow_id = as_long(item, "id", 0)
+        workflow_id = strict_long(item, "id")
         rows.append(
             {
                 "id": workflow_id,
@@ -276,13 +312,13 @@ def issue_buckets(root: Json) -> list[dict[str, Any]]:
 def issues(root: Json, scrub: Scrub) -> list[dict[str, Any]]:
     return [
         {
-            "number": as_long(item, "number", 0),
+            "number": strict_int(item, "number"),
             "title": scrub(text(item, "title")),
             "author": scrub(text(field(item, "user"), "login")),
             "htmlUrl": scrub(text(item, "html_url")),
             "createdAt": instant_ms(text(item, "created_at")),
             "updatedAt": instant_ms(text(item, "updated_at")),
-            "comments": as_long(item, "comments", 0),
+            "comments": as_int(item, "comments", 0),
             "labels": _labels(field(item, "labels"), scrub),
         }
         for item in _issues_only(root)
@@ -299,7 +335,7 @@ def dependabot_alerts(root: Json, limit: int, scrub: Scrub) -> list[dict[str, An
         severity = text(vulnerability, "severity")
         alerts.append(
             {
-                "number": as_long(item, "number", 0),
+                "number": strict_int(item, "number"),
                 "state": scrub(text(item, "state")),
                 "packageName": scrub(text(package, "name")),
                 "ecosystem": scrub(text(package, "ecosystem")),

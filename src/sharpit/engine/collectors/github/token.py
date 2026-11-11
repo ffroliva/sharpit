@@ -5,7 +5,7 @@ the refresh action, never from a read. The token value never reaches a DTO, an e
 
 Beyond BootUI: ``gh`` is resolved to an absolute path from absolute ``PATH`` entries only, and never inside the working
 directory (the app's own tree), so a ``gh`` planted in the project is not run (Windows searches the cwd first); its
-output is read bounded, and a hung ``gh`` is killed at the timeout.
+output is read bounded in a daemon thread abandoned at the timeout, and ``gh`` and its children are killed.
 """
 
 from __future__ import annotations
@@ -13,7 +13,9 @@ from __future__ import annotations
 import contextlib
 import os
 import shutil
+import signal
 import subprocess
+import sys
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -52,6 +54,16 @@ def resolve_token(
     return _gh_token(gh, safe_timeout(timeout), run or subprocess.Popen)
 
 
+def _plain(path: str) -> Path:
+    """``path`` resolved, with a Windows extended-length prefix (``\\\\?\\``, ``\\\\?\\UNC\\``) removed, so it
+    compares equal to the same directory written plainly."""
+    if path.startswith("\\\\?\\UNC\\"):
+        path = "\\\\" + path[8:]
+    elif path.startswith("\\\\?\\"):
+        path = path[4:]
+    return Path(path).resolve()
+
+
 def _inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
 
@@ -59,7 +71,7 @@ def _inside(path: Path, root: Path) -> bool:
 def find_gh(search_path: str) -> str | None:
     """The first ``gh`` on the absolute ``PATH`` entries that is not inside the working directory."""
     try:
-        cwd = Path.cwd().resolve()
+        cwd = _plain(os.getcwd())
     except OSError:
         return None
     for entry in search_path.split(os.pathsep):
@@ -68,14 +80,41 @@ def find_gh(search_path: str) -> str | None:
         # a directory part makes shutil.which look only there (no implicit cwd on Windows), PATHEXT still applies
         found = shutil.which(os.path.join(entry, "gh"))
         try:
-            if found is not None and not _inside(Path(found).resolve(), cwd):
+            if found is not None and not _inside(_plain(found), cwd):
                 return found
         except OSError:
             continue
     return None
 
 
+def _kill_tree(proc: Any) -> None:
+    """Kill ``gh`` and anything it started (a ``gh.cmd`` shim's child holds stdout open past the shim's death)."""
+    if isinstance(proc, subprocess.Popen):
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            if sys.platform == "win32":
+                system = os.environ.get("SYSTEMROOT", "C:\\Windows")
+                taskkill = os.path.join(system, "System32", "taskkill.exe")  # absolute: never a planted taskkill
+                subprocess.run(  # noqa: S603 (absolute system taskkill, fixed arguments)
+                    [taskkill, "/T", "/F", "/PID", str(proc.pid)],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=DEFAULT_TIMEOUT,
+                    check=False,
+                )
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)  # gh was started in its own session (process group)
+    with contextlib.suppress(OSError):
+        proc.kill()
+
+
+def _read_output(proc: Any, box: list[bytes]) -> None:
+    with contextlib.suppress(OSError, ValueError):
+        box.append(bytes(proc.stdout.read(MAX_OUTPUT_BYTES + 1)))
+
+
 def _gh_token(gh: str, timeout: float, run: Runner) -> Token | None:
+    session = {} if sys.platform == "win32" else {"start_new_session": True}
     try:
         proc = run(
             [gh, "auth", "token"],
@@ -83,26 +122,28 @@ def _gh_token(gh: str, timeout: float, run: Runner) -> Token | None:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             shell=False,
+            **session,
         )
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    killer = threading.Timer(timeout, proc.kill)  # a hung gh is killed, which also ends the read below
-    killer.daemon = True
-    killer.start()
+    box: list[bytes] = []
+    # the read runs in a daemon thread: a pipe a grandchild keeps open cannot hold the refresh past the timeout
+    reader = threading.Thread(target=_read_output, args=(proc, box), name="sharpit-gh-token", daemon=True)
+    reader.start()
+    reader.join(timeout)
     try:
-        output = bytes(proc.stdout.read(MAX_OUTPUT_BYTES + 1))
-        if len(output) > MAX_OUTPUT_BYTES:
+        if reader.is_alive() or not box or len(box[0]) > MAX_OUTPUT_BYTES:
             return None
         if proc.wait(timeout) != 0:
             return None
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
     finally:
-        killer.cancel()
         if proc.poll() is None:
-            proc.kill()
+            _kill_tree(proc)
             with contextlib.suppress(OSError, subprocess.SubprocessError):
                 proc.wait(timeout)  # reap it
-        proc.stdout.close()
-    value = output.decode("utf-8", "replace").strip()
+        if not reader.is_alive():
+            proc.stdout.close()
+    value = box[0].decode("utf-8", "replace").strip()
     return Token(value, "gh auth token") if value else None

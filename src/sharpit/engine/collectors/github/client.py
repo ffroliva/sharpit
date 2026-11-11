@@ -195,7 +195,8 @@ class GitHubApiClient:
         deadline = self.clock() + REFRESH_DEADLINE
         token: Token | None = None
         try:
-            token = self._token(self.timeout)  # read only once the host is allowed: a blocked host never runs gh
+            # read only once the host is allowed (a blocked host never runs gh), within the refresh deadline
+            token = self._token(min(self.timeout, max(0.1, deadline - self.clock())))
             return _Refresh(self, repo, token, deadline).run(refreshed_at)
         except _Failed:
             return self.error(repo, refreshed_at, token, NETWORK_FAILED)
