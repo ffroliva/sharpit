@@ -34,6 +34,7 @@ from sharpit.engine.spi import (
     SecurityModel,
     SecurityScheme,
 )
+from sharpit.fastapi.capture import WrappingHandlers
 from sharpit.fastapi.introspection_common import (
     MAX_DEPTH,
 )
@@ -441,8 +442,8 @@ class FastApiIntrospector:
         # sharpit's exception capture wraps each handler: report the host's own function
         handler_map = cast(dict[object, object], handlers)
         names = (
-            tuple(_qualified(_attrs(h).get("__sharpit_original__", h)) for h in handler_map.values())
-            if type(handlers) is dict
+            tuple(_qualified(inspect.getattr_static(h, "__sharpit_original__", h)) for h in handler_map.values())
+            if type(handlers) is dict or type(handlers) is WrappingHandlers
             else ()
         )
         error_handlers, error_limitations = error_handler_infos(self.app, self.exclude_mount)

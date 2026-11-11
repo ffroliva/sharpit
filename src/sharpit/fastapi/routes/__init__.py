@@ -535,14 +535,12 @@ def _rest_api_routes(ctx: SharpitContext) -> list[BaseRoute]:
             return json_response({"error": str(exc)}, 400)
         introspector = cast(Any, ctx.introspector)
         reasons: list[str] = []
-        root = appsource.resolve_package_root(
+        root = appsource.resolve_app_root(
             introspector.app,
             sys.modules,
             app_package=settings.app_package,
             reasons=reasons,
         )
-        if root is not None and root.name == "__init__.py":
-            root = root.parent
         index = appsource.build_index(root) if root is not None else None
         model = getattr(introspector, "api_model")()  # noqa: B009 - the adapter model is duck-typed
         return json_response(error_contract_report(model, index, params.get("q"), offset, limit))

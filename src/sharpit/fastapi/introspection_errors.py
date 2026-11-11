@@ -15,35 +15,73 @@ from sharpit.fastapi.capture import WrappingHandlers
 from sharpit.fastapi.introspection_common import MAX_DEPTH, attrs
 
 
+def _safe_unwrap(handler: object) -> tuple[object, bool]:
+    orig = inspect.getattr_static(handler, "__sharpit_original__", None)
+    if orig is not None:
+        handler = orig
+    is_partial = False
+    seen: set[int] = {id(handler)}
+    for _ in range(MAX_DEPTH):
+        if type(handler) is functools.partial:
+            is_partial = True
+            handler = cast(Any, handler).func
+            if id(handler) in seen:
+                raise ValueError("wrapper loop")
+            seen.add(id(handler))
+            continue
+        if type(handler) is types.MethodType:
+            handler = cast(Any, handler).__func__
+            if id(handler) in seen:
+                raise ValueError("wrapper loop")
+            seen.add(id(handler))
+            continue
+        wrapped = inspect.getattr_static(handler, "__wrapped__", None)
+        if wrapped is not None:
+            if id(wrapped) in seen:
+                raise ValueError("wrapper loop")
+            if type(wrapped) in (types.FunctionType, types.MethodType, functools.partial):
+                seen.add(id(wrapped))
+                handler = wrapped
+                continue
+        break
+    return handler, is_partial
+
+
 def _handler_name(handler: object) -> tuple[str, bool]:
-    values = attrs(handler)
-    original = values.get("__sharpit_original__")
-    if original is not None:
-        handler = original
-    is_partial = type(handler) is functools.partial
-    while type(handler) is functools.partial:
-        handler = cast(Any, handler).func
-    if type(handler) is types.MethodType:
-        handler = cast(Any, handler).__func__
+    handler, is_partial = _safe_unwrap(handler)
+    if type(handler) in (types.FunctionType, types.BuiltinFunctionType):
+        func = cast(Any, handler)
+        module = getattr(func, "__module__", None)
+        qualname = getattr(func, "__qualname__", None)
+        mod_str = module if type(module) is str else "?"
+        qual_str = qualname if type(qualname) is str else "?"
+        return f"{mod_str}.{qual_str}", is_partial
     if type(handler) not in (types.FunctionType, types.BuiltinFunctionType, type):
         handler = type(handler)
-    if type(handler) is types.FunctionType:
-        function = cast(types.FunctionType, inspect.unwrap(handler))
-        return f"{function.__module__}.{function.__qualname__}", is_partial
-    handler_type = cast(type[Any], handler)
-    module = type.__getattribute__(handler_type, "__module__")
-    qualname = type.__getattribute__(handler_type, "__qualname__")
-    return f"{module if type(module) is str else '?'}.{qualname if type(qualname) is str else '?'}", is_partial
+    if isinstance(handler, type):
+        try:
+            module = type.__getattribute__(handler, "__module__")
+            qualname = type.__getattribute__(handler, "__qualname__")
+            mod_str = module if type(module) is str else "?"
+            qual_str = qualname if type(qualname) is str else "?"
+            return f"{mod_str}.{qual_str}", is_partial
+        except Exception:
+            return "UNRESOLVED", is_partial
+    return "UNRESOLVED", is_partial
 
 
 def _key(key: object) -> tuple[str | None, int | None]:
     if type(key) is int:
         return None, key
     if type(key) is type:
-        return (
-            f"{type.__getattribute__(key, '__module__')}.{type.__getattribute__(key, '__qualname__')}",
-            None,
-        )
+        try:
+            module = type.__getattribute__(key, "__module__")
+            qualname = type.__getattribute__(key, "__qualname__")
+            if type(module) is str and type(qualname) is str:
+                name = qualname if module == "builtins" else f"{module}.{qualname}"
+                return name, None
+        except Exception:
+            return None, None
     return None, None
 
 
@@ -60,8 +98,12 @@ def _handlers(app: object, scope: str, target: str | None) -> tuple[list[ErrorHa
         for key, handler in handler_map.items():
             try:
                 key_type, key_status = _key(key)
+                if key_type is None and key_status is None:
+                    limitations.append(f"An exception handler at {target or '/'} could not be inspected.")
                 row_scope = "SCOPED" if key_status is not None else scope
-                row_target = f"status={key_status}" if key_status is not None else target
+                row_target = (
+                    target if target is not None else (f"status={key_status}" if key_status is not None else None)
+                )
                 name, is_partial = _handler_name(handler)
                 rows.append(ErrorHandlerInfo(key_type, key_status, name, row_scope, row_target, is_partial))
             except Exception:  # noqa: BLE001 - one opaque host handler must not hide its siblings
@@ -69,6 +111,22 @@ def _handlers(app: object, scope: str, target: str | None) -> tuple[list[ErrorHa
         return rows, limitations
     except Exception:  # noqa: BLE001 - framework drift must not break the host app
         return [], [f"Exception handlers at {target or '/'} could not be inspected."]
+
+
+def _mount_entry(route: object, target: str | None, excluded: str) -> tuple[tuple[object, str] | None, str | None]:
+    if issubclass(type(route), Host):
+        return None, f"Host routes at {target or '/'} were not inspected."
+    if not issubclass(type(route), Mount):
+        return None, None
+    mount = attrs(route)
+    path = mount.get("path")
+    child = mount.get("_base_app") or mount.get("app")
+    if type(path) is not str or child is None:
+        return None, "A mounted application's exception handlers could not be inspected."
+    full_path = f"{target or ''}{path}"
+    if not excluded or full_path.rstrip("/") != excluded:
+        return (child, full_path or "/"), None
+    return None, None
 
 
 def _mounted_apps(
@@ -86,22 +144,11 @@ def _mounted_apps(
     children: list[tuple[object, str]] = []
     limitations: list[str] = []
     for route in route_items:
-        if issubclass(type(route), Host):
-            limitations.append(f"Host routes at {target or '/'} were not inspected.")
-            continue
-        if not issubclass(type(route), Mount):
-            continue
-        mount = attrs(route)
-        path = mount.get("path")
-        child = mount.get("_base_app")
-        if child is None:
-            child = mount.get("app")
-        if type(path) is not str or child is None:
-            limitations.append("A mounted application's exception handlers could not be inspected.")
-            continue
-        full_path = f"{target or ''}{path}"
-        if not excluded or full_path.rstrip("/") != excluded:
-            children.append((child, full_path or "/"))
+        entry, note = _mount_entry(route, target, excluded)
+        if note is not None:
+            limitations.append(note)
+        if entry is not None:
+            children.append(entry)
     return children, limitations
 
 

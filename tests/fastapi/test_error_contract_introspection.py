@@ -107,7 +107,7 @@ def test_error_contract_one_bad_handler_does_not_hide_its_siblings() -> None:
     app.exception_handlers[ValueError] = opaque_handler
     app.exception_handlers[LookupError] = valid_handler
     model = FastApiIntrospector(app).api_model()
-    assert any(handler.key_type == "builtins.LookupError" for handler in model.error_handlers)
+    assert any(handler.key_type == "LookupError" for handler in model.error_handlers)
     assert any("could not be inspected" in note for note in model.limitations)
 
 
@@ -121,9 +121,7 @@ def test_error_contract_exception_name_is_dotted() -> None:
     app.exception_handlers[CustomHostError] = lambda _request, _exc: None
     handlers = FastApiIntrospector(app).api_model().error_handlers
     assert any(handler.key_type == "ValueError" for handler in handlers)
-    assert any(
-        handler.key_type is not None and handler.key_type.endswith(".CustomHostError") for handler in handlers
-    )
+    assert any(handler.key_type is not None and handler.key_type.endswith(".CustomHostError") for handler in handlers)
 
 
 def test_error_contract_installed_app_still_reports_exception_handlers(tmp_path) -> None:
@@ -207,11 +205,7 @@ def test_error_contract_same_subapp_is_reported_at_each_mount() -> None:
     app = FastAPI()
     app.mount("/a", subapp)
     app.mount("/b", subapp)
-    mounts = [
-        h.scope_target
-        for h in FastApiIntrospector(app).api_model().error_handlers
-        if h.key_type == "builtins.ValueError"
-    ]
+    mounts = [h.scope_target for h in FastApiIntrospector(app).api_model().error_handlers if h.key_type == "ValueError"]
     assert mounts == ["/a", "/b"]
 
 
@@ -226,7 +220,7 @@ def test_error_contract_walks_router_mount_and_notes_host_routes() -> None:
     app.router.routes.append(Mount("/router", app=router))
     app.router.routes.append(Host("{sub}.example.org", app=Router()))
     model = FastApiIntrospector(app).api_model()
-    assert any(h.key_type == "builtins.ValueError" and h.scope_target == "/router/nested" for h in model.error_handlers)
+    assert any(h.key_type == "ValueError" and h.scope_target == "/router/nested" for h in model.error_handlers)
     assert any("Host routes" in limitation for limitation in model.limitations)
 
 
@@ -251,8 +245,8 @@ def test_installed_callable_instance_and_partial_handlers_are_reported(tmp_path)
     )
     try:
         handlers = FastApiIntrospector(app, exclude_mount="/sharpit").api_model().error_handlers
-        assert any(h.key_type == "builtins.ValueError" for h in handlers)
-        assert any(h.key_type == "builtins.LookupError" for h in handlers)
+        assert any(h.key_type == "ValueError" for h in handlers)
+        assert any(h.key_type == "LookupError" for h in handlers)
     finally:
         handle.uninstall_capture()
 
@@ -336,8 +330,8 @@ def test_error_contract_route_derives_body_from_source_index_without_inspect(tmp
     try:
         with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
             entries = client.get("/sharpit/api/rest-api/error-contract").json()["entries"]
-        assert any(item["exceptionType"] == "builtins.ValueError" for item in entries)
-        entry = next(item for item in entries if item["exceptionType"] == "builtins.ValueError")
+        assert any(item["exceptionType"] == "ValueError" for item in entries)
+        entry = next(item for item in entries if item["exceptionType"] == "ValueError")
         assert entry["bodyCategory"] == "CUSTOM_OBJECT"
     finally:
         handle.uninstall_capture()
@@ -357,8 +351,8 @@ def test_error_contract_route_keeps_partial_handler_unresolved(tmp_path) -> None
     try:
         with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
             entries = client.get("/sharpit/api/rest-api/error-contract").json()["entries"]
-        assert any(item["exceptionType"] == "builtins.ValueError" for item in entries)
-        entry = next(item for item in entries if item["exceptionType"] == "builtins.ValueError")
+        assert any(item["exceptionType"] == "ValueError" for item in entries)
+        entry = next(item for item in entries if item["exceptionType"] == "ValueError")
         assert entry["bodyCategory"] == "UNRESOLVED"
     finally:
         handle.uninstall_capture()

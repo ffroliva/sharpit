@@ -59,9 +59,6 @@ def _simple(name: str) -> str:
 
 
 def _split_handler(handler: str, index: SourceIndex | None) -> tuple[str, str]:
-    if ":" in handler:
-        module, qualname = handler.split(":", 1)
-        return module, qualname
     if index is not None:
         module = next(
             (name for name in sorted(index.modules, key=len, reverse=True) if handler.startswith(name + ".")), None
@@ -165,49 +162,73 @@ def _declaration(info: ErrorHandlerInfo, index: SourceIndex | None) -> tuple[str
     return status, status_source, category, body_type
 
 
+def _scope_rank(scope: str) -> int:
+    return 1 if scope == "SCOPED" else 2
+
+
+def _rank_group(
+    candidates: list[tuple[ErrorHandlerInfo, str, str, str]],
+    index: SourceIndex | None,
+) -> list[ErrorContractEntry]:
+    ordered = sorted(
+        candidates,
+        key=lambda c: (_scope_rank(c[0].scope), c[2], c[3]),
+    )
+    ranked: list[ErrorContractEntry] = []
+    i = 0
+    while i < len(ordered):
+        end = i + 1
+        while end < len(ordered) and _scope_rank(ordered[i][0].scope) == _scope_rank(ordered[end][0].scope):
+            end += 1
+        rank = i + 1
+        for pos in range(i, end):
+            info, exception_type, component, method = ordered[pos]
+            status, status_source, category, body_type = _declaration(info, index)
+            ranked.append(
+                ErrorContractEntry(
+                    f"{component}#{method}({exception_type})",
+                    exception_type,
+                    _simple(exception_type),
+                    component,
+                    _simple(component),
+                    method,
+                    "STARLETTE_EXCEPTION_HANDLER",
+                    info.scope,
+                    info.scope_target,
+                    rank,
+                    "DEFAULT",
+                    status,
+                    status_source,
+                    category,
+                    body_type,
+                    (),
+                )
+            )
+        i = end
+    return ranked
+
+
 def entries(model: ApiModel, index: SourceIndex | None) -> list[ErrorContractEntry]:
     """One sorted entry per declared key, with all handler details derived from source AST only."""
-    candidates: list[tuple[ErrorHandlerInfo, str]] = []
+    by_exception: dict[str, list[tuple[ErrorHandlerInfo, str, str, str]]] = {}
     for info in model.error_handlers:
-        module_name, _ = _split_handler(info.handler, None)
-        if module_name.split(".", 1)[0] in FRAMEWORK_MODULES:
+        component, method = _split_handler(info.handler, index)
+        if component.split(".", 1)[0] in FRAMEWORK_MODULES:
             continue
         exception_type = info.key_type or (f"status={info.key_status}" if info.key_status is not None else "unknown")
-        candidates.append((info, exception_type))
-    candidates.sort(
-        key=lambda pair: (
-            pair[1].rsplit(".", 1)[-1],
-            pair[1],
-            0 if pair[0].scope == "SCOPED" else 1,
-            pair[0].scope_target or "",
-            pair[0].handler,
+        by_exception.setdefault(exception_type, []).append((info, exception_type, component, method))
+    result: list[ErrorContractEntry] = []
+    for group in by_exception.values():
+        result.extend(_rank_group(group, index))
+    result.sort(
+        key=lambda entry: (
+            entry.exception_simple_name,
+            entry.exception_type,
+            entry.precedence,
+            entry.component,
+            entry.method,
         )
     )
-    result: list[ErrorContractEntry] = []
-    for info, exception_type in candidates:
-        precedence = 1 if info.scope == "SCOPED" else 2
-        status, status_source, category, body_type = _declaration(info, index)
-        component, method = _split_handler(info.handler, index)
-        result.append(
-            ErrorContractEntry(
-                f"{component}#{method}({exception_type})",
-                exception_type,
-                _simple(exception_type),
-                component,
-                _simple(component),
-                method,
-                "STARLETTE_EXCEPTION_HANDLER",
-                info.scope,
-                info.scope_target,
-                precedence,
-                "DEFAULT",
-                status,
-                status_source,
-                category,
-                body_type,
-                (),
-            )
-        )
     return result
 
 

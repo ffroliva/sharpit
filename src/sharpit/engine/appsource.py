@@ -124,6 +124,21 @@ def resolve_package_root(
     return root
 
 
+def resolve_app_root(
+    app: object,
+    modules: Mapping[str, object],
+    *,
+    app_package: str | None = None,
+    search_path: Sequence[object] = (),
+    reasons: list[str] | None = None,
+) -> Path | None:
+    """The app package directory (parent of ``__init__.py`` when seen as a file), or file for single-module apps."""
+    root = resolve_package_root(app, modules, app_package=app_package, search_path=search_path, reasons=reasons)
+    if root is not None and root.name == "__init__.py":
+        return root.parent
+    return root
+
+
 # ---- the bounded index -----------------------------------------------------------------------------------------
 
 
