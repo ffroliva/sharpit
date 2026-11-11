@@ -5,6 +5,7 @@ import dataclasses
 import datetime
 import decimal
 import importlib
+import json
 import pathlib
 import types
 import uuid
@@ -192,6 +193,27 @@ def is_provably_safe(annotation: object) -> bool:
     return bool(isinstance(annotation, type) and issubclass(annotation, Enum))
 
 
+_PLAIN: tuple[object, ...] = (str, int, float, bool, type(None))
+
+
+def compound_shape(annotation: object) -> tuple[bool, list[type[Enum]]]:
+    """For an allow-listed annotation: whether Configuration renders its value as compound text (anything but a plain
+    str/int/float/bool), and the Enum classes among its leaves (Configuration shows a member as ``Cls.NAME``)."""
+    origin = get_origin(annotation)
+    args = [a for a in get_args(annotation) if a is not Ellipsis]
+    if origin is Annotated:  # Json[...] and other metadata: checked as compound, the safe side
+        return True, compound_shape(args[0])[1] if args else []
+    if origin is Literal:
+        return False, []
+    if origin in (Union, types.UnionType, list, tuple, set, frozenset):
+        shapes = [compound_shape(a) for a in args]
+        enums = [e for _, es in shapes for e in es]
+        return origin not in (Union, types.UnionType) or any(c for c, _ in shapes), enums
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return True, [annotation]
+    return annotation not in _PLAIN, []
+
+
 def is_secret_scalar(annotation: object) -> bool:
     """Whether an annotation represents a plain secret scalar (SecretStr, SecretBytes, Secret[...])."""
     if annotation is None or annotation is type(None):
@@ -232,7 +254,10 @@ class ModelFieldRule:
     case_sensitive: bool = False
     is_safe: bool = False
     is_secret_scalar: bool = False
+    # every name the field answers to; may over-include env_prefix + fname on an aliased field (only masks more)
     names: set[str] = dataclasses.field(default_factory=set[str])
+    value_checked: bool = False  # allow-listed but compound: Configuration masks by the value's text
+    enums: list[type[Enum]] = dataclasses.field(default_factory=list[type[Enum]])
 
 
 @dataclass
@@ -263,6 +288,19 @@ class ProfileSourceDescriptor:
     def field_names(self, key: str) -> set[str]:
         """Every name the fields matching ``key`` answer to; Configuration masks by these, not the .env key."""
         return {name for rule, _ in self._matches(key) for name in rule.names}
+
+    def value_texts(self, key: str, value: str | None) -> list[str]:
+        """The texts Configuration's compound check sees for a compound allow-listed field; [] for a plain one."""
+        rules = [rule for rule, _ in self._matches(key) if rule.value_checked]
+        if not rules or value is None:
+            return []
+        tokens = {value}
+        with contextlib.suppress(ValueError, RecursionError):
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                tokens |= {str(item) for item in cast(list[object], parsed)}
+        members = [m for rule in rules for e in rule.enums for m in e if m.name in tokens or str(m.value) in tokens]
+        return [value, *(str(m) for m in members)]
 
 
 def parse_env(content: str) -> list[tuple[str, str | None]]:
@@ -310,6 +348,7 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
     for fname, field in cls.model_fields.items():
         is_safe = is_provably_safe(field.annotation)
         secret_scalar = is_secret_scalar(field.annotation)
+        value_checked, enums = compound_shape(field.annotation) if is_safe else (False, [])
 
         candidate_names: set[str] = set()
         candidate_names.add(fname)
@@ -355,6 +394,8 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
                 is_safe=is_safe,
                 is_secret_scalar=secret_scalar,
                 names=candidate_names,
+                value_checked=value_checked,
+                enums=enums,
             )
         )
 

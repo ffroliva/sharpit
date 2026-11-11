@@ -13,7 +13,7 @@ from sharpit.engine.collectors.config.settings_source import (
     parse_env,
 )
 from sharpit.engine.context import SharpitContext
-from sharpit.engine.masking import Exposure
+from sharpit.engine.masking import MASK, Exposure
 
 _MAX_ENV_FILE_SIZE = 256 * 1024  # 256 KiB cap
 _ENV_PROFILE_PREFIX = ".env."
@@ -65,11 +65,12 @@ def _source_properties(
         safety = descriptor.classify(key)
         if safety is KeySafety.SAFE:
             display_val, masked = _display(ctx, key, val, False)
-            # Configuration masks by the field's own names: mask if any of them masks
-            for name in sorted(descriptor.field_names(key)):
-                if masked:
-                    break
-                display_val, masked = _display(ctx, name, val, False)
+            # Configuration masks by the field's own names, and a compound value by its text: mask if any masks
+            if not masked and (
+                any(_display(ctx, name, val, False)[1] for name in descriptor.field_names(key))
+                or any(ctx.masker.mask(text, text)[1] for text in descriptor.value_texts(key, val))
+            ):
+                display_val, masked = MASK, True
         elif val is None or exposure is Exposure.METADATA_ONLY:
             display_val, masked = None, False
         elif exposure is Exposure.FULL and safety is KeySafety.UNSAFE_SCALAR:
