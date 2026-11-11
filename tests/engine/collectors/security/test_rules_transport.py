@@ -71,7 +71,7 @@ def test_session_secret_message_has_no_secret(run_rule: RuleRun):
 
 
 def test_cors_wildcard_without_credentials(run_rule: RuleRun):
-    # ported: SecurityRulesTests.corsWildcardOriginWithoutCredentials
+    # derived: SecurityRulesTests.corsWildcardOriginWithoutCredentials
     wildcard = _app((CORSMiddleware, {"allow_origins": ["*"]}))
     credentialed = _app((CORSMiddleware, {"allow_origins": ["*"], "allow_credentials": True}))
     listed = _app((CORSMiddleware, {"allow_origins": ["https://app.example"]}))
@@ -80,7 +80,7 @@ def test_cors_wildcard_without_credentials(run_rule: RuleRun):
 
 
 def test_cors_wildcard_with_credentials(run_rule: RuleRun):
-    # ported: SecurityRulesTests.corsWildcardWithCredentials
+    # derived: SecurityRulesTests.corsWildcardWithCredentials
     credentialed = _app((CORSMiddleware, {"allow_origins": ["*"], "allow_credentials": True}))
     wildcard = _app((CORSMiddleware, {"allow_origins": ["*"]}))
     found = [_targets(run_rule("SEC-CORS-002", app)) for app in (credentialed, wildcard)]
