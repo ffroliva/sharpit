@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from enum import StrEnum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Annotated, TypedDict
 
 import pydantic
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import AliasChoices, BaseModel, Field, SecretStr
+from pydantic import AliasChoices, BaseModel, Field, Json, SecretStr
 from pydantic.dataclasses import dataclass as pdataclass
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -1114,3 +1114,74 @@ def test_profile_diff_exact_safe_match_in_other_model_does_not_hide_unsafe_delim
         db: _Sig | None = None
 
     _assert_profile_key_masked((Plain(), Nested()), "DB__SIG")
+
+
+class _Lvl(Enum):
+    TOKEN = "zqx_enum"
+    PLAIN = "plain"
+
+
+def _settings_class(annotations: dict[str, object], env: str) -> type[BaseSettings]:
+    """One settings model reading ``.env.prod``, every field defaulting to None (annotations evaluated, not strings)."""
+    namespace: dict[str, object] = {
+        "__annotations__": annotations,
+        "model_config": SettingsConfigDict(extra="ignore", env_file=env),
+        **dict.fromkeys(annotations),
+    }
+    return type("S", (BaseSettings,), namespace)
+
+
+@pytest.mark.parametrize(
+    ("annotation", "line"),
+    [
+        pytest.param(list[str] | None, 'F=["password","zqx51"]', id="K51-list-str"),
+        pytest.param(Path | None, "F=/etc/ssl/private/server.key", id="K52-path-keyfile"),
+        pytest.param(_Lvl | None, "F=zqx_enum", id="K54-enum-member-token"),
+        pytest.param(Json[list[str]] | None, 'F=["password","zqx42"]', id="K42-json-list-str"),
+    ],
+)
+def test_profile_diff_compound_value_masked_as_configuration_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, annotation: object, line: str
+) -> None:
+    # Configuration renders these parsed values as text and masks by that text; the diff must too.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text(line + "\n", encoding="utf-8")
+    settings = _settings_class({"f": annotation}, ".env.prod")()
+
+    cfg = config_report(_ctx(settings=(settings,)), None, None, False, None, None)
+    assert next(p for p in cfg["properties"] if p["name"] == "F")["masked"] is True
+    _assert_profile_key_masked((settings,), "F")
+
+
+def test_profile_diff_compound_value_check_keeps_plain_values_in_clear_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text(
+        "PORT=9000\nNAME=web\nIDS=[1,2]\nLOG_FILE=/var/log/app.log\nLEVEL=plain\n", encoding="utf-8"
+    )
+    cls = _settings_class(
+        {
+            "port": int | None,
+            "name": str | None,
+            "ids": list[int] | None,
+            "log_file": Path | None,
+            "level": _Lvl | None,
+        },
+        ".env.prod",
+    )
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=cls())
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    expected = {"PORT": "9000", "NAME": "web", "IDS": "[1,2]", "LOG_FILE": "/var/log/app.log", "LEVEL": "plain"}
+
+    route = {p["name"]: p for p in client.get("/sharpit/api/profile-diff").json()["profileSources"][0]["properties"]}
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    via_mcp = {p["name"]: p for p in mcp["profileSources"][0]["properties"]}
+    for name, value in expected.items():
+        assert route[name]["masked"] is False, name
+        assert route[name]["value"] == value, name
+        assert via_mcp[name]["masked"] is False, name
+        assert via_mcp[name]["value"] == value, name
