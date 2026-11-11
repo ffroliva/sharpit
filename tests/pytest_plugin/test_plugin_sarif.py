@@ -24,7 +24,10 @@ def _tests(*names: str) -> str:
     return "\n\n".join(f"def {name}():\n    {body}" for name in names)
 
 
-def test_xdist_controller_alone_writes_the_sarif_file(pytester: pytest.Pytester) -> None:
+def test_xdist_controller_alone_writes_the_sarif_file(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)  # this outer worker's id would leak into the controller
     pytester.makeconftest(_RECORD_WRITES)
     pytester.makepyfile(test_one=_tests("test_a"), test_two=_tests("test_b"))
 
