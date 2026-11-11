@@ -14,36 +14,48 @@ _MAX_CHATS = 500
 _MAX_MODEL_BREAKDOWN = 50
 _MAX_TOKEN_MINUTES = 240
 _NANOS_PER_MINUTE = 60_000_000_000
-# a content family hides the key itself and every ``<key>.`` sub-key (``gen_ai.prompt.0.content``); matched lower case
-_CONTENT_FAMILIES = (
-    "gen_ai.prompt",
-    "gen_ai.completion",
-    # D-A1, stricter than BootUI: the OpenInference and Traceloop prompt and completion families
-    "llm.prompts",
-    "llm.input_messages",
-    "llm.output_messages",
-    "llm.prompt_template",
-    "input.value",
-    "output.value",
-    "traceloop.entity.input",
-    "traceloop.entity.output",
-)
-_CONTENT_KEYS = frozenset(
+# D-A1, fail closed: under MASKED a chat span's string attribute is shown only for this metadata (lower-case keys);
+# every other string, whatever its name, is null. Numbers and booleans keep the traces rendering.
+_METADATA_KEYS = frozenset(
     {
-        *_CONTENT_FAMILIES,
-        "gen_ai.input.messages",
-        "gen_ai.output.messages",
-        "gen_ai.system_instructions",
-        "gen_ai.tool.call.arguments",
-        "gen_ai.tool.call.result",
-        "spring.ai.tool.call.arguments",
-        "spring.ai.tool.call.result",
-        "db.vector.query.content",
-        "db.vector.query.response.documents",
+        "gen_ai.operation.name",
+        "gen_ai.system",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.request.model_name",
+        "gen_ai.response.model",
+        "gen_ai.response.model_name",
+        "gen_ai.request.temperature",
+        "gen_ai.request.max_tokens",
+        "gen_ai.request.top_p",
+        "gen_ai.request.top_k",
+        "gen_ai.request.frequency_penalty",
+        "gen_ai.request.presence_penalty",
+        "gen_ai.request.seed",
+        "gen_ai.request.choice.count",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "gen_ai.usage.total_tokens",
+        "gen_ai.usage.prompt_tokens",
+        "gen_ai.usage.completion_tokens",
+        "gen_ai.response.finish_reasons",
+        "gen_ai.response.finish_reason",
+        "gen_ai.response.id",
+        "gen_ai.output.type",
+        "gen_ai.tool.name",
+        "gen_ai.tool.type",
+        "gen_ai.tool.call.id",
+        "spring.ai.tool.definition.name",
+        "spring.ai.tool.name",
+        "spring.ai.kind",
+        "server.address",
+        "server.port",
+        "error.type",
+        "finish_reason",
+        "index",
     }
 )
-_EVENT_CONTENT_KEYS = _CONTENT_KEYS | {"content", "gen_ai.event.content"}  # span-event message bodies (D-A1)
-_CONTENT_PREFIXES = tuple(f"{family}." for family in _CONTENT_FAMILIES)
+_NUMERIC_TYPES = frozenset({"BOOLEAN", "LONG", "DOUBLE", "BOOLEAN_ARRAY", "LONG_ARRAY", "DOUBLE_ARRAY"})
 _GENAI_INSTRUMENTATIONS = (
     "opentelemetry.instrumentation.openai_v2",
     "opentelemetry.instrumentation.genai.agno",
@@ -107,7 +119,7 @@ def _preferred_model(attributes: Mapping[str, Any]) -> str:
     return recognizer.response_model(attributes) or recognizer.request_model(attributes) or "unknown"
 
 
-def _summary(span: Any, siblings: list[Any]) -> dict[str, Any]:
+def _summary(span: Any, siblings: list[Any], masker: Masker) -> dict[str, Any]:
     attributes = _attributes(span)
     tool_count = sum(
         recognizer.operation(_attributes(sibling), getattr(sibling, "name", "")) == "tool" for sibling in siblings
@@ -120,13 +132,13 @@ def _summary(span: Any, siblings: list[Any]) -> dict[str, Any]:
         "spanId": _id(span, "span_id", 16),
         "startEpochNanos": getattr(span, "start_time", 0),
         "durationNanos": _duration(span),
-        "provider": recognizer.provider(attributes),
-        "requestModel": recognizer.request_model(attributes),
-        "responseModel": recognizer.response_model(attributes),
+        "provider": masker.mask_text(recognizer.provider(attributes)),
+        "requestModel": masker.mask_text(recognizer.request_model(attributes)),
+        "responseModel": masker.mask_text(recognizer.response_model(attributes)),
         "inputTokens": recognizer.input_tokens(attributes),
         "outputTokens": recognizer.output_tokens(attributes),
         "totalTokens": recognizer.total_tokens(attributes),
-        "finishReason": recognizer.finish_reason(attributes),
+        "finishReason": masker.mask_text(recognizer.finish_reason(attributes)),
         "statusCode": _status(span),
         "operation": "chat",
         "toolCallCount": tool_count,
@@ -144,7 +156,7 @@ def ai_overview(buffer: SpanBuffer, settings: AiSettings, now_ns: int) -> dict[s
         attributes = _attributes(chat)
         input_count = recognizer.input_tokens(attributes) or 0
         output_count = recognizer.output_tokens(attributes) or 0
-        model = _preferred_model(attributes)
+        model = buffer.masker.mask_text(_preferred_model(attributes)) or "unknown"
         total_input += input_count
         total_output += output_count
         duration += _duration(chat)
@@ -153,7 +165,7 @@ def ai_overview(buffer: SpanBuffer, settings: AiSettings, now_ns: int) -> dict[s
         calls_by_model[model] = calls_by_model.get(model, 0) + 1
     operations = Counter(recognizer.operation(_attributes(span), getattr(span, "name", "")) for span in spans)
     recent_limit = max(0, min(settings.max_recent_chats, _MAX_CHATS))
-    recent = [_summary(chat, traces.get(_id(chat, "trace_id", 32), [])) for chat in chats[:recent_limit]]
+    recent = [_summary(chat, traces.get(_id(chat, "trace_id", 32), []), buffer.masker) for chat in chats[:recent_limit]]
     spring_ai = langchain4j = False
     framework_detected = any(name in sys.modules for name in _GENAI_INSTRUMENTATIONS)
     banner = (
@@ -188,16 +200,20 @@ def ai_overview(buffer: SpanBuffer, settings: AiSettings, now_ns: int) -> dict[s
 def ai_chats(buffer: SpanBuffer, limit: int | None) -> list[dict[str, Any]]:
     traces, spans = _spans(buffer)
     return [
-        _summary(chat, traces.get(_id(chat, "trace_id", 32), []))
+        _summary(chat, traces.get(_id(chat, "trace_id", 32), []), buffer.masker)
         for chat in _chats(spans)[: max(1, min(limit if limit is not None else 100, _MAX_CHATS))]
     ]
 
 
-def _hide_content(rows: list[dict[str, Any]], keys: frozenset[str] = _CONTENT_KEYS) -> None:
+def _metadata_only(rows: list[dict[str, Any]], raw: Mapping[str, Any]) -> None:
     for row in rows:
         key = row.get("key")
-        if isinstance(key, str) and ((name := key.lower()) in keys or name.startswith(_CONTENT_PREFIXES)):
-            row["value"] = None
+        name = key.lower() if isinstance(key, str) else ""
+        if name not in _METADATA_KEYS:
+            if row.get("type") not in _NUMERIC_TYPES:
+                row["value"] = None
+        elif row.get("value") is not None and type(value := raw.get(cast(str, key))) in (int, float):
+            row["value"] = str(value)  # BootUI leaves numbers as they are: a token count is not a secret token
 
 
 def _captured(attributes: Mapping[str, Any]) -> bool:
@@ -242,13 +258,13 @@ def ai_chat_detail(
     # OQ12 requires FULL even when secret masking is disabled.
     reveals_content = getattr(masker, "_exposure", None) is Exposure.FULL
     if not reveals_content:
-        _hide_content(attributes)
+        _metadata_only(attributes, _attributes(chat))
         for event in events:
-            _hide_content(event.get("attributes", []), _EVENT_CONTENT_KEYS)
+            _metadata_only(event.get("attributes", []), {})
     content_captured = _captured(_attributes(chat))
     show_banner = True if settings is None else settings.show_content_capture_banner
     return {
-        "summary": _summary(chat, siblings),
+        "summary": _summary(chat, siblings, masker),
         "toolCalls": sorted(
             (
                 _tool(span)
