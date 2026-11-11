@@ -370,8 +370,6 @@ def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None
         "no-sqlalchemy-shard",
         "masking-gates",
         "live",
-        "sharpit-gate",
-        "workflow-lint",
     ):
         assert "if: needs.changes.outputs.code == 'true'" in JOBS[job], job
 
@@ -379,7 +377,7 @@ def test_a_docs_only_push_skips_expensive_ci_and_keeps_required_checks() -> None
 def test_change_detector_fails_closed_when_git_diff_cannot_resolve_base(tmp_path: Path) -> None:
     lines = CI.splitlines()
     start = lines.index("        run: |", lines.index("      - id: filter")) + 1
-    end = next(index for index in range(start, len(lines)) if lines[index].startswith("  lint:"))
+    end = next(index for index in range(start, len(lines)) if re.fullmatch(r"  [a-z-]+:", lines[index]))
     run = textwrap.dedent("\n".join(lines[start:end]))
     output = tmp_path / "change-output"  # absolute: the step runs in the repo root, shared by every xdist worker
     result = subprocess.run(
@@ -518,6 +516,59 @@ def test_coverage_still_checks_the_coverage_leg_after_the_docs_only_exit() -> No
     assert 'test "${{ needs.coverage-shard.result }}" = success' in body.split("Docs-only change", 1)[1]
 
 
+def test_superseded_pull_request_runs_are_cancelled_and_main_never_is() -> None:
+    """A superseded PR run kept its runners busy for the run that replaced it; a push to main runs to completion."""
+    header = CI.split("\njobs:\n", 1)[0]
+    assert re.search(r"^concurrency:$", header, re.MULTILINE), "no workflow-level concurrency"
+    assert "  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}" in header
+    assert "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in header
+    assert "cancel-in-progress: true" not in CI
+
+
+def test_workflow_lint_and_the_sharpit_gate_run_inside_lint() -> None:
+    """Each took a runner and its setup for 11-16 s of work; their steps moved into lint, none removed."""
+    assert "workflow-lint" not in JOBS
+    assert "sharpit-gate" not in JOBS
+    lint = JOBS["lint"]
+    for step in (
+        "uvx --from actionlint-py==1.7.12.25 actionlint",
+        "uvx zizmor@1.32.0 --offline --min-severity medium .github/workflows",
+        "pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml",
+        '"! uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit',
+    ):
+        assert step in lint, step
+
+
+def _matrix_jobs(body: str) -> int:
+    """Jobs a matrix expands to: the product of its list keys plus its include rows (each a new combination here)."""
+    lines = body.splitlines()
+    if "      matrix:" not in lines:
+        return 1
+    block = []
+    for line in lines[lines.index("      matrix:") + 1 :]:
+        if len(line) - len(line.lstrip()) <= 6:
+            break
+        block.append(line)
+    lists = [len(m[1].split(",")) for line in block if (m := re.fullmatch(r" {8}\w+: \[(.*)\]", line))]
+    product = 1 if lists else 0
+    for size in lists:
+        product *= size
+    return product + sum(1 for line in block if line.startswith("          - "))
+
+
+def test_the_job_count_never_rises() -> None:
+    """Every job pays setup and a slot in a 20-runner pool: lower these pins when a job goes, never raise them."""
+    assert len(JOBS) == 18
+    assert sum(_matrix_jobs(body) for body in JOBS.values()) == 52
+
+
+def test_the_required_critical_path_is_listed_before_live() -> None:
+    """The coverage leg and the shards set the required wall: listed first, the not-required live legs last."""
+    names = list(JOBS)
+    assert names[:4] == ["changes", "coverage-shard", "test-shard", "lint"]
+    assert names[-2:] == ["live", "live-check"]
+
+
 # CI test-seconds per gate file (spec §1, the report's run). A file cannot be split across rows (an env partition would
 # leak into the gates' own nested pytest runs), so the heaviest file on an OS is the ceiling for any row on that OS.
 GATE_SECONDS = {
@@ -534,7 +585,7 @@ GATE_SECONDS = {
         "tests/scripts/test_lane_gate.py": 6,
     },
 }
-GATE_ROW_OSES = ("windows-latest", "ubuntu-latest")  # the OSes whose masking gates run one gate file group per job (owner decision)
+GATE_ROW_OSES = ("windows-latest", "ubuntu-latest")  # one gate file group per job on both (owner decision)
 
 
 def _gate_rows(os_name: str) -> list[list[str]]:

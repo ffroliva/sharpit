@@ -49,6 +49,5 @@ def test_planted_n_plus_one_goes_red_then_green(pytester: pytest.Pytester, monke
 
 def test_ci_runs_the_gate_job() -> None:
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "sharpit-gate:" in ci
     assert "-k fixed --sharpit --sharpit-junit=sharpit-junit.xml" in ci
     assert '"! uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit' in ci
