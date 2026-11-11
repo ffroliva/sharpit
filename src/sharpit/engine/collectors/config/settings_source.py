@@ -174,15 +174,7 @@ def is_provably_safe(annotation: object) -> bool:
     origin = get_origin(annotation)
     if origin is Annotated:
         args = get_args(annotation)
-        if not args:
-            return False
-        if any(
-            type(m).__name__ in ("Json", "Secret", "SecretStr", "SecretBytes")
-            or getattr(m, "__name__", "") in ("Json", "Secret", "SecretStr", "SecretBytes")
-            for m in args[1:]
-        ):
-            return False
-        return is_provably_safe(args[0])
+        return is_provably_safe(args[0]) if args else False
     if origin in (Union, types.UnionType):
         args = get_args(annotation)
         if not args:
@@ -240,6 +232,7 @@ class ModelFieldRule:
     case_sensitive: bool = False
     is_safe: bool = False
     is_secret_scalar: bool = False
+    names: set[str] = dataclasses.field(default_factory=set[str])
 
 
 @dataclass
@@ -248,37 +241,28 @@ class ProfileSourceDescriptor:
     encoding: str = "utf-8"
     rules: list[ModelFieldRule] = dataclasses.field(default_factory=list[ModelFieldRule])
 
-    def classify(self, key: str) -> KeySafety:
-        # Check exact matches first
-        matched_exact: list[ModelFieldRule] = []
+    def _matches(self, key: str) -> list[tuple[ModelFieldRule, bool]]:
+        """Every rule the key matches, across all models declaring this file, with whether it matched exactly."""
+        matched: list[tuple[ModelFieldRule, bool]] = []
         for rule in self.rules:
             test_key = key if rule.case_sensitive else key.upper()
             if test_key in rule.exact_names:
-                matched_exact.append(rule)
-        if matched_exact:
-            if any(not r.is_safe for r in matched_exact):
-                if any(r.is_secret_scalar for r in matched_exact):
-                    return KeySafety.UNSAFE_SCALAR
-                return KeySafety.UNSAFE_COMPLEX
+                matched.append((rule, True))
+            elif any(test_key.startswith(prefix) for prefix in rule.delimited_prefixes):
+                matched.append((rule, False))
+        return matched
+
+    def classify(self, key: str) -> KeySafety:
+        unsafe = [(rule, exact) for rule, exact in self._matches(key) if not rule.is_safe]
+        if not unsafe:
             return KeySafety.SAFE
+        if all(exact and rule.is_secret_scalar for rule, exact in unsafe):
+            return KeySafety.UNSAFE_SCALAR
+        return KeySafety.UNSAFE_COMPLEX
 
-        # Check delimited prefixes next
-        matched_delim: list[ModelFieldRule] = []
-        for rule in self.rules:
-            test_key = key if rule.case_sensitive else key.upper()
-            for prefix in rule.delimited_prefixes:
-                if test_key.startswith(prefix):
-                    matched_delim.append(rule)
-                    break
-        if matched_delim:
-            if any(not r.is_safe for r in matched_delim):
-                return KeySafety.UNSAFE_COMPLEX
-            return KeySafety.SAFE
-
-        return KeySafety.SAFE
-
-    def is_secret(self, key: str) -> bool:
-        return self.classify(key) is not KeySafety.SAFE
+    def field_names(self, key: str) -> set[str]:
+        """Every name the fields matching ``key`` answer to; Configuration masks by these, not the .env key."""
+        return {name for rule, _ in self._matches(key) for name in rule.names}
 
 
 def parse_env(content: str) -> list[tuple[str, str | None]]:
@@ -370,6 +354,7 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
                 case_sensitive=case_sensitive,
                 is_safe=is_safe,
                 is_secret_scalar=secret_scalar,
+                names=candidate_names,
             )
         )
 

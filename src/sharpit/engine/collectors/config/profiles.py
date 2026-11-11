@@ -65,20 +65,17 @@ def _source_properties(
         safety = descriptor.classify(key)
         if safety is KeySafety.SAFE:
             display_val, masked = _display(ctx, key, val, False)
-        elif safety is KeySafety.UNSAFE_SCALAR:
-            if val is None or exposure is Exposure.METADATA_ONLY:
-                display_val, masked = None, False
-            elif exposure is Exposure.FULL:
-                display_val, masked = "**********", False
-            else:  # Exposure.MASKED
-                display_val, masked = "******", True
-        else:  # KeySafety.UNSAFE_COMPLEX
-            if val is None or exposure is Exposure.METADATA_ONLY:
-                display_val, masked = None, False
-            elif exposure is Exposure.FULL:
-                display_val, masked = "******", True
-            else:  # Exposure.MASKED
-                display_val, masked = "******", True
+            # Configuration masks by the field's own names: mask if any of them masks
+            for name in sorted(descriptor.field_names(key)):
+                if masked:
+                    break
+                display_val, masked = _display(ctx, name, val, False)
+        elif val is None or exposure is Exposure.METADATA_ONLY:
+            display_val, masked = None, False
+        elif exposure is Exposure.FULL and safety is KeySafety.UNSAFE_SCALAR:
+            display_val, masked = "**********", False  # pydantic's SecretStr placeholder, as Configuration shows
+        else:
+            display_val, masked = "******", True
 
         props.append(
             {
