@@ -22,7 +22,8 @@ through its service and returns the arguments. `TOOL_ARGS` callables take the in
 Keys must be MCP tool names and values callables, or the file is refused like a bad row. The base panels' own
 declarations (`BASE_TOOL_ARGS`, `BASE_TOOL_SEEDS` in `__init__.py`, rest-api today) take the same path. The GET sweep
 lets every `/sharpit/api/<panel>/rules/{id}/violations` route answer 400 without `scanId`, but only with the
-contract's `{"error": "Advisor scan ID must not be blank."}`; every other GET answers 200, 307 or 404.
+contract's `{"error": "Advisor scan ID must not be blank."}`; `/sharpit/api/metrics/detail` may also answer 400
+without `name`, but only with BootUI's `{"error": "Metric name must not be blank"}`; every other GET answers 200, 307 or 404.
 
 While `PANEL` is implemented, `tests/test_safety_matrix.py` feeds these rows into the same sweeps as its base rows: the
 GET and write route tables must equal the live routes, every route under the panel's prefix answers 403 when the
