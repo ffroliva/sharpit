@@ -2,7 +2,7 @@
 
 __version__ = "0.5.0"
 
-from typing import TYPE_CHECKING  # noqa: E402 - after __version__, the only version site
+from typing import TYPE_CHECKING  # noqa: E402  # after __version__, the only version site
 
 __all__ = ["__version__", "attach_sql_sources", "detach_sql_sources", "install", "record_security_event"]
 

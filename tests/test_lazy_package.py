@@ -168,10 +168,10 @@ def test_pyright_rejects_an_unknown_sharpit_name(tmp_path: Path) -> None:
         pytest.skip(f"pyright cannot run here (rc {version.returncode}): {version.stderr.strip()[-500:]}")
 
     done = _pyright("--outputjson", "--pythonpath", sys.executable, str(probe))
-    try:
-        diagnostics = json.loads(done.stdout)["generalDiagnostics"]
-    except ValueError:
-        pytest.fail(f"pyright printed no JSON (rc {done.returncode}); stderr: {done.stderr.strip()[-2000:]}")
+    printed = done.stdout.strip()
+    stderr_tail = done.stderr.strip()[-2000:]
+    assert printed.startswith("{"), f"pyright printed no JSON (rc {done.returncode}); stderr: {stderr_tail}"
+    diagnostics = json.loads(printed)["generalDiagnostics"]
     rules = [(d.get("rule"), d["message"]) for d in diagnostics]
 
     assert ("reportAttributeAccessIssue", '"typo" is unknown import symbol') in rules
