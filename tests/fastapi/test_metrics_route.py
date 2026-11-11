@@ -178,3 +178,66 @@ def test_tool_survives_a_raising_collector(private: tuple[CollectorRegistry, Tes
         result = {"meters": [], "escaped": repr(exc)}
     assert [m["description"] for m in result["meters"]] == [UNAVAILABLE]
     assert "S3cretPw" not in str(result)
+
+
+TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+
+
+def test_meter_name_and_unit_are_masked(private: tuple[CollectorRegistry, TestClient]) -> None:
+    from prometheus_client.core import GaugeMetricFamily
+
+    from sharpit.engine.tools import CallContext, call_tool
+
+    registry, client = private
+
+    class Named:
+        def collect(self) -> Any:
+            family = GaugeMetricFamily(TOKEN, "")
+            family.add_metric([], 1)
+            yield family
+
+    registry.register(Named())
+    Gauge("jobs", "", unit=TOKEN, registry=registry).set(1)
+    report = client.get("/sharpit/api/metrics")
+    detail = client.get("/sharpit/api/metrics/detail", params={"name": TOKEN})
+    ctx = install(FastAPI(), enabled="ON", show_banner=False, config_scan=False).context
+    tool = str(call_tool(CallContext(ctx, {}), "get_metrics", {}, via="cli"))  # type: ignore[arg-type]
+    assert report.status_code == 200
+    assert TOKEN not in report.text
+    assert TOKEN not in detail.text
+    assert TOKEN not in tool
+
+
+def test_registry_internals_that_raise_degrade_to_one_collector(monkeypatch: pytest.MonkeyPatch) -> None:
+    from prometheus_client.core import GaugeMetricFamily
+
+    from sharpit.engine.collectors.metrics import prometheus
+
+    class Odd:
+        @property
+        def _collector_to_names(self) -> Any:
+            raise RuntimeError("internals moved")
+
+        def collect(self) -> Any:
+            family = GaugeMetricFamily("odd_gauge", "")
+            family.add_metric([], 1)
+            yield family
+
+    monkeypatch.setattr(prometheus, "REGISTRY", Odd())
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, config_scan=False)
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000), raise_server_exceptions=False)
+    response = client.get("/sharpit/api/metrics")
+    assert response.status_code == 200
+    assert [m["name"] for m in response.json()["meters"]] == ["odd_gauge"]
+
+
+def test_failing_collectors_of_one_class_merge_with_sharpit_source(
+    private: tuple[CollectorRegistry, TestClient],
+) -> None:
+    registry, client = private
+    registry.register(_Raises(RuntimeError("one")))
+    registry.register(_Raises(RuntimeError("two")))
+    meters = client.get("/sharpit/api/metrics").json()["meters"]
+    assert [m["name"] for m in meters] == ["_Raises"]
+    assert meters[0]["provenance"]["explanationSource"] == "CURATED"
