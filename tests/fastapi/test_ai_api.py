@@ -155,12 +155,20 @@ CONTENT_ATTRIBUTES = {
     "LLM.Output_Messages.0.message.content": "PROMPTLEAK12",
     "llm.prompt_template.variables": "PROMPTLEAK13",
     "input.value.0": "PROMPTLEAK14",
+    # finding W7-A r2c: any string outside the metadata allow-list is hidden, whatever its name
+    "llm.completions.0.content": "R2C_LLM_COMPLETION",
+    "user_prompt": "R2C_USER_PROMPT",
+    "gen_ai.input.messages.0.content": "R2C_INPUT_MESSAGE",
+    "retrieval.documents.0.document.content": "R2C_DOCUMENT",
 }
 CONTENT_EVENT_ATTRIBUTES = {"content": "PROMPTLEAK8", "gen_ai.event.content": "PROMPTLEAK9"}
+CHOICE_EVENT_ATTRIBUTES = {"message": "R2C_CHOICE_MESSAGE", "Message.Body": "R2C_MIXED_CASE"}  # r2c: mixed-case key too
 
 
 @pytest.mark.parametrize(
-    "canary", [*CONTENT_ATTRIBUTES.values(), *CONTENT_EVENT_ATTRIBUTES.values()], ids=lambda canary: canary
+    "canary",
+    [*CONTENT_ATTRIBUTES.values(), *CONTENT_EVENT_ATTRIBUTES.values(), *CHOICE_EVENT_ATTRIBUTES.values()],
+    ids=lambda canary: canary,
 )
 def test_ai_chat_detail_hides_content_under_masked(canary: str):
     # finding W7-A r2 #1: BootUI's spring.ai tool keys, keys matched case-insensitively, and the OpenInference,
@@ -179,7 +187,10 @@ def test_ai_chat_detail_hides_content_under_masked(canary: str):
             end_time=2_000,
             status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET"), description=None),
             attributes={"gen_ai.operation.name": "chat", **CONTENT_ATTRIBUTES},
-            events=[SimpleNamespace(name="gen_ai.user.message", timestamp=1_500, attributes=CONTENT_EVENT_ATTRIBUTES)],
+            events=[
+                SimpleNamespace(name="gen_ai.user.message", timestamp=1_500, attributes=CONTENT_EVENT_ATTRIBUTES),
+                SimpleNamespace(name="gen_ai.choice", timestamp=1_600, attributes=CHOICE_EVENT_ATTRIBUTES),
+            ],
         )
     )
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
@@ -210,3 +221,51 @@ def test_ai_journal_attached_whichever_route_is_built_first():
     journal = ctx.capture.journal
     assert journal is not None
     assert len(journal.records("ai")) == 1
+
+
+def _chat_client(attributes: dict[str, Any]) -> TestClient:
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, expose_values="MASKED")
+    span_buffer(handle.context).add(
+        SimpleNamespace(
+            context=SimpleNamespace(trace_id=1, span_id=1),
+            parent=None,
+            name="chat",
+            kind=SimpleNamespace(name="CLIENT"),
+            resource=SimpleNamespace(attributes={"service.name": "api"}),
+            instrumentation_scope=SimpleNamespace(name="openai"),
+            start_time=1_000,
+            end_time=2_000,
+            status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET"), description=None),
+            attributes={"gen_ai.operation.name": "chat", **attributes},
+            events=[],
+        )
+    )
+    return TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+
+@pytest.mark.parametrize("path", ["ai/overview", "ai/chats", f"ai/chats/{1:016x}"])
+def test_ai_model_names_masked_in_every_read(path: str):
+    # finding W7-A r2c: provider and model names are masked before output (D-A1, stricter than BootUI)
+    with _chat_client({"gen_ai.request.model": "https://bob:s3cret@h/m", "gen_ai.provider.name": "x"}) as client:
+        response = client.get(f"{API}/{path}")
+    assert response.status_code == 200
+    assert "s3cret" not in response.text
+
+
+def test_ai_chat_detail_keeps_allow_listed_metadata_under_masked():
+    # control for W7-A r2c: the allow-list keeps the metadata BootUI shows
+    attributes = {
+        "gen_ai.request.model": "gpt-test",
+        "gen_ai.usage.input_tokens": 7,
+        "gen_ai.response.finish_reasons": ("stop",),
+        "gen_ai.request.temperature": 0.5,
+    }
+    with _chat_client(attributes) as client:
+        response = client.get(f"{API}/ai/chats/{1:016x}")
+    assert response.status_code == 200
+    values = {row["key"]: row["value"] for row in response.json()["attributes"]}
+    assert values["gen_ai.request.model"] == "gpt-test"
+    assert values["gen_ai.usage.input_tokens"] == "7"
+    assert values["gen_ai.response.finish_reasons"] == "[stop]"
+    assert values["gen_ai.request.temperature"] == "0.5"
