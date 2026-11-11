@@ -11,7 +11,7 @@ from typing import Annotated, TypedDict
 import pydantic
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import AliasChoices, BaseModel, Field, SecretStr
 from pydantic.dataclasses import dataclass as pdataclass
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -1044,3 +1044,73 @@ def test_profile_diff_allow_list_control_get_and_mcp(tmp_path: Path, monkeypatch
     assert mcp_props["ENV"]["value"] == "prod"
     assert mcp_props["TAGS"]["masked"] is False
     assert mcp_props["TAGS"]["value"] == '["web","api"]'
+
+
+def _assert_profile_key_masked(settings: tuple[object, ...], key: str) -> None:
+    """The key is masked by both the GET route and MCP, as Configuration masks it."""
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=settings)
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    resp = client.get("/sharpit/api/profile-diff")
+    assert resp.status_code == 200
+    prop = next(p for p in resp.json()["profileSources"][0]["properties"] if p["name"] == key)
+    assert prop["masked"] is True
+    assert prop["value"] == "******"
+
+    mcp = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+    mcp_prop = next(p for p in mcp["profileSources"][0]["properties"] if p["name"] == key)
+    assert mcp_prop["masked"] is True
+    assert mcp_prop["value"] == "******"
+
+
+def test_profile_diff_safe_key_masked_by_field_alias_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Configuration masks by the field's own name (API_TOKEN); the .env key X is innocent.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("X=zqx01\n", encoding="utf-8")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod")
+        f: str | None = Field(None, validation_alias=AliasChoices("API_TOKEN", "x"))
+
+    _assert_profile_key_masked((S(),), "X")
+
+
+class _Sig(BaseModel):
+    sig: SecretStr
+
+
+def test_profile_diff_exact_safe_match_does_not_hide_unsafe_delimited_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("DB__SIG=zqx\n", encoding="utf-8")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod", env_nested_delimiter="__")
+        db: _Sig | None = None
+        db__sig: str | None = None
+
+    _assert_profile_key_masked((S(),), "DB__SIG")
+
+
+def test_profile_diff_exact_safe_match_in_other_model_does_not_hide_unsafe_delimited_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("DB__SIG=zqx\n", encoding="utf-8")
+
+    class Plain(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod", env_nested_delimiter="__")
+        db__sig: str | None = None
+
+    class Nested(BaseSettings):
+        model_config = SettingsConfigDict(extra="ignore", env_file=".env.prod", env_nested_delimiter="__")
+        db: _Sig | None = None
+
+    _assert_profile_key_masked((Plain(), Nested()), "DB__SIG")
