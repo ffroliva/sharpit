@@ -32,6 +32,7 @@ BASE_PANEL_IDS = [
     "threads",
     "rest-api",
     "http-probe",
+    "live-memory",
 ]
 BASE_MCP_TOOL_NAMES = [
     "get_overview",
@@ -82,6 +83,9 @@ BASE_CLI_COMMANDS = {
     "rest_api_scan": "rest-api scan",
     "get_http_routes": "http routes",
     "get_request_profile": "activity profile",
+    "get_low_footprint": "low-footprint status",
+    "enable_low_footprint": "low-footprint enable",
+    "disable_low_footprint": "low-footprint disable",
 }
 
 
@@ -99,7 +103,7 @@ def expected_panel_ids() -> list[str]:
 
 
 def expected_mcp_tool_names() -> list[str]:
-    return [*BASE_MCP_TOOL_NAMES, *(t.name for t in lane_tools() if not t.action)]
+    return [*BASE_MCP_TOOL_NAMES, *(t.name for t in lane_tools() if not t.action), "get_low_footprint"]
 
 
 def expected_cli_commands() -> dict[str, str]:
@@ -118,7 +122,12 @@ def catalogue_with_lanes(
     from sharpit.engine import tools
 
     # from the base, not the current TOOLS: a lane implemented at import already has its tools there
-    return tools.merge_lane_tools(tools._BASE_TOOLS, tools._BASE_COMMANDS, lane_tools, lane_commands)  # noqa: SLF001
+    return tools.merge_lane_tools(
+        tools._BASE_TOOLS,  # noqa: SLF001
+        tools._BASE_COMMANDS,  # noqa: SLF001
+        (*lane_tools, *tools._LOW_FOOTPRINT_TOOLS),  # noqa: SLF001 - the import appends these after the lanes
+        {**lane_commands, **tools._LOW_FOOTPRINT_COMMANDS},  # noqa: SLF001
+    )
 
 
 def plant_unimplemented_panel(monkeypatch: Any) -> str:

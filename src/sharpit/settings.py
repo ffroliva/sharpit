@@ -78,6 +78,8 @@ class SharpitSettings:
     expose_values: Exposure = Exposure.MASKED
     mask_secrets: bool = True
     show_banner: bool = True
+    free_on_idle_enabled: bool = True
+    free_on_idle_timeout: float = 300.0
     state_dir: str = ".sharpit"
     config_scan: tuple[str, ...] | bool = True
     vulnerabilities_osv_enabled: bool = True

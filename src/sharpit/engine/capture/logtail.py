@@ -52,6 +52,12 @@ class LogTailBuffer:
         self.stream.signal()
         return seq
 
+    def clear(self) -> None:
+        with self._lock:
+            self._lines.clear()
+            self._bytes = 0
+        self.stream.signal()
+
     def recent(self) -> list[dict[str, Any]]:
         """Oldest first (BootUI ``recent()``)."""
         return [line for _, line, _ in tuple(self._lines)]

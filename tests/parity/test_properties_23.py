@@ -35,6 +35,7 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.exceptions.max-occurrences-per-group"),
     pytest.mark.bootui("prop:bootui.exceptions.max-stack-frames"),
     pytest.mark.bootui("prop:bootui.expose-values"),
+    pytest.mark.bootui("prop:bootui.free-on-idle.enabled"),
     pytest.mark.bootui("prop:bootui.http-exchanges.max-exchanges"),
     pytest.mark.bootui("prop:bootui.mask-secrets"),
     pytest.mark.bootui("prop:bootui.mcp.enabled"),

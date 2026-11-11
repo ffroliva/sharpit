@@ -32,7 +32,7 @@ TOKEN = "test-token"
 PARAM_SAMPLES = {"file": "app.js", "id": "0123456789abcdef", "name": "nope", "rule_id": "RAPI-MAP-001"}
 PARAM_SAMPLES |= {"tool": "get_overview"}
 NETWORK = ("/vulnerabilities/scan", "vulnerabilities_scan")  # the OSV scan calls out
-DESTRUCTIVE = ("/clear", "clear_")  # run last: they empty the stores the other calls read
+DESTRUCTIVE = ("/clear", "clear_", "enable_low_footprint")  # run last: they empty the stores the other calls read
 
 
 class World(NamedTuple):
