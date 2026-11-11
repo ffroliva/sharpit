@@ -78,9 +78,21 @@ def _unseen(observation: Observation, snapshot: Snapshot) -> list[str]:
     ]
 
 
+def _row_status(sufficient: bool, partial: str | None) -> str:
+    if not sufficient:
+        return "INSUFFICIENT"
+    return "OBSERVED" if partial is None else "PARTIAL"
+
+
+def _check_status(worked: bool, partial: str | None) -> str:
+    if not worked:
+        return "INSUFFICIENT"
+    return "EVALUATED" if partial is None else "PARTIAL"
+
+
 def _row(observation: Observation, found: Any, partial: str | None, unseen: list[str], mask: Mask) -> Row:
     finding = listing.apply(observation.kind, found)
-    status = "INSUFFICIENT" if not finding.sufficient else "OBSERVED" if partial is None else "PARTIAL"
+    status = _row_status(finding.sufficient, partial)
     return {
         "id": id_of(observation.kind, finding.key), "kind": observation.kind, "subject": mask(finding.subject),
         "status": status, "sentence": mask(finding.sentence), "eligible": finding.eligible,
@@ -174,6 +186,6 @@ class InsightsService:
             reasons.append(self._mask(evaluation.uncounted))
         if not evaluation.worked:
             reasons.insert(0, "No eligible work was recorded for this check.")
-        status = "INSUFFICIENT" if not evaluation.worked else "EVALUATED" if partial is None else "PARTIAL"
+        status = _check_status(evaluation.worked, partial)
         check = _check(observation, status, evaluation.eligible, len(evaluation.findings), " ".join(reasons) or None)
         return check, [_row(observation, found, partial, unseen, self._mask) for found in evaluation.findings]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,21 @@ class Finding:
 
     def unlisted_whole(self, reason: str | None) -> Finding:
         """``Finding.unlistedWhole``: the kind's reason replaces the row's own."""
-        return replace(self, unlisted=reason)
+        return Finding(
+            key=self.key,
+            subject=self.subject,
+            sufficient=self.sufficient,
+            sentence=self.sentence,
+            eligible=self.eligible,
+            affected=self.affected,
+            what_to_check=self.what_to_check,
+            exemplar_request_ids=self.exemplar_request_ids,
+            columns=self.columns,
+            rows=self.rows,
+            limitations=self.limitations,
+            tier=self.tier,
+            unlisted=reason,
+        )
 
 
 @dataclass(frozen=True)
