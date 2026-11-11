@@ -65,6 +65,7 @@ MATCHED_TOOLS = (
     "resume_transaction_recording",
     "vulnerabilities_scan",
     "get_startup_timeline",
+    "get_github_dashboard",
 )
 PARTIAL_TOOLS = (
     "get_live_activity",
@@ -102,7 +103,6 @@ MISSING_TOOLS = (
     "trigger_devtools_livereload",
     "get_devtools_status",
     "get_fault_tolerance",
-    "get_github_dashboard",
     "get_graalvm_report",
     "graalvm_scan",
     "get_hibernate_report",
@@ -190,6 +190,7 @@ pytestmark = [
     pytest.mark.bootui("cli:exceptions clear"),
     pytest.mark.bootui("cli:exceptions list"),
     pytest.mark.bootui("cli:exceptions show"),
+    pytest.mark.bootui("cli:github"),
     pytest.mark.bootui("cli:health"),
     pytest.mark.bootui("cli:overview"),
     pytest.mark.bootui("cli:rest-api report"),
@@ -214,6 +215,7 @@ pytestmark = [
     pytest.mark.bootui("tool:get_exception_detail"),
     pytest.mark.bootui("tool:get_exceptions"),
     pytest.mark.bootui("tool:get_health"),
+    pytest.mark.bootui("tool:get_github_dashboard"),
     pytest.mark.bootui("tool:get_mysql_report"),
     pytest.mark.bootui("tool:get_overview"),
     pytest.mark.bootui("tool:get_postgresql_report"),

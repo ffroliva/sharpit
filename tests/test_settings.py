@@ -356,6 +356,15 @@ PROPERTIES = {
     "bootui.architecture.max-file-bytes": ("architecture_max_file_bytes", "47"),
     "bootui.startup.enabled": ("startup_enabled", "false"),
     "bootui.startup.capacity": ("startup_capacity", "17"),
+    "bootui.github.api-enabled": ("github_api_enabled", "false"),
+    "bootui.github.request-timeout": ("github_request_timeout", "33s"),
+    "bootui.github.max-pull-requests": ("github_max_pull_requests", "11"),
+    "bootui.github.max-issues": ("github_max_issues", "26"),
+    "bootui.github.max-security-alerts": ("github_max_security_alerts", "51"),
+    "bootui.github.max-workflow-runs": ("github_max_workflow_runs", "21"),
+    "bootui.github.quota-safety-threshold": ("github_quota_safety_threshold", "11"),
+    "bootui.github.max-api-calls": ("github_max_api_calls", "18"),
+    "bootui.github.allowed-api-hosts": ("github_allowed_api_hosts", "GHE.EXAMPLE.COM,API.GITHUB.COM"),
     "bootui.app-package": ("app_package", "myapp"),
 }
 
@@ -730,6 +739,14 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "ARCHITECTURE_MAX_FILE_BYTES",
         "STARTUP_ENABLED",
         "STARTUP_CAPACITY",
+        "GITHUB_API_ENABLED",
+        "GITHUB_REQUEST_TIMEOUT",
+        "GITHUB_MAX_PULL_REQUESTS",
+        "GITHUB_MAX_ISSUES",
+        "GITHUB_MAX_SECURITY_ALERTS",
+        "GITHUB_MAX_WORKFLOW_RUNS",
+        "GITHUB_QUOTA_SAFETY_THRESHOLD",
+        "GITHUB_MAX_API_CALLS",
         "APP_PACKAGE",
     ]
     observed = [

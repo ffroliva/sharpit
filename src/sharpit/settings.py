@@ -162,6 +162,15 @@ class SharpitSettings:
     architecture_max_file_bytes: int = 524288
     startup_enabled: bool = True
     startup_capacity: int = 4096
+    github_api_enabled: bool = True
+    github_request_timeout: float = 5.0
+    github_max_pull_requests: int = 10
+    github_max_issues: int = 25
+    github_max_security_alerts: int = 50
+    github_max_workflow_runs: int = 20
+    github_quota_safety_threshold: int = 10
+    github_max_api_calls: int = 17
+    github_allowed_api_hosts: tuple[str, ...] = ("api.github.com",)
     app_package: str | None = None  # dotted name, resolved through sys.modules only (never imported)
     warnings: tuple[str, ...] = ()
 
