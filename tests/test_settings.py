@@ -34,6 +34,31 @@ def test_gateway_trust_default_off():
     assert load_settings({}, {}).trust_container_gateway == "OFF"
 
 
+def test_github_setting_defaults_and_parsers():
+    defaults = SharpitSettings()
+    assert getattr(defaults, "github_api_enabled", None) is True
+    assert getattr(defaults, "github_request_timeout", None) == 5.0
+    assert getattr(defaults, "github_max_pull_requests", None) == 10
+    assert getattr(defaults, "github_max_issues", None) == 25
+    assert getattr(defaults, "github_max_security_alerts", None) == 50
+    assert getattr(defaults, "github_max_workflow_runs", None) == 20
+    assert getattr(defaults, "github_quota_safety_threshold", None) == 10
+    assert getattr(defaults, "github_max_api_calls", None) == 17
+    assert getattr(defaults, "github_allowed_api_hosts", None) == ("api.github.com",)
+
+    loaded = load_settings(
+        {},
+        {
+            "SHARPIT_GITHUB_API_ENABLED": "false",
+            "SHARPIT_GITHUB_REQUEST_TIMEOUT": "2500ms",
+            "SHARPIT_GITHUB_ALLOWED_API_HOSTS": "API.GITHUB.COM, GHE.EXAMPLE.COM",
+        },
+    )
+    assert getattr(loaded, "github_api_enabled", None) is False
+    assert getattr(loaded, "github_request_timeout", None) == 2.5
+    assert getattr(loaded, "github_allowed_api_hosts", None) == ("api.github.com", "ghe.example.com")
+
+
 def test_env_overrides_kwargs():
     s = load_settings({"enabled": "ON", "read_only": False}, {"SHARPIT_ENABLED": "OFF", "SHARPIT_READ_ONLY": "yes"})
     assert s.enabled == "OFF"
