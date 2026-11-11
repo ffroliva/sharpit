@@ -1,7 +1,9 @@
 """The scheduled-task DTO, the discovery result and the helpers each scheduler gatekeeper shares.
 
 Readers never call a method on an unknown object: ``type()`` and ``vars()`` find things, and attributes are read
-only on library classes matched by type (see each gatekeeper).
+only on library classes matched by type (see each gatekeeper). One library method is called: Celery's
+``Settings.get("beat_schedule")`` on an app that is already configured, a ChainMap lookup over plain dicts (measured
+I/O-free in the C0 spike: no import, no open).
 """
 
 from __future__ import annotations

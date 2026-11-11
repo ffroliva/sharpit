@@ -3,6 +3,9 @@
 Discovery is a shallow walk of the app's own loaded modules: ``vars(module)`` and ``type(value)`` only, so a lazy
 proxy is never evaluated. Each scheduler library has its own gatekeeper module; a store or app whose listing would do
 I/O or load configuration is skipped with a limitation (proposed deviation D7: BootUI's DTO has no field for them).
+
+Not discovered (D7d): a scheduler that is not a module global of the app's own modules, for example one created
+inside a lifespan or a function, kept on ``app.state``, or held inside a dict, list or other object attribute.
 """
 
 from __future__ import annotations

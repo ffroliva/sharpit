@@ -56,7 +56,7 @@ tool.
 - `get_health`: the cached health tree (database pings and your own checks). Never runs a check.
 - `get_threads`: threads and asyncio tasks with their stacks, and the request each task serves. No variable values.
 - `get_startup_timeline`: the host's startup steps in order, with their durations; search by `query`, capped by `limit`.
-- `get_scheduled_tasks`: the app's scheduled tasks by function name and trigger: in-memory APScheduler 3 jobs, configured Celery beat entries and arq cron jobs. Never reads a remote job store, never job arguments.
+- `get_scheduled_tasks`: the app's scheduled tasks by function name and trigger: in-memory APScheduler 3 jobs, configured Celery beat entries and arq cron jobs. Never reads a remote job store, never job arguments. A scheduler must be a module global of your app's own modules: one created inside a lifespan, kept on `app.state` or held in a dict or list is not found.
 - `get_traces`: the OpenTelemetry traces the app recorded, newest first, with masked span attributes. Needs the app's own SDK `TracerProvider`.
 - `get_low_footprint`: low-footprint mode status and capture hook outcomes.
 
