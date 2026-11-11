@@ -15,7 +15,8 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.collectors.config import config_report
-from sharpit.engine.collectors.config.profiles import parse_env_lines, profiles_report
+from sharpit.engine.collectors.config.profiles import profiles_report
+from sharpit.engine.collectors.config.settings_source import parse_env
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.masking import Exposure
 from sharpit.engine.tool_dispatch import call_tool
@@ -210,7 +211,7 @@ def test_non_secret_key_is_never_masked_regardless_of_value(tmp_path: Path, monk
 # ported: ProfileDiffMaskingTests.nullPropertyValueKeptAsNullInDto
 def test_null_property_value_kept_as_null_in_dto(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env.nulltest").write_text("nullable.key=\n", encoding="utf-8")
+    (tmp_path / ".env.nulltest").write_text("nullable.key\n", encoding="utf-8")
 
     class NullSettings(BaseSettings):
         model_config = SettingsConfigDict(extra="allow", env_file=".env.nulltest")
@@ -410,14 +411,14 @@ def test_profile_env_parser_edge_cases() -> None:
         "KEY8=\"nested 'single'\"\n"
         "KEY9='nested \"double\"'\n"
     )
-    parsed = dict(parse_env_lines(content))
+    parsed = dict(parse_env(content))
     expected = {
         "KEY1": "value1",
         "KEY2": "single quoted with # inside",
         "KEY3": 'double quoted with # inside and "escaped"',
         "KEY4": "unquoted_val",
         "KEY5": "",
-        "KEY6": None,
+        "KEY6": "",
         "KEY7": "bare value with spaces",
         "KEY8": "nested 'single'",
         "KEY9": 'nested "double"',
@@ -578,7 +579,7 @@ def test_multiline_private_key_env_parsing_get_and_mcp(tmp_path: Path, monkeypat
 def test_env_file_encoding_honoured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("SHARPIT_PROFILES", "latin,badutf")
-    (tmp_path / ".env.latin").write_bytes("SPECIAL_KEY=café\n".encode("latin-1"))
+    (tmp_path / ".env.latin").write_bytes("APP_GREETING=café\n".encode("latin-1"))
     (tmp_path / ".env.badutf").write_bytes(b"BAD=\xff\xfe\x00\x00\n")
 
     class LatinSettings(BaseSettings):
@@ -605,7 +606,7 @@ def test_env_file_encoding_honoured(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "latin" in profiles
     assert "badutf" not in profiles
     latin_src = next(s for s in report["profileSources"] if s["profile"] == "latin")
-    prop = next(p for p in latin_src["properties"] if p["name"] == "SPECIAL_KEY")
+    prop = next(p for p in latin_src["properties"] if p["name"] == "APP_GREETING")
     assert prop["value"] == "café"
 
     # 2. MCP tool
@@ -614,5 +615,5 @@ def test_env_file_encoding_honoured(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "latin" in mcp_profiles
     assert "badutf" not in mcp_profiles
     mcp_latin_src = next(s for s in mcp_report["profileSources"] if s["profile"] == "latin")
-    mcp_prop = next(p for p in mcp_latin_src["properties"] if p["name"] == "SPECIAL_KEY")
+    mcp_prop = next(p for p in mcp_latin_src["properties"] if p["name"] == "APP_GREETING")
     assert mcp_prop["value"] == "café"

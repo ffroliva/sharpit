@@ -1,5 +1,6 @@
 """pydantic-settings provenance: which source supplied each settings field (no side effects)."""
 
+import dataclasses
 import importlib
 import types
 from collections.abc import Iterable, Mapping
@@ -144,26 +145,117 @@ def _settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[lis
     return entries, [label for label, _ in sources]
 
 
-def declared_env_files(models: Iterable[object]) -> list[Path]:
-    """All env_file paths declared across the given pydantic-settings models."""
+@dataclass
+class ProfileSourceDescriptor:
+    path: Path
+    encoding: str = "utf-8"
+    exact_secret_names: set[str] = dataclasses.field(default_factory=set[str])
+    case_insensitive_secret_names: set[str] = dataclasses.field(default_factory=set[str])
+
+    def is_secret(self, key: str) -> bool:
+        return key in self.exact_secret_names or key.upper() in self.case_insensitive_secret_names
+
+
+def parse_env(content: str) -> list[tuple[str, str | None]]:
+    """Parse .env content using python-dotenv without interpolation."""
+    try:
+        from dotenv import dotenv_values
+    except ImportError:
+        return []
+    import io
+
+    data = dotenv_values(stream=io.StringIO(content), interpolate=False)
+    return list(data.items())
+
+
+def _model_secret_names(cls: type[Any], instance: object | None = None) -> tuple[set[str], bool]:
+    try:
+        from pydantic import BaseModel, SecretBytes, SecretStr
+        from pydantic_settings import BaseSettings, EnvSettingsSource
+    except ImportError:
+        return set(), False
+
+    if not issubclass(cls, BaseSettings):
+        return set(), False
+
+    cfg = getattr(cls, "model_config", None)
+    case_sensitive = bool(
+        cast(Mapping[str, object], cfg).get("case_sensitive", False)
+        if isinstance(cfg, Mapping)
+        else getattr(cfg, "case_sensitive", False)
+    )
+
+    class _Env(EnvSettingsSource):
+        def _load_env_vars(self) -> Mapping[str, str | None]:
+            return {}
+
+    env_src = _Env(cls)
+    delimiter = env_src.env_nested_delimiter
+    secret_names: set[str] = set()
+
+    def collect(name: str, field: Any, val: object) -> None:
+        models = [m for m in _classes(field.annotation) if issubclass(m, BaseModel)]
+        if delimiter and models:
+            for sub_model in models:
+                for sub, sub_field in sub_model.model_fields.items():
+                    sub_attr = getattr(val, sub, None) if isinstance(val, BaseModel) else None
+                    collect(f"{name}{delimiter}{sub}", sub_field, sub_attr)
+            return
+        secret = any(issubclass(t, (SecretStr, SecretBytes)) for t in _classes(field.annotation))
+        secret = secret or isinstance(val, (SecretStr, SecretBytes))
+        if secret:
+            secret_names.add(name if case_sensitive else name.upper())
+
+    for fname, field in cls.model_fields.items():
+        val = getattr(instance, fname, None) if instance is not None else None
+        for item in env_src._extract_field_info(field, fname):  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+            collect(item[1], field, val)
+            if item[0] != item[1]:
+                collect(item[0], field, val)
+
+    return secret_names, case_sensitive
+
+
+def declared_profile_sources(models: Iterable[object]) -> list[ProfileSourceDescriptor]:
+    """All declared profile sources with their encoding and secret-typed field names."""
     try:
         from pydantic_settings import BaseSettings
     except ImportError:
         return []
-    result: list[Path] = []
-    seen: set[Path] = set()
+    result: list[ProfileSourceDescriptor] = []
+    by_path: dict[Path, ProfileSourceDescriptor] = {}
     for m in models:
         cls = m if isinstance(m, type) else type(m)
         if not issubclass(cls, BaseSettings):
             continue
         cfg = getattr(cls, "model_config", None)
-        env_file: object = (
+        env_file = (
             cast(Mapping[str, object], cfg).get("env_file")
             if isinstance(cfg, Mapping)
             else getattr(cfg, "env_file", None)
         )
+        raw_encoding = (
+            cast(Mapping[str, object], cfg).get("env_file_encoding")
+            if isinstance(cfg, Mapping)
+            else getattr(cfg, "env_file_encoding", None)
+        )
+        encoding = str(raw_encoding or "utf-8")
+        secret_names, case_sensitive = _model_secret_names(cls, m if not isinstance(m, type) else None)
+
         for p in _paths(env_file):
-            if p not in seen:
-                seen.add(p)
-                result.append(p)
+            if p not in by_path:
+                desc = ProfileSourceDescriptor(p, encoding)
+                by_path[p] = desc
+                result.append(desc)
+            else:
+                desc = by_path[p]
+            if case_sensitive:
+                desc.exact_secret_names.update(secret_names)
+            else:
+                desc.case_insensitive_secret_names.update(secret_names)
     return result
+
+
+def declared_env_files(models: Iterable[object]) -> list[Path]:
+    """All env_file paths declared across the given pydantic-settings models."""
+    return [s.path for s in declared_profile_sources(models)]

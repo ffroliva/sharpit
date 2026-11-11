@@ -4,6 +4,7 @@
 |---|---|
 | Overview | app, Python and package versions, active profiles, activation reason and warnings |
 | Configuration | environment, `.env` files, pydantic-settings and `os.getenv` keys, the winning source of each value, masked |
+| Profile Diff | configuration comparison across active profiles from declared `.env.<profile>` files; relative paths escaping the project root (such as `../.env.<profile>`) are refused (fail closed) |
 | Mappings | every route of the host app |
 | Loggers | logger tree with levels you can change at runtime |
 | Beans | dependency providers, middleware and lifespan, with their dependencies |
