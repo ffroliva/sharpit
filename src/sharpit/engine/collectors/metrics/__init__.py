@@ -13,6 +13,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from sharpit.engine.collectors.metrics.prometheus import registry
+from sharpit.engine.masking import is_secret_value
+from sharpit.engine.sqltext import MASK
 
 DEFAULT_LIMIT = 200
 DEFAULT_SAMPLE_LIMIT = 100
@@ -90,9 +92,28 @@ def _finite(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _text(ctx: Any, value: object) -> str | None:
+    return (ctx.masker.mask_text(value) or None) if isinstance(value, str) else None
+
+
+def _name(ctx: Any, value: str) -> str:
+    """Meter names and units are metadata, shown under ``METADATA_ONLY`` too, but a secret-shaped one stays hidden."""
+    shown = ctx.masker.mask_text(value)
+    return shown if shown is not None else (MASK if is_secret_value(value) else value)
+
+
 def _unavailable(ctx: Any, collector: object) -> dict[str, Any]:
-    name = ctx.masker.mask_text(type(collector).__name__) or ""
-    return {"name": name, "description": UNAVAILABLE, "baseUnit": None, "type": "OTHER", "tags": {}, "samples": []}
+    # sharpit's own text, so BootUI's CURATED (console-authored) source rather than NATIVE (the registry's HELP)
+    name = _name(ctx, type(collector).__name__)
+    return {
+        "name": name,
+        "description": UNAVAILABLE,
+        "source": "CURATED",
+        "baseUnit": None,
+        "type": "OTHER",
+        "tags": {},
+        "samples": [],
+    }
 
 
 def _sample(ctx: Any, raw: tuple[tuple[str, str], ...], values: dict[str, float]) -> dict[str, Any]:
@@ -124,11 +145,16 @@ def _family(ctx: Any, family: Any) -> dict[str, Any] | None:
     for sample in samples:
         for tag in sample["tags"]:
             tags[tag["key"]].add(tag["value"])
-    documentation = family.documentation
+    name, unit = str(family.name), getattr(family, "unit", None) or None
+    shown_unit = _name(ctx, unit) if isinstance(unit, str) else None
+    if unit and shown_unit != unit and name.endswith(f"_{unit}"):  # prometheus_client appends the unit to the name
+        name = name[: -len(unit)] + str(shown_unit)
+    description = _text(ctx, family.documentation)
     return {
-        "name": str(family.name),
-        "description": (ctx.masker.mask_text(documentation) or None) if isinstance(documentation, str) else None,
-        "baseUnit": getattr(family, "unit", None) or None,
+        "name": _name(ctx, name),
+        "description": description,
+        "source": "NATIVE" if description else "UNKNOWN",
+        "baseUnit": shown_unit,
         "type": _type(str(family.type)),
         "tags": tags,
         "samples": samples,
@@ -141,14 +167,20 @@ def _families(ctx: Any) -> list[dict[str, Any]]:
     if source is None:
         return []
     # prometheus_client internals; any other registry is read as one collector. target_info is not shown.
-    collectors: Any = getattr(source, "_collector_to_names", None)
+    try:
+        collectors: Any = getattr(source, "_collector_to_names", None)
+    except Exception:  # noqa: BLE001 - a host registry's property; degrade to one collector
+        collectors = None
     candidates: list[Any] = list(collectors) if isinstance(collectors, dict) else [source]  # pyright: ignore[reportUnknownArgumentType]
     families: list[dict[str, Any]] = []
+    failed: set[str] = set()
     for collector in candidates:
         try:
             found = [meter for meter in (_family(ctx, family) for family in collector.collect()) if meter is not None]
         except Exception:  # noqa: BLE001 - host code; its message is never shown (it may carry a DSN)
-            found = [_unavailable(ctx, collector)]
+            meter = _unavailable(ctx, collector)
+            found = [] if meter["name"] in failed else [meter]  # one entry per failing collector class
+            failed.add(meter["name"])
         families.extend(found)
     return sorted(families, key=lambda x: x["name"])
 
@@ -167,7 +199,7 @@ def _aggregate(meter: dict[str, Any], samples: list[dict[str, Any]]) -> list[dic
     return [{"statistic": k, "value": v} for k, v in sorted(totals.items())]
 
 
-def _provenance(description: str | None) -> dict[str, Any]:
+def _provenance(description: str | None, source: str) -> dict[str, Any]:
     return {
         "groupId": "application",
         "groupLabel": "Application / unclassified",
@@ -176,7 +208,7 @@ def _provenance(description: str | None) -> dict[str, Any]:
         "familyLabel": None,
         "classified": False,
         "explanation": description,
-        "explanationSource": "NATIVE" if description else "UNKNOWN",
+        "explanationSource": source,
         "interpretation": None,
     }
 
@@ -253,7 +285,7 @@ def metrics_report(
         if (not q or q in m["name"].lower() or q in (m["description"] or "").lower())
         and (not requested_type or requested_type == m["type"])
         and (not provenance or provenance.strip().lower() == "unclassified")
-        and (not requested_explanation or requested_explanation == ("NATIVE" if m["description"] else "UNKNOWN"))
+        and (not requested_explanation or requested_explanation == m["source"])
     ]
     names = [
         {
@@ -262,7 +294,7 @@ def metrics_report(
             "baseUnit": m["baseUnit"],
             "type": m["type"],
             "availableTags": _available_tags(m["tags"]),
-            "provenance": _provenance(m["description"]),
+            "provenance": _provenance(m["description"], m["source"]),
         }
         for m in matching
     ]
@@ -311,11 +343,12 @@ def metric_detail(
             raise MetricsRequestError("Metric tag filters must use key:value syntax")
         required[key] = _label(ctx, key, value)
     start, size = _page(offset, limit, DEFAULT_SAMPLE_LIMIT)
-    meter = next((m for m in _families(ctx) if m["name"] == name.strip()), None)
+    wanted = _name(ctx, name.strip())  # names are shown masked, so the lookup and the echo are masked too
+    meter = next((m for m in _families(ctx) if m["name"] == wanted), None)
     if meter is None:
         return {
             "metricsAvailable": registry() is not None,
-            "name": name.strip(),
+            "name": wanted,
             "description": None,
             "baseUnit": None,
             "type": None,
@@ -345,5 +378,5 @@ def metric_detail(
         "totalSamples": len(samples),
         "samplePage": _metadata(len(samples), len(samples), start, size, len(page)),
         "samplesTruncated": start > 0 or start + len(page) < len(samples),
-        "provenance": _provenance(meter["description"]),
+        "provenance": _provenance(meter["description"], meter["source"]),
     }

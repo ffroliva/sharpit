@@ -241,3 +241,17 @@ def test_failing_collectors_of_one_class_merge_with_sharpit_source(
     meters = client.get("/sharpit/api/metrics").json()["meters"]
     assert [m["name"] for m in meters] == ["_Raises"]
     assert meters[0]["provenance"]["explanationSource"] == "CURATED"
+
+
+def test_metadata_only_keeps_meter_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine.collectors.metrics import prometheus
+
+    registry = CollectorRegistry()
+    Gauge("jobs", "", ["queue"], unit="seconds", registry=registry).labels("q").set(1)
+    monkeypatch.setattr(prometheus, "REGISTRY", registry)
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False, config_scan=False, expose_values="METADATA_ONLY")
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    meter = client.get("/sharpit/api/metrics").json()["meters"][0]
+    assert meter["name"] == "jobs_seconds"
+    assert meter["baseUnit"] == "seconds"
