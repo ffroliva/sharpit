@@ -36,6 +36,7 @@ GATEKEEPERS: dict[str, set[str]] = {
     "pydantic_settings": {"sharpit/engine/collectors/config/settings_source.py"},
     "dotenv": {"sharpit/engine/collectors/config/settings_source.py"},
     "opentelemetry": {"sharpit/engine/otel.py"},
+    "prometheus_client": {"sharpit/engine/collectors/metrics/prometheus.py"},
     "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},
     "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
     "socket": set(),
@@ -419,6 +420,23 @@ def test_opentelemetry_import_is_confined_to_engine_otel(tmp_path: Path, monkeyp
     assert violations == [
         "sharpit/engine/tools.py imports opentelemetry.trace: only ['sharpit/engine/otel.py'] may import opentelemetry"
     ]
+
+
+def test_prometheus_client_import_is_confined_to_metrics_gatekeeper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "src"
+    engine = source / "sharpit" / "engine"
+    collectors = engine / "collectors" / "metrics"
+    collectors.mkdir(parents=True)
+    (collectors / "prometheus.py").write_text("import prometheus_client\n", encoding="utf-8")
+    (engine / "tools.py").write_text("import prometheus_client\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", source)
+
+    violations = gatekeeper_violations()
+
+    allowed = "only ['sharpit/engine/collectors/metrics/prometheus.py'] may import prometheus_client"
+    assert violations == [f"sharpit/engine/tools.py imports prometheus_client: {allowed}"]
 
 
 def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

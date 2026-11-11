@@ -2,8 +2,8 @@
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
     "matched": 5,
-    "partial": 23,
-    "missing": 48,
+    "partial": 24,
+    "missing": 47,
     "n-a": 20,
     "total": 96
   },
@@ -460,8 +460,8 @@
       "golden": "metrics/captured.json",
       "panel": "metrics",
       "route": "/sharpit/api/metrics",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/metrics (HTTP 404)"
+      "status": "partial",
+      "difference": "metrics/captured.json parity: catalogueVersion: null in payload, golden has string; not listed in nullable.json; groups[].baseUnits: non-empty golden list requires a non-empty payload list; groups[].interpretation: null in payload, golden has string; not listed in nullable.json"
     },
     {
       "golden": "mysql/captured.json",
