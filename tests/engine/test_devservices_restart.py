@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -28,9 +29,9 @@ EXE = "docker.exe" if os.name == "nt" else "docker"
 class Spy:
     """Stands in for the resolver and the runner; ``calls`` stays empty when nothing may spawn."""
 
-    def __init__(self, result: CliResult | Exception = CliResult(0, False, "")) -> None:
+    def __init__(self, result: CliResult | Exception | None = None) -> None:
         self.calls: list[tuple[str, ...]] = []
-        self.result = result
+        self.result = result or CliResult(0, False, "")
 
     def resolve(self) -> str | None:
         self.calls.append(("resolve",))
@@ -43,11 +44,19 @@ class Spy:
         return self.result
 
 
-def _find(recorded: dict[str, str | None]):
+def _find(recorded: dict[str, str | None]) -> Callable[[str], RecordedService | None]:
     return lambda sid: RecordedService(sid, recorded[sid]) if sid in recorded else None
 
 
-def _go(spy: Spy, sid: str = "bean:pg", *, enabled: bool = True, recorded=None, mask=lambda t: t, resolve=None):
+def _go(
+    spy: Spy,
+    sid: str = "bean:pg",
+    *,
+    enabled: bool = True,
+    recorded: dict[str, str | None] | None = None,
+    mask: Callable[[str | None], str | None] = lambda text: text,
+    resolve: Callable[[], str | None] | None = None,
+) -> tuple[int, dict[str, str]]:
     return restart(
         sid,
         enabled=enabled,
@@ -84,7 +93,7 @@ def test_restart_returns_500_when_the_runner_exits_non_zero() -> None:
 
 
 def test_restart_failure_message_is_masked() -> None:
-    masker = Masker(Exposure.FULL, True)
+    masker = Masker(Exposure.MASKED, True)
     spy = Spy(CliResult(1, False, f"login failed token={TOKEN}"))
 
     status, body = _go(spy, mask=masker.mask_text)
@@ -104,7 +113,7 @@ def test_restart_failure_without_a_usable_message_is_generic(result: CliResult |
 
 def test_restart_failure_with_nothing_shown_is_generic() -> None:
     # METADATA_ONLY masks every text to None
-    assert _go(Spy(CliResult(1, False, "secret")), mask=lambda _t: None) == (500, {"message": GENERIC})
+    assert _go(Spy(CliResult(1, False, "secret")), mask=lambda _text: None) == (500, {"message": GENERIC})
 
 
 def test_restart_id_never_from_request() -> None:
