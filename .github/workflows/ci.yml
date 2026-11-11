@@ -65,13 +65,14 @@ jobs:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --locked --extra test --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for coverage; --no-build would prevent that
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
       # coverage's per-worker data files would land in the repo, which the side-effect checks report as a change
       - env:
           COVERAGE_FILE: ${{ runner.temp }}/.coverage
           COVERAGE_CORE: sysmon # sys.monitoring tracer (Python 3.12+): same report, a fraction of the classic tracer's cost
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
-        run: uv run python -m pytest -q -n auto --cov=sharpit --cov-report= -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+        run: uv run python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" --cov=sharpit --cov-report= -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
       - run: cp "$RUNNER_TEMP/.coverage" "coverage-${{ strategy.job-index }}.data" # a visible name: upload skips dotfiles
       - id: scan-junit
         if: always()
@@ -108,11 +109,16 @@ jobs:
           path: ${{ runner.temp }}/speed
           if-no-files-found: ignore
           retention-days: 7
-      # no --cov and no COVERAGE_* here: the tracer would skip every budget; no SHARPIT_SHARD: all the budget files
-      - if: matrix.shard == '5/5'
+
+  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards a leg, because the costliest shard
+  # sets the leg's wall (the ceiling is pinned in tests/test_ci_layout.py).
+  # Each leg's shards together run every test exactly once (tests/test_shard.py).
+      # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
+      # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
+      - if: ${{ !cancelled() && (matrix.shard == '5/5') }}
         env:
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
-        run: uv run python -m pytest -q -n auto $(uv run --no-sync python -c "import sys; sys.path.insert(0, 'tests'); from _shard import timing_files; print(' '.join(sorted(timing_files())))") -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
+        run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
       - id: scan-junit-budgets
         if: always()
         run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-budgets.xml"
@@ -140,13 +146,9 @@ jobs:
         if: always() && steps.scan-speed-budgets.outcome == 'success'
         with:
           name: speed-coverage-shard-budgets
-          path: ${{ runner.temp }}/speed/*-budgets.* # per xdist worker: ft-budgets.jsonl.gw*, rb-budgets.json.gw*
+          path: ${{ runner.temp }}/speed/*-budgets.*
           if-no-files-found: ignore
           retention-days: 7
-
-  # The suite runs split by test file (SHARPIT_SHARD=i/n, tests/_shard.py): 4 shards a leg, because the costliest shard
-  # sets the leg's wall (the ceiling is pinned in tests/test_ci_layout.py).
-  # Each leg's shards together run every test exactly once (tests/test_shard.py).
   test-shard:
     name: test shard (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.shard }})
     strategy:
@@ -180,7 +182,8 @@ jobs:
       - run: uv python install ${{ matrix.python }}
       - run: uv sync --locked --extra test ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.14' && '--group full-extras' || '' }} --python ${{ matrix.python }} # NOSONAR - installs sharpit from source for the test suite; --no-build would prevent that
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
-      - run: uv run python -m pytest -q -n auto -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
+      - run: uv run python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -211,6 +214,42 @@ jobs:
         with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
           name: speed-test-shard-${{ matrix.os }}-${{ matrix.python }}-${{ strategy.job-index }}
           path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+      # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
+      # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
+      - if: ${{ !cancelled() && (matrix.shard == '5/5' || matrix.shard == '4/4') }}
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
+        run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
+      - id: scan-junit-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-budgets.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-budgets.outcome == 'success'
+        with:
+          name: junit-test-shard-${{matrix.os}}-${{matrix.python}}-budgets
+          path: ${{ runner.temp }}/junit-budgets.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-overhead-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead-budgets.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead-budgets.outcome == 'success'
+        with:
+          name: overhead-test-shard-${{matrix.os}}-${{matrix.python}}-budgets
+          path: ${{ runner.temp }}/overhead-budgets.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed-budgets.outcome == 'success'
+        with:
+          name: speed-test-shard-${{matrix.os}}-${{matrix.python}}-budgets
+          path: ${{ runner.temp }}/speed/*-budgets.*
           if-no-files-found: ignore
           retention-days: 7
 
@@ -460,8 +499,9 @@ jobs:
           enable-cache: true # uv's download and wheel cache, keyed on uv.lock
       - run: uv sync --extra test --no-dev --resolution lowest-direct --python 3.12 # NOSONAR - deliberately resolves lowest-direct without the lock and installs sharpit from source
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
+      - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
       # --no-sync: a plain `uv run` re-syncs to uv.lock and undoes the lowest resolution
-      - run: uv run --no-sync python -m pytest -q -n auto -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -493,6 +533,42 @@ jobs:
         with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
           name: speed-lowest-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+      # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
+      # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
+      - if: ${{ !cancelled() && (matrix.shard == '4/4') }}
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
+        run: uv run --no-sync python -m pytest -q -n 0 "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
+      - id: scan-junit-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-budgets.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-budgets.outcome == 'success'
+        with:
+          name: junit-lowest-shard-budgets
+          path: ${{ runner.temp }}/junit-budgets.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-overhead-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead-budgets.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead-budgets.outcome == 'success'
+        with:
+          name: overhead-lowest-shard-budgets
+          path: ${{ runner.temp }}/overhead-budgets.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed-budgets.outcome == 'success'
+        with:
+          name: speed-lowest-shard-budgets
+          path: ${{ runner.temp }}/speed/*-budgets.*
           if-no-files-found: ignore
           retention-days: 7
 
@@ -530,7 +606,8 @@ jobs:
           uv sync --locked --extra test --no-install-package sqlalchemy --no-install-package aiosqlite
           --no-install-package alembic --no-install-package greenlet # NOSONAR - this job installs sharpit from source and excludes optional dependencies
       - run: uv run --no-sync python -c "import os, sys; os.makedirs(sys.argv[1], exist_ok=True)" "${{ runner.temp }}/speed" # the speed plugins write here
-      - run: uv run --no-sync python -m pytest -q -n auto -m "not needs_sqlalchemy" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
+      - run: uv run --no-sync python scripts/ci/timing_files.py "${{ runner.temp }}" # budgets.args, no-budgets.args
+      - run: uv run --no-sync python -m pytest -q -n auto "@${{ runner.temp }}/no-budgets.args" -m "not needs_sqlalchemy" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb.json" --junitxml="${{ runner.temp }}/junit.xml"
         env:
           SHARPIT_SHARD: ${{ matrix.shard }}
           SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead.jsonl
@@ -562,6 +639,42 @@ jobs:
         with: # pytest-speed fixture times and rebuild counts (per xdist worker: *.gw*), for `first-cost`
           name: speed-no-sqlalchemy-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/speed
+          if-no-files-found: ignore
+          retention-days: 7
+      # The budget tests alone (-n 0) after the parallel step, which ignores them: next to xdist workers still
+      # draining they fail on CI only. No SHARPIT_SHARD (each runs once, here) and no coverage (the tracer skips them).
+      - if: ${{ !cancelled() && (matrix.shard == '3/3') }}
+        env:
+          SHARPIT_OVERHEAD_LOG: ${{ runner.temp }}/overhead-budgets.jsonl
+        run: uv run --no-sync python -m pytest -q -n 0 -m "not needs_sqlalchemy" "@${{ runner.temp }}/budgets.args" -p scripts.pytest_speed.fixture_timer --fixture-times="${{ runner.temp }}/speed/ft-budgets.jsonl" -p scripts.pytest_speed.rebuild_log --rebuild-log="${{ runner.temp }}/speed/rb-budgets.json" --junitxml="${{ runner.temp }}/junit-budgets.xml"
+      - id: scan-junit-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/junit-budgets.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-junit-budgets.outcome == 'success'
+        with:
+          name: junit-no-sqlalchemy-shard-budgets
+          path: ${{ runner.temp }}/junit-budgets.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-overhead-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/overhead-budgets.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-overhead-budgets.outcome == 'success'
+        with:
+          name: overhead-no-sqlalchemy-shard-budgets
+          path: ${{ runner.temp }}/overhead-budgets.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - id: scan-speed-budgets
+        if: always()
+        run: uv run --no-sync python scripts/ci/artifact_scan.py --values-file "${{ runner.temp }}/sharpit-canary.txt" "${{ runner.temp }}/speed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.scan-speed-budgets.outcome == 'success'
+        with:
+          name: speed-no-sqlalchemy-shard-budgets
+          path: ${{ runner.temp }}/speed/*-budgets.*
           if-no-files-found: ignore
           retention-days: 7
 
