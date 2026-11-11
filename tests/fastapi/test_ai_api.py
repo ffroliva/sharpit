@@ -269,3 +269,52 @@ def test_ai_chat_detail_keeps_allow_listed_metadata_under_masked():
     assert values["gen_ai.usage.input_tokens"] == "7"
     assert values["gen_ai.response.finish_reasons"] == "[stop]"
     assert values["gen_ai.request.temperature"] == "0.5"
+
+
+def _install_chats(models: list[str], expose_values: str) -> tuple[FastAPI, Any]:
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, expose_values=expose_values)
+    for span_id, model in enumerate(models, start=1):
+        span_buffer(handle.context).add(
+            SimpleNamespace(
+                context=SimpleNamespace(trace_id=span_id, span_id=span_id),
+                kind=SimpleNamespace(name="CLIENT"),
+                name="chat",
+                start_time=span_id * 1_000,
+                end_time=span_id * 1_000 + 500,
+                status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET")),
+                attributes={
+                    "gen_ai.operation.name": "chat",
+                    "gen_ai.request.model": model,
+                    "gen_ai.provider.name": model,
+                },
+            )
+        )
+    return app, handle
+
+
+MODELS = ["gpt-4o", "claude-x", "https://bob:s3cret@h/m"]
+
+
+def test_ai_model_names_are_metadata_under_metadata_only():
+    # finding W7-A r2d: names are metadata; only a secret-shaped name is masked under METADATA_ONLY
+    app, _ = _install_chats(MODELS, "METADATA_ONLY")
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
+        overview = client.get(f"{API}/ai/overview").json()
+        chats = client.get(f"{API}/ai/chats").json()
+    assert overview["tokensByModel"].keys() == {"gpt-4o", "claude-x", "******"}
+    assert overview["callsByModel"] == {"gpt-4o": 1, "claude-x": 1, "******": 1}
+    assert {chat["requestModel"] for chat in chats} == {"gpt-4o", "claude-x", "******"}
+    assert {chat["provider"] for chat in chats} == {"gpt-4o", "claude-x", "******"}
+
+
+def test_get_ai_overview_tool_masks_model_names():
+    # finding W7-A r2c/r2d: the MCP tool reads the same masked names
+    from sharpit.engine.tools import CallContext
+    from sharpit.engine.tools04.ai import TOOLS
+
+    _, handle = _install_chats(MODELS, "MASKED")
+    tool = next(tool for tool in TOOLS if tool.name == "get_ai_overview")
+    result = tool.handler(CallContext(handle.context, {}), {})
+    assert "s3cret" not in json.dumps(result)
+    assert set(result["callsByModel"]) == {"gpt-4o", "claude-x", "https://******@h/m"}
