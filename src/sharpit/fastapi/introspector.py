@@ -14,7 +14,7 @@ from dataclasses import replace
 from enum import Enum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, NamedTuple, cast
 
 from starlette.applications import Starlette
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -63,17 +63,21 @@ from sharpit.fastapi.introspection_security import (
 )
 
 
-def _fastapi_classes() -> tuple[tuple[type, ...], tuple[type, ...], tuple[type, ...]]:
+class _FastAPIClasses(NamedTuple):
+    apps: tuple[type, ...]
+    routes: tuple[type, ...]
+    websocket_routes: tuple[type, ...]
+
+
+@functools.cache  # on first use: importing FastAPI here would load it in every pytest process (the plugin imports us)
+def _fastapi_classes() -> _FastAPIClasses:
     """FastAPI's app, route and websocket route classes; the extra is optional, and an empty tuple matches no class."""
     try:
         from fastapi.applications import FastAPI  # noqa: PLC0415
         from fastapi.routing import APIRoute, APIWebSocketRoute  # noqa: PLC0415
     except ImportError:
-        return (), (), ()
-    return (FastAPI,), (APIRoute,), (APIWebSocketRoute,)
-
-
-_FASTAPI_APPS, _API_ROUTES, _API_WEBSOCKET_ROUTES = _fastapi_classes()
+        return _FastAPIClasses((), (), ())
+    return _FastAPIClasses((FastAPI,), (APIRoute,), (APIWebSocketRoute,))
 
 
 def _version(dist: str) -> str | None:
@@ -86,8 +90,13 @@ def _version(dist: str) -> str | None:
 _MOUNT_SUFFIX = "/{path}"
 _UNEXPANDED_ROUTER = "<unexpanded include_router>"
 _ANY_PATH = "(any)"
-# and subclasses: a route_class stays classified
-_KNOWN_ROUTES = (*_API_ROUTES, *_API_WEBSOCKET_ROUTES, WebSocketRoute, Route)
+
+
+@functools.cache
+def _known_routes() -> tuple[type, ...]:
+    """The route classes the mappings classify, and subclasses: a route_class stays classified."""
+    fastapi = _fastapi_classes()
+    return (*fastapi.routes, *fastapi.websocket_routes, WebSocketRoute, Route)
 
 
 def _qualified(obj: object) -> str:
@@ -458,7 +467,7 @@ class FastApiIntrospector:
             0,
             top=True,
             included_dependencies=app_dependencies,
-            in_fastapi=issubclass(type(self.app), _FASTAPI_APPS),
+            in_fastapi=issubclass(type(self.app), _fastapi_classes().apps),
         )
 
     def _walk(
@@ -492,7 +501,7 @@ class FastApiIntrospector:
             if is_mount or is_host:
                 yield from self._walk_mounted(route, prefix, host, path_apps, depth, mounts, (is_mount, in_fastapi))
                 continue
-            if not issubclass(route_type, _KNOWN_ROUTES):  # issubclass(type()): a user ``__class__`` is never run
+            if not issubclass(route_type, _known_routes()):  # issubclass(type()): a user ``__class__`` is never run
                 # Unknown BaseRoute implementations are opaque; do not inspect even their descriptors.
                 yield RouteInfo((), prefix or _ANY_PATH, "custom route", host, None, None, None), None
                 continue
@@ -567,7 +576,9 @@ class FastApiIntrospector:
         nested_mounts = (*mounts, (id(route), regex))
         # A plain Starlette sub-app is not FastAPI: its routes' dependencies say nothing about its security.
         app_type = type(base_app)
-        child_fastapi = in_fastapi and (issubclass(app_type, _FASTAPI_APPS) or not issubclass(app_type, Starlette))
+        child_fastapi = in_fastapi and (
+            issubclass(app_type, _fastapi_classes().apps) or not issubclass(app_type, Starlette)
+        )
         if children and app_id not in path_apps and depth < MAX_DEPTH:
             yield from self._walk(
                 children,
@@ -616,7 +627,7 @@ class FastApiIntrospector:
             from fastapi.security.base import SecurityBase  # noqa: PLC0415
         except ImportError:
             return SecurityModel(False, (), (), (), (NOT_FASTAPI,))
-        if not issubclass(type(self.app), _FASTAPI_APPS):  # type(): a user ``__class__`` property is never run
+        if not issubclass(type(self.app), _fastapi_classes().apps):  # type(): a user ``__class__`` is never run
             return SecurityModel(False, (), (), (), (NOT_FASTAPI,))
         chains: list[SecurityChain] = []
         backends: list[str] = []
@@ -652,7 +663,7 @@ class FastApiIntrospector:
             return self._opaque_route(info, chain, limitations, served)
         if _framework(info.handler):
             return None
-        if issubclass(type(route), _API_ROUTES) and id(route) in self._fastapi_routes:
+        if issubclass(type(route), _fastapi_classes().routes) and id(route) in self._fastapi_routes:
             return _secured_route(
                 info,
                 route,
@@ -818,7 +829,7 @@ class FastApiIntrospector:
             from fastapi.security.base import SecurityBase  # noqa: PLC0415
         except ImportError:
             return SecurityFacts(False, None, (), (), (NOT_FASTAPI,))
-        if not issubclass(type(self.app), _FASTAPI_APPS):  # type(): a user ``__class__`` property is never run
+        if not issubclass(type(self.app), _fastapi_classes().apps):  # type(): a user ``__class__`` is never run
             return SecurityFacts(False, None, (), (), (NOT_FASTAPI,))
         values = _attrs(self.app)
         openapi_url = values.get("openapi_url")
@@ -826,7 +837,7 @@ class FastApiIntrospector:
         middleware = (*_middleware_facts(self.app, limitations), *self._mounted_middleware(limitations))
         schemes: dict[int, object] = {}
         for _info, route in self._entries():
-            if route is not None and issubclass(type(route), _API_ROUTES):
+            if route is not None and issubclass(type(route), _fastapi_classes().routes):
                 _scheme_objects(_attrs(route).get("dependant"), 0, SecurityBase, schemes)
         urls = tuple(url for scheme in schemes.values() for url in _scheme_urls(scheme))
         debug = values.get("debug") is True
