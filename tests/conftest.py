@@ -509,7 +509,12 @@ _RUNTIME_ORIGINALS = {f"sys.{n}": getattr(sys, n) for n in _RUNTIME_NAMES} | {
 
 def leaked_runtime_spies() -> list[str]:
     """The SideEffectGuard runtime functions that are not the interpreter's own (a guard left its spy behind)."""
-    return []
+    owners = {"sys": sys, "sys.monitoring": sys.monitoring}
+    return [
+        name
+        for name, original in _RUNTIME_ORIGINALS.items()
+        if getattr(owners[name.rpartition(".")[0]], name.rpartition(".")[2]) is not original
+    ]
 
 
 @pytest.fixture(autouse=True)
