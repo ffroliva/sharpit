@@ -138,7 +138,7 @@ def path_hint(path: str | None) -> str | None:
         return None
     base = path.replace("\\", "/").rsplit("/", 1)[-1]
     dot = base.rfind(".")
-    return f"*.{base[dot + 1 :]}" if 0 < dot < len(base) - 1 else None
+    return f"*.{base[dot + 1 :][:12]}" if 0 < dot < len(base) - 1 else None
 
 
 def url_hint(url: str | None) -> str | None:

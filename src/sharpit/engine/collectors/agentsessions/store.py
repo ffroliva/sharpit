@@ -45,24 +45,14 @@ def _in_window(timestamp: int | None, since: int | None, until: int | None) -> b
     return until is None or timestamp < until
 
 
-def _is_confined(p: Path, root: Path) -> bool:
-    if p.is_symlink():
+def _is_confined(target: Path | os.DirEntry[str], root: Path) -> bool:
+    if target.is_symlink():
         return False
-    if hasattr(p, "is_junction") and p.is_junction():
+    if hasattr(target, "is_junction") and target.is_junction():
         return False
     try:
+        p = Path(target.path) if isinstance(target, os.DirEntry) else target
         return p.resolve().is_relative_to(root.resolve())
-    except (ValueError, OSError):
-        return False
-
-
-def _is_entry_confined(entry: os.DirEntry[str], root: Path) -> bool:
-    if entry.is_symlink():
-        return False
-    if hasattr(entry, "is_junction") and entry.is_junction():
-        return False
-    try:
-        return Path(entry.path).resolve().is_relative_to(root.resolve())
     except (ValueError, OSError):
         return False
 
@@ -87,15 +77,14 @@ def _scan_copilot_candidates(dir_path: Path, max_bytes: int) -> list[tuple[str, 
     try:
         with os.scandir(dir_path) as entries:
             for entry in entries:
-                if not _is_entry_confined(entry, dir_path):
-                    continue
                 if entry.is_dir():
+                    if not _is_confined(entry, dir_path):
+                        continue
                     ev = Path(entry.path) / "events.jsonl"
-                    if ev.is_file():
-                        st = _check_candidate_file(ev, max_bytes, dir_path)
-                        if st is not None:
-                            candidates.append((entry.name, ev, st, True))
-                elif entry.is_file() and entry.name.lower().endswith(".json"):
+                    st = _check_candidate_file(ev, max_bytes, dir_path)
+                    if st is not None:
+                        candidates.append((entry.name, ev, st, True))
+                elif entry.name.lower().endswith(".json"):
                     p = Path(entry.path)
                     st = _check_candidate_file(p, max_bytes, dir_path)
                     if st is not None:
@@ -110,9 +99,7 @@ def _scan_claude_subdir(entry_path: str, max_bytes: int, root: Path) -> list[tup
     try:
         with os.scandir(entry_path) as sub_entries:
             for sub in sub_entries:
-                if not _is_entry_confined(sub, root):
-                    continue
-                if sub.is_file() and sub.name.lower().endswith(".jsonl"):
+                if sub.name.lower().endswith(".jsonl"):
                     sub_p = Path(sub.path)
                     st = _check_candidate_file(sub_p, max_bytes, root)
                     if st is not None:
@@ -127,11 +114,11 @@ def _scan_claude_candidates(dir_path: Path, max_bytes: int) -> list[tuple[str, P
     try:
         with os.scandir(dir_path) as entries:
             for entry in entries:
-                if not _is_entry_confined(entry, dir_path):
-                    continue
                 if entry.is_dir():
+                    if not _is_confined(entry, dir_path):
+                        continue
                     candidates.extend(_scan_claude_subdir(entry.path, max_bytes, dir_path))
-                elif entry.is_file() and entry.name.lower().endswith(".jsonl"):
+                elif entry.name.lower().endswith(".jsonl"):
                     p = Path(entry.path)
                     st = _check_candidate_file(p, max_bytes, dir_path)
                     if st is not None:
@@ -224,8 +211,9 @@ class SessionStore:
     def _unavailable_reason(self) -> str:
         return self.unavailable_reason()
 
-    def sessions(self, since: int | None = None, until: int | None = None) -> dict[str, Any]:
-        self.refresh()
+    def sessions(self, since: int | None = None, until: int | None = None, *, refresh: bool = True) -> dict[str, Any]:
+        if refresh:
+            self.refresh()
         max_s = min(max(1, self.settings.max_sessions), 1000)
         if not self.is_available():
             return {
@@ -289,8 +277,9 @@ class SessionStore:
             "warnings": warnings,
         }
 
-    def dashboard(self) -> dict[str, Any]:
-        self.refresh()
+    def dashboard(self, *, refresh: bool = True) -> dict[str, Any]:
+        if refresh:
+            self.refresh()
         if not self.is_available():
             return build_dashboard(
                 [],
