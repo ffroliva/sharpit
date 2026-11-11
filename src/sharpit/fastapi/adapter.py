@@ -188,6 +188,14 @@ def available_reasons(ctx: SharpitContext) -> dict[str, str | None]:
     reasons["activity"] = activity.unavailable_reason(ctx)
     reasons["alembic"] = alembic.unavailable_reason(ctx)
     reasons["database-connection-pools"] = sqla.unavailable_reason()
+
+    from sharpit.engine.collectors.agentsessions import Layout, session_store
+
+    copilot = session_store(ctx, Layout.COPILOT)
+    reasons["copilot"] = None if copilot.is_available() else copilot.unavailable_reason()
+
+    claude = session_store(ctx, Layout.CLAUDE_CODE)
+    reasons["claude-code"] = None if claude.is_available() else claude.unavailable_reason()
     return reasons
 
 

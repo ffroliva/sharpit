@@ -191,79 +191,99 @@ def test_session_parse_cache_skips_unchanged_files(tmp_path: Path) -> None:
 def test_copilot_session_file_symlink_refused(tmp_path: Path) -> None:
     session_dir = tmp_path / "sess1"
     session_dir.mkdir()
-    outside_dir = tmp_path / "outside"
-    outside_dir.mkdir()
-    outside_target = outside_dir / "target_events.jsonl"
-    outside_target.write_text('{"id":"e1","type":"tool.execution_start","timestamp":1}\n', encoding="utf-8")
-
-    link_path = session_dir / "events.jsonl"
+    outside_dir = tmp_path.parent / f"outside_cop_file_{tmp_path.name}"
+    outside_dir.mkdir(parents=True, exist_ok=True)
     try:
-        os.symlink(str(outside_target), str(link_path))
-    except OSError as e:
-        pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+        outside_target = outside_dir / "target_events.jsonl"
+        outside_target.write_text('{"id":"e1","type":"tool.execution_start","timestamp":1}\n', encoding="utf-8")
 
-    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
-    store = SessionStore(settings, Layout.COPILOT)
-    store.refresh()
-    assert store.sessions()["total"] == 0
+        link_path = session_dir / "events.jsonl"
+        try:
+            os.symlink(str(outside_target), str(link_path))
+        except OSError as e:
+            pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+
+        settings = AgentSessionSettings(session_state_dir=str(tmp_path))
+        store = SessionStore(settings, Layout.COPILOT)
+        store.refresh()
+        assert store.sessions()["total"] == 0
+    finally:
+        import shutil
+
+        shutil.rmtree(outside_dir, ignore_errors=True)
 
 
 def test_copilot_session_dir_symlink_refused(tmp_path: Path) -> None:
-    outside_dir = tmp_path / "outside_sess"
-    outside_dir.mkdir()
-    (outside_dir / "events.jsonl").write_text(
-        '{"id":"e1","type":"tool.execution_start","timestamp":1}\n', encoding="utf-8"
-    )
-
-    link_dir = tmp_path / "sess_link"
+    outside_dir = tmp_path.parent / f"outside_cop_dir_{tmp_path.name}"
+    outside_dir.mkdir(parents=True, exist_ok=True)
     try:
-        os.symlink(str(outside_dir), str(link_dir), target_is_directory=True)
-    except OSError as e:
-        pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+        (outside_dir / "events.jsonl").write_text(
+            '{"id":"e1","type":"tool.execution_start","timestamp":1}\n', encoding="utf-8"
+        )
 
-    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
-    store = SessionStore(settings, Layout.COPILOT)
-    store.refresh()
-    assert store.sessions()["total"] == 0
+        link_dir = tmp_path / "sess_link"
+        try:
+            os.symlink(str(outside_dir), str(link_dir), target_is_directory=True)
+        except OSError as e:
+            pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+
+        settings = AgentSessionSettings(session_state_dir=str(tmp_path))
+        store = SessionStore(settings, Layout.COPILOT)
+        store.refresh()
+        assert store.sessions()["total"] == 0
+    finally:
+        import shutil
+
+        shutil.rmtree(outside_dir, ignore_errors=True)
 
 
 def test_claude_session_file_symlink_refused(tmp_path: Path) -> None:
     proj_dir = tmp_path / "proj"
     proj_dir.mkdir()
-    outside_dir = tmp_path / "outside"
-    outside_dir.mkdir()
-    outside_file = outside_dir / "outside_session.jsonl"
-    outside_file.write_text('{"type":"assistant","timestamp":"2026-05-28T10:00:00Z"}\n', encoding="utf-8")
-
-    link_file = proj_dir / "session.jsonl"
+    outside_dir = tmp_path.parent / f"outside_claude_file_{tmp_path.name}"
+    outside_dir.mkdir(parents=True, exist_ok=True)
     try:
-        os.symlink(str(outside_file), str(link_file))
-    except OSError as e:
-        pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+        outside_file = outside_dir / "outside_session.jsonl"
+        outside_file.write_text('{"type":"assistant","timestamp":"2026-05-28T10:00:00Z"}\n', encoding="utf-8")
 
-    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
-    store = SessionStore(settings, Layout.CLAUDE_CODE)
-    store.refresh()
-    assert store.sessions()["total"] == 0
+        link_file = proj_dir / "session.jsonl"
+        try:
+            os.symlink(str(outside_file), str(link_file))
+        except OSError as e:
+            pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+
+        settings = AgentSessionSettings(session_state_dir=str(tmp_path))
+        store = SessionStore(settings, Layout.CLAUDE_CODE)
+        store.refresh()
+        assert store.sessions()["total"] == 0
+    finally:
+        import shutil
+
+        shutil.rmtree(outside_dir, ignore_errors=True)
 
 
 def test_claude_project_dir_symlink_refused(tmp_path: Path) -> None:
-    outside_proj = tmp_path / "outside_proj"
-    outside_proj.mkdir()
-    (outside_proj / "session.jsonl").write_text(
-        '{"type":"assistant","timestamp":"2026-05-28T10:00:00Z"}\n', encoding="utf-8"
-    )
-
-    link_proj = tmp_path / "proj_link"
+    outside_proj = tmp_path.parent / f"outside_claude_proj_{tmp_path.name}"
+    outside_proj.mkdir(parents=True, exist_ok=True)
     try:
-        os.symlink(str(outside_proj), str(link_proj), target_is_directory=True)
-    except OSError as e:
-        pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+        (outside_proj / "session.jsonl").write_text(
+            '{"type":"assistant","timestamp":"2026-05-28T10:00:00Z"}\n', encoding="utf-8"
+        )
 
-    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
-    store = SessionStore(settings, Layout.CLAUDE_CODE)
-    store.refresh()
-    assert store.sessions()["total"] == 0
+        link_proj = tmp_path / "proj_link"
+        try:
+            os.symlink(str(outside_proj), str(link_proj), target_is_directory=True)
+        except OSError as e:
+            pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+
+        settings = AgentSessionSettings(session_state_dir=str(tmp_path))
+        store = SessionStore(settings, Layout.CLAUDE_CODE)
+        store.refresh()
+        assert store.sessions()["total"] == 0
+    finally:
+        import shutil
+
+        shutil.rmtree(outside_proj, ignore_errors=True)
 
 
 def test_oversized_session_file_refused(tmp_path: Path) -> None:
@@ -278,7 +298,20 @@ def test_oversized_session_file_refused(tmp_path: Path) -> None:
         st = real_stat(self, *args, **kwargs)
         if self == s1:
             # Report size > 32 MiB
-            return os.stat_result((st.st_mode, st.st_ino, st.st_dev, st.st_nlink, st.st_uid, st.st_gid, 33 * 1024 * 1024, st.st_atime, st.st_mtime, st.st_ctime))
+            return os.stat_result(
+                (
+                    st.st_mode,
+                    st.st_ino,
+                    st.st_dev,
+                    st.st_nlink,
+                    st.st_uid,
+                    st.st_gid,
+                    33 * 1024 * 1024,
+                    st.st_atime,
+                    st.st_mtime,
+                    st.st_ctime,
+                )
+            )
         return st
 
     with patch.object(Path, "stat", mock_stat):
@@ -302,19 +335,24 @@ def test_windows_junction_refused(tmp_path: Path) -> None:
         pytest.skip("Windows junctions only supported on Windows")
     import _winapi
 
-    outside_dir = tmp_path / "outside_dir"
-    outside_dir.mkdir()
-    (outside_dir / "events.jsonl").write_text(
-        '{"id":"e1","type":"tool.execution_start","timestamp":1}\n', encoding="utf-8"
-    )
+    outside_dir = tmp_path.parent / f"outside_junction_{tmp_path.name}"
+    outside_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        (outside_dir / "events.jsonl").write_text(
+            '{"id":"e1","type":"tool.execution_start","timestamp":1}\n', encoding="utf-8"
+        )
 
-    junction_path = tmp_path / "junction_sess"
-    _winapi.CreateJunction(str(outside_dir), str(junction_path))
+        junction_path = tmp_path / "junction_sess"
+        _winapi.CreateJunction(str(outside_dir), str(junction_path))
 
-    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
-    store = SessionStore(settings, Layout.COPILOT)
-    store.refresh()
-    assert store.sessions()["total"] == 0, "Windows junction pointing outside must be refused"
+        settings = AgentSessionSettings(session_state_dir=str(tmp_path))
+        store = SessionStore(settings, Layout.COPILOT)
+        store.refresh()
+        assert store.sessions()["total"] == 0, "Windows junction pointing outside must be refused"
+    finally:
+        import shutil
+
+        shutil.rmtree(outside_dir, ignore_errors=True)
 
 
 def test_growing_file_beyond_cap_bounded_read(tmp_path: Path) -> None:

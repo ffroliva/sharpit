@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import stat
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -44,9 +45,35 @@ def _in_window(timestamp: int | None, since: int | None, until: int | None) -> b
     return until is None or timestamp < until
 
 
-def _check_candidate_file(p: Path, max_bytes: int) -> os.stat_result | None:
+def _is_confined(p: Path, root: Path) -> bool:
+    if p.is_symlink():
+        return False
+    if hasattr(p, "is_junction") and p.is_junction():
+        return False
     try:
+        return p.resolve().is_relative_to(root.resolve())
+    except (ValueError, OSError):
+        return False
+
+
+def _is_entry_confined(entry: os.DirEntry[str], root: Path) -> bool:
+    if entry.is_symlink():
+        return False
+    if hasattr(entry, "is_junction") and entry.is_junction():
+        return False
+    try:
+        return Path(entry.path).resolve().is_relative_to(root.resolve())
+    except (ValueError, OSError):
+        return False
+
+
+def _check_candidate_file(p: Path, max_bytes: int, root: Path) -> os.stat_result | None:
+    try:
+        if not _is_confined(p, root):
+            return None
         st = p.stat()
+        if not stat.S_ISREG(st.st_mode):
+            return None
         if st.st_size > max_bytes:
             logger.warning("skipping %s exceeds 32MB limit", p)
             return None
@@ -60,17 +87,17 @@ def _scan_copilot_candidates(dir_path: Path, max_bytes: int) -> list[tuple[str, 
     try:
         with os.scandir(dir_path) as entries:
             for entry in entries:
-                if entry.is_symlink():
+                if not _is_entry_confined(entry, dir_path):
                     continue
                 if entry.is_dir():
                     ev = Path(entry.path) / "events.jsonl"
-                    if ev.is_file() and not ev.is_symlink():
-                        st = _check_candidate_file(ev, max_bytes)
+                    if ev.is_file():
+                        st = _check_candidate_file(ev, max_bytes, dir_path)
                         if st is not None:
                             candidates.append((entry.name, ev, st, True))
                 elif entry.is_file() and entry.name.lower().endswith(".json"):
                     p = Path(entry.path)
-                    st = _check_candidate_file(p, max_bytes)
+                    st = _check_candidate_file(p, max_bytes, dir_path)
                     if st is not None:
                         candidates.append((p.stem, p, st, False))
     except OSError:
@@ -78,14 +105,16 @@ def _scan_copilot_candidates(dir_path: Path, max_bytes: int) -> list[tuple[str, 
     return candidates
 
 
-def _scan_claude_subdir(entry_path: str, max_bytes: int) -> list[tuple[str, Path, os.stat_result, bool]]:
+def _scan_claude_subdir(entry_path: str, max_bytes: int, root: Path) -> list[tuple[str, Path, os.stat_result, bool]]:
     candidates: list[tuple[str, Path, os.stat_result, bool]] = []
     try:
         with os.scandir(entry_path) as sub_entries:
             for sub in sub_entries:
-                if not sub.is_symlink() and sub.is_file() and sub.name.lower().endswith(".jsonl"):
+                if not _is_entry_confined(sub, root):
+                    continue
+                if sub.is_file() and sub.name.lower().endswith(".jsonl"):
                     sub_p = Path(sub.path)
-                    st = _check_candidate_file(sub_p, max_bytes)
+                    st = _check_candidate_file(sub_p, max_bytes, root)
                     if st is not None:
                         candidates.append((sub_p.stem, sub_p, st, True))
     except OSError:
@@ -98,13 +127,13 @@ def _scan_claude_candidates(dir_path: Path, max_bytes: int) -> list[tuple[str, P
     try:
         with os.scandir(dir_path) as entries:
             for entry in entries:
-                if entry.is_symlink():
+                if not _is_entry_confined(entry, dir_path):
                     continue
                 if entry.is_dir():
-                    candidates.extend(_scan_claude_subdir(entry.path, max_bytes))
+                    candidates.extend(_scan_claude_subdir(entry.path, max_bytes, dir_path))
                 elif entry.is_file() and entry.name.lower().endswith(".jsonl"):
                     p = Path(entry.path)
-                    st = _check_candidate_file(p, max_bytes)
+                    st = _check_candidate_file(p, max_bytes, dir_path)
                     if st is not None:
                         candidates.append((p.stem, p, st, True))
     except OSError:
@@ -127,16 +156,21 @@ class SessionStore:
         self._sessions: dict[str, ParsedSession] = {}
         self._available_session_file_count: int = 0
         self._selected_session_file_count: int = 0
-        self._dashboard_cache: dict[str, Any] | None = None
 
     def is_directory_available(self) -> bool:
         return self.dir_path.exists() and self.dir_path.is_dir()
 
+    def is_available(self) -> bool:
+        if (self.settings.enabled or "").upper() == "OFF":
+            return False
+        return self.is_directory_available()
+
     def refresh(self) -> int:
         with self._lock:
-            if not self.is_directory_available():
+            if not self.is_available():
                 self._sessions.clear()
-                self._dashboard_cache = None
+                self._available_session_file_count = 0
+                self._selected_session_file_count = 0
                 return 0
 
             max_bytes = 32 * 1024 * 1024
@@ -171,7 +205,6 @@ class SessionStore:
                 if k not in seen_ids:
                     del self._sessions[k]
 
-            self._dashboard_cache = None
             return len(self._sessions)
 
     def _cap_warning(self) -> str | None:
@@ -183,13 +216,21 @@ class SessionStore:
             )
         return None
 
+    def unavailable_reason(self) -> str:
+        if (self.settings.enabled or "").upper() == "OFF":
+            return f"{self._panel_title} panel is disabled via configuration"
+        return f"{self._source_name} session directory not found at {self.display_dir}"
+
+    def _unavailable_reason(self) -> str:
+        return self.unavailable_reason()
+
     def sessions(self, since: int | None = None, until: int | None = None) -> dict[str, Any]:
         self.refresh()
         max_s = min(max(1, self.settings.max_sessions), 1000)
-        if not self.is_directory_available():
+        if not self.is_available():
             return {
                 "available": False,
-                "unavailableReason": f"{self._source_name} session directory not found at {self.display_dir}",
+                "unavailableReason": self._unavailable_reason(),
                 "sessionStateDir": self.display_dir,
                 "total": 0,
                 "returned": 0,
@@ -207,7 +248,10 @@ class SessionStore:
             fallback = ps.counts.get("lastActivityEpochMillis") or ps.summary.get("updatedAtEpochMillis")
             return _in_window(fallback, since, until)
 
-        matching = [ps for ps in self._sessions.values() if matches_window(ps)]
+        with self._lock:
+            sessions_snapshot = list(self._sessions.values())
+
+        matching = [ps for ps in sessions_snapshot if matches_window(ps)]
         sorted_sessions = sorted(
             matching,
             key=lambda s: (
@@ -247,11 +291,11 @@ class SessionStore:
 
     def dashboard(self) -> dict[str, Any]:
         self.refresh()
-        if not self.is_directory_available():
+        if not self.is_available():
             return build_dashboard(
                 [],
                 False,
-                f"{self._source_name} session directory not found at {self.display_dir}",
+                self._unavailable_reason(),
                 self.display_dir,
                 panel_title=self._panel_title,
             )
@@ -261,8 +305,10 @@ class SessionStore:
             warnings.append(cap_w)
         clock_val = self.clock() if callable(self.clock) else self.clock
         clock_ms: int | None = int(clock_val) if isinstance(clock_val, (int, float)) else None
+        with self._lock:
+            sessions_snapshot = list(self._sessions.values())
         return build_dashboard(
-            list(self._sessions.values()),
+            sessions_snapshot,
             True,
             None,
             self.display_dir,
@@ -273,7 +319,10 @@ class SessionStore:
 
     def detail(self, session_id: str) -> dict[str, Any] | None:
         self.refresh()
-        ps = self._sessions.get(session_id)
+        if not self.is_available():
+            return None
+        with self._lock:
+            ps = self._sessions.get(session_id)
         if ps is None:
             return None
         returned = min(len(ps.events), 200)
@@ -303,7 +352,10 @@ class SessionStore:
         limit: int = 200,
     ) -> dict[str, Any] | None:
         self.refresh()
-        ps = self._sessions.get(session_id)
+        if not self.is_available():
+            return None
+        with self._lock:
+            ps = self._sessions.get(session_id)
         if ps is None:
             return None
         evs = ps.events

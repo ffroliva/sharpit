@@ -189,8 +189,8 @@
     },
     {
       "name": "bootui.claude-code.allow-raw-reveal",
-      "status": "partial",
-      "difference": "default differs: BootUI=True; sharpit=False"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.claude-code.enabled",

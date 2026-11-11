@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -182,11 +181,11 @@ async def test_agent_sessions_sanitisation_leaks_no_prompts_or_secrets(tmp_path:
         '"message":{"model":"claude-3-5","content":['
         '{"type":"tool_use","id":"t1","name":"Bash","input":{"cmd":"SECRET_INPUT_CMD_abc"}},'
         '{"type":"text","text":"sk-ant-api03-SECRET_KEY_123"}'
-        ']}}\n'
+        "]}}\n"
         '{"type":"assistant","uuid":"a2","timestamp":"2026-05-28T10:00:02Z",'
         '"message":{"model":"claude-3-5","content":['
         '{"type":"tool_result","tool_use_id":"t1","output":"AWS_SECRET_KEY_789"}'
-        ']}}\n',
+        "]}}\n",
         encoding="utf-8",
     )
 

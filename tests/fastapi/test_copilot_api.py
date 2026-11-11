@@ -331,5 +331,6 @@ def test_copilot_enabled_off_disables_panel(tmp_path: Path, monkeypatch: pytest.
     panels_resp = client.get("/sharpit/api/panels")
     assert panels_resp.status_code == 200
     panels_data = panels_resp.json()
-    assert panels_data["panels"]["copilot"]["available"] is False
-    assert panels_data["panels"]["copilot"]["unavailableReason"] == "Copilot panel is disabled via configuration"
+    p_copilot = next(p for p in panels_data["panels"] if p["id"] == "copilot")
+    assert p_copilot["available"] is False
+    assert p_copilot["unavailableReason"] == "Copilot panel is disabled via configuration"

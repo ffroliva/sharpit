@@ -401,8 +401,9 @@ def test_claude_code_enabled_off_disables_panel(tmp_path: Path, monkeypatch: pyt
     panels_resp = client.get("/sharpit/api/panels")
     assert panels_resp.status_code == 200
     panels_data = panels_resp.json()
-    assert panels_data["panels"]["claude-code"]["available"] is False
-    assert panels_data["panels"]["claude-code"]["unavailableReason"] == "Claude Code panel is disabled via configuration"
+    p_claude = next(p for p in panels_data["panels"] if p["id"] == "claude-code")
+    assert p_claude["available"] is False
+    assert p_claude["unavailableReason"] == "Claude Code panel is disabled via configuration"
 
 
 def test_claude_code_session_tools_default_limit_and_query(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

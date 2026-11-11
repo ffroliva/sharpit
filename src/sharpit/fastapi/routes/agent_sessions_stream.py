@@ -23,8 +23,9 @@ async def _agent_sessions_events(
     store: Any,
     debounce_seconds: float,
 ) -> AsyncIterator[tuple[str, str | None, str]]:
-    yield "sessions", None, json.dumps(store.sessions())
-    dash = store.dashboard()
+    sessions_dto = await asyncio.to_thread(store.sessions)
+    yield "sessions", None, json.dumps(sessions_dto)
+    dash = await asyncio.to_thread(store.dashboard)
     yield "dashboard", None, json.dumps(dash)
     prev_sig = _dashboard_signature(dash)
 
@@ -32,11 +33,12 @@ async def _agent_sessions_events(
     while True:
         await asyncio.sleep(debounce)
         await asyncio.to_thread(store.refresh)
-        curr_dash = store.dashboard()
+        curr_dash = await asyncio.to_thread(store.dashboard)
         curr_sig = _dashboard_signature(curr_dash)
         if curr_sig != prev_sig:
             prev_sig = curr_sig
-            yield "sessions", None, json.dumps(store.sessions())
+            sessions_dto = await asyncio.to_thread(store.sessions)
+            yield "sessions", None, json.dumps(sessions_dto)
             yield "dashboard", None, json.dumps(curr_dash)
 
 
