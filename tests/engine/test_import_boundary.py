@@ -318,12 +318,36 @@ def interpreter_state_violations(root: Path | None = None) -> list[str]:
     return found
 
 
+def package_name_violations(root: Path = ENGINE) -> list[str]:
+    """Engine imports of a ``sharpit`` package name other than ``__version__``: the others load the adapter lazily."""
+    return []  # stub: no rule yet, so the planted violation below goes unreported
+
+
 def test_engine_modules_do_not_import_fastapi_or_starlette():
     assert framework_violations() == []
 
 
 def test_engine_never_imports_an_adapter():
     assert adapter_violations() == []
+
+
+def test_the_engine_imports_only_the_version_from_the_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    live = package_name_violations()
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    engine = tmp_path / "src" / "sharpit" / "engine"
+    (engine / "collectors").mkdir(parents=True)
+    (engine / "mcp.py").write_text("from sharpit import __version__\n", encoding="utf-8")
+    (engine / "tools.py").write_text("from sharpit import __version__, install\nimport sharpit\n", encoding="utf-8")
+    (engine / "collectors" / "x.py").write_text("from ... import install\n", encoding="utf-8")
+
+    planted = package_name_violations(engine)
+
+    assert live == []
+    assert planted == [
+        "sharpit/engine/collectors/x.py imports install from sharpit: the engine may import only __version__",
+        "sharpit/engine/tools.py imports install from sharpit: the engine may import only __version__",
+        "sharpit/engine/tools.py imports sharpit: the engine may import only __version__",
+    ]
 
 
 def test_collectors_never_import_each_other():
