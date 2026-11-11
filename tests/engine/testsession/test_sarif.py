@@ -113,6 +113,12 @@ def test_baselined_finding_is_suppressed() -> None:
     assert [s["kind"] for s in result.get("suppressions", [])] == ["external"]
 
 
+def test_dismissed_finding_is_suppressed() -> None:
+    (result,) = _results(_finding(dismissed=True))
+
+    assert [s["kind"] for s in result.get("suppressions", [])] == ["external"]
+
+
 @pytest.mark.parametrize("state", [None, "new"])
 def test_new_or_unbaselined_finding_is_not_suppressed(state: str | None) -> None:
     (result,) = _results(_finding(baselineState=state))
@@ -176,6 +182,15 @@ def test_escaping_location_is_dropped_but_the_finding_kept() -> None:
     (location,) = result["locations"]
     assert "physicalLocation" not in location
     assert result["ruleId"] == "sharpit.n-plus-one"
+
+
+def test_masked_path_drops_the_physical_location() -> None:
+    # a masked path names no real file: the finding keeps only its logical location
+    (result,) = _results(_finding(location={"path": f"src/{AWS_KEY}.py", "line": 1}))
+
+    (location,) = result["locations"]
+    assert "physicalLocation" not in location
+    assert location.get("logicalLocations") == [{"fullyQualifiedName": "GET /pets"}]
 
 
 def test_planted_secrets_never_reach_the_sarif_file(tmp_path: Path) -> None:

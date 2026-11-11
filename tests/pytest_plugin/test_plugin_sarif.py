@@ -56,6 +56,20 @@ def test_no_sarif_option_writes_no_sarif_file(pytester: pytest.Pytester) -> None
     pytester.makeconftest(_RECORD_WRITES)
     pytester.makepyfile(_tests("test_a"))
 
-    pytester.runpytest_inprocess("--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q")
+    # a subprocess: the conftest replaces ``sarif.write_sarif`` and would leak into this worker in-process
+    pytester.runpytest_subprocess("--sharpit", "--sharpit-no-advisors", "--sharpit-allow-unknown", "-q")
 
     assert not (pytester.path / "sarif-writes.txt").exists()
+
+
+def test_sarif_write_failure_is_in_the_json_report(pytester: pytest.Pytester) -> None:
+    pytester.makepyfile("def test_clean(): pass")
+    (pytester.path / "taken.sarif").mkdir()  # a directory where the file should go: the write fails
+
+    pytester.runpytest_inprocess(
+        "--sharpit", "--sharpit-no-advisors", "--sharpit-report=report.json", "--sharpit-sarif=taken.sarif", "-q"
+    )
+
+    report = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
+    assert any("SARIF write failed" in reason for reason in report["unknownReasons"])
+    assert any("SARIF write failed" in warning for warning in report["warnings"])

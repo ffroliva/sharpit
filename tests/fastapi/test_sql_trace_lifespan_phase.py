@@ -19,6 +19,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fastapi import FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
+from sharpit.engine.capture.sqltrace import SqlTraceRecorder, entry_dto  # noqa: E402
+from sharpit.engine.sqltext import Dialect  # noqa: E402
+from sharpit.engine.testsession.sink import report_masker  # noqa: E402
 from sharpit.fastapi.adapter import SharpitHandle  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
@@ -117,3 +120,36 @@ def test_without_an_observed_lifespan_no_statement_is_labelled() -> None:
     assert phases["request"] is None
     assert phases["outside"] is None
     assert "startup" not in phases
+
+
+def test_a_failed_startup_clears_the_startup_label() -> None:
+    engine = sa.create_engine("sqlite://")
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        _select(engine, "startup")
+        raise RuntimeError("startup failed")
+        yield  # pragma: no cover
+
+    app = FastAPI(lifespan=lifespan)
+    handle = install(app, enabled="ON", show_banner=False, sql_trace_sqlite3_enabled=False)
+    _HANDLES.append(handle)
+    with pytest.raises(RuntimeError, match="startup failed"), _client(app):
+        pass  # pragma: no cover
+
+    assert _phases(app)["startup"] == "STARTUP"
+    recorder = handle.context.capture.sql_trace
+    assert recorder is not None
+    assert recorder.lifespan_phase is None  # a statement the host runs from here on is not labelled STARTUP
+
+
+def test_a_request_statement_during_startup_is_not_labelled() -> None:
+    recorder = SqlTraceRecorder(report_masker())
+    recorder.lifespan_phase = "STARTUP"
+
+    recorder.record("select 1", duration_ns=1, thread="t", connection_id=None, dialect=Dialect.SQLITE, request_id="r1")
+    recorder.record("select 2", duration_ns=1, thread="t", connection_id=None, dialect=Dialect.SQLITE)
+
+    request, outside = (entry_dto(row) for row in recorder.rows())
+    assert request["requestPhase"] is None
+    assert outside["requestPhase"] == "STARTUP"
