@@ -13,6 +13,9 @@ _NO_ORIGIN = "No GitHub origin remote was detected"
 _NOT_GITHUB = "Origin remote host is not github.com or an allowed GitHub Enterprise host"
 # shortcut: BootUI reads these files unbounded; 1 MiB is far above any real HEAD, config or pointer file
 _MAX_FILE_BYTES = 1024 * 1024
+_GITHUB_HOST = "github.com"
+_GITHUB_SSH_HOST = "ssh.github.com"
+_GITHUB_HOSTS = frozenset({_GITHUB_HOST, _GITHUB_SSH_HOST})
 
 
 @dataclass(frozen=True)
@@ -44,10 +47,10 @@ def detect_repository(start: Path, allowed_hosts: frozenset[str]) -> Repository 
     host, owner, name = remote
     host = host.lower()
     allowed = {value.lower() for value in allowed_hosts}
-    if host not in {"github.com", "ssh.github.com", *allowed}:
+    if host not in _GITHUB_HOSTS | allowed:
         return _NOT_GITHUB
-    github = host in {"github.com", "ssh.github.com"}
-    html_host = "github.com" if host == "ssh.github.com" else host
+    github = host in _GITHUB_HOSTS
+    html_host = _GITHUB_HOST if host == _GITHUB_SSH_HOST else host
     branch = _read_branch(layout.git_dir)
     merge = config.get((f'branch "{branch}"', "merge")) if branch is not None else None
     upstream = merge.removeprefix("refs/heads/") if merge is not None else None
@@ -118,15 +121,21 @@ def _read_config(paths: tuple[Path, ...]) -> dict[tuple[str, str], str]:
         text = _read_small(path)
         if text is None:
             return {}
-        section: str | None = None
-        for raw in text.splitlines():
-            line = raw.strip()
-            if not line or line.startswith(("#", ";")):
-                continue
-            if line.startswith("[") and line.endswith("]"):
-                section = line[1:-1]
-            elif section is not None and (equals := line.find("=")) > 0:
-                values[(section, line[:equals].strip())] = line[equals + 1 :].strip()
+        values.update(_parse_config(text))
+    return values
+
+
+def _parse_config(text: str) -> dict[tuple[str, str], str]:
+    values: dict[tuple[str, str], str] = {}
+    section: str | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+        elif section is not None and (equals := line.find("=")) > 0:
+            values[(section, line[:equals].strip())] = line[equals + 1 :].strip()
     return values
 
 
