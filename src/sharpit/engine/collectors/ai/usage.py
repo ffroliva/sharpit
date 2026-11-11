@@ -14,10 +14,23 @@ _MAX_CHATS = 500
 _MAX_MODEL_BREAKDOWN = 50
 _MAX_TOKEN_MINUTES = 240
 _NANOS_PER_MINUTE = 60_000_000_000
+# a content family hides the key itself and every ``<key>.`` sub-key (``gen_ai.prompt.0.content``); matched lower case
+_CONTENT_FAMILIES = (
+    "gen_ai.prompt",
+    "gen_ai.completion",
+    # D-A1, stricter than BootUI: the OpenInference and Traceloop prompt and completion families
+    "llm.prompts",
+    "llm.input_messages",
+    "llm.output_messages",
+    "llm.prompt_template",
+    "input.value",
+    "output.value",
+    "traceloop.entity.input",
+    "traceloop.entity.output",
+)
 _CONTENT_KEYS = frozenset(
     {
-        "gen_ai.prompt",
-        "gen_ai.completion",
+        *_CONTENT_FAMILIES,
         "gen_ai.input.messages",
         "gen_ai.output.messages",
         "gen_ai.system_instructions",
@@ -27,15 +40,10 @@ _CONTENT_KEYS = frozenset(
         "spring.ai.tool.call.result",
         "db.vector.query.content",
         "db.vector.query.response.documents",
-        # D-A1, stricter than BootUI: OpenInference and Traceloop carry the prompt and completion under these keys
-        "input.value",
-        "output.value",
-        "traceloop.entity.input",
-        "traceloop.entity.output",
     }
 )
 _EVENT_CONTENT_KEYS = _CONTENT_KEYS | {"content", "gen_ai.event.content"}  # span-event message bodies (D-A1)
-_CONTENT_PREFIXES = ("gen_ai.prompt.", "gen_ai.completion.")
+_CONTENT_PREFIXES = tuple(f"{family}." for family in _CONTENT_FAMILIES)
 _GENAI_INSTRUMENTATIONS = (
     "opentelemetry.instrumentation.openai_v2",
     "opentelemetry.instrumentation.genai.agno",
