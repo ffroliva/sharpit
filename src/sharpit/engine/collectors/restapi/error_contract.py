@@ -12,10 +12,6 @@ from sharpit.engine.paging import paged
 from sharpit.engine.spi import ApiModel, ErrorHandlerInfo
 
 DEFAULT_MAX_ENTRIES = 500
-_NO_BACKEND = (
-    "Not available: this stack has no error-contract backend wired, so declared exception handlers "
-    "cannot be catalogued."
-)
 
 
 @dataclass(frozen=True)
@@ -59,27 +55,48 @@ class ErrorContractEntry:
 
 
 def _simple(name: str) -> str:
-    return name.rpartition(":")[2].rpartition(".")[2]
+    return name.rpartition(".")[2]
+
+
+def _split_handler(handler: str, index: SourceIndex | None) -> tuple[str, str]:
+    if ":" in handler:
+        module, qualname = handler.split(":", 1)
+        return module, qualname
+    if index is not None:
+        module = next(
+            (name for name in sorted(index.modules, key=len, reverse=True) if handler.startswith(name + ".")), None
+        )
+        if module is not None:
+            return module, handler[len(module) + 1 :]
+    return handler.rpartition(".")[0], handler.rpartition(".")[2]
 
 
 def _handler_node(
     handler: str, index: SourceIndex | None
 ) -> tuple[ModuleInfo | None, ast.FunctionDef | ast.AsyncFunctionDef | None]:
-    if index is None or ":" not in handler:
+    if index is None:
         return None, None
-    module_name, qualname = handler.split(":", 1)
+    module_name, qualname = _split_handler(handler, index)
     module = index.modules.get(module_name)
     if module is None:
         return None, None
-    function_name = qualname.rpartition(".")[2]
-    node = next(
-        (
-            item
-            for item in ast.walk(module.tree)
-            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and item.name == function_name
-        ),
-        None,
-    )
+    parts = qualname.split(".")
+    body = module.tree.body
+    node = None
+    for part in parts:
+        node = next(
+            (
+                item
+                for item in body
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and item.name == part
+            ),
+            None,
+        )
+        if node is None:
+            break
+        body = node.body
+    if isinstance(node, ast.ClassDef):
+        node = None
     return module, node
 
 
@@ -119,12 +136,20 @@ def _status(value: ast.expr, current: str | None, source: str) -> tuple[str | No
     if not isinstance(value, ast.Call):
         return current, source
     declared = next((keyword.value for keyword in value.keywords if keyword.arg == "status_code"), None)
+    if (
+        declared is None
+        and _call_name(value.func) in {"JSONResponse", "Response", "PlainTextResponse"}
+        and len(value.args) > 1
+    ):
+        declared = value.args[1]
     if isinstance(declared, ast.Constant) and type(declared.value) is int:
         return str(declared.value), "ANNOTATION"
     return (None, "DYNAMIC") if declared is not None else (current, source)
 
 
 def _declaration(info: ErrorHandlerInfo, index: SourceIndex | None) -> tuple[str | None, str, str, str | None]:
+    if getattr(info, "is_partial", False):
+        return None, "UNRESOLVED", "UNRESOLVED", None
     _, function = _handler_node(info.handler, index)
     status = str(info.key_status) if info.key_status is not None else None
     status_source = "ANNOTATION" if status is not None else "DYNAMIC"
@@ -144,29 +169,25 @@ def entries(model: ApiModel, index: SourceIndex | None) -> list[ErrorContractEnt
     """One sorted entry per declared key, with all handler details derived from source AST only."""
     candidates: list[tuple[ErrorHandlerInfo, str]] = []
     for info in model.error_handlers:
-        module_name = info.handler.partition(":")[0].partition(".")[0]
-        if module_name in FRAMEWORK_MODULES:
+        module_name, _ = _split_handler(info.handler, None)
+        if module_name.split(".", 1)[0] in FRAMEWORK_MODULES:
             continue
         exception_type = info.key_type or (f"status={info.key_status}" if info.key_status is not None else "unknown")
         candidates.append((info, exception_type))
-    rank = {"SCOPED": 0, "GLOBAL": 1}
     candidates.sort(
         key=lambda pair: (
             pair[1].rsplit(".", 1)[-1],
             pair[1],
-            rank.get(pair[0].scope, 2),
+            0 if pair[0].scope == "SCOPED" else 1,
             pair[0].scope_target or "",
             pair[0].handler,
         )
     )
     result: list[ErrorContractEntry] = []
-    previous: dict[str, int] = {}
     for info, exception_type in candidates:
-        precedence = previous.get(exception_type, 0) + 1
-        previous[exception_type] = precedence
+        precedence = 1 if info.scope == "SCOPED" else 2
         status, status_source, category, body_type = _declaration(info, index)
-        component, _, method = info.handler.partition(":")
-        method = method.rpartition(".")[2]
+        component, method = _split_handler(info.handler, index)
         result.append(
             ErrorContractEntry(
                 f"{component}#{method}({exception_type})",

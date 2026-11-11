@@ -437,9 +437,14 @@ class FastApiIntrospector:
                     limitations.append(f"Mounted application at {base} has no inspectable routes.")
             elif not issubclass(type(route), WebSocketRoute) and _attrs(route).get("endpoint") is not None:
                 routes.append(_api_route(info, route))
-        handlers: Any = _attrs(self.app).get("exception_handlers") or {}
+        handlers: Any = _attrs(self.app).get("exception_handlers")
         # sharpit's exception capture wraps each handler: report the host's own function
-        names = tuple(_qualified(getattr(h, "__sharpit_original__", h)) for h in list(handlers.values()))
+        handler_map = cast(dict[object, object], handlers)
+        names = (
+            tuple(_qualified(_attrs(h).get("__sharpit_original__", h)) for h in handler_map.values())
+            if type(handlers) is dict
+            else ()
+        )
         error_handlers, error_limitations = error_handler_infos(self.app, self.exclude_mount)
         return ApiModel(tuple(routes), names, (*limitations, *error_limitations), error_handlers)
 

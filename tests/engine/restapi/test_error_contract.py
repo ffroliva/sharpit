@@ -145,7 +145,13 @@ def test_handler_body_reads_only_the_source_index(monkeypatch) -> None:
 
 
 def test_handler_body_resolves_the_full_nested_qualname() -> None:
-    source = "def handle(): return {'type': 'about:blank', 'title': 'Wrong', 'status': 400}\nclass Outer:\n    def handle(): return 'right'\n"
+    source = "\n".join(
+        (
+            "def handle(): return {'type': 'about:blank', 'title': 'Wrong', 'status': 400}",
+            "class Outer:",
+            "    def handle(): return 'right'",
+        )
+    )
     result = entries(_model(("example.Failure", None, "app.errors:Outer.handle", "GLOBAL", None)), _index(source))
     assert result[0].body_category == "STRING"
 
