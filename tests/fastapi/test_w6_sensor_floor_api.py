@@ -70,6 +70,9 @@ def _keys(value: Any) -> Any:
 
 
 def test_panels_list_the_sensor_panels_unavailable_with_the_java_agent_reason() -> None:
+    # ported: AbstractBootUiApiConformanceTest.codeInventoryIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
+    # ported: AbstractBootUiApiConformanceTest.codePathsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
+    # ported: AbstractBootUiApiConformanceTest.sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
     panels = {p["id"]: p for p in _client().get(f"{API}/panels").json()["panels"]}
     assert {"java-agent", "code-inventory", "code-paths", "side-effects"} <= set(panels)
     assert panels["java-agent"]["available"] is True
@@ -83,6 +86,9 @@ def test_panels_list_the_sensor_panels_unavailable_with_the_java_agent_reason() 
 
 @pytest.mark.parametrize(("route", "golden", "prefix"), READS, ids=[r[1] for r in READS])
 def test_read_answers_bootui_shape_unavailable(route: str, golden: str, prefix: str) -> None:
+    # ported: CodePathsServiceTests.withoutTheSensorEveryReadAnswersItsUnavailableShape
+    # ported: CodeInventoryServiceTests.isUnavailableWithTheAgentsReason
+    # ported: SideEffectsServiceTests.withoutTheAgentEveryReadIsUnavailableWithItsReason
     resp = _client().get(API + route)
     assert resp.status_code == 200, f"{route} returned HTTP {resp.status_code}"
     body = resp.json()
@@ -94,6 +100,7 @@ def test_read_answers_bootui_shape_unavailable(route: str, golden: str, prefix: 
 
 
 def test_java_agent_report_is_not_attached_with_bootui_keys() -> None:
+    # ported: JavaAgentControllerTests.servesTheReportWithItsSetupSnippetsWithoutTheAgent
     resp = _client().get(f"{API}/java-agent")
     assert resp.status_code == 200
     body = resp.json()
@@ -106,6 +113,7 @@ def test_java_agent_report_is_not_attached_with_bootui_keys() -> None:
 
 
 def test_side_effects_lists_every_sensor_unavailable() -> None:
+    # ported: AbstractBootUiApiConformanceTest.sideEffectsIsUnavailableWithTheJavaAgentReasonWithoutTheAgent
     resp = _client().get(f"{API}/side-effects")
     assert resp.status_code == 200
     sensors = resp.json()["sensors"]
@@ -127,18 +135,21 @@ def test_side_effects_sensor_answers_its_shape() -> None:
 
 @pytest.mark.parametrize("query", ["?sensor=not-a-sensor", ""], ids=["unknown", "missing"])
 def test_side_effects_unknown_sensor_is_400(query: str) -> None:
+    # ported: SideEffectsServiceTests.anUnknownSensorOrANegativePageIsRejected
     resp = _client().get(f"{API}/side-effects/sensor{query}")
     assert resp.status_code == 400
     assert resp.json()["error"].startswith("Unknown Side Effects sensor '")
 
 
 def test_side_effects_negative_offset_is_400() -> None:
+    # ported: SideEffectsServiceTests.anUnknownSensorOrANegativePageIsRejected
     resp = _client().get(f"{API}/side-effects/sensor?sensor=files&offset=-1")
     assert resp.status_code == 400
     assert resp.json() == {"error": "offset and limit must not be negative."}
 
 
 def test_code_paths_request_tree_echoes_the_request_id() -> None:
+    # ported: CodePathsServiceTests.withoutTheSensorEveryReadAnswersItsUnavailableShape
     resp = _client().get(f"{API}/code-paths/requests/0000000000000000")
     assert resp.status_code == 200
     body = resp.json()
@@ -149,6 +160,7 @@ def test_code_paths_request_tree_echoes_the_request_id() -> None:
 
 
 def test_code_paths_route_applies_bootui_bounds() -> None:
+    # ported: CodePathsServiceTests.withoutTheSensorEveryReadAnswersItsUnavailableShape
     client = _client()
     capped_resp = client.get(f"{API}/code-paths/route?route=GET%20%2Fx&depth=99&limit=9999")
     assert capped_resp.status_code == 200
@@ -163,6 +175,7 @@ def test_code_paths_route_applies_bootui_bounds() -> None:
 
 
 def test_code_inventory_list_echoes_the_limit_in_its_empty_page() -> None:
+    # ported: CodeInventoryServiceTests.isUnavailableWithTheAgentsReason
     resp = _client().get(f"{API}/code-inventory/methods?limit=5")
     assert resp.status_code == 200
     assert resp.json()["page"]["limit"] == 5
@@ -185,6 +198,7 @@ def test_code_inventory_non_integer_limit_is_400() -> None:
     ids=["no-enabled", "unswitchable", "not-armed"],
 )
 def test_sensor_switch_refusals(sensor: str, body: dict[str, Any], status: int, fragment: str) -> None:
+    # ported: AbstractBootUiApiConformanceTest.aSwitchableSensorCannotBeSwitchedWithoutTheAgentAndOtherSensorsNever
     resp = _client().post(f"{API}/java-agent/sensors/{sensor}", json=body)
     assert resp.status_code == status
     assert fragment in resp.json()["error"]
@@ -202,6 +216,8 @@ def test_sensor_switch_refusals(sensor: str, body: dict[str, Any], status: int, 
     ids=["start-no-method", "start-not-armed", "stop-bad-id", "stop-unknown", "delete-unknown"],
 )
 def test_probe_refusals(method: str, path: str, body: Any, status: int, fragment: str) -> None:
+    # ported: MethodProbeServiceTests.invalidMethodsAreBadRequestsAndRefusalsAreConflicts
+    # ported: MethodProbeServiceTests.withoutTheAgentProbesAreUnavailable
     resp = _client().request(method, API + path, json=body)
     assert resp.status_code == status
     assert fragment in resp.json()["error"]
@@ -217,6 +233,7 @@ def test_probe_refusals(method: str, path: str, body: Any, status: int, fragment
 def test_read_only_panel_refuses_the_action(
     monkeypatch: pytest.MonkeyPatch, panel: str, path: str, body: dict[str, Any]
 ) -> None:
+    # ported: PanelAccessFilterTests.readOnlyCodePathsRefusesMethodProbesButNotItsReads
     monkeypatch.setenv(f"SHARPIT_PANELS_{panel.upper().replace('-', '_')}_READ_ONLY", "true")
     resp = _client().post(API + path, json=body)
     assert resp.status_code == 403
@@ -235,3 +252,56 @@ def test_sensor_reads_have_no_side_effects(no_side_effects: SideEffectGuard) -> 
         statuses.append(client.get(f"{API}/code-paths/requests/0000000000000000").status_code)
     assert statuses == [200] * (len(READS) + 3)
     assert no_side_effects.violations == []
+
+
+@pytest.mark.parametrize(
+    ("probe_id", "status", "error"),
+    [
+        ("x", 400, "A method probe id is a number, as get_method_probe returns it: x"),
+        ("7", 404, "This run has no method probe 7."),
+    ],
+    ids=["not-a-number", "unknown"],
+)
+def test_probe_show_refusals(probe_id: str, status: int, error: str) -> None:
+    # ported: MethodProbeServiceTests.withoutTheAgentProbesAreUnavailable
+    resp = _client().get(f"{API}/code-paths/probes/{probe_id}")
+    assert resp.status_code == status
+    assert resp.json() == {"error": error}
+
+
+# Long.parseLong after String.trim (MethodProbeService.parseId): a sign and outer spaces are allowed; an underscore, an
+# inner space, a hex prefix or a value outside the signed 64-bit range is not
+@pytest.mark.parametrize(
+    ("probe_id", "status"),
+    [
+        ("1_0", 400),
+        ("1%200", 400),
+        ("0x10", 400),
+        ("9223372036854775808", 400),
+        ("-9223372036854775809", 400),
+        ("9223372036854775807", 404),
+        ("-9223372036854775808", 404),
+        ("+7", 404),
+        ("%207%20", 404),
+    ],
+)
+@pytest.mark.parametrize(("method", "suffix"), [("GET", ""), ("POST", "/stop"), ("DELETE", "")])
+def test_probe_ids_parse_as_java_longs(method: str, suffix: str, probe_id: str, status: int) -> None:
+    # ported: MethodProbeServiceTests.invalidMethodsAreBadRequestsAndRefusalsAreConflicts
+    resp = _client().request(method, f"{API}/code-paths/probes/{probe_id}{suffix}")
+    assert resp.status_code == status
+
+
+def test_probe_report_lists_the_bounds_that_apply_to_sharpit() -> None:
+    limitations = _client().get(f"{API}/code-paths/probes").json()["limitations"]
+    assert len(limitations) == 3
+    assert any(
+        line.startswith("A probe records at most 20 invocations, for at most 60 seconds") for line in limitations
+    )
+
+
+def test_side_effects_limitations_keep_the_minimisation_entries() -> None:
+    limitations = _client().get(f"{API}/side-effects").json()["limitations"]
+    assert len(limitations) == 3
+    assert any(line.startswith("A process row shows the command's file name only") for line in limitations)
+    assert any(line.startswith("A network row shows a host and port") for line in limitations)
