@@ -40,6 +40,7 @@ from sharpit.engine.collectors.vulns.inventory import inventory
 from sharpit.engine.collectors.vulns.osv import OsvClient
 from sharpit.engine.collectors.vulns.service import VulnerabilityService
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.lowfootprint import LowFootprintService
 from sharpit.engine.paging import paged
 from sharpit.engine.singleflight import SingleFlight
 from sharpit.engine.sources import sqlite
@@ -81,6 +82,17 @@ class ToolCallError(Exception):
         super().__init__(message)
         self.message = message
         self.status = status
+
+
+RESUME_HINT = (
+    "Recording is held by low-footprint mode, not a quiet application. "
+    "Call disable_low_footprint (sharpit low-footprint disable) to resume; cleared data is gone. "
+    "Native statistics and Java-agent instrumentation may still run."
+)
+
+
+def low_footprint_resume_error(tool_name: str) -> ToolCallError:
+    return ToolCallError(f"Cannot run {tool_name}. {RESUME_HINT}", 409)
 
 
 @dataclass(frozen=True)
@@ -261,6 +273,13 @@ def _sql_trace_action(ctx: SharpitContext, action: Callable[[SqlTraceRecorder], 
     if ctx.capture.sql_trace is not None:
         action(ctx.capture.sql_trace)
     return sql_trace_report(ctx)
+
+
+def _resume_sql_trace(ctx: SharpitContext) -> dict[str, Any]:
+    service = ctx.peek("low-footprint")
+    if isinstance(service, LowFootprintService) and service.enabled:
+        raise low_footprint_resume_error("resume_sql_trace_recording")
+    return _sql_trace_action(ctx, lambda recorder: recorder.set_recording(True))
 
 
 def http_exchanges_report(
@@ -479,7 +498,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
         _NONE,
         "sql-trace",
         True,
-        lambda c, _a: _sql_trace_action(c.ctx, lambda r: r.set_recording(True)),
+        lambda c, _a: _resume_sql_trace(c.ctx),
     ),
     Tool(
         "get_live_activity",
@@ -644,6 +663,8 @@ _BASE_COMMANDS = {  # CliCommandPaths.BY_TOOL, MVP rows
 }
 
 from sharpit.engine.panels04 import tool_definitions as _tool_definitions  # noqa: E402, I001
+from sharpit.engine.tools_lowfootprint import COMMANDS as _LOW_FOOTPRINT_COMMANDS  # noqa: E402
+from sharpit.engine.tools_lowfootprint import tool_definitions as _low_footprint_definitions  # noqa: E402
 
 
 def merge_lane_tools(
@@ -662,7 +683,13 @@ def merge_lane_tools(
 
 
 _PANEL_04_TOOLS, _PANEL_04_COMMANDS = _tool_definitions()
-TOOLS, COMMANDS = merge_lane_tools(_BASE_TOOLS, _BASE_COMMANDS, _PANEL_04_TOOLS, _PANEL_04_COMMANDS)
+_LOW_FOOTPRINT_TOOLS = _low_footprint_definitions(Tool)
+TOOLS, COMMANDS = merge_lane_tools(
+    _BASE_TOOLS,
+    _BASE_COMMANDS,
+    (*_PANEL_04_TOOLS, *_LOW_FOOTPRINT_TOOLS),
+    {**_PANEL_04_COMMANDS, **_LOW_FOOTPRINT_COMMANDS},
+)
 
 from sharpit.engine.tool_dispatch import (  # noqa: E402, I001 - dispatcher imports the catalog built above
     ToolGate as ToolGate,

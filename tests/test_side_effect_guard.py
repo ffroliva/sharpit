@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 import test_safety_matrix as matrix
-from conftest import SideEffectGuard
+from conftest import SideEffectGuard, leaked_runtime_spies
 from sharpit.engine import mcp
 
 Change = Callable[[Path], Callable[[], None]]  # makes one change (given the app root), returns its undo
@@ -166,6 +166,21 @@ def test_side_effect_guard_ignores_reads_outside_the_app(tmp_path: Path, monkeyp
     assert error is None
 
 
+def test_side_effect_guard_reports_sharpit_monitoring_call_without_swallowing_it(tmp_path: Path) -> None:
+    guard = SideEffectGuard(tmp_path / "state")
+    guard.block_network()
+    source = Path(__file__).resolve().parents[1] / "src" / "sharpit" / "probe.py"
+    try:
+        code = compile("import sys\nsys.monitoring.set_events(5, 0)", str(source), "exec")
+        with pytest.raises(ValueError, match="tool"):
+            exec(code)  # noqa: S102
+    finally:
+        guard.unblock_network()
+        guard.restore_runtime_state()
+
+    assert guard.violations == ["sys.monitoring.set_events"]
+
+
 def test_side_effect_guard_sees_a_read_through_a_warm_linecache(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -242,7 +257,19 @@ def _sweep_error(
     finally:
         guard.unblock_network()
         guard.unwatch_sources()
+        guard.restore_runtime_state()
     return _verify_error(guard)
+
+
+def test_sweep_harness_leaves_no_monitoring_spy_behind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # PR #124 CI: a spy left by this harness made the swallowed-exception budget see 0 of 1000 callbacks
+    originals = {name: getattr(sys.monitoring, name) for name in ("use_tool_id", "set_events", "register_callback")}
+
+    _sweep_error(lambda _guard: None, tmp_path, monkeypatch)
+
+    assert sys.monitoring.use_tool_id is originals["use_tool_id"]
+    assert sys.monitoring.set_events is originals["set_events"]
+    assert sys.monitoring.register_callback is originals["register_callback"]
 
 
 def test_get_sweep_reports_an_app_source_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -279,3 +306,10 @@ def test_mcp_sweep_reports_an_app_source_read(tmp_path: Path, monkeypatch: pytes
 
     assert error is not None, "the MCP sweep did not report an app source read"
     assert "app source read" in error
+
+
+def test_a_left_behind_monitoring_spy_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    # PR #124 CI: a leaked spy showed up only as a budget miss in a later test; name it at the leaking test instead
+    monkeypatch.setattr(sys.monitoring, "set_events", lambda *_args: None)
+
+    assert leaked_runtime_spies() == ["sys.monitoring.set_events"]

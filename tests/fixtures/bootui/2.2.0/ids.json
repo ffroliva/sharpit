@@ -33,5 +33,6 @@
   "metrics": "metrics",
   "startup": "startup",
   "profile-diff": "profile-diff",
-  "scheduled": "scheduled"
+  "scheduled": "scheduled",
+  "live-memory": "live-memory"
 }

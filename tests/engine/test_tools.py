@@ -148,7 +148,12 @@ def _tool(name: str, handler: Callable[[CallContext, dict[str, Any]], dict[str, 
 def test_catalogue_names_panels_actions_and_schemas():
     # ported: McpToolCatalog ENTRIES (the 24 0.2.0 rows plus the 2.2.0 capture tools, panel and action names)
     rows = [(t.name, t.panel, t.action, t.input_schema) for t in TOOLS]
-    assert rows[26:] == [(t.name, t.panel, t.action, t.input_schema) for t in lane_tools()]
+    assert rows[26:] == [
+        *((t.name, t.panel, t.action, t.input_schema) for t in lane_tools()),
+        ("get_low_footprint", "live-memory", False, NONE_SCHEMA),
+        ("enable_low_footprint", "live-memory", True, NONE_SCHEMA),
+        ("disable_low_footprint", "live-memory", True, NONE_SCHEMA),
+    ]
     assert rows[:26] == [
         ("get_overview", "overview", False, NONE_SCHEMA),
         ("get_config", "config", False, QUERY_LIMIT_SCHEMA),

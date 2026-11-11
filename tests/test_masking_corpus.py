@@ -246,6 +246,12 @@ def _sweep(call: Recorder, ctx: Any) -> None:
     call("POST", f"{API}/cli/tools/nope", json={})
     call("POST", f"{API}/cli/tools/get_config", content=b"[1]", headers={"content-type": "application/json"})
 
+    # low-footprint: both toggles and a bad body (enabling discards every capture buffer, as BootUI's does)
+    call("POST", f"{API}/live-memory/footprint", json={"enabled": True})
+    call("GET", f"{API}/live-memory/footprint")
+    call("POST", f"{API}/live-memory/footprint", json={"enabled": False})
+    call("POST", f"{API}/live-memory/footprint", content=b"{not json", headers={"content-type": "application/json"})
+
 
 def _plant_host_requests(client: TestClient) -> None:
     # F1: the sentinel and the JWT in a host request's path, query and Authorization header (spec §7.1).
@@ -329,7 +335,13 @@ def test_sentinel_never_leaks(
     with TestClient(app, base_url="http://localhost", client=LOCAL, follow_redirects=False) as client:
         call = Recorder(client)
         _plant_host_requests(client)
+        before = call("GET", f"{API}/http-exchanges?limit=500").json()["exchanges"]
+        swept = [e for e in before if e["path"].startswith("/reset/")]  # the sweep reads a recorded plant
+        assert swept
+        assert swept[0]["path"] == f"/reset/{MASK}"
+        assert swept[0]["query"] == f"api_key={MASK}&page=1&{MASK}"
         _sweep(call, ctx)
+        _plant_host_requests(client)  # the sweep's enable_low_footprint discarded the first plant, as BootUI does
         exchanges = call("GET", f"{API}/http-exchanges?limit=500").json()["exchanges"]
         planted = [e for e in exchanges if e["path"].startswith("/reset/")]
         assert planted
@@ -351,6 +363,7 @@ def test_sentinel_never_leaks(
         assert [b["type"] for b in beans] == ["examples.fastapi_sample.app:SignedSessionMiddleware"]
     assert {400, 401, 403, 404, 405, 409, 413} <= call.statuses, sorted(call.statuses)
     assert any("GET /sharpit/assets/app.js -> 404" in seen for seen in call.seen)  # the route-table sweep
+    assert any(seen.startswith("GET /sharpit/api/live-memory/footprint -> 200") for seen in call.seen)
 
     captured = capsys.readouterr()
     outputs = {

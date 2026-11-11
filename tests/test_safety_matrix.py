@@ -78,6 +78,7 @@ ROWS = [
     ("pools", "GET", "/sharpit/api/database-connection-pools/pools", 200, True),
     ("pool-snapshot", "GET", "/sharpit/api/database-connection-pools/pools/nope/snapshot", 404, True),  # unknown name
     ("threads", "GET", "/sharpit/api/threads", 200, True),
+    ("live-memory-footprint", "GET", "/sharpit/api/live-memory/footprint", 200, True),
     ("log-tail", "GET", "/sharpit/api/log-tail/recent", 200, True),
     ("log-tail-stream", "GET", "/sharpit/api/log-tail/stream", 200, True),
     ("vulnerabilities", "GET", "/sharpit/api/vulnerabilities", 200, True),
@@ -301,6 +302,7 @@ WRITES = [
     ("health", "POST", "/sharpit/api/health/check", None),
     ("rest-api", "POST", "/sharpit/api/rest-api/scan", None),
     ("http-probe", "POST", "/sharpit/api/http-probe", {"method": "GET", "path": "/owners"}),
+    ("live-memory", "POST", "/sharpit/api/live-memory/footprint", {"enabled": True}),
 ]
 # Not panel actions: the session login, MCP and CLI (own switches); dismissed-rules is gated by the global flag and the
 # rule's owning panel under its own subject (test_dismissed_rules_obey_global_and_owning_panel_read_only and
