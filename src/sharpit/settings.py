@@ -189,6 +189,11 @@ class SharpitSettings:
     claude_code_max_parsed_sessions: int = 100
     claude_code_stream_debounce: float = 0.4
     claude_code_allow_raw_reveal: bool = False
+    # 0.6.0 W8 action gates (BootUI P:118,357,1009; alembic clean is sharpit-only, Q9)
+    overrides_file: str = ".sharpit/overrides.env"  # load_settings derives it from state_dir when unset
+    alembic_clean_enabled: bool = False
+    dev_services_restart_enabled: bool = False
+    cache_clear_enabled: bool = True
     warnings: tuple[str, ...] = ()
 
 
@@ -313,6 +318,8 @@ def load_settings(kwargs: Mapping[str, object], environ: Mapping[str, str]) -> S
         raise ValueError(f"api_path must be '{path}/' followed by one or more segments: {api_path!r}")
     values["path"], values["api_path"] = path, api_path
 
+    if "overrides_file" not in values:
+        values["overrides_file"] = f"{values.get('state_dir', _DEFAULTS.state_dir)}/overrides.env"
     values["panels"] = _panels(kwargs, environ, warnings)
     if values.get("expose_values") is Exposure.FULL:
         warnings.append("SHARPIT_EXPOSE_VALUES=FULL exposes unmasked secrets")

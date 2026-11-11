@@ -22,7 +22,7 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_AUTHENTICATION_TOKEN` | `authentication_token` | generated | bearer token for untrusted sources |
 | `SHARPIT_READ_ONLY` | `read_only` | `false` | refuse every write action |
 | `SHARPIT_PANELS_<ID>_ENABLED` | `panels={"<id>": {"enabled": ...}}` | `true` | per-panel switch |
-| `SHARPIT_PANELS_<ID>_READ_ONLY` | `panels={"<id>": {"read_only": ...}}` | `false` | per-panel read-only; `<ID>` is the panel id in capitals with `-` as `_`: `OVERVIEW`, `CONFIG`, `MAPPINGS`, `LOGGERS`, `BEANS`, `VULNERABILITIES`, `MCP_SERVER`, `CLI`, `ACTIVITY`, `HTTP_EXCHANGES`, `EXCEPTIONS`, `SQL_TRACE`, `LOG_TAIL`, `ALEMBIC`, `DATABASE_CONNECTION_POOLS`, `HEALTH`, `THREADS`, `REST_API`, `HTTP_PROBE`, `DATA`, `TRANSACTIONS`, `POSTGRESQL`, `MYSQL`, `TRACES`, `SECURITY`, `SECURITY_LOGS`, `DATABASE_ADVISOR`, `ARCHITECTURE`, `SQLALCHEMY_STATISTICS`, `FASTAPI_SECURITY`, `FASTAPI`, `LIVE_MEMORY`, `STARTUP`, `PROFILE_DIFF`, `COPILOT`, `CLAUDE_CODE`, `GITHUB`, `AI` |
+| `SHARPIT_PANELS_<ID>_READ_ONLY` | `panels={"<id>": {"read_only": ...}}` | `false` | per-panel read-only; `<ID>` is the panel id in capitals with `-` as `_`: `OVERVIEW`, `CONFIG`, `MAPPINGS`, `LOGGERS`, `BEANS`, `VULNERABILITIES`, `MCP_SERVER`, `CLI`, `ACTIVITY`, `HTTP_EXCHANGES`, `EXCEPTIONS`, `SQL_TRACE`, `LOG_TAIL`, `ALEMBIC`, `DATABASE_CONNECTION_POOLS`, `HEALTH`, `THREADS`, `REST_API`, `HTTP_PROBE`, `LIVE_MEMORY`, `DATA`, `TRANSACTIONS`, `POSTGRESQL`, `MYSQL`, `TRACES`, `SECURITY`, `SECURITY_LOGS`, `DATABASE_ADVISOR`, `ARCHITECTURE`, `SQLALCHEMY_STATISTICS`, `FASTAPI_SECURITY`, `FASTAPI`, `STARTUP`, `PROFILE_DIFF`, `COPILOT`, `CLAUDE_CODE`, `GITHUB`, `AI` |
 | `SHARPIT_EXPOSE_VALUES` | `expose_values` | `MASKED` | `MASKED`, `METADATA_ONLY` or `FULL` (FULL logs a warning) |
 | `SHARPIT_MASK_SECRETS` | `mask_secrets` | `true` | mask secret-looking names and values; sharpit's own token is masked even when `false` |
 | `SHARPIT_SHOW_BANNER` | `show_banner` | `true` | print the startup banner to stderr |
@@ -108,6 +108,10 @@ keyword**, so a deployment can always force `SHARPIT_ENABLED=OFF`. An empty valu
 | `SHARPIT_GITHUB_QUOTA_SAFETY_THRESHOLD` | `github_quota_safety_threshold` | `10` | threshold below which optional API calls are skipped |
 | `SHARPIT_GITHUB_MAX_API_CALLS` | `github_max_api_calls` | `17` | API requests issued by one refresh |
 | `SHARPIT_GITHUB_ALLOWED_API_HOSTS` | `github_allowed_api_hosts` | `api.github.com` | comma-separated, lower-cased GitHub Enterprise API hosts |
+| `SHARPIT_OVERRIDES_FILE` | `overrides_file` | `{state_dir}/overrides.env` | file the Configuration panel's runtime overrides persist to; never read by sharpit's own settings |
+| `SHARPIT_ALEMBIC_CLEAN_ENABLED` | `alembic_clean_enabled` | `false` | allow the Alembic panel's clean action (`downgrade base`); an invalid value keeps it off |
+| `SHARPIT_DEV_SERVICES_RESTART_ENABLED` | `dev_services_restart_enabled` | `false` | allow restarting a dev-services container; an invalid value keeps it off |
+| `SHARPIT_CACHE_CLEAR_ENABLED` | `cache_clear_enabled` | `true` | allow the Cache panel's clear action (read-only still refuses it); an invalid value turns it off |
 | `SHARPIT_SECURITY_LOGS_MAX_LOGS` | `security_logs_max_logs` | `500` | authentication and authorization audit events kept by the Security Logs panel |
 | `SHARPIT_TRANSACTIONS_ENABLED` | `transactions_enabled` | `true` | capture SQLAlchemy transactions for the Transactions panel |
 | `SHARPIT_TRANSACTIONS_RECORDING` | `transactions_recording` | `true` | initial transaction recording state |

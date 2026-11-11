@@ -46,8 +46,21 @@ class ApiRouteInfo:
 @dataclass(frozen=True)
 class ApiModel:
     routes: tuple[ApiRouteInfo, ...]
-    exception_handlers: tuple[str, ...]  # ``module:qualname`` of each registered exception handler
+    exception_handlers: tuple[str, ...]  # ``module.qualname`` of each registered exception handler
     limitations: tuple[str, ...]  # what could not be inspected (an opaque mounted app)
+    error_handlers: tuple[ErrorHandlerInfo, ...] = ()
+
+
+@dataclass(frozen=True)
+class ErrorHandlerInfo:
+    """One registered exception-handler key and its declaration scope."""
+
+    key_type: str | None
+    key_status: int | None
+    handler: str
+    scope: str
+    scope_target: str | None
+    is_partial: bool = False
 
 
 @dataclass(frozen=True)

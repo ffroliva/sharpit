@@ -23,6 +23,7 @@ MAX_FILES = 2000
 MAX_FILE_BYTES = 524_288
 _SKIP_DIRS = frozenset({".venv", "venv", "node_modules", "__pycache__", "site-packages"})
 _READ_ERRORS = (OSError, SyntaxError, ValueError, LookupError, RecursionError, MemoryError)
+_PACKAGE_INIT = "__init__.py"
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,7 @@ def _search(top: str, search_path: Sequence[object]) -> Path | None:
         if not isinstance(entry, str):
             continue
         base = Path(entry or ".")
-        if (base / top / "__init__.py").is_file():
+        if (base / top / _PACKAGE_INIT).is_file():
             return base / top
         if (base / f"{top}.py").is_file():
             return base / f"{top}.py"
@@ -121,6 +122,21 @@ def resolve_package_root(
     root = _loaded_location(module) if type(module) is ModuleType else _search(top, search_path)
     if root is None:
         notes.append(f"package {top!r} is not imported and has no source location (sharpit never imports it)")
+    return root
+
+
+def resolve_app_root(
+    app: object,
+    modules: Mapping[str, object],
+    *,
+    app_package: str | None = None,
+    search_path: Sequence[object] = (),
+    reasons: list[str] | None = None,
+) -> Path | None:
+    """The app package directory (parent of ``__init__.py`` when seen as a file), or file for single-module apps."""
+    root = resolve_package_root(app, modules, app_package=app_package, search_path=search_path, reasons=reasons)
+    if root is not None and root.name == _PACKAGE_INIT:
+        return root.parent
     return root
 
 
@@ -188,7 +204,7 @@ def _add(index: SourceIndex, root: Path, path: Path, real: str, max_file_bytes: 
         index.limitations.append(f"{path}: {tree}")
         return
     name = _module_name(root, path)
-    package = name if path.name == "__init__.py" else name.rpartition(".")[0]
+    package = name if path.name == _PACKAGE_INIT else name.rpartition(".")[0]
     functions = tuple(n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef))
     index.modules.setdefault(name, ModuleInfo(name, path, tree, _imports(tree, package), functions))
 
