@@ -318,6 +318,8 @@ PROPERTIES = {
     "bootui.database-advisor.max-vendor-rows": ("database_advisor_max_vendor_rows", "47"),
     "bootui.architecture.max-files": ("architecture_max_files", "47"),
     "bootui.architecture.max-file-bytes": ("architecture_max_file_bytes", "47"),
+    "bootui.startup.enabled": ("startup_enabled", "false"),
+    "bootui.startup.capacity": ("startup_capacity", "17"),
     "bootui.app-package": ("app_package", "myapp"),
 }
 
@@ -690,6 +692,8 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "DATABASE_ADVISOR_MAX_VENDOR_ROWS",
         "ARCHITECTURE_MAX_FILES",
         "ARCHITECTURE_MAX_FILE_BYTES",
+        "STARTUP_ENABLED",
+        "STARTUP_CAPACITY",
         "APP_PACKAGE",
     ]
     observed = [
