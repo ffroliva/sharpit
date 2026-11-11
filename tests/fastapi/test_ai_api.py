@@ -149,6 +149,12 @@ CONTENT_ATTRIBUTES = {
     "output.value": "PROMPTLEAK5",
     "traceloop.entity.input": "PROMPTLEAK6",
     "traceloop.entity.output": "PROMPTLEAK7",
+    # finding W7-A r2b: OpenInference content families, each key and its sub-keys, case-insensitive
+    "llm.prompts": "PROMPTLEAK10",
+    "llm.input_messages.0.message.content": "PROMPTLEAK11",
+    "LLM.Output_Messages.0.message.content": "PROMPTLEAK12",
+    "llm.prompt_template.variables": "PROMPTLEAK13",
+    "input.value.0": "PROMPTLEAK14",
 }
 CONTENT_EVENT_ATTRIBUTES = {"content": "PROMPTLEAK8", "gen_ai.event.content": "PROMPTLEAK9"}
 
