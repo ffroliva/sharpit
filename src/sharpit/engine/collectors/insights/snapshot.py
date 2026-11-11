@@ -31,7 +31,8 @@ class Snapshot:
 
 
 def project(journal: Any) -> Snapshot:
-    """Copy what the journal holds; ``records`` and ``status`` take its lock only while they copy."""
+    """Copy what the journal holds in one lock acquisition (``view``): the window and the coverage never tear."""
     enabled = JOURNAL_SOURCES if journal.sources is None else journal.sources
-    recorded = (s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES)
-    return Snapshot(journal.status(), {source: journal.records(source) for source in recorded}, journal.newest_at())
+    recorded = [s for s in JOURNAL_SOURCES if s in enabled and s in PRODUCED_SOURCES]
+    status, records, newest = journal.view(recorded)
+    return Snapshot(status, records, newest)

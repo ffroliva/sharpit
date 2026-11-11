@@ -6,10 +6,15 @@ and flips its ``IMPLEMENTED`` flag; nothing here changes when a kind lands.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sharpit.engine.collectors.insights.finding import Evaluation
+    from sharpit.engine.collectors.insights.snapshot import Snapshot
 
 # BootUI CorrelationTier, strongest first (E/web/CorrelationTier.java)
 TIERS = ("REQUEST_ID", "PROPAGATED", "TRACE_ID", "SERVING_THREAD", "TIME_WINDOW")
@@ -35,7 +40,7 @@ class KindSpec:
     module: ModuleType
 
     @property
-    def evaluate(self) -> Any:
+    def evaluate(self) -> Callable[[Snapshot], Evaluation] | None:
         """The kind module's ``evaluate(snapshot) -> Evaluation``, or ``None`` while the kind is a stub."""
         return getattr(self.module, "evaluate", None)
 
