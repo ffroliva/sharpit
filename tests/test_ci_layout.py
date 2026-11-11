@@ -91,6 +91,7 @@ def test_the_required_test_check_still_fails_when_lint_fails() -> None:
 
 
 DOCS_ONLY_EXIT = 'if [ "$CODE_CHANGED" = false ]; then exit 0; fi'
+DOCS_ONLY_SONAR = "Docs-only change; Sonar check is a no-op."
 
 
 def test_the_313_leg_runs_only_under_coverage() -> None:
@@ -476,6 +477,45 @@ def test_the_heavy_masking_gates_have_one_job_and_no_shard_collects_them(
     result = pytester.runpytest_subprocess("-p", "_shard", "--collect-only", "-q", "-p", "no:cacheprovider")
     for gate in OWN_JOB_FILES:
         assert f"{gate}::test_row" in result.outlines
+
+
+def test_sonar_needs_the_coverage_leg_not_the_coverage_job() -> None:
+    """A separate combine job put its setup and a handoff on the required wall between the coverage leg and Sonar."""
+    assert JOBS["sonar"].split("needs:", 1)[1].splitlines()[0].strip() == "[coverage-shard, changes]"
+
+
+def test_sonar_combines_then_scans_then_ratchets_in_one_job() -> None:
+    body = JOBS["sonar"]
+    order = [
+        DOCS_ONLY_SONAR,
+        'test "${{ needs.coverage-shard.result }}" = success',
+        "pattern: coverage-data-*",
+        "coverage combine coverage-*.data",
+        "coverage xml",
+        "uses: actions/cache@",
+        "uses: SonarSource/sonarqube-scan-action@",
+        "scripts/ci/sonar_ratchet.py --pull-request",
+    ]
+    missing = [marker for marker in order if marker not in body]
+    assert not missing, missing
+    positions = [body.index(marker) for marker in order]
+    assert positions == sorted(positions), dict(zip(order, positions, strict=True))
+
+
+def test_the_sonar_scanner_cache_is_keyed_and_pinned() -> None:
+    body = JOBS["sonar"]
+    scan_version = re.search(r"sonarqube-scan-action@[0-9a-f]{40} # (v[\d.]+)", body)
+    assert scan_version, "the scan action is not pinned to a SHA"
+    cache = next((step for step in _split_steps(body) if "actions/cache@" in step), "")
+    assert re.search(r"uses: actions/cache@[0-9a-f]{40} # v[\d.]+", cache), cache
+    assert "path: ~/.sonar/cache" in cache
+    assert f"key: sonar-${{{{ runner.os }}}}-{scan_version[1]}" in cache
+
+
+def test_coverage_still_checks_the_coverage_leg_after_the_docs_only_exit() -> None:
+    body = JOBS["coverage"]
+    assert "Docs-only change; coverage check is a no-op." in body
+    assert 'test "${{ needs.coverage-shard.result }}" = success' in body.split("Docs-only change", 1)[1]
 
 
 # CI test-seconds per gate file (spec §1, the report's run). A file cannot be split across rows (an env partition would
