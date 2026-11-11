@@ -174,10 +174,22 @@ def _fixture_and_status() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     )
 
 
-def _classification(item: dict[str, Any], settings: Any) -> tuple[str, str | None]:
+def _bootui_default(item: dict[str, Any], row: dict[str, Any]) -> Any:
+    """BootUI's default: the fixture metadata, unless the status row records a cited runtime default.
+
+    The fixture is BootUI's captured metadata and is never edited; where BootUI's runtime contradicts it (a constructor
+    overriding the field initialiser), the status row carries ``runtimeDefault`` with the BootUI source in ``citation``.
+    """
+    if "runtimeDefault" in row:
+        assert row.get("citation"), f"{item['name']}: runtimeDefault without a BootUI citation"
+        return row["runtimeDefault"]
+    return _expected_default(item.get("defaultValue"))
+
+
+def _classification(item: dict[str, Any], row: dict[str, Any], settings: Any) -> tuple[str, str | None]:
     key = item["name"]
     field = _field(key)
-    expected = _expected_default(item.get("defaultValue"))
+    expected = _bootui_default(item, row)
     if field in {"path", "api_path"}:
         actual = getattr(settings, field)
     elif field not in SPECS or field not in vars(settings):
@@ -200,7 +212,7 @@ def test_fixture_properties_are_fully_classified() -> None:
     assert classified == set(names)
     settings = load_settings({}, {})
     for item, row in zip(fixture, properties, strict=True):
-        actual_status, difference = _classification(item, settings)
+        actual_status, difference = _classification(item, row, settings)
         assert row["status"] == actual_status
         assert row["difference"] == difference
     assert status["panel_map_rule"] == (
@@ -230,7 +242,7 @@ def _matched_cases() -> list[tuple[str, str, str, Any, Any, str | None, Any]]:
         if row is None or row["status"] != "matched":
             continue
         field = _field(item["name"])
-        default = _expected_default(item.get("defaultValue"))
+        default = _bootui_default(item, row)
         sample = _samples(default, field)
         assert sample is not None
         raw, expected, invalid = sample
@@ -254,9 +266,9 @@ def _matched_cases() -> list[tuple[str, str, str, Any, Any, str | None, Any]]:
 def test_matched_property_default_and_values(
     key: str, field: str, env: str, raw: str, expected: Any, invalid: str | None, failsafe: Any
 ) -> None:
-    fixture, _ = _fixture_and_status()
+    fixture, status = _fixture_and_status()
     entry = next(item for item in fixture if item["name"] == key)
-    default = _expected_default(entry.get("defaultValue"))
+    default = _bootui_default(entry, next(row for row in status["properties"] if row["name"] == key))
     settings = load_settings({}, {})
     assert getattr(settings, field) == default
     loaded = load_settings({}, {env: raw})

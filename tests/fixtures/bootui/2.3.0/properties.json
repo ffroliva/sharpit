@@ -297,8 +297,7 @@
       "type": "java.lang.Boolean",
       "description": "Allow the opt-in raw-event reveal endpoint. When {@code false}, the endpoint returns HTTP 404 even on the loopback interface.",
       "sourceType": "io.github.jdubois.bootui.autoconfigure.BootUiProperties$ClaudeCode",
-      "defaultValue": false,
-      "defaultValueSource": "BootUiProperties.java:2575 (ClaudeCode() constructor calls setAllowRawReveal(false))"
+      "defaultValue": true
     },
     {
       "name": "bootui.claude-code.enabled",
