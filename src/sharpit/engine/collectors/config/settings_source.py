@@ -363,13 +363,17 @@ def parse_env(content: str) -> list[tuple[str, str | None]]:
     return list(data.items())
 
 
-_REWRITING_CONFIG = ("str_strip_whitespace", "str_to_lower", "str_to_upper", "use_enum_values")
+# env_parse_enums maps member NAMES to members; env_parse_none_str only yields None and env_nested_delimiter only
+# merges into dict/model targets (never allow-listed), so neither can turn a shown value into a masked one
+_REWRITING_CONFIG = ("str_strip_whitespace", "str_to_lower", "str_to_upper", "use_enum_values", "env_parse_enums")
+_REWRITING_METHODS = ("__init__", "model_post_init", "settings_customise_sources")
 _PYDANTIC_MODULES = ("pydantic.", "pydantic_settings.")
 
 
 def _rewritten_fields(cls: type[Any], cfg: object) -> tuple[bool, set[str]]:
     """Read statically, never called: whether host code may rewrite every field of ``cls`` (a model validator, a
-    user ``__init__``/``model_post_init``, a transforming config flag), and the fields a field validator names."""
+    user ``__init__``/``model_post_init``/``settings_customise_sources``, a transforming config flag), and the fields
+    a field validator names."""
     decorators = getattr(cls, "__pydantic_decorators__", None)
     if decorators is None:
         return True, set()
@@ -379,7 +383,7 @@ def _rewritten_fields(cls: type[Any], cfg: object) -> tuple[bool, set[str]]:
         for flag in _REWRITING_CONFIG
     )
     every = every or any(
-        ("__init__" in vars(k) or "model_post_init" in vars(k))
+        any(name in vars(k) for name in _REWRITING_METHODS)
         for k in cls.__mro__
         if k is not object and not k.__module__.startswith(_PYDANTIC_MODULES)
     )
