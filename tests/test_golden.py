@@ -46,7 +46,7 @@ def _parity_error(
 def test_golden_id_mapping_covers_panel_ids() -> None:
     ids = bootui_ids()
     bootui_panel_ids = {panel["id"] for panel in legacy_golden("panels")["panels"]}
-    # the legacy capture predates BootUI 2.3.0's new panels (W6 agent sensors, runtime-insights): its manifest names them
+    # the legacy capture predates BootUI 2.3.0's panels (W6 agent sensors, runtime-insights): its manifest lists them
     bootui_panel_ids |= {panel["id"] for panel in json.loads(PANELS_23.read_text(encoding="utf-8"))["panels"]}
     assert set(ids.values()) == {panel.id for panel in PANELS}
     assert set(ids) <= bootui_panel_ids
