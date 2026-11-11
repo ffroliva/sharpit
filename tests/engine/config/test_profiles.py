@@ -1349,3 +1349,74 @@ def test_profile_diff_masks_fields_of_a_model_with_custom_sources_get_and_mcp(
     cfg = config_report(_ctx(settings=(settings,)), None, None, False, None, None)
     assert next(p for p in cfg["properties"] if p["name"] == "F")["masked"] is True
     _assert_profile_key_masked((settings,), "F")
+
+
+class _RewritingMeta(type(BaseSettings)):  # pyright: ignore[reportGeneralTypeIssues, reportUntypedBaseClass]
+    def __call__(cls, *args: object, **kwargs: object) -> object:
+        inst = super().__call__(*args, **kwargs)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        inst.__dict__["f"] = _to_url(inst.__dict__["f"])  # pyright: ignore[reportUnknownMemberType]
+        return inst  # pyright: ignore[reportUnknownVariableType]
+
+
+def _url_settings_meta() -> BaseSettings:
+    body: dict[str, object] = {
+        "__annotations__": {"f": str | None},
+        "f": None,
+        "model_config": SettingsConfigDict(extra="ignore", env_file=".env.prod"),
+    }
+    return _RewritingMeta("S", (BaseSettings,), body)()  # pyright: ignore[reportUnknownVariableType, reportReturnType]
+
+
+def _getattribute(self: BaseSettings, name: str) -> object:
+    value = object.__getattribute__(self, name)
+    return _to_url(value) if name == "f" else value
+
+
+def _core_schema_rewriting(cls: type, source: object, handler: Any) -> object:
+    from pydantic_core import core_schema
+
+    def rewrite(model: Any) -> Any:
+        model.__dict__["f"] = _to_url(model.__dict__["f"])
+        return model
+
+    return core_schema.no_info_after_validator_function(rewrite, handler(source))
+
+
+def _build_values(self: BaseSettings, init: dict[str, object], **kwargs: object) -> dict[str, object]:
+    built = BaseSettings._settings_build_values(self, init, **kwargs)  # pyright: ignore[reportPrivateUsage, reportArgumentType]
+    return {k: _to_url(v) for k, v in built.items()}
+
+
+def _mutated_after_build() -> BaseSettings:
+    settings = _url_settings(str | None, {})
+    settings.f = _to_url(settings.f)  # pyright: ignore[reportAttributeAccessIssue]
+    return settings
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        pytest.param(lambda: _url_settings(str | None, {"__getattribute__": _getattribute}), id="B01-getattribute"),
+        pytest.param(_url_settings_meta, id="B03-metaclass-call"),
+        pytest.param(
+            lambda: _url_settings(str | None, {"__get_pydantic_core_schema__": classmethod(_core_schema_rewriting)}),
+            id="B06-model-core-schema",
+        ),
+        pytest.param(
+            lambda: _url_settings(str | None, {"_settings_build_values": _build_values}), id="B07-build-values"
+        ),
+        pytest.param(_mutated_after_build, id="B04-mutated-after-build"),
+    ],
+)
+def test_profile_diff_masks_value_host_code_rewrote_on_the_instance_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make: Any
+) -> None:
+    # Configuration reads the built instance, which host code rewrote into a URL with credentials.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("F=zqx\n", encoding="utf-8")
+    settings = make()
+
+    cfg = config_report(_ctx(settings=(settings,)), None, None, False, None, None)
+    assert next(p for p in cfg["properties"] if p["name"] == "F")["masked"] is True
+    _assert_profile_key_masked((settings,), "F")
