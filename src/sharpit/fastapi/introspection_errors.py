@@ -74,6 +74,21 @@ def _key(key: object) -> tuple[str | None, int | None]:
     return None, None
 
 
+def _handler_row(
+    key: object, handler: object, scope: str, target: str | None, limitations: list[str]
+) -> ErrorHandlerInfo:
+    key_type, key_status = _key(key)
+    if key_type is None and key_status is None:
+        limitations.append(f"An exception handler at {target or '/'} could not be inspected.")
+    row_scope, row_target = scope, target
+    if key_status is not None:
+        row_scope = "SCOPED"
+        if target is None:
+            row_target = f"status={key_status}"
+    name, is_partial = handler_name(handler)
+    return ErrorHandlerInfo(key_type, key_status, name, row_scope, row_target, is_partial)
+
+
 def _handlers(app: object, scope: str, target: str | None) -> tuple[list[ErrorHandlerInfo], list[str]]:
     values = attrs(app)
     handlers = values.get("exception_handlers")
@@ -86,15 +101,7 @@ def _handlers(app: object, scope: str, target: str | None) -> tuple[list[ErrorHa
         handler_map = cast(dict[object, object], handlers)
         for key, handler in handler_map.items():
             try:
-                key_type, key_status = _key(key)
-                if key_type is None and key_status is None:
-                    limitations.append(f"An exception handler at {target or '/'} could not be inspected.")
-                row_scope = "SCOPED" if key_status is not None else scope
-                row_target = (
-                    target if target is not None else (f"status={key_status}" if key_status is not None else None)
-                )
-                name, is_partial = handler_name(handler)
-                rows.append(ErrorHandlerInfo(key_type, key_status, name, row_scope, row_target, is_partial))
+                rows.append(_handler_row(key, handler, scope, target, limitations))
             except Exception:  # noqa: BLE001 - one opaque host handler must not hide its siblings
                 limitations.append(f"An exception handler at {target or '/'} could not be inspected.")
         return rows, limitations

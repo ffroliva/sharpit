@@ -134,11 +134,12 @@ def test_partial_routes_record_exact_gaps(client: TestClient, item: dict[str, An
 def test_error_contract_records_its_bootui_23_parity_gap(client: TestClient) -> None:
     response = client.get("/sharpit/api/rest-api/error-contract")
     assert response.status_code == 200
+    payload = response.json()
     with pytest.raises(AssertionError) as exc_info:
         assert_parity(
             "rest-api",
             "error-contract",
-            response.json(),
+            payload,
             fixture_version="2.3.0",
             matched=True,
         )
