@@ -60,6 +60,17 @@ def test_a_controller_local_handler_outranks_an_application_wide_one() -> None:
     ]
 
 
+def test_disjoint_scoped_handlers_share_precedence_one() -> None:
+    result = entries(
+        _model(
+            ("example.Failure", None, "app.a:handle", "SCOPED", "/a"),
+            ("example.Failure", None, "app.b:handle", "SCOPED", "/b"),
+        ),
+        None,
+    )
+    assert [item.precedence for item in result] == [1, 1]
+
+
 def test_body_categories_are_derived_from_the_declaration_only() -> None:
     # ported: ErrorContractServiceTests.bodyCategoriesAreDerivedFromTheDeclarationOnly
     source = """
