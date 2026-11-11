@@ -1,0 +1,4 @@
+route:GET /scheduled	partial	D7 (proposed, pending owner): APScheduler 3 memory stores and pending jobs, configured Celery beat_schedule, arq cron_jobs; a remote store, an unconfigured Celery app and APScheduler 4 are skipped (C0 verdict); the sample app has no scheduler, so the golden's task list is not exercised by the route parity row
+tool:get_scheduled_tasks	matched	schema NONE, panel scheduled, read; test_tools_23 catalogue row and test_scheduled_emits_function_name_only over MCP
+cli:scheduled	matched	CliCommandPaths get_scheduled_tasks -> scheduled; test_cli_path_maps_to_bootui_tool
+panel:scheduled	partial	Panel("scheduled", "Scheduled Tasks", False, "/scheduled") listed; content per D7 (proposed, pending owner)

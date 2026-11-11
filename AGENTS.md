@@ -107,7 +107,8 @@ to loosen. Change a rule only in that test and here, in the same PR, with the re
    `engine/sqla/` package, `sqlite3` only in `engine/sources/sqlite.py`, `pydantic_settings` only in
    `engine/collectors/config/settings_source.py`, OpenTelemetry only in `engine/otel.py`, and
    `urllib.request`/`http.client` only in the OSV and EPSS clients under
-   `engine/collectors/vulns/`, and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
+   `engine/collectors/vulns/`, APScheduler, Celery and arq only in their own module under
+   `engine/collectors/scheduled/` (observed through `sys.modules`, never imported), and `pytest`/`_pytest` may be imported only by modules under `sharpit/pytest_plugin/`. `alembic`, `socket` and `ssl` are imported nowhere.
    The AST gate covers `sys.addaudithook`, `sys.monitoring.use_tool_id`, `free_tool_id`, `clear_tool_id`, `set_events`, `set_local_events`, `register_callback`, and `restart_events`, plus `os.system`, `os.spawn*`, and `os.exec*`; these calls live only under `engine/sensors/`. `sys.settrace` and mutations of `gc.callbacks` are allowed only in `pytest_plugin/` and `engine/testsession/`. `subprocess`, `os.posix_spawn`, `os.fork`, and `os.popen` are not gated.
 5. **Performance.** ruff's `PERF`, `C4` and `FURB` rules run in CI (`pyproject.toml`). Hot paths (capture middleware,
    SQL listener) keep their overhead budget tests; a budget is never raised to pass, and a budget test is never marked

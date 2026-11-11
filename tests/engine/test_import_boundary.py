@@ -38,6 +38,9 @@ GATEKEEPERS: dict[str, set[str]] = {
     "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
     "socket": set(),
     "ssl": set(),
+    "apscheduler": {"sharpit/engine/collectors/scheduled/apscheduler.py"},  # observed via sys.modules (W5b lane C)
+    "celery": {"sharpit/engine/collectors/scheduled/celery.py"},
+    "arq": {"sharpit/engine/collectors/scheduled/arq.py"},
     "pytest": {"sharpit/pytest_plugin"},
     "_pytest": {"sharpit/pytest_plugin"},
 }

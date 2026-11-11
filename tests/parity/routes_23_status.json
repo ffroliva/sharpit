@@ -2,8 +2,8 @@
   "fixture": "tests/fixtures/bootui/2.3.0",
   "counts": {
     "matched": 5,
-    "partial": 20,
-    "missing": 51,
+    "partial": 21,
+    "missing": 50,
     "n-a": 20,
     "total": 96
   },
@@ -579,8 +579,8 @@
       "golden": "scheduled/captured.json",
       "panel": "scheduled",
       "route": "/sharpit/api/scheduled",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/scheduled (HTTP 404)"
+      "status": "partial",
+      "difference": "scheduled/captured.json parity: tasks: non-empty golden list requires a non-empty payload list"
     },
     {
       "golden": "security/captured.json",
