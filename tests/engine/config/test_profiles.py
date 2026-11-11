@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.activation import ActivationStatus
 from sharpit.engine.collectors.config import config_report
-from sharpit.engine.collectors.config.profiles import profiles_report
+from sharpit.engine.collectors.config.profiles import _read, profiles_report
 from sharpit.engine.collectors.config.settings_source import parse_env
 from sharpit.engine.context import SharpitContext
 from sharpit.engine.masking import Exposure
@@ -459,7 +459,12 @@ def test_profile_diff_golden_shape_23(tmp_path: Path, monkeypatch: pytest.Monkey
     assert prop["source"] == src["sourceName"]
 
 
-def test_profile_diff_has_no_side_effects(no_side_effects: SideEffectGuard, tmp_state_dir: Path) -> None:
+def test_profile_diff_has_no_side_effects(
+    no_side_effects: SideEffectGuard, tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_state_dir)
+    (tmp_state_dir / ".env.dev").write_text("SAFE=fixture\n", encoding="utf-8")
+
     class DevSettings(BaseSettings):
         model_config = SettingsConfigDict(extra="allow", env_file=".env.dev")
 
@@ -481,7 +486,193 @@ def test_profile_diff_has_no_side_effects(no_side_effects: SideEffectGuard, tmp_
         assert response.status_code == 200
         report = response.json()
         assert "profileSources" in report
+        assert report["profileSources"][0]["properties"][0]["value"] == "fixture"
     no_side_effects.verify()
+
+
+@pytest.mark.parametrize("nested_delimiter", [None, "__"])
+def test_nested_secret_json_is_masked_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, nested_delimiter: str | None
+) -> None:
+    from pydantic import BaseModel
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text('DB={"token":"plainsecretvalue123"}\n', encoding="utf-8")
+
+    class Db(BaseModel):
+        token: SecretStr
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.prod", env_nested_delimiter=nested_delimiter)
+        db: Db
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S(db=Db(token="x")))
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    route = client.get("/sharpit/api/profile-diff")
+    assert route.status_code == 200
+    route_prop = next(p for p in route.json()["profileSources"][0]["properties"] if p["name"] == "DB")
+    mcp_prop = next(
+        p
+        for p in call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")["profileSources"][0][
+            "properties"
+        ]
+        if p["name"] == "DB"
+    )
+    cfg = config_report(handle.context, None, None, False, None, None)
+    cfg_prop = next(p for p in cfg["properties"] if p["name"].startswith("DB"))
+    assert route_prop["value"] == cfg_prop["value"]
+    assert route_prop["masked"] is True
+    assert mcp_prop["value"] == cfg_prop["value"]
+    assert mcp_prop["masked"] is True
+
+
+def test_full_exposure_secret_typed_profile_matches_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("SIGNING=plainsecretvalue123\n", encoding="utf-8")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.prod")
+        signing: SecretStr
+
+    app = FastAPI()
+    handle = install(
+        app,
+        show_banner=False,
+        config_scan=False,
+        enabled="ON",
+        settings=S(signing="plainsecretvalue123"),
+        expose_values="FULL",
+    )
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    route = client.get("/sharpit/api/profile-diff")
+    assert route.status_code == 200
+    expected = next(
+        p for p in config_report(handle.context, None, None, False, None, None)["properties"] if p["name"] == "SIGNING"
+    )
+    route_prop = next(p for p in route.json()["profileSources"][0]["properties"] if p["name"] == "SIGNING")
+    mcp_prop = next(
+        p
+        for p in call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")["profileSources"][0][
+            "properties"
+        ]
+        if p["name"] == "SIGNING"
+    )
+    assert route_prop["value"] == expected["value"]
+    assert route_prop["masked"] == expected["masked"]
+    assert mcp_prop["value"] == expected["value"]
+    assert mcp_prop["masked"] == expected["masked"]
+
+
+def test_profile_diff_utf8_bom_is_removed_get_and_mcp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_bytes(b"\xef\xbb\xbfSIGNING=plainsecretvalue123\n")
+    content = _read(tmp_path / ".env.prod")
+    assert content is not None
+    assert not content.startswith("\ufeff")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.prod")
+        signing: SecretStr = SecretStr("x")
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S.__new__(S))
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    route = client.get("/sharpit/api/profile-diff")
+    assert route.status_code == 200
+    route_props = route.json()["profileSources"][0]["properties"]
+    mcp_props = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")["profileSources"][0][
+        "properties"
+    ]
+    assert [p["name"] for p in route_props] == ["SIGNING"]
+    assert route_props[0]["masked"] is True
+    assert [p["name"] for p in mcp_props] == ["SIGNING"]
+    assert mcp_props[0]["masked"] is True
+
+
+def test_profile_diff_unknown_encoding_fails_closed_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_bytes(b"SAFE=visible\n")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.prod", env_file_encoding="unknown-codec")
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S.__new__(S))
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000), raise_server_exceptions=False)
+    try:
+        route = client.get("/sharpit/api/profile-diff")
+        route_status = route.status_code
+        route_sources = route.json()["profileSources"] if route_status == 200 else "internal error"
+    except Exception:
+        route_status, route_sources = None, "internal error"
+    try:
+        mcp_report = call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")
+        mcp_sources = mcp_report.get("profileSources", "internal error")
+    except Exception:
+        mcp_sources = "internal error"
+    assert route_status == 200
+    assert route_sources == []
+    assert mcp_sources == []
+
+
+def test_profile_diff_refuses_absolute_env_file_outside_root_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, outside = tmp_path / "root", tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (outside / ".env.prod").write_text("SAFE=visible\n", encoding="utf-8")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=outside / ".env.prod")
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S())
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    route = client.get("/sharpit/api/profile-diff")
+    assert route.status_code == 200
+    assert route.json()["profileSources"] == []
+    assert call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")["profileSources"] == []
+
+
+def test_profile_diff_dotenv_import_error_shows_nothing_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import builtins
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text("SAFE=visible\n", encoding="utf-8")
+
+    class S(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.prod")
+
+    app = FastAPI()
+    handle = install(app, show_banner=False, config_scan=False, enabled="ON", settings=S())
+    original_import = builtins.__import__
+
+    def without_dotenv(name: str, *args: object, **kwargs: object) -> object:
+        if name == "dotenv":
+            raise ImportError("dotenv unavailable")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_dotenv)
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    route = client.get("/sharpit/api/profile-diff")
+    assert route.status_code == 200
+    assert route.json()["profileSources"] == []
+    assert call_tool(CallContext(handle.context, {}), "get_profile_diff", {}, via="mcp")["profileSources"] == []
 
 
 def test_secret_str_innocent_name_masked_get_and_mcp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
