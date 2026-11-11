@@ -152,20 +152,26 @@ def test_without_fastapi_a_starlette_install_introspects_as_before(tmp_path: Pat
     assert report == STARLETTE_MAPPINGS
 
 
+def _pyright(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "pyright", *args], cwd=ROOT, capture_output=True, text=True, timeout=120, check=False
+    )
+
+
 def test_pyright_rejects_an_unknown_sharpit_name(tmp_path: Path) -> None:
     pytest.importorskip("pyright", reason="pyright is a dev-group tool; the lowest-direct leg syncs --no-dev")
     probe = tmp_path / "probe.py"
     probe.write_text("from sharpit import install, typo\n\nreveal_type(install)\nprint(typo)\n", encoding="utf-8")
 
-    done = subprocess.run(
-        [sys.executable, "-m", "pyright", "--outputjson", "--pythonpath", sys.executable, str(probe)],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    diagnostics = json.loads(done.stdout)["generalDiagnostics"]
+    version = _pyright("--version")
+    if version.returncode or "pyright" not in version.stdout:  # the pip wrapper could not fetch or start its Node
+        pytest.skip(f"pyright cannot run here (rc {version.returncode}): {version.stderr.strip()[-500:]}")
+
+    done = _pyright("--outputjson", "--pythonpath", sys.executable, str(probe))
+    try:
+        diagnostics = json.loads(done.stdout)["generalDiagnostics"]
+    except ValueError:
+        pytest.fail(f"pyright printed no JSON (rc {done.returncode}); stderr: {done.stderr.strip()[-2000:]}")
     rules = [(d.get("rule"), d["message"]) for d in diagnostics]
 
     assert ("reportAttributeAccessIssue", '"typo" is unknown import symbol') in rules
