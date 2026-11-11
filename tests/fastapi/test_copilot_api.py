@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from sharpit import install
+from sharpit.engine.collectors.agentsessions.store import display_session_dir
 from sharpit.engine.tools import CallContext
 from sharpit.engine.tools04.copilot import TOOLS as COPILOT_TOOLS
 from sharpit.settings import load_settings
@@ -65,7 +66,7 @@ def test_sessions_returns_unavailable_when_directory_missing(tmp_path: Path, mon
     data = resp.json()
     assert data["available"] is False
     assert data["total"] == 0
-    assert f"Copilot CLI session directory not found at {missing}" in data["unavailableReason"]
+    assert f"Copilot CLI session directory not found at {display_session_dir(missing)}" in data["unavailableReason"]
 
 
 def test_dashboard_returns_unavailable_when_directory_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -268,6 +269,7 @@ def test_session_tools_default_limit_and_query(tmp_path: Path, monkeypatch: pyte
 def test_sessions_reads_start_no_sharpit_thread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "s1.json").write_text('{"events":[{"type":"t","tool":"apply_patch","timestamp":1}]}', encoding="utf-8")
     monkeypatch.setenv("SHARPIT_COPILOT_SESSION_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("SHARPIT_STREAM_MAX_SECONDS", "0.05s")
 
     app = FastAPI()
     handle = install(app, enabled="ON", show_banner=False)
@@ -303,3 +305,31 @@ def test_sessions_reads_start_no_sharpit_thread(tmp_path: Path, monkeypatch: pyt
         tool.handler(call, {"limit": 5})
 
     assert started_sharpit_threads == []
+
+
+def test_copilot_enabled_off_disables_panel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "s1.json").write_text('{"events":[{"type":"t"}]}', encoding="utf-8")
+    monkeypatch.setenv("SHARPIT_COPILOT_SESSION_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("SHARPIT_COPILOT_ENABLED", "OFF")
+
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False)
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    resp = client.get("/sharpit/api/copilot/sessions")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["available"] is False
+    assert data["unavailableReason"] == "Copilot panel is disabled via configuration"
+
+    resp_dash = client.get("/sharpit/api/copilot/dashboard")
+    assert resp_dash.status_code == 200
+    data_dash = resp_dash.json()
+    assert data_dash["available"] is False
+    assert data_dash["unavailableReason"] == "Copilot panel is disabled via configuration"
+
+    panels_resp = client.get("/sharpit/api/panels")
+    assert panels_resp.status_code == 200
+    panels_data = panels_resp.json()
+    assert panels_data["panels"]["copilot"]["available"] is False
+    assert panels_data["panels"]["copilot"]["unavailableReason"] == "Copilot panel is disabled via configuration"

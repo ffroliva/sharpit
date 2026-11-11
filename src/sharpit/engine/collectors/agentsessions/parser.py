@@ -972,6 +972,7 @@ def parse_session(
     layout: Layout,
     max_events: int = 2000,
     include_lifecycle: bool = False,
+    max_bytes: int = 32 * 1024 * 1024,
 ) -> ParsedSession:
     target = path / "events.jsonl" if path.is_dir() and (path / "events.jsonl").is_file() else path
     session_id = target.parent.name if target.name == "events.jsonl" else target.stem
@@ -983,7 +984,7 @@ def parse_session(
         summary["schemaDrift"] = True
         counts: dict[str, Any] = {"total": 0, "byCategory": {}, "errors": 0, "lastActivityEpochMillis": None}
         return ParsedSession(summary=summary, counts=counts)
-    return parse_session_file(session_id, target, st, layout, max_events, include_lifecycle)
+    return parse_session_file(session_id, target, st, layout, max_events, include_lifecycle, max_bytes)
 
 
 def parse_session_file(
@@ -993,6 +994,7 @@ def parse_session_file(
     layout: Layout,
     max_events: int = 2000,
     include_lifecycle: bool = False,
+    max_bytes: int = 32 * 1024 * 1024,
 ) -> ParsedSession:
     parser_cls = _JsonlParser if path.name.lower().endswith(".jsonl") else _LegacyParser
     return parser_cls(session_id, path, stat_result, max_events, include_lifecycle).parse()

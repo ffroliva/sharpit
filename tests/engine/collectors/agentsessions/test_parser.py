@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import json
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from sharpit.engine.collectors.agentsessions.parser import Layout, parse_session
 
@@ -126,13 +130,106 @@ def test_session_files_confined_and_bounded(tmp_path: Path) -> None:
     assert parsed_partial.events[0]["toolName"] == "grep"
 
 
-def test_session_state_dir_shown_unexpanded(tmp_path: Path) -> None:
+def test_session_state_dir_shown_unexpanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from sharpit.engine.collectors.agentsessions import AgentSessionSettings
     from sharpit.engine.collectors.agentsessions.store import SessionStore
+
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
 
     settings = AgentSessionSettings(session_state_dir="~/.copilot/session-state")
     store = SessionStore(settings, Layout.COPILOT)
     sessions_dto = store.sessions()
     assert sessions_dto["sessionStateDir"] == "~/.copilot/session-state"
     assert "~/.copilot/session-state" in str(sessions_dto["unavailableReason"])
-    assert str(Path.home()) not in sessions_dto["sessionStateDir"]
+    assert str(fake_home) not in sessions_dto["sessionStateDir"]
+
+
+def test_legacy_parser_raw_by_id_stores_path_and_line_tuple(tmp_path: Path) -> None:
+    legacy_file = tmp_path / "legacy_session.json"
+    legacy_file.write_text(
+        '{"events":[{"type":"shell","tool":"bash","timestamp":1000,"summary":"run"}]}',
+        encoding="utf-8",
+    )
+    parsed = parse_session(legacy_file, Layout.COPILOT, 2000)
+    assert len(parsed.events) == 1
+    ev_id = parsed.events[0]["id"]
+    raw_val = parsed.raw_by_id.get(ev_id)
+    assert isinstance(raw_val, tuple), f"raw_by_id expected tuple, got {type(raw_val)}"
+    assert raw_val[0] == legacy_file
+
+
+@pytest.mark.anyio
+async def test_agent_sessions_sanitisation_leaks_no_prompts_or_secrets(tmp_path: Path) -> None:
+    from sharpit.engine.collectors.agentsessions import AgentSessionSettings
+    from sharpit.engine.collectors.agentsessions.store import SessionStore
+    from sharpit.engine.context import SharpitContext
+    from sharpit.engine.tools import CallContext
+    from sharpit.engine.tools04.claude_code import TOOLS as CLAUDE_TOOLS
+    from sharpit.fastapi.routes.agent_sessions_stream import _agent_sessions_events
+    from sharpit.settings import SharpitSettings
+
+    proj_dir = tmp_path / "project-secrets"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    sess_file = proj_dir / "secret-session.jsonl"
+    sess_file.write_text(
+        '{"type":"user","uuid":"u1","timestamp":"2026-05-28T10:00:00Z","cwd":"/work/app",'
+        '"message":{"role":"user","content":"USER_PROMPT_SECRET_xyz"}}\n'
+        '{"type":"assistant","uuid":"a1","timestamp":"2026-05-28T10:00:01Z",'
+        '"message":{"model":"claude-3-5","content":['
+        '{"type":"tool_use","id":"t1","name":"Bash","input":{"cmd":"SECRET_INPUT_CMD_abc"}},'
+        '{"type":"text","text":"sk-ant-api03-SECRET_KEY_123"}'
+        ']}}\n'
+        '{"type":"assistant","uuid":"a2","timestamp":"2026-05-28T10:00:02Z",'
+        '"message":{"model":"claude-3-5","content":['
+        '{"type":"tool_result","tool_use_id":"t1","output":"AWS_SECRET_KEY_789"}'
+        ']}}\n',
+        encoding="utf-8",
+    )
+
+    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
+    store = SessionStore(settings, Layout.CLAUDE_CODE)
+
+    # DTO outputs
+    dto_sessions = store.sessions()
+    dto_dash = store.dashboard()
+    dto_detail = store.detail("secret-session")
+    dto_events = store.events("secret-session", category=None, since=None, limit=100)
+
+    # MCP tool output
+    sharpit_settings = SharpitSettings(claude_code_session_state_dir=str(tmp_path))
+    ctx = SharpitContext(sharpit_settings, None, None, None, None, None, None)
+    call_ctx = CallContext(ctx, {})
+    tool = next(t for t in CLAUDE_TOOLS if t.name == "get_claude_code_sessions")
+    tool_resp = tool.handler(call_ctx, {"limit": 10})
+
+    # Stream output
+    stream_events: list[tuple[str, str | None, str]] = []
+    gen = _agent_sessions_events(store, 0.05)
+    async for ev in gen:
+        stream_events.append(ev)
+        if len(stream_events) >= 2:
+            break
+
+    payloads = [
+        json.dumps(dto_sessions),
+        json.dumps(dto_dash),
+        json.dumps(dto_detail),
+        json.dumps(dto_events),
+        json.dumps(tool_resp),
+        json.dumps(stream_events),
+    ]
+
+    secrets = [
+        "USER_PROMPT_SECRET_xyz",
+        "SECRET_INPUT_CMD_abc",
+        "sk-ant-api03-SECRET_KEY_123",
+        "AWS_SECRET_KEY_789",
+    ]
+
+    for p in payloads:
+        for secret in secrets:
+            assert secret not in p, f"Secret leaked in payload: {secret}"

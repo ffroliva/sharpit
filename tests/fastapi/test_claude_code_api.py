@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from conftest import OpenStream
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine.collectors.agentsessions import Layout, session_store
+from sharpit.engine.collectors.agentsessions.store import display_session_dir
 from sharpit.engine.tools import TOOLS, CallContext
 
 
@@ -48,7 +50,7 @@ def test_claude_code_sessions_returns_unavailable_when_directory_missing(
     assert resp.status_code == 200
     data = resp.json()
     assert data["available"] is False
-    assert data["unavailableReason"] == f"Claude Code session directory not found at {missing}"
+    assert data["unavailableReason"] == f"Claude Code session directory not found at {display_session_dir(missing)}"
     assert data["total"] == 0
 
 
@@ -139,7 +141,9 @@ def test_claude_code_dashboard_aggregates_iso_timestamp_activity(
 
 
 # ported: ClaudeCodeControllerTests.rawRevealIsDisabledByDefault
-def test_claude_code_raw_reveal_is_disabled_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_claude_code_raw_reveal_fails_closed_404_route_not_masking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     write_claude_session(tmp_path / "project-one" / "session-one.jsonl")
     monkeypatch.setenv("SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR", str(tmp_path))
 
@@ -152,7 +156,7 @@ def test_claude_code_raw_reveal_is_disabled_by_default(tmp_path: Path, monkeypat
 
 
 # ported: ClaudeCodeControllerTests.rawRevealRespectsMetadataOnlyExposure
-def test_claude_code_raw_reveal_respects_metadata_only_exposure(
+def test_claude_code_raw_reveal_respects_metadata_only_exposure_fails_closed_404(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write_claude_session(tmp_path / "project-one" / "session-one.jsonl")
@@ -299,6 +303,7 @@ def test_stream_rejects_beyond_concurrent_limit(monkeypatch: pytest.MonkeyPatch)
 async def test_session_stream_sends_sessions_then_dashboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_claude_session(tmp_path / "project-one" / "session-one.jsonl")
     monkeypatch.setenv("SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("SHARPIT_CLAUDE_CODE_STREAM_DEBOUNCE", "50ms")
 
     app = FastAPI()
     install(app, enabled="ON", show_banner=False)
@@ -309,12 +314,95 @@ async def test_session_stream_sends_sessions_then_dashboard(tmp_path: Path, monk
         assert stream.status == 200
         await asyncio.sleep(0.1)
         body = stream.body
-        assert "event: sessions\n" in body
-        assert "event: dashboard\n" in body
+        pos_s1 = body.find("event: sessions\n")
+        pos_d1 = body.find("event: dashboard\n")
+        assert 0 <= pos_s1 < pos_d1, "sessions event must appear before dashboard event"
+
+        # Add a new session file to trigger re-emission on change
+        write_claude_session(tmp_path / "project-two" / "session-two.jsonl")
+        await asyncio.sleep(0.25)
+        body2 = stream.body
+        pos_s2 = body2.find("event: sessions\n", pos_d1 + 1)
+        pos_d2 = body2.find("event: dashboard\n", pos_s2 + 1)
+        assert 0 <= pos_s2 < pos_d2, "stream must re-emit sessions then dashboard when file changes"
     finally:
         stream.task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await stream.task
+
+
+@pytest.mark.anyio
+async def test_session_stream_initial_refresh_does_not_block_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from httpx import ASGITransport, AsyncClient
+
+    write_claude_session(tmp_path / "project-one" / "session-one.jsonl")
+    monkeypatch.setenv("SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR", str(tmp_path))
+
+    app = FastAPI()
+    handle = install(app, enabled="ON", show_banner=False)
+
+    store = session_store(handle.context, Layout.CLAUDE_CODE)
+    entered_refresh = threading.Event()
+    proceed = threading.Event()
+    refresh_is_running = False
+    real_refresh = store.refresh
+
+    def blocking_refresh(*args, **kwargs):
+        nonlocal refresh_is_running
+        refresh_is_running = True
+        entered_refresh.set()
+        try:
+            proceed.wait(timeout=0.5)
+            return real_refresh(*args, **kwargs)
+        finally:
+            refresh_is_running = False
+
+    monkeypatch.setattr(store, "refresh", blocking_refresh)
+
+    stream = OpenStream(app, "/sharpit/api/claude-code/stream")
+    try:
+        await asyncio.to_thread(entered_refresh.wait, 2.0)
+        assert entered_refresh.is_set() is True
+
+        client = AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost")
+        resp = await client.get("/sharpit/api/overview")
+        assert resp.status_code == 200
+        assert refresh_is_running is True, "store.refresh had already finished; event loop was blocked"
+    finally:
+        proceed.set()
+        stream.task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await stream.task
+
+
+def test_claude_code_enabled_off_disables_panel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_claude_session(tmp_path / "project-one" / "session-one.jsonl")
+    monkeypatch.setenv("SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("SHARPIT_CLAUDE_CODE_ENABLED", "OFF")
+
+    app = FastAPI()
+    install(app, enabled="ON", show_banner=False)
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+
+    resp = client.get("/sharpit/api/claude-code/sessions")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["available"] is False
+    assert data["unavailableReason"] == "Claude Code panel is disabled via configuration"
+
+    resp_dash = client.get("/sharpit/api/claude-code/dashboard")
+    assert resp_dash.status_code == 200
+    data_dash = resp_dash.json()
+    assert data_dash["available"] is False
+    assert data_dash["unavailableReason"] == "Claude Code panel is disabled via configuration"
+
+    panels_resp = client.get("/sharpit/api/panels")
+    assert panels_resp.status_code == 200
+    panels_data = panels_resp.json()
+    assert panels_data["panels"]["claude-code"]["available"] is False
+    assert panels_data["panels"]["claude-code"]["unavailableReason"] == "Claude Code panel is disabled via configuration"
 
 
 def test_claude_code_session_tools_default_limit_and_query(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
