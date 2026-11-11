@@ -144,6 +144,26 @@ def _settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[lis
     return entries, [label for label, _ in sources]
 
 
-def declared_env_files(_models: Iterable[object]) -> list[Path]:
+def declared_env_files(models: Iterable[object]) -> list[Path]:
     """All env_file paths declared across the given pydantic-settings models."""
-    return []
+    try:
+        from pydantic_settings import BaseSettings
+    except ImportError:
+        return []
+    result: list[Path] = []
+    seen: set[Path] = set()
+    for m in models:
+        cls = m if isinstance(m, type) else type(m)
+        if not issubclass(cls, BaseSettings):
+            continue
+        cfg = getattr(cls, "model_config", None)
+        env_file: object = (
+            cast(Mapping[str, object], cfg).get("env_file")
+            if isinstance(cfg, Mapping)
+            else getattr(cfg, "env_file", None)
+        )
+        for p in _paths(env_file):
+            if p not in seen:
+                seen.add(p)
+                result.append(p)
+    return result

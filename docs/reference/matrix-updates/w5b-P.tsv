@@ -1,0 +1,3 @@
+route:GET /profile-diff	partial	D3: .env.<profile> files declared by pydantic-settings models; sample app declares no profile files, so non-empty golden list cannot match
+tool:get_profile_diff	matched	exact BootUI schema NONE, command "profile diff", panel "profile-diff"
+cli:profile diff	matched	exact BootUI CLI command path

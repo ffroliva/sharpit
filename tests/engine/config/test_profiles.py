@@ -241,6 +241,43 @@ def test_profile_env_values_are_never_interpolated(tmp_path: Path, monkeypatch: 
     assert "hunter2" not in str(db["value"])
 
 
+def test_profile_diff_canary_secrets_masked_under_innocent_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    content = (
+        "PUBLIC_ENDPOINT=https://user:secretpass@api.service.internal/v1\n"
+        "CACHE_KEY_HEADER=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjYW5hcnkifQ.c2lnbmF0dXJlLWJ5dGVz\n"
+        "EXTERNAL_ID=AKIAIOSFODNN7EXAMPLE\n"
+        "PLAIN_NUMBER=12345\n"
+    )
+    (tmp_path / ".env.canary").write_text(content, encoding="utf-8")
+
+    class CanarySettings(BaseSettings):
+        model_config = SettingsConfigDict(extra="allow", env_file=".env.canary")
+
+    ctx = _ctx(profiles=("canary",), settings=(CanarySettings(),))
+    report = profiles_report(ctx)
+
+    assert len(report["profileSources"]) == 1
+    source = report["profileSources"][0]
+    url_prop = next(p for p in source["properties"] if p["name"] == "PUBLIC_ENDPOINT")
+    assert url_prop["masked"] is True
+    assert "secretpass" not in str(url_prop["value"])
+
+    jwt_prop = next(p for p in source["properties"] if p["name"] == "CACHE_KEY_HEADER")
+    assert jwt_prop["masked"] is True
+    assert jwt_prop["value"] == "******"
+
+    aws_prop = next(p for p in source["properties"] if p["name"] == "EXTERNAL_ID")
+    assert aws_prop["masked"] is True
+    assert aws_prop["value"] == "******"
+
+    plain_prop = next(p for p in source["properties"] if p["name"] == "PLAIN_NUMBER")
+    assert plain_prop["masked"] is False
+    assert plain_prop["value"] == "12345"
+
+
 def test_profile_sources_are_confined_and_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
