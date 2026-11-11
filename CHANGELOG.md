@@ -8,7 +8,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Scheduled Tasks panel (GET /scheduled, get_scheduled_tasks, CLI scheduled): in-memory APScheduler 3 jobs and arq cron jobs, never a remote job store.
+- SQL Trace `requestPhase` is `STARTUP` or `SHUTDOWN` for statements outside a request while sharpit observes the host's lifespan in that phase; null (unknown) otherwise.
+- `pytest --sharpit-sarif=PATH` (ini `sharpit_sarif`) writes the findings as SARIF 2.1.0: masked text, root-relative URIs, location-free fingerprints, baselined findings as suppressions; written by the xdist controller only.
 - REST API error contract (GET /rest-api/error-contract): the app's exception handlers by type, scope and declared status, read from declarations only (BootUI 2.3.0).
+- Runtime Insights panel slot (`runtime-insights`, not yet served), the registry of BootUI's 28 insight kinds as stubs, and SHARPIT_RUNTIME_INSIGHTS_AI_TOKEN_THRESHOLD and SHARPIT_RESOURCES_JFR_MAX_DURATION.
 - Profile Diff panel (GET /profile-diff, get_profile_diff, CLI profile diff): the app's .env.<profile> files, masked like Configuration.
 - Copilot panel (GET /copilot/*, get_copilot_sessions, CLI sessions copilot): local Copilot CLI sessions, allow-listed fields only, no watcher thread; raw reveal off by default.
 - Claude Code panel (GET /claude-code/*, get_claude_code_sessions, CLI sessions claude) and the session streams (GET /copilot/stream, /claude-code/stream), polled per stream with no background thread.
