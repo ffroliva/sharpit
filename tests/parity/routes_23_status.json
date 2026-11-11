@@ -3,8 +3,8 @@
   "counts": {
     "matched": 5,
     "partial": 21,
-    "missing": 52,
-    "n-a": 18,
+    "missing": 50,
+    "n-a": 20,
     "total": 96
   },
   "routes": [
@@ -89,8 +89,8 @@
       "golden": "claude-code/dashboard.captured.json",
       "panel": "claude-code",
       "route": "/sharpit/api/claude-code/dashboard",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/claude-code/dashboard (HTTP 404)"
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "cli/captured.json",
@@ -173,8 +173,8 @@
       "golden": "copilot/dashboard.captured.json",
       "panel": "copilot",
       "route": "/sharpit/api/copilot/dashboard",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/copilot/dashboard (HTTP 404)"
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "crac/captured.json",

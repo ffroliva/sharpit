@@ -1,0 +1,30 @@
+route:GET /copilot/sessions	matched	CopilotControllerTests.sessionsListsParsedSessionsWithCounts and query/window filtering
+route:GET /copilot/dashboard	n-a	OQ6: per-request cache replaces BootUI file watcher
+route:GET /copilot/sessions/{id}	matched	CopilotControllerTests.sessionDetailReturns404ForUnknownId (404 with empty body)
+route:GET /copilot/sessions/{id}/events	matched	CopilotControllerTests.eventsFilterByCategoryAndLimit
+route:GET /copilot/sessions/{id}/events/{eventId}/raw	partial	masked reveal in fork
+route:GET /copilot/stream	matched	CopilotControllerTests.streamRejectsBeyondConcurrentLimit and AgentSessionController stream parity (P-S4)
+prop:bootui.copilot.enabled	matched	AUTO|ON|OFF parity, fails closed to 404 when disabled
+prop:bootui.copilot.session-state-dir	matched	Defaults to ~/.copilot/session-state, home-relative expansion
+prop:bootui.copilot.max-events-per-session	matched	Default 2000 events ring per session
+prop:bootui.copilot.max-sessions	matched	Default 100 sessions cap
+prop:bootui.copilot.max-parsed-sessions	matched	Default 100 parsed sessions cap
+prop:bootui.copilot.stream-debounce	matched	Default 400ms debounce
+prop:bootui.copilot.allow-raw-reveal	partial	masked reveal in fork
+tool:get_copilot_sessions	matched	McpAgentViewsTests.copilotSessionListing query/filter/paging parity
+cli:sessions copilot	matched	CLI sessions copilot parity
+route:GET /claude-code/sessions	matched	ClaudeCodeControllerTests.sessionsListsParsedSessionsWithCounts and query/window filtering
+route:GET /claude-code/dashboard	n-a	OQ6: per-request cache replaces BootUI file watcher
+route:GET /claude-code/sessions/{id}	matched	ClaudeCodeControllerTests.sessionDetailReturns404ForUnknownId (404 with empty body)
+route:GET /claude-code/sessions/{id}/events	matched	ClaudeCodeControllerTests.eventsFilterByCategoryAndLimit
+route:GET /claude-code/sessions/{id}/events/{eventId}/raw	partial	masked reveal in fork
+route:GET /claude-code/stream	matched	CopilotControllerTests.streamRejectsBeyondConcurrentLimit and AgentSessionController stream parity (P-S4)
+prop:bootui.claude-code.enabled	matched	AUTO|ON|OFF parity, fails closed to 404 when disabled
+prop:bootui.claude-code.session-state-dir	matched	Defaults to ~/.claude/projects, home-relative expansion
+prop:bootui.claude-code.max-events-per-session	matched	Default 2000 events ring per session
+prop:bootui.claude-code.max-sessions	matched	Default 100 sessions cap
+prop:bootui.claude-code.max-parsed-sessions	matched	Default 100 parsed sessions cap
+prop:bootui.claude-code.stream-debounce	matched	Default 400ms debounce
+prop:bootui.claude-code.allow-raw-reveal	matched	BootUI runtime default is false (ClaudeCode() constructor), matching sharpit
+tool:get_claude_code_sessions	matched	McpAgentViewsTests.claudeCodeSessionListing query/filter/paging parity
+cli:sessions claude	matched	CLI sessions claude parity
