@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -24,6 +25,7 @@ import pytest
 from tests.engine.collectors.github.fakes import SCOPES, client, ok, repository
 
 from sharpit.engine.collectors.github import client as client_module
+from sharpit.engine.collectors.github import token as token_module
 from sharpit.engine.collectors.github.token import Token, resolve_token
 
 ORG = "jdubois"
@@ -295,6 +297,35 @@ def test_the_whole_token_lookup_is_bounded_by_its_timeout(gh_env: dict[str, str]
     resolve_token(0.5, gh_env, runner)
     elapsed = time.monotonic() - started
     assert elapsed < 0.75  # read 0.3 + wait capped at the 0.2 left (+ slack), not read 0.3 + a fresh 0.5 wait
+
+
+def test_a_failed_reader_start_still_kills_reaps_and_closes(
+    gh_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    closed: list[bool] = []
+
+    class RecordingTree(token_module._Tree):  # pyright: ignore[reportPrivateUsage]
+        def close(self) -> None:
+            closed.append(True)
+            super().close()
+
+    class NoThread(threading.Thread):
+        def start(self) -> None:
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(token_module, "_Tree", RecordingTree)
+    monkeypatch.setattr(token_module, "threading", types.SimpleNamespace(Thread=NoThread))
+    runner = Runner(hangs=True)
+    try:
+        result: object = resolve_token(1.0, gh_env, runner)
+    except RuntimeError as error:  # an escaped failure is the defect; the assertions below name it
+        result = f"raised {error}"
+    assert result is None
+    proc = runner.procs[0]
+    assert proc.kills >= 1
+    assert proc.poll() is not None
+    assert proc.stdout.closed
+    assert closed == [True]
 
 
 # ---- client ------------------------------------------------------------------------------------------------------
