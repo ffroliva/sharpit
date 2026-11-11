@@ -40,6 +40,7 @@ GATEKEEPERS: dict[str, set[str]] = {
     "urllib.request": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/vulns/epss.py"},
     "http.client": {"sharpit/engine/collectors/vulns/osv.py"},
     "socket": set(),
+    "subprocess": {"sharpit/engine/devservices_cli.py"},  # W8 D1: the docker CLI, dev-services restart only
     "ssl": set(),
     "apscheduler": {"sharpit/engine/collectors/scheduled/apscheduler.py"},  # observed via sys.modules (W5b lane C)
     "celery": {"sharpit/engine/collectors/scheduled/celery.py"},
@@ -746,6 +747,19 @@ def test_scheduler_libraries_stay_behind_their_gatekeepers(tmp_path: Path, monke
         "sharpit/engine/collectors/scheduled/__init__.py imports apscheduler.job",
         "sharpit/engine/collectors/scheduled/__init__.py imports celery.schedules",
         "sharpit/engine/collectors/scheduled/__init__.py imports arq.cron",
+    ]
+
+
+def test_subprocess_is_confined_to_the_docker_gatekeeper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W8 D1: only ``devservices_cli`` spawns a process; a planted importer elsewhere fails the rule."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    engine = tmp_path / "src" / "sharpit" / "engine"
+    engine.mkdir(parents=True)
+    (engine / "devservices_cli.py").write_text("import subprocess\n", encoding="utf-8")
+    (engine / "devservices_restart.py").write_text("from subprocess import run\n", encoding="utf-8")
+
+    assert [v.split(":")[0] for v in gatekeeper_violations()] == [
+        "sharpit/engine/devservices_restart.py imports subprocess"
     ]
 
 
