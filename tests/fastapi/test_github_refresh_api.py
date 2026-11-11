@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from tests.engine.collectors.github.fakes import FakeTransport, ok
-from tests.engine.collectors.github.test_github_client import CANARY, full_routes
+from tests.engine.collectors.github.test_github_client import CANARY, FakeProc, _gh_dir, full_routes
 
 from fastapi import FastAPI
 from sharpit import install
@@ -39,7 +39,7 @@ def _app(
     monkeypatch.setattr(client_module, "no_redirect_opener", lambda: REAL_OPENER(transport))
     app = FastAPI()
     handle = install(app, **{"enabled": "ON", "show_banner": False, "config_scan": False, **options})
-    return TestClient(app, base_url="http://localhost", client=LOCAL), transport, handle
+    return TestClient(app, base_url="http://localhost", client=LOCAL, raise_server_exceptions=False), transport, handle
 
 
 def _no_process(*_a: Any, **_kw: Any) -> Any:
@@ -121,8 +121,8 @@ def test_github_refresh_refused_read_only_client_not_called(
     assert handle.context.peek("github-dashboard") is None
 
 
-def _gh_run(*_a: Any, **_kw: Any) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.CompletedProcess(["gh"], 0, f"{CANARY}\n".encode(), None)
+def _gh_popen(*_a: Any, **_kw: Any) -> FakeProc:
+    return FakeProc(f"{CANARY}\n".encode(), 0, hangs=False)
 
 
 def _timeout(_request: Any) -> Any:
@@ -141,7 +141,8 @@ def test_github_token_never_in_output(
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
     if source == "gh auth token":
-        monkeypatch.setattr(subprocess, "run", _gh_run)
+        monkeypatch.setenv("PATH", str(_gh_dir(tmp_path.parent / f"{tmp_path.name}-bin")))
+        monkeypatch.setattr(subprocess, "Popen", _gh_popen)
     else:
         monkeypatch.setenv(source, CANARY)
     client, transport, handle = _app(monkeypatch, tmp_path, full_routes() | {"/rate_limit": rate}, mcp_enabled="ON")
@@ -170,3 +171,22 @@ def test_github_token_never_in_output_after_a_cached_refresh(tmp_path: Path, mon
     assert '"status": "CONNECTED"' in cached
     assert CANARY not in cached
     assert CANARY not in client.get("/sharpit/api/github").text
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        ("/repos/jdubois/boot-ui/actions/artifacts", '{"total_count": 1e999}'),
+        ("/rate_limit", '{"resources":{"core":{"limit":NaN,"remaining":NaN}}}'),
+    ],
+    ids=["inf", "nan"],
+)
+def test_github_refresh_odd_numbers_never_answer_500(tmp_path: Path, monkeypatch, route: tuple[str, str]) -> None:
+    _repo(tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", CANARY)
+    path, body = route
+    client, _, _ = _app(monkeypatch, tmp_path, full_routes() | {path: ok(body)})
+    response = client.post(REFRESH)
+    assert response.status_code == 200
+    assert response.json()["status"] in {"CONNECTED", "ERROR"}
+    assert CANARY not in response.text

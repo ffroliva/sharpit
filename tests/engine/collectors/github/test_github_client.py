@@ -7,11 +7,15 @@ runner instead of whatever ``gh`` the build machine has.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
+import os
 import subprocess
+import sys
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -25,18 +29,63 @@ REPO = f"/repos/{ORG}/boot-ui"
 BUDGET_TEXT = "because the configured GitHub API call budget was reached."
 
 
+class FakeProc:
+    """A ``subprocess.Popen`` result: ``stdout`` to read, ``wait`` records its timeout, ``kill`` is counted."""
+
+    def __init__(self, stdout: bytes, returncode: int, hangs: bool) -> None:
+        self.stdout = io.BytesIO(stdout)
+        self.returncode = returncode
+        self.hangs = hangs
+        self.waited: list[float | None] = []
+        self.kills = 0
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.waited.append(timeout)
+        if self.hangs and not self.kills:
+            raise subprocess.TimeoutExpired(["gh"], timeout or 0)
+        return self.returncode
+
+    def poll(self) -> int | None:
+        return None if self.hangs and not self.kills else self.returncode
+
+    def kill(self) -> None:
+        self.kills += 1
+
+
 class Runner:
-    """A ``subprocess.run`` stand-in that records its call and answers like ``gh auth token``."""
+    """A ``subprocess.Popen`` stand-in that records its call and answers like ``gh auth token``."""
 
-    def __init__(self, stdout: bytes = b"cli-token\n", returncode: int = 0, raises: BaseException | None = None):
-        self.stdout, self.returncode, self.raises = stdout, returncode, raises
+    def __init__(
+        self,
+        stdout: bytes = b"cli-token\n",
+        returncode: int = 0,
+        raises: BaseException | None = None,
+        hangs: bool = False,
+    ) -> None:
+        self.stdout, self.returncode, self.raises, self.hangs = stdout, returncode, raises, hangs
         self.calls: list[tuple[Any, dict[str, Any]]] = []
+        self.procs: list[FakeProc] = []
 
-    def __call__(self, args: Any, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+    def __call__(self, args: Any, **kwargs: Any) -> FakeProc:
         self.calls.append((args, kwargs))
         if self.raises is not None:
             raise self.raises
-        return subprocess.CompletedProcess(args, self.returncode, self.stdout, None)
+        self.procs.append(FakeProc(self.stdout, self.returncode, self.hangs))
+        return self.procs[-1]
+
+
+def _gh_dir(root: Path) -> Path:
+    """A directory holding an executable ``gh`` (``gh.exe`` on Windows, where PATHEXT decides)."""
+    root.mkdir(parents=True, exist_ok=True)
+    gh = root / ("gh.exe" if sys.platform == "win32" else "gh")
+    gh.write_bytes(b"")
+    gh.chmod(0o755)
+    return root
+
+
+@pytest.fixture
+def gh_env(tmp_path: Path) -> dict[str, str]:
+    return {"PATH": str(_gh_dir(tmp_path / "bin"))}
 
 
 def _headers(request: urllib.request.Request) -> dict[str, str]:
@@ -70,17 +119,18 @@ def test_a_blank_environment_token_is_ignored_in_favour_of_the_next_source() -> 
     assert token == Token("secondary", "GH_TOKEN")
 
 
-def test_an_empty_environment_never_yields_an_environment_sourced_token() -> None:
+def test_an_empty_environment_never_yields_an_environment_sourced_token(gh_env: dict[str, str]) -> None:
     # ported: DefaultGitHubTokenProviderTests.anEmptyEnvironmentNeverYieldsAnEnvironmentSourcedToken
     runner = Runner(b"  cli-token \n")
-    token = resolve_token(0.5, {}, runner)
+    token = resolve_token(0.5, gh_env, runner)
     assert token == Token("cli-token", "gh auth token")
     ((args, kwargs),) = runner.calls
-    assert args == ["gh", "auth", "token"]
+    assert Path(args[0]).parent == Path(gh_env["PATH"])
+    assert args[1:] == ["auth", "token"]
     assert kwargs["shell"] is False
     assert kwargs["stderr"] == subprocess.DEVNULL
     assert kwargs["stdin"] == subprocess.DEVNULL
-    assert kwargs["timeout"] == 0.5
+    assert runner.procs[0].waited == [0.5]
 
 
 @pytest.mark.parametrize(
@@ -89,21 +139,31 @@ def test_an_empty_environment_never_yields_an_environment_sourced_token() -> Non
         Runner(returncode=1),
         Runner(b"   \n"),
         Runner(raises=FileNotFoundError("gh")),
-        Runner(raises=subprocess.TimeoutExpired(["gh"], 5.0)),
+        Runner(hangs=True),
+        Runner(b"x" * 5000),
     ],
-    ids=["logged-out", "blank", "not-installed", "hangs"],
+    ids=["logged-out", "blank", "not-installed", "hangs", "oversized"],
 )
-def test_gh_failures_give_no_token(runner: Runner) -> None:
-    assert resolve_token(5.0, {}, runner) is None
+def test_gh_failures_give_no_token(runner: Runner, gh_env: dict[str, str]) -> None:
+    assert resolve_token(5.0, gh_env, runner) is None
+    assert [proc.poll() is not None for proc in runner.procs] == [True] * len(runner.procs)  # none left running
 
 
-def test_a_missing_or_non_positive_timeout_falls_back_to_the_default_instead_of_failing() -> None:
+def test_gh_output_is_read_bounded(gh_env: dict[str, str]) -> None:
+    runner = Runner(b"x" * 5000)
+    assert resolve_token(5.0, gh_env, runner) is None
+    assert runner.procs[0].stdout.tell() <= 4097
+
+
+def test_a_missing_or_non_positive_timeout_falls_back_to_the_default_instead_of_failing(
+    gh_env: dict[str, str],
+) -> None:
     # ported: DefaultGitHubTokenProviderTests.aMissingOrNonPositiveTimeoutFallsBackToTheDefaultInsteadOfFailing
     assert resolve_token(None, {"GITHUB_TOKEN": "primary"}, Runner()) == Token("primary", "GITHUB_TOKEN")
     for timeout in (None, 0.0, -1.0):
         runner = Runner()
-        resolve_token(timeout, {}, runner)
-        assert runner.calls[0][1]["timeout"] == 5.0
+        resolve_token(timeout, gh_env, runner)
+        assert runner.procs[0].waited == [5.0]
 
 
 def test_create_reads_the_real_process_environment_without_throwing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -114,6 +174,28 @@ def test_create_reads_the_real_process_environment_without_throwing(monkeypatch:
 
 def test_token_repr_never_shows_the_value() -> None:
     assert "ghp_canary" not in repr(Token("ghp_canary", "GITHUB_TOKEN"))
+
+
+def test_gh_inside_the_working_directory_is_never_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _gh_dir(tmp_path / "app")  # a planted gh in the app's own directory (Windows searches the cwd first)
+    monkeypatch.chdir(app)
+    _gh_dir(app / "tools")
+    for path in ("", ".", str(app), str(app / "tools"), os.pathsep.join([".", str(tmp_path / "empty")])):
+        runner = Runner()
+        assert resolve_token(5.0, {"PATH": path}, runner) is None
+        assert runner.calls == []
+
+
+def test_gh_is_resolved_to_an_absolute_path_outside_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _gh_dir(tmp_path / "app")
+    monkeypatch.chdir(app)
+    real = _gh_dir(tmp_path / "bin")
+    runner = Runner()
+    token = resolve_token(5.0, {"PATH": os.pathsep.join([str(app), str(real)])}, runner)
+    assert token == Token("cli-token", "gh auth token")
+    assert Path(runner.calls[0][0][0]).parent == real
 
 
 # ---- client ------------------------------------------------------------------------------------------------------
@@ -414,19 +496,32 @@ def test_github_odd_last_page_links_keep_the_first_page_count(link: str, no_side
 CANARY = "ghp_canary0123456789abcdefghijklmnopqrstu"
 
 
+def _refresh(github: Any) -> dict[str, Any]:
+    """``refresh``, with an escaped exception turned into a report the assertions can name (a crash is not a red)."""
+    try:
+        return github.refresh(repository())
+    except Exception as error:  # noqa: BLE001
+        return {"status": f"raised {type(error).__name__}", "message": None, "connected": None}
+
+
 def _timeout(_request: urllib.request.Request) -> Any:
     raise TimeoutError("timed out")
 
 
 @pytest.mark.parametrize(
     "rate",
-    [(401, '{"message":"Bad credentials"}', SCOPES), _timeout, ok("{not json")],
-    ids=["401", "timeout", "malformed"],
+    [
+        (401, '{"message":"Bad credentials"}', SCOPES),
+        _timeout,
+        ok("{not json"),
+        ok('{"resources":{"core":{"limit":NaN,"remaining":NaN}}}'),
+    ],
+    ids=["401", "timeout", "malformed", "nan"],
 )
 def test_github_token_never_in_output(rate: Any, caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.DEBUG)
     github, _ = client({"/rate_limit": rate}, token=CANARY)
-    report = github.refresh(repository())
+    report = _refresh(github)
     assert report["status"] == "ERROR"
     assert CANARY not in json.dumps(report)
     assert CANARY not in caplog.text
@@ -455,7 +550,7 @@ def test_github_fetched_text_is_scrubbed(no_side_effects) -> None:
 def test_github_budget_and_body_cap(no_side_effects) -> None:
     github, transport = client(full_routes())
     github.refresh(repository())
-    assert len(transport.requests) <= 17
+    assert len(transport.requests) == 13
     github, transport = client(full_routes(), github_max_api_calls=3)
     report = github.refresh(repository())
     assert len(transport.requests) == 3
@@ -498,3 +593,85 @@ def test_github_non_https_api_base_never_sends_the_token(no_side_effects) -> Non
     report = github.refresh(repository("localhost", "http://localhost/"))
     assert report["status"] == "ERROR"
     assert transport.requests == []
+
+
+JAVA_LONG_MAX = 2**63 - 1
+
+
+@pytest.mark.parametrize(
+    ("route", "body", "key", "field", "value"),
+    [
+        (f"{REPO}/actions/artifacts", '{"total_count": 1e999}', "actions-artifacts", "used", JAVA_LONG_MAX),
+        (f"{REPO}/actions/cache/usage", '{"active_caches_size_in_bytes": -1e999}', "actions-cache", "used", None),
+        (
+            f"/orgs/{ORG}/settings/billing/actions",
+            '{"included_minutes": 1e999, "total_minutes_used": 5}',
+            "actions-minutes",
+            "limit",
+            JAVA_LONG_MAX,
+        ),
+        (f"{REPO}/actions/artifacts", '{"total_count": 1e30}', "actions-artifacts", "used", JAVA_LONG_MAX),
+        (
+            f"{REPO}/actions/artifacts",
+            '{"total_count": 99999999999999999999999}',
+            "actions-artifacts",
+            "used",
+            JAVA_LONG_MAX,
+        ),
+    ],
+    ids=["inf", "minus-inf", "billing-inf", "huge-float", "huge-int"],
+)
+def test_github_huge_numbers_saturate_like_jackson_as_long(
+    route: str, body: str, key: str, field: str, value: int | None, no_side_effects
+) -> None:
+    github, _ = client(full_routes() | {route: ok(body)})
+    report = _refresh(github)
+    assert report["status"] == "CONNECTED"
+    assert _one(report["quotas"], "key", key)[field] == value
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_github_non_json_number_constants_report_error(constant: str, no_side_effects) -> None:
+    rate = ok('{"resources":{"core":{"limit":C,"remaining":C}}}'.replace("C", constant))
+    github, _ = client(full_routes() | {"/rate_limit": rate}, token=CANARY)
+    report = _refresh(github)
+    assert report["status"] == "ERROR"
+    assert report["message"] == client_module.NETWORK_FAILED
+    assert CANARY not in json.dumps(report)
+
+
+def test_github_unexpected_failure_is_an_error_report_with_fixed_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*_a: Any, **_kw: Any) -> Any:
+        raise RuntimeError(f"leaky {CANARY}")
+
+    monkeypatch.setattr(client_module.m, "pull_requests", boom)
+    github, _ = client(full_routes(), token=CANARY)
+    report = _refresh(github)
+    assert report["status"] == "ERROR"
+    assert report["message"] == client_module.UNEXPECTED_FAILURE
+    assert report["connected"] is False
+    assert CANARY not in json.dumps(report)
+
+
+class Clock:
+    """``time.monotonic`` that moves 11 s on every read."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        self.now += 11.0
+        return self.now
+
+
+def test_github_refresh_has_an_overall_deadline(no_side_effects) -> None:
+    github, transport = client(full_routes())
+    github.clock = Clock()  # pyright: ignore[reportAttributeAccessIssue]
+    report = _refresh(github)
+    assert len(transport.requests) < 13
+    assert report["status"] == "PARTIAL"
+    skipped = [w for w in report["warnings"] if w.endswith("because the GitHub refresh time limit was reached.")]
+    assert skipped
+    assert [r.timeout is not None and r.timeout <= client_module.REFRESH_DEADLINE for r in transport.requests] == [
+        True
+    ] * len(transport.requests)
