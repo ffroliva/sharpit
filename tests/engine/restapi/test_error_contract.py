@@ -31,7 +31,7 @@ def _index(source: str) -> SourceIndex:
 
 
 def test_an_application_without_handlers_is_available_and_empty() -> None:
-    # ported: ErrorContractServiceTests.anApplicationWithoutHandlersIsAvailableAndEmpty
+    # ported: ErrorContractServiceTests.excludesTheFrameworksOwnHandlersSoAnApplicationWithoutDeclarationsIsEmpty
     report = error_contract_report(_model(), None, None, 0, None)
     assert report["available"] is True
     assert report["entries"] == []

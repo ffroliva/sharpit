@@ -83,6 +83,8 @@ def test_error_contract_handles_partial_and_callable_handlers() -> None:
 
 
 def test_error_contract_rejects_host_mapping_without_iterating_it() -> None:
+    called = False
+
     class HostMapping(Mapping):
         def __getitem__(self, key):
             raise AssertionError("must not index host mapping")
@@ -94,12 +96,15 @@ def test_error_contract_rejects_host_mapping_without_iterating_it() -> None:
             return 1
 
         def items(self):
+            nonlocal called
+            called = True
             raise AssertionError("must not call host items")
 
     app = FastAPI()
     app.exception_handlers = HostMapping()
     handlers = FastApiIntrospector(app).api_model().error_handlers
     assert handlers == ()
+    assert called is False
 
 
 def test_error_contract_one_bad_handler_does_not_hide_its_siblings() -> None:
