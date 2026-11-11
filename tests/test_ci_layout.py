@@ -180,6 +180,16 @@ def test_every_pytest_job_records_fixture_times_and_rebuilds_and_uploads_them(jo
     assert "steps.scan-speed.outcome == 'success'" in upload[0].rsplit("\n      - ", 1)[1]
 
 
+@pytest.mark.parametrize("job", PYTEST_JOBS)
+def test_every_pytest_step_that_loads_a_scripts_plugin_can_import_scripts(job: str) -> None:
+    """`-p scripts.…` is imported before pytest applies `pythonpath`: only `python -m pytest` puts the repo root on
+    sys.path first (PR #135: `No module named 'scripts'` at startup on most shards)."""
+    runs = [line for line in JOBS[job].splitlines() if "-p scripts." in line]
+    assert runs
+    bare = [line.strip() for line in runs if not re.search(r"\bpython -m pytest\b", line)]
+    assert not bare, bare
+
+
 def test_full_extras_installs_every_optional_gatekeeper_distribution() -> None:
     from tests.engine.test_import_boundary import GATEKEEPERS
 
