@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
-from collections import ChainMap
+from collections import ChainMap, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi.testclient import TestClient
 
 import sharpit
@@ -117,6 +118,18 @@ class _Crontab:
         self._orig_day_of_week = "*"
 
 
+class _Solar:
+    """``celery.schedules.solar`` (needs ``ephem``): ``event``, ``lat`` and ``lon`` as instance attributes."""
+
+    def __init__(self, event: str, lat: float, lon: float) -> None:
+        self.event = event
+        self.lat = lat
+        self.lon = lon
+
+    def __str__(self) -> str:
+        raise AssertionError("str() called on a schedule")
+
+
 @dataclass
 class _CronJob:
     name: str
@@ -140,7 +153,7 @@ class _Aps4Scheduler:
 @pytest.fixture
 def fake_celery(monkeypatch: pytest.MonkeyPatch) -> None:
     _module(monkeypatch, "celery.app.base", Celery=_Celery)
-    _module(monkeypatch, "celery.schedules", crontab=_Crontab)
+    _module(monkeypatch, "celery.schedules", crontab=_Crontab, solar=_Solar)
 
 
 @pytest.fixture
@@ -194,7 +207,7 @@ def test_route_serializes_an_apscheduler_cron_job(no_side_effects: Any, monkeypa
     assert body["schedulingPresent"] is True
     assert body["total"] == 1
     assert body["tasks"][0]["triggerType"] == "CRON"
-    assert body["tasks"][0]["expression"] == "cron[minute='0/5']"
+    assert body["tasks"][0]["expression"] == "0 0/5 * * * *"
     assert body["tasks"][0]["runnable"] == f"{__name__}.every_five"
 
 
@@ -386,3 +399,82 @@ def _mounted_routes(app: FastAPI) -> list[Any]:
         found.append(route)
         found.extend(getattr(getattr(route, "app", None), "routes", None) or ())
     return found
+
+
+# --- council round 2 -------------------------------------------------------------------------------------------------
+
+
+def _preconf_app(source: object) -> _Celery:
+    """An app whose ``app.conf.beat_schedule = ...`` ran before its config loaded (celery 5's measured shape)."""
+    app = _Celery("early", configured=False, conf=_Exploding())
+    beat = {"nightly": {"task": "proj.tasks.nightly", "schedule": _Crontab(minute=30, hour=2)}}
+    vars(app).update(_preconf={"deprecated_settings": set(), "beat_schedule": beat}, _config_source=source)
+    vars(app)["_pending_defaults"] = deque()
+    return app
+
+
+def test_celery_preconf_beat_schedule_is_read_before_config_loads(fake_celery: None) -> None:
+    app = _preconf_app(None)
+    host = ModuleType(HOST)
+    vars(host)["app"] = app
+
+    found = discover([host])
+
+    assert vars(app)["configured"] is False
+    assert found.limitations == []
+    assert found.present is True
+    assert found.tasks == [_task("proj.tasks.nightly", "CRON", "30 2 * * *")]
+
+
+def test_celery_preconf_is_not_read_when_a_config_source_is_pending(fake_celery: None) -> None:
+    host = ModuleType(HOST)
+    vars(host)["app"] = _preconf_app("proj.celeryconfig")
+
+    found = discover([host])
+
+    assert found.tasks == []
+    assert any("early" in reason for reason in found.limitations)
+
+
+def test_celery_solar_is_one_shot_with_its_description(fake_celery: None) -> None:
+    beat = {"dawn": {"task": "proj.tasks.dawn", "schedule": _Solar("sunrise", 51.5, -0.1)}}
+    host = ModuleType(HOST)
+    vars(host)["app"] = _Celery("proj", configured=True, conf=ChainMap({"beat_schedule": beat}))
+
+    found = discover([host])
+
+    assert found.tasks == [_task("proj.tasks.dawn", "ONE_SHOT", "solar: sunrise at latitude 51.5, longitude: -0.1")]
+
+
+@pytest.mark.parametrize(
+    ("fields", "expression"),
+    [
+        ({"minute": "0/5", "hour": "9-17", "day_of_week": "mon-fri"}, "0 0/5 9-17 * * MON-FRI"),
+        ({"day_of_week": "0-4/2"}, "0 0 0 * * MON-FRI/2"),
+        ({"day_of_week": "*/2"}, "0 0 0 * * MON/2"),
+        ({"day_of_week": "sun,wed"}, "0 0 0 * * SUN,WED"),
+        ({"day": "last"}, "0 0 0 L * *"),
+        ({"month": "jan-mar", "minute": "*/15"}, "0 */15 * * 1-3 *"),
+    ],
+)
+def test_apscheduler_cron_is_spring_six_fields(fields: dict[str, str], expression: str) -> None:
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(hourly_report, CronTrigger(**fields))  # pyright: ignore[reportArgumentType]
+    host = ModuleType(HOST)
+    vars(host)["scheduler"] = scheduler
+
+    found = discover([host])
+
+    assert found.tasks == [_task(f"{__name__}.hourly_report", "CRON", expression)]
+
+
+@pytest.mark.parametrize("fields", [{"year": "2030"}, {"week": "3"}, {"day": "2nd fri"}])
+def test_apscheduler_cron_without_a_spring_form_is_one_shot_null(fields: dict[str, str]) -> None:
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(hourly_report, CronTrigger(**fields))  # pyright: ignore[reportArgumentType]
+    host = ModuleType(HOST)
+    vars(host)["scheduler"] = scheduler
+
+    found = discover([host])
+
+    assert found.tasks == [_task(f"{__name__}.hourly_report", "ONE_SHOT", None)]
