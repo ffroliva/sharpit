@@ -161,6 +161,14 @@ def test_legacy_parser_raw_by_id_stores_path_and_line_tuple(tmp_path: Path) -> N
     assert raw_val[0] == legacy_file
 
 
+def test_path_hint_caps_extension_length() -> None:
+    from sharpit.engine.collectors.agentsessions._common import path_hint
+
+    assert path_hint("document.verylongextension") == "*.verylongexte"
+    assert path_hint("test.py") == "*.py"
+    assert path_hint("no_extension") is None
+
+
 @pytest.mark.anyio
 async def test_agent_sessions_sanitisation_leaks_no_prompts_or_secrets(tmp_path: Path) -> None:
     from sharpit.engine.collectors.agentsessions import AgentSessionSettings
@@ -168,13 +176,15 @@ async def test_agent_sessions_sanitisation_leaks_no_prompts_or_secrets(tmp_path:
     from sharpit.engine.context import SharpitContext
     from sharpit.engine.tools import CallContext
     from sharpit.engine.tools04.claude_code import TOOLS as CLAUDE_TOOLS
+    from sharpit.engine.tools04.copilot import TOOLS as COPILOT_TOOLS
     from sharpit.fastapi.routes.agent_sessions_stream import _agent_sessions_events
     from sharpit.settings import SharpitSettings
 
-    proj_dir = tmp_path / "project-secrets"
-    proj_dir.mkdir(parents=True, exist_ok=True)
-    sess_file = proj_dir / "secret-session.jsonl"
-    sess_file.write_text(
+    # 1. Claude Code transcript
+    claude_proj = tmp_path / "claude" / "project-secrets"
+    claude_proj.mkdir(parents=True, exist_ok=True)
+    claude_file = claude_proj / "secret-session.jsonl"
+    claude_file.write_text(
         '{"type":"user","uuid":"u1","timestamp":"2026-05-28T10:00:00Z","cwd":"/work/app",'
         '"message":{"role":"user","content":"USER_PROMPT_SECRET_xyz"}}\n'
         '{"type":"assistant","uuid":"a1","timestamp":"2026-05-28T10:00:01Z",'
@@ -184,50 +194,97 @@ async def test_agent_sessions_sanitisation_leaks_no_prompts_or_secrets(tmp_path:
         "]}}\n"
         '{"type":"assistant","uuid":"a2","timestamp":"2026-05-28T10:00:02Z",'
         '"message":{"model":"claude-3-5","content":['
-        '{"type":"tool_result","tool_use_id":"t1","output":"AWS_SECRET_KEY_789"}'
+        '{"type":"tool_result","tool_use_id":"t1","output":"AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE_SECRET\\nDATABASE_URL=postgres://user:super_secret_pw@db.internal:5432/production"}'
         "]}}\n",
         encoding="utf-8",
     )
 
-    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
-    store = SessionStore(settings, Layout.CLAUDE_CODE)
-
-    # DTO outputs
-    dto_sessions = store.sessions()
-    dto_dash = store.dashboard()
-    dto_detail = store.detail("secret-session")
-    dto_events = store.events("secret-session", category=None, since=None, limit=100)
-
-    # MCP tool output
-    sharpit_settings = SharpitSettings(claude_code_session_state_dir=str(tmp_path))
-    ctx = SharpitContext(sharpit_settings, None, None, None, None, None, None)
-    call_ctx = CallContext(ctx, {})
-    tool = next(t for t in CLAUDE_TOOLS if t.name == "get_claude_code_sessions")
-    tool_resp = tool.handler(call_ctx, {"limit": 10})
-
-    # Stream output
-    stream_events: list[tuple[str, str | None, str]] = []
-    gen = _agent_sessions_events(store, 0.05)
-    async for ev in gen:
-        stream_events.append(ev)
-        if len(stream_events) >= 2:
-            break
-
-    payloads = [
-        json.dumps(dto_sessions),
-        json.dumps(dto_dash),
-        json.dumps(dto_detail),
-        json.dumps(dto_events),
-        json.dumps(tool_resp),
-        json.dumps(stream_events),
-    ]
+    # 2. Copilot transcripts (JSONL session directory + legacy .json)
+    copilot_dir = tmp_path / "copilot"
+    copilot_sess = copilot_dir / "copilot-secret-sess"
+    copilot_sess.mkdir(parents=True, exist_ok=True)
+    (copilot_sess / "events.jsonl").write_text(
+        '{"id":"cs-start","type":"session.start","timestamp":"2026-05-28T10:00:00Z","data":{"model":"gpt-4o","context":{"cwd":"/work/copilot"}}}\n'
+        '{"id":"cs-edit","type":"tool.execution_start","timestamp":"2026-05-28T10:05:00Z","data":{"toolName":"apply_patch","input":{"patch":"SECRET_INPUT_CMD_abc"}}}\n'
+        '{"id":"cs-msg","type":"assistant.message","timestamp":"2026-05-28T10:10:00Z","data":{"turnId":"turn-1","content":"sk-ant-api03-SECRET_KEY_123"}}\n'
+        '{"id":"cs-env","type":"tool.execution_complete","timestamp":"2026-05-28T10:15:00Z","data":{"toolName":"shell","output":"AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE_SECRET\\nDATABASE_URL=postgres://user:super_secret_pw@db.internal:5432/production"}}\n'
+        '{"id":"cs-user","type":"user.message","timestamp":"2026-05-28T10:20:00Z","data":{"content":"USER_PROMPT_SECRET_xyz"}}\n',
+        encoding="utf-8",
+    )
+    (copilot_dir / "legacy-secret.json").write_text(
+        '{"updated_at":1700000000,"events":['
+        '{"type":"user","summary":"USER_PROMPT_SECRET_xyz"},'
+        '{"type":"tool","tool":"shell","input":"SECRET_INPUT_CMD_abc","output":"AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE_SECRET"},'
+        '{"type":"assistant","summary":"sk-ant-api03-SECRET_KEY_123"}'
+        "]}",
+        encoding="utf-8",
+    )
 
     secrets = [
         "USER_PROMPT_SECRET_xyz",
         "SECRET_INPUT_CMD_abc",
         "sk-ant-api03-SECRET_KEY_123",
-        "AWS_SECRET_KEY_789",
+        "AKIAIOSFODNN7EXAMPLE_SECRET",
+        "super_secret_pw",
+        "AWS_SECRET_ACCESS_KEY",
+        "DATABASE_URL",
     ]
+
+    payloads: list[str] = []
+
+    # Check Claude Code
+    claude_store = SessionStore(AgentSessionSettings(session_state_dir=str(tmp_path / "claude")), Layout.CLAUDE_CODE)
+    payloads.append(json.dumps(claude_store.sessions()))
+    payloads.append(json.dumps(claude_store.dashboard()))
+    payloads.append(json.dumps(claude_store.detail("secret-session")))
+    payloads.append(json.dumps(claude_store.events("secret-session", category=None, since=None, limit=100)))
+
+    claude_ctx = SharpitContext(
+        SharpitSettings(claude_code_session_state_dir=str(tmp_path / "claude")),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    claude_call_ctx = CallContext(claude_ctx, {})
+    tool_claude_sess = next(t for t in CLAUDE_TOOLS if t.name == "get_claude_code_sessions")
+    payloads.append(json.dumps(tool_claude_sess.handler(claude_call_ctx, {"limit": 10})))
+
+    claude_stream_events: list[tuple[str, str | None, str]] = []
+    async for ev in _agent_sessions_events(claude_store, 0.05):
+        claude_stream_events.append(ev)
+        if len(claude_stream_events) >= 2:
+            break
+    payloads.append(json.dumps(claude_stream_events))
+
+    # Check Copilot
+    copilot_store = SessionStore(AgentSessionSettings(session_state_dir=str(copilot_dir)), Layout.COPILOT)
+    payloads.append(json.dumps(copilot_store.sessions()))
+    payloads.append(json.dumps(copilot_store.dashboard()))
+    payloads.append(json.dumps(copilot_store.detail("copilot-secret-sess")))
+    payloads.append(json.dumps(copilot_store.events("copilot-secret-sess", category=None, since=None, limit=100)))
+
+    copilot_ctx = SharpitContext(
+        SharpitSettings(copilot_session_state_dir=str(copilot_dir)),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    copilot_call_ctx = CallContext(copilot_ctx, {})
+    tool_copilot_sess = next(t for t in COPILOT_TOOLS if t.name == "get_copilot_sessions")
+    payloads.append(json.dumps(tool_copilot_sess.handler(copilot_call_ctx, {"limit": 10})))
+
+    copilot_stream_events: list[tuple[str, str | None, str]] = []
+    async for ev in _agent_sessions_events(copilot_store, 0.05):
+        copilot_stream_events.append(ev)
+        if len(copilot_stream_events) >= 2:
+            break
+    payloads.append(json.dumps(copilot_stream_events))
 
     for p in payloads:
         for secret in secrets:

@@ -10,6 +10,7 @@ import pytest
 
 from sharpit.engine.collectors.agentsessions import AgentSessionSettings, Layout, SessionStore
 from sharpit.engine.collectors.agentsessions.parser import parse_session
+from sharpit.engine.collectors.agentsessions.store import _check_candidate_file, _is_confined
 
 
 def test_refresh_parses_only_most_recently_modified_sessions(tmp_path: Path) -> None:
@@ -286,44 +287,87 @@ def test_claude_project_dir_symlink_refused(tmp_path: Path) -> None:
         shutil.rmtree(outside_proj, ignore_errors=True)
 
 
-def test_oversized_session_file_refused(tmp_path: Path) -> None:
-    s1 = tmp_path / "s1.json"
-    s1.write_text('{"events":[{"type":"t"}]}', encoding="utf-8")
+def test_session_file_internal_symlink_refused(tmp_path: Path) -> None:
+    valid_file = tmp_path / "valid.json"
+    valid_file.write_text('{"events":[{"type":"t"}]}', encoding="utf-8")
+    link_file = tmp_path / "link.json"
+    try:
+        os.symlink(str(valid_file), str(link_file))
+    except OSError as e:
+        pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+
     settings = AgentSessionSettings(session_state_dir=str(tmp_path))
     store = SessionStore(settings, Layout.COPILOT)
+    store.refresh()
+    res = store.sessions()
+    assert res["total"] == 1
+    assert [s["id"] for s in res["sessions"]] == ["valid"]
 
-    real_stat = Path.stat
 
-    def mock_stat(self, *args, **kwargs):
-        st = real_stat(self, *args, **kwargs)
-        if self == s1:
-            # Report size > 32 MiB
-            return os.stat_result(
-                (
-                    st.st_mode,
-                    st.st_ino,
-                    st.st_dev,
-                    st.st_nlink,
-                    st.st_uid,
-                    st.st_gid,
-                    33 * 1024 * 1024,
-                    st.st_atime,
-                    st.st_mtime,
-                    st.st_ctime,
-                )
-            )
-        return st
+def test_claude_project_dir_internal_symlink_refused(tmp_path: Path) -> None:
+    real_proj = tmp_path / "real_proj"
+    real_proj.mkdir()
+    (real_proj / "session.jsonl").write_text(
+        '{"type":"assistant","timestamp":"2026-05-28T10:00:00Z"}\n', encoding="utf-8"
+    )
+    link_proj = tmp_path / "link_proj"
+    try:
+        os.symlink(str(real_proj), str(link_proj), target_is_directory=True)
+    except OSError as e:
+        pytest.skip(f"Symlink creation requires privilege on this host: {e}")
 
-    with patch.object(Path, "stat", mock_stat):
-        store.refresh()
-        assert store.sessions()["total"] == 0
+    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
+    store = SessionStore(settings, Layout.CLAUDE_CODE)
+    store.refresh()
+    res = store.sessions()
+    assert res["total"] == 1
+    assert len(res["sessions"]) == 1
+    assert "link_proj" not in res["sessions"][0].get("filename", "")
+
+
+def test_candidate_file_in_symlinked_parent_dir_refused(tmp_path: Path) -> None:
+    outside_dir = tmp_path.parent / f"outside_parent_{tmp_path.name}"
+    outside_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        (outside_dir / "events.jsonl").write_text(
+            '{"id":"e1","type":"tool.execution_start","timestamp":1}\n', encoding="utf-8"
+        )
+        link_dir = tmp_path / "link_dir"
+        try:
+            os.symlink(str(outside_dir), str(link_dir), target_is_directory=True)
+        except OSError as e:
+            pytest.skip(f"Symlink creation requires privilege on this host: {e}")
+
+        p = link_dir / "events.jsonl"
+        assert p.is_symlink() is False, "candidate file itself must not report as symlink"
+        assert _is_confined(p, tmp_path) is False, "resolve must detect file escaping root via parent symlink"
+        assert _check_candidate_file(p, 32 * 1024 * 1024, tmp_path) is None
+    finally:
+        import shutil
+
+        shutil.rmtree(outside_dir, ignore_errors=True)
+
+
+def test_oversized_session_file_refused(tmp_path: Path) -> None:
+    s1 = tmp_path / "s1.json"
+    with open(s1, "wb") as f:
+        f.write(b'{"events":[{"type":"t"}]}')
+        f.truncate(33 * 1024 * 1024)
+    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
+    store = SessionStore(settings, Layout.COPILOT)
+    store.refresh()
+    assert store.sessions()["total"] == 0
+    assert _check_candidate_file(s1, 32 * 1024 * 1024, tmp_path) is None
 
 
 def test_non_regular_file_refused(tmp_path: Path) -> None:
     if sys.platform == "win32":
         pytest.skip("Named FIFOs are not supported on Windows")
-    fifo_path = tmp_path / "events.jsonl"
+    fifo_dir = tmp_path / "sess1"
+    fifo_dir.mkdir(parents=True, exist_ok=True)
+    fifo_path = fifo_dir / "events.jsonl"
     os.mkfifo(str(fifo_path))
+    assert _check_candidate_file(fifo_path, 32 * 1024 * 1024, tmp_path) is None
     settings = AgentSessionSettings(session_state_dir=str(tmp_path))
     store = SessionStore(settings, Layout.COPILOT)
     store.refresh()
@@ -353,6 +397,35 @@ def test_windows_junction_refused(tmp_path: Path) -> None:
         import shutil
 
         shutil.rmtree(outside_dir, ignore_errors=True)
+
+
+def test_read_capped_file_bounds_read_call(tmp_path: Path) -> None:
+    from sharpit.engine.collectors.agentsessions._common import read_capped_file
+
+    target = tmp_path / "test.json"
+    target.write_bytes(b"x" * 200)
+    read_calls = []
+    real_open = open
+
+    class FileSpy:
+        def __init__(self, f):
+            self._f = f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self._f.__exit__(*args)
+
+        def read(self, *args, **kwargs):
+            read_calls.append((args, kwargs))
+            return self._f.read(*args, **kwargs)
+
+    with patch("builtins.open", side_effect=lambda *a, **k: FileSpy(real_open(*a, **k))):
+        read_capped_file(target, max_bytes=100)
+
+    assert len(read_calls) == 1
+    assert read_calls[0] == ((101,), {}), "read must be bounded to max_bytes + 1"
 
 
 def test_growing_file_beyond_cap_bounded_read(tmp_path: Path) -> None:

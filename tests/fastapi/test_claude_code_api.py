@@ -162,6 +162,7 @@ def test_claude_code_raw_reveal_respects_metadata_only_exposure_fails_closed_404
     write_claude_session(tmp_path / "project-one" / "session-one.jsonl")
     monkeypatch.setenv("SHARPIT_CLAUDE_CODE_SESSION_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("SHARPIT_CLAUDE_CODE_ALLOW_RAW_REVEAL", "true")
+    monkeypatch.setenv("SHARPIT_EXPOSE_VALUES", "METADATA_ONLY")
 
     app = FastAPI()
     install(app, enabled="ON", show_banner=False)
@@ -375,6 +376,40 @@ async def test_session_stream_initial_refresh_does_not_block_event_loop(
         stream.task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await stream.task
+
+
+@pytest.mark.anyio
+async def test_stream_tick_runs_single_refresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from sharpit.engine.collectors.agentsessions import AgentSessionSettings, Layout, SessionStore
+    from sharpit.fastapi.routes.agent_sessions_stream import _agent_sessions_events
+
+    write_claude_session(tmp_path / "project-one" / "session-one.jsonl")
+    settings = AgentSessionSettings(session_state_dir=str(tmp_path))
+    store = SessionStore(settings, Layout.CLAUDE_CODE)
+
+    refresh_count = 0
+    real_refresh = store.refresh
+
+    def counting_refresh(*args, **kwargs):
+        nonlocal refresh_count
+        refresh_count += 1
+        return real_refresh(*args, **kwargs)
+
+    monkeypatch.setattr(store, "refresh", counting_refresh)
+
+    gen = _agent_sessions_events(store, debounce_seconds=0.05)
+    # Startup emits sessions, then dashboard
+    await gen.__anext__()
+    await gen.__anext__()
+    init_refreshes = refresh_count
+
+    # Trigger change so loop yields
+    write_claude_session(tmp_path / "project-two" / "session-two.jsonl")
+    await gen.__anext__()
+    tick_refreshes = refresh_count - init_refreshes
+    await gen.aclose()
+
+    assert tick_refreshes == 1, f"Expected 1 store.refresh per stream tick, got {tick_refreshes}"
 
 
 def test_claude_code_enabled_off_disables_panel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
