@@ -106,7 +106,9 @@ def test_github_golden_shape_23(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     from fastapi.testclient import TestClient
 
     monkeypatch.chdir(tmp_path)
-    response = TestClient(create_app(show_banner=False), base_url="http://localhost").get("/sharpit/api/github")
+    response = TestClient(create_app(show_banner=False), base_url="http://localhost", client=("127.0.0.1", 50000)).get(
+        "/sharpit/api/github"
+    )
     golden = Path(__file__).parents[3] / "fixtures/bootui/2.3.0/github/captured.json"
     assert response.status_code == 200
     expected = json.loads(golden.read_text())

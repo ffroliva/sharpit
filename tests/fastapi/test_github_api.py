@@ -39,7 +39,7 @@ def test_github_controller_dashboard_reports_unavailable(tmp_path: Path, monkeyp
     # ported: GitHubControllerTests.dashboardReportsUnavailableOutsideGitHubRepository
     monkeypatch.chdir(tmp_path)
     app = create_app(show_banner=False, state_dir=str(tmp_state_dir))
-    response = TestClient(app, base_url="http://localhost").get("/sharpit/api/github")
+    response = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)).get("/sharpit/api/github")
     assert response.status_code == 200
     assert response.json()["status"] == "UNAVAILABLE"
 
