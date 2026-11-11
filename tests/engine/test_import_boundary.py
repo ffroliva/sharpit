@@ -3,7 +3,8 @@
 1. The engine is framework-free: no FastAPI or Starlette import (a ``TYPE_CHECKING`` block is allowed).
 2. The engine never imports an adapter (``sharpit.fastapi``, ``sharpit.ui``): adapters depend on the engine only.
 3. Each collector under ``engine/collectors/`` is a module of its own and never imports another collector. Shared
-   code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector.
+   code goes in the engine (``context``, ``paging``, ``spi``, ...), not in a sibling collector. Inside the Runtime
+   Insights collector the same holds per kind: a module under ``insights/kinds/`` never imports another kind.
 4. Gatekeepers: an optional dependency or a network client is imported by one named file only, so the rest of the
    package works without it (CI's ``no-sqlalchemy`` job) and nothing else can reach the network (safety model).
 5. Interpreter state (0.5.0 spec §4.4, §9): calls that change it (``tracemalloc.start``, ``gc.callbacks`` mutation,
@@ -182,7 +183,18 @@ def collector_violations(root: Path = COLLECTORS) -> list[str]:
             other = _collector(name)
             if own and other and other != own:
                 found.append(f"{_rel(path)} imports {name}: collector {own!r} reaches into {other!r}")
+            elif (kind := _insight_kind(_module_name(path))) and (target := _insight_kind(name)) and target != kind:
+                found.append(f"{_rel(path)} imports {name}: insight kind {kind!r} reaches into {target!r}")
     return found
+
+
+def _insight_kind(module: str) -> str | None:
+    """The Runtime Insights kind a module is (``engine/collectors/insights/kinds/<kind>``): rule 3 inside insights."""
+    parts = module.split(".")
+    return parts[5] if parts[:5] == [*_INSIGHT_KINDS] and len(parts) > 5 else None
+
+
+_INSIGHT_KINDS = ("sharpit", "engine", "collectors", "insights", "kinds")
 
 
 def _gatekeeper_allows(rel: str, allowed: set[str]) -> bool:
@@ -417,6 +429,9 @@ def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     plant("collectors/loggers/__init__.py", "from ..health import health_report\n")
     plant("collectors/beans.py", "from sharpit.engine.collectors.mappings import x\n")
+    (engine / "collectors" / "insights" / "kinds").mkdir(parents=True)
+    plant("collectors/insights/kinds/slow_flush.py", "")
+    plant("collectors/insights/kinds/orm_auto_flush.py", "from . import slow_flush\n")
     plant("tools.py", "import starlette.requests\nfrom sharpit.fastapi.adapter import y\nimport urllib.request\n")
     (engine / "sqla").mkdir()
     plant("sqla/listeners.py", "import sqlalchemy.pool\n")
@@ -425,10 +440,38 @@ def test_the_rules_catch_a_violation(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert adapter_violations(engine) == ["sharpit/engine/tools.py imports sharpit.fastapi.adapter"]
     assert [v.split(": ")[1] for v in collector_violations(engine / "collectors")] == [
         "collector 'beans' reaches into 'mappings'",
+        "insight kind 'orm_auto_flush' reaches into 'slow_flush'",
         "collector 'loggers' reaches into 'health'",
     ]
     assert [v.split(":")[0] for v in gatekeeper_violations(engine)] == [
         "sharpit/engine/tools.py imports urllib.request"
+    ]
+
+
+def test_insight_kind_may_not_import_another_kind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """W5c: one module per Runtime Insights kind. The registry and a kind may use the shared insights modules; a kind
+    never imports another kind, in any import form."""
+    monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
+    insights = tmp_path / "src" / "sharpit" / "engine" / "collectors" / "insights"
+    (insights / "kinds").mkdir(parents=True)
+    files = {
+        "__init__.py": "",
+        "snapshot.py": "",
+        "registry.py": "from .kinds import slow_flush, orm_auto_flush\n",
+        "kinds/__init__.py": "",
+        "kinds/slow_flush.py": "from ..snapshot import x\n",
+        "kinds/orm_auto_flush.py": "from sharpit.engine.collectors.insights.kinds.slow_flush import y\n",
+        "kinds/heap_growth_after_gc.py": "import sharpit.engine.collectors.insights.kinds.slow_flush\n",
+    }
+    for rel, code in files.items():
+        (insights / rel).write_text(code, encoding="utf-8")
+
+    assert collector_violations(insights.parent) == [
+        "sharpit/engine/collectors/insights/kinds/heap_growth_after_gc.py imports"
+        " sharpit.engine.collectors.insights.kinds.slow_flush: insight kind 'heap_growth_after_gc' reaches into"
+        " 'slow_flush'",
+        "sharpit/engine/collectors/insights/kinds/orm_auto_flush.py imports"
+        " sharpit.engine.collectors.insights.kinds.slow_flush: insight kind 'orm_auto_flush' reaches into 'slow_flush'",
     ]
 
 

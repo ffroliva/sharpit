@@ -1,0 +1,2 @@
+prop:bootui.runtime-insights.ai-token-threshold	matched	Default 8000, positive (AiUsageByRoute.java:35,55-60); invalid takes the default with a warning (BootUI fails startup); read by K9
+prop:bootui.resources.jfr.max-duration	matched	Default 30s, 1s..10m (ResourceSettings.java:18-35); outside the range takes the default with a warning (BootUI fails startup); read by the I2 floor (P-I1)
