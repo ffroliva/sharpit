@@ -28,10 +28,23 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.allow-non-localhost"),
     pytest.mark.bootui("prop:bootui.allowed-hosts"),
     pytest.mark.bootui("prop:bootui.authentication.token"),
+    pytest.mark.bootui("prop:bootui.claude-code.allow-raw-reveal"),
+    pytest.mark.bootui("prop:bootui.claude-code.enabled"),
+    pytest.mark.bootui("prop:bootui.claude-code.max-events-per-session"),
+    pytest.mark.bootui("prop:bootui.claude-code.max-parsed-sessions"),
+    pytest.mark.bootui("prop:bootui.claude-code.max-sessions"),
+    pytest.mark.bootui("prop:bootui.claude-code.session-state-dir"),
+    pytest.mark.bootui("prop:bootui.claude-code.stream-debounce"),
     pytest.mark.bootui("prop:bootui.cli.enabled"),
     pytest.mark.bootui("prop:bootui.cli.execution-timeout"),
     pytest.mark.bootui("prop:bootui.cli.max-concurrent-calls"),
     pytest.mark.bootui("prop:bootui.cli.max-results"),
+    pytest.mark.bootui("prop:bootui.copilot.enabled"),
+    pytest.mark.bootui("prop:bootui.copilot.max-events-per-session"),
+    pytest.mark.bootui("prop:bootui.copilot.max-parsed-sessions"),
+    pytest.mark.bootui("prop:bootui.copilot.max-sessions"),
+    pytest.mark.bootui("prop:bootui.copilot.session-state-dir"),
+    pytest.mark.bootui("prop:bootui.copilot.stream-debounce"),
     pytest.mark.bootui("prop:bootui.disabled-profiles"),
     pytest.mark.bootui("prop:bootui.enabled"),
     pytest.mark.bootui("prop:bootui.exceptions.max-groups"),
@@ -155,8 +168,10 @@ def _samples(default: Any, field: str) -> tuple[str, Any, str | None] | None:
         return f"{default + 1}s", default + 1, "invalid-duration"
     if isinstance(default, tuple) or field == "authentication_token":
         return "parity-item", ("parity-item",) if isinstance(default, tuple) else "parity-item", None
-    if field in {"enabled", "trust_container_gateway", "mcp_enabled"}:
+    if field in {"enabled", "trust_container_gateway", "mcp_enabled", "copilot_enabled", "claude_code_enabled"}:
         return "ON", "ON", "invalid-mode"
+    if field in {"copilot_session_state_dir", "claude_code_session_state_dir"}:
+        return "/custom/dir", "/custom/dir", None
     if field == "expose_values":
         return "FULL", Exposure.FULL, "invalid-exposure"
     if field in {"vulnerabilities_osv_base_uri", "vulnerabilities_epss_base_uri"}:
@@ -171,10 +186,22 @@ def _fixture_and_status() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     )
 
 
-def _classification(item: dict[str, Any], settings: Any) -> tuple[str, str | None]:
+def _bootui_default(item: dict[str, Any], row: dict[str, Any]) -> Any:
+    """BootUI's default: the fixture metadata, unless the status row records a cited runtime default.
+
+    The fixture is BootUI's captured metadata and is never edited; where BootUI's runtime contradicts it (a constructor
+    overriding the field initialiser), the status row carries ``runtimeDefault`` with the BootUI source in ``citation``.
+    """
+    if "runtimeDefault" in row:
+        assert row.get("citation"), f"{item['name']}: runtimeDefault without a BootUI citation"
+        return row["runtimeDefault"]
+    return _expected_default(item.get("defaultValue"))
+
+
+def _classification(item: dict[str, Any], row: dict[str, Any], settings: Any) -> tuple[str, str | None]:
     key = item["name"]
     field = _field(key)
-    expected = _expected_default(item.get("defaultValue"))
+    expected = _bootui_default(item, row)
     if field in {"path", "api_path"}:
         actual = getattr(settings, field)
     elif field not in SPECS or field not in vars(settings):
@@ -197,7 +224,7 @@ def test_fixture_properties_are_fully_classified() -> None:
     assert classified == set(names)
     settings = load_settings({}, {})
     for item, row in zip(fixture, properties, strict=True):
-        actual_status, difference = _classification(item, settings)
+        actual_status, difference = _classification(item, row, settings)
         assert row["status"] == actual_status
         assert row["difference"] == difference
     assert status["panel_map_rule"] == (
@@ -227,7 +254,7 @@ def _matched_cases() -> list[tuple[str, str, str, Any, Any, str | None, Any]]:
         if row is None or row["status"] != "matched":
             continue
         field = _field(item["name"])
-        default = _expected_default(item.get("defaultValue"))
+        default = _bootui_default(item, row)
         sample = _samples(default, field)
         assert sample is not None
         raw, expected, invalid = sample
@@ -251,9 +278,9 @@ def _matched_cases() -> list[tuple[str, str, str, Any, Any, str | None, Any]]:
 def test_matched_property_default_and_values(
     key: str, field: str, env: str, raw: str, expected: Any, invalid: str | None, failsafe: Any
 ) -> None:
-    fixture, _ = _fixture_and_status()
+    fixture, status = _fixture_and_status()
     entry = next(item for item in fixture if item["name"] == key)
-    default = _expected_default(entry.get("defaultValue"))
+    default = _bootui_default(entry, next(row for row in status["properties"] if row["name"] == key))
     settings = load_settings({}, {})
     assert getattr(settings, field) == default
     loaded = load_settings({}, {env: raw})

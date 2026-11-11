@@ -175,6 +175,20 @@ class SharpitSettings:
     github_max_api_calls: int = 17
     github_allowed_api_hosts: tuple[str, ...] = ("api.github.com",)
     app_package: str | None = None  # dotted name, resolved through sys.modules only (never imported)
+    copilot_enabled: str = "AUTO"
+    copilot_session_state_dir: str | None = None
+    copilot_max_events_per_session: int = 2000
+    copilot_max_sessions: int = 100
+    copilot_max_parsed_sessions: int = 100
+    copilot_stream_debounce: float = 0.4
+    copilot_allow_raw_reveal: bool = False
+    claude_code_enabled: str = "AUTO"
+    claude_code_session_state_dir: str | None = None
+    claude_code_max_events_per_session: int = 2000
+    claude_code_max_sessions: int = 100
+    claude_code_max_parsed_sessions: int = 100
+    claude_code_stream_debounce: float = 0.4
+    claude_code_allow_raw_reveal: bool = False
     warnings: tuple[str, ...] = ()
 
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 import uuid
 from collections.abc import Callable
@@ -131,8 +132,16 @@ class FakeIntrospector:
         return []
 
 
+# conftest.py points the session dirs at temp folders through the environment, which a bare load_settings(..., {})
+# does not read: pass them on, so no tool sweep scans the developer's real ~/.claude or ~/.copilot.
+_ISOLATED_SESSIONS = {
+    field: os.environ["SHARPIT_" + field.upper()]
+    for field in ("copilot_session_state_dir", "claude_code_session_state_dir")
+}
+
+
 def _ctx(**options: Any) -> SharpitContext:
-    settings = load_settings({"config_scan": False, **options}, {})
+    settings = load_settings({"config_scan": False, **_ISOLATED_SESSIONS, **options}, {})
     return SharpitContext(settings, ACTIVATION, FakeIntrospector())
 
 
@@ -539,6 +548,25 @@ def test_mcp_tools_no_side_effects(name: str, no_side_effects: SideEffectGuard, 
     no_side_effects.rebaseline()
     result = call_tool(_call(ctx, {"server": ("127.0.0.1", 8000)}), name, arguments, via="mcp")
     assert isinstance(result, dict)
+
+
+@pytest.mark.parametrize(
+    ("name", "sub"),
+    [("get_claude_code_sessions", ".claude/projects/p"), ("get_copilot_sessions", ".copilot/session-state/s")],
+)
+def test_mcp_session_sweep_never_reads_the_real_home(
+    name: str, sub: str, tmp_path: Path, tmp_state_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # new: the sweep above timed out on a developer's real ~/.claude/projects; no test may read the real home
+    home = tmp_path / "home"
+    huge = home / sub / "huge.jsonl"
+    huge.parent.mkdir(parents=True)
+    with huge.open("wb") as f:  # sparse: a 40 MiB file that takes no disk
+        f.truncate(40 * 1024 * 1024)
+    for var in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(var, str(home))
+    result = call_tool(_call(_ctx(state_dir=str(tmp_state_dir))), name, {}, via="mcp")
+    assert not result["sessionStateDir"].startswith("~")
 
 
 def _mcp_arguments(name: str, ctx: SharpitContext) -> dict[str, Any]:

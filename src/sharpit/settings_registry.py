@@ -310,6 +310,20 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "github_max_api_calls": (_row_limit, None),
     "github_allowed_api_hosts": (_lower_items, None),
     "app_package": (_module_name, None),
+    "copilot_enabled": (_mode, "AUTO"),
+    "copilot_session_state_dir": (_str, None),
+    "copilot_max_events_per_session": (_int, None),
+    "copilot_max_sessions": (_int, None),
+    "copilot_max_parsed_sessions": (_int, None),
+    "copilot_stream_debounce": (_duration, None),
+    "copilot_allow_raw_reveal": (parse_bool, False),
+    "claude_code_enabled": (_mode, "AUTO"),
+    "claude_code_session_state_dir": (_str, None),
+    "claude_code_max_events_per_session": (_int, None),
+    "claude_code_max_sessions": (_int, None),
+    "claude_code_max_parsed_sessions": (_int, None),
+    "claude_code_stream_debounce": (_duration, None),
+    "claude_code_allow_raw_reveal": (parse_bool, False),
 }
 
 NEVER_ECHOED = {
@@ -323,6 +337,7 @@ _FLAG = "Boolean feature flag, not a credential."
 _ENTRY_LIMIT = "Entry count limit, not a credential."
 _INDEX_LIMIT = "Index count limit, not a credential."
 _TABLE_LIMIT = "Table count limit, not a credential."
+_SESSION_LIMIT = "Session count limit, not a credential."
 
 _NON_CREDENTIAL_FIELDS = {
     "enabled": "Activation mode, not a credential.",
@@ -394,7 +409,7 @@ _NON_CREDENTIAL_FIELDS = {
     "runtime_journal_queue_capacity": "Journal queue count limit, not a credential.",
     "runtime_journal_sources": "Journal source names, not credentials.",
     "security_logs_max_logs": "Log count limit, not a credential.",
-    "postgresql_max_sessions": "Session count limit, not a credential.",
+    "postgresql_max_sessions": _SESSION_LIMIT,
     "postgresql_max_statements": "Statement count limit, not a credential.",
     "postgresql_max_indexes": _INDEX_LIMIT,
     "postgresql_max_tables": _TABLE_LIMIT,
@@ -406,7 +421,7 @@ _NON_CREDENTIAL_FIELDS = {
     "transactions_max_entries": _ENTRY_LIMIT,
     "transactions_slow_transaction_threshold_millis": "Transaction duration threshold, not a credential.",
     "transactions_connection_hold_threshold_millis": "Connection duration threshold, not a credential.",
-    "mysql_max_sessions": "Session count limit, not a credential.",
+    "mysql_max_sessions": _SESSION_LIMIT,
     "mysql_max_statements": "Statement count limit, not a credential.",
     "mysql_max_indexes": _INDEX_LIMIT,
     "mysql_max_tables": _TABLE_LIMIT,
@@ -431,6 +446,20 @@ _NON_CREDENTIAL_FIELDS = {
     "github_max_api_calls": "GitHub API call count limit, not a credential.",
     "github_allowed_api_hosts": "Allowed GitHub Enterprise host names, not credentials.",
     "app_package": "Python package name, not a credential.",
+    "copilot_enabled": _FLAG,
+    "copilot_session_state_dir": "Session state directory path, not a credential.",
+    "copilot_max_events_per_session": "Event count limit, not a credential.",
+    "copilot_max_sessions": _SESSION_LIMIT,
+    "copilot_max_parsed_sessions": "Parsed session count limit, not a credential.",
+    "copilot_stream_debounce": "Stream debounce window, not a credential.",
+    "copilot_allow_raw_reveal": "Raw reveal flag, not a credential.",
+    "claude_code_enabled": _FLAG,
+    "claude_code_session_state_dir": "Session state directory path, not a credential.",
+    "claude_code_max_events_per_session": "Event count limit, not a credential.",
+    "claude_code_max_sessions": _SESSION_LIMIT,
+    "claude_code_max_parsed_sessions": "Parsed session count limit, not a credential.",
+    "claude_code_stream_debounce": "Stream debounce window, not a credential.",
+    "claude_code_allow_raw_reveal": "Raw reveal flag, not a credential.",
     "warnings": "Diagnostic messages, not a credential.",
 }
 
