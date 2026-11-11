@@ -45,15 +45,16 @@ AGENT_SENSOR_TOOLS: dict[str, str] = {
 }
 # AgentSensorSettings.SWITCHABLE_SENSORS
 SWITCHABLE_SENSORS = ("threads", "files", "environment", "thread-activity", "thread-locals", "security-sinks")
+_THREADS_AND_LEAKS = "Threads and leaks"
 # SideEffectsCatalog.SENSORS, in tab order: (id, group, label)
 SIDE_EFFECT_SENSORS = (
     ("network", "Network", "Hosts the application connects to"),
     ("files", "Files and processes", "Files the application reads and writes"),
     ("processes", "Files and processes", "Processes the application starts"),
     ("environment", "Environment", "Environment variables and system properties read"),
-    ("thread-activity", "Threads and leaks", "Threads and executors started per route"),
-    ("thread-locals", "Threads and leaks", "Thread locals left set after a request"),
-    ("resources", "Threads and leaks", "Streams, channels, and sockets left open"),
+    ("thread-activity", _THREADS_AND_LEAKS, "Threads and executors started per route"),
+    ("thread-locals", _THREADS_AND_LEAKS, "Thread locals left set after a request"),
+    ("resources", _THREADS_AND_LEAKS, "Streams, channels, and sockets left open"),
     ("blocking", "Blocking", "Blocking calls started on an event loop"),
     (
         "security-sinks",

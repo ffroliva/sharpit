@@ -152,16 +152,16 @@ def _rule_violation_arguments(checked: dict[str, Any], raw_limit: object, max_re
     return {"scanId": (scan_id or "").strip(), "offset": offset, "pageLimit": raw_limit, "maxResults": max_results}
 
 
-def _unlisted_tool(settings: Any, name: str, contracts: Any) -> Exception:
+def _raise_unlisted_tool(settings: Any, name: str, contracts: Any) -> NoReturn:
     """``McpDispatcher.unavailableTool``: a BootUI tool sharpit does not advertise says why, from its panel."""
     panel = AGENT_SENSOR_TOOLS.get(name)
     if panel is None:
-        return contracts.RpcError(contracts.INVALID_PARAMS, contracts.UNKNOWN_TOOL_PREFIX + name)
+        raise contracts.RpcError(contracts.INVALID_PARAMS, contracts.UNKNOWN_TOOL_PREFIX + name)
     if not settings.panels.get(panel, PanelSettings()).enabled:
-        return contracts.ToolCallError(disabled_reason(panel), 403)
+        raise contracts.ToolCallError(disabled_reason(panel), 403)
     title = next(p.title for p in PANELS if p.id == panel)
     message = f"{contracts.UNAVAILABLE_TOOL_PREFIX}{name}. Its {title} panel is unavailable: {PANEL_REASONS[panel]}"
-    return contracts.RpcError(contracts.INVALID_PARAMS, message)
+    raise contracts.RpcError(contracts.INVALID_PARAMS, message)
 
 
 def _find_tool(catalogue: Sequence[Tool], name: object, via: Via, contracts: Any, settings: Any) -> Tool:
@@ -169,7 +169,7 @@ def _find_tool(catalogue: Sequence[Tool], name: object, via: Via, contracts: Any
         raise contracts.RpcError(contracts.INVALID_PARAMS, "Missing tool name")
     tool = next((t for t in catalogue if t.name == name and (via == "cli" or not t.action)), None)
     if tool is None:
-        raise _unlisted_tool(settings, name, contracts)
+        _raise_unlisted_tool(settings, name, contracts)
     return tool
 
 
