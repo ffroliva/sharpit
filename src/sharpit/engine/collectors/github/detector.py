@@ -11,6 +11,8 @@ _SCP_REMOTE = re.compile(r"(?:[^@]+@)?([^:]+):(.+)")
 _NO_REPOSITORY = "No local git repository was detected"
 _NO_ORIGIN = "No GitHub origin remote was detected"
 _NOT_GITHUB = "Origin remote host is not github.com or an allowed GitHub Enterprise host"
+# shortcut: BootUI reads these files unbounded; 1 MiB is far above any real HEAD, config or pointer file
+_MAX_FILE_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -62,31 +64,50 @@ def detect_repository(start: Path, allowed_hosts: frozenset[str]) -> Repository 
 
 
 def _find_git_layout(start: Path) -> _GitLayout | None:
-    current = start.resolve()
-    while True:
-        dot_git = current / ".git"
-        git_dir = dot_git if dot_git.is_dir() else _read_pointer(dot_git, "gitdir:") if dot_git.is_file() else None
+    current = _resolve(start)
+    while current is not None:
+        git_dir = _git_dir(current / ".git")
         if git_dir is not None:
             paths = [git_dir / "config"]
-            common = _read_pointer(git_dir / "commondir", "") if (git_dir / "commondir").is_file() else None
+            common = _read_pointer(git_dir / "commondir", "")
             if common is not None and common / "config" not in paths:
                 paths.append(common / "config")
             return _GitLayout(git_dir, tuple(paths))
-        if current.parent == current:
+        current = current.parent if current.parent != current else None
+    return None
+
+
+def _git_dir(dot_git: Path) -> Path | None:
+    """A ``.git`` directory, or the directory a ``.git`` file's ``gitdir:`` line points to."""
+    return dot_git if dot_git.is_dir() else _read_pointer(dot_git, "gitdir:")
+
+
+def _resolve(path: Path) -> Path | None:
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):  # a symlink loop degrades to "not found", never an error
+        return None
+
+
+def _read_small(path: Path) -> str | None:
+    """A regular file of at most ``_MAX_FILE_BYTES`` as text, else ``None`` (missing, special, too big, unreadable)."""
+    try:
+        if not path.is_file():
             return None
-        current = current.parent
+        with path.open("rb") as handle:
+            data = handle.read(_MAX_FILE_BYTES + 1)
+        return data.decode("utf-8") if len(data) <= _MAX_FILE_BYTES else None
+    except (OSError, UnicodeError):
+        return None
 
 
 def _read_pointer(path: Path, prefix: str) -> Path | None:
     """A ``.git`` file's ``gitdir:`` or a ``commondir`` file's path, resolved against the file's own directory."""
-    try:
-        line = path.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeError):
-        return None
-    if not line.startswith(prefix):
+    line = (_read_small(path) or "").strip()
+    if not line or not line.startswith(prefix):
         return None
     target = Path(line[len(prefix) :].strip())
-    return (target if target.is_absolute() else path.parent / target).resolve()
+    return _resolve(target if target.is_absolute() else path.parent / target)
 
 
 def _read_config(paths: tuple[Path, ...]) -> dict[tuple[str, str], str]:
@@ -94,26 +115,23 @@ def _read_config(paths: tuple[Path, ...]) -> dict[tuple[str, str], str]:
     for path in paths:
         if not path.is_file():
             continue
-        try:
-            section: str | None = None
-            for raw in path.read_text(encoding="utf-8").splitlines():
-                line = raw.strip()
-                if not line or line.startswith(("#", ";")):
-                    continue
-                if line.startswith("[") and line.endswith("]"):
-                    section = line[1:-1]
-                elif section is not None and (equals := line.find("=")) > 0:
-                    values[(section, line[:equals].strip())] = line[equals + 1 :].strip()
-        except (OSError, UnicodeError):
+        text = _read_small(path)
+        if text is None:
             return {}
+        section: str | None = None
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1]
+            elif section is not None and (equals := line.find("=")) > 0:
+                values[(section, line[:equals].strip())] = line[equals + 1 :].strip()
     return values
 
 
 def _read_branch(git_dir: Path) -> str | None:
-    try:
-        value = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeError):
-        return None
+    value = (_read_small(git_dir / "HEAD") or "").strip()
     prefix = "ref: refs/heads/"
     return value.removeprefix(prefix) if value.startswith(prefix) else None
 
