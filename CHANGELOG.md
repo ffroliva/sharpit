@@ -33,6 +33,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `import sharpit` no longer imports `sharpit.fastapi` or FastAPI: `sharpit.install`, `attach_sql_sources`,
+  `detach_sql_sources` and `record_security_event` are imported on first access, so the pytest plugin starts faster.
 - Added an engine-owned capture-hook registry and low-footprint suspend/resume service; each capture hook the FastAPI wiring installs (middleware recording, exception handlers, log handler, security-log hook, SQLAlchemy and sqlite3 listeners, traces and transactions lanes) is its own registry entry, suspended and resumed alone.
 - MCP method dispatch now uses a method-to-handler table while preserving existing response construction.
 - The golden sanitiser now validates nested capture versions from the source, rejects encoded and provider token variants, and limits 2.3.0 raw enum snapshots to 64 enum constants per key path; versioned shaping retains the 0.6.0 default for existing callers.

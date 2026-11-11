@@ -320,7 +320,21 @@ def interpreter_state_violations(root: Path | None = None) -> list[str]:
 
 def package_name_violations(root: Path = ENGINE) -> list[str]:
     """Engine imports of a ``sharpit`` package name other than ``__version__``: the others load the adapter lazily."""
-    return []  # stub: no rule yet, so the planted violation below goes unreported
+    found: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        package = _module_name(path) if path.name == "__init__.py" else _module_name(path).rpartition(".")[0]
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import) and any(alias.name == "sharpit" for alias in node.names):
+                found.append(f"{_rel(path)} imports sharpit: the engine may import only __version__")
+            elif isinstance(node, ast.ImportFrom):
+                source = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
+                source = (f"{source}.{node.module}" if node.module else source) if node.level else node.module
+                found += [
+                    f"{_rel(path)} imports {alias.name} from sharpit: the engine may import only __version__"
+                    for alias in node.names
+                    if source == "sharpit" and alias.name != "__version__"
+                ]
+    return found
 
 
 def test_engine_modules_do_not_import_fastapi_or_starlette():
