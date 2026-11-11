@@ -35,21 +35,14 @@ def copilot_settings(settings: SharpitSettings) -> AgentSessionSettings:
 
 
 def claude_code_settings(settings: SharpitSettings) -> AgentSessionSettings:
-    enabled = getattr(settings, "claude_code_enabled", "AUTO")
-    session_state_dir = getattr(settings, "claude_code_session_state_dir", None)
-    max_events = getattr(settings, "claude_code_max_events_per_session", 2000)
-    max_sessions = getattr(settings, "claude_code_max_sessions", 100)
-    max_parsed = getattr(settings, "claude_code_max_parsed_sessions", 100)
-    debounce = getattr(settings, "claude_code_stream_debounce", 0.4)
-    allow_raw = getattr(settings, "claude_code_allow_raw_reveal", False)
     return AgentSessionSettings(
-        enabled=enabled,
-        session_state_dir=session_state_dir,
-        max_events_per_session=max_events,
-        max_sessions=max_sessions,
-        max_parsed_sessions=max_parsed,
-        stream_debounce=debounce,
-        allow_raw_reveal=allow_raw,
+        enabled=settings.claude_code_enabled,
+        session_state_dir=settings.claude_code_session_state_dir,
+        max_events_per_session=settings.claude_code_max_events_per_session,
+        max_sessions=settings.claude_code_max_sessions,
+        max_parsed_sessions=settings.claude_code_max_parsed_sessions,
+        stream_debounce=settings.claude_code_stream_debounce,
+        allow_raw_reveal=settings.claude_code_allow_raw_reveal,
     )
 
 

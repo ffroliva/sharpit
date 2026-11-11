@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
+import contextlib
 import logging
 import os
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from sharpit.engine.collectors.agentsessions import AgentSessionSettings
@@ -162,6 +162,8 @@ class SessionStore:
                 parsed = parse_session(
                     file_path, self.layout, self.settings.max_events_per_session, include_lifecycle=True
                 )
+                with contextlib.suppress(Exception):
+                    parsed.summary["filename"] = str(file_path.relative_to(self.dir_path)).replace("\\", "/")
                 self._sessions[sess_id] = parsed
 
             # Prune removed or out-of-cap sessions
@@ -320,24 +322,5 @@ class SessionStore:
             "events": ret,
         }
 
-    def raw(self, session_id: str, event_id: str) -> str | None:
-        self.refresh()
-        ps = self._sessions.get(session_id)
-        if ps is None:
-            return None
-        ref = ps.raw_by_id.get(event_id)
-        if ref is None:
-            return None
-        if isinstance(ref, dict):
-            return json.dumps(ref, indent=2)
-        if isinstance(ref, tuple):
-            file_target, line_target = cast(tuple[Path, int], ref)
-            try:
-                with open(file_target, encoding="utf-8") as f:
-                    for cur_no, line in enumerate(f, start=1):
-                        if cur_no == line_target:
-                            parsed: Any = json.loads(line)
-                            return json.dumps(parsed, indent=2)
-            except Exception:
-                return None
+    def raw(self, session_id: str, event_id: str) -> None:
         return None

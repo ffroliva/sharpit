@@ -9,6 +9,7 @@ from starlette.routing import BaseRoute, Route
 from sharpit.engine.collectors.agentsessions import Layout, session_store
 from sharpit.engine.paging import parse_int_param
 from sharpit.fastapi.http import json_response
+from sharpit.fastapi.routes.agent_sessions_stream import make_agent_sessions_stream_handler
 
 
 def _make_sessions_endpoint(store: Any) -> Any:
@@ -82,4 +83,5 @@ def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
         Route(f"{prefix}/sessions/{{id}}", _make_detail_endpoint(store), methods=["GET"]),
         Route(f"{prefix}/sessions/{{id}}/events", _make_events_endpoint(store), methods=["GET"]),
         Route(f"{prefix}/sessions/{{id}}/events/{{eventId}}/raw", _make_raw_endpoint(ctx, store), methods=["GET"]),
+        Route(f"{prefix}/stream", make_agent_sessions_stream_handler(ctx, Layout.COPILOT), methods=["GET"]),
     ]

@@ -58,27 +58,38 @@ class ParsedSession:
     file_mtime: int = 0
 
 
-_CLAUDE_CANONICAL: dict[str, str] = dict(
-    p.split(":")
-    for p in [
-        "Task:SUB_AGENT",
-        "Agent:SUB_AGENT",
-        "Bash:SHELL",
-        "GlobTool:SEARCH",
-        "GrepTool:SEARCH",
-        "FileReadTool:FILE_READ",
-        "FileEditTool:FILE_EDIT",
-        "FileWriteTool:FILE_EDIT",
-        "NotebookEditTool:FILE_EDIT",
-        "WebFetchTool:WEB",
-        "WebSearchTool:WEB",
-        "ListMcpServersTool:SKILL",
-        "ListMcpToolsTool:SKILL",
-        "CallMcpTool:MCP",
-        "ListMcpResourcesTool:SKILL",
-        "ReadMcpResourceTool:SKILL",
-    ]
+_CANONICAL_SKILLS = (
+    "Skill",
+    "ToolSearch",
+    "ListMcpResourcesTool",
+    "ReadMcpResourceTool",
+    "ListMcpServersTool",
+    "ListMcpToolsTool",
 )
+_CANONICAL_EDITS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "FileEditTool", "FileWriteTool", "NotebookEditTool")
+_CANONICAL_AGENTS = (
+    "Task",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "TaskGet",
+    "Agent",
+    "SubAgent",
+)
+_CANONICAL_GROUPS = (
+    ("SHELL", ("Bash",)),
+    ("FILE_READ", ("Read", "NotebookRead", "FileReadTool")),
+    ("FILE_EDIT", _CANONICAL_EDITS),
+    ("SEARCH", ("Glob", "Grep", "GlobTool", "GrepTool")),
+    ("SUB_AGENT", _CANONICAL_AGENTS),
+    ("WEB", ("WebSearch", "WebFetch", "WebFetchTool", "WebSearchTool")),
+    ("ASK", ("EnterPlanMode", "ExitPlanMode", "AskUserQuestion", "TodoWrite")),
+    ("SKILL", _CANONICAL_SKILLS),
+    ("MCP", ("CallMcpTool",)),
+)
+_CLAUDE_CANONICAL: dict[str, str] = {k: v for v, keys in _CANONICAL_GROUPS for k in keys}
 
 _MatcherFunc = Callable[[str, str], bool]
 
@@ -165,20 +176,14 @@ def sanitized_summary(type_val: str | None, tool_val: str | None, category: str,
 def _extract_telemetry_ext(data: dict[str, Any] | None) -> str | None:
     if not data:
         return None
-    tt = _as_dict(data.get("toolTelemetry"))
-    if tt:
-        props = _as_dict(tt.get("properties"))
-        if props and isinstance(props.get("fileExtension"), str):
-            return cast(str, props["fileExtension"])
     inp = _as_dict(data.get("input"))
-    if inp:
-        tr = _as_dict(inp.get("toolResult"))
-        if tr:
-            tt2 = _as_dict(tr.get("toolTelemetry"))
-            if tt2:
-                props2 = _as_dict(tt2.get("properties"))
-                if props2 and isinstance(props2.get("fileExtension"), str):
-                    return cast(str, props2["fileExtension"])
+    tr = _as_dict(inp.get("toolResult")) if inp else None
+    for raw in (data.get("toolTelemetry"), tr.get("toolTelemetry") if tr else None):
+        tt = _as_dict(raw)
+        if tt:
+            props = _as_dict(tt.get("properties"))
+            if props and isinstance(props.get("fileExtension"), str):
+                return cast(str, props["fileExtension"])
     return None
 
 
@@ -204,12 +209,8 @@ def _parse_str_timestamp(s: str) -> int | None:
         v = int(s)
         return v * 1000 if 0 < v < 10_000_000_000 else v
     try:
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return int(dt.timestamp() * 1000)
+        dt = datetime.fromisoformat(s[:-1] + "+00:00" if s.endswith("Z") else s)
+        return int((dt if dt.tzinfo else dt.replace(tzinfo=UTC)).timestamp() * 1000)
     except Exception:
         return None
 

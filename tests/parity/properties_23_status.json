@@ -189,38 +189,38 @@
     },
     {
       "name": "bootui.claude-code.allow-raw-reveal",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for claude_code_allow_raw_reveal"
+      "status": "partial",
+      "difference": "default differs: BootUI=True; sharpit=False"
     },
     {
       "name": "bootui.claude-code.enabled",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for claude_code_enabled"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.claude-code.max-events-per-session",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for claude_code_max_events_per_session"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.claude-code.max-parsed-sessions",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for claude_code_max_parsed_sessions"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.claude-code.max-sessions",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for claude_code_max_sessions"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.claude-code.session-state-dir",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for claude_code_session_state_dir"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.claude-code.stream-debounce",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for claude_code_stream_debounce"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.cli.enabled",

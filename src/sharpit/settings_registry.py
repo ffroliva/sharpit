@@ -305,6 +305,13 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "copilot_max_parsed_sessions": (_int, None),
     "copilot_stream_debounce": (_duration, None),
     "copilot_allow_raw_reveal": (parse_bool, False),
+    "claude_code_enabled": (_mode, "AUTO"),
+    "claude_code_session_state_dir": (_str, None),
+    "claude_code_max_events_per_session": (_int, None),
+    "claude_code_max_sessions": (_int, None),
+    "claude_code_max_parsed_sessions": (_int, None),
+    "claude_code_stream_debounce": (_duration, None),
+    "claude_code_allow_raw_reveal": (parse_bool, False),
 }
 
 NEVER_ECHOED = {
@@ -421,6 +428,13 @@ _NON_CREDENTIAL_FIELDS = {
     "copilot_max_parsed_sessions": "Parsed session count limit, not a credential.",
     "copilot_stream_debounce": "Stream debounce window, not a credential.",
     "copilot_allow_raw_reveal": "Raw reveal flag, not a credential.",
+    "claude_code_enabled": _FLAG,
+    "claude_code_session_state_dir": "Session state directory path, not a credential.",
+    "claude_code_max_events_per_session": "Event count limit, not a credential.",
+    "claude_code_max_sessions": "Session count limit, not a credential.",
+    "claude_code_max_parsed_sessions": "Parsed session count limit, not a credential.",
+    "claude_code_stream_debounce": "Stream debounce window, not a credential.",
+    "claude_code_allow_raw_reveal": "Raw reveal flag, not a credential.",
     "warnings": "Diagnostic messages, not a credential.",
 }
 

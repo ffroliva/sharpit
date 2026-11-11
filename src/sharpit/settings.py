@@ -170,6 +170,13 @@ class SharpitSettings:
     copilot_max_parsed_sessions: int = 100
     copilot_stream_debounce: float = 0.4
     copilot_allow_raw_reveal: bool = False
+    claude_code_enabled: str = "AUTO"
+    claude_code_session_state_dir: str | None = None
+    claude_code_max_events_per_session: int = 2000
+    claude_code_max_sessions: int = 100
+    claude_code_max_parsed_sessions: int = 100
+    claude_code_stream_debounce: float = 0.4
+    claude_code_allow_raw_reveal: bool = False
     warnings: tuple[str, ...] = ()
 
 

@@ -3,8 +3,8 @@
   "counts": {
     "matched": 4,
     "partial": 20,
-    "missing": 54,
-    "n-a": 18,
+    "missing": 53,
+    "n-a": 19,
     "total": 96
   },
   "routes": [
@@ -89,8 +89,8 @@
       "golden": "claude-code/dashboard.captured.json",
       "panel": "claude-code",
       "route": "/sharpit/api/claude-code/dashboard",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/claude-code/dashboard (HTTP 404)"
+      "status": "n-a",
+      "difference": "golden contains an empty list; item shape cannot establish matched parity"
     },
     {
       "golden": "cli/captured.json",
