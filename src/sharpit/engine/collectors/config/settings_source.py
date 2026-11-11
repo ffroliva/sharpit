@@ -193,16 +193,34 @@ def _model_secret_names(cls: type[Any], instance: object | None = None) -> tuple
     delimiter = env_src.env_nested_delimiter
     secret_names: set[str] = set()
 
+    def secret_type(annotation: object, seen: set[type[Any]] | None = None) -> type[Any] | None:
+        visited: set[type[Any]] = seen if seen is not None else set()
+        for arg in get_args(annotation):
+            found = secret_type(arg, visited)
+            if found is not None:
+                return found
+        for candidate in _classes(annotation):
+            if issubclass(candidate, (SecretStr, SecretBytes)):
+                return candidate
+            if issubclass(candidate, BaseModel) and candidate not in visited:
+                visited.add(candidate)
+                for nested in candidate.model_fields.values():
+                    found = secret_type(nested.annotation, visited)
+                    if found is not None:
+                        return found
+        return None
+
     def collect(name: str, field: Any, val: object) -> None:
         models = [m for m in _classes(field.annotation) if issubclass(m, BaseModel)]
+        if secret_type(field.annotation) is not None:
+            secret_names.add(name if case_sensitive else name.upper())
         if delimiter and models:
             for sub_model in models:
                 for sub, sub_field in sub_model.model_fields.items():
                     sub_attr = getattr(val, sub, None) if isinstance(val, BaseModel) else None
                     collect(f"{name}{delimiter}{sub}", sub_field, sub_attr)
             return
-        secret = any(issubclass(t, (SecretStr, SecretBytes)) for t in _classes(field.annotation))
-        secret = secret or isinstance(val, (SecretStr, SecretBytes))
+        secret = secret_type(field.annotation) is not None or isinstance(val, (SecretStr, SecretBytes))
         if secret:
             secret_names.add(name if case_sensitive else name.upper())
 

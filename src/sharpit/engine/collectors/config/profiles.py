@@ -9,6 +9,7 @@ from typing import Any
 from sharpit.engine.collectors.config import _display  # pyright: ignore[reportPrivateUsage]
 from sharpit.engine.collectors.config.settings_source import declared_profile_sources, parse_env
 from sharpit.engine.context import SharpitContext
+from sharpit.engine.masking import Exposure
 
 _MAX_ENV_FILE_SIZE = 256 * 1024  # 256 KiB cap
 _ENV_PROFILE_PREFIX = ".env."
@@ -23,7 +24,7 @@ def _confined(declared: Path, root: Path) -> Path | None:
         if declared.is_absolute():
             target = declared
             real = target.resolve()
-            if not _is_safe_symlink(target, real):
+            if not real.is_relative_to(root) or not _is_safe_symlink(target, real):
                 return None
         else:
             target = root / declared
@@ -41,8 +42,10 @@ def _read(path: Path, encoding: str = "utf-8") -> str | None:
             raw = fh.read(_MAX_ENV_FILE_SIZE + 1)
         if len(raw) > _MAX_ENV_FILE_SIZE:
             return None
+        if encoding.lower().replace("_", "-") == "utf-8":
+            encoding = "utf-8-sig"
         return raw.decode(encoding)
-    except (OSError, UnicodeDecodeError, ValueError):
+    except (OSError, UnicodeDecodeError, LookupError, ValueError):
         return None
 
 
@@ -55,6 +58,8 @@ def _source_properties(
     props: list[dict[str, Any]] = []
     for key, val in parse_env(content):
         secret_typed = is_secret_key(key)
+        if secret_typed and ctx.settings.expose_values is Exposure.FULL:
+            val = "**********"
         display_val, masked = _display(ctx, key, val, secret_typed)
         props.append(
             {
