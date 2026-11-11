@@ -51,7 +51,7 @@ def _read(path: Path, encoding: str = "utf-8") -> str | None:
         if encoding.lower().replace("_", "-") == "utf-8":
             encoding = "utf-8-sig"
         return raw.decode(encoding)
-    except (OSError, UnicodeDecodeError, LookupError, ValueError):
+    except (OSError, LookupError, ValueError):  # ValueError covers UnicodeDecodeError
         return None
 
 
@@ -82,6 +82,37 @@ def _mirrors_configuration_mask(
     return any(rule.exact_names & masked.get(cast(type, rule.model), set()) for rule in rules)
 
 
+def _safe_display(
+    ctx: SharpitContext,
+    key: str,
+    val: str | None,
+    descriptor: ProfileSourceDescriptor,
+    configuration_masked: dict[type, set[str]] | None,
+) -> tuple[Any, bool]:
+    display_val, masked = _display(ctx, key, val, False)
+    if not masked and val is not None and ctx.settings.expose_values is not Exposure.METADATA_ONLY:
+        names = {key, *descriptor.field_names(key)}
+        parsed = descriptor.parsed_values(key, val)
+        # Configuration's own display decides, by the field's names, on the raw text and on every value it
+        # parses into; a value that cannot be parsed for sure is masked
+        if (
+            parsed == []
+            or _mirrors_configuration_mask(descriptor, key, configuration_masked)
+            or any(_display(ctx, name, val, False)[1] for name in names)
+            or any(_display(ctx, name, value, False)[1] for name in names for value in parsed or ())
+        ):
+            display_val, masked = MASK, True
+    return display_val, masked
+
+
+def _unsafe_display(exposure: Exposure, safety: KeySafety, val: str | None) -> tuple[Any, bool]:
+    if val is None or exposure is Exposure.METADATA_ONLY:
+        return None, False
+    if exposure is Exposure.FULL and safety is KeySafety.UNSAFE_SCALAR:
+        return "**********", False  # pydantic's SecretStr placeholder, as Configuration shows
+    return "******", True
+
+
 def _source_properties(
     ctx: SharpitContext,
     source_name: str,
@@ -94,25 +125,9 @@ def _source_properties(
     for key, val in parse_env(content):
         safety = descriptor.classify(key)
         if safety is KeySafety.SAFE:
-            display_val, masked = _display(ctx, key, val, False)
-            if not masked and val is not None and exposure is not Exposure.METADATA_ONLY:
-                names = {key, *descriptor.field_names(key)}
-                parsed = descriptor.parsed_values(key, val)
-                # Configuration's own display decides, by the field's names, on the raw text and on every value it
-                # parses into; a value that cannot be parsed for sure is masked
-                if (
-                    parsed == []
-                    or _mirrors_configuration_mask(descriptor, key, configuration_masked)
-                    or any(_display(ctx, name, val, False)[1] for name in names)
-                    or any(_display(ctx, name, value, False)[1] for name in names for value in parsed or ())
-                ):
-                    display_val, masked = MASK, True
-        elif val is None or exposure is Exposure.METADATA_ONLY:
-            display_val, masked = None, False
-        elif exposure is Exposure.FULL and safety is KeySafety.UNSAFE_SCALAR:
-            display_val, masked = "**********", False  # pydantic's SecretStr placeholder, as Configuration shows
+            display_val, masked = _safe_display(ctx, key, val, descriptor, configuration_masked)
         else:
-            display_val, masked = "******", True
+            display_val, masked = _unsafe_display(exposure, safety, val)
 
         props.append(
             {

@@ -222,10 +222,15 @@ def parsed_candidates(annotation: object, raw: object, decoded: bool = False) ->
         return [v for v in args if v == raw or (not decoded and isinstance(v, (str, int)) and str(v) == raw)]
     if origin in _CONTAINERS:
         return _parsed_container(origin, args, raw, decoded)
+    return _parsed_scalar(annotation, raw, decoded)
+
+
+def _parsed_scalar(annotation: object, raw: object, decoded: bool) -> list[object]:
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         return [m for m in annotation if m.value == raw or (not decoded and str(m.value) == raw)]
     if annotation is str or annotation is pathlib.Path:
-        return [annotation(raw)] if isinstance(raw, str) else []
+        text_type = str if annotation is str else pathlib.Path
+        return [text_type(raw)] if isinstance(raw, str) else []
     if isinstance(annotation, type) and annotation in _SAFE_SCALARS:
         try:
             from pydantic import TypeAdapter
@@ -272,18 +277,22 @@ def is_secret_scalar(annotation: object) -> bool:
     if origin in (Union, types.UnionType):
         args = [a for a in get_args(annotation) if a is not None and a is not type(None)]
         return bool(args) and any(is_secret_scalar(a) for a in args)
+    return _is_pydantic_secret(annotation, origin)
+
+
+def _is_pydantic_secret(annotation: object, origin: object) -> bool:
     try:
         import pydantic
         from pydantic import SecretBytes, SecretStr
     except ImportError:
         return False
-    Secret = getattr(pydantic, "Secret", None)
-    if origin is not None and Secret is not None and origin is Secret:
+    secret_cls = getattr(pydantic, "Secret", None)
+    if origin is not None and secret_cls is not None and origin is secret_cls:
         return True
     if isinstance(annotation, type):
         if issubclass(annotation, (SecretStr, SecretBytes)):
             return True
-        if Secret is not None and issubclass(annotation, Secret):
+        if secret_cls is not None and issubclass(annotation, secret_cls):
             return True
     return False
 
@@ -413,14 +422,10 @@ def _rewritten_fields(cls: type[Any], cfg: object) -> tuple[bool, set[str]]:
 
 def _candidate_names(field: Any, fname: str, env_prefix: str, env_src: Any) -> set[str]:
     """Every environment name pydantic-settings may read ``fname`` from."""
-    candidate_names: set[str] = set()
-    candidate_names.add(fname)
-    candidate_names.add(fname.upper())
-    candidate_names.add(fname.lower())
+    candidate_names: set[str] = {fname, fname.upper(), fname.lower()}
     if env_prefix:
-        candidate_names.add(f"{env_prefix}{fname}")
-        candidate_names.add(f"{env_prefix}{fname}".upper())
-        candidate_names.add(f"{env_prefix}{fname}".lower())
+        prefixed = f"{env_prefix}{fname}"
+        candidate_names.update((prefixed, prefixed.upper(), prefixed.lower()))
 
     if field.alias:
         candidate_names.add(field.alias)
@@ -511,6 +516,14 @@ def _model_rules(cls: type[Any]) -> list[ModelFieldRule]:
     return rules
 
 
+def _env_file_config(cfg: object) -> tuple[object, str]:
+    """A settings class's ``env_file`` and its encoding (utf-8 when unset), from a dict or an object config."""
+    if isinstance(cfg, Mapping):
+        mapping = cast(Mapping[str, object], cfg)
+        return mapping.get("env_file"), str(mapping.get("env_file_encoding") or "utf-8")
+    return getattr(cfg, "env_file", None), str(getattr(cfg, "env_file_encoding", None) or "utf-8")
+
+
 def declared_profile_sources(models: Iterable[object]) -> list[ProfileSourceDescriptor]:
     """All declared profile sources with their encoding and field safety rules."""
     try:
@@ -523,18 +536,7 @@ def declared_profile_sources(models: Iterable[object]) -> list[ProfileSourceDesc
         cls = m if isinstance(m, type) else type(m)
         if not issubclass(cls, BaseSettings):
             continue
-        cfg = getattr(cls, "model_config", None)
-        env_file = (
-            cast(Mapping[str, object], cfg).get("env_file")
-            if isinstance(cfg, Mapping)
-            else getattr(cfg, "env_file", None)
-        )
-        raw_encoding = (
-            cast(Mapping[str, object], cfg).get("env_file_encoding")
-            if isinstance(cfg, Mapping)
-            else getattr(cfg, "env_file_encoding", None)
-        )
-        encoding = str(raw_encoding or "utf-8")
+        env_file, encoding = _env_file_config(getattr(cls, "model_config", None))
         rules = _model_rules(cls)
 
         for p in _paths(env_file):
