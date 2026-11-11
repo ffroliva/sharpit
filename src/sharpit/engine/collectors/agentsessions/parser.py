@@ -74,16 +74,17 @@ __all__ = [
     "url_hint",
 ]
 
+_EVENTS_FILE = "events.jsonl"
+
 
 def parse_session(
     path: Path,
-    layout: Layout,
     max_events: int = 2000,
     include_lifecycle: bool = False,
     max_bytes: int = 32 * 1024 * 1024,
 ) -> ParsedSession:
-    target = path / "events.jsonl" if path.is_dir() and (path / "events.jsonl").is_file() else path
-    session_id = target.parent.name if target.name == "events.jsonl" else target.stem
+    target = path / _EVENTS_FILE if path.is_dir() and (path / _EVENTS_FILE).is_file() else path
+    session_id = target.parent.name if target.name == _EVENTS_FILE else target.stem
     try:
         st = target.stat()
     except Exception:
@@ -92,14 +93,13 @@ def parse_session(
         summary["schemaDrift"] = True
         counts: dict[str, Any] = {"total": 0, "byCategory": {}, "errors": 0, "lastActivityEpochMillis": None}
         return ParsedSession(summary=summary, counts=counts)
-    return parse_session_file(session_id, target, st, layout, max_events, include_lifecycle, max_bytes)
+    return parse_session_file(session_id, target, st, max_events, include_lifecycle, max_bytes)
 
 
 def parse_session_file(
     session_id: str,
     path: Path,
     stat_result: Any,
-    layout: Layout,
     max_events: int = 2000,
     include_lifecycle: bool = False,
     max_bytes: int = 32 * 1024 * 1024,

@@ -157,9 +157,14 @@ def normalize_extension_hint(ext: str | None) -> str | None:
     return s[:12]
 
 
+def _display_name(tool_val: str | None, type_val: str | None) -> str:
+    if tool_val is not None:
+        return tool_val
+    return type_val if type_val is not None else "event"
+
+
 def sanitized_summary(type_val: str | None, tool_val: str | None, category: str, node: dict[str, Any]) -> str:
-    display = tool_val if tool_val is not None else (type_val if type_val is not None else "event")
-    res = f"{category} · {display}"
+    res = f"{category} · {_display_name(tool_val, type_val)}"
     if node.get("success") is False:
         res += " · failed"
     for k in ("path", "file", "target", "filePath", "filename", "url", "uri"):
@@ -193,8 +198,7 @@ def sanitized_jsonl_summary(
     data: dict[str, Any] | None,
     success: bool | None,
 ) -> str:
-    display = tool_val if tool_val is not None else (type_val if type_val is not None else "event")
-    res = f"{category} · {display}"
+    res = f"{category} · {_display_name(tool_val, type_val)}"
     if success is False:
         res += " · failed"
     ext = normalize_extension_hint(_extract_telemetry_ext(data))
@@ -308,18 +312,23 @@ def _from_usage_dict(u: dict[str, Any]) -> tuple[int | None, int | None]:
     )
 
 
+def _model_usage(mobj: Any) -> dict[str, Any] | None:
+    m_dict = _as_dict(mobj)
+    return _as_dict(m_dict.get("usage")) if m_dict else None
+
+
+def add_optional(total: int | None, part: int | None) -> int | None:
+    return total if part is None else (total or 0) + part
+
+
 def _from_model_metrics(mm: dict[str, Any]) -> tuple[int | None, int | None, bool] | None:
     in_tok, out_tok = None, None
     for mobj in mm.values():
-        m_dict = _as_dict(mobj)
-        if m_dict:
-            u = _as_dict(m_dict.get("usage"))
-            if u:
-                i, o = _from_usage_dict(u)
-                if i is not None:
-                    in_tok = (in_tok or 0) + i
-                if o is not None:
-                    out_tok = (out_tok or 0) + o
+        u = _model_usage(mobj)
+        if u:
+            i, o = _from_usage_dict(u)
+            in_tok = add_optional(in_tok, i)
+            out_tok = add_optional(out_tok, o)
     return (in_tok, out_tok, True) if (in_tok is not None or out_tok is not None) else None
 
 
@@ -447,7 +456,7 @@ class _BaseParser:
             "workingDirectory": self.cwd,
             "status": self.status,
             "eventCount": len(self.events),
-            "turnCount": len(self.turns) if self.turns else (1 if self.events else 0),
+            "turnCount": len(self.turns) or min(len(self.events), 1),
             "inputTokens": self.session_in_tokens,
             "outputTokens": self.session_out_tokens,
             "errorCount": len(self.failure_events),
@@ -491,6 +500,7 @@ __all__ = [
     "BaseParser",
     "Layout",
     "ParsedSession",
+    "add_optional",
     "as_dict",
     "as_list",
     "categorize",

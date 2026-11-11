@@ -22,7 +22,7 @@ def test_sanitized_summary_does_not_leak_sensitive_fields(tmp_path: Path) -> Non
         ]}""",
         encoding="utf-8",
     )
-    parsed = parse_session(session_file, Layout.COPILOT, 2000)
+    parsed = parse_session(session_file, 2000)
     assert len(parsed.events) == 1
     event = parsed.events[0]
     summary = event["summary"]
@@ -37,7 +37,7 @@ def test_session_detail_flags_schema_drift_for_unknown_shape(tmp_path: Path) -> 
     # ported: CopilotControllerTests.sessionDetailFlagsSchemaDriftForUnknownShape
     session_file = tmp_path / "weird.json"
     session_file.write_text('{"hello":"world"}', encoding="utf-8")
-    parsed = parse_session(session_file, Layout.COPILOT, 2000)
+    parsed = parse_session(session_file, 2000)
     assert parsed.summary["schemaDrift"] is True
     assert parsed.summary["eventCount"] == 0
 
@@ -52,7 +52,7 @@ def test_failure_events_include_inherited_tool_names(tmp_path: Path) -> None:
         '{"id":"failed","parentId":"start","type":"tool.execution_complete","timestamp":2,"data":{"success":false}}\n',
         encoding="utf-8",
     )
-    parsed = parse_session(events_file, Layout.COPILOT, 2000)
+    parsed = parse_session(events_file, 2000)
     assert len(parsed.failure_events) == 1
     fail = parsed.failure_events[0]
     assert fail["toolName"] == "create"
@@ -76,7 +76,7 @@ def test_copilot_jsonl_sessions_sanitized(tmp_path: Path) -> None:
         '"input":{"toolResult":{"textResultForLlm":"secret output"}}}}\n',
         encoding="utf-8",
     )
-    parsed = parse_session(events_file, Layout.COPILOT, 2000)
+    parsed = parse_session(events_file, 2000)
     assert parsed.summary["id"] == "session-1"
     assert parsed.summary["model"] == "gpt-5.5"
     assert parsed.summary["workingDirectory"] == "/work/project"
@@ -111,7 +111,7 @@ def test_session_files_confined_and_bounded(tmp_path: Path) -> None:
     # 3. Undecodable bytes
     bad_bytes_file = tmp_path / "bad_bytes.json"
     bad_bytes_file.write_bytes(b'{"events": [\xff\xfe invalid utf8]}')
-    parsed_bad = parse_session(bad_bytes_file, Layout.COPILOT, 2000)
+    parsed_bad = parse_session(bad_bytes_file, 2000)
     assert parsed_bad.summary["schemaDrift"] is True
 
     # 4. Partial last line in jsonl
@@ -123,7 +123,7 @@ def test_session_files_confined_and_bounded(tmp_path: Path) -> None:
         '{"id":"e2","type":"tool.execution_com',
         encoding="utf-8",
     )
-    parsed_partial = parse_session(partial_file, Layout.COPILOT, 2000)
+    parsed_partial = parse_session(partial_file, 2000)
     assert parsed_partial.summary["schemaDrift"] is True
     assert len(parsed_partial.events) == 1
     assert parsed_partial.events[0]["toolName"] == "grep"
@@ -153,7 +153,7 @@ def test_legacy_parser_raw_by_id_stores_path_and_line_tuple(tmp_path: Path) -> N
         '{"events":[{"type":"shell","tool":"bash","timestamp":1000,"summary":"run"}]}',
         encoding="utf-8",
     )
-    parsed = parse_session(legacy_file, Layout.COPILOT, 2000)
+    parsed = parse_session(legacy_file, 2000)
     assert len(parsed.events) == 1
     ev_id = parsed.events[0]["id"]
     raw_val = parsed.raw_by_id.get(ev_id)

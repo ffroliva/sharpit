@@ -437,7 +437,7 @@ def test_growing_file_beyond_cap_bounded_read(tmp_path: Path) -> None:
 
     growing = tmp_path / "growing.json"
     growing.write_text(json.dumps({"events": [{"type": "t", "tool": "grep"}] * 50}), encoding="utf-8")
-    parsed = parse_session(growing, Layout.COPILOT, max_events=2000, max_bytes=100)
+    parsed = parse_session(growing, max_events=2000, max_bytes=100)
     assert parsed.summary["schemaDrift"] is True, "Bounded read must flag schemaDrift on file exceeding cap"
     assert len(parsed.events) == 0
 

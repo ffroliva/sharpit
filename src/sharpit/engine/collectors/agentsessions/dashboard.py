@@ -108,6 +108,15 @@ def _aggregate_session_stats(
     return total_in, total_out, act_day, act_week, last_act
 
 
+def _fill_buckets(s: ParsedSession, buckets: dict[int, list[Any]], daily_buckets: dict[int, list[Any]]) -> None:
+    for b_start, (b_ev, b_err, b_in, b_out) in s.activity_by_hour.items():
+        if b_start in buckets:
+            _update_bucket(buckets[b_start], b_ev, b_err, b_in, b_out)
+        d_start = day_start(b_start)
+        if d_start in daily_buckets:
+            _update_bucket(daily_buckets[d_start], b_ev, b_err, b_in, b_out)
+
+
 def build_dashboard(
     sessions: list[ParsedSession],
     available: bool,
@@ -151,12 +160,7 @@ def build_dashboard(
         mod_counts[m] = mod_counts.get(m, 0) + 1
         for tool, cnt in s.tool_counts.items():
             tool_counts[tool] = tool_counts.get(tool, 0) + cnt
-        for b_start, (b_ev, b_err, b_in, b_out) in s.activity_by_hour.items():
-            if b_start in buckets:
-                _update_bucket(buckets[b_start], b_ev, b_err, b_in, b_out)
-            d_start = day_start(b_start)
-            if d_start in daily_buckets:
-                _update_bucket(daily_buckets[d_start], b_ev, b_err, b_in, b_out)
+        _fill_buckets(s, buckets, daily_buckets)
 
     top_tools = _metric_counts(tool_counts)[:DASHBOARD_TOP_LIMIT]
     visible_tool_events = sum(t["count"] for t in top_tools)

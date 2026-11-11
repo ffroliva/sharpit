@@ -7,6 +7,7 @@ from typing import Any, cast
 from sharpit.engine.collectors.agentsessions._common import (
     BaseParser,
     ParsedSession,
+    add_optional,
     as_dict,
     as_list,
     categorize,
@@ -22,6 +23,49 @@ from sharpit.engine.collectors.agentsessions._common import (
 )
 
 
+def _claude_event(
+    ev_id: str, turn_idx: int, ts: int | None, ev_type: str, t_name: str | None, success: bool | None
+) -> dict[str, Any]:
+    cat = categorize(ev_type, t_name)
+    summ = sanitized_jsonl_summary(ev_type, t_name, cat, None, success)
+    return {
+        "id": ev_id,
+        "turnIndex": turn_idx,
+        "timestampEpochMillis": ts,
+        "type": ev_type,
+        "toolName": truncate(t_name, 96),
+        "category": cat,
+        "summary": truncate(summ, 240),
+        "success": success,
+    }
+
+
+def _claude_block_event(
+    block: dict[str, Any],
+    b_idx: int,
+    line_no: int,
+    turn_idx: int,
+    ts: int | None,
+    tool_name_by_event_id: dict[str, str],
+) -> dict[str, Any] | None:
+    b_type = block.get("type")
+    if b_type == "tool_use":
+        t_name = first_string(block, "name")
+        if not t_name:
+            return None
+        b_id = first_string(block, "id") or f"l{line_no}-b{b_idx}"
+        tool_name_by_event_id[b_id] = t_name
+        return _claude_event(b_id, turn_idx, ts, "tool_use", t_name, True)
+    if b_type == "tool_result":
+        t_use_id = first_string(block, "tool_use_id", "toolUseId")
+        t_name = tool_name_by_event_id.get(t_use_id) if t_use_id else None
+        is_err = block.get("is_error")
+        succ_val = not is_err if isinstance(is_err, bool) else None
+        res_id = (t_use_id or f"l{line_no}-b{b_idx}-tool-result") + "-result"
+        return _claude_event(res_id, turn_idx, ts, "tool_result", t_name, succ_val)
+    return None
+
+
 def parse_claude_content_blocks(
     message: dict[str, Any],
     line_no: int,
@@ -34,49 +78,9 @@ def parse_claude_content_blocks(
     blocks = cast(list[Any], content_val) if isinstance(content_val, list) else [content_val]
     for b_idx, block_raw in enumerate(blocks):
         block = as_dict(block_raw)
-        if not block:
-            continue
-        b_type = block.get("type")
-        if b_type == "tool_use":
-            t_name = first_string(block, "name")
-            if not t_name:
-                continue
-            b_id = first_string(block, "id") or f"l{line_no}-b{b_idx}"
-            cat = categorize("tool_use", t_name)
-            summ = sanitized_jsonl_summary("tool_use", t_name, cat, None, True)
-            claude_events.append(
-                {
-                    "id": b_id,
-                    "turnIndex": turn_idx,
-                    "timestampEpochMillis": ts,
-                    "type": "tool_use",
-                    "toolName": truncate(t_name, 96),
-                    "category": cat,
-                    "summary": truncate(summ, 240),
-                    "success": True,
-                }
-            )
-            tool_name_by_event_id[b_id] = t_name
-        elif b_type == "tool_result":
-            t_use_id = first_string(block, "tool_use_id", "toolUseId")
-            t_name = tool_name_by_event_id.get(t_use_id) if t_use_id else None
-            is_err = block.get("is_error")
-            succ_val = not is_err if isinstance(is_err, bool) else None
-            cat = categorize("tool_result", t_name)
-            summ = sanitized_jsonl_summary("tool_result", t_name, cat, None, succ_val)
-            res_id = (t_use_id or f"l{line_no}-b{b_idx}-tool-result") + "-result"
-            claude_events.append(
-                {
-                    "id": res_id,
-                    "turnIndex": turn_idx,
-                    "timestampEpochMillis": ts,
-                    "type": "tool_result",
-                    "toolName": truncate(t_name, 96),
-                    "category": cat,
-                    "summary": truncate(summ, 240),
-                    "success": succ_val,
-                }
-            )
+        ev = _claude_block_event(block, b_idx, line_no, turn_idx, ts, tool_name_by_event_id) if block else None
+        if ev:
+            claude_events.append(ev)
     return claude_events
 
 
@@ -113,6 +117,22 @@ def extract_copilot_success(data: dict[str, Any] | None, node: dict[str, Any]) -
         if "ok" in st_low or "success" in st_low or "complete" in st_low:
             return True
     return succ
+
+
+def _turn_key(node: dict[str, Any], data: dict[str, Any] | None, type_val: str | None) -> str:
+    turn_key = None
+    if data:
+        turn_key = first_string(data, "turnId", "turn_id")
+        if not turn_key and type_val and type_val.startswith("assistant.turn"):
+            turn_key = first_string(data, "id", "messageId")
+    return turn_key or first_string(node, "uuid", "parentUuid", "parent_uuid") or "__session"
+
+
+def _widen_turn_window(t_acc: dict[str, Any], ts: int) -> None:
+    if t_acc["startedAt"] is None or ts < t_acc["startedAt"]:
+        t_acc["startedAt"] = ts
+    if t_acc["lastSeenAt"] is None or ts > t_acc["lastSeenAt"]:
+        t_acc["lastSeenAt"] = ts
 
 
 class JsonlParser(BaseParser):
@@ -157,14 +177,7 @@ class JsonlParser(BaseParser):
     def _get_turn_idx(
         self, node: dict[str, Any], data: dict[str, Any] | None, type_val: str | None, ts: int | None
     ) -> int:
-        turn_key = None
-        if data:
-            turn_key = first_string(data, "turnId", "turn_id")
-            if not turn_key and type_val and type_val.startswith("assistant.turn"):
-                turn_key = first_string(data, "id", "messageId")
-        if not turn_key:
-            turn_key = first_string(node, "uuid", "parentUuid", "parent_uuid") or "__session"
-
+        turn_key = _turn_key(node, data, type_val)
         if turn_key not in self.turn_accumulators:
             self.turn_accumulators[turn_key] = {
                 "index": len(self.turn_accumulators),
@@ -177,10 +190,7 @@ class JsonlParser(BaseParser):
             }
         t_acc = self.turn_accumulators[turn_key]
         if ts is not None:
-            if t_acc["startedAt"] is None or ts < t_acc["startedAt"]:
-                t_acc["startedAt"] = ts
-            if t_acc["lastSeenAt"] is None or ts > t_acc["lastSeenAt"]:
-                t_acc["lastSeenAt"] = ts
+            _widen_turn_window(t_acc, ts)
         t_acc["eventCount"] += 1
         if not t_acc["summary"] and type_val:
             t_acc["summary"] = type_val
@@ -204,17 +214,14 @@ class JsonlParser(BaseParser):
 
     def _apply_incremental_tokens(self, in_tok: int | None, out_tok: int | None, ts: int | None, turn_idx: int) -> None:
         self._apply_turn_tokens(in_tok, out_tok, turn_idx)
-        if not self.authoritative_tokens:
-            if in_tok is not None:
-                self.session_in_tokens = (self.session_in_tokens or 0) + in_tok
-            if out_tok is not None:
-                self.session_out_tokens = (self.session_out_tokens or 0) + out_tok
-            if ts is not None:
-                rec = self.incremental_token_by_hour.setdefault(hour_start(ts), [0, 0, None, None])
-                if in_tok is not None:
-                    rec[2] = (rec[2] or 0) + in_tok
-                if out_tok is not None:
-                    rec[3] = (rec[3] or 0) + out_tok
+        if self.authoritative_tokens:
+            return
+        self.session_in_tokens = add_optional(self.session_in_tokens, in_tok)
+        self.session_out_tokens = add_optional(self.session_out_tokens, out_tok)
+        if ts is not None:
+            rec = self.incremental_token_by_hour.setdefault(hour_start(ts), [0, 0, None, None])
+            rec[2] = add_optional(rec[2], in_tok)
+            rec[3] = add_optional(rec[3], out_tok)
 
     def _accumulate_tokens(
         self,

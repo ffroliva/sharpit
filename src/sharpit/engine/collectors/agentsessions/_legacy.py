@@ -6,6 +6,7 @@ from typing import Any, cast
 from sharpit.engine.collectors.agentsessions._common import (
     BaseParser,
     ParsedSession,
+    add_optional,
     as_dict,
     categorize,
     default_summary,
@@ -56,45 +57,47 @@ class LegacyParser(BaseParser):
         in_t, out_t, _ = extract_tokens_from_dict(node, None, None)
         record_activity(self.activity_by_hour, ts, succ, in_t, out_t)
 
+    def _add_session_tokens(self, in_tok: int | None, out_tok: int | None) -> None:
+        self.session_in_tokens = add_optional(self.session_in_tokens, in_tok)
+        self.session_out_tokens = add_optional(self.session_out_tokens, out_tok)
+
+    def _process_turn(self, t_idx: int, turn_obj: dict[str, Any]) -> None:
+        turn_start = parse_timestamp(
+            turn_obj.get("started_at")
+            or turn_obj.get("startedAt")
+            or turn_obj.get("timestamp")
+            or turn_obj.get("created_at")
+        )
+        duration_ms = first_int(turn_obj, "duration_ms", "durationMs", "duration")
+        turn_summary = first_string(turn_obj, "summary", "title", "intent")
+        before_cnt = len(self.events)
+
+        sub_events = first_list(turn_obj, "events", "activity", "tool_calls", "toolCalls") or []
+        for i_idx, ev in enumerate(sub_events):
+            ev_dict = as_dict(ev)
+            if ev_dict and len(self.events) < self.max_events:
+                self.add_event(ev_dict, t_idx, i_idx)
+
+        t_in, t_out, _ = extract_tokens_from_dict(turn_obj, None, None)
+        self._add_session_tokens(t_in, t_out)
+
+        self.turns.append(
+            {
+                "index": t_idx,
+                "startedAtEpochMillis": turn_start,
+                "durationMillis": duration_ms,
+                "summary": turn_summary,
+                "eventCount": len(self.events) - before_cnt,
+                "inputTokens": t_in,
+                "outputTokens": t_out,
+            }
+        )
+
     def process_turns(self, turns_raw: list[Any]) -> None:
         for t_idx, turn_raw in enumerate(turns_raw):
             turn_obj = as_dict(turn_raw)
-            if not turn_obj:
-                continue
-            turn_start = parse_timestamp(
-                turn_obj.get("started_at")
-                or turn_obj.get("startedAt")
-                or turn_obj.get("timestamp")
-                or turn_obj.get("created_at")
-            )
-            duration_ms = first_int(turn_obj, "duration_ms", "durationMs", "duration")
-            turn_summary = first_string(turn_obj, "summary", "title", "intent")
-            before_cnt = len(self.events)
-
-            sub_events = first_list(turn_obj, "events", "activity", "tool_calls", "toolCalls")
-            if sub_events:
-                for i_idx, ev in enumerate(sub_events):
-                    ev_dict = as_dict(ev)
-                    if ev_dict and len(self.events) < self.max_events:
-                        self.add_event(ev_dict, t_idx, i_idx)
-
-            t_in, t_out, _ = extract_tokens_from_dict(turn_obj, None, None)
-            if t_in is not None:
-                self.session_in_tokens = (self.session_in_tokens or 0) + t_in
-            if t_out is not None:
-                self.session_out_tokens = (self.session_out_tokens or 0) + t_out
-
-            self.turns.append(
-                {
-                    "index": t_idx,
-                    "startedAtEpochMillis": turn_start,
-                    "durationMillis": duration_ms,
-                    "summary": turn_summary,
-                    "eventCount": len(self.events) - before_cnt,
-                    "inputTokens": t_in,
-                    "outputTokens": t_out,
-                }
-            )
+            if turn_obj:
+                self._process_turn(t_idx, turn_obj)
 
     def process_events(self, events_raw: list[Any]) -> None:
         for i_idx, ev in enumerate(events_raw):
@@ -102,10 +105,7 @@ class LegacyParser(BaseParser):
             if ev_dict and len(self.events) < self.max_events:
                 self.add_event(ev_dict, 0, i_idx)
                 in_t, out_t, _ = extract_tokens_from_dict(ev_dict, None, None)
-                if in_t is not None:
-                    self.session_in_tokens = (self.session_in_tokens or 0) + in_t
-                if out_t is not None:
-                    self.session_out_tokens = (self.session_out_tokens or 0) + out_t
+                self._add_session_tokens(in_t, out_t)
 
     def process_messages(self, messages_raw: list[Any]) -> None:
         valid: list[Any] = []

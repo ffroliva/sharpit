@@ -45,6 +45,15 @@ def _in_window(timestamp: int | None, since: int | None, until: int | None) -> b
     return until is None or timestamp < until
 
 
+def _matches_window(ps: ParsedSession, since: int | None, until: int | None) -> bool:
+    if since is None and until is None:
+        return True
+    if any(_in_window(b_start, since, until) for b_start in ps.activity_by_hour):
+        return True
+    fallback = ps.counts.get("lastActivityEpochMillis") or ps.summary.get("updatedAtEpochMillis")
+    return _in_window(fallback, since, until)
+
+
 def _is_confined(target: Path | os.DirEntry[str], root: Path) -> bool:
     if target.is_symlink():
         return False
@@ -180,17 +189,14 @@ class SessionStore:
                 existing = self._sessions.get(sess_id)
                 if existing is not None and existing.file_size == st.st_size and existing.file_mtime == mtime_ms:
                     continue
-                parsed = parse_session(
-                    file_path, self.layout, self.settings.max_events_per_session, include_lifecycle=True
-                )
+                parsed = parse_session(file_path, self.settings.max_events_per_session, include_lifecycle=True)
                 with contextlib.suppress(Exception):
                     parsed.summary["filename"] = str(file_path.relative_to(self.dir_path)).replace("\\", "/")
                 self._sessions[sess_id] = parsed
 
             # Prune removed or out-of-cap sessions
-            for k in list(self._sessions.keys()):
-                if k not in seen_ids:
-                    del self._sessions[k]
+            for k in self._sessions.keys() - seen_ids:
+                del self._sessions[k]
 
             return len(self._sessions)
 
@@ -227,19 +233,10 @@ class SessionStore:
                 "warnings": [],
             }
 
-        def matches_window(ps: ParsedSession) -> bool:
-            if since is None and until is None:
-                return True
-            for b_start in ps.activity_by_hour:
-                if _in_window(b_start, since, until):
-                    return True
-            fallback = ps.counts.get("lastActivityEpochMillis") or ps.summary.get("updatedAtEpochMillis")
-            return _in_window(fallback, since, until)
-
         with self._lock:
             sessions_snapshot = list(self._sessions.values())
 
-        matching = [ps for ps in sessions_snapshot if matches_window(ps)]
+        matching = [ps for ps in sessions_snapshot if _matches_window(ps, since, until)]
         sorted_sessions = sorted(
             matching,
             key=lambda s: (
@@ -251,20 +248,7 @@ class SessionStore:
         )
         limited = sorted_sessions[:max_s]
         summaries = [s.summary for s in limited]
-
-        warnings: list[str] = []
-        cap_w = self._cap_warning()
-        if cap_w:
-            warnings.append(cap_w)
-        if len(sorted_sessions) > len(limited):
-            warnings.append(
-                f"Showing the {len(limited)} most recent {self._panel_title} sessions out of {len(sorted_sessions)}."
-            )
-        if any(s.get("schemaDrift") for s in summaries):
-            warnings.append(
-                f"One or more sessions did not match the expected {self._source_name} schema; "
-                "some details may be missing."
-            )
+        warnings = self._sessions_warnings(len(sorted_sessions), summaries)
 
         return {
             "available": True,
@@ -276,6 +260,20 @@ class SessionStore:
             "sessions": summaries,
             "warnings": warnings,
         }
+
+    def _sessions_warnings(self, total: int, summaries: list[dict[str, Any]]) -> list[str]:
+        warnings: list[str] = []
+        cap_w = self._cap_warning()
+        if cap_w:
+            warnings.append(cap_w)
+        if total > len(summaries):
+            warnings.append(f"Showing the {len(summaries)} most recent {self._panel_title} sessions out of {total}.")
+        if any(s.get("schemaDrift") for s in summaries):
+            warnings.append(
+                f"One or more sessions did not match the expected {self._source_name} schema; "
+                "some details may be missing."
+            )
+        return warnings
 
     def dashboard(self, *, refresh: bool = True) -> dict[str, Any]:
         if refresh:
@@ -364,4 +362,5 @@ class SessionStore:
         }
 
     def raw(self, session_id: str, event_id: str) -> None:
-        return None
+        # The route's call signature; raw lines are never retained, so nothing can be revealed.
+        del session_id, event_id
