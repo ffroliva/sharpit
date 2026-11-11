@@ -142,8 +142,9 @@ def corpus_app(
     )
     assert ctx.lazy("vulnerabilities", lambda: service) is service
     registry = CollectorRegistry()
-    Gauge("masking_canary", f"dsn postgres://u:{SENTINEL}@db/metrics", registry=registry, labelnames=["value"]).labels(
-        f"postgres://u:{SENTINEL}@db/metrics"
+    labels = ["value", "password", "token", "api_key"]
+    Gauge("masking_canary", f"dsn postgres://u:{SENTINEL}@db/metrics", labels, registry=registry).labels(
+        f"postgres://u:{SENTINEL}@db/metrics", SENTINEL, SENTINEL, SENTINEL
     ).set(1)
     monkeypatch.setattr(metrics_prometheus, "REGISTRY", registry)
     return app, ctx

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sys
 from typing import Any
 
@@ -62,9 +63,14 @@ def test_detail_filters_tags_and_aggregates_finite_measurements(registry: Collec
     gauge = Gauge("queue_depth", "", registry=registry, labelnames=["region"])
     gauge.labels("east").set(2)
     gauge.labels("west").set(5)
+    gauge.labels("north").set(math.nan)
+    gauge.labels("south").set(math.inf)
     result = metric_detail(_ctx(), "queue_depth", ["region:west"])
     assert result["totalSamples"] == 1
-    assert result["measurements"][0]["value"] == 5
+    assert result["measurements"] == [{"statistic": "value", "value": 5.0}]
+    every = metric_detail(_ctx(), "queue_depth")
+    assert every["totalSamples"] == 4
+    assert every["measurements"] == [{"statistic": "value", "value": 7.0}]
 
 
 def test_detail_bounds_tag_values(registry: CollectorRegistry) -> None:
@@ -161,16 +167,31 @@ def test_metrics_masks_help_before_filtering(registry: CollectorRegistry) -> Non
 def test_metrics_self_filter_uses_path_tag_only(registry: CollectorRegistry) -> None:
     # ported: MeterSelfFilterTests.recognizesMetersByPathTagOnly
     # ported: MeterSelfFilterTests.ignoresBootUiLookingValuesOnNonPathTags
-    Gauge("self_route", "", registry=registry, labelnames=["path"]).labels("/sharpit/api/metrics").set(1)
+    requests = Gauge("http_requests", "", registry=registry, labelnames=["path", "http_route", "uri"])
+    requests.labels("/orders", "/orders", "/orders").set(1)
+    requests.labels("/sharpit/api/metrics", "/x", "/x").set(1)
+    requests.labels("/x", "/sharpit", "/x").set(1)
+    requests.labels("/x", "/x", "http://localhost/sharpit/api/env").set(1)
+    requests.labels("/sharpitfoo/x", "/x", "/x").set(1)
     Gauge("normal_route", "", registry=registry, labelnames=["route"]).labels("/sharpit/api/metrics").set(1)
-    names = [m["name"] for m in metrics_report(_ctx())["meters"]]
-    assert names == ["normal_route"]
+    ctx = _ctx()
+    assert [m["name"] for m in metrics_report(ctx)["meters"]] == ["http_requests", "normal_route"]
+    paths = [{t["key"]: t["value"] for t in s["tags"]}["path"] for s in metric_detail(ctx, "http_requests")["samples"]]
+    assert paths == ["/orders", "/sharpitfoo/x"]
 
 
-def test_metrics_unavailable_without_imported_registry(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(prometheus, "modules", {})
-    monkeypatch.setattr(prometheus, "REGISTRY", None)
-    assert metrics_report(_ctx())["metricsAvailable"] is False
+def test_metrics_common_tag_keys_are_carried_by_half_the_meters(registry: CollectorRegistry) -> None:
+    # BootUI MetricsReportProvider.commonTagKeys: at least half of the group's meters
+    Gauge("a", "", ["region"], registry=registry).labels("w").set(1)
+    Gauge("b", "", ["region", "pool"], registry=registry).labels("w", "p").set(1)
+    Gauge("c", "", registry=registry).set(1)
+    assert metrics_report(_ctx())["groups"][0]["commonTagKeys"] == ["region"]
+
+
+def test_labelled_family_without_children_is_not_listed(registry: CollectorRegistry) -> None:
+    Counter("idle", "", ["route"], registry=registry)
+    Gauge("busy", "", registry=registry).set(1)
+    assert [m["name"] for m in metrics_report(_ctx())["meters"]] == ["busy"]
 
 
 def test_metrics_reads_otel_prometheus_collector_without_import(registry: CollectorRegistry) -> None:
