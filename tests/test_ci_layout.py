@@ -118,6 +118,33 @@ def test_every_pytest_step_uploads_its_junit_and_overhead_records() -> None:
     assert parse_artifact("junit-test-shard-ubuntu-latest-3.12-0") == ("test-shard", "ubuntu-latest-3.12-0")
 
 
+SPEED_DIR = "${{ runner.temp }}/speed"
+
+
+PYTEST_JOBS = [name for name, body in JOBS.items() if re.search(r"^\s*(?:- )?run:.*\bpytest\b", body, re.MULTILINE)]
+
+
+@pytest.mark.parametrize("job", PYTEST_JOBS)
+def test_every_pytest_job_records_fixture_times_and_rebuilds_and_uploads_them(job: str) -> None:
+    """pytest-speed step 1 ranks CI's own runs: each pytest run writes fixture times and rebuild counts."""
+    runs = [line for line in JOBS[job].splitlines() if re.search(r"^\s*(?:- )?run:.*\bpytest\b", line)]
+    assert runs
+    for line in runs:
+        assert "-p scripts.pytest_speed.fixture_timer --fixture-times=" in line, line
+        assert "-p scripts.pytest_speed.rebuild_log --rebuild-log=" in line, line
+        assert re.search(r"--fixture-times=\\?\"?(?:\$\{\{ runner\.temp \}\}|\$RUNNER_TEMP)/speed/", line), line
+        assert re.search(r"--rebuild-log=\\?\"?(?:\$\{\{ runner\.temp \}\}|\$RUNNER_TEMP)/speed/", line), line
+    body = JOBS[job]
+    assert body.index(f'os.makedirs(sys.argv[1], exist_ok=True)" "{SPEED_DIR}"') < body.index(runs[0])
+    assert f'--values-file "${{{{ runner.temp }}}}/sharpit-canary.txt" "{SPEED_DIR}"' in body
+    upload = body.split(f"name: speed-{job}", 1)
+    assert len(upload) == 2, f"{job} uploads no speed-{job}-* artifact"
+    tail = upload[1].split("\n      - ", 1)[0]
+    assert f"path: {SPEED_DIR}" in tail
+    assert "retention-days: 7" in tail
+    assert "steps.scan-speed.outcome == 'success'" in upload[0].rsplit("\n      - ", 1)[1]
+
+
 def test_full_extras_installs_every_optional_gatekeeper_distribution() -> None:
     from tests.engine.test_import_boundary import GATEKEEPERS
 
