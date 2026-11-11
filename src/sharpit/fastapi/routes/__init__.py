@@ -647,6 +647,7 @@ def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         *_read_routes(ctx),
         *_http_exchange_routes(ctx),
         *_http_probe_routes(ctx, host_app),
+        *low_footprint(ctx),
         *_activity_routes(ctx),
         *_exception_routes(ctx),
         *_exception_status_routes(ctx),
@@ -660,6 +661,5 @@ def build_routes(ctx: SharpitContext, host_app: Any) -> list[BaseRoute]:
         *_dismissed_routes(ctx),
         *_mcp_routes(ctx),
         *_cli_routes(ctx),
-        *low_footprint(ctx),
         *_panel_04_routes(ctx, host_app),
     ]
