@@ -141,6 +141,7 @@ the panels below; trust `/panels` over this table if they ever disagree:
 | CLI | `GET {api}/cli`, `POST {api}/cli/tools/{tool}` | the same tool catalogue as MCP, plus the 19 action tools (see Actions below), over plain HTTP. The `sharpit` command-line binary is planned, not shipped |
 | Data | `GET {api}/data/repositories`, `GET {api}/data/repositories/{name}` | SQLAlchemy mapped classes: table, primary-key type, relationships. Needs `install(app, models=Base)` and SQLAlchemy 2.0+. MCP: `get_data_repositories` |
 | PostgreSQL | `GET {api}/postgresql`, `POST {api}/postgresql/read` | vital signs, sessions, statements, indexes, tables, vacuum, replication, settings. Read only on the POST, in one read-only transaction with statement and lock timeouts, a read budget and row limits; GET returns the last read. MCP: `get_postgresql_report` |
+| AI Framework | `GET {api}/ai/overview`, `GET {api}/ai/chats`, `GET {api}/ai/chats/{spanId}`, `GET {api}/ai/tokens` | GenAI usage from the app's OpenTelemetry span ring. Prompt/completion content is hidden unless `SHARPIT_EXPOSE_VALUES=FULL`. MCP: `get_ai_overview`; CLI: `ai overview` |
 
 The `sqlalchemy-statistics` panel (BootUI's `hibernate-statistics`; `GET {api}/sqlalchemy-statistics`, MCP
 `get_sqlalchemy_statistics`) shows statement counts from SQL Trace's lifetime totals, the slowest statement and N+1
@@ -160,7 +161,7 @@ Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": ".
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 40 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 41 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
 `query` and `limit` (capped by `SHARPIT_MCP_MAX_RESULTS`). The names and the read or action split match BootUI 2.3.0
 where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
@@ -171,6 +172,7 @@ where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 - Database: `get_sql_traces`, `get_sql_trace_insights`, `get_sqlalchemy_statistics`, `get_transactions`,
   `get_database_connection_pools`, `get_alembic_migrations`, `get_postgresql_report`, `get_mysql_report`.
 - Runtime: `get_health`, `get_threads`, `get_startup_timeline`, `get_traces`, `get_low_footprint`.
+- AI Framework: `get_ai_overview` (CLI: `ai overview`).
 - Advisors and security (a report tool and a per-rule violations tool each, neither starts a scan):
   `get_vulnerabilities_report`; `get_rest_api_report`, `get_rest_api_rule_violations`; `get_security_report`,
   `get_security_rule_violations`; `get_database_advisor_report`, `get_database_advisor_rule_violations`;
