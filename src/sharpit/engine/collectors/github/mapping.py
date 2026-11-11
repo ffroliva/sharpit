@@ -42,20 +42,23 @@ def text(node: Json, name: str) -> str | None:
 
 _LONG = (-(2**63), 2**63 - 1)
 _INT = (-(2**31), 2**31 - 1)
-_INTEGER = re.compile(r"-?\d+")
+_INTEGER = re.compile(r"[+-]?[0-9]+")  # ASCII digits only: Jackson gives the default for any other digit
+_LONG_DIGITS = 19
 
 
 def _coerce(value: object, bounds: tuple[int, int]) -> int | None:
     """Jackson 3.1.7 numeric coercion (probed against jackson-databind 3.1.7): an in-range number, a fraction
-    truncated, or an integer string; anything else (out of range, boolean, container, other text) is ``None``."""
+    truncated, or an integer string; anything else (out of range, boolean, container, other text) is ``None``.
+    A float is range-checked as Java does, against the bound as a double, so 9.223372036854775807e18 (2**63 as a
+    double) still converts and saturates to the long maximum."""
     low, high = bounds
     number: int | None = None
-    if isinstance(value, float) and math.isfinite(value) and low <= value <= high:
-        number = min(high, int(value))
+    if isinstance(value, float) and math.isfinite(value) and float(low) <= value <= float(high):
+        number = max(low, min(high, int(value)))
     elif isinstance(value, int) and not isinstance(value, bool):
         number = value
-    elif isinstance(value, str) and _INTEGER.fullmatch(value):
-        number = int(value)
+    elif isinstance(value, str) and _INTEGER.fullmatch(value) and len(value.lstrip("+-").lstrip("0")) <= _LONG_DIGITS:
+        number = int(value)  # the length check keeps int() far below Python's digit limit
     return number if number is not None and low <= number <= high else None
 
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import re
 import time
 import urllib.error
@@ -39,6 +40,7 @@ QUOTA_WARNING = "Optional GitHub calls were skipped because the core API quota i
 QUOTA_MESSAGE = "GitHub rate limits loaded; live repository calls were skipped to preserve remaining quota."
 _QUOTA_COPILOT = "Live repository calls were skipped to preserve remaining quota."
 _ORGANIZATION = "Organization"
+_MAX_INT_DIGITS = 4000  # below sys.get_int_max_str_digits() (4300)
 _PAGE_SIZE = 100
 _INT_MAX = 2**31 - 1  # Java Integer.parseInt bound on the Link page number
 _PAGE_NUMBER = re.compile(r"[+-]?\d+")
@@ -253,11 +255,17 @@ def _reject_constant(name: str) -> Any:
     raise ValueError(name)
 
 
+def _parse_int(digits: str) -> int | float:
+    """A JSON integer; one too long for Python's int-digit limit is out of any Jackson range anyway (infinity makes
+    ``as_long`` give its default, as Jackson's ``BigIntegerNode.asLong(default)`` does)."""
+    return int(digits) if len(digits) <= _MAX_INT_DIGITS else math.inf
+
+
 def _parse(body: bytes) -> Any:
     if not body.strip():
         return {}
     try:
-        return json.loads(body, parse_constant=_reject_constant)
+        return json.loads(body, parse_constant=_reject_constant, parse_int=_parse_int)
     except (ValueError, RecursionError):  # sharpit: BootUI's Jackson 3 throws unchecked here; report ERROR instead
         raise _Failed from None
 
