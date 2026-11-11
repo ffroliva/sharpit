@@ -254,7 +254,8 @@ jobs:
           retention-days: 7
 
   coverage:
-    # Combines the shards' data into the coverage.xml sonar reads; required check, fails unless every shard passed.
+    # Required check, fails unless every coverage shard passed; combines their data into coverage.xml for people.
+    # sonar combines the same data itself, so it never waits for this job.
     needs: [coverage-shard, changes]
     if: always()
     runs-on: ubuntu-latest
@@ -290,7 +291,9 @@ jobs:
           retention-days: 1
 
   sonar:
-    needs: [coverage, changes]
+    # Combines the coverage leg's data itself (one job, no handoff), then the quality gate (sonar.qualitygate.wait)
+    # and the ratchet: both stay in this required check, so a PR cannot merge until both pass.
+    needs: [coverage-shard, changes]
     runs-on: ubuntu-latest
     # always(): report change-detection and coverage failures in this required check too.
     if: always()
@@ -303,16 +306,25 @@ jobs:
       - if: needs.changes.outputs.code == 'false'
         run: echo "Docs-only change; Sonar check is a no-op."
       - if: needs.changes.outputs.code != 'false'
-        run: test "${{ needs.coverage.result }}" = success
+        run: test "${{ needs.coverage-shard.result }}" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: needs.changes.outputs.code != 'false'
         with:
           persist-credentials: false
           fetch-depth: 0 # blame and new-code detection need full history
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: needs.changes.outputs.code != 'false'
+        with:
+          enable-cache: true # uv's download and wheel cache, keyed on uv.lock
+      - if: needs.changes.outputs.code != 'false'
+        run: uv sync --locked --extra test --python 3.13 # NOSONAR - the report reads sharpit's sources and coverage's config
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.changes.outputs.code != 'false'
         with:
-          name: coverage-xml
+          pattern: coverage-data-*
+          merge-multiple: true
+      - if: needs.changes.outputs.code != 'false'
+        run: uv run --no-sync coverage combine coverage-*.data && uv run --no-sync coverage xml
       - name: Read project version
         id: version
         if: needs.changes.outputs.code != 'false'
@@ -329,6 +341,15 @@ jobs:
             echo "up=false" >> "$GITHUB_OUTPUT"
             echo "::warning::SonarCloud is unreachable; scan skipped for this run (not a code failure)."
           fi
+      - name: Cache the Sonar scanner (JRE and analyzers)
+        if: >-
+          needs.changes.outputs.code != 'false' && steps.health.outputs.up == 'true' &&
+          github.actor != 'dependabot[bot]' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.sonar/cache
+          key: sonar-${{ runner.os }}-v8.4.1 # the scan action's version: a new pin downloads a fresh scanner
       - name: SonarCloud scan
         if: >-
           needs.changes.outputs.code != 'false' && steps.health.outputs.up == 'true' &&
