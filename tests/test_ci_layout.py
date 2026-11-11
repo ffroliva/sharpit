@@ -544,7 +544,7 @@ def test_workflow_lint_and_the_sharpit_gate_run_inside_lint() -> None:
         "uvx --from actionlint-py==1.7.12.25 actionlint",
         "uvx zizmor@1.32.0 --offline --min-severity medium .github/workflows",
         "pytest examples/fastapi_sqla/tests_gate -k fixed --sharpit --sharpit-junit=sharpit-junit.xml",
-        '"! uv run --no-sync pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit',
+        '"! uv run --no-sync python -m pytest examples/fastapi_sqla/tests_gate -k n_plus_one --sharpit',
     ):
         assert step in lint, step
 
