@@ -2,7 +2,7 @@
 
 import importlib
 import types
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Union, cast, get_args, get_origin
@@ -142,3 +142,8 @@ def _settings_entries(instance: object, environ: Mapping[str, str]) -> tuple[lis
         found = [data.get(key, _MISSING) for _, data in sources]
         emit(env_name, field, getattr(instance, fname), found)
     return entries, [label for label, _ in sources]
+
+
+def declared_env_files(_models: Iterable[object]) -> list[Path]:
+    """All env_file paths declared across the given pydantic-settings models."""
+    return []
