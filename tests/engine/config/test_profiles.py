@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from enum import Enum, StrEnum
+from enum import Enum, Flag, StrEnum
 from pathlib import Path
 from typing import Annotated, TypedDict
 
@@ -1203,4 +1203,42 @@ def test_profile_diff_json_field_masked_whatever_its_inner_type_get_and_mcp(
     (tmp_path / ".env.prod").write_text("F='\"zqx41\"'\n", encoding="utf-8")
     settings = _settings_class({"f": annotation}, ".env.prod")()
 
+    _assert_profile_key_masked((settings,), "F")
+
+
+class _LvM(Enum):
+    TOKEN = "zqx_m"
+    PLAIN = "plain"
+
+    @classmethod
+    def _missing_(cls, value: object) -> _LvM | None:
+        return cls.TOKEN if isinstance(value, str) and value.lower().startswith("zqx") else None
+
+
+class _Perm(Flag):
+    READ = 1
+    TOKEN = 2
+
+
+@pytest.mark.parametrize(
+    ("annotation", "line"),
+    [
+        pytest.param(_LvM | None, "F=zqx_alias", id="E03-enum-missing-hook"),
+        pytest.param(list[_Perm] | None, "F=[3]", id="E08-list-flag-combined"),
+        pytest.param(list[str] | None, r'F=["\u0070assword=zqx"]', id="J01-json-escaped-password"),
+        pytest.param(list[str] | None, r'F=["postgres:\/\/u:zqx@h\/db"]', id="J02-json-escaped-url"),
+        pytest.param(list[Path] | None, r'F=["\/run\/secr\u0065ts\/zqx"]', id="P09-json-escaped-path"),
+    ],
+)
+def test_profile_diff_value_whose_text_differs_from_parsed_value_masked_get_and_mcp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, annotation: object, line: str
+) -> None:
+    # The raw .env text hides what Configuration masks in the parsed value (an Enum hook, a Flag, JSON escapes).
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHARPIT_PROFILES", "prod")
+    (tmp_path / ".env.prod").write_text(line + "\n", encoding="utf-8")
+    settings = _settings_class({"f": annotation}, ".env.prod")()
+
+    cfg = config_report(_ctx(settings=(settings,)), None, None, False, None, None)
+    assert next(p for p in cfg["properties"] if p["name"] == "F")["masked"] is True
     _assert_profile_key_masked((settings,), "F")
