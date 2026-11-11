@@ -29,11 +29,22 @@ REPO = f"/repos/{ORG}/boot-ui"
 BUDGET_TEXT = "because the configured GitHub API call budget was reached."
 
 
+class _Output(io.BytesIO):
+    """gh's stdout; ``consumed`` survives ``close()``."""
+
+    consumed = 0
+
+    def read(self, size: int | None = -1, /) -> bytes:
+        data = super().read(size)
+        self.consumed += len(data)
+        return data
+
+
 class FakeProc:
     """A ``subprocess.Popen`` result: ``stdout`` to read, ``wait`` records its timeout, ``kill`` is counted."""
 
     def __init__(self, stdout: bytes, returncode: int, hangs: bool) -> None:
-        self.stdout = io.BytesIO(stdout)
+        self.stdout = _Output(stdout)
         self.returncode = returncode
         self.hangs = hangs
         self.waited: list[float | None] = []
@@ -152,7 +163,7 @@ def test_gh_failures_give_no_token(runner: Runner, gh_env: dict[str, str]) -> No
 def test_gh_output_is_read_bounded(gh_env: dict[str, str]) -> None:
     runner = Runner(b"x" * 5000)
     assert resolve_token(5.0, gh_env, runner) is None
-    assert runner.procs[0].stdout.tell() <= 4097
+    assert runner.procs[0].stdout.consumed <= 4097
 
 
 def test_a_missing_or_non_positive_timeout_falls_back_to_the_default_instead_of_failing(
