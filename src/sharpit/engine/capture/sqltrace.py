@@ -149,9 +149,10 @@ def entry_dto(row: dict[str, Any]) -> dict[str, Any]:
         "requestId": row["traceId"],
         "executionId": None,
         "threadKind": None,
-        "requestPhase": None,
+        "requestPhase": row.get("phase"),
     }
     dto.pop("shape", None)  # internal: kept for grouping without re-normalising
+    dto.pop("phase", None)  # internal: the lifespan phase, shown as ``requestPhase``
     return dto
 
 
@@ -204,6 +205,8 @@ class SqlTraceRecorder:
         self._n_plus_one_threshold = n_plus_one_threshold
         self.capture_call_site = capture_call_site
         self.recording = recording
+        # STARTUP or SHUTDOWN while the adapter observes the host's lifespan in that phase; None (unknown) otherwise
+        self.lifespan_phase: str | None = None
         self._entries: deque[dict[str, Any]] = deque(maxlen=max_entries)
         self._aggregates: OrderedDict[str, _Aggregate] = OrderedDict()
         self._ids = itertools.count(1)
@@ -305,6 +308,7 @@ class SqlTraceRecorder:
             "traceId": request_id,
             "callSite": site,
             "shape": shape,
+            "phase": self.lifespan_phase if request_id is None else None,
         }
         with self._lock:
             row["id"] = next(self._ids)

@@ -33,6 +33,21 @@ def test_gate_does_not_hide_a_failing_test(pytester: pytest.Pytester) -> None:
     assert "sharpit: sharpit.n-plus-one" in result.stdout.str()
 
 
+def test_gate_failure_never_overwrites_a_nonzero_pytest_status(pytester: pytest.Pytester) -> None:
+    # exit code 3 is neither 0 nor the gate's own 1, so a gate that overwrote pytest's status would show
+    pytester.makepyfile(
+        "import pytest\n\n"
+        + _test_source("test_repeated_selects", "test_halts")
+        + "\n    pytest.exit('halt', returncode=3)"
+    )
+
+    result = pytester.runpytest_inprocess(*_SQL_GATE, "--sharpit-report=report.json")
+
+    report = json.loads((pytester.path / "report.json").read_text(encoding="utf-8"))
+    assert report["status"] == "fail"
+    assert result.ret == 3
+
+
 def test_report_only_preserves_pytest_test_failure(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(_test_source("test_repeated_selects") + "\n    assert False, 'pytest failure'")
 
