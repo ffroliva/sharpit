@@ -175,6 +175,7 @@ class GitHubApiClient:
         self._token = token
         self._opener = opener
         self.timeout = safe_timeout(settings.github_request_timeout)
+        self.clock: Callable[[], float] = time.monotonic
 
     def _open(self) -> Opener:
         if self._opener is None:
@@ -191,13 +192,21 @@ class GitHubApiClient:
             head = self.head(repo, refreshed_at, "BLOCKED", message, None)
             head["credential"] = {"source": "not connected", "authenticated": False, "login": None, "scopes": None}
             return _report(head, _empty_sections(m.unavailable_copilot("GitHub API host is not allowed")), [], [])
-        token = self._token(self.timeout)  # read only once the host is allowed: a blocked host never runs gh
+        deadline = self.clock() + REFRESH_DEADLINE
+        token: Token | None = None
         try:
-            return _Refresh(self, repo, token).run(refreshed_at)
+            token = self._token(self.timeout)  # read only once the host is allowed: a blocked host never runs gh
+            return _Refresh(self, repo, token, deadline).run(refreshed_at)
         except _Failed:
-            head = self.head(repo, refreshed_at, "ERROR", NETWORK_FAILED, None)
-            head["credential"] = _credential(token, None, self.scrub)
-            return _report(head, _empty_sections(m.unavailable_copilot(NETWORK_FAILED)), [], [NETWORK_FAILED])
+            return self.error(repo, refreshed_at, token, NETWORK_FAILED)
+        except Exception:  # noqa: BLE001  # safety net: never a 500, never the exception text (it may hold data)
+            return self.error(repo, refreshed_at, token, UNEXPECTED_FAILURE)
+
+    def error(self, repo: Repository, refreshed_at: int, token: Token | None, message: str) -> dict[str, Any]:
+        """BootUI ``error``: ``ERROR``, nothing loaded, the fixed message as the only warning."""
+        head = self.head(repo, refreshed_at, "ERROR", message, None)
+        head["credential"] = _credential(token, None, self.scrub)
+        return _report(head, _empty_sections(m.unavailable_copilot(message)), [], [message])
 
     def head(self, repo: Repository, refreshed_at: int, status: str, message: str | None, node: Any) -> dict[str, Any]:
         connected = status in {"CONNECTED", "PARTIAL", "QUOTA_PROTECTED"}
@@ -210,7 +219,7 @@ class GitHubApiClient:
             "credential": None,
         }
 
-    def send(self, url: str, label: str, api_version: str, token: Token | None) -> _Response:
+    def send(self, url: str, label: str, api_version: str, token: Token | None, timeout: float) -> _Response:
         headers = {
             "Accept": "application/vnd.github+json",
             "User-Agent": USER_AGENT,
@@ -222,7 +231,7 @@ class GitHubApiClient:
             raise _Failed
         request = urllib.request.Request(url, headers=headers, method="GET")  # noqa: S310 (https checked above)
         try:
-            with self._open().open(request, timeout=self.timeout) as response:
+            with self._open().open(request, timeout=timeout) as response:
                 status = int(getattr(response, "status", 200))
                 response_headers = getattr(response, "headers", None)
                 body = bytes(response.read(MAX_BODY_BYTES + 1))
@@ -238,11 +247,16 @@ class GitHubApiClient:
         return _Response(status, _parse(body), response_headers, None)
 
 
+def _reject_constant(name: str) -> Any:
+    """``NaN``/``Infinity`` are not JSON; BootUI's Jackson rejects them too."""
+    raise ValueError(name)
+
+
 def _parse(body: bytes) -> Any:
     if not body.strip():
         return {}
     try:
-        return json.loads(body)
+        return json.loads(body, parse_constant=_reject_constant)
     except (ValueError, RecursionError):  # sharpit: BootUI's Jackson 3 throws unchecked here; report ERROR instead
         raise _Failed from None
 
@@ -250,8 +264,9 @@ def _parse(body: bytes) -> Any:
 class _Refresh:
     """One refresh: the call budget, the sections filled so far and the warnings (BootUI ``refresh`` locals)."""
 
-    def __init__(self, client: GitHubApiClient, repo: Repository, token: Token | None) -> None:
+    def __init__(self, client: GitHubApiClient, repo: Repository, token: Token | None, deadline: float) -> None:
         self.client = client
+        self.deadline = deadline
         self.settings = client.settings
         self.scrub = client.scrub
         self.repo = repo
@@ -266,9 +281,12 @@ class _Refresh:
             return _Response(
                 0, None, None, f"Skipped {label} because the configured GitHub API call budget was reached."
             )
+        left = self.deadline - self.client.clock()
+        if left <= 0:
+            return _Response(0, None, None, f"Skipped {label} because the GitHub refresh time limit was reached.")
         self.remaining -= 1
         url = urllib.parse.urljoin(self.repo.api_base_uri, path)
-        return self.client.send(url, label, api_version, self.token)
+        return self.client.send(url, label, api_version, self.token, min(self.client.timeout, left))
 
     def run(self, refreshed_at: int) -> dict[str, Any]:
         rate = self.get("rate_limit", "rate limits")

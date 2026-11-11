@@ -39,10 +39,20 @@ def text(node: Json, name: str) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+_LONG_MIN = -(2**63)
+_LONG_MAX = 2**63 - 1
+
+
 def as_long(node: Json, name: str, default: int) -> int:
-    """Jackson ``asLong(default)`` for numbers; anything else gives ``default``."""
+    """Jackson ``asLong(default)`` for numbers, saturated like Java's ``(long)`` cast; anything else is ``default``."""
     value = field(node, name)
-    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else default
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    if isinstance(value, float) and math.isnan(value):
+        return 0
+    if isinstance(value, float) and math.isinf(value):
+        return _LONG_MAX if value > 0 else _LONG_MIN
+    return max(_LONG_MIN, min(_LONG_MAX, int(value)))
 
 
 def nullable(value: int) -> int | None:
