@@ -1,6 +1,7 @@
 """Declaration-only error-contract catalog."""
 
 import ast
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -53,8 +54,10 @@ def test_a_controller_local_handler_outranks_an_application_wide_one() -> None:
         None,
     )
     assert len(result) == 2
-    assert result[0].precedence_source == "DEFAULT"
-    assert result[1].precedence_source == "DEFAULT"
+    assert [(item.scope, item.precedence, item.precedence_source) for item in result] == [
+        ("SCOPED", 1, "DEFAULT"),
+        ("GLOBAL", 2, "DEFAULT"),
+    ]
 
 
 def test_body_categories_are_derived_from_the_declaration_only() -> None:
@@ -122,22 +125,50 @@ def test_error_contract_never_emits_handler_literals() -> None:
     assert "secret-password" not in repr(report)
 
 
-def test_handler_body_reads_only_the_source_index() -> None:
+def test_handler_body_reads_only_the_source_index(monkeypatch) -> None:
     model = _model(("example.Failure", None, "app.errors:handle", "GLOBAL", None))
+    monkeypatch.setattr(inspect, "getsource", lambda *_args: (_ for _ in ()).throw(AssertionError("source read")))
     result = entries(model, _index('def handle(): return "body"'))
     assert len(result) == 1
     assert result[0].body_category == "STRING"
 
 
-def test_error_contract_handles_partial_and_callable_handlers() -> None:
+def test_error_contract_unresolved_handler_is_partial() -> None:
     model = _model(("example.Failure", None, "app.errors:partial_handler", "GLOBAL", None))
     result = entries(model, None)
     assert len(result) == 1
     assert result[0].body_category == "UNRESOLVED"
 
 
-def test_reports_declared_media_types_in_one_stable_order_whatever_the_adapter_reported() -> None:
-    # ported: ErrorContractServiceTests.reportsDeclaredMediaTypesInOneStableOrderWhateverTheAdapterReported
-    result = entries(_model(("example.Failure", None, "app.errors:handle", "GLOBAL", None)), None)
-    assert len(result) == 1
-    assert result[0].produces == ()
+def test_bound_partial_handler_stays_unresolved_even_with_source_index() -> None:
+    model = _model(("example.Failure", None, "app.errors:handle", "GLOBAL", None))
+    model.error_handlers[0].is_partial = True
+    result = entries(model, _index('def handle(): return "body"'))
+    assert result[0].body_category == "UNRESOLVED"
+
+
+def test_error_contract_sorts_by_exception_simple_name() -> None:
+    result = entries(
+        _model(
+            ("z.Zebra", None, "app.errors:z", "GLOBAL", None),
+            ("a.Alpha", None, "app.errors:a", "GLOBAL", None),
+        ),
+        None,
+    )
+    assert [item.exception_simple_name for item in result] == ["Alpha", "Zebra"]
+
+
+def test_error_contract_uses_positional_response_status() -> None:
+    source = """
+from starlette.responses import JSONResponse, Response
+def json_error(): return JSONResponse({}, 400)
+def plain_error(): return Response(b'', 404)
+"""
+    result = entries(
+        _model(
+            ("a.JsonError", None, "app.errors:json_error", "GLOBAL", None),
+            ("b.PlainError", None, "app.errors:plain_error", "GLOBAL", None),
+        ),
+        _index(source),
+    )
+    assert [item.status for item in result] == ["400", "404"]

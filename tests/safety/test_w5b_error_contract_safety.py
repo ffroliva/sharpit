@@ -6,9 +6,6 @@ from conftest import SideEffectGuard
 from fastapi import FastAPI
 from sharpit import install
 
-GET_ROWS = ["/sharpit/api/rest-api/error-contract"]
-WRITE_ROWS: list[tuple[str, str]] = []
-
 
 def test_error_contract_get_has_no_side_effects(no_side_effects: SideEffectGuard) -> None:
     app = FastAPI()
@@ -16,6 +13,6 @@ def test_error_contract_get_has_no_side_effects(no_side_effects: SideEffectGuard
     no_side_effects.unblock_network()
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
         no_side_effects.block_network()
-        response = client.get(GET_ROWS[0])
+        response = client.get("/sharpit/api/rest-api/error-contract")
     assert response.status_code == 200
     assert no_side_effects.violations == []
