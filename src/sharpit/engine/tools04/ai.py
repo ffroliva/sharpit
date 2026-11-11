@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-
 from sharpit.engine.capture.traces import span_buffer
 from sharpit.engine.collectors.ai import ai_overview, ai_settings
 from sharpit.engine.tools import _NONE, Tool  # pyright: ignore[reportPrivateUsage]
@@ -14,7 +12,7 @@ TOOLS = (
         _NONE,
         "ai",
         False,
-        lambda c, _a: ai_overview(span_buffer(c.ctx), ai_settings(c.ctx.settings), time.time_ns()),
+        lambda c, _a: ai_overview(span_buffer(c.ctx), ai_settings(c.ctx.settings)),
     ),
 )
 COMMANDS = {"get_ai_overview": "ai overview"}

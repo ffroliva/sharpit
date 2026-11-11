@@ -4,6 +4,8 @@ import time
 from collections.abc import Mapping
 from typing import Any, cast
 
+_GEN_AI_OPERATION = "gen_ai.operation.name"
+_DB_OPERATION = "db.operation.name"
 _TOOL_SPAN_PREFIXES = ("spring.ai.tool", "execute_tool")
 _FINISH_REASONS = frozenset(
     {
@@ -37,7 +39,7 @@ def _tokens(attributes: Mapping[str, Any], key: str) -> int | None:
 
 
 def operation(attributes: Mapping[str, Any], name: str) -> str | None:
-    op = (_string(attributes, "gen_ai.operation.name") or "").lower()
+    op = (_string(attributes, _GEN_AI_OPERATION) or "").lower()
     if op in {"chat", "text_completion"}:
         return "chat"
     if op == "embeddings":
@@ -52,7 +54,7 @@ def operation(attributes: Mapping[str, Any], name: str) -> str | None:
         or db.startswith("spring_ai")
         or "vector" in db
         or (
-            _string(attributes, "db.operation.name") is not None
+            _string(attributes, _DB_OPERATION) is not None
             and _string(attributes, "db.collection.name") is not None
             and "vectorstore" in name.lower()
         )
@@ -121,10 +123,10 @@ def ai_journal_event(span: Any) -> dict[str, str | int | bool | None]:
         name = ""
     # cheap reject on the span path: without one of the keys operation() reads first, no span is a GenAI span
     if not isinstance(raw, Mapping) or not (
-        "gen_ai.operation.name" in raw
+        _GEN_AI_OPERATION in raw
         or "db.system" in raw
         or "spring.ai.kind" in raw
-        or "db.operation.name" in raw
+        or _DB_OPERATION in raw
         or name.startswith(_TOOL_SPAN_PREFIXES)
     ):
         return {}
@@ -170,7 +172,7 @@ def vector_collection(attributes: Mapping[str, Any]) -> str | None:
 
 def vector_operation(attributes: Mapping[str, Any]) -> str | None:
     return (
-        _string(attributes, "db.operation.name")
+        _string(attributes, _DB_OPERATION)
         or _string(attributes, "spring.ai.vectorstore.operation")
-        or _string(attributes, "gen_ai.operation.name")
+        or _string(attributes, _GEN_AI_OPERATION)
     )

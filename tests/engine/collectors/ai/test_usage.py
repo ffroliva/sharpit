@@ -106,7 +106,7 @@ def test_ai_overview_aggregates_chat_tool_and_vector_spans():
         _span(3, "retrieval", {"db.collection.name": "docs"}),
         _span(4, "embeddings", {}),
     ]
-    report = usage.ai_overview(SpanBuffer(spans), _settings(), 120_000_000_000)
+    report = usage.ai_overview(SpanBuffer(spans), _settings())
     assert report["totalChats"] == 1
     assert report["totalInputTokens"] == 3
     assert report["toolCallCount"] == 1
@@ -120,7 +120,7 @@ def test_ai_overview_aggregates_chat_tool_and_vector_spans():
 def test_ai_overview_emits_empty_contract_shape_and_disabled_telemetry():
     # ported: AiControllerTests.overviewReportsDisabledTelemetry
     usage = _usage()
-    report = usage.ai_overview(SpanBuffer([]), _settings(traces_enabled=False), 60_000_000_000)
+    report = usage.ai_overview(SpanBuffer([]), _settings(traces_enabled=False))
     assert list(report) == [
         "enabled",
         "springAiDetected",
@@ -148,7 +148,7 @@ def test_ai_overview_emits_empty_contract_shape_and_disabled_telemetry():
 def test_ai_overview_reports_python_genai_instrumentation(monkeypatch: pytest.MonkeyPatch):
     usage = _usage()
     monkeypatch.setitem(sys.modules, "opentelemetry.instrumentation.openai_v2", object())
-    report = usage.ai_overview(SpanBuffer([]), _settings(), 60_000_000_000)
+    report = usage.ai_overview(SpanBuffer([]), _settings())
     assert report["springAiDetected"] is False
     assert report["langChain4jDetected"] is False
     assert report["aiFrameworkDetected"] is True

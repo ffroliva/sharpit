@@ -139,7 +139,7 @@ def _name(masker: Masker, name: str | None) -> str | None:
     if name is None or getattr(masker, "_exposure", None) is not Exposure.METADATA_ONLY:
         return masker.mask_text(name)
     shape = copy.copy(masker)  # the live never-shown secrets and policy; only the exposure is switched
-    setattr(shape, "_exposure", Exposure.MASKED)  # noqa: B010 - a private field, set on the copy only
+    setattr(shape, "_exposure", Exposure.MASKED)  # noqa: B010  # a private field, set on the copy only
     return MASK if shape.mask_text(name) != name else name
 
 
@@ -174,7 +174,7 @@ def _summary(span: Any, siblings: list[Any], masker: Masker) -> dict[str, Any]:
     }
 
 
-def ai_overview(buffer: SpanBuffer, settings: AiSettings, now_ns: int) -> dict[str, Any]:
+def ai_overview(buffer: SpanBuffer, settings: AiSettings) -> dict[str, Any]:
     traces, spans = _spans(buffer)
     chats = _chats(spans)
     tokens_by_model: dict[str, int] = {}

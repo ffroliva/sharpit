@@ -20,7 +20,7 @@ def build_routes(ctx: Any, _host_app: Any = None) -> list[BaseRoute]:
     ai = ai_settings(settings)
 
     def overview(_request: Request) -> Response:
-        return json_response(ai_overview(buffer, ai, time.time_ns()))
+        return json_response(ai_overview(buffer, ai))
 
     def chats(request: Request) -> Response:
         limit = parse_int_param(request.query_params.get("limit"), "limit")
