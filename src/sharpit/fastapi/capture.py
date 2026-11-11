@@ -253,15 +253,19 @@ def wiring_of(ctx: SharpitContext) -> CaptureWiring | None:
 class _WiringHook:
     """One installed capture hook as a ``HookRegistry`` entry: suspends and resumes only itself."""
 
-    def __init__(self, name: str, wiring: CaptureWiring) -> None:
+    def __init__(self, name: str, wiring: CaptureWiring, discard: Callable[[], None] = _nothing) -> None:
         self.name = name
         self.wiring = wiring
+        self._discard = discard
 
     def suspend(self) -> None:
         self.wiring.suspend_hook(self.name)
 
     def resume(self) -> None:
         self.wiring.resume_hook(self.name)
+
+    def discard(self) -> None:
+        self._discard()
 
 
 class CaptureWiring:
@@ -289,28 +293,34 @@ class CaptureWiring:
         self._removers: dict[int, Callable[[], None]] = {}  # id() of an armed lane attacher -> its remover
         self._actions: dict[str, tuple[Callable[[], None], Callable[[], None]]] = {}  # name -> (suspend, resume)
 
-    def _register(self, ctx: SharpitContext, name: str) -> None:
-        ctx.capture.hooks.register(_WiringHook(name, self))
+    def _register(self, ctx: SharpitContext, name: str, discard: Callable[[], None] = _nothing) -> None:
+        ctx.capture.hooks.register(_WiringHook(name, self, discard))
 
-    def add_lane(self, ctx: SharpitContext, name: str, attacher: Callable[[], Callable[[], None] | None]) -> None:
+    def add_lane(
+        self,
+        ctx: SharpitContext,
+        name: str,
+        attacher: Callable[[], Callable[[], None] | None],
+        discard: Callable[[], None] = _nothing,
+    ) -> None:
         """A lane's attacher (``CaptureState.attachers``) that is its own registry entry ``name``."""
         ctx.capture.attachers.append(attacher)
         self._lane_of[id(attacher)] = name
         self._actions[name] = (lambda: self._suspend_lane(ctx, name), lambda: self._run_attachers(ctx, name))
-        self._register(ctx, name)
+        self._register(ctx, name, discard)
 
     def _register_installed(self, ctx: SharpitContext) -> None:
         """One registry entry per hook installed at install time (the middleware and lanes register themselves)."""
         installed = {
-            HOOK_SECURITY_LOG: self.on_security_event is not None,
-            HOOK_LOG_HANDLER: self.log_handler is not None,
-            HOOK_EXCEPTION_HANDLERS: ctx.capture.exceptions is not None,
-            HOOK_SQLA_LISTENERS: True,
-            HOOK_SQLITE_LISTENERS: _sqlite_traced(ctx),
+            HOOK_SECURITY_LOG: (self.on_security_event is not None, ctx.capture.security_logs),
+            HOOK_LOG_HANDLER: (self.log_handler is not None, ctx.capture.log_tail),
+            HOOK_EXCEPTION_HANDLERS: (ctx.capture.exceptions is not None, ctx.capture.exceptions),
+            HOOK_SQLA_LISTENERS: (True, ctx.capture.sql_trace),
+            HOOK_SQLITE_LISTENERS: (_sqlite_traced(ctx), None),
         }
-        for name, present in installed.items():
+        for name, (present, buffer) in installed.items():
             if present:
-                self._register(ctx, name)
+                self._register(ctx, name, buffer.clear if buffer is not None else _nothing)
 
     def attach_at_install(self, app: Any, ctx: SharpitContext) -> None:
         if self.app is not None:
@@ -352,7 +362,8 @@ class CaptureWiring:
                 store.unavailable_reason = CAPTURE_TOO_LATE_REASON
             return
         self.middleware_added = True
-        self._register(ctx, HOOK_CAPTURE_MIDDLEWARE)
+        exchanges = ctx.capture.exchanges
+        self._register(ctx, HOOK_CAPTURE_MIDDLEWARE, exchanges.clear if exchanges is not None else _nothing)
 
     def _wrap_handlers(self, ctx: SharpitContext) -> None:
         store = ctx.capture.exceptions

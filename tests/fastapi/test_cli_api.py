@@ -145,7 +145,9 @@ def test_cli_status_shape_matches_contract():
         len(expected_cli_commands()),
     )
     by_name = {t["name"]: t for t in body["tools"]}
-    assert {n: t["command"] for n, t in by_name.items()} == expected_cli_commands()  # base 24 plus lane commands
+    assert {
+        n: t["command"] for n, t in by_name.items()
+    } == expected_cli_commands()  # base, lane, and low-footprint commands
     assert list(by_name["get_config"]) == [
         "name", "command", "description", "panel", "action", "schema", "arguments", "panelEnabled", "panelReadOnly",
     ]  # fmt: skip

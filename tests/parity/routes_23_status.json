@@ -3,8 +3,8 @@
   "counts": {
     "matched": 4,
     "partial": 19,
-    "missing": 57,
-    "n-a": 16,
+    "missing": 56,
+    "n-a": 17,
     "total": 96
   },
   "routes": [
@@ -404,8 +404,8 @@
       "golden": "live-memory/footprint.captured.json",
       "panel": "live-memory",
       "route": "/sharpit/api/live-memory/footprint",
-      "status": "missing",
-      "difference": "sharpit has no route at /sharpit/api/live-memory/footprint (HTTP 404)"
+      "status": "n-a",
+      "difference": "golden list components has no shape information per emptyLists; cannot satisfy 2.3.0 matched parity (spec §4.4)"
     },
     {
       "golden": "log-tail/recent.captured.json",

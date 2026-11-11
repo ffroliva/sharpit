@@ -263,6 +263,11 @@ class RuntimeJournal:
         with self._lock:
             self._accepting = True
 
+    def discard(self) -> None:
+        with self._lock:
+            self._events.clear()
+            self._bytes = 0
+
     def status(self) -> dict[str, Any]:
         """``RuntimeJournalStatusDto``; ``recorded`` lists only sources with events (``byPropertyName``)."""
         with self._lock:

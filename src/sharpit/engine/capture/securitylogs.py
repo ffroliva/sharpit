@@ -109,6 +109,11 @@ class SecurityEventBuffer:
         with self._lock:
             return list(self._events)
 
+    def clear(self) -> None:
+        with self._lock:
+            self._events.clear()
+        self.changes.signal()
+
 
 def format_instant(timestamp_ns: int) -> str:
     """Java ``Instant.toString()``: the fraction in groups of three digits, none for a whole second."""

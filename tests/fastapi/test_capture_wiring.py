@@ -555,19 +555,22 @@ def test_low_footprint_suspends_and_resumes_registered_capture_hooks():
     handle = install(app, enabled="ON", show_banner=False)
     with TestClient(app) as client:
         client.get("/host")
+        assert len(_rows(handle)) == 1
         service = LowFootprintService(handle.context.capture.hooks)
         service.suspend()
         client.get("/host")
+        assert len(_rows(handle)) == 0
+        service.resume()
+        client.get("/host")
         assert len(_rows(handle)) == 1
+        assert _rows(handle)[0]["path"] == "/host"
+        service.suspend()
+        client.get("/host")
+        assert len(_rows(handle)) == 0
         service.resume()
         client.get("/host")
-        assert len(_rows(handle)) == 2
-        service.suspend()  # a second cycle: rows only grow, so the counts carry on from 2
-        client.get("/host")
-        assert len(_rows(handle)) == 2
-        service.resume()
-        client.get("/host")
-        assert len(_rows(handle)) == 3
+        assert len(_rows(handle)) == 1
+        assert _rows(handle)[0]["path"] == "/host"
 
 
 @pytest.mark.needs_sqlalchemy
