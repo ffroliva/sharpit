@@ -534,7 +534,7 @@ GATE_SECONDS = {
         "tests/scripts/test_lane_gate.py": 6,
     },
 }
-GATE_ROW_OSES = ("windows-latest",)  # the OSes whose masking gates run one gate file group per job (owner decision)
+GATE_ROW_OSES = ("windows-latest", "ubuntu-latest")  # the OSes whose masking gates run one gate file group per job (owner decision)
 
 
 def _gate_rows(os_name: str) -> list[list[str]]:
