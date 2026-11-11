@@ -184,8 +184,8 @@
     },
     {
       "name": "bootui.cache.clear-enabled",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for cache_clear_enabled"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.claude-code.allow-raw-reveal",
@@ -297,8 +297,8 @@
     },
     {
       "name": "bootui.dev-services.restart-enabled",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for dev_services_restart_enabled"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.disabled-profiles",
@@ -607,8 +607,8 @@
     },
     {
       "name": "bootui.overrides-file",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for overrides_file"
+      "status": "partial",
+      "difference": "default differs: BootUI='.bootui/application-bootui.properties'; sharpit='.sharpit/overrides.env'"
     },
     {
       "name": "bootui.panels",

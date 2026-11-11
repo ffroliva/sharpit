@@ -26,7 +26,7 @@ class Panel:
 # CLI endpoints are gated by SHARPIT_CLI_ENABLED, so their panel flags drive only the sidebar entry
 PANELS: tuple[Panel, ...] = (
     Panel("overview", "Scorecard", None, None),
-    Panel("config", "Configuration", False, "/config"),
+    Panel("config", "Configuration", True, "/config"),
     Panel("mappings", "Mappings", False, "/mappings"),
     Panel("loggers", "Loggers", True, "/loggers"),
     Panel("beans", "Beans", False, "/beans"),
@@ -73,6 +73,9 @@ PANELS: tuple[Panel, ...] = (
     Panel("code-inventory", "Code Inventory", False, "/code-inventory"),
     Panel("code-paths", "Code Paths", True, "/code-paths"),
     Panel("side-effects", "Side Effects", False, "/side-effects"),
+    # 0.6.0 W8 A0: slots for the read sides (W5b K, W7 D), action-capable as BootUiPanels.java:124,133
+    Panel("cache", "Cache", True, "/cache"),
+    Panel("dev-services", "Dev Services", True, "/dev-services"),
 )
 
 

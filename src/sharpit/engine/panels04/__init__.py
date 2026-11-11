@@ -6,12 +6,14 @@ from typing import Any
 from . import (
     ai,
     architecture,
+    cache,
     claude_code,
     code_inventory,
     code_paths,
     copilot,
     data,
     database_advisor,
+    dev_services,
     fastapi,
     fastapi_security,
     github,
@@ -55,6 +57,8 @@ IMPLEMENTED = {
     "code-inventory": code_inventory.IMPLEMENTED,
     "code-paths": code_paths.IMPLEMENTED,
     "side-effects": side_effects.IMPLEMENTED,
+    "cache": cache.IMPLEMENTED,
+    "dev-services": dev_services.IMPLEMENTED,
 }
 PANEL_04_IDS = tuple(IMPLEMENTED)
 # panels with per-panel route/tool modules (fastapi/routes/<id>.py, engine/tools04/<id>.py): every 0.4 id plus the

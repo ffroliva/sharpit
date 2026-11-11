@@ -156,9 +156,7 @@ def build_inputs(
 ) -> Inputs:
     """One scan's inputs: the app source through the one package-root resolver (``engine/appsource.py``)."""
     reasons: list[str] = []
-    root = appsource.resolve_package_root(app, sys.modules, app_package=settings.app_package, reasons=reasons)
-    if root is not None and root.name == "__init__.py":  # a package module seen without ``__path__``: its directory
-        root = root.parent
+    root = appsource.resolve_app_root(app, sys.modules, app_package=settings.app_package, reasons=reasons)
     index = appsource.build_index(root) if root is not None else None  # dropped with the inputs after the scan
     return Inputs(model, facts, index, view_of(settings, environ), tuple(reasons))
 

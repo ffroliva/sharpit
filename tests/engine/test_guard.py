@@ -944,7 +944,14 @@ def test_dismissed_rules_global_read_only():
 # ported: PanelAccessFilterTests.globalReadOnlyDoesNotBlockReadOnlyPanelWithoutActions
 def test_global_read_only_does_not_block_panel_without_actions():
     assert decide(facts("GET", api="/beans"), SharpitSettings(read_only=True)) is None
-    assert decide(facts("POST", api="/config"), SharpitSettings(read_only=True)) is None
+    assert decide(facts("POST", api="/mappings"), SharpitSettings(read_only=True)) is None
+
+
+# W8 A0: config is action-capable in BootUI (BootUiPanels.java:105), so read-only refuses its future override writes
+def test_global_read_only_blocks_config_writes():
+    s = SharpitSettings(read_only=True)
+    assert decide(facts("POST", api="/config/overrides"), s) == _panel_denial("config", RO_GLOBAL)
+    assert decide(facts("GET", api="/config"), s) is None
 
 
 # ported: PanelAccessFilterTests.overviewShellEndpointIsNeverGatedByPanelToggle
