@@ -260,7 +260,7 @@ def test_session_tools_default_limit_and_query(tmp_path: Path, monkeypatch: pyte
 
     # MCP tool via CallContext
     tool = next(t for t in COPILOT_TOOLS if t.name == "get_copilot_sessions")
-    call = CallContext(handle.ctx, {})
+    call = CallContext(handle.context, {})
     mcp_data = tool.handler(call, {"query": "claude-3-5", "limit": 5})
     assert mcp_data == cli_filtered
 

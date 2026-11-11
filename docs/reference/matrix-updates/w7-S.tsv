@@ -1,0 +1,14 @@
+route:GET /copilot/sessions	matched	CopilotControllerTests.sessionsListsParsedSessionsWithCounts and query/window filtering
+route:GET /copilot/dashboard	n-a	OQ6: per-request cache replaces BootUI file watcher
+route:GET /copilot/sessions/{id}	matched	CopilotControllerTests.sessionDetailReturns404ForUnknownId (404 with empty body)
+route:GET /copilot/sessions/{id}/events	matched	CopilotControllerTests.eventsFilterByCategoryAndLimit
+route:GET /copilot/sessions/{id}/events/{eventId}/raw	partial	masked reveal in fork
+prop:bootui.copilot.enabled	matched	AUTO|ON|OFF parity, fails closed to 404 when disabled
+prop:bootui.copilot.session-state-dir	matched	Defaults to ~/.copilot/session-state, home-relative expansion
+prop:bootui.copilot.max-events-per-session	matched	Default 2000 events ring per session
+prop:bootui.copilot.max-sessions	matched	Default 100 sessions cap
+prop:bootui.copilot.max-parsed-sessions	matched	Default 100 parsed sessions cap
+prop:bootui.copilot.stream-debounce	matched	Default 400ms debounce
+prop:bootui.copilot.allow-raw-reveal	partial	masked reveal in fork
+tool:get_copilot_sessions	matched	McpAgentViewsTests.copilotSessionListing query/filter/paging parity
+cli:sessions copilot	matched	CLI sessions copilot parity

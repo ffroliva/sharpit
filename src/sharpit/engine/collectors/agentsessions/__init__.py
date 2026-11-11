@@ -1,19 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sharpit.engine.context import SharpitContext
     from sharpit.settings import SharpitSettings
 
+from sharpit.engine.collectors.agentsessions.parser import Layout
 from sharpit.engine.collectors.agentsessions.store import SessionStore
-
-
-class Layout(Enum):
-    COPILOT = "COPILOT"
-    CLAUDE_CODE = "CLAUDE_CODE"
 
 
 @dataclass(frozen=True)

@@ -29,6 +29,12 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.cli.execution-timeout"),
     pytest.mark.bootui("prop:bootui.cli.max-concurrent-calls"),
     pytest.mark.bootui("prop:bootui.cli.max-results"),
+    pytest.mark.bootui("prop:bootui.copilot.enabled"),
+    pytest.mark.bootui("prop:bootui.copilot.max-events-per-session"),
+    pytest.mark.bootui("prop:bootui.copilot.max-parsed-sessions"),
+    pytest.mark.bootui("prop:bootui.copilot.max-sessions"),
+    pytest.mark.bootui("prop:bootui.copilot.session-state-dir"),
+    pytest.mark.bootui("prop:bootui.copilot.stream-debounce"),
     pytest.mark.bootui("prop:bootui.disabled-profiles"),
     pytest.mark.bootui("prop:bootui.enabled"),
     pytest.mark.bootui("prop:bootui.exceptions.max-groups"),
@@ -143,8 +149,10 @@ def _samples(default: Any, field: str) -> tuple[str, Any, str | None] | None:
         return f"{default + 1}s", default + 1, "invalid-duration"
     if isinstance(default, tuple) or field == "authentication_token":
         return "parity-item", ("parity-item",) if isinstance(default, tuple) else "parity-item", None
-    if field in {"enabled", "trust_container_gateway", "mcp_enabled"}:
+    if field in {"enabled", "trust_container_gateway", "mcp_enabled", "copilot_enabled", "claude_code_enabled"}:
         return "ON", "ON", "invalid-mode"
+    if field in {"copilot_session_state_dir", "claude_code_session_state_dir"}:
+        return "/custom/dir", "/custom/dir", None
     if field == "expose_values":
         return "FULL", Exposure.FULL, "invalid-exposure"
     if field in {"vulnerabilities_osv_base_uri", "vulnerabilities_epss_base_uri"}:

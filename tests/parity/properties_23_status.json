@@ -254,38 +254,38 @@
     },
     {
       "name": "bootui.copilot.allow-raw-reveal",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for copilot_allow_raw_reveal"
+      "status": "partial",
+      "difference": "default differs: BootUI=True; sharpit=False"
     },
     {
       "name": "bootui.copilot.enabled",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for copilot_enabled"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.copilot.max-events-per-session",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for copilot_max_events_per_session"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.copilot.max-parsed-sessions",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for copilot_max_parsed_sessions"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.copilot.max-sessions",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for copilot_max_sessions"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.copilot.session-state-dir",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for copilot_session_state_dir"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.copilot.stream-debounce",
-      "status": "missing",
-      "difference": "No sharpit setting field/parser for copilot_stream_debounce"
+      "status": "matched",
+      "difference": null
     },
     {
       "name": "bootui.dev-services.log-tail-bytes",

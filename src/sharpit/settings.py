@@ -169,7 +169,7 @@ class SharpitSettings:
     copilot_max_sessions: int = 100
     copilot_max_parsed_sessions: int = 100
     copilot_stream_debounce: float = 0.4
-    copilot_allow_raw_reveal: bool = True
+    copilot_allow_raw_reveal: bool = False
     warnings: tuple[str, ...] = ()
 
 

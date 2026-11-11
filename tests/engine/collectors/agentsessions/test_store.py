@@ -67,7 +67,7 @@ def test_dashboard_aggregates_jsonl_sessions(tmp_path: Path) -> None:
     )
 
     settings = AgentSessionSettings(session_state_dir=str(tmp_path))
-    fixed_now_millis = 1780008000000  # 2026-05-28T12:00:00Z
+    fixed_now_millis = 1779969600000  # 2026-05-28T12:00:00Z
     store = SessionStore(settings, Layout.COPILOT, clock=lambda: fixed_now_millis)
 
     dash = store.dashboard()

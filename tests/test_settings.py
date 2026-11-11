@@ -332,6 +332,14 @@ PROPERTIES = {
     "bootui.startup.enabled": ("startup_enabled", "false"),
     "bootui.startup.capacity": ("startup_capacity", "17"),
     "bootui.app-package": ("app_package", "myapp"),
+    # 0.6.0 agent-sessions (Copilot)
+    "bootui.copilot.enabled": ("copilot_enabled", "OFF"),
+    "bootui.copilot.session-state-dir": ("copilot_session_state_dir", "/custom/copilot"),
+    "bootui.copilot.max-events-per-session": ("copilot_max_events_per_session", "500"),
+    "bootui.copilot.max-sessions": ("copilot_max_sessions", "50"),
+    "bootui.copilot.max-parsed-sessions": ("copilot_max_parsed_sessions", "50"),
+    "bootui.copilot.stream-debounce": ("copilot_stream_debounce", "0.5s"),
+    "bootui.copilot.allow-raw-reveal": ("copilot_allow_raw_reveal", "true"),
 }
 
 NEW_DEFAULTS_0_2_0: dict[str, Any] = {
@@ -706,6 +714,12 @@ def test_invalid_settings_warning_order_matches_pre_split_registry():
         "STARTUP_ENABLED",
         "STARTUP_CAPACITY",
         "APP_PACKAGE",
+        "COPILOT_ENABLED",
+        "COPILOT_MAX_EVENTS_PER_SESSION",
+        "COPILOT_MAX_SESSIONS",
+        "COPILOT_MAX_PARSED_SESSIONS",
+        "COPILOT_STREAM_DEBOUNCE",
+        "COPILOT_ALLOW_RAW_REVEAL",
     ]
     observed = [
         warning.removeprefix("Ignoring invalid SHARPIT_").split(" value")[0]

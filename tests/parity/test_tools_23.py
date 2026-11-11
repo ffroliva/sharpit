@@ -65,6 +65,7 @@ MATCHED_TOOLS = (
     "resume_transaction_recording",
     "vulnerabilities_scan",
     "get_startup_timeline",
+    "get_copilot_sessions",
 )
 PARTIAL_TOOLS = (
     "get_live_activity",
@@ -142,7 +143,6 @@ MISSING_TOOLS = (
     "get_scheduled_tasks",
     "get_spring_security",
     "get_claude_code_sessions",
-    "get_copilot_sessions",
     "get_side_effects",
     "get_spring_report",
     "spring_scan",
@@ -196,6 +196,7 @@ pytestmark = [
     pytest.mark.bootui("cli:rest-api scan"),
     pytest.mark.bootui("cli:security report"),
     pytest.mark.bootui("cli:security scan"),
+    pytest.mark.bootui("cli:sessions copilot"),
     pytest.mark.bootui("cli:sql clear"),
     pytest.mark.bootui("cli:startup"),
     pytest.mark.bootui("cli:sql pause"),
@@ -209,6 +210,7 @@ pytestmark = [
     pytest.mark.bootui("tool:clear_transactions"),
     pytest.mark.bootui("tool:database_advisor_scan"),
     pytest.mark.bootui("tool:get_architecture_report"),
+    pytest.mark.bootui("tool:get_copilot_sessions"),
     pytest.mark.bootui("tool:get_database_advisor_report"),
     pytest.mark.bootui("tool:get_database_connection_pools"),
     pytest.mark.bootui("tool:get_exception_detail"),
