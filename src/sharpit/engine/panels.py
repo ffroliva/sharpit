@@ -71,6 +71,8 @@ PANELS: tuple[Panel, ...] = (
     # 0.6.0 W8 A0: slots for the read sides (W5b K, W7 D), action-capable as BootUiPanels.java:124,133
     Panel("cache", "Cache", True, "/cache"),
     Panel("dev-services", "Dev Services", True, "/dev-services"),
+    # W5c: Runtime Insights over the runtime journal (BootUiPanels.java:155)
+    Panel("runtime-insights", "Runtime Insights", True, "/runtime-insights"),
 )
 
 

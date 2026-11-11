@@ -10,7 +10,7 @@ import pytest
 
 from sharpit import __version__
 from sharpit.engine.testsession import baseline as baseline_io
-from sharpit.engine.testsession import outcome, report
+from sharpit.engine.testsession import outcome, report, sarif
 from sharpit.engine.testsession.facts import finding_from
 from sharpit.engine.testsession.finish import GateOptions, finish
 
@@ -54,6 +54,7 @@ def write_report(state: Any, session: Any, exitstatus: int) -> None:
         refusal = _baseline_refusal(state, data)
         if not refusal:
             _write_baseline(state, data)  # before the report, so a write failure is in it
+        _write_sarif(state, data, sink.masker)  # likewise
         report.write_json(state.options.report, data)
         if state.options.junit:
             report.write_junit(state.options.junit, data, allow_unknown=state.options.allow_unknown)
@@ -123,6 +124,24 @@ def _baseline_refusal(state: Any, data: dict[str, Any]) -> str | None:
     return None
 
 
+def _write_sarif(state: Any, data: dict[str, Any], masker: Any) -> None:
+    if not state.options.sarif:
+        return
+    try:
+        sarif.write_sarif(state.options.sarif, data, masker)
+    except OSError as exc:
+        _unknown(data, f"SARIF write failed: {exc}")
+
+
+def _unknown(data: dict[str, Any], reason: str) -> None:
+    """A write that failed after the gates ran: the run is unknown, and the report and terminal say why."""
+    data["unknownReasons"].append(reason)
+    data["warnings"].append(reason)  # the terminal summary prints warnings
+    if data["status"] == "pass":
+        data["status"] = "unknown"
+        data["statusReasons"] = list(data["unknownReasons"])
+
+
 def _write_baseline(state: Any, data: dict[str, Any]) -> None:
     if not state.options.write_baseline:
         return
@@ -133,9 +152,4 @@ def _write_baseline(state: Any, data: dict[str, Any]) -> None:
             state.baseline_carried,
         )
     except (OSError, ValueError) as exc:
-        reason = f"baseline write failed: {exc}"
-        data["unknownReasons"].append(reason)
-        data["warnings"].append(reason)  # the terminal summary prints warnings
-        if data["status"] == "pass":
-            data["status"] = "unknown"
-            data["statusReasons"] = list(data["unknownReasons"])
+        _unknown(data, f"baseline write failed: {exc}")

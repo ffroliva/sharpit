@@ -86,6 +86,8 @@ pytestmark = [
     pytest.mark.bootui("prop:bootui.postgresql.max-tables"),
     pytest.mark.bootui("prop:bootui.postgresql.max-vacuum-tables"),
     pytest.mark.bootui("prop:bootui.read-only"),
+    pytest.mark.bootui("prop:bootui.resources.jfr.max-duration"),
+    pytest.mark.bootui("prop:bootui.runtime-insights.ai-token-threshold"),
     pytest.mark.bootui("prop:bootui.runtime-journal.enabled"),
     pytest.mark.bootui("prop:bootui.runtime-journal.max-events"),
     pytest.mark.bootui("prop:bootui.runtime-journal.queue-capacity"),

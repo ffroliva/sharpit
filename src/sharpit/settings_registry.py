@@ -130,6 +130,14 @@ def _duration(raw: object) -> float:
     return seconds
 
 
+def _jfr_max_duration(raw: object) -> float:
+    """BootUI ``ResourceSettings.java:19-35``: between 1s and 10m (BootUI fails startup; sharpit fails safe)."""
+    seconds = _duration(raw)
+    if not 1 <= seconds <= 600:
+        raise ValueError(raw)
+    return seconds
+
+
 _MODULE_NAME = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
 
 
@@ -272,6 +280,8 @@ SPECS: dict[str, tuple[_Parser, Any]] = {
     "runtime_journal_max_bytes": (_byte_size, 32 * 1024 * 1024),
     "runtime_journal_queue_capacity": (_int, 10_000),
     "runtime_journal_sources": (_journal_sources, None),
+    "runtime_insights_ai_token_threshold": (_int, None),
+    "resources_jfr_max_duration": (_jfr_max_duration, None),
     "security_logs_max_logs": (_int, None),
     "postgresql_max_sessions": (_row_limit, None),
     "postgresql_max_statements": (_row_limit, None),
@@ -412,6 +422,8 @@ _NON_CREDENTIAL_FIELDS = {
     "runtime_journal_max_bytes": "Journal byte limit, not a credential.",
     "runtime_journal_queue_capacity": "Journal queue count limit, not a credential.",
     "runtime_journal_sources": "Journal source names, not credentials.",
+    "runtime_insights_ai_token_threshold": "Token count threshold, not a credential.",
+    "resources_jfr_max_duration": "Profiling duration limit, not a credential.",
     "security_logs_max_logs": "Log count limit, not a credential.",
     "postgresql_max_sessions": _SESSION_LIMIT,
     "postgresql_max_statements": "Statement count limit, not a credential.",

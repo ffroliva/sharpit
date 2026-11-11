@@ -34,6 +34,7 @@
   "claude-code": "claude-code",
   "github": "github",
   "ai": "ai",
+  "runtime-insights": "runtime-insights",
   "metrics": "metrics",
   "startup": "startup",
   "profile-diff": "profile-diff",
