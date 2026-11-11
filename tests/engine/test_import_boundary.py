@@ -475,16 +475,16 @@ def test_runtime_state_calls_inside_sensors_are_allowed(tmp_path: Path, monkeypa
     assert interpreter_state_violations() == []
 
 
-def test_only_swallowed_plugin_module_keeps_its_runtime_state_exception(
+def test_swallowed_plugin_module_has_no_runtime_state_exception(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # W6 S1 moved swallowed.py's sys.monitoring use behind engine/sensors: only the sensors package may call it now
     monkeypatch.setitem(globals(), "SRC", tmp_path / "src")
     plugin = tmp_path / "src" / "sharpit" / "pytest_plugin"
     plugin.mkdir(parents=True)
     (plugin / "swallowed.py").write_text("import sys\nsys.monitoring.use_tool_id(3, 'sharpit')\n", encoding="utf-8")
-    (plugin / "other.py").write_text("import sys\nsys.addaudithook(print)\n", encoding="utf-8")
 
-    assert interpreter_state_violations() == ["sharpit/pytest_plugin/other.py:2 calls sys.addaudithook"]
+    assert interpreter_state_violations() == ["sharpit/pytest_plugin/swallowed.py:2 calls sys.monitoring.use_tool_id"]
 
 
 @pytest.mark.parametrize(
