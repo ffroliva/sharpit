@@ -161,11 +161,11 @@ Lists page with `offset` and `limit` (clamped to 1000). Errors are `{"error": ".
 ## MCP endpoint (for AI agents)
 
 Off by default. Enable with `SHARPIT_MCP_ENABLED=ON`, then point an MCP client that speaks streamable HTTP at
-`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 42 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
+`http://127.0.0.1:8000/sharpit/api/mcp` (POST only). It exposes 43 **read-only** tools and no action tool: an agent cannot change a logger, clear a buffer or start a scan through MCP. The same guard chain applies, so remote agents need the bearer token. Search tools take
 `query` and `limit` (capped by `SHARPIT_MCP_MAX_RESULTS`). The names and the read or action split match BootUI 2.3.0
 where BootUI has the same tool; the descriptions are in `website/docs/mcp.md`.
 
-- The app: `get_overview` (call it first), `get_config`, `get_mappings`, `get_beans`, `get_loggers`,
+- The app: `get_overview` (call it first), `get_config`, `get_profile_diff`, `get_mappings`, `get_beans`, `get_loggers`,
   `get_data_repositories`.
 - Requests and errors: `get_live_activity`, `get_request_profile`, `get_http_exchanges`, `get_http_routes`,
   `get_exceptions`, `get_exception_detail`, `get_log_tail`, `get_security_logs`.
