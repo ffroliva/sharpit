@@ -15,19 +15,35 @@ from tests.overhead import check_budget, paired
 from fastapi import FastAPI
 from sharpit import install
 from sharpit.engine import otel
-from sharpit.engine.capture.traces import SpanBuffer
+from sharpit.engine.capture.traces import SpanBuffer, span_buffer
 from sharpit.engine.masking import Exposure, Masker
 from sharpit.fastapi.capture import wiring_of
 
 BUDGET_NS = 20_000
 ROUNDS, PER_ROUND = 45, 2_000
 SPAN = SimpleNamespace(name="GET /", attributes={"http.route": "/"})
+AI_SPAN = SimpleNamespace(
+    context=SimpleNamespace(trace_id=1, span_id=2),
+    kind=SimpleNamespace(name="INTERNAL"),
+    name="chat",
+    start_time=60_000_000_000,
+    end_time=61_000_000_000,
+    status=SimpleNamespace(status_code=SimpleNamespace(name="UNSET")),
+    attributes={"gen_ai.operation.name": "chat", "gen_ai.provider.name": "openai"},
+)
 
 
 def _round(processor: otel.SharpitSpanProcessor) -> int:
     started = time.perf_counter_ns()
     for _ in range(PER_ROUND):
         processor.on_end(SPAN)
+    return (time.perf_counter_ns() - started) // PER_ROUND
+
+
+def _round_ai(processor: otel.SharpitSpanProcessor) -> int:
+    started = time.perf_counter_ns()
+    for _ in range(PER_ROUND):
+        processor.on_end(AI_SPAN)
     return (time.perf_counter_ns() - started) // PER_ROUND
 
 
@@ -60,3 +76,22 @@ def test_suspended_on_end_overhead_budget():
     result = paired(lambda: _round(idle), lambda: _round(suspended), ROUNDS)
     assert len(buffer._spans) == 0, "the suspended path recorded"  # pyright: ignore[reportPrivateUsage]
     check_budget("span processor per ended span, suspended", result, BUDGET_NS, "µs", 1000)
+
+
+def test_on_end_overhead_budget_with_ai_journal():
+    handle = install(
+        FastAPI(),
+        enabled="ON",
+        show_banner=False,
+        config_scan=False,
+        runtime_journal_sources=("ai",),
+    )
+    buffer = span_buffer(handle.context)
+    journal = handle.context.capture.journal
+    assert journal is not None
+    idle, armed = otel.SharpitSpanProcessor(), otel.SharpitSpanProcessor()
+    armed.sinks = (buffer,)
+    armed.on_end(AI_SPAN)
+    assert len(journal.records("ai")) == 1
+    result = paired(lambda: _round(idle), lambda: _round_ai(armed), ROUNDS)
+    check_budget("span processor per ended GenAI span with journal", result, BUDGET_NS, "µs", 1000)
