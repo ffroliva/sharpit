@@ -172,6 +172,20 @@ def test_pyright_rejects_an_unknown_sharpit_name(tmp_path: Path) -> None:
     assert any("-> SharpitHandle" in message for _, message in rules), rules
 
 
+def test_loading_the_pytest_plugin_does_not_import_fastapi() -> None:
+    loaded = _last_json(
+        _python(
+            """
+            import json, sys
+            import sharpit.pytest_plugin
+            print(json.dumps("fastapi" in sys.modules))
+            """
+        )
+    )
+
+    assert loaded is False
+
+
 @pytest.mark.parametrize("name", ["install", "attach_sql_sources", "detach_sql_sources", "record_security_event"])
 def test_each_public_name_loads_when_it_is_the_first_use(name: str) -> None:
     # found in the blast radius: the eager package import had hidden a dispatch <-> sqla import cycle
