@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 import test_safety_matrix as matrix
-from conftest import SideEffectGuard
+from conftest import SideEffectGuard, leaked_runtime_spies
 from sharpit.engine import mcp
 
 Change = Callable[[Path], Callable[[], None]]  # makes one change (given the app root), returns its undo
@@ -305,3 +305,10 @@ def test_mcp_sweep_reports_an_app_source_read(tmp_path: Path, monkeypatch: pytes
 
     assert error is not None, "the MCP sweep did not report an app source read"
     assert "app source read" in error
+
+
+def test_a_left_behind_monitoring_spy_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    # PR #124 CI: a leaked spy showed up only as a budget miss in a later test; name it at the leaking test instead
+    monkeypatch.setattr(sys.monitoring, "set_events", lambda *_args: None)
+
+    assert leaked_runtime_spies() == ["sys.monitoring.set_events"]

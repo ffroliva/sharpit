@@ -499,6 +499,25 @@ def restore_logging() -> Iterator[None]:
         lg.handlers[:] = handlers
 
 
+_RUNTIME_NAMES = ("addaudithook",)
+_MONITORING_NAMES = ("use_tool_id", "free_tool_id", "clear_tool_id", "set_events", "set_local_events")
+_MONITORING_NAMES += ("register_callback", "restart_events")
+_RUNTIME_ORIGINALS = {f"sys.{n}": getattr(sys, n) for n in _RUNTIME_NAMES} | {
+    f"sys.monitoring.{n}": getattr(sys.monitoring, n) for n in _MONITORING_NAMES if hasattr(sys.monitoring, n)
+}
+
+
+def leaked_runtime_spies() -> list[str]:
+    """The SideEffectGuard runtime functions that are not the interpreter's own (a guard left its spy behind)."""
+    return []
+
+
+@pytest.fixture(autouse=True)
+def _no_runtime_spy_leak() -> Iterator[None]:
+    yield
+    assert leaked_runtime_spies() == [], "test left a SideEffectGuard spy installed (call restore_runtime_state)"
+
+
 @pytest.fixture(autouse=True)
 def _logging_unchanged(request: pytest.FixtureRequest) -> Iterator[None]:
     if not _LOGGING_GUARDED.intersection(request.path.parts):

@@ -554,7 +554,9 @@ def test_side_effect_guard_blocks_monitoring_event_set(no_side_effects) -> None:
     no_side_effects.rebaseline()
 
 
-@pytest.mark.parametrize("method, arguments", [("register_callback", "1, 'LINE', None"), ("restart_events", "1")])
+@pytest.mark.parametrize(
+    "method, arguments", [("register_callback", "5, 'LINE', None"), ("restart_events", "5")]
+)  # coverage owns id 1
 def test_side_effect_guard_records_additional_monitoring_calls_after_network_unblock(
     no_side_effects, method: str, arguments: str
 ) -> None:
