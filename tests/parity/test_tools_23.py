@@ -64,6 +64,7 @@ MATCHED_TOOLS = (
     "pause_transaction_recording",
     "resume_transaction_recording",
     "vulnerabilities_scan",
+    "get_startup_timeline",
 )
 PARTIAL_TOOLS = (
     "get_live_activity",
@@ -146,7 +147,6 @@ MISSING_TOOLS = (
     "get_spring_report",
     "spring_scan",
     "get_spring_rule_violations",
-    "get_startup_timeline",
     "cancel_thread_observation",
     "capture_thread_snapshot",
     "clear_thread_snapshots",
@@ -197,6 +197,7 @@ pytestmark = [
     pytest.mark.bootui("cli:security report"),
     pytest.mark.bootui("cli:security scan"),
     pytest.mark.bootui("cli:sql clear"),
+    pytest.mark.bootui("cli:startup"),
     pytest.mark.bootui("cli:sql pause"),
     pytest.mark.bootui("cli:sql resume"),
     pytest.mark.bootui("cli:traces clear"),
@@ -219,6 +220,7 @@ pytestmark = [
     pytest.mark.bootui("tool:get_request_profile"),
     pytest.mark.bootui("tool:get_rest_api_report"),
     pytest.mark.bootui("tool:get_security_report"),
+    pytest.mark.bootui("tool:get_startup_timeline"),
     pytest.mark.bootui("tool:get_transactions"),
     pytest.mark.bootui("tool:mysql_read"),
     pytest.mark.bootui("tool:pause_sql_trace_recording"),
