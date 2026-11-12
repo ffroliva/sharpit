@@ -43,7 +43,10 @@ GATEKEEPERS: dict[str, set[str]] = {
         "sharpit/engine/collectors/github/client.py",
     },
     "http.client": {"sharpit/engine/collectors/vulns/osv.py", "sharpit/engine/collectors/github/client.py"},
-    "subprocess": {"sharpit/engine/collectors/github/token.py"},  # gh auth token, the GitHub refresh action only
+    "subprocess": {
+        "sharpit/engine/collectors/github/token.py",  # gh auth token, the GitHub refresh action only
+        "sharpit/engine/collectors/alembic_cli.py",  # python -m alembic, the Alembic migrate action only (W8 M1)
+    },
     "socket": set(),
     "ssl": set(),
     "apscheduler": {"sharpit/engine/collectors/scheduled/apscheduler.py"},  # observed via sys.modules (W5b lane C)
@@ -436,6 +439,18 @@ def test_subprocess_import_is_confined_to_github_token(tmp_path: Path, monkeypat
 
     assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
         "sharpit/engine/collectors/github/dashboard.py imports subprocess"
+    ]
+
+
+def test_subprocess_import_is_confined_to_the_alembic_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    collectors = tmp_path / "src" / "sharpit" / "engine" / "collectors"
+    collectors.mkdir(parents=True)
+    (collectors / "alembic_cli.py").write_text("import subprocess\n", encoding="utf-8")
+    (collectors / "alembic.py").write_text("from subprocess import Popen\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path / "src")
+
+    assert [v.split(": only")[0] for v in gatekeeper_violations()] == [
+        "sharpit/engine/collectors/alembic.py imports subprocess"
     ]
 
 
