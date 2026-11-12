@@ -72,7 +72,7 @@ def test_enabled_but_unproduced_source_is_not_applicable() -> None:
 
 def test_produced_sources_are_a_subset_of_the_journal_sources() -> None:
     assert snapshot_module.PRODUCED_SOURCES.issubset(JOURNAL_SOURCES)
-    assert {"ai", "sql"} <= snapshot_module.PRODUCED_SOURCES
+    assert {"ai", "sql", "transaction"} <= snapshot_module.PRODUCED_SOURCES
 
 
 def test_every_produced_source_has_a_producer_test() -> None:
@@ -82,6 +82,10 @@ def test_every_produced_source_has_a_producer_test() -> None:
         "sql": (
             "tests/engine/capture/test_sql_journal.py",
             "test_sql_journal_event_offered_once_per_statement_with_bootui_fields",
+        ),
+        "transaction": (
+            "tests/engine/capture/test_transaction_journal.py",
+            "test_transaction_journal_event_offered_once_per_commit_with_bootui_fields",
         ),
         "http": (
             "tests/fastapi/test_http_journal.py",
@@ -368,3 +372,12 @@ def test_the_sql_source_is_recorded_only_when_enabled() -> None:
     disabled.offer(sql)
     assert snapshot_module.project(enabled).recorded("sql")
     assert not snapshot_module.project(disabled).recorded("sql")
+
+
+def test_the_transaction_source_is_recorded_only_when_enabled() -> None:
+    transaction = {"source": "transaction", "rolledBack": True, "requestId": "r1"}
+    enabled, disabled = _journal(["transaction"]), _journal(["http"])
+    enabled.offer(transaction)
+    disabled.offer(transaction)
+    assert snapshot_module.project(enabled).recorded("transaction")
+    assert not snapshot_module.project(disabled).recorded("transaction")
