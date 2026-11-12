@@ -62,6 +62,9 @@ class _NullSink:
 NULL_SINK: JournalSink = _NullSink()
 
 
+_UNIQUE_KEYS = frozenset({"requestId", "traceId", "spanId", "executionId"})  # one value per event: never memoised
+
+
 def _count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -277,7 +280,7 @@ class RuntimeJournal:
 
     def accepts(self, source: str) -> bool:
         """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
-        return self.sources is None or source in self.sources
+        return self._accepting and (self.sources is None or source in self.sources)
 
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:
@@ -294,7 +297,7 @@ class RuntimeJournal:
         def shown(key: str, value: object) -> object:
             if key in counts and _count(value):
                 return value
-            if value is not None and type(value) is not str:
+            if (value is not None and type(value) is not str) or key in _UNIQUE_KEYS:
                 return _mask(value, key, masker)
             entry = (key, value)
             if entry not in memo:
