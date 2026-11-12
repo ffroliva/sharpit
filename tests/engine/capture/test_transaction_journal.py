@@ -21,11 +21,14 @@ import pytest
 sa = pytest.importorskip("sqlalchemy")
 orm = pytest.importorskip("sqlalchemy.orm")
 
-from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from fastapi import Depends, FastAPI  # noqa: E402
 from sharpit import install  # noqa: E402
 from sharpit.engine import sqla  # noqa: E402
 from sharpit.engine.capture import transactions  # noqa: E402
 from sharpit.engine.capture.correlation import REQUEST, RequestInfo, internal  # noqa: E402
+from sharpit.engine.collectors.insights.service import insights_service  # noqa: E402
 
 pytestmark = pytest.mark.needs_sqlalchemy
 
@@ -79,6 +82,12 @@ def _read(conn: Any) -> None:
     conn.execute(sa.text(SELECT), {"n": PARAMETER_CANARY})
 
 
+def _write(conn: Any) -> None:
+    """A write: what makes a rollback undo something (a write-free rollback is BootUI's read-only commit)."""
+    conn.execute(sa.text("create table if not exists w (a integer)"))
+    conn.execute(sa.text("insert into w values (1)"))
+
+
 @contextlib.contextmanager
 def _request(handle: Any, request_id: str) -> Generator[None]:
     token = REQUEST.set(RequestInfo(request_id, handle.context.context_id, "GET", "/x", None, 0, None))
@@ -112,25 +121,46 @@ def test_transaction_journal_event_offered_once_per_commit_with_bootui_fields():
 def test_transaction_journal_rollback_sets_rolled_back():
     handle, engine = _install()
     with engine.connect() as conn:
-        _read(conn)
+        _write(conn)
         conn.rollback()
     assert [r["rolledBack"] for r in _records(handle)] == [True]
+
+
+def test_transaction_journal_rollback_of_a_read_only_transaction_is_not_rolled_back():
+    """Rolling back a transaction that wrote nothing undoes nothing: BootUI's read-only transaction commits."""
+    handle, engine = _install()
+    with engine.connect() as conn:
+        _read(conn)
+        conn.rollback()
+    assert [r["rolledBack"] for r in _records(handle)] == [False]
 
 
 def test_transaction_journal_exception_inside_begin_is_a_rollback():
     handle, engine = _install()
     with pytest.raises(RuntimeError), engine.begin() as conn:
-        _read(conn)
+        _write(conn)
         raise RuntimeError
     assert [r["rolledBack"] for r in _records(handle)] == [True]
 
 
-def test_transaction_journal_close_without_commit_is_rolled_back():
-    """SQLAlchemy rolls an uncommitted transaction back on close: the panel's ROLLED_BACK, so BootUI's rolledBack."""
+def test_transaction_journal_close_without_commit_after_a_write_is_rolled_back():
+    """SQLAlchemy rolls an uncommitted transaction back on close: after a write, BootUI's rolledBack."""
     handle, engine = _install()
     with engine.connect() as conn:
-        _read(conn)
+        _write(conn)
     assert [r["rolledBack"] for r in _records(handle)] == [True]
+
+
+def test_transaction_journal_read_only_session_close_is_not_rolled_back():
+    """The FastAPI tutorial's ``get_db``: a Session that only reads is closed uncommitted, so SQLAlchemy rolls it
+    back; BootUI's read-only transaction commits, so it is not a rolled-back transaction."""
+    handle, engine = _install()
+    session = orm.Session(engine)
+    try:
+        session.execute(sa.text(SELECT), {"n": 1})
+    finally:
+        session.close()
+    assert [r["rolledBack"] for r in _records(handle)] == [False]
 
 
 def test_transaction_journal_swallowed_integrity_error_then_session_close_is_rolled_back():
@@ -151,7 +181,7 @@ def test_transaction_journal_autocommit_connection_offers_no_transaction():
         conn.rollback()
     assert _records(handle) == ()
     with engine.connect() as conn:  # the control: the same work in a real transaction is offered
-        _read(conn)
+        _write(conn)
         conn.rollback()
     assert [r["rolledBack"] for r in _records(handle)] == [True]
 
@@ -198,6 +228,7 @@ def test_transaction_journal_savepoint_is_nested():
         with conn.begin_nested():
             _read(conn)
         savepoint = conn.begin_nested()
+        _write(conn)
         savepoint.rollback()
     records = _records(handle)
     assert [(r["savepoint"], r["nested"], r["rolledBack"]) for r in records] == [
@@ -250,8 +281,8 @@ def test_transaction_journal_engine_begin_and_session_and_async_each_offer_once(
     with orm.Session(engine) as session:  # a Session
         session.execute(sa.text(SELECT), {"n": 1})
         session.commit()
-    with orm.Session(engine) as session:  # a Session that rolls back
-        session.execute(sa.text(SELECT), {"n": 1})
+    with orm.Session(engine) as session:  # a Session that rolls back a write
+        session.execute(sa.text("create table if not exists w (a integer)"))
         session.rollback()
     assert [r["rolledBack"] for r in _records(handle)] == [False, False, False, True]
 
@@ -391,3 +422,121 @@ def test_transaction_journal_isolation_level_is_carried_when_set():
     with engine.execution_options(isolation_level="SERIALIZABLE").begin() as conn:
         _read(conn)
     assert [r["isolation"] for r in _records(handle)] == ["SERIALIZABLE"]
+
+
+def test_transaction_journal_event_built_inside_the_guard_on_the_rollback_path(monkeypatch: pytest.MonkeyPatch):
+    """The rollback path: a build that raises is counted as that install's dropped event and costs nothing else."""
+    engine = sa.create_engine("sqlite://")
+    first, _ = _install(engine=engine)
+    second, _ = _install(engine=engine)
+    built = transactions.transaction_event
+    calls: list[None] = []
+
+    def fails_first(*args: Any) -> Any:
+        calls.append(None)
+        if len(calls) == 1:
+            raise RuntimeError("cannot build")
+        return built(*args)
+
+    monkeypatch.setattr(transactions, "transaction_event", fails_first)
+    with engine.connect() as conn:
+        _write(conn)
+        conn.rollback()
+    assert len(calls) == 2, "the second install's event must still be built"
+    assert len(_records(first)) + len(_records(second)) == 1
+    dropped = [_journal(h).status()["dropped"].get("transaction", 0) for h in (first, second)]
+    assert sum(dropped) == 1, "the event the guard lost is counted dropped"
+
+
+def test_transaction_journal_source_disabled_builds_nothing(monkeypatch: pytest.MonkeyPatch):
+    """Not a journal source: the begin reads no journal facts and builds no event; it only counts the drop."""
+    handle, engine = _install(sources=("http",))
+    calls: list[str] = []
+    facts, built = transactions._facts, transactions.transaction_event  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(transactions, "_facts", lambda *a, **k: calls.append("facts") or facts(*a, **k))
+    monkeypatch.setattr(transactions, "transaction_event", lambda *a: calls.append("event") or built(*a))
+    with engine.begin() as conn:
+        _read(conn)
+    assert calls == []
+    assert _journal(handle).status()["dropped"] == {"transaction": 1}
+
+
+# --- the FastAPI tutorial's get_db session, through K2 errors-behind-2xx (W5a P-transaction r3) ---
+
+K2 = "errors-behind-2xx"
+
+
+def _tutorial(tmp_path: Path, **options: Any) -> tuple[TestClient, Any]:
+    engine = _file_engine(tmp_path)
+    with engine.begin() as conn:
+        conn.execute(sa.text("create table items (id integer primary key, name text)"))
+    app = FastAPI()
+
+    def get_db() -> Iterator[Any]:
+        db = orm.Session(engine)
+        try:
+            yield db
+        finally:
+            db.close()
+
+    @app.get("/items")
+    def read_items(db: Any = Depends(get_db)) -> int:  # noqa: B008  # pyright: ignore[reportUnusedFunction]
+        return db.execute(sa.text("select count(*) from items")).scalar_one()
+
+    @app.get("/items/undo")
+    def write_then_undo(db: Any = Depends(get_db)) -> str:  # noqa: B008  # pyright: ignore[reportUnusedFunction]
+        db.execute(sa.text("insert into items (name) values ('a')"))
+        db.rollback()
+        return "ok"
+
+    options.setdefault("runtime_journal_sources", ("http", "transaction"))
+    handle = install(app, enabled="ON", show_banner=False, config_scan=False, engines=[engine], **options)
+    return TestClient(app), handle
+
+
+def _k2(handle: Any) -> dict[str, Any]:
+    report = insights_service(handle.context).report()
+    return next(c for c in report["checks"] if c["kind"] == K2)
+
+
+def test_errors_behind_2xx_read_only_get_db_requests_are_not_rolled_back(tmp_path: Path):
+    client, handle = _tutorial(tmp_path)
+    for _ in range(4):
+        assert client.get("/items").status_code == 200
+    in_requests = [r for r in _records(handle) if r["requestId"] is not None]
+    assert [r["rolledBack"] for r in in_requests] == [False] * 4
+    check = _k2(handle)
+    assert check["status"] == "EVALUATED"
+    assert check["findings"] == 0
+
+
+def test_errors_behind_2xx_finds_a_get_db_write_that_rolled_back(tmp_path: Path):
+    client, handle = _tutorial(tmp_path)
+    assert client.get("/items").status_code == 200
+    assert client.get("/items/undo").status_code == 200
+    check = _k2(handle)
+    assert check["status"] == "EVALUATED"
+    assert check["findings"] == 1
+
+
+def test_transaction_journal_paused_panel_still_offers_and_k2_finds_the_rollback(tmp_path: Path):
+    """BootUI ``TransactionRecorder.java:206-211``: a paused panel skips its own buffer, the journal keeps recording."""
+    client, handle = _tutorial(tmp_path, transactions_recording=False)
+    assert client.get("/items/undo").status_code == 200
+    assert [r["rolledBack"] for r in _records(handle) if r["requestId"] is not None] == [True]
+    assert handle.context.capture.transactions.report([])["totalCaptured"] == 0, "the paused panel shows nothing"
+    assert _k2(handle)["findings"] == 1
+
+
+@pytest.mark.parametrize(
+    "disabled",
+    [{"transactions_enabled": False}, {"panels": {"transactions": {"enabled": False}}}],
+    ids=["flag", "panel"],
+)
+def test_errors_behind_2xx_claims_no_transaction_evidence_while_its_panel_is_disabled(
+    tmp_path: Path, disabled: dict[str, Any]
+):
+    """BootUI ``ErrorsBehind2xx.notApplicable``: a source counts only while its panel is ``visible``."""
+    client, handle = _tutorial(tmp_path, **disabled)
+    assert client.get("/items/undo").status_code == 200
+    assert _k2(handle)["status"] == "NOT_APPLICABLE"
