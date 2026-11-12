@@ -137,10 +137,6 @@ class ConfigOverrideResult:
     persisted: bool
     message: str
 
-    @property
-    def previousValue(self) -> str | None:
-        return self.previous_value
-
     def to_dto(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -258,6 +254,30 @@ def load_overrides(path: str | Path, profile_vars: Iterable[str] = ()) -> tuple[
     return entries, warnings
 
 
+def _resolve_overrides_file(settings: SharpitSettings | None, overrides_file: str | Path | None) -> Path:
+    if overrides_file is not None and str(overrides_file).strip():
+        return Path(str(overrides_file).strip())
+    if settings is not None and getattr(settings, "overrides_file", None):
+        return Path(settings.overrides_file)
+    if settings is not None and getattr(settings, "state_dir", None):
+        return Path(f"{settings.state_dir}/overrides.env")
+    return Path(".sharpit/overrides.env")
+
+
+def _build_masker(
+    settings: SharpitSettings | None, expose_values: str | Exposure | None, mask_secrets: bool | None
+) -> Masker:
+    if settings is not None:
+        exp_val = expose_values if expose_values is not None else settings.expose_values
+        ms_val = mask_secrets if mask_secrets is not None else settings.mask_secrets
+        tok_val = settings.authentication_token
+    else:
+        exp_val = expose_values if expose_values is not None else "MASKED"
+        ms_val = mask_secrets if mask_secrets is not None else True
+        tok_val = None
+    return Masker(Exposure(exp_val), ms_val, token=tok_val)
+
+
 class ConfigOverrideService:
     def __init__(
         self,
@@ -269,31 +289,10 @@ class ConfigOverrideService:
         mask_secrets: bool | None = None,
     ) -> None:
         self._settings = settings
-        if overrides_file is not None and str(overrides_file).strip():
-            self._file = Path(str(overrides_file).strip())
-        elif settings is not None and getattr(settings, "overrides_file", None):
-            self._file = Path(settings.overrides_file)
-        elif settings is not None and getattr(settings, "state_dir", None):
-            self._file = Path(f"{settings.state_dir}/overrides.env")
-        else:
-            self._file = Path(".sharpit/overrides.env")
-
+        self._file = _resolve_overrides_file(settings, overrides_file)
         self._store = ConfigOverridesFileStore(self._file)
         self._profile_vars: tuple[str, ...] = tuple(settings.profile_vars) if settings is not None else ()
-
-        if masker is not None:
-            self._masker = masker
-        else:
-            if settings is not None:
-                exp_val = expose_values if expose_values is not None else settings.expose_values
-                ms_val = mask_secrets if mask_secrets is not None else settings.mask_secrets
-                tok_val = settings.authentication_token
-            else:
-                exp_val = expose_values if expose_values is not None else "MASKED"
-                ms_val = mask_secrets if mask_secrets is not None else True
-                tok_val = None
-            exposure = Exposure(exp_val)
-            self._masker = Masker(exposure, ms_val, token=tok_val)
+        self._masker = masker if masker is not None else _build_masker(settings, expose_values, mask_secrets)
 
         self._overrides, self._load_warnings = load_overrides(self._file, self._profile_vars)
 
@@ -315,9 +314,6 @@ class ConfigOverrideService:
     def has_override(self, name: str) -> bool:
         return self._alias(name) is not None
 
-    def hasOverride(self, name: str) -> bool:
-        return self.has_override(name)
-
     def _alias(self, name: str) -> str | None:
         """The layer's own spelling of ``name``; on Windows ``Path`` and ``PATH`` are one variable."""
         if name in self._overrides:
@@ -334,7 +330,7 @@ class ConfigOverrideService:
                 raise
             raise RuntimeError(f"Unable to write sharpit overrides file: {self._file}") from e
 
-    def put(self, name: str, value: object, persist: bool = True) -> ConfigOverrideResult:
+    def put(self, name: str, value: object) -> ConfigOverrideResult:
         validated_name, validated_value = validate_entry(name, "" if value is None else value, self._profile_vars)
         with _LOCK:
             alias = self._alias(validated_name)
