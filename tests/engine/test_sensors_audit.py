@@ -447,6 +447,29 @@ def test_the_path_cache_never_grows_past_its_bound() -> None:
     assert largest <= files._SEEN  # pyright: ignore[reportPrivateUsage]
 
 
+def test_the_announced_copy_paths_never_grow_past_their_bound() -> None:
+    from sharpit.engine.sensors import files
+
+    sensor = _files()
+    largest = 0
+    for i in range(files._PENDING * 2 + 10):  # pyright: ignore[reportPrivateUsage]
+        sensor.record("shutil.copyfile", (f"/work/a-{i}.csv", f"/work/b-{i}.csv"))
+        largest = max(largest, len(sensor._pending))  # pyright: ignore[reportPrivateUsage]
+    assert largest <= files._PENDING  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_dispatcher_whose_thread_state_is_gone_still_never_raises() -> None:
+    class Gone:
+        def __getattr__(self, name: str) -> object:
+            raise RuntimeError(name)
+
+    recorder = Recorder()
+    hub = AuditHub(add_hook=recorder)
+    hub.enable(ProcessesSensor(), RuntimeJournal(sources=JOURNAL_SOURCES))
+    hub._busy = Gone()  # pyright: ignore[reportPrivateUsage, reportAttributeAccessIssue]
+    recorder.fire("os.system", "prog")  # interpreter shutdown can leave the thread-local unusable
+
+
 def test_a_cache_cleared_by_another_thread_mid_lookup_still_records_the_row() -> None:
     class ClearedMidLookup(dict[str, Any]):
         """Another thread clears the cache between a membership test and the read that follows it."""
@@ -589,6 +612,17 @@ FRAGMENT_CASES = [
         "cmd-c",
         "env",
         "tabs",
+        "redirect-glued",
+        "semicolon-glued",
+        "pipe-glued",
+        "hash-glued",
+        "ampersand-glued",
+        "less-than-glued",
+        "backtick-first",
+        "command-substitution-first",
+        "parameter-expansion-first",
+        "subshell-first",
+        "windows-trailing-backslash",
     ],
 )
 def test_no_argument_or_value_fragment_reaches_the_journal(
