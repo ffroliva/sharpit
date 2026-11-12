@@ -7,7 +7,6 @@ events by hand.
 
 from __future__ import annotations
 
-import contextlib
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -21,7 +20,7 @@ from sharpit import install
 from sharpit.engine.guard import PANEL_ACCESS_DENIED
 from sharpit.engine.panels import read_only_reason
 from sharpit.engine.sensors import audit
-from sharpit.engine.tools import TOOLS, CallContext, ToolCallError
+from sharpit.engine.tools import TOOLS, CallContext
 from sharpit.fastapi.adapter import SharpitHandle
 
 LOCAL = ("127.0.0.1", 50000)
@@ -171,15 +170,29 @@ def test_a_read_only_panel_refuses_the_switch_and_nothing_changes(
     handle.uninstall_capture()
 
 
-@pytest.mark.parametrize(("tool", "enabled"), [("disable_agent_sensor", False), ("enable_agent_sensor", True)])
-def test_the_mcp_tools_switch_the_same_sensor(tmp_path: Path, hook: Hook, tool: str, enabled: bool) -> None:
-    _, handle = _app(tmp_path, agent_sensors=("files",))
+def _call(handle: SharpitHandle, tool: str) -> None:
     handler = next(t for t in TOOLS if t.name == tool).handler
+    handler(CallContext(handle.context, {}), {"id": "files"})
+
+
+def test_the_mcp_disable_tool_switches_the_sensor_off(tmp_path: Path, hook: Hook) -> None:
+    _, handle = _app(tmp_path, agent_sensors=("files",))
     hook.fire("os.remove", "a.txt", None)  # on at the start: one row before the switch
-    with contextlib.suppress(ToolCallError):  # a refusal leaves the sensor as it was: the row count below proves it
-        handler(CallContext(handle.context, {}), {"id": "files"})
+    _call(handle, "disable_agent_sensor")
     hook.fire("os.remove", "a.txt", None)
-    assert _rows(handle, "files") == (2 if enabled else 1)
+    assert _rows(handle, "files") == 1
+    handle.uninstall_capture()
+
+
+def test_the_mcp_enable_tool_switches_a_disabled_sensor_back_on(tmp_path: Path, hook: Hook) -> None:
+    _, handle = _app(tmp_path, agent_sensors=("files",))
+    hook.fire("os.remove", "a.txt", None)
+    _call(handle, "disable_agent_sensor")
+    hook.fire("os.remove", "a.txt", None)
+    assert _rows(handle, "files") == 1  # off: the second event left no row
+    _call(handle, "enable_agent_sensor")
+    hook.fire("os.remove", "a.txt", None)
+    assert _rows(handle, "files") == 2
     handle.uninstall_capture()
 
 

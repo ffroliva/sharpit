@@ -320,6 +320,14 @@ def _processes(event: str, *args: Any) -> list[Mapping[str, object]]:
         ("subprocess.Popen", (None, f'"C:\\Program Files\\x\\tool.exe" --key {CANARY}', None, None), "tool.exe"),
         ("os.system", (f"TOKEN={CANARY} PASS='{CANARY}' backup --secret {CANARY}",), "backup"),
         ("os.system", ("FOO=bar",), None),
+        ("os.system", (f'"prog --password {CANARY}',), "prog"),  # an unclosed quote: the word after it
+        ("os.system", (f"	  tool	--password {CANARY}",), "tool"),
+        ("os.system", (f"cmd /c tool --password {CANARY}",), "cmd"),
+        ("os.system", (f'"C:\Program Files\x y\tool.exe" --password {CANARY}',), "tool.exe"),
+        ("subprocess.Popen", (f"prog {CANARY}", ["x"], None, None), "prog"),  # POSIX: executable="prog <secret>"
+        ("subprocess.Popen", (f"  prog	{CANARY}", ["x"], None, None), "prog"),
+        ("subprocess.Popen", (None, [f"prog {CANARY}", "a"], None, None), "prog"),
+        ("subprocess.Popen", (f"/usr/bin/my tool {CANARY}", ["x"], None, None), "my"),  # the file name stops at its first blank too
         ("os.exec", (b"/bin/sh", [b"sh", CANARY.encode()], {"A": CANARY}), "sh"),
         ("os.spawn", (0, "/usr/bin/ls", ["ls", CANARY], {}), "ls"),
         ("os.posix_spawn", ("/usr/bin/id", ["id", CANARY], {}), "id"),
@@ -330,6 +338,14 @@ def _processes(event: str, *args: Any) -> list[Mapping[str, object]]:
         "popen-string",
         "system-assignments",
         "system-only-assignment",
+        "system-unclosed-quote",
+        "system-tab-and-leading-blanks",
+        "system-cmd-c",
+        "system-quoted-path-with-spaces",
+        "popen-executable-with-args",
+        "popen-executable-tab",
+        "popen-argv0-with-args",
+        "popen-path-name-with-blanks",
         "exec",
         "spawn",
         "pspawn",
@@ -439,3 +455,76 @@ def test_a_canary_in_argv_env_and_shell_arguments_never_reaches_the_journal() ->
     recorder.fire("open", "/work/data.bin", "rb", 0)
     assert [row["target"] for row in journal.records("processes")] == ["tool", "tool"]
     assert CANARY not in json.dumps([journal.records("processes"), journal.records("files"), journal.status()])
+
+
+@pytest.mark.parametrize(
+    ("event", "args"),
+    [
+        ("os.system", (f'"prog --password {CANARY}',)),
+        ("os.system", (f"cmd /c prog --password {CANARY}",)),
+        ("subprocess.Popen", (f"prog {CANARY}", ["x"], None, None)),
+        ("subprocess.Popen", (None, [f"prog {CANARY}"], None, None)),
+        ("os.exec", (f"/bin/prog {CANARY}", [f"prog {CANARY}"], {})),
+    ],
+)
+def test_a_space_separated_secret_never_reaches_the_journal_even_masked(event: str, args: tuple[Any, ...]) -> None:
+    from sharpit.engine.masking import Exposure, Masker
+
+    masker = Masker(Exposure.MASKED, True)
+    journal = RuntimeJournal(sources=JOURNAL_SOURCES)
+    recorder = Recorder()
+    lane = build_lane(("processes",), journal, masker.mask_path, audit=AuditHub(add_hook=recorder))
+    assert lane is not None
+    lane.attach()
+    recorder.fire(event, *args)
+    assert len(journal.records("processes")) == 1
+    assert CANARY not in json.dumps(journal.records("processes"))
+
+
+# --- the files sensor's patterns, as BootUI's ``SideEffects.pattern`` and ``collapse`` -----------------------------
+
+
+@pytest.mark.parametrize(
+    ("path", "pattern"),
+    [
+        ("/home/bob/secrets.txt", "/home/*/secrets.txt"),
+        ("/Users/carol/Documents/x.pdf", "/Users/*/Documents/x.pdf"),
+        ("D:\Users\dave\notes.txt", "D:/Users/*/notes.txt"),
+        ("\\srv\Users\erin\notes.txt", "/srv/Users/*/notes.txt"),
+        ("\\?\D:\Users\frank\notes.txt", "/?/D:/Users/*/notes.txt"),
+        ("/var/home/grace/notes.txt", "/var/home/*/notes.txt"),
+        ("/export/home/heidi/notes.txt", "/export/home/*/notes.txt"),
+        ("/srv/site/home/index.html", "/srv/site/home/index.html"),
+    ],
+)
+def test_another_users_home_never_keeps_their_name(path: str, pattern: str) -> None:
+    # ported: SideEffectPathsTests.anotherUsersHomeNeverKeepsTheirName
+    rows = _files(cwd="/srv/app", home="/home/ann", tmp="/tmp").record("open", (path, "r", 0))  # noqa: S108
+    assert [row["target"] for row in rows] == [pattern]
+
+
+@pytest.mark.parametrize(
+    ("name", "collapsed"),
+    [
+        ("550e8400-e29b-41d4-a716-446655440000.json", "{uuid}.json"),
+        ("0123abcdef9.bin", "{hex}.bin"),
+        ("sk_live_abc123def456ghi789jkl.txt", "sk_live_{id}.txt"),
+        ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig", "{token}"),
+        ("release-17.txt", "release-{n}.txt"),
+        ("name.txt", "name.txt"),
+        ("aB3dE5fG7hJ9kL1m.key", "{id}.key"),
+        ("report2026q.csv", "report{n}q.csv"),
+        ("QwErTyUiOpAsDfGhJkLzXcVbNm.txt", "{id}.txt"),
+        ("applicationconfigurationfile.txt", "applicationconfigurationfile.txt"),
+        ("deadbeefcafe.txt", "deadbeefcafe.txt"),  # eight hex letters and no digit: a word, kept
+    ],
+)
+def test_ids_collapse_so_random_names_cannot_fill_the_table(name: str, collapsed: str) -> None:
+    # ported: SideEffectPathsTests.idsCollapseSoRandomNamesCannotFillTheTable
+    rows = _files(cwd="/srv/app").record("open", (f"/srv/app/k/{name}", "r", 0))
+    assert [row["target"] for row in rows] == [f"./k/{collapsed}"]
+
+
+def test_a_pattern_is_cut_at_two_hundred_characters() -> None:
+    rows = _files(cwd="/srv/app").record("open", ("/srv/app/" + "d/" * 150 + "x.txt", "r", 0))
+    assert len(str(rows[0]["target"])) == 200
