@@ -231,9 +231,12 @@ class RuntimeJournal:
     def offer_flat(self, event: dict[str, str | int | bool | None], size: int | None = None) -> bool:
         """``offer`` for an event of plain scalars the caller hands over and never touches again: no deep copy.
 
-        A per-statement producer passes ``size``, which must equal what ``_flat`` charges (its test proves it).
+        A per-statement producer passes ``size``, which must equal what ``_flat`` charges (its test proves it); a size
+        below 1 is not trusted, and the event is walked instead, so it never bypasses ``max_bytes``.
         """
-        return self._offer(event, _flat if size is None else lambda stored: (stored, size))
+        if size is None or size < 1:
+            return self._offer(event, _flat)
+        return self._offer(event, lambda stored: (stored, size))
 
     def _offer(self, event: Event, store: Callable[[Event], tuple[object, int]]) -> bool:
         if getattr(self._busy, "active", False):  # an offer made while this thread is inside offer: never recurse
@@ -272,6 +275,10 @@ class RuntimeJournal:
         self._accepted[source] += 1
         return True
 
+    def accepts(self, source: str) -> bool:
+        """Whether ``source`` is a configured source: a paused SQL Trace panel still feeds the journal then."""
+        return self.sources is None or source in self.sources
+
     def records(self, source: str) -> tuple[dict[str, object], ...]:
         with self._lock:
             events = tuple(event for event, _, _ in self._events if event.get("source") == source)
@@ -279,13 +286,22 @@ class RuntimeJournal:
 
     def _masked(self, source: str, events: Iterable[dict[str, object]]) -> tuple[dict[str, object], ...]:
         counts = _COUNTS.get(source, frozenset())
-        return tuple(
-            {
-                key: value if key in counts and _count(value) else _mask(value, key, self.masker)
-                for key, value in event.items()
-            }
-            for event in events
-        )
+        masker = self.masker
+        # one read sees the same texts over and over (a statement's shape, a thread name): each is masked once. Only
+        # text and None are kept, whose result is immutable and depends on nothing but (key, value) during one read.
+        memo: dict[tuple[str, str | None], object] = {}
+
+        def shown(key: str, value: object) -> object:
+            if key in counts and _count(value):
+                return value
+            if value is not None and type(value) is not str:
+                return _mask(value, key, masker)
+            entry = (key, value)
+            if entry not in memo:
+                memo[entry] = _mask(value, key, masker)
+            return memo[entry]
+
+        return tuple({key: shown(key, value) for key, value in event.items()} for event in events)
 
     def view(
         self, sources: Iterable[str]

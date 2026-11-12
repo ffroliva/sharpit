@@ -279,7 +279,9 @@ class SqlTraceRecorder:
         shape: Shape = self._shape(sql, dialect)
         # capture on shows the raw statement, but never one sharpit cannot read (owner, item 7)
         raw = masker.capture_parameters and dialect is not Dialect.UNSUPPORTED
-        text = _truncate(shape.text, self._max_sql_length)  # what the journal event carries, also the row's unless raw
+        text = _truncate(
+            shape.text, self._max_sql_length
+        )  # the journal event's text (``journal_text``), the row's unless raw
         stored = _truncate(masker.mask_text(sql) or "", self._max_sql_length) if raw else text
         error_message: str | None = None
         if error is not None:
@@ -343,6 +345,10 @@ class SqlTraceRecorder:
                     aggregate.call_sites[site] = None
         self.changes.signal()
         return text
+
+    def journal_text(self, sql: str, dialect: Dialect) -> str:
+        """The literal-free text ``record`` returns, for the journal while the panel is paused (no row is kept)."""
+        return _truncate(self._shape(sql, dialect).text, self._max_sql_length)
 
     def _new_max(self, millis: int, sql: str) -> None:
         """Under the lock: the slowest SELECT since the last clear, masked like the ring rows."""
