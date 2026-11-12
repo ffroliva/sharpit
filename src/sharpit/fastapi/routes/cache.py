@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from starlette.responses import JSONResponse, Response
 from starlette.routing import BaseRoute, Route
@@ -26,16 +26,16 @@ def build_routes(ctx: SharpitContext, _host_app: object = None) -> list[BaseRout
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict):
-                    data = parsed
+                    data = cast(dict[str, Any], parsed)
             except (ValueError, RecursionError):
                 data = None
         clear_req = CacheClearRequest.from_dict(data)
 
         service = ctx.peek("cache_service")
         if service is None or not isinstance(service, CacheService):
-            provider = getattr(ctx, "cache_provider", None) or ctx.peek("cache_provider")
+            provider_obj: Any = getattr(ctx, "cache_provider", None) or ctx.peek("cache_provider")
             service = CacheService(
-                provider,
+                provider_obj,
                 clear_enabled=ctx.settings.cache_clear_enabled,
                 masker=ctx.masker,
             )

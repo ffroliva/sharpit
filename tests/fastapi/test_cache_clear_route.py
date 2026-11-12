@@ -57,7 +57,8 @@ def test_route_clear_all_evicts() -> None:
 
 def test_route_clear_requires_confirmation() -> None:
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False)
+    handle = install(app, enabled="ON", show_banner=False)
+    handle.context.cache_provider = InProcessCacheProvider()  # type: ignore[attr-defined]
 
     with _client(app) as client:
         resp = client.post("/sharpit/api/cache/clear", json={"all": True, "confirm": False})
@@ -67,7 +68,8 @@ def test_route_clear_requires_confirmation() -> None:
 
 def test_route_clear_disabled_409() -> None:
     app = FastAPI()
-    install(app, enabled="ON", show_banner=False, cache_clear_enabled=False)
+    handle = install(app, enabled="ON", show_banner=False, cache_clear_enabled=False)
+    handle.context.cache_provider = InProcessCacheProvider()  # type: ignore[attr-defined]
 
     with _client(app) as client:
         resp = client.post("/sharpit/api/cache/clear", json={"all": True, "confirm": True})

@@ -29,10 +29,10 @@ class CacheClearRequest:
 
 @dataclass(frozen=True)
 class CacheClearResult:
-    status: str = "stub"
-    message: str = "stub"
-    cleared_caches: int = -1
-    caches: list[str] = field(default_factory=list)
+    status: str
+    message: str
+    cleared_caches: int
+    caches: list[str]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,8 +45,8 @@ class CacheClearResult:
 
 @dataclass(frozen=True)
 class CacheClearResponse:
-    status: int = 999
-    body: CacheClearResult = field(default_factory=CacheClearResult)
+    status: int
+    body: CacheClearResult
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,7 @@ class CacheManagerSnapshot:
     type_name: str = "builtins.dict"
     no_op: bool = False
     is_remote: bool = False
-    caches: list[CacheSnapshot] = field(default_factory=list)
+    caches: list[CacheSnapshot] = field(default_factory=list[CacheSnapshot])
 
 
 class CacheProvider(Protocol):
@@ -131,7 +131,20 @@ class InProcessCacheProvider:
             )
 
     def evict(self, manager_name: str, cache_name: str) -> bool:
-        # Stub in red phase
+        key = (manager_name, cache_name)
+        if key not in self._cache_objects:
+            return False
+        cache_obj, is_remote = self._cache_objects[key]
+        if is_remote:
+            # Remote caches must NEVER be invoked
+            return False
+
+        if hasattr(cache_obj, "cache_clear") and callable(cache_obj.cache_clear):
+            cache_obj.cache_clear()
+            return True
+        if hasattr(cache_obj, "clear") and callable(cache_obj.clear):
+            cache_obj.clear()
+            return True
         return False
 
 
@@ -148,5 +161,146 @@ class CacheService:
         self.masker = masker
 
     def clear(self, request: CacheClearRequest | None) -> CacheClearResponse:
-        # Stub for red phase: returns status 999 to fail test assertions
-        return CacheClearResponse(status=999, body=CacheClearResult())
+        if self.provider is None or not self.provider.available():
+            return self._result(409, "unavailable", "No cache backend is available.", [])
+
+        if not self._clear_enabled or not self.provider.clear_enabled():
+            return self._result(
+                409,
+                "disabled",
+                "Cache clearing is disabled. Set SHARPIT_CACHE_CLEAR_ENABLED=true to allow it.",
+                [],
+            )
+
+        if request is None or not request.confirm:
+            return self._result(
+                400,
+                "confirmation_required",
+                "Cache clearing requires explicit confirmation.",
+                [],
+            )
+
+        unavailable_reason = self.provider.clear_unavailable_reason()
+        if unavailable_reason is not None:
+            return self._result(409, "unavailable", unavailable_reason, [])
+
+        managers = self._sorted_managers()
+        if request.all:
+            return self._clear_all(managers)
+
+        manager_name = request.manager_name
+        cache_name = request.cache_name
+        if not manager_name or not manager_name.strip() or not cache_name or not cache_name.strip():
+            return self._result(
+                400,
+                "invalid_request",
+                "managerName and cacheName are required when clearing one cache.",
+                [],
+            )
+
+        return self._clear_one(managers, manager_name.strip(), cache_name.strip())
+
+    def _sorted_managers(self) -> list[CacheManagerSnapshot]:
+        if self.provider is None:
+            return []
+        return sorted(self.provider.managers(), key=lambda m: m.name)
+
+    def _sorted_caches(self, manager: CacheManagerSnapshot) -> list[CacheSnapshot]:
+        return sorted(manager.caches, key=lambda c: c.name)
+
+    def _clear_all(self, managers: list[CacheManagerSnapshot]) -> CacheClearResponse:
+        if self.provider is None:
+            return self._result(409, "unavailable", "No cache backend is available.", [])
+        cleared: list[str] = []
+        cleared_count = 0
+        for manager in managers:
+            if manager.is_remote:
+                continue
+            for cache in self._sorted_caches(manager):
+                if cache.is_remote:
+                    continue
+                try:
+                    evicted = self.provider.evict(manager.name, cache.name)
+                except Exception as ex:
+                    return self._failed_result(manager.name, cache.name, ex, cleared)
+                if evicted:
+                    cleared_count += 1
+                    if len(cleared) < MAX_CLEARED_NAMES:
+                        cleared.append(f"{manager.name}/{cache.name}")
+
+        if cleared_count > len(cleared):
+            cleared.append(f"... and {cleared_count - len(cleared)} more")
+
+        message = f"Cleared {cleared_count} cache." if cleared_count == 1 else f"Cleared {cleared_count} caches."
+        return self._result(200, "cleared", message, cleared, cleared_count=cleared_count)
+
+    def _clear_one(
+        self, managers: list[CacheManagerSnapshot], manager_name: str, cache_name: str
+    ) -> CacheClearResponse:
+        if self.provider is None:
+            return self._result(409, "unavailable", "No cache backend is available.", [])
+        manager = next((m for m in managers if m.name == manager_name), None)
+        if manager is None:
+            return self._result(404, "not_found", f"Cache manager '{manager_name}' was not found.", [])
+
+        cache = next((c for c in manager.caches if c.name == cache_name), None)
+        if cache is None:
+            return self._result(
+                404,
+                "not_found",
+                f"Cache '{cache_name}' was not found in manager '{manager_name}'.",
+                [],
+            )
+
+        if manager.is_remote or cache.is_remote:
+            return self._result(
+                409,
+                "unavailable",
+                f"Remote cache '{cache_name}' in manager '{manager_name}' does not support clearing.",
+                [],
+            )
+
+        try:
+            evicted = self.provider.evict(manager_name, cache_name)
+        except Exception as ex:
+            return self._failed_result(manager_name, cache_name, ex, [])
+
+        if not evicted:
+            return self._result(
+                404,
+                "not_found",
+                f"Cache '{cache_name}' was not returned by manager '{manager_name}'.",
+                [],
+            )
+
+        cleared = [f"{manager_name}/{cache_name}"]
+        return self._result(
+            200,
+            "cleared",
+            f"Cleared cache '{cache_name}' from manager '{manager_name}'.",
+            cleared,
+            cleared_count=1,
+        )
+
+    def _failed_result(
+        self, manager_name: str, cache_name: str, ex: Exception, cleared: list[str]
+    ) -> CacheClearResponse:
+        type_name = type(ex).__name__
+        if self.masker is not None and hasattr(self.masker, "mask_text"):
+            type_name = self.masker.mask_text(type_name)
+        message = f"Failed to clear cache '{cache_name}' from manager '{manager_name}' ({type_name})."
+        return self._result(500, "failed", message, cleared, cleared_count=len(cleared))
+
+    def _result(
+        self, status: int, result_status: str, message: str, caches: list[str], cleared_count: int | None = None
+    ) -> CacheClearResponse:
+        count = len(caches) if cleared_count is None else cleared_count
+        return CacheClearResponse(
+            status=status,
+            body=CacheClearResult(
+                status=result_status,
+                message=message,
+                cleared_caches=count,
+                caches=list(caches),
+            ),
+        )
